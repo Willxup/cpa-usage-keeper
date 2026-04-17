@@ -1,0 +1,41 @@
+# internal docs
+.dev-docs/
+
+# local environment files
+.env
+.env.*
+!.env.example
+!deploy/.env.example
+
+# runtime data
+*.db
+*.db-*
+.tmp-test.db
+backups/
+
+# frontend dependencies and build output
+web/node_modules/
+web/dist/
+web/dist-ssr/
+
+# logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# local overrides
+*.local
+
+# editor and OS files
+.DS_Store
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

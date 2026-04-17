@@ -1,0 +1,21 @@
+import type { PropsWithChildren, ReactNode, HTMLAttributes } from 'react';
+
+interface CardProps extends HTMLAttributes<HTMLDivElement> {
+  title?: ReactNode;
+  extra?: ReactNode;
+  className?: string;
+}
+
+export function Card({ title, extra, children, className, ...props }: PropsWithChildren<CardProps>) {
+  return (
+    <div className={className ? `card ${className}` : 'card'} {...props}>
+      {(title || extra) && (
+        <div className="card-header">
+          <div className="title">{title}</div>
+          {extra}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}

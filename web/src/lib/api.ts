@@ -1,0 +1,90 @@
+import type { AuthSessionResponse, PricingEntry, PricingResponse, UsedModelsResponse, UsageResponse } from './types'
+
+export class ApiError extends Error {
+  status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+async function parseApiError(response: Response, fallback: string): Promise<never> {
+  let message = fallback
+  try {
+    const payload = await response.json() as { error?: string }
+    if (payload.error) {
+      message = payload.error
+    }
+  } catch {
+    // ignore invalid error payloads
+  }
+  throw new ApiError(message, response.status)
+}
+
+async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return fetch(input, {
+    credentials: 'include',
+    ...init,
+  })
+}
+
+export async function getSession(signal?: AbortSignal): Promise<AuthSessionResponse> {
+  const response = await apiFetch('/api/v1/auth/session', { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load auth session: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function login(password: string): Promise<void> {
+  const response = await apiFetch('/api/v1/auth/login', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ password }),
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to login: ${response.status}`)
+  }
+}
+
+export async function fetchUsage(signal?: AbortSignal): Promise<UsageResponse> {
+  const response = await apiFetch('/api/v1/usage', { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load usage: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchUsedModels(signal?: AbortSignal): Promise<UsedModelsResponse> {
+  const response = await apiFetch('/api/v1/models/used', { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load used models: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchPricing(signal?: AbortSignal): Promise<PricingResponse> {
+  const response = await apiFetch('/api/v1/pricing', { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load pricing: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function updatePricing(model: string, pricing: Omit<PricingEntry, 'model'>): Promise<PricingEntry> {
+  const response = await apiFetch(`/api/v1/pricing/${encodeURIComponent(model)}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(pricing),
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to update pricing: ${response.status}`)
+  }
+  return response.json()
+}

@@ -1,0 +1,21 @@
+# git
+.git
+.gitignore
+
+# local env and editor files
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# runtime data
+*.db
+*.db-*
+backups/
+
+# frontend deps and build cache
+web/node_modules/
+web/dist/
+
+# docs / temp
+.tmp-test.db

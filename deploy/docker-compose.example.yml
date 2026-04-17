@@ -1,0 +1,24 @@
+services:
+  cpa-usage-keeper:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      APP_PORT: ${APP_PORT:-8080}
+      CPA_BASE_URL: ${CPA_BASE_URL}
+      CPA_MANAGEMENT_KEY: ${CPA_MANAGEMENT_KEY}
+      POLL_INTERVAL: ${POLL_INTERVAL:-5m}
+      SQLITE_PATH: ${SQLITE_PATH:-/data/app.db}
+      BACKUP_ENABLED: ${BACKUP_ENABLED:-true}
+      BACKUP_DIR: ${BACKUP_DIR:-/data/backups}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-30s}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      LOGIN_PASSWORD: ${LOGIN_PASSWORD:-}
+      AUTH_SESSION_TTL: ${AUTH_SESSION_TTL:-168h}
+    volumes:
+      - ./data:/data
+    restart: unless-stopped

@@ -1,0 +1,43 @@
+.app-shell {
+  min-height: 100svh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  box-sizing: border-box;
+}
+
+.hero-card {
+  width: min(720px, 100%);
+  text-align: left;
+  padding: 32px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--bg) 92%, var(--accent-bg));
+  box-shadow: var(--shadow);
+}
+
+.eyebrow {
+  margin-bottom: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.description {
+  margin-top: 16px;
+  line-height: 1.7;
+}
+
+.checklist {
+  margin: 24px 0 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 12px;
+}
+
+.checklist li {
+  color: var(--text-h);
+}
