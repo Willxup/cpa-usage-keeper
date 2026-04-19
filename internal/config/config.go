@@ -20,6 +20,7 @@ type Config struct {
 	SQLitePath          string
 	BackupEnabled       bool
 	BackupDir           string
+	BackupInterval      time.Duration
 	BackupRetentionDays int
 	RequestTimeout      time.Duration
 	LogLevel            string
@@ -48,6 +49,11 @@ func LoadFromEnv() (*Config, error) {
 		return nil, err
 	}
 
+	backupInterval, err := getDuration("BACKUP_INTERVAL", time.Hour)
+	if err != nil {
+		return nil, err
+	}
+
 	backupRetentionDays, err := getInt("BACKUP_RETENTION_DAYS", 30)
 	if err != nil {
 		return nil, err
@@ -71,6 +77,7 @@ func LoadFromEnv() (*Config, error) {
 		SQLitePath:          strings.TrimSpace(os.Getenv("SQLITE_PATH")),
 		BackupEnabled:       backupEnabled,
 		BackupDir:           getString("BACKUP_DIR", "/data/backups"),
+		BackupInterval:      backupInterval,
 		BackupRetentionDays: backupRetentionDays,
 		RequestTimeout:      requestTimeout,
 		LogLevel:            getString("LOG_LEVEL", "info"),

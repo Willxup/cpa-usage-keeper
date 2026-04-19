@@ -27,6 +27,9 @@ func TestLoadFromEnvAppliesDefaults(t *testing.T) {
 	if cfg.BackupDir != "/data/backups" {
 		t.Fatalf("expected default backup dir /data/backups, got %s", cfg.BackupDir)
 	}
+	if cfg.BackupInterval != time.Hour {
+		t.Fatalf("expected default backup interval 1h, got %s", cfg.BackupInterval)
+	}
 	if cfg.RequestTimeout != 30*time.Second {
 		t.Fatalf("expected default request timeout 30s, got %s", cfg.RequestTimeout)
 	}
@@ -90,6 +93,7 @@ func TestLoadFromEnvParsesOverrides(t *testing.T) {
 	t.Setenv("POLL_INTERVAL", "1m")
 	t.Setenv("BACKUP_ENABLED", "false")
 	t.Setenv("BACKUP_DIR", "/tmp/backups")
+	t.Setenv("BACKUP_INTERVAL", "2h")
 	t.Setenv("BACKUP_RETENTION_DAYS", "7")
 	t.Setenv("REQUEST_TIMEOUT", "15s")
 	t.Setenv("LOG_LEVEL", "debug")
@@ -102,7 +106,7 @@ func TestLoadFromEnvParsesOverrides(t *testing.T) {
 		t.Fatalf("LoadFromEnv returned error: %v", err)
 	}
 
-	if cfg.AppPort != "9090" || cfg.PollInterval != time.Minute || cfg.BackupEnabled || cfg.BackupDir != "/tmp/backups" || cfg.BackupRetentionDays != 7 || cfg.RequestTimeout != 15*time.Second || cfg.LogLevel != "debug" || !cfg.AuthEnabled || cfg.LoginPassword != "top-secret" || cfg.AuthSessionTTL != 12*time.Hour {
+	if cfg.AppPort != "9090" || cfg.PollInterval != time.Minute || cfg.BackupEnabled || cfg.BackupDir != "/tmp/backups" || cfg.BackupInterval != 2*time.Hour || cfg.BackupRetentionDays != 7 || cfg.RequestTimeout != 15*time.Second || cfg.LogLevel != "debug" || !cfg.AuthEnabled || cfg.LoginPassword != "top-secret" || cfg.AuthSessionTTL != 12*time.Hour {
 		t.Fatalf("unexpected config override result: %+v", cfg)
 	}
 }

@@ -52,12 +52,15 @@ cp .env.example .env
 | `SQLITE_PATH` | 是 | - | SQLite 数据库路径 |
 | `BACKUP_ENABLED` | 否 | `true` | 是否启用原始备份 |
 | `BACKUP_DIR` | 否 | `/data/backups` | 备份目录 |
+| `BACKUP_INTERVAL` | 否 | `1h` | 两次备份写入之间的最小间隔 |
 | `BACKUP_RETENTION_DAYS` | 否 | `30` | 备份保留天数 |
 | `REQUEST_TIMEOUT` | 否 | `30s` | CPA 请求超时 |
 | `LOG_LEVEL` | 否 | `info` | 日志级别 |
 | `AUTH_ENABLED` | 否 | `false` | 是否启用登录保护 |
 | `LOGIN_PASSWORD` | 鉴权启用时必填 | - | 登录密码 |
 | `AUTH_SESSION_TTL` | 否 | `168h` | Session 生命周期 |
+
+启用备份后，服务会按照 `BACKUP_INTERVAL` 控制原始 export JSON 的落盘频率；即使本次未写入新的 backup，仍会正常记录 `SnapshotRun` 并持久化 usage 事件。
 
 ## 本地开发
 

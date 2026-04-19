@@ -11,6 +11,7 @@ import (
 	"cpa-usage-keeper/internal/backup"
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/cpa"
+	"cpa-usage-keeper/internal/models"
 	"cpa-usage-keeper/internal/repository"
 	"gorm.io/gorm"
 )
@@ -24,11 +25,13 @@ type BackupWriter interface {
 }
 
 type SyncService struct {
-	db            *gorm.DB
-	client        ExportFetcher
-	baseURL       string
-	backupEnabled bool
-	backupWriter  BackupWriter
+	db             *gorm.DB
+	client         ExportFetcher
+	baseURL        string
+	backupEnabled  bool
+	backupInterval time.Duration
+	backupWriter   BackupWriter
+	now            func() time.Time
 }
 
 type SyncResult struct {
@@ -48,27 +51,36 @@ func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 		writer = backup.NewWriter(cfg.BackupDir)
 	}
 	return NewSyncServiceWithOptions(db, SyncServiceOptions{
-		BaseURL:       cfg.CPABaseURL,
-		Client:        cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout),
-		BackupEnabled: cfg.BackupEnabled,
-		BackupWriter:  writer,
+		BaseURL:        cfg.CPABaseURL,
+		Client:         cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout),
+		BackupEnabled:  cfg.BackupEnabled,
+		BackupWriter:   writer,
+		BackupInterval: cfg.BackupInterval,
 	})
 }
 
 type SyncServiceOptions struct {
-	BaseURL       string
-	Client        ExportFetcher
-	BackupEnabled bool
-	BackupWriter  BackupWriter
+	BaseURL        string
+	Client         ExportFetcher
+	BackupEnabled  bool
+	BackupWriter   BackupWriter
+	BackupInterval time.Duration
+	Now            func() time.Time
 }
 
 func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncService {
+	now := opts.Now
+	if now == nil {
+		now = time.Now
+	}
 	return &SyncService{
-		db:            db,
-		client:        opts.Client,
-		baseURL:       strings.TrimSpace(opts.BaseURL),
-		backupEnabled: opts.BackupEnabled,
-		backupWriter:  opts.BackupWriter,
+		db:             db,
+		client:         opts.Client,
+		baseURL:        strings.TrimSpace(opts.BaseURL),
+		backupEnabled:  opts.BackupEnabled,
+		backupInterval: opts.BackupInterval,
+		backupWriter:   opts.BackupWriter,
+		now:            now,
 	}
 }
 
@@ -99,7 +111,7 @@ func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
 		return nil, fmt.Errorf("sync service client is nil")
 	}
 
-	fetchedAt := time.Now().UTC()
+	fetchedAt := s.now().UTC()
 	fetchResult, fetchErr := s.client.FetchUsageExport(ctx)
 
 	var (
@@ -156,19 +168,36 @@ func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
 		}, fmt.Errorf("fetch usage export: %w", fetchErr)
 	}
 
-	backupFilePath, err := s.writeBackup(snapshotRun.ID, fetchedAt, rawPayload)
+	lastBackupSnapshotRun, err := repository.FindLastSnapshotRunWithBackup(s.db)
 	if err != nil {
 		finalizeErr := repository.FinalizeSnapshotRun(s.db, snapshotRun.ID, repository.SnapshotRunResult{
-			Status:         "failed",
-			HTTPStatus:     httpStatus,
-			ErrorMessage:   errorMessage(err),
-			BackupFilePath: backupFilePath,
-			ExportedAt:     exportedAt,
+			Status:       "failed",
+			HTTPStatus:   httpStatus,
+			ErrorMessage: errorMessage(err),
+			ExportedAt:   exportedAt,
 		})
 		if finalizeErr != nil {
-			return nil, fmt.Errorf("write backup: %v; finalize snapshot run: %w", err, finalizeErr)
+			return nil, fmt.Errorf("load last backup snapshot run: %v; finalize snapshot run: %w", err, finalizeErr)
 		}
-		return nil, fmt.Errorf("write backup: %w", err)
+		return nil, fmt.Errorf("load last backup snapshot run: %w", err)
+	}
+
+	backupFilePath := ""
+	if s.shouldWriteBackup(fetchedAt, lastBackupSnapshotRun) {
+		backupFilePath, err = s.writeBackup(snapshotRun.ID, fetchedAt, rawPayload)
+		if err != nil {
+			finalizeErr := repository.FinalizeSnapshotRun(s.db, snapshotRun.ID, repository.SnapshotRunResult{
+				Status:         "failed",
+				HTTPStatus:     httpStatus,
+				ErrorMessage:   errorMessage(err),
+				BackupFilePath: backupFilePath,
+				ExportedAt:     exportedAt,
+			})
+			if finalizeErr != nil {
+				return nil, fmt.Errorf("write backup: %v; finalize snapshot run: %w", err, finalizeErr)
+			}
+			return nil, fmt.Errorf("write backup: %w", err)
+		}
 	}
 
 	events := FlattenUsageExport(snapshotRun.ID, fetchResult.Payload)
@@ -218,6 +247,19 @@ func (s *SyncService) writeBackup(snapshotRunID uint, fetchedAt time.Time, paylo
 		return "", fmt.Errorf("backup writer is nil")
 	}
 	return s.backupWriter.Write(snapshotRunID, fetchedAt, payload)
+}
+
+func (s *SyncService) shouldWriteBackup(fetchedAt time.Time, lastBackupSnapshotRun *models.SnapshotRun) bool {
+	if !s.backupEnabled {
+		return false
+	}
+	if s.backupInterval <= 0 {
+		return true
+	}
+	if lastBackupSnapshotRun == nil {
+		return true
+	}
+	return fetchedAt.UTC().Sub(lastBackupSnapshotRun.FetchedAt.UTC()) >= s.backupInterval
 }
 
 func hashPayload(payload []byte) string {

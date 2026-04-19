@@ -52,12 +52,15 @@ Key variables:
 | `SQLITE_PATH` | Yes | - | SQLite database path |
 | `BACKUP_ENABLED` | No | `true` | Enable raw export backups |
 | `BACKUP_DIR` | No | `/data/backups` | Backup directory |
+| `BACKUP_INTERVAL` | No | `1h` | Minimum interval between backup writes |
 | `BACKUP_RETENTION_DAYS` | No | `30` | Backup retention days |
 | `REQUEST_TIMEOUT` | No | `30s` | CPA request timeout |
 | `LOG_LEVEL` | No | `info` | Log level |
 | `AUTH_ENABLED` | No | `false` | Enable login protection |
 | `LOGIN_PASSWORD` | When auth is enabled | - | Login password |
 | `AUTH_SESSION_TTL` | No | `168h` | Session lifetime |
+
+When backups are enabled, the service writes at most one raw export backup per `BACKUP_INTERVAL`. Every sync still records a snapshot run and persists usage events.
 
 ## Development
 

@@ -127,6 +127,42 @@ func TestFinalizeSnapshotRunUpdatesResultFields(t *testing.T) {
 	}
 }
 
+func TestFindLastSnapshotRunWithBackupReturnsLatestCompletedBackup(t *testing.T) {
+	db := openTestDatabase(t)
+
+	first, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), Status: "pending"})
+	if err != nil {
+		t.Fatalf("CreateSnapshotRun first returned error: %v", err)
+	}
+	if err := FinalizeSnapshotRun(db, first.ID, SnapshotRunResult{Status: "completed", BackupFilePath: "/tmp/first.json"}); err != nil {
+		t.Fatalf("FinalizeSnapshotRun first returned error: %v", err)
+	}
+
+	second, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC), Status: "pending"})
+	if err != nil {
+		t.Fatalf("CreateSnapshotRun second returned error: %v", err)
+	}
+	if err := FinalizeSnapshotRun(db, second.ID, SnapshotRunResult{Status: "completed"}); err != nil {
+		t.Fatalf("FinalizeSnapshotRun second returned error: %v", err)
+	}
+
+	third, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC), Status: "pending"})
+	if err != nil {
+		t.Fatalf("CreateSnapshotRun third returned error: %v", err)
+	}
+	if err := FinalizeSnapshotRun(db, third.ID, SnapshotRunResult{Status: "completed", BackupFilePath: "/tmp/third.json"}); err != nil {
+		t.Fatalf("FinalizeSnapshotRun third returned error: %v", err)
+	}
+
+	run, err := FindLastSnapshotRunWithBackup(db)
+	if err != nil {
+		t.Fatalf("FindLastSnapshotRunWithBackup returned error: %v", err)
+	}
+	if run == nil || run.ID != third.ID {
+		t.Fatalf("expected latest completed backup snapshot %d, got %+v", third.ID, run)
+	}
+}
+
 func openTestDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
 

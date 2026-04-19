@@ -123,6 +123,22 @@ func InsertUsageEvents(db *gorm.DB, events []models.UsageEvent) (int, int, error
 	return inserted, deduped, nil
 }
 
+func FindLastSnapshotRunWithBackup(db *gorm.DB) (*models.SnapshotRun, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database is nil")
+	}
+
+	var run models.SnapshotRun
+	if err := db.Where("status = ? AND backup_file_path <> ?", "completed", "").Order("id DESC").First(&run).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("find last snapshot run with backup: %w", err)
+	}
+
+	return &run, nil
+}
+
 func normalizeOptionalTime(value *time.Time) *time.Time {
 	if value == nil {
 		return nil

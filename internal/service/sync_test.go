@@ -159,6 +159,93 @@ func TestSyncOnceSkipsBackupWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestSyncOnceSkipsBackupWithinConfiguredInterval(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	body := []byte(`{"version":1,"exported_at":"2026-04-16T10:00:00Z","usage":{"apis":{"provider-a":{"models":{"claude-sonnet":{"details":[{"timestamp":"2026-04-16T09:30:00Z","latency_ms":123,"source":"codex-a","auth_index":"1","failed":false,"tokens":{"input_tokens":10,"output_tokens":20,"reasoning_tokens":5,"cached_tokens":0,"total_tokens":35}}]}}}}}}`)
+	backupWriter := &stubBackupWriter{path: "/tmp/export.json"}
+	now := time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC)
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
+		BaseURL:        "https://cpa.example.com",
+		Client:         stubExportFetcher{result: successfulExportResult(body)},
+		BackupEnabled:  true,
+		BackupWriter:   backupWriter,
+		BackupInterval: time.Hour,
+		Now: func() time.Time {
+			return now
+		},
+	})
+
+	first, err := service.SyncNow(context.Background())
+	if err != nil {
+		t.Fatalf("first SyncNow returned error: %v", err)
+	}
+	if first.BackupFilePath != "/tmp/export.json" {
+		t.Fatalf("expected first sync to write backup, got %+v", first)
+	}
+
+	now = now.Add(30 * time.Minute)
+	second, err := service.SyncNow(context.Background())
+	if err != nil {
+		t.Fatalf("second SyncNow returned error: %v", err)
+	}
+
+	if second.BackupFilePath != "" {
+		t.Fatalf("expected second sync to skip backup, got %+v", second)
+	}
+	if backupWriter.calls != 1 {
+		t.Fatalf("expected backup writer to be called once, got %d", backupWriter.calls)
+	}
+
+	var snapshots []models.SnapshotRun
+	if err := db.Order("id ASC").Find(&snapshots).Error; err != nil {
+		t.Fatalf("load snapshot runs: %v", err)
+	}
+	if len(snapshots) != 2 {
+		t.Fatalf("expected 2 snapshot runs, got %d", len(snapshots))
+	}
+	if snapshots[0].BackupFilePath == "" {
+		t.Fatalf("expected first snapshot backup path to be recorded, got %+v", snapshots[0])
+	}
+	if snapshots[1].Status != "completed" || snapshots[1].BackupFilePath != "" {
+		t.Fatalf("expected second snapshot to complete without backup path, got %+v", snapshots[1])
+	}
+}
+
+func TestSyncOnceWritesBackupAgainAfterConfiguredInterval(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	backupWriter := &stubBackupWriter{path: "/tmp/export.json"}
+	now := time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC)
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
+		BaseURL:        "https://cpa.example.com",
+		BackupEnabled:  true,
+		BackupWriter:   backupWriter,
+		BackupInterval: time.Hour,
+		Now: func() time.Time {
+			return now
+		},
+	})
+
+	service.client = stubExportFetcher{result: successfulExportResult([]byte(`{"version":1}`))}
+	first, err := service.SyncNow(context.Background())
+	if err != nil {
+		t.Fatalf("first SyncNow returned error: %v", err)
+	}
+
+	now = now.Add(time.Hour)
+	service.client = stubExportFetcher{result: successfulExportResult([]byte(`{"version":2}`))}
+	second, err := service.SyncNow(context.Background())
+	if err != nil {
+		t.Fatalf("second SyncNow returned error: %v", err)
+	}
+
+	if first.BackupFilePath == "" || second.BackupFilePath == "" {
+		t.Fatalf("expected both syncs to write backups, got first=%+v second=%+v", first, second)
+	}
+	if backupWriter.calls != 2 {
+		t.Fatalf("expected backup writer to be called twice, got %d", backupWriter.calls)
+	}
+}
+
 func TestSyncOnceFailsWhenBackupWriteFails(t *testing.T) {
 	db := openSyncTestDatabase(t)
 	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
@@ -190,6 +277,7 @@ func TestNewSyncServiceBuildsClientFromConfig(t *testing.T) {
 		RequestTimeout:   5 * time.Second,
 		BackupEnabled:    true,
 		BackupDir:        "/tmp/backups",
+		BackupInterval:   2 * time.Hour,
 	})
 	if service == nil || service.client == nil {
 		t.Fatal("expected sync service client to be initialized")
@@ -199,6 +287,9 @@ func TestNewSyncServiceBuildsClientFromConfig(t *testing.T) {
 	}
 	if service.backupWriter == nil {
 		t.Fatal("expected backup writer to be initialized when backups are enabled")
+	}
+	if service.backupInterval != 2*time.Hour {
+		t.Fatalf("expected backup interval to be initialized, got %s", service.backupInterval)
 	}
 }
 
