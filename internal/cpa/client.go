@@ -22,6 +22,46 @@ type ExportResult struct {
 	Payload    UsageExport
 }
 
+func (c *Client) doManagementJSONRequest(ctx context.Context, path string, target any, kind string) (int, []byte, error) {
+	if c == nil {
+		return 0, nil, fmt.Errorf("cpa client is nil")
+	}
+	if c.baseURL == "" {
+		return 0, nil, fmt.Errorf("cpa base url is required")
+	}
+	if c.managementKey == "" {
+		return 0, nil, fmt.Errorf("cpa management key is required")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return 0, nil, fmt.Errorf("build %s request: %w", kind, err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.managementKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return 0, nil, fmt.Errorf("request %s: %w", kind, err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return resp.StatusCode, nil, fmt.Errorf("read %s response: %w", kind, err)
+	}
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return resp.StatusCode, body, fmt.Errorf("management %s request failed with status %d", kind, resp.StatusCode)
+	}
+	if resp.StatusCode >= http.StatusBadRequest {
+		return resp.StatusCode, body, fmt.Errorf("management %s request returned status %d", kind, resp.StatusCode)
+	}
+	if err := json.Unmarshal(body, target); err != nil {
+		return resp.StatusCode, body, fmt.Errorf("decode %s json: %w", kind, err)
+	}
+	return resp.StatusCode, body, nil
+}
+
 func NewClient(baseURL, managementKey string, timeout time.Duration) *Client {
 	return &Client{
 		baseURL:       strings.TrimRight(strings.TrimSpace(baseURL), "/"),
@@ -33,47 +73,34 @@ func NewClient(baseURL, managementKey string, timeout time.Duration) *Client {
 }
 
 func (c *Client) FetchUsageExport(ctx context.Context) (*ExportResult, error) {
-	if c == nil {
-		return nil, fmt.Errorf("cpa client is nil")
-	}
-	if c.baseURL == "" {
-		return nil, fmt.Errorf("cpa base url is required")
-	}
-	if c.managementKey == "" {
-		return nil, fmt.Errorf("cpa management key is required")
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v0/management/usage/export", nil)
+	result := &ExportResult{}
+	statusCode, body, err := c.doManagementJSONRequest(ctx, "/v0/management/usage/export", &result.Payload, "export")
+	result.StatusCode = statusCode
+	result.Body = body
 	if err != nil {
-		return nil, fmt.Errorf("build export request: %w", err)
+		return result, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.managementKey)
+	return result, nil
+}
 
-	resp, err := c.httpClient.Do(req)
+func (c *Client) FetchAuthFiles(ctx context.Context) (*AuthFilesResult, error) {
+	result := &AuthFilesResult{}
+	statusCode, body, err := c.doManagementJSONRequest(ctx, "/v0/management/auth-files", &result.Payload, "auth files")
+	result.StatusCode = statusCode
+	result.Body = body
 	if err != nil {
-		return nil, fmt.Errorf("request usage export: %w", err)
+		return result, err
 	}
-	defer resp.Body.Close()
+	return result, nil
+}
 
-	body, err := io.ReadAll(resp.Body)
+func (c *Client) FetchManagementConfig(ctx context.Context) (*ManagementConfigResult, error) {
+	result := &ManagementConfigResult{}
+	statusCode, body, err := c.doManagementJSONRequest(ctx, "/v0/management/config", &result.Payload, "config")
+	result.StatusCode = statusCode
+	result.Body = body
 	if err != nil {
-		return nil, fmt.Errorf("read usage export response: %w", err)
+		return result, err
 	}
-
-	result := &ExportResult{
-		StatusCode: resp.StatusCode,
-		Body:       body,
-	}
-
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return result, fmt.Errorf("management export request failed with status %d", resp.StatusCode)
-	}
-	if resp.StatusCode >= http.StatusBadRequest {
-		return result, fmt.Errorf("management export request returned status %d", resp.StatusCode)
-	}
-	if err := json.Unmarshal(body, &result.Payload); err != nil {
-		return result, fmt.Errorf("decode usage export json: %w", err)
-	}
-
 	return result, nil
 }

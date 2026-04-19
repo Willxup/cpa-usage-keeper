@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"cpa-usage-keeper/internal/cpa"
+	"cpa-usage-keeper/internal/redact"
 )
 
 type usageStub struct {
@@ -19,7 +20,7 @@ func (s usageStub) GetUsage(context.Context) (*cpa.StatisticsSnapshot, error) {
 }
 
 func TestUsageReturnsEmptyStructureWithoutProvider(t *testing.T) {
-	router := NewRouter("", nil, nil, nil, AuthConfig{}, nil)
+	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage", nil)
 	resp := httptest.NewRecorder()
 
@@ -49,7 +50,7 @@ func TestUsageReturnsAggregatedSnapshot(t *testing.T) {
 				},
 			},
 		},
-	}}, nil, AuthConfig{}, nil)
+	}}, nil, nil, nil, AuthConfig{}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage", nil)
 	resp := httptest.NewRecorder()
 
@@ -59,7 +60,62 @@ func TestUsageReturnsAggregatedSnapshot(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
 	body := resp.Body.String()
-	if !(contains(body, `"total_requests":2`) && contains(body, `"success_count":1`) && contains(body, `"provider-a"`) && contains(body, `"claude-sonnet"`)) {
+	if !(contains(body, `"total_requests":2`) && contains(body, `"success_count":1`) && contains(body, `"claude-sonnet"`)) {
 		t.Fatalf("unexpected response body: %s", body)
+	}
+	if contains(body, `"provider-a"`) {
+		t.Fatalf("expected API key to be redacted in response body: %s", body)
+	}
+	if !contains(body, `"`+redact.APIAlias("provider-a")+`"`) {
+		t.Fatalf("expected stable API alias in response body: %s", body)
+	}
+	if !contains(body, `"display_name":"prov**er-a"`) {
+		t.Fatalf("expected star-masked API display name in response body: %s", body)
+	}
+}
+
+func TestUsageResponsePreservesFilteringFields(t *testing.T) {
+	router := NewRouter("", nil, usageStub{usage: &cpa.StatisticsSnapshot{
+		TotalRequests: 1,
+		SuccessCount:  1,
+		TotalTokens:   20,
+		APIs: map[string]cpa.APISnapshot{
+			"sk-live-secret-value": {
+				TotalRequests: 1,
+				SuccessCount:  1,
+				TotalTokens:   20,
+				Models: map[string]cpa.ModelSnapshot{
+					"claude-sonnet": {
+						TotalRequests: 1,
+						SuccessCount:  1,
+						TotalTokens:   20,
+						Details: []cpa.RequestDetail{{
+							Source:    "source-a",
+							AuthIndex: "2",
+							Failed:    false,
+							Tokens:    cpa.TokenStats{TotalTokens: 20},
+						}},
+					},
+				},
+			},
+		},
+	}}, nil, nil, nil, AuthConfig{}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	body := resp.Body.String()
+	if !contains(body, `"source":"s******a"`) {
+		t.Fatalf("expected source to expose resolved display value: %s", body)
+	}
+	if !contains(body, `"source_raw":"source-a"`) {
+		t.Fatalf("expected source_raw to preserve raw value for filtering: %s", body)
+	}
+	if !contains(body, `"auth_index":"2"`) {
+		t.Fatalf("expected auth_index to remain available for frontend filtering: %s", body)
 	}
 }

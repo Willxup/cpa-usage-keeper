@@ -18,6 +18,8 @@ import (
 
 type ExportFetcher interface {
 	FetchUsageExport(ctx context.Context) (*cpa.ExportResult, error)
+	FetchAuthFiles(ctx context.Context) (*cpa.AuthFilesResult, error)
+	FetchManagementConfig(ctx context.Context) (*cpa.ManagementConfigResult, error)
 }
 
 type BackupWriter interface {
@@ -115,11 +117,11 @@ func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
 	fetchResult, fetchErr := s.client.FetchUsageExport(ctx)
 
 	var (
-		httpStatus int
-		rawPayload []byte
+		httpStatus  int
+		rawPayload  []byte
 		payloadHash string
-		exportedAt *time.Time
-		version string
+		exportedAt  *time.Time
+		version     string
 	)
 	if fetchResult != nil {
 		httpStatus = fetchResult.StatusCode
@@ -133,6 +135,9 @@ func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
 			version = fmt.Sprintf("%d", fetchResult.Payload.Version)
 		}
 	}
+
+	authFilesResult, authFilesErr := s.client.FetchAuthFiles(ctx)
+	managementConfigResult, managementConfigErr := s.client.FetchManagementConfig(ctx)
 
 	snapshotRun, err := repository.CreateSnapshotRun(s.db, repository.SnapshotRunInput{
 		FetchedAt:    fetchedAt,
@@ -216,27 +221,37 @@ func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
 		return nil, fmt.Errorf("insert usage events: %w", err)
 	}
 
+	authFilesSyncErr := syncAuthFiles(s.db, authFilesResult, authFilesErr)
+	providerMetadataSyncErr := syncProviderMetadata(s.db, managementConfigResult, managementConfigErr)
+	partialSyncErr := joinErrors(authFilesSyncErr, providerMetadataSyncErr)
+	finalStatus := "completed"
+	finalErrorMessage := errorMessage(partialSyncErr)
 	if err := repository.FinalizeSnapshotRun(s.db, snapshotRun.ID, repository.SnapshotRunResult{
-		Status:         "completed",
+		Status:         finalStatus,
 		HTTPStatus:     httpStatus,
 		BackupFilePath: backupFilePath,
 		InsertedEvents: inserted,
 		DedupedEvents:  deduped,
 		ExportedAt:     exportedAt,
+		ErrorMessage:   finalErrorMessage,
 	}); err != nil {
 		return nil, err
 	}
 
-	return &SyncResult{
+	result := &SyncResult{
 		SnapshotRunID:  snapshotRun.ID,
-		Status:         "completed",
+		Status:         finalStatus,
 		HTTPStatus:     httpStatus,
 		InsertedEvents: inserted,
 		DedupedEvents:  deduped,
 		PayloadHash:    payloadHash,
 		ExportedAt:     exportedAt,
 		BackupFilePath: backupFilePath,
-	}, nil
+	}
+	if partialSyncErr != nil {
+		return result, partialSyncErr
+	}
+	return result, nil
 }
 
 func (s *SyncService) writeBackup(snapshotRunID uint, fetchedAt time.Time, payload []byte) (string, error) {
@@ -282,4 +297,129 @@ func errorMessage(err error) string {
 		return ""
 	}
 	return strings.TrimSpace(err.Error())
+}
+
+func syncAuthFiles(db *gorm.DB, result *cpa.AuthFilesResult, fetchErr error) error {
+	if fetchErr != nil {
+		return fmt.Errorf("fetch auth files: %w", fetchErr)
+	}
+	if db == nil {
+		return fmt.Errorf("database is nil")
+	}
+	if result == nil {
+		return fmt.Errorf("fetch auth files: empty response")
+	}
+
+	inputs := make([]repository.AuthFileInput, 0, len(result.Payload.Files))
+	for _, file := range result.Payload.Files {
+		inputs = append(inputs, repository.AuthFileInput{
+			AuthIndex:   file.AuthIndex,
+			Name:        file.Name,
+			Email:       file.Email,
+			Type:        file.Type,
+			Provider:    file.Provider,
+			Label:       file.Label,
+			Status:      file.Status,
+			Source:      file.Source,
+			Disabled:    file.Disabled,
+			Unavailable: file.Unavailable,
+			RuntimeOnly: file.RuntimeOnly,
+		})
+	}
+	if err := repository.ReplaceAuthFiles(db, inputs); err != nil {
+		return fmt.Errorf("sync auth files: %w", err)
+	}
+	return nil
+}
+
+func syncProviderMetadata(db *gorm.DB, result *cpa.ManagementConfigResult, fetchErr error) error {
+	if fetchErr != nil {
+		return fmt.Errorf("fetch provider metadata: %w", fetchErr)
+	}
+	if db == nil {
+		return fmt.Errorf("database is nil")
+	}
+	if result == nil {
+		return fmt.Errorf("fetch provider metadata: empty response")
+	}
+
+	inputs := flattenProviderMetadata(result.Payload)
+	if err := repository.ReplaceProviderMetadata(db, inputs); err != nil {
+		return fmt.Errorf("sync provider metadata: %w", err)
+	}
+	return nil
+}
+
+func flattenProviderMetadata(cfg cpa.ManagementConfig) []repository.ProviderMetadataInput {
+	items := make([]repository.ProviderMetadataInput, 0)
+	seen := make(map[string]struct{})
+	appendItem := func(lookupKey, providerType, displayName, providerKey, matchKind string) {
+		lookupKey = strings.TrimSpace(lookupKey)
+		providerType = strings.TrimSpace(providerType)
+		displayName = strings.TrimSpace(displayName)
+		providerKey = strings.TrimSpace(providerKey)
+		matchKind = strings.TrimSpace(matchKind)
+		if lookupKey == "" || providerType == "" || displayName == "" || providerKey == "" || matchKind == "" {
+			return
+		}
+		if _, ok := seen[lookupKey]; ok {
+			return
+		}
+		seen[lookupKey] = struct{}{}
+		items = append(items, repository.ProviderMetadataInput{
+			LookupKey:    lookupKey,
+			ProviderType: providerType,
+			DisplayName:  displayName,
+			ProviderKey:  providerKey,
+			MatchKind:    matchKind,
+		})
+	}
+	appendProviderEntries := func(providerType string, configs []cpa.ProviderKeyConfig) {
+		for _, cfg := range configs {
+			displayName := firstNonEmpty(cfg.Prefix, cfg.Name, providerType)
+			providerKey := providerType + ":" + displayName
+			appendItem(cfg.APIKey, providerType, displayName, providerKey, "api_key")
+			appendItem(cfg.Prefix, providerType, displayName, providerKey, "prefix")
+		}
+	}
+
+	appendProviderEntries("gemini", cfg.GeminiAPIKeys)
+	appendProviderEntries("claude", cfg.ClaudeAPIKeys)
+	appendProviderEntries("codex", cfg.CodexAPIKeys)
+	appendProviderEntries("vertex", cfg.VertexAPIKeys)
+
+	for _, provider := range cfg.OpenAICompatibility {
+		displayName := firstNonEmpty(provider.Name, provider.Prefix, "openai")
+		providerKey := "openai:" + displayName
+		appendItem(provider.Prefix, "openai", displayName, providerKey, "prefix")
+		for _, entry := range provider.APIKeyEntries {
+			appendItem(entry.APIKey, "openai", displayName, providerKey, "api_key")
+		}
+	}
+
+	return items
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func joinErrors(errs ...error) error {
+	messages := make([]string, 0, len(errs))
+	for _, err := range errs {
+		if err == nil {
+			continue
+		}
+		messages = append(messages, strings.TrimSpace(err.Error()))
+	}
+	if len(messages) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s", strings.Join(messages, "; "))
 }

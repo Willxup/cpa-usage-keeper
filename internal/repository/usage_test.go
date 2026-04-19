@@ -62,6 +62,31 @@ func TestBuildUsageSnapshotAggregatesEvents(t *testing.T) {
 	}
 }
 
+func TestBuildUsageSnapshotPreservesStoredAPIKey(t *testing.T) {
+	db := openUsageTestDatabase(t)
+	events := []models.UsageEvent{{
+		EventKey:      "event-1",
+		SnapshotRunID: 1,
+		APIGroupKey:   "sk-live-secret-value",
+		Model:         "claude-sonnet",
+		Timestamp:     time.Date(2026, 4, 20, 12, 0, 0, 0, time.UTC),
+		Source:        "source-a",
+		AuthIndex:     "1",
+		TotalTokens:   20,
+	}}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	snapshot, err := BuildUsageSnapshot(db)
+	if err != nil {
+		t.Fatalf("BuildUsageSnapshot returned error: %v", err)
+	}
+	if _, ok := snapshot.APIs["sk-live-secret-value"]; !ok {
+		t.Fatalf("expected repository snapshot to preserve stored API key")
+	}
+}
+
 func openUsageTestDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage.db")})

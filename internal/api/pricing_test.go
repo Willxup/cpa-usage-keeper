@@ -31,7 +31,7 @@ func (s pricingStub) UpdatePricing(context.Context, service.UpdatePricingInput) 
 }
 
 func TestPricingRoutesReturnEmptyResponsesWithoutProvider(t *testing.T) {
-	router := NewRouter("", nil, nil, nil, AuthConfig{}, nil)
+	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil)
 
 	usedReq := httptest.NewRequest(http.MethodGet, "/api/v1/models/used", nil)
 	usedResp := httptest.NewRecorder()
@@ -49,7 +49,7 @@ func TestPricingRoutesReturnEmptyResponsesWithoutProvider(t *testing.T) {
 }
 
 func TestPricingRoutesReturnConfiguredData(t *testing.T) {
-	router := NewRouter("", nil, nil, pricingStub{
+	router := NewRouter("", nil, nil, nil, nil, pricingStub{
 		usedModels: []string{"claude-sonnet"},
 		pricing: []models.ModelPriceSetting{{
 			Model:                "claude-sonnet",
@@ -75,7 +75,7 @@ func TestPricingRoutesReturnConfiguredData(t *testing.T) {
 }
 
 func TestUpdatePricingRoute(t *testing.T) {
-	router := NewRouter("", nil, nil, pricingStub{
+	router := NewRouter("", nil, nil, nil, nil, pricingStub{
 		updated: &models.ModelPriceSetting{
 			Model:                "claude-sonnet",
 			PromptPricePer1M:     3,

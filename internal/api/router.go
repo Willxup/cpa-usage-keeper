@@ -19,6 +19,8 @@ func NewRouter(
 	staticDir string,
 	statusProvider StatusProvider,
 	usageProvider service.UsageProvider,
+	authFileProvider service.AuthFileProvider,
+	providerMetadataProvider service.ProviderMetadataProvider,
 	pricingProvider service.PricingProvider,
 	authConfig AuthConfig,
 	authHandler *authHandler,
@@ -42,7 +44,9 @@ func NewRouter(
 	protected := apiV1.Group("")
 	protected.Use(authHandler.middleware())
 	registerStatusRoutes(protected, statusProvider)
-	registerUsageRoutes(protected, usageProvider)
+	registerUsageRoutes(protected, usageProvider, authFileProvider, providerMetadataProvider)
+	registerAuthFileRoutes(protected, authFileProvider)
+	registerProviderMetadataRoutes(protected, providerMetadataProvider)
 	registerPricingRoutes(protected, pricingProvider)
 
 	if staticDir != "" {

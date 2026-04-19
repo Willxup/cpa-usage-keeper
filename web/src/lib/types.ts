@@ -1,5 +1,8 @@
-export interface AuthSessionResponse {
-  authenticated: boolean
+export interface StatusResponse {
+  running: boolean
+  sync_running: boolean
+  last_run_at?: string
+  last_error?: string
 }
 
 export interface UsageTokenStats {
@@ -14,6 +17,9 @@ export interface UsageDetail {
   timestamp: string
   latency_ms: number
   source: string
+  source_display?: string
+  source_type?: string
+  source_key?: string
   auth_index: string
   failed: boolean
   tokens: UsageTokenStats
@@ -28,6 +34,7 @@ export interface UsageModelSnapshot {
 }
 
 export interface UsageApiSnapshot {
+  display_name?: string
   total_requests: number
   success_count: number
   failure_count: number

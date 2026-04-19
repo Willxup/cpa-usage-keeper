@@ -12,6 +12,8 @@ import {
   Legend,
   Filler
 } from 'chart.js';
+import { ApiError, fetchStatus } from '@/lib/api';
+import type { StatusResponse } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Select } from '@/components/ui/Select';
@@ -150,6 +152,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
   const [chartLines, setChartLines] = useState<string[]>(loadChartLines);
   const [timeRange, setTimeRange] = useState<UsageTimeRange>(loadTimeRange);
+  const [statusError, setStatusError] = useState('');
 
   const timeRangeOptions = useMemo(
     () =>
@@ -200,6 +203,31 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       // Ignore storage errors.
     }
   }, [timeRange]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadStatus = async () => {
+      try {
+        const status: StatusResponse = await fetchStatus();
+        if (cancelled) return;
+        setStatusError(status.last_error || '');
+      } catch (error) {
+        if (cancelled) return;
+        if (error instanceof ApiError && error.status === 401) {
+          onAuthRequired?.();
+          return;
+        }
+      }
+    };
+    void loadStatus();
+    const timer = window.setInterval(() => {
+      void loadStatus();
+    }, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [onAuthRequired]);
 
   const handleLanguageChange = useCallback(async (language: 'en' | 'zh') => {
     if (currentLanguage === language) return;
@@ -330,6 +358,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             </div>
 
             {error && <div className={styles.errorBox}>{error === 'AUTH_REQUIRED' ? t('auth.session_expired') : error}</div>}
+            {!error && statusError && <div className={styles.errorBox}>{statusError}</div>}
 
             <StatCards
               usage={filteredUsage}

@@ -18,7 +18,7 @@ func (s statusStub) Status() poller.Status {
 }
 
 func TestHealthzReturnsOK(t *testing.T) {
-	router := NewRouter("", nil, nil, nil, AuthConfig{}, nil)
+	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	resp := httptest.NewRecorder()
 
@@ -36,7 +36,7 @@ func TestStatusReturnsPollerState(t *testing.T) {
 		SyncRunning: false,
 		LastRunAt:   lastRunAt,
 		LastError:   "boom",
-	}}, nil, nil, AuthConfig{}, nil)
+	}}, nil, nil, nil, nil, AuthConfig{}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
 	resp := httptest.NewRecorder()
@@ -52,7 +52,7 @@ func TestStatusReturnsPollerState(t *testing.T) {
 }
 
 func TestStatusReturnsEmptyStateWithoutProvider(t *testing.T) {
-	router := NewRouter("", nil, nil, nil, AuthConfig{}, nil)
+	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)

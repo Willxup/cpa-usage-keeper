@@ -15,8 +15,12 @@ import (
 )
 
 type stubExportFetcher struct {
-	result *cpa.ExportResult
-	err    error
+	result                 *cpa.ExportResult
+	err                    error
+	authFilesResult        *cpa.AuthFilesResult
+	authFilesErr           error
+	managementConfigResult *cpa.ManagementConfigResult
+	managementConfigErr    error
 }
 
 type stubBackupWriter struct {
@@ -28,6 +32,20 @@ type stubBackupWriter struct {
 
 func (s stubExportFetcher) FetchUsageExport(context.Context) (*cpa.ExportResult, error) {
 	return s.result, s.err
+}
+
+func (s stubExportFetcher) FetchAuthFiles(context.Context) (*cpa.AuthFilesResult, error) {
+	if s.authFilesResult != nil || s.authFilesErr != nil {
+		return s.authFilesResult, s.authFilesErr
+	}
+	return &cpa.AuthFilesResult{StatusCode: 200, Payload: cpa.AuthFilesResponse{}}, nil
+}
+
+func (s stubExportFetcher) FetchManagementConfig(context.Context) (*cpa.ManagementConfigResult, error) {
+	if s.managementConfigResult != nil || s.managementConfigErr != nil {
+		return s.managementConfigResult, s.managementConfigErr
+	}
+	return &cpa.ManagementConfigResult{StatusCode: 200, Payload: cpa.ManagementConfig{}}, nil
 }
 
 func (s *stubBackupWriter) Write(_ uint, _ time.Time, payload []byte) (string, error) {
@@ -44,8 +62,17 @@ func TestSyncOncePersistsSnapshotAndEvents(t *testing.T) {
 	body := []byte(`{"version":1,"exported_at":"2026-04-16T10:00:00Z","usage":{"apis":{"provider-a":{"models":{"claude-sonnet":{"details":[{"timestamp":"2026-04-16T09:30:00Z","latency_ms":123,"source":"codex-a","auth_index":"1","failed":false,"tokens":{"input_tokens":10,"output_tokens":20,"reasoning_tokens":5,"cached_tokens":0,"total_tokens":35}}]}}}}}}`)
 	backupWriter := &stubBackupWriter{path: "/tmp/export.json"}
 	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
-		BaseURL:       "https://cpa.example.com",
-		Client:        stubExportFetcher{result: successfulExportResult(body)},
+		BaseURL: "https://cpa.example.com",
+		Client: stubExportFetcher{
+			result: successfulExportResult(body),
+			authFilesResult: &cpa.AuthFilesResult{StatusCode: 200, Payload: cpa.AuthFilesResponse{Files: []cpa.AuthFile{{
+				AuthIndex: "1",
+				Name:      "Claude Desktop",
+				Email:     "user@example.com",
+				Type:      "claude",
+				Provider:  "anthropic",
+			}}}},
+		},
 		BackupEnabled: true,
 		BackupWriter:  backupWriter,
 	})
@@ -88,6 +115,14 @@ func TestSyncOncePersistsSnapshotAndEvents(t *testing.T) {
 	if event.SnapshotRunID != result.SnapshotRunID || event.Source != "codex-a" || event.TotalTokens != 35 {
 		t.Fatalf("unexpected usage event: %+v", event)
 	}
+
+	var authFile models.AuthFile
+	if err := db.First(&authFile).Error; err != nil {
+		t.Fatalf("load auth file: %v", err)
+	}
+	if authFile.AuthIndex != "1" || authFile.Email != "user@example.com" {
+		t.Fatalf("unexpected auth file: %+v", authFile)
+	}
 }
 
 func TestSyncOnceMarksFetchFailureOnSnapshotRun(t *testing.T) {
@@ -117,6 +152,45 @@ func TestSyncOnceMarksFetchFailureOnSnapshotRun(t *testing.T) {
 	}
 	if snapshot.ErrorMessage == "" {
 		t.Fatal("expected snapshot error message to be stored")
+	}
+}
+
+func TestSyncOnceReturnsAuthFilesFailureWithoutClearingExistingData(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	if err := repository.ReplaceAuthFiles(db, []repository.AuthFileInput{{
+		AuthIndex: "existing",
+		Email:     "existing@example.com",
+	}}); err != nil {
+		t.Fatalf("seed auth files: %v", err)
+	}
+
+	service := NewSyncServiceWithClient(db, "https://cpa.example.com", stubExportFetcher{
+		result:       successfulExportResult([]byte(`{"version":1}`)),
+		authFilesErr: errors.New("management auth files request failed with status 503"),
+	})
+
+	result, err := service.SyncNow(context.Background())
+	if err == nil {
+		t.Fatal("expected auth files sync error")
+	}
+	if result == nil || result.Status != "completed" {
+		t.Fatalf("expected completed sync result with partial failure, got %+v", result)
+	}
+
+	files, listErr := repository.ListAuthFiles(db)
+	if listErr != nil {
+		t.Fatalf("list auth files: %v", listErr)
+	}
+	if len(files) != 1 || files[0].AuthIndex != "existing" {
+		t.Fatalf("expected existing auth files to remain available, got %+v", files)
+	}
+
+	var snapshot models.SnapshotRun
+	if err := db.First(&snapshot, result.SnapshotRunID).Error; err != nil {
+		t.Fatalf("load snapshot run: %v", err)
+	}
+	if snapshot.Status != "completed" || snapshot.ErrorMessage == "" {
+		t.Fatalf("expected completed snapshot with error message, got %+v", snapshot)
 	}
 }
 

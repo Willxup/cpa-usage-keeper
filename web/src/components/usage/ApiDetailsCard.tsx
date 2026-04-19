@@ -55,7 +55,7 @@ export function ApiDetailsCard({ apiStats, loading, hasPrices }: ApiDetailsCardP
     const dir = sortDir === 'asc' ? 1 : -1;
     list.sort((a, b) => {
       switch (sortKey) {
-        case 'endpoint': return dir * a.endpoint.localeCompare(b.endpoint);
+        case 'endpoint': return dir * a.displayName.localeCompare(b.displayName);
         case 'requests': return dir * (a.totalRequests - b.totalRequests);
         case 'tokens': return dir * (a.totalTokens - b.totalTokens);
         case 'cost': return dir * (a.totalCost - b.totalCost);
@@ -117,7 +117,7 @@ export function ApiDetailsCard({ apiStats, loading, hasPrices }: ApiDetailsCardP
                       aria-controls={panelId}
                     >
                       <div className={styles.apiInfo}>
-                        <span className={styles.apiEndpoint}>{api.endpoint}</span>
+                        <span className={styles.apiEndpoint}>{api.displayName}</span>
                         <div className={styles.apiStats}>
                           <span className={styles.apiBadge}>
                             <span className={styles.requestCountCell}>

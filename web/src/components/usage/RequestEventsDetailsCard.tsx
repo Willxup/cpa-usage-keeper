@@ -1,22 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Select } from '@/components/ui/Select';
-import { authFilesApi } from '@/services/api/authFiles';
 import type { GeminiKeyConfig, ProviderKeyConfig, OpenAIProviderConfig } from '@/types';
-import type { AuthFileItem } from '@/types/authFile';
-import type { CredentialInfo } from '@/types/sourceInfo';
-import { buildSourceInfoMap, resolveSourceDisplay } from '@/utils/sourceResolver';
-import {
-  collectUsageDetails,
-  extractLatencyMs,
-  extractTotalTokens,
-  formatDurationMs,
-  LATENCY_SOURCE_FIELD,
-  normalizeAuthIndex,
-} from '@/utils/usage';
+import { collectUsageDetails, extractLatencyMs, extractTotalTokens, formatDurationMs, LATENCY_SOURCE_FIELD, normalizeAuthIndex } from '@/utils/usage';
 import { downloadBlob } from '@/utils/download';
 import styles from '@/pages/UsagePage.module.scss';
 
@@ -32,6 +21,7 @@ type RequestEventRow = {
   sourceRaw: string;
   source: string;
   sourceType: string;
+  resolvedKey: string;
   authIndex: string;
   failed: boolean;
   latencyMs: number | null;
@@ -93,44 +83,6 @@ export function RequestEventsDetailsCard({
   const [modelFilter, setModelFilter] = useState(ALL_FILTER);
   const [sourceFilter, setSourceFilter] = useState(ALL_FILTER);
   const [authIndexFilter, setAuthIndexFilter] = useState(ALL_FILTER);
-  const [authFileMap, setAuthFileMap] = useState<Map<string, CredentialInfo>>(new Map());
-
-  useEffect(() => {
-    let cancelled = false;
-    authFilesApi
-      .list()
-      .then((res) => {
-        if (cancelled) return;
-        const files = Array.isArray(res) ? res : (res as { files?: AuthFileItem[] })?.files;
-        if (!Array.isArray(files)) return;
-        const map = new Map<string, CredentialInfo>();
-        files.forEach((file) => {
-          const key = normalizeAuthIndex(file['auth_index'] ?? file.authIndex);
-          if (!key) return;
-          map.set(key, {
-            name: file.name || key,
-            type: (file.type || file.provider || '').toString(),
-          });
-        });
-        setAuthFileMap(map);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const sourceInfoMap = useMemo(
-    () =>
-      buildSourceInfoMap({
-        geminiApiKeys: geminiKeys,
-        claudeApiKeys: claudeConfigs,
-        codexApiKeys: codexConfigs,
-        vertexApiKeys: vertexConfigs,
-        openaiCompatibility: openaiProviders,
-      }),
-    [claudeConfigs, codexConfigs, geminiKeys, openaiProviders, vertexConfigs]
-  );
 
   const rows = useMemo<RequestEventRow[]>(() => {
     const details = collectUsageDetails(usage);
@@ -143,20 +95,15 @@ export function RequestEventsDetailsCard({
             ? detail.__timestampMs
             : Date.parse(timestamp);
         const date = Number.isNaN(timestampMs) ? null : new Date(timestampMs);
-        const sourceRaw = String(detail.source ?? '').trim();
+        const sourceRaw = String(detail.source_raw ?? '').trim() || String(detail.source ?? '').trim();
         const authIndexRaw = detail.auth_index as unknown;
         const authIndex =
           authIndexRaw === null || authIndexRaw === undefined || authIndexRaw === ''
             ? '-'
-            : String(authIndexRaw);
-        const sourceInfo = resolveSourceDisplay(
-          sourceRaw,
-          authIndexRaw,
-          sourceInfoMap,
-          authFileMap
-        );
-        const source = sourceInfo.displayName;
-        const sourceType = sourceInfo.type;
+            : normalizeAuthIndex(authIndexRaw) || '-';
+        const source = String(detail.source ?? detail.source_display ?? '').trim() || '-';
+        const sourceType = String(detail.source_type ?? '').trim();
+        const resolvedKey = String(detail.source_key ?? '').trim() || source;
         const model = String(detail.__modelName ?? '').trim() || '-';
         const inputTokens = Math.max(toNumber(detail.tokens?.input_tokens), 0);
         const outputTokens = Math.max(toNumber(detail.tokens?.output_tokens), 0);
@@ -180,6 +127,7 @@ export function RequestEventsDetailsCard({
           sourceRaw: sourceRaw || '-',
           source,
           sourceType,
+          resolvedKey,
           authIndex,
           failed: detail.failed === true,
           latencyMs,
@@ -191,7 +139,7 @@ export function RequestEventsDetailsCard({
         };
       })
       .sort((a, b) => b.timestampMs - a.timestampMs);
-  }, [authFileMap, i18n.language, sourceInfoMap, usage]);
+  }, [i18n.language, usage]);
 
   const hasLatencyData = useMemo(() => rows.some((row) => row.latencyMs !== null), [rows]);
 
@@ -485,7 +433,7 @@ export function RequestEventsDetailsCard({
                       )}
                     </td>
                     <td className={styles.requestEventsAuthIndex} title={row.authIndex}>
-                      {row.authIndex}
+                      {row.authIndex === '-' ? '-' : `#${row.authIndex}`}
                     </td>
                     <td>
                       <span

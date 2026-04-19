@@ -59,6 +59,7 @@ export interface ApiStatsModelSummary {
 
 export interface ApiStats {
   endpoint: string;
+  displayName: string;
   totalRequests: number;
   successCount: number;
   failureCount: number;
@@ -72,6 +73,10 @@ export type TokenCategory = 'input' | 'output' | 'cached' | 'reasoning';
 export interface UsageDetailRecord {
   timestamp: string;
   source: string;
+  source_raw?: string;
+  source_display?: string;
+  source_type?: string;
+  source_key?: string;
   auth_index: string;
   failed: boolean;
   latency_ms: number;
@@ -84,6 +89,7 @@ export interface UsageDetailRecord {
     total_tokens: number;
   };
   __apiName?: string;
+  __apiDisplayName?: string;
   __modelName?: string;
   __timestampMs?: number;
   [key: string]: unknown;
@@ -226,6 +232,7 @@ export function collectUsageDetails(usage: UsagePayload | null | undefined): Usa
   if (!usage?.apis) return [];
   const rows: UsageDetailRecord[] = [];
   Object.entries(usage.apis).forEach(([apiName, api]) => {
+    const apiDisplayName = String(api.display_name ?? apiName).trim() || apiName;
     Object.entries(api.models ?? {}).forEach(([modelName, model]) => {
       (model.details ?? []).forEach((detail) => {
         const timestampMs = Date.parse(detail.timestamp);
@@ -233,6 +240,7 @@ export function collectUsageDetails(usage: UsagePayload | null | undefined): Usa
           ...detail,
           latency_ms: toNumber(detail.latency_ms),
           __apiName: apiName,
+          __apiDisplayName: apiDisplayName,
           __modelName: modelName,
           __timestampMs: Number.isFinite(timestampMs) ? timestampMs : 0
         });
@@ -328,6 +336,7 @@ export function getApiStats(usage: UsagePayload | null, modelPrices: Record<stri
       });
       return {
         endpoint,
+        displayName: String(api.display_name ?? endpoint).trim() || endpoint,
         totalRequests: toNumber(api.total_requests),
         successCount: toNumber(api.success_count),
         failureCount: toNumber(api.failure_count),
@@ -625,6 +634,7 @@ export function buildUsageFromDetails(details: UsageDetailRecord[]): UsagePayloa
     const hourKey = startOfHourKey(detail.timestamp);
 
     const api = usage.apis[apiName] ?? {
+      display_name: detail.__apiDisplayName || apiName,
       total_requests: 0,
       success_count: 0,
       failure_count: 0,

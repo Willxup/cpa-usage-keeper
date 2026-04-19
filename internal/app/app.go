@@ -44,6 +44,8 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	backgroundPoller := poller.New(syncService, cfg.PollInterval)
 
 	usageService := service.NewUsageService(db)
+	authFileService := service.NewAuthFileService(db)
+	providerMetadataService := service.NewProviderMetadataService(db)
 	pricingService := service.NewPricingService(db)
 	sessionManager := auth.NewSessionManager(cfg.AuthSessionTTL)
 	authHandler := api.NewAuthHandler(api.AuthConfig{
@@ -60,6 +62,8 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 			filepath.Join("web", "dist"),
 			backgroundPoller,
 			usageService,
+			authFileService,
+			providerMetadataService,
 			pricingService,
 			api.AuthConfig{
 				Enabled:       cfg.AuthEnabled,

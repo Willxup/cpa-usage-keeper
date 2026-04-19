@@ -1,4 +1,4 @@
-import type { AuthSessionResponse, PricingEntry, PricingResponse, UsedModelsResponse, UsageResponse } from './types'
+import type { AuthSessionResponse, PricingEntry, PricingResponse, StatusResponse, UsedModelsResponse, UsageResponse } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -63,6 +63,14 @@ export async function fetchUsedModels(signal?: AbortSignal): Promise<UsedModelsR
   const response = await apiFetch('/api/v1/models/used', { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load used models: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchStatus(signal?: AbortSignal): Promise<StatusResponse> {
+  const response = await apiFetch('/api/v1/status', { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load status: ${response.status}`)
   }
   return response.json()
 }
