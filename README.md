@@ -1,8 +1,10 @@
 # CPA Usage Keeper
 
+[中文说明](./README.zh-CN.md)
+
 CPA Usage Keeper is a standalone usage persistence and dashboard service for CPA (CLI Proxy API).
 
-It periodically pulls CPA `usage/export` data, stores normalized events in SQLite, exposes aggregated APIs, and serves a built-in web dashboard for usage, pricing, request health, and model/API breakdowns.
+It requires `cli-proxy-api` as the backend source of CPA usage data and is designed to add persistence and statistics capabilities on top of CPA. It periodically pulls CPA `usage/export` data, stores normalized events in SQLite, exposes aggregated APIs, and serves a built-in web dashboard for usage, pricing, request health, and model/API breakdowns.
 
 ## Features
 
