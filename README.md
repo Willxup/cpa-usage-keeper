@@ -31,7 +31,6 @@ internal/poller/     Background sync loop
 internal/repository/ SQLite access and aggregations
 internal/service/    Sync, usage, and pricing services
 web/                 React + TypeScript frontend
-deploy/              Docker Compose deployment examples
 ```
 
 ## Configuration
@@ -67,6 +66,7 @@ Key variables:
 - Go 1.22+
 - Node.js 22+
 - npm
+- A running `cli-proxy-api` instance
 
 ### Run locally
 
@@ -127,24 +127,24 @@ Notes:
 
 ## Docker Compose
 
-1. Copy the deployment env template:
+1. Copy the root env template:
 
 ```bash
-cp deploy/.env.example deploy/.env
+cp .env.example .env
 ```
 
-2. Edit `deploy/.env` with your CPA credentials and runtime settings.
+2. Edit `.env` with your CPA credentials and runtime settings.
 
 3. Start the stack:
 
 ```bash
-docker compose -f deploy/docker-compose.example.yml --env-file deploy/.env up -d --build
+docker compose -f docker-compose.example.yml --env-file .env up -d --build
 ```
 
 4. Stop the stack:
 
 ```bash
-docker compose -f deploy/docker-compose.example.yml --env-file deploy/.env down
+docker compose -f docker-compose.example.yml --env-file .env down
 ```
 
-The compose file bind-mounts `deploy/data` to `/data` for SQLite and backup persistence.
+The compose file bind-mounts `data` to `/data` for SQLite and backup persistence.

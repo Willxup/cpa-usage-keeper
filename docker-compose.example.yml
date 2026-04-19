@@ -1,7 +1,7 @@
 services:
   cpa-usage-keeper:
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile
     ports:
       - "8080:8080"

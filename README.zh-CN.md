@@ -31,7 +31,6 @@ internal/poller/     后台同步轮询
 internal/repository/ SQLite 访问与聚合逻辑
 internal/service/    同步、usage 与 pricing 服务
 web/                 React + TypeScript 前端
-deploy/              Docker Compose 部署示例
 ```
 
 ## 配置
@@ -128,24 +127,24 @@ docker run --rm \
 
 ## Docker Compose
 
-1. 复制部署环境变量模板：
+1. 复制根目录环境变量模板：
 
 ```bash
-cp deploy/.env.example deploy/.env
+cp .env.example .env
 ```
 
-2. 编辑 `deploy/.env`，填入 CPA 凭据和运行参数。
+2. 编辑 `.env`，填入 CPA 凭据和运行参数。
 
 3. 启动服务：
 
 ```bash
-docker compose -f deploy/docker-compose.example.yml --env-file deploy/.env up -d --build
+docker compose -f docker-compose.example.yml --env-file .env up -d --build
 ```
 
 4. 停止服务：
 
 ```bash
-docker compose -f deploy/docker-compose.example.yml --env-file deploy/.env down
+docker compose -f docker-compose.example.yml --env-file .env down
 ```
 
-compose 会将 `deploy/data` 以 bind mount 方式挂载到容器内的 `/data`，用于保存 SQLite 数据库和备份文件。
+compose 会将仓库根目录的 `data` 以 bind mount 方式挂载到容器内的 `/data`，用于保存 SQLite 数据库和备份文件。
