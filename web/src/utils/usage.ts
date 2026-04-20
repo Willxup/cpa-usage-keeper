@@ -145,13 +145,18 @@ const normalizeHourWindow = (hourWindowHours?: number): number => {
   return Math.min(Math.max(Math.floor(hourWindowHours), 1), 24 * 31);
 };
 
+const MAX_HOURLY_CHART_WINDOW_HOURS = 24;
+
+const resolveHourlyChartWindowHours = (hourWindowHours?: number): number =>
+  Math.min(normalizeHourWindow(hourWindowHours), MAX_HOURLY_CHART_WINDOW_HOURS);
+
 const buildHourlyWindow = (hourWindowHours?: number, endMs?: number) => {
-  const resolvedHourWindow = normalizeHourWindow(hourWindowHours);
+  const resolvedHourWindow = resolveHourlyChartWindowHours(hourWindowHours);
   const hourMs = 60 * 60 * 1000;
   const currentHour = new Date(Number.isFinite(endMs) && endMs && endMs > 0 ? endMs : Date.now());
   currentHour.setMinutes(0, 0, 0);
   const earliestBucket = new Date(currentHour);
-  earliestBucket.setHours(earliestBucket.getHours() - (resolvedHourWindow - 1));
+  earliestBucket.setHours(earliestBucket.getHours() - resolvedHourWindow);
   const earliestTime = earliestBucket.getTime();
   const labels = Array.from({ length: resolvedHourWindow }, (_, index) =>
     formatHourLabel(new Date(earliestTime + index * hourMs).toISOString())
@@ -162,6 +167,25 @@ const buildHourlyWindow = (hourWindowHours?: number, endMs?: number) => {
     lastBucketTime: earliestTime + (labels.length - 1) * hourMs,
     labels
   };
+};
+
+const resolveHourlyChartEndMs = (details: UsageDetailRecord[], hourWindowHours?: number, endMs?: number): number | undefined => {
+  const requestedEndMs = Number.isFinite(endMs) && endMs && endMs > 0 ? endMs : undefined;
+  if (!details.length) return requestedEndMs;
+  if (requestedEndMs === undefined) return getDetailTimestampBounds(details)?.latestMs;
+
+  const { earliestTime, lastBucketTime } = buildHourlyWindow(hourWindowHours, requestedEndMs);
+  const hasDataInRequestedWindow = details.some((detail) => {
+    const timestamp = detail.__timestampMs ?? 0;
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return false;
+    const normalized = new Date(timestamp);
+    normalized.setMinutes(0, 0, 0);
+    const bucketStart = normalized.getTime();
+    return bucketStart >= earliestTime && bucketStart <= lastBucketTime;
+  });
+
+  if (hasDataInRequestedWindow) return requestedEndMs;
+  return getDetailTimestampBounds(details)?.latestMs ?? requestedEndMs;
 };
 
 const getHourBucketIndex = (timestamp: number, hourWindowHours?: number): { index: number; labels: string[] } | null => {
@@ -325,7 +349,7 @@ export function resolveUsageFilterWindow(
   }
 
   const windowHours = PRESET_WINDOW_HOURS[range];
-  const endMs = bounds ? Math.min(bounds.latestMs, fallbackNow) : fallbackNow;
+  const endMs = fallbackNow;
   const startMs = endMs - windowHours * 60 * 60 * 1000;
   return {
     startMs,
@@ -489,7 +513,8 @@ export function buildChartData(
   const orderedKeys = new Set<string>();
 
   if (period === 'hour') {
-    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(options.hourWindowHours, options.endMs);
+    const hourEndMs = resolveHourlyChartEndMs(details, options.hourWindowHours, options.endMs);
+    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(options.hourWindowHours, hourEndMs);
     const bucketKeys = labels.map((_, index) => new Date(earliestTime + index * hourMs).toISOString());
     bucketKeys.forEach((key) => orderedKeys.add(key));
 
@@ -581,7 +606,8 @@ function buildTokenBreakdownSeries(usage: UsagePayload | null, period: 'hour' | 
   }
 
   if (period === 'hour') {
-    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(hourWindowHours, endMs);
+    const hourEndMs = resolveHourlyChartEndMs(details, hourWindowHours, endMs);
+    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(hourWindowHours, hourEndMs);
     const dataByCategory = {
       input: new Array(labels.length).fill(0),
       output: new Array(labels.length).fill(0),
@@ -632,7 +658,8 @@ function buildCostSeries(usage: UsagePayload | null, modelPrices: Record<string,
   if (!details.length) return { labels: [], data: [], hasData: false };
 
   if (period === 'hour') {
-    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(hourWindowHours, endMs);
+    const hourEndMs = resolveHourlyChartEndMs(details, hourWindowHours, endMs);
+    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(hourWindowHours, hourEndMs);
     const data = new Array(labels.length).fill(0);
     let hasData = false;
 

@@ -32,8 +32,8 @@ export function useChartData({
   hourWindowHours,
   endMs
 }: UseChartDataOptions): UseChartDataReturn {
-  const [requestsPeriod, setRequestsPeriod] = useState<'hour' | 'day'>('day');
-  const [tokensPeriod, setTokensPeriod] = useState<'hour' | 'day'>('day');
+  const [requestsPeriod, setRequestsPeriod] = useState<'hour' | 'day'>('hour');
+  const [tokensPeriod, setTokensPeriod] = useState<'hour' | 'day'>('hour');
 
   const requestsChartData = useMemo(() => {
     if (!usage) return { labels: [], datasets: [] };
