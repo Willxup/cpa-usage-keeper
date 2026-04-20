@@ -107,9 +107,7 @@ export function CredentialStatsCard({
                 <tr key={row.key}>
                   <td className={styles.modelCell}>
                     <span>{row.displayName}</span>
-                    {row.type && (
-                      <span className={styles.credentialType}>{row.type}</span>
-                    )}
+                    {row.type && <span className={styles.credentialType}>{row.type}</span>}
                   </td>
                   <td>
                     <span className={styles.requestCountCell}>

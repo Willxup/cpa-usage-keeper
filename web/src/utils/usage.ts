@@ -670,6 +670,10 @@ export function buildUsageFromDetails(details: UsageDetailRecord[]): UsagePayloa
       timestamp: detail.timestamp,
       latency_ms: toNumber(detail.latency_ms),
       source: detail.source ?? '',
+      source_raw: detail.source_raw ?? '',
+      source_display: detail.source_display ?? '',
+      source_type: detail.source_type ?? '',
+      source_key: detail.source_key ?? '',
       auth_index: detail.auth_index ?? '',
       failed: detail.failed === true,
       tokens: {

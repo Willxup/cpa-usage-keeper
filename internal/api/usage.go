@@ -128,6 +128,23 @@ func resolveUsageSource(
 	authFiles map[string]models.AuthFile,
 	providerMetadata map[string]models.ProviderMetadata,
 ) usageSourceResolution {
+	normalizedSource := strings.TrimSpace(rawSource)
+	if normalizedSource != "" {
+		if item, ok := providerMetadata[normalizedSource]; ok {
+			displayName := firstNonEmptyString(item.DisplayName, item.ProviderType, redact.APIKeyDisplayName(normalizedSource))
+			providerType := strings.TrimSpace(item.ProviderType)
+			providerKey := strings.TrimSpace(item.ProviderKey)
+			if providerKey == "" {
+				providerKey = "provider:" + firstNonEmptyString(providerType, displayName)
+			}
+			return usageSourceResolution{
+				DisplayName: displayName,
+				SourceType:  providerType,
+				SourceKey:   providerKey,
+			}
+		}
+	}
+
 	normalizedAuthIndex := strings.TrimSpace(authIndex)
 	if normalizedAuthIndex != "" {
 		if file, ok := authFiles[normalizedAuthIndex]; ok {
@@ -140,22 +157,8 @@ func resolveUsageSource(
 		}
 	}
 
-	normalizedSource := strings.TrimSpace(rawSource)
 	if normalizedSource == "" {
 		return usageSourceResolution{DisplayName: "-", SourceKey: "raw:-"}
-	}
-	if item, ok := providerMetadata[normalizedSource]; ok {
-		displayName := firstNonEmptyString(item.DisplayName, item.ProviderType, redact.APIKeyDisplayName(normalizedSource))
-		providerType := strings.TrimSpace(item.ProviderType)
-		providerKey := strings.TrimSpace(item.ProviderKey)
-		if providerKey == "" {
-			providerKey = "provider:" + firstNonEmptyString(providerType, displayName)
-		}
-		return usageSourceResolution{
-			DisplayName: displayName,
-			SourceType:  providerType,
-			SourceKey:   providerKey,
-		}
 	}
 	if looksLikeEmail(normalizedSource) {
 		return usageSourceResolution{

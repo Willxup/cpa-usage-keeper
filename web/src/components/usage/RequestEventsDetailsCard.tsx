@@ -21,7 +21,6 @@ type RequestEventRow = {
   sourceRaw: string;
   source: string;
   sourceType: string;
-  resolvedKey: string;
   authIndex: string;
   failed: boolean;
   latencyMs: number | null;
@@ -103,7 +102,6 @@ export function RequestEventsDetailsCard({
             : normalizeAuthIndex(authIndexRaw) || '-';
         const source = String(detail.source ?? detail.source_display ?? '').trim() || '-';
         const sourceType = String(detail.source_type ?? '').trim();
-        const resolvedKey = String(detail.source_key ?? '').trim() || source;
         const model = String(detail.__modelName ?? '').trim() || '-';
         const inputTokens = Math.max(toNumber(detail.tokens?.input_tokens), 0);
         const outputTokens = Math.max(toNumber(detail.tokens?.output_tokens), 0);
@@ -127,7 +125,6 @@ export function RequestEventsDetailsCard({
           sourceRaw: sourceRaw || '-',
           source,
           sourceType,
-          resolvedKey,
           authIndex,
           failed: detail.failed === true,
           latencyMs,

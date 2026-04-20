@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"cpa-usage-keeper/internal/cpa"
+	"cpa-usage-keeper/internal/models"
 	"cpa-usage-keeper/internal/redact"
 )
 
@@ -99,7 +100,12 @@ func TestUsageResponsePreservesFilteringFields(t *testing.T) {
 				},
 			},
 		},
-	}}, nil, nil, nil, AuthConfig{}, nil)
+	}}, authFileStub{files: []models.AuthFile{{
+		AuthIndex: "2",
+		Email:     "user@example.com",
+		Label:     "Work Account",
+		Type:      "auth-file",
+	}}}, nil, nil, AuthConfig{}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage", nil)
 	resp := httptest.NewRecorder()
 
@@ -109,13 +115,71 @@ func TestUsageResponsePreservesFilteringFields(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
 	body := resp.Body.String()
-	if !contains(body, `"source":"s******a"`) {
+	if !contains(body, `"source":"user@example.com"`) {
 		t.Fatalf("expected source to expose resolved display value: %s", body)
+	}
+	if !contains(body, `"source_type":"auth-file"`) {
+		t.Fatalf("expected source_type to preserve auth-file type for frontend tags: %s", body)
 	}
 	if !contains(body, `"source_raw":"source-a"`) {
 		t.Fatalf("expected source_raw to preserve raw value for filtering: %s", body)
 	}
 	if !contains(body, `"auth_index":"2"`) {
 		t.Fatalf("expected auth_index to remain available for frontend filtering: %s", body)
+	}
+}
+
+func TestUsagePrefersProviderMetadataOverAuthFileForTagResolution(t *testing.T) {
+	router := NewRouter("", nil, usageStub{usage: &cpa.StatisticsSnapshot{
+		TotalRequests: 1,
+		SuccessCount:  1,
+		TotalTokens:   20,
+		APIs: map[string]cpa.APISnapshot{
+			"sk-live-secret-value": {
+				TotalRequests: 1,
+				SuccessCount:  1,
+				TotalTokens:   20,
+				Models: map[string]cpa.ModelSnapshot{
+					"gpt-5": {
+						TotalRequests: 1,
+						SuccessCount:  1,
+						TotalTokens:   20,
+						Details: []cpa.RequestDetail{{
+							Source:    "sk-provider-key",
+							AuthIndex: "2",
+							Failed:    false,
+							Tokens:    cpa.TokenStats{TotalTokens: 20},
+						}},
+					},
+				},
+			},
+		},
+	}}, authFileStub{files: []models.AuthFile{{
+		AuthIndex: "2",
+		Email:     "user@example.com",
+		Type:      "codex",
+	}}}, providerMetadataStub{items: []models.ProviderMetadata{{
+		LookupKey:    "sk-provider-key",
+		ProviderType: "openai",
+		DisplayName:  "OpenAI Mirror",
+		ProviderKey:  "openai:OpenAI Mirror",
+	}}}, nil, AuthConfig{}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	body := resp.Body.String()
+	if !contains(body, `"source":"OpenAI Mirror"`) {
+		t.Fatalf("expected provider metadata display to win over auth-file display: %s", body)
+	}
+	if !contains(body, `"source_type":"openai"`) {
+		t.Fatalf("expected provider metadata type to win over auth-file type: %s", body)
+	}
+	if !contains(body, `"source_key":"openai:OpenAI Mirror"`) {
+		t.Fatalf("expected provider key to be used for stable grouping: %s", body)
 	}
 }

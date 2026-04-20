@@ -17,6 +17,7 @@ export interface UsageDetail {
   timestamp: string
   latency_ms: number
   source: string
+  source_raw?: string
   source_display?: string
   source_type?: string
   source_key?: string
