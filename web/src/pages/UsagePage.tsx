@@ -526,14 +526,14 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               }}
             />
 
+            <ServiceHealthCard usage={usage} loading={loading} />
+
             <ChartLineSelector
               chartLines={chartLines}
               modelNames={modelNames}
               maxLines={MAX_CHART_LINES}
               onChange={handleChartLinesChange}
             />
-
-            <ServiceHealthCard usage={usage} loading={loading} />
 
             <div className={styles.chartsGrid}>
               <UsageChart
