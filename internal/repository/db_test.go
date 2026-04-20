@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -86,6 +87,40 @@ func TestInsertUsageEventsDeduplicatesByEventKey(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("expected 2 persisted usage events, got %d", count)
+	}
+}
+
+func TestInsertUsageEventsBatchesLargeInsertSet(t *testing.T) {
+	db := openTestDatabase(t)
+	events := make([]models.UsageEvent, 0, 300)
+	baseTime := time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC)
+	for i := 0; i < 300; i++ {
+		events = append(events, models.UsageEvent{
+			EventKey:      fmt.Sprintf("event-%03d", i),
+			SnapshotRunID: 1,
+			APIGroupKey:   "provider-a",
+			Model:         "claude-sonnet",
+			Timestamp:     baseTime.Add(time.Duration(i) * time.Minute),
+			Source:        "source-a",
+			AuthIndex:     "auth-1",
+			TotalTokens:   int64(i + 1),
+		})
+	}
+
+	inserted, deduped, err := InsertUsageEvents(db, events)
+	if err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+	if inserted != len(events) || deduped != 0 {
+		t.Fatalf("expected inserted=%d deduped=0, got inserted=%d deduped=%d", len(events), inserted, deduped)
+	}
+
+	var count int64
+	if err := db.Model(&models.UsageEvent{}).Count(&count).Error; err != nil {
+		t.Fatalf("count usage events: %v", err)
+	}
+	if count != int64(len(events)) {
+		t.Fatalf("expected %d persisted usage events, got %d", len(events), count)
 	}
 }
 
