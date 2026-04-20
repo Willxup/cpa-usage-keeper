@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"cpa-usage-keeper/internal/poller"
@@ -56,6 +57,23 @@ func NewRouter(
 				c.File(indexPath)
 			})
 			router.Static("/assets", filepath.Join(staticDir, "assets"))
+			router.NoRoute(func(c *gin.Context) {
+				if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+					c.Status(http.StatusNotFound)
+					return
+				}
+
+				relPath := strings.TrimPrefix(filepath.Clean(c.Request.URL.Path), "/")
+				if relPath != "." && relPath != "" {
+					assetPath := filepath.Join(staticDir, relPath)
+					if assetInfo, err := os.Stat(assetPath); err == nil && !assetInfo.IsDir() {
+						c.File(assetPath)
+						return
+					}
+				}
+
+				c.File(indexPath)
+			})
 		}
 	}
 

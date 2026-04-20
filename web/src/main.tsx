@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { I18nextProvider } from 'react-i18next';
 import App from './App';
 import i18n from './i18n';
+import faviconUrl from './assets/cli-proxy-api-favicon.png';
 import './styles/reset.scss';
 import './styles/variables.scss';
 import './styles/themes.scss';
@@ -10,6 +11,14 @@ import './styles/layout.scss';
 import './styles/components.scss';
 import './styles/global.scss';
 import { useThemeStore } from './stores';
+
+const faviconEl = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ?? document.createElement('link');
+faviconEl.rel = 'icon';
+faviconEl.type = 'image/png';
+faviconEl.href = faviconUrl;
+if (!faviconEl.parentNode) {
+  document.head.appendChild(faviconEl);
+}
 
 function Root() {
   const initializeTheme = useThemeStore((state) => state.initializeTheme);
