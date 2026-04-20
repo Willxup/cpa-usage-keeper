@@ -21,6 +21,7 @@ export interface CostTrendChartProps {
   isMobile: boolean;
   modelPrices: Record<string, ModelPrice>;
   hourWindowHours?: number;
+  endMs?: number;
 }
 
 const COST_COLOR = '#f59e0b';
@@ -43,7 +44,8 @@ export function CostTrendChart({
   isDark,
   isMobile,
   modelPrices,
-  hourWindowHours
+  hourWindowHours,
+  endMs
 }: CostTrendChartProps) {
   const { t } = useTranslation();
   const [period, setPeriod] = useState<'hour' | 'day'>('hour');
@@ -56,7 +58,7 @@ export function CostTrendChart({
 
     const series =
       period === 'hour'
-        ? buildHourlyCostSeries(usage, modelPrices, hourWindowHours)
+        ? buildHourlyCostSeries(usage, modelPrices, hourWindowHours, endMs)
         : buildDailyCostSeries(usage, modelPrices);
 
     const data = {
@@ -91,7 +93,7 @@ export function CostTrendChart({
     };
 
     return { chartData: data, chartOptions: options, hasData: series.hasData };
-  }, [usage, period, isDark, isMobile, modelPrices, hasPrices, hourWindowHours, t]);
+  }, [usage, period, isDark, isMobile, modelPrices, hasPrices, hourWindowHours, endMs, t]);
 
   const shouldRenderChart = period === 'hour' ? chartData.labels.length > 0 : hasData;
 

@@ -10,6 +10,7 @@ export interface UseChartDataOptions {
   isDark: boolean;
   isMobile: boolean;
   hourWindowHours?: number;
+  endMs?: number;
 }
 
 export interface UseChartDataReturn {
@@ -28,20 +29,21 @@ export function useChartData({
   chartLines,
   isDark,
   isMobile,
-  hourWindowHours
+  hourWindowHours,
+  endMs
 }: UseChartDataOptions): UseChartDataReturn {
   const [requestsPeriod, setRequestsPeriod] = useState<'hour' | 'day'>('day');
   const [tokensPeriod, setTokensPeriod] = useState<'hour' | 'day'>('day');
 
   const requestsChartData = useMemo(() => {
     if (!usage) return { labels: [], datasets: [] };
-    return buildChartData(usage, requestsPeriod, 'requests', chartLines, { hourWindowHours });
-  }, [usage, requestsPeriod, chartLines, hourWindowHours]);
+    return buildChartData(usage, requestsPeriod, 'requests', chartLines, { hourWindowHours, endMs });
+  }, [usage, requestsPeriod, chartLines, hourWindowHours, endMs]);
 
   const tokensChartData = useMemo(() => {
     if (!usage) return { labels: [], datasets: [] };
-    return buildChartData(usage, tokensPeriod, 'tokens', chartLines, { hourWindowHours });
-  }, [usage, tokensPeriod, chartLines, hourWindowHours]);
+    return buildChartData(usage, tokensPeriod, 'tokens', chartLines, { hourWindowHours, endMs });
+  }, [usage, tokensPeriod, chartLines, hourWindowHours, endMs]);
 
   const requestsChartOptions = useMemo(
     () =>

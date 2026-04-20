@@ -14,7 +14,7 @@ export {
   calculateLatencyStatsFromDetails,
   formatDurationMs
 };
-export type { UsageSnapshot as UsagePayload, UsageTimeRange } from '@/lib/types';
+export type { UsageSnapshot as UsagePayload, UsageTimeRange, UsageFilterWindow } from '@/lib/types';
 
 export interface ModelPrice {
   prompt: number;
@@ -145,10 +145,10 @@ const normalizeHourWindow = (hourWindowHours?: number): number => {
   return Math.min(Math.max(Math.floor(hourWindowHours), 1), 24 * 31);
 };
 
-const buildHourlyWindow = (hourWindowHours?: number) => {
+const buildHourlyWindow = (hourWindowHours?: number, endMs?: number) => {
   const resolvedHourWindow = normalizeHourWindow(hourWindowHours);
   const hourMs = 60 * 60 * 1000;
-  const currentHour = new Date();
+  const currentHour = new Date(Number.isFinite(endMs) && endMs && endMs > 0 ? endMs : Date.now());
   currentHour.setMinutes(0, 0, 0);
   const earliestBucket = new Date(currentHour);
   earliestBucket.setHours(earliestBucket.getHours() - (resolvedHourWindow - 1));
@@ -178,23 +178,53 @@ const getHourBucketIndex = (timestamp: number, hourWindowHours?: number): { inde
 
 const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
 
+const PRESET_WINDOW_HOURS: Record<Exclude<UsageTimeRange, 'all' | 'custom'>, number> = {
+  '4h': 4,
+  '8h': 8,
+  '12h': 12,
+  '24h': 24,
+  '7d': 24 * 7
+};
+
+const toValidTimestamp = (value: unknown): number | null => {
+  const timestamp = typeof value === 'number' ? value : Date.parse(String(value ?? ''));
+  return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : null;
+};
+
+const getDetailTimestampBounds = (details: UsageDetailRecord[]): { earliestMs: number; latestMs: number } | null => {
+  let earliestMs = Number.POSITIVE_INFINITY;
+  let latestMs = Number.NEGATIVE_INFINITY;
+  details.forEach((detail) => {
+    const timestamp = detail.__timestampMs ?? 0;
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return;
+    earliestMs = Math.min(earliestMs, timestamp);
+    latestMs = Math.max(latestMs, timestamp);
+  });
+  if (!Number.isFinite(earliestMs) || !Number.isFinite(latestMs)) return null;
+  return { earliestMs, latestMs };
+};
+
 export function formatCompactNumber(value: number): string {
   const abs = Math.abs(value);
-  const formatTrimmed = (scaled: number, suffix: string) => {
-    const rounded = scaled >= 100 ? scaled.toFixed(0) : scaled >= 10 ? scaled.toFixed(1) : scaled.toFixed(2);
-    return `${rounded.replace(/\.0+$|(?<=\.\d)0+$/g, '')}${suffix}`;
-  };
+  const formatScaled = (scaled: number, suffix: string) => `${scaled.toFixed(2)}${suffix}`;
 
   if (abs < 1_000) {
-    return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value);
+    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value);
   }
   if (abs < 1_000_000) {
-    return formatTrimmed(value / 1_000, 'K');
+    return formatScaled(value / 1_000, 'K');
   }
   if (abs < 1_000_000_000) {
-    return formatTrimmed(value / 1_000_000, 'M');
+    return formatScaled(value / 1_000_000, 'M');
   }
-  return formatTrimmed(value / 1_000_000_000, 'B');
+  return formatScaled(value / 1_000_000_000, 'B');
+}
+
+export function formatFixedTwoDecimals(value: number): string {
+  return new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value || 0);
 }
 
 export function formatPerMinuteValue(value: number): string {
@@ -258,15 +288,80 @@ export function getModelNamesFromUsage(usage: UsagePayload | null | undefined): 
   return Array.from(names).sort((a, b) => a.localeCompare(b));
 }
 
-export function filterUsageByTimeRange(usage: UsagePayload, range: UsageTimeRange): UsagePayload {
-  if (range === 'all') return usage;
+export function resolveUsageFilterWindow(
+  usage: UsagePayload | null | undefined,
+  range: UsageTimeRange,
+  options: {
+    nowMs?: number;
+    customStart?: string | number;
+    customEnd?: string | number;
+  } = {}
+): UsageFilterWindow {
+  const details = collectUsageDetails(usage);
+  const bounds = getDetailTimestampBounds(details);
+  const fallbackNow = toValidTimestamp(options.nowMs) ?? Date.now();
+
+  if (range === 'all') {
+    if (!bounds) return {};
+    const spanMinutes = Math.max((bounds.latestMs - bounds.earliestMs) / 60000, 1);
+    return {
+      startMs: bounds.earliestMs,
+      endMs: bounds.latestMs,
+      windowMinutes: spanMinutes
+    };
+  }
+
+  if (range === 'custom') {
+    const startMs = toValidTimestamp(options.customStart);
+    const endMs = toValidTimestamp(options.customEnd);
+    if (startMs === null || endMs === null || startMs > endMs) {
+      return {};
+    }
+    return {
+      startMs,
+      endMs,
+      windowMinutes: Math.max((endMs - startMs) / 60000, 1)
+    };
+  }
+
+  const windowHours = PRESET_WINDOW_HOURS[range];
+  const endMs = bounds ? Math.min(bounds.latestMs, fallbackNow) : fallbackNow;
+  const startMs = endMs - windowHours * 60 * 60 * 1000;
+  return {
+    startMs,
+    endMs,
+    windowMinutes: windowHours * 60
+  };
+}
+
+export function filterUsageByWindow(usage: UsagePayload, window: UsageFilterWindow): UsagePayload {
   const details = collectUsageDetails(usage);
   if (!details.length) return usage;
-  const latest = Math.max(...details.map((detail) => detail.__timestampMs ?? 0));
-  const windowHours = range === '7h' ? 7 : range === '24h' ? 24 : 24 * 7;
-  const threshold = latest - windowHours * 60 * 60 * 1000;
-  const filteredDetails = details.filter((detail) => (detail.__timestampMs ?? 0) >= threshold);
+  const { startMs, endMs } = window;
+  if (startMs === undefined && endMs === undefined) {
+    return usage;
+  }
+  const filteredDetails = details.filter((detail) => {
+    const timestamp = detail.__timestampMs ?? 0;
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return false;
+    if (startMs !== undefined && timestamp < startMs) return false;
+    if (endMs !== undefined && timestamp > endMs) return false;
+    return true;
+  });
   return buildUsageFromDetails(filteredDetails);
+}
+
+export function filterUsageByTimeRange(
+  usage: UsagePayload,
+  range: UsageTimeRange,
+  options: {
+    nowMs?: number;
+    customStart?: string | number;
+    customEnd?: string | number;
+  } = {}
+): UsagePayload {
+  const window = resolveUsageFilterWindow(usage, range, options);
+  return filterUsageByWindow(usage, window);
 }
 
 export function loadModelPrices(): Record<string, ModelPrice> {
@@ -384,7 +479,7 @@ export function buildChartData(
   period: 'hour' | 'day',
   metric: 'requests' | 'tokens',
   chartLines: string[],
-  options: { hourWindowHours?: number } = {}
+  options: { hourWindowHours?: number; endMs?: number } = {}
 ): ChartData {
   const details = collectUsageDetails(usage);
   if (!details.length) return { labels: [], datasets: [] };
@@ -394,7 +489,7 @@ export function buildChartData(
   const orderedKeys = new Set<string>();
 
   if (period === 'hour') {
-    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(options.hourWindowHours);
+    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(options.hourWindowHours, options.endMs);
     const bucketKeys = labels.map((_, index) => new Date(earliestTime + index * hourMs).toISOString());
     bucketKeys.forEach((key) => orderedKeys.add(key));
 
@@ -471,22 +566,22 @@ export function buildChartData(
   };
 }
 
-export function buildHourlyTokenBreakdown(usage: UsagePayload | null, hourWindowHours = 24) {
-  return buildTokenBreakdownSeries(usage, 'hour', hourWindowHours);
+export function buildHourlyTokenBreakdown(usage: UsagePayload | null, hourWindowHours = 24, endMs?: number) {
+  return buildTokenBreakdownSeries(usage, 'hour', hourWindowHours, endMs);
 }
 
 export function buildDailyTokenBreakdown(usage: UsagePayload | null) {
   return buildTokenBreakdownSeries(usage, 'day');
 }
 
-function buildTokenBreakdownSeries(usage: UsagePayload | null, period: 'hour' | 'day', hourWindowHours?: number) {
+function buildTokenBreakdownSeries(usage: UsagePayload | null, period: 'hour' | 'day', hourWindowHours?: number, endMs?: number) {
   const details = collectUsageDetails(usage);
   if (!details.length) {
     return { labels: [], dataByCategory: { input: [], output: [], cached: [], reasoning: [] } as Record<TokenCategory, number[]> };
   }
 
   if (period === 'hour') {
-    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(hourWindowHours);
+    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(hourWindowHours, endMs);
     const dataByCategory = {
       input: new Array(labels.length).fill(0),
       output: new Array(labels.length).fill(0),
@@ -524,20 +619,20 @@ function buildTokenBreakdownSeries(usage: UsagePayload | null, period: 'hour' | 
   return { labels: keys.map((key) => formatDayLabel(key)), dataByCategory };
 }
 
-export function buildHourlyCostSeries(usage: UsagePayload | null, modelPrices: Record<string, ModelPrice>, hourWindowHours = 24) {
-  return buildCostSeries(usage, modelPrices, 'hour', hourWindowHours);
+export function buildHourlyCostSeries(usage: UsagePayload | null, modelPrices: Record<string, ModelPrice>, hourWindowHours = 24, endMs?: number) {
+  return buildCostSeries(usage, modelPrices, 'hour', hourWindowHours, endMs);
 }
 
 export function buildDailyCostSeries(usage: UsagePayload | null, modelPrices: Record<string, ModelPrice>) {
   return buildCostSeries(usage, modelPrices, 'day');
 }
 
-function buildCostSeries(usage: UsagePayload | null, modelPrices: Record<string, ModelPrice>, period: 'hour' | 'day', hourWindowHours?: number) {
+function buildCostSeries(usage: UsagePayload | null, modelPrices: Record<string, ModelPrice>, period: 'hour' | 'day', hourWindowHours?: number, endMs?: number) {
   const details = collectUsageDetails(usage);
   if (!details.length) return { labels: [], data: [], hasData: false };
 
   if (period === 'hour') {
-    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(hourWindowHours);
+    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(hourWindowHours, endMs);
     const data = new Array(labels.length).fill(0);
     let hasData = false;
 

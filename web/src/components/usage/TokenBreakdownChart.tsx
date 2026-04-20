@@ -27,6 +27,7 @@ export interface TokenBreakdownChartProps {
   isDark: boolean;
   isMobile: boolean;
   hourWindowHours?: number;
+  endMs?: number;
 }
 
 export function TokenBreakdownChart({
@@ -34,7 +35,8 @@ export function TokenBreakdownChart({
   loading,
   isDark,
   isMobile,
-  hourWindowHours
+  hourWindowHours,
+  endMs
 }: TokenBreakdownChartProps) {
   const { t } = useTranslation();
   const [period, setPeriod] = useState<'hour' | 'day'>('hour');
@@ -42,7 +44,7 @@ export function TokenBreakdownChart({
   const { chartData, chartOptions } = useMemo(() => {
     const series =
       period === 'hour'
-        ? buildHourlyTokenBreakdown(usage, hourWindowHours)
+        ? buildHourlyTokenBreakdown(usage, hourWindowHours, endMs)
         : buildDailyTokenBreakdown(usage);
     const categoryLabels: Record<TokenCategory, string> = {
       input: t('usage_stats.input_tokens'),
@@ -82,7 +84,7 @@ export function TokenBreakdownChart({
     };
 
     return { chartData: data, chartOptions: options };
-  }, [usage, period, isDark, isMobile, hourWindowHours, t]);
+  }, [usage, period, isDark, isMobile, hourWindowHours, endMs, t]);
 
   return (
     <Card

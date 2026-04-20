@@ -196,6 +196,11 @@
   justify-content: flex-start;
   gap: 10px;
   flex-wrap: wrap;
+
+  @include mobile {
+    width: 100%;
+    align-items: center;
+  }
 }
 
 .lastRefreshed {
@@ -209,11 +214,17 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   padding: 8px 10px;
   border: 1px solid var(--border-color);
   border-radius: 16px;
   background: color-mix(in srgb, var(--bg-primary) 82%, transparent);
+
+  @include mobile {
+    width: 100%;
+    align-items: center;
+    overflow-x: auto;
+  }
 }
 
 .timeRangeLabel {
@@ -224,6 +235,76 @@
 
 .timeRangeSelectControl {
   min-width: 164px;
+}
+
+.customRangeInline {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+}
+
+.customRangeFields {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.customRangeField {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.customRangeFieldLabel {
+  font-size: 9px;
+  line-height: 1;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.customRangeInput {
+  width: 150px;
+  height: 34px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.customRangeSeparator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 12px;
+  height: 34px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.customRangeHint,
+.customRangeError {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.customRangeHint {
+  color: var(--text-secondary);
+}
+
+.customRangeError {
+  color: var(--error-color);
+}
+
+@include mobile {
+  .customRangeFields {
+    width: 100%;
+    gap: 6px;
+  }
+
+  .customRangeInput {
+    width: 132px;
+  }
 }
 
 .pageTitle {

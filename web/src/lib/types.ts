@@ -74,7 +74,13 @@ export interface PricingResponse {
   pricing: PricingEntry[]
 }
 
-export type UsageTimeRange = 'all' | '4h' | '8h' | '12h' | '24h' | '7d'
+export type UsageTimeRange = 'all' | '4h' | '8h' | '12h' | '24h' | '7d' | 'custom'
+
+export interface UsageFilterWindow {
+  startMs?: number
+  endMs?: number
+  windowMinutes?: number
+}
 
 export type UsageSeriesDimension = 'all' | 'api' | 'model'
 
