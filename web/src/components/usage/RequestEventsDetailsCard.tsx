@@ -406,7 +406,6 @@ export function RequestEventsDetailsCard({
                   <th>{t('usage_stats.request_events_timestamp')}</th>
                   <th>{t('usage_stats.model_name')}</th>
                   <th>{t('usage_stats.request_events_source')}</th>
-                  <th>{t('usage_stats.request_events_auth_index')}</th>
                   <th>{t('usage_stats.request_events_result')}</th>
                   {hasLatencyData && <th title={latencyHint}>{t('usage_stats.time')}</th>}
                   <th>{t('usage_stats.input_tokens')}</th>
@@ -429,9 +428,6 @@ export function RequestEventsDetailsCard({
                         <span className={styles.credentialType}>{row.sourceType}</span>
                       )}
                     </td>
-                    <td className={styles.requestEventsAuthIndex} title={row.authIndex}>
-                      {row.authIndex === '-' ? '-' : `#${row.authIndex}`}
-                    </td>
                     <td>
                       <span
                         className={
@@ -440,7 +436,7 @@ export function RequestEventsDetailsCard({
                             : styles.requestEventsResultSuccess
                         }
                       >
-                        {row.failed ? t('stats.failure') : t('stats.success')}
+                        {row.failed ? t('usage_stats.failure') : t('usage_stats.success')}
                       </span>
                     </td>
                     {hasLatencyData && (
