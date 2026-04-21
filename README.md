@@ -116,13 +116,76 @@ npm --prefix ./web run build
 
 ## Docker
 
-Build the image from the repository root:
+### Publish image with GitHub Actions and GHCR
+
+This repository can publish a Docker image to GitHub Container Registry (GHCR):
+
+- GitHub repository stores the source code
+- GitHub Actions builds and publishes the image automatically
+- GHCR stores the built image at `ghcr.io/willxup/cpa-usage-keeper`
+
+After adding `.github/workflows/docker-publish.yml`, GitHub Actions is effectively enabled for this repository, but you may still need to do two things in GitHub:
+
+1. Open the repository `Actions` tab and enable Actions if GitHub asks you to.
+2. After the first successful publish, open the package page and make the image public if you want anonymous `docker pull` access.
+
+The workflow publishes automatically when you:
+- push to `main`
+- push a version tag such as `v1.0.0`
+
+On pull requests, it only verifies that the Docker image can be built.
+
+### Use the published image
+
+1. Copy the env template:
+
+```bash
+cp .env.example .env
+```
+
+2. Edit `.env` and fill in at least:
+- `CPA_BASE_URL`
+- `CPA_MANAGEMENT_KEY`
+- `SQLITE_PATH=/data/app.db`
+
+3. Pull the image:
+
+```bash
+docker pull ghcr.io/willxup/cpa-usage-keeper:latest
+```
+
+4. Run the container:
+
+```bash
+docker run --rm \
+  -p 8080:8080 \
+  -v "$(pwd)/data:/data" \
+  --env-file .env \
+  ghcr.io/willxup/cpa-usage-keeper:latest
+```
+
+5. Verify it is running:
+
+```bash
+curl -i http://127.0.0.1:8080/healthz
+```
+
+Notes:
+- `APP_BASE_PATH` is a runtime environment variable, not a Docker build argument
+- The same image can run either at `/` or a subpath such as `/cpa`
+- `BACKUP_DIR` should normally be `/data/backups`
+- The image does not include your runtime secrets; all deployment-specific settings stay in `.env`
+- Persist `./data:/data` or your SQLite database and backups will be ephemeral
+
+### Build locally
+
+If you still want to build locally from the repository root:
 
 ```bash
 docker build -t cpa-usage-keeper .
 ```
 
-Run the container:
+Then run:
 
 ```bash
 docker run --rm \
@@ -131,13 +194,6 @@ docker run --rm \
   --env-file .env \
   cpa-usage-keeper
 ```
-
-Notes:
-- `APP_BASE_PATH` is a runtime environment variable, not a Docker build argument
-- The same built image can run either at `/` or a subpath such as `/cpa`
-- Set `SQLITE_PATH=/data/app.db`
-- Set `BACKUP_DIR=/data/backups`
-- The Go server serves the built frontend from `web/dist`
 
 ## Docker Compose
 
@@ -152,7 +208,7 @@ cp .env.example .env
 3. Start the stack:
 
 ```bash
-docker compose -f docker-compose.example.yml --env-file .env up -d --build
+docker compose -f docker-compose.example.yml --env-file .env up -d
 ```
 
 4. Stop the stack:
@@ -160,6 +216,8 @@ docker compose -f docker-compose.example.yml --env-file .env up -d --build
 ```bash
 docker compose -f docker-compose.example.yml --env-file .env down
 ```
+
+By default, `docker-compose.example.yml` pulls `ghcr.io/willxup/cpa-usage-keeper:latest`.
 
 The compose file bind-mounts `data` to `/data` for SQLite and backup persistence.
 

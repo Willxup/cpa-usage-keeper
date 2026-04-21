@@ -116,13 +116,76 @@ npm --prefix ./web run build
 
 ## Docker
 
-在仓库根目录构建镜像：
+### 使用 GitHub Actions 自动发布到 GHCR
+
+这个仓库可以把 Docker 镜像自动发布到 GitHub Container Registry（GHCR）：
+
+- GitHub 仓库存放源码
+- GitHub Actions 负责自动构建和发布镜像
+- GHCR 存放构建后的镜像，地址为 `ghcr.io/willxup/cpa-usage-keeper`
+
+当你把 `.github/workflows/docker-publish.yml` 提交到 GitHub 后，仓库就已经具备了自动发布能力，但你通常还需要在 GitHub 上做两件事：
+
+1. 打开仓库的 `Actions` 页面，如果 GitHub 提示启用 Actions，就点启用。
+2. 第一次发布成功后，打开 package 页面；如果你希望别人无需登录即可拉取镜像，需要把镜像设为 public。
+
+workflow 会在以下情况下自动发布：
+- push 到 `main`
+- push 版本 tag，例如 `v1.0.0`
+
+如果是 pull request，则只验证镜像能否正常构建，不会推送镜像。
+
+### 直接使用已发布镜像
+
+1. 复制环境变量模板：
+
+```bash
+cp .env.example .env
+```
+
+2. 编辑 `.env`，至少填写：
+- `CPA_BASE_URL`
+- `CPA_MANAGEMENT_KEY`
+- `SQLITE_PATH=/data/app.db`
+
+3. 拉取镜像：
+
+```bash
+docker pull ghcr.io/willxup/cpa-usage-keeper:latest
+```
+
+4. 运行容器：
+
+```bash
+docker run --rm \
+  -p 8080:8080 \
+  -v "$(pwd)/data:/data" \
+  --env-file .env \
+  ghcr.io/willxup/cpa-usage-keeper:latest
+```
+
+5. 验证服务是否正常：
+
+```bash
+curl -i http://127.0.0.1:8080/healthz
+```
+
+说明：
+- `APP_BASE_PATH` 是运行时环境变量，不是 Docker 构建参数
+- 同一个镜像既可以运行在根路径 `/`，也可以运行在 `/cpa` 这类子路径下
+- `BACKUP_DIR` 通常应设置为 `/data/backups`
+- 镜像里不会包含你的运行时密钥，所有部署差异都通过 `.env` 提供
+- 如果不挂载 `./data:/data`，SQLite 数据库和 backup 都会是临时的
+
+### 本地构建镜像
+
+如果你仍然想在仓库根目录本地构建：
 
 ```bash
 docker build -t cpa-usage-keeper .
 ```
 
-运行容器：
+然后运行：
 
 ```bash
 docker run --rm \
@@ -131,13 +194,6 @@ docker run --rm \
   --env-file .env \
   cpa-usage-keeper
 ```
-
-说明：
-- `APP_BASE_PATH` 是运行时环境变量，不是 Docker 构建参数
-- 同一个镜像既可以运行在根路径 `/`，也可以运行在 `/cpa` 这类子路径下
-- 设置 `SQLITE_PATH=/data/app.db`
-- 设置 `BACKUP_DIR=/data/backups`
-- Go 服务会直接托管构建后的 `web/dist`
 
 ## Docker Compose
 
@@ -152,7 +208,7 @@ cp .env.example .env
 3. 启动服务：
 
 ```bash
-docker compose -f docker-compose.example.yml --env-file .env up -d --build
+docker compose -f docker-compose.example.yml --env-file .env up -d
 ```
 
 4. 停止服务：
@@ -160,6 +216,8 @@ docker compose -f docker-compose.example.yml --env-file .env up -d --build
 ```bash
 docker compose -f docker-compose.example.yml --env-file .env down
 ```
+
+默认情况下，`docker-compose.example.yml` 会拉取 `ghcr.io/willxup/cpa-usage-keeper:latest`。
 
 compose 会将仓库根目录的 `data` 以 bind mount 方式挂载到容器内的 `/data`，用于保存 SQLite 数据库和备份文件。
 

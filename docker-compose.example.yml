@@ -1,8 +1,6 @@
 services:
   cpa-usage-keeper:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/willxup/cpa-usage-keeper:latest
     ports:
       - "8080:8080"
     environment:
