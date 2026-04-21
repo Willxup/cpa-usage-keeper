@@ -10,6 +10,26 @@ export class ApiError extends Error {
   }
 }
 
+const APP_BASE_PATH_PLACEHOLDER = '__APP_BASE_PATH__'
+
+declare global {
+  interface Window {
+    __APP_BASE_PATH__?: string
+  }
+}
+
+function normalizeBasePath(basePath: string | undefined): string {
+  if (!basePath || basePath === '/' || basePath === APP_BASE_PATH_PLACEHOLDER) {
+    return ''
+  }
+  return basePath.endsWith('/') ? basePath.slice(0, -1) : basePath
+}
+
+export function apiPath(path: string): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  return `${normalizeBasePath(window.__APP_BASE_PATH__)}/api/v1${normalizedPath}`
+}
+
 async function parseApiError(response: Response, fallback: string): Promise<never> {
   let message = fallback
   try {
@@ -31,7 +51,7 @@ async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<R
 }
 
 export async function getSession(signal?: AbortSignal): Promise<AuthSessionResponse> {
-  const response = await apiFetch('/api/v1/auth/session', { signal })
+  const response = await apiFetch(apiPath('/auth/session'), { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load auth session: ${response.status}`)
   }
@@ -39,7 +59,7 @@ export async function getSession(signal?: AbortSignal): Promise<AuthSessionRespo
 }
 
 export async function login(password: string): Promise<void> {
-  const response = await apiFetch('/api/v1/auth/login', {
+  const response = await apiFetch(apiPath('/auth/login'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -52,7 +72,7 @@ export async function login(password: string): Promise<void> {
 }
 
 export async function fetchUsage(signal?: AbortSignal): Promise<UsageResponse> {
-  const response = await apiFetch('/api/v1/usage', { signal })
+  const response = await apiFetch(apiPath('/usage'), { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load usage: ${response.status}`)
   }
@@ -60,7 +80,7 @@ export async function fetchUsage(signal?: AbortSignal): Promise<UsageResponse> {
 }
 
 export async function fetchUsedModels(signal?: AbortSignal): Promise<UsedModelsResponse> {
-  const response = await apiFetch('/api/v1/models/used', { signal })
+  const response = await apiFetch(apiPath('/models/used'), { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load used models: ${response.status}`)
   }
@@ -68,7 +88,7 @@ export async function fetchUsedModels(signal?: AbortSignal): Promise<UsedModelsR
 }
 
 export async function fetchStatus(signal?: AbortSignal): Promise<StatusResponse> {
-  const response = await apiFetch('/api/v1/status', { signal })
+  const response = await apiFetch(apiPath('/status'), { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load status: ${response.status}`)
   }
@@ -76,7 +96,7 @@ export async function fetchStatus(signal?: AbortSignal): Promise<StatusResponse>
 }
 
 export async function fetchPricing(signal?: AbortSignal): Promise<PricingResponse> {
-  const response = await apiFetch('/api/v1/pricing', { signal })
+  const response = await apiFetch(apiPath('/pricing'), { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load pricing: ${response.status}`)
   }
@@ -84,7 +104,7 @@ export async function fetchPricing(signal?: AbortSignal): Promise<PricingRespons
 }
 
 export async function updatePricing(model: string, pricing: Omit<PricingEntry, 'model'>): Promise<PricingEntry> {
-  const response = await apiFetch(`/api/v1/pricing/${encodeURIComponent(model)}`, {
+  const response = await apiFetch(apiPath(`/pricing/${encodeURIComponent(model)}`), {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',

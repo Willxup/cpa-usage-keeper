@@ -3,6 +3,8 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -18,7 +20,7 @@ func (s statusStub) Status() poller.Status {
 }
 
 func TestHealthzReturnsOK(t *testing.T) {
-	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil)
+	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	resp := httptest.NewRecorder()
 
@@ -36,7 +38,7 @@ func TestStatusReturnsPollerState(t *testing.T) {
 		SyncRunning: false,
 		LastRunAt:   lastRunAt,
 		LastError:   "boom",
-	}}, nil, nil, nil, nil, AuthConfig{}, nil)
+	}}, nil, nil, nil, nil, AuthConfig{}, nil, "")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
 	resp := httptest.NewRecorder()
@@ -52,7 +54,7 @@ func TestStatusReturnsPollerState(t *testing.T) {
 }
 
 func TestStatusReturnsEmptyStateWithoutProvider(t *testing.T) {
-	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil)
+	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -62,6 +64,88 @@ func TestStatusReturnsEmptyStateWithoutProvider(t *testing.T) {
 	}
 	if body := resp.Body.String(); body != "{\"running\":false,\"sync_running\":false}" {
 		t.Fatalf("unexpected response body: %s", body)
+	}
+}
+
+func TestSubpathRoutesOnlyServePrefixedEndpoints(t *testing.T) {
+	lastRunAt := time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC)
+	router := NewRouter("", statusStub{status: poller.Status{
+		Running:   true,
+		LastRunAt: lastRunAt,
+	}}, nil, nil, nil, nil, AuthConfig{BasePath: "/cpa"}, nil, "/cpa")
+
+	for _, testCase := range []struct {
+		path       string
+		statusCode int
+	}{
+		{path: "/cpa/healthz", statusCode: http.StatusOK},
+		{path: "/cpa/api/v1/status", statusCode: http.StatusOK},
+		{path: "/healthz", statusCode: http.StatusNotFound},
+		{path: "/api/v1/status", statusCode: http.StatusNotFound},
+	} {
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+		router.ServeHTTP(resp, req)
+		if resp.Code != testCase.statusCode {
+			t.Fatalf("expected %s to return %d, got %d", testCase.path, testCase.statusCode, resp.Code)
+		}
+	}
+}
+
+func TestSubpathStaticRoutesServeOnlyUnderPrefix(t *testing.T) {
+	staticDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte(`<html><head><script>window.__APP_BASE_PATH__ = "__APP_BASE_PATH__";</script></head><body>app</body></html>`), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(staticDir, "assets"), 0o755); err != nil {
+		t.Fatalf("mkdir assets: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(staticDir, "assets", "app.js"), []byte("console.log('ok')"), 0o644); err != nil {
+		t.Fatalf("write asset: %v", err)
+	}
+
+	router := NewRouter(staticDir, nil, nil, nil, nil, nil, AuthConfig{BasePath: "/cpa"}, nil, "/cpa")
+
+	for _, testCase := range []struct {
+		path       string
+		statusCode int
+		contains   string
+	}{
+		{path: "/cpa/", statusCode: http.StatusOK, contains: `window.__APP_BASE_PATH__ = "/cpa";`},
+		{path: "/cpa/dashboard", statusCode: http.StatusOK, contains: `window.__APP_BASE_PATH__ = "/cpa";`},
+		{path: "/cpa/assets/app.js", statusCode: http.StatusOK, contains: "console.log('ok')"},
+		{path: "/foo", statusCode: http.StatusNotFound},
+		{path: "/assets/app.js", statusCode: http.StatusNotFound},
+		{path: "/cpa/api/unknown", statusCode: http.StatusNotFound},
+	} {
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+		router.ServeHTTP(resp, req)
+		if resp.Code != testCase.statusCode {
+			t.Fatalf("expected %s to return %d, got %d", testCase.path, testCase.statusCode, resp.Code)
+		}
+		if testCase.contains != "" && !contains(resp.Body.String(), testCase.contains) {
+			t.Fatalf("expected %s response to contain %q, got %s", testCase.path, testCase.contains, resp.Body.String())
+		}
+	}
+}
+
+func TestRootStaticRouteInjectsEmptyBasePath(t *testing.T) {
+	staticDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte(`<html><head><script>window.__APP_BASE_PATH__ = "__APP_BASE_PATH__";</script></head><body>app</body></html>`), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+
+	router := NewRouter(staticDir, nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	if !contains(resp.Body.String(), `window.__APP_BASE_PATH__ = "";`) {
+		t.Fatalf("expected injected empty base path, got %s", resp.Body.String())
 	}
 }
 

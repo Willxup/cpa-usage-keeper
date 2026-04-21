@@ -1,8 +1,8 @@
-import { ApiError } from '@/lib/api';
+import { ApiError, apiPath } from '@/lib/api';
 import type { AuthFileItem } from '@/types/authFile';
 
 export async function fetchAuthFiles(signal?: AbortSignal): Promise<{ files: AuthFileItem[] }> {
-  const response = await fetch('/api/v1/auth-files', {
+  const response = await fetch(apiPath('/auth-files'), {
     credentials: 'include',
     signal,
   });

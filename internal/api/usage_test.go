@@ -21,7 +21,7 @@ func (s usageStub) GetUsage(context.Context) (*cpa.StatisticsSnapshot, error) {
 }
 
 func TestUsageReturnsEmptyStructureWithoutProvider(t *testing.T) {
-	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil)
+	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage", nil)
 	resp := httptest.NewRecorder()
 
@@ -51,7 +51,7 @@ func TestUsageReturnsAggregatedSnapshot(t *testing.T) {
 				},
 			},
 		},
-	}}, nil, nil, nil, AuthConfig{}, nil)
+	}}, nil, nil, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage", nil)
 	resp := httptest.NewRecorder()
 
@@ -105,7 +105,7 @@ func TestUsageResponsePreservesFilteringFields(t *testing.T) {
 		Email:     "user@example.com",
 		Label:     "Work Account",
 		Type:      "auth-file",
-	}}}, nil, nil, AuthConfig{}, nil)
+	}}}, nil, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage", nil)
 	resp := httptest.NewRecorder()
 
@@ -163,7 +163,7 @@ func TestUsagePrefersProviderMetadataOverAuthFileForTagResolution(t *testing.T) 
 		ProviderType: "openai",
 		DisplayName:  "OpenAI Mirror",
 		ProviderKey:  "openai:OpenAI Mirror",
-	}}}, nil, AuthConfig{}, nil)
+	}}}, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage", nil)
 	resp := httptest.NewRecorder()
 

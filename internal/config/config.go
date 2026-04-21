@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 type Config struct {
 	AppPort             string
+	AppBasePath         string
 	CPABaseURL          string
 	CPAManagementKey    string
 	PollInterval        time.Duration
@@ -69,8 +71,14 @@ func LoadFromEnv() (*Config, error) {
 		return nil, err
 	}
 
+	appBasePath, err := normalizeBasePath(strings.TrimSpace(os.Getenv("APP_BASE_PATH")))
+	if err != nil {
+		return nil, fmt.Errorf("APP_BASE_PATH is invalid: %w", err)
+	}
+
 	cfg := &Config{
 		AppPort:             getString("APP_PORT", "8080"),
+		AppBasePath:         appBasePath,
 		CPABaseURL:          strings.TrimSpace(os.Getenv("CPA_BASE_URL")),
 		CPAManagementKey:    strings.TrimSpace(os.Getenv("CPA_MANAGEMENT_KEY")),
 		PollInterval:        pollInterval,
@@ -85,7 +93,6 @@ func LoadFromEnv() (*Config, error) {
 		LoginPassword:       strings.TrimSpace(os.Getenv("LOGIN_PASSWORD")),
 		AuthSessionTTL:      authSessionTTL,
 	}
-
 	if cfg.CPABaseURL == "" {
 		return nil, fmt.Errorf("CPA_BASE_URL is required")
 	}
@@ -121,6 +128,24 @@ func loadDotEnvIfPresent() error {
 	}
 
 	return nil
+}
+
+func normalizeBasePath(value string) (string, error) {
+	if value == "" || value == "/" {
+		return "", nil
+	}
+	if !strings.HasPrefix(value, "/") {
+		return "", fmt.Errorf("must start with '/'")
+	}
+
+	normalized := path.Clean(value)
+	if normalized == "." || normalized == "/" {
+		return "", nil
+	}
+	if !strings.HasPrefix(normalized, "/") {
+		normalized = "/" + normalized
+	}
+	return normalized, nil
 }
 
 func getString(key, fallback string) string {

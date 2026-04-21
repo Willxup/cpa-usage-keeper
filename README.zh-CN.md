@@ -48,6 +48,7 @@ cp .env.example .env
 | 变量 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `APP_PORT` | 否 | `8080` | HTTP 监听端口 |
+| `APP_BASE_PATH` | 否 | 根路径 | 应用子路径前缀，例如 `/cpa`；留空表示部署在根路径 |
 | `CPA_BASE_URL` | 是 | - | CPA 服务地址 |
 | `CPA_MANAGEMENT_KEY` | 是 | - | CPA management key |
 | `POLL_INTERVAL` | 否 | `5m` | usage 同步周期 |
@@ -61,6 +62,12 @@ cp .env.example .env
 | `AUTH_ENABLED` | 否 | `false` | 是否启用登录保护 |
 | `LOGIN_PASSWORD` | 鉴权启用时必填 | - | 登录密码 |
 | `AUTH_SESSION_TTL` | 否 | `168h` | Session 生命周期 |
+
+`APP_BASE_PATH` 设置规则：
+- 留空表示部署在根路径 `/`
+- 如果要部署到子路径，必须以 `/` 开头，例如 `/cpa`
+- 可以写成 `/cpa/`，程序会自动规范成 `/cpa`
+- 像 `cpa` 这样不带前导 `/` 的写法是无效的
 
 启用备份后，服务会按照 `BACKUP_INTERVAL` 控制原始 export JSON 的落盘频率；即使本次未写入新的 backup，仍会正常记录 `SnapshotRun` 并持久化 usage 事件。
 
@@ -126,6 +133,8 @@ docker run --rm \
 ```
 
 说明：
+- `APP_BASE_PATH` 是运行时环境变量，不是 Docker 构建参数
+- 同一个镜像既可以运行在根路径 `/`，也可以运行在 `/cpa` 这类子路径下
 - 设置 `SQLITE_PATH=/data/app.db`
 - 设置 `BACKUP_DIR=/data/backups`
 - Go 服务会直接托管构建后的 `web/dist`
@@ -153,3 +162,20 @@ docker compose -f docker-compose.example.yml --env-file .env down
 ```
 
 compose 会将仓库根目录的 `data` 以 bind mount 方式挂载到容器内的 `/data`，用于保存 SQLite 数据库和备份文件。
+
+当设置 `APP_BASE_PATH=/cpa` 时，应用访问入口应为 `/cpa/`，Nginx 反代时也应保留这个前缀，而不是先重写掉再转发。
+
+## Nginx 子路径反代示例
+
+如果应用部署在 `/cpa` 这类子路径下，请设置 `APP_BASE_PATH=/cpa`，并在 Nginx 中保留相同前缀转发：
+
+```nginx
+location /cpa/ {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+不要在反代前把 `/cpa` 前缀重写掉。

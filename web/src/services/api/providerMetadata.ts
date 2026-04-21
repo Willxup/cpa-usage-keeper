@@ -1,8 +1,8 @@
-import { ApiError } from '@/lib/api';
+import { ApiError, apiPath } from '@/lib/api';
 import type { ProviderMetadataItem } from '@/types/providerMetadata';
 
 export async function fetchProviderMetadata(signal?: AbortSignal): Promise<{ items: ProviderMetadataItem[] }> {
-  const response = await fetch('/api/v1/provider-metadata', {
+  const response = await fetch(apiPath('/provider-metadata'), {
     credentials: 'include',
     signal,
   });

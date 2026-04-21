@@ -31,7 +31,7 @@ func (s pricingStub) UpdatePricing(context.Context, service.UpdatePricingInput) 
 }
 
 func TestPricingRoutesReturnEmptyResponsesWithoutProvider(t *testing.T) {
-	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil)
+	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
 
 	usedReq := httptest.NewRequest(http.MethodGet, "/api/v1/models/used", nil)
 	usedResp := httptest.NewRecorder()
@@ -57,7 +57,7 @@ func TestPricingRoutesReturnConfiguredData(t *testing.T) {
 			CompletionPricePer1M: 15,
 			CachePricePer1M:      0.3,
 		}},
-	}, AuthConfig{}, nil)
+	}, AuthConfig{}, nil, "")
 
 	usedReq := httptest.NewRequest(http.MethodGet, "/api/v1/models/used", nil)
 	usedResp := httptest.NewRecorder()
@@ -82,7 +82,7 @@ func TestUpdatePricingRoute(t *testing.T) {
 			CompletionPricePer1M: 15,
 			CachePricePer1M:      0.3,
 		},
-	}, AuthConfig{}, nil)
+	}, AuthConfig{}, nil, "")
 
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/pricing/claude-sonnet", strings.NewReader(`{"prompt_price_per_1m":3,"completion_price_per_1m":15,"cache_price_per_1m":0.3}`))
 	req.Header.Set("Content-Type", "application/json")

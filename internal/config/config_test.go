@@ -18,6 +18,9 @@ func TestLoadFromEnvAppliesDefaults(t *testing.T) {
 	if cfg.AppPort != "8080" {
 		t.Fatalf("expected default app port 8080, got %s", cfg.AppPort)
 	}
+	if cfg.AppBasePath != "" {
+		t.Fatalf("expected default app base path to be empty, got %q", cfg.AppBasePath)
+	}
 	if cfg.PollInterval != 5*time.Minute {
 		t.Fatalf("expected default poll interval 5m, got %s", cfg.PollInterval)
 	}
@@ -90,6 +93,7 @@ func TestLoadFromEnvParsesOverrides(t *testing.T) {
 	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
 	t.Setenv("SQLITE_PATH", "/tmp/app.db")
 	t.Setenv("APP_PORT", "9090")
+	t.Setenv("APP_BASE_PATH", "/cpa/")
 	t.Setenv("POLL_INTERVAL", "1m")
 	t.Setenv("BACKUP_ENABLED", "false")
 	t.Setenv("BACKUP_DIR", "/tmp/backups")
@@ -106,7 +110,19 @@ func TestLoadFromEnvParsesOverrides(t *testing.T) {
 		t.Fatalf("LoadFromEnv returned error: %v", err)
 	}
 
-	if cfg.AppPort != "9090" || cfg.PollInterval != time.Minute || cfg.BackupEnabled || cfg.BackupDir != "/tmp/backups" || cfg.BackupInterval != 2*time.Hour || cfg.BackupRetentionDays != 7 || cfg.RequestTimeout != 15*time.Second || cfg.LogLevel != "debug" || !cfg.AuthEnabled || cfg.LoginPassword != "top-secret" || cfg.AuthSessionTTL != 12*time.Hour {
+	if cfg.AppPort != "9090" || cfg.AppBasePath != "/cpa" || cfg.PollInterval != time.Minute || cfg.BackupEnabled || cfg.BackupDir != "/tmp/backups" || cfg.BackupInterval != 2*time.Hour || cfg.BackupRetentionDays != 7 || cfg.RequestTimeout != 15*time.Second || cfg.LogLevel != "debug" || !cfg.AuthEnabled || cfg.LoginPassword != "top-secret" || cfg.AuthSessionTTL != 12*time.Hour {
 		t.Fatalf("unexpected config override result: %+v", cfg)
+	}
+}
+
+func TestLoadFromEnvRejectsInvalidBasePath(t *testing.T) {
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:8317")
+	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
+	t.Setenv("SQLITE_PATH", "/tmp/app.db")
+	t.Setenv("APP_BASE_PATH", "cpa")
+
+	_, err := LoadFromEnv()
+	if err == nil || err.Error() != "APP_BASE_PATH is invalid: must start with '/'" {
+		t.Fatalf("expected APP_BASE_PATH validation error, got %v", err)
 	}
 }

@@ -48,6 +48,7 @@ Key variables:
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
 | `APP_PORT` | No | `8080` | HTTP listen port |
+| `APP_BASE_PATH` | No | root path | App base path such as `/cpa`; leave empty for root deployment |
 | `CPA_BASE_URL` | Yes | - | CPA server base URL |
 | `CPA_MANAGEMENT_KEY` | Yes | - | CPA management key |
 | `POLL_INTERVAL` | No | `5m` | Usage sync interval |
@@ -61,6 +62,12 @@ Key variables:
 | `AUTH_ENABLED` | No | `false` | Enable login protection |
 | `LOGIN_PASSWORD` | When auth is enabled | - | Login password |
 | `AUTH_SESSION_TTL` | No | `168h` | Session lifetime |
+
+`APP_BASE_PATH` rules:
+- Leave it empty to serve from `/`
+- For subpath deployment, it must start with `/`, for example `/cpa`
+- A trailing slash like `/cpa/` is accepted and normalized to `/cpa`
+- A value without the leading slash such as `cpa` is invalid
 
 When backups are enabled, the service writes at most one raw export backup per `BACKUP_INTERVAL`. Every sync still records a snapshot run and persists usage events.
 
@@ -126,6 +133,8 @@ docker run --rm \
 ```
 
 Notes:
+- `APP_BASE_PATH` is a runtime environment variable, not a Docker build argument
+- The same built image can run either at `/` or a subpath such as `/cpa`
 - Set `SQLITE_PATH=/data/app.db`
 - Set `BACKUP_DIR=/data/backups`
 - The Go server serves the built frontend from `web/dist`
@@ -153,3 +162,20 @@ docker compose -f docker-compose.example.yml --env-file .env down
 ```
 
 The compose file bind-mounts `data` to `/data` for SQLite and backup persistence.
+
+When `APP_BASE_PATH=/cpa` is set, access the app at `/cpa/` and keep that prefix in your Nginx reverse proxy instead of rewriting it away.
+
+## Nginx subpath reverse proxy
+
+If the app runs under a subpath such as `/cpa`, set `APP_BASE_PATH=/cpa` and keep the same prefix in Nginx:
+
+```nginx
+location /cpa/ {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+Do not rewrite `/cpa` away before proxying.

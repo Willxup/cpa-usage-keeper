@@ -52,6 +52,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		Enabled:       cfg.AuthEnabled,
 		LoginPassword: cfg.LoginPassword,
 		SessionTTL:    cfg.AuthSessionTTL,
+		BasePath:      cfg.AppBasePath,
 	}, sessionManager)
 
 	return &App{
@@ -69,8 +70,10 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 				Enabled:       cfg.AuthEnabled,
 				LoginPassword: cfg.LoginPassword,
 				SessionTTL:    cfg.AuthSessionTTL,
+				BasePath:      cfg.AppBasePath,
 			},
 			authHandler,
+			cfg.AppBasePath,
 		),
 	}, nil
 }

@@ -15,6 +15,7 @@ type AuthConfig struct {
 	Enabled       bool
 	LoginPassword string
 	SessionTTL    time.Duration
+	BasePath      string
 }
 
 type authHandler struct {
@@ -107,10 +108,14 @@ func (h *authHandler) login(c *gin.Context) {
 	}
 
 	secure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
+	cookiePath := h.config.BasePath
+	if cookiePath == "" {
+		cookiePath = "/"
+	}
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    token,
-		Path:     "/",
+		Path:     cookiePath,
 		HttpOnly: true,
 		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,

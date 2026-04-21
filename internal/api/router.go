@@ -1,9 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +13,8 @@ import (
 	"cpa-usage-keeper/internal/service"
 	"github.com/gin-gonic/gin"
 )
+
+const appBasePathPlaceholder = "__APP_BASE_PATH__"
 
 type StatusProvider interface {
 	Status() poller.Status
@@ -25,13 +29,15 @@ func NewRouter(
 	pricingProvider service.PricingProvider,
 	authConfig AuthConfig,
 	authHandler *authHandler,
+	basePath string,
 ) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Recovery())
 
-	registerHealthRoutes(router)
+	appGroup := router.Group(basePath)
+	registerHealthRoutes(appGroup)
 
-	apiV1 := router.Group("/api/v1")
+	apiV1 := appGroup.Group("/api/v1")
 	apiV1.GET("/ping", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "ok"})
 	})
@@ -53,17 +59,29 @@ func NewRouter(
 	if staticDir != "" {
 		if info, err := os.Stat(staticDir); err == nil && info.IsDir() {
 			indexPath := filepath.Join(staticDir, "index.html")
-			router.GET("/", func(c *gin.Context) {
-				c.File(indexPath)
-			})
-			router.Static("/assets", filepath.Join(staticDir, "assets"))
+			serveIndex := func(c *gin.Context) {
+				indexHTML, err := renderIndexHTML(indexPath, basePath)
+				if err != nil {
+					c.Status(http.StatusNotFound)
+					return
+				}
+				c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
+			}
+
+			appGroup.GET("/", serveIndex)
+			appGroup.Static("/assets", filepath.Join(staticDir, "assets"))
 			router.NoRoute(func(c *gin.Context) {
-				if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+				requestPath, ok := stripBasePath(basePath, c.Request.URL.Path)
+				if !ok {
+					c.Status(http.StatusNotFound)
+					return
+				}
+				if strings.HasPrefix(requestPath, "/api/") {
 					c.Status(http.StatusNotFound)
 					return
 				}
 
-				relPath := strings.TrimPrefix(filepath.Clean(c.Request.URL.Path), "/")
+				relPath := strings.TrimPrefix(filepath.Clean(requestPath), "/")
 				if relPath != "." && relPath != "" {
 					assetPath := filepath.Join(staticDir, relPath)
 					if assetInfo, err := os.Stat(assetPath); err == nil && !assetInfo.IsDir() {
@@ -72,12 +90,49 @@ func NewRouter(
 					}
 				}
 
-				c.File(indexPath)
+				serveIndex(c)
 			})
 		}
 	}
 
 	return router
+}
+
+func renderIndexHTML(indexPath, basePath string) ([]byte, error) {
+	indexHTML, err := os.ReadFile(indexPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return bytes.ReplaceAll(
+		indexHTML,
+		[]byte(strconv.Quote(appBasePathPlaceholder)),
+		[]byte(strconv.Quote(basePath)),
+	), nil
+}
+
+func stripBasePath(basePath, requestPath string) (string, bool) {
+	cleaned := filepath.Clean(requestPath)
+	if cleaned == "." {
+		cleaned = "/"
+	}
+	if !strings.HasPrefix(cleaned, "/") {
+		cleaned = "/" + cleaned
+	}
+	if basePath == "" {
+		return cleaned, true
+	}
+	if cleaned == basePath {
+		return "/", true
+	}
+	if !strings.HasPrefix(cleaned, basePath+"/") {
+		return "", false
+	}
+	trimmed := strings.TrimPrefix(cleaned, basePath)
+	if trimmed == "" {
+		return "/", true
+	}
+	return trimmed, true
 }
 
 type statusResponse struct {
