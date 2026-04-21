@@ -13,6 +13,7 @@ import (
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/models"
 	"cpa-usage-keeper/internal/repository"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
@@ -25,6 +26,8 @@ type ExportFetcher interface {
 type BackupWriter interface {
 	Write(snapshotRunID uint, fetchedAt time.Time, payload []byte) (string, error)
 }
+
+const syncPrefilterOverlapWindow = 24 * time.Hour
 
 type SyncService struct {
 	db             *gorm.DB
@@ -206,6 +209,20 @@ func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
 	}
 
 	events := FlattenUsageExport(snapshotRun.ID, fetchResult.Payload)
+	events, err = filterUsageEventsByLocalWatermark(s.db, events, syncPrefilterOverlapWindow)
+	if err != nil {
+		finalizeErr := repository.FinalizeSnapshotRun(s.db, snapshotRun.ID, repository.SnapshotRunResult{
+			Status:         "failed",
+			HTTPStatus:     httpStatus,
+			ErrorMessage:   errorMessage(err),
+			BackupFilePath: backupFilePath,
+			ExportedAt:     exportedAt,
+		})
+		if finalizeErr != nil {
+			return nil, fmt.Errorf("filter usage events: %v; finalize snapshot run: %w", err, finalizeErr)
+		}
+		return nil, fmt.Errorf("filter usage events: %w", err)
+	}
 	inserted, deduped, err := repository.InsertUsageEvents(s.db, events)
 	if err != nil {
 		finalizeErr := repository.FinalizeSnapshotRun(s.db, snapshotRun.ID, repository.SnapshotRunResult{
@@ -275,6 +292,39 @@ func (s *SyncService) shouldWriteBackup(fetchedAt time.Time, lastBackupSnapshotR
 		return true
 	}
 	return fetchedAt.UTC().Sub(lastBackupSnapshotRun.FetchedAt.UTC()) >= s.backupInterval
+}
+
+func filterUsageEventsByLocalWatermark(db *gorm.DB, events []models.UsageEvent, overlapWindow time.Duration) ([]models.UsageEvent, error) {
+	if len(events) == 0 {
+		return events, nil
+	}
+
+	watermark, err := repository.FindLatestUsageEventTimestamp(db)
+	if err != nil {
+		return nil, err
+	}
+	if watermark == nil {
+		return events, nil
+	}
+
+	cutoff := watermark.UTC().Add(-overlapWindow)
+	filtered := make([]models.UsageEvent, 0, len(events))
+	for _, event := range events {
+		if event.Timestamp.IsZero() || !event.Timestamp.UTC().Before(cutoff) {
+			filtered = append(filtered, event)
+		}
+	}
+	skipped := len(events) - len(filtered)
+	if skipped > 0 {
+		logrus.WithFields(logrus.Fields{
+			"watermark":       watermark.UTC().Format(time.RFC3339),
+			"cutoff":          cutoff.Format(time.RFC3339),
+			"overlap_hours":   overlapWindow.Hours(),
+			"filtered_events": skipped,
+			"total_events":    len(events),
+		}).Info("filtered old usage events before insert")
+	}
+	return filtered, nil
 }
 
 func hashPayload(payload []byte) string {

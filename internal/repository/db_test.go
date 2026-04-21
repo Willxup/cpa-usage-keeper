@@ -124,6 +124,42 @@ func TestInsertUsageEventsBatchesLargeInsertSet(t *testing.T) {
 	}
 }
 
+func TestFindLatestUsageEventTimestampReturnsNilForEmptyTable(t *testing.T) {
+	db := openTestDatabase(t)
+
+	timestamp, err := FindLatestUsageEventTimestamp(db)
+	if err != nil {
+		t.Fatalf("FindLatestUsageEventTimestamp returned error: %v", err)
+	}
+	if timestamp != nil {
+		t.Fatalf("expected nil timestamp for empty table, got %v", *timestamp)
+	}
+}
+
+func TestFindLatestUsageEventTimestampReturnsMaxValue(t *testing.T) {
+	db := openTestDatabase(t)
+	events := []models.UsageEvent{
+		{EventKey: "event-1", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), TotalTokens: 10},
+		{EventKey: "event-2", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 18, 11, 0, 0, 0, time.UTC), TotalTokens: 20},
+		{EventKey: "event-3", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 17, 10, 0, 0, 0, time.UTC), TotalTokens: 15},
+	}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	timestamp, err := FindLatestUsageEventTimestamp(db)
+	if err != nil {
+		t.Fatalf("FindLatestUsageEventTimestamp returned error: %v", err)
+	}
+	if timestamp == nil {
+		t.Fatal("expected max timestamp, got nil")
+	}
+	expected := time.Date(2026, 4, 18, 11, 0, 0, 0, time.UTC)
+	if !timestamp.Equal(expected) {
+		t.Fatalf("expected max timestamp %s, got %s", expected, timestamp)
+	}
+}
+
 func TestFinalizeSnapshotRunUpdatesResultFields(t *testing.T) {
 	db := openTestDatabase(t)
 	run, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Now().UTC(), Status: "pending"})

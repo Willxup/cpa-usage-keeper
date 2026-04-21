@@ -233,6 +233,150 @@ func TestSyncOnceSkipsBackupWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestSyncOnceFiltersEventsOlderThanLocalWatermarkOverlap(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	seedTime := time.Date(2026, 4, 20, 12, 0, 0, 0, time.UTC)
+	if _, _, err := repository.InsertUsageEvents(db, []models.UsageEvent{{
+		EventKey:      "seed-event",
+		SnapshotRunID: 1,
+		APIGroupKey:   "provider-a",
+		Model:         "claude-sonnet",
+		Timestamp:     seedTime,
+		Source:        "seed-source",
+		AuthIndex:     "1",
+		TotalTokens:   10,
+	}}); err != nil {
+		t.Fatalf("seed usage event: %v", err)
+	}
+
+	service := NewSyncServiceWithClient(db, "https://cpa.example.com", stubExportFetcher{result: &cpa.ExportResult{
+		StatusCode: 200,
+		Payload: cpa.UsageExport{
+			Version:    1,
+			ExportedAt: seedTime.Add(time.Hour),
+			Usage: cpa.StatisticsSnapshot{APIs: map[string]cpa.APISnapshot{
+				"provider-a": {Models: map[string]cpa.ModelSnapshot{
+					"claude-sonnet": {Details: []cpa.RequestDetail{
+						{Timestamp: seedTime.Add(-48 * time.Hour), Source: "old-source", AuthIndex: "2", Tokens: cpa.TokenStats{InputTokens: 1, OutputTokens: 1}},
+						{Timestamp: seedTime.Add(-12 * time.Hour), Source: "recent-source", AuthIndex: "3", Tokens: cpa.TokenStats{InputTokens: 2, OutputTokens: 2}},
+					}},
+				}},
+			}},
+		},
+	}})
+
+	result, err := service.SyncNow(context.Background())
+	if err != nil {
+		t.Fatalf("SyncNow returned error: %v", err)
+	}
+	if result.InsertedEvents != 1 || result.DedupedEvents != 0 {
+		t.Fatalf("expected only recent event to be inserted, got %+v", result)
+	}
+
+	var count int64
+	if err := db.Model(&models.UsageEvent{}).Where("source = ?", "old-source").Count(&count).Error; err != nil {
+		t.Fatalf("count old filtered events: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected old event to be filtered out, found %d rows", count)
+	}
+	if err := db.Model(&models.UsageEvent{}).Where("source = ?", "recent-source").Count(&count).Error; err != nil {
+		t.Fatalf("count recent events: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected recent event to be inserted, found %d rows", count)
+	}
+}
+
+func TestSyncOnceKeepsOverlapWindowEventsForExistingDedupe(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	seedTime := time.Date(2026, 4, 20, 12, 0, 0, 0, time.UTC)
+	seedTokens := cpa.TokenStats{InputTokens: 10, OutputTokens: 20, ReasoningTokens: 5, TotalTokens: 35}
+	seedEvent := models.UsageEvent{
+		EventKey:        BuildEventKey("provider-a", "claude-sonnet", seedTime.Add(-2*time.Hour), "codex-a", "1", false, seedTokens),
+		SnapshotRunID:   1,
+		APIGroupKey:     "provider-a",
+		Model:           "claude-sonnet",
+		Timestamp:       seedTime.Add(-2 * time.Hour),
+		Source:          "codex-a",
+		AuthIndex:       "1",
+		TotalTokens:     35,
+		InputTokens:     10,
+		OutputTokens:    20,
+		ReasoningTokens: 5,
+	}
+	if _, _, err := repository.InsertUsageEvents(db, []models.UsageEvent{seedEvent}); err != nil {
+		t.Fatalf("seed usage event: %v", err)
+	}
+
+	service := NewSyncServiceWithClient(db, "https://cpa.example.com", stubExportFetcher{result: &cpa.ExportResult{
+		StatusCode: 200,
+		Payload: cpa.UsageExport{
+			Version:    1,
+			ExportedAt: seedTime.Add(time.Hour),
+			Usage: cpa.StatisticsSnapshot{APIs: map[string]cpa.APISnapshot{
+				"provider-a": {Models: map[string]cpa.ModelSnapshot{
+					"claude-sonnet": {Details: []cpa.RequestDetail{{
+						Timestamp: seedTime.Add(-2 * time.Hour),
+						Source:    "codex-a",
+						AuthIndex: "1",
+						Tokens:    seedTokens,
+					}}},
+				}},
+			}},
+		},
+	}})
+
+	result, err := service.SyncNow(context.Background())
+	if err != nil {
+		t.Fatalf("SyncNow returned error: %v", err)
+	}
+	if result.InsertedEvents != 0 || result.DedupedEvents != 1 {
+		t.Fatalf("expected overlap event to reach dedupe path, got %+v", result)
+	}
+}
+
+func TestSyncOnceKeepsZeroTimestampEvents(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	seedTime := time.Date(2026, 4, 20, 12, 0, 0, 0, time.UTC)
+	if _, _, err := repository.InsertUsageEvents(db, []models.UsageEvent{{
+		EventKey:      "seed-event",
+		SnapshotRunID: 1,
+		APIGroupKey:   "provider-a",
+		Model:         "claude-sonnet",
+		Timestamp:     seedTime,
+		Source:        "seed-source",
+		AuthIndex:     "1",
+		TotalTokens:   10,
+	}}); err != nil {
+		t.Fatalf("seed usage event: %v", err)
+	}
+
+	service := NewSyncServiceWithClient(db, "https://cpa.example.com", stubExportFetcher{result: &cpa.ExportResult{
+		StatusCode: 200,
+		Payload: cpa.UsageExport{
+			Version: 1,
+			Usage: cpa.StatisticsSnapshot{APIs: map[string]cpa.APISnapshot{
+				"provider-a": {Models: map[string]cpa.ModelSnapshot{
+					"claude-sonnet": {Details: []cpa.RequestDetail{{
+						Source:    "zero-ts-source",
+						AuthIndex: "5",
+						Tokens:    cpa.TokenStats{InputTokens: 3, OutputTokens: 4},
+					}}},
+				}},
+			}},
+		},
+	}})
+
+	result, err := service.SyncNow(context.Background())
+	if err != nil {
+		t.Fatalf("SyncNow returned error: %v", err)
+	}
+	if result.InsertedEvents != 1 {
+		t.Fatalf("expected zero timestamp event to be kept, got %+v", result)
+	}
+}
+
 func TestSyncOnceSkipsBackupWithinConfiguredInterval(t *testing.T) {
 	db := openSyncTestDatabase(t)
 	body := []byte(`{"version":1,"exported_at":"2026-04-16T10:00:00Z","usage":{"apis":{"provider-a":{"models":{"claude-sonnet":{"details":[{"timestamp":"2026-04-16T09:30:00Z","latency_ms":123,"source":"codex-a","auth_index":"1","failed":false,"tokens":{"input_tokens":10,"output_tokens":20,"reasoning_tokens":5,"cached_tokens":0,"total_tokens":35}}]}}}}}}`)

@@ -14,14 +14,14 @@ import (
 )
 
 type SnapshotRunInput struct {
-	FetchedAt   time.Time
-	CPABaseURL  string
-	ExportedAt  *time.Time
-	Version     string
-	Status      string
-	HTTPStatus  int
-	PayloadHash string
-	RawPayload  []byte
+	FetchedAt    time.Time
+	CPABaseURL   string
+	ExportedAt   *time.Time
+	Version      string
+	Status       string
+	HTTPStatus   int
+	PayloadHash  string
+	RawPayload   []byte
 	ErrorMessage string
 }
 
@@ -81,12 +81,12 @@ func FinalizeSnapshotRun(db *gorm.DB, snapshotRunID uint, result SnapshotRunResu
 	}
 
 	updates := map[string]any{
-		"status":          strings.TrimSpace(result.Status),
-		"http_status":     result.HTTPStatus,
+		"status":           strings.TrimSpace(result.Status),
+		"http_status":      result.HTTPStatus,
 		"backup_file_path": strings.TrimSpace(result.BackupFilePath),
-		"error_message":   strings.TrimSpace(result.ErrorMessage),
-		"inserted_events": result.InsertedEvents,
-		"deduped_events":  result.DedupedEvents,
+		"error_message":    strings.TrimSpace(result.ErrorMessage),
+		"inserted_events":  result.InsertedEvents,
+		"deduped_events":   result.DedupedEvents,
 	}
 	if updates["status"] == "" {
 		updates["status"] = "completed"
@@ -128,6 +128,23 @@ func InsertUsageEvents(db *gorm.DB, events []models.UsageEvent) (int, int, error
 
 	deduped := len(events) - inserted
 	return inserted, deduped, nil
+}
+
+func FindLatestUsageEventTimestamp(db *gorm.DB) (*time.Time, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database is nil")
+	}
+
+	var event models.UsageEvent
+	if err := db.Select("timestamp").Order("timestamp DESC").Limit(1).Take(&event).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("find latest usage event timestamp: %w", err)
+	}
+
+	timestamp := event.Timestamp.UTC()
+	return &timestamp, nil
 }
 
 func FindLastSnapshotRunWithBackup(db *gorm.DB) (*models.SnapshotRun, error) {
