@@ -82,7 +82,7 @@ func LoadFromEnv() (*Config, error) {
 		CPABaseURL:          strings.TrimSpace(os.Getenv("CPA_BASE_URL")),
 		CPAManagementKey:    strings.TrimSpace(os.Getenv("CPA_MANAGEMENT_KEY")),
 		PollInterval:        pollInterval,
-		SQLitePath:          strings.TrimSpace(os.Getenv("SQLITE_PATH")),
+		SQLitePath:          getString("SQLITE_PATH", "/data/app.db"),
 		BackupEnabled:       backupEnabled,
 		BackupDir:           getString("BACKUP_DIR", "/data/backups"),
 		BackupInterval:      backupInterval,
@@ -98,9 +98,6 @@ func LoadFromEnv() (*Config, error) {
 	}
 	if cfg.CPAManagementKey == "" {
 		return nil, fmt.Errorf("CPA_MANAGEMENT_KEY is required")
-	}
-	if cfg.SQLitePath == "" {
-		return nil, fmt.Errorf("SQLITE_PATH is required")
 	}
 	if cfg.AuthEnabled && cfg.LoginPassword == "" {
 		return nil, fmt.Errorf("LOGIN_PASSWORD is required when AUTH_ENABLED is true")

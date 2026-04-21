@@ -52,7 +52,7 @@ cp .env.example .env
 | `CPA_BASE_URL` | 是 | - | CPA 服务地址 |
 | `CPA_MANAGEMENT_KEY` | 是 | - | CPA management key |
 | `POLL_INTERVAL` | 否 | `5m` | usage 同步周期 |
-| `SQLITE_PATH` | 是 | - | SQLite 数据库路径 |
+| `SQLITE_PATH` | 否 | `/data/app.db` | SQLite 数据库路径 |
 | `BACKUP_ENABLED` | 否 | `true` | 是否启用原始备份 |
 | `BACKUP_DIR` | 否 | `/data/backups` | 备份目录 |
 | `BACKUP_INTERVAL` | 否 | `1h` | 两次备份写入之间的最小间隔 |
@@ -137,16 +137,20 @@ workflow 会在以下情况下自动发布：
 
 ### 直接使用已发布镜像
 
-1. 复制环境变量模板：
+Docker 部署时，`.env` 文件是可选的。你可以：
+- 复制 `.env.example` 为 `.env`，然后通过 `--env-file .env` 传入
+- 或者直接在命令行里使用 `-e` 传入所需环境变量
+
+1. 可选：复制环境变量模板：
 
 ```bash
 cp .env.example .env
 ```
 
-2. 编辑 `.env`，至少填写：
+2. 如果你使用 `.env`，至少填写：
 - `CPA_BASE_URL`
 - `CPA_MANAGEMENT_KEY`
-- `SQLITE_PATH=/data/app.db`
+- `SQLITE_PATH=/data/app.db`（可选；默认就是 `/data/app.db`）
 
 3. 拉取镜像：
 
@@ -154,13 +158,26 @@ cp .env.example .env
 docker pull ghcr.io/willxup/cpa-usage-keeper:latest
 ```
 
-4. 运行容器：
+4. 运行容器。
+
+如果你使用 `.env`：
 
 ```bash
 docker run --rm \
   -p 8080:8080 \
   -v "$(pwd)/data:/data" \
   --env-file .env \
+  ghcr.io/willxup/cpa-usage-keeper:latest
+```
+
+如果你不使用 `.env`：
+
+```bash
+docker run --rm \
+  -p 8080:8080 \
+  -v "$(pwd)/data:/data" \
+  -e CPA_BASE_URL=http://127.0.0.1:8317 \
+  -e CPA_MANAGEMENT_KEY=replace-with-your-management-key \
   ghcr.io/willxup/cpa-usage-keeper:latest
 ```
 
@@ -174,7 +191,8 @@ curl -i http://127.0.0.1:8080/healthz
 - `APP_BASE_PATH` 是运行时环境变量，不是 Docker 构建参数
 - 同一个镜像既可以运行在根路径 `/`，也可以运行在 `/cpa` 这类子路径下
 - `BACKUP_DIR` 通常应设置为 `/data/backups`
-- 镜像里不会包含你的运行时密钥，所有部署差异都通过 `.env` 提供
+- `SQLITE_PATH` 在 Docker 部署下是可选的，默认就是 `/data/app.db`
+- 镜像里不会包含你的运行时密钥，所有部署差异都通过 `.env` 或运行时环境变量提供
 - 如果不挂载 `./data:/data`，SQLite 数据库和 backup 都会是临时的
 
 ### 本地构建镜像
@@ -197,13 +215,19 @@ docker run --rm \
 
 ## Docker Compose
 
-1. 复制根目录环境变量模板：
+Docker Compose 部署时，`.env` 文件同样是可选的。
+
+- 如果仓库根目录存在 `.env`，Docker Compose 会自动加载
+- 你也可以显式传 `--env-file .env`
+- 如果你不想使用 `.env`，也可以先在 shell 中设置环境变量再启动 Compose
+
+1. 可选：复制根目录环境变量模板：
 
 ```bash
 cp .env.example .env
 ```
 
-2. 编辑 `.env`，填入 CPA 凭据和运行参数。
+2. 如果你使用 `.env`，编辑它并填入 CPA 凭据和运行参数。
 
 3. 拉取已发布镜像：
 
@@ -221,6 +245,14 @@ docker compose -f docker-compose.example.yml --env-file .env up -d
 
 ```bash
 docker compose -f docker-compose.example.yml --env-file .env down
+```
+
+如果你不想使用 `.env`，也可以这样运行：
+
+```bash
+CPA_BASE_URL=http://127.0.0.1:8317 \
+CPA_MANAGEMENT_KEY=replace-with-your-management-key \
+docker compose -f docker-compose.example.yml up -d
 ```
 
 默认情况下，`docker-compose.example.yml` 会拉取 `ghcr.io/willxup/cpa-usage-keeper:latest`，而不是使用本地 `Dockerfile` 构建。

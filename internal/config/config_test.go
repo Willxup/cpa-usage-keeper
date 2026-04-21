@@ -8,7 +8,6 @@ import (
 func TestLoadFromEnvAppliesDefaults(t *testing.T) {
 	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:8317")
 	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
-	t.Setenv("SQLITE_PATH", "/tmp/app.db")
 
 	cfg, err := LoadFromEnv()
 	if err != nil {
@@ -35,6 +34,9 @@ func TestLoadFromEnvAppliesDefaults(t *testing.T) {
 	}
 	if cfg.RequestTimeout != 30*time.Second {
 		t.Fatalf("expected default request timeout 30s, got %s", cfg.RequestTimeout)
+	}
+	if cfg.SQLitePath != "/data/app.db" {
+		t.Fatalf("expected default sqlite path /data/app.db, got %s", cfg.SQLitePath)
 	}
 	if cfg.AuthEnabled {
 		t.Fatal("expected auth to be disabled by default")
@@ -65,20 +67,9 @@ func TestLoadFromEnvRequiresCriticalValues(t *testing.T) {
 		}
 	})
 
-	t.Run("missing sqlite path", func(t *testing.T) {
-		t.Setenv("CPA_BASE_URL", "http://127.0.0.1:8317")
-		t.Setenv("CPA_MANAGEMENT_KEY", "secret")
-
-		_, err := LoadFromEnv()
-		if err == nil || err.Error() != "SQLITE_PATH is required" {
-			t.Fatalf("expected SQLITE_PATH required error, got %v", err)
-		}
-	})
-
 	t.Run("missing login password when auth enabled", func(t *testing.T) {
 		t.Setenv("CPA_BASE_URL", "http://127.0.0.1:8317")
 		t.Setenv("CPA_MANAGEMENT_KEY", "secret")
-		t.Setenv("SQLITE_PATH", "/tmp/app.db")
 		t.Setenv("AUTH_ENABLED", "true")
 
 		_, err := LoadFromEnv()

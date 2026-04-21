@@ -52,7 +52,7 @@ Key variables:
 | `CPA_BASE_URL` | Yes | - | CPA server base URL |
 | `CPA_MANAGEMENT_KEY` | Yes | - | CPA management key |
 | `POLL_INTERVAL` | No | `5m` | Usage sync interval |
-| `SQLITE_PATH` | Yes | - | SQLite database path |
+| `SQLITE_PATH` | No | `/data/app.db` | SQLite database path |
 | `BACKUP_ENABLED` | No | `true` | Enable raw export backups |
 | `BACKUP_DIR` | No | `/data/backups` | Backup directory |
 | `BACKUP_INTERVAL` | No | `1h` | Minimum interval between backup writes |
@@ -137,16 +137,20 @@ On pull requests, it only verifies that the Docker image can be built.
 
 ### Use the published image
 
-1. Copy the env template:
+Using a `.env` file is optional for Docker deployment. You can either:
+- copy `.env.example` to `.env` and pass `--env-file .env`
+- or provide the needed `-e` flags directly on the command line
+
+1. Optional: copy the env template:
 
 ```bash
 cp .env.example .env
 ```
 
-2. Edit `.env` and fill in at least:
+2. If you use `.env`, edit it and fill in at least:
 - `CPA_BASE_URL`
 - `CPA_MANAGEMENT_KEY`
-- `SQLITE_PATH=/data/app.db`
+- `SQLITE_PATH=/data/app.db` (optional; defaults to `/data/app.db`)
 
 3. Pull the image:
 
@@ -154,13 +158,26 @@ cp .env.example .env
 docker pull ghcr.io/willxup/cpa-usage-keeper:latest
 ```
 
-4. Run the container:
+4. Run the container.
+
+If you use `.env`:
 
 ```bash
 docker run --rm \
   -p 8080:8080 \
   -v "$(pwd)/data:/data" \
   --env-file .env \
+  ghcr.io/willxup/cpa-usage-keeper:latest
+```
+
+Or without `.env`:
+
+```bash
+docker run --rm \
+  -p 8080:8080 \
+  -v "$(pwd)/data:/data" \
+  -e CPA_BASE_URL=http://127.0.0.1:8317 \
+  -e CPA_MANAGEMENT_KEY=replace-with-your-management-key \
   ghcr.io/willxup/cpa-usage-keeper:latest
 ```
 
@@ -174,7 +191,8 @@ Notes:
 - `APP_BASE_PATH` is a runtime environment variable, not a Docker build argument
 - The same image can run either at `/` or a subpath such as `/cpa`
 - `BACKUP_DIR` should normally be `/data/backups`
-- The image does not include your runtime secrets; all deployment-specific settings stay in `.env`
+- `SQLITE_PATH` is optional for Docker deployment and defaults to `/data/app.db`
+- The image does not include your runtime secrets; all deployment-specific settings stay in `.env` or runtime environment variables
 - Persist `./data:/data` or your SQLite database and backups will be ephemeral
 
 ### Build locally
@@ -197,13 +215,19 @@ docker run --rm \
 
 ## Docker Compose
 
-1. Copy the root env template:
+Using a `.env` file is optional for Docker Compose deployment.
+
+- If a `.env` file exists in the repository root, Docker Compose will load it automatically.
+- You can also pass `--env-file .env` explicitly.
+- If you do not use a `.env` file, set the required variables in your shell before running Compose.
+
+1. Optional: copy the root env template:
 
 ```bash
 cp .env.example .env
 ```
 
-2. Edit `.env` with your CPA credentials and runtime settings.
+2. If you use `.env`, edit it with your CPA credentials and runtime settings.
 
 3. Pull the published image:
 
@@ -221,6 +245,14 @@ docker compose -f docker-compose.example.yml --env-file .env up -d
 
 ```bash
 docker compose -f docker-compose.example.yml --env-file .env down
+```
+
+If you do not want to use `.env`, you can run Compose like this instead:
+
+```bash
+CPA_BASE_URL=http://127.0.0.1:8317 \
+CPA_MANAGEMENT_KEY=replace-with-your-management-key \
+docker compose -f docker-compose.example.yml up -d
 ```
 
 By default, `docker-compose.example.yml` pulls `ghcr.io/willxup/cpa-usage-keeper:latest` instead of building from the local Dockerfile.
