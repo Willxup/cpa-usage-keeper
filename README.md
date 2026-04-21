@@ -205,21 +205,29 @@ cp .env.example .env
 
 2. Edit `.env` with your CPA credentials and runtime settings.
 
-3. Start the stack:
+3. Pull the published image:
+
+```bash
+docker compose -f docker-compose.example.yml --env-file .env pull
+```
+
+4. Start the stack:
 
 ```bash
 docker compose -f docker-compose.example.yml --env-file .env up -d
 ```
 
-4. Stop the stack:
+5. Stop the stack:
 
 ```bash
 docker compose -f docker-compose.example.yml --env-file .env down
 ```
 
-By default, `docker-compose.example.yml` pulls `ghcr.io/willxup/cpa-usage-keeper:latest`.
+By default, `docker-compose.example.yml` pulls `ghcr.io/willxup/cpa-usage-keeper:latest` instead of building from the local Dockerfile.
 
 The compose file bind-mounts `data` to `/data` for SQLite and backup persistence.
+
+If you want to keep using local image builds for development, replace the `image:` line with a `build:` block again.
 
 When `APP_BASE_PATH=/cpa` is set, access the app at `/cpa/` and keep that prefix in your Nginx reverse proxy instead of rewriting it away.
 

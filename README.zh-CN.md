@@ -205,21 +205,29 @@ cp .env.example .env
 
 2. 编辑 `.env`，填入 CPA 凭据和运行参数。
 
-3. 启动服务：
+3. 拉取已发布镜像：
+
+```bash
+docker compose -f docker-compose.example.yml --env-file .env pull
+```
+
+4. 启动服务：
 
 ```bash
 docker compose -f docker-compose.example.yml --env-file .env up -d
 ```
 
-4. 停止服务：
+5. 停止服务：
 
 ```bash
 docker compose -f docker-compose.example.yml --env-file .env down
 ```
 
-默认情况下，`docker-compose.example.yml` 会拉取 `ghcr.io/willxup/cpa-usage-keeper:latest`。
+默认情况下，`docker-compose.example.yml` 会拉取 `ghcr.io/willxup/cpa-usage-keeper:latest`，而不是使用本地 `Dockerfile` 构建。
 
 compose 会将仓库根目录的 `data` 以 bind mount 方式挂载到容器内的 `/data`，用于保存 SQLite 数据库和备份文件。
+
+如果你只是本地开发，仍然可以把 `image:` 改回 `build:` 来走本地构建流程。
 
 当设置 `APP_BASE_PATH=/cpa` 时，应用访问入口应为 `/cpa/`，Nginx 反代时也应保留这个前缀，而不是先重写掉再转发。
 
