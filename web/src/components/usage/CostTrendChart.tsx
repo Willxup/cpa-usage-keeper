@@ -8,14 +8,17 @@ import {
   buildHourlyCostSeries,
   buildDailyCostSeries,
   formatUsd,
-  type ModelPrice
+  type ModelPrice,
+  type UsageDetailRecord,
 } from '@/utils/usage';
 import { buildChartOptions, getHourChartMinWidth } from '@/utils/usage/chartConfig';
+import type { UsageEvent } from '@/lib/types';
 import type { UsagePayload } from './hooks/useUsageData';
 import styles from '@/pages/UsagePage.module.scss';
 
 export interface CostTrendChartProps {
   usage: UsagePayload | null;
+  events?: UsageEvent[];
   loading: boolean;
   isDark: boolean;
   isMobile: boolean;
@@ -23,6 +26,26 @@ export interface CostTrendChartProps {
   hourWindowHours?: number;
   endMs?: number;
 }
+
+const toUsageDetailRecord = (event: UsageEvent): UsageDetailRecord => ({
+  timestamp: event.timestamp,
+  source: String(event.source ?? ''),
+  source_raw: String(event.source_raw ?? ''),
+  source_type: String(event.source_type ?? ''),
+  source_key: String(event.source_key ?? ''),
+  auth_index: String(event.auth_index ?? ''),
+  failed: event.failed === true,
+  latency_ms: Number.isFinite(event.latency_ms) ? event.latency_ms : 0,
+  tokens: {
+    input_tokens: Number(event.tokens?.input_tokens ?? 0),
+    output_tokens: Number(event.tokens?.output_tokens ?? 0),
+    reasoning_tokens: Number(event.tokens?.reasoning_tokens ?? 0),
+    cached_tokens: Number(event.tokens?.cached_tokens ?? 0),
+    total_tokens: Number(event.tokens?.total_tokens ?? 0),
+  },
+  __modelName: String(event.model ?? ''),
+  __timestampMs: Number.isFinite(Date.parse(event.timestamp)) ? Date.parse(event.timestamp) : 0,
+});
 
 const COST_COLOR = '#f59e0b';
 const COST_BG = 'rgba(245, 158, 11, 0.15)';
@@ -40,6 +63,7 @@ function buildGradient(ctx: ScriptableContext<'line'>) {
 
 export function CostTrendChart({
   usage,
+  events = [],
   loading,
   isDark,
   isMobile,
@@ -56,10 +80,38 @@ export function CostTrendChart({
       return { chartData: { labels: [], datasets: [] }, chartOptions: {}, hasData: false };
     }
 
+    const detailRecords = events.map(toUsageDetailRecord);
+    const usageWithDetails = detailRecords.length > 0
+      ? {
+          ...(usage ?? {}),
+          apis: {
+            __overview__: {
+              total_requests: detailRecords.length,
+              success_count: detailRecords.filter((detail) => !detail.failed).length,
+              failure_count: detailRecords.filter((detail) => detail.failed).length,
+              total_tokens: detailRecords.reduce((sum, detail) => sum + Number(detail.tokens.total_tokens ?? 0), 0),
+              models: Object.fromEntries(
+                Array.from(new Set(detailRecords.map((detail) => detail.__modelName || '__unknown__'))).map((modelName) => [
+                  modelName,
+                  {
+                    total_requests: detailRecords.filter((detail) => (detail.__modelName || '__unknown__') === modelName).length,
+                    success_count: detailRecords.filter((detail) => !detail.failed && (detail.__modelName || '__unknown__') === modelName).length,
+                    failure_count: detailRecords.filter((detail) => detail.failed && (detail.__modelName || '__unknown__') === modelName).length,
+                    total_tokens: detailRecords
+                      .filter((detail) => (detail.__modelName || '__unknown__') === modelName)
+                      .reduce((sum, detail) => sum + Number(detail.tokens.total_tokens ?? 0), 0),
+                    details: detailRecords.filter((detail) => (detail.__modelName || '__unknown__') === modelName),
+                  }
+                ])
+              )
+            }
+          }
+        }
+      : usage;
     const series =
       period === 'hour'
-        ? buildHourlyCostSeries(usage, modelPrices, hourWindowHours, endMs)
-        : buildDailyCostSeries(usage, modelPrices);
+        ? buildHourlyCostSeries(usageWithDetails, modelPrices, hourWindowHours, endMs)
+        : buildDailyCostSeries(usageWithDetails, modelPrices);
 
     const data = {
       labels: series.labels,

@@ -6,9 +6,11 @@ import { Button } from '@/components/ui/Button';
 import {
   buildHourlyTokenBreakdown,
   buildDailyTokenBreakdown,
-  type TokenCategory
+  type TokenCategory,
+  type UsageDetailRecord,
 } from '@/utils/usage';
 import { buildChartOptions, getHourChartMinWidth } from '@/utils/usage/chartConfig';
+import type { UsageEvent } from '@/lib/types';
 import type { UsagePayload } from './hooks/useUsageData';
 import styles from '@/pages/UsagePage.module.scss';
 
@@ -23,6 +25,7 @@ const CATEGORIES: TokenCategory[] = ['input', 'output', 'cached', 'reasoning'];
 
 export interface TokenBreakdownChartProps {
   usage: UsagePayload | null;
+  events?: UsageEvent[];
   loading: boolean;
   isDark: boolean;
   isMobile: boolean;
@@ -30,8 +33,28 @@ export interface TokenBreakdownChartProps {
   endMs?: number;
 }
 
+const toUsageDetailRecord = (event: UsageEvent): UsageDetailRecord => ({
+  timestamp: event.timestamp,
+  source: String(event.source ?? ''),
+  source_raw: String(event.source_raw ?? ''),
+  source_type: String(event.source_type ?? ''),
+  source_key: String(event.source_key ?? ''),
+  auth_index: String(event.auth_index ?? ''),
+  failed: event.failed === true,
+  latency_ms: Number.isFinite(event.latency_ms) ? event.latency_ms : 0,
+  tokens: {
+    input_tokens: Number(event.tokens?.input_tokens ?? 0),
+    output_tokens: Number(event.tokens?.output_tokens ?? 0),
+    reasoning_tokens: Number(event.tokens?.reasoning_tokens ?? 0),
+    cached_tokens: Number(event.tokens?.cached_tokens ?? 0),
+    total_tokens: Number(event.tokens?.total_tokens ?? 0),
+  },
+  __timestampMs: Number.isFinite(Date.parse(event.timestamp)) ? Date.parse(event.timestamp) : 0,
+});
+
 export function TokenBreakdownChart({
   usage,
+  events = [],
   loading,
   isDark,
   isMobile,
@@ -42,10 +65,33 @@ export function TokenBreakdownChart({
   const [period, setPeriod] = useState<'hour' | 'day'>('hour');
 
   const { chartData, chartOptions } = useMemo(() => {
+    const detailRecords = events.map(toUsageDetailRecord);
+    const usageWithDetails = detailRecords.length > 0
+      ? {
+          ...(usage ?? {}),
+          apis: {
+            __overview__: {
+              total_requests: detailRecords.length,
+              success_count: detailRecords.filter((detail) => !detail.failed).length,
+              failure_count: detailRecords.filter((detail) => detail.failed).length,
+              total_tokens: detailRecords.reduce((sum, detail) => sum + Number(detail.tokens.total_tokens ?? 0), 0),
+              models: {
+                __overview__: {
+                  total_requests: detailRecords.length,
+                  success_count: detailRecords.filter((detail) => !detail.failed).length,
+                  failure_count: detailRecords.filter((detail) => detail.failed).length,
+                  total_tokens: detailRecords.reduce((sum, detail) => sum + Number(detail.tokens.total_tokens ?? 0), 0),
+                  details: detailRecords,
+                }
+              }
+            }
+          }
+        }
+      : usage;
     const series =
       period === 'hour'
-        ? buildHourlyTokenBreakdown(usage, hourWindowHours, endMs)
-        : buildDailyTokenBreakdown(usage);
+        ? buildHourlyTokenBreakdown(usageWithDetails, hourWindowHours, endMs)
+        : buildDailyTokenBreakdown(usageWithDetails);
     const categoryLabels: Record<TokenCategory, string> = {
       input: t('usage_stats.input_tokens'),
       output: t('usage_stats.output_tokens'),

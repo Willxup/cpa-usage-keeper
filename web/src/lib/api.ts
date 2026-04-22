@@ -88,7 +88,7 @@ export async function fetchUsageOverview(range: string, start?: string, end?: st
   return response.json()
 }
 
-export async function fetchUsageEvents(range: string, start?: string, end?: string, signal?: AbortSignal): Promise<UsageEventsResponse> {
+export async function fetchUsageEvents(range: string, start?: string, end?: string, signal?: AbortSignal, limit?: number): Promise<UsageEventsResponse> {
   const params = new URLSearchParams()
   params.set('range', range)
   if (start) {
@@ -96,6 +96,9 @@ export async function fetchUsageEvents(range: string, start?: string, end?: stri
   }
   if (end) {
     params.set('end', end)
+  }
+  if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
+    params.set('limit', String(Math.floor(limit)))
   }
   const query = params.toString()
   const response = await apiFetch(`${apiPath('/usage/events')}${query ? `?${query}` : ''}`, { signal })

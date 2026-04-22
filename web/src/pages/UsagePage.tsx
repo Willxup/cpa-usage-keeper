@@ -67,6 +67,7 @@ const DEFAULT_CHART_LINES = ['all'];
 const DEFAULT_TIME_RANGE: UsageTimeRange = '8h';
 const DEFAULT_CUSTOM_WINDOW_HOURS = 8;
 const MAX_CHART_LINES = 9;
+const OVERVIEW_AUX_EVENTS_LIMIT = 5000;
 const TIME_RANGE_OPTIONS: ReadonlyArray<{ value: Exclude<UsageTimeRange, 'all'>; labelKey: string }> = [
   { value: '4h', labelKey: 'usage_stats.range_4h' },
   { value: '8h', labelKey: 'usage_stats.range_8h' },
@@ -251,6 +252,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [eventsError, setEventsError] = useState('');
   const [eventsData, setEventsData] = useState<UsageEvent[]>([]);
   const eventsRequestControllerRef = useRef<AbortController | null>(null);
+  const [overviewAuxEventsLoading, setOverviewAuxEventsLoading] = useState(false);
+  const [overviewAuxEvents, setOverviewAuxEvents] = useState<UsageEvent[]>([]);
+  const overviewAuxEventsRequestControllerRef = useRef<AbortController | null>(null);
   const [credentialsLoading, setCredentialsLoading] = useState(false);
   const [credentialsError, setCredentialsError] = useState('');
   const [credentialsData, setCredentialsData] = useState<UsageCredential[]>([]);
@@ -458,6 +462,58 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     };
   }, [onAuthRequired]);
 
+  const loadOverviewAuxEvents = useCallback(async () => {
+    if (timeRange === 'custom') {
+      if (!customTimeRange.start || !customTimeRange.end) {
+        overviewAuxEventsRequestControllerRef.current?.abort();
+        overviewAuxEventsRequestControllerRef.current = null;
+        setOverviewAuxEvents([]);
+        setOverviewAuxEventsLoading(false);
+        return;
+      }
+      const startMs = parseCustomDateStart(customTimeRange.start);
+      const endMs = parseCustomDateEnd(customTimeRange.end);
+      if (startMs === undefined || endMs === undefined || startMs > endMs) {
+        overviewAuxEventsRequestControllerRef.current?.abort();
+        overviewAuxEventsRequestControllerRef.current = null;
+        setOverviewAuxEvents([]);
+        setOverviewAuxEventsLoading(false);
+        return;
+      }
+    }
+
+    overviewAuxEventsRequestControllerRef.current?.abort();
+    const controller = new AbortController();
+    overviewAuxEventsRequestControllerRef.current = controller;
+
+    setOverviewAuxEventsLoading(true);
+    try {
+      const start = timeRange === 'custom' ? new Date(`${customTimeRange.start}T00:00:00.000Z`).toISOString() : undefined;
+      const end = timeRange === 'custom' ? new Date(`${customTimeRange.end}T23:59:59.999Z`).toISOString() : undefined;
+      const response = await fetchUsageEvents(timeRange, start, end, controller.signal, OVERVIEW_AUX_EVENTS_LIMIT);
+      if (overviewAuxEventsRequestControllerRef.current !== controller) {
+        return;
+      }
+      setOverviewAuxEvents(response.events);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      if (overviewAuxEventsRequestControllerRef.current === controller) {
+        setOverviewAuxEvents([]);
+      }
+    } finally {
+      if (overviewAuxEventsRequestControllerRef.current === controller) {
+        setOverviewAuxEventsLoading(false);
+        overviewAuxEventsRequestControllerRef.current = null;
+      }
+    }
+  }, [customTimeRange.end, customTimeRange.start, onAuthRequired, timeRange]);
+
   const loadEvents = useCallback(async () => {
     if (timeRange === 'custom') {
       if (!customTimeRange.start || !customTimeRange.end) {
@@ -581,8 +637,24 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
           ? loadAnalysis
           : activeTab === 'pricing'
             ? loadPricing
-            : loadUsage
+            : async () => {
+                await Promise.all([loadUsage(), loadOverviewAuxEvents()]);
+              }
   );
+
+  useEffect(() => {
+    if (activeTab !== 'overview') {
+      overviewAuxEventsRequestControllerRef.current?.abort();
+      overviewAuxEventsRequestControllerRef.current = null;
+      setOverviewAuxEventsLoading(false);
+      return;
+    }
+    void loadOverviewAuxEvents();
+    return () => {
+      overviewAuxEventsRequestControllerRef.current?.abort();
+      overviewAuxEventsRequestControllerRef.current = null;
+    };
+  }, [activeTab, loadOverviewAuxEvents]);
 
   useEffect(() => {
     if (activeTab !== 'events') {
@@ -770,6 +842,14 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </div>
             )}
 
+            {activeLastRefreshedAt && (
+              <div className={styles.toolbarMetaRow}>
+                <span className={styles.lastRefreshed}>
+                  {t('usage_stats.last_updated')}: {activeLastRefreshedAt.toLocaleTimeString()}
+                </span>
+              </div>
+            )}
+
             <div className={styles.toolbarRow}>
               <div className={styles.tabBar} role="tablist" aria-label="Usage sections">
                 <button
@@ -874,20 +954,15 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 {timeRange === 'custom' && customRangeError && (
                   <span className={styles.customRangeError}>{customRangeError}</span>
                 )}
-                {activeLastRefreshedAt && (
-                  <span className={styles.lastRefreshed}>
-                    {t('usage_stats.last_updated')}: {activeLastRefreshedAt.toLocaleTimeString()}
-                  </span>
-                )}
                 <Button
                   variant="secondary"
                   size="sm"
                   onClick={() => void (activeTab === 'events' ? loadEvents() : activeTab === 'credentials' ? loadCredentials() : activeTab === 'analysis' ? loadAnalysis() : activeTab === 'pricing' ? loadPricing() : loadUsage()).catch(() => {})}
-                  disabled={activeTab === 'events' ? eventsLoading : activeTab === 'credentials' ? credentialsLoading : activeTab === 'analysis' ? analysisLoading : activeTab === 'pricing' ? pricingLoading : loading}
+                  disabled={activeTab === 'events' ? eventsLoading : activeTab === 'credentials' ? credentialsLoading : activeTab === 'analysis' ? analysisLoading : activeTab === 'pricing' ? pricingLoading : (loading || overviewAuxEventsLoading)}
                   className={styles.refreshButton}
                 >
                   <IconRefreshCw size={14} />
-                  <span>{(activeTab === 'events' ? eventsLoading : activeTab === 'credentials' ? credentialsLoading : activeTab === 'analysis' ? analysisLoading : activeTab === 'pricing' ? pricingLoading : loading) ? t('common.loading') : t('usage_stats.refresh')}</span>
+                  <span>{(activeTab === 'events' ? eventsLoading : activeTab === 'credentials' ? credentialsLoading : activeTab === 'analysis' ? analysisLoading : activeTab === 'pricing' ? pricingLoading : (loading || overviewAuxEventsLoading)) ? t('common.loading') : t('usage_stats.refresh')}</span>
                 </Button>
               </div>
             </div>
@@ -913,7 +988,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   }}
                 />
 
-                <ServiceHealthCard usage={filteredUsage} loading={loading} />
+                <ServiceHealthCard usage={filteredUsage} events={overviewAuxEvents} loading={loading || overviewAuxEventsLoading} />
 
                 <ChartLineSelector
                   chartLines={chartLines}
@@ -947,7 +1022,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
                 <TokenBreakdownChart
                   usage={filteredUsage}
-                  loading={loading}
+                  events={overviewAuxEvents}
+                  loading={loading || overviewAuxEventsLoading}
                   isDark={isDark}
                   isMobile={isMobile}
                   hourWindowHours={hourWindowHours}
@@ -956,7 +1032,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
                 <CostTrendChart
                   usage={filteredUsage}
-                  loading={loading}
+                  events={overviewAuxEvents}
+                  loading={loading || overviewAuxEventsLoading}
                   isDark={isDark}
                   isMobile={isMobile}
                   modelPrices={modelPrices}

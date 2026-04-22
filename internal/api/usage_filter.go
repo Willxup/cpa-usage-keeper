@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,6 +29,13 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (service.UsageFi
 	}
 
 	filter := service.UsageFilter{Range: rangeValue, Limit: service.DefaultUsageEventsLimit}
+	if limitValue := strings.TrimSpace(req.URL.Query().Get("limit")); limitValue != "" {
+		limit, err := strconv.Atoi(limitValue)
+		if err != nil || limit <= 0 {
+			return service.UsageFilter{}, fmt.Errorf("invalid limit %q", limitValue)
+		}
+		filter.Limit = limit
+	}
 	switch rangeValue {
 	case "all":
 		return filter, nil
