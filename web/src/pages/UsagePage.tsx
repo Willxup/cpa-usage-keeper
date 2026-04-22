@@ -40,7 +40,6 @@ import {
   getModelNamesFromUsage,
   getApiStats,
   getModelStats,
-  filterUsageByWindow,
   resolveUsageFilterWindow,
   type UsageFilterWindow,
   type UsageTimeRange
@@ -86,6 +85,10 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'dark', labelKey: 'usage_stats.theme_dark' },
   { value: 'auto', labelKey: 'usage_stats.theme_auto' }
 ];
+const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'credentials', 'pricing'] as const;
+type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];
+const DEFAULT_USAGE_TAB: UsageTab = 'overview';
+const USAGE_TAB_STORAGE_KEY = 'cli-proxy-usage-tab-v1';
 
 const isUsageTimeRange = (value: unknown): value is UsageTimeRange =>
   value === '4h' || value === '8h' || value === '12h' || value === '24h' || value === '7d' || value === 'all' || value === 'custom';
@@ -177,6 +180,21 @@ const loadTimeRange = (): UsageTimeRange => {
   }
 };
 
+const isUsageTab = (value: unknown): value is UsageTab =>
+  typeof value === 'string' && USAGE_TAB_OPTIONS.includes(value as UsageTab);
+
+const loadUsageTab = (): UsageTab => {
+  try {
+    if (typeof localStorage === 'undefined') {
+      return DEFAULT_USAGE_TAB;
+    }
+    const raw = localStorage.getItem(USAGE_TAB_STORAGE_KEY);
+    return isUsageTab(raw) ? raw : DEFAULT_USAGE_TAB;
+  } catch {
+    return DEFAULT_USAGE_TAB;
+  }
+};
+
 export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const { t } = useTranslation();
   const currentLanguage = i18n.language === 'zh' ? 'zh' : 'en';
@@ -187,6 +205,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const isDark = resolvedTheme === 'dark';
   const config = useConfigStore((state) => state.config);
 
+  const [activeTab, setActiveTab] = useState<UsageTab>(loadUsageTab);
+  const [chartLines, setChartLines] = useState<string[]>(loadChartLines);
+  const [timeRange, setTimeRange] = useState<UsageTimeRange>(loadTimeRange);
+  const [customTimeRange, setCustomTimeRange] = useState<{ start: string; end: string }>(loadCustomTimeRange);
+  const isOverviewTab = activeTab === 'overview';
+
   const {
     usage,
     loading,
@@ -195,13 +219,15 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     modelPrices,
     setModelPrices,
     loadUsage
-  } = useUsageData({ onAuthRequired });
+  } = useUsageData({
+    onAuthRequired,
+    mode: isOverviewTab ? 'overview' : 'full',
+    range: timeRange,
+    customStart: customTimeRange.start,
+    customEnd: customTimeRange.end,
+  });
 
   useHeaderRefresh(loadUsage);
-
-  const [chartLines, setChartLines] = useState<string[]>(loadChartLines);
-  const [timeRange, setTimeRange] = useState<UsageTimeRange>(loadTimeRange);
-  const [customTimeRange, setCustomTimeRange] = useState<{ start: string; end: string }>(loadCustomTimeRange);
   const [statusError, setStatusError] = useState('');
   const [customRangeError, setCustomRangeError] = useState('');
   const [customRangeHint, setCustomRangeHint] = useState('');
@@ -256,10 +282,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setCustomRangeHint('');
   }, [customTimeRange.end, customTimeRange.start, t, timeRange]);
 
-  const filteredUsage = useMemo(
-    () => (usage ? filterUsageByWindow(usage, filterWindow) : null),
-    [filterWindow, usage]
-  );
+  const filteredUsage = usage;
   const hourWindowHours = useMemo(() => {
     if (timeRange === 'all') return undefined;
     if (timeRange !== 'custom') return HOUR_WINDOW_BY_TIME_RANGE[timeRange];
@@ -304,6 +327,17 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       // Ignore storage errors.
     }
   }, [customTimeRange]);
+
+  useEffect(() => {
+    try {
+      if (typeof localStorage === 'undefined') {
+        return;
+      }
+      localStorage.setItem(USAGE_TAB_STORAGE_KEY, activeTab);
+    } catch {
+      // Ignore storage errors.
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     if (timeRange !== 'custom') return;
@@ -365,13 +399,16 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   } = useChartData({ usage: filteredUsage, chartLines, isDark, isMobile, hourWindowHours, endMs: filterWindowEndMs });
 
   const modelNames = useMemo(() => getModelNamesFromUsage(usage), [usage]);
+  const analysisUsage = activeTab === 'analysis' ? filteredUsage : null;
+  const eventsUsage = activeTab === 'events' ? filteredUsage : null;
+  const credentialsUsage = activeTab === 'credentials' ? filteredUsage : null;
   const apiStats = useMemo(
-    () => getApiStats(filteredUsage, modelPrices),
-    [filteredUsage, modelPrices]
+    () => getApiStats(analysisUsage, modelPrices),
+    [analysisUsage, modelPrices]
   );
   const modelStats = useMemo(
-    () => getModelStats(filteredUsage, modelPrices),
-    [filteredUsage, modelPrices]
+    () => getModelStats(analysisUsage, modelPrices),
+    [analysisUsage, modelPrices]
   );
   const hasPrices = Object.keys(modelPrices).length > 0;
 
@@ -511,102 +548,141 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             {error && <div className={styles.errorBox}>{error === 'AUTH_REQUIRED' ? t('auth.session_expired') : error}</div>}
             {!error && statusError && <div className={styles.errorBox}>{statusError}</div>}
 
-            <StatCards
-              usage={filteredUsage}
-              loading={loading}
-              modelPrices={modelPrices}
-              nowMs={nowMs}
-              filterWindow={filterWindow}
-              sparklines={{
-                requests: requestsSparkline,
-                tokens: tokensSparkline,
-                rpm: rpmSparkline,
-                tpm: tpmSparkline,
-                cost: costSparkline
-              }}
-            />
-
-            <ServiceHealthCard usage={usage} loading={loading} />
-
-            <ChartLineSelector
-              chartLines={chartLines}
-              modelNames={modelNames}
-              maxLines={MAX_CHART_LINES}
-              onChange={handleChartLinesChange}
-            />
-
-            <div className={styles.chartsGrid}>
-              <UsageChart
-                title={t('usage_stats.requests_trend')}
-                period={requestsPeriod}
-                onPeriodChange={setRequestsPeriod}
-                chartData={requestsChartData}
-                chartOptions={requestsChartOptions}
-                loading={loading}
-                isMobile={isMobile}
-                emptyText={t('usage_stats.no_data')}
-              />
-              <UsageChart
-                title={t('usage_stats.tokens_trend')}
-                period={tokensPeriod}
-                onPeriodChange={setTokensPeriod}
-                chartData={tokensChartData}
-                chartOptions={tokensChartOptions}
-                loading={loading}
-                isMobile={isMobile}
-                emptyText={t('usage_stats.no_data')}
-              />
+            <div className={styles.tabBar} role="tablist" aria-label="Usage sections">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'overview'}
+                className={`${styles.tabPill} ${activeTab === 'overview' ? styles.tabPillActive : ''}`.trim()}
+                onClick={() => setActiveTab('overview')}
+              >
+                Overview
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'analysis'}
+                className={`${styles.tabPill} ${activeTab === 'analysis' ? styles.tabPillActive : ''}`.trim()}
+                onClick={() => setActiveTab('analysis')}
+              >
+                API & Models
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'events'}
+                className={`${styles.tabPill} ${activeTab === 'events' ? styles.tabPillActive : ''}`.trim()}
+                onClick={() => setActiveTab('events')}
+              >
+                Request Events
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'credentials'}
+                className={`${styles.tabPill} ${activeTab === 'credentials' ? styles.tabPillActive : ''}`.trim()}
+                onClick={() => setActiveTab('credentials')}
+              >
+                Credentials
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'pricing'}
+                className={`${styles.tabPill} ${activeTab === 'pricing' ? styles.tabPillActive : ''}`.trim()}
+                onClick={() => setActiveTab('pricing')}
+              >
+                Pricing
+              </button>
             </div>
 
-            <TokenBreakdownChart
-              usage={filteredUsage}
-              loading={loading}
-              isDark={isDark}
-              isMobile={isMobile}
-              hourWindowHours={hourWindowHours}
-              endMs={filterWindowEndMs}
-            />
+            {activeTab === 'overview' && (
+              <>
+                <StatCards
+                  usage={filteredUsage}
+                  loading={loading}
+                  modelPrices={modelPrices}
+                  nowMs={nowMs}
+                  filterWindow={filterWindow}
+                  sparklines={{
+                    requests: requestsSparkline,
+                    tokens: tokensSparkline,
+                    rpm: rpmSparkline,
+                    tpm: tpmSparkline,
+                    cost: costSparkline
+                  }}
+                />
 
-            <CostTrendChart
-              usage={filteredUsage}
-              loading={loading}
-              isDark={isDark}
-              isMobile={isMobile}
-              modelPrices={modelPrices}
-              hourWindowHours={hourWindowHours}
-              endMs={filterWindowEndMs}
-            />
+                <ChartLineSelector
+                  chartLines={chartLines}
+                  modelNames={modelNames}
+                  maxLines={MAX_CHART_LINES}
+                  onChange={handleChartLinesChange}
+                />
 
-            <div className={styles.detailsGrid}>
-              <ApiDetailsCard apiStats={apiStats} loading={loading} hasPrices={hasPrices} />
-              <ModelStatsCard modelStats={modelStats} loading={loading} hasPrices={hasPrices} />
-            </div>
+                <div className={styles.chartsGrid}>
+                  <UsageChart
+                    title={t('usage_stats.requests_trend')}
+                    period={requestsPeriod}
+                    onPeriodChange={setRequestsPeriod}
+                    chartData={requestsChartData}
+                    chartOptions={requestsChartOptions}
+                    loading={loading}
+                    isMobile={isMobile}
+                    emptyText={t('usage_stats.no_data')}
+                  />
+                  <UsageChart
+                    title={t('usage_stats.tokens_trend')}
+                    period={tokensPeriod}
+                    onPeriodChange={setTokensPeriod}
+                    chartData={tokensChartData}
+                    chartOptions={tokensChartOptions}
+                    loading={loading}
+                    isMobile={isMobile}
+                    emptyText={t('usage_stats.no_data')}
+                  />
+                </div>
+              </>
+            )}
 
-            <RequestEventsDetailsCard
-              usage={filteredUsage}
-              loading={loading}
-              geminiKeys={config?.geminiApiKeys || []}
-              claudeConfigs={config?.claudeApiKeys || []}
-              codexConfigs={config?.codexApiKeys || []}
-              vertexConfigs={config?.vertexApiKeys || []}
-              openaiProviders={config?.openaiCompatibility || []}
-            />
+            {activeTab === 'analysis' && (
+              <div className={styles.detailsGrid}>
+                <ApiDetailsCard apiStats={apiStats} loading={loading} hasPrices={hasPrices} />
+                <ModelStatsCard modelStats={modelStats} loading={loading} hasPrices={hasPrices} />
+              </div>
+            )}
 
-            <CredentialStatsCard
-              usage={filteredUsage}
-              loading={loading}
-              geminiKeys={config?.geminiApiKeys || []}
-              claudeConfigs={config?.claudeApiKeys || []}
-              codexConfigs={config?.codexApiKeys || []}
-              vertexConfigs={config?.vertexApiKeys || []}
-              openaiProviders={config?.openaiCompatibility || []}
-            />
+            {activeTab === 'events' && (
+              <RequestEventsDetailsCard
+                usage={eventsUsage}
+                loading={loading}
+                geminiKeys={config?.geminiApiKeys || []}
+                claudeConfigs={config?.claudeApiKeys || []}
+                codexConfigs={config?.codexApiKeys || []}
+                vertexConfigs={config?.vertexApiKeys || []}
+                openaiProviders={config?.openaiCompatibility || []}
+              />
+            )}
 
-            <PriceSettingsCard
-              modelNames={modelNames}
-              modelPrices={modelPrices}
-              onPricesChange={setModelPrices}
-            />
+            {activeTab === 'credentials' && (
+              <CredentialStatsCard
+                usage={credentialsUsage}
+                loading={loading}
+                geminiKeys={config?.geminiApiKeys || []}
+                claudeConfigs={config?.claudeApiKeys || []}
+                codexConfigs={config?.codexApiKeys || []}
+                vertexConfigs={config?.vertexApiKeys || []}
+                openaiProviders={config?.openaiCompatibility || []}
+              />
+            )}
+
+            {activeTab === 'pricing' && (
+              <PriceSettingsCard
+                modelNames={modelNames}
+                modelPrices={modelPrices}
+                onPricesChange={setModelPrices}
+              />
+            )}
           </div>
         </main>
       </div>

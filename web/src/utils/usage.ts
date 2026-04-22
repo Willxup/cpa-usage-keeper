@@ -506,7 +506,34 @@ export function buildChartData(
   options: { hourWindowHours?: number; endMs?: number } = {}
 ): ChartData {
   const details = collectUsageDetails(usage);
-  if (!details.length) return { labels: [], datasets: [] };
+  if (!details.length) {
+    const lines = chartLines.length ? chartLines : ['all'];
+    if (!(lines.length === 1 && lines[0] === 'all')) {
+      return { labels: [], datasets: [] };
+    }
+    const bucketMap = period === 'hour'
+      ? (metric === 'requests' ? usage.requests_by_hour : usage.tokens_by_hour)
+      : (metric === 'requests' ? usage.requests_by_day : usage.tokens_by_day);
+    const bucketKeys = Object.keys(bucketMap ?? {}).sort((a, b) => a.localeCompare(b));
+    if (!bucketKeys.length) {
+      return { labels: [], datasets: [] };
+    }
+    return {
+      labels: bucketKeys.map((key) => (period === 'hour' ? formatHourLabel(key) : formatDayLabel(key))),
+      datasets: [
+        {
+          label: 'All',
+          data: bucketKeys.map((key) => toNumber(bucketMap?.[key])),
+          borderColor: CHART_COLORS[0],
+          backgroundColor: `${CHART_COLORS[0]}22`,
+          pointBackgroundColor: CHART_COLORS[0],
+          pointBorderColor: CHART_COLORS[0],
+          fill: false,
+          tension: 0.35
+        }
+      ]
+    };
+  }
 
   const lines = chartLines.length ? chartLines : ['all'];
   const bucketsByLine = new Map<string, Map<string, number>>();

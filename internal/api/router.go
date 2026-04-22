@@ -52,6 +52,7 @@ func NewRouter(
 	protected.Use(authHandler.middleware())
 	registerStatusRoutes(protected, statusProvider)
 	registerUsageRoutes(protected, usageProvider, authFileProvider, providerMetadataProvider)
+	registerUsageOverviewRoute(protected, usageProvider)
 	registerAuthFileRoutes(protected, authFileProvider)
 	registerProviderMetadataRoutes(protected, providerMetadataProvider)
 	registerPricingRoutes(protected, pricingProvider)

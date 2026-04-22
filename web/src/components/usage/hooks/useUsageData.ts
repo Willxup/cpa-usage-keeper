@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, fetchPricing, fetchUsedModels, updatePricing } from '@/lib/api';
-import type { PricingEntry } from '@/lib/types';
+import type { PricingEntry, UsageTimeRange } from '@/lib/types';
 import { USAGE_STATS_STALE_TIME_MS, useNotificationStore, useUsageStatsStore } from '@/stores';
 import { downloadBlob } from '@/utils/download';
 import { loadModelPrices, saveModelPrices, type ModelPrice } from '@/utils/usage';
@@ -43,10 +43,26 @@ const pricingToModelPrice = (entry: PricingEntry): ModelPrice => ({
 
 export interface UseUsageDataOptions {
   onAuthRequired?: () => void;
+  mode?: 'full' | 'overview';
+  range?: UsageTimeRange;
+  customStart?: string;
+  customEnd?: string;
+}
+
+const toRangeQuery = (value: string): UsageTimeRange => (
+  value === '4h' || value === '8h' || value === '12h' || value === '24h' || value === '7d' || value === 'all' || value === 'custom'
+    ? value
+    : 'all'
+);
+
+const toCustomBoundary = (value: string | undefined, endOfDay: boolean): string | undefined => {
+  if (!value) return undefined;
+  const suffix = endOfDay ? 'T23:59:59Z' : 'T00:00:00Z';
+  return new Date(`${value}${suffix}`).toISOString();
 }
 
 export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataReturn {
-  const { onAuthRequired } = options;
+  const { onAuthRequired, mode = 'full', range = 'all', customStart, customEnd } = options;
   const { t } = useTranslation();
   const { showNotification } = useNotificationStore();
   const usageSnapshot = useUsageStatsStore((state) => state.usage);
@@ -60,19 +76,36 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
   const [importing, setImporting] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
+  const resolvedRange = toRangeQuery(range);
+  const requestStart = resolvedRange === 'custom' ? toCustomBoundary(customStart, false) : undefined;
+  const requestEnd = resolvedRange === 'custom' ? toCustomBoundary(customEnd, true) : undefined;
+
   const loadUsage = useCallback(async () => {
     try {
-      await loadUsageStats({ force: true, staleTimeMs: USAGE_STATS_STALE_TIME_MS });
+      await loadUsageStats({
+        force: true,
+        staleTimeMs: USAGE_STATS_STALE_TIME_MS,
+        mode,
+        range: resolvedRange,
+        start: requestStart,
+        end: requestEnd,
+      });
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
       }
       throw error;
     }
-  }, [loadUsageStats, onAuthRequired]);
+  }, [loadUsageStats, mode, onAuthRequired, requestEnd, requestStart, resolvedRange]);
 
   useEffect(() => {
-    void loadUsageStats({ staleTimeMs: USAGE_STATS_STALE_TIME_MS }).catch((error) => {
+    void loadUsageStats({
+      staleTimeMs: USAGE_STATS_STALE_TIME_MS,
+      mode,
+      range: resolvedRange,
+      start: requestStart,
+      end: requestEnd,
+    }).catch((error) => {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
       }
@@ -97,7 +130,7 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
     return () => {
       cancelled = true;
     };
-  }, [loadUsageStats, onAuthRequired]);
+  }, [customEnd, customStart, loadUsageStats, mode, onAuthRequired, requestEnd, requestStart, resolvedRange]);
 
   const handleExport = async () => {
     setExporting(true);

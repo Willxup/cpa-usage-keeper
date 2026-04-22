@@ -31,7 +31,7 @@ export interface UsageModelSnapshot {
   success_count: number
   failure_count: number
   total_tokens: number
-  details: UsageDetail[]
+  details?: UsageDetail[]
 }
 
 export interface UsageApiSnapshot {
@@ -56,6 +56,10 @@ export interface UsageSnapshot {
 }
 
 export interface UsageResponse {
+  usage: UsageSnapshot
+}
+
+export interface UsageOverviewResponse {
   usage: UsageSnapshot
 }
 
