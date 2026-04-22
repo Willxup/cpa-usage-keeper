@@ -88,6 +88,19 @@ export interface UsageEventsResponse {
   events: UsageEvent[]
 }
 
+export interface UsageCredential {
+  source: string
+  source_type?: string
+  source_key?: string
+  success_count: number
+  failure_count: number
+  total_count: number
+}
+
+export interface UsageCredentialsResponse {
+  credentials: UsageCredential[]
+}
+
 export interface PricingEntry {
   model: string
   prompt_price_per_1m: number

@@ -12,8 +12,8 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { ApiError, fetchStatus, fetchUsageEvents } from '@/lib/api';
-import type { StatusResponse, UsageEvent } from '@/lib/types';
+import { ApiError, fetchStatus, fetchUsageCredentials, fetchUsageEvents } from '@/lib/api';
+import type { StatusResponse, UsageCredential, UsageEvent } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Select } from '@/components/ui/Select';
@@ -242,6 +242,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [eventsError, setEventsError] = useState('');
   const [eventsData, setEventsData] = useState<UsageEvent[]>([]);
   const eventsRequestControllerRef = useRef<AbortController | null>(null);
+  const [credentialsLoading, setCredentialsLoading] = useState(false);
+  const [credentialsError, setCredentialsError] = useState('');
+  const [credentialsData, setCredentialsData] = useState<UsageCredential[]>([]);
+  const credentialsRequestControllerRef = useRef<AbortController | null>(null);
 
   const timeRangeOptions = useMemo(
     () =>
@@ -439,7 +443,64 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [customTimeRange.end, customTimeRange.start, onAuthRequired, timeRange]);
 
-  useHeaderRefresh(usesSnapshotData ? loadUsage : loadEvents);
+  const loadCredentials = useCallback(async () => {
+    if (timeRange === 'custom') {
+      if (!customTimeRange.start || !customTimeRange.end) {
+        credentialsRequestControllerRef.current?.abort();
+        credentialsRequestControllerRef.current = null;
+        setCredentialsData([]);
+        setCredentialsError('');
+        setCredentialsLoading(false);
+        return;
+      }
+      const startMs = parseCustomDateStart(customTimeRange.start);
+      const endMs = parseCustomDateEnd(customTimeRange.end);
+      if (startMs === undefined || endMs === undefined || startMs > endMs) {
+        credentialsRequestControllerRef.current?.abort();
+        credentialsRequestControllerRef.current = null;
+        setCredentialsData([]);
+        setCredentialsError('');
+        setCredentialsLoading(false);
+        return;
+      }
+    }
+
+    credentialsRequestControllerRef.current?.abort();
+    const controller = new AbortController();
+    credentialsRequestControllerRef.current = controller;
+
+    setCredentialsLoading(true);
+    setCredentialsError('');
+    setCredentialsData([]);
+    try {
+      const start = timeRange === 'custom' ? new Date(`${customTimeRange.start}T00:00:00.000Z`).toISOString() : undefined;
+      const end = timeRange === 'custom' ? new Date(`${customTimeRange.end}T23:59:59.999Z`).toISOString() : undefined;
+      const response = await fetchUsageCredentials(timeRange, start, end, controller.signal);
+      if (credentialsRequestControllerRef.current !== controller) {
+        return;
+      }
+      setCredentialsData(response.credentials);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      if (credentialsRequestControllerRef.current === controller) {
+        setCredentialsData([]);
+      }
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      setCredentialsError(error instanceof Error ? error.message : 'Failed to load usage credentials');
+    } finally {
+      if (credentialsRequestControllerRef.current === controller) {
+        setCredentialsLoading(false);
+        credentialsRequestControllerRef.current = null;
+      }
+    }
+  }, [customTimeRange.end, customTimeRange.start, onAuthRequired, timeRange]);
+
+  useHeaderRefresh(activeTab === 'events' ? loadEvents : activeTab === 'credentials' ? loadCredentials : loadUsage);
 
   useEffect(() => {
     if (activeTab !== 'events') {
@@ -454,6 +515,20 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       eventsRequestControllerRef.current = null;
     };
   }, [activeTab, loadEvents]);
+
+  useEffect(() => {
+    if (activeTab !== 'credentials') {
+      credentialsRequestControllerRef.current?.abort();
+      credentialsRequestControllerRef.current = null;
+      setCredentialsLoading(false);
+      return;
+    }
+    void loadCredentials();
+    return () => {
+      credentialsRequestControllerRef.current?.abort();
+      credentialsRequestControllerRef.current = null;
+    };
+  }, [activeTab, loadCredentials]);
 
   const handleLanguageChange = useCallback(async (language: 'en' | 'zh') => {
     if (currentLanguage === language) return;
@@ -612,12 +687,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => void (usesSnapshotData ? loadUsage() : loadEvents()).catch(() => {})}
-                  disabled={usesSnapshotData ? loading : eventsLoading}
+                  onClick={() => void (activeTab === 'events' ? loadEvents() : activeTab === 'credentials' ? loadCredentials() : loadUsage()).catch(() => {})}
+                  disabled={activeTab === 'events' ? eventsLoading : activeTab === 'credentials' ? credentialsLoading : loading}
                   className={styles.refreshButton}
                 >
                   <IconRefreshCw size={14} />
-                  <span>{(usesSnapshotData ? loading : eventsLoading) ? t('common.loading') : t('usage_stats.refresh')}</span>
+                  <span>{(activeTab === 'events' ? eventsLoading : activeTab === 'credentials' ? credentialsLoading : loading) ? t('common.loading') : t('usage_stats.refresh')}</span>
                 </Button>
               </div>
               {lastRefreshedAt && (
@@ -745,15 +820,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             )}
 
             {activeTab === 'credentials' && (
-              <CredentialStatsCard
-                usage={filteredUsage}
-                loading={loading}
-                geminiKeys={config?.geminiApiKeys || []}
-                claudeConfigs={config?.claudeApiKeys || []}
-                codexConfigs={config?.codexApiKeys || []}
-                vertexConfigs={config?.vertexApiKeys || []}
-                openaiProviders={config?.openaiCompatibility || []}
-              />
+              <>
+                {credentialsError && <div className={styles.errorBox}>{credentialsError}</div>}
+                <CredentialStatsCard
+                  credentials={credentialsData}
+                  loading={credentialsLoading}
+                />
+              </>
             )}
 
             {activeTab === 'pricing' && (

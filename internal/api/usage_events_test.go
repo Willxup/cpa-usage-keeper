@@ -13,10 +13,12 @@ import (
 )
 
 type usageEventsStub struct {
-	events      []service.UsageEventRecord
-	err         error
-	lastFilter  service.UsageFilter
-	filterCalls int
+	events           []service.UsageEventRecord
+	credentialStats  []service.UsageCredentialStat
+	err              error
+	lastFilter       service.UsageFilter
+	filterCalls      int
+	credentialsCalls int
 }
 
 func (s *usageEventsStub) GetUsage(context.Context) (*cpa.StatisticsSnapshot, error) {
@@ -31,6 +33,12 @@ func (s *usageEventsStub) ListUsageEvents(_ context.Context, filter service.Usag
 	s.lastFilter = filter
 	s.filterCalls++
 	return s.events, s.err
+}
+
+func (s *usageEventsStub) ListUsageCredentialStats(_ context.Context, filter service.UsageFilter) ([]service.UsageCredentialStat, error) {
+	s.lastFilter = filter
+	s.credentialsCalls++
+	return s.credentialStats, s.err
 }
 
 func TestUsageEventsReturnsFilteredRows(t *testing.T) {
@@ -77,6 +85,54 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	}
 	if provider.filterCalls != 1 {
 		t.Fatalf("expected ListUsageEvents to be called once, got %d", provider.filterCalls)
+	}
+	if provider.lastFilter.Range != "24h" {
+		t.Fatalf("expected range to be passed through, got %+v", provider.lastFilter)
+	}
+	if provider.lastFilter.StartTime == nil || provider.lastFilter.EndTime == nil {
+		t.Fatalf("expected resolved time bounds in filter, got %+v", provider.lastFilter)
+	}
+}
+
+func TestUsageCredentialsReturnsAggregatedRows(t *testing.T) {
+	provider := &usageEventsStub{credentialStats: []service.UsageCredentialStat{{
+		Source:       "sk-provider-key",
+		AuthIndex:    "2",
+		Failed:       false,
+		RequestCount: 3,
+	}, {
+		Source:       "sk-provider-key",
+		AuthIndex:    "2",
+		Failed:       true,
+		RequestCount: 1,
+	}}}
+	router := NewRouter("", nil, provider, authFileStub{files: []models.AuthFile{{AuthIndex: "2", Email: "user@example.com", Type: "auth-file"}}}, providerMetadataStub{items: []models.ProviderMetadata{{LookupKey: "sk-provider-key", ProviderType: "openai", DisplayName: "OpenAI Mirror", ProviderKey: "openai:OpenAI Mirror"}}}, nil, AuthConfig{}, nil, "")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/credentials?range=24h", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	body := resp.Body.String()
+	if !contains(body, `"credentials":[`) {
+		t.Fatalf("unexpected response body: %s", body)
+	}
+	if !contains(body, `"source":"OpenAI Mirror"`) {
+		t.Fatalf("expected resolved source display in response body: %s", body)
+	}
+	if !contains(body, `"source_type":"openai"`) {
+		t.Fatalf("expected source type in response body: %s", body)
+	}
+	if !contains(body, `"source_key":"openai:OpenAI Mirror"`) {
+		t.Fatalf("expected source key in response body: %s", body)
+	}
+	if !contains(body, `"success_count":3`) || !contains(body, `"failure_count":1`) || !contains(body, `"total_count":4`) {
+		t.Fatalf("expected aggregated counts in response body: %s", body)
+	}
+	if provider.credentialsCalls != 1 {
+		t.Fatalf("expected ListUsageCredentialStats to be called once, got %d", provider.credentialsCalls)
 	}
 	if provider.lastFilter.Range != "24h" {
 		t.Fatalf("expected range to be passed through, got %+v", provider.lastFilter)

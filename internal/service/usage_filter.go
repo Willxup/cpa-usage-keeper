@@ -25,3 +25,10 @@ type UsageEventRecord struct {
 	CachedTokens    int64
 	TotalTokens     int64
 }
+
+type UsageCredentialStat struct {
+	Source       string
+	AuthIndex    string
+	Failed       bool
+	RequestCount int64
+}

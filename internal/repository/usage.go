@@ -57,6 +57,29 @@ func ListUsageEventsWithFilter(db *gorm.DB, filter UsageQueryFilter) ([]UsageEve
 	return rows, nil
 }
 
+func ListUsageCredentialStatsWithFilter(db *gorm.DB, filter UsageQueryFilter) ([]UsageCredentialStatRecord, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database is nil")
+	}
+
+	query := db.Model(&models.UsageEvent{})
+	if filter.StartTime != nil {
+		query = query.Where("timestamp >= ?", filter.StartTime.UTC())
+	}
+	if filter.EndTime != nil {
+		query = query.Where("timestamp <= ?", filter.EndTime.UTC())
+	}
+	query = query.Select("TRIM(source) AS source, TRIM(auth_index) AS auth_index, failed, COUNT(*) AS request_count")
+	query = query.Group("TRIM(source), TRIM(auth_index), failed")
+	query = query.Order("request_count DESC, source ASC, auth_index ASC, failed ASC")
+
+	var rows []UsageCredentialStatRecord
+	if err := query.Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("load usage credential stats: %w", err)
+	}
+	return rows, nil
+}
+
 func BuildUsageSnapshotWithFilter(db *gorm.DB, filter UsageQueryFilter) (*cpa.StatisticsSnapshot, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")

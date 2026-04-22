@@ -32,6 +32,10 @@ func (s *usageFilterStub) ListUsageEvents(context.Context, service.UsageFilter) 
 	return nil, s.err
 }
 
+func (s *usageFilterStub) ListUsageCredentialStats(context.Context, service.UsageFilter) ([]service.UsageCredentialStat, error) {
+	return nil, s.err
+}
+
 func TestUsageOverviewReturnsFilteredSnapshot(t *testing.T) {
 	provider := &usageFilterStub{usage: &cpa.StatisticsSnapshot{
 		TotalRequests: 1,

@@ -55,3 +55,23 @@ func (s *usageService) ListUsageEvents(_ context.Context, filter UsageFilter) ([
 	}
 	return result, nil
 }
+
+func (s *usageService) ListUsageCredentialStats(_ context.Context, filter UsageFilter) ([]UsageCredentialStat, error) {
+	rows, err := repository.ListUsageCredentialStatsWithFilter(s.db, repository.UsageQueryFilter{
+		StartTime: filter.StartTime,
+		EndTime:   filter.EndTime,
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]UsageCredentialStat, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, UsageCredentialStat{
+			Source:       row.Source,
+			AuthIndex:    row.AuthIndex,
+			Failed:       row.Failed,
+			RequestCount: row.RequestCount,
+		})
+	}
+	return result, nil
+}

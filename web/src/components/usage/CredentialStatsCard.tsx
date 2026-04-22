@@ -1,19 +1,13 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
-import { collectUsageDetails, formatCompactNumber } from '@/utils/usage';
-import type { GeminiKeyConfig, ProviderKeyConfig, OpenAIProviderConfig } from '@/types';
-import type { UsagePayload } from './hooks/useUsageData';
+import { formatCompactNumber } from '@/utils/usage';
+import type { UsageCredential } from '@/lib/types';
 import styles from '@/pages/UsagePage.module.scss';
 
 export interface CredentialStatsCardProps {
-  usage: UsagePayload | null;
+  credentials: UsageCredential[];
   loading: boolean;
-  geminiKeys: GeminiKeyConfig[];
-  claudeConfigs: ProviderKeyConfig[];
-  codexConfigs: ProviderKeyConfig[];
-  vertexConfigs: ProviderKeyConfig[];
-  openaiProviders: OpenAIProviderConfig[];
 }
 
 interface CredentialRow {
@@ -37,46 +31,32 @@ function CredentialStatsTitle({ title, subtitle, eyebrow }: { title: string; sub
 }
 
 export function CredentialStatsCard({
-  usage,
+  credentials,
   loading,
-  geminiKeys,
-  claudeConfigs,
-  codexConfigs,
-  vertexConfigs,
-  openaiProviders,
 }: CredentialStatsCardProps) {
   const { t } = useTranslation();
 
   const rows = useMemo((): CredentialRow[] => {
-    if (!usage) return [];
-    const details = collectUsageDetails(usage);
-    const buckets = new Map<string, CredentialRow>();
-
-    details.forEach((detail) => {
-      const displayName = String(detail.source_display ?? detail.source ?? '').trim() || '-';
-      const sourceType = String(detail.source_type ?? '').trim();
-      const resolvedKey = String(detail.source_key ?? '').trim() || displayName;
-      const existing = buckets.get(resolvedKey) ?? {
-        key: resolvedKey,
-        displayName,
-        type: sourceType,
-        success: 0,
-        failure: 0,
-        total: 0,
-        successRate: 100,
-      };
-      if (detail.failed === true) {
-        existing.failure += 1;
-      } else {
-        existing.success += 1;
-      }
-      existing.total = existing.success + existing.failure;
-      existing.successRate = existing.total > 0 ? (existing.success / existing.total) * 100 : 100;
-      buckets.set(resolvedKey, existing);
-    });
-
-    return Array.from(buckets.values()).sort((a, b) => b.total - a.total);
-  }, [usage]);
+    return credentials
+      .map((credential) => {
+        const displayName = String(credential.source ?? '').trim() || '-';
+        const sourceType = String(credential.source_type ?? '').trim();
+        const key = String(credential.source_key ?? '').trim() || displayName;
+        const success = Number(credential.success_count) || 0;
+        const failure = Number(credential.failure_count) || 0;
+        const total = Number(credential.total_count) || success + failure;
+        return {
+          key,
+          displayName,
+          type: sourceType,
+          success,
+          failure,
+          total,
+          successRate: total > 0 ? (success / total) * 100 : 100,
+        };
+      })
+      .sort((a, b) => b.total - a.total);
+  }, [credentials]);
 
   return (
     <Card
