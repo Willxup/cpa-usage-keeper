@@ -26,3 +26,32 @@ func (s *usageService) GetUsageWithFilter(_ context.Context, filter UsageFilter)
 		EndTime:   filter.EndTime,
 	})
 }
+
+func (s *usageService) ListUsageEvents(_ context.Context, filter UsageFilter) ([]UsageEventRecord, error) {
+	rows, err := repository.ListUsageEventsWithFilter(s.db, repository.UsageQueryFilter{
+		StartTime: filter.StartTime,
+		EndTime:   filter.EndTime,
+		Limit:     filter.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]UsageEventRecord, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, UsageEventRecord{
+			Timestamp:       row.Timestamp,
+			APIGroupKey:     row.APIGroupKey,
+			Model:           row.Model,
+			Source:          row.Source,
+			AuthIndex:       row.AuthIndex,
+			Failed:          row.Failed,
+			LatencyMS:       row.LatencyMS,
+			InputTokens:     row.InputTokens,
+			OutputTokens:    row.OutputTokens,
+			ReasoningTokens: row.ReasoningTokens,
+			CachedTokens:    row.CachedTokens,
+			TotalTokens:     row.TotalTokens,
+		})
+	}
+	return result, nil
+}

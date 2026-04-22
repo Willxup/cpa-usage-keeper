@@ -14,6 +14,49 @@ func BuildUsageSnapshot(db *gorm.DB) (*cpa.StatisticsSnapshot, error) {
 	return BuildUsageSnapshotWithFilter(db, UsageQueryFilter{})
 }
 
+func ListUsageEventsWithFilter(db *gorm.DB, filter UsageQueryFilter) ([]UsageEventRecord, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database is nil")
+	}
+
+	query := db.Model(&models.UsageEvent{}).Order("timestamp DESC")
+	if filter.StartTime != nil {
+		query = query.Where("timestamp >= ?", filter.StartTime.UTC())
+	}
+	if filter.EndTime != nil {
+		query = query.Where("timestamp <= ?", filter.EndTime.UTC())
+	}
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = DefaultUsageEventsLimit
+	}
+	query = query.Limit(limit)
+
+	var events []models.UsageEvent
+	if err := query.Find(&events).Error; err != nil {
+		return nil, fmt.Errorf("load usage events: %w", err)
+	}
+
+	rows := make([]UsageEventRecord, 0, len(events))
+	for _, event := range events {
+		rows = append(rows, UsageEventRecord{
+			Timestamp:       event.Timestamp.UTC(),
+			APIGroupKey:     strings.TrimSpace(event.APIGroupKey),
+			Model:           strings.TrimSpace(event.Model),
+			Source:          strings.TrimSpace(event.Source),
+			AuthIndex:       strings.TrimSpace(event.AuthIndex),
+			Failed:          event.Failed,
+			LatencyMS:       event.LatencyMS,
+			InputTokens:     event.InputTokens,
+			OutputTokens:    event.OutputTokens,
+			ReasoningTokens: event.ReasoningTokens,
+			CachedTokens:    event.CachedTokens,
+			TotalTokens:     event.TotalTokens,
+		})
+	}
+	return rows, nil
+}
+
 func BuildUsageSnapshotWithFilter(db *gorm.DB, filter UsageQueryFilter) (*cpa.StatisticsSnapshot, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")

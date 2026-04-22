@@ -53,6 +53,7 @@ func NewRouter(
 	registerStatusRoutes(protected, statusProvider)
 	registerUsageRoutes(protected, usageProvider, authFileProvider, providerMetadataProvider)
 	registerUsageOverviewRoute(protected, usageProvider)
+	registerUsageEventsRoute(protected, usageProvider, authFileProvider, providerMetadataProvider)
 	registerAuthFileRoutes(protected, authFileProvider)
 	registerProviderMetadataRoutes(protected, providerMetadataProvider)
 	registerPricingRoutes(protected, pricingProvider)

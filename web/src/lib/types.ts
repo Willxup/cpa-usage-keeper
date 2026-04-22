@@ -63,6 +63,31 @@ export interface UsageOverviewResponse {
   usage: UsageSnapshot
 }
 
+export interface UsageEventTokens {
+  input_tokens: number
+  output_tokens: number
+  reasoning_tokens: number
+  cached_tokens: number
+  total_tokens: number
+}
+
+export interface UsageEvent {
+  timestamp: string
+  model: string
+  source: string
+  source_raw?: string
+  source_type?: string
+  source_key?: string
+  auth_index?: string
+  failed: boolean
+  latency_ms: number
+  tokens: UsageEventTokens
+}
+
+export interface UsageEventsResponse {
+  events: UsageEvent[]
+}
+
 export interface PricingEntry {
   model: string
   prompt_price_per_1m: number

@@ -4,8 +4,8 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Select } from '@/components/ui/Select';
-import type { GeminiKeyConfig, ProviderKeyConfig, OpenAIProviderConfig } from '@/types';
-import { collectUsageDetails, extractLatencyMs, extractTotalTokens, formatDurationMs, LATENCY_SOURCE_FIELD, normalizeAuthIndex } from '@/utils/usage';
+import type { UsageEvent } from '@/lib/types';
+import { formatDurationMs, LATENCY_SOURCE_FIELD, normalizeAuthIndex } from '@/utils/usage';
 import { downloadBlob } from '@/utils/download';
 import styles from '@/pages/UsagePage.module.scss';
 
@@ -32,13 +32,8 @@ type RequestEventRow = {
 };
 
 export interface RequestEventsDetailsCardProps {
-  usage: unknown;
+  events: UsageEvent[];
   loading: boolean;
-  geminiKeys: GeminiKeyConfig[];
-  claudeConfigs: ProviderKeyConfig[];
-  codexConfigs: ProviderKeyConfig[];
-  vertexConfigs: ProviderKeyConfig[];
-  openaiProviders: OpenAIProviderConfig[];
 }
 
 const toNumber = (value: unknown): number => {
@@ -65,13 +60,8 @@ function RequestEventsTitle({ title, subtitle, eyebrow }: { title: string; subti
 }
 
 export function RequestEventsDetailsCard({
-  usage,
+  events,
   loading,
-  geminiKeys,
-  claudeConfigs,
-  codexConfigs,
-  vertexConfigs,
-  openaiProviders,
 }: RequestEventsDetailsCardProps) {
   const { t, i18n } = useTranslation();
   const latencyHint = t('usage_stats.latency_unit_hint', {
@@ -84,37 +74,26 @@ export function RequestEventsDetailsCard({
   const [authIndexFilter, setAuthIndexFilter] = useState(ALL_FILTER);
 
   const rows = useMemo<RequestEventRow[]>(() => {
-    const details = collectUsageDetails(usage);
-
-    return details
-      .map((detail, index) => {
-        const timestamp = detail.timestamp;
-        const timestampMs =
-          typeof detail.__timestampMs === 'number' && detail.__timestampMs > 0
-            ? detail.__timestampMs
-            : Date.parse(timestamp);
+    return events
+      .map((event, index) => {
+        const timestamp = event.timestamp;
+        const timestampMs = Date.parse(timestamp);
         const date = Number.isNaN(timestampMs) ? null : new Date(timestampMs);
-        const sourceRaw = String(detail.source_raw ?? '').trim() || String(detail.source ?? '').trim();
-        const authIndexRaw = detail.auth_index as unknown;
+        const sourceRaw = String(event.source_raw ?? '').trim() || String(event.source ?? '').trim();
+        const authIndexRaw = event.auth_index as unknown;
         const authIndex =
           authIndexRaw === null || authIndexRaw === undefined || authIndexRaw === ''
             ? '-'
             : normalizeAuthIndex(authIndexRaw) || '-';
-        const source = String(detail.source ?? detail.source_display ?? '').trim() || '-';
-        const sourceType = String(detail.source_type ?? '').trim();
-        const model = String(detail.__modelName ?? '').trim() || '-';
-        const inputTokens = Math.max(toNumber(detail.tokens?.input_tokens), 0);
-        const outputTokens = Math.max(toNumber(detail.tokens?.output_tokens), 0);
-        const reasoningTokens = Math.max(toNumber(detail.tokens?.reasoning_tokens), 0);
-        const cachedTokens = Math.max(
-          Math.max(toNumber(detail.tokens?.cached_tokens), 0),
-          Math.max(toNumber(detail.tokens?.cache_tokens), 0)
-        );
-        const totalTokens = Math.max(
-          toNumber(detail.tokens?.total_tokens),
-          extractTotalTokens(detail)
-        );
-        const latencyMs = extractLatencyMs(detail);
+        const source = String(event.source ?? '').trim() || '-';
+        const sourceType = String(event.source_type ?? '').trim();
+        const model = String(event.model ?? '').trim() || '-';
+        const inputTokens = Math.max(toNumber(event.tokens?.input_tokens), 0);
+        const outputTokens = Math.max(toNumber(event.tokens?.output_tokens), 0);
+        const reasoningTokens = Math.max(toNumber(event.tokens?.reasoning_tokens), 0);
+        const cachedTokens = Math.max(toNumber(event.tokens?.cached_tokens), 0);
+        const totalTokens = Math.max(toNumber(event.tokens?.total_tokens), 0);
+        const latencyMs = Number.isFinite(event.latency_ms) ? event.latency_ms : null;
 
         return {
           id: `${timestamp}-${model}-${sourceRaw || source}-${authIndex}-${index}`,
@@ -126,7 +105,7 @@ export function RequestEventsDetailsCard({
           source,
           sourceType,
           authIndex,
-          failed: detail.failed === true,
+          failed: event.failed === true,
           latencyMs,
           inputTokens,
           outputTokens,
@@ -136,7 +115,7 @@ export function RequestEventsDetailsCard({
         };
       })
       .sort((a, b) => b.timestampMs - a.timestampMs);
-  }, [i18n.language, usage]);
+  }, [events, i18n.language]);
 
   const hasLatencyData = useMemo(() => rows.some((row) => row.latencyMs !== null), [rows]);
 

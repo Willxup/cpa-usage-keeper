@@ -47,6 +47,7 @@ export interface UseUsageDataOptions {
   range?: UsageTimeRange;
   customStart?: string;
   customEnd?: string;
+  enabled?: boolean;
 }
 
 const toRangeQuery = (value: string): UsageTimeRange => (
@@ -57,12 +58,13 @@ const toRangeQuery = (value: string): UsageTimeRange => (
 
 const toCustomBoundary = (value: string | undefined, endOfDay: boolean): string | undefined => {
   if (!value) return undefined;
-  const suffix = endOfDay ? 'T23:59:59Z' : 'T00:00:00Z';
-  return new Date(`${value}${suffix}`).toISOString();
+  const suffix = endOfDay ? 'T23:59:59.999Z' : 'T00:00:00.000Z';
+  const date = new Date(`${value}${suffix}`);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
 export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataReturn {
-  const { onAuthRequired, mode = 'full', range = 'all', customStart, customEnd } = options;
+  const { onAuthRequired, mode = 'full', range = 'all', customStart, customEnd, enabled = true } = options;
   const { t } = useTranslation();
   const { showNotification } = useNotificationStore();
   const usageSnapshot = useUsageStatsStore((state) => state.usage);
@@ -99,17 +101,19 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
   }, [loadUsageStats, mode, onAuthRequired, requestEnd, requestStart, resolvedRange]);
 
   useEffect(() => {
-    void loadUsageStats({
-      staleTimeMs: USAGE_STATS_STALE_TIME_MS,
-      mode,
-      range: resolvedRange,
-      start: requestStart,
-      end: requestEnd,
-    }).catch((error) => {
-      if (error instanceof ApiError && error.status === 401) {
-        onAuthRequired?.();
-      }
-    });
+    if (enabled) {
+      void loadUsageStats({
+        staleTimeMs: USAGE_STATS_STALE_TIME_MS,
+        mode,
+        range: resolvedRange,
+        start: requestStart,
+        end: requestEnd,
+      }).catch((error) => {
+        if (error instanceof ApiError && error.status === 401) {
+          onAuthRequired?.();
+        }
+      });
+    }
     let cancelled = false;
     void Promise.allSettled([fetchPricing(), fetchUsedModels()]).then(([pricingResult]) => {
       if (cancelled) return;
@@ -130,7 +134,7 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
     return () => {
       cancelled = true;
     };
-  }, [customEnd, customStart, loadUsageStats, mode, onAuthRequired, requestEnd, requestStart, resolvedRange]);
+  }, [customEnd, customStart, enabled, loadUsageStats, mode, onAuthRequired, requestEnd, requestStart, resolvedRange]);
 
   const handleExport = async () => {
     setExporting(true);

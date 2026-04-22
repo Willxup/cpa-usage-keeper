@@ -1,4 +1,4 @@
-import type { AuthSessionResponse, PricingEntry, PricingResponse, StatusResponse, UsedModelsResponse, UsageOverviewResponse, UsageResponse } from './types'
+import type { AuthSessionResponse, PricingEntry, PricingResponse, StatusResponse, UsedModelsResponse, UsageEventsResponse, UsageOverviewResponse, UsageResponse } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -92,6 +92,23 @@ export async function fetchUsageOverview(range: string, start?: string, end?: st
   const response = await apiFetch(`${apiPath('/usage/overview')}${query ? `?${query}` : ''}`, { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load usage overview: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchUsageEvents(range: string, start?: string, end?: string, signal?: AbortSignal): Promise<UsageEventsResponse> {
+  const params = new URLSearchParams()
+  params.set('range', range)
+  if (start) {
+    params.set('start', start)
+  }
+  if (end) {
+    params.set('end', end)
+  }
+  const query = params.toString()
+  const response = await apiFetch(`${apiPath('/usage/events')}${query ? `?${query}` : ''}`, { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load usage events: ${response.status}`)
   }
   return response.json()
 }

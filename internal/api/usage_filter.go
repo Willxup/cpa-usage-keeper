@@ -27,7 +27,7 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (service.UsageFi
 		rangeValue = "all"
 	}
 
-	filter := service.UsageFilter{Range: rangeValue}
+	filter := service.UsageFilter{Range: rangeValue, Limit: service.DefaultUsageEventsLimit}
 	switch rangeValue {
 	case "all":
 		return filter, nil

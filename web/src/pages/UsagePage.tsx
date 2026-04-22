@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';import { useTranslation } from 'react-i18next';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import i18n, { persistLanguage } from '@/i18n';
 import {
   Chart as ChartJS,
@@ -11,8 +12,8 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { ApiError, fetchStatus } from '@/lib/api';
-import type { StatusResponse } from '@/lib/types';
+import { ApiError, fetchStatus, fetchUsageEvents } from '@/lib/api';
+import type { StatusResponse, UsageEvent } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Select } from '@/components/ui/Select';
@@ -100,17 +101,16 @@ const toDateInputValue = (timestamp: number): string => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 };
 
-const parseCustomDateStart = (value: string): number | undefined => {
+const parseCustomDateBoundary = (value: string, endOfDay: boolean): number | undefined => {
   if (!value) return undefined;
-  const timestamp = Date.parse(`${value}T00:00:00`);
+  const suffix = endOfDay ? 'T23:59:59.999Z' : 'T00:00:00.000Z';
+  const timestamp = Date.parse(`${value}${suffix}`);
   return Number.isFinite(timestamp) ? timestamp : undefined;
 };
 
-const parseCustomDateEnd = (value: string): number | undefined => {
-  if (!value) return undefined;
-  const timestamp = Date.parse(`${value}T23:59:59.999`);
-  return Number.isFinite(timestamp) ? timestamp : undefined;
-};
+const parseCustomDateStart = (value: string): number | undefined => parseCustomDateBoundary(value, false);
+
+const parseCustomDateEnd = (value: string): number | undefined => parseCustomDateBoundary(value, true);
 
 const buildDefaultCustomRange = (anchorMs: number) => ({
   start: toDateInputValue(anchorMs - DEFAULT_CUSTOM_WINDOW_HOURS * 60 * 60 * 1000),
@@ -127,10 +127,17 @@ const loadCustomTimeRange = () => {
       return buildDefaultCustomRange(Date.now());
     }
     const parsed = JSON.parse(raw) as { start?: string; end?: string };
-    return {
-      start: typeof parsed?.start === 'string' ? parsed.start : '',
-      end: typeof parsed?.end === 'string' ? parsed.end : ''
-    };
+    const start = typeof parsed?.start === 'string' ? parsed.start : '';
+    const end = typeof parsed?.end === 'string' ? parsed.end : '';
+    if (!start || !end) {
+      return { start, end };
+    }
+    const startMs = parseCustomDateStart(start);
+    const endMs = parseCustomDateEnd(end);
+    if (startMs === undefined || endMs === undefined || startMs > endMs) {
+      return buildDefaultCustomRange(Date.now());
+    }
+    return { start, end };
   } catch {
     return buildDefaultCustomRange(Date.now());
   }
@@ -210,6 +217,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [timeRange, setTimeRange] = useState<UsageTimeRange>(loadTimeRange);
   const [customTimeRange, setCustomTimeRange] = useState<{ start: string; end: string }>(loadCustomTimeRange);
   const isOverviewTab = activeTab === 'overview';
+  const usesSnapshotData = activeTab === 'overview' || activeTab === 'analysis' || activeTab === 'pricing';
 
   const {
     usage,
@@ -225,12 +233,15 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     range: timeRange,
     customStart: customTimeRange.start,
     customEnd: customTimeRange.end,
+    enabled: usesSnapshotData,
   });
-
-  useHeaderRefresh(loadUsage);
   const [statusError, setStatusError] = useState('');
   const [customRangeError, setCustomRangeError] = useState('');
   const [customRangeHint, setCustomRangeHint] = useState('');
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [eventsError, setEventsError] = useState('');
+  const [eventsData, setEventsData] = useState<UsageEvent[]>([]);
+  const eventsRequestControllerRef = useRef<AbortController | null>(null);
 
   const timeRangeOptions = useMemo(
     () =>
@@ -371,6 +382,79 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     };
   }, [onAuthRequired]);
 
+  const loadEvents = useCallback(async () => {
+    if (timeRange === 'custom') {
+      if (!customTimeRange.start || !customTimeRange.end) {
+        eventsRequestControllerRef.current?.abort();
+        eventsRequestControllerRef.current = null;
+        setEventsData([]);
+        setEventsError('');
+        setEventsLoading(false);
+        return;
+      }
+      const startMs = parseCustomDateStart(customTimeRange.start);
+      const endMs = parseCustomDateEnd(customTimeRange.end);
+      if (startMs === undefined || endMs === undefined || startMs > endMs) {
+        eventsRequestControllerRef.current?.abort();
+        eventsRequestControllerRef.current = null;
+        setEventsData([]);
+        setEventsError('');
+        setEventsLoading(false);
+        return;
+      }
+    }
+
+    eventsRequestControllerRef.current?.abort();
+    const controller = new AbortController();
+    eventsRequestControllerRef.current = controller;
+
+    setEventsLoading(true);
+    setEventsError('');
+    setEventsData([]);
+    try {
+      const start = timeRange === 'custom' ? new Date(`${customTimeRange.start}T00:00:00.000Z`).toISOString() : undefined;
+      const end = timeRange === 'custom' ? new Date(`${customTimeRange.end}T23:59:59.999Z`).toISOString() : undefined;
+      const response = await fetchUsageEvents(timeRange, start, end, controller.signal);
+      if (eventsRequestControllerRef.current !== controller) {
+        return;
+      }
+      setEventsData(response.events);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      if (eventsRequestControllerRef.current === controller) {
+        setEventsData([]);
+      }
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      setEventsError(error instanceof Error ? error.message : 'Failed to load usage events');
+    } finally {
+      if (eventsRequestControllerRef.current === controller) {
+        setEventsLoading(false);
+        eventsRequestControllerRef.current = null;
+      }
+    }
+  }, [customTimeRange.end, customTimeRange.start, onAuthRequired, timeRange]);
+
+  useHeaderRefresh(usesSnapshotData ? loadUsage : loadEvents);
+
+  useEffect(() => {
+    if (activeTab !== 'events') {
+      eventsRequestControllerRef.current?.abort();
+      eventsRequestControllerRef.current = null;
+      setEventsLoading(false);
+      return;
+    }
+    void loadEvents();
+    return () => {
+      eventsRequestControllerRef.current?.abort();
+      eventsRequestControllerRef.current = null;
+    };
+  }, [activeTab, loadEvents]);
+
   const handleLanguageChange = useCallback(async (language: 'en' | 'zh') => {
     if (currentLanguage === language) return;
     await i18n.changeLanguage(language);
@@ -400,8 +484,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
   const modelNames = useMemo(() => getModelNamesFromUsage(usage), [usage]);
   const analysisUsage = activeTab === 'analysis' ? filteredUsage : null;
-  const eventsUsage = activeTab === 'events' ? filteredUsage : null;
-  const credentialsUsage = activeTab === 'credentials' ? filteredUsage : null;
   const apiStats = useMemo(
     () => getApiStats(analysisUsage, modelPrices),
     [analysisUsage, modelPrices]
@@ -530,12 +612,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => void loadUsage().catch(() => {})}
-                  disabled={loading}
+                  onClick={() => void (usesSnapshotData ? loadUsage() : loadEvents()).catch(() => {})}
+                  disabled={usesSnapshotData ? loading : eventsLoading}
                   className={styles.refreshButton}
                 >
                   <IconRefreshCw size={14} />
-                  <span>{loading ? t('common.loading') : t('usage_stats.refresh')}</span>
+                  <span>{(usesSnapshotData ? loading : eventsLoading) ? t('common.loading') : t('usage_stats.refresh')}</span>
                 </Button>
               </div>
               {lastRefreshedAt && (
@@ -653,20 +735,18 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             )}
 
             {activeTab === 'events' && (
-              <RequestEventsDetailsCard
-                usage={eventsUsage}
-                loading={loading}
-                geminiKeys={config?.geminiApiKeys || []}
-                claudeConfigs={config?.claudeApiKeys || []}
-                codexConfigs={config?.codexApiKeys || []}
-                vertexConfigs={config?.vertexApiKeys || []}
-                openaiProviders={config?.openaiCompatibility || []}
-              />
+              <>
+                {eventsError && <div className={styles.errorBox}>{eventsError}</div>}
+                <RequestEventsDetailsCard
+                  events={eventsData}
+                  loading={eventsLoading}
+                />
+              </>
             )}
 
             {activeTab === 'credentials' && (
               <CredentialStatsCard
-                usage={credentialsUsage}
+                usage={filteredUsage}
                 loading={loading}
                 geminiKeys={config?.geminiApiKeys || []}
                 claudeConfigs={config?.claudeApiKeys || []}

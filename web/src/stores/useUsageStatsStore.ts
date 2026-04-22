@@ -25,6 +25,8 @@ interface UsageStatsState {
 }
 
 let activeRequest: Promise<void> | null = null;
+let activeRequestKey: string | null = null;
+let activeRequestController: AbortController | null = null;
 
 const buildQueryKey = (mode: 'full' | 'overview', range: UsageTimeRange, start?: string, end?: string): string =>
   `${mode}:${range}:${start ?? ''}:${end ?? ''}`;
@@ -54,16 +56,25 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
     }
 
     if (loading && activeRequest) {
-      return activeRequest;
+      if (activeRequestKey === queryKey) {
+        return activeRequest;
+      }
+      activeRequestController?.abort();
     }
 
+    const controller = new AbortController();
+    activeRequestController = controller;
+    activeRequestKey = queryKey;
     set({ loading: true, error: '' });
 
     activeRequest = (async () => {
       try {
         const response = mode === 'overview'
-          ? await fetchUsageOverview(range, start, end)
-          : await fetchUsage();
+          ? await fetchUsageOverview(range, start, end, controller.signal)
+          : await fetchUsage(controller.signal);
+        if (activeRequestController !== controller) {
+          return;
+        }
         set({
           usage: response.usage,
           loading: false,
@@ -73,18 +84,27 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
           lastQueryKey: queryKey,
         });
       } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
         const message = error instanceof ApiError && error.status === 401
           ? 'AUTH_REQUIRED'
           : error instanceof Error
             ? error.message
             : `Failed to load usage ${mode}`
-        set({
-          loading: false,
-          error: message
-        });
+        if (activeRequestController === controller) {
+          set({
+            loading: false,
+            error: message
+          });
+        }
         throw error;
       } finally {
-        activeRequest = null;
+        if (activeRequestController === controller) {
+          activeRequest = null;
+          activeRequestKey = null;
+          activeRequestController = null;
+        }
       }
     })();
 

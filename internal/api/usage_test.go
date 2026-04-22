@@ -25,6 +25,10 @@ func (s usageStub) GetUsageWithFilter(context.Context, service.UsageFilter) (*cp
 	return s.usage, s.err
 }
 
+func (s usageStub) ListUsageEvents(context.Context, service.UsageFilter) ([]service.UsageEventRecord, error) {
+	return nil, s.err
+}
+
 func TestUsageReturnsEmptyStructureWithoutProvider(t *testing.T) {
 	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage", nil)
