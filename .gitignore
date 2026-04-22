@@ -1,6 +1,7 @@
 # internal docs
 .dev-docs/
 .claude/
+.worktrees/
 
 # local environment files
 .env
