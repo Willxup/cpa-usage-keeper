@@ -771,6 +771,54 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             )}
 
             <div className={styles.toolbarRow}>
+              <div className={styles.tabBar} role="tablist" aria-label="Usage sections">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === 'overview'}
+                  className={`${styles.tabPill} ${activeTab === 'overview' ? styles.tabPillActive : ''}`.trim()}
+                  onClick={() => setActiveTab('overview')}
+                >
+                  Overview
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === 'analysis'}
+                  className={`${styles.tabPill} ${activeTab === 'analysis' ? styles.tabPillActive : ''}`.trim()}
+                  onClick={() => setActiveTab('analysis')}
+                >
+                  API & Models
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === 'events'}
+                  className={`${styles.tabPill} ${activeTab === 'events' ? styles.tabPillActive : ''}`.trim()}
+                  onClick={() => setActiveTab('events')}
+                >
+                  Request Events
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === 'credentials'}
+                  className={`${styles.tabPill} ${activeTab === 'credentials' ? styles.tabPillActive : ''}`.trim()}
+                  onClick={() => setActiveTab('credentials')}
+                >
+                  Credentials
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === 'pricing'}
+                  className={`${styles.tabPill} ${activeTab === 'pricing' ? styles.tabPillActive : ''}`.trim()}
+                  onClick={() => setActiveTab('pricing')}
+                >
+                  Pricing
+                </button>
+              </div>
+
               <div className={styles.toolbarActionsRight}>
                 <div className={styles.timeRangeGroup}>
                   <span className={styles.timeRangeLabel}>{t('usage_stats.range_filter')}</span>
@@ -826,6 +874,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 {timeRange === 'custom' && customRangeError && (
                   <span className={styles.customRangeError}>{customRangeError}</span>
                 )}
+                {activeLastRefreshedAt && (
+                  <span className={styles.lastRefreshed}>
+                    {t('usage_stats.last_updated')}: {activeLastRefreshedAt.toLocaleTimeString()}
+                  </span>
+                )}
                 <Button
                   variant="secondary"
                   size="sm"
@@ -837,64 +890,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   <span>{(activeTab === 'events' ? eventsLoading : activeTab === 'credentials' ? credentialsLoading : activeTab === 'analysis' ? analysisLoading : activeTab === 'pricing' ? pricingLoading : loading) ? t('common.loading') : t('usage_stats.refresh')}</span>
                 </Button>
               </div>
-              {activeLastRefreshedAt && (
-                <span className={styles.lastRefreshed}>
-                  {t('usage_stats.last_updated')}: {activeLastRefreshedAt.toLocaleTimeString()}
-                </span>
-              )}
             </div>
 
             {activeTab === 'overview' && error && <div className={styles.errorBox}>{error === 'AUTH_REQUIRED' ? t('auth.session_expired') : error}</div>}
             {activeTab === 'pricing' && pricingError && <div className={styles.errorBox}>{pricingError === 'AUTH_REQUIRED' ? t('auth.session_expired') : pricingError}</div>}
             {!(activeTab === 'overview' ? error : activeTab === 'pricing' ? pricingError : '') && statusError && <div className={styles.errorBox}>{statusError}</div>}
-
-            <div className={styles.tabBar} role="tablist" aria-label="Usage sections">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeTab === 'overview'}
-                className={`${styles.tabPill} ${activeTab === 'overview' ? styles.tabPillActive : ''}`.trim()}
-                onClick={() => setActiveTab('overview')}
-              >
-                Overview
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeTab === 'analysis'}
-                className={`${styles.tabPill} ${activeTab === 'analysis' ? styles.tabPillActive : ''}`.trim()}
-                onClick={() => setActiveTab('analysis')}
-              >
-                API & Models
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeTab === 'events'}
-                className={`${styles.tabPill} ${activeTab === 'events' ? styles.tabPillActive : ''}`.trim()}
-                onClick={() => setActiveTab('events')}
-              >
-                Request Events
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeTab === 'credentials'}
-                className={`${styles.tabPill} ${activeTab === 'credentials' ? styles.tabPillActive : ''}`.trim()}
-                onClick={() => setActiveTab('credentials')}
-              >
-                Credentials
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeTab === 'pricing'}
-                className={`${styles.tabPill} ${activeTab === 'pricing' ? styles.tabPillActive : ''}`.trim()}
-                onClick={() => setActiveTab('pricing')}
-              >
-                Pricing
-              </button>
-            </div>
 
             {activeTab === 'overview' && (
               <>
@@ -912,6 +912,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                     cost: costSparkline
                   }}
                 />
+
+                <ServiceHealthCard usage={filteredUsage} loading={loading} />
 
                 <ChartLineSelector
                   chartLines={chartLines}
@@ -942,6 +944,25 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                     emptyText={t('usage_stats.no_data')}
                   />
                 </div>
+
+                <TokenBreakdownChart
+                  usage={filteredUsage}
+                  loading={loading}
+                  isDark={isDark}
+                  isMobile={isMobile}
+                  hourWindowHours={hourWindowHours}
+                  endMs={filterWindowEndMs}
+                />
+
+                <CostTrendChart
+                  usage={filteredUsage}
+                  loading={loading}
+                  isDark={isDark}
+                  isMobile={isMobile}
+                  modelPrices={modelPrices}
+                  hourWindowHours={hourWindowHours}
+                  endMs={filterWindowEndMs}
+                />
               </>
             )}
 

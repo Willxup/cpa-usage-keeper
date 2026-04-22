@@ -145,10 +145,8 @@ const normalizeHourWindow = (hourWindowHours?: number): number => {
   return Math.min(Math.max(Math.floor(hourWindowHours), 1), 24 * 31);
 };
 
-const MAX_HOURLY_CHART_WINDOW_HOURS = 24;
-
 const resolveHourlyChartWindowHours = (hourWindowHours?: number): number =>
-  Math.min(normalizeHourWindow(hourWindowHours), MAX_HOURLY_CHART_WINDOW_HOURS);
+  normalizeHourWindow(hourWindowHours);
 
 const buildHourlyWindow = (hourWindowHours?: number, endMs?: number) => {
   const resolvedHourWindow = resolveHourlyChartWindowHours(hourWindowHours);
@@ -169,23 +167,11 @@ const buildHourlyWindow = (hourWindowHours?: number, endMs?: number) => {
   };
 };
 
-const resolveHourlyChartEndMs = (details: UsageDetailRecord[], hourWindowHours?: number, endMs?: number): number | undefined => {
+const resolveHourlyChartEndMs = (details: UsageDetailRecord[], _hourWindowHours?: number, endMs?: number): number | undefined => {
   const requestedEndMs = Number.isFinite(endMs) && endMs && endMs > 0 ? endMs : undefined;
-  if (!details.length) return requestedEndMs;
-  if (requestedEndMs === undefined) return getDetailTimestampBounds(details)?.latestMs;
-
-  const { earliestTime, lastBucketTime } = buildHourlyWindow(hourWindowHours, requestedEndMs);
-  const hasDataInRequestedWindow = details.some((detail) => {
-    const timestamp = detail.__timestampMs ?? 0;
-    if (!Number.isFinite(timestamp) || timestamp <= 0) return false;
-    const normalized = new Date(timestamp);
-    normalized.setMinutes(0, 0, 0);
-    const bucketStart = normalized.getTime();
-    return bucketStart >= earliestTime && bucketStart <= lastBucketTime;
-  });
-
-  if (hasDataInRequestedWindow) return requestedEndMs;
-  return getDetailTimestampBounds(details)?.latestMs ?? requestedEndMs;
+  if (requestedEndMs !== undefined) return requestedEndMs;
+  if (!details.length) return undefined;
+  return getDetailTimestampBounds(details)?.latestMs;
 };
 
 const getHourBucketIndex = (timestamp: number, hourWindowHours?: number): { index: number; labels: string[] } | null => {
@@ -306,8 +292,13 @@ export function collectUsageDetails(usage: UsagePayload | null | undefined): Usa
 
 export function getModelNamesFromUsage(usage: UsagePayload | null | undefined): string[] {
   const names = new Set<string>();
-  collectUsageDetails(usage).forEach((detail) => {
-    if (detail.__modelName) names.add(detail.__modelName);
+  Object.values(usage?.apis ?? {}).forEach((api) => {
+    Object.keys(api.models ?? {}).forEach((modelName) => {
+      const normalized = modelName.trim();
+      if (normalized) {
+        names.add(normalized);
+      }
+    });
   });
   return Array.from(names).sort((a, b) => a.localeCompare(b));
 }
