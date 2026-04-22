@@ -12,8 +12,8 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { ApiError, fetchStatus, fetchUsageCredentials, fetchUsageEvents } from '@/lib/api';
-import type { StatusResponse, UsageCredential, UsageEvent } from '@/lib/types';
+import { ApiError, fetchStatus, fetchUsageAnalysis, fetchUsageCredentials, fetchUsageEvents } from '@/lib/api';
+import type { StatusResponse, UsageAnalysisResponse, UsageCredential, UsageEvent } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Select } from '@/components/ui/Select';
@@ -217,7 +217,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [timeRange, setTimeRange] = useState<UsageTimeRange>(loadTimeRange);
   const [customTimeRange, setCustomTimeRange] = useState<{ start: string; end: string }>(loadCustomTimeRange);
   const isOverviewTab = activeTab === 'overview';
-  const usesSnapshotData = activeTab === 'overview' || activeTab === 'analysis' || activeTab === 'pricing';
+  const usesSnapshotData = activeTab === 'overview' || activeTab === 'pricing';
 
   const {
     usage,
@@ -246,6 +246,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [credentialsError, setCredentialsError] = useState('');
   const [credentialsData, setCredentialsData] = useState<UsageCredential[]>([]);
   const credentialsRequestControllerRef = useRef<AbortController | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState('');
+  const [analysisData, setAnalysisData] = useState<UsageAnalysisResponse>({ apis: [], models: [] });
+  const [analysisLastRefreshedAt, setAnalysisLastRefreshedAt] = useState<Date | null>(null);
+  const analysisRequestControllerRef = useRef<AbortController | null>(null);
 
   const timeRangeOptions = useMemo(
     () =>
@@ -298,6 +303,64 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [customTimeRange.end, customTimeRange.start, t, timeRange]);
 
   const filteredUsage = usage;
+
+  const loadAnalysis = useCallback(async () => {
+    if (timeRange === 'custom') {
+      if (!customTimeRange.start || !customTimeRange.end) {
+        analysisRequestControllerRef.current?.abort();
+        analysisRequestControllerRef.current = null;
+        setAnalysisData({ apis: [], models: [] });
+        setAnalysisError('');
+        setAnalysisLoading(false);
+        return;
+      }
+      const startMs = parseCustomDateStart(customTimeRange.start);
+      const endMs = parseCustomDateEnd(customTimeRange.end);
+      if (startMs === undefined || endMs === undefined || startMs > endMs) {
+        analysisRequestControllerRef.current?.abort();
+        analysisRequestControllerRef.current = null;
+        setAnalysisData({ apis: [], models: [] });
+        setAnalysisError('');
+        setAnalysisLoading(false);
+        return;
+      }
+    }
+
+    analysisRequestControllerRef.current?.abort();
+    const controller = new AbortController();
+    analysisRequestControllerRef.current = controller;
+
+    setAnalysisLoading(true);
+    setAnalysisError('');
+    setAnalysisData({ apis: [], models: [] });
+    try {
+      const start = timeRange === 'custom' ? new Date(`${customTimeRange.start}T00:00:00.000Z`).toISOString() : undefined;
+      const end = timeRange === 'custom' ? new Date(`${customTimeRange.end}T23:59:59.999Z`).toISOString() : undefined;
+      const response = await fetchUsageAnalysis(timeRange, start, end, controller.signal);
+      if (analysisRequestControllerRef.current !== controller) {
+        return;
+      }
+      setAnalysisData(response);
+      setAnalysisLastRefreshedAt(new Date());
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      if (analysisRequestControllerRef.current === controller) {
+        setAnalysisData({ apis: [], models: [] });
+      }
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      setAnalysisError(error instanceof Error ? error.message : 'Failed to load usage analysis');
+    } finally {
+      if (analysisRequestControllerRef.current === controller) {
+        setAnalysisLoading(false);
+        analysisRequestControllerRef.current = null;
+      }
+    }
+  }, [customTimeRange.end, customTimeRange.start, onAuthRequired, timeRange]);
   const hourWindowHours = useMemo(() => {
     if (timeRange === 'all') return undefined;
     if (timeRange !== 'custom') return HOUR_WINDOW_BY_TIME_RANGE[timeRange];
@@ -500,7 +563,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [customTimeRange.end, customTimeRange.start, onAuthRequired, timeRange]);
 
-  useHeaderRefresh(activeTab === 'events' ? loadEvents : activeTab === 'credentials' ? loadCredentials : loadUsage);
+  useHeaderRefresh(activeTab === 'events' ? loadEvents : activeTab === 'credentials' ? loadCredentials : activeTab === 'analysis' ? loadAnalysis : loadUsage);
 
   useEffect(() => {
     if (activeTab !== 'events') {
@@ -530,12 +593,27 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     };
   }, [activeTab, loadCredentials]);
 
+  useEffect(() => {
+    if (activeTab !== 'analysis') {
+      analysisRequestControllerRef.current?.abort();
+      analysisRequestControllerRef.current = null;
+      setAnalysisLoading(false);
+      return;
+    }
+    void loadAnalysis();
+    return () => {
+      analysisRequestControllerRef.current?.abort();
+      analysisRequestControllerRef.current = null;
+    };
+  }, [activeTab, loadAnalysis]);
+
   const handleLanguageChange = useCallback(async (language: 'en' | 'zh') => {
     if (currentLanguage === language) return;
     await i18n.changeLanguage(language);
     persistLanguage(language);
   }, [currentLanguage]);
 
+  const activeLastRefreshedAt = activeTab === 'analysis' ? analysisLastRefreshedAt : lastRefreshedAt;
   const nowMs = filterWindowEndMs;
 
   const {
@@ -558,14 +636,55 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   } = useChartData({ usage: filteredUsage, chartLines, isDark, isMobile, hourWindowHours, endMs: filterWindowEndMs });
 
   const modelNames = useMemo(() => getModelNamesFromUsage(usage), [usage]);
-  const analysisUsage = activeTab === 'analysis' ? filteredUsage : null;
   const apiStats = useMemo(
-    () => getApiStats(analysisUsage, modelPrices),
-    [analysisUsage, modelPrices]
+    () => analysisData.apis.map((api) => ({
+      endpoint: api.api_key,
+      displayName: api.display_name || api.api_key,
+      totalRequests: api.total_requests,
+      successCount: api.success_count,
+      failureCount: api.failure_count,
+      totalTokens: api.total_tokens,
+      totalCost: api.models.reduce((sum, model) => {
+        const pricing = modelPrices[model.model];
+        if (!pricing) return sum;
+        const cachedTokens = Math.max(Number(model.cached_tokens) || 0, 0);
+        const inputTokens = Math.max(Number(model.input_tokens) || 0, 0);
+        const outputTokens = Math.max(Number(model.output_tokens) || 0, 0);
+        const promptTokens = Math.max(inputTokens - cachedTokens, 0);
+        return sum + ((promptTokens / 1_000_000) * pricing.prompt) + ((outputTokens / 1_000_000) * pricing.completion) + ((cachedTokens / 1_000_000) * pricing.cache);
+      }, 0),
+      models: Object.fromEntries(api.models.map((model) => [model.model, {
+        requests: model.total_requests,
+        successCount: model.success_count,
+        failureCount: model.failure_count,
+        tokens: model.total_tokens,
+      }]))
+    })),
+    [analysisData.apis, modelPrices]
   );
   const modelStats = useMemo(
-    () => getModelStats(analysisUsage, modelPrices),
-    [analysisUsage, modelPrices]
+    () => analysisData.models.map((model) => {
+      const pricing = modelPrices[model.model];
+      const cachedTokens = Math.max(Number(model.cached_tokens) || 0, 0);
+      const inputTokens = Math.max(Number(model.input_tokens) || 0, 0);
+      const outputTokens = Math.max(Number(model.output_tokens) || 0, 0);
+      const promptTokens = Math.max(inputTokens - cachedTokens, 0);
+      const cost = pricing
+        ? ((promptTokens / 1_000_000) * pricing.prompt) + ((outputTokens / 1_000_000) * pricing.completion) + ((cachedTokens / 1_000_000) * pricing.cache)
+        : 0;
+      return {
+        model: model.model,
+        requests: model.total_requests,
+        successCount: model.success_count,
+        failureCount: model.failure_count,
+        tokens: model.total_tokens,
+        averageLatencyMs: model.latency_sample_count > 0 ? model.total_latency_ms / model.latency_sample_count : null,
+        totalLatencyMs: model.latency_sample_count > 0 ? model.total_latency_ms : null,
+        latencySampleCount: model.latency_sample_count,
+        cost,
+      };
+    }),
+    [analysisData.models, modelPrices]
   );
   const hasPrices = Object.keys(modelPrices).length > 0;
 
@@ -687,17 +806,17 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => void (activeTab === 'events' ? loadEvents() : activeTab === 'credentials' ? loadCredentials() : loadUsage()).catch(() => {})}
-                  disabled={activeTab === 'events' ? eventsLoading : activeTab === 'credentials' ? credentialsLoading : loading}
+                  onClick={() => void (activeTab === 'events' ? loadEvents() : activeTab === 'credentials' ? loadCredentials() : activeTab === 'analysis' ? loadAnalysis() : loadUsage()).catch(() => {})}
+                  disabled={activeTab === 'events' ? eventsLoading : activeTab === 'credentials' ? credentialsLoading : activeTab === 'analysis' ? analysisLoading : loading}
                   className={styles.refreshButton}
                 >
                   <IconRefreshCw size={14} />
-                  <span>{(activeTab === 'events' ? eventsLoading : activeTab === 'credentials' ? credentialsLoading : loading) ? t('common.loading') : t('usage_stats.refresh')}</span>
+                  <span>{(activeTab === 'events' ? eventsLoading : activeTab === 'credentials' ? credentialsLoading : activeTab === 'analysis' ? analysisLoading : loading) ? t('common.loading') : t('usage_stats.refresh')}</span>
                 </Button>
               </div>
-              {lastRefreshedAt && (
+              {activeLastRefreshedAt && (
                 <span className={styles.lastRefreshed}>
-                  {t('usage_stats.last_updated')}: {lastRefreshedAt.toLocaleTimeString()}
+                  {t('usage_stats.last_updated')}: {activeLastRefreshedAt.toLocaleTimeString()}
                 </span>
               )}
             </div>
@@ -803,10 +922,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             )}
 
             {activeTab === 'analysis' && (
-              <div className={styles.detailsGrid}>
-                <ApiDetailsCard apiStats={apiStats} loading={loading} hasPrices={hasPrices} />
-                <ModelStatsCard modelStats={modelStats} loading={loading} hasPrices={hasPrices} />
-              </div>
+              <>
+                {analysisError && <div className={styles.errorBox}>{analysisError}</div>}
+                <div className={styles.detailsGrid}>
+                  <ApiDetailsCard apiStats={apiStats} loading={analysisLoading} hasPrices={hasPrices} />
+                  <ModelStatsCard modelStats={modelStats} loading={analysisLoading} hasPrices={hasPrices} />
+                </div>
+              </>
             )}
 
             {activeTab === 'events' && (

@@ -41,6 +41,10 @@ func (s *usageEventsStub) ListUsageCredentialStats(_ context.Context, filter ser
 	return s.credentialStats, s.err
 }
 
+func (s *usageEventsStub) GetUsageAnalysis(context.Context, service.UsageFilter) (*service.UsageAnalysisSnapshot, error) {
+	return nil, s.err
+}
+
 func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	provider := &usageEventsStub{events: []service.UsageEventRecord{{
 		Timestamp:       time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),

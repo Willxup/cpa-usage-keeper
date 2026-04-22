@@ -101,6 +101,39 @@ export interface UsageCredentialsResponse {
   credentials: UsageCredential[]
 }
 
+export interface UsageAnalysisModel {
+  model: string
+  total_requests: number
+  success_count: number
+  failure_count: number
+  input_tokens: number
+  output_tokens: number
+  reasoning_tokens: number
+  cached_tokens: number
+  total_tokens: number
+  total_latency_ms: number
+  latency_sample_count: number
+}
+
+export interface UsageAnalysisApi {
+  api_key: string
+  display_name: string
+  total_requests: number
+  success_count: number
+  failure_count: number
+  input_tokens: number
+  output_tokens: number
+  reasoning_tokens: number
+  cached_tokens: number
+  total_tokens: number
+  models: UsageAnalysisModel[]
+}
+
+export interface UsageAnalysisResponse {
+  apis: UsageAnalysisApi[]
+  models: UsageAnalysisModel[]
+}
+
 export interface PricingEntry {
   model: string
   prompt_price_per_1m: number

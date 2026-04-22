@@ -75,3 +75,65 @@ func (s *usageService) ListUsageCredentialStats(_ context.Context, filter UsageF
 	}
 	return result, nil
 }
+
+func (s *usageService) GetUsageAnalysis(_ context.Context, filter UsageFilter) (*UsageAnalysisSnapshot, error) {
+	apiRows, modelRows, err := repository.ListUsageAnalysisWithFilter(s.db, repository.UsageQueryFilter{
+		StartTime: filter.StartTime,
+		EndTime:   filter.EndTime,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	apis := make([]UsageAnalysisAPIStat, 0, len(apiRows))
+	for _, row := range apiRows {
+		models := make([]UsageAnalysisModelStat, 0, len(row.Models))
+		for _, model := range row.Models {
+			models = append(models, UsageAnalysisModelStat{
+				Model:              model.Model,
+				TotalRequests:      model.TotalRequests,
+				SuccessCount:       model.SuccessCount,
+				FailureCount:       model.FailureCount,
+				TotalTokens:        model.TotalTokens,
+				InputTokens:        model.InputTokens,
+				OutputTokens:       model.OutputTokens,
+				ReasoningTokens:    model.ReasoningTokens,
+				CachedTokens:       model.CachedTokens,
+				TotalLatencyMS:     model.TotalLatencyMS,
+				LatencySampleCount: model.LatencySampleCount,
+			})
+		}
+		apis = append(apis, UsageAnalysisAPIStat{
+			APIKey:          row.APIGroupKey,
+			DisplayName:     row.DisplayName,
+			TotalRequests:   row.TotalRequests,
+			SuccessCount:    row.SuccessCount,
+			FailureCount:    row.FailureCount,
+			TotalTokens:     row.TotalTokens,
+			InputTokens:     row.InputTokens,
+			OutputTokens:    row.OutputTokens,
+			ReasoningTokens: row.ReasoningTokens,
+			CachedTokens:    row.CachedTokens,
+			Models:          models,
+		})
+	}
+
+	models := make([]UsageAnalysisModelStat, 0, len(modelRows))
+	for _, row := range modelRows {
+		models = append(models, UsageAnalysisModelStat{
+			Model:              row.Model,
+			TotalRequests:      row.TotalRequests,
+			SuccessCount:       row.SuccessCount,
+			FailureCount:       row.FailureCount,
+			TotalTokens:        row.TotalTokens,
+			InputTokens:        row.InputTokens,
+			OutputTokens:       row.OutputTokens,
+			ReasoningTokens:    row.ReasoningTokens,
+			CachedTokens:       row.CachedTokens,
+			TotalLatencyMS:     row.TotalLatencyMS,
+			LatencySampleCount: row.LatencySampleCount,
+		})
+	}
+
+	return &UsageAnalysisSnapshot{APIs: apis, Models: models}, nil
+}

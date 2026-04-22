@@ -33,6 +33,10 @@ func (s usageStub) ListUsageCredentialStats(context.Context, service.UsageFilter
 	return nil, s.err
 }
 
+func (s usageStub) GetUsageAnalysis(context.Context, service.UsageFilter) (*service.UsageAnalysisSnapshot, error) {
+	return nil, s.err
+}
+
 func TestUsageReturnsEmptyStructureWithoutProvider(t *testing.T) {
 	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage", nil)
