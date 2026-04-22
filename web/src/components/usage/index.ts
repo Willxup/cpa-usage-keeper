@@ -10,5 +10,6 @@ export { TokenBreakdownChart } from './TokenBreakdownChart';
 export { CostTrendChart } from './CostTrendChart';
 export { ServiceHealthCard } from './ServiceHealthCard';
 export { useUsageData } from './hooks/useUsageData';
+export { usePricingData } from './hooks/usePricingData';
 export { useSparklines } from './hooks/useSparklines';
 export { useChartData } from './hooks/useChartData';

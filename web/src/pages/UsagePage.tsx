@@ -34,6 +34,7 @@ import {
   CostTrendChart,
   ServiceHealthCard,
   useUsageData,
+  usePricingData,
   useSparklines,
   useChartData
 } from '@/components/usage';
@@ -217,22 +218,31 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [timeRange, setTimeRange] = useState<UsageTimeRange>(loadTimeRange);
   const [customTimeRange, setCustomTimeRange] = useState<{ start: string; end: string }>(loadCustomTimeRange);
   const isOverviewTab = activeTab === 'overview';
-  const usesSnapshotData = activeTab === 'overview' || activeTab === 'pricing';
 
   const {
     usage,
     loading,
     error,
     lastRefreshedAt,
-    modelPrices,
-    setModelPrices,
     loadUsage
   } = useUsageData({
     onAuthRequired,
     range: timeRange,
     customStart: customTimeRange.start,
     customEnd: customTimeRange.end,
-    enabled: usesSnapshotData,
+    enabled: activeTab === 'overview',
+  });
+  const {
+    modelNames,
+    modelPrices,
+    loading: pricingLoading,
+    error: pricingError,
+    lastRefreshedAt: pricingLastRefreshedAt,
+    loadPricing,
+    setModelPrices,
+  } = usePricingData({
+    onAuthRequired,
+    enabled: activeTab === 'pricing',
   });
   const [statusError, setStatusError] = useState('');
   const [customRangeError, setCustomRangeError] = useState('');
@@ -562,7 +572,17 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [customTimeRange.end, customTimeRange.start, onAuthRequired, timeRange]);
 
-  useHeaderRefresh(activeTab === 'events' ? loadEvents : activeTab === 'credentials' ? loadCredentials : activeTab === 'analysis' ? loadAnalysis : loadUsage);
+  useHeaderRefresh(
+    activeTab === 'events'
+      ? loadEvents
+      : activeTab === 'credentials'
+        ? loadCredentials
+        : activeTab === 'analysis'
+          ? loadAnalysis
+          : activeTab === 'pricing'
+            ? loadPricing
+            : loadUsage
+  );
 
   useEffect(() => {
     if (activeTab !== 'events') {
@@ -612,7 +632,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     persistLanguage(language);
   }, [currentLanguage]);
 
-  const activeLastRefreshedAt = activeTab === 'analysis' ? analysisLastRefreshedAt : lastRefreshedAt;
+  const activeLastRefreshedAt = activeTab === 'analysis'
+    ? analysisLastRefreshedAt
+    : activeTab === 'pricing'
+      ? pricingLastRefreshedAt
+      : lastRefreshedAt;
   const nowMs = filterWindowEndMs;
 
   const {
@@ -634,7 +658,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     tokensChartOptions
   } = useChartData({ usage: filteredUsage, chartLines, isDark, isMobile, hourWindowHours, endMs: filterWindowEndMs });
 
-  const modelNames = useMemo(() => getModelNamesFromUsage(usage), [usage]);
+  const overviewModelNames = useMemo(() => getModelNamesFromUsage(usage), [usage]);
   const apiStats = useMemo(
     () => analysisData.apis.map((api) => ({
       endpoint: api.api_key,
@@ -737,7 +761,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
         <main className={styles.contentColumn}>
           <div className={styles.container}>
-            {loading && !usage && (
+            {loading && !usage && activeTab === 'overview' && (
               <div className={styles.loadingOverlay} aria-busy="true">
                 <div className={styles.loadingOverlayContent}>
                   <LoadingSpinner size={28} className={styles.loadingOverlaySpinner} />
@@ -805,12 +829,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => void (activeTab === 'events' ? loadEvents() : activeTab === 'credentials' ? loadCredentials() : activeTab === 'analysis' ? loadAnalysis() : loadUsage()).catch(() => {})}
-                  disabled={activeTab === 'events' ? eventsLoading : activeTab === 'credentials' ? credentialsLoading : activeTab === 'analysis' ? analysisLoading : loading}
+                  onClick={() => void (activeTab === 'events' ? loadEvents() : activeTab === 'credentials' ? loadCredentials() : activeTab === 'analysis' ? loadAnalysis() : activeTab === 'pricing' ? loadPricing() : loadUsage()).catch(() => {})}
+                  disabled={activeTab === 'events' ? eventsLoading : activeTab === 'credentials' ? credentialsLoading : activeTab === 'analysis' ? analysisLoading : activeTab === 'pricing' ? pricingLoading : loading}
                   className={styles.refreshButton}
                 >
                   <IconRefreshCw size={14} />
-                  <span>{(activeTab === 'events' ? eventsLoading : activeTab === 'credentials' ? credentialsLoading : activeTab === 'analysis' ? analysisLoading : loading) ? t('common.loading') : t('usage_stats.refresh')}</span>
+                  <span>{(activeTab === 'events' ? eventsLoading : activeTab === 'credentials' ? credentialsLoading : activeTab === 'analysis' ? analysisLoading : activeTab === 'pricing' ? pricingLoading : loading) ? t('common.loading') : t('usage_stats.refresh')}</span>
                 </Button>
               </div>
               {activeLastRefreshedAt && (
@@ -820,8 +844,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               )}
             </div>
 
-            {error && <div className={styles.errorBox}>{error === 'AUTH_REQUIRED' ? t('auth.session_expired') : error}</div>}
-            {!error && statusError && <div className={styles.errorBox}>{statusError}</div>}
+            {activeTab === 'overview' && error && <div className={styles.errorBox}>{error === 'AUTH_REQUIRED' ? t('auth.session_expired') : error}</div>}
+            {activeTab === 'pricing' && pricingError && <div className={styles.errorBox}>{pricingError === 'AUTH_REQUIRED' ? t('auth.session_expired') : pricingError}</div>}
+            {!(activeTab === 'overview' ? error : activeTab === 'pricing' ? pricingError : '') && statusError && <div className={styles.errorBox}>{statusError}</div>}
 
             <div className={styles.tabBar} role="tablist" aria-label="Usage sections">
               <button
@@ -890,7 +915,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
                 <ChartLineSelector
                   chartLines={chartLines}
-                  modelNames={modelNames}
+                  modelNames={overviewModelNames}
                   maxLines={MAX_CHART_LINES}
                   onChange={handleChartLinesChange}
                 />
@@ -955,6 +980,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 modelNames={modelNames}
                 modelPrices={modelPrices}
                 onPricesChange={setModelPrices}
+                loading={pricingLoading}
               />
             )}
           </div>

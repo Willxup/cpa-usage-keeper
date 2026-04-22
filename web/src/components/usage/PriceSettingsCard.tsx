@@ -18,6 +18,7 @@ export interface PriceSettingsCardProps {
   modelNames: string[];
   modelPrices: Record<string, ModelPrice>;
   onPricesChange: (prices: Record<string, ModelPrice>) => void;
+  loading?: boolean;
 }
 
 function PriceSettingsTitle({ title, subtitle, eyebrow }: { title: string; subtitle: string; eyebrow: string }) {
@@ -33,7 +34,8 @@ function PriceSettingsTitle({ title, subtitle, eyebrow }: { title: string; subti
 export function PriceSettingsCard({
   modelNames,
   modelPrices,
-  onPricesChange
+  onPricesChange,
+  loading = false
 }: PriceSettingsCardProps) {
   const { t } = useTranslation();
 
@@ -120,90 +122,94 @@ export function PriceSettingsCard({
       className={styles.detailsFixedCard}
     >
       <div className={styles.pricingSection}>
-        {/* Price Form */}
-        <div className={styles.priceForm}>
-          <div className={styles.formRow}>
-            <div className={styles.formField}>
-              <label>{t('usage_stats.model_name')}</label>
-              <Select
-                value={selectedModel}
-                options={options}
-                onChange={handleModelSelect}
-                placeholder={t('usage_stats.model_price_select_placeholder')}
-              />
-            </div>
-            <div className={styles.formField}>
-              <label>{t('usage_stats.model_price_prompt')} ($/1M)</label>
-              <Input
-                type="number"
-                value={promptPrice}
-                onChange={(e) => setPromptPrice(e.target.value)}
-                placeholder="0.00"
-                step="0.0001"
-              />
-            </div>
-            <div className={styles.formField}>
-              <label>{t('usage_stats.model_price_completion')} ($/1M)</label>
-              <Input
-                type="number"
-                value={completionPrice}
-                onChange={(e) => setCompletionPrice(e.target.value)}
-                placeholder="0.00"
-                step="0.0001"
-              />
-            </div>
-            <div className={styles.formField}>
-              <label>{t('usage_stats.model_price_cache')} ($/1M)</label>
-              <Input
-                type="number"
-                value={cachePrice}
-                onChange={(e) => setCachePrice(e.target.value)}
-                placeholder="0.00"
-                step="0.0001"
-              />
-            </div>
-            <Button variant="primary" onClick={handleSavePrice} disabled={!selectedModel}>
-              {t('common.save')}
-            </Button>
-          </div>
-        </div>
-
-        {/* Saved Prices List */}
-        <div className={styles.pricesList}>
-          <h4 className={styles.pricesTitle}>{t('usage_stats.saved_prices')}</h4>
-          {Object.keys(modelPrices).length > 0 ? (
-            <div className={styles.pricesGrid}>
-              {Object.entries(modelPrices).map(([model, price]) => (
-                <div key={model} className={styles.priceItem}>
-                  <div className={styles.priceInfo}>
-                    <span className={styles.priceModel}>{formatDisplayName(model)}</span>
-                    <div className={styles.priceMeta}>
-                      <span>
-                        {t('usage_stats.model_price_prompt')}: ${price.prompt.toFixed(4)}/1M
-                      </span>
-                      <span>
-                        {t('usage_stats.model_price_completion')}: ${price.completion.toFixed(4)}/1M
-                      </span>
-                      <span>
-                        {t('usage_stats.model_price_cache')}: ${price.cache.toFixed(4)}/1M
-                      </span>
-                    </div>
-                  </div>
-                  <div className={styles.priceActions}>
-                    <Button variant="secondary" size="sm" onClick={() => handleOpenEdit(model)}>
-                      {t('common.edit')}
-                    </Button>
-                    <Button variant="danger" size="sm" onClick={() => handleDeletePrice(model)}>
-                      {t('common.delete')}
-                    </Button>
-                  </div>
+        {loading && modelNames.length === 0 && Object.keys(modelPrices).length === 0 ? (
+          <div className={styles.hint}>{t('common.loading')}</div>
+        ) : (
+          <>
+            <div className={styles.priceForm}>
+              <div className={styles.formRow}>
+                <div className={styles.formField}>
+                  <label>{t('usage_stats.model_name')}</label>
+                  <Select
+                    value={selectedModel}
+                    options={options}
+                    onChange={handleModelSelect}
+                    placeholder={t('usage_stats.model_price_select_placeholder')}
+                  />
                 </div>
-              ))}
+                <div className={styles.formField}>
+                  <label>{t('usage_stats.model_price_prompt')} ($/1M)</label>
+                  <Input
+                    type="number"
+                    value={promptPrice}
+                    onChange={(e) => setPromptPrice(e.target.value)}
+                    placeholder="0.00"
+                    step="0.0001"
+                  />
+                </div>
+                <div className={styles.formField}>
+                  <label>{t('usage_stats.model_price_completion')} ($/1M)</label>
+                  <Input
+                    type="number"
+                    value={completionPrice}
+                    onChange={(e) => setCompletionPrice(e.target.value)}
+                    placeholder="0.00"
+                    step="0.0001"
+                  />
+                </div>
+                <div className={styles.formField}>
+                  <label>{t('usage_stats.model_price_cache')} ($/1M)</label>
+                  <Input
+                    type="number"
+                    value={cachePrice}
+                    onChange={(e) => setCachePrice(e.target.value)}
+                    placeholder="0.00"
+                    step="0.0001"
+                  />
+                </div>
+                <Button variant="primary" onClick={handleSavePrice} disabled={!selectedModel}>
+                  {t('common.save')}
+                </Button>
+              </div>
             </div>
-          ) : (
-            <div className={styles.hint}>{t('usage_stats.model_price_empty')}</div>
-          )}
-        </div>
+
+            <div className={styles.pricesList}>
+              <h4 className={styles.pricesTitle}>{t('usage_stats.saved_prices')}</h4>
+              {Object.keys(modelPrices).length > 0 ? (
+                <div className={styles.pricesGrid}>
+                  {Object.entries(modelPrices).map(([model, price]) => (
+                    <div key={model} className={styles.priceItem}>
+                      <div className={styles.priceInfo}>
+                        <span className={styles.priceModel}>{formatDisplayName(model)}</span>
+                        <div className={styles.priceMeta}>
+                          <span>
+                            {t('usage_stats.model_price_prompt')}: ${price.prompt.toFixed(4)}/1M
+                          </span>
+                          <span>
+                            {t('usage_stats.model_price_completion')}: ${price.completion.toFixed(4)}/1M
+                          </span>
+                          <span>
+                            {t('usage_stats.model_price_cache')}: ${price.cache.toFixed(4)}/1M
+                          </span>
+                        </div>
+                      </div>
+                      <div className={styles.priceActions}>
+                        <Button variant="secondary" size="sm" onClick={() => handleOpenEdit(model)}>
+                          {t('common.edit')}
+                        </Button>
+                        <Button variant="danger" size="sm" onClick={() => handleDeletePrice(model)}>
+                          {t('common.delete')}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className={styles.hint}>{t('usage_stats.model_price_empty')}</div>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Edit Modal */}
