@@ -11,12 +11,24 @@ import (
 )
 
 func BuildUsageSnapshot(db *gorm.DB) (*cpa.StatisticsSnapshot, error) {
+	return BuildUsageSnapshotWithFilter(db, UsageQueryFilter{})
+}
+
+func BuildUsageSnapshotWithFilter(db *gorm.DB, filter UsageQueryFilter) (*cpa.StatisticsSnapshot, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
 	}
 
+	query := db.Order("timestamp asc")
+	if filter.StartTime != nil {
+		query = query.Where("timestamp >= ?", filter.StartTime.UTC())
+	}
+	if filter.EndTime != nil {
+		query = query.Where("timestamp <= ?", filter.EndTime.UTC())
+	}
+
 	var events []models.UsageEvent
-	if err := db.Order("timestamp asc").Find(&events).Error; err != nil {
+	if err := query.Find(&events).Error; err != nil {
 		return nil, fmt.Errorf("load usage events: %w", err)
 	}
 

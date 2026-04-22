@@ -9,6 +9,7 @@ import (
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/models"
 	"cpa-usage-keeper/internal/redact"
+	"cpa-usage-keeper/internal/service"
 )
 
 type usageStub struct {
@@ -17,6 +18,10 @@ type usageStub struct {
 }
 
 func (s usageStub) GetUsage(context.Context) (*cpa.StatisticsSnapshot, error) {
+	return s.usage, s.err
+}
+
+func (s usageStub) GetUsageWithFilter(context.Context, service.UsageFilter) (*cpa.StatisticsSnapshot, error) {
 	return s.usage, s.err
 }
 
