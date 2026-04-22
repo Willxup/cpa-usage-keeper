@@ -229,7 +229,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     loadUsage
   } = useUsageData({
     onAuthRequired,
-    mode: isOverviewTab ? 'overview' : 'full',
     range: timeRange,
     customStart: customTimeRange.start,
     customEnd: customTimeRange.end,

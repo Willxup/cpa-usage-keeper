@@ -51,7 +51,6 @@ func NewRouter(
 	protected := apiV1.Group("")
 	protected.Use(authHandler.middleware())
 	registerStatusRoutes(protected, statusProvider)
-	registerUsageRoutes(protected, usageProvider, authFileProvider, providerMetadataProvider)
 	registerUsageOverviewRoute(protected, usageProvider)
 	registerUsageAnalysisRoute(protected, usageProvider)
 	registerUsageEventsRoute(protected, usageProvider, authFileProvider, providerMetadataProvider)

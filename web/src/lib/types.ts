@@ -55,10 +55,6 @@ export interface UsageSnapshot {
   apis: Record<string, UsageApiSnapshot>
 }
 
-export interface UsageResponse {
-  usage: UsageSnapshot
-}
-
 export interface UsageOverviewResponse {
   usage: UsageSnapshot
 }

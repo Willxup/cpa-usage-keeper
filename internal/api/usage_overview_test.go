@@ -18,10 +18,6 @@ type usageFilterStub struct {
 	filterCalls int
 }
 
-func (s *usageFilterStub) GetUsage(_ context.Context) (*cpa.StatisticsSnapshot, error) {
-	return s.usage, s.err
-}
-
 func (s *usageFilterStub) GetUsageWithFilter(_ context.Context, filter service.UsageFilter) (*cpa.StatisticsSnapshot, error) {
 	s.lastFilter = filter
 	s.filterCalls++

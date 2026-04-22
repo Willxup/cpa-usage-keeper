@@ -21,10 +21,6 @@ type usageEventsStub struct {
 	credentialsCalls int
 }
 
-func (s *usageEventsStub) GetUsage(context.Context) (*cpa.StatisticsSnapshot, error) {
-	return nil, nil
-}
-
 func (s *usageEventsStub) GetUsageWithFilter(context.Context, service.UsageFilter) (*cpa.StatisticsSnapshot, error) {
 	return nil, nil
 }

@@ -43,7 +43,6 @@ const pricingToModelPrice = (entry: PricingEntry): ModelPrice => ({
 
 export interface UseUsageDataOptions {
   onAuthRequired?: () => void;
-  mode?: 'full' | 'overview';
   range?: UsageTimeRange;
   customStart?: string;
   customEnd?: string;
@@ -64,7 +63,7 @@ const toCustomBoundary = (value: string | undefined, endOfDay: boolean): string 
 }
 
 export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataReturn {
-  const { onAuthRequired, mode = 'full', range = 'all', customStart, customEnd, enabled = true } = options;
+  const { onAuthRequired, range = 'all', customStart, customEnd, enabled = true } = options;
   const { t } = useTranslation();
   const { showNotification } = useNotificationStore();
   const usageSnapshot = useUsageStatsStore((state) => state.usage);
@@ -87,7 +86,6 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
       await loadUsageStats({
         force: true,
         staleTimeMs: USAGE_STATS_STALE_TIME_MS,
-        mode,
         range: resolvedRange,
         start: requestStart,
         end: requestEnd,
@@ -98,13 +96,12 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
       }
       throw error;
     }
-  }, [loadUsageStats, mode, onAuthRequired, requestEnd, requestStart, resolvedRange]);
+  }, [loadUsageStats, onAuthRequired, requestEnd, requestStart, resolvedRange]);
 
   useEffect(() => {
     if (enabled) {
       void loadUsageStats({
         staleTimeMs: USAGE_STATS_STALE_TIME_MS,
-        mode,
         range: resolvedRange,
         start: requestStart,
         end: requestEnd,
@@ -134,7 +131,7 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
     return () => {
       cancelled = true;
     };
-  }, [customEnd, customStart, enabled, loadUsageStats, mode, onAuthRequired, requestEnd, requestStart, resolvedRange]);
+  }, [customEnd, customStart, enabled, loadUsageStats, onAuthRequired, requestEnd, requestStart, resolvedRange]);
 
   const handleExport = async () => {
     setExporting(true);

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { ApiError, fetchUsage, fetchUsageOverview } from '@/lib/api';
+import { ApiError, fetchUsageOverview } from '@/lib/api';
 import type { UsageSnapshot, UsageTimeRange } from '@/lib/types';
 
 export const USAGE_STATS_STALE_TIME_MS = 60_000;
@@ -7,7 +7,6 @@ export const USAGE_STATS_STALE_TIME_MS = 60_000;
 interface LoadUsageStatsOptions {
   force?: boolean;
   staleTimeMs?: number;
-  mode?: 'full' | 'overview';
   range?: UsageTimeRange;
   start?: string;
   end?: string;
@@ -18,7 +17,6 @@ interface UsageStatsState {
   loading: boolean;
   error: string;
   lastRefreshedAt: number | null;
-  lastMode: 'full' | 'overview' | null;
   lastQueryKey: string | null;
   loadUsageStats: (options?: LoadUsageStatsOptions) => Promise<void>;
   clearUsageStats: () => void;
@@ -28,28 +26,26 @@ let activeRequest: Promise<void> | null = null;
 let activeRequestKey: string | null = null;
 let activeRequestController: AbortController | null = null;
 
-const buildQueryKey = (mode: 'full' | 'overview', range: UsageTimeRange, start?: string, end?: string): string =>
-  `${mode}:${range}:${start ?? ''}:${end ?? ''}`;
+const buildQueryKey = (range: UsageTimeRange, start?: string, end?: string): string =>
+  `${range}:${start ?? ''}:${end ?? ''}`;
 
 export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
   usage: null,
   loading: false,
   error: '',
   lastRefreshedAt: null,
-  lastMode: null,
   lastQueryKey: null,
   loadUsageStats: async (options = {}) => {
     const {
       force = false,
       staleTimeMs = USAGE_STATS_STALE_TIME_MS,
-      mode = 'full',
       range = 'all',
       start,
       end,
     } = options;
     const { lastRefreshedAt, loading, usage, lastQueryKey } = get();
     const now = Date.now();
-    const queryKey = buildQueryKey(mode, range, start, end);
+    const queryKey = buildQueryKey(range, start, end);
 
     if (!force && usage && lastRefreshedAt && lastQueryKey === queryKey && now - lastRefreshedAt < staleTimeMs) {
       return;
@@ -69,9 +65,7 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
 
     activeRequest = (async () => {
       try {
-        const response = mode === 'overview'
-          ? await fetchUsageOverview(range, start, end, controller.signal)
-          : await fetchUsage(controller.signal);
+        const response = await fetchUsageOverview(range, start, end, controller.signal);
         if (activeRequestController !== controller) {
           return;
         }
@@ -80,7 +74,6 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
           loading: false,
           error: '',
           lastRefreshedAt: Date.now(),
-          lastMode: mode,
           lastQueryKey: queryKey,
         });
       } catch (error) {
@@ -91,7 +84,7 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
           ? 'AUTH_REQUIRED'
           : error instanceof Error
             ? error.message
-            : `Failed to load usage ${mode}`
+            : 'Failed to load usage overview'
         if (activeRequestController === controller) {
           set({
             loading: false,
