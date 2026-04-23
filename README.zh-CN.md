@@ -16,7 +16,7 @@
 
 如果你正在评估或部署本仓库，建议先部署 CLIProxyAPI，再在需要持久化、历史分析或独立 Dashboard 时叠加使用 CPA Usage Keeper。
 
-![cpa-usage-keeper](https://images.bitskyline.com/i/2026/04/u903kd.png)
+![cpa-usage-keeper-screenshot](https://images.bitskyline.com/i/2026/04/h9se9f.png)
 
 ## 功能特性
 

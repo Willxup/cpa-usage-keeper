@@ -16,7 +16,7 @@ This project is a companion service for [CLIProxyAPI (CPA)](https://github.com/r
 
 If you are evaluating or deploying this repository, please start with CLIProxyAPI first, then use CPA Usage Keeper when you need persistence, historical analysis, or a dedicated dashboard layer on top of CPA.
 
-![cpa-usage-keeper](https://images.bitskyline.com/i/2026/04/u903kd.png)
+![cpa-usage-keeper-screenshot](https://images.bitskyline.com/i/2026/04/h9se9f.png)
 
 ## Features
 
