@@ -1,123 +1,123 @@
 # CPA Usage Keeper
 
-[中文说明](./README.zh-CN.md)
+[English README](./README.en.md)
 
-CPA Usage Keeper is a standalone usage persistence and dashboard service for CPA (CLI Proxy API).
+`CPA Usage Keeper` 是一个独立的 CPA 用量持久化与可视化服务。
 
-It requires [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) as the backend source of usage data and is designed to add persistence and statistics capabilities on top of CPA. It periodically pulls CPA `usage/export` data, stores normalized events in SQLite, exposes aggregated APIs, and serves a built-in web dashboard for usage, pricing, request health, and model/API breakdowns.
+它依赖 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI) 作为后端 CPA 数据来源，目标是在 CPA 之上补充持久化存储与统计分析能力。服务会定时拉取 CPA 的 `usage/export` 数据，将规范化后的事件写入 SQLite，暴露聚合 API，并提供内置 Web Dashboard 用于查看 usage、pricing、request health 和 model/API 维度的统计信息。
 
-## Relationship to CLIProxyAPI
+## 与 CLIProxyAPI 的关系
 
-This project is a companion service for [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI), not a replacement for it.
+这个项目是 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI) 的配套服务，不是它的替代品。
 
-- Data comes from CLIProxyAPI (CPA).
-- CPA Usage Keeper depends on a running CPA instance and its management API.
-- Without CPA, this project cannot collect or refresh usage data.
+- 数据来自 CLIProxyAPI（CPA）。
+- CPA Usage Keeper 依赖一个正在运行的 CPA 实例及其 management API。
+- 没有 CPA，这个项目无法采集或刷新 usage 数据。
 
-If you are evaluating or deploying this repository, please start with CLIProxyAPI first, then use CPA Usage Keeper when you need persistence, historical analysis, or a dedicated dashboard layer on top of CPA.
+如果你正在评估或部署本仓库，建议先部署 CLIProxyAPI，再在需要持久化、历史分析或独立 Dashboard 时叠加使用 CPA Usage Keeper。
 
 ![cpa-usage-keeper-screenshot](https://images.bitskyline.com/i/2026/04/h9se9f.png)
 
-## Features
+## 功能特性
 
-- Periodic CPA usage sync with SQLite persistence
-- Raw export backup retention on local disk
-- Aggregated usage and pricing APIs
-- Built-in React dashboard served by the Go backend
-- Optional password-based login gate
-- Configurable pricing persistence for used models only
-- Docker and Docker Compose deployment support
+- 定时同步 CPA usage 数据并持久化到 SQLite
+- 原始 export JSON 本地备份与保留策略
+- usage 聚合 API 与 pricing API
+- 由 Go 后端直接托管的内置 React Dashboard
+- 可选的密码登录保护
+- 仅允许对已使用模型进行价格持久化配置
+- 支持 Docker 与 Docker Compose 部署
 
-## Project Structure
+## 项目结构
 
 ```text
-cmd/                 Application entrypoint
-internal/api/        HTTP routes and handlers
-internal/app/        App wiring and startup
-internal/auth/       In-memory session auth
-internal/backup/     Raw export backup management
-internal/config/     Environment config loading
-internal/cpa/        CPA client and types
-internal/models/     GORM models
-internal/poller/     Background sync loop
-internal/repository/ SQLite access and aggregations
-internal/service/    Sync, usage, and pricing services
-web/                 React + TypeScript frontend
+cmd/                 应用入口
+internal/api/        HTTP 路由与处理器
+internal/app/        应用装配与启动
+internal/auth/       内存 session 鉴权
+internal/backup/     原始 export 备份管理
+internal/config/     环境配置加载
+internal/cpa/        CPA 客户端与类型定义
+internal/models/     GORM 模型
+internal/poller/     后台同步轮询
+internal/repository/ SQLite 访问与聚合逻辑
+internal/service/    同步、usage 与 pricing 服务
+web/                 React + TypeScript 前端
 ```
 
-## Configuration
+## 配置
 
-Copy the example file and fill in your values:
+先复制配置模板：
 
 ```bash
 cp .env.example .env
 ```
 
-Key variables:
+关键环境变量：
 
-| Variable | Required | Default | Description |
+| 变量 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `APP_PORT` | No | `8080` | HTTP listen port |
-| `APP_BASE_PATH` | No | root path | App base path such as `/cpa`; leave empty for root deployment |
-| `CPA_BASE_URL` | Yes | - | CPA server base URL |
-| `CPA_MANAGEMENT_KEY` | Yes | - | CPA management key |
-| `POLL_INTERVAL` | No | `5m` | Usage sync interval |
-| `SQLITE_PATH` | No | `/data/app.db` | SQLite database path |
-| `BACKUP_ENABLED` | No | `true` | Enable raw export backups |
-| `BACKUP_DIR` | No | `/data/backups` | Backup directory |
-| `BACKUP_INTERVAL` | No | `1h` | Minimum interval between backup writes |
-| `BACKUP_RETENTION_DAYS` | No | `30` | Backup retention days |
-| `REQUEST_TIMEOUT` | No | `30s` | CPA request timeout |
-| `LOG_LEVEL` | No | `info` | Log level |
-| `AUTH_ENABLED` | No | `false` | Enable login protection |
-| `LOGIN_PASSWORD` | When auth is enabled | - | Login password |
-| `AUTH_SESSION_TTL` | No | `168h` | Session lifetime |
+| `APP_PORT` | 否 | `8080` | HTTP 监听端口 |
+| `APP_BASE_PATH` | 否 | 根路径 | 应用子路径前缀，例如 `/cpa`；留空表示部署在根路径 |
+| `CPA_BASE_URL` | 是 | - | CPA 服务地址 |
+| `CPA_MANAGEMENT_KEY` | 是 | - | CPA management key |
+| `POLL_INTERVAL` | 否 | `5m` | usage 同步周期 |
+| `SQLITE_PATH` | 否 | `/data/app.db` | SQLite 数据库路径 |
+| `BACKUP_ENABLED` | 否 | `true` | 是否启用原始备份 |
+| `BACKUP_DIR` | 否 | `/data/backups` | 备份目录 |
+| `BACKUP_INTERVAL` | 否 | `1h` | 两次备份写入之间的最小间隔 |
+| `BACKUP_RETENTION_DAYS` | 否 | `30` | 备份保留天数 |
+| `REQUEST_TIMEOUT` | 否 | `30s` | CPA 请求超时 |
+| `LOG_LEVEL` | 否 | `info` | 日志级别 |
+| `AUTH_ENABLED` | 否 | `false` | 是否启用登录保护 |
+| `LOGIN_PASSWORD` | 鉴权启用时必填 | - | 登录密码 |
+| `AUTH_SESSION_TTL` | 否 | `168h` | Session 生命周期 |
 
-`APP_BASE_PATH` rules:
-- Leave it empty to serve from `/`
-- For subpath deployment, it must start with `/`, for example `/cpa`
-- A trailing slash like `/cpa/` is accepted and normalized to `/cpa`
-- A value without the leading slash such as `cpa` is invalid
+`APP_BASE_PATH` 设置规则：
+- 留空表示部署在根路径 `/`
+- 如果要部署到子路径，必须以 `/` 开头，例如 `/cpa`
+- 可以写成 `/cpa/`，程序会自动规范成 `/cpa`
+- 像 `cpa` 这样不带前导 `/` 的写法是无效的
 
-When backups are enabled, the service writes at most one raw export backup per `BACKUP_INTERVAL`. Every sync still records a snapshot run and persists usage events.
+启用备份后，服务会按照 `BACKUP_INTERVAL` 控制原始 export JSON 的落盘频率；即使本次未写入新的 backup，仍会正常记录 `SnapshotRun` 并持久化 usage 事件。
 
-## Development
+## 本地开发
 
-### Prerequisites
+### 前置依赖
 
 - Go 1.22+
 - Node.js 22+
 - npm
-- A running [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) instance
+- 已运行的 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI)
 
-### Run locally
+### 本地启动
 
-1. Create your local config:
+1. 复制本地配置：
 
 ```bash
 cp .env.example .env
 ```
 
-2. Start the backend:
+2. 启动后端：
 
 ```bash
 go run ./cmd/server/main.go
 ```
 
-3. In another terminal, install frontend dependencies and start the dev server:
+3. 在另一个终端安装前端依赖并启动开发服务器：
 
 ```bash
 npm --prefix ./web ci
 npm --prefix ./web run dev -- --host 127.0.0.1
 ```
 
-4. Build the frontend for production:
+4. 构建前端生产产物：
 
 ```bash
 npm --prefix ./web run build
 ```
 
-### Tests
+### 测试
 
 ```bash
 go test ./...
@@ -126,47 +126,47 @@ npm --prefix ./web run build
 
 ## Docker
 
-### Publish image with GitHub Actions and GHCR
+### 使用 GitHub Actions 自动发布到 GHCR
 
-This repository can publish a Docker image to GitHub Container Registry (GHCR):
+这个仓库可以把 Docker 镜像自动发布到 GitHub Container Registry（GHCR）：
 
-- GitHub repository stores the source code
-- GitHub Actions builds and publishes the image automatically
-- GHCR stores the built image at `ghcr.io/willxup/cpa-usage-keeper`
+- GitHub 仓库存放源码
+- GitHub Actions 负责自动构建和发布镜像
+- GHCR 存放构建后的镜像，地址为 `ghcr.io/willxup/cpa-usage-keeper`
 
-After adding `.github/workflows/docker-publish.yml`, GitHub Actions is effectively enabled for this repository, but you may still need to do two things in GitHub:
+当你把 `.github/workflows/docker-publish.yml` 提交到 GitHub 后，仓库就已经具备了自动发布能力，但你通常还需要在 GitHub 上做两件事：
 
-1. Open the repository `Actions` tab and enable Actions if GitHub asks you to.
-2. After the first successful publish, open the package page and make the image public if you want anonymous `docker pull` access.
+1. 打开仓库的 `Actions` 页面，如果 GitHub 提示启用 Actions，就点启用。
+2. 第一次发布成功后，打开 package 页面；如果你希望别人无需登录即可拉取镜像，需要把镜像设为 public。
 
-The workflow publishes automatically when you push a version tag such as `v1.0.0`.
+workflow 会在你 push 版本 tag（例如 `v1.0.0`）时自动发布。
 
-### Use the published image
+### 直接使用已发布镜像
 
-Using a `.env` file is optional for Docker deployment. You can either:
-- copy `.env.example` to `.env` and pass `--env-file .env`
-- or provide the needed `-e` flags directly on the command line
+Docker 部署时，`.env` 文件是可选的。你可以：
+- 复制 `.env.example` 为 `.env`，然后通过 `--env-file .env` 传入
+- 或者直接在命令行里使用 `-e` 传入所需环境变量
 
-1. Optional: copy the env template:
+1. 可选：复制环境变量模板：
 
 ```bash
 cp .env.example .env
 ```
 
-2. If you use `.env`, edit it and fill in at least:
+2. 如果你使用 `.env`，至少填写：
 - `CPA_BASE_URL`
 - `CPA_MANAGEMENT_KEY`
-- `SQLITE_PATH=/data/app.db` (optional; defaults to `/data/app.db`)
+- `SQLITE_PATH=/data/app.db`（可选；默认就是 `/data/app.db`）
 
-3. Pull the image:
+3. 拉取镜像：
 
 ```bash
 docker pull ghcr.io/willxup/cpa-usage-keeper:latest
 ```
 
-4. Run the container.
+4. 运行容器。
 
-If you use `.env`:
+如果你使用 `.env`：
 
 ```bash
 docker run --rm \
@@ -176,7 +176,7 @@ docker run --rm \
   ghcr.io/willxup/cpa-usage-keeper:latest
 ```
 
-Or without `.env`:
+如果你不使用 `.env`：
 
 ```bash
 docker run --rm \
@@ -187,29 +187,29 @@ docker run --rm \
   ghcr.io/willxup/cpa-usage-keeper:latest
 ```
 
-5. Verify it is running:
+5. 验证服务是否正常：
 
 ```bash
 curl -i http://127.0.0.1:8080/healthz
 ```
 
-Notes:
-- `APP_BASE_PATH` is a runtime environment variable, not a Docker build argument
-- The same image can run either at `/` or a subpath such as `/cpa`
-- `BACKUP_DIR` should normally be `/data/backups`
-- `SQLITE_PATH` is optional for Docker deployment and defaults to `/data/app.db`
-- The image does not include your runtime secrets; all deployment-specific settings stay in `.env` or runtime environment variables
-- Persist `./data:/data` or your SQLite database and backups will be ephemeral
+说明：
+- `APP_BASE_PATH` 是运行时环境变量，不是 Docker 构建参数
+- 同一个镜像既可以运行在根路径 `/`，也可以运行在 `/cpa` 这类子路径下
+- `BACKUP_DIR` 通常应设置为 `/data/backups`
+- `SQLITE_PATH` 在 Docker 部署下是可选的，默认就是 `/data/app.db`
+- 镜像里不会包含你的运行时密钥，所有部署差异都通过 `.env` 或运行时环境变量提供
+- 如果不挂载 `./data:/data`，SQLite 数据库和 backup 都会是临时的
 
-### Build locally
+### 本地构建镜像
 
-If you still want to build locally from the repository root:
+如果你仍然想在仓库根目录本地构建：
 
 ```bash
 docker build -t cpa-usage-keeper .
 ```
 
-Then run:
+然后运行：
 
 ```bash
 docker run --rm \
@@ -221,39 +221,39 @@ docker run --rm \
 
 ## Docker Compose
 
-Using a `.env` file is optional for Docker Compose deployment.
+Docker Compose 部署时，`.env` 文件同样是可选的。
 
-- If a `.env` file exists in the repository root, Docker Compose will load it automatically.
-- You can also pass `--env-file .env` explicitly.
-- If you do not use a `.env` file, set the required variables in your shell before running Compose.
+- 如果仓库根目录存在 `.env`，Docker Compose 会自动加载
+- 你也可以显式传 `--env-file .env`
+- 如果你不想使用 `.env`，也可以先在 shell 中设置环境变量再启动 Compose
 
-1. Optional: copy the root env template:
+1. 可选：复制根目录环境变量模板：
 
 ```bash
 cp .env.example .env
 ```
 
-2. If you use `.env`, edit it with your CPA credentials and runtime settings.
+2. 如果你使用 `.env`，编辑它并填入 CPA 凭据和运行参数。
 
-3. Pull the published image:
+3. 拉取已发布镜像：
 
 ```bash
 docker compose -f docker-compose.example.yml --env-file .env pull
 ```
 
-4. Start the stack:
+4. 启动服务：
 
 ```bash
 docker compose -f docker-compose.example.yml --env-file .env up -d
 ```
 
-5. Stop the stack:
+5. 停止服务：
 
 ```bash
 docker compose -f docker-compose.example.yml --env-file .env down
 ```
 
-If you do not want to use `.env`, you can run Compose like this instead:
+如果你不想使用 `.env`，也可以这样运行：
 
 ```bash
 CPA_BASE_URL=http://127.0.0.1:8317 \
@@ -261,17 +261,17 @@ CPA_MANAGEMENT_KEY=replace-with-your-management-key \
 docker compose -f docker-compose.example.yml up -d
 ```
 
-By default, `docker-compose.example.yml` pulls `ghcr.io/willxup/cpa-usage-keeper:latest` instead of building from the local Dockerfile.
+默认情况下，`docker-compose.example.yml` 会拉取 `ghcr.io/willxup/cpa-usage-keeper:latest`，而不是使用本地 `Dockerfile` 构建。
 
-The compose file bind-mounts `data` to `/data` for SQLite and backup persistence.
+compose 会将仓库根目录的 `data` 以 bind mount 方式挂载到容器内的 `/data`，用于保存 SQLite 数据库和备份文件。
 
-If you want to keep using local image builds for development, replace the `image:` line with a `build:` block again.
+如果你只是本地开发，仍然可以把 `image:` 改回 `build:` 来走本地构建流程。
 
-When `APP_BASE_PATH=/cpa` is set, access the app at `/cpa/` and keep that prefix in your Nginx reverse proxy instead of rewriting it away.
+当设置 `APP_BASE_PATH=/cpa` 时，应用访问入口应为 `/cpa/`，Nginx 反代时也应保留这个前缀，而不是先重写掉再转发。
 
-## Nginx subpath reverse proxy
+## Nginx 子路径反代示例
 
-If the app runs under a subpath such as `/cpa`, set `APP_BASE_PATH=/cpa` and keep the same prefix in Nginx:
+如果应用部署在 `/cpa` 这类子路径下，请设置 `APP_BASE_PATH=/cpa`，并在 Nginx 中保留相同前缀转发：
 
 ```nginx
 location /cpa/ {
@@ -282,4 +282,4 @@ location /cpa/ {
 }
 ```
 
-Do not rewrite `/cpa` away before proxying.
+不要在反代前把 `/cpa` 前缀重写掉。
