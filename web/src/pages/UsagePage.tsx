@@ -39,10 +39,12 @@ import {
   useChartData
 } from '@/components/usage';
 import {
+  buildUsageFromDetails,
   getModelNamesFromUsage,
   getApiStats,
   getModelStats,
   resolveUsageFilterWindow,
+  type UsageDetailRecord,
   type UsageFilterWindow,
   type UsageTimeRange
 } from '@/utils/usage';
@@ -113,6 +115,32 @@ const parseCustomDateBoundary = (value: string, endOfDay: boolean): number | und
 const parseCustomDateStart = (value: string): number | undefined => parseCustomDateBoundary(value, false);
 
 const parseCustomDateEnd = (value: string): number | undefined => parseCustomDateBoundary(value, true);
+
+const toOverviewChartDetailRecord = (event: UsageEvent): UsageDetailRecord => ({
+  timestamp: event.timestamp,
+  source: String(event.source ?? ''),
+  source_raw: String(event.source_raw ?? ''),
+  source_type: String(event.source_type ?? ''),
+  source_key: String(event.source_key ?? ''),
+  auth_index: String(event.auth_index ?? ''),
+  failed: event.failed === true,
+  latency_ms: Number.isFinite(event.latency_ms) ? event.latency_ms : 0,
+  tokens: {
+    input_tokens: Number(event.tokens?.input_tokens ?? 0),
+    output_tokens: Number(event.tokens?.output_tokens ?? 0),
+    reasoning_tokens: Number(event.tokens?.reasoning_tokens ?? 0),
+    cached_tokens: Number(event.tokens?.cached_tokens ?? 0),
+    total_tokens: Number(event.tokens?.total_tokens ?? 0),
+  },
+  __apiName: '__overview__',
+  __apiDisplayName: 'Overview',
+  __modelName: String(event.model ?? ''),
+  __timestampMs: Number.isFinite(Date.parse(event.timestamp)) ? Date.parse(event.timestamp) : 0,
+});
+
+const buildOverviewChartUsage = (events: UsageEvent[]) => (
+  events.length ? buildUsageFromDetails(events.map(toOverviewChartDetailRecord)) : null
+);
 
 const buildDefaultCustomRange = (anchorMs: number) => ({
   start: toDateInputValue(anchorMs - DEFAULT_CUSTOM_WINDOW_HOURS * 60 * 60 * 1000),
@@ -255,6 +283,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [overviewAuxEventsLoading, setOverviewAuxEventsLoading] = useState(false);
   const [overviewAuxEvents, setOverviewAuxEvents] = useState<UsageEvent[]>([]);
   const overviewAuxEventsRequestControllerRef = useRef<AbortController | null>(null);
+  const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
   const [credentialsLoading, setCredentialsLoading] = useState(false);
   const [credentialsError, setCredentialsError] = useState('');
   const [credentialsData, setCredentialsData] = useState<UsageCredential[]>([]);
@@ -316,6 +345,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [customTimeRange.end, customTimeRange.start, t, timeRange]);
 
   const filteredUsage = usage;
+  const overviewChartUsage = useMemo(() => buildOverviewChartUsage(overviewAuxEvents), [overviewAuxEvents]);
 
   const loadAnalysis = useCallback(async () => {
     if (timeRange === 'custom') {
@@ -381,6 +411,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     return Math.max(Math.ceil(filterWindow.windowMinutes / 60), 1);
   }, [filterWindow.windowMinutes, timeRange]);
   const filterWindowEndMs = filterWindow.endMs ?? lastRefreshedAt?.getTime() ?? Date.now();
+  const isCustomRange = timeRange === 'custom';
 
   const handleChartLinesChange = useCallback((lines: string[]) => {
     setChartLines(normalizeChartLines(lines));
@@ -628,19 +659,36 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [customTimeRange.end, customTimeRange.start, onAuthRequired, timeRange]);
 
-  useHeaderRefresh(
-    activeTab === 'events'
-      ? loadEvents
-      : activeTab === 'credentials'
-        ? loadCredentials
-        : activeTab === 'analysis'
-          ? loadAnalysis
-          : activeTab === 'pricing'
-            ? loadPricing
-            : async () => {
-                await Promise.all([loadUsage(), loadOverviewAuxEvents()]);
-              }
-  );
+  const refreshActiveTab = useCallback(async () => {
+    if (activeTab === 'events') {
+      await loadEvents();
+      return;
+    }
+    if (activeTab === 'credentials') {
+      await loadCredentials();
+      return;
+    }
+    if (activeTab === 'analysis') {
+      await loadAnalysis();
+      return;
+    }
+    if (activeTab === 'pricing') {
+      await loadPricing();
+      return;
+    }
+    await Promise.all([loadUsage(), loadOverviewAuxEvents()]);
+  }, [activeTab, loadAnalysis, loadCredentials, loadEvents, loadOverviewAuxEvents, loadPricing, loadUsage]);
+
+  const handleManualRefresh = useCallback(async () => {
+    setManualRefreshLoading(true);
+    try {
+      await refreshActiveTab();
+    } finally {
+      setManualRefreshLoading(false);
+    }
+  }, [refreshActiveTab]);
+
+  useHeaderRefresh(refreshActiveTab);
 
   useEffect(() => {
     if (activeTab !== 'overview') {
@@ -728,9 +776,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     tokensChartData,
     requestsChartOptions,
     tokensChartOptions
-  } = useChartData({ usage: filteredUsage, chartLines, isDark, isMobile, hourWindowHours, endMs: filterWindowEndMs });
+  } = useChartData({ usage: overviewChartUsage ?? filteredUsage, chartLines, isDark, isMobile, hourWindowHours, endMs: filterWindowEndMs });
 
-  const overviewModelNames = useMemo(() => getModelNamesFromUsage(usage), [usage]);
+  const overviewModelNames = useMemo(
+    () => getModelNamesFromUsage(overviewChartUsage ?? usage),
+    [overviewChartUsage, usage]
+  );
   const apiStats = useMemo(
     () => analysisData.apis.map((api) => ({
       endpoint: api.api_key,
@@ -910,59 +961,63 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                     ariaLabel={t('usage_stats.range_filter')}
                     fullWidth={false}
                   />
-                  {timeRange === 'custom' && (
-                    <div className={styles.customRangeInline}>
-                      <div className={styles.customRangeFields}>
-                        <label className={styles.customRangeField}>
-                          <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_start')}</span>
-                          <input
-                            type="date"
-                            className={`input ${styles.customRangeInput}`}
-                            value={customTimeRange.start}
-                            onChange={(event) =>
-                              setCustomTimeRange((current) => ({
-                                ...current,
-                                start: event.target.value
-                              }))
-                            }
-                            aria-label={t('usage_stats.custom_start')}
-                          />
-                        </label>
-                        <span className={styles.customRangeSeparator} aria-hidden="true">—</span>
-                        <label className={styles.customRangeField}>
-                          <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_end')}</span>
-                          <input
-                            type="date"
-                            className={`input ${styles.customRangeInput}`}
-                            value={customTimeRange.end}
-                            onChange={(event) =>
-                              setCustomTimeRange((current) => ({
-                                ...current,
-                                end: event.target.value
-                              }))
-                            }
-                            aria-label={t('usage_stats.custom_end')}
-                          />
-                        </label>
-                      </div>
+                  <div
+                    className={`${styles.customRangeInline} ${isCustomRange ? styles.customRangeInlineOpen : ''}`.trim()}
+                    aria-hidden={!isCustomRange}
+                  >
+                    <div className={styles.customRangeFields}>
+                      <label className={styles.customRangeField}>
+                        <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_start')}</span>
+                        <input
+                          type="date"
+                          className={`input ${styles.customRangeInput}`}
+                          value={customTimeRange.start}
+                          onChange={(event) =>
+                            setCustomTimeRange((current) => ({
+                              ...current,
+                              start: event.target.value
+                            }))
+                          }
+                          aria-label={t('usage_stats.custom_start')}
+                          disabled={!isCustomRange}
+                        />
+                      </label>
+                      <span className={styles.customRangeSeparator} aria-hidden="true">—</span>
+                      <label className={styles.customRangeField}>
+                        <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_end')}</span>
+                        <input
+                          type="date"
+                          className={`input ${styles.customRangeInput}`}
+                          value={customTimeRange.end}
+                          onChange={(event) =>
+                            setCustomTimeRange((current) => ({
+                              ...current,
+                              end: event.target.value
+                            }))
+                          }
+                          aria-label={t('usage_stats.custom_end')}
+                          disabled={!isCustomRange}
+                        />
+                      </label>
                     </div>
-                  )}
+                  </div>
                 </div>
-                {timeRange === 'custom' && customRangeHint && (
+                {isCustomRange && customRangeHint && (
                   <span className={styles.customRangeHint}>{customRangeHint}</span>
                 )}
-                {timeRange === 'custom' && customRangeError && (
+                {isCustomRange && customRangeError && (
                   <span className={styles.customRangeError}>{customRangeError}</span>
                 )}
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => void (activeTab === 'events' ? loadEvents() : activeTab === 'credentials' ? loadCredentials() : activeTab === 'analysis' ? loadAnalysis() : activeTab === 'pricing' ? loadPricing() : loadUsage()).catch(() => {})}
-                  disabled={activeTab === 'events' ? eventsLoading : activeTab === 'credentials' ? credentialsLoading : activeTab === 'analysis' ? analysisLoading : activeTab === 'pricing' ? pricingLoading : (loading || overviewAuxEventsLoading)}
+                  onClick={() => void handleManualRefresh().catch(() => {})}
+                  loading={manualRefreshLoading}
+                  disabled={manualRefreshLoading}
                   className={styles.refreshButton}
                 >
                   <IconRefreshCw size={14} />
-                  <span>{(activeTab === 'events' ? eventsLoading : activeTab === 'credentials' ? credentialsLoading : activeTab === 'analysis' ? analysisLoading : activeTab === 'pricing' ? pricingLoading : (loading || overviewAuxEventsLoading)) ? t('common.loading') : t('usage_stats.refresh')}</span>
+                  <span>{manualRefreshLoading ? t('common.loading') : t('usage_stats.refresh')}</span>
                 </Button>
               </div>
             </div>

@@ -165,6 +165,8 @@
 .refreshButton {
   gap: 8px;
   min-height: 42px;
+  min-width: 108px;
+  justify-content: center;
 }
 
 .contentColumn {
@@ -273,6 +275,7 @@
   align-items: center;
   gap: 8px;
   flex-wrap: nowrap;
+  min-width: 0;
   padding: 8px 10px;
   border: 1px solid var(--border-color);
   border-radius: 16px;
@@ -281,7 +284,8 @@
   @include mobile {
     width: 100%;
     align-items: center;
-    overflow-x: auto;
+    flex-wrap: wrap;
+    overflow: hidden;
   }
 }
 
@@ -289,6 +293,20 @@
   display: inline-flex;
   align-items: center;
   min-height: 34px;
+  min-width: 0;
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-6px);
+  transition: max-width 340ms cubic-bezier(0.22, 1, 0.36, 1), opacity 260ms ease, transform 340ms cubic-bezier(0.22, 1, 0.36, 1), margin-left 340ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.customRangeInlineOpen {
+  max-width: 360px;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
 }
 
 .timeRangeLabel {
@@ -305,6 +323,7 @@
   display: inline-flex;
   align-items: flex-end;
   gap: 6px;
+  white-space: nowrap;
 }
 
 .customRangeField {
@@ -355,13 +374,31 @@
 }
 
 @include mobile {
+  .customRangeInline {
+    width: 100%;
+    max-width: 0;
+    transform: translateY(-4px);
+  }
+
+  .customRangeInlineOpen {
+    max-width: 100%;
+    transform: translateY(0);
+  }
+
   .customRangeFields {
     width: 100%;
     gap: 6px;
+    flex-wrap: wrap;
   }
 
   .customRangeInput {
     width: 132px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .customRangeInline {
+    transition: none;
   }
 }
 
