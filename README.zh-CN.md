@@ -4,7 +4,17 @@
 
 `CPA Usage Keeper` 是一个独立的 CPA 用量持久化与可视化服务。
 
-它依赖 `cli-proxy-api` 作为后端 CPA 数据来源，目标是在 CPA 之上补充持久化存储与统计分析能力。服务会定时拉取 CPA 的 `usage/export` 数据，将规范化后的事件写入 SQLite，暴露聚合 API，并提供内置 Web Dashboard 用于查看 usage、pricing、request health 和 model/API 维度的统计信息。
+它依赖 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI) 作为后端 CPA 数据来源，目标是在 CPA 之上补充持久化存储与统计分析能力。服务会定时拉取 CPA 的 `usage/export` 数据，将规范化后的事件写入 SQLite，暴露聚合 API，并提供内置 Web Dashboard 用于查看 usage、pricing、request health 和 model/API 维度的统计信息。
+
+## 与 CLIProxyAPI 的关系
+
+这个项目是 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI) 的配套服务，不是它的替代品。
+
+- 数据来自 CLIProxyAPI（CPA）。
+- CPA Usage Keeper 依赖一个正在运行的 CPA 实例及其 management API。
+- 没有 CPA，这个项目无法采集或刷新 usage 数据。
+
+如果你正在评估或部署本仓库，建议先部署 CLIProxyAPI，再在需要持久化、历史分析或独立 Dashboard 时叠加使用 CPA Usage Keeper。
 
 ![cpa-usage-keeper](https://images.bitskyline.com/i/2026/04/u903kd.png)
 
@@ -78,7 +88,7 @@ cp .env.example .env
 - Go 1.22+
 - Node.js 22+
 - npm
-- 已运行的 `cli-proxy-api`
+- 已运行的 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI)
 
 ### 本地启动
 
@@ -129,11 +139,7 @@ npm --prefix ./web run build
 1. 打开仓库的 `Actions` 页面，如果 GitHub 提示启用 Actions，就点启用。
 2. 第一次发布成功后，打开 package 页面；如果你希望别人无需登录即可拉取镜像，需要把镜像设为 public。
 
-workflow 会在以下情况下自动发布：
-- push 到 `main`
-- push 版本 tag，例如 `v1.0.0`
-
-如果是 pull request，则只验证镜像能否正常构建，不会推送镜像。
+workflow 会在你 push 版本 tag（例如 `v1.0.0`）时自动发布。
 
 ### 直接使用已发布镜像
 

@@ -4,7 +4,17 @@
 
 CPA Usage Keeper is a standalone usage persistence and dashboard service for CPA (CLI Proxy API).
 
-It requires `cli-proxy-api` as the backend source of CPA usage data and is designed to add persistence and statistics capabilities on top of CPA. It periodically pulls CPA `usage/export` data, stores normalized events in SQLite, exposes aggregated APIs, and serves a built-in web dashboard for usage, pricing, request health, and model/API breakdowns.
+It requires [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) as the backend source of usage data and is designed to add persistence and statistics capabilities on top of CPA. It periodically pulls CPA `usage/export` data, stores normalized events in SQLite, exposes aggregated APIs, and serves a built-in web dashboard for usage, pricing, request health, and model/API breakdowns.
+
+## Relationship to CLIProxyAPI
+
+This project is a companion service for [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI), not a replacement for it.
+
+- Data comes from CLIProxyAPI (CPA).
+- CPA Usage Keeper depends on a running CPA instance and its management API.
+- Without CPA, this project cannot collect or refresh usage data.
+
+If you are evaluating or deploying this repository, please start with CLIProxyAPI first, then use CPA Usage Keeper when you need persistence, historical analysis, or a dedicated dashboard layer on top of CPA.
 
 ![cpa-usage-keeper](https://images.bitskyline.com/i/2026/04/u903kd.png)
 
@@ -78,7 +88,7 @@ When backups are enabled, the service writes at most one raw export backup per `
 - Go 1.22+
 - Node.js 22+
 - npm
-- A running `cli-proxy-api` instance
+- A running [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) instance
 
 ### Run locally
 
@@ -129,11 +139,7 @@ After adding `.github/workflows/docker-publish.yml`, GitHub Actions is effective
 1. Open the repository `Actions` tab and enable Actions if GitHub asks you to.
 2. After the first successful publish, open the package page and make the image public if you want anonymous `docker pull` access.
 
-The workflow publishes automatically when you:
-- push to `main`
-- push a version tag such as `v1.0.0`
-
-On pull requests, it only verifies that the Docker image can be built.
+The workflow publishes automatically when you push a version tag such as `v1.0.0`.
 
 ### Use the published image
 
