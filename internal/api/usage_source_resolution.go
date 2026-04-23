@@ -1,87 +1,19 @@
 package api
 
 import (
-	"net/http"
 	"strings"
 
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/models"
 	"cpa-usage-keeper/internal/redact"
-	"cpa-usage-keeper/internal/service"
-	"github.com/gin-gonic/gin"
 )
 
-type usageResponse struct {
-	Usage any `json:"usage"`
+type usageSourceResolver struct {
+	authFiles         map[string]models.AuthFile
+	providerMetadata  map[string]models.ProviderMetadata
 }
 
-func registerUsageRoutes(
-	router gin.IRoutes,
-	usageProvider service.UsageProvider,
-	authFileProvider service.AuthFileProvider,
-	providerMetadataProvider service.ProviderMetadataProvider,
-) {
-	router.GET("/usage", func(c *gin.Context) {
-		if usageProvider == nil {
-			c.JSON(http.StatusOK, usageResponse{Usage: gin.H{
-				"total_requests":   0,
-				"success_count":    0,
-				"failure_count":    0,
-				"total_tokens":     0,
-				"apis":             gin.H{},
-				"requests_by_day":  gin.H{},
-				"requests_by_hour": gin.H{},
-				"tokens_by_day":    gin.H{},
-				"tokens_by_hour":   gin.H{},
-			}})
-			return
-		}
-
-		usage, err := usageProvider.GetUsage(c.Request.Context())
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		redactedUsage := redact.UsageSnapshot(usage)
-		authFiles, providerMetadata, err := loadUsageResolutionData(c, authFileProvider, providerMetadataProvider)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		applyUsageSourceDisplay(redactedUsage, authFiles, providerMetadata)
-		c.JSON(http.StatusOK, usageResponse{Usage: redactedUsage})
-	})
-}
-
-func loadUsageResolutionData(
-	c *gin.Context,
-	authFileProvider service.AuthFileProvider,
-	providerMetadataProvider service.ProviderMetadataProvider,
-) ([]models.AuthFile, []models.ProviderMetadata, error) {
-	authFiles := []models.AuthFile{}
-	providerMetadata := []models.ProviderMetadata{}
-	var err error
-	if authFileProvider != nil {
-		authFiles, err = authFileProvider.ListAuthFiles(c.Request.Context())
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-	if providerMetadataProvider != nil {
-		providerMetadata, err = providerMetadataProvider.ListProviderMetadata(c.Request.Context())
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-	return authFiles, providerMetadata, nil
-}
-
-func applyUsageSourceDisplay(snapshot *cpa.StatisticsSnapshot, authFiles []models.AuthFile, providerMetadata []models.ProviderMetadata) {
-	if snapshot == nil {
-		return
-	}
-
+func newUsageSourceResolver(authFiles []models.AuthFile, providerMetadata []models.ProviderMetadata) usageSourceResolver {
 	authFileMap := make(map[string]models.AuthFile, len(authFiles))
 	for _, file := range authFiles {
 		authIndex := strings.TrimSpace(file.AuthIndex)
@@ -100,10 +32,21 @@ func applyUsageSourceDisplay(snapshot *cpa.StatisticsSnapshot, authFiles []model
 		providerMetadataMap[lookupKey] = item
 	}
 
+	return usageSourceResolver{
+		authFiles:        authFileMap,
+		providerMetadata: providerMetadataMap,
+	}
+}
+
+func applyUsageSourceResolution(snapshot *cpa.StatisticsSnapshot, resolver usageSourceResolver) {
+	if snapshot == nil {
+		return
+	}
+
 	for apiName, apiSnapshot := range snapshot.APIs {
 		for modelName, modelSnapshot := range apiSnapshot.Models {
 			for i := range modelSnapshot.Details {
-				resolved := resolveUsageSource(modelSnapshot.Details[i].Source, modelSnapshot.Details[i].AuthIndex, authFileMap, providerMetadataMap)
+				resolved := resolver.resolve(modelSnapshot.Details[i].Source, modelSnapshot.Details[i].AuthIndex)
 				modelSnapshot.Details[i].SourceRaw = modelSnapshot.Details[i].Source
 				modelSnapshot.Details[i].Source = resolved.DisplayName
 				modelSnapshot.Details[i].SourceDisplay = resolved.DisplayName
@@ -122,15 +65,10 @@ type usageSourceResolution struct {
 	SourceKey   string
 }
 
-func resolveUsageSource(
-	rawSource string,
-	authIndex string,
-	authFiles map[string]models.AuthFile,
-	providerMetadata map[string]models.ProviderMetadata,
-) usageSourceResolution {
+func (r usageSourceResolver) resolve(rawSource string, authIndex string) usageSourceResolution {
 	normalizedSource := strings.TrimSpace(rawSource)
 	if normalizedSource != "" {
-		if item, ok := providerMetadata[normalizedSource]; ok {
+		if item, ok := r.providerMetadata[normalizedSource]; ok {
 			displayName := firstNonEmptyString(item.DisplayName, item.ProviderType, redact.APIKeyDisplayName(normalizedSource))
 			providerType := strings.TrimSpace(item.ProviderType)
 			providerKey := strings.TrimSpace(item.ProviderKey)
@@ -147,7 +85,7 @@ func resolveUsageSource(
 
 	normalizedAuthIndex := strings.TrimSpace(authIndex)
 	if normalizedAuthIndex != "" {
-		if file, ok := authFiles[normalizedAuthIndex]; ok {
+		if file, ok := r.authFiles[normalizedAuthIndex]; ok {
 			displayName := firstNonEmptyString(file.Email, file.Label, file.Name, normalizedAuthIndex)
 			return usageSourceResolution{
 				DisplayName: displayName,

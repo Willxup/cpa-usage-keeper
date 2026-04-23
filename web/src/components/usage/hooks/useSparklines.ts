@@ -54,7 +54,24 @@ export function useSparklines({ usage, loading, nowMs, timeRange, hourWindowHour
 
     const details = collectUsageDetails(usage);
     if (!details.length) {
-      return { labels: [], requests: [], tokens: [], cost: [], rpm: [], tpm: [] };
+      const isDaily = timeRange === '7d' || timeRange === 'all';
+      const requestMap = isDaily ? usage.requests_by_day ?? {} : usage.requests_by_hour ?? {};
+      const tokenMap = isDaily ? usage.tokens_by_day ?? {} : usage.tokens_by_hour ?? {};
+      const keys = Object.keys(requestMap).sort((a, b) => a.localeCompare(b));
+      if (!keys.length) {
+        return { labels: [], requests: [], tokens: [], cost: [], rpm: [], tpm: [] };
+      }
+      const requests = keys.map((key) => Number(requestMap[key] ?? 0));
+      const tokens = keys.map((key) => Number(tokenMap[key] ?? 0));
+      const divisor = isDaily ? 24 * 60 : 60;
+      return {
+        labels: keys,
+        requests,
+        tokens,
+        cost: new Array(keys.length).fill(0),
+        rpm: requests.map((value) => value / divisor),
+        tpm: tokens.map((value) => value / divisor),
+      };
     }
 
     if (timeRange === '7d' || timeRange === 'all') {

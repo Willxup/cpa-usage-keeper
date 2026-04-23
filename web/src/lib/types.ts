@@ -31,7 +31,7 @@ export interface UsageModelSnapshot {
   success_count: number
   failure_count: number
   total_tokens: number
-  details: UsageDetail[]
+  details?: UsageDetail[]
 }
 
 export interface UsageApiSnapshot {
@@ -55,8 +55,79 @@ export interface UsageSnapshot {
   apis: Record<string, UsageApiSnapshot>
 }
 
-export interface UsageResponse {
+export interface UsageOverviewResponse {
   usage: UsageSnapshot
+}
+
+export interface UsageEventTokens {
+  input_tokens: number
+  output_tokens: number
+  reasoning_tokens: number
+  cached_tokens: number
+  total_tokens: number
+}
+
+export interface UsageEvent {
+  timestamp: string
+  model: string
+  source: string
+  source_raw?: string
+  source_type?: string
+  source_key?: string
+  auth_index?: string
+  failed: boolean
+  latency_ms: number
+  tokens: UsageEventTokens
+}
+
+export interface UsageEventsResponse {
+  events: UsageEvent[]
+}
+
+export interface UsageCredential {
+  source: string
+  source_type?: string
+  source_key?: string
+  success_count: number
+  failure_count: number
+  total_count: number
+}
+
+export interface UsageCredentialsResponse {
+  credentials: UsageCredential[]
+}
+
+export interface UsageAnalysisModel {
+  model: string
+  total_requests: number
+  success_count: number
+  failure_count: number
+  input_tokens: number
+  output_tokens: number
+  reasoning_tokens: number
+  cached_tokens: number
+  total_tokens: number
+  total_latency_ms: number
+  latency_sample_count: number
+}
+
+export interface UsageAnalysisApi {
+  api_key: string
+  display_name: string
+  total_requests: number
+  success_count: number
+  failure_count: number
+  input_tokens: number
+  output_tokens: number
+  reasoning_tokens: number
+  cached_tokens: number
+  total_tokens: number
+  models: UsageAnalysisModel[]
+}
+
+export interface UsageAnalysisResponse {
+  apis: UsageAnalysisApi[]
+  models: UsageAnalysisModel[]
 }
 
 export interface PricingEntry {

@@ -1,4 +1,4 @@
-import type { AuthSessionResponse, PricingEntry, PricingResponse, StatusResponse, UsedModelsResponse, UsageResponse } from './types'
+import type { AuthSessionResponse, PricingEntry, PricingResponse, StatusResponse, UsageAnalysisResponse, UsedModelsResponse, UsageCredentialsResponse, UsageEventsResponse, UsageOverviewResponse } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -71,10 +71,73 @@ export async function login(password: string): Promise<void> {
   }
 }
 
-export async function fetchUsage(signal?: AbortSignal): Promise<UsageResponse> {
-  const response = await apiFetch(apiPath('/usage'), { signal })
+export async function fetchUsageOverview(range: string, start?: string, end?: string, signal?: AbortSignal): Promise<UsageOverviewResponse> {
+  const params = new URLSearchParams()
+  params.set('range', range)
+  if (start) {
+    params.set('start', start)
+  }
+  if (end) {
+    params.set('end', end)
+  }
+  const query = params.toString()
+  const response = await apiFetch(`${apiPath('/usage/overview')}${query ? `?${query}` : ''}`, { signal })
   if (!response.ok) {
-    await parseApiError(response, `Failed to load usage: ${response.status}`)
+    await parseApiError(response, `Failed to load usage overview: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchUsageEvents(range: string, start?: string, end?: string, signal?: AbortSignal, limit?: number): Promise<UsageEventsResponse> {
+  const params = new URLSearchParams()
+  params.set('range', range)
+  if (start) {
+    params.set('start', start)
+  }
+  if (end) {
+    params.set('end', end)
+  }
+  if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
+    params.set('limit', String(Math.floor(limit)))
+  }
+  const query = params.toString()
+  const response = await apiFetch(`${apiPath('/usage/events')}${query ? `?${query}` : ''}`, { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load usage events: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchUsageCredentials(range: string, start?: string, end?: string, signal?: AbortSignal): Promise<UsageCredentialsResponse> {
+  const params = new URLSearchParams()
+  params.set('range', range)
+  if (start) {
+    params.set('start', start)
+  }
+  if (end) {
+    params.set('end', end)
+  }
+  const query = params.toString()
+  const response = await apiFetch(`${apiPath('/usage/credentials')}${query ? `?${query}` : ''}`, { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load usage credentials: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchUsageAnalysis(range: string, start?: string, end?: string, signal?: AbortSignal): Promise<UsageAnalysisResponse> {
+  const params = new URLSearchParams()
+  params.set('range', range)
+  if (start) {
+    params.set('start', start)
+  }
+  if (end) {
+    params.set('end', end)
+  }
+  const query = params.toString()
+  const response = await apiFetch(`${apiPath('/usage/analysis')}${query ? `?${query}` : ''}`, { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load usage analysis: ${response.status}`)
   }
   return response.json()
 }

@@ -4,18 +4,11 @@ import (
 	"context"
 
 	"cpa-usage-keeper/internal/cpa"
-	"cpa-usage-keeper/internal/repository"
-	"gorm.io/gorm"
 )
 
-type usageService struct {
-	db *gorm.DB
-}
-
-func NewUsageService(db *gorm.DB) UsageProvider {
-	return &usageService{db: db}
-}
-
-func (s *usageService) GetUsage(context.Context) (*cpa.StatisticsSnapshot, error) {
-	return repository.BuildUsageSnapshot(s.db)
+type UsageProvider interface {
+	GetUsageWithFilter(context.Context, UsageFilter) (*cpa.StatisticsSnapshot, error)
+	ListUsageEvents(context.Context, UsageFilter) ([]UsageEventRecord, error)
+	ListUsageCredentialStats(context.Context, UsageFilter) ([]UsageCredentialStat, error)
+	GetUsageAnalysis(context.Context, UsageFilter) (*UsageAnalysisSnapshot, error)
 }

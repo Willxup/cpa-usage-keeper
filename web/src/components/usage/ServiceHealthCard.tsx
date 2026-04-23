@@ -2,11 +2,12 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collectUsageDetails,
   calculateServiceHealthData,
   type ServiceHealthData,
   type StatusBlockDetail,
+  type UsageDetailRecord,
 } from '@/utils/usage';
+import type { UsageEvent } from '@/lib/types';
 import type { UsagePayload } from './hooks/useUsageData';
 import styles from '@/pages/UsagePage.module.scss';
 
@@ -66,18 +67,38 @@ function ServiceHealthTitle({ title, subtitle, eyebrow }: { title: string; subti
 
 export interface ServiceHealthCardProps {
   usage: UsagePayload | null;
+  events?: UsageEvent[];
   loading: boolean;
 }
 
-export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
+const toUsageDetailRecord = (event: UsageEvent): UsageDetailRecord => ({
+  timestamp: event.timestamp,
+  source: String(event.source ?? ''),
+  source_raw: String(event.source_raw ?? ''),
+  source_type: String(event.source_type ?? ''),
+  source_key: String(event.source_key ?? ''),
+  auth_index: String(event.auth_index ?? ''),
+  failed: event.failed === true,
+  latency_ms: Number.isFinite(event.latency_ms) ? event.latency_ms : 0,
+  tokens: {
+    input_tokens: Number(event.tokens?.input_tokens ?? 0),
+    output_tokens: Number(event.tokens?.output_tokens ?? 0),
+    reasoning_tokens: Number(event.tokens?.reasoning_tokens ?? 0),
+    cached_tokens: Number(event.tokens?.cached_tokens ?? 0),
+    total_tokens: Number(event.tokens?.total_tokens ?? 0),
+  },
+  __timestampMs: Number.isFinite(Date.parse(event.timestamp)) ? Date.parse(event.timestamp) : 0,
+});
+
+export function ServiceHealthCard({ usage, events = [], loading }: ServiceHealthCardProps) {
   const { t } = useTranslation();
   const [activeTooltip, setActiveTooltip] = useState<ActiveTooltipState | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 
   const healthData: ServiceHealthData = useMemo(() => {
-    const details = usage ? collectUsageDetails(usage) : [];
+    const details = events.map(toUsageDetailRecord);
     return calculateServiceHealthData(details);
-  }, [usage]);
+  }, [events, usage]);
 
   const hasData = healthData.totalSuccess + healthData.totalFailure > 0;
 

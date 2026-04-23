@@ -27,7 +27,7 @@ func TestAuthProtectedRouteRequiresSessionWhenEnabled(t *testing.T) {
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
 	router := NewRouter("", nil, nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "")
 	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview", nil)
 
 	router.ServeHTTP(resp, req)
 
@@ -62,7 +62,7 @@ func TestAuthLoginSetsCookieAndUnlocksProtectedRoute(t *testing.T) {
 	}
 
 	usageResp := httptest.NewRecorder()
-	usageReq := httptest.NewRequest(http.MethodGet, "/api/v1/usage", nil)
+	usageReq := httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview", nil)
 	usageReq.AddCookie(cookie[0])
 	router.ServeHTTP(usageResp, usageReq)
 
@@ -115,7 +115,7 @@ func TestSubpathAuthUsesPrefixedRoutesAndCookiePath(t *testing.T) {
 	}
 
 	usageResp := httptest.NewRecorder()
-	usageReq := httptest.NewRequest(http.MethodGet, "/cpa/api/v1/usage", nil)
+	usageReq := httptest.NewRequest(http.MethodGet, "/cpa/api/v1/usage/overview", nil)
 	usageReq.AddCookie(cookies[0])
 	router.ServeHTTP(usageResp, usageReq)
 	if usageResp.Code != http.StatusOK {
@@ -123,7 +123,7 @@ func TestSubpathAuthUsesPrefixedRoutesAndCookiePath(t *testing.T) {
 	}
 
 	unprefixedResp := httptest.NewRecorder()
-	unprefixedReq := httptest.NewRequest(http.MethodGet, "/api/v1/usage", nil)
+	unprefixedReq := httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview", nil)
 	unprefixedReq.AddCookie(cookies[0])
 	router.ServeHTTP(unprefixedResp, unprefixedReq)
 	if unprefixedResp.Code != http.StatusNotFound {
