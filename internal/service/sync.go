@@ -176,18 +176,21 @@ func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
 		}, fmt.Errorf("fetch usage export: %w", fetchErr)
 	}
 
-	lastBackupSnapshotRun, err := repository.FindLastSnapshotRunWithBackup(s.db)
-	if err != nil {
-		finalizeErr := repository.FinalizeSnapshotRun(s.db, snapshotRun.ID, repository.SnapshotRunResult{
-			Status:       "failed",
-			HTTPStatus:   httpStatus,
-			ErrorMessage: errorMessage(err),
-			ExportedAt:   exportedAt,
-		})
-		if finalizeErr != nil {
-			return nil, fmt.Errorf("load last backup snapshot run: %v; finalize snapshot run: %w", err, finalizeErr)
+	var lastBackupSnapshotRun *models.SnapshotRun
+	if s.backupEnabled {
+		lastBackupSnapshotRun, err = repository.FindLastSnapshotRunWithBackup(s.db)
+		if err != nil {
+			finalizeErr := repository.FinalizeSnapshotRun(s.db, snapshotRun.ID, repository.SnapshotRunResult{
+				Status:       "failed",
+				HTTPStatus:   httpStatus,
+				ErrorMessage: errorMessage(err),
+				ExportedAt:   exportedAt,
+			})
+			if finalizeErr != nil {
+				return nil, fmt.Errorf("load last backup snapshot run: %v; finalize snapshot run: %w", err, finalizeErr)
+			}
+			return nil, fmt.Errorf("load last backup snapshot run: %w", err)
 		}
-		return nil, fmt.Errorf("load last backup snapshot run: %w", err)
 	}
 
 	backupFilePath := ""

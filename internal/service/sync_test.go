@@ -1,9 +1,12 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +14,8 @@ import (
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/models"
 	"cpa-usage-keeper/internal/repository"
+	"gorm.io/driver/sqlite"
+	gormlogger "gorm.io/gorm/logger"
 	"gorm.io/gorm"
 )
 
@@ -212,7 +217,7 @@ func TestSyncOnceDeduplicatesExistingEvents(t *testing.T) {
 }
 
 func TestSyncOnceSkipsBackupWhenDisabled(t *testing.T) {
-	db := openSyncTestDatabase(t)
+	db, logs := openSyncTestDatabaseWithLogs(t)
 	backupWriter := &stubBackupWriter{path: "/tmp/export.json"}
 	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
 		BaseURL:       "https://cpa.example.com",
@@ -230,6 +235,9 @@ func TestSyncOnceSkipsBackupWhenDisabled(t *testing.T) {
 	}
 	if backupWriter.calls != 0 {
 		t.Fatalf("expected backup writer not to be called, got %d", backupWriter.calls)
+	}
+	if strings.Contains(logs.String(), "/internal/repository/db.go:156 record not found") {
+		t.Fatalf("expected no backup snapshot lookup log when backup is disabled, got %s", logs.String())
 	}
 }
 
@@ -547,4 +555,26 @@ func openSyncTestDatabase(t *testing.T) *gorm.DB {
 		t.Fatalf("OpenDatabase returned error: %v", err)
 	}
 	return db
+}
+
+func openSyncTestDatabaseWithLogs(t *testing.T) (*gorm.DB, *bytes.Buffer) {
+	t.Helper()
+
+	logs := &bytes.Buffer{}
+	gormLogger := gormlogger.New(
+		log.New(logs, "", 0),
+		gormlogger.Config{
+			LogLevel:                  gormlogger.Info,
+			IgnoreRecordNotFoundError: false,
+			Colorful:                  false,
+		},
+	)
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "sync.db")), &gorm.Config{Logger: gormLogger})
+	if err != nil {
+		t.Fatalf("gorm.Open returned error: %v", err)
+	}
+	if err := db.AutoMigrate(models.All()...); err != nil {
+		t.Fatalf("AutoMigrate returned error: %v", err)
+	}
+	return db, logs
 }
