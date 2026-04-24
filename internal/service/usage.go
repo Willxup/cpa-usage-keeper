@@ -50,9 +50,14 @@ func (s *usageService) GetUsageOverview(_ context.Context, filter UsageFilter) (
 		HourlySeries: mapUsageOverviewSeries(overview.HourlySeries),
 		DailySeries:  mapUsageOverviewSeries(overview.DailySeries),
 		Health: UsageOverviewHealth{
-			TotalSuccess: overview.Health.TotalSuccess,
-			TotalFailure: overview.Health.TotalFailure,
-			SuccessRate:  overview.Health.SuccessRate,
+			TotalSuccess:  overview.Health.TotalSuccess,
+			TotalFailure:  overview.Health.TotalFailure,
+			SuccessRate:   overview.Health.SuccessRate,
+			Rows:          overview.Health.Rows,
+			Columns:       overview.Health.Columns,
+			BucketSeconds: overview.Health.BucketSeconds,
+			WindowStart:   overview.Health.WindowStart,
+			WindowEnd:     overview.Health.WindowEnd,
 			BlockDetails: func() []UsageOverviewHealthBlock {
 				blocks := make([]UsageOverviewHealthBlock, 0, len(overview.Health.BlockDetails))
 				for _, block := range overview.Health.BlockDetails {

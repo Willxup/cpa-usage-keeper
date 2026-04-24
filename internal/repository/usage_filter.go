@@ -122,10 +122,15 @@ type UsageOverviewHealthBlockRecord struct {
 }
 
 type UsageOverviewHealthRecord struct {
-	TotalSuccess int64
-	TotalFailure int64
-	SuccessRate  float64
-	BlockDetails []UsageOverviewHealthBlockRecord
+	TotalSuccess  int64
+	TotalFailure  int64
+	SuccessRate   float64
+	Rows          int
+	Columns       int
+	BucketSeconds int64
+	WindowStart   time.Time
+	WindowEnd     time.Time
+	BlockDetails  []UsageOverviewHealthBlockRecord
 }
 
 type UsageOverviewRecord struct {

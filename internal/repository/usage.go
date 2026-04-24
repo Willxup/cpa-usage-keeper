@@ -350,9 +350,7 @@ func buildUsageOverviewFromEvents(events []models.UsageEvent, filter UsageQueryF
 		Series:       newUsageOverviewSeriesRecord(),
 		HourlySeries: newUsageOverviewSeriesRecord(),
 		DailySeries:  newUsageOverviewSeriesRecord(),
-		Health: UsageOverviewHealthRecord{
-			BlockDetails: buildUsageOverviewHealthBlocks(filter),
-		},
+		Health:       buildUsageOverviewHealth(filter),
 	}
 	if len(events) == 0 {
 		return overview
@@ -641,52 +639,82 @@ func latestHourlySeriesStart(filter UsageQueryFilter) *time.Time {
 }
 
 const (
-	usageOverviewHealthRows       = 7
-	usageOverviewHealthBlockCount = 96
-	usageOverviewHealthBlockSpan  = 15 * time.Minute
+	usageOverviewHealthRows           = 7
+	usageOverviewHealthDefaultColumns = 96
+	usageOverviewHealthDefaultSpan    = 15 * time.Minute
+	usageOverviewHealthPresetWindow   = 24 * time.Hour
+	usageOverviewHealthPresetSpan     = (usageOverviewHealthPresetWindow + time.Duration(usageOverviewHealthRows*usageOverviewHealthDefaultColumns) - 1) / time.Duration(usageOverviewHealthRows*usageOverviewHealthDefaultColumns)
 )
 
-func buildUsageOverviewHealthBlocks(filter UsageQueryFilter) []UsageOverviewHealthBlockRecord {
+func buildUsageOverviewHealth(filter UsageQueryFilter) UsageOverviewHealthRecord {
+	rows := usageOverviewHealthRows
+	columns, span := usageOverviewHealthGrid(filter)
+	totalBlocks := rows * columns
+	windowStart, windowEnd := usageOverviewHealthWindow(filter, totalBlocks, span)
+	blocks := make([]UsageOverviewHealthBlockRecord, totalBlocks)
+	for index := range blocks {
+		startTime := windowStart.Add(time.Duration(index) * span)
+		blocks[index] = UsageOverviewHealthBlockRecord{
+			StartTime: startTime,
+			EndTime:   startTime.Add(span),
+			Rate:      -1,
+		}
+	}
+	return UsageOverviewHealthRecord{
+		Rows:          rows,
+		Columns:       columns,
+		BucketSeconds: int64((span + time.Second - 1) / time.Second),
+		WindowStart:   windowStart,
+		WindowEnd:     windowEnd,
+		BlockDetails:  blocks,
+	}
+}
+
+func usageOverviewHealthGrid(filter UsageQueryFilter) (int, time.Duration) {
+	if isUsageOverviewShortHealthRange(filter.Range) {
+		return usageOverviewHealthDefaultColumns, usageOverviewHealthPresetSpan
+	}
+	return usageOverviewHealthDefaultColumns, usageOverviewHealthDefaultSpan
+}
+
+func isUsageOverviewShortHealthRange(value string) bool {
+	switch value {
+	case "4h", "8h", "12h", "24h":
+		return true
+	default:
+		return false
+	}
+}
+
+func usageOverviewHealthWindow(filter UsageQueryFilter, totalBlocks int, span time.Duration) (time.Time, time.Time) {
 	end := time.Now().UTC()
 	if filter.EndTime != nil {
 		end = filter.EndTime.UTC()
 	}
-	currentBucketStart := end.Truncate(usageOverviewHealthBlockSpan)
-	newestWindowEnd := currentBucketStart.Add(usageOverviewHealthBlockSpan)
-	totalBlocks := usageOverviewHealthRows * usageOverviewHealthBlockCount
-	oldestWindowStart := newestWindowEnd.Add(-time.Duration(totalBlocks) * usageOverviewHealthBlockSpan)
-	blocks := make([]UsageOverviewHealthBlockRecord, totalBlocks)
-	for index := range blocks {
-		startTime := oldestWindowStart.Add(time.Duration(index) * usageOverviewHealthBlockSpan)
-		blocks[index] = UsageOverviewHealthBlockRecord{
-			StartTime: startTime,
-			EndTime:   startTime.Add(usageOverviewHealthBlockSpan),
-			Rate:      -1,
-		}
+	if isUsageOverviewShortHealthRange(filter.Range) {
+		return end.Add(-usageOverviewHealthPresetWindow), end
 	}
-	return blocks
+	currentBucketStart := end.Truncate(span)
+	windowEnd := currentBucketStart.Add(span)
+	return windowEnd.Add(-time.Duration(totalBlocks) * span), windowEnd
 }
 
 func updateUsageOverviewHealthBlock(blocks []UsageOverviewHealthBlockRecord, event models.UsageEvent) {
-	if len(blocks) == 0 {
-		return
-	}
-	start := blocks[0].StartTime
 	timestamp := event.Timestamp.UTC()
-	if timestamp.Before(start) {
+	for index := range blocks {
+		block := &blocks[index]
+		if timestamp.Before(block.StartTime) || !timestamp.Before(block.EndTime) {
+			continue
+		}
+		if event.Failed {
+			block.Failure++
+		} else {
+			block.Success++
+		}
+		total := block.Success + block.Failure
+		if total > 0 {
+			block.Rate = float64(block.Success) / float64(total)
+		}
 		return
-	}
-	index := int(timestamp.Sub(start) / usageOverviewHealthBlockSpan)
-	if index < 0 || index >= len(blocks) {
-		return
-	}
-	if event.Failed {
-		blocks[index].Failure++
-	} else {
-		blocks[index].Success++
-	}
-	total := blocks[index].Success + blocks[index].Failure
-	if total > 0 {
-		blocks[index].Rate = float64(blocks[index].Success) / float64(total)
 	}
 }

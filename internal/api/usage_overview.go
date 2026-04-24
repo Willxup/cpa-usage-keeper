@@ -69,10 +69,15 @@ type usageOverviewSeriesLine struct {
 }
 
 type usageOverviewServiceHealth struct {
-	TotalSuccess int64                             `json:"total_success"`
-	TotalFailure int64                             `json:"total_failure"`
-	SuccessRate  float64                           `json:"success_rate"`
-	BlockDetails []usageOverviewServiceHealthBlock `json:"block_details"`
+	TotalSuccess  int64                             `json:"total_success"`
+	TotalFailure  int64                             `json:"total_failure"`
+	SuccessRate   float64                           `json:"success_rate"`
+	Rows          int                               `json:"rows"`
+	Columns       int                               `json:"columns"`
+	BucketSeconds int64                             `json:"bucket_seconds"`
+	WindowStart   time.Time                         `json:"window_start"`
+	WindowEnd     time.Time                         `json:"window_end"`
+	BlockDetails  []usageOverviewServiceHealthBlock `json:"block_details"`
 }
 
 type usageOverviewServiceHealthBlock struct {
@@ -288,10 +293,15 @@ func buildUsageOverviewServiceHealth(overview *service.UsageOverviewSnapshot) us
 		})
 	}
 	return usageOverviewServiceHealth{
-		TotalSuccess: overview.Health.TotalSuccess,
-		TotalFailure: overview.Health.TotalFailure,
-		SuccessRate:  overview.Health.SuccessRate,
-		BlockDetails: blocks,
+		TotalSuccess:  overview.Health.TotalSuccess,
+		TotalFailure:  overview.Health.TotalFailure,
+		SuccessRate:   overview.Health.SuccessRate,
+		Rows:          overview.Health.Rows,
+		Columns:       overview.Health.Columns,
+		BucketSeconds: overview.Health.BucketSeconds,
+		WindowStart:   overview.Health.WindowStart,
+		WindowEnd:     overview.Health.WindowEnd,
+		BlockDetails:  blocks,
 	}
 }
 

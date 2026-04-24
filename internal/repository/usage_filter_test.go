@@ -145,7 +145,14 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 	if diff := overview.Health.SuccessRate - expectedSuccessRate; diff < -1e-9 || diff > 1e-9 {
 		t.Fatalf("unexpected overview health success rate: %+v", overview.Health)
 	}
-	if len(overview.Health.BlockDetails) != 7*96 {
+	if overview.Health.Rows != 7 || overview.Health.Columns != 96 || overview.Health.BucketSeconds != 15*60 {
+		t.Fatalf("unexpected service health grid metadata: %+v", overview.Health)
+	}
+	if overview.Health.WindowStart != time.Date(2026, 4, 11, 0, 0, 0, 0, time.UTC) ||
+		overview.Health.WindowEnd != time.Date(2026, 4, 18, 0, 0, 0, 0, time.UTC) {
+		t.Fatalf("unexpected service health window: %+v", overview.Health)
+	}
+	if len(overview.Health.BlockDetails) != overview.Health.Rows*overview.Health.Columns {
 		t.Fatalf("expected full service health grid, got %d blocks", len(overview.Health.BlockDetails))
 	}
 	firstBlock := overview.Health.BlockDetails[0]
@@ -250,6 +257,57 @@ func TestBuildUsageOverviewFromEventsBuildsSnapshotAndOverviewInOnePass(t *testi
 	}
 	if overview.Health.SuccessRate != 50 {
 		t.Fatalf("expected 50%% success rate, got %+v", overview.Health)
+	}
+}
+
+func TestBuildUsageOverviewWithFilterBuilds24hHealthGridFor24hRange(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-health-24h.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+
+	events := []models.UsageEvent{
+		{EventKey: "event-success", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 17, 9, 31, 0, 0, time.UTC), Failed: false, TotalTokens: 10},
+		{EventKey: "event-failed", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 17, 23, 59, 0, 0, time.UTC), Failed: true, TotalTokens: 20},
+	}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	start := time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 4, 17, 23, 59, 59, 999000000, time.UTC)
+	overview, err := BuildUsageOverviewWithFilter(db, UsageQueryFilter{Range: "24h", StartTime: &start, EndTime: &end})
+	if err != nil {
+		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
+	}
+
+	if overview.Health.Rows != 7 || overview.Health.Columns != 96 || overview.Health.BucketSeconds != 129 {
+		t.Fatalf("unexpected service health grid metadata: rows=%d columns=%d bucket_seconds=%d", overview.Health.Rows, overview.Health.Columns, overview.Health.BucketSeconds)
+	}
+	if overview.Health.WindowStart.Before(end.Add(-24*time.Hour)) || overview.Health.WindowStart.After(end.Add(-24*time.Hour).Add(time.Second)) ||
+		overview.Health.WindowEnd.Before(end) || overview.Health.WindowEnd.After(end.Add(time.Second)) {
+		t.Fatalf("unexpected service health window: %+v", overview.Health)
+	}
+	if len(overview.Health.BlockDetails) != 7*96 {
+		t.Fatalf("expected 24h service health grid, got %d blocks", len(overview.Health.BlockDetails))
+	}
+
+	var successBlock *UsageOverviewHealthBlockRecord
+	var failedBlock *UsageOverviewHealthBlockRecord
+	for index := range overview.Health.BlockDetails {
+		block := &overview.Health.BlockDetails[index]
+		if block.Success == 1 {
+			successBlock = block
+		}
+		if block.Failure == 1 {
+			failedBlock = block
+		}
+	}
+	if successBlock == nil || successBlock.StartTime.After(events[0].Timestamp) || !successBlock.EndTime.After(events[0].Timestamp) || successBlock.Rate != 1 {
+		t.Fatalf("unexpected success health block: %+v", successBlock)
+	}
+	if failedBlock == nil || failedBlock.StartTime.After(events[1].Timestamp) || !failedBlock.EndTime.After(events[1].Timestamp) || failedBlock.Rate != 0 {
+		t.Fatalf("unexpected failed health block: %+v", failedBlock)
 	}
 }
 

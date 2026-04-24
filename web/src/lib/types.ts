@@ -92,6 +92,11 @@ export interface UsageOverviewServiceHealth {
   total_success: number
   total_failure: number
   success_rate: number
+  rows?: number
+  columns?: number
+  bucket_seconds?: number
+  window_start?: string
+  window_end?: string
   block_details: UsageOverviewServiceHealthBlock[]
 }
 

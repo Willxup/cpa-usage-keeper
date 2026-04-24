@@ -1613,6 +1613,10 @@
   gap: 14px;
   box-shadow: var(--shadow-lg);
   --health-grid-columns: 96;
+  --health-grid-rows: 7;
+  --health-grid-aspect-columns: 96;
+  --health-grid-aspect-rows: 7;
+  --health-grid-width: 100%;
   --health-grid-gap: 3px;
 }
 
@@ -1675,14 +1679,15 @@
 
 .healthGrid {
   display: grid;
-  width: 100%;
+  width: var(--health-grid-width);
+  max-width: 100%;
   gap: var(--health-grid-gap);
   grid-template-columns: repeat(var(--health-grid-columns), minmax(0, 1fr));
-  grid-template-rows: repeat(7, minmax(0, 1fr));
+  grid-template-rows: repeat(var(--health-grid-rows), minmax(0, 1fr));
   grid-auto-flow: column;
-  margin-left: 0;
-  margin-right: 0;
-  aspect-ratio: 96 / 7;
+  margin-left: auto;
+  margin-right: auto;
+  aspect-ratio: var(--health-grid-aspect-columns) / var(--health-grid-aspect-rows);
 }
 
 .healthBlockWrapper {

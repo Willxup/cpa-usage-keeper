@@ -49,6 +49,12 @@ function formatDateTime(timestamp: number): string {
   return `${month}/${day} ${h}:${m}`;
 }
 
+function parseTime(value?: string): number {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function ServiceHealthTitle({ title, subtitle, eyebrow }: { title: string; subtitle: string; eyebrow: string }) {
   return (
     <div className={styles.sectionTitleBlock}>
@@ -69,18 +75,27 @@ export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
   const [activeTooltip, setActiveTooltip] = useState<ActiveTooltipState | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 
-  const healthData: ServiceHealthData = useMemo(() => ({
-    totalSuccess: Number(usage?.service_health?.total_success ?? 0),
-    totalFailure: Number(usage?.service_health?.total_failure ?? 0),
-    successRate: Number(usage?.service_health?.success_rate ?? 0),
-    blockDetails: (usage?.service_health?.block_details ?? []).map((block) => ({
+  const healthData: ServiceHealthData = useMemo(() => {
+    const blockDetails = (usage?.service_health?.block_details ?? []).map((block) => ({
       startTime: Date.parse(block.start_time),
       endTime: Date.parse(block.end_time),
       success: Number(block.success ?? 0),
       failure: Number(block.failure ?? 0),
       rate: Number(block.rate ?? -1),
-    })),
-  }), [usage]);
+    }));
+    const rows = Number(usage?.service_health?.rows ?? 7) || 7;
+    return {
+      totalSuccess: Number(usage?.service_health?.total_success ?? 0),
+      totalFailure: Number(usage?.service_health?.total_failure ?? 0),
+      successRate: Number(usage?.service_health?.success_rate ?? 0),
+      rows,
+      columns: Number(usage?.service_health?.columns ?? Math.max(1, Math.ceil(blockDetails.length / rows))) || 1,
+      bucketSeconds: Number(usage?.service_health?.bucket_seconds ?? 0),
+      windowStart: parseTime(usage?.service_health?.window_start),
+      windowEnd: parseTime(usage?.service_health?.window_end),
+      blockDetails,
+    };
+  }, [usage]);
 
   const hasData = healthData.totalSuccess + healthData.totalFailure > 0;
 
@@ -235,10 +250,18 @@ export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
         ? styles.healthRateMedium
         : styles.healthRateLow;
 
-  const gridColumnCount = Math.max(1, Math.ceil(healthData.blockDetails.length / 7));
+  const windowLabel = healthData.windowStart > 0 && healthData.windowEnd > 0
+    ? `${formatDateTime(healthData.windowStart)} – ${formatDateTime(healthData.windowEnd)}`
+    : t('usage_stats.service_health_window');
   const gridStyle = useMemo(
-    () => ({ '--health-grid-columns': String(gridColumnCount) }) as React.CSSProperties,
-    [gridColumnCount]
+    () => ({
+      '--health-grid-columns': String(healthData.columns),
+      '--health-grid-rows': String(healthData.rows),
+      '--health-grid-aspect-columns': String(healthData.columns),
+      '--health-grid-aspect-rows': String(healthData.rows),
+      '--health-grid-width': '100%',
+    }) as React.CSSProperties,
+    [healthData.columns, healthData.rows]
   );
 
   return (
@@ -250,7 +273,7 @@ export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
           subtitle={t('usage_stats.service_health_subtitle')}
         />
         <div className={styles.healthMeta}>
-          <span className={styles.healthWindow}>{t('usage_stats.service_health_window')}</span>
+          <span className={styles.healthWindow}>{windowLabel}</span>
           <span className={`${styles.healthRate} ${rateClass}`}>
             {loading ? '--' : hasData ? `${healthData.successRate.toFixed(1)}%` : '--'}
           </span>

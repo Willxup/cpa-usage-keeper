@@ -118,6 +118,11 @@ export interface ServiceHealthData {
   totalSuccess: number;
   totalFailure: number;
   successRate: number;
+  rows: number;
+  columns: number;
+  bucketSeconds: number;
+  windowStart: number;
+  windowEnd: number;
   blockDetails: StatusBlockDetail[];
 }
 
