@@ -276,17 +276,31 @@
   gap: 8px;
   flex-wrap: nowrap;
   min-width: 0;
+  max-width: 620px;
   padding: 8px 10px;
   border: 1px solid var(--border-color);
   border-radius: 16px;
   background: color-mix(in srgb, var(--bg-primary) 82%, transparent);
+  overflow: hidden;
+  opacity: 1;
+  transform: translateX(0);
+  transition: max-width 340ms cubic-bezier(0.22, 1, 0.36, 1), padding 340ms cubic-bezier(0.22, 1, 0.36, 1), border-width 340ms cubic-bezier(0.22, 1, 0.36, 1), opacity 260ms ease, transform 340ms cubic-bezier(0.22, 1, 0.36, 1);
 
   @include mobile {
     width: 100%;
     align-items: center;
     flex-wrap: wrap;
-    overflow: hidden;
   }
+}
+
+.timeRangeGroupCollapsed {
+  max-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-width: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(8px);
 }
 
 .customRangeInline {
@@ -397,6 +411,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .timeRangeGroup,
   .customRangeInline {
     transition: none;
   }

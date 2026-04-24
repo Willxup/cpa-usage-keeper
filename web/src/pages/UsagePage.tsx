@@ -778,6 +778,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     : activeTab === 'pricing'
       ? pricingLastRefreshedAt
       : lastRefreshedAt;
+  const showRangeControls = activeTab !== 'pricing';
   const nowMs = filterWindowEndMs;
 
   const {
@@ -983,7 +984,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </div>
 
               <div className={styles.toolbarActionsRight}>
-                <div className={styles.timeRangeGroup}>
+                <div
+                  className={`${styles.timeRangeGroup} ${showRangeControls ? '' : styles.timeRangeGroupCollapsed}`.trim()}
+                  aria-hidden={!showRangeControls}
+                >
                   <span className={styles.timeRangeLabel}>{t('usage_stats.range_filter')}</span>
                   <Select
                     value={timeRange}
@@ -1034,10 +1038,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                     </div>
                   </div>
                 </div>
-                {isCustomRange && customRangeHint && (
+                {showRangeControls && isCustomRange && customRangeHint && (
                   <span className={styles.customRangeHint}>{customRangeHint}</span>
                 )}
-                {isCustomRange && customRangeError && (
+                {showRangeControls && isCustomRange && customRangeError && (
                   <span className={styles.customRangeError}>{customRangeError}</span>
                 )}
                 <Button
