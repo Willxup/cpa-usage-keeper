@@ -1,6 +1,6 @@
 import { useEffect, useCallback } from 'react';
 import { ApiError } from '@/lib/api';
-import type { UsageTimeRange } from '@/lib/types';
+import type { UsageOverviewResponse, UsageTimeRange } from '@/lib/types';
 import { USAGE_STATS_STALE_TIME_MS, useUsageStatsStore } from '@/stores';
 
 export interface UsagePayload {
@@ -16,8 +16,12 @@ export interface UsagePayload {
   [key: string]: unknown;
 }
 
+export interface UsageOverviewPayload extends UsageOverviewResponse {
+  usage: UsagePayload;
+}
+
 export interface UseUsageDataReturn {
-  usage: UsagePayload | null;
+  usage: UsageOverviewPayload | null;
   loading: boolean;
   error: string;
   lastRefreshedAt: Date | null;
@@ -91,7 +95,7 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
   }, [enabled, loadUsageStats, onAuthRequired, requestEnd, requestStart, resolvedRange]);
 
   return {
-    usage: usageSnapshot as UsagePayload | null,
+    usage: usageSnapshot as UsageOverviewPayload | null,
     loading,
     error: storeError || '',
     lastRefreshedAt: lastRefreshedAtTs ? new Date(lastRefreshedAtTs) : null,

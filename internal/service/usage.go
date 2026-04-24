@@ -18,9 +18,75 @@ func NewUsageService(db *gorm.DB) UsageProvider {
 
 func (s *usageService) GetUsageWithFilter(_ context.Context, filter UsageFilter) (*cpa.StatisticsSnapshot, error) {
 	return repository.BuildUsageSnapshotWithFilter(s.db, repository.UsageQueryFilter{
+		Range:     filter.Range,
 		StartTime: filter.StartTime,
 		EndTime:   filter.EndTime,
 	})
+}
+
+func (s *usageService) GetUsageOverview(_ context.Context, filter UsageFilter) (*UsageOverviewSnapshot, error) {
+	overview, err := repository.BuildUsageOverviewWithFilter(s.db, repository.UsageQueryFilter{
+		Range:     filter.Range,
+		StartTime: filter.StartTime,
+		EndTime:   filter.EndTime,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &UsageOverviewSnapshot{
+		Usage: overview.Usage,
+		Summary: UsageOverviewSummary{
+			RequestCount:    overview.Summary.RequestCount,
+			TokenCount:      overview.Summary.TokenCount,
+			WindowMinutes:   overview.Summary.WindowMinutes,
+			RPM:             overview.Summary.RPM,
+			TPM:             overview.Summary.TPM,
+			TotalCost:       overview.Summary.TotalCost,
+			CostAvailable:   overview.Summary.CostAvailable,
+			CachedTokens:    overview.Summary.CachedTokens,
+			ReasoningTokens: overview.Summary.ReasoningTokens,
+		},
+		Series:       mapUsageOverviewSeries(overview.Series),
+		HourlySeries: mapUsageOverviewSeries(overview.HourlySeries),
+		DailySeries:  mapUsageOverviewSeries(overview.DailySeries),
+		Health: UsageOverviewHealth{
+			TotalSuccess: overview.Health.TotalSuccess,
+			TotalFailure: overview.Health.TotalFailure,
+			SuccessRate:  overview.Health.SuccessRate,
+			BlockDetails: func() []UsageOverviewHealthBlock {
+				blocks := make([]UsageOverviewHealthBlock, 0, len(overview.Health.BlockDetails))
+				for _, block := range overview.Health.BlockDetails {
+					blocks = append(blocks, UsageOverviewHealthBlock{
+						StartTime: block.StartTime,
+						EndTime:   block.EndTime,
+						Success:   block.Success,
+						Failure:   block.Failure,
+						Rate:      block.Rate,
+					})
+				}
+				return blocks
+			}(),
+		},
+	}, nil
+}
+
+func mapUsageOverviewSeries(series repository.UsageOverviewSeriesRecord) UsageOverviewSeries {
+	models := make(map[string]UsageOverviewSeries, len(series.Models))
+	for model, modelSeries := range series.Models {
+		models[model] = mapUsageOverviewSeries(modelSeries)
+	}
+	return UsageOverviewSeries{
+		Requests:        series.Requests,
+		Tokens:          series.Tokens,
+		RPM:             series.RPM,
+		TPM:             series.TPM,
+		Cost:            series.Cost,
+		InputTokens:     series.InputTokens,
+		OutputTokens:    series.OutputTokens,
+		CachedTokens:    series.CachedTokens,
+		ReasoningTokens: series.ReasoningTokens,
+		Models:          models,
+	}
 }
 
 func (s *usageService) ListUsageEvents(_ context.Context, filter UsageFilter) ([]UsageEventRecord, error) {

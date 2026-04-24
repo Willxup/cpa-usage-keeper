@@ -39,12 +39,11 @@ import {
   useChartData
 } from '@/components/usage';
 import {
-  buildUsageFromDetails,
   getModelNamesFromUsage,
   getApiStats,
   getModelStats,
   resolveUsageFilterWindow,
-  type UsageDetailRecord,
+  sanitizeChartLines,
   type UsageFilterWindow,
   type UsageTimeRange
 } from '@/utils/usage';
@@ -69,7 +68,6 @@ const DEFAULT_CHART_LINES = ['all'];
 const DEFAULT_TIME_RANGE: UsageTimeRange = '8h';
 const DEFAULT_CUSTOM_WINDOW_HOURS = 8;
 const MAX_CHART_LINES = 9;
-const OVERVIEW_AUX_EVENTS_LIMIT = 5000;
 const TIME_RANGE_OPTIONS: ReadonlyArray<{ value: Exclude<UsageTimeRange, 'all'>; labelKey: string }> = [
   { value: '4h', labelKey: 'usage_stats.range_4h' },
   { value: '8h', labelKey: 'usage_stats.range_8h' },
@@ -115,32 +113,6 @@ const parseCustomDateBoundary = (value: string, endOfDay: boolean): number | und
 const parseCustomDateStart = (value: string): number | undefined => parseCustomDateBoundary(value, false);
 
 const parseCustomDateEnd = (value: string): number | undefined => parseCustomDateBoundary(value, true);
-
-const toOverviewChartDetailRecord = (event: UsageEvent): UsageDetailRecord => ({
-  timestamp: event.timestamp,
-  source: String(event.source ?? ''),
-  source_raw: String(event.source_raw ?? ''),
-  source_type: String(event.source_type ?? ''),
-  source_key: String(event.source_key ?? ''),
-  auth_index: String(event.auth_index ?? ''),
-  failed: event.failed === true,
-  latency_ms: Number.isFinite(event.latency_ms) ? event.latency_ms : 0,
-  tokens: {
-    input_tokens: Number(event.tokens?.input_tokens ?? 0),
-    output_tokens: Number(event.tokens?.output_tokens ?? 0),
-    reasoning_tokens: Number(event.tokens?.reasoning_tokens ?? 0),
-    cached_tokens: Number(event.tokens?.cached_tokens ?? 0),
-    total_tokens: Number(event.tokens?.total_tokens ?? 0),
-  },
-  __apiName: '__overview__',
-  __apiDisplayName: 'Overview',
-  __modelName: String(event.model ?? ''),
-  __timestampMs: Number.isFinite(Date.parse(event.timestamp)) ? Date.parse(event.timestamp) : 0,
-});
-
-const buildOverviewChartUsage = (events: UsageEvent[]) => (
-  events.length ? buildUsageFromDetails(events.map(toOverviewChartDetailRecord)) : null
-);
 
 const buildDefaultCustomRange = (anchorMs: number) => ({
   start: toDateInputValue(anchorMs - DEFAULT_CUSTOM_WINDOW_HOURS * 60 * 60 * 1000),
@@ -280,9 +252,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [eventsError, setEventsError] = useState('');
   const [eventsData, setEventsData] = useState<UsageEvent[]>([]);
   const eventsRequestControllerRef = useRef<AbortController | null>(null);
-  const [overviewAuxEventsLoading, setOverviewAuxEventsLoading] = useState(false);
-  const [overviewAuxEvents, setOverviewAuxEvents] = useState<UsageEvent[]>([]);
-  const overviewAuxEventsRequestControllerRef = useRef<AbortController | null>(null);
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
   const [credentialsLoading, setCredentialsLoading] = useState(false);
   const [credentialsError, setCredentialsError] = useState('');
@@ -344,9 +313,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setCustomRangeHint('');
   }, [customTimeRange.end, customTimeRange.start, t, timeRange]);
 
-  const filteredUsage = usage;
-  const overviewChartUsage = useMemo(() => buildOverviewChartUsage(overviewAuxEvents), [overviewAuxEvents]);
-
   const loadAnalysis = useCallback(async () => {
     if (timeRange === 'custom') {
       if (!customTimeRange.start || !customTimeRange.end) {
@@ -405,10 +371,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [customTimeRange.end, customTimeRange.start, onAuthRequired, timeRange]);
   const hourWindowHours = useMemo(() => {
-    if (timeRange === 'all') return undefined;
-    if (timeRange !== 'custom') return HOUR_WINDOW_BY_TIME_RANGE[timeRange];
-    if (filterWindow.windowMinutes === undefined) return undefined;
-    return Math.max(Math.ceil(filterWindow.windowMinutes / 60), 1);
+    if (timeRange === 'all') return 24;
+    if (timeRange !== 'custom') return Math.min(HOUR_WINDOW_BY_TIME_RANGE[timeRange], 24);
+    if (filterWindow.windowMinutes === undefined) return 24;
+    return Math.min(Math.max(Math.ceil(filterWindow.windowMinutes / 60), 1), 24);
   }, [filterWindow.windowMinutes, timeRange]);
   const filterWindowEndMs = filterWindow.endMs ?? lastRefreshedAt?.getTime() ?? Date.now();
   const isCustomRange = timeRange === 'custom';
@@ -492,58 +458,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       window.clearInterval(timer);
     };
   }, [onAuthRequired]);
-
-  const loadOverviewAuxEvents = useCallback(async () => {
-    if (timeRange === 'custom') {
-      if (!customTimeRange.start || !customTimeRange.end) {
-        overviewAuxEventsRequestControllerRef.current?.abort();
-        overviewAuxEventsRequestControllerRef.current = null;
-        setOverviewAuxEvents([]);
-        setOverviewAuxEventsLoading(false);
-        return;
-      }
-      const startMs = parseCustomDateStart(customTimeRange.start);
-      const endMs = parseCustomDateEnd(customTimeRange.end);
-      if (startMs === undefined || endMs === undefined || startMs > endMs) {
-        overviewAuxEventsRequestControllerRef.current?.abort();
-        overviewAuxEventsRequestControllerRef.current = null;
-        setOverviewAuxEvents([]);
-        setOverviewAuxEventsLoading(false);
-        return;
-      }
-    }
-
-    overviewAuxEventsRequestControllerRef.current?.abort();
-    const controller = new AbortController();
-    overviewAuxEventsRequestControllerRef.current = controller;
-
-    setOverviewAuxEventsLoading(true);
-    try {
-      const start = timeRange === 'custom' ? new Date(`${customTimeRange.start}T00:00:00.000Z`).toISOString() : undefined;
-      const end = timeRange === 'custom' ? new Date(`${customTimeRange.end}T23:59:59.999Z`).toISOString() : undefined;
-      const response = await fetchUsageEvents(timeRange, start, end, controller.signal, OVERVIEW_AUX_EVENTS_LIMIT);
-      if (overviewAuxEventsRequestControllerRef.current !== controller) {
-        return;
-      }
-      setOverviewAuxEvents(response.events);
-    } catch (error) {
-      if (controller.signal.aborted) {
-        return;
-      }
-      if (error instanceof ApiError && error.status === 401) {
-        onAuthRequired?.();
-        return;
-      }
-      if (overviewAuxEventsRequestControllerRef.current === controller) {
-        setOverviewAuxEvents([]);
-      }
-    } finally {
-      if (overviewAuxEventsRequestControllerRef.current === controller) {
-        setOverviewAuxEventsLoading(false);
-        overviewAuxEventsRequestControllerRef.current = null;
-      }
-    }
-  }, [customTimeRange.end, customTimeRange.start, onAuthRequired, timeRange]);
 
   const loadEvents = useCallback(async () => {
     if (timeRange === 'custom') {
@@ -676,8 +590,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await loadPricing();
       return;
     }
-    await Promise.all([loadUsage(), loadOverviewAuxEvents()]);
-  }, [activeTab, loadAnalysis, loadCredentials, loadEvents, loadOverviewAuxEvents, loadPricing, loadUsage]);
+    await loadUsage();
+  }, [activeTab, loadAnalysis, loadCredentials, loadEvents, loadPricing, loadUsage]);
 
   const handleManualRefresh = useCallback(async () => {
     setManualRefreshLoading(true);
@@ -689,20 +603,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [refreshActiveTab]);
 
   useHeaderRefresh(refreshActiveTab);
-
-  useEffect(() => {
-    if (activeTab !== 'overview') {
-      overviewAuxEventsRequestControllerRef.current?.abort();
-      overviewAuxEventsRequestControllerRef.current = null;
-      setOverviewAuxEventsLoading(false);
-      return;
-    }
-    void loadOverviewAuxEvents();
-    return () => {
-      overviewAuxEventsRequestControllerRef.current?.abort();
-      overviewAuxEventsRequestControllerRef.current = null;
-    };
-  }, [activeTab, loadOverviewAuxEvents]);
 
   useEffect(() => {
     if (activeTab !== 'events') {
@@ -765,7 +665,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     rpmSparkline,
     tpmSparkline,
     costSparkline
-  } = useSparklines({ usage: filteredUsage, loading, nowMs, timeRange, hourWindowHours, modelPrices });
+  } = useSparklines({ usage, loading });
 
   const {
     requestsPeriod,
@@ -776,12 +676,23 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     tokensChartData,
     requestsChartOptions,
     tokensChartOptions
-  } = useChartData({ usage: overviewChartUsage ?? filteredUsage, chartLines, isDark, isMobile, hourWindowHours, endMs: filterWindowEndMs });
+  } = useChartData({ usage, chartLines, isDark, isMobile, hourWindowHours, endMs: filterWindowEndMs });
 
   const overviewModelNames = useMemo(
-    () => getModelNamesFromUsage(overviewChartUsage ?? usage),
-    [overviewChartUsage, usage]
+    () => getModelNamesFromUsage(usage?.usage ?? null),
+    [usage]
   );
+
+  useEffect(() => {
+    if (!isOverviewTab) return;
+    setChartLines((current) => {
+      const next = sanitizeChartLines(current, overviewModelNames);
+      if (next.length === current.length && next.every((line, index) => line === current[index])) {
+        return current;
+      }
+      return next;
+    });
+  }, [isOverviewTab, overviewModelNames]);
   const apiStats = useMemo(
     () => analysisData.apis.map((api) => ({
       endpoint: api.api_key,
@@ -1029,11 +940,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             {activeTab === 'overview' && (
               <>
                 <StatCards
-                  usage={filteredUsage}
+                  usage={usage}
                   loading={loading}
-                  modelPrices={modelPrices}
-                  nowMs={nowMs}
-                  filterWindow={filterWindow}
                   sparklines={{
                     requests: requestsSparkline,
                     tokens: tokensSparkline,
@@ -1043,7 +951,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   }}
                 />
 
-                <ServiceHealthCard usage={filteredUsage} events={overviewAuxEvents} loading={loading || overviewAuxEventsLoading} />
+                <ServiceHealthCard usage={usage} loading={loading} />
 
                 <ChartLineSelector
                   chartLines={chartLines}
@@ -1076,22 +984,18 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 </div>
 
                 <TokenBreakdownChart
-                  usage={filteredUsage}
-                  events={overviewAuxEvents}
-                  loading={loading || overviewAuxEventsLoading}
+                  usage={usage}
+                  loading={loading}
                   isDark={isDark}
                   isMobile={isMobile}
                   hourWindowHours={hourWindowHours}
-                  endMs={filterWindowEndMs}
                 />
 
                 <CostTrendChart
-                  usage={filteredUsage}
-                  events={overviewAuxEvents}
-                  loading={loading || overviewAuxEventsLoading}
+                  usage={usage}
+                  loading={loading}
                   isDark={isDark}
                   isMobile={isMobile}
-                  modelPrices={modelPrices}
                   hourWindowHours={hourWindowHours}
                   endMs={filterWindowEndMs}
                 />

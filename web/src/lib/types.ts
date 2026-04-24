@@ -55,8 +55,53 @@ export interface UsageSnapshot {
   apis: Record<string, UsageApiSnapshot>
 }
 
+export interface UsageOverviewSummary {
+  request_count: number
+  token_count: number
+  window_minutes: number
+  rpm: number
+  tpm: number
+  total_cost: number
+  cost_available: boolean
+  cached_tokens: number
+  reasoning_tokens: number
+}
+
+export interface UsageOverviewSeries {
+  requests: Record<string, number>
+  tokens: Record<string, number>
+  rpm: Record<string, number>
+  tpm: Record<string, number>
+  cost: Record<string, number>
+  input_tokens: Record<string, number>
+  output_tokens: Record<string, number>
+  cached_tokens: Record<string, number>
+  reasoning_tokens: Record<string, number>
+  models?: Record<string, UsageOverviewSeries>
+}
+
+export interface UsageOverviewServiceHealthBlock {
+  start_time: string
+  end_time: string
+  success: number
+  failure: number
+  rate: number
+}
+
+export interface UsageOverviewServiceHealth {
+  total_success: number
+  total_failure: number
+  success_rate: number
+  block_details: UsageOverviewServiceHealthBlock[]
+}
+
 export interface UsageOverviewResponse {
   usage: UsageSnapshot
+  summary?: UsageOverviewSummary
+  series?: UsageOverviewSeries
+  hourly_series?: UsageOverviewSeries
+  daily_series?: UsageOverviewSeries
+  service_health?: UsageOverviewServiceHealth
 }
 
 export interface UsageEventTokens {

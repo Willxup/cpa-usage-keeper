@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { ApiError, fetchUsageOverview } from '@/lib/api';
-import type { UsageSnapshot, UsageTimeRange } from '@/lib/types';
+import type { UsageOverviewResponse, UsageTimeRange } from '@/lib/types';
 
 export const USAGE_STATS_STALE_TIME_MS = 60_000;
 
@@ -13,7 +13,7 @@ interface LoadUsageStatsOptions {
 }
 
 interface UsageStatsState {
-  usage: UsageSnapshot | null;
+  usage: UsageOverviewResponse | null;
   loading: boolean;
   error: string;
   lastRefreshedAt: number | null;
@@ -70,7 +70,7 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
           return;
         }
         set({
-          usage: response.usage,
+          usage: response,
           loading: false,
           error: '',
           lastRefreshedAt: Date.now(),

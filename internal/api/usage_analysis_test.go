@@ -13,13 +13,17 @@ import (
 )
 
 type usageAnalysisStub struct {
-	analysis     *service.UsageAnalysisSnapshot
-	err          error
-	lastFilter   service.UsageFilter
+	analysis      *service.UsageAnalysisSnapshot
+	err           error
+	lastFilter    service.UsageFilter
 	analysisCalls int
 }
 
 func (s *usageAnalysisStub) GetUsageWithFilter(context.Context, service.UsageFilter) (*cpa.StatisticsSnapshot, error) {
+	return nil, nil
+}
+
+func (s *usageAnalysisStub) GetUsageOverview(context.Context, service.UsageFilter) (*service.UsageOverviewSnapshot, error) {
 	return nil, nil
 }
 

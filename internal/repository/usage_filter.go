@@ -1,8 +1,13 @@
 package repository
 
-import "time"
+import (
+	"time"
+
+	"cpa-usage-keeper/internal/cpa"
+)
 
 type UsageQueryFilter struct {
+	Range     string
 	StartTime *time.Time
 	EndTime   *time.Time
 	Limit     int
@@ -58,4 +63,53 @@ type UsageAnalysisAPIStatRecord struct {
 	CachedTokens    int64
 	TotalTokens     int64
 	Models          []UsageAnalysisModelStatRecord `gorm:"-"`
+}
+
+type UsageOverviewSummaryRecord struct {
+	RequestCount    int64
+	TokenCount      int64
+	WindowMinutes   int64
+	RPM             float64
+	TPM             float64
+	TotalCost       float64
+	CostAvailable   bool
+	CachedTokens    int64
+	ReasoningTokens int64
+}
+
+type UsageOverviewSeriesRecord struct {
+	Requests        map[string]int64
+	Tokens          map[string]int64
+	RPM             map[string]float64
+	TPM             map[string]float64
+	Cost            map[string]float64
+	InputTokens     map[string]int64
+	OutputTokens    map[string]int64
+	CachedTokens    map[string]int64
+	ReasoningTokens map[string]int64
+	Models          map[string]UsageOverviewSeriesRecord
+}
+
+type UsageOverviewHealthBlockRecord struct {
+	StartTime time.Time
+	EndTime   time.Time
+	Success   int64
+	Failure   int64
+	Rate      float64
+}
+
+type UsageOverviewHealthRecord struct {
+	TotalSuccess int64
+	TotalFailure int64
+	SuccessRate  float64
+	BlockDetails []UsageOverviewHealthBlockRecord
+}
+
+type UsageOverviewRecord struct {
+	Usage        *cpa.StatisticsSnapshot
+	Summary      UsageOverviewSummaryRecord
+	Series       UsageOverviewSeriesRecord
+	HourlySeries UsageOverviewSeriesRecord
+	DailySeries  UsageOverviewSeriesRecord
+	Health       UsageOverviewHealthRecord
 }

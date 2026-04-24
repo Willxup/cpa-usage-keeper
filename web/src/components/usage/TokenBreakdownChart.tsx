@@ -3,15 +3,9 @@ import { useTranslation } from 'react-i18next';
 import { Line } from 'react-chartjs-2';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import {
-  buildHourlyTokenBreakdown,
-  buildDailyTokenBreakdown,
-  type TokenCategory,
-  type UsageDetailRecord,
-} from '@/utils/usage';
+import type { TokenCategory } from '@/utils/usage';
 import { buildChartOptions, getHourChartMinWidth } from '@/utils/usage/chartConfig';
-import type { UsageEvent } from '@/lib/types';
-import type { UsagePayload } from './hooks/useUsageData';
+import type { UsageOverviewPayload } from './hooks/useUsageData';
 import styles from '@/pages/UsagePage.module.scss';
 
 const TOKEN_COLORS: Record<TokenCategory, { border: string; bg: string }> = {
@@ -24,74 +18,43 @@ const TOKEN_COLORS: Record<TokenCategory, { border: string; bg: string }> = {
 const CATEGORIES: TokenCategory[] = ['input', 'output', 'cached', 'reasoning'];
 
 export interface TokenBreakdownChartProps {
-  usage: UsagePayload | null;
-  events?: UsageEvent[];
+  usage: UsageOverviewPayload | null;
   loading: boolean;
   isDark: boolean;
   isMobile: boolean;
   hourWindowHours?: number;
-  endMs?: number;
 }
-
-const toUsageDetailRecord = (event: UsageEvent): UsageDetailRecord => ({
-  timestamp: event.timestamp,
-  source: String(event.source ?? ''),
-  source_raw: String(event.source_raw ?? ''),
-  source_type: String(event.source_type ?? ''),
-  source_key: String(event.source_key ?? ''),
-  auth_index: String(event.auth_index ?? ''),
-  failed: event.failed === true,
-  latency_ms: Number.isFinite(event.latency_ms) ? event.latency_ms : 0,
-  tokens: {
-    input_tokens: Number(event.tokens?.input_tokens ?? 0),
-    output_tokens: Number(event.tokens?.output_tokens ?? 0),
-    reasoning_tokens: Number(event.tokens?.reasoning_tokens ?? 0),
-    cached_tokens: Number(event.tokens?.cached_tokens ?? 0),
-    total_tokens: Number(event.tokens?.total_tokens ?? 0),
-  },
-  __timestampMs: Number.isFinite(Date.parse(event.timestamp)) ? Date.parse(event.timestamp) : 0,
-});
 
 export function TokenBreakdownChart({
   usage,
-  events = [],
   loading,
   isDark,
   isMobile,
-  hourWindowHours,
-  endMs
+  hourWindowHours
 }: TokenBreakdownChartProps) {
   const { t } = useTranslation();
   const [period, setPeriod] = useState<'hour' | 'day'>('hour');
 
   const { chartData, chartOptions } = useMemo(() => {
-    const detailRecords = events.map(toUsageDetailRecord);
-    const usageWithDetails = detailRecords.length > 0
-      ? {
-          ...(usage ?? {}),
-          apis: {
-            __overview__: {
-              total_requests: detailRecords.length,
-              success_count: detailRecords.filter((detail) => !detail.failed).length,
-              failure_count: detailRecords.filter((detail) => detail.failed).length,
-              total_tokens: detailRecords.reduce((sum, detail) => sum + Number(detail.tokens.total_tokens ?? 0), 0),
-              models: {
-                __overview__: {
-                  total_requests: detailRecords.length,
-                  success_count: detailRecords.filter((detail) => !detail.failed).length,
-                  failure_count: detailRecords.filter((detail) => detail.failed).length,
-                  total_tokens: detailRecords.reduce((sum, detail) => sum + Number(detail.tokens.total_tokens ?? 0), 0),
-                  details: detailRecords,
-                }
-              }
-            }
-          }
-        }
-      : usage;
-    const series =
-      period === 'hour'
-        ? buildHourlyTokenBreakdown(usageWithDetails, hourWindowHours, endMs)
-        : buildDailyTokenBreakdown(usageWithDetails);
+    const source = period === 'hour' ? (usage?.hourly_series ?? usage?.series) : (usage?.daily_series ?? usage?.series);
+    const labels = Object.keys(source?.input_tokens ?? {}).sort((a, b) => a.localeCompare(b));
+    const visibleLabels = period === 'hour' && labels.length > (hourWindowHours ?? 24)
+      ? labels.slice(-Math.max(Math.floor(hourWindowHours ?? 24), 1))
+      : labels;
+    const series = {
+      labels: visibleLabels.map((label) => {
+        if (period !== 'hour') return label;
+        const date = new Date(label);
+        if (Number.isNaN(date.getTime())) return label;
+        return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+      }),
+      dataByCategory: {
+        input: visibleLabels.map((label) => Number(source?.input_tokens?.[label] ?? 0)),
+        output: visibleLabels.map((label) => Number(source?.output_tokens?.[label] ?? 0)),
+        cached: visibleLabels.map((label) => Number(source?.cached_tokens?.[label] ?? 0)),
+        reasoning: visibleLabels.map((label) => Number(source?.reasoning_tokens?.[label] ?? 0)),
+      } as Record<TokenCategory, number[]>,
+    };
     const categoryLabels: Record<TokenCategory, string> = {
       input: t('usage_stats.input_tokens'),
       output: t('usage_stats.output_tokens'),
@@ -130,7 +93,7 @@ export function TokenBreakdownChart({
     };
 
     return { chartData: data, chartOptions: options };
-  }, [usage, period, isDark, isMobile, hourWindowHours, endMs, t]);
+  }, [usage, period, isDark, isMobile, hourWindowHours, t]);
 
   return (
     <Card

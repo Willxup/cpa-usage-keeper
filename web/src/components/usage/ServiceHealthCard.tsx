@@ -1,14 +1,8 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import {
-  calculateServiceHealthData,
-  type ServiceHealthData,
-  type StatusBlockDetail,
-  type UsageDetailRecord,
-} from '@/utils/usage';
-import type { UsageEvent } from '@/lib/types';
-import type { UsagePayload } from './hooks/useUsageData';
+import type { ServiceHealthData, StatusBlockDetail } from '@/utils/usage';
+import type { UsageOverviewPayload } from './hooks/useUsageData';
 import styles from '@/pages/UsagePage.module.scss';
 
 const COLOR_STOPS = [
@@ -66,39 +60,27 @@ function ServiceHealthTitle({ title, subtitle, eyebrow }: { title: string; subti
 }
 
 export interface ServiceHealthCardProps {
-  usage: UsagePayload | null;
-  events?: UsageEvent[];
+  usage: UsageOverviewPayload | null;
   loading: boolean;
 }
 
-const toUsageDetailRecord = (event: UsageEvent): UsageDetailRecord => ({
-  timestamp: event.timestamp,
-  source: String(event.source ?? ''),
-  source_raw: String(event.source_raw ?? ''),
-  source_type: String(event.source_type ?? ''),
-  source_key: String(event.source_key ?? ''),
-  auth_index: String(event.auth_index ?? ''),
-  failed: event.failed === true,
-  latency_ms: Number.isFinite(event.latency_ms) ? event.latency_ms : 0,
-  tokens: {
-    input_tokens: Number(event.tokens?.input_tokens ?? 0),
-    output_tokens: Number(event.tokens?.output_tokens ?? 0),
-    reasoning_tokens: Number(event.tokens?.reasoning_tokens ?? 0),
-    cached_tokens: Number(event.tokens?.cached_tokens ?? 0),
-    total_tokens: Number(event.tokens?.total_tokens ?? 0),
-  },
-  __timestampMs: Number.isFinite(Date.parse(event.timestamp)) ? Date.parse(event.timestamp) : 0,
-});
-
-export function ServiceHealthCard({ usage, events = [], loading }: ServiceHealthCardProps) {
+export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
   const { t } = useTranslation();
   const [activeTooltip, setActiveTooltip] = useState<ActiveTooltipState | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 
-  const healthData: ServiceHealthData = useMemo(() => {
-    const details = events.map(toUsageDetailRecord);
-    return calculateServiceHealthData(details);
-  }, [events, usage]);
+  const healthData: ServiceHealthData = useMemo(() => ({
+    totalSuccess: Number(usage?.service_health?.total_success ?? 0),
+    totalFailure: Number(usage?.service_health?.total_failure ?? 0),
+    successRate: Number(usage?.service_health?.success_rate ?? 0),
+    blockDetails: (usage?.service_health?.block_details ?? []).map((block) => ({
+      startTime: Date.parse(block.start_time),
+      endTime: Date.parse(block.end_time),
+      success: Number(block.success ?? 0),
+      failure: Number(block.failure ?? 0),
+      rate: Number(block.rate ?? -1),
+    })),
+  }), [usage]);
 
   const hasData = healthData.totalSuccess + healthData.totalFailure > 0;
 

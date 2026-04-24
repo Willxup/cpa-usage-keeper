@@ -4,48 +4,127 @@ import type { ScriptableContext } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import {
-  buildHourlyCostSeries,
-  buildDailyCostSeries,
-  formatUsd,
-  type ModelPrice,
-  type UsageDetailRecord,
-} from '@/utils/usage';
+import { formatUsd } from '@/utils/usage';
 import { buildChartOptions, getHourChartMinWidth } from '@/utils/usage/chartConfig';
-import type { UsageEvent } from '@/lib/types';
-import type { UsagePayload } from './hooks/useUsageData';
+import type { UsageOverviewPayload } from './hooks/useUsageData';
 import styles from '@/pages/UsagePage.module.scss';
 
 export interface CostTrendChartProps {
-  usage: UsagePayload | null;
-  events?: UsageEvent[];
+  usage: UsageOverviewPayload | null;
   loading: boolean;
   isDark: boolean;
   isMobile: boolean;
-  modelPrices: Record<string, ModelPrice>;
   hourWindowHours?: number;
   endMs?: number;
 }
 
-const toUsageDetailRecord = (event: UsageEvent): UsageDetailRecord => ({
-  timestamp: event.timestamp,
-  source: String(event.source ?? ''),
-  source_raw: String(event.source_raw ?? ''),
-  source_type: String(event.source_type ?? ''),
-  source_key: String(event.source_key ?? ''),
-  auth_index: String(event.auth_index ?? ''),
-  failed: event.failed === true,
-  latency_ms: Number.isFinite(event.latency_ms) ? event.latency_ms : 0,
-  tokens: {
-    input_tokens: Number(event.tokens?.input_tokens ?? 0),
-    output_tokens: Number(event.tokens?.output_tokens ?? 0),
-    reasoning_tokens: Number(event.tokens?.reasoning_tokens ?? 0),
-    cached_tokens: Number(event.tokens?.cached_tokens ?? 0),
-    total_tokens: Number(event.tokens?.total_tokens ?? 0),
-  },
-  __modelName: String(event.model ?? ''),
-  __timestampMs: Number.isFinite(Date.parse(event.timestamp)) ? Date.parse(event.timestamp) : 0,
-});
+interface OverviewCostTrendSeries {
+  labels: string[];
+  data: number[];
+  hasData: boolean;
+  costAvailable: boolean;
+}
+
+const formatHourLabel = (key: string): string => {
+  const date = new Date(key);
+  if (Number.isNaN(date.getTime())) return key;
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+};
+
+const startOfDayKey = (key: string): string => {
+  const date = new Date(key);
+  if (Number.isNaN(date.getTime())) return key;
+  return date.toISOString().slice(0, 10);
+};
+
+const resolveHourBucketCount = (hourWindowHours?: number): number => {
+  if (!Number.isFinite(hourWindowHours) || !hourWindowHours || hourWindowHours <= 0) {
+    return 24;
+  }
+  const resolvedHours = Math.min(Math.max(Math.floor(hourWindowHours), 1), 24);
+  return resolvedHours >= 24 ? 24 : resolvedHours + 1;
+};
+
+const toUtcHourMs = (value: string | number): number => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return NaN;
+  date.setUTCMinutes(0, 0, 0);
+  return date.getTime();
+};
+
+export function buildOverviewCostTrendSeries({
+  usage,
+  period,
+  hourWindowHours,
+  endMs,
+}: {
+  usage: UsageOverviewPayload | null;
+  period: 'hour' | 'day';
+  hourWindowHours?: number;
+  endMs?: number;
+}): OverviewCostTrendSeries {
+  if (!usage) {
+    return { labels: [], data: [], hasData: false, costAvailable: false };
+  }
+
+  const selectedSeries = period === 'hour'
+    ? (usage.hourly_series ?? usage.series)
+    : (usage.daily_series ?? usage.series);
+  const costSeries = selectedSeries?.cost ?? {};
+  const costAvailable = usage.summary?.cost_available === true;
+  const hourlyEntries = Object.entries(costSeries)
+    .filter(([label]) => label.includes('T'))
+    .sort(([left], [right]) => left.localeCompare(right));
+  const dailyEntries = Object.entries(costSeries)
+    .filter(([label]) => !label.includes('T'))
+    .sort(([left], [right]) => left.localeCompare(right));
+
+  if (period === 'hour') {
+    const bucketCount = resolveHourBucketCount(hourWindowHours);
+    const anchorMs = Number.isFinite(endMs) && endMs ? endMs : (hourlyEntries.length ? Date.parse(hourlyEntries[hourlyEntries.length - 1][0]) : Date.now());
+    const currentHour = new Date(anchorMs);
+    currentHour.setUTCMinutes(0, 0, 0);
+    const hourMs = 60 * 60 * 1000;
+    const earliestMs = currentHour.getTime() - ((bucketCount - 1) * hourMs);
+    const labels = Array.from({ length: bucketCount }, (_, index) => {
+      const bucketMs = earliestMs + (index * hourMs);
+      return formatHourLabel(new Date(bucketMs).toISOString());
+    });
+    const valueByHour = new Map(hourlyEntries.map(([label, value]) => [toUtcHourMs(label), Number(value ?? 0)]));
+    const data = Array.from({ length: bucketCount }, (_, index) => {
+      const bucketMs = earliestMs + (index * hourMs);
+      return valueByHour.get(bucketMs) ?? 0;
+    });
+
+    return {
+      labels,
+      data,
+      hasData: data.some((value) => value > 0),
+      costAvailable,
+    };
+  }
+
+  const grouped = new Map<string, number>();
+  if (dailyEntries.length > 0) {
+    dailyEntries.forEach(([label, value]) => {
+      grouped.set(label, Number(value ?? 0));
+    });
+  } else {
+    hourlyEntries.forEach(([label, value]) => {
+      const dayKey = startOfDayKey(label);
+      grouped.set(dayKey, (grouped.get(dayKey) ?? 0) + Number(value ?? 0));
+    });
+  }
+  const labels = Array.from(grouped.keys()).sort((a, b) => a.localeCompare(b));
+  const data = labels.map((label) => grouped.get(label) ?? 0);
+
+  return {
+    labels,
+    data,
+    hasData: data.some((value) => value > 0),
+    costAvailable,
+  };
+}
 
 const COST_COLOR = '#f59e0b';
 const COST_BG = 'rgba(245, 158, 11, 0.15)';
@@ -61,57 +140,23 @@ function buildGradient(ctx: ScriptableContext<'line'>) {
   return gradient;
 }
 
+export function shouldShowCostPricingHint({ costAvailable, hasData }: { costAvailable: boolean; hasData: boolean }): boolean {
+  return !costAvailable && !hasData;
+}
+
 export function CostTrendChart({
   usage,
-  events = [],
   loading,
   isDark,
   isMobile,
-  modelPrices,
   hourWindowHours,
   endMs
 }: CostTrendChartProps) {
   const { t } = useTranslation();
   const [period, setPeriod] = useState<'hour' | 'day'>('hour');
-  const hasPrices = Object.keys(modelPrices).length > 0;
 
-  const { chartData, chartOptions, hasData } = useMemo(() => {
-    if (!hasPrices || !usage) {
-      return { chartData: { labels: [], datasets: [] }, chartOptions: {}, hasData: false };
-    }
-
-    const detailRecords = events.map(toUsageDetailRecord);
-    const usageWithDetails = detailRecords.length > 0
-      ? {
-          ...(usage ?? {}),
-          apis: {
-            __overview__: {
-              total_requests: detailRecords.length,
-              success_count: detailRecords.filter((detail) => !detail.failed).length,
-              failure_count: detailRecords.filter((detail) => detail.failed).length,
-              total_tokens: detailRecords.reduce((sum, detail) => sum + Number(detail.tokens.total_tokens ?? 0), 0),
-              models: Object.fromEntries(
-                Array.from(new Set(detailRecords.map((detail) => detail.__modelName || '__unknown__'))).map((modelName) => [
-                  modelName,
-                  {
-                    total_requests: detailRecords.filter((detail) => (detail.__modelName || '__unknown__') === modelName).length,
-                    success_count: detailRecords.filter((detail) => !detail.failed && (detail.__modelName || '__unknown__') === modelName).length,
-                    failure_count: detailRecords.filter((detail) => detail.failed && (detail.__modelName || '__unknown__') === modelName).length,
-                    total_tokens: detailRecords
-                      .filter((detail) => (detail.__modelName || '__unknown__') === modelName)
-                      .reduce((sum, detail) => sum + Number(detail.tokens.total_tokens ?? 0), 0),
-                    details: detailRecords.filter((detail) => (detail.__modelName || '__unknown__') === modelName),
-                  }
-                ])
-              )
-            }
-          }
-        }
-      : usage;
-    const series =
-      period === 'hour'
-        ? buildHourlyCostSeries(usageWithDetails, modelPrices, hourWindowHours, endMs)
-        : buildDailyCostSeries(usageWithDetails, modelPrices);
+  const { chartData, chartOptions, hasData, costAvailable } = useMemo(() => {
+    const series = buildOverviewCostTrendSeries({ usage, period, hourWindowHours, endMs });
 
     const data = {
       labels: series.labels,
@@ -144,10 +189,11 @@ export function CostTrendChart({
       }
     };
 
-    return { chartData: data, chartOptions: options, hasData: series.hasData };
-  }, [usage, period, isDark, isMobile, modelPrices, hasPrices, hourWindowHours, endMs, t]);
+    return { chartData: data, chartOptions: options, hasData: series.hasData, costAvailable: series.costAvailable };
+  }, [usage, period, isDark, isMobile, hourWindowHours, endMs, t]);
 
-  const shouldRenderChart = period === 'hour' ? chartData.labels.length > 0 : hasData;
+  const shouldRenderChart = chartData.labels.length > 0 && hasData;
+  const showPricingHint = shouldShowCostPricingHint({ costAvailable, hasData });
 
   return (
     <Card
@@ -173,10 +219,8 @@ export function CostTrendChart({
     >
       {loading ? (
         <div className={styles.hint}>{t('common.loading')}</div>
-      ) : !hasPrices ? (
-        <div className={styles.hint}>{t('usage_stats.cost_need_price')}</div>
       ) : !shouldRenderChart ? (
-        <div className={styles.hint}>{t('usage_stats.cost_no_data')}</div>
+        <div className={styles.hint}>{showPricingHint ? t('usage_stats.cost_need_price') : t('usage_stats.cost_no_data')}</div>
       ) : (
         <div className={styles.chartWrapper}>
           <div className={styles.chartArea}>

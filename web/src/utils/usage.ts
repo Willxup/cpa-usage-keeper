@@ -70,6 +70,17 @@ export interface ApiStats {
 
 export type TokenCategory = 'input' | 'output' | 'cached' | 'reasoning';
 
+interface UsageModelSeriesLine {
+  requests_by_hour?: Record<string, number>;
+  requests_by_day?: Record<string, number>;
+  tokens_by_hour?: Record<string, number>;
+  tokens_by_day?: Record<string, number>;
+}
+
+interface UsagePayloadWithModelSeries {
+  model_series?: Record<string, UsageModelSeriesLine>;
+}
+
 export interface UsageDetailRecord {
   timestamp: string;
   source: string;
@@ -123,9 +134,11 @@ const startOfDayKey = (timestamp: string): string => {
   return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10);
 };
 
+const formatHourBucketKey = (timestampMs: number): string => `${new Date(timestampMs).toISOString().slice(0, 13)}:00:00Z`;
+
 const startOfHourKey = (timestamp: string): string => {
   const date = new Date(timestamp);
-  return Number.isNaN(date.getTime()) ? '' : `${date.toISOString().slice(0, 13)}:00:00Z`;
+  return Number.isNaN(date.getTime()) ? '' : formatHourBucketKey(date.getTime());
 };
 
 const formatHourLabel = (key: string): string => {
@@ -142,7 +155,7 @@ const normalizeHourWindow = (hourWindowHours?: number): number => {
   if (!Number.isFinite(hourWindowHours) || !hourWindowHours || hourWindowHours <= 0) {
     return 24;
   }
-  return Math.min(Math.max(Math.floor(hourWindowHours), 1), 24 * 31);
+  return Math.min(Math.max(Math.floor(hourWindowHours), 1), 24);
 };
 
 const resolveHourlyChartWindowHours = (hourWindowHours?: number): number =>
@@ -150,14 +163,13 @@ const resolveHourlyChartWindowHours = (hourWindowHours?: number): number =>
 
 const buildHourlyWindow = (hourWindowHours?: number, endMs?: number) => {
   const resolvedHourWindow = resolveHourlyChartWindowHours(hourWindowHours);
+  const bucketCount = resolvedHourWindow >= 24 ? 24 : resolvedHourWindow + 1;
   const hourMs = 60 * 60 * 1000;
   const currentHour = new Date(Number.isFinite(endMs) && endMs && endMs > 0 ? endMs : Date.now());
-  currentHour.setMinutes(0, 0, 0);
-  const earliestBucket = new Date(currentHour);
-  earliestBucket.setHours(earliestBucket.getHours() - resolvedHourWindow);
-  const earliestTime = earliestBucket.getTime();
-  const labels = Array.from({ length: resolvedHourWindow }, (_, index) =>
-    formatHourLabel(new Date(earliestTime + index * hourMs).toISOString())
+  currentHour.setUTCMinutes(0, 0, 0);
+  const earliestTime = currentHour.getTime() - ((bucketCount - 1) * hourMs);
+  const labels = Array.from({ length: bucketCount }, (_, index) =>
+    formatHourLabel(formatHourBucketKey(earliestTime + index * hourMs))
   );
   return {
     hourMs,
@@ -213,6 +225,13 @@ const getDetailTimestampBounds = (details: UsageDetailRecord[]): { earliestMs: n
   if (!Number.isFinite(earliestMs) || !Number.isFinite(latestMs)) return null;
   return { earliestMs, latestMs };
 };
+
+export function sanitizeChartLines(chartLines: string[], modelNames: string[]): string[] {
+  const lines = chartLines.length ? chartLines : ['all'];
+  const validModels = new Set(modelNames.map((name) => name.trim()).filter(Boolean));
+  const sanitized = lines.filter((line) => line === 'all' || validModels.has(line));
+  return sanitized.length ? sanitized : ['all'];
+}
 
 export function formatCompactNumber(value: number): string {
   const abs = Math.abs(value);
@@ -499,30 +518,55 @@ export function buildChartData(
   const details = collectUsageDetails(usage);
   if (!details.length) {
     const lines = chartLines.length ? chartLines : ['all'];
-    if (!(lines.length === 1 && lines[0] === 'all')) {
-      return { labels: [], datasets: [] };
-    }
     const bucketMap = period === 'hour'
       ? (metric === 'requests' ? usage.requests_by_hour : usage.tokens_by_hour)
       : (metric === 'requests' ? usage.requests_by_day : usage.tokens_by_day);
-    const bucketKeys = Object.keys(bucketMap ?? {}).sort((a, b) => a.localeCompare(b));
-    if (!bucketKeys.length) {
+    const rawBucketKeys = Object.keys(bucketMap ?? {}).sort((a, b) => a.localeCompare(b));
+    if (!rawBucketKeys.length) {
       return { labels: [], datasets: [] };
     }
+    const bucketKeys = period === 'hour'
+      ? (() => {
+        const endMs = options.endMs ?? Date.parse(rawBucketKeys[rawBucketKeys.length - 1]);
+        const { earliestTime, hourMs, labels } = buildHourlyWindow(options.hourWindowHours, endMs);
+        return labels.map((_, index) => formatHourBucketKey(earliestTime + index * hourMs));
+      })()
+      : rawBucketKeys;
+    const datasets: ChartDataset[] = [];
+    if (lines.includes('all')) {
+      datasets.push({
+        label: 'All',
+        data: bucketKeys.map((key) => toNumber(bucketMap?.[key])),
+        borderColor: CHART_COLORS[0],
+        backgroundColor: `${CHART_COLORS[0]}22`,
+        pointBackgroundColor: CHART_COLORS[0],
+        pointBorderColor: CHART_COLORS[0],
+        fill: false,
+        tension: 0.35
+      });
+    }
+    const modelSeries = (usage as UsagePayload & UsagePayloadWithModelSeries).model_series ?? {};
+    lines.filter((line) => line !== 'all').forEach((line) => {
+      const series = modelSeries[line];
+      const lineBucketMap = period === 'hour'
+        ? (metric === 'requests' ? series?.requests_by_hour : series?.tokens_by_hour)
+        : (metric === 'requests' ? series?.requests_by_day : series?.tokens_by_day);
+      if (!lineBucketMap) return;
+      const color = CHART_COLORS[datasets.length % CHART_COLORS.length];
+      datasets.push({
+        label: line,
+        data: bucketKeys.map((key) => toNumber(lineBucketMap[key])),
+        borderColor: color,
+        backgroundColor: `${color}22`,
+        pointBackgroundColor: color,
+        pointBorderColor: color,
+        fill: false,
+        tension: 0.35
+      });
+    });
     return {
       labels: bucketKeys.map((key) => (period === 'hour' ? formatHourLabel(key) : formatDayLabel(key))),
-      datasets: [
-        {
-          label: 'All',
-          data: bucketKeys.map((key) => toNumber(bucketMap?.[key])),
-          borderColor: CHART_COLORS[0],
-          backgroundColor: `${CHART_COLORS[0]}22`,
-          pointBackgroundColor: CHART_COLORS[0],
-          pointBorderColor: CHART_COLORS[0],
-          fill: false,
-          tension: 0.35
-        }
-      ]
+      datasets
     };
   }
 
@@ -533,14 +577,14 @@ export function buildChartData(
   if (period === 'hour') {
     const hourEndMs = resolveHourlyChartEndMs(details, options.hourWindowHours, options.endMs);
     const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(options.hourWindowHours, hourEndMs);
-    const bucketKeys = labels.map((_, index) => new Date(earliestTime + index * hourMs).toISOString());
+    const bucketKeys = labels.map((_, index) => formatHourBucketKey(earliestTime + index * hourMs));
     bucketKeys.forEach((key) => orderedKeys.add(key));
 
     details.forEach((detail) => {
       const timestamp = detail.__timestampMs ?? 0;
       if (!Number.isFinite(timestamp) || timestamp <= 0) return;
       const normalized = new Date(timestamp);
-      normalized.setMinutes(0, 0, 0);
+      normalized.setUTCMinutes(0, 0, 0);
       const bucketStart = normalized.getTime();
       if (bucketStart < earliestTime || bucketStart > lastBucketTime) return;
       const key = new Date(bucketStart).toISOString();
@@ -637,7 +681,7 @@ function buildTokenBreakdownSeries(usage: UsagePayload | null, period: 'hour' | 
       const timestamp = detail.__timestampMs ?? 0;
       if (!Number.isFinite(timestamp) || timestamp <= 0) return;
       const normalized = new Date(timestamp);
-      normalized.setMinutes(0, 0, 0);
+      normalized.setUTCMinutes(0, 0, 0);
       const bucketStart = normalized.getTime();
       if (bucketStart < earliestTime || bucketStart > lastBucketTime) return;
       const bucketIndex = Math.floor((bucketStart - earliestTime) / hourMs);
@@ -685,7 +729,7 @@ function buildCostSeries(usage: UsagePayload | null, modelPrices: Record<string,
       const timestamp = detail.__timestampMs ?? 0;
       if (!Number.isFinite(timestamp) || timestamp <= 0) return;
       const normalized = new Date(timestamp);
-      normalized.setMinutes(0, 0, 0);
+      normalized.setUTCMinutes(0, 0, 0);
       const bucketStart = normalized.getTime();
       if (bucketStart < earliestTime || bucketStart > lastBucketTime) return;
       const bucketIndex = Math.floor((bucketStart - earliestTime) / hourMs);

@@ -25,6 +25,10 @@ func (s *usageEventsStub) GetUsageWithFilter(context.Context, service.UsageFilte
 	return nil, nil
 }
 
+func (s *usageEventsStub) GetUsageOverview(context.Context, service.UsageFilter) (*service.UsageOverviewSnapshot, error) {
+	return nil, nil
+}
+
 func (s *usageEventsStub) ListUsageEvents(_ context.Context, filter service.UsageFilter) ([]service.UsageEventRecord, error) {
 	s.lastFilter = filter
 	s.filterCalls++
@@ -141,4 +145,3 @@ func TestUsageCredentialsReturnsAggregatedRows(t *testing.T) {
 		t.Fatalf("expected resolved time bounds in filter, got %+v", provider.lastFilter)
 	}
 }
-

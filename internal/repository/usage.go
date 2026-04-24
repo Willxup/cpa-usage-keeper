@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/models"
@@ -221,6 +222,67 @@ func BuildUsageSnapshotWithFilter(db *gorm.DB, filter UsageQueryFilter) (*cpa.St
 		return nil, fmt.Errorf("database is nil")
 	}
 
+	events, err := loadUsageEventsWithFilter(db, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	return buildUsageSnapshotFromEvents(events), nil
+}
+
+func BuildUsageOverviewWithFilter(db *gorm.DB, filter UsageQueryFilter) (*UsageOverviewRecord, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database is nil")
+	}
+
+	events, err := loadUsageEventsWithFilter(db, filter)
+	if err != nil {
+		return nil, err
+	}
+	pricingByModel, err := loadPriceSettingsByModel(db)
+	if err != nil {
+		return nil, err
+	}
+
+	return buildUsageOverviewFromEvents(events, filter, pricingByModel), nil
+}
+
+func buildUsageOverviewFromEvents(events []models.UsageEvent, filter UsageQueryFilter, pricingByModel map[string]models.ModelPriceSetting) *UsageOverviewRecord {
+	windowMinutes := computeWindowMinutes(filter)
+	bucketByDay := shouldBucketUsageOverviewByDay(filter, windowMinutes)
+	latestHourlyStart := latestHourlySeriesStart(filter)
+	overview := &UsageOverviewRecord{
+		Usage: &cpa.StatisticsSnapshot{
+			APIs:           map[string]cpa.APISnapshot{},
+			RequestsByDay:  map[string]int64{},
+			RequestsByHour: map[string]int64{},
+			TokensByDay:    map[string]int64{},
+			TokensByHour:   map[string]int64{},
+		},
+		Summary: UsageOverviewSummaryRecord{
+			WindowMinutes: windowMinutes,
+			CostAvailable: true,
+		},
+		Series:       newUsageOverviewSeriesRecord(),
+		HourlySeries: newUsageOverviewSeriesRecord(),
+		DailySeries:  newUsageOverviewSeriesRecord(),
+		Health: UsageOverviewHealthRecord{
+			BlockDetails: buildUsageOverviewHealthBlocks(filter),
+		},
+	}
+	if len(events) == 0 {
+		return overview
+	}
+
+	for _, event := range events {
+		applyUsageEventToSnapshot(overview.Usage, event, false)
+		applyUsageEventToOverview(overview, event, bucketByDay, latestHourlyStart, pricingByModel)
+	}
+	finalizeUsageOverview(overview, false)
+	return overview
+}
+
+func loadUsageEventsWithFilter(db *gorm.DB, filter UsageQueryFilter) ([]models.UsageEvent, error) {
 	query := db.Order("timestamp asc")
 	if filter.StartTime != nil {
 		query = query.Where("timestamp >= ?", filter.StartTime.UTC())
@@ -233,7 +295,10 @@ func BuildUsageSnapshotWithFilter(db *gorm.DB, filter UsageQueryFilter) (*cpa.St
 	if err := query.Find(&events).Error; err != nil {
 		return nil, fmt.Errorf("load usage events: %w", err)
 	}
+	return events, nil
+}
 
+func buildUsageSnapshotFromEvents(events []models.UsageEvent) *cpa.StatisticsSnapshot {
 	snapshot := &cpa.StatisticsSnapshot{
 		APIs:           map[string]cpa.APISnapshot{},
 		RequestsByDay:  map[string]int64{},
@@ -242,25 +307,27 @@ func BuildUsageSnapshotWithFilter(db *gorm.DB, filter UsageQueryFilter) (*cpa.St
 		TokensByHour:   map[string]int64{},
 	}
 	if len(events) == 0 {
-		return snapshot, nil
+		return snapshot
 	}
 
 	for _, event := range events {
-		apiKey := strings.TrimSpace(event.APIGroupKey)
-		if apiKey == "" {
-			apiKey = "unknown"
-		}
-		modelName := strings.TrimSpace(event.Model)
-		if modelName == "" {
-			modelName = "unknown"
-		}
+		applyUsageEventToSnapshot(snapshot, event, true)
+	}
+	finalizeUsageSnapshot(snapshot, true)
+	return snapshot
+}
 
-		apiSnapshot := snapshot.APIs[apiKey]
-		if apiSnapshot.Models == nil {
-			apiSnapshot.Models = map[string]cpa.ModelSnapshot{}
-		}
+func applyUsageEventToSnapshot(snapshot *cpa.StatisticsSnapshot, event models.UsageEvent, includeDetails bool) {
+	apiKey := normalizeUsageOverviewDimension(event.APIGroupKey)
+	modelName := normalizeUsageOverviewDimension(event.Model)
 
-		modelSnapshot := apiSnapshot.Models[modelName]
+	apiSnapshot := snapshot.APIs[apiKey]
+	if apiSnapshot.Models == nil {
+		apiSnapshot.Models = map[string]cpa.ModelSnapshot{}
+	}
+
+	modelSnapshot := apiSnapshot.Models[modelName]
+	if includeDetails {
 		detail := cpa.RequestDetail{
 			Timestamp: event.Timestamp.UTC(),
 			LatencyMS: event.LatencyMS,
@@ -276,33 +343,38 @@ func BuildUsageSnapshotWithFilter(db *gorm.DB, filter UsageQueryFilter) (*cpa.St
 			},
 		}
 		modelSnapshot.Details = append(modelSnapshot.Details, detail)
-		modelSnapshot.TotalRequests++
-		modelSnapshot.TotalTokens += event.TotalTokens
-		apiSnapshot.TotalRequests++
-		apiSnapshot.TotalTokens += event.TotalTokens
-		snapshot.TotalRequests++
-		snapshot.TotalTokens += event.TotalTokens
-		if event.Failed {
-			modelSnapshot.FailureCount++
-			apiSnapshot.FailureCount++
-			snapshot.FailureCount++
-		} else {
-			modelSnapshot.SuccessCount++
-			apiSnapshot.SuccessCount++
-			snapshot.SuccessCount++
-		}
-
-		dayKey := event.Timestamp.UTC().Format("2006-01-02")
-		hourKey := event.Timestamp.UTC().Format("2006-01-02T15:00:00Z")
-		snapshot.RequestsByDay[dayKey]++
-		snapshot.RequestsByHour[hourKey]++
-		snapshot.TokensByDay[dayKey] += event.TotalTokens
-		snapshot.TokensByHour[hourKey] += event.TotalTokens
-
-		apiSnapshot.Models[modelName] = modelSnapshot
-		snapshot.APIs[apiKey] = apiSnapshot
+	}
+	modelSnapshot.TotalRequests++
+	modelSnapshot.TotalTokens += event.TotalTokens
+	apiSnapshot.TotalRequests++
+	apiSnapshot.TotalTokens += event.TotalTokens
+	snapshot.TotalRequests++
+	snapshot.TotalTokens += event.TotalTokens
+	if event.Failed {
+		modelSnapshot.FailureCount++
+		apiSnapshot.FailureCount++
+		snapshot.FailureCount++
+	} else {
+		modelSnapshot.SuccessCount++
+		apiSnapshot.SuccessCount++
+		snapshot.SuccessCount++
 	}
 
+	dayKey := event.Timestamp.UTC().Format("2006-01-02")
+	hourKey := event.Timestamp.UTC().Format("2006-01-02T15:00:00Z")
+	snapshot.RequestsByDay[dayKey]++
+	snapshot.RequestsByHour[hourKey]++
+	snapshot.TokensByDay[dayKey] += event.TotalTokens
+	snapshot.TokensByHour[hourKey] += event.TotalTokens
+
+	apiSnapshot.Models[modelName] = modelSnapshot
+	snapshot.APIs[apiKey] = apiSnapshot
+}
+
+func finalizeUsageSnapshot(snapshot *cpa.StatisticsSnapshot, includeDetails bool) {
+	if !includeDetails {
+		return
+	}
 	for apiKey, apiSnapshot := range snapshot.APIs {
 		for modelName, modelSnapshot := range apiSnapshot.Models {
 			sort.Slice(modelSnapshot.Details, func(i, j int) bool {
@@ -312,6 +384,225 @@ func BuildUsageSnapshotWithFilter(db *gorm.DB, filter UsageQueryFilter) (*cpa.St
 		}
 		snapshot.APIs[apiKey] = apiSnapshot
 	}
+}
 
-	return snapshot, nil
+func newUsageOverviewSeriesRecord() UsageOverviewSeriesRecord {
+	return UsageOverviewSeriesRecord{
+		Requests:        map[string]int64{},
+		Tokens:          map[string]int64{},
+		RPM:             map[string]float64{},
+		TPM:             map[string]float64{},
+		Cost:            map[string]float64{},
+		InputTokens:     map[string]int64{},
+		OutputTokens:    map[string]int64{},
+		CachedTokens:    map[string]int64{},
+		ReasoningTokens: map[string]int64{},
+		Models:          map[string]UsageOverviewSeriesRecord{},
+	}
+}
+
+func applyUsageEventToOverviewSeries(series *UsageOverviewSeriesRecord, event models.UsageEvent, cost float64, bucketKey string, bucketMinutes int64) {
+	series.Requests[bucketKey]++
+	series.Tokens[bucketKey] += event.TotalTokens
+	series.Cost[bucketKey] += cost
+	series.InputTokens[bucketKey] += event.InputTokens
+	series.OutputTokens[bucketKey] += event.OutputTokens
+	series.CachedTokens[bucketKey] += event.CachedTokens
+	series.ReasoningTokens[bucketKey] += event.ReasoningTokens
+	series.RPM[bucketKey] = float64(series.Requests[bucketKey]) / float64(bucketMinutes)
+	series.TPM[bucketKey] = float64(series.Tokens[bucketKey]) / float64(bucketMinutes)
+
+	modelName := normalizeUsageOverviewDimension(event.Model)
+	modelSeries := series.Models[modelName]
+	if modelSeries.Requests == nil {
+		modelSeries = newUsageOverviewSeriesRecord()
+	}
+	modelSeries.Requests[bucketKey]++
+	modelSeries.Tokens[bucketKey] += event.TotalTokens
+	modelSeries.Cost[bucketKey] += cost
+	modelSeries.InputTokens[bucketKey] += event.InputTokens
+	modelSeries.OutputTokens[bucketKey] += event.OutputTokens
+	modelSeries.CachedTokens[bucketKey] += event.CachedTokens
+	modelSeries.ReasoningTokens[bucketKey] += event.ReasoningTokens
+	modelSeries.RPM[bucketKey] = float64(modelSeries.Requests[bucketKey]) / float64(bucketMinutes)
+	modelSeries.TPM[bucketKey] = float64(modelSeries.Tokens[bucketKey]) / float64(bucketMinutes)
+	series.Models[modelName] = modelSeries
+}
+
+func applyUsageEventToOverview(overview *UsageOverviewRecord, event models.UsageEvent, bucketByDay bool, latestHourlyStart *time.Time, pricingByModel map[string]models.ModelPriceSetting) {
+	overview.Summary.CachedTokens += event.CachedTokens
+	overview.Summary.ReasoningTokens += event.ReasoningTokens
+	if event.Failed {
+		overview.Health.TotalFailure++
+	} else {
+		overview.Health.TotalSuccess++
+	}
+	pricing, ok := pricingByModel[strings.TrimSpace(event.Model)]
+	if !ok {
+		overview.Summary.CostAvailable = false
+	}
+	cost := calculateUsageEventCost(event, pricing)
+	overview.Summary.TotalCost += cost
+
+	bucketKey, bucketMinutes := usageOverviewBucket(event.Timestamp.UTC(), bucketByDay)
+	applyUsageEventToOverviewSeries(&overview.Series, event, cost, bucketKey, bucketMinutes)
+
+	hourKey, hourMinutes := usageOverviewBucket(event.Timestamp.UTC(), false)
+	if latestHourlyStart == nil || !event.Timestamp.UTC().Before(*latestHourlyStart) {
+		applyUsageEventToOverviewSeries(&overview.HourlySeries, event, cost, hourKey, hourMinutes)
+	}
+
+	dayKey, dayMinutes := usageOverviewBucket(event.Timestamp.UTC(), true)
+	applyUsageEventToOverviewSeries(&overview.DailySeries, event, cost, dayKey, dayMinutes)
+	updateUsageOverviewHealthBlock(overview.Health.BlockDetails, event)
+}
+
+func finalizeUsageOverview(overview *UsageOverviewRecord, includeDetails bool) {
+	finalizeUsageSnapshot(overview.Usage, includeDetails)
+	overview.Summary.RequestCount = overview.Usage.TotalRequests
+	overview.Summary.TokenCount = overview.Usage.TotalTokens
+	if overview.Summary.WindowMinutes > 0 {
+		overview.Summary.RPM = float64(overview.Summary.RequestCount) / float64(overview.Summary.WindowMinutes)
+		overview.Summary.TPM = float64(overview.Summary.TokenCount) / float64(overview.Summary.WindowMinutes)
+	}
+	if total := overview.Health.TotalSuccess + overview.Health.TotalFailure; total > 0 {
+		overview.Health.SuccessRate = (float64(overview.Health.TotalSuccess) / float64(total)) * 100
+	}
+}
+
+func normalizeUsageOverviewDimension(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "unknown"
+	}
+	return trimmed
+}
+
+func loadPriceSettingsByModel(db *gorm.DB) (map[string]models.ModelPriceSetting, error) {
+	settings, err := ListModelPriceSettings(db)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]models.ModelPriceSetting, len(settings))
+	for _, setting := range settings {
+		result[strings.TrimSpace(setting.Model)] = setting
+	}
+	return result, nil
+}
+
+func calculateUsageEventCost(event models.UsageEvent, pricing models.ModelPriceSetting) float64 {
+	inputTokens := event.InputTokens
+	if inputTokens < 0 {
+		inputTokens = 0
+	}
+	completionTokens := event.OutputTokens
+	if completionTokens < 0 {
+		completionTokens = 0
+	}
+	cachedTokens := event.CachedTokens
+	if cachedTokens < 0 {
+		cachedTokens = 0
+	}
+	promptTokens := inputTokens - cachedTokens
+	if promptTokens < 0 {
+		promptTokens = 0
+	}
+	return (float64(promptTokens)/1_000_000.0)*pricing.PromptPricePer1M +
+		(float64(completionTokens)/1_000_000.0)*pricing.CompletionPricePer1M +
+		(float64(cachedTokens)/1_000_000.0)*pricing.CachePricePer1M
+}
+
+const usageOverviewDailyBucketThresholdMinutes int64 = 7 * 24 * 60
+
+func computeWindowMinutes(filter UsageQueryFilter) int64 {
+	if filter.StartTime == nil || filter.EndTime == nil {
+		return 0
+	}
+	start := filter.StartTime.UTC()
+	end := filter.EndTime.UTC()
+	if end.Before(start) {
+		return 0
+	}
+	minutes := int64(end.Sub(start) / time.Minute)
+	if end.Sub(start)%time.Minute != 0 {
+		minutes++
+	}
+	if minutes < 1 {
+		return 1
+	}
+	return minutes
+}
+
+func shouldBucketUsageOverviewByDay(filter UsageQueryFilter, windowMinutes int64) bool {
+	if filter.Range == "all" || filter.Range == "7d" {
+		return true
+	}
+	return windowMinutes >= usageOverviewDailyBucketThresholdMinutes
+}
+
+func usageOverviewBucket(timestamp time.Time, byDay bool) (string, int64) {
+	if byDay {
+		return timestamp.Format("2006-01-02"), 24 * 60
+	}
+	return timestamp.Format("2006-01-02T15:00:00Z"), 60
+}
+
+func latestHourlySeriesStart(filter UsageQueryFilter) *time.Time {
+	if filter.EndTime == nil {
+		return nil
+	}
+	currentHour := filter.EndTime.UTC().Truncate(time.Hour)
+	start := currentHour.Add(-23 * time.Hour)
+	return &start
+}
+
+const (
+	usageOverviewHealthRows       = 7
+	usageOverviewHealthBlockCount = 96
+	usageOverviewHealthBlockSpan  = 15 * time.Minute
+)
+
+func buildUsageOverviewHealthBlocks(filter UsageQueryFilter) []UsageOverviewHealthBlockRecord {
+	end := time.Now().UTC()
+	if filter.EndTime != nil {
+		end = filter.EndTime.UTC()
+	}
+	currentBucketStart := end.Truncate(usageOverviewHealthBlockSpan)
+	newestWindowEnd := currentBucketStart.Add(usageOverviewHealthBlockSpan)
+	totalBlocks := usageOverviewHealthRows * usageOverviewHealthBlockCount
+	oldestWindowStart := newestWindowEnd.Add(-time.Duration(totalBlocks) * usageOverviewHealthBlockSpan)
+	blocks := make([]UsageOverviewHealthBlockRecord, totalBlocks)
+	for index := range blocks {
+		startTime := oldestWindowStart.Add(time.Duration(index) * usageOverviewHealthBlockSpan)
+		blocks[index] = UsageOverviewHealthBlockRecord{
+			StartTime: startTime,
+			EndTime:   startTime.Add(usageOverviewHealthBlockSpan),
+			Rate:      -1,
+		}
+	}
+	return blocks
+}
+
+func updateUsageOverviewHealthBlock(blocks []UsageOverviewHealthBlockRecord, event models.UsageEvent) {
+	if len(blocks) == 0 {
+		return
+	}
+	start := blocks[0].StartTime
+	timestamp := event.Timestamp.UTC()
+	if timestamp.Before(start) {
+		return
+	}
+	index := int(timestamp.Sub(start) / usageOverviewHealthBlockSpan)
+	if index < 0 || index >= len(blocks) {
+		return
+	}
+	if event.Failed {
+		blocks[index].Failure++
+	} else {
+		blocks[index].Success++
+	}
+	total := blocks[index].Success + blocks[index].Failure
+	if total > 0 {
+		blocks[index].Rate = float64(blocks[index].Success) / float64(total)
+	}
 }
