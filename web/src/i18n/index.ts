@@ -180,7 +180,10 @@ const resources = {
         model_stats_eyebrow: 'Model View',
         credential_stats_title: 'Credential Traffic Table',
         credential_stats_subtitle: 'Review request reliability by credential identity and provider source.',
-        credential_stats_eyebrow: 'Credential View'
+        credential_stats_eyebrow: 'Credential View',
+        credential_top_chart_eyebrow: 'Credential Ranking',
+        credential_top_chart_title: 'Credential Requests',
+        credential_top_chart_hint: 'Top 10 credentials ranked by request volume, split by success and failure count'
       }
     }
   },
@@ -350,7 +353,10 @@ const resources = {
         model_stats_eyebrow: '模型视图',
         credential_stats_title: '凭证流量表',
         credential_stats_subtitle: '按凭证身份与 provider 来源检查请求可靠性。',
-        credential_stats_eyebrow: '凭证视图'
+        credential_stats_eyebrow: '凭证视图',
+        credential_top_chart_eyebrow: '凭证排行',
+        credential_top_chart_title: '凭证请求',
+        credential_top_chart_hint: '按请求量排名前 10 的凭证，并拆分展示成功与失败请求数'
       }
     }
   }

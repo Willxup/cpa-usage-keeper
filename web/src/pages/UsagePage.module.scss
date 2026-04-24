@@ -1015,6 +1015,70 @@
   white-space: nowrap;
 }
 
+.credentialChartContent {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.credentialChartGrid {
+  display: grid;
+  grid-template-columns: minmax(154px, 224px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: stretch;
+
+  @include mobile {
+    grid-template-columns: minmax(105px, 30%) minmax(0, 1fr);
+    gap: 10px;
+    overflow-x: auto;
+  }
+}
+
+.credentialChartLabels {
+  height: 320px;
+  min-height: 260px;
+  display: grid;
+  align-items: center;
+  padding: 10px 0;
+
+  @include mobile {
+    height: 380px;
+  }
+}
+
+.credentialChartLabelItem {
+  min-width: 0;
+  padding-right: 8px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: right;
+}
+
+.credentialChartLabelName {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.credentialChartArea {
+  position: relative;
+  height: 320px;
+  min-height: 260px;
+  min-width: 360px;
+
+  @include mobile {
+    height: 380px;
+    min-width: 320px;
+  }
+
+  :global(canvas) {
+    touch-action: pan-x pan-y !important;
+  }
+}
+
 // Pricing Section (80%比例)
 .pricingSection {
   display: flex;

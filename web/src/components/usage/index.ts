@@ -4,7 +4,7 @@ export { ChartLineSelector } from './ChartLineSelector';
 export { ApiDetailsCard } from './ApiDetailsCard';
 export { ModelStatsCard } from './ModelStatsCard';
 export { PriceSettingsCard } from './PriceSettingsCard';
-export { CredentialStatsCard } from './CredentialStatsCard';
+export { CredentialStatsCard, CredentialTopChartCard } from './CredentialStatsCard';
 export { RequestEventsDetailsCard } from './RequestEventsDetailsCard';
 export { TokenBreakdownChart } from './TokenBreakdownChart';
 export { CostTrendChart } from './CostTrendChart';

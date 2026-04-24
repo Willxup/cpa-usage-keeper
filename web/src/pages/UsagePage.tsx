@@ -7,6 +7,8 @@ import {
   LinearScale,
   PointElement,
   LineElement,
+  BarElement,
+  BarController,
   Title,
   Tooltip,
   Legend,
@@ -29,6 +31,7 @@ import {
   ModelStatsCard,
   PriceSettingsCard,
   CredentialStatsCard,
+  CredentialTopChartCard,
   RequestEventsDetailsCard,
   TokenBreakdownChart,
   CostTrendChart,
@@ -55,6 +58,8 @@ ChartJS.register(
   LinearScale,
   PointElement,
   LineElement,
+  BarElement,
+  BarController,
   Title,
   Tooltip,
   Legend,
@@ -1157,6 +1162,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               <>
                 {credentialsError && <div className={styles.errorBox}>{credentialsError}</div>}
                 <CredentialStatsCard
+                  credentials={credentialsData}
+                  loading={credentialsLoading}
+                />
+                <CredentialTopChartCard
                   credentials={credentialsData}
                   loading={credentialsLoading}
                 />
