@@ -1,4 +1,4 @@
-import type { AuthSessionResponse, PricingEntry, PricingResponse, StatusResponse, UsageAnalysisResponse, UsedModelsResponse, UsageCredentialsResponse, UsageEventsResponse, UsageOverviewResponse } from './types'
+import type { AuthSessionResponse, PricingEntry, PricingResponse, StatusResponse, UsageAnalysisResponse, UsageEventFilterOptionsResponse, UsedModelsResponse, UsageCredentialsResponse, UsageEventsResponse, UsageOverviewResponse } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -88,7 +88,15 @@ export async function fetchUsageOverview(range: string, start?: string, end?: st
   return response.json()
 }
 
-export async function fetchUsageEvents(range: string, start?: string, end?: string, signal?: AbortSignal, limit?: number): Promise<UsageEventsResponse> {
+export interface FetchUsageEventsOptions {
+  page?: number
+  pageSize?: number
+  model?: string
+  source?: string
+  result?: string
+}
+
+export async function fetchUsageEventFilterOptions(range: string, start?: string, end?: string, signal?: AbortSignal): Promise<UsageEventFilterOptionsResponse> {
   const params = new URLSearchParams()
   params.set('range', range)
   if (start) {
@@ -97,8 +105,40 @@ export async function fetchUsageEvents(range: string, start?: string, end?: stri
   if (end) {
     params.set('end', end)
   }
-  if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
-    params.set('limit', String(Math.floor(limit)))
+  const query = params.toString()
+  const response = await apiFetch(`${apiPath('/usage/events/filters')}${query ? `?${query}` : ''}`, { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load usage event filters: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchUsageEvents(range: string, start?: string, end?: string, signal?: AbortSignal, options?: FetchUsageEventsOptions): Promise<UsageEventsResponse> {
+  const params = new URLSearchParams()
+  params.set('range', range)
+  if (start) {
+    params.set('start', start)
+  }
+  if (end) {
+    params.set('end', end)
+  }
+  if (typeof options?.page === 'number' && Number.isFinite(options.page) && options.page > 0) {
+    params.set('page', String(Math.floor(options.page)))
+  }
+  if (typeof options?.pageSize === 'number' && Number.isFinite(options.pageSize) && options.pageSize > 0) {
+    params.set('page_size', String(Math.floor(options.pageSize)))
+  }
+  const model = options?.model?.trim()
+  if (model) {
+    params.set('model', model)
+  }
+  const source = options?.source?.trim()
+  if (source) {
+    params.set('source', source)
+  }
+  const result = options?.result?.trim()
+  if (result) {
+    params.set('result', result)
   }
   const query = params.toString()
   const response = await apiFetch(`${apiPath('/usage/events')}${query ? `?${query}` : ''}`, { signal })

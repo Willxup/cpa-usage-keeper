@@ -15,23 +15,48 @@ func BuildUsageSnapshot(db *gorm.DB) (*cpa.StatisticsSnapshot, error) {
 	return BuildUsageSnapshotWithFilter(db, UsageQueryFilter{})
 }
 
-func ListUsageEventsWithFilter(db *gorm.DB, filter UsageQueryFilter) ([]UsageEventRecord, error) {
+func ListUsageEventsWithFilter(db *gorm.DB, filter UsageQueryFilter) (*UsageEventsPageRecord, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
 	}
 
-	query := db.Model(&models.UsageEvent{}).Order("timestamp DESC")
-	if filter.StartTime != nil {
-		query = query.Where("timestamp >= ?", filter.StartTime.UTC())
+	baseQuery := db.Model(&models.UsageEvent{})
+	baseQuery = applyUsageEventsListFilter(baseQuery, filter)
+
+	var totalCount int64
+	if err := baseQuery.Count(&totalCount).Error; err != nil {
+		return nil, fmt.Errorf("count usage events: %w", err)
 	}
-	if filter.EndTime != nil {
-		query = query.Where("timestamp <= ?", filter.EndTime.UTC())
+	modelFacets, err := listUsageEventFacetValues(db, filter, "model")
+	if err != nil {
+		return nil, err
 	}
-	limit := filter.Limit
-	if limit <= 0 {
-		limit = DefaultUsageEventsLimit
+	sources, err := listUsageEventFacetValues(db, filter, "source")
+	if err != nil {
+		return nil, err
 	}
-	query = query.Limit(limit)
+
+	page := filter.Page
+	if page <= 0 {
+		page = 1
+	}
+	pageSize := filter.PageSize
+	if pageSize <= 0 {
+		pageSize = filter.Limit
+	}
+	if pageSize <= 0 {
+		pageSize = DefaultUsageEventsLimit
+	}
+	offset := filter.Offset
+	if offset <= 0 {
+		offset = (page - 1) * pageSize
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	query := applyUsageEventsListFilter(db.Model(&models.UsageEvent{}), filter)
+	query = query.Order("timestamp DESC, id DESC").Limit(pageSize).Offset(offset)
 
 	var events []models.UsageEvent
 	if err := query.Find(&events).Error; err != nil {
@@ -41,6 +66,7 @@ func ListUsageEventsWithFilter(db *gorm.DB, filter UsageQueryFilter) ([]UsageEve
 	rows := make([]UsageEventRecord, 0, len(events))
 	for _, event := range events {
 		rows = append(rows, UsageEventRecord{
+			ID:              event.ID,
 			Timestamp:       event.Timestamp.UTC(),
 			APIGroupKey:     strings.TrimSpace(event.APIGroupKey),
 			Model:           strings.TrimSpace(event.Model),
@@ -55,7 +81,65 @@ func ListUsageEventsWithFilter(db *gorm.DB, filter UsageQueryFilter) ([]UsageEve
 			TotalTokens:     event.TotalTokens,
 		})
 	}
-	return rows, nil
+	totalPages := 0
+	if totalCount > 0 {
+		totalPages = int((totalCount + int64(pageSize) - 1) / int64(pageSize))
+	}
+	return &UsageEventsPageRecord{Events: rows, Models: modelFacets, Sources: sources, TotalCount: totalCount, Page: page, PageSize: pageSize, TotalPages: totalPages}, nil
+}
+
+func ListUsageEventFilterOptionsWithFilter(db *gorm.DB, filter UsageQueryFilter) (*UsageEventFilterOptionsRecord, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database is nil")
+	}
+	models, err := listUsageEventFacetValues(db, filter, "model")
+	if err != nil {
+		return nil, err
+	}
+	sources, err := listUsageEventFacetValues(db, filter, "source")
+	if err != nil {
+		return nil, err
+	}
+	return &UsageEventFilterOptionsRecord{Models: models, Sources: sources}, nil
+}
+
+func listUsageEventFacetValues(db *gorm.DB, filter UsageQueryFilter, column string) ([]string, error) {
+	query := applyUsageEventTimeFilter(db.Model(&models.UsageEvent{}), filter)
+	var values []string
+	if err := query.Select("DISTINCT TRIM("+column+")").Where("TRIM("+column+") <> ''").Order("TRIM("+column+") ASC").Pluck(column, &values).Error; err != nil {
+		return nil, fmt.Errorf("load usage event %s facets: %w", column, err)
+	}
+	return values, nil
+}
+
+func applyUsageEventTimeFilter(query *gorm.DB, filter UsageQueryFilter) *gorm.DB {
+	if filter.StartTime != nil {
+		query = query.Where("timestamp >= ?", filter.StartTime.UTC())
+	}
+	if filter.EndTime != nil {
+		query = query.Where("timestamp <= ?", filter.EndTime.UTC())
+	}
+	return query
+}
+
+func applyUsageEventsListFilter(query *gorm.DB, filter UsageQueryFilter) *gorm.DB {
+	query = applyUsageEventTimeFilter(query, filter)
+	if model := strings.TrimSpace(filter.Model); model != "" {
+		query = query.Where("TRIM(model) = ?", model)
+	}
+	if source := strings.TrimSpace(filter.Source); source != "" {
+		query = query.Where("TRIM(source) = ?", source)
+	}
+	if authIndex := strings.TrimSpace(filter.AuthIndex); authIndex != "" {
+		query = query.Where("TRIM(auth_index) = ?", authIndex)
+	}
+	switch strings.TrimSpace(filter.Result) {
+	case "success":
+		query = query.Where("failed = ?", false)
+	case "failed":
+		query = query.Where("failed = ?", true)
+	}
+	return query
 }
 
 func ListUsageCredentialStatsWithFilter(db *gorm.DB, filter UsageQueryFilter) ([]UsageCredentialStatRecord, error) {

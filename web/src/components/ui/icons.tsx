@@ -1,4 +1,4 @@
-import type { SVGProps } from 'react';
+import React, { type SVGProps } from 'react';
 
 // Inline SVG icons (Lucide, ISC). We embed paths to keep the WebUI single-file/offline friendly.
 // Source: https://github.com/lucide-icons/lucide (via lucide-static).

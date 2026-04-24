@@ -89,18 +89,26 @@ func mapUsageOverviewSeries(series repository.UsageOverviewSeriesRecord) UsageOv
 	}
 }
 
-func (s *usageService) ListUsageEvents(_ context.Context, filter UsageFilter) ([]UsageEventRecord, error) {
-	rows, err := repository.ListUsageEventsWithFilter(s.db, repository.UsageQueryFilter{
+func (s *usageService) ListUsageEvents(_ context.Context, filter UsageFilter) (*UsageEventsPage, error) {
+	page, err := repository.ListUsageEventsWithFilter(s.db, repository.UsageQueryFilter{
 		StartTime: filter.StartTime,
 		EndTime:   filter.EndTime,
 		Limit:     filter.Limit,
+		Page:      filter.Page,
+		PageSize:  filter.PageSize,
+		Offset:    filter.Offset,
+		Model:     filter.Model,
+		Source:    filter.Source,
+		AuthIndex: filter.AuthIndex,
+		Result:    filter.Result,
 	})
 	if err != nil {
 		return nil, err
 	}
-	result := make([]UsageEventRecord, 0, len(rows))
-	for _, row := range rows {
+	result := make([]UsageEventRecord, 0, len(page.Events))
+	for _, row := range page.Events {
 		result = append(result, UsageEventRecord{
+			ID:              row.ID,
 			Timestamp:       row.Timestamp,
 			APIGroupKey:     row.APIGroupKey,
 			Model:           row.Model,
@@ -115,7 +123,18 @@ func (s *usageService) ListUsageEvents(_ context.Context, filter UsageFilter) ([
 			TotalTokens:     row.TotalTokens,
 		})
 	}
-	return result, nil
+	return &UsageEventsPage{Events: result, Models: page.Models, Sources: page.Sources, TotalCount: page.TotalCount, Page: page.Page, PageSize: page.PageSize, TotalPages: page.TotalPages}, nil
+}
+
+func (s *usageService) ListUsageEventFilterOptions(_ context.Context, filter UsageFilter) (*UsageEventFilterOptions, error) {
+	options, err := repository.ListUsageEventFilterOptionsWithFilter(s.db, repository.UsageQueryFilter{
+		StartTime: filter.StartTime,
+		EndTime:   filter.EndTime,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &UsageEventFilterOptions{Models: options.Models, Sources: options.Sources}, nil
 }
 
 func (s *usageService) ListUsageCredentialStats(_ context.Context, filter UsageFilter) ([]UsageCredentialStat, error) {

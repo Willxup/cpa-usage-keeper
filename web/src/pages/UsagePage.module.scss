@@ -1288,37 +1288,137 @@
 
 .requestEventsToolbar {
   display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
   gap: $spacing-sm;
   flex-wrap: wrap;
-  align-items: flex-end;
   margin-bottom: $spacing-sm;
+  padding: $spacing-sm;
+  border: 1px solid var(--border-color);
+  border-radius: $radius-md;
+  background: color-mix(in srgb, var(--bg-secondary) 58%, transparent);
+}
+
+.requestEventsFiltersGroup {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: $spacing-sm;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .requestEventsFilterItem {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-width: 180px;
+  min-width: 150px;
 }
 
 .requestEventsFilterLabel {
-  font-size: 12px;
-  color: var(--text-secondary);
-  font-weight: 600;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .requestEventsSelect {
-  min-width: 180px;
+  min-width: 170px;
 }
 
-.requestEventsMeta {
+.requestEventsSelect button,
+.requestEventsResultSelect button,
+.requestEventsPageSizeSelect button {
+  height: 36px;
+}
+
+.requestEventsResultSelect {
+  min-width: 118px;
+}
+
+.requestEventsPageSizeSelect {
+  min-width: 96px;
+}
+
+.requestEventsPageSizeSelectCompact {
+  min-width: 86px;
+  width: 86px;
+}
+
+.requestEventsPaginationControls {
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: $spacing-md;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.requestEventsPaginationItem {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.requestEventsPagerControls {
+  display: inline-flex;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  height: 36px;
+  border: 1px solid var(--border-color);
+  border-radius: $radius-md;
+  background: var(--bg-secondary);
+}
+
+.requestEventsPagerButton {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  height: 100%;
+  min-width: 76px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.requestEventsPagerButton + .requestEventsPagerButton {
+  border-left: 1px solid var(--border-color);
+}
+
+.requestEventsPagerButton:hover:not(:disabled) {
+  background: var(--hover-bg);
+}
+
+.requestEventsPagerButton:disabled {
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+
+.requestEventsTableMeta {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: $spacing-sm;
-  margin-bottom: $spacing-xs;
+  margin: 0 0 $spacing-xs;
   font-size: 12px;
   color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.requestEventsCountGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-sm;
   flex-wrap: wrap;
 }
 

@@ -18,6 +18,30 @@ var presetUsageRangeDurations = map[string]time.Duration{
 	"7d":  7 * 24 * time.Hour,
 }
 
+var allowedUsageEventsPageSizes = map[int]struct{}{
+	20:   {},
+	50:   {},
+	100:  {},
+	500:  {},
+	1000: {},
+}
+
+func parseUsageTimeFilterQuery(req *http.Request, anchor time.Time) (service.UsageFilter, error) {
+	filter, err := parseUsageFilterQuery(req, anchor)
+	if err != nil {
+		return service.UsageFilter{}, err
+	}
+	filter.Limit = 0
+	filter.Page = 0
+	filter.PageSize = 0
+	filter.Offset = 0
+	filter.Model = ""
+	filter.Source = ""
+	filter.AuthIndex = ""
+	filter.Result = ""
+	return filter, nil
+}
+
 func parseUsageFilterQuery(req *http.Request, anchor time.Time) (service.UsageFilter, error) {
 	if req == nil {
 		return service.UsageFilter{}, nil
@@ -28,13 +52,37 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (service.UsageFi
 		rangeValue = "all"
 	}
 
-	filter := service.UsageFilter{Range: rangeValue, Limit: service.DefaultUsageEventsLimit}
-	if limitValue := strings.TrimSpace(req.URL.Query().Get("limit")); limitValue != "" {
-		limit, err := strconv.Atoi(limitValue)
-		if err != nil || limit <= 0 {
-			return service.UsageFilter{}, fmt.Errorf("invalid limit %q", limitValue)
+	filter := service.UsageFilter{Range: rangeValue, Limit: service.DefaultUsageEventsLimit, Page: 1, PageSize: service.DefaultUsageEventsLimit}
+	query := req.URL.Query()
+	if pageValue := strings.TrimSpace(query.Get("page")); pageValue != "" {
+		page, err := strconv.Atoi(pageValue)
+		if err != nil || page < 1 {
+			return service.UsageFilter{}, fmt.Errorf("invalid page %q", pageValue)
 		}
-		filter.Limit = limit
+		filter.Page = page
+	}
+	pageSizeValue := strings.TrimSpace(query.Get("page_size"))
+	if pageSizeValue == "" {
+		pageSizeValue = strings.TrimSpace(query.Get("limit"))
+	}
+	if pageSizeValue != "" {
+		pageSize, err := strconv.Atoi(pageSizeValue)
+		if err != nil {
+			return service.UsageFilter{}, fmt.Errorf("invalid page_size %q", pageSizeValue)
+		}
+		if _, ok := allowedUsageEventsPageSizes[pageSize]; !ok {
+			return service.UsageFilter{}, fmt.Errorf("invalid page_size %q", pageSizeValue)
+		}
+		filter.PageSize = pageSize
+		filter.Limit = pageSize
+	}
+	filter.Offset = (filter.Page - 1) * filter.PageSize
+	filter.Model = strings.TrimSpace(query.Get("model"))
+	filter.Source = strings.TrimSpace(query.Get("source"))
+	filter.AuthIndex = strings.TrimSpace(query.Get("auth_index"))
+	filter.Result = strings.TrimSpace(query.Get("result"))
+	if filter.Result != "" && filter.Result != "success" && filter.Result != "failed" {
+		return service.UsageFilter{}, fmt.Errorf("invalid result %q", filter.Result)
 	}
 	switch rangeValue {
 	case "all":

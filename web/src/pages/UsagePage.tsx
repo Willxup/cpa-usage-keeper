@@ -12,8 +12,8 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { ApiError, fetchStatus, fetchUsageAnalysis, fetchUsageCredentials, fetchUsageEvents } from '@/lib/api';
-import type { StatusResponse, UsageAnalysisResponse, UsageCredential, UsageEvent } from '@/lib/types';
+import { ApiError, fetchStatus, fetchUsageAnalysis, fetchUsageCredentials, fetchUsageEventFilterOptions, fetchUsageEvents } from '@/lib/api';
+import type { StatusResponse, UsageAnalysisResponse, UsageCredential, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Select } from '@/components/ui/Select';
@@ -92,6 +92,9 @@ const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'credentials', 'pri
 type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];
 const DEFAULT_USAGE_TAB: UsageTab = 'overview';
 const USAGE_TAB_STORAGE_KEY = 'cli-proxy-usage-tab-v1';
+const REQUEST_EVENTS_PAGE_SIZES = [20, 50, 100, 500, 1000] as const;
+const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 100;
+const ALL_REQUEST_EVENTS_FILTER = '__all__';
 
 const isUsageTimeRange = (value: unknown): value is UsageTimeRange =>
   value === '4h' || value === '8h' || value === '12h' || value === '24h' || value === '7d' || value === 'all' || value === 'custom';
@@ -251,7 +254,18 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [eventsLoading, setEventsLoading] = useState(false);
   const [eventsError, setEventsError] = useState('');
   const [eventsData, setEventsData] = useState<UsageEvent[]>([]);
+  const [eventsPage, setEventsPage] = useState(1);
+  const [eventsPageSize, setEventsPageSize] = useState<number>(REQUEST_EVENTS_DEFAULT_PAGE_SIZE);
+  const [eventsTotalCount, setEventsTotalCount] = useState(0);
+  const [eventsTotalPages, setEventsTotalPages] = useState(0);
+  const [eventsModelOptions, setEventsModelOptions] = useState<string[]>([]);
+  const [eventsSourceOptions, setEventsSourceOptions] = useState<UsageSourceFilterOption[]>([]);
+  const [eventsModelFilter, setEventsModelFilter] = useState(ALL_REQUEST_EVENTS_FILTER);
+  const [eventsSourceFilter, setEventsSourceFilter] = useState(ALL_REQUEST_EVENTS_FILTER);
+  const [eventsResultFilter, setEventsResultFilter] = useState(ALL_REQUEST_EVENTS_FILTER);
   const eventsRequestControllerRef = useRef<AbortController | null>(null);
+  const eventsFilterOptionsRequestControllerRef = useRef<AbortController | null>(null);
+  const loadedEventsFilterOptionsKeyRef = useRef('');
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
   const [credentialsLoading, setCredentialsLoading] = useState(false);
   const [credentialsError, setCredentialsError] = useState('');
@@ -428,6 +442,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [activeTab]);
 
   useEffect(() => {
+    setEventsPage(1);
+  }, [customTimeRange.end, customTimeRange.start, timeRange]);
+
+  useEffect(() => {
     if (timeRange !== 'custom') return;
     if (customTimeRange.start && customTimeRange.end) return;
     const anchorMs = lastRefreshedAt?.getTime() ?? Date.now();
@@ -459,26 +477,83 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     };
   }, [onAuthRequired]);
 
+  const getEventQueryWindow = useCallback(() => {
+    if (timeRange !== 'custom') {
+      return { valid: true, start: undefined, end: undefined };
+    }
+    if (!customTimeRange.start || !customTimeRange.end) {
+      return { valid: false, start: undefined, end: undefined };
+    }
+    const startMs = parseCustomDateStart(customTimeRange.start);
+    const endMs = parseCustomDateEnd(customTimeRange.end);
+    if (startMs === undefined || endMs === undefined || startMs > endMs) {
+      return { valid: false, start: undefined, end: undefined };
+    }
+    return {
+      valid: true,
+      start: new Date(`${customTimeRange.start}T00:00:00.000Z`).toISOString(),
+      end: new Date(`${customTimeRange.end}T23:59:59.999Z`).toISOString(),
+    };
+  }, [customTimeRange.end, customTimeRange.start, timeRange]);
+
+  const loadEventFilterOptions = useCallback(async () => {
+    const queryWindow = getEventQueryWindow();
+    const optionsKey = `${timeRange}|${queryWindow.start ?? ''}|${queryWindow.end ?? ''}`;
+
+    if (!queryWindow.valid) {
+      eventsFilterOptionsRequestControllerRef.current?.abort();
+      eventsFilterOptionsRequestControllerRef.current = null;
+      loadedEventsFilterOptionsKeyRef.current = '';
+      setEventsModelOptions([]);
+      setEventsSourceOptions([]);
+      return;
+    }
+    if (loadedEventsFilterOptionsKeyRef.current === optionsKey) {
+      return;
+    }
+
+    eventsFilterOptionsRequestControllerRef.current?.abort();
+    const controller = new AbortController();
+    eventsFilterOptionsRequestControllerRef.current = controller;
+
+    try {
+      const response = await fetchUsageEventFilterOptions(timeRange, queryWindow.start, queryWindow.end, controller.signal);
+      if (eventsFilterOptionsRequestControllerRef.current !== controller) {
+        return;
+      }
+      setEventsModelOptions(response.models ?? []);
+      setEventsSourceOptions(response.sources ?? []);
+      loadedEventsFilterOptionsKeyRef.current = optionsKey;
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      if (eventsFilterOptionsRequestControllerRef.current === controller) {
+        setEventsModelOptions([]);
+        setEventsSourceOptions([]);
+        loadedEventsFilterOptionsKeyRef.current = '';
+      }
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+      }
+    } finally {
+      if (eventsFilterOptionsRequestControllerRef.current === controller) {
+        eventsFilterOptionsRequestControllerRef.current = null;
+      }
+    }
+  }, [getEventQueryWindow, onAuthRequired, timeRange]);
+
   const loadEvents = useCallback(async () => {
-    if (timeRange === 'custom') {
-      if (!customTimeRange.start || !customTimeRange.end) {
-        eventsRequestControllerRef.current?.abort();
-        eventsRequestControllerRef.current = null;
-        setEventsData([]);
-        setEventsError('');
-        setEventsLoading(false);
-        return;
-      }
-      const startMs = parseCustomDateStart(customTimeRange.start);
-      const endMs = parseCustomDateEnd(customTimeRange.end);
-      if (startMs === undefined || endMs === undefined || startMs > endMs) {
-        eventsRequestControllerRef.current?.abort();
-        eventsRequestControllerRef.current = null;
-        setEventsData([]);
-        setEventsError('');
-        setEventsLoading(false);
-        return;
-      }
+    const queryWindow = getEventQueryWindow();
+    if (!queryWindow.valid) {
+      eventsRequestControllerRef.current?.abort();
+      eventsRequestControllerRef.current = null;
+      setEventsData([]);
+      setEventsTotalCount(0);
+      setEventsTotalPages(0);
+      setEventsError('');
+      setEventsLoading(false);
+      return;
     }
 
     eventsRequestControllerRef.current?.abort();
@@ -487,21 +562,32 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
     setEventsLoading(true);
     setEventsError('');
-    setEventsData([]);
     try {
-      const start = timeRange === 'custom' ? new Date(`${customTimeRange.start}T00:00:00.000Z`).toISOString() : undefined;
-      const end = timeRange === 'custom' ? new Date(`${customTimeRange.end}T23:59:59.999Z`).toISOString() : undefined;
-      const response = await fetchUsageEvents(timeRange, start, end, controller.signal);
+      const response = await fetchUsageEvents(timeRange, queryWindow.start, queryWindow.end, controller.signal, {
+        page: eventsPage,
+        pageSize: eventsPageSize,
+        model: eventsModelFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsModelFilter,
+        source: eventsSourceFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsSourceFilter,
+        result: eventsResultFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsResultFilter,
+      });
       if (eventsRequestControllerRef.current !== controller) {
         return;
       }
+      if (response.total_pages > 0 && eventsPage > response.total_pages) {
+        setEventsPage(response.total_pages);
+        return;
+      }
       setEventsData(response.events);
+      setEventsTotalCount(response.total_count);
+      setEventsTotalPages(response.total_pages);
     } catch (error) {
       if (controller.signal.aborted) {
         return;
       }
       if (eventsRequestControllerRef.current === controller) {
         setEventsData([]);
+        setEventsTotalCount(0);
+        setEventsTotalPages(0);
       }
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
@@ -514,7 +600,31 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         eventsRequestControllerRef.current = null;
       }
     }
-  }, [customTimeRange.end, customTimeRange.start, onAuthRequired, timeRange]);
+  }, [eventsModelFilter, eventsPage, eventsPageSize, eventsResultFilter, eventsSourceFilter, getEventQueryWindow, onAuthRequired, timeRange]);
+
+  const resetEventsPage = useCallback(() => {
+    setEventsPage(1);
+  }, []);
+
+  const handleEventsPageSizeChange = useCallback((pageSize: number) => {
+    setEventsPageSize(pageSize);
+    resetEventsPage();
+  }, [resetEventsPage]);
+
+  const handleEventsModelFilterChange = useCallback((model: string) => {
+    setEventsModelFilter(model);
+    resetEventsPage();
+  }, [resetEventsPage]);
+
+  const handleEventsSourceFilterChange = useCallback((source: string) => {
+    setEventsSourceFilter(source);
+    resetEventsPage();
+  }, [resetEventsPage]);
+
+  const handleEventsResultFilterChange = useCallback((result: string) => {
+    setEventsResultFilter(result);
+    resetEventsPage();
+  }, [resetEventsPage]);
 
   const loadCredentials = useCallback(async () => {
     if (timeRange === 'custom') {
@@ -575,6 +685,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
   const refreshActiveTab = useCallback(async () => {
     if (activeTab === 'events') {
+      await loadEventFilterOptions();
       await loadEvents();
       return;
     }
@@ -591,7 +702,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       return;
     }
     await loadUsage();
-  }, [activeTab, loadAnalysis, loadCredentials, loadEvents, loadPricing, loadUsage]);
+  }, [activeTab, loadAnalysis, loadCredentials, loadEventFilterOptions, loadEvents, loadPricing, loadUsage]);
 
   const handleManualRefresh = useCallback(async () => {
     setManualRefreshLoading(true);
@@ -608,15 +719,20 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     if (activeTab !== 'events') {
       eventsRequestControllerRef.current?.abort();
       eventsRequestControllerRef.current = null;
+      eventsFilterOptionsRequestControllerRef.current?.abort();
+      eventsFilterOptionsRequestControllerRef.current = null;
       setEventsLoading(false);
       return;
     }
+    void loadEventFilterOptions();
     void loadEvents();
     return () => {
       eventsRequestControllerRef.current?.abort();
       eventsRequestControllerRef.current = null;
+      eventsFilterOptionsRequestControllerRef.current?.abort();
+      eventsFilterOptionsRequestControllerRef.current = null;
     };
-  }, [activeTab, loadEvents]);
+  }, [activeTab, loadEventFilterOptions, loadEvents]);
 
   useEffect(() => {
     if (activeTab !== 'credentials') {
@@ -1018,6 +1134,21 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 <RequestEventsDetailsCard
                   events={eventsData}
                   loading={eventsLoading}
+                  page={eventsPage}
+                  pageSize={eventsPageSize}
+                  pageSizeOptions={REQUEST_EVENTS_PAGE_SIZES}
+                  totalCount={eventsTotalCount}
+                  totalPages={eventsTotalPages}
+                  modelOptions={eventsModelOptions}
+                  sourceOptions={eventsSourceOptions}
+                  modelFilter={eventsModelFilter}
+                  sourceFilter={eventsSourceFilter}
+                  resultFilter={eventsResultFilter}
+                  onPageChange={setEventsPage}
+                  onPageSizeChange={handleEventsPageSizeChange}
+                  onModelFilterChange={handleEventsModelFilterChange}
+                  onSourceFilterChange={handleEventsSourceFilterChange}
+                  onResultFilterChange={handleEventsResultFilterChange}
                 />
               </>
             )}

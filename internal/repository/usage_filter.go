@@ -11,11 +11,34 @@ type UsageQueryFilter struct {
 	StartTime *time.Time
 	EndTime   *time.Time
 	Limit     int
+	Page      int
+	PageSize  int
+	Offset    int
+	Model     string
+	Source    string
+	AuthIndex string
+	Result    string
 }
 
-const DefaultUsageEventsLimit = 500
+const DefaultUsageEventsLimit = 100
+
+type UsageEventsPageRecord struct {
+	Events     []UsageEventRecord
+	Models     []string
+	Sources    []string
+	TotalCount int64
+	Page       int
+	PageSize   int
+	TotalPages int
+}
+
+type UsageEventFilterOptionsRecord struct {
+	Models  []string
+	Sources []string
+}
 
 type UsageEventRecord struct {
+	ID              uint
 	Timestamp       time.Time
 	APIGroupKey     string
 	Model           string

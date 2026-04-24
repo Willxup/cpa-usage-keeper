@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, PropsWithChildren } from 'react';
+import React, { type ButtonHTMLAttributes, type PropsWithChildren } from 'react';
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 type ButtonSize = 'md' | 'sm';

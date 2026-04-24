@@ -33,7 +33,11 @@ func (s *usageFilterStub) GetUsageOverview(_ context.Context, filter service.Usa
 	return s.overview, s.err
 }
 
-func (s *usageFilterStub) ListUsageEvents(context.Context, service.UsageFilter) ([]service.UsageEventRecord, error) {
+func (s *usageFilterStub) ListUsageEvents(context.Context, service.UsageFilter) (*service.UsageEventsPage, error) {
+	return nil, s.err
+}
+
+func (s *usageFilterStub) ListUsageEventFilterOptions(context.Context, service.UsageFilter) (*service.UsageEventFilterOptions, error) {
 	return nil, s.err
 }
 

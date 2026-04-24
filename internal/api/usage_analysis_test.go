@@ -27,7 +27,11 @@ func (s *usageAnalysisStub) GetUsageOverview(context.Context, service.UsageFilte
 	return nil, nil
 }
 
-func (s *usageAnalysisStub) ListUsageEvents(context.Context, service.UsageFilter) ([]service.UsageEventRecord, error) {
+func (s *usageAnalysisStub) ListUsageEvents(context.Context, service.UsageFilter) (*service.UsageEventsPage, error) {
+	return nil, nil
+}
+
+func (s *usageAnalysisStub) ListUsageEventFilterOptions(context.Context, service.UsageFilter) (*service.UsageEventFilterOptions, error) {
 	return nil, nil
 }
 

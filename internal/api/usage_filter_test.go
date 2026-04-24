@@ -54,3 +54,67 @@ func TestParseUsageFilterQueryRejectsInvalidCustomRange(t *testing.T) {
 		t.Fatal("expected invalid custom range error")
 	}
 }
+
+func TestParseUsageFilterQueryDefaultsEventsPagination(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/usage/events?range=all", nil)
+
+	filter, err := parseUsageFilterQuery(req, time.Time{})
+	if err != nil {
+		t.Fatalf("parseUsageFilterQuery returned error: %v", err)
+	}
+	if filter.Page != 1 || filter.PageSize != 100 || filter.Offset != 0 {
+		t.Fatalf("expected default pagination, got %+v", filter)
+	}
+}
+
+func TestParseUsageFilterQueryAcceptsEventsPaginationAndFilters(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/usage/events?page=3&page_size=100&model=%20claude-sonnet%20&source=%20source-a%20&auth_index=%202%20", nil)
+
+	filter, err := parseUsageFilterQuery(req, time.Time{})
+	if err != nil {
+		t.Fatalf("parseUsageFilterQuery returned error: %v", err)
+	}
+	if filter.Page != 3 || filter.PageSize != 100 || filter.Offset != 200 {
+		t.Fatalf("expected page 3/page size 100 offset 200, got %+v", filter)
+	}
+	if filter.Model != "claude-sonnet" || filter.Source != "source-a" || filter.AuthIndex != "2" {
+		t.Fatalf("expected trimmed server-side filters, got %+v", filter)
+	}
+}
+
+func TestParseUsageFilterQueryUsesLimitAsPageSizeAlias(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/usage/events?limit=20", nil)
+
+	filter, err := parseUsageFilterQuery(req, time.Time{})
+	if err != nil {
+		t.Fatalf("parseUsageFilterQuery returned error: %v", err)
+	}
+	if filter.Page != 1 || filter.PageSize != 20 || filter.Offset != 0 {
+		t.Fatalf("expected limit alias to set page size, got %+v", filter)
+	}
+}
+
+func TestParseUsageFilterQueryPrefersPageSizeOverLimit(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/usage/events?page_size=50&limit=20", nil)
+
+	filter, err := parseUsageFilterQuery(req, time.Time{})
+	if err != nil {
+		t.Fatalf("parseUsageFilterQuery returned error: %v", err)
+	}
+	if filter.PageSize != 50 {
+		t.Fatalf("expected page_size to win over limit, got %+v", filter)
+	}
+}
+
+func TestParseUsageFilterQueryRejectsInvalidEventsPagination(t *testing.T) {
+	tests := []string{
+		"/api/v1/usage/events?page=0",
+		"/api/v1/usage/events?page_size=25",
+	}
+	for _, path := range tests {
+		req := httptest.NewRequest("GET", path, nil)
+		if _, err := parseUsageFilterQuery(req, time.Time{}); err == nil {
+			t.Fatalf("expected pagination error for %s", path)
+		}
+	}
+}

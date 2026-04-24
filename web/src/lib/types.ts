@@ -113,6 +113,7 @@ export interface UsageEventTokens {
 }
 
 export interface UsageEvent {
+  id?: number
   timestamp: string
   model: string
   source: string
@@ -125,8 +126,24 @@ export interface UsageEvent {
   tokens: UsageEventTokens
 }
 
+export interface UsageSourceFilterOption {
+  value: string
+  label: string
+}
+
 export interface UsageEventsResponse {
   events: UsageEvent[]
+  models: string[]
+  sources: UsageSourceFilterOption[]
+  total_count: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+export interface UsageEventFilterOptionsResponse {
+  models: string[]
+  sources: UsageSourceFilterOption[]
 }
 
 export interface UsageCredential {
