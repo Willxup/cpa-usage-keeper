@@ -253,6 +253,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     onAuthRequired,
     enabled: activeTab === 'pricing',
   });
+  const [status, setStatus] = useState<StatusResponse | null>(null);
   const [statusError, setStatusError] = useState('');
   const [customRangeError, setCustomRangeError] = useState('');
   const [customRangeHint, setCustomRangeHint] = useState('');
@@ -463,6 +464,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       try {
         const status: StatusResponse = await fetchStatus();
         if (cancelled) return;
+        setStatus(status);
         setStatusError(status.last_error || '');
       } catch (error) {
         if (cancelled) return;
@@ -773,11 +775,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     persistLanguage(language);
   }, [currentLanguage]);
 
-  const activeLastRefreshedAt = activeTab === 'analysis'
-    ? analysisLastRefreshedAt
-    : activeTab === 'pricing'
-      ? pricingLastRefreshedAt
-      : lastRefreshedAt;
+  const lastSyncAt = useMemo(() => {
+    if (!status?.last_run_at) return null;
+    const parsed = new Date(status.last_run_at);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }, [status?.last_run_at]);
   const showRangeControls = activeTab !== 'pricing';
   const nowMs = filterWindowEndMs;
 
@@ -926,10 +928,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </div>
             )}
 
-            {activeLastRefreshedAt && (
+            {lastSyncAt && (
               <div className={styles.toolbarMetaRow}>
                 <span className={styles.lastRefreshed}>
-                  {t('usage_stats.last_updated')}: {activeLastRefreshedAt.toLocaleTimeString()}
+                  {t('usage_stats.last_updated')}: {lastSyncAt.toLocaleTimeString()}
                 </span>
               </div>
             )}
