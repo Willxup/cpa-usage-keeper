@@ -30,6 +30,42 @@ func TestOpenDatabaseAutoMigratesCoreTables(t *testing.T) {
 	}
 }
 
+func TestOpenDatabaseConfiguresSQLiteRuntime(t *testing.T) {
+	db := openTestDatabase(t)
+
+	var journalMode string
+	if err := db.Raw("PRAGMA journal_mode").Scan(&journalMode).Error; err != nil {
+		t.Fatalf("read journal mode: %v", err)
+	}
+	if journalMode != "wal" {
+		t.Fatalf("expected WAL journal mode, got %q", journalMode)
+	}
+
+	var busyTimeout int
+	if err := db.Raw("PRAGMA busy_timeout").Scan(&busyTimeout).Error; err != nil {
+		t.Fatalf("read busy timeout: %v", err)
+	}
+	if busyTimeout < 5000 {
+		t.Fatalf("expected busy timeout at least 5000ms, got %d", busyTimeout)
+	}
+
+	var foreignKeys int
+	if err := db.Raw("PRAGMA foreign_keys").Scan(&foreignKeys).Error; err != nil {
+		t.Fatalf("read foreign keys pragma: %v", err)
+	}
+	if foreignKeys != 1 {
+		t.Fatalf("expected foreign keys to be enabled, got %d", foreignKeys)
+	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("load sql db: %v", err)
+	}
+	if stats := sqlDB.Stats(); stats.MaxOpenConnections != 1 {
+		t.Fatalf("expected sqlite max open connections to be 1, got %+v", stats)
+	}
+}
+
 func TestCreateSnapshotRunStoresInitialState(t *testing.T) {
 	db := openTestDatabase(t)
 	fetchedAt := time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC)
@@ -225,12 +261,20 @@ func TestFindLastSnapshotRunWithBackupReturnsLatestCompletedBackup(t *testing.T)
 		t.Fatalf("FinalizeSnapshotRun third returned error: %v", err)
 	}
 
+	fourth, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 16, 13, 0, 0, 0, time.UTC), Status: "pending"})
+	if err != nil {
+		t.Fatalf("CreateSnapshotRun fourth returned error: %v", err)
+	}
+	if err := FinalizeSnapshotRun(db, fourth.ID, SnapshotRunResult{Status: "completed_with_warnings", BackupFilePath: "/tmp/fourth.json"}); err != nil {
+		t.Fatalf("FinalizeSnapshotRun fourth returned error: %v", err)
+	}
+
 	run, err := FindLastSnapshotRunWithBackup(db)
 	if err != nil {
 		t.Fatalf("FindLastSnapshotRunWithBackup returned error: %v", err)
 	}
-	if run == nil || run.ID != third.ID {
-		t.Fatalf("expected latest completed backup snapshot %d, got %+v", third.ID, run)
+	if run == nil || run.ID != fourth.ID {
+		t.Fatalf("expected latest successful backup snapshot %d, got %+v", fourth.ID, run)
 	}
 }
 
