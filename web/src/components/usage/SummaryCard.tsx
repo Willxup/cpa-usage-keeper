@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type CSSProperties } from 'react'
 import type { SummaryCardValue } from '../../lib/types'
 import styles from '../../pages/usage/UsagePage.module.css'
 
@@ -17,8 +17,8 @@ const ICONS: Record<string, string> = {
 export function SummaryCard({ card }: SummaryCardProps) {
   const accentStyle = useMemo(
     () => ({
-      ['--summary-accent' as const]: card.accent,
-    }),
+      '--summary-accent': card.accent,
+    }) as CSSProperties,
     [card.accent],
   )
 

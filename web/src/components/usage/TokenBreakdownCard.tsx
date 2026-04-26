@@ -8,13 +8,6 @@ interface TokenBreakdownCardProps {
   cachedTokens: number
 }
 
-const breakdownItems = [
-  { key: 'input', label: 'Input tokens', colorClass: 'tokenInput' },
-  { key: 'output', label: 'Output tokens', colorClass: 'tokenOutput' },
-  { key: 'reasoning', label: 'Reasoning tokens', colorClass: 'tokenReasoning' },
-  { key: 'cached', label: 'Cached tokens', colorClass: 'tokenCached' },
-] as const
-
 export function TokenBreakdownCard({
   inputTokens,
   outputTokens,

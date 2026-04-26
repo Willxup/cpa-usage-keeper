@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildOverviewCostTrendSeries } from './CostTrendChart';
+import { buildTokenBreakdownChartSeries } from './TokenBreakdownChart';
 import { buildHourlyTokenBreakdown } from '@/utils/usage';
 import { buildChartData, filterUsageByWindow } from '@/utils/usage';
 import type { UsageOverviewResponse, UsageEvent, UsageSnapshot } from '@/lib/types';
@@ -398,6 +399,33 @@ describe('overview chart data flow', () => {
     expect(requests.labels).toHaveLength(5);
     expect(requests.datasets[0]?.data).toEqual([0, 0, 1, 0, 2]);
     expect(tokens.datasets[0]?.data).toEqual([0, 0, 100, 0, 200]);
+  });
+
+  it('fills token breakdown hour buckets across the latest 24 hours when only one bucket has data', () => {
+    const series = buildTokenBreakdownChartSeries({
+      usage: {
+        ...overviewUsage,
+        hourly_series: {
+          ...overviewUsage.hourly_series!,
+          input_tokens: {
+            '2026-04-23T23:00:00Z': 100,
+          },
+          output_tokens: {
+            '2026-04-23T23:00:00Z': 50,
+          },
+          cached_tokens: {},
+          reasoning_tokens: {},
+        },
+      },
+      period: 'hour',
+      hourWindowHours: 24,
+      endMs: Date.parse('2026-04-23T23:16:00Z'),
+    });
+
+    expect(series.labels).toHaveLength(24);
+    expect(series.dataByCategory.input.slice(0, 23)).toEqual(Array(23).fill(0));
+    expect(series.dataByCategory.input[23]).toBe(100);
+    expect(series.dataByCategory.output[23]).toBe(50);
   });
 
   it('keeps overview hour charts capped to the latest 24 hours even when the query range is 7d', () => {

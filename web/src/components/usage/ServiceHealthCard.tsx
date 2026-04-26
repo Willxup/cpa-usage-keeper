@@ -253,6 +253,7 @@ export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
   const windowLabel = healthData.windowStart > 0 && healthData.windowEnd > 0
     ? `${formatDateTime(healthData.windowStart)} – ${formatDateTime(healthData.windowEnd)}`
     : t('usage_stats.service_health_window');
+  const healthCountsLabel = `${t('status_bar.success_short')} ${healthData.totalSuccess}, ${t('status_bar.failure_short')} ${healthData.totalFailure}`;
   const gridStyle = useMemo(
     () => ({
       '--health-grid-columns': String(healthData.columns),
@@ -273,23 +274,44 @@ export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
           subtitle={t('usage_stats.service_health_subtitle')}
         />
         <div className={styles.healthMeta}>
-          <span className={styles.healthWindow}>{windowLabel}</span>
-          <span className={`${styles.healthRate} ${rateClass}`}>
-            {loading ? '--' : hasData ? `${healthData.successRate.toFixed(1)}%` : '--'}
-          </span>
+          <div className={styles.healthTopLine}>
+            <span className={styles.healthWindow}>{windowLabel}</span>
+            <span className={`${styles.healthRate} ${rateClass}`}>
+              {loading ? '--' : hasData ? `${healthData.successRate.toFixed(1)}%` : '--'}
+            </span>
+          </div>
+          <div className={styles.healthMetricPanel} aria-label={healthCountsLabel}>
+            <span className={styles.healthCountRow}>
+              <span className={`${styles.healthCountDot} ${styles.healthCountDotSuccess}`} aria-hidden="true" />
+              <span>{healthData.totalSuccess}</span>
+            </span>
+            <span className={styles.healthCountRow}>
+              <span className={`${styles.healthCountDot} ${styles.healthCountDotFailure}`} aria-hidden="true" />
+              <span>{healthData.totalFailure}</span>
+            </span>
+          </div>
         </div>
       </div>
       <div className={styles.healthGridScroller}>
-        <div className={styles.healthGrid} ref={gridRef} style={gridStyle}>
+        <div className={styles.healthGrid} ref={gridRef} style={gridStyle} role="list" aria-label={healthCountsLabel}>
           {healthData.blockDetails.map((detail, idx) => {
             const isIdle = detail.rate === -1;
             const blockStyle = isIdle ? undefined : { backgroundColor: rateToColor(detail.rate) };
             const isActive = activeTooltip?.idx === idx;
+            const timeRange = `${formatDateTime(detail.startTime)} – ${formatDateTime(detail.endTime)}`;
+            const summary = detail.success + detail.failure > 0
+              ? `${t('status_bar.success_short')} ${detail.success}, ${t('status_bar.failure_short')} ${detail.failure}`
+              : t('status_bar.no_requests');
 
             return (
               <div
                 key={idx}
                 className={`${styles.healthBlockWrapper} ${isActive ? styles.healthBlockActive : ''}`}
+                role="listitem"
+                tabIndex={0}
+                aria-label={t('usage_stats.service_health_block_label', { timeRange, summary })}
+                onFocus={(e) => openTooltip(idx, e.currentTarget)}
+                onBlur={() => setActiveTooltip(null)}
                 onPointerEnter={(e) => handlePointerEnter(e, idx)}
                 onPointerLeave={handlePointerLeave}
                 onPointerDown={(e) => handlePointerDown(e, idx)}

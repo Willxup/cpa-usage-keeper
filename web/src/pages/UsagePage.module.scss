@@ -162,6 +162,46 @@
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
 }
 
+.syncSwitcher {
+  display: inline-flex;
+  align-items: stretch;
+  min-height: 42px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.syncPill {
+  border: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+
+  &:hover:not(:disabled) {
+    color: var(--text-primary);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
+  }
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.7;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+}
+
 .refreshButton {
   gap: 8px;
   min-height: 42px;
@@ -1636,18 +1676,34 @@
 }
 
 .healthMeta {
-  display: flex;
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  text-align: right;
+}
+
+.healthTopLine {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
 }
 
 .healthWindow {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-tertiary);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.healthMetricPanel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
 }
 
 .healthRate {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   font-size: 12px;
   font-weight: 600;
@@ -1655,6 +1711,31 @@
   padding: 4px 8px;
   border-radius: 6px;
   background: var(--bg-tertiary);
+}
+
+.healthCountRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.healthCountDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+
+.healthCountDotSuccess {
+  background: #22c55e;
+}
+
+.healthCountDotFailure {
+  background: #ef4444;
 }
 
 .healthRateHigh {

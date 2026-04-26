@@ -46,7 +46,7 @@ export function TrendChartCard({ title, periodLabel, series, valueFormatter = fo
                 <CartesianGrid stroke="var(--border-color)" strokeDasharray="3 3" />
                 <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={24} />
                 <YAxis tickLine={false} axisLine={false} tickFormatter={valueFormatter} width={72} />
-                <Tooltip formatter={(value: number) => valueFormatter(value)} />
+                <Tooltip formatter={(value) => valueFormatter(Number(value ?? 0))} />
                 <Legend />
                 {series.map((item) => (
                   <Area
