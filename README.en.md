@@ -4,7 +4,7 @@
 
 CPA Usage Keeper is a standalone usage persistence and dashboard service for CPA (CLI Proxy API).
 
-It requires [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) as the backend source of usage data and is designed to add persistence and statistics capabilities on top of CPA. It periodically pulls CPA `usage/export` data, stores normalized events in SQLite, exposes aggregated APIs, and serves a built-in web dashboard for usage, pricing, request health, and model/API breakdowns.
+It requires [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) as the backend source of usage data and is designed to add persistence and statistics capabilities on top of CPA. It periodically pulls CPA data, stores normalized events in SQLite, exposes aggregated APIs, and serves a built-in web dashboard for usage, pricing, request health, and model/API breakdowns.
 
 ## Relationship to CLIProxyAPI
 
@@ -79,7 +79,13 @@ Key variables:
 - A trailing slash like `/cpa/` is accepted and normalized to `/cpa`
 - A value without the leading slash such as `cpa` is invalid
 
-When backups are enabled, the service writes at most one raw export backup per `BACKUP_INTERVAL`. Every sync still records a snapshot run and persists usage events.
+When backups are enabled, the service writes at most one raw data backup per `BACKUP_INTERVAL`. Every sync still records a snapshot run and persists usage events.
+
+Security and data notes:
+- The SQLite database and raw backups store original usage/source data pulled from CPA, and backup files are not encrypted.
+- Browser-facing APIs redact key-like source/lookup fields or map them to stable public identifiers, but this does not change raw values in the local database.
+- For public deployments, enable `AUTH_ENABLED=true` and terminate HTTPS at your reverse proxy.
+- Login sessions are stored in process memory, so existing sessions become invalid after a service restart.
 
 ## Development
 
@@ -119,8 +125,19 @@ npm --prefix ./web run build
 
 ### Tests
 
+Run the full local verification baseline:
+
 ```bash
-go test ./...
+make verify
+```
+
+Or run checks individually:
+
+```bash
+go test ./cmd/... ./internal/...
+npm --prefix ./web run test
+npm --prefix ./web run lint
+npm --prefix ./web run typecheck
 npm --prefix ./web run build
 ```
 

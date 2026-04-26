@@ -4,7 +4,7 @@
 
 `CPA Usage Keeper` 是一个独立的 CPA 用量持久化与可视化服务。
 
-它依赖 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI) 作为后端 CPA 数据来源，目标是在 CPA 之上补充持久化存储与统计分析能力。服务会定时拉取 CPA 的 `usage/export` 数据，将规范化后的事件写入 SQLite，暴露聚合 API，并提供内置 Web Dashboard 用于查看 usage、pricing、request health 和 model/API 维度的统计信息。
+它依赖 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI) 作为后端 CPA 数据来源，目标是在 CPA 之上补充持久化存储与统计分析能力。服务会定时拉取 CPA 数据，将规范化后的事件写入 SQLite，暴露聚合 API，并提供内置 Web Dashboard 用于查看 usage、pricing、request health 和 model/API 维度的统计信息。
 
 ## 与 CLIProxyAPI 的关系
 
@@ -79,7 +79,13 @@ cp .env.example .env
 - 可以写成 `/cpa/`，程序会自动规范成 `/cpa`
 - 像 `cpa` 这样不带前导 `/` 的写法是无效的
 
-启用备份后，服务会按照 `BACKUP_INTERVAL` 控制原始 export JSON 的落盘频率；即使本次未写入新的 backup，仍会正常记录 `SnapshotRun` 并持久化 usage 事件。
+启用备份后，服务会按照 `BACKUP_INTERVAL` 控制原始数据备份的落盘频率；即使本次未写入新的 backup，仍会正常记录 `SnapshotRun` 并持久化 usage 事件。
+
+安全与数据说明：
+- SQLite 数据库和原始备份会保存从 CPA 拉取到的原始 usage/source 数据，备份文件不做加密。
+- 面向浏览器的 API 会对 key-like source/lookup 字段做脱敏或稳定公开标识映射，但这不改变本地数据库中的原始值。
+- 公开部署时建议开启 `AUTH_ENABLED=true`，并在反向代理层配置 HTTPS。
+- 登录 session 存在服务进程内存中，服务重启后已登录 session 会失效。
 
 ## 本地开发
 
@@ -119,8 +125,19 @@ npm --prefix ./web run build
 
 ### 测试
 
+运行完整的本地验证基线：
+
 ```bash
-go test ./...
+make verify
+```
+
+也可以单独运行各项检查：
+
+```bash
+go test ./cmd/... ./internal/...
+npm --prefix ./web run test
+npm --prefix ./web run lint
+npm --prefix ./web run typecheck
 npm --prefix ./web run build
 ```
 
