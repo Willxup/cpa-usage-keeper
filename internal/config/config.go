@@ -65,6 +65,9 @@ func LoadFromEnv() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	if authSessionTTL <= 0 {
+		return nil, fmt.Errorf("AUTH_SESSION_TTL must be positive")
+	}
 
 	authEnabled, err := getBool("AUTH_ENABLED", false)
 	if err != nil {

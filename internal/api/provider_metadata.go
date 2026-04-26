@@ -28,7 +28,7 @@ func registerProviderMetadataRoutes(router gin.IRoutes, provider service.Provide
 
 		items, err := provider.ListProviderMetadata(c.Request.Context())
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalError(c, "list provider metadata failed", err)
 			return
 		}
 
@@ -41,10 +41,11 @@ func registerProviderMetadataRoutes(router gin.IRoutes, provider service.Provide
 }
 
 func mapProviderMetadataResponse(item models.ProviderMetadata) providerMetadataResponse {
+	resolved := usageSourceResolutionFromMetadata(item, item.LookupKey)
 	return providerMetadataResponse{
-		LookupKey:    item.LookupKey,
+		LookupKey:    resolved.SourceKey,
 		ProviderType: item.ProviderType,
-		DisplayName:  item.DisplayName,
-		ProviderKey:  item.ProviderKey,
+		DisplayName:  resolved.DisplayName,
+		ProviderKey:  resolved.SourceKey,
 	}
 }

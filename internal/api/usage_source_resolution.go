@@ -1,6 +1,7 @@
 package api
 
 import (
+	"strconv"
 	"strings"
 
 	"cpa-usage-keeper/internal/cpa"
@@ -9,8 +10,9 @@ import (
 )
 
 type usageSourceResolver struct {
-	authFiles         map[string]models.AuthFile
-	providerMetadata  map[string]models.ProviderMetadata
+	authFiles        map[string]models.AuthFile
+	providerMetadata map[string]models.ProviderMetadata
+	providerRawByKey map[string]string
 }
 
 func newUsageSourceResolver(authFiles []models.AuthFile, providerMetadata []models.ProviderMetadata) usageSourceResolver {
@@ -24,17 +26,23 @@ func newUsageSourceResolver(authFiles []models.AuthFile, providerMetadata []mode
 	}
 
 	providerMetadataMap := make(map[string]models.ProviderMetadata, len(providerMetadata))
+	providerRawByKey := make(map[string]string, len(providerMetadata))
 	for _, item := range providerMetadata {
 		lookupKey := strings.TrimSpace(item.LookupKey)
 		if lookupKey == "" {
 			continue
 		}
 		providerMetadataMap[lookupKey] = item
+		resolved := usageSourceResolutionFromMetadata(item, lookupKey)
+		if resolved.SourceKey != "" {
+			providerRawByKey[resolved.SourceKey] = lookupKey
+		}
 	}
 
 	return usageSourceResolver{
 		authFiles:        authFileMap,
 		providerMetadata: providerMetadataMap,
+		providerRawByKey: providerRawByKey,
 	}
 }
 
@@ -65,21 +73,39 @@ type usageSourceResolution struct {
 	SourceKey   string
 }
 
+func usageSourceResolutionFromMetadata(item models.ProviderMetadata, fallbackLookupKey string) usageSourceResolution {
+	displayName := firstNonEmptyString(item.DisplayName, item.ProviderType, redact.APIKeyDisplayName(fallbackLookupKey))
+	providerType := strings.TrimSpace(item.ProviderType)
+	providerKey := strings.TrimSpace(item.ProviderKey)
+	if providerKey == "" && item.ID > 0 {
+		providerKey = "provider:" + uintToString(item.ID)
+	}
+	if providerKey == "" {
+		providerKey = "provider:" + firstNonEmptyString(providerType, displayName)
+	}
+	return usageSourceResolution{
+		DisplayName: displayName,
+		SourceType:  providerType,
+		SourceKey:   providerKey,
+	}
+}
+
+func (r usageSourceResolver) rawSourceForPublicValue(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+	if raw, ok := r.providerRawByKey[trimmed]; ok {
+		return raw
+	}
+	return trimmed
+}
+
 func (r usageSourceResolver) resolve(rawSource string, authIndex string) usageSourceResolution {
 	normalizedSource := strings.TrimSpace(rawSource)
 	if normalizedSource != "" {
 		if item, ok := r.providerMetadata[normalizedSource]; ok {
-			displayName := firstNonEmptyString(item.DisplayName, item.ProviderType, redact.APIKeyDisplayName(normalizedSource))
-			providerType := strings.TrimSpace(item.ProviderType)
-			providerKey := strings.TrimSpace(item.ProviderKey)
-			if providerKey == "" {
-				providerKey = "provider:" + firstNonEmptyString(providerType, displayName)
-			}
-			return usageSourceResolution{
-				DisplayName: displayName,
-				SourceType:  providerType,
-				SourceKey:   providerKey,
-			}
+			return usageSourceResolutionFromMetadata(item, normalizedSource)
 		}
 	}
 
@@ -116,6 +142,10 @@ func (r usageSourceResolver) resolve(rawSource string, authIndex string) usageSo
 		DisplayName: masked,
 		SourceKey:   "raw:" + masked,
 	}
+}
+
+func uintToString(value uint) string {
+	return strconv.FormatUint(uint64(value), 10)
 }
 
 func firstNonEmptyString(values ...string) string {

@@ -94,8 +94,8 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	if !contains(body, `"source":"OpenAI Mirror"`) {
 		t.Fatalf("expected resolved source display in response body: %s", body)
 	}
-	if !contains(body, `"source_raw":"sk-provider-key"`) {
-		t.Fatalf("expected raw source for filtering in response body: %s", body)
+	if contains(body, `sk-provider-key`) {
+		t.Fatalf("expected raw source to be redacted from response body: %s", body)
 	}
 	if !contains(body, `"source_type":"openai"`) {
 		t.Fatalf("expected source type in response body: %s", body)
@@ -122,8 +122,8 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 
 func TestUsageEventsPassesPaginationAndServerFilters(t *testing.T) {
 	provider := &usageEventsStub{eventsPage: &service.UsageEventsPage{Events: []service.UsageEventRecord{}, TotalCount: 0, Page: 3, PageSize: 100, TotalPages: 0}}
-	router := NewRouter("", nil, provider, nil, nil, nil, AuthConfig{}, nil, "")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?page=3&page_size=100&model=claude-sonnet&source=source-a&result=failed", nil)
+	router := NewRouter("", nil, provider, nil, providerMetadataStub{items: []models.ProviderMetadata{{LookupKey: "source-a", ProviderType: "openai", DisplayName: "Provider A", ProviderKey: "openai:Provider A"}}}, nil, AuthConfig{}, nil, "")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?page=3&page_size=100&model=claude-sonnet&source=openai:Provider%20A&result=failed", nil)
 	resp := httptest.NewRecorder()
 
 	router.ServeHTTP(resp, req)
@@ -165,8 +165,11 @@ func TestUsageEventsReturnsFilterOptions(t *testing.T) {
 	if !contains(body, `"models":["claude-sonnet","gpt-5"]`) {
 		t.Fatalf("expected model filter options, got %s", body)
 	}
-	if !contains(body, `"sources":[`) || !contains(body, `"value":"source-a"`) || !contains(body, `"label":"Provider A"`) || !contains(body, `"value":"source-b"`) || !contains(body, `"label":"Provider B"`) {
+	if !contains(body, `"sources":[`) || !contains(body, `"value":"openai:Provider A"`) || !contains(body, `"label":"Provider A"`) || !contains(body, `"value":"anthropic:Provider B"`) || !contains(body, `"label":"Provider B"`) {
 		t.Fatalf("expected resolved source filter options, got %s", body)
+	}
+	if contains(body, `"value":"source-a"`) || contains(body, `"value":"source-b"`) {
+		t.Fatalf("expected raw source filter values to be redacted, got %s", body)
 	}
 }
 
@@ -194,8 +197,11 @@ func TestUsageEventFilterOptionsReturnsStableModelsAndSources(t *testing.T) {
 	if !contains(body, `"models":["claude-sonnet","gpt-5"]`) {
 		t.Fatalf("expected stable model filter options, got %s", body)
 	}
-	if !contains(body, `"sources":[`) || !contains(body, `"value":"source-a"`) || !contains(body, `"label":"Provider A"`) || !contains(body, `"value":"source-b"`) || !contains(body, `"label":"Provider B"`) {
+	if !contains(body, `"sources":[`) || !contains(body, `"value":"openai:Provider A"`) || !contains(body, `"label":"Provider A"`) || !contains(body, `"value":"anthropic:Provider B"`) || !contains(body, `"label":"Provider B"`) {
 		t.Fatalf("expected stable resolved source filter options, got %s", body)
+	}
+	if contains(body, `"value":"source-a"`) || contains(body, `"value":"source-b"`) {
+		t.Fatalf("expected raw source filter values to be redacted, got %s", body)
 	}
 }
 

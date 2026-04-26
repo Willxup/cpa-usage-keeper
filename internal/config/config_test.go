@@ -117,3 +117,14 @@ func TestLoadFromEnvRejectsInvalidBasePath(t *testing.T) {
 		t.Fatalf("expected APP_BASE_PATH validation error, got %v", err)
 	}
 }
+
+func TestLoadFromEnvRejectsNonPositiveAuthSessionTTL(t *testing.T) {
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:8317")
+	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
+	t.Setenv("AUTH_SESSION_TTL", "0s")
+
+	_, err := LoadFromEnv()
+	if err == nil || err.Error() != "AUTH_SESSION_TTL must be positive" {
+		t.Fatalf("expected AUTH_SESSION_TTL validation error, got %v", err)
+	}
+}

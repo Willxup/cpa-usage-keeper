@@ -86,6 +86,99 @@ func TestAuthLoginRejectsWrongPassword(t *testing.T) {
 	}
 }
 
+func TestAuthLoginRateLimitsRepeatedFailures(t *testing.T) {
+	sessions := auth.NewSessionManager(time.Hour)
+	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
+	router := NewRouter("", nil, nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "")
+
+	for i := 0; i < 5; i++ {
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"wrong"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "198.51.100.1:1234"
+		router.ServeHTTP(resp, req)
+		if resp.Code != http.StatusUnauthorized {
+			t.Fatalf("expected failed attempt %d to return 401, got %d", i+1, resp.Code)
+		}
+	}
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"wrong"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "198.51.100.1:1234"
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected repeated failed attempts to return 429, got %d", resp.Code)
+	}
+}
+
+func TestAuthLoginAllowsCorrectPasswordAfterRateLimitThreshold(t *testing.T) {
+	sessions := auth.NewSessionManager(time.Hour)
+	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
+	router := NewRouter("", nil, nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "")
+
+	for i := 0; i < 5; i++ {
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"wrong"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "198.51.100.2:1234"
+		router.ServeHTTP(resp, req)
+		if resp.Code != http.StatusUnauthorized {
+			t.Fatalf("expected failed attempt %d to return 401, got %d", i+1, resp.Code)
+		}
+	}
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"secret"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "198.51.100.2:1234"
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNoContent {
+		t.Fatalf("expected correct password to clear failed attempts and login, got %d", resp.Code)
+	}
+}
+
+func TestAuthLogoutDeletesSessionCookie(t *testing.T) {
+	sessions := auth.NewSessionManager(time.Hour)
+	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
+	handler := NewAuthHandler(config, sessions)
+	router := NewRouter("", nil, nil, nil, nil, nil, config, handler, "")
+
+	loginResp := httptest.NewRecorder()
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"secret"}`))
+	loginReq.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(loginResp, loginReq)
+	if loginResp.Code != http.StatusNoContent {
+		t.Fatalf("expected login status 204, got %d", loginResp.Code)
+	}
+	cookies := loginResp.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected auth cookie to be set")
+	}
+
+	logoutResp := httptest.NewRecorder()
+	logoutReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+	logoutReq.AddCookie(cookies[0])
+	router.ServeHTTP(logoutResp, logoutReq)
+	if logoutResp.Code != http.StatusNoContent {
+		t.Fatalf("expected logout status 204, got %d", logoutResp.Code)
+	}
+	clearCookies := logoutResp.Result().Cookies()
+	if len(clearCookies) == 0 || clearCookies[0].Name != sessionCookieName || clearCookies[0].MaxAge >= 0 {
+		t.Fatalf("expected logout to clear session cookie, got %+v", clearCookies)
+	}
+
+	usageResp := httptest.NewRecorder()
+	usageReq := httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview", nil)
+	usageReq.AddCookie(cookies[0])
+	router.ServeHTTP(usageResp, usageReq)
+	if usageResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected logged out session to be rejected, got %d", usageResp.Code)
+	}
+}
+
 func TestSubpathAuthUsesPrefixedRoutesAndCookiePath(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour, BasePath: "/cpa"}

@@ -31,17 +31,27 @@ func (w *Writer) Write(snapshotRunID uint, fetchedAt time.Time, payload []byte) 
 	}
 
 	dayDir := filepath.Join(w.dir, stamp.Format("2006-01-02"))
-	if err := os.MkdirAll(dayDir, 0o755); err != nil {
+	if err := os.MkdirAll(dayDir, 0o700); err != nil {
 		return "", fmt.Errorf("create backup directory: %w", err)
+	}
+	if err := os.Chmod(dayDir, 0o700); err != nil {
+		return "", fmt.Errorf("restrict backup directory permissions: %w", err)
 	}
 
 	fileName := fmt.Sprintf("snapshot_%06d_%s.json", snapshotRunID, stamp.Format("20060102T150405.000000000Z"))
 	fullPath := filepath.Join(dayDir, fileName)
-	if err := os.WriteFile(fullPath, payload, 0o644); err != nil {
+	if err := os.WriteFile(fullPath, payload, 0o600); err != nil {
 		return "", fmt.Errorf("write backup file: %w", err)
 	}
 
 	return fullPath, nil
+}
+
+func (w *Writer) Cleanup(retentionDays int, now time.Time) (int, error) {
+	if w == nil {
+		return 0, fmt.Errorf("backup writer is nil")
+	}
+	return Cleanup(w.dir, retentionDays, now)
 }
 
 func Cleanup(dir string, retentionDays int, now time.Time) (int, error) {

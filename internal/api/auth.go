@@ -2,7 +2,9 @@ package api
 
 import (
 	"crypto/subtle"
+	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"cpa-usage-keeper/internal/auth"
@@ -10,6 +12,8 @@ import (
 )
 
 const sessionCookieName = "cpa_usage_keeper_session"
+
+const maxFailedLoginAttempts = 5
 
 type AuthConfig struct {
 	Enabled       bool
@@ -21,6 +25,9 @@ type AuthConfig struct {
 type authHandler struct {
 	config   AuthConfig
 	sessions *auth.SessionManager
+
+	mu             sync.Mutex
+	failedAttempts map[string]int
 }
 
 type loginRequest struct {
@@ -32,12 +39,13 @@ type sessionResponse struct {
 }
 
 func NewAuthHandler(config AuthConfig, sessions *auth.SessionManager) *authHandler {
-	return &authHandler{config: config, sessions: sessions}
+	return &authHandler{config: config, sessions: sessions, failedAttempts: make(map[string]int)}
 }
 
 func (h *authHandler) registerRoutes(router gin.IRoutes) {
 	router.GET("/session", h.getSession)
 	router.POST("/login", h.login)
+	router.POST("/logout", h.logout)
 }
 
 func (h *authHandler) middleware() gin.HandlerFunc {
@@ -86,7 +94,7 @@ func (h *authHandler) login(c *gin.Context) {
 		return
 	}
 	if h.sessions == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "session manager is not configured"})
+		writeInternalError(c, "session manager is not configured", nil)
 		return
 	}
 
@@ -96,14 +104,23 @@ func (h *authHandler) login(c *gin.Context) {
 		return
 	}
 
-	if subtle.ConstantTimeCompare([]byte(request.Password), []byte(h.config.LoginPassword)) != 1 {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid password"})
+	clientKey := loginClientKey(c)
+	passwordMatches := subtle.ConstantTimeCompare([]byte(request.Password), []byte(h.config.LoginPassword)) == 1
+	if h.tooManyFailedAttempts(clientKey) && !passwordMatches {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many failed login attempts"})
 		return
 	}
 
+	if !passwordMatches {
+		h.recordFailedAttempt(clientKey)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid password"})
+		return
+	}
+	h.clearFailedAttempts(clientKey)
+
 	token, expiresAt, err := h.sessions.Create()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writeInternalError(c, "create auth session failed", err)
 		return
 	}
 
@@ -123,4 +140,60 @@ func (h *authHandler) login(c *gin.Context) {
 		MaxAge:   int(time.Until(expiresAt).Seconds()),
 	})
 	c.Status(http.StatusNoContent)
+}
+
+func (h *authHandler) logout(c *gin.Context) {
+	if h == nil || !h.config.Enabled {
+		c.Status(http.StatusNoContent)
+		return
+	}
+	if h.sessions != nil {
+		if token, err := c.Cookie(sessionCookieName); err == nil {
+			h.sessions.Delete(token)
+		}
+	}
+	clearSessionCookie(c, h.config.BasePath)
+	c.Status(http.StatusNoContent)
+}
+
+func (h *authHandler) tooManyFailedAttempts(key string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.failedAttempts[key] >= maxFailedLoginAttempts
+}
+
+func (h *authHandler) recordFailedAttempt(key string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.failedAttempts[key]++
+}
+
+func (h *authHandler) clearFailedAttempts(key string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.failedAttempts, key)
+}
+
+func loginClientKey(c *gin.Context) string {
+	host, _, err := net.SplitHostPort(c.Request.RemoteAddr)
+	if err == nil && host != "" {
+		return host
+	}
+	return c.ClientIP()
+}
+
+func clearSessionCookie(c *gin.Context, basePath string) {
+	cookiePath := basePath
+	if cookiePath == "" {
+		cookiePath = "/"
+	}
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    "",
+		Path:     cookiePath,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+	})
 }

@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -26,6 +27,33 @@ func TestWriterWritePersistsPayload(t *testing.T) {
 	}
 	if len(files) != 1 || files[0] != path {
 		t.Fatalf("unexpected backup files: %+v", files)
+	}
+}
+
+func TestWriterWriteRestrictsBackupPermissions(t *testing.T) {
+	root := t.TempDir()
+	writer := NewWriter(root)
+	fetchedAt := time.Date(2026, 4, 16, 12, 34, 56, 0, time.UTC)
+
+	path, err := writer.Write(7, fetchedAt, []byte(`{"version":1}`))
+	if err != nil {
+		t.Fatalf("Write returned error: %v", err)
+	}
+
+	dayDirInfo, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("stat backup day directory: %v", err)
+	}
+	if mode := dayDirInfo.Mode().Perm(); mode != 0o700 {
+		t.Fatalf("expected backup day directory mode 0700, got %o", mode)
+	}
+
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat backup file: %v", err)
+	}
+	if mode := fileInfo.Mode().Perm(); mode != 0o600 {
+		t.Fatalf("expected backup file mode 0600, got %o", mode)
 	}
 }
 

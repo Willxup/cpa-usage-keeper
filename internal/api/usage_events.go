@@ -70,13 +70,13 @@ func registerUsageEventsRoute(
 
 		options, err := usageProvider.ListUsageEventFilterOptions(c.Request.Context(), filter)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalError(c, "list usage event filter options failed", err)
 			return
 		}
 
 		authFiles, providerMetadata, err := loadUsageResolutionData(c, authFileProvider, providerMetadataProvider)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalError(c, "load usage resolution data failed", err)
 			return
 		}
 		resolver := newUsageSourceResolver(authFiles, providerMetadata)
@@ -98,18 +98,20 @@ func registerUsageEventsRoute(
 			return
 		}
 
-		rows, err := usageProvider.ListUsageEvents(c.Request.Context(), filter)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
 		authFiles, providerMetadata, err := loadUsageResolutionData(c, authFileProvider, providerMetadataProvider)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalError(c, "load usage resolution data failed", err)
 			return
 		}
 		resolver := newUsageSourceResolver(authFiles, providerMetadata)
+		filter.Source = resolver.rawSourceForPublicValue(filter.Source)
+
+		rows, err := usageProvider.ListUsageEvents(c.Request.Context(), filter)
+		if err != nil {
+			writeInternalError(c, "list usage events failed", err)
+			return
+		}
+
 		c.JSON(http.StatusOK, usageEventsResponse{
 			Events:     buildUsageEventsPayload(rows.Events, resolver),
 			Models:     rows.Models,
@@ -134,7 +136,6 @@ func buildUsageEventsPayload(rows []service.UsageEventRecord, resolver usageSour
 			Timestamp:  row.Timestamp.UTC().Format(time.RFC3339),
 			Model:      row.Model,
 			Source:     resolved.DisplayName,
-			SourceRaw:  row.Source,
 			SourceType: resolved.SourceType,
 			SourceKey:  resolved.SourceKey,
 			AuthIndex:  row.AuthIndex,
@@ -159,7 +160,7 @@ func buildUsageSourceFilterOptions(sources []string, resolver usageSourceResolve
 	options := make([]usageSourceFilterOption, 0, len(sources))
 	for _, source := range sources {
 		resolved := resolver.resolve(source, "")
-		options = append(options, usageSourceFilterOption{Value: source, Label: resolved.DisplayName})
+		options = append(options, usageSourceFilterOption{Value: resolved.SourceKey, Label: resolved.DisplayName})
 	}
 	return options
 }

@@ -29,7 +29,7 @@ func registerAuthFileRoutes(router gin.IRoutes, authFileProvider service.AuthFil
 
 		files, err := authFileProvider.ListAuthFiles(c.Request.Context())
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalError(c, "list auth files failed", err)
 			return
 		}
 
