@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -25,7 +26,7 @@ func TestUsageServiceGetUsageWithFilterDelegatesToFilteredSnapshot(t *testing.T)
 	start := time.Date(2026, 4, 16, 9, 30, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 16, 10, 30, 0, 0, time.UTC)
 	provider := NewUsageService(db)
-	snapshot, err := provider.GetUsageWithFilter(t.Context(), UsageFilter{StartTime: &start, EndTime: &end})
+	snapshot, err := provider.GetUsageWithFilter(context.Background(), UsageFilter{StartTime: &start, EndTime: &end})
 	if err != nil {
 		t.Fatalf("GetUsageWithFilter returned error: %v", err)
 	}
@@ -57,7 +58,7 @@ func TestUsageServiceGetUsageOverviewDelegatesToFilteredOverview(t *testing.T) {
 	start := time.Date(2026, 4, 16, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 16, 23, 59, 59, 0, time.UTC)
 	provider := NewUsageService(db)
-	overview, err := provider.GetUsageOverview(t.Context(), UsageFilter{Range: "24h", StartTime: &start, EndTime: &end})
+	overview, err := provider.GetUsageOverview(context.Background(), UsageFilter{Range: "24h", StartTime: &start, EndTime: &end})
 	if err != nil {
 		t.Fatalf("GetUsageOverview returned error: %v", err)
 	}
