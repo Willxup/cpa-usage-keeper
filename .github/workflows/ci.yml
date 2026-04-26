@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  backend:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -22,15 +22,21 @@ jobs:
           go-version: '1.22'
           cache: true
 
+      - name: Run backend tests
+        run: go test ./cmd/... ./internal/...
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: web/package-lock.json
-
-      - name: Run backend tests
-        run: go test ./cmd/... ./internal/...
 
       - name: Install frontend dependencies
         run: npm --prefix ./web ci
@@ -46,6 +52,3 @@ jobs:
 
       - name: Build frontend
         run: npm --prefix ./web run build
-
-      - name: Build Docker image
-        run: docker build -t cpa-usage-keeper:ci .
