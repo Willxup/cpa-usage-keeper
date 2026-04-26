@@ -21,7 +21,7 @@ type syncResultStub struct {
 	err    error
 }
 
-func (s *syncStub) SyncOnce(context.Context) error {
+func (s *syncStub) SyncOnce(ctx context.Context) error {
 	s.mu.Lock()
 	s.calls++
 	s.mu.Unlock()
@@ -29,7 +29,11 @@ func (s *syncStub) SyncOnce(context.Context) error {
 		s.started <- struct{}{}
 	}
 	if s.release != nil {
-		<-s.release
+		select {
+		case <-s.release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	return s.err
 }
@@ -126,39 +130,40 @@ func TestStatusRecordsCompletedWithWarningsResult(t *testing.T) {
 	}
 }
 
-func TestRunSkipsOverlappingSyncs(t *testing.T) {
+func TestSyncNowSkipsOverlappingSyncs(t *testing.T) {
 	syncer := &syncStub{
-		started: make(chan struct{}, 2),
-		release: make(chan struct{}, 2),
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}, 1),
 	}
-	ft := &fakeTicker{ch: make(chan time.Time, 2)}
 	p := New(syncer, time.Minute)
-	p.ticker = func(time.Duration) ticker { return ft }
-	p.now = time.Now
 
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- p.Run(ctx) }()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	firstSyncDone := make(chan error, 1)
+	go func() { firstSyncDone <- p.SyncNow(ctx) }()
 
 	select {
 	case <-syncer.started:
-	case <-time.After(2 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("expected initial sync to start")
 	}
 
-	ft.ch <- time.Now()
-	ft.ch <- time.Now()
-	time.Sleep(100 * time.Millisecond)
+	if err := p.SyncNow(ctx); !errors.Is(err, ErrSyncAlreadyRunning) {
+		t.Fatalf("expected overlapping sync to be skipped, got %v", err)
+	}
 	if syncer.CallCount() != 1 {
-		t.Fatalf("expected overlapping ticks to be skipped, got %d calls", syncer.CallCount())
+		t.Fatalf("expected no overlapping sync runs, got %d calls", syncer.CallCount())
 	}
 
 	syncer.release <- struct{}{}
-	cancel()
-	<-done
-
-	if syncer.CallCount() != 1 {
-		t.Fatalf("expected no overlapping sync runs, got %d calls", syncer.CallCount())
+	select {
+	case err := <-firstSyncDone:
+		if err != nil {
+			t.Fatalf("initial sync returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected initial sync to finish")
 	}
 }
 

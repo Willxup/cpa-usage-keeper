@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"math"
 	"path/filepath"
 	"testing"
 	"time"
@@ -71,7 +72,7 @@ func TestUsageServiceGetUsageOverviewDelegatesToFilteredOverview(t *testing.T) {
 	if overview.Series.Requests["2026-04-16T09:00:00Z"] != 1 || overview.Series.Requests["2026-04-16T10:00:00Z"] != 1 {
 		t.Fatalf("expected hourly request series values, got %+v", overview.Series)
 	}
-	if overview.Series.Cost["2026-04-16T09:00:00Z"] != 0.010230000000000001 || overview.Series.Cost["2026-04-16T10:00:00Z"] != 0.00525 {
+	if math.Abs(overview.Series.Cost["2026-04-16T09:00:00Z"]-0.01023) > 0.000000001 || math.Abs(overview.Series.Cost["2026-04-16T10:00:00Z"]-0.00525) > 0.000000001 {
 		t.Fatalf("expected hourly cost series values, got %+v", overview.Series)
 	}
 }

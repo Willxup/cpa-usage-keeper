@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"math"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -104,7 +105,7 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 	if overview.Summary.RPM != 3.0/2880.0 || overview.Summary.TPM != 5775.0/2880.0 {
 		t.Fatalf("unexpected summary rates: %+v", overview.Summary)
 	}
-	if overview.Summary.TotalCost != 0.035805 {
+	if math.Abs(overview.Summary.TotalCost-0.035805) > 0.000000001 {
 		t.Fatalf("unexpected summary cost: %+v", overview.Summary)
 	}
 	if !overview.Summary.CostAvailable {
@@ -123,7 +124,7 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 	if overview.Series.TPM["2026-04-16"] != 4950.0/1440.0 || overview.Series.TPM["2026-04-17"] != 825.0/1440.0 {
 		t.Fatalf("unexpected tpm series: %+v", overview.Series.TPM)
 	}
-	if overview.Series.Cost["2026-04-16"] != 0.03069 || overview.Series.Cost["2026-04-17"] != 0.005115000000000001 {
+	if math.Abs(overview.Series.Cost["2026-04-16"]-0.03069) > 0.000000001 || math.Abs(overview.Series.Cost["2026-04-17"]-0.005115) > 0.000000001 {
 		t.Fatalf("unexpected cost series: %+v", overview.Series.Cost)
 	}
 	if !reflect.DeepEqual(overview.Series.InputTokens, map[string]int64{"2026-04-16": 3000, "2026-04-17": 500}) {
