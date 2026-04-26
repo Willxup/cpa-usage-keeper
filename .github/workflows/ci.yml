@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Run backend tests
+        run: go test ./cmd/... ./internal/...
+
+      - name: Install frontend dependencies
+        run: npm --prefix ./web ci
+
+      - name: Run frontend tests
+        run: npm --prefix ./web run test
+
+      - name: Run frontend lint
+        run: npm --prefix ./web run lint
+
+      - name: Run frontend typecheck
+        run: npm --prefix ./web run typecheck
+
+      - name: Build frontend
+        run: npm --prefix ./web run build
+
+      - name: Build Docker image
+        run: docker build -t cpa-usage-keeper:ci .
