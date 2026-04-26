@@ -136,27 +136,36 @@ describe('UsagePage refresh action', () => {
 });
 
 describe('UsagePage sync action', () => {
-  it('triggers backend sync and refreshes active tab data', async () => {
-    let syncCalls = 0;
-    let refreshCalls = 0;
+  it('triggers backend sync, refreshes active tab data, and reloads status', async () => {
+    const calls: string[] = [];
     let receivedStatus: StatusResponse | null = null;
-    const status: StatusResponse = { running: true, sync_running: false, last_status: 'completed' };
+    const syncStatus: StatusResponse = { running: true, sync_running: false, last_status: 'completed' };
+    const refreshedStatus: StatusResponse = {
+      running: true,
+      sync_running: false,
+      last_status: 'completed',
+      last_run_at: '2026-04-26T13:00:00.000Z',
+    };
 
     await syncCpaData({
       triggerBackendSync: async () => {
-        syncCalls += 1;
-        return status;
+        calls.push('sync');
+        return syncStatus;
       },
       refreshActiveTab: async () => {
-        refreshCalls += 1;
+        calls.push('refresh');
+      },
+      refreshStatus: async () => {
+        calls.push('status');
+        return refreshedStatus;
       },
       onStatus: (status) => {
+        calls.push('set-status');
         receivedStatus = status;
       },
     });
 
-    expect(syncCalls).toBe(1);
-    expect(refreshCalls).toBe(1);
-    expect(receivedStatus).toBe(status);
+    expect(calls).toEqual(['sync', 'refresh', 'status', 'set-status']);
+    expect(receivedStatus).toBe(refreshedStatus);
   });
 });

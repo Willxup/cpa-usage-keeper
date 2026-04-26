@@ -126,6 +126,7 @@ type RefreshPageDataOptions = {
 type SyncCpaDataOptions = {
   triggerBackendSync: () => Promise<StatusResponse>;
   refreshActiveTab: () => Promise<void>;
+  refreshStatus: () => Promise<StatusResponse>;
   onStatus: (status: StatusResponse) => void;
 };
 
@@ -133,10 +134,11 @@ export const refreshPageData = async ({ refreshActiveTab }: RefreshPageDataOptio
   await refreshActiveTab();
 };
 
-export const syncCpaData = async ({ triggerBackendSync, refreshActiveTab, onStatus }: SyncCpaDataOptions) => {
-  const nextStatus = await triggerBackendSync();
-  onStatus(nextStatus);
+export const syncCpaData = async ({ triggerBackendSync, refreshActiveTab, refreshStatus, onStatus }: SyncCpaDataOptions) => {
+  await triggerBackendSync();
   await refreshActiveTab();
+  const nextStatus = await refreshStatus();
+  onStatus(nextStatus);
 };
 
 export const sanitizeRequestEventFilters = (
@@ -794,6 +796,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await syncCpaData({
         triggerBackendSync: triggerSync,
         refreshActiveTab,
+        refreshStatus: fetchStatus,
         onStatus: setStatus,
       });
       setStatusError('');
