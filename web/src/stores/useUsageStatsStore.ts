@@ -103,5 +103,5 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
 
     return activeRequest;
   },
-  clearUsageStats: () => set({ usage: null, error: '', loading: false, lastRefreshedAt: null, lastMode: null, lastQueryKey: null })
+  clearUsageStats: () => set({ usage: null, error: '', loading: false, lastRefreshedAt: null, lastQueryKey: null })
 }));

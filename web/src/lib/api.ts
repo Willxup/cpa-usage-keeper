@@ -198,6 +198,14 @@ export async function fetchStatus(signal?: AbortSignal): Promise<StatusResponse>
   return response.json()
 }
 
+export async function triggerSync(signal?: AbortSignal): Promise<StatusResponse> {
+  const response = await apiFetch(apiPath('/sync'), { method: 'POST', signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to start sync: ${response.status}`)
+  }
+  return response.json()
+}
+
 export async function fetchPricing(signal?: AbortSignal): Promise<PricingResponse> {
   const response = await apiFetch(apiPath('/pricing'), { signal })
   if (!response.ok) {
@@ -207,15 +215,25 @@ export async function fetchPricing(signal?: AbortSignal): Promise<PricingRespons
 }
 
 export async function updatePricing(model: string, pricing: Omit<PricingEntry, 'model'>): Promise<PricingEntry> {
-  const response = await apiFetch(apiPath(`/pricing/${encodeURIComponent(model)}`), {
+  const response = await apiFetch(apiPath('/pricing'), {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(pricing),
+    body: JSON.stringify({ model, ...pricing }),
   })
   if (!response.ok) {
     await parseApiError(response, `Failed to update pricing: ${response.status}`)
   }
   return response.json()
+}
+
+export async function deletePricing(model: string): Promise<void> {
+  const params = new URLSearchParams({ model })
+  const response = await apiFetch(`${apiPath('/pricing')}?${params.toString()}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to delete pricing: ${response.status}`)
+  }
 }

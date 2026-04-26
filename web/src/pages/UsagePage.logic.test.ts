@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { getUsageTabOptions, refreshPageData, sanitizeRequestEventFilters, syncCpaData } from './UsagePage';
 import { filterUsageByWindow, type UsageFilterWindow } from '@/utils/usage';
-import type { UsageSnapshot } from '@/lib/types';
+import type { StatusResponse, UsageSnapshot } from '@/lib/types';
 
 const usage: UsageSnapshot = {
   total_requests: 2,
@@ -76,5 +77,86 @@ describe('UsagePage range filtering bug', () => {
 
     expect(expected.total_requests).toBe(1);
     expect(actual.total_requests).toBe(expected.total_requests);
+  });
+});
+
+describe('UsagePage request event filters', () => {
+  it('clears model and source filters that are no longer available', () => {
+    const next = sanitizeRequestEventFilters(
+      {
+        model: 'claude-opus',
+        source: 'source-b',
+        result: 'failed',
+      },
+      {
+        models: ['claude-sonnet'],
+        sources: [{ value: 'source-a', label: 'Provider A' }],
+      },
+    );
+
+    expect(next).toEqual({
+      model: '__all__',
+      source: '__all__',
+      result: 'failed',
+    });
+  });
+});
+
+describe('UsagePage tab labels', () => {
+  it('resolves tab labels through translation keys', () => {
+    const labels = getUsageTabOptions((key) => `translated:${key}`).map((option) => option.label);
+
+    expect(labels).toEqual([
+      'translated:usage_stats.tab_overview',
+      'translated:usage_stats.tab_analysis',
+      'translated:usage_stats.tab_events',
+      'translated:usage_stats.tab_credentials',
+      'translated:usage_stats.tab_pricing',
+    ]);
+  });
+});
+
+describe('UsagePage refresh action', () => {
+  it('reloads page data without triggering backend sync', async () => {
+    let refreshCalls = 0;
+    let syncCalls = 0;
+
+    await refreshPageData({
+      refreshActiveTab: async () => {
+        refreshCalls += 1;
+      },
+      triggerBackendSync: async () => {
+        syncCalls += 1;
+      },
+    });
+
+    expect(refreshCalls).toBe(1);
+    expect(syncCalls).toBe(0);
+  });
+});
+
+describe('UsagePage sync action', () => {
+  it('triggers backend sync and refreshes active tab data', async () => {
+    let syncCalls = 0;
+    let refreshCalls = 0;
+    let receivedStatus: StatusResponse | null = null;
+    const status: StatusResponse = { running: true, sync_running: false, last_status: 'completed' };
+
+    await syncCpaData({
+      triggerBackendSync: async () => {
+        syncCalls += 1;
+        return status;
+      },
+      refreshActiveTab: async () => {
+        refreshCalls += 1;
+      },
+      onStatus: (status) => {
+        receivedStatus = status;
+      },
+    });
+
+    expect(syncCalls).toBe(1);
+    expect(refreshCalls).toBe(1);
+    expect(receivedStatus).toBe(status);
   });
 });

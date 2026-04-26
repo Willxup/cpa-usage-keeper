@@ -31,6 +31,11 @@ function PriceSettingsTitle({ title, subtitle, eyebrow }: { title: string; subti
   );
 }
 
+const parsePriceValue = (value: string): number | null => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+};
+
 export function PriceSettingsCard({
   modelNames,
   modelPrices,
@@ -53,9 +58,10 @@ export function PriceSettingsCard({
 
   const handleSavePrice = () => {
     if (!selectedModel) return;
-    const prompt = parseFloat(promptPrice) || 0;
-    const completion = parseFloat(completionPrice) || 0;
-    const cache = cachePrice.trim() === '' ? prompt : parseFloat(cachePrice) || 0;
+    const prompt = parsePriceValue(promptPrice);
+    const completion = parsePriceValue(completionPrice);
+    const cache = cachePrice.trim() === '' ? prompt : parsePriceValue(cachePrice);
+    if (prompt === null || completion === null || cache === null) return;
     const newPrices = { ...modelPrices, [selectedModel]: { prompt, completion, cache } };
     onPricesChange(newPrices);
     setSelectedModel('');
@@ -80,9 +86,10 @@ export function PriceSettingsCard({
 
   const handleSaveEdit = () => {
     if (!editModel) return;
-    const prompt = parseFloat(editPrompt) || 0;
-    const completion = parseFloat(editCompletion) || 0;
-    const cache = editCache.trim() === '' ? prompt : parseFloat(editCache) || 0;
+    const prompt = parsePriceValue(editPrompt);
+    const completion = parsePriceValue(editCompletion);
+    const cache = editCache.trim() === '' ? prompt : parsePriceValue(editCache);
+    if (prompt === null || completion === null || cache === null) return;
     const newPrices = { ...modelPrices, [editModel]: { prompt, completion, cache } };
     onPricesChange(newPrices);
     setEditModel(null);

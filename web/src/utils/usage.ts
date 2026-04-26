@@ -1,3 +1,5 @@
+import type { UsageFilterWindow, UsageTimeRange } from '@/lib/types';
+import type { UsagePayload } from '@/components/usage/hooks/useUsageData';
 import {
   LATENCY_SOURCE_FIELD,
   LATENCY_SOURCE_UNIT,
@@ -14,7 +16,8 @@ export {
   calculateLatencyStatsFromDetails,
   formatDurationMs
 };
-export type { UsageSnapshot as UsagePayload, UsageTimeRange, UsageFilterWindow } from '@/lib/types';
+export type { UsageTimeRange, UsageFilterWindow } from '@/lib/types';
+export type { UsagePayload } from '@/components/usage/hooks/useUsageData';
 
 export interface ModelPrice {
   prompt: number;
@@ -189,18 +192,6 @@ const resolveHourlyChartEndMs = (details: UsageDetailRecord[], _hourWindowHours?
   if (requestedEndMs !== undefined) return requestedEndMs;
   if (!details.length) return undefined;
   return getDetailTimestampBounds(details)?.latestMs;
-};
-
-const getHourBucketIndex = (timestamp: number, hourWindowHours?: number): { index: number; labels: string[] } | null => {
-  if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
-  const { earliestTime, lastBucketTime, hourMs, labels } = buildHourlyWindow(hourWindowHours);
-  const normalized = new Date(timestamp);
-  normalized.setMinutes(0, 0, 0);
-  const bucketStart = normalized.getTime();
-  if (bucketStart < earliestTime || bucketStart > lastBucketTime) return null;
-  const index = Math.floor((bucketStart - earliestTime) / hourMs);
-  if (index < 0 || index >= labels.length) return null;
-  return { index, labels };
 };
 
 const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
@@ -798,6 +789,11 @@ export function calculateServiceHealthData(details: UsageDetailRecord[]): Servic
     totalSuccess,
     totalFailure,
     successRate: total > 0 ? (totalSuccess / total) * 100 : 0,
+    rows: rowCount,
+    columns: blockCount,
+    bucketSeconds: Math.floor(windowMs / 1000),
+    windowStart: oldestWindowStart,
+    windowEnd: newestWindowEnd,
     blockDetails
   };
 }
@@ -822,7 +818,8 @@ export function buildUsageFromDetails(details: UsageDetailRecord[]): UsagePayloa
     const dayKey = startOfDayKey(detail.timestamp);
     const hourKey = startOfHourKey(detail.timestamp);
 
-    const api = usage.apis[apiName] ?? {
+    const apis = usage.apis ?? (usage.apis = {});
+    const api = apis[apiName] ?? {
       display_name: detail.__apiDisplayName || apiName,
       total_requests: 0,
       success_count: 0,
@@ -838,24 +835,25 @@ export function buildUsageFromDetails(details: UsageDetailRecord[]): UsagePayloa
       details: []
     };
 
-    usage.total_requests += 1;
-    usage.total_tokens += tokens;
+    usage.total_requests = (usage.total_requests ?? 0) + 1;
+    usage.total_tokens = (usage.total_tokens ?? 0) + tokens;
     api.total_requests += 1;
     api.total_tokens += tokens;
     model.total_requests += 1;
     model.total_tokens += tokens;
 
     if (detail.failed) {
-      usage.failure_count += 1;
+      usage.failure_count = (usage.failure_count ?? 0) + 1;
       api.failure_count += 1;
       model.failure_count += 1;
     } else {
-      usage.success_count += 1;
+      usage.success_count = (usage.success_count ?? 0) + 1;
       api.success_count += 1;
       model.success_count += 1;
     }
 
-    model.details.push({
+    const modelDetails = model.details ?? (model.details = []);
+    modelDetails.push({
       timestamp: detail.timestamp,
       latency_ms: toNumber(detail.latency_ms),
       source: detail.source ?? '',
@@ -874,13 +872,17 @@ export function buildUsageFromDetails(details: UsageDetailRecord[]): UsagePayloa
       }
     });
 
-    usage.requests_by_day[dayKey] = (usage.requests_by_day[dayKey] ?? 0) + 1;
-    usage.requests_by_hour[hourKey] = (usage.requests_by_hour[hourKey] ?? 0) + 1;
-    usage.tokens_by_day[dayKey] = (usage.tokens_by_day[dayKey] ?? 0) + tokens;
-    usage.tokens_by_hour[hourKey] = (usage.tokens_by_hour[hourKey] ?? 0) + tokens;
+    const requestsByDay = usage.requests_by_day ?? (usage.requests_by_day = {});
+    const requestsByHour = usage.requests_by_hour ?? (usage.requests_by_hour = {});
+    const tokensByDay = usage.tokens_by_day ?? (usage.tokens_by_day = {});
+    const tokensByHour = usage.tokens_by_hour ?? (usage.tokens_by_hour = {});
+    requestsByDay[dayKey] = (requestsByDay[dayKey] ?? 0) + 1;
+    requestsByHour[hourKey] = (requestsByHour[hourKey] ?? 0) + 1;
+    tokensByDay[dayKey] = (tokensByDay[dayKey] ?? 0) + tokens;
+    tokensByHour[hourKey] = (tokensByHour[hourKey] ?? 0) + tokens;
 
     api.models[modelName] = model;
-    usage.apis[apiName] = api;
+    apis[apiName] = api;
   });
 
   return usage;

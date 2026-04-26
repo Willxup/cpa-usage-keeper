@@ -44,7 +44,7 @@ export function collectUsageEvents(usage: UsageSnapshot): UsageEventWithNames[] 
 
   for (const [apiName, api] of Object.entries(usage.apis)) {
     for (const [modelName, model] of Object.entries(api.models)) {
-      for (const detail of model.details) {
+      for (const detail of model.details ?? []) {
         events.push({
           ...detail,
           apiName,
@@ -110,7 +110,8 @@ export function filterUsageSnapshot(usage: UsageSnapshot, range: UsageTimeRange)
 
     model.total_requests += 1
     model.total_tokens += event.tokens.total_tokens
-    model.details.push({
+    const modelDetails = model.details ?? (model.details = [])
+    modelDetails.push({
       timestamp: event.timestamp,
       latency_ms: event.latency_ms,
       source: event.source,
@@ -228,7 +229,7 @@ export function buildApiSummary(usage: UsageSnapshot, pricing: PricingEntry[]): 
     .map(([apiName, api]) => {
       const models = Object.entries(api.models)
         .map(([modelName, model]) => {
-          const detailEvents = model.details.map((detail) => ({ ...detail, apiName, modelName }))
+          const detailEvents = (model.details ?? []).map((detail) => ({ ...detail, apiName, modelName }))
           const totalCost = detailEvents.reduce((sum, event) => sum + calculateEventCost(event, priceMap), 0)
           return {
             modelName,
@@ -261,9 +262,10 @@ export function buildModelSummary(usage: UsageSnapshot, pricing: PricingEntry[])
   return Object.entries(usage.apis)
     .flatMap(([apiName, api]) =>
       Object.entries(api.models).map(([modelName, model]) => {
-        const latencyValues = model.details.map((detail) => detail.latency_ms).filter((value) => Number.isFinite(value))
+        const details = model.details ?? []
+        const latencyValues = details.map((detail) => detail.latency_ms).filter((value) => Number.isFinite(value))
         const totalLatencyMs = latencyValues.reduce((sum, value) => sum + value, 0)
-        const totalCost = model.details
+        const totalCost = details
           .map((detail) => ({ ...detail, apiName, modelName }))
           .reduce((sum, event) => sum + calculateEventCost(event, priceMap), 0)
 
@@ -359,7 +361,7 @@ export function buildTokenBreakdown(usage: UsageSnapshot): TokenBreakdown {
   return Object.values(usage.apis).reduce(
     (totals, api) => {
       for (const model of Object.values(api.models)) {
-        for (const detail of model.details) {
+        for (const detail of model.details ?? []) {
           totals.inputTokens += detail.tokens.input_tokens
           totals.outputTokens += detail.tokens.output_tokens
           totals.reasoningTokens += detail.tokens.reasoning_tokens

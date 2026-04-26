@@ -1,8 +1,14 @@
+export interface AuthSessionResponse {
+  authenticated: boolean
+}
+
 export interface StatusResponse {
   running: boolean
   sync_running: boolean
   last_run_at?: string
   last_error?: string
+  last_warning?: string
+  last_status?: string
 }
 
 export interface UsageTokenStats {

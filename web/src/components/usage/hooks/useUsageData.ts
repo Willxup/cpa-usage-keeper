@@ -1,24 +1,13 @@
 import { useEffect, useCallback } from 'react';
 import { ApiError } from '@/lib/api';
-import type { UsageOverviewResponse, UsageTimeRange } from '@/lib/types';
+import type { UsageOverviewResponse, UsageSnapshot, UsageTimeRange } from '@/lib/types';
 import { USAGE_STATS_STALE_TIME_MS, useUsageStatsStore } from '@/stores';
 
-export interface UsagePayload {
-  total_requests?: number;
-  success_count?: number;
-  failure_count?: number;
-  total_tokens?: number;
-  apis?: Record<string, unknown>;
-  requests_by_day?: Record<string, number>;
-  requests_by_hour?: Record<string, number>;
-  tokens_by_day?: Record<string, number>;
-  tokens_by_hour?: Record<string, number>;
-  [key: string]: unknown;
-}
+export type UsagePayload = Partial<UsageSnapshot>;
 
-export interface UsageOverviewPayload extends UsageOverviewResponse {
+export type UsageOverviewPayload = Omit<UsageOverviewResponse, 'usage'> & {
   usage: UsagePayload;
-}
+};
 
 export interface UseUsageDataReturn {
   usage: UsageOverviewPayload | null;

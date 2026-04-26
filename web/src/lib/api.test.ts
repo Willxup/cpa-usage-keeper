@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchUsageEventFilterOptions, fetchUsageEvents } from './api';
+import { fetchUsageEventFilterOptions, fetchUsageEvents, triggerSync } from './api';
 
 describe('fetchUsageEvents', () => {
   afterEach(() => {
@@ -63,5 +63,23 @@ describe('fetchUsageEvents', () => {
     expect(parsed.searchParams.get('result')).toBe('failed');
     expect(parsed.searchParams.get('auth_index')).toBeNull();
     expect(init).toMatchObject({ credentials: 'include', signal });
+  });
+
+  it('posts to the manual sync endpoint', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ running: true, sync_running: false, last_status: 'completed' }),
+    } as Response);
+    const signal = new AbortController().signal;
+
+    const response = await triggerSync(signal);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(url), 'http://localhost');
+
+    expect(response.last_status).toBe('completed');
+    expect(parsed.pathname).toBe('/api/v1/sync');
+    expect(init).toMatchObject({ credentials: 'include', method: 'POST', signal });
   });
 });

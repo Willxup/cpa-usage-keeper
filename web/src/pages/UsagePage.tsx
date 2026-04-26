@@ -14,7 +14,7 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { ApiError, fetchStatus, fetchUsageAnalysis, fetchUsageCredentials, fetchUsageEventFilterOptions, fetchUsageEvents } from '@/lib/api';
+import { ApiError, fetchStatus, fetchUsageAnalysis, fetchUsageCredentials, fetchUsageEventFilterOptions, fetchUsageEvents, triggerSync } from '@/lib/api';
 import type { StatusResponse, UsageAnalysisResponse, UsageCredential, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -22,7 +22,7 @@ import { Select } from '@/components/ui/Select';
 import { IconRefreshCw } from '@/components/ui/icons';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
-import { useThemeStore, useConfigStore } from '@/stores';
+import { useThemeStore } from '@/stores';
 import {
   StatCards,
   UsageChart,
@@ -43,8 +43,6 @@ import {
 } from '@/components/usage';
 import {
   getModelNamesFromUsage,
-  getApiStats,
-  getModelStats,
   resolveUsageFilterWindow,
   sanitizeChartLines,
   type UsageFilterWindow,
@@ -95,11 +93,68 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
 ];
 const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'credentials', 'pricing'] as const;
 type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];
+type Translate = (key: string) => string;
+const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
+  overview: 'usage_stats.tab_overview',
+  analysis: 'usage_stats.tab_analysis',
+  events: 'usage_stats.tab_events',
+  credentials: 'usage_stats.tab_credentials',
+  pricing: 'usage_stats.tab_pricing',
+};
 const DEFAULT_USAGE_TAB: UsageTab = 'overview';
 const USAGE_TAB_STORAGE_KEY = 'cli-proxy-usage-tab-v1';
 const REQUEST_EVENTS_PAGE_SIZES = [20, 50, 100, 500, 1000] as const;
 const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 100;
 const ALL_REQUEST_EVENTS_FILTER = '__all__';
+
+type RequestEventFilterState = {
+  model: string;
+  source: string;
+  result: string;
+};
+
+type RequestEventFilterOptionsState = {
+  models: string[];
+  sources: UsageSourceFilterOption[];
+};
+
+type RefreshPageDataOptions = {
+  refreshActiveTab: () => Promise<void>;
+  triggerBackendSync?: () => Promise<void>;
+};
+
+type SyncCpaDataOptions = {
+  triggerBackendSync: () => Promise<StatusResponse>;
+  refreshActiveTab: () => Promise<void>;
+  onStatus: (status: StatusResponse) => void;
+};
+
+export const refreshPageData = async ({ refreshActiveTab }: RefreshPageDataOptions) => {
+  await refreshActiveTab();
+};
+
+export const syncCpaData = async ({ triggerBackendSync, refreshActiveTab, onStatus }: SyncCpaDataOptions) => {
+  const nextStatus = await triggerBackendSync();
+  onStatus(nextStatus);
+  await refreshActiveTab();
+};
+
+export const sanitizeRequestEventFilters = (
+  filters: RequestEventFilterState,
+  options: RequestEventFilterOptionsState,
+): RequestEventFilterState => {
+  const model = filters.model === ALL_REQUEST_EVENTS_FILTER || options.models.includes(filters.model)
+    ? filters.model
+    : ALL_REQUEST_EVENTS_FILTER;
+  const source = filters.source === ALL_REQUEST_EVENTS_FILTER || options.sources.some((option) => option.value === filters.source)
+    ? filters.source
+    : ALL_REQUEST_EVENTS_FILTER;
+  const result = filters.result === 'success' || filters.result === 'failed'
+    ? filters.result
+    : ALL_REQUEST_EVENTS_FILTER;
+
+  return { model, source, result };
+};
 
 const isUsageTimeRange = (value: unknown): value is UsageTimeRange =>
   value === '4h' || value === '8h' || value === '12h' || value === '24h' || value === '7d' || value === 'all' || value === 'custom';
@@ -200,6 +255,12 @@ const loadTimeRange = (): UsageTimeRange => {
 const isUsageTab = (value: unknown): value is UsageTab =>
   typeof value === 'string' && USAGE_TAB_OPTIONS.includes(value as UsageTab);
 
+export const getUsageTabOptions = (translate: Translate): Array<{ value: UsageTab; label: string }> =>
+  USAGE_TAB_OPTIONS.map((value) => ({
+    value,
+    label: translate(USAGE_TAB_LABEL_KEYS[value]),
+  }));
+
 const loadUsageTab = (): UsageTab => {
   try {
     if (typeof localStorage === 'undefined') {
@@ -220,8 +281,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const setTheme = useThemeStore((state) => state.setTheme);
   const isDark = resolvedTheme === 'dark';
-  const config = useConfigStore((state) => state.config);
-
   const [activeTab, setActiveTab] = useState<UsageTab>(loadUsageTab);
   const [chartLines, setChartLines] = useState<string[]>(loadChartLines);
   const [timeRange, setTimeRange] = useState<UsageTimeRange>(loadTimeRange);
@@ -246,7 +305,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     modelPrices,
     loading: pricingLoading,
     error: pricingError,
-    lastRefreshedAt: pricingLastRefreshedAt,
     loadPricing,
     setModelPrices,
   } = usePricingData({
@@ -273,6 +331,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const eventsFilterOptionsRequestControllerRef = useRef<AbortController | null>(null);
   const loadedEventsFilterOptionsKeyRef = useRef('');
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
+  const [manualSyncLoading, setManualSyncLoading] = useState(false);
   const [credentialsLoading, setCredentialsLoading] = useState(false);
   const [credentialsError, setCredentialsError] = useState('');
   const [credentialsData, setCredentialsData] = useState<UsageCredential[]>([]);
@@ -280,9 +339,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
   const [analysisData, setAnalysisData] = useState<UsageAnalysisResponse>({ apis: [], models: [] });
-  const [analysisLastRefreshedAt, setAnalysisLastRefreshedAt] = useState<Date | null>(null);
+  const [, setAnalysisLastRefreshedAt] = useState<Date | null>(null);
   const analysisRequestControllerRef = useRef<AbortController | null>(null);
 
+  const tabOptions = useMemo(() => getUsageTabOptions(t), [t]);
   const timeRangeOptions = useMemo(
     () =>
       TIME_RANGE_OPTIONS.map((opt) => ({
@@ -302,7 +362,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
   const filterWindow = useMemo<UsageFilterWindow>(() => {
     if (!usage) return {};
-    return resolveUsageFilterWindow(usage, timeRange, {
+    return resolveUsageFilterWindow(usage.usage, timeRange, {
       nowMs: lastRefreshedAt?.getTime() ?? Date.now(),
       customStart:
         timeRange === 'custom' ? parseCustomDateStart(customTimeRange.start) : customTimeRange.start,
@@ -459,15 +519,17 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [customTimeRange.end, customTimeRange.start, lastRefreshedAt, timeRange]);
 
   useEffect(() => {
-    let cancelled = false;
+    let controller: AbortController | null = null;
     const loadStatus = async () => {
+      controller?.abort();
+      const requestController = new AbortController();
+      controller = requestController;
       try {
-        const status: StatusResponse = await fetchStatus();
-        if (cancelled) return;
+        const status: StatusResponse = await fetchStatus(requestController.signal);
         setStatus(status);
         setStatusError(status.last_error || '');
       } catch (error) {
-        if (cancelled) return;
+        if (requestController.signal.aborted) return;
         if (error instanceof ApiError && error.status === 401) {
           onAuthRequired?.();
           return;
@@ -479,7 +541,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       void loadStatus();
     }, 30_000);
     return () => {
-      cancelled = true;
+      controller?.abort();
       window.clearInterval(timer);
     };
   }, [onAuthRequired]);
@@ -714,11 +776,37 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const handleManualRefresh = useCallback(async () => {
     setManualRefreshLoading(true);
     try {
-      await refreshActiveTab();
+      await refreshPageData({ refreshActiveTab });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      setStatusError(error instanceof Error ? error.message : t('notification.refresh_failed'));
     } finally {
       setManualRefreshLoading(false);
     }
-  }, [refreshActiveTab]);
+  }, [onAuthRequired, refreshActiveTab, t]);
+
+  const handleManualSync = useCallback(async () => {
+    setManualSyncLoading(true);
+    try {
+      await syncCpaData({
+        triggerBackendSync: triggerSync,
+        refreshActiveTab,
+        onStatus: setStatus,
+      });
+      setStatusError('');
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      setStatusError(error instanceof Error ? error.message : t('notification.refresh_failed'));
+    } finally {
+      setManualSyncLoading(false);
+    }
+  }, [onAuthRequired, refreshActiveTab, t]);
 
   useHeaderRefresh(refreshActiveTab);
 
@@ -769,6 +857,33 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     };
   }, [activeTab, loadAnalysis]);
 
+  useEffect(() => {
+    const next = sanitizeRequestEventFilters(
+      {
+        model: eventsModelFilter,
+        source: eventsSourceFilter,
+        result: eventsResultFilter,
+      },
+      {
+        models: eventsModelOptions,
+        sources: eventsSourceOptions,
+      },
+    );
+
+    if (next.model !== eventsModelFilter) {
+      setEventsModelFilter(next.model);
+    }
+    if (next.source !== eventsSourceFilter) {
+      setEventsSourceFilter(next.source);
+    }
+    if (next.result !== eventsResultFilter) {
+      setEventsResultFilter(next.result);
+    }
+    if (next.model !== eventsModelFilter || next.source !== eventsSourceFilter || next.result !== eventsResultFilter) {
+      resetEventsPage();
+    }
+  }, [eventsModelFilter, eventsModelOptions, eventsResultFilter, eventsSourceFilter, eventsSourceOptions, resetEventsPage]);
+
   const handleLanguageChange = useCallback(async (language: 'en' | 'zh') => {
     if (currentLanguage === language) return;
     await i18n.changeLanguage(language);
@@ -781,8 +896,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }, [status?.last_run_at]);
   const showRangeControls = activeTab !== 'pricing';
-  const nowMs = filterWindowEndMs;
-
   const {
     requestsSparkline,
     tokensSparkline,
@@ -914,6 +1027,17 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 );
               })}
             </div>
+            <div className={styles.syncSwitcher} role="group" aria-label={t('usage_stats.sync_now')}>
+              <button
+                type="button"
+                className={styles.syncPill}
+                onClick={() => void handleManualSync()}
+                disabled={manualSyncLoading}
+                title={t('usage_stats.sync_now')}
+              >
+                {manualSyncLoading ? t('common.loading') : t('usage_stats.sync_now')}
+              </button>
+            </div>
           </div>
         </header>
 
@@ -937,52 +1061,19 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             )}
 
             <div className={styles.toolbarRow}>
-              <div className={styles.tabBar} role="tablist" aria-label="Usage sections">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === 'overview'}
-                  className={`${styles.tabPill} ${activeTab === 'overview' ? styles.tabPillActive : ''}`.trim()}
-                  onClick={() => setActiveTab('overview')}
-                >
-                  Overview
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === 'analysis'}
-                  className={`${styles.tabPill} ${activeTab === 'analysis' ? styles.tabPillActive : ''}`.trim()}
-                  onClick={() => setActiveTab('analysis')}
-                >
-                  API & Models
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === 'events'}
-                  className={`${styles.tabPill} ${activeTab === 'events' ? styles.tabPillActive : ''}`.trim()}
-                  onClick={() => setActiveTab('events')}
-                >
-                  Request Events
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === 'credentials'}
-                  className={`${styles.tabPill} ${activeTab === 'credentials' ? styles.tabPillActive : ''}`.trim()}
-                  onClick={() => setActiveTab('credentials')}
-                >
-                  Credentials
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === 'pricing'}
-                  className={`${styles.tabPill} ${activeTab === 'pricing' ? styles.tabPillActive : ''}`.trim()}
-                  onClick={() => setActiveTab('pricing')}
-                >
-                  Pricing
-                </button>
+              <div className={styles.tabBar} role="tablist" aria-label={t('usage_stats.tabs_aria_label')}>
+                {tabOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === option.value}
+                    className={`${styles.tabPill} ${activeTab === option.value ? styles.tabPillActive : ''}`.trim()}
+                    onClick={() => setActiveTab(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
               </div>
 
               <div className={styles.toolbarActionsRight}>
@@ -1116,6 +1207,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   isDark={isDark}
                   isMobile={isMobile}
                   hourWindowHours={hourWindowHours}
+                  endMs={filterWindowEndMs}
                 />
 
                 <CostTrendChart

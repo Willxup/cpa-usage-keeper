@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError, fetchPricing, fetchUsedModels, updatePricing } from '@/lib/api';
+import { ApiError, deletePricing, fetchPricing, fetchUsedModels, updatePricing } from '@/lib/api';
 import { useNotificationStore } from '@/stores';
 import { loadModelPrices, saveModelPrices, type ModelPrice } from '@/utils/usage';
 
@@ -102,15 +102,20 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
     saveModelPrices(prices);
 
     try {
-      await Promise.all(
-        Object.entries(prices).map(([model, pricing]) =>
+      const previousModels = new Set(Object.keys(previousPrices));
+      const nextModels = new Set(Object.keys(prices));
+      await Promise.all([
+        ...Object.entries(prices).map(([model, pricing]) =>
           updatePricing(model, {
             prompt_price_per_1m: pricing.prompt,
             completion_price_per_1m: pricing.completion,
             cache_price_per_1m: pricing.cache,
           })
-        )
-      );
+        ),
+        ...Array.from(previousModels)
+          .filter((model) => !nextModels.has(model))
+          .map((model) => deletePricing(model)),
+      ]);
       setLastRefreshedAt(new Date());
     } catch (error) {
       setModelPricesState(previousPrices);

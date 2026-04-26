@@ -6,7 +6,7 @@ export interface ProviderKeyConfig {
   name?: string;
 }
 
-export interface GeminiKeyConfig extends ProviderKeyConfig {}
+export type GeminiKeyConfig = ProviderKeyConfig;
 
 export interface OpenAIApiKeyEntry {
   apiKey: string;
