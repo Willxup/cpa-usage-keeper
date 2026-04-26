@@ -126,7 +126,7 @@ func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageP
 
 		overview, err := usageProvider.GetUsageOverview(c.Request.Context(), filter)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalError(c, "get usage overview failed", err)
 			return
 		}
 

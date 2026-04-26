@@ -2,11 +2,14 @@ package api
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"cpa-usage-keeper/internal/poller"
@@ -15,9 +18,30 @@ import (
 )
 
 const appBasePathPlaceholder = "__APP_BASE_PATH__"
+const manualSyncRateLimitWindow = time.Second
+
+type syncLimiter struct {
+	mu       sync.Mutex
+	window   time.Duration
+	lastSync time.Time
+}
+
+func (l *syncLimiter) allow(now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !l.lastSync.IsZero() && now.Sub(l.lastSync) < l.window {
+		return false
+	}
+	l.lastSync = now
+	return true
+}
 
 type StatusProvider interface {
 	Status() poller.Status
+}
+
+type SyncRunner interface {
+	SyncNow(ctx context.Context) error
 }
 
 func NewRouter(
@@ -51,6 +75,7 @@ func NewRouter(
 	protected := apiV1.Group("")
 	protected.Use(authHandler.middleware())
 	registerStatusRoutes(protected, statusProvider)
+	registerSyncRoutes(protected, statusProvider, &syncLimiter{window: manualSyncRateLimitWindow})
 	registerUsageOverviewRoute(protected, usageProvider)
 	registerUsageAnalysisRoute(protected, usageProvider)
 	registerUsageEventsRoute(protected, usageProvider, authFileProvider, providerMetadataProvider)
@@ -143,6 +168,8 @@ type statusResponse struct {
 	SyncRunning bool       `json:"sync_running"`
 	LastRunAt   *time.Time `json:"last_run_at,omitempty"`
 	LastError   string     `json:"last_error,omitempty"`
+	LastWarning string     `json:"last_warning,omitempty"`
+	LastStatus  string     `json:"last_status,omitempty"`
 }
 
 func registerStatusRoutes(router gin.IRoutes, statusProvider StatusProvider) {
@@ -152,17 +179,53 @@ func registerStatusRoutes(router gin.IRoutes, statusProvider StatusProvider) {
 			return
 		}
 
-		status := statusProvider.Status()
-		response := statusResponse{
-			Running:     status.Running,
-			SyncRunning: status.SyncRunning,
-			LastError:   status.LastError,
-		}
-		if !status.LastRunAt.IsZero() {
-			lastRunAt := status.LastRunAt.UTC()
-			response.LastRunAt = &lastRunAt
+		c.JSON(http.StatusOK, buildStatusResponse(statusProvider.Status()))
+	})
+}
+
+func registerSyncRoutes(router gin.IRoutes, statusProvider StatusProvider, limiter *syncLimiter) {
+	router.POST("/sync", func(c *gin.Context) {
+		if limiter != nil && !limiter.allow(time.Now()) {
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "sync rate limit exceeded"})
+			return
 		}
 
-		c.JSON(http.StatusOK, response)
+		syncRunner, ok := statusProvider.(SyncRunner)
+		if !ok || syncRunner == nil {
+			writeInternalError(c, "sync runner is not configured", nil)
+			return
+		}
+
+		if err := syncRunner.SyncNow(c.Request.Context()); err != nil {
+			if errors.Is(err, poller.ErrSyncAlreadyRunning) {
+				c.JSON(http.StatusConflict, gin.H{"error": "sync already running"})
+				return
+			}
+			if !errors.Is(err, poller.ErrSyncCompletedWithWarnings) {
+				writeInternalError(c, "manual sync failed", err)
+				return
+			}
+		}
+
+		if statusProvider, ok := syncRunner.(StatusProvider); ok {
+			c.JSON(http.StatusOK, buildStatusResponse(statusProvider.Status()))
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"sync_running": false})
 	})
+}
+
+func buildStatusResponse(status poller.Status) statusResponse {
+	response := statusResponse{
+		Running:     status.Running,
+		SyncRunning: status.SyncRunning,
+		LastError:   status.LastError,
+		LastWarning: status.LastWarning,
+		LastStatus:  status.LastStatus,
+	}
+	if !status.LastRunAt.IsZero() {
+		lastRunAt := status.LastRunAt.UTC()
+		response.LastRunAt = &lastRunAt
+	}
+	return response
 }

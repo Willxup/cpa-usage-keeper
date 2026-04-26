@@ -57,7 +57,7 @@ func registerUsageAnalysisRoute(router gin.IRoutes, usageProvider service.UsageP
 
 		analysis, err := usageProvider.GetUsageAnalysis(c.Request.Context(), filter)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalError(c, "get usage analysis failed", err)
 			return
 		}
 

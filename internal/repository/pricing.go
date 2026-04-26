@@ -89,3 +89,17 @@ func UpsertModelPriceSetting(db *gorm.DB, input ModelPriceSettingInput) (*models
 
 	return setting, nil
 }
+
+func DeleteModelPriceSetting(db *gorm.DB, model string) error {
+	if db == nil {
+		return fmt.Errorf("database is nil")
+	}
+	modelName := strings.TrimSpace(model)
+	if modelName == "" {
+		return fmt.Errorf("model is required")
+	}
+	if err := db.Where("model = ?", modelName).Delete(&models.ModelPriceSetting{}).Error; err != nil {
+		return fmt.Errorf("delete pricing setting: %w", err)
+	}
+	return nil
+}

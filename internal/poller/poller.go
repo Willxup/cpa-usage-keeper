@@ -2,6 +2,7 @@ package poller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -10,6 +11,13 @@ import (
 type Syncer interface {
 	SyncOnce(ctx context.Context) error
 }
+
+type StatusSyncer interface {
+	SyncStatus(ctx context.Context) (string, error)
+}
+
+var ErrSyncAlreadyRunning = errors.New("sync already running")
+var ErrSyncCompletedWithWarnings = errors.New("sync completed with warnings")
 
 type Poller struct {
 	interval time.Duration
@@ -21,6 +29,8 @@ type Poller struct {
 	running     bool
 	lastRunAt   time.Time
 	lastError   string
+	lastWarning string
+	lastStatus  string
 	syncRunning bool
 }
 
@@ -28,6 +38,8 @@ type Status struct {
 	Running     bool
 	LastRunAt   time.Time
 	LastError   string
+	LastWarning string
+	LastStatus  string
 	SyncRunning bool
 }
 
@@ -96,15 +108,21 @@ func (p *Poller) Status() Status {
 		Running:     p.running,
 		LastRunAt:   p.lastRunAt,
 		LastError:   p.lastError,
+		LastWarning: p.lastWarning,
+		LastStatus:  p.lastStatus,
 		SyncRunning: p.syncRunning,
 	}
 }
 
-func (p *Poller) runSync(ctx context.Context) {
+func (p *Poller) SyncNow(ctx context.Context) error {
+	return p.runSync(ctx)
+}
+
+func (p *Poller) runSync(ctx context.Context) error {
 	p.mu.Lock()
 	if p.syncRunning {
 		p.mu.Unlock()
-		return
+		return ErrSyncAlreadyRunning
 	}
 	p.syncRunning = true
 	p.mu.Unlock()
@@ -115,16 +133,31 @@ func (p *Poller) runSync(ctx context.Context) {
 		p.mu.Unlock()
 	}()
 
-	err := p.syncer.SyncOnce(ctx)
+	lastStatus := ""
+	var err error
+	if statusSyncer, ok := p.syncer.(StatusSyncer); ok {
+		lastStatus, err = statusSyncer.SyncStatus(ctx)
+	} else {
+		err = p.syncer.SyncOnce(ctx)
+	}
 
 	p.mu.Lock()
 	p.lastRunAt = p.now().UTC()
-	if err != nil {
+	p.lastStatus = lastStatus
+	p.lastWarning = ""
+	if err != nil && lastStatus != "" {
+		p.lastWarning = err.Error()
+		p.lastError = ""
+	} else if err != nil {
 		p.lastError = err.Error()
 	} else {
 		p.lastError = ""
 	}
 	p.mu.Unlock()
+	if err != nil && lastStatus != "" {
+		return fmt.Errorf("%w: %v", ErrSyncCompletedWithWarnings, err)
+	}
+	return err
 }
 
 func (p *Poller) setRunning(running bool) {

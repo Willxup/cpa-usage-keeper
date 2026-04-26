@@ -35,6 +35,13 @@ type stubBackupWriter struct {
 	calls   int
 }
 
+type stubBackupCleaner struct {
+	retentionDays int
+	now           time.Time
+	err           error
+	calls         int
+}
+
 func (s stubExportFetcher) FetchUsageExport(context.Context) (*cpa.ExportResult, error) {
 	return s.result, s.err
 }
@@ -60,6 +67,13 @@ func (s *stubBackupWriter) Write(_ uint, _ time.Time, payload []byte) (string, e
 		return "", s.err
 	}
 	return s.path, nil
+}
+
+func (s *stubBackupCleaner) Cleanup(retentionDays int, now time.Time) (int, error) {
+	s.calls++
+	s.retentionDays = retentionDays
+	s.now = now
+	return 0, s.err
 }
 
 func TestSyncOncePersistsSnapshotAndEvents(t *testing.T) {
@@ -178,8 +192,8 @@ func TestSyncOnceReturnsAuthFilesFailureWithoutClearingExistingData(t *testing.T
 	if err == nil {
 		t.Fatal("expected auth files sync error")
 	}
-	if result == nil || result.Status != "completed" {
-		t.Fatalf("expected completed sync result with partial failure, got %+v", result)
+	if result == nil || result.Status != "completed_with_warnings" {
+		t.Fatalf("expected completed_with_warnings sync result with partial failure, got %+v", result)
 	}
 
 	files, listErr := repository.ListAuthFiles(db)
@@ -194,8 +208,8 @@ func TestSyncOnceReturnsAuthFilesFailureWithoutClearingExistingData(t *testing.T
 	if err := db.First(&snapshot, result.SnapshotRunID).Error; err != nil {
 		t.Fatalf("load snapshot run: %v", err)
 	}
-	if snapshot.Status != "completed" || snapshot.ErrorMessage == "" {
-		t.Fatalf("expected completed snapshot with error message, got %+v", snapshot)
+	if snapshot.Status != "completed_with_warnings" || snapshot.ErrorMessage == "" {
+		t.Fatalf("expected completed_with_warnings snapshot with error message, got %+v", snapshot)
 	}
 }
 
@@ -492,6 +506,35 @@ func TestSyncOnceFailsWhenBackupWriteFails(t *testing.T) {
 	}
 	if snapshot.Status != "failed" || snapshot.ErrorMessage != "disk full" {
 		t.Fatalf("unexpected snapshot after backup failure: %+v", snapshot)
+	}
+}
+
+func TestSyncOnceCleansBackupsAfterSuccessfulSync(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	backupWriter := &stubBackupWriter{path: "/tmp/export.json"}
+	backupCleaner := &stubBackupCleaner{}
+	now := time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC)
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
+		BaseURL:             "https://cpa.example.com",
+		Client:              stubExportFetcher{result: successfulExportResult([]byte(`{"version":1}`))},
+		BackupEnabled:       true,
+		BackupWriter:        backupWriter,
+		BackupRetentionDays: 3,
+		BackupCleaner:       backupCleaner,
+		Now: func() time.Time {
+			return now
+		},
+	})
+
+	_, err := service.SyncNow(context.Background())
+	if err != nil {
+		t.Fatalf("SyncNow returned error: %v", err)
+	}
+	if backupCleaner.calls != 1 {
+		t.Fatalf("expected backup cleaner to be called once, got %d", backupCleaner.calls)
+	}
+	if backupCleaner.retentionDays != 3 || !backupCleaner.now.Equal(now) {
+		t.Fatalf("unexpected cleanup input: %+v", backupCleaner)
 	}
 }
 

@@ -16,6 +16,11 @@ type syncStub struct {
 	release chan struct{}
 }
 
+type syncResultStub struct {
+	status string
+	err    error
+}
+
 func (s *syncStub) SyncOnce(context.Context) error {
 	s.mu.Lock()
 	s.calls++
@@ -27,6 +32,14 @@ func (s *syncStub) SyncOnce(context.Context) error {
 		<-s.release
 	}
 	return s.err
+}
+
+func (s *syncResultStub) SyncOnce(context.Context) error {
+	return s.err
+}
+
+func (s *syncResultStub) SyncStatus(context.Context) (string, error) {
+	return s.status, s.err
 }
 
 func (s *syncStub) CallCount() int {
@@ -91,6 +104,25 @@ func TestRunContinuesAfterSyncFailure(t *testing.T) {
 	status := p.Status()
 	if status.LastError != "boom" {
 		t.Fatalf("expected last error to be recorded, got %q", status.LastError)
+	}
+}
+
+func TestStatusRecordsCompletedWithWarningsResult(t *testing.T) {
+	syncer := &syncResultStub{
+		status: "completed_with_warnings",
+		err:    errors.New("fetch provider metadata: unavailable"),
+	}
+	p := New(syncer, time.Minute)
+	p.now = func() time.Time { return time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC) }
+
+	p.runSync(context.Background())
+
+	status := p.Status()
+	if status.LastStatus != "completed_with_warnings" {
+		t.Fatalf("expected completed_with_warnings status, got %+v", status)
+	}
+	if status.LastError != "" || status.LastWarning != "fetch provider metadata: unavailable" {
+		t.Fatalf("expected partial sync error to be recorded as warning, got %+v", status)
 	}
 }
 

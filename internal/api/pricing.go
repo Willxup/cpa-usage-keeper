@@ -24,6 +24,7 @@ type pricingListResponse struct {
 }
 
 type updatePricingRequest struct {
+	Model                string  `json:"model"`
 	PromptPricePer1M     float64 `json:"prompt_price_per_1m"`
 	CompletionPricePer1M float64 `json:"completion_price_per_1m"`
 	CachePricePer1M      float64 `json:"cache_price_per_1m"`
@@ -38,7 +39,7 @@ func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingPr
 
 		models, err := pricingProvider.ListUsedModels(c.Request.Context())
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalError(c, "list used models failed", err)
 			return
 		}
 
@@ -53,7 +54,7 @@ func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingPr
 
 		settings, err := pricingProvider.ListPricing(c.Request.Context())
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalError(c, "list pricing failed", err)
 			return
 		}
 
@@ -69,44 +70,76 @@ func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingPr
 		c.JSON(http.StatusOK, pricingListResponse{Pricing: response})
 	})
 
+	router.PUT("/pricing", func(c *gin.Context) {
+		updatePricing(c, pricingProvider, "")
+	})
+
 	router.PUT("/pricing/:model", func(c *gin.Context) {
+		updatePricing(c, pricingProvider, c.Param("model"))
+	})
+
+	router.DELETE("/pricing", func(c *gin.Context) {
 		if pricingProvider == nil {
 			c.JSON(http.StatusNotImplemented, gin.H{"error": "pricing provider is not configured"})
 			return
 		}
-
-		model := strings.TrimSpace(c.Param("model"))
+		model := strings.TrimSpace(c.Query("model"))
 		if model == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "model is required"})
 			return
 		}
+		if err := pricingProvider.DeletePricing(c.Request.Context(), model); err != nil {
+			if strings.Contains(err.Error(), "required") {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			writeInternalError(c, "delete pricing failed", err)
+			return
+		}
+		c.Status(http.StatusNoContent)
+	})
+}
 
-		var request updatePricingRequest
-		if err := c.ShouldBindJSON(&request); err != nil {
+func updatePricing(c *gin.Context, pricingProvider service.PricingProvider, pathModel string) {
+	if pricingProvider == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "pricing provider is not configured"})
+		return
+	}
+
+	var request updatePricingRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	model := strings.TrimSpace(pathModel)
+	if model == "" {
+		model = strings.TrimSpace(request.Model)
+	}
+	if model == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "model is required"})
+		return
+	}
+
+	setting, err := pricingProvider.UpdatePricing(c.Request.Context(), service.UpdatePricingInput{
+		Model:                model,
+		PromptPricePer1M:     request.PromptPricePer1M,
+		CompletionPricePer1M: request.CompletionPricePer1M,
+		CachePricePer1M:      request.CachePricePer1M,
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "has not been used") || strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "non-negative") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		writeInternalError(c, "update pricing failed", err)
+		return
+	}
 
-		setting, err := pricingProvider.UpdatePricing(c.Request.Context(), service.UpdatePricingInput{
-			Model:                model,
-			PromptPricePer1M:     request.PromptPricePer1M,
-			CompletionPricePer1M: request.CompletionPricePer1M,
-			CachePricePer1M:      request.CachePricePer1M,
-		})
-		if err != nil {
-			status := http.StatusInternalServerError
-			if strings.Contains(err.Error(), "has not been used") || strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "non-negative") {
-				status = http.StatusBadRequest
-			}
-			c.JSON(status, gin.H{"error": err.Error()})
-			return
-		}
-
-		c.JSON(http.StatusOK, pricingEntryResponse{
-			Model:                setting.Model,
-			PromptPricePer1M:     setting.PromptPricePer1M,
-			CompletionPricePer1M: setting.CompletionPricePer1M,
-			CachePricePer1M:      setting.CachePricePer1M,
-		})
+	c.JSON(http.StatusOK, pricingEntryResponse{
+		Model:                setting.Model,
+		PromptPricePer1M:     setting.PromptPricePer1M,
+		CompletionPricePer1M: setting.CompletionPricePer1M,
+		CachePricePer1M:      setting.CachePricePer1M,
 	})
 }

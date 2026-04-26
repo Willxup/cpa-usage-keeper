@@ -311,6 +311,27 @@ func TestBuildUsageOverviewWithFilterBuilds24hHealthGridFor24hRange(t *testing.T
 	}
 }
 
+func TestCalculateUsageEventCostDoesNotDoubleChargeReasoningTokens(t *testing.T) {
+	event := models.UsageEvent{
+		InputTokens:     1_000_000,
+		OutputTokens:    2_000_000,
+		ReasoningTokens: 3_000_000,
+		CachedTokens:    400_000,
+		TotalTokens:     6_400_000,
+	}
+	pricing := models.ModelPriceSetting{
+		PromptPricePer1M:     10,
+		CompletionPricePer1M: 20,
+		CachePricePer1M:      1,
+	}
+
+	cost := calculateUsageEventCost(event, pricing)
+
+	if cost != 46.4 {
+		t.Fatalf("expected reasoning tokens not to be added to completion cost, got %f", cost)
+	}
+}
+
 func TestBuildUsageOverviewWithFilterReturnsUnavailableCostForPartialPricing(t *testing.T) {
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-partial-pricing.db")})
 	if err != nil {

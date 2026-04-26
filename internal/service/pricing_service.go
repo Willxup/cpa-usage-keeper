@@ -15,6 +15,7 @@ type PricingProvider interface {
 	ListUsedModels(context.Context) ([]string, error)
 	ListPricing(context.Context) ([]models.ModelPriceSetting, error)
 	UpdatePricing(context.Context, UpdatePricingInput) (*models.ModelPriceSetting, error)
+	DeletePricing(context.Context, string) error
 }
 
 type UpdatePricingInput struct {
@@ -68,4 +69,8 @@ func (s *pricingService) UpdatePricing(_ context.Context, input UpdatePricingInp
 		CompletionPricePer1M: input.CompletionPricePer1M,
 		CachePricePer1M:      input.CachePricePer1M,
 	})
+}
+
+func (s *pricingService) DeletePricing(_ context.Context, model string) error {
+	return repository.DeleteModelPriceSetting(s.db, model)
 }

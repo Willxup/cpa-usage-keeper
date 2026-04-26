@@ -27,16 +27,22 @@ type BackupWriter interface {
 	Write(snapshotRunID uint, fetchedAt time.Time, payload []byte) (string, error)
 }
 
+type BackupCleaner interface {
+	Cleanup(retentionDays int, now time.Time) (int, error)
+}
+
 const syncPrefilterOverlapWindow = 24 * time.Hour
 
 type SyncService struct {
-	db             *gorm.DB
-	client         ExportFetcher
-	baseURL        string
-	backupEnabled  bool
-	backupInterval time.Duration
-	backupWriter   BackupWriter
-	now            func() time.Time
+	db                  *gorm.DB
+	client              ExportFetcher
+	baseURL             string
+	backupEnabled       bool
+	backupInterval      time.Duration
+	backupRetentionDays int
+	backupWriter        BackupWriter
+	backupCleaner       BackupCleaner
+	now                 func() time.Time
 }
 
 type SyncResult struct {
@@ -52,25 +58,32 @@ type SyncResult struct {
 
 func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 	var writer BackupWriter
+	var cleaner BackupCleaner
 	if cfg.BackupEnabled {
-		writer = backup.NewWriter(cfg.BackupDir)
+		backupStore := backup.NewWriter(cfg.BackupDir)
+		writer = backupStore
+		cleaner = backupStore
 	}
 	return NewSyncServiceWithOptions(db, SyncServiceOptions{
-		BaseURL:        cfg.CPABaseURL,
-		Client:         cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout),
-		BackupEnabled:  cfg.BackupEnabled,
-		BackupWriter:   writer,
-		BackupInterval: cfg.BackupInterval,
+		BaseURL:             cfg.CPABaseURL,
+		Client:              cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout),
+		BackupEnabled:       cfg.BackupEnabled,
+		BackupWriter:        writer,
+		BackupInterval:      cfg.BackupInterval,
+		BackupRetentionDays: cfg.BackupRetentionDays,
+		BackupCleaner:       cleaner,
 	})
 }
 
 type SyncServiceOptions struct {
-	BaseURL        string
-	Client         ExportFetcher
-	BackupEnabled  bool
-	BackupWriter   BackupWriter
-	BackupInterval time.Duration
-	Now            func() time.Time
+	BaseURL             string
+	Client              ExportFetcher
+	BackupEnabled       bool
+	BackupWriter        BackupWriter
+	BackupInterval      time.Duration
+	BackupRetentionDays int
+	BackupCleaner       BackupCleaner
+	Now                 func() time.Time
 }
 
 func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncService {
@@ -79,13 +92,15 @@ func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncServic
 		now = time.Now
 	}
 	return &SyncService{
-		db:             db,
-		client:         opts.Client,
-		baseURL:        strings.TrimSpace(opts.BaseURL),
-		backupEnabled:  opts.BackupEnabled,
-		backupInterval: opts.BackupInterval,
-		backupWriter:   opts.BackupWriter,
-		now:            now,
+		db:                  db,
+		client:              opts.Client,
+		baseURL:             strings.TrimSpace(opts.BaseURL),
+		backupEnabled:       opts.BackupEnabled,
+		backupInterval:      opts.BackupInterval,
+		backupRetentionDays: opts.BackupRetentionDays,
+		backupWriter:        opts.BackupWriter,
+		backupCleaner:       opts.BackupCleaner,
+		now:                 now,
 	}
 }
 
@@ -103,6 +118,14 @@ func (s *SyncService) SyncOnce(ctx context.Context) error {
 
 func (s *SyncService) SyncNow(ctx context.Context) (*SyncResult, error) {
 	return s.syncOnce(ctx)
+}
+
+func (s *SyncService) SyncStatus(ctx context.Context) (string, error) {
+	result, err := s.syncOnce(ctx)
+	if result == nil {
+		return "", err
+	}
+	return result.Status, err
 }
 
 func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
@@ -245,6 +268,9 @@ func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
 	providerMetadataSyncErr := syncProviderMetadata(s.db, managementConfigResult, managementConfigErr)
 	partialSyncErr := joinErrors(authFilesSyncErr, providerMetadataSyncErr)
 	finalStatus := "completed"
+	if partialSyncErr != nil {
+		finalStatus = "completed_with_warnings"
+	}
 	finalErrorMessage := errorMessage(partialSyncErr)
 	if err := repository.FinalizeSnapshotRun(s.db, snapshotRun.ID, repository.SnapshotRunResult{
 		Status:         finalStatus,
@@ -271,7 +297,21 @@ func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
 	if partialSyncErr != nil {
 		return result, partialSyncErr
 	}
+	if err := s.cleanupBackups(fetchedAt); err != nil {
+		return result, fmt.Errorf("cleanup backups: %w", err)
+	}
 	return result, nil
+}
+
+func (s *SyncService) cleanupBackups(now time.Time) error {
+	if !s.backupEnabled || s.backupRetentionDays <= 0 {
+		return nil
+	}
+	if s.backupCleaner == nil {
+		return fmt.Errorf("backup cleaner is nil")
+	}
+	_, err := s.backupCleaner.Cleanup(s.backupRetentionDays, now)
+	return err
 }
 
 func (s *SyncService) writeBackup(snapshotRunID uint, fetchedAt time.Time, payload []byte) (string, error) {

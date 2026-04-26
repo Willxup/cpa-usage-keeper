@@ -41,13 +41,13 @@ func registerUsageCredentialsRoute(
 
 		rows, err := usageProvider.ListUsageCredentialStats(c.Request.Context(), filter)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalError(c, "list usage credential stats failed", err)
 			return
 		}
 
 		authFiles, providerMetadata, err := loadUsageResolutionData(c, authFileProvider, providerMetadataProvider)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			writeInternalError(c, "load usage resolution data failed", err)
 			return
 		}
 		resolver := newUsageSourceResolver(authFiles, providerMetadata)

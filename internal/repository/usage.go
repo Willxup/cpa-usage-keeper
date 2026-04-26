@@ -147,13 +147,7 @@ func ListUsageCredentialStatsWithFilter(db *gorm.DB, filter UsageQueryFilter) ([
 		return nil, fmt.Errorf("database is nil")
 	}
 
-	query := db.Model(&models.UsageEvent{})
-	if filter.StartTime != nil {
-		query = query.Where("timestamp >= ?", filter.StartTime.UTC())
-	}
-	if filter.EndTime != nil {
-		query = query.Where("timestamp <= ?", filter.EndTime.UTC())
-	}
+	query := applyUsageEventsListFilter(db.Model(&models.UsageEvent{}), filter)
 	query = query.Select("TRIM(source) AS source, TRIM(auth_index) AS auth_index, failed, COUNT(*) AS request_count")
 	query = query.Group("TRIM(source), TRIM(auth_index), failed")
 	query = query.Order("request_count DESC, source ASC, auth_index ASC, failed ASC")
@@ -170,13 +164,7 @@ func ListUsageAnalysisWithFilter(db *gorm.DB, filter UsageQueryFilter) ([]UsageA
 		return nil, nil, fmt.Errorf("database is nil")
 	}
 
-	baseQuery := db.Model(&models.UsageEvent{})
-	if filter.StartTime != nil {
-		baseQuery = baseQuery.Where("timestamp >= ?", filter.StartTime.UTC())
-	}
-	if filter.EndTime != nil {
-		baseQuery = baseQuery.Where("timestamp <= ?", filter.EndTime.UTC())
-	}
+	baseQuery := applyUsageEventsListFilter(db.Model(&models.UsageEvent{}), filter)
 
 	apiQuery := baseQuery.Session(&gorm.Session{})
 	apiQuery = apiQuery.Select(strings.Join([]string{
@@ -365,13 +353,7 @@ func buildUsageOverviewFromEvents(events []models.UsageEvent, filter UsageQueryF
 }
 
 func loadUsageEventsWithFilter(db *gorm.DB, filter UsageQueryFilter) ([]models.UsageEvent, error) {
-	query := db.Order("timestamp asc")
-	if filter.StartTime != nil {
-		query = query.Where("timestamp >= ?", filter.StartTime.UTC())
-	}
-	if filter.EndTime != nil {
-		query = query.Where("timestamp <= ?", filter.EndTime.UTC())
-	}
+	query := applyUsageEventsListFilter(db.Model(&models.UsageEvent{}), filter).Order("timestamp asc")
 
 	var events []models.UsageEvent
 	if err := query.Find(&events).Error; err != nil {
