@@ -28,6 +28,9 @@ func TestOpenDatabaseAutoMigratesCoreTables(t *testing.T) {
 	if !db.Migrator().HasTable("usage_events") {
 		t.Fatal("expected usage_events table to exist")
 	}
+	if !db.Migrator().HasTable("redis_usage_inboxes") {
+		t.Fatal("expected redis_usage_inboxes table to exist")
+	}
 }
 
 func TestOpenDatabaseConfiguresSQLiteRuntime(t *testing.T) {

@@ -16,11 +16,17 @@ import (
 	"gorm.io/gorm"
 )
 
+type Runner interface {
+	Run(ctx context.Context) error
+	Status() poller.Status
+	SyncNow(ctx context.Context) error
+}
+
 type App struct {
 	Config *config.Config
 	DB     *gorm.DB
 	Router *gin.Engine
-	Poller *poller.Poller
+	Poller Runner
 }
 
 func New() (*App, error) {
@@ -41,7 +47,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	}
 
 	syncService := service.NewSyncService(db, cfg)
-	backgroundPoller := poller.New(syncService, cfg.PollInterval)
+	backgroundPoller := newBackgroundRunner(syncService, cfg)
 
 	usageService := service.NewUsageService(db)
 	authFileService := service.NewAuthFileService(db)
@@ -76,6 +82,19 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 			cfg.AppBasePath,
 		),
 	}, nil
+}
+
+func newBackgroundRunner(syncService *service.SyncService, cfg config.Config) Runner {
+	if cfg.UsageSyncMode == "redis" || cfg.UsageSyncMode == "auto" {
+		return poller.NewRedisDrain(syncService, poller.RedisDrainConfig{
+			IdleInterval:           cfg.RedisQueueIdleInterval,
+			ErrorBackoff:           cfg.RedisQueueErrorBackoff,
+			MetadataInterval:       cfg.RedisMetadataSyncInterval,
+			EnableLegacyFallback:   cfg.UsageSyncMode == "auto",
+			LegacyFallbackInterval: cfg.PollInterval,
+		})
+	}
+	return poller.New(syncService, cfg.PollInterval)
 }
 
 func (a *App) Run() error {
