@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -23,6 +24,12 @@ jobs:
         id: repo
         run: echo "image=ghcr.io/${GITHUB_REPOSITORY@L}" >> "$GITHUB_OUTPUT"
 
+      - name: Validate manual dev build ref
+        if: ${{ github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/dev' }}
+        run: |
+          echo "Manual dev image publishing must be run from the dev branch." >&2
+          exit 1
+
       - name: Generate Docker metadata
         id: meta
         uses: docker/metadata-action@v6
@@ -30,7 +37,8 @@ jobs:
           images: ${{ steps.repo.outputs.image }}
           tags: |
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=sha,prefix=sha-
+            type=raw,value=dev,enable=${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev' }}
+            type=sha,prefix=sha-,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=ref,event=tag,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=semver,pattern={{major}}.{{minor}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
