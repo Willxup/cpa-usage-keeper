@@ -57,21 +57,25 @@ Key variables:
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `APP_PORT` | No | `8080` | HTTP listen port |
-| `APP_BASE_PATH` | No | root path | App base path such as `/cpa`; leave empty for root deployment |
 | `CPA_BASE_URL` | Yes | - | CPA server base URL |
 | `CPA_MANAGEMENT_KEY` | Yes | - | CPA management key |
-| `POLL_INTERVAL` | No | `5m` | Usage sync interval |
+| `AUTH_ENABLED` | No | `false` | Enable login protection |
+| `LOGIN_PASSWORD` | When auth is enabled | - | Login password |
+| `AUTH_SESSION_TTL` | No | `168h` | Session lifetime |
+| `APP_PORT` | No | `8080` | HTTP listen port |
+| `APP_BASE_PATH` | No | root path | App base path such as `/cpa`; leave empty for root deployment |
+| `USAGE_SYNC_MODE` | No | `auto` | Usage sync mode: `auto`, `redis`, or `legacy_export` |
+| `REDIS_QUEUE_ADDR` | No | `CPA_BASE_URL` hostname + `8317` | Redis/RESP TCP address for the CPA management data stream; set explicitly when nginx stream exposes a non-8317 port |
+| `REDIS_QUEUE_BATCH_SIZE` | No | `1000` | Maximum queue records per Redis `LPOP` |
+| `REDIS_QUEUE_IDLE_INTERVAL` | No | `1s` | Empty Redis queue check interval |
+| `POLL_INTERVAL` | No | `30s` (`5m` for `legacy_export`) | Legacy export interval; in `auto`, also throttles legacy fallback when Redis is unavailable |
+| `REQUEST_TIMEOUT` | No | `30s` | CPA request timeout |
 | `SQLITE_PATH` | No | `/data/app.db` | SQLite database path |
+| `LOG_LEVEL` | No | `info` | Log level |
 | `BACKUP_ENABLED` | No | `true` | Enable raw export backups |
 | `BACKUP_DIR` | No | `/data/backups` | Backup directory |
 | `BACKUP_INTERVAL` | No | `1h` | Minimum interval between backup writes |
 | `BACKUP_RETENTION_DAYS` | No | `30` | Backup retention days |
-| `REQUEST_TIMEOUT` | No | `30s` | CPA request timeout |
-| `LOG_LEVEL` | No | `info` | Log level |
-| `AUTH_ENABLED` | No | `false` | Enable login protection |
-| `LOGIN_PASSWORD` | When auth is enabled | - | Login password |
-| `AUTH_SESSION_TTL` | No | `168h` | Session lifetime |
 
 `APP_BASE_PATH` rules:
 - Leave it empty to serve from `/`
@@ -79,7 +83,13 @@ Key variables:
 - A trailing slash like `/cpa/` is accepted and normalized to `/cpa`
 - A value without the leading slash such as `cpa` is invalid
 
-When backups are enabled, the service writes at most one raw data backup per `BACKUP_INTERVAL`. Every sync still records a snapshot run and persists usage events.
+CPA v6.9.38+ is supported through the management data stream. The default `USAGE_SYNC_MODE=auto` continuously drains the data stream first and falls back to the legacy compatibility path on non-auth connection or protocol errors; `USAGE_SYNC_MODE=redis` continuously drains only the data stream; `USAGE_SYNC_MODE=legacy_export` is temporary compatibility for older CPA versions. The data stream queue is destructive and short-retention, about 1 minute, so normally run only one keeper consumer per CPA instance to avoid splitting data across consumers.
+
+In Redis-backed modes, `POLL_INTERVAL` does not control Redis pop cadence. Non-empty Redis batches are written to a local SQLite inbox before decoding and event insertion, then followed by another immediate pop; `REDIS_QUEUE_IDLE_INTERVAL` controls empty-queue checks, and transient Redis/network/protocol retry backoff is fixed at 10s. `REDIS_QUEUE_BATCH_SIZE=1000` is the per-pop count; increase it for high-volume deployments after observing DB write latency and queue backlog. Empty Redis queue checks do not create snapshot rows, and metadata refresh runs every 30s plus manual syncs.
+
+Redis/RESP is a raw TCP protocol, not HTTP. CPA currently exposes destructive queue reads without a processing/ack protocol, so the local inbox protects against local decode/persist failures after this app receives messages, but it cannot eliminate the failure window between CPA removing messages and SQLite committing inbox rows. Rows that repeatedly fail local event persistence are retried up to 5 times, then marked discarded and logged with metadata only, not raw usage payloads, so old bad rows do not block new ingestion. Keep SQLite on reliable persistent storage. When `REDIS_QUEUE_ADDR` is empty, the app defaults to the `CPA_BASE_URL` hostname plus port `8317`; if nginx stream maps the raw CPA port to another port, set the matching `host:port`, for example `REDIS_QUEUE_ADDR=cpa.example.com:6380`. A normal nginx HTTP `location` proxy cannot proxy Redis/RESP. `CPA_MANAGEMENT_KEY` auth failures are hard configuration errors and do not fall back to the legacy path.
+
+When backups are enabled, the service writes at most one raw data backup per `BACKUP_INTERVAL`. Every non-empty sync still records a snapshot run and persists usage events.
 
 Security and data notes:
 - The SQLite database and raw backups store original usage/source data pulled from CPA, and backup files are not encrypted.

@@ -57,21 +57,25 @@ cp .env.example .env
 
 | 变量 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `APP_PORT` | 否 | `8080` | HTTP 监听端口 |
-| `APP_BASE_PATH` | 否 | 根路径 | 应用子路径前缀，例如 `/cpa`；留空表示部署在根路径 |
 | `CPA_BASE_URL` | 是 | - | CPA 服务地址 |
 | `CPA_MANAGEMENT_KEY` | 是 | - | CPA management key |
-| `POLL_INTERVAL` | 否 | `5m` | usage 同步周期 |
+| `AUTH_ENABLED` | 否 | `false` | 是否启用登录保护 |
+| `LOGIN_PASSWORD` | 鉴权启用时必填 | - | 登录密码 |
+| `AUTH_SESSION_TTL` | 否 | `168h` | Session 生命周期 |
+| `APP_PORT` | 否 | `8080` | HTTP 监听端口 |
+| `APP_BASE_PATH` | 否 | 根路径 | 应用子路径前缀，例如 `/cpa`；留空表示部署在根路径 |
+| `USAGE_SYNC_MODE` | 否 | `auto` | usage 同步模式：`auto`、`redis` 或 `legacy_export` |
+| `REDIS_QUEUE_ADDR` | 否 | `CPA_BASE_URL` 主机名 + `8317` | CPA management data stream 的 Redis/RESP TCP 地址；nginx stream 使用非 8317 端口时请显式设置 |
+| `REDIS_QUEUE_BATCH_SIZE` | 否 | `1000` | 每次 Redis `LPOP` 最多拉取的队列记录数 |
+| `REDIS_QUEUE_IDLE_INTERVAL` | 否 | `1s` | Redis 队列为空时的检查间隔 |
+| `POLL_INTERVAL` | 否 | `30s`（`legacy_export` 为 `5m`） | legacy export 同步周期；`auto` 模式下也用于 Redis 不可用时的旧方式回退节流 |
+| `REQUEST_TIMEOUT` | 否 | `30s` | CPA 请求超时 |
 | `SQLITE_PATH` | 否 | `/data/app.db` | SQLite 数据库路径 |
+| `LOG_LEVEL` | 否 | `info` | 日志级别 |
 | `BACKUP_ENABLED` | 否 | `true` | 是否启用原始备份 |
 | `BACKUP_DIR` | 否 | `/data/backups` | 备份目录 |
 | `BACKUP_INTERVAL` | 否 | `1h` | 两次备份写入之间的最小间隔 |
 | `BACKUP_RETENTION_DAYS` | 否 | `30` | 备份保留天数 |
-| `REQUEST_TIMEOUT` | 否 | `30s` | CPA 请求超时 |
-| `LOG_LEVEL` | 否 | `info` | 日志级别 |
-| `AUTH_ENABLED` | 否 | `false` | 是否启用登录保护 |
-| `LOGIN_PASSWORD` | 鉴权启用时必填 | - | 登录密码 |
-| `AUTH_SESSION_TTL` | 否 | `168h` | Session 生命周期 |
 
 `APP_BASE_PATH` 设置规则：
 - 留空表示部署在根路径 `/`
@@ -79,7 +83,13 @@ cp .env.example .env
 - 可以写成 `/cpa/`，程序会自动规范成 `/cpa`
 - 像 `cpa` 这样不带前导 `/` 的写法是无效的
 
-启用备份后，服务会按照 `BACKUP_INTERVAL` 控制原始数据备份的落盘频率；即使本次未写入新的 backup，仍会正常记录 `SnapshotRun` 并持久化 usage 事件。
+CPA v6.9.38+ 支持通过 management data stream 拉取 usage 数据。默认 `USAGE_SYNC_MODE=auto` 会优先持续 drain data stream，并在非鉴权类连接/协议错误时回退到旧兼容方式；`USAGE_SYNC_MODE=redis` 只持续 drain data stream；`USAGE_SYNC_MODE=legacy_export` 用于旧版 CPA 的临时兼容。data stream 队列是消费型且保留时间较短，约 1 分钟；同一个 CPA 实例通常只运行一个 keeper consumer，避免多消费者分流数据。
+
+在 Redis 模式下，`POLL_INTERVAL` 不再控制 Redis pop 频率。非空 Redis 批次会先写入本地 SQLite inbox，再进行解码和 usage event 写入，然后立即继续下一次 pop；`REDIS_QUEUE_IDLE_INTERVAL` 控制空队列检查间隔；Redis/网络/协议临时错误后的重试退避固定为 10s。`REDIS_QUEUE_BATCH_SIZE=1000` 是每次 pop 的 count，高流量部署可在观察 DB 写入延迟和队列积压后调大。空 Redis 队列检查不会创建 snapshot 行，metadata 会每 30s 以及手动同步时刷新。
+
+Redis/RESP 是原始 TCP 协议，不是 HTTP。CPA 目前提供的是消费型读取，尚无 processing/ack 协议；本地 inbox 可以保护应用收到消息之后的本地解码/写入失败，但无法消除 CPA 已移除消息与 SQLite 成功提交 inbox 行之间的故障窗口。反复写入 usage event 失败的 inbox 行最多重试 5 次，之后会标记为 discarded，并只记录元信息日志，不会把原始 usage payload 写入日志，避免旧异常数据阻塞新数据写入。请将 SQLite 放在可靠的持久化存储上。`REDIS_QUEUE_ADDR` 为空时会默认使用 `CPA_BASE_URL` 的主机名加 `8317` 端口；如果你用 nginx stream 把 CPA 原始端口映射到其它端口，应设置成对应的 `host:port`，例如 `REDIS_QUEUE_ADDR=cpa.example.com:6380`。普通 nginx HTTP `location` 反代不能代理 Redis/RESP。`CPA_MANAGEMENT_KEY` 鉴权失败是硬配置错误，不会回退到旧方式。
+
+启用备份后，服务会按照 `BACKUP_INTERVAL` 控制原始数据备份的落盘频率；每次非空同步仍会正常记录 `SnapshotRun` 并持久化 usage 事件。
 
 安全与数据说明：
 - SQLite 数据库和原始备份会保存从 CPA 拉取到的原始 usage/source 数据，备份文件不做加密。
