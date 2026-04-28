@@ -9,6 +9,7 @@ import (
 	"cpa-usage-keeper/internal/api"
 	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/config"
+	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/logging"
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/repository"
@@ -59,7 +60,8 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	usageService := service.NewUsageService(db)
 	authFileService := service.NewAuthFileService(db)
 	providerMetadataService := service.NewProviderMetadataService(db)
-	pricingService := service.NewPricingService(db)
+	pricingModelsClient := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout)
+	pricingService := service.NewPricingService(db, pricingModelsClient)
 	sessionManager := auth.NewSessionManager(cfg.AuthSessionTTL)
 	authHandler := api.NewAuthHandler(api.AuthConfig{
 		Enabled:       cfg.AuthEnabled,
