@@ -58,6 +58,12 @@ type Config struct {
 	RequestTimeout time.Duration
 	// LogLevel 是应用日志级别。
 	LogLevel string
+	// LogFileEnabled 控制是否写入持久化日志文件。
+	LogFileEnabled bool
+	// LogDir 是应用日志文件目录。
+	LogDir string
+	// LogRetentionDays 是日志保留天数，0 表示不自动清理。
+	LogRetentionDays int
 	// AuthEnabled 控制是否启用登录保护。
 	AuthEnabled bool
 	// LoginPassword 是启用登录保护时使用的登录密码。
@@ -121,6 +127,18 @@ func LoadFromEnv() (*Config, error) {
 		return nil, err
 	}
 
+	logFileEnabled, err := getBool("LOG_FILE_ENABLED", true)
+	if err != nil {
+		return nil, err
+	}
+	logRetentionDays, err := getInt("LOG_RETENTION_DAYS", 7)
+	if err != nil {
+		return nil, err
+	}
+	if logRetentionDays < 0 {
+		return nil, fmt.Errorf("LOG_RETENTION_DAYS must be non-negative")
+	}
+
 	authSessionTTL, err := getDuration("AUTH_SESSION_TTL", 7*24*time.Hour)
 	if err != nil {
 		return nil, err
@@ -159,6 +177,9 @@ func LoadFromEnv() (*Config, error) {
 		BackupRetentionDays:       backupRetentionDays,
 		RequestTimeout:            requestTimeout,
 		LogLevel:                  getString("LOG_LEVEL", "info"),
+		LogFileEnabled:            logFileEnabled,
+		LogDir:                    getString("LOG_DIR", "/data/logs"),
+		LogRetentionDays:          logRetentionDays,
 		AuthEnabled:               authEnabled,
 		LoginPassword:             strings.TrimSpace(os.Getenv("LOGIN_PASSWORD")),
 		AuthSessionTTL:            authSessionTTL,

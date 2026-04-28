@@ -13,11 +13,15 @@ func TestNewWithConfigBuildsPollerAndRouter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
+	defer app.Close()
 	if app.Poller == nil {
 		t.Fatal("expected poller to be initialized")
 	}
 	if app.Router == nil {
 		t.Fatal("expected router to be initialized")
+	}
+	if app.LogCloser == nil {
+		t.Fatal("expected log closer to be initialized")
 	}
 }
 
@@ -26,6 +30,7 @@ func TestNewWithConfigSelectsLegacyPoller(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
+	defer app.Close()
 	if _, ok := app.Poller.(*poller.Poller); !ok {
 		t.Fatalf("expected legacy_export to use interval poller, got %T", app.Poller)
 	}
@@ -38,6 +43,7 @@ func TestNewWithConfigSelectsRedisDrain(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewWithConfig returned error: %v", err)
 			}
+			defer app.Close()
 			if _, ok := app.Poller.(*poller.RedisDrain); !ok {
 				t.Fatalf("expected %s to use redis drain, got %T", mode, app.Poller)
 			}
@@ -62,5 +68,7 @@ func testAppConfig(t *testing.T, syncMode string) config.Config {
 		BackupRetentionDays:       30,
 		RequestTimeout:            5 * time.Second,
 		LogLevel:                  "info",
+		LogFileEnabled:            false,
+		LogRetentionDays:          7,
 	}
 }

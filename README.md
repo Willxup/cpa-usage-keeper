@@ -59,6 +59,9 @@ cp .env.example .env
 | `REQUEST_TIMEOUT` | 否 | `30s` | CPA 请求超时 |
 | `SQLITE_PATH` | 否 | `/data/app.db` | SQLite 数据库路径 |
 | `LOG_LEVEL` | 否 | `info` | 日志级别 |
+| `LOG_FILE_ENABLED` | 否 | `true` | 是否写入持久化日志文件 |
+| `LOG_DIR` | 否 | `/data/logs` | 日志文件目录 |
+| `LOG_RETENTION_DAYS` | 否 | `7` | 日志保留天数；`0` 表示不自动清理 |
 | `BACKUP_ENABLED` | 否 | `true` | 是否启用原始备份 |
 | `BACKUP_DIR` | 否 | `/data/backups` | 备份目录 |
 | `BACKUP_INTERVAL` | 否 | `1h` | 两次备份写入之间的最小间隔 |
@@ -145,7 +148,7 @@ docker run -d \
   ghcr.io/willxup/cpa-usage-keeper:latest
 ```
 
-`/data` 用于保存 SQLite 数据库和备份文件，请挂载到持久化目录。
+`/data` 用于保存 SQLite 数据库、备份文件和日志文件，请挂载到持久化目录。
 
 ## Docker Compose
 

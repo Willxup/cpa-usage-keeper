@@ -65,6 +65,15 @@ func TestLoadFromEnvAppliesDefaults(t *testing.T) {
 	if cfg.RedisMetadataSyncInterval != RedisMetadataSyncIntervalDefault {
 		t.Fatalf("expected default redis metadata sync interval 30s, got %s", cfg.RedisMetadataSyncInterval)
 	}
+	if !cfg.LogFileEnabled {
+		t.Fatal("expected log file output to be enabled by default")
+	}
+	if cfg.LogDir != "/data/logs" {
+		t.Fatalf("expected default log dir /data/logs, got %s", cfg.LogDir)
+	}
+	if cfg.LogRetentionDays != 7 {
+		t.Fatalf("expected default log retention 7 days, got %d", cfg.LogRetentionDays)
+	}
 }
 
 func TestLoadFromEnvRequiresCriticalValues(t *testing.T) {
@@ -194,6 +203,9 @@ func TestLoadFromEnvParsesOverrides(t *testing.T) {
 	t.Setenv("BACKUP_RETENTION_DAYS", "7")
 	t.Setenv("REQUEST_TIMEOUT", "15s")
 	t.Setenv("LOG_LEVEL", "debug")
+	t.Setenv("LOG_FILE_ENABLED", "false")
+	t.Setenv("LOG_DIR", "/tmp/custom-logs")
+	t.Setenv("LOG_RETENTION_DAYS", "14")
 	t.Setenv("AUTH_ENABLED", "true")
 	t.Setenv("LOGIN_PASSWORD", "top-secret")
 	t.Setenv("AUTH_SESSION_TTL", "12h")
@@ -204,8 +216,19 @@ func TestLoadFromEnvParsesOverrides(t *testing.T) {
 		t.Fatalf("LoadFromEnv returned error: %v", err)
 	}
 
-	if cfg.AppPort != "9090" || cfg.AppBasePath != "/cpa" || cfg.PollInterval != time.Minute || cfg.BackupEnabled || cfg.BackupDir != "/tmp/backups" || cfg.BackupInterval != 2*time.Hour || cfg.BackupRetentionDays != 7 || cfg.RequestTimeout != 15*time.Second || cfg.LogLevel != "debug" || !cfg.AuthEnabled || cfg.LoginPassword != "top-secret" || cfg.AuthSessionTTL != 12*time.Hour || cfg.RedisQueueIdleInterval != 2*time.Second {
+	if cfg.AppPort != "9090" || cfg.AppBasePath != "/cpa" || cfg.PollInterval != time.Minute || cfg.BackupEnabled || cfg.BackupDir != "/tmp/backups" || cfg.BackupInterval != 2*time.Hour || cfg.BackupRetentionDays != 7 || cfg.RequestTimeout != 15*time.Second || cfg.LogLevel != "debug" || cfg.LogFileEnabled || cfg.LogDir != "/tmp/custom-logs" || cfg.LogRetentionDays != 14 || !cfg.AuthEnabled || cfg.LoginPassword != "top-secret" || cfg.AuthSessionTTL != 12*time.Hour || cfg.RedisQueueIdleInterval != 2*time.Second {
 		t.Fatalf("unexpected config override result: %+v", cfg)
+	}
+}
+
+func TestLoadFromEnvRejectsNegativeLogRetentionDays(t *testing.T) {
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:8317")
+	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
+	t.Setenv("LOG_RETENTION_DAYS", "-1")
+
+	_, err := LoadFromEnv()
+	if err == nil || err.Error() != "LOG_RETENTION_DAYS must be non-negative" {
+		t.Fatalf("expected LOG_RETENTION_DAYS validation error, got %v", err)
 	}
 }
 

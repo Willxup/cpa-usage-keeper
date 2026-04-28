@@ -3,11 +3,13 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
 	"path/filepath"
 
 	"cpa-usage-keeper/internal/api"
 	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/config"
+	"cpa-usage-keeper/internal/logging"
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
@@ -23,10 +25,11 @@ type Runner interface {
 }
 
 type App struct {
-	Config *config.Config
-	DB     *gorm.DB
-	Router *gin.Engine
-	Poller Runner
+	Config    *config.Config
+	DB        *gorm.DB
+	Router    *gin.Engine
+	Poller    Runner
+	LogCloser io.Closer
 }
 
 func New() (*App, error) {
@@ -39,10 +42,14 @@ func New() (*App, error) {
 }
 
 func NewWithConfig(cfg config.Config) (*App, error) {
-	logrus.SetLevel(parseLogLevel(cfg.LogLevel))
+	logCloser, err := logging.Configure(cfg)
+	if err != nil {
+		return nil, err
+	}
 
 	db, err := repository.OpenDatabase(cfg)
 	if err != nil {
+		_ = logCloser.Close()
 		return nil, err
 	}
 
@@ -62,9 +69,10 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	}, sessionManager)
 
 	return &App{
-		Config: &cfg,
-		DB:     db,
-		Poller: backgroundPoller,
+		Config:    &cfg,
+		DB:        db,
+		Poller:    backgroundPoller,
+		LogCloser: logCloser,
 		Router: api.NewRouter(
 			filepath.Join("web", "dist"),
 			backgroundPoller,
@@ -97,6 +105,13 @@ func newBackgroundRunner(syncService *service.SyncService, cfg config.Config) Ru
 	return poller.New(syncService, cfg.PollInterval)
 }
 
+func (a *App) Close() error {
+	if a == nil || a.LogCloser == nil {
+		return nil
+	}
+	return a.LogCloser.Close()
+}
+
 func (a *App) Run() error {
 	if a == nil || a.Router == nil || a.Config == nil {
 		return fmt.Errorf("application is not initialized")
@@ -111,12 +126,4 @@ func (a *App) Run() error {
 	}
 
 	return a.Router.Run(":" + a.Config.AppPort)
-}
-
-func parseLogLevel(level string) logrus.Level {
-	parsed, err := logrus.ParseLevel(level)
-	if err != nil {
-		return logrus.InfoLevel
-	}
-	return parsed
 }

@@ -59,6 +59,9 @@ cp .env.example .env
 | `REQUEST_TIMEOUT` | No | `30s` | CPA request timeout |
 | `SQLITE_PATH` | No | `/data/app.db` | SQLite database path |
 | `LOG_LEVEL` | No | `info` | Log level |
+| `LOG_FILE_ENABLED` | No | `true` | Write persistent log files |
+| `LOG_DIR` | No | `/data/logs` | Log file directory |
+| `LOG_RETENTION_DAYS` | No | `7` | Log retention days; `0` disables cleanup |
 | `BACKUP_ENABLED` | No | `true` | Enable raw backups |
 | `BACKUP_DIR` | No | `/data/backups` | Backup directory |
 | `BACKUP_INTERVAL` | No | `1h` | Minimum interval between backup writes |
@@ -145,7 +148,7 @@ docker run -d \
   ghcr.io/willxup/cpa-usage-keeper:latest
 ```
 
-`/data` stores the SQLite database and backups. Mount it to persistent storage.
+`/data` stores the SQLite database, backups, and log files. Mount it to persistent storage.
 
 ## Docker Compose
 

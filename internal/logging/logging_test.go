@@ -1,0 +1,203 @@
+package logging
+
+import (
+	"bytes"
+	stdlog "log"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"cpa-usage-keeper/internal/config"
+	"github.com/sirupsen/logrus"
+)
+
+func TestConfigureWritesLogrusToDailyFile(t *testing.T) {
+	reset := captureGlobalLogState(t)
+	defer reset()
+
+	logDir := t.TempDir()
+	closer, err := Configure(config.Config{
+		LogLevel:         "info",
+		LogFileEnabled:   true,
+		LogDir:           logDir,
+		LogRetentionDays: 7,
+	})
+	if err != nil {
+		t.Fatalf("Configure returned error: %v", err)
+	}
+	defer closer.Close()
+
+	logrus.Info("file logging works")
+
+	content := readTodayLogFile(t, logDir)
+	if !strings.Contains(content, "file logging works") {
+		t.Fatalf("expected log file to contain logrus message, got %q", content)
+	}
+}
+
+func TestConfigureDisablesFileLogging(t *testing.T) {
+	reset := captureGlobalLogState(t)
+	defer reset()
+
+	logDir := t.TempDir()
+	closer, err := Configure(config.Config{
+		LogLevel:         "info",
+		LogFileEnabled:   false,
+		LogDir:           logDir,
+		LogRetentionDays: 7,
+	})
+	if err != nil {
+		t.Fatalf("Configure returned error: %v", err)
+	}
+	defer closer.Close()
+
+	logrus.Info("stderr only")
+
+	entries, err := os.ReadDir(logDir)
+	if err != nil {
+		t.Fatalf("read log dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected no log files when file logging disabled, got %d", len(entries))
+	}
+}
+
+func TestConfigureRoutesStdlibLogAndSlogToFile(t *testing.T) {
+	reset := captureGlobalLogState(t)
+	defer reset()
+
+	logDir := t.TempDir()
+	closer, err := Configure(config.Config{
+		LogLevel:         "info",
+		LogFileEnabled:   true,
+		LogDir:           logDir,
+		LogRetentionDays: 7,
+	})
+	if err != nil {
+		t.Fatalf("Configure returned error: %v", err)
+	}
+	defer closer.Close()
+
+	stdlog.Print("stdlib message")
+	slog.Error("slog message")
+
+	content := readTodayLogFile(t, logDir)
+	if !strings.Contains(content, "stdlib message") || !strings.Contains(content, "slog message") {
+		t.Fatalf("expected stdlib and slog messages in file, got %q", content)
+	}
+}
+
+func TestConfigureCloseRestoresGlobalLoggers(t *testing.T) {
+	reset := captureGlobalLogState(t)
+	defer reset()
+
+	var restoredOutput bytes.Buffer
+	logrus.SetOutput(&restoredOutput)
+	stdlog.SetOutput(&restoredOutput)
+	slog.SetDefault(slog.New(slog.NewTextHandler(&restoredOutput, nil)))
+
+	closer, err := Configure(config.Config{
+		LogLevel:         "info",
+		LogFileEnabled:   true,
+		LogDir:           t.TempDir(),
+		LogRetentionDays: 7,
+	})
+	if err != nil {
+		t.Fatalf("Configure returned error: %v", err)
+	}
+	if err := closer.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	logrus.Info("after close logrus")
+	stdlog.Print("after close stdlib")
+	slog.Error("after close slog")
+
+	content := restoredOutput.String()
+	if !strings.Contains(content, "after close logrus") || !strings.Contains(content, "after close stdlib") || !strings.Contains(content, "after close slog") {
+		t.Fatalf("expected global loggers to be restored after close, got %q", content)
+	}
+}
+
+func TestConfigureErrorLeavesGlobalLoggerStateUnchanged(t *testing.T) {
+	reset := captureGlobalLogState(t)
+	defer reset()
+
+	logrus.SetLevel(logrus.DebugLevel)
+	invalidLogDir := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(invalidLogDir, []byte("file"), 0644); err != nil {
+		t.Fatalf("write invalid log dir fixture: %v", err)
+	}
+
+	_, err := Configure(config.Config{
+		LogLevel:         "error",
+		LogFileEnabled:   true,
+		LogDir:           invalidLogDir,
+		LogRetentionDays: 7,
+	})
+	if err == nil {
+		t.Fatal("expected Configure to return an error")
+	}
+	if level := logrus.GetLevel(); level != logrus.DebugLevel {
+		t.Fatalf("expected logrus level to remain debug after configure error, got %s", level)
+	}
+}
+
+func TestRetentionDeletesOnlyOldAppLogs(t *testing.T) {
+	logDir := t.TempDir()
+	oldAppLog := filepath.Join(logDir, "cpa-usage-keeper-2020-01-01.log")
+	freshAppLog := filepath.Join(logDir, "cpa-usage-keeper-2099-01-01.log")
+	otherLog := filepath.Join(logDir, "other.log")
+	for _, path := range []string{oldAppLog, freshAppLog, otherLog} {
+		if err := os.WriteFile(path, []byte("log"), 0644); err != nil {
+			t.Fatalf("write fixture %s: %v", path, err)
+		}
+	}
+
+	writer, err := newDailyFileWriter(logDir, 7, func() time.Time {
+		return time.Date(2026, 4, 28, 12, 0, 0, 0, time.Local)
+	})
+	if err != nil {
+		t.Fatalf("newDailyFileWriter returned error: %v", err)
+	}
+	defer writer.Close()
+
+	if _, err := os.Stat(oldAppLog); !os.IsNotExist(err) {
+		t.Fatalf("expected old app log to be removed, stat err=%v", err)
+	}
+	for _, path := range []string{freshAppLog, otherLog} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected %s to remain: %v", path, err)
+		}
+	}
+}
+
+func readTodayLogFile(t *testing.T, logDir string) string {
+	t.Helper()
+	path := filepath.Join(logDir, "cpa-usage-keeper-"+time.Now().Format("2006-01-02")+".log")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read today log file: %v", err)
+	}
+	return string(content)
+}
+
+func captureGlobalLogState(t *testing.T) func() {
+	t.Helper()
+	previousLogrusOutput := logrus.StandardLogger().Out
+	previousLogrusLevel := logrus.GetLevel()
+	previousStdlogOutput := stdlog.Writer()
+	previousSlog := slog.Default()
+	var stderr bytes.Buffer
+	logrus.SetOutput(&stderr)
+	stdlog.SetOutput(&stderr)
+	return func() {
+		logrus.SetOutput(previousLogrusOutput)
+		logrus.SetLevel(previousLogrusLevel)
+		stdlog.SetOutput(previousStdlogOutput)
+		slog.SetDefault(previousSlog)
+	}
+}

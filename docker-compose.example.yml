@@ -19,6 +19,9 @@ services:
       REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-30s}
       SQLITE_PATH: ${SQLITE_PATH:-/data/app.db}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FILE_ENABLED: ${LOG_FILE_ENABLED:-true}
+      LOG_DIR: ${LOG_DIR:-/data/logs}
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-7}
       BACKUP_ENABLED: ${BACKUP_ENABLED:-true}
       BACKUP_DIR: ${BACKUP_DIR:-/data/backups}
       BACKUP_INTERVAL: ${BACKUP_INTERVAL:-1h}
