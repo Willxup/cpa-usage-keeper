@@ -84,6 +84,10 @@
 }
 
 .option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 8px 12px;
   border-radius: $radius-md;
   border: 1px solid transparent;
@@ -99,6 +103,25 @@
   &:hover {
     background: var(--bg-secondary);
   }
+}
+
+.optionLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionSuffix {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: rgba($success-color, 0.12);
+  color: var(--success-color);
+  flex: 0 0 auto;
 }
 
 .optionActive {

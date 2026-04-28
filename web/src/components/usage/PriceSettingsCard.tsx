@@ -4,7 +4,8 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
-import { Select } from '@/components/ui/Select';
+import { Select, type SelectOption } from '@/components/ui/Select';
+import { IconCheck } from '@/components/ui/icons';
 import type { ModelPrice } from '@/utils/usage';
 import styles from '@/pages/UsagePage.module.scss';
 
@@ -34,6 +35,32 @@ function PriceSettingsTitle({ title, subtitle, eyebrow }: { title: string; subti
 const parsePriceValue = (value: string): number | null => {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+};
+
+export const buildPricingModelOptions = (
+  modelNames: string[],
+  modelPrices: Record<string, ModelPrice>,
+  placeholder: string,
+  configuredSuffix: React.ReactNode,
+  configuredLabel: string,
+): SelectOption[] => {
+  const configuredModels = new Set(Object.keys(modelPrices));
+  const sortedModelNames = [...modelNames].sort((left, right) => {
+    const leftConfigured = configuredModels.has(left);
+    const rightConfigured = configuredModels.has(right);
+    if (leftConfigured !== rightConfigured) return leftConfigured ? 1 : -1;
+    return formatDisplayName(left).localeCompare(formatDisplayName(right));
+  });
+
+  return [
+    { value: '', label: placeholder },
+    ...sortedModelNames.map((name) => ({
+      value: name,
+      label: formatDisplayName(name),
+      suffix: configuredModels.has(name) ? configuredSuffix : undefined,
+      suffixAriaLabel: configuredModels.has(name) ? configuredLabel : undefined,
+    })),
+  ];
 };
 
 export function PriceSettingsCard({
@@ -110,11 +137,14 @@ export function PriceSettingsCard({
   };
 
   const options = useMemo(
-    () => [
-      { value: '', label: t('usage_stats.model_price_select_placeholder') },
-      ...modelNames.map((name) => ({ value: name, label: formatDisplayName(name) }))
-    ],
-    [modelNames, t]
+    () => buildPricingModelOptions(
+      modelNames,
+      modelPrices,
+      t('usage_stats.model_price_select_placeholder'),
+      <IconCheck size={10} />,
+      t('usage_stats.model_price_configured')
+    ),
+    [modelNames, modelPrices, t]
   );
 
   return (

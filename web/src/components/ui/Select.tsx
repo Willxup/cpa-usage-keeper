@@ -6,7 +6,8 @@ import React, {
   useMemo,
   useRef,
   useState,
-  type CSSProperties
+  type CSSProperties,
+  type ReactNode
 } from 'react';
 import { createPortal } from 'react-dom';
 import { IconChevronDown } from './icons';
@@ -15,6 +16,8 @@ import styles from './Select.module.scss';
 export interface SelectOption {
   value: string;
   label: string;
+  suffix?: ReactNode;
+  suffixAriaLabel?: string;
 }
 
 interface SelectProps {
@@ -284,7 +287,12 @@ export function Select({
                   onKeyDown={handleKeyDown}
                   onClick={() => commitSelection(index)}
                 >
-                  {opt.label}
+                  <span className={styles.optionLabel}>{opt.label}</span>
+                  {opt.suffix ? (
+                    <span className={styles.optionSuffix} aria-label={opt.suffixAriaLabel}>
+                      {opt.suffix}
+                    </span>
+                  ) : null}
                 </button>
               );
             })}
