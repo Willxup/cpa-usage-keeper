@@ -119,8 +119,14 @@ func TestPricingServiceFallsBackToLocalModelsWhenCPAFetchFails(t *testing.T) {
 	if len(modelsList) != 1 || modelsList[0] != "local-model" {
 		t.Fatalf("expected local fallback model, got %#v", modelsList)
 	}
+	if !strings.Contains(logs.String(), "level=error") {
+		t.Fatalf("expected fallback error log, got %q", logs.String())
+	}
 	if !strings.Contains(logs.String(), "falling back to local usage aggregation") {
-		t.Fatalf("expected fallback debug log, got %q", logs.String())
+		t.Fatalf("expected fallback error log, got %q", logs.String())
+	}
+	if !strings.Contains(logs.String(), "error=\"cpa unavailable\"") && !strings.Contains(logs.String(), "error=cpa unavailable") {
+		t.Fatalf("expected fallback log to include original error, got %q", logs.String())
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/service"
+	"github.com/sirupsen/logrus"
 )
 
 type RedisBatchSyncer interface {
@@ -68,6 +69,9 @@ func (d *RedisDrain) Run(ctx context.Context) error {
 		syncMetadata := d.shouldSyncMetadata()
 		result, err := d.runRedisBatch(ctx, syncMetadata)
 		if err != nil && !errors.Is(err, ErrSyncCompletedWithWarnings) {
+			if shouldLogSyncError(err) {
+				d.logBatchFailure(result, syncMetadata, err)
+			}
 			if !errors.Is(err, cpa.ErrRedisQueueAuth) {
 				d.maybeRunLegacyFallback(ctx)
 			}
@@ -85,6 +89,25 @@ func (d *RedisDrain) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+func (d *RedisDrain) logBatchFailure(result *service.RedisBatchSyncResult, syncMetadata bool, err error) {
+	fields := logrus.Fields{
+		"sync_metadata":           syncMetadata,
+		"legacy_fallback_enabled": d.config.EnableLegacyFallback,
+		"auth_error":              errors.Is(err, cpa.ErrRedisQueueAuth),
+		"status":                  "",
+		"empty":                   false,
+		"inserted_events":         0,
+		"deduped_events":          0,
+	}
+	if result != nil {
+		fields["status"] = result.Status
+		fields["empty"] = result.Empty
+		fields["inserted_events"] = result.InsertedEvents
+		fields["deduped_events"] = result.DedupedEvents
+	}
+	logrus.WithError(err).WithFields(fields).Error("redis drain batch failed")
 }
 
 func (d *RedisDrain) Status() Status {
@@ -159,6 +182,9 @@ func (d *RedisDrain) maybeRunLegacyFallback(ctx context.Context) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if err != nil {
+		if shouldLogSyncError(err) {
+			logrus.WithError(err).WithField("legacy_fallback_interval", d.config.LegacyFallbackInterval.String()).Error("redis drain legacy fallback failed")
+		}
 		d.lastWarning = stringsJoinNonEmpty(d.lastWarning, fmt.Sprintf("legacy fallback: %v", err))
 		return
 	}

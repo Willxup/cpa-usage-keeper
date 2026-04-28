@@ -1,13 +1,16 @@
 package poller
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"cpa-usage-keeper/internal/service"
+	"github.com/sirupsen/logrus"
 )
 
 type redisDrainSyncStub struct {
@@ -17,6 +20,7 @@ type redisDrainSyncStub struct {
 	metadataFlags []bool
 	calls         int
 	legacyCalls   int
+	legacyErr     error
 	metadataCalls int
 	metadataErr   error
 	started       chan struct{}
@@ -61,6 +65,9 @@ func (s *redisDrainSyncStub) SyncLegacyStatus(context.Context) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.legacyCalls++
+	if s.legacyErr != nil {
+		return "", s.legacyErr
+	}
 	return "completed", nil
 }
 
@@ -171,6 +178,128 @@ func TestRedisDrainBacksOffAfterTransientError(t *testing.T) {
 	}
 }
 
+func TestRedisDrainLogsHardBatchFailureDuringRun(t *testing.T) {
+	var output bytes.Buffer
+	previousOutput := logrus.StandardLogger().Out
+	previousFormatter := logrus.StandardLogger().Formatter
+	previousLevel := logrus.GetLevel()
+	logrus.SetOutput(&output)
+	logrus.SetFormatter(&logrus.TextFormatter{DisableTimestamp: true})
+	logrus.SetLevel(logrus.DebugLevel)
+	defer func() {
+		logrus.SetOutput(previousOutput)
+		logrus.SetFormatter(previousFormatter)
+		logrus.SetLevel(previousLevel)
+	}()
+
+	syncer := &redisDrainSyncStub{
+		results: []*service.RedisBatchSyncResult{{Status: "failed"}},
+		errs:    []error{errors.New("dial failed")},
+	}
+	drain := NewRedisDrain(syncer, RedisDrainConfig{
+		IdleInterval:         time.Hour,
+		ErrorBackoff:         25 * time.Millisecond,
+		MetadataInterval:     time.Hour,
+		EnableLegacyFallback: true,
+	})
+	slept := make(chan time.Duration, 1)
+	drain.sleep = func(ctx context.Context, d time.Duration) bool {
+		slept <- d
+		<-ctx.Done()
+		return false
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- drain.Run(ctx) }()
+	select {
+	case <-slept:
+	case <-time.After(time.Second):
+		t.Fatal("expected error backoff sleep")
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	content := output.String()
+	for _, want := range []string{
+		"level=error",
+		"msg=\"redis drain batch failed\"",
+		"error=\"dial failed\"",
+		"status=failed",
+		"sync_metadata=true",
+		"legacy_fallback_enabled=true",
+		"auth_error=false",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("expected log output to contain %q, got %q", want, content)
+		}
+	}
+}
+
+func TestRedisDrainLogsHardBatchFailureWithNilResult(t *testing.T) {
+	var output bytes.Buffer
+	previousOutput := logrus.StandardLogger().Out
+	previousFormatter := logrus.StandardLogger().Formatter
+	previousLevel := logrus.GetLevel()
+	logrus.SetOutput(&output)
+	logrus.SetFormatter(&logrus.TextFormatter{DisableTimestamp: true})
+	logrus.SetLevel(logrus.DebugLevel)
+	defer func() {
+		logrus.SetOutput(previousOutput)
+		logrus.SetFormatter(previousFormatter)
+		logrus.SetLevel(previousLevel)
+	}()
+
+	syncer := &redisDrainSyncStub{
+		results: []*service.RedisBatchSyncResult{nil},
+		errs:    []error{errors.New("redis read failed")},
+	}
+	drain := NewRedisDrain(syncer, RedisDrainConfig{
+		IdleInterval:     time.Hour,
+		ErrorBackoff:     25 * time.Millisecond,
+		MetadataInterval: time.Hour,
+	})
+	slept := make(chan time.Duration, 1)
+	drain.sleep = func(ctx context.Context, d time.Duration) bool {
+		slept <- d
+		<-ctx.Done()
+		return false
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- drain.Run(ctx) }()
+	select {
+	case <-slept:
+	case <-time.After(time.Second):
+		t.Fatal("expected error backoff sleep")
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	content := output.String()
+	for _, want := range []string{
+		"level=error",
+		"msg=\"redis drain batch failed\"",
+		"error=\"redis read failed\"",
+		"status=",
+		"empty=false",
+		"inserted_events=0",
+		"deduped_events=0",
+		"sync_metadata=true",
+		"legacy_fallback_enabled=false",
+		"auth_error=false",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("expected log output to contain %q, got %q", want, content)
+		}
+	}
+}
+
 func TestRedisDrainContinuesImmediatelyAfterMetadataWarning(t *testing.T) {
 	syncer := &redisDrainSyncStub{
 		results: []*service.RedisBatchSyncResult{{Status: "completed_with_warnings", InsertedEvents: 1}},
@@ -192,6 +321,219 @@ func TestRedisDrainContinuesImmediatelyAfterMetadataWarning(t *testing.T) {
 	}
 	if status := drain.Status(); status.LastWarning == "" || status.LastError != "" {
 		t.Fatalf("expected metadata warning without hard error, got %+v", status)
+	}
+}
+
+func TestRedisDrainDoesNotErrorLogContextCancellation(t *testing.T) {
+	var output bytes.Buffer
+	previousOutput := logrus.StandardLogger().Out
+	previousFormatter := logrus.StandardLogger().Formatter
+	previousLevel := logrus.GetLevel()
+	logrus.SetOutput(&output)
+	logrus.SetFormatter(&logrus.TextFormatter{DisableTimestamp: true})
+	logrus.SetLevel(logrus.DebugLevel)
+	defer func() {
+		logrus.SetOutput(previousOutput)
+		logrus.SetFormatter(previousFormatter)
+		logrus.SetLevel(previousLevel)
+	}()
+
+	syncer := &redisDrainSyncStub{
+		results: []*service.RedisBatchSyncResult{nil},
+		errs:    []error{context.Canceled},
+	}
+	drain := NewRedisDrain(syncer, RedisDrainConfig{IdleInterval: time.Hour, ErrorBackoff: 25 * time.Millisecond, MetadataInterval: time.Hour})
+	drain.sleep = func(context.Context, time.Duration) bool {
+		return false
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- drain.Run(ctx) }()
+	waitFor(t, func() bool { return syncer.CallCount() >= 1 })
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if strings.Contains(output.String(), "level=error") {
+		t.Fatalf("did not expect error log for context cancellation, got %q", output.String())
+	}
+}
+
+func TestRedisDrainDoesNotErrorLogAlreadyRunning(t *testing.T) {
+	var output bytes.Buffer
+	previousOutput := logrus.StandardLogger().Out
+	previousFormatter := logrus.StandardLogger().Formatter
+	previousLevel := logrus.GetLevel()
+	logrus.SetOutput(&output)
+	logrus.SetFormatter(&logrus.TextFormatter{DisableTimestamp: true})
+	logrus.SetLevel(logrus.DebugLevel)
+	defer func() {
+		logrus.SetOutput(previousOutput)
+		logrus.SetFormatter(previousFormatter)
+		logrus.SetLevel(previousLevel)
+	}()
+
+	syncer := &redisDrainSyncStub{}
+	drain := NewRedisDrain(syncer, RedisDrainConfig{IdleInterval: time.Hour, ErrorBackoff: 25 * time.Millisecond, MetadataInterval: time.Hour})
+	drain.syncRunning = true
+	drain.sleep = func(context.Context, time.Duration) bool {
+		return false
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- drain.Run(ctx) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected Run to stop after already-running backoff hook")
+	}
+	if strings.Contains(output.String(), "level=error") {
+		t.Fatalf("did not expect error log for already-running sync, got %q", output.String())
+	}
+}
+
+func TestRedisDrainDoesNotErrorLogCompletedWithWarnings(t *testing.T) {
+	var output bytes.Buffer
+	previousOutput := logrus.StandardLogger().Out
+	previousFormatter := logrus.StandardLogger().Formatter
+	previousLevel := logrus.GetLevel()
+	logrus.SetOutput(&output)
+	logrus.SetFormatter(&logrus.TextFormatter{DisableTimestamp: true})
+	logrus.SetLevel(logrus.DebugLevel)
+	defer func() {
+		logrus.SetOutput(previousOutput)
+		logrus.SetFormatter(previousFormatter)
+		logrus.SetLevel(previousLevel)
+	}()
+
+	syncer := &redisDrainSyncStub{
+		results: []*service.RedisBatchSyncResult{{Status: "completed_with_warnings", InsertedEvents: 1}},
+		errs:    []error{errors.New("metadata unavailable")},
+	}
+	drain := NewRedisDrain(syncer, RedisDrainConfig{IdleInterval: time.Hour, ErrorBackoff: time.Hour, MetadataInterval: time.Hour})
+	drain.sleep = func(context.Context, time.Duration) bool {
+		return false
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- drain.Run(ctx) }()
+	waitFor(t, func() bool { return syncer.CallCount() >= 1 })
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if strings.Contains(output.String(), "level=error") {
+		t.Fatalf("did not expect error log for warning result, got %q", output.String())
+	}
+}
+
+func TestRedisDrainDoesNotErrorLogLegacyFallbackCancellation(t *testing.T) {
+	var output bytes.Buffer
+	previousOutput := logrus.StandardLogger().Out
+	previousFormatter := logrus.StandardLogger().Formatter
+	previousLevel := logrus.GetLevel()
+	logrus.SetOutput(&output)
+	logrus.SetFormatter(&logrus.TextFormatter{DisableTimestamp: true})
+	logrus.SetLevel(logrus.DebugLevel)
+	defer func() {
+		logrus.SetOutput(previousOutput)
+		logrus.SetFormatter(previousFormatter)
+		logrus.SetLevel(previousLevel)
+	}()
+
+	syncer := &redisDrainSyncStub{
+		results:   []*service.RedisBatchSyncResult{{Status: "failed"}},
+		errs:      []error{errors.New("redis unavailable")},
+		legacyErr: context.Canceled,
+	}
+	drain := NewRedisDrain(syncer, RedisDrainConfig{
+		IdleInterval:           time.Hour,
+		ErrorBackoff:           25 * time.Millisecond,
+		MetadataInterval:       time.Hour,
+		EnableLegacyFallback:   true,
+		LegacyFallbackInterval: time.Second,
+	})
+	drain.sleep = func(context.Context, time.Duration) bool {
+		return false
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- drain.Run(ctx) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected Run to stop after fallback cancellation")
+	}
+
+	content := output.String()
+	if strings.Contains(content, "redis drain legacy fallback failed") {
+		t.Fatalf("did not expect fallback error log for context cancellation, got %q", content)
+	}
+}
+
+func TestRedisDrainLogsLegacyFallbackFailure(t *testing.T) {
+	var output bytes.Buffer
+	previousOutput := logrus.StandardLogger().Out
+	previousFormatter := logrus.StandardLogger().Formatter
+	previousLevel := logrus.GetLevel()
+	logrus.SetOutput(&output)
+	logrus.SetFormatter(&logrus.TextFormatter{DisableTimestamp: true})
+	logrus.SetLevel(logrus.DebugLevel)
+	defer func() {
+		logrus.SetOutput(previousOutput)
+		logrus.SetFormatter(previousFormatter)
+		logrus.SetLevel(previousLevel)
+	}()
+
+	syncer := &redisDrainSyncStub{
+		results:   []*service.RedisBatchSyncResult{{Status: "failed"}},
+		errs:      []error{errors.New("redis unavailable")},
+		legacyErr: errors.New("legacy pull failed"),
+	}
+	drain := NewRedisDrain(syncer, RedisDrainConfig{
+		IdleInterval:           time.Hour,
+		ErrorBackoff:           25 * time.Millisecond,
+		MetadataInterval:       time.Hour,
+		EnableLegacyFallback:   true,
+		LegacyFallbackInterval: time.Second,
+	})
+	drain.sleep = func(ctx context.Context, d time.Duration) bool {
+		<-ctx.Done()
+		return false
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- drain.Run(ctx) }()
+	waitFor(t, func() bool {
+		return strings.Contains(drain.Status().LastWarning, "legacy fallback: legacy pull failed")
+	})
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	content := output.String()
+	for _, want := range []string{
+		"level=error",
+		"msg=\"redis drain legacy fallback failed\"",
+		"error=\"legacy pull failed\"",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("expected log output to contain %q, got %q", want, content)
+		}
 	}
 }
 
