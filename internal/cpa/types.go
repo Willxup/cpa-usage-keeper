@@ -62,6 +62,33 @@ type TokenStats struct {
 	TotalTokens     int64 `json:"total_tokens"`
 }
 
+type APIKeysResult struct {
+	StatusCode int
+	Payload    APIKeysResponse
+}
+
+type APIKeysResponse struct {
+	APIKeys []string `json:"api-keys"`
+}
+
+type ModelsResult struct {
+	StatusCode int
+	Body       []byte
+	Payload    ModelsResponse
+}
+
+type ModelsResponse struct {
+	Object string      `json:"object"`
+	Data   []ModelInfo `json:"data"`
+}
+
+type ModelInfo struct {
+	ID      string `json:"id"`
+	Object  string `json:"object,omitempty"`
+	Created int64  `json:"created,omitempty"`
+	OwnedBy string `json:"owned_by,omitempty"`
+}
+
 type AuthFilesResult struct {
 	StatusCode int
 	Body       []byte
@@ -93,10 +120,10 @@ type ManagementConfigResult struct {
 }
 
 type ManagementConfig struct {
-	GeminiAPIKeys       []ProviderKeyConfig          `json:"gemini-api-key"`
-	ClaudeAPIKeys       []ProviderKeyConfig          `json:"claude-api-key"`
-	CodexAPIKeys        []ProviderKeyConfig          `json:"codex-api-key"`
-	VertexAPIKeys       []ProviderKeyConfig          `json:"vertex-api-key"`
+	GeminiAPIKeys       []ProviderKeyConfig         `json:"gemini-api-key"`
+	ClaudeAPIKeys       []ProviderKeyConfig         `json:"claude-api-key"`
+	CodexAPIKeys        []ProviderKeyConfig         `json:"codex-api-key"`
+	VertexAPIKeys       []ProviderKeyConfig         `json:"vertex-api-key"`
 	OpenAICompatibility []OpenAICompatibilityConfig `json:"openai-compatibility"`
 }
 
