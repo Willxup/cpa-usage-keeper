@@ -22,16 +22,18 @@ type noopCloser struct{}
 func (noopCloser) Close() error { return nil }
 
 type restoreCloser struct {
-	closer               io.Closer
-	previousLogrusOutput io.Writer
-	previousLogrusLevel  logrus.Level
-	previousStdlogOutput io.Writer
-	previousSlog         *slog.Logger
+	closer                  io.Closer
+	previousLogrusOutput    io.Writer
+	previousLogrusLevel     logrus.Level
+	previousLogrusFormatter logrus.Formatter
+	previousStdlogOutput    io.Writer
+	previousSlog            *slog.Logger
 }
 
 func (c *restoreCloser) Close() error {
 	logrus.SetOutput(c.previousLogrusOutput)
 	logrus.SetLevel(c.previousLogrusLevel)
+	logrus.SetFormatter(c.previousLogrusFormatter)
 	stdlog.SetOutput(c.previousStdlogOutput)
 	slog.SetDefault(c.previousSlog)
 	return c.closer.Close()
@@ -40,6 +42,7 @@ func (c *restoreCloser) Close() error {
 func Configure(cfg config.Config) (io.Closer, error) {
 	previousLogrusOutput := logrus.StandardLogger().Out
 	previousLogrusLevel := logrus.GetLevel()
+	previousLogrusFormatter := logrus.StandardLogger().Formatter
 	previousStdlogOutput := stdlog.Writer()
 	previousSlog := slog.Default()
 
@@ -64,15 +67,20 @@ func Configure(cfg config.Config) (io.Closer, error) {
 	}
 
 	logrus.SetLevel(level)
+	logrus.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp:   true,
+		TimestampFormat: time.RFC3339,
+	})
 	logrus.SetOutput(writer)
 	stdlog.SetOutput(writer)
 	slog.SetDefault(slog.New(slog.NewTextHandler(writer, nil)))
 	return &restoreCloser{
-		closer:               closer,
-		previousLogrusOutput: previousLogrusOutput,
-		previousLogrusLevel:  previousLogrusLevel,
-		previousStdlogOutput: previousStdlogOutput,
-		previousSlog:         previousSlog,
+		closer:                  closer,
+		previousLogrusOutput:    previousLogrusOutput,
+		previousLogrusLevel:     previousLogrusLevel,
+		previousLogrusFormatter: previousLogrusFormatter,
+		previousStdlogOutput:    previousStdlogOutput,
+		previousSlog:            previousSlog,
 	}, nil
 }
 

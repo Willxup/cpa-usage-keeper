@@ -135,11 +135,13 @@ npm --prefix ./web run build
 If CPA is already running on the host:
 
 ```bash
+# TZ sets the container timezone; log timestamps are displayed in this timezone.
 docker run -d \
   --name cpa-usage-keeper \
   --add-host=host.docker.internal:host-gateway \
   -p 8080:8080 \
   -v "$(pwd)/keeper/data:/data" \
+  -e TZ=Asia/Shanghai \
   -e CPA_BASE_URL=http://host.docker.internal:8317 \
   -e CPA_MANAGEMENT_KEY=replace-with-your-management-key \
   -e REDIS_QUEUE_ADDR=host.docker.internal:8317 \
@@ -179,6 +181,7 @@ services:
     ports:
       - "8080:8080"
     environment:
+      TZ: Asia/Shanghai # Sets the container timezone; log timestamps use this timezone.
       CPA_BASE_URL: http://cli-proxy-api:8317
       CPA_MANAGEMENT_KEY: replace-with-your-management-key
       REDIS_QUEUE_ADDR: cli-proxy-api:8317

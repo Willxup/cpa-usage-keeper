@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -35,6 +36,77 @@ func TestConfigureWritesLogrusToDailyFile(t *testing.T) {
 	content := readTodayLogFile(t, logDir)
 	if !strings.Contains(content, "file logging works") {
 		t.Fatalf("expected log file to contain logrus message, got %q", content)
+	}
+	if !logLineHasTimestamp(content) {
+		t.Fatalf("expected log file to include timestamp, got %q", content)
+	}
+}
+
+func TestConfigureUsesFullTimestampFormatter(t *testing.T) {
+	reset := captureGlobalLogState(t)
+	defer reset()
+
+	closer, err := Configure(config.Config{
+		LogLevel:         "info",
+		LogFileEnabled:   false,
+		LogRetentionDays: 7,
+	})
+	if err != nil {
+		t.Fatalf("Configure returned error: %v", err)
+	}
+	defer closer.Close()
+
+	formatter, ok := logrus.StandardLogger().Formatter.(*logrus.TextFormatter)
+	if !ok {
+		t.Fatalf("expected text formatter, got %T", logrus.StandardLogger().Formatter)
+	}
+	if !formatter.FullTimestamp || formatter.TimestampFormat == "" {
+		t.Fatalf("expected full timestamp formatter, got FullTimestamp=%v TimestampFormat=%q", formatter.FullTimestamp, formatter.TimestampFormat)
+	}
+}
+
+func TestConfigureWritesLogrusConsoleWithTimestamp(t *testing.T) {
+	reset := captureGlobalLogState(t)
+	defer reset()
+
+	previousStderr := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stderr pipe: %v", err)
+	}
+	os.Stderr = writer
+	defer func() {
+		os.Stderr = previousStderr
+		_ = reader.Close()
+	}()
+
+	closer, err := Configure(config.Config{
+		LogLevel:         "info",
+		LogFileEnabled:   false,
+		LogRetentionDays: 7,
+	})
+	if err != nil {
+		t.Fatalf("Configure returned error: %v", err)
+	}
+
+	logrus.Info("console timestamp works")
+	if err := closer.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stderr writer: %v", err)
+	}
+
+	var output bytes.Buffer
+	if _, err := output.ReadFrom(reader); err != nil {
+		t.Fatalf("read stderr output: %v", err)
+	}
+	content := output.String()
+	if !strings.Contains(content, "console timestamp works") {
+		t.Fatalf("expected console output to contain logrus message, got %q", content)
+	}
+	if !logLineHasTimestamp(content) {
+		t.Fatalf("expected console output to include timestamp, got %q", content)
 	}
 }
 
@@ -185,10 +257,15 @@ func readTodayLogFile(t *testing.T, logDir string) string {
 	return string(content)
 }
 
+func logLineHasTimestamp(content string) bool {
+	return regexp.MustCompile(`time="?\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}`).MatchString(content)
+}
+
 func captureGlobalLogState(t *testing.T) func() {
 	t.Helper()
 	previousLogrusOutput := logrus.StandardLogger().Out
 	previousLogrusLevel := logrus.GetLevel()
+	previousLogrusFormatter := logrus.StandardLogger().Formatter
 	previousStdlogOutput := stdlog.Writer()
 	previousSlog := slog.Default()
 	var stderr bytes.Buffer
@@ -197,6 +274,7 @@ func captureGlobalLogState(t *testing.T) func() {
 	return func() {
 		logrus.SetOutput(previousLogrusOutput)
 		logrus.SetLevel(previousLogrusLevel)
+		logrus.SetFormatter(previousLogrusFormatter)
 		stdlog.SetOutput(previousStdlogOutput)
 		slog.SetDefault(previousSlog)
 	}
