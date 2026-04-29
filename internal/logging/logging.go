@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/config"
+	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 )
 
@@ -22,12 +23,16 @@ type noopCloser struct{}
 func (noopCloser) Close() error { return nil }
 
 type restoreCloser struct {
-	closer                  io.Closer
-	previousLogrusOutput    io.Writer
-	previousLogrusLevel     logrus.Level
-	previousLogrusFormatter logrus.Formatter
-	previousStdlogOutput    io.Writer
-	previousSlog            *slog.Logger
+	closer                     io.Closer
+	previousLogrusOutput       io.Writer
+	previousLogrusLevel        logrus.Level
+	previousLogrusFormatter    logrus.Formatter
+	previousStdlogOutput       io.Writer
+	previousSlog               *slog.Logger
+	previousGinDefaultWriter   io.Writer
+	previousGinErrorWriter     io.Writer
+	previousGinDebugPrint      func(string, ...interface{})
+	previousGinDebugPrintRoute func(string, string, string, int)
 }
 
 func (c *restoreCloser) Close() error {
@@ -36,6 +41,10 @@ func (c *restoreCloser) Close() error {
 	logrus.SetFormatter(c.previousLogrusFormatter)
 	stdlog.SetOutput(c.previousStdlogOutput)
 	slog.SetDefault(c.previousSlog)
+	gin.DefaultWriter = c.previousGinDefaultWriter
+	gin.DefaultErrorWriter = c.previousGinErrorWriter
+	gin.DebugPrintFunc = c.previousGinDebugPrint
+	gin.DebugPrintRouteFunc = c.previousGinDebugPrintRoute
 	return c.closer.Close()
 }
 
@@ -45,6 +54,10 @@ func Configure(cfg config.Config) (io.Closer, error) {
 	previousLogrusFormatter := logrus.StandardLogger().Formatter
 	previousStdlogOutput := stdlog.Writer()
 	previousSlog := slog.Default()
+	previousGinDefaultWriter := gin.DefaultWriter
+	previousGinErrorWriter := gin.DefaultErrorWriter
+	previousGinDebugPrint := gin.DebugPrintFunc
+	previousGinDebugPrintRoute := gin.DebugPrintRouteFunc
 
 	level, err := logrus.ParseLevel(cfg.LogLevel)
 	if err != nil {
@@ -74,14 +87,42 @@ func Configure(cfg config.Config) (io.Closer, error) {
 	logrus.SetOutput(writer)
 	stdlog.SetOutput(writer)
 	slog.SetDefault(slog.New(slog.NewTextHandler(writer, nil)))
+	configureGinLogging()
 	return &restoreCloser{
-		closer:                  closer,
-		previousLogrusOutput:    previousLogrusOutput,
-		previousLogrusLevel:     previousLogrusLevel,
-		previousLogrusFormatter: previousLogrusFormatter,
-		previousStdlogOutput:    previousStdlogOutput,
-		previousSlog:            previousSlog,
+		closer:                     closer,
+		previousLogrusOutput:       previousLogrusOutput,
+		previousLogrusLevel:        previousLogrusLevel,
+		previousLogrusFormatter:    previousLogrusFormatter,
+		previousStdlogOutput:       previousStdlogOutput,
+		previousSlog:               previousSlog,
+		previousGinDefaultWriter:   previousGinDefaultWriter,
+		previousGinErrorWriter:     previousGinErrorWriter,
+		previousGinDebugPrint:      previousGinDebugPrint,
+		previousGinDebugPrintRoute: previousGinDebugPrintRoute,
 	}, nil
+}
+
+type logrusWriter struct {
+	level logrus.Level
+}
+
+func (w logrusWriter) Write(p []byte) (int, error) {
+	message := strings.TrimRight(string(p), "\r\n")
+	if message != "" {
+		logrus.StandardLogger().Log(w.level, message)
+	}
+	return len(p), nil
+}
+
+func configureGinLogging() {
+	gin.DefaultWriter = logrusWriter{level: logrus.InfoLevel}
+	gin.DefaultErrorWriter = logrusWriter{level: logrus.ErrorLevel}
+	gin.DebugPrintFunc = func(format string, values ...interface{}) {
+		logrus.Infof("[GIN-debug] "+strings.TrimRight(format, "\r\n"), values...)
+	}
+	gin.DebugPrintRouteFunc = func(httpMethod, absolutePath, handlerName string, nuHandlers int) {
+		logrus.Infof("[GIN-debug] %-6s %s --> %s (%d handlers)", httpMethod, absolutePath, handlerName, nuHandlers)
+	}
 }
 
 type dailyFileWriter struct {

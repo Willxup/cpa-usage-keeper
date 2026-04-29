@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/config"
+	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 )
 
@@ -162,6 +163,54 @@ func TestConfigureRoutesStdlibLogAndSlogToFile(t *testing.T) {
 	}
 }
 
+func TestConfigureRoutesGinDebugToTimestampedLogrusOutput(t *testing.T) {
+	reset := captureGlobalLogState(t)
+	defer reset()
+
+	previousStderr := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stderr pipe: %v", err)
+	}
+	os.Stderr = writer
+	defer func() {
+		os.Stderr = previousStderr
+		_ = reader.Close()
+	}()
+
+	closer, err := Configure(config.Config{
+		LogLevel:         "info",
+		LogFileEnabled:   false,
+		LogRetentionDays: 7,
+	})
+	if err != nil {
+		t.Fatalf("Configure returned error: %v", err)
+	}
+
+	if gin.DebugPrintFunc == nil {
+		t.Fatal("expected Configure to install Gin debug print function")
+	}
+	gin.DebugPrintFunc("GET %s", "/api/v1/status")
+	if err := closer.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stderr writer: %v", err)
+	}
+
+	var output bytes.Buffer
+	if _, err := output.ReadFrom(reader); err != nil {
+		t.Fatalf("read stderr output: %v", err)
+	}
+	content := output.String()
+	if !strings.Contains(content, "[GIN-debug] GET /api/v1/status") {
+		t.Fatalf("expected Gin debug output to be routed through logrus, got %q", content)
+	}
+	if !logLineHasTimestamp(content) {
+		t.Fatalf("expected Gin debug output to include timestamp, got %q", content)
+	}
+}
+
 func TestConfigureCloseRestoresGlobalLoggers(t *testing.T) {
 	reset := captureGlobalLogState(t)
 	defer reset()
@@ -170,6 +219,14 @@ func TestConfigureCloseRestoresGlobalLoggers(t *testing.T) {
 	logrus.SetOutput(&restoredOutput)
 	stdlog.SetOutput(&restoredOutput)
 	slog.SetDefault(slog.New(slog.NewTextHandler(&restoredOutput, nil)))
+	gin.DefaultWriter = &restoredOutput
+	gin.DefaultErrorWriter = &restoredOutput
+	gin.DebugPrintFunc = func(format string, values ...interface{}) {
+		restoredOutput.WriteString("after close gin debug")
+	}
+	gin.DebugPrintRouteFunc = func(httpMethod, absolutePath, handlerName string, nuHandlers int) {
+		restoredOutput.WriteString(" after close gin route")
+	}
 
 	closer, err := Configure(config.Config{
 		LogLevel:         "info",
@@ -187,10 +244,14 @@ func TestConfigureCloseRestoresGlobalLoggers(t *testing.T) {
 	logrus.Info("after close logrus")
 	stdlog.Print("after close stdlib")
 	slog.Error("after close slog")
+	gin.DebugPrintFunc("ignored")
+	gin.DebugPrintRouteFunc("GET", "/", "handler", 1)
 
 	content := restoredOutput.String()
-	if !strings.Contains(content, "after close logrus") || !strings.Contains(content, "after close stdlib") || !strings.Contains(content, "after close slog") {
-		t.Fatalf("expected global loggers to be restored after close, got %q", content)
+	for _, want := range []string{"after close logrus", "after close stdlib", "after close slog", "after close gin debug", "after close gin route"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("expected global loggers to be restored after close with %q, got %q", want, content)
+		}
 	}
 }
 
@@ -268,6 +329,10 @@ func captureGlobalLogState(t *testing.T) func() {
 	previousLogrusFormatter := logrus.StandardLogger().Formatter
 	previousStdlogOutput := stdlog.Writer()
 	previousSlog := slog.Default()
+	previousGinDefaultWriter := gin.DefaultWriter
+	previousGinErrorWriter := gin.DefaultErrorWriter
+	previousGinDebugPrint := gin.DebugPrintFunc
+	previousGinDebugPrintRoute := gin.DebugPrintRouteFunc
 	var stderr bytes.Buffer
 	logrus.SetOutput(&stderr)
 	stdlog.SetOutput(&stderr)
@@ -277,5 +342,9 @@ func captureGlobalLogState(t *testing.T) func() {
 		logrus.SetFormatter(previousLogrusFormatter)
 		stdlog.SetOutput(previousStdlogOutput)
 		slog.SetDefault(previousSlog)
+		gin.DefaultWriter = previousGinDefaultWriter
+		gin.DefaultErrorWriter = previousGinErrorWriter
+		gin.DebugPrintFunc = previousGinDebugPrint
+		gin.DebugPrintRouteFunc = previousGinDebugPrintRoute
 	}
 }
