@@ -106,6 +106,7 @@ const USAGE_TAB_STORAGE_KEY = 'cli-proxy-usage-tab-v1';
 const REQUEST_EVENTS_PAGE_SIZES = [20, 50, 100, 500, 1000] as const;
 const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 100;
 const ALL_REQUEST_EVENTS_FILTER = '__all__';
+const OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
 
 type RequestEventFilterState = {
   model: string;
@@ -123,6 +124,15 @@ type RefreshPageDataOptions = {
   triggerBackendSync?: () => Promise<void>;
 };
 
+type OverviewAutoRefreshDocument = Pick<Document, 'visibilityState' | 'addEventListener' | 'removeEventListener'>;
+
+type OverviewAutoRefreshOptions = {
+  enabled: boolean;
+  refreshOverview: () => void | Promise<void>;
+  documentRef?: OverviewAutoRefreshDocument;
+  intervalMs?: number;
+};
+
 type SyncCpaDataOptions = {
   triggerBackendSync: () => Promise<StatusResponse>;
   refreshActiveTab: () => Promise<void>;
@@ -132,6 +142,61 @@ type SyncCpaDataOptions = {
 
 export const refreshPageData = async ({ refreshActiveTab }: RefreshPageDataOptions) => {
   await refreshActiveTab();
+};
+
+export const getOverviewDisplayLoading = ({ loading, hasUsage }: { loading: boolean; hasUsage: boolean }) => loading && !hasUsage;
+
+export const scheduleOverviewAutoRefresh = ({
+  enabled,
+  refreshOverview,
+  documentRef,
+  intervalMs = OVERVIEW_AUTO_REFRESH_INTERVAL_MS,
+}: OverviewAutoRefreshOptions) => {
+  if (!enabled) {
+    return () => undefined;
+  }
+
+  const targetDocument = documentRef ?? (typeof document === 'undefined' ? undefined : document);
+  if (!targetDocument) {
+    return () => undefined;
+  }
+
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const stopTimer = () => {
+    if (timer === undefined) return;
+    clearInterval(timer);
+    timer = undefined;
+  };
+  const refreshIfVisible = () => {
+    if (targetDocument.visibilityState === 'hidden') {
+      stopTimer();
+      return;
+    }
+    void refreshOverview();
+  };
+  const startTimer = () => {
+    if (timer !== undefined) return;
+    timer = setInterval(refreshIfVisible, intervalMs);
+  };
+  const handleVisibilityChange = () => {
+    if (targetDocument.visibilityState === 'hidden') {
+      stopTimer();
+      return;
+    }
+    void refreshOverview();
+    stopTimer();
+    startTimer();
+  };
+
+  if (targetDocument.visibilityState !== 'hidden') {
+    startTimer();
+  }
+  targetDocument.addEventListener('visibilitychange', handleVisibilityChange);
+
+  return () => {
+    stopTimer();
+    targetDocument.removeEventListener('visibilitychange', handleVisibilityChange);
+  };
 };
 
 export const syncCpaData = async ({ triggerBackendSync, refreshActiveTab, refreshStatus, onStatus }: SyncCpaDataOptions) => {
@@ -811,6 +876,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [onAuthRequired, refreshActiveTab, t]);
 
+  useEffect(() => scheduleOverviewAutoRefresh({
+    enabled: isOverviewTab,
+    refreshOverview: loadUsage,
+  }), [isOverviewTab, loadUsage]);
+
   useHeaderRefresh(refreshActiveTab);
 
   useEffect(() => {
@@ -984,6 +1054,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     [analysisData.models, modelPrices]
   );
   const hasPrices = Object.keys(modelPrices).length > 0;
+  const overviewDisplayLoading = getOverviewDisplayLoading({ loading, hasUsage: Boolean(usage) });
 
   return (
     <div className={styles.pageShell}>
@@ -1162,7 +1233,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               <>
                 <StatCards
                   usage={usage}
-                  loading={loading}
+                  loading={overviewDisplayLoading}
                   sparklines={{
                     requests: requestsSparkline,
                     tokens: tokensSparkline,
@@ -1172,7 +1243,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   }}
                 />
 
-                <ServiceHealthCard usage={usage} loading={loading} />
+                <ServiceHealthCard usage={usage} loading={overviewDisplayLoading} />
 
                 <ChartLineSelector
                   chartLines={chartLines}
@@ -1188,7 +1259,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                     onPeriodChange={setRequestsPeriod}
                     chartData={requestsChartData}
                     chartOptions={requestsChartOptions}
-                    loading={loading}
+                    loading={overviewDisplayLoading}
                     isMobile={isMobile}
                     emptyText={t('usage_stats.no_data')}
                   />
@@ -1198,7 +1269,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                     onPeriodChange={setTokensPeriod}
                     chartData={tokensChartData}
                     chartOptions={tokensChartOptions}
-                    loading={loading}
+                    loading={overviewDisplayLoading}
                     isMobile={isMobile}
                     emptyText={t('usage_stats.no_data')}
                   />
@@ -1206,7 +1277,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
                 <TokenBreakdownChart
                   usage={usage}
-                  loading={loading}
+                  loading={overviewDisplayLoading}
                   isDark={isDark}
                   isMobile={isMobile}
                   hourWindowHours={hourWindowHours}
@@ -1215,7 +1286,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
                 <CostTrendChart
                   usage={usage}
-                  loading={loading}
+                  loading={overviewDisplayLoading}
                   isDark={isDark}
                   isMobile={isMobile}
                   hourWindowHours={hourWindowHours}
