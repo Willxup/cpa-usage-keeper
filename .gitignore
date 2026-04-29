@@ -14,6 +14,7 @@
 *.db-*
 .tmp-test.db
 backups/
+.runtime-test/
 
 # frontend dependencies and build output
 web/node_modules/

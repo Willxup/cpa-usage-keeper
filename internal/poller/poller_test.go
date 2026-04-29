@@ -1,11 +1,15 @@
 package poller
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 type syncStub struct {
@@ -111,6 +115,128 @@ func TestRunContinuesAfterSyncFailure(t *testing.T) {
 	}
 }
 
+func TestPollerRunLogsSyncFailure(t *testing.T) {
+	logs := capturePollerLogrusOutput(t)
+	syncer := &syncStub{err: errors.New("boom")}
+	ft := &fakeTicker{ch: make(chan time.Time, 1)}
+	p := New(syncer, time.Minute)
+	p.ticker = func(time.Duration) ticker { return ft }
+	p.now = time.Now
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- p.Run(ctx) }()
+
+	waitFor(t, func() bool { return syncer.CallCount() == 1 })
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	content := logs.String()
+	for _, want := range []string{
+		"level=error",
+		"msg=\"poller sync failed\"",
+		"error=boom",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("expected log output to contain %q, got %q", want, content)
+		}
+	}
+}
+
+func TestPollerRunLogsFailedStatusSyncFailure(t *testing.T) {
+	logs := capturePollerLogrusOutput(t)
+	syncer := &syncResultStub{
+		status: "failed",
+		err:    errors.New("fetch usage export: unavailable"),
+	}
+	ft := &fakeTicker{ch: make(chan time.Time, 1)}
+	p := New(syncer, time.Minute)
+	p.ticker = func(time.Duration) ticker { return ft }
+	p.now = time.Now
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- p.Run(ctx) }()
+
+	waitFor(t, func() bool { return p.Status().LastError == "fetch usage export: unavailable" })
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	content := logs.String()
+	for _, want := range []string{
+		"level=error",
+		"msg=\"poller sync failed\"",
+		"error=\"fetch usage export: unavailable\"",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("expected log output to contain %q, got %q", want, content)
+		}
+	}
+}
+
+func TestPollerRunDoesNotErrorLogContextCancellation(t *testing.T) {
+	logs := capturePollerLogrusOutput(t)
+	syncer := &syncStub{err: context.Canceled}
+	ft := &fakeTicker{ch: make(chan time.Time, 1)}
+	p := New(syncer, time.Minute)
+	p.ticker = func(time.Duration) ticker { return ft }
+	p.now = time.Now
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- p.Run(ctx) }()
+
+	waitFor(t, func() bool { return syncer.CallCount() == 1 })
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if strings.Contains(logs.String(), "level=error") {
+		t.Fatalf("did not expect error log for context cancellation, got %q", logs.String())
+	}
+}
+
+func TestPollerRunDoesNotErrorLogAlreadyRunning(t *testing.T) {
+	logs := capturePollerLogrusOutput(t)
+	p := New(&syncStub{}, time.Minute)
+	p.syncRunning = true
+
+	p.runBackgroundSync(context.Background())
+
+	if strings.Contains(logs.String(), "level=error") {
+		t.Fatalf("did not expect error log for already-running sync, got %q", logs.String())
+	}
+}
+
+func TestPollerRunDoesNotErrorLogCompletedWithWarnings(t *testing.T) {
+	logs := capturePollerLogrusOutput(t)
+	syncer := &syncResultStub{
+		status: "completed_with_warnings",
+		err:    errors.New("metadata unavailable"),
+	}
+	ft := &fakeTicker{ch: make(chan time.Time, 1)}
+	p := New(syncer, time.Minute)
+	p.ticker = func(time.Duration) ticker { return ft }
+	p.now = time.Now
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- p.Run(ctx) }()
+
+	waitFor(t, func() bool { return p.Status().LastWarning == "metadata unavailable" })
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if strings.Contains(logs.String(), "level=error") {
+		t.Fatalf("did not expect error log for warning result, got %q", logs.String())
+	}
+}
+
 func TestStatusRecordsCompletedWithWarningsResult(t *testing.T) {
 	syncer := &syncResultStub{
 		status: "completed_with_warnings",
@@ -165,6 +291,23 @@ func TestSyncNowSkipsOverlappingSyncs(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("expected initial sync to finish")
 	}
+}
+
+func capturePollerLogrusOutput(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	previousOutput := logrus.StandardLogger().Out
+	previousFormatter := logrus.StandardLogger().Formatter
+	previousLevel := logrus.GetLevel()
+	var logs bytes.Buffer
+	logrus.SetOutput(&logs)
+	logrus.SetFormatter(&logrus.TextFormatter{DisableTimestamp: true})
+	logrus.SetLevel(logrus.DebugLevel)
+	t.Cleanup(func() {
+		logrus.SetOutput(previousOutput)
+		logrus.SetFormatter(previousFormatter)
+		logrus.SetLevel(previousLevel)
+	})
+	return &logs
 }
 
 func waitFor(t *testing.T, check func() bool) {

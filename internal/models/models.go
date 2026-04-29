@@ -7,26 +7,26 @@ import (
 )
 
 type SnapshotRun struct {
-	ID              uint      `gorm:"primaryKey"`
-	FetchedAt       time.Time `gorm:"index:idx_snapshot_runs_fetched_at"`
-	CPABaseURL      string
-	ExportedAt      *time.Time
-	Version         string
-	Status          string `gorm:"index:idx_snapshot_runs_status"`
-	HTTPStatus      int
-	PayloadHash     string
-	RawPayload      []byte
-	BackupFilePath  string
-	ErrorMessage    string
-	InsertedEvents  int
-	DedupedEvents   int
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID             uint      `gorm:"primaryKey"`
+	FetchedAt      time.Time `gorm:"index:idx_snapshot_runs_fetched_at"`
+	CPABaseURL     string
+	ExportedAt     *time.Time
+	Version        string
+	Status         string `gorm:"index:idx_snapshot_runs_status"`
+	HTTPStatus     int
+	PayloadHash    string
+	RawPayload     []byte
+	BackupFilePath string
+	ErrorMessage   string
+	InsertedEvents int
+	DedupedEvents  int
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 type UsageEvent struct {
-	ID              uint      `gorm:"primaryKey"`
-	EventKey        string    `gorm:"uniqueIndex:uniq_usage_events_event_key"`
+	ID              uint   `gorm:"primaryKey"`
+	EventKey        string `gorm:"uniqueIndex:uniq_usage_events_event_key"`
 	SnapshotRunID   uint
 	APIGroupKey     string    `gorm:"index:idx_usage_events_api_group_key"`
 	Model           string    `gorm:"index:idx_usage_events_model"`
@@ -43,9 +43,25 @@ type UsageEvent struct {
 	CreatedAt       time.Time
 }
 
+type RedisUsageInbox struct {
+	ID            uint   `gorm:"primaryKey"`
+	QueueKey      string `gorm:"not null;index"`
+	MessageHash   string `gorm:"not null;index"`
+	RawMessage    string `gorm:"not null"`
+	Status        string `gorm:"not null;index"`
+	AttemptCount  int    `gorm:"not null;default:0"`
+	LastError     string
+	SnapshotRunID *uint     `gorm:"index"`
+	UsageEventKey string    `gorm:"index"`
+	PoppedAt      time.Time `gorm:"not null;index"`
+	ProcessedAt   *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
 type AuthFile struct {
-	ID          uint           `gorm:"primaryKey"`
-	AuthIndex   string         `gorm:"uniqueIndex:uniq_auth_files_auth_index"`
+	ID          uint   `gorm:"primaryKey"`
+	AuthIndex   string `gorm:"uniqueIndex:uniq_auth_files_auth_index"`
 	Name        string
 	Email       string
 	Type        string
@@ -62,11 +78,11 @@ type AuthFile struct {
 }
 
 type ProviderMetadata struct {
-	ID           uint           `gorm:"primaryKey"`
-	LookupKey    string         `gorm:"uniqueIndex:uniq_provider_metadata_lookup_key"`
-	ProviderType string         `gorm:"index:idx_provider_metadata_provider_type"`
+	ID           uint   `gorm:"primaryKey"`
+	LookupKey    string `gorm:"uniqueIndex:uniq_provider_metadata_lookup_key"`
+	ProviderType string `gorm:"index:idx_provider_metadata_provider_type"`
 	DisplayName  string
-	ProviderKey  string         `gorm:"index:idx_provider_metadata_provider_key"`
+	ProviderKey  string `gorm:"index:idx_provider_metadata_provider_key"`
 	MatchKind    string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
@@ -74,8 +90,8 @@ type ProviderMetadata struct {
 }
 
 type ModelPriceSetting struct {
-	ID                   uint      `gorm:"primaryKey"`
-	Model                string    `gorm:"uniqueIndex:uniq_model_price_settings_model"`
+	ID                   uint   `gorm:"primaryKey"`
+	Model                string `gorm:"uniqueIndex:uniq_model_price_settings_model"`
 	PromptPricePer1M     float64
 	CompletionPricePer1M float64
 	CachePricePer1M      float64
@@ -87,6 +103,7 @@ func All() []any {
 	return []any{
 		&SnapshotRun{},
 		&UsageEvent{},
+		&RedisUsageInbox{},
 		&AuthFile{},
 		&ProviderMetadata{},
 		&ModelPriceSetting{},

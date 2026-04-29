@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 
 	"cpa-usage-keeper/internal/app"
 )
@@ -11,8 +12,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("initialize app: %v", err)
 	}
+	defer application.Close()
 
 	if err := application.Run(); err != nil {
-		log.Fatalf("run app: %v", err)
+		log.Printf("run app: %v", err)
+		if closeErr := application.Close(); closeErr != nil {
+			log.Printf("close app: %v", closeErr)
+		}
+		os.Exit(1)
 	}
 }

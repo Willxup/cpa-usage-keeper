@@ -3,12 +3,14 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
 	"path/filepath"
 
 	"cpa-usage-keeper/internal/api"
 	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/cpa"
+	"cpa-usage-keeper/internal/logging"
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
@@ -17,11 +19,18 @@ import (
 	"gorm.io/gorm"
 )
 
+type Runner interface {
+	Run(ctx context.Context) error
+	Status() poller.Status
+	SyncNow(ctx context.Context) error
+}
+
 type App struct {
-	Config *config.Config
-	DB     *gorm.DB
-	Router *gin.Engine
-	Poller *poller.Poller
+	Config    *config.Config
+	DB        *gorm.DB
+	Router    *gin.Engine
+	Poller    Runner
+	LogCloser io.Closer
 }
 
 func New() (*App, error) {
@@ -34,15 +43,19 @@ func New() (*App, error) {
 }
 
 func NewWithConfig(cfg config.Config) (*App, error) {
-	logrus.SetLevel(parseLogLevel(cfg.LogLevel))
-
-	db, err := repository.OpenDatabase(cfg)
+	logCloser, err := logging.Configure(cfg)
 	if err != nil {
 		return nil, err
 	}
 
+	db, err := repository.OpenDatabase(cfg)
+	if err != nil {
+		_ = logCloser.Close()
+		return nil, err
+	}
+
 	syncService := service.NewSyncService(db, cfg)
-	backgroundPoller := poller.New(syncService, cfg.PollInterval)
+	backgroundPoller := newBackgroundRunner(syncService, cfg)
 
 	usageService := service.NewUsageService(db)
 	authFileService := service.NewAuthFileService(db)
@@ -58,9 +71,10 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	}, sessionManager)
 
 	return &App{
-		Config: &cfg,
-		DB:     db,
-		Poller: backgroundPoller,
+		Config:    &cfg,
+		DB:        db,
+		Poller:    backgroundPoller,
+		LogCloser: logCloser,
 		Router: api.NewRouter(
 			filepath.Join("web", "dist"),
 			backgroundPoller,
@@ -80,6 +94,26 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	}, nil
 }
 
+func newBackgroundRunner(syncService *service.SyncService, cfg config.Config) Runner {
+	if cfg.UsageSyncMode == "redis" || cfg.UsageSyncMode == "auto" {
+		return poller.NewRedisDrain(syncService, poller.RedisDrainConfig{
+			IdleInterval:           cfg.RedisQueueIdleInterval,
+			ErrorBackoff:           cfg.RedisQueueErrorBackoff,
+			MetadataInterval:       cfg.RedisMetadataSyncInterval,
+			EnableLegacyFallback:   cfg.UsageSyncMode == "auto",
+			LegacyFallbackInterval: cfg.PollInterval,
+		})
+	}
+	return poller.New(syncService, cfg.PollInterval)
+}
+
+func (a *App) Close() error {
+	if a == nil || a.LogCloser == nil {
+		return nil
+	}
+	return a.LogCloser.Close()
+}
+
 func (a *App) Run() error {
 	if a == nil || a.Router == nil || a.Config == nil {
 		return fmt.Errorf("application is not initialized")
@@ -94,12 +128,4 @@ func (a *App) Run() error {
 	}
 
 	return a.Router.Run(":" + a.Config.AppPort)
-}
-
-func parseLogLevel(level string) logrus.Level {
-	parsed, err := logrus.ParseLevel(level)
-	if err != nil {
-		return logrus.InfoLevel
-	}
-	return parsed
 }

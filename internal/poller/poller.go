@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 type Syncer interface {
@@ -86,7 +88,7 @@ func (p *Poller) Run(ctx context.Context) error {
 	p.setRunning(true)
 	defer p.setRunning(false)
 
-	p.runSync(ctx)
+	p.runBackgroundSync(ctx)
 
 	t := p.ticker(p.interval)
 	defer t.Stop()
@@ -96,9 +98,19 @@ func (p *Poller) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-t.Chan():
-			p.runSync(ctx)
+			p.runBackgroundSync(ctx)
 		}
 	}
+}
+
+func (p *Poller) runBackgroundSync(ctx context.Context) {
+	if err := p.runSync(ctx); shouldLogSyncError(err) {
+		logrus.WithError(err).Error("poller sync failed")
+	}
+}
+
+func shouldLogSyncError(err error) bool {
+	return err != nil && !errors.Is(err, ErrSyncCompletedWithWarnings) && !errors.Is(err, ErrSyncAlreadyRunning) && !errors.Is(err, context.Canceled)
 }
 
 func (p *Poller) Status() Status {
@@ -141,11 +153,12 @@ func (p *Poller) runSync(ctx context.Context) error {
 		err = p.syncer.SyncOnce(ctx)
 	}
 
+	warningResult := err != nil && lastStatus != "" && lastStatus != "failed"
 	p.mu.Lock()
 	p.lastRunAt = p.now().UTC()
 	p.lastStatus = lastStatus
 	p.lastWarning = ""
-	if err != nil && lastStatus != "" {
+	if warningResult {
 		p.lastWarning = err.Error()
 		p.lastError = ""
 	} else if err != nil {
@@ -154,7 +167,7 @@ func (p *Poller) runSync(ctx context.Context) error {
 		p.lastError = ""
 	}
 	p.mu.Unlock()
-	if err != nil && lastStatus != "" {
+	if warningResult {
 		return fmt.Errorf("%w: %v", ErrSyncCompletedWithWarnings, err)
 	}
 	return err

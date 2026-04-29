@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -23,6 +25,15 @@ type ExportFetcher interface {
 	FetchManagementConfig(ctx context.Context) (*cpa.ManagementConfigResult, error)
 }
 
+type UsageFetcher interface {
+	FetchUsage(ctx context.Context, fetchedAt time.Time) (*UsageFetchResult, error)
+}
+
+type MetadataFetcher interface {
+	FetchAuthFiles(ctx context.Context) (*cpa.AuthFilesResult, error)
+	FetchManagementConfig(ctx context.Context) (*cpa.ManagementConfigResult, error)
+}
+
 type BackupWriter interface {
 	Write(snapshotRunID uint, fetchedAt time.Time, payload []byte) (string, error)
 }
@@ -32,10 +43,23 @@ type BackupCleaner interface {
 }
 
 const syncPrefilterOverlapWindow = 24 * time.Hour
+const redisInboxProcessLimit = 1000
+
+const (
+	syncMetadataOptional = false
+	syncMetadataRequired = true
+)
 
 type SyncService struct {
 	db                  *gorm.DB
 	client              ExportFetcher
+	usageFetcher        UsageFetcher
+	redisUsageFetcher   UsageFetcher
+	redisQueue          RedisQueue
+	redisQueueKey       string
+	usageSyncMode       string
+	legacyUsageFetcher  UsageFetcher
+	metadataFetcher     MetadataFetcher
 	baseURL             string
 	backupEnabled       bool
 	backupInterval      time.Duration
@@ -56,6 +80,14 @@ type SyncResult struct {
 	BackupFilePath string
 }
 
+type RedisBatchSyncResult struct {
+	Empty          bool
+	Status         string
+	SnapshotRunID  uint
+	InsertedEvents int
+	DedupedEvents  int
+}
+
 func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 	var writer BackupWriter
 	var cleaner BackupCleaner
@@ -67,6 +99,9 @@ func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 	return NewSyncServiceWithOptions(db, SyncServiceOptions{
 		BaseURL:             cfg.CPABaseURL,
 		Client:              cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout),
+		UsageSyncMode:       cfg.UsageSyncMode,
+		RedisQueue:          cpa.NewRedisQueueClient(cfg.CPABaseURL, cfg.RedisQueueAddr, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.RedisQueueKey, cfg.RedisQueueBatchSize),
+		RedisQueueKey:       cfg.RedisQueueKey,
 		BackupEnabled:       cfg.BackupEnabled,
 		BackupWriter:        writer,
 		BackupInterval:      cfg.BackupInterval,
@@ -78,6 +113,11 @@ func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 type SyncServiceOptions struct {
 	BaseURL             string
 	Client              ExportFetcher
+	UsageFetcher        UsageFetcher
+	MetadataFetcher     MetadataFetcher
+	UsageSyncMode       string
+	RedisQueue          RedisQueue
+	RedisQueueKey       string
 	BackupEnabled       bool
 	BackupWriter        BackupWriter
 	BackupInterval      time.Duration
@@ -91,9 +131,39 @@ func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncServic
 	if now == nil {
 		now = time.Now
 	}
+	usageFetcher := opts.UsageFetcher
+	metadataFetcher := opts.MetadataFetcher
+	if metadataFetcher == nil {
+		metadataFetcher = opts.Client
+	}
+	legacyFetcher := legacyUsageFetcher{client: opts.Client}
+	var redisFetcher UsageFetcher
+	if opts.RedisQueue != nil {
+		redisFetcher = newRedisUsageFetcher(opts.RedisQueue)
+	}
+	if usageFetcher == nil && opts.Client != nil {
+		usageFetcher = legacyFetcher
+	}
+	if opts.UsageSyncMode != "" && opts.UsageSyncMode != "legacy_export" {
+		if redisFetcher == nil {
+			redisFetcher = newRedisUsageFetcher(opts.RedisQueue)
+		}
+		if opts.UsageSyncMode == "redis" {
+			usageFetcher = redisFetcher
+		} else {
+			usageFetcher = autoUsageFetcher{primary: redisFetcher, fallback: legacyFetcher}
+		}
+	}
 	return &SyncService{
 		db:                  db,
 		client:              opts.Client,
+		usageFetcher:        usageFetcher,
+		redisUsageFetcher:   redisFetcher,
+		redisQueue:          opts.RedisQueue,
+		redisQueueKey:       redisQueueKey(opts.RedisQueueKey),
+		usageSyncMode:       strings.TrimSpace(opts.UsageSyncMode),
+		legacyUsageFetcher:  legacyFetcher,
+		metadataFetcher:     metadataFetcher,
 		baseURL:             strings.TrimSpace(opts.BaseURL),
 		backupEnabled:       opts.BackupEnabled,
 		backupInterval:      opts.BackupInterval,
@@ -117,7 +187,23 @@ func (s *SyncService) SyncOnce(ctx context.Context) error {
 }
 
 func (s *SyncService) SyncNow(ctx context.Context) (*SyncResult, error) {
+	if s != nil && s.redisQueue != nil && (s.usageSyncMode == "redis" || s.usageSyncMode == "auto") {
+		result, err := s.SyncRedisBatch(ctx, true)
+		return syncResultFromRedisBatch(result), err
+	}
 	return s.syncOnce(ctx)
+}
+
+func syncResultFromRedisBatch(result *RedisBatchSyncResult) *SyncResult {
+	if result == nil {
+		return nil
+	}
+	return &SyncResult{
+		SnapshotRunID:  result.SnapshotRunID,
+		Status:         result.Status,
+		InsertedEvents: result.InsertedEvents,
+		DedupedEvents:  result.DedupedEvents,
+	}
 }
 
 func (s *SyncService) SyncStatus(ctx context.Context) (string, error) {
@@ -128,19 +214,196 @@ func (s *SyncService) SyncStatus(ctx context.Context) (string, error) {
 	return result.Status, err
 }
 
-func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
-	if s == nil {
-		return nil, fmt.Errorf("sync service is nil")
+func (s *SyncService) SyncMetadata(ctx context.Context) error {
+	if err := s.validate(syncMetadataRequired); err != nil {
+		return err
 	}
-	if s.db == nil {
-		return nil, fmt.Errorf("sync service database is nil")
+	logrus.Debug("metadata sync started")
+	authFilesResult, authFilesErr := s.metadataFetcher.FetchAuthFiles(ctx)
+	managementConfigResult, managementConfigErr := s.metadataFetcher.FetchManagementConfig(ctx)
+	err := joinErrors(
+		syncAuthFiles(s.db, authFilesResult, authFilesErr),
+		syncProviderMetadata(s.db, managementConfigResult, managementConfigErr),
+	)
+	fields := logrus.Fields{
+		"status": "completed",
 	}
-	if s.client == nil {
-		return nil, fmt.Errorf("sync service client is nil")
+	if err != nil {
+		fields["status"] = "completed_with_warnings"
+		fields["error"] = err.Error()
+	}
+	logrus.WithFields(fields).Debug("metadata sync finished")
+	return err
+}
+
+// SyncRedisBatch 先处理本地 inbox，再从 CPA Redis 队列拉取新数据，尽量缩小消费型 LPOP 的丢数窗口。
+func (s *SyncService) SyncRedisBatch(ctx context.Context, syncMetadata bool) (*RedisBatchSyncResult, error) {
+	if err := s.validate(syncMetadata); err != nil {
+		return nil, err
+	}
+	if s.redisQueue == nil {
+		return nil, fmt.Errorf("sync service redis queue is nil")
 	}
 
 	fetchedAt := s.now().UTC()
-	fetchResult, fetchErr := s.client.FetchUsageExport(ctx)
+	processableRows, err := repository.ListProcessableRedisUsageInbox(s.db, redisInboxProcessLimit)
+	if err != nil {
+		return &RedisBatchSyncResult{Status: "failed"}, fmt.Errorf("list processable redis usage inbox: %w", err)
+	}
+	if len(processableRows) > 0 {
+		logrus.WithField("row_count", len(processableRows)).Debug("redis usage inbox rows found for processing")
+		return s.processRedisInboxRows(ctx, processableRows, fetchedAt, syncMetadata)
+	}
+
+	messages, err := s.redisQueue.PopUsage(ctx)
+	if err != nil {
+		return &RedisBatchSyncResult{Status: "failed"}, fmt.Errorf("fetch redis usage: %w", err)
+	}
+	logrus.WithFields(logrus.Fields{
+		"queue_key":     s.redisQueueKey,
+		"message_count": len(messages),
+	}).Debug("redis usage batch popped")
+	if len(messages) == 0 {
+		return &RedisBatchSyncResult{Empty: true, Status: "empty"}, nil
+	}
+
+	inboxRows, err := insertRedisInboxMessages(s.db, s.redisQueueKey, messages, fetchedAt)
+	if err != nil {
+		return &RedisBatchSyncResult{Status: "failed"}, fmt.Errorf("insert redis usage inbox: %w", err)
+	}
+	logrus.WithFields(logrus.Fields{
+		"queue_key": s.redisQueueKey,
+		"row_count": len(inboxRows),
+	}).Debug("redis usage inbox rows inserted")
+	return s.processRedisInboxRows(ctx, inboxRows, fetchedAt, syncMetadata)
+}
+
+// processRedisInboxRows 只从已落库的原始消息解码和写入事件，坏消息不会阻塞同批其它数据。
+func (s *SyncService) processRedisInboxRows(ctx context.Context, inboxRows []models.RedisUsageInbox, fetchedAt time.Time, syncMetadata bool) (*RedisBatchSyncResult, error) {
+	logrus.WithFields(logrus.Fields{
+		"row_count":     len(inboxRows),
+		"sync_metadata": syncMetadata,
+	}).Debug("redis usage inbox processing started")
+	validRows := make([]models.RedisUsageInbox, 0, len(inboxRows))
+	rawMessages := make([]json.RawMessage, 0, len(inboxRows))
+	events := make([]models.UsageEvent, 0, len(inboxRows))
+	decodeErrs := make([]error, 0)
+	for _, row := range inboxRows {
+		event, raw, decodeErr := DecodeRedisUsageMessage(row.RawMessage, fetchedAt)
+		if decodeErr != nil {
+			if markErr := repository.MarkRedisUsageInboxDecodeFailed(s.db, row.ID, decodeErr); markErr != nil {
+				return &RedisBatchSyncResult{Status: "failed"}, fmt.Errorf("mark redis usage inbox decode failed: %w", markErr)
+			}
+			decodeErrs = append(decodeErrs, decodeErr)
+			continue
+		}
+		validRows = append(validRows, row)
+		rawMessages = append(rawMessages, raw)
+		events = append(events, event)
+	}
+	decodeErr := joinErrors(decodeErrs...)
+	logrus.WithFields(logrus.Fields{
+		"row_count":           len(inboxRows),
+		"valid_event_count":   len(events),
+		"decode_failed_count": len(decodeErrs),
+	}).Debug("redis usage inbox rows decoded")
+	if len(events) == 0 {
+		if decodeErr != nil {
+			return &RedisBatchSyncResult{Status: "completed_with_warnings"}, decodeErr
+		}
+		return &RedisBatchSyncResult{Empty: true, Status: "empty"}, nil
+	}
+
+	rawPayload, err := json.Marshal(rawMessages)
+	if err != nil {
+		return &RedisBatchSyncResult{Status: "failed"}, fmt.Errorf("encode redis usage batch: %w", err)
+	}
+	fetchResult := &UsageFetchResult{RawPayload: rawPayload, Events: events}
+	logrus.WithFields(logrus.Fields{
+		"event_count":   len(events),
+		"payload_bytes": len(rawPayload),
+	}).Debug("redis usage events persistence started")
+	result, err := s.persistUsageResult(ctx, fetchedAt, fetchResult, nil, syncMetadata, false)
+	if result == nil {
+		markRedisInboxRowsProcessFailed(s.db, validRows, err)
+		return nil, err
+	}
+	if err != nil && result.Status == "failed" {
+		markRedisInboxRowsProcessFailed(s.db, validRows, err)
+		return &RedisBatchSyncResult{Status: result.Status}, err
+	}
+	for i, row := range validRows {
+		if markErr := repository.MarkRedisUsageInboxProcessed(s.db, row.ID, result.SnapshotRunID, events[i].EventKey, fetchedAt); markErr != nil {
+			return &RedisBatchSyncResult{Status: "failed"}, fmt.Errorf("mark redis usage inbox processed: %w", markErr)
+		}
+	}
+	logrus.WithFields(logrus.Fields{
+		"snapshot_run_id": result.SnapshotRunID,
+		"processed_rows":  len(validRows),
+		"inserted_events": result.InsertedEvents,
+		"deduped_events":  result.DedupedEvents,
+		"status":          result.Status,
+	}).Debug("redis usage inbox rows processed")
+
+	status := result.Status
+	returnErr := err
+	if decodeErr != nil {
+		status = "completed_with_warnings"
+		if returnErr != nil {
+			returnErr = joinErrors(returnErr, decodeErr)
+		} else {
+			returnErr = decodeErr
+		}
+	}
+	return &RedisBatchSyncResult{
+		Status:         status,
+		SnapshotRunID:  result.SnapshotRunID,
+		InsertedEvents: result.InsertedEvents,
+		DedupedEvents:  result.DedupedEvents,
+	}, returnErr
+}
+
+// SyncLegacyStatus 在 Redis 不可用时走 legacy fallback，确保核心拉取链路仍能继续尝试写库。
+func (s *SyncService) SyncLegacyStatus(ctx context.Context) (string, error) {
+	if err := s.validate(syncMetadataRequired); err != nil {
+		return "", err
+	}
+	if s.legacyUsageFetcher == nil {
+		return "", fmt.Errorf("sync service legacy usage fetcher is nil")
+	}
+
+	fetchedAt := s.now().UTC()
+	fetchResult, fetchErr := s.legacyUsageFetcher.FetchUsage(ctx, fetchedAt)
+	result, err := s.persistUsageResult(ctx, fetchedAt, fetchResult, fetchErr, true, true)
+	if result == nil {
+		return "", err
+	}
+	return result.Status, err
+}
+
+// syncOnce 执行一次完整的 legacy 拉取、快照落库和事件写入流程。
+func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
+	if err := s.validate(syncMetadataRequired); err != nil {
+		return nil, err
+	}
+	if s.usageFetcher == nil && s.client != nil {
+		s.usageFetcher = legacyUsageFetcher{client: s.client}
+	}
+	if s.usageFetcher == nil {
+		return nil, fmt.Errorf("sync service usage fetcher is nil")
+	}
+
+	fetchedAt := s.now().UTC()
+	fetchResult, fetchErr := s.usageFetcher.FetchUsage(ctx, fetchedAt)
+	return s.persistUsageResult(ctx, fetchedAt, fetchResult, fetchErr, true, true)
+}
+
+// persistUsageResult 保存快照和 usage_events，是所有拉取路径最终写入数据库的统一入口。
+func (s *SyncService) persistUsageResult(ctx context.Context, fetchedAt time.Time, fetchResult *UsageFetchResult, fetchErr error, syncMetadata bool, filterByWatermark bool) (*SyncResult, error) {
+	logrus.WithFields(logrus.Fields{
+		"sync_metadata":       syncMetadata,
+		"filter_by_watermark": filterByWatermark,
+	}).Debug("usage persistence started")
 
 	var (
 		httpStatus  int
@@ -150,20 +413,27 @@ func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
 		version     string
 	)
 	if fetchResult != nil {
-		httpStatus = fetchResult.StatusCode
-		rawPayload = append([]byte(nil), fetchResult.Body...)
+		httpStatus = fetchResult.HTTPStatus
+		rawPayload = append([]byte(nil), fetchResult.RawPayload...)
 		payloadHash = hashPayload(rawPayload)
-		if !fetchResult.Payload.ExportedAt.IsZero() {
-			normalized := fetchResult.Payload.ExportedAt.UTC()
-			exportedAt = &normalized
-		}
-		if fetchResult.Payload.Version > 0 {
-			version = fmt.Sprintf("%d", fetchResult.Payload.Version)
-		}
+		exportedAt = fetchResult.ExportedAt
+		version = fetchResult.Version
 	}
 
-	authFilesResult, authFilesErr := s.client.FetchAuthFiles(ctx)
-	managementConfigResult, managementConfigErr := s.client.FetchManagementConfig(ctx)
+	var authFilesResult *cpa.AuthFilesResult
+	var managementConfigResult *cpa.ManagementConfigResult
+	var authFilesErr error
+	var managementConfigErr error
+	if syncMetadata {
+		if s.metadataFetcher == nil && s.client != nil {
+			s.metadataFetcher = s.client
+		}
+		if s.metadataFetcher == nil {
+			return nil, fmt.Errorf("sync service metadata fetcher is nil")
+		}
+		authFilesResult, authFilesErr = s.metadataFetcher.FetchAuthFiles(ctx)
+		managementConfigResult, managementConfigErr = s.metadataFetcher.FetchManagementConfig(ctx)
+	}
 
 	snapshotRun, err := repository.CreateSnapshotRun(s.db, repository.SnapshotRunInput{
 		FetchedAt:    fetchedAt,
@@ -179,6 +449,11 @@ func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	logrus.WithFields(logrus.Fields{
+		"snapshot_run_id": snapshotRun.ID,
+		"status":          snapshotRun.Status,
+		"payload_bytes":   len(rawPayload),
+	}).Debug("snapshot run created")
 
 	if fetchErr != nil {
 		finalizeErr := repository.FinalizeSnapshotRun(s.db, snapshotRun.ID, repository.SnapshotRunResult{
@@ -218,6 +493,7 @@ func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
 
 	backupFilePath := ""
 	if s.shouldWriteBackup(fetchedAt, lastBackupSnapshotRun) {
+		logrus.WithField("snapshot_run_id", snapshotRun.ID).Debug("usage backup write started")
 		backupFilePath, err = s.writeBackup(snapshotRun.ID, fetchedAt, rawPayload)
 		if err != nil {
 			finalizeErr := repository.FinalizeSnapshotRun(s.db, snapshotRun.ID, repository.SnapshotRunResult{
@@ -232,23 +508,33 @@ func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
 			}
 			return nil, fmt.Errorf("write backup: %w", err)
 		}
+		logrus.WithFields(logrus.Fields{
+			"snapshot_run_id": snapshotRun.ID,
+			"backup_written":  backupFilePath != "",
+		}).Debug("usage backup write finished")
 	}
 
-	events := FlattenUsageExport(snapshotRun.ID, fetchResult.Payload)
-	events, err = filterUsageEventsByLocalWatermark(s.db, events, syncPrefilterOverlapWindow)
-	if err != nil {
-		finalizeErr := repository.FinalizeSnapshotRun(s.db, snapshotRun.ID, repository.SnapshotRunResult{
-			Status:         "failed",
-			HTTPStatus:     httpStatus,
-			ErrorMessage:   errorMessage(err),
-			BackupFilePath: backupFilePath,
-			ExportedAt:     exportedAt,
-		})
-		if finalizeErr != nil {
-			return nil, fmt.Errorf("filter usage events: %v; finalize snapshot run: %w", err, finalizeErr)
-		}
-		return nil, fmt.Errorf("filter usage events: %w", err)
+	events := append([]models.UsageEvent(nil), fetchResult.Events...)
+	for i := range events {
+		events[i].SnapshotRunID = snapshotRun.ID
 	}
+	if filterByWatermark {
+		events, err = filterUsageEventsByLocalWatermark(s.db, events, syncPrefilterOverlapWindow)
+		if err != nil {
+			finalizeErr := repository.FinalizeSnapshotRun(s.db, snapshotRun.ID, repository.SnapshotRunResult{
+				Status:         "failed",
+				HTTPStatus:     httpStatus,
+				ErrorMessage:   errorMessage(err),
+				BackupFilePath: backupFilePath,
+				ExportedAt:     exportedAt,
+			})
+			if finalizeErr != nil {
+				return nil, fmt.Errorf("filter usage events: %v; finalize snapshot run: %w", err, finalizeErr)
+			}
+			return nil, fmt.Errorf("filter usage events: %w", err)
+		}
+	}
+	logrus.WithField("event_count", len(events)).Debug("usage events insert started")
 	inserted, deduped, err := repository.InsertUsageEvents(s.db, events)
 	if err != nil {
 		finalizeErr := repository.FinalizeSnapshotRun(s.db, snapshotRun.ID, repository.SnapshotRunResult{
@@ -264,9 +550,18 @@ func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
 		return nil, fmt.Errorf("insert usage events: %w", err)
 	}
 
-	authFilesSyncErr := syncAuthFiles(s.db, authFilesResult, authFilesErr)
-	providerMetadataSyncErr := syncProviderMetadata(s.db, managementConfigResult, managementConfigErr)
-	partialSyncErr := joinErrors(authFilesSyncErr, providerMetadataSyncErr)
+	logrus.WithFields(logrus.Fields{
+		"snapshot_run_id": snapshotRun.ID,
+		"inserted_events": inserted,
+		"deduped_events":  deduped,
+	}).Debug("usage events insert finished")
+
+	var partialSyncErr error
+	if syncMetadata {
+		authFilesSyncErr := syncAuthFiles(s.db, authFilesResult, authFilesErr)
+		providerMetadataSyncErr := syncProviderMetadata(s.db, managementConfigResult, managementConfigErr)
+		partialSyncErr = joinErrors(authFilesSyncErr, providerMetadataSyncErr)
+	}
 	finalStatus := "completed"
 	if partialSyncErr != nil {
 		finalStatus = "completed_with_warnings"
@@ -283,6 +578,13 @@ func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
 	}); err != nil {
 		return nil, err
 	}
+	logrus.WithFields(logrus.Fields{
+		"snapshot_run_id": snapshotRun.ID,
+		"status":          finalStatus,
+		"inserted_events": inserted,
+		"deduped_events":  deduped,
+		"backup_written":  backupFilePath != "",
+	}).Debug("snapshot run finalized")
 
 	result := &SyncResult{
 		SnapshotRunID:  snapshotRun.ID,
@@ -301,6 +603,101 @@ func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
 		return result, fmt.Errorf("cleanup backups: %w", err)
 	}
 	return result, nil
+}
+
+type legacyUsageFetcher struct {
+	client interface {
+		FetchUsageExport(ctx context.Context) (*cpa.ExportResult, error)
+	}
+}
+
+// FetchUsage 从 legacy export 拉取用量数据，只记录状态和计数，不记录原始 payload。
+func (f legacyUsageFetcher) FetchUsage(ctx context.Context, _ time.Time) (*UsageFetchResult, error) {
+	if f.client == nil {
+		return nil, fmt.Errorf("legacy usage client is nil")
+	}
+	logrus.Debug("legacy usage pull started")
+	result, err := f.client.FetchUsageExport(ctx)
+	if result == nil {
+		logrus.WithError(err).Debug("legacy usage pull finished")
+		return nil, err
+	}
+	var exportedAt *time.Time
+	if !result.Payload.ExportedAt.IsZero() {
+		normalized := result.Payload.ExportedAt.UTC()
+		exportedAt = &normalized
+	}
+	version := ""
+	if result.Payload.Version > 0 {
+		version = fmt.Sprintf("%d", result.Payload.Version)
+	}
+	events := FlattenUsageExport(0, result.Payload)
+	logFields := logrus.Fields{
+		"http_status":   result.StatusCode,
+		"event_count":   len(events),
+		"payload_bytes": len(result.Body),
+	}
+	if err != nil {
+		logFields["error"] = err.Error()
+	}
+	logrus.WithFields(logFields).Debug("legacy usage pull finished")
+	return &UsageFetchResult{
+		HTTPStatus: result.StatusCode,
+		RawPayload: append([]byte(nil), result.Body...),
+		ExportedAt: exportedAt,
+		Version:    version,
+		Events:     events,
+	}, err
+}
+
+func (s *SyncService) validate(syncMetadata bool) error {
+	if s == nil {
+		return fmt.Errorf("sync service is nil")
+	}
+	if s.db == nil {
+		return fmt.Errorf("sync service database is nil")
+	}
+	if syncMetadata {
+		if s.metadataFetcher == nil && s.client != nil {
+			s.metadataFetcher = s.client
+		}
+		if s.metadataFetcher == nil {
+			return fmt.Errorf("sync service metadata fetcher is nil")
+		}
+	}
+	return nil
+}
+
+type autoUsageFetcher struct {
+	primary  UsageFetcher
+	fallback UsageFetcher
+}
+
+// FetchUsage 优先走 Redis 拉取；非鉴权类 Redis 故障才切到 legacy fallback，避免队列不可用时完全中断同步。
+func (f autoUsageFetcher) FetchUsage(ctx context.Context, fetchedAt time.Time) (*UsageFetchResult, error) {
+	logrus.Debug("auto usage redis pull started")
+	result, err := f.primary.FetchUsage(ctx, fetchedAt)
+	if err == nil || errors.Is(err, cpa.ErrRedisQueueAuth) {
+		fields := logrus.Fields{"fallback_used": false}
+		if err != nil {
+			fields["error"] = err.Error()
+		}
+		logrus.WithFields(fields).Debug("auto usage redis pull finished")
+		return result, err
+	}
+	logrus.WithError(err).Debug("auto usage redis pull failed, fallback started")
+	fallbackResult, fallbackErr := f.fallback.FetchUsage(ctx, fetchedAt)
+	fields := logrus.Fields{"fallback_used": true}
+	if fallbackResult != nil {
+		fields["event_count"] = len(fallbackResult.Events)
+		fields["payload_bytes"] = len(fallbackResult.RawPayload)
+		fields["http_status"] = fallbackResult.HTTPStatus
+	}
+	if fallbackErr != nil {
+		fields["error"] = fallbackErr.Error()
+	}
+	logrus.WithFields(fields).Debug("auto usage fallback finished")
+	return fallbackResult, fallbackErr
 }
 
 func (s *SyncService) cleanupBackups(now time.Time) error {
@@ -335,6 +732,55 @@ func (s *SyncService) shouldWriteBackup(fetchedAt time.Time, lastBackupSnapshotR
 		return true
 	}
 	return fetchedAt.UTC().Sub(lastBackupSnapshotRun.FetchedAt.UTC()) >= s.backupInterval
+}
+
+// insertRedisInboxMessages 在解码前先把 Redis 原始消息落库，降低 LPOP 后本地处理失败导致的数据丢失风险。
+func insertRedisInboxMessages(db *gorm.DB, queueKey string, messages []string, poppedAt time.Time) ([]models.RedisUsageInbox, error) {
+	inputs := make([]repository.RedisInboxInsert, 0, len(messages))
+	for _, message := range messages {
+		inputs = append(inputs, repository.RedisInboxInsert{
+			QueueKey:   queueKey,
+			RawMessage: message,
+			PoppedAt:   poppedAt,
+		})
+	}
+	return repository.InsertRedisUsageInboxMessages(db, inputs)
+}
+
+func markRedisInboxRowsProcessFailed(db *gorm.DB, rows []models.RedisUsageInbox, err error) {
+	if err == nil {
+		return
+	}
+	for _, row := range rows {
+		if markErr := repository.MarkRedisUsageInboxProcessFailed(db, row.ID, err); markErr != nil {
+			logrus.WithError(markErr).WithField("inbox_id", row.ID).Warn("failed to mark redis usage inbox process failure")
+			continue
+		}
+		var stored models.RedisUsageInbox
+		if loadErr := db.First(&stored, row.ID).Error; loadErr != nil {
+			logrus.WithError(loadErr).WithField("inbox_id", row.ID).Warn("failed to load redis usage inbox after process failure")
+			continue
+		}
+		if stored.Status == repository.RedisUsageInboxStatusDiscarded {
+			logrus.WithFields(logrus.Fields{
+				"inbox_id":        stored.ID,
+				"queue_key":       stored.QueueKey,
+				"message_hash":    stored.MessageHash,
+				"attempt_count":   stored.AttemptCount,
+				"last_error":      stored.LastError,
+				"popped_at":       stored.PoppedAt,
+				"snapshot_run_id": stored.SnapshotRunID,
+			}).Warn("discarded redis usage inbox row after repeated process failures")
+		}
+	}
+}
+
+func redisQueueKey(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "queue"
+	}
+	return trimmed
 }
 
 func filterUsageEventsByLocalWatermark(db *gorm.DB, events []models.UsageEvent, overlapWindow time.Duration) ([]models.UsageEvent, error) {

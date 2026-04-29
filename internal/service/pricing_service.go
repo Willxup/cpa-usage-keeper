@@ -93,7 +93,7 @@ func (s *pricingService) effectiveModels(ctx context.Context) ([]string, error) 
 
 	result, err := s.modelsFetcher.FetchModels(ctx)
 	if err != nil {
-		logrus.WithError(err).Debug("pricing model listing falling back to local usage aggregation")
+		logrus.WithError(err).Error("pricing model listing falling back to local usage aggregation")
 		return repository.ListUsedModels(s.db)
 	}
 
