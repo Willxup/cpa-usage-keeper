@@ -119,6 +119,8 @@ func (a *App) Run() error {
 		return fmt.Errorf("application is not initialized")
 	}
 
+	logrus.WithField("mode", a.Config.UsageSyncMode).Info("usage sync mode selected")
+
 	if a.Poller != nil {
 		go func() {
 			if err := a.Poller.Run(context.Background()); err != nil {

@@ -1,11 +1,15 @@
 package app
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 	"time"
 
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/poller"
+	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 func TestNewWithConfigBuildsPollerAndRouter(t *testing.T) {
@@ -48,6 +52,37 @@ func TestNewWithConfigSelectsRedisDrain(t *testing.T) {
 				t.Fatalf("expected %s to use redis drain, got %T", mode, app.Poller)
 			}
 		})
+	}
+}
+
+func TestRunLogsConfiguredUsageSyncMode(t *testing.T) {
+	var logs bytes.Buffer
+	previousOutput := logrus.StandardLogger().Out
+	previousFormatter := logrus.StandardLogger().Formatter
+	previousLevel := logrus.GetLevel()
+	logrus.SetOutput(&logs)
+	logrus.SetFormatter(&logrus.TextFormatter{DisableTimestamp: true})
+	logrus.SetLevel(logrus.InfoLevel)
+	t.Cleanup(func() {
+		logrus.SetOutput(previousOutput)
+		logrus.SetFormatter(previousFormatter)
+		logrus.SetLevel(previousLevel)
+	})
+
+	cfg := testAppConfig(t, "redis")
+	cfg.AppPort = "invalid-port"
+	app := &App{
+		Config: &cfg,
+		Router: gin.New(),
+	}
+
+	if err := app.Run(); err == nil {
+		t.Fatal("expected Run to return an error for invalid port")
+	}
+
+	content := logs.String()
+	if !strings.Contains(content, "msg=\"usage sync mode selected\"") || !strings.Contains(content, "mode=redis") {
+		t.Fatalf("expected configured usage sync mode log, got %q", content)
 	}
 }
 
