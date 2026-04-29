@@ -87,6 +87,12 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (service.UsageFi
 	switch rangeValue {
 	case "all":
 		return filter, nil
+	case "today":
+		startTime := anchor.UTC().Truncate(24 * time.Hour)
+		endTime := startTime.Add(24*time.Hour - time.Nanosecond)
+		filter.StartTime = &startTime
+		filter.EndTime = &endTime
+		return filter, nil
 	case "custom":
 		startValue := strings.TrimSpace(req.URL.Query().Get("start"))
 		endValue := strings.TrimSpace(req.URL.Query().Get("end"))

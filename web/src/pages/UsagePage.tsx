@@ -71,15 +71,15 @@ const DEFAULT_CHART_LINES = ['all'];
 const DEFAULT_TIME_RANGE: UsageTimeRange = '8h';
 const DEFAULT_CUSTOM_WINDOW_HOURS = 8;
 const MAX_CHART_LINES = 9;
-const TIME_RANGE_OPTIONS: ReadonlyArray<{ value: Exclude<UsageTimeRange, 'all'>; labelKey: string }> = [
+const TIME_RANGE_OPTIONS: ReadonlyArray<{ value: Exclude<UsageTimeRange, 'all' | '24h'>; labelKey: string }> = [
   { value: '4h', labelKey: 'usage_stats.range_4h' },
   { value: '8h', labelKey: 'usage_stats.range_8h' },
   { value: '12h', labelKey: 'usage_stats.range_12h' },
-  { value: '24h', labelKey: 'usage_stats.range_24h' },
+  { value: 'today', labelKey: 'usage_stats.range_today' },
   { value: '7d', labelKey: 'usage_stats.range_7d' },
   { value: 'custom', labelKey: 'usage_stats.range_custom' },
 ];
-const HOUR_WINDOW_BY_TIME_RANGE: Record<Exclude<UsageTimeRange, 'all' | 'custom'>, number> = {
+const HOUR_WINDOW_BY_TIME_RANGE: Record<Extract<UsageTimeRange, '4h' | '8h' | '12h' | '24h' | '7d'>, number> = {
   '4h': 4,
   '8h': 8,
   '12h': 12,
@@ -224,7 +224,7 @@ export const sanitizeRequestEventFilters = (
 };
 
 const isUsageTimeRange = (value: unknown): value is UsageTimeRange =>
-  value === '4h' || value === '8h' || value === '12h' || value === '24h' || value === '7d' || value === 'all' || value === 'custom';
+  value === '4h' || value === '8h' || value === '12h' || value === '24h' || value === 'today' || value === '7d' || value === 'all' || value === 'custom';
 
 const toDateInputValue = (timestamp: number): string => {
   const date = new Date(timestamp);
@@ -310,7 +310,7 @@ const loadTimeRange = (): UsageTimeRange => {
       return DEFAULT_TIME_RANGE;
     }
     const raw = localStorage.getItem(TIME_RANGE_STORAGE_KEY);
-    if (!isUsageTimeRange(raw) || raw === 'all') {
+    if (!isUsageTimeRange(raw) || raw === 'all' || raw === '24h') {
       return DEFAULT_TIME_RANGE;
     }
     return raw;
@@ -327,6 +327,27 @@ export const getUsageTabOptions = (translate: Translate): Array<{ value: UsageTa
     value,
     label: translate(USAGE_TAB_LABEL_KEYS[value]),
   }));
+
+export const getTimeRangeOptions = (translate: Translate) =>
+  TIME_RANGE_OPTIONS.map((option) => ({
+    value: option.value,
+    label: translate(option.labelKey),
+  }));
+
+export const getOverviewHourWindowHours = ({ timeRange, filterWindow }: { timeRange: UsageTimeRange; filterWindow: UsageFilterWindow }) => {
+  if (timeRange === 'all') return 24;
+  if (timeRange === 'today') return 24;
+  if (timeRange !== 'custom') return Math.min(HOUR_WINDOW_BY_TIME_RANGE[timeRange], 24);
+  if (filterWindow.windowMinutes === undefined) return 24;
+  return Math.min(Math.max(Math.ceil(filterWindow.windowMinutes / 60), 1), 24);
+};
+
+export const getOverviewChartEndMs = ({ timeRange, filterWindow, fallbackEndMs }: { timeRange: UsageTimeRange; filterWindow: UsageFilterWindow; fallbackEndMs: number }) => {
+  if (timeRange === 'today' && filterWindow.startMs !== undefined) {
+    return filterWindow.startMs + 24 * 60 * 60 * 1000 - 1;
+  }
+  return filterWindow.endMs ?? fallbackEndMs;
+};
 
 const loadUsageTab = (): UsageTab => {
   try {
@@ -410,14 +431,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const analysisRequestControllerRef = useRef<AbortController | null>(null);
 
   const tabOptions = useMemo(() => getUsageTabOptions(t), [t]);
-  const timeRangeOptions = useMemo(
-    () =>
-      TIME_RANGE_OPTIONS.map((opt) => ({
-        value: opt.value,
-        label: t(opt.labelKey)
-      })),
-    [t]
-  );
+  const timeRangeOptions = useMemo(() => getTimeRangeOptions(t), [t]);
   const themeOptions = useMemo(
     () =>
       THEME_OPTIONS.map((option) => ({
@@ -517,13 +531,15 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       }
     }
   }, [customTimeRange.end, customTimeRange.start, onAuthRequired, timeRange]);
-  const hourWindowHours = useMemo(() => {
-    if (timeRange === 'all') return 24;
-    if (timeRange !== 'custom') return Math.min(HOUR_WINDOW_BY_TIME_RANGE[timeRange], 24);
-    if (filterWindow.windowMinutes === undefined) return 24;
-    return Math.min(Math.max(Math.ceil(filterWindow.windowMinutes / 60), 1), 24);
-  }, [filterWindow.windowMinutes, timeRange]);
-  const filterWindowEndMs = filterWindow.endMs ?? lastRefreshedAt?.getTime() ?? Date.now();
+  const hourWindowHours = useMemo(
+    () => getOverviewHourWindowHours({ timeRange, filterWindow }),
+    [filterWindow, timeRange]
+  );
+  const filterWindowEndMs = getOverviewChartEndMs({
+    timeRange,
+    filterWindow,
+    fallbackEndMs: lastRefreshedAt?.getTime() ?? Date.now(),
+  });
   const isCustomRange = timeRange === 'custom';
 
   const handleChartLinesChange = useCallback((lines: string[]) => {

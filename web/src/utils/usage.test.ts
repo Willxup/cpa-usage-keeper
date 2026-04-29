@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest';
-import { filterUsageByWindow, sanitizeChartLines } from '@/utils/usage';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { filterUsageByWindow, filterUsageSnapshot, resolveUsageFilterWindow, sanitizeChartLines } from '@/utils/usage';
 import type { UsageSnapshot } from '@/lib/types';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 const usage: UsageSnapshot = {
   total_requests: 2,
@@ -74,6 +78,32 @@ describe('filterUsageByWindow', () => {
     expect(filtered.apis['provider-a']?.total_tokens).toBe(200);
     expect(filtered.apis['provider-a']?.models['claude-sonnet']?.total_requests).toBe(1);
     expect(filtered.apis['provider-a']?.models['claude-sonnet']?.total_tokens).toBe(200);
+  });
+});
+
+describe('filterUsageSnapshot', () => {
+  it('filters today against the current UTC day instead of the latest event day', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-24T00:30:00.000Z'));
+
+    const filtered = filterUsageSnapshot(usage, 'today');
+
+    expect(filtered.total_requests).toBe(0);
+    expect(filtered.total_tokens).toBe(0);
+  });
+});
+
+describe('resolveUsageFilterWindow', () => {
+  it('resolves today from UTC day start through the refresh anchor', () => {
+    const window = resolveUsageFilterWindow(usage, 'today', {
+      nowMs: Date.parse('2026-04-23T12:34:56.000Z'),
+    });
+
+    expect(window).toEqual({
+      startMs: Date.parse('2026-04-23T00:00:00.000Z'),
+      endMs: Date.parse('2026-04-23T12:34:56.000Z'),
+      windowMinutes: (12 * 60) + 34 + (56 / 60),
+    });
   });
 });
 

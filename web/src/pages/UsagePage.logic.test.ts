@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getOverviewDisplayLoading, getUsageTabOptions, refreshPageData, sanitizeRequestEventFilters, scheduleOverviewAutoRefresh, syncCpaData } from './UsagePage';
+import { getOverviewChartEndMs, getOverviewDisplayLoading, getOverviewHourWindowHours, getTimeRangeOptions, getUsageTabOptions, refreshPageData, sanitizeRequestEventFilters, scheduleOverviewAutoRefresh, syncCpaData } from './UsagePage';
 import { filterUsageByWindow, type UsageFilterWindow } from '@/utils/usage';
 import type { StatusResponse, UsageSnapshot } from '@/lib/types';
 
@@ -220,6 +220,32 @@ describe('UsagePage request event filters', () => {
       source: '__all__',
       result: 'failed',
     });
+  });
+});
+
+describe('UsagePage time range options', () => {
+  it('places Today after 24h position and removes 24h from selectable ranges', () => {
+    const options = getTimeRangeOptions((key) => `translated:${key}`);
+
+    expect(options.map((option) => option.value)).toEqual(['4h', '8h', '12h', 'today', '7d', 'custom']);
+    expect(options.map((option) => option.label)).toContain('translated:usage_stats.range_today');
+  });
+});
+
+describe('UsagePage Overview chart window', () => {
+  it('uses the whole UTC day for Today hourly chart buckets', () => {
+    const filterWindow: UsageFilterWindow = {
+      startMs: Date.parse('2026-04-23T00:00:00.000Z'),
+      endMs: Date.parse('2026-04-23T12:34:56.000Z'),
+      windowMinutes: (12 * 60) + 34 + (56 / 60),
+    };
+
+    expect(getOverviewHourWindowHours({ timeRange: 'today', filterWindow })).toBe(24);
+    expect(getOverviewChartEndMs({
+      timeRange: 'today',
+      filterWindow,
+      fallbackEndMs: filterWindow.endMs ?? 0,
+    })).toBe(Date.parse('2026-04-23T23:59:59.999Z'));
   });
 });
 

@@ -26,7 +26,7 @@ export interface UseUsageDataOptions {
 }
 
 const toRangeQuery = (value: string): UsageTimeRange => (
-  value === '4h' || value === '8h' || value === '12h' || value === '24h' || value === '7d' || value === 'all' || value === 'custom'
+  value === '4h' || value === '8h' || value === '12h' || value === '24h' || value === 'today' || value === '7d' || value === 'all' || value === 'custom'
     ? value
     : 'all'
 );

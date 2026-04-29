@@ -196,7 +196,7 @@ const resolveHourlyChartEndMs = (details: UsageDetailRecord[], _hourWindowHours?
 
 const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
 
-const PRESET_WINDOW_HOURS: Record<Exclude<UsageTimeRange, 'all' | 'custom'>, number> = {
+const PRESET_WINDOW_HOURS: Record<Extract<UsageTimeRange, '4h' | '8h' | '12h' | '24h' | '7d'>, number> = {
   '4h': 4,
   '8h': 8,
   '12h': 12,
@@ -347,6 +347,18 @@ export function resolveUsageFilterWindow(
     if (startMs === null || endMs === null || startMs > endMs) {
       return {};
     }
+    return {
+      startMs,
+      endMs,
+      windowMinutes: Math.max((endMs - startMs) / 60000, 1)
+    };
+  }
+
+  if (range === 'today') {
+    const start = new Date(fallbackNow);
+    start.setUTCHours(0, 0, 0, 0);
+    const startMs = start.getTime();
+    const endMs = fallbackNow;
     return {
       startMs,
       endMs,
