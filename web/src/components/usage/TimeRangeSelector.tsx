@@ -8,7 +8,7 @@ interface TimeRangeSelectorProps {
 
 const options: Array<{ value: UsageTimeRange; label: string }> = [
   { value: 'all', label: 'All data' },
-  { value: '24h', label: 'Last 24h' },
+  { value: 'today', label: 'Today' },
   { value: '7d', label: 'Last 7d' },
 ]
 

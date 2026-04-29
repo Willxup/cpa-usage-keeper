@@ -661,7 +661,7 @@ func usageOverviewHealthGrid(filter UsageQueryFilter) (int, time.Duration) {
 
 func isUsageOverviewShortHealthRange(value string) bool {
 	switch value {
-	case "4h", "8h", "12h", "24h":
+	case "4h", "8h", "12h", "24h", "today":
 		return true
 	default:
 		return false

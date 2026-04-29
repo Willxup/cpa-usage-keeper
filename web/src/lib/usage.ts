@@ -58,7 +58,7 @@ export function collectUsageEvents(usage: UsageSnapshot): UsageEventWithNames[] 
 }
 
 export function filterUsageSnapshot(usage: UsageSnapshot, range: UsageTimeRange): UsageSnapshot {
-  if (range === 'all') {
+  if (range === 'all' || range === 'custom') {
     return usage
   }
 
@@ -72,8 +72,18 @@ export function filterUsageSnapshot(usage: UsageSnapshot, range: UsageTimeRange)
     return usage
   }
 
-  const windowMs = range === '24h' ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000
-  const threshold = latestTimestamp - windowMs
+  const presetWindowMs: Partial<Record<UsageTimeRange, number>> = {
+    '4h': 4 * 60 * 60 * 1000,
+    '8h': 8 * 60 * 60 * 1000,
+    '12h': 12 * 60 * 60 * 1000,
+    '24h': 24 * 60 * 60 * 1000,
+    '7d': 7 * 24 * 60 * 60 * 1000,
+  }
+  const nowMs = Date.now()
+  const threshold = range === 'today'
+    ? Date.UTC(new Date(nowMs).getUTCFullYear(), new Date(nowMs).getUTCMonth(), new Date(nowMs).getUTCDate())
+    : latestTimestamp - (presetWindowMs[range] ?? 0)
+  const upperThreshold = range === 'today' ? nowMs : Number.POSITIVE_INFINITY
 
   const filtered: UsageSnapshot = {
     total_requests: 0,
@@ -89,7 +99,7 @@ export function filterUsageSnapshot(usage: UsageSnapshot, range: UsageTimeRange)
 
   for (const event of events) {
     const timestampMs = Date.parse(event.timestamp)
-    if (!Number.isFinite(timestampMs) || timestampMs < threshold) {
+    if (!Number.isFinite(timestampMs) || timestampMs < threshold || timestampMs > upperThreshold) {
       continue
     }
 

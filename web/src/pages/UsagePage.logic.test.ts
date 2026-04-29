@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { getUsageTabOptions, refreshPageData, sanitizeRequestEventFilters, syncCpaData } from './UsagePage';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { getOverviewChartEndMs, getOverviewDisplayLoading, getOverviewHourWindowHours, getTimeRangeOptions, getUsageTabOptions, refreshPageData, sanitizeRequestEventFilters, scheduleOverviewAutoRefresh, syncCpaData } from './UsagePage';
 import { filterUsageByWindow, type UsageFilterWindow } from '@/utils/usage';
 import type { StatusResponse, UsageSnapshot } from '@/lib/types';
 
@@ -64,6 +64,127 @@ const usage: UsageSnapshot = {
 const deriveFilteredUsageLikePage = (input: UsageSnapshot, filterWindow: UsageFilterWindow) =>
   filterUsageByWindow(input, filterWindow);
 
+const createAutoRefreshTestDocument = (visibilityState: DocumentVisibilityState = 'visible') => {
+  const target = new EventTarget();
+  return {
+    get visibilityState() {
+      return visibilityState;
+    },
+    setVisibilityState(nextVisibilityState: DocumentVisibilityState) {
+      visibilityState = nextVisibilityState;
+    },
+    addEventListener: target.addEventListener.bind(target),
+    removeEventListener: target.removeEventListener.bind(target),
+    dispatchEvent: target.dispatchEvent.bind(target),
+  };
+};
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+describe('UsagePage Overview loading display', () => {
+  it('keeps existing Overview data visible during background refresh', () => {
+    expect(getOverviewDisplayLoading({ loading: true, hasUsage: true })).toBe(false);
+  });
+
+  it('shows loading before Overview data has loaded', () => {
+    expect(getOverviewDisplayLoading({ loading: true, hasUsage: false })).toBe(true);
+  });
+});
+
+describe('UsagePage Overview auto-refresh', () => {
+  it('refreshes the Overview tab every 10 seconds', () => {
+    vi.useFakeTimers();
+    const testDocument = createAutoRefreshTestDocument();
+    const refreshOverview = vi.fn();
+
+    const cleanup = scheduleOverviewAutoRefresh({ enabled: true, refreshOverview, documentRef: testDocument });
+
+    vi.advanceTimersByTime(9_999);
+    expect(refreshOverview).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(refreshOverview).toHaveBeenCalledTimes(1);
+
+    cleanup();
+  });
+
+  it('does not schedule refreshes outside the Overview tab', () => {
+    vi.useFakeTimers();
+    const refreshOverview = vi.fn();
+
+    const cleanup = scheduleOverviewAutoRefresh({ enabled: false, refreshOverview });
+
+    vi.advanceTimersByTime(10_000);
+    expect(refreshOverview).not.toHaveBeenCalled();
+
+    cleanup();
+  });
+
+  it('pauses while the browser tab is hidden', () => {
+    vi.useFakeTimers();
+    const testDocument = createAutoRefreshTestDocument('hidden');
+    const refreshOverview = vi.fn();
+
+    const cleanup = scheduleOverviewAutoRefresh({ enabled: true, refreshOverview, documentRef: testDocument });
+
+    vi.advanceTimersByTime(10_000);
+    expect(refreshOverview).not.toHaveBeenCalled();
+
+    cleanup();
+  });
+
+  it('refreshes once when the browser tab becomes visible again', () => {
+    vi.useFakeTimers();
+    const testDocument = createAutoRefreshTestDocument('hidden');
+    const refreshOverview = vi.fn();
+
+    const cleanup = scheduleOverviewAutoRefresh({ enabled: true, refreshOverview, documentRef: testDocument });
+    testDocument.setVisibilityState('visible');
+    testDocument.dispatchEvent(new Event('visibilitychange'));
+
+    expect(refreshOverview).toHaveBeenCalledTimes(1);
+
+    cleanup();
+  });
+
+  it('restarts the interval cadence after refreshing on visibility restore', () => {
+    vi.useFakeTimers();
+    const testDocument = createAutoRefreshTestDocument('hidden');
+    const refreshOverview = vi.fn();
+
+    const cleanup = scheduleOverviewAutoRefresh({ enabled: true, refreshOverview, documentRef: testDocument });
+    vi.advanceTimersByTime(9_999);
+    testDocument.setVisibilityState('visible');
+    testDocument.dispatchEvent(new Event('visibilitychange'));
+
+    expect(refreshOverview).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(1);
+    expect(refreshOverview).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(9_999);
+    expect(refreshOverview).toHaveBeenCalledTimes(2);
+
+    cleanup();
+  });
+
+  it('cleans up the interval and visibility listener', () => {
+    vi.useFakeTimers();
+    const testDocument = createAutoRefreshTestDocument();
+    const refreshOverview = vi.fn();
+    const cleanup = scheduleOverviewAutoRefresh({ enabled: true, refreshOverview, documentRef: testDocument });
+
+    cleanup();
+    vi.advanceTimersByTime(10_000);
+    testDocument.dispatchEvent(new Event('visibilitychange'));
+
+    expect(refreshOverview).not.toHaveBeenCalled();
+  });
+});
+
 describe('UsagePage range filtering bug', () => {
   it('changes the usage payload that summary metrics read from', () => {
     const filterWindow: UsageFilterWindow = {
@@ -99,6 +220,32 @@ describe('UsagePage request event filters', () => {
       source: '__all__',
       result: 'failed',
     });
+  });
+});
+
+describe('UsagePage time range options', () => {
+  it('places Today after 24h position and removes 24h from selectable ranges', () => {
+    const options = getTimeRangeOptions((key) => `translated:${key}`);
+
+    expect(options.map((option) => option.value)).toEqual(['4h', '8h', '12h', 'today', '7d', 'custom']);
+    expect(options.map((option) => option.label)).toContain('translated:usage_stats.range_today');
+  });
+});
+
+describe('UsagePage Overview chart window', () => {
+  it('uses the whole UTC day for Today hourly chart buckets', () => {
+    const filterWindow: UsageFilterWindow = {
+      startMs: Date.parse('2026-04-23T00:00:00.000Z'),
+      endMs: Date.parse('2026-04-23T12:34:56.000Z'),
+      windowMinutes: (12 * 60) + 34 + (56 / 60),
+    };
+
+    expect(getOverviewHourWindowHours({ timeRange: 'today', filterWindow })).toBe(24);
+    expect(getOverviewChartEndMs({
+      timeRange: 'today',
+      filterWindow,
+      fallbackEndMs: filterWindow.endMs ?? 0,
+    })).toBe(Date.parse('2026-04-23T23:59:59.999Z'));
   });
 });
 

@@ -28,6 +28,28 @@ func TestParseUsageFilterQueryPresetRange(t *testing.T) {
 	}
 }
 
+func TestParseUsageFilterQueryTodayRange(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/usage/overview?range=today", nil)
+	anchor := time.Date(2026, 4, 22, 12, 34, 56, 0, time.UTC)
+
+	filter, err := parseUsageFilterQuery(req, anchor)
+	if err != nil {
+		t.Fatalf("parseUsageFilterQuery returned error: %v", err)
+	}
+	if filter.Range != "today" {
+		t.Fatalf("expected today range to be preserved, got %+v", filter)
+	}
+	if filter.StartTime == nil || filter.EndTime == nil {
+		t.Fatalf("expected today range to resolve concrete times, got %+v", filter)
+	}
+	if !filter.StartTime.Equal(time.Date(2026, 4, 22, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("unexpected today start: %+v", filter)
+	}
+	if !filter.EndTime.Equal(time.Date(2026, 4, 22, 23, 59, 59, int(time.Second-time.Nanosecond), time.UTC)) {
+		t.Fatalf("unexpected today end: %+v", filter)
+	}
+}
+
 func TestParseUsageFilterQueryCustomRange(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/v1/usage/overview?range=custom&start=2026-04-20T00:00:00Z&end=2026-04-21T23:59:59Z", nil)
 
