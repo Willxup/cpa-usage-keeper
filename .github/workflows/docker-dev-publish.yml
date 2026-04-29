@@ -2,6 +2,11 @@ name: Publish dev Docker image
 
 on:
   workflow_dispatch:
+    inputs:
+      specific_tag:
+        description: 'Optional Docker tag to publish; defaults to the current branch name, for example pr-123 or feature-login-test'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -11,11 +16,43 @@ jobs:
   docker-dev:
     runs-on: ubuntu-latest
     steps:
-      - name: Validate dev branch ref
-        if: ${{ github.ref != 'refs/heads/dev' }}
+      - name: Validate branch ref
+        if: ${{ !startsWith(github.ref, 'refs/heads/') || github.ref_name == 'main' }}
         run: |
-          echo "Dev image publishing must be run from the dev branch." >&2
+          echo "Manual dev Docker publishing must be run from a non-main branch." >&2
+          echo "Current ref: $GITHUB_REF" >&2
           exit 1
+
+      - name: Resolve specific Docker tag
+        id: dev_tag
+        env:
+          INPUT_TAG: ${{ inputs.specific_tag }}
+        run: |
+          raw_tag="${INPUT_TAG:-$GITHUB_REF_NAME}"
+          specific_tag=$(printf '%s' "$raw_tag" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^[^a-z0-9]+//; s/[._-]+$//' | cut -c1-128)
+
+          if [[ -z "$INPUT_TAG" ]]; then
+            case "$specific_tag" in
+              dev|latest|sha-*)
+                specific_tag=$(printf '%s-%s' "$specific_tag" "${GITHUB_SHA::7}" | cut -c1-128)
+                ;;
+            esac
+          fi
+
+          if [[ ! "$specific_tag" =~ ^[a-z0-9][a-z0-9._-]{0,127}$ ]]; then
+            echo "Unable to generate a valid Docker tag from: $raw_tag" >&2
+            exit 1
+          fi
+
+          case "$specific_tag" in
+            dev|latest|sha-*)
+              echo "Invalid Docker tag: $specific_tag is reserved." >&2
+              exit 1
+              ;;
+          esac
+
+          echo "specific_tag=$specific_tag" >> "$GITHUB_OUTPUT"
+          echo "Using specific Docker tag: $specific_tag"
 
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -34,6 +71,7 @@ jobs:
           images: ${{ steps.repo.outputs.image }}
           tags: |
             type=raw,value=dev
+            type=raw,value=${{ steps.dev_tag.outputs.specific_tag }}
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4
