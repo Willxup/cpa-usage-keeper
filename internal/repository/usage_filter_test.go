@@ -507,7 +507,7 @@ func TestBuildUsageOverviewWithFilterBuildsLatestHourlySeriesForLongRanges(t *te
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 	}
 
-	if len(overview.Series.Requests) != 2 || overview.Series.Requests["2026-04-17"] != 1 || overview.Series.Requests["2026-04-23"] != 2 {
+	if len(overview.Series.Requests) != 2 || overview.Series.Requests["2026-04-17"] != 1 || overview.Series.Requests["2026-04-24"] != 2 {
 		t.Fatalf("expected main overview series to remain daily for 7d, got %+v", overview.Series.Requests)
 	}
 	if _, ok := overview.HourlySeries.Requests["2026-04-17T08:00:00Z"]; ok {
@@ -522,7 +522,7 @@ func TestBuildUsageOverviewWithFilterBuildsLatestHourlySeriesForLongRanges(t *te
 	if overview.HourlySeries.InputTokens["2026-04-23T22:00:00Z"] != 2_000_000 || overview.HourlySeries.OutputTokens["2026-04-23T23:00:00Z"] != 13 {
 		t.Fatalf("unexpected latest hourly token category series: %+v", overview.HourlySeries)
 	}
-	if overview.DailySeries.Requests["2026-04-17"] != 1 || overview.DailySeries.Requests["2026-04-23"] != 2 {
+	if overview.DailySeries.Requests["2026-04-17"] != 1 || overview.DailySeries.Requests["2026-04-24"] != 2 {
 		t.Fatalf("unexpected daily request series: %+v", overview.DailySeries.Requests)
 	}
 }
@@ -554,7 +554,7 @@ func TestBuildUsageOverviewWithFilterUsesDailyBucketsForLongCustomRanges(t *test
 	if len(overview.Series.Requests) != 2 {
 		t.Fatalf("expected daily buckets for long custom range, got %+v", overview.Series.Requests)
 	}
-	if overview.Series.Requests["2026-04-20"] != 1 || overview.Series.Requests["2026-04-26"] != 1 {
+	if overview.Series.Requests["2026-04-20"] != 1 || overview.Series.Requests["2026-04-27"] != 1 {
 		t.Fatalf("expected daily request buckets, got %+v", overview.Series.Requests)
 	}
 	if _, ok := overview.Series.Requests["2026-04-20T08:00:00Z"]; ok {

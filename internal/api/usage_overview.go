@@ -17,6 +17,9 @@ type usageOverviewResponse struct {
 	HourlySeries  usageOverviewSeries        `json:"hourly_series"`
 	DailySeries   usageOverviewSeries        `json:"daily_series"`
 	ServiceHealth usageOverviewServiceHealth `json:"service_health"`
+	Timezone      string                     `json:"timezone"`
+	RangeStart    *time.Time                 `json:"range_start,omitempty"`
+	RangeEnd      *time.Time                 `json:"range_end,omitempty"`
 }
 
 type usageOverviewPayload struct {
@@ -114,6 +117,7 @@ func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageP
 				HourlySeries:  emptyUsageOverviewSeries(),
 				DailySeries:   emptyUsageOverviewSeries(),
 				ServiceHealth: usageOverviewServiceHealth{BlockDetails: []usageOverviewServiceHealthBlock{}},
+				Timezone:      time.Local.String(),
 			})
 			return
 		}
@@ -142,6 +146,9 @@ func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageP
 			HourlySeries:  buildUsageOverviewHourlySeries(overview),
 			DailySeries:   buildUsageOverviewDailySeries(overview),
 			ServiceHealth: buildUsageOverviewServiceHealth(overview),
+			Timezone:      time.Local.String(),
+			RangeStart:    filter.StartTime,
+			RangeEnd:      filter.EndTime,
 		})
 	})
 }

@@ -424,7 +424,7 @@ func applyUsageEventToSnapshot(snapshot *cpa.StatisticsSnapshot, event models.Us
 		snapshot.SuccessCount++
 	}
 
-	dayKey := event.Timestamp.UTC().Format("2006-01-02")
+	dayKey := event.Timestamp.In(time.Local).Format("2006-01-02")
 	hourKey := event.Timestamp.UTC().Format("2006-01-02T15:00:00Z")
 	snapshot.RequestsByDay[dayKey]++
 	snapshot.RequestsByHour[hourKey]++
@@ -606,9 +606,9 @@ func shouldBucketUsageOverviewByDay(filter UsageQueryFilter, windowMinutes int64
 
 func usageOverviewBucket(timestamp time.Time, byDay bool) (string, int64) {
 	if byDay {
-		return timestamp.Format("2006-01-02"), 24 * 60
+		return timestamp.In(time.Local).Format("2006-01-02"), 24 * 60
 	}
-	return timestamp.Format("2006-01-02T15:00:00Z"), 60
+	return timestamp.UTC().Format("2006-01-02T15:00:00Z"), 60
 }
 
 func latestHourlySeriesStart(filter UsageQueryFilter) *time.Time {

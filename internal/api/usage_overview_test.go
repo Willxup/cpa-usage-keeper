@@ -58,6 +58,33 @@ func mustParseTime(t *testing.T, value string) time.Time {
 	return parsed
 }
 
+func TestUsageOverviewResponseIncludesResolvedRangeAndTimezone(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	t.Cleanup(func() { time.Local = previousLocal })
+	time.Local = location
+
+	provider := &usageFilterStub{overview: &service.UsageOverviewSnapshot{}}
+	router := NewRouter("", nil, provider, nil, nil, nil, AuthConfig{}, nil, "")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview?range=custom&start=2026-04-20&end=2026-04-21", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	expectedStart := time.Date(2026, 4, 20, 0, 0, 0, 0, location).UTC().Format(time.RFC3339Nano)
+	expectedEnd := time.Date(2026, 4, 22, 0, 0, 0, 0, location).Add(-time.Nanosecond).UTC().Format(time.RFC3339Nano)
+	body := resp.Body.String()
+	if !contains(body, `"timezone":"Asia/Shanghai"`) || !contains(body, `"range_start":"`+expectedStart+`"`) || !contains(body, `"range_end":"`+expectedEnd+`"`) {
+		t.Fatalf("expected overview response to include resolved range and timezone, got %s", body)
+	}
+}
+
 func TestUsageOverviewReturnsFilteredSnapshot(t *testing.T) {
 	provider := &usageFilterStub{overview: &service.UsageOverviewSnapshot{
 		Usage: &cpa.StatisticsSnapshot{

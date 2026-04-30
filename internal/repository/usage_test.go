@@ -62,6 +62,52 @@ func TestBuildUsageSnapshotAggregatesEvents(t *testing.T) {
 	}
 }
 
+func TestBuildUsageSnapshotBucketsDaysByLocalTime(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	time.Local = location
+	t.Cleanup(func() { time.Local = previousLocal })
+	db := openUsageTestDatabase(t)
+	events := []models.UsageEvent{{
+		EventKey:      "event-local-day",
+		SnapshotRunID: 1,
+		APIGroupKey:   "provider-a",
+		Model:         "claude-sonnet",
+		Timestamp:     time.Date(2026, 4, 16, 23, 30, 0, 0, time.UTC),
+		TotalTokens:   20,
+	}}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	snapshot, err := BuildUsageSnapshot(db)
+	if err != nil {
+		t.Fatalf("BuildUsageSnapshot returned error: %v", err)
+	}
+	if snapshot.RequestsByDay["2026-04-17"] != 1 {
+		t.Fatalf("expected event to be bucketed by local day, got %+v", snapshot.RequestsByDay)
+	}
+}
+
+func TestUsageOverviewDailyBucketUsesLocalTime(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	time.Local = location
+	t.Cleanup(func() { time.Local = previousLocal })
+
+	bucketKey, bucketMinutes := usageOverviewBucket(time.Date(2026, 4, 16, 23, 30, 0, 0, time.UTC), true)
+
+	if bucketKey != "2026-04-17" || bucketMinutes != 24*60 {
+		t.Fatalf("expected local day bucket 2026-04-17/1440, got %s/%d", bucketKey, bucketMinutes)
+	}
+}
+
 func TestBuildUsageSnapshotPreservesStoredAPIKey(t *testing.T) {
 	db := openUsageTestDatabase(t)
 	events := []models.UsageEvent{{
