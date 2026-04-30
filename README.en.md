@@ -51,11 +51,12 @@ cp .env.example .env
 | `AUTH_SESSION_TTL` | No | `168h` | Session lifetime |
 | `APP_PORT` | No | `8080` | HTTP listen port |
 | `APP_BASE_PATH` | No | root path | Subpath prefix such as `/cpa`; empty means `/` |
-| `USAGE_SYNC_MODE` | No | `auto` | Sync mode: `auto`, `redis`, or `legacy_export` |
+| `TZ` | No | `Asia/Shanghai` | Project business timezone; affects Today, daily aggregation, daily 03:00 cleanup, and log timestamps |
+| `USAGE_SYNC_MODE` | No | `auto` | Sync mode: `auto` probes at startup and then fixes the process to `redis` or `legacy_export`; can also be set explicitly to `redis` or `legacy_export` |
 | `REDIS_QUEUE_ADDR` | No | `CPA_BASE_URL` hostname + `8317` | CPA Redis/RESP TCP address; set `host:port` for non-default ports |
 | `REDIS_QUEUE_BATCH_SIZE` | No | `1000` | Maximum queue records per pull |
 | `REDIS_QUEUE_IDLE_INTERVAL` | No | `1s` | Empty queue check interval |
-| `POLL_INTERVAL` | No | `30s` (`5m` for `legacy_export`) | Legacy sync interval; also throttles fallback in `auto` mode |
+| `POLL_INTERVAL` | No | `5m` | Pull interval for `legacy_export` |
 | `REQUEST_TIMEOUT` | No | `30s` | CPA request timeout |
 | `SQLITE_PATH` | No | `/data/app.db` | SQLite database path |
 | `LOG_LEVEL` | No | `info` | Log level |
@@ -75,6 +76,7 @@ Security and data notes:
 - Browser-facing APIs redact key-like source/lookup fields or map them to stable public identifiers, but raw database values are unchanged.
 - For public deployments, enable `AUTH_ENABLED=true` and terminate HTTPS at your reverse proxy.
 - Login sessions are stored in process memory and become invalid after restart.
+- Redis inbox raw messages are cleaned up automatically: successful rows are kept until the end of the current day, and failed rows are kept for 7 days.
 
 ## Development
 

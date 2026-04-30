@@ -51,11 +51,12 @@ cp .env.example .env
 | `AUTH_SESSION_TTL` | 否 | `168h` | Session 生命周期 |
 | `APP_PORT` | 否 | `8080` | HTTP 监听端口 |
 | `APP_BASE_PATH` | 否 | 根路径 | 子路径部署前缀，例如 `/cpa`；留空表示 `/` |
-| `USAGE_SYNC_MODE` | 否 | `auto` | 同步模式：`auto`、`redis`、`legacy_export` |
+| `TZ` | 否 | `Asia/Shanghai` | 项目业务时区，影响 Today、按天聚合、每日 03:00 清理和日志时间 |
+| `USAGE_SYNC_MODE` | 否 | `auto` | 同步模式：`auto` 启动时探测后固定为 `redis` 或 `legacy_export`；也可显式设置 `redis`、`legacy_export` |
 | `REDIS_QUEUE_ADDR` | 否 | `CPA_BASE_URL` 主机名 + `8317` | CPA Redis/RESP TCP 地址；非默认端口时填写 `host:port` |
 | `REDIS_QUEUE_BATCH_SIZE` | 否 | `1000` | 每次最多拉取的队列记录数 |
 | `REDIS_QUEUE_IDLE_INTERVAL` | 否 | `1s` | 队列为空时的检查间隔 |
-| `POLL_INTERVAL` | 否 | `30s`（`legacy_export` 为 `5m`） | legacy 同步周期；`auto` 模式下也用于 fallback 节流 |
+| `POLL_INTERVAL` | 否 | `5m` | `legacy_export` 拉取间隔 |
 | `REQUEST_TIMEOUT` | 否 | `30s` | CPA 请求超时 |
 | `SQLITE_PATH` | 否 | `/data/app.db` | SQLite 数据库路径 |
 | `LOG_LEVEL` | 否 | `info` | 日志级别 |
@@ -75,6 +76,7 @@ cp .env.example .env
 - 面向浏览器的 API 会对 key-like source/lookup 字段做脱敏或稳定公开标识映射，但不会修改数据库原始值。
 - 公开部署建议开启 `AUTH_ENABLED=true`，并在反向代理层配置 HTTPS。
 - 登录 session 存在服务进程内存中，服务重启后已登录 session 会失效。
+- Redis inbox 原始消息会自动清理：成功数据保留到当天结束后清理，失败数据保留 7 天。
 
 ## 本地开发
 
