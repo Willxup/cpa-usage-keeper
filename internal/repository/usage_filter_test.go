@@ -11,6 +11,17 @@ import (
 	"cpa-usage-keeper/internal/models"
 )
 
+func withRepositoryTestLocation(t *testing.T, name string) {
+	t.Helper()
+	previousLocal := time.Local
+	location, err := time.LoadLocation(name)
+	if err != nil {
+		t.Fatalf("load location %s: %v", name, err)
+	}
+	t.Cleanup(func() { time.Local = previousLocal })
+	time.Local = location
+}
+
 func TestBuildUsageSnapshotWithFilterAppliesTimeBounds(t *testing.T) {
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-filter.db")})
 	if err != nil {
@@ -477,6 +488,7 @@ func TestBuildUsageOverviewWithFilterUsesExactPresetWindowMinutes(t *testing.T) 
 }
 
 func TestBuildUsageOverviewWithFilterBuildsLatestHourlySeriesForLongRanges(t *testing.T) {
+	withRepositoryTestLocation(t, "Asia/Shanghai")
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-hourly-series.db")})
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
@@ -528,6 +540,7 @@ func TestBuildUsageOverviewWithFilterBuildsLatestHourlySeriesForLongRanges(t *te
 }
 
 func TestBuildUsageOverviewWithFilterUsesDailyBucketsForLongCustomRanges(t *testing.T) {
+	withRepositoryTestLocation(t, "Asia/Shanghai")
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-custom-buckets.db")})
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
