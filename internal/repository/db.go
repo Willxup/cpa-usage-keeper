@@ -35,6 +35,15 @@ type SnapshotRunResult struct {
 	ExportedAt     *time.Time
 }
 
+type SnapshotRunsCleanupResult struct {
+	Deleted int64
+}
+
+type StorageCleanupResult struct {
+	RedisInbox   RedisUsageInboxCleanupResult
+	SnapshotRuns SnapshotRunsCleanupResult
+}
+
 func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 	dsn := sqliteDSN(cfg.SQLitePath)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -171,6 +180,65 @@ func FindLatestUsageEventTimestamp(db *gorm.DB) (*time.Time, error) {
 
 	timestamp := event.Timestamp.UTC()
 	return &timestamp, nil
+}
+
+func CleanupSnapshotRuns(db *gorm.DB, now time.Time) (SnapshotRunsCleanupResult, error) {
+	if db == nil {
+		return SnapshotRunsCleanupResult{}, fmt.Errorf("database is nil")
+	}
+
+	localNow := now.In(time.Local)
+	localTodayStart := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, time.Local)
+	keepIDs := make([]uint, 0, 7)
+	for dayOffset := 0; dayOffset < 7; dayOffset++ {
+		dayStart := localTodayStart.AddDate(0, 0, -dayOffset).UTC()
+		dayEnd := localTodayStart.AddDate(0, 0, -dayOffset+1).UTC()
+		if dayOffset == 0 {
+			dayEnd = now.UTC().Add(time.Nanosecond)
+		}
+		var dayIDs []uint
+		err := db.Model(&models.SnapshotRun{}).Select("id").Where("fetched_at >= ? AND fetched_at < ?", dayStart, dayEnd).Order("fetched_at DESC, id DESC").Limit(1).Pluck("id", &dayIDs).Error
+		if err != nil {
+			return SnapshotRunsCleanupResult{}, fmt.Errorf("load snapshot run retained for cleanup: %w", err)
+		}
+		if len(dayIDs) > 0 {
+			keepIDs = append(keepIDs, dayIDs[0])
+		}
+	}
+
+	deleteQuery := db.Model(&models.SnapshotRun{})
+	if len(keepIDs) == 0 {
+		deleteQuery = deleteQuery.Where("1 = 1")
+	} else {
+		deleteQuery = deleteQuery.Where("id NOT IN ?", keepIDs)
+	}
+	deleted := deleteQuery.Delete(&models.SnapshotRun{})
+	if deleted.Error != nil {
+		return SnapshotRunsCleanupResult{}, fmt.Errorf("delete old snapshot runs: %w", deleted.Error)
+	}
+	return SnapshotRunsCleanupResult{Deleted: deleted.RowsAffected}, nil
+}
+
+func CleanupStorage(db *gorm.DB, now time.Time) (StorageCleanupResult, error) {
+	redisResult, err := CleanupRedisUsageInbox(db, now)
+	if err != nil {
+		return StorageCleanupResult{RedisInbox: redisResult}, err
+	}
+	snapshotResult, err := CleanupSnapshotRuns(db, now)
+	if err != nil {
+		return StorageCleanupResult{RedisInbox: redisResult, SnapshotRuns: snapshotResult}, err
+	}
+	if err := db.Exec("VACUUM").Error; err != nil {
+		return StorageCleanupResult{RedisInbox: redisResult, SnapshotRuns: snapshotResult}, err
+	}
+	return StorageCleanupResult{RedisInbox: redisResult, SnapshotRuns: snapshotResult}, nil
+}
+
+func Vacuum(db *gorm.DB) error {
+	if db == nil {
+		return fmt.Errorf("database is nil")
+	}
+	return db.Exec("VACUUM").Error
 }
 
 func FindLastSnapshotRunWithBackup(db *gorm.DB) (*models.SnapshotRun, error) {
