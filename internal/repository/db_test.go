@@ -274,8 +274,8 @@ func TestCleanupSnapshotRunsKeepsLatestSnapshotPerLocalDayForSevenDays(t *testin
 	if err != nil {
 		t.Fatalf("CleanupSnapshotRuns returned error: %v", err)
 	}
-	if result.Deleted != 3 {
-		t.Fatalf("expected 3 deleted snapshot runs, got %+v", result)
+	if result.Deleted != 2 {
+		t.Fatalf("expected 2 deleted snapshot runs, got %+v", result)
 	}
 
 	var remaining []models.SnapshotRun
@@ -286,7 +286,7 @@ func TestCleanupSnapshotRunsKeepsLatestSnapshotPerLocalDayForSevenDays(t *testin
 	for _, run := range remaining {
 		remainingIDs = append(remainingIDs, run.ID)
 	}
-	expectedIDs := []uint{firstDayLatest.ID, todayLatest.ID}
+	expectedIDs := []uint{oldDay.ID, firstDayLatest.ID, todayLatest.ID}
 	if fmt.Sprint(remainingIDs) != fmt.Sprint(expectedIDs) {
 		t.Fatalf("expected remaining snapshot ids %v, got %v", expectedIDs, remainingIDs)
 	}
@@ -297,6 +297,94 @@ func TestCleanupSnapshotRunsKeepsLatestSnapshotPerLocalDayForSevenDays(t *testin
 	}
 	if eventCount != 1 {
 		t.Fatalf("expected usage events to remain untouched, got %d", eventCount)
+	}
+}
+
+func TestCleanupSnapshotRunsKeepsSeventhPreviousLocalDay(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	time.Local = location
+	t.Cleanup(func() { time.Local = previousLocal })
+	db := openTestDatabase(t)
+	now := time.Date(2026, 4, 30, 12, 0, 0, 0, location)
+	endDay := time.Date(2026, 4, 30, 0, 0, 0, 0, location)
+	startDay := endDay.AddDate(0, 0, -7)
+	if endDay.Sub(startDay) != 7*24*time.Hour {
+		t.Fatalf("expected cleanup window from %s to %s to be 7 days", startDay, endDay)
+	}
+
+	older, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 22, 23, 0, 0, 0, location), RawPayload: []byte(`older`)})
+	if err != nil {
+		t.Fatalf("CreateSnapshotRun older returned error: %v", err)
+	}
+	seventhDayEarly, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 23, 9, 0, 0, 0, location), RawPayload: []byte(`seventh-day-early`)})
+	if err != nil {
+		t.Fatalf("CreateSnapshotRun seventhDayEarly returned error: %v", err)
+	}
+	seventhDayLatest, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 23, 20, 0, 0, 0, location), RawPayload: []byte(`seventh-day-latest`)})
+	if err != nil {
+		t.Fatalf("CreateSnapshotRun seventhDayLatest returned error: %v", err)
+	}
+	todayLatest, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 30, 11, 0, 0, 0, location), RawPayload: []byte(`today-latest`)})
+	if err != nil {
+		t.Fatalf("CreateSnapshotRun todayLatest returned error: %v", err)
+	}
+
+	result, err := CleanupSnapshotRuns(db, now)
+	if err != nil {
+		t.Fatalf("CleanupSnapshotRuns returned error: %v", err)
+	}
+	if result.Deleted != 2 {
+		t.Fatalf("expected older and early seventh-day snapshots to be deleted, got %+v", result)
+	}
+
+	var remaining []models.SnapshotRun
+	if err := db.Order("id asc").Find(&remaining).Error; err != nil {
+		t.Fatalf("load remaining snapshot runs: %v", err)
+	}
+	remainingIDs := make([]uint, 0, len(remaining))
+	for _, run := range remaining {
+		remainingIDs = append(remainingIDs, run.ID)
+	}
+	expectedIDs := []uint{seventhDayLatest.ID, todayLatest.ID}
+	if fmt.Sprint(remainingIDs) != fmt.Sprint(expectedIDs) {
+		t.Fatalf("expected remaining snapshot ids %v after deleting %d and %d, got %v", expectedIDs, older.ID, seventhDayEarly.ID, remainingIDs)
+	}
+}
+
+func TestCleanupSnapshotRunsKeepsRowsWhenRetentionWindowHasNoSnapshots(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	time.Local = location
+	t.Cleanup(func() { time.Local = previousLocal })
+	db := openTestDatabase(t)
+	now := time.Date(2026, 4, 30, 12, 0, 0, 0, location)
+
+	oldSnapshot, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 1, 12, 0, 0, 0, location), RawPayload: []byte(`old`)})
+	if err != nil {
+		t.Fatalf("CreateSnapshotRun old returned error: %v", err)
+	}
+
+	result, err := CleanupSnapshotRuns(db, now)
+	if err != nil {
+		t.Fatalf("CleanupSnapshotRuns returned error: %v", err)
+	}
+	if result.Deleted != 0 {
+		t.Fatalf("expected no deletions when retention window has no snapshots, got %+v", result)
+	}
+
+	var remaining []models.SnapshotRun
+	if err := db.Find(&remaining).Error; err != nil {
+		t.Fatalf("load remaining snapshot runs: %v", err)
+	}
+	if len(remaining) != 1 || remaining[0].ID != oldSnapshot.ID {
+		t.Fatalf("expected old snapshot %d to remain when keepIDs is empty, got %+v", oldSnapshot.ID, remaining)
 	}
 }
 
@@ -358,7 +446,7 @@ func TestCleanupStorageCleansRedisInboxAndSnapshotRuns(t *testing.T) {
 	if err := db.Model(&models.RedisUsageInbox{}).Where("id = ?", inboxRows[0].ID).Updates(map[string]any{"status": RedisUsageInboxStatusProcessed, "processed_at": time.Date(2026, 4, 26, 15, 59, 59, 0, time.UTC)}).Error; err != nil {
 		t.Fatalf("seed processed inbox row: %v", err)
 	}
-	oldSnapshot, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 20, 15, 0, 0, 0, time.UTC), RawPayload: []byte(`old`)})
+	oldSnapshot, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 19, 15, 0, 0, 0, time.UTC), RawPayload: []byte(`old`)})
 	if err != nil {
 		t.Fatalf("CreateSnapshotRun old returned error: %v", err)
 	}
