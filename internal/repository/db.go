@@ -190,7 +190,7 @@ func CleanupSnapshotRuns(db *gorm.DB, now time.Time) (SnapshotRunsCleanupResult,
 	localNow := now.In(time.Local)
 	localTodayStart := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, time.Local)
 	keepIDs := make([]uint, 0, 7)
-	for dayOffset := 0; dayOffset < 7; dayOffset++ {
+	for dayOffset := 0; dayOffset <= 7; dayOffset++ {
 		dayStart := localTodayStart.AddDate(0, 0, -dayOffset).UTC()
 		dayEnd := localTodayStart.AddDate(0, 0, -dayOffset+1).UTC()
 		if dayOffset == 0 {
@@ -206,13 +206,10 @@ func CleanupSnapshotRuns(db *gorm.DB, now time.Time) (SnapshotRunsCleanupResult,
 		}
 	}
 
-	deleteQuery := db.Model(&models.SnapshotRun{})
 	if len(keepIDs) == 0 {
-		deleteQuery = deleteQuery.Where("1 = 1")
-	} else {
-		deleteQuery = deleteQuery.Where("id NOT IN ?", keepIDs)
+		return SnapshotRunsCleanupResult{}, nil
 	}
-	deleted := deleteQuery.Delete(&models.SnapshotRun{})
+	deleted := db.Model(&models.SnapshotRun{}).Where("id NOT IN ?", keepIDs).Delete(&models.SnapshotRun{})
 	if deleted.Error != nil {
 		return SnapshotRunsCleanupResult{}, fmt.Errorf("delete old snapshot runs: %w", deleted.Error)
 	}
