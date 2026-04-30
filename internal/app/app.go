@@ -148,7 +148,8 @@ func newBackgroundRunner(syncService *service.SyncService, cfg config.Config) Ru
 	return poller.New(syncService, cfg.PollInterval)
 }
 
-// runTemporaryStartupSnapshotRunsCleanup 是临时启动清理入口，后续删除 snapshot_runs 临时治理时可直接移除。
+// runTemporaryStartupSnapshotRunsCleanup 是启动期额外执行的 snapshot_runs 治理入口，和每日清理共用 CleanupSnapshotRuns 语义。
+// 它只处理 snapshot_runs 并执行 VACUUM，不包含每日 CleanupStorage 中的 redis_usage_inboxes 清理。
 func runTemporaryStartupSnapshotRunsCleanup(db *gorm.DB) error {
 	logrus.Info("temporary snapshot runs cleanup started")
 	if _, err := repository.CleanupSnapshotRuns(db, time.Now()); err != nil {

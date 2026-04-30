@@ -30,6 +30,7 @@ func NewStorageCleanupRunner(syncer StorageCleanupSyncer) *StorageCleanupRunner 
 	}
 }
 
+// Run 每天按项目本地时区 03:00 执行一次统一存储清理，失败只记录日志，不终止后台任务。
 func (r *StorageCleanupRunner) Run(ctx context.Context) error {
 	if err := r.validate(); err != nil {
 		return err
@@ -53,6 +54,7 @@ func (r *StorageCleanupRunner) Run(ctx context.Context) error {
 	}
 }
 
+// nextDailyCleanupAt 用 time.Local 计算下一次 03:00，因此 TZ 同时控制业务日期边界和清理触发时间。
 func nextDailyCleanupAt(now time.Time) time.Time {
 	localNow := now.In(time.Local)
 	cleanupAt := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 3, 0, 0, 0, time.Local)

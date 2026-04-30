@@ -12,7 +12,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const redisInboxProcessInterval = 5 * time.Second // Redis inbox 处理频率固定在这里，后续如需配置优先改这里。
+// Redis inbox 处理频率固定为 5 秒：拉取任务只负责把 Redis 原始消息落库，处理任务按这个间隔独立消费本地 inbox。
+const redisInboxProcessInterval = 5 * time.Second
 
 type RedisBatchSyncer interface {
 	PullRedisUsageInbox(ctx context.Context) (*service.RedisInboxPullResult, error)
@@ -52,6 +53,7 @@ func NewRedisDrain(syncer RedisBatchSyncer, cfg RedisDrainConfig) *RedisDrain {
 	}
 }
 
+// Run 启动 Redis 连续同步：一个 goroutine 只执行 Pull，另一个 goroutine 只执行 Process，二者互不串行等待。
 func (d *RedisDrain) Run(ctx context.Context) error {
 	if err := d.validate(); err != nil {
 		return err
@@ -74,6 +76,7 @@ func (d *RedisDrain) Run(ctx context.Context) error {
 	return nil
 }
 
+// runPullLoop 只从 CPA Redis 队列 LPOP 数据并写入 redis_usage_inboxes，不解码、不写 usage_events、不创建 snapshot_runs。
 func (d *RedisDrain) runPullLoop(ctx context.Context) {
 	logrus.WithField("idle_interval", d.config.IdleInterval.String()).Info("redis inbox pull task started")
 	for {
@@ -100,6 +103,7 @@ func (d *RedisDrain) runPullLoop(ctx context.Context) {
 	}
 }
 
+// runProcessLoop 固定每 5 秒处理已落库的 inbox 行，失败行保留为可重试状态，坏消息单独标记不阻塞后续行。
 func (d *RedisDrain) runProcessLoop(ctx context.Context) {
 	logrus.WithField("interval", redisInboxProcessInterval.String()).Info("redis inbox process task started")
 	for {
@@ -151,6 +155,7 @@ func (d *RedisDrain) Status() Status {
 	}
 }
 
+// SyncNow 是手动同步入口：Redis 模式下先 Pull 一次再 Process 一次，保持用户手动触发时立即看到新数据的直觉。
 func (d *RedisDrain) SyncNow(ctx context.Context) error {
 	if err := d.validate(); err != nil {
 		return err
@@ -162,6 +167,7 @@ func (d *RedisDrain) SyncNow(ctx context.Context) error {
 	return err
 }
 
+// runRedisPull 只防止 Pull 自身重入，不阻塞 Process；这样 Redis 长轮询或退避不会跳过本地 inbox 处理周期。
 func (d *RedisDrain) runRedisPull(ctx context.Context) (*service.RedisInboxPullResult, error) {
 	d.mu.Lock()
 	if d.pullRunning {
@@ -182,6 +188,7 @@ func (d *RedisDrain) runRedisPull(ctx context.Context) (*service.RedisInboxPullR
 	return result, err
 }
 
+// runRedisProcess 只防止 Process 自身重入，不阻塞 Pull；Process 的输入必须来自已持久化的 redis_usage_inboxes。
 func (d *RedisDrain) runRedisProcess(ctx context.Context, syncMetadata bool) (*service.RedisBatchSyncResult, error) {
 	d.mu.Lock()
 	if d.processRunning {

@@ -315,6 +315,18 @@ func TestSyncOnceDeduplicatesExistingEvents(t *testing.T) {
 	}
 }
 
+func TestSyncOnceDoesNotLogExpectedEventAlignmentMiss(t *testing.T) {
+	db, logs := openSyncTestDatabaseWithLogs(t)
+	service := NewSyncServiceWithClient(db, "https://cpa.example.com", stubExportFetcher{result: successfulExportResult([]byte(`{"version":1}`))})
+
+	if _, err := service.SyncNow(context.Background()); err != nil {
+		t.Fatalf("SyncNow returned error: %v", err)
+	}
+	if strings.Contains(logs.String(), "record not found") {
+		t.Fatalf("expected normal event alignment miss not to be logged, got %s", logs.String())
+	}
+}
+
 func TestSyncOnceSkipsBackupWhenDisabled(t *testing.T) {
 	db, logs := openSyncTestDatabaseWithLogs(t)
 	backupWriter := &stubBackupWriter{path: "/tmp/export.json"}

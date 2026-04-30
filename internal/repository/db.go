@@ -171,17 +171,20 @@ func FindLatestUsageEventTimestamp(db *gorm.DB) (*time.Time, error) {
 	}
 
 	var event models.UsageEvent
-	if err := db.Select("timestamp").Order("timestamp DESC").Limit(1).Take(&event).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("find latest usage event timestamp: %w", err)
+	result := db.Select("timestamp").Order("timestamp DESC").Limit(1).Find(&event)
+	if result.Error != nil {
+		return nil, fmt.Errorf("find latest usage event timestamp: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return nil, nil
 	}
 
 	timestamp := event.Timestamp.UTC()
 	return &timestamp, nil
 }
 
+// CleanupSnapshotRuns 按项目本地日期保留今天和往前 7 天内每天最新的一条 snapshot_run。
+// 只要保留窗口内存在快照，其它 snapshot_runs 都会删除；如果窗口内没有任何快照，则直接返回避免误删全表。
 func CleanupSnapshotRuns(db *gorm.DB, now time.Time) (SnapshotRunsCleanupResult, error) {
 	if db == nil {
 		return SnapshotRunsCleanupResult{}, fmt.Errorf("database is nil")
@@ -216,6 +219,8 @@ func CleanupSnapshotRuns(db *gorm.DB, now time.Time) (SnapshotRunsCleanupResult,
 	return SnapshotRunsCleanupResult{Deleted: deleted.RowsAffected}, nil
 }
 
+// CleanupStorage 是每日维护任务的统一仓储清理入口：先清 Redis inbox，再清 snapshot_runs，最后执行 VACUUM。
+// VACUUM 必须在删除完成后单独执行，任何一步失败都会停止后续步骤并把已完成部分的结果返回给上层日志。
 func CleanupStorage(db *gorm.DB, now time.Time) (StorageCleanupResult, error) {
 	redisResult, err := CleanupRedisUsageInbox(db, now)
 	if err != nil {
