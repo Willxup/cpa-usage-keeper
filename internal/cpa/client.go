@@ -102,11 +102,11 @@ func (c *Client) FetchAPIKeys(ctx context.Context) (*APIKeysResult, error) {
 }
 
 func (c *Client) FetchModels(ctx context.Context) (*ModelsResult, error) {
-	apiKeys, err := c.FetchAPIKeys(ctx)
+	config, err := c.FetchManagementConfig(ctx)
 	if err != nil {
 		return &ModelsResult{}, err
 	}
-	apiKey := firstNonEmptyString(apiKeys.Payload.APIKeys)
+	apiKey := firstNonEmptyString(config.Payload.APIKeys)
 	if apiKey == "" {
 		return &ModelsResult{}, fmt.Errorf("cpa api keys are required")
 	}

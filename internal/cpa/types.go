@@ -120,6 +120,7 @@ type ManagementConfigResult struct {
 }
 
 type ManagementConfig struct {
+	APIKeys             []string                    `json:"api-keys"`
 	GeminiAPIKeys       []ProviderKeyConfig         `json:"gemini-api-key"`
 	ClaudeAPIKeys       []ProviderKeyConfig         `json:"claude-api-key"`
 	CodexAPIKeys        []ProviderKeyConfig         `json:"codex-api-key"`

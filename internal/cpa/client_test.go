@@ -58,7 +58,7 @@ func TestFetchUsageExportRejectsInvalidJSON(t *testing.T) {
 func TestFetchModelsFetchesAPIKeyAndParsesOpenAICompatibleResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v0/management/api-keys":
+		case "/v0/management/config":
 			if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
 				t.Fatalf("expected management Authorization header, got %q", got)
 			}
@@ -91,7 +91,7 @@ func TestFetchModelsFetchesAPIKeyAndParsesOpenAICompatibleResponse(t *testing.T)
 
 func TestFetchModelsRejectsMissingAPIKeys(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v0/management/api-keys" {
+		if r.URL.Path != "/v0/management/config" {
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}
 		_, _ = w.Write([]byte(`{"api-keys":[]}`))
@@ -104,10 +104,33 @@ func TestFetchModelsRejectsMissingAPIKeys(t *testing.T) {
 	}
 }
 
+func TestFetchModelsIgnoresProviderKeysWhenCPAAPIKeysAreMissing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v0/management/config":
+			_, _ = w.Write([]byte(`{
+				"claude-api-key":[{"api-key":"provider-claude-key"}],
+				"codex-api-key":[{"api-key":"provider-codex-key"}],
+				"openai-compatibility":[{"api-keys":["provider-openai-key"]}]
+			}`))
+		case "/v1/models":
+			t.Fatal("FetchModels should not request models with provider keys")
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 2*time.Second)
+	if _, err := client.FetchModels(context.Background()); err == nil {
+		t.Fatal("expected missing CPA API keys error")
+	}
+}
+
 func TestFetchModelsHandlesModelNonSuccessStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v0/management/api-keys":
+		case "/v0/management/config":
 			_, _ = w.Write([]byte(`{"api-keys":["normal-api-key"]}`))
 		case "/v1/models":
 			http.Error(w, `{"error":"unavailable"}`, http.StatusBadGateway)
@@ -127,7 +150,7 @@ func TestFetchModelsHandlesModelNonSuccessStatus(t *testing.T) {
 func TestFetchModelsRejectsRedirectStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v0/management/api-keys":
+		case "/v0/management/config":
 			_, _ = w.Write([]byte(`{"api-keys":["normal-api-key"]}`))
 		case "/v1/models":
 			w.WriteHeader(http.StatusFound)
@@ -148,7 +171,7 @@ func TestFetchModelsRejectsRedirectStatus(t *testing.T) {
 func TestFetchModelsRejectsInvalidModelsJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v0/management/api-keys":
+		case "/v0/management/config":
 			_, _ = w.Write([]byte(`{"api-keys":["normal-api-key"]}`))
 		case "/v1/models":
 			w.WriteHeader(http.StatusOK)
