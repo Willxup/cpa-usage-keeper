@@ -21,8 +21,6 @@ import (
 
 type ExportFetcher interface {
 	FetchUsageExport(ctx context.Context) (*cpa.ExportResult, error)
-	FetchAuthFiles(ctx context.Context) (*cpa.AuthFilesResult, error)
-	FetchManagementConfig(ctx context.Context) (*cpa.ManagementConfigResult, error)
 }
 
 type UsageFetcher interface {
@@ -31,7 +29,16 @@ type UsageFetcher interface {
 
 type MetadataFetcher interface {
 	FetchAuthFiles(ctx context.Context) (*cpa.AuthFilesResult, error)
-	FetchManagementConfig(ctx context.Context) (*cpa.ManagementConfigResult, error)
+	FetchGeminiAPIKeys(ctx context.Context) (*cpa.ProviderKeyConfigResult, error)
+	FetchClaudeAPIKeys(ctx context.Context) (*cpa.ProviderKeyConfigResult, error)
+	FetchCodexAPIKeys(ctx context.Context) (*cpa.ProviderKeyConfigResult, error)
+	FetchVertexAPIKeys(ctx context.Context) (*cpa.ProviderKeyConfigResult, error)
+	FetchOpenAICompatibility(ctx context.Context) (*cpa.OpenAICompatibilityResult, error)
+}
+
+type CPAClientFetcher interface {
+	ExportFetcher
+	MetadataFetcher
 }
 
 type BackupWriter interface {
@@ -52,7 +59,7 @@ const (
 
 type SyncService struct {
 	db                  *gorm.DB
-	client              ExportFetcher
+	client              CPAClientFetcher
 	usageFetcher        UsageFetcher
 	redisUsageFetcher   UsageFetcher
 	redisQueue          RedisQueue
@@ -112,7 +119,7 @@ func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 
 type SyncServiceOptions struct {
 	BaseURL             string
-	Client              ExportFetcher
+	Client              CPAClientFetcher
 	UsageFetcher        UsageFetcher
 	MetadataFetcher     MetadataFetcher
 	UsageSyncMode       string
@@ -174,7 +181,7 @@ func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncServic
 	}
 }
 
-func NewSyncServiceWithClient(db *gorm.DB, baseURL string, client ExportFetcher) *SyncService {
+func NewSyncServiceWithClient(db *gorm.DB, baseURL string, client CPAClientFetcher) *SyncService {
 	return NewSyncServiceWithOptions(db, SyncServiceOptions{
 		BaseURL: baseURL,
 		Client:  client,
@@ -220,10 +227,10 @@ func (s *SyncService) SyncMetadata(ctx context.Context) error {
 	}
 	logrus.Debug("metadata sync started")
 	authFilesResult, authFilesErr := s.metadataFetcher.FetchAuthFiles(ctx)
-	managementConfigResult, managementConfigErr := s.metadataFetcher.FetchManagementConfig(ctx)
+	providerConfig, providerMetadataErr := fetchProviderMetadata(ctx, s.metadataFetcher)
 	err := joinErrors(
 		syncAuthFiles(s.db, authFilesResult, authFilesErr),
-		syncProviderMetadata(s.db, managementConfigResult, managementConfigErr),
+		syncProviderMetadata(s.db, providerConfig, providerMetadataErr),
 	)
 	fields := logrus.Fields{
 		"status": "completed",
@@ -421,9 +428,9 @@ func (s *SyncService) persistUsageResult(ctx context.Context, fetchedAt time.Tim
 	}
 
 	var authFilesResult *cpa.AuthFilesResult
-	var managementConfigResult *cpa.ManagementConfigResult
+	var providerConfig cpa.ManagementConfig
 	var authFilesErr error
-	var managementConfigErr error
+	var providerMetadataErr error
 	if syncMetadata {
 		if s.metadataFetcher == nil && s.client != nil {
 			s.metadataFetcher = s.client
@@ -432,7 +439,7 @@ func (s *SyncService) persistUsageResult(ctx context.Context, fetchedAt time.Tim
 			return nil, fmt.Errorf("sync service metadata fetcher is nil")
 		}
 		authFilesResult, authFilesErr = s.metadataFetcher.FetchAuthFiles(ctx)
-		managementConfigResult, managementConfigErr = s.metadataFetcher.FetchManagementConfig(ctx)
+		providerConfig, providerMetadataErr = fetchProviderMetadata(ctx, s.metadataFetcher)
 	}
 
 	snapshotRun, err := repository.CreateSnapshotRun(s.db, repository.SnapshotRunInput{
@@ -559,7 +566,7 @@ func (s *SyncService) persistUsageResult(ctx context.Context, fetchedAt time.Tim
 	var partialSyncErr error
 	if syncMetadata {
 		authFilesSyncErr := syncAuthFiles(s.db, authFilesResult, authFilesErr)
-		providerMetadataSyncErr := syncProviderMetadata(s.db, managementConfigResult, managementConfigErr)
+		providerMetadataSyncErr := syncProviderMetadata(s.db, providerConfig, providerMetadataErr)
 		partialSyncErr = joinErrors(authFilesSyncErr, providerMetadataSyncErr)
 	}
 	finalStatus := "completed"
@@ -871,20 +878,50 @@ func syncAuthFiles(db *gorm.DB, result *cpa.AuthFilesResult, fetchErr error) err
 	return nil
 }
 
-func syncProviderMetadata(db *gorm.DB, result *cpa.ManagementConfigResult, fetchErr error) error {
-	if fetchErr != nil {
-		return fmt.Errorf("fetch provider metadata: %w", fetchErr)
+func fetchProviderMetadata(ctx context.Context, fetcher MetadataFetcher) (cpa.ManagementConfig, error) {
+	var cfg cpa.ManagementConfig
+	var errs []error
+
+	if result, err := fetcher.FetchGeminiAPIKeys(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("fetch gemini api keys: %w", err))
+	} else if result != nil {
+		cfg.GeminiAPIKeys = result.Payload
 	}
+	if result, err := fetcher.FetchClaudeAPIKeys(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("fetch claude api keys: %w", err))
+	} else if result != nil {
+		cfg.ClaudeAPIKeys = result.Payload
+	}
+	if result, err := fetcher.FetchCodexAPIKeys(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("fetch codex api keys: %w", err))
+	} else if result != nil {
+		cfg.CodexAPIKeys = result.Payload
+	}
+	if result, err := fetcher.FetchVertexAPIKeys(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("fetch vertex api keys: %w", err))
+	} else if result != nil {
+		cfg.VertexAPIKeys = result.Payload
+	}
+	if result, err := fetcher.FetchOpenAICompatibility(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("fetch openai compatibility: %w", err))
+	} else if result != nil {
+		cfg.OpenAICompatibility = result.Payload
+	}
+
+	return cfg, joinErrors(errs...)
+}
+
+func syncProviderMetadata(db *gorm.DB, cfg cpa.ManagementConfig, fetchErr error) error {
 	if db == nil {
 		return fmt.Errorf("database is nil")
 	}
-	if result == nil {
-		return fmt.Errorf("fetch provider metadata: empty response")
-	}
 
-	inputs := flattenProviderMetadata(result.Payload)
+	inputs := flattenProviderMetadata(cfg)
 	if err := repository.ReplaceProviderMetadata(db, inputs); err != nil {
 		return fmt.Errorf("sync provider metadata: %w", err)
+	}
+	if fetchErr != nil {
+		return fmt.Errorf("fetch provider metadata: %w", fetchErr)
 	}
 	return nil
 }

@@ -62,6 +62,16 @@ type TokenStats struct {
 	TotalTokens     int64 `json:"total_tokens"`
 }
 
+type APIKeysResult struct {
+	StatusCode int
+	Body       []byte
+	Payload    APIKeysResponse
+}
+
+type APIKeysResponse struct {
+	APIKeys []string `json:"api-keys"`
+}
+
 type ModelsResult struct {
 	StatusCode int
 	Body       []byte
@@ -104,10 +114,16 @@ type AuthFile struct {
 	RuntimeOnly bool   `json:"runtime_only"`
 }
 
-type ManagementConfigResult struct {
+type ProviderKeyConfigResult struct {
 	StatusCode int
 	Body       []byte
-	Payload    ManagementConfig
+	Payload    []ProviderKeyConfig
+}
+
+type OpenAICompatibilityResult struct {
+	StatusCode int
+	Body       []byte
+	Payload    []OpenAICompatibilityConfig
 }
 
 type ManagementConfig struct {

@@ -21,12 +21,16 @@ import (
 )
 
 type stubExportFetcher struct {
-	result                 *cpa.ExportResult
-	err                    error
-	authFilesResult        *cpa.AuthFilesResult
-	authFilesErr           error
-	managementConfigResult *cpa.ManagementConfigResult
-	managementConfigErr    error
+	result          *cpa.ExportResult
+	err             error
+	authFilesResult *cpa.AuthFilesResult
+	authFilesErr    error
+	providerConfig  cpa.ManagementConfig
+	geminiErr       error
+	claudeErr       error
+	codexErr        error
+	vertexErr       error
+	openAIErr       error
 }
 
 type stubBackupWriter struct {
@@ -44,10 +48,14 @@ type stubBackupCleaner struct {
 }
 
 type trackingMetadataFetcher struct {
-	authCalls       int
-	managementCalls int
-	authErr         error
-	managementErr   error
+	authCalls   int
+	geminiCalls int
+	claudeCalls int
+	codexCalls  int
+	vertexCalls int
+	openAICalls int
+	authErr     error
+	providerErr error
 }
 
 func (s stubExportFetcher) FetchUsageExport(context.Context) (*cpa.ExportResult, error) {
@@ -61,11 +69,38 @@ func (s stubExportFetcher) FetchAuthFiles(context.Context) (*cpa.AuthFilesResult
 	return &cpa.AuthFilesResult{StatusCode: 200, Payload: cpa.AuthFilesResponse{}}, nil
 }
 
-func (s stubExportFetcher) FetchManagementConfig(context.Context) (*cpa.ManagementConfigResult, error) {
-	if s.managementConfigResult != nil || s.managementConfigErr != nil {
-		return s.managementConfigResult, s.managementConfigErr
+func (s stubExportFetcher) FetchGeminiAPIKeys(context.Context) (*cpa.ProviderKeyConfigResult, error) {
+	return providerKeyConfigResult(s.providerConfig.GeminiAPIKeys, s.geminiErr)
+}
+
+func (s stubExportFetcher) FetchClaudeAPIKeys(context.Context) (*cpa.ProviderKeyConfigResult, error) {
+	return providerKeyConfigResult(s.providerConfig.ClaudeAPIKeys, s.claudeErr)
+}
+
+func (s stubExportFetcher) FetchCodexAPIKeys(context.Context) (*cpa.ProviderKeyConfigResult, error) {
+	return providerKeyConfigResult(s.providerConfig.CodexAPIKeys, s.codexErr)
+}
+
+func (s stubExportFetcher) FetchVertexAPIKeys(context.Context) (*cpa.ProviderKeyConfigResult, error) {
+	return providerKeyConfigResult(s.providerConfig.VertexAPIKeys, s.vertexErr)
+}
+
+func (s stubExportFetcher) FetchOpenAICompatibility(context.Context) (*cpa.OpenAICompatibilityResult, error) {
+	return openAICompatibilityResult(s.providerConfig.OpenAICompatibility, s.openAIErr)
+}
+
+func providerKeyConfigResult(payload []cpa.ProviderKeyConfig, err error) (*cpa.ProviderKeyConfigResult, error) {
+	if err != nil {
+		return nil, err
 	}
-	return &cpa.ManagementConfigResult{StatusCode: 200, Payload: cpa.ManagementConfig{}}, nil
+	return &cpa.ProviderKeyConfigResult{StatusCode: 200, Payload: payload}, nil
+}
+
+func openAICompatibilityResult(payload []cpa.OpenAICompatibilityConfig, err error) (*cpa.OpenAICompatibilityResult, error) {
+	if err != nil {
+		return nil, err
+	}
+	return &cpa.OpenAICompatibilityResult{StatusCode: 200, Payload: payload}, nil
 }
 
 func (s *stubBackupWriter) Write(_ uint, _ time.Time, payload []byte) (string, error) {
@@ -92,12 +127,33 @@ func (s *trackingMetadataFetcher) FetchAuthFiles(context.Context) (*cpa.AuthFile
 	return &cpa.AuthFilesResult{StatusCode: 200, Payload: cpa.AuthFilesResponse{}}, nil
 }
 
-func (s *trackingMetadataFetcher) FetchManagementConfig(context.Context) (*cpa.ManagementConfigResult, error) {
-	s.managementCalls++
-	if s.managementErr != nil {
-		return nil, s.managementErr
-	}
-	return &cpa.ManagementConfigResult{StatusCode: 200, Payload: cpa.ManagementConfig{}}, nil
+func (s *trackingMetadataFetcher) FetchGeminiAPIKeys(context.Context) (*cpa.ProviderKeyConfigResult, error) {
+	s.geminiCalls++
+	return providerKeyConfigResult(nil, s.providerErr)
+}
+
+func (s *trackingMetadataFetcher) FetchClaudeAPIKeys(context.Context) (*cpa.ProviderKeyConfigResult, error) {
+	s.claudeCalls++
+	return providerKeyConfigResult(nil, s.providerErr)
+}
+
+func (s *trackingMetadataFetcher) FetchCodexAPIKeys(context.Context) (*cpa.ProviderKeyConfigResult, error) {
+	s.codexCalls++
+	return providerKeyConfigResult(nil, s.providerErr)
+}
+
+func (s *trackingMetadataFetcher) FetchVertexAPIKeys(context.Context) (*cpa.ProviderKeyConfigResult, error) {
+	s.vertexCalls++
+	return providerKeyConfigResult(nil, s.providerErr)
+}
+
+func (s *trackingMetadataFetcher) FetchOpenAICompatibility(context.Context) (*cpa.OpenAICompatibilityResult, error) {
+	s.openAICalls++
+	return openAICompatibilityResult(nil, s.providerErr)
+}
+
+func (s *trackingMetadataFetcher) providerCalls() int {
+	return s.geminiCalls + s.claudeCalls + s.codexCalls + s.vertexCalls + s.openAICalls
 }
 
 func TestSyncOncePersistsSnapshotAndEvents(t *testing.T) {
@@ -578,8 +634,8 @@ func TestSyncRedisBatchSkipsEmptyBatchWithoutSnapshotOrMetadata(t *testing.T) {
 	if result == nil || !result.Empty || result.Status != "empty" {
 		t.Fatalf("expected empty redis batch result, got %+v", result)
 	}
-	if metadata.authCalls != 0 || metadata.managementCalls != 0 {
-		t.Fatalf("expected metadata fetch to be skipped for empty batch, got auth=%d management=%d", metadata.authCalls, metadata.managementCalls)
+	if metadata.authCalls != 0 || metadata.providerCalls() != 0 {
+		t.Fatalf("expected metadata fetch to be skipped for empty batch, got auth=%d provider=%d", metadata.authCalls, metadata.providerCalls())
 	}
 
 	var snapshotCount int64
@@ -607,8 +663,8 @@ func TestSyncRedisBatchPersistsNonEmptyBatchWithoutMetadata(t *testing.T) {
 	if result == nil || result.Empty || result.Status != "completed" || result.InsertedEvents != 1 || result.DedupedEvents != 0 {
 		t.Fatalf("unexpected redis batch result: %+v", result)
 	}
-	if metadata.authCalls != 0 || metadata.managementCalls != 0 {
-		t.Fatalf("expected metadata fetch to be skipped, got auth=%d management=%d", metadata.authCalls, metadata.managementCalls)
+	if metadata.authCalls != 0 || metadata.providerCalls() != 0 {
+		t.Fatalf("expected metadata fetch to be skipped, got auth=%d provider=%d", metadata.authCalls, metadata.providerCalls())
 	}
 
 	var snapshot models.SnapshotRun
@@ -941,8 +997,8 @@ func TestSyncRedisBatchReturnsMetadataWarningAfterPersistingEvents(t *testing.T)
 	if result == nil || result.Status != "completed_with_warnings" || result.InsertedEvents != 1 {
 		t.Fatalf("expected warning result with persisted event, got %+v", result)
 	}
-	if metadata.authCalls != 1 || metadata.managementCalls != 1 {
-		t.Fatalf("expected metadata fetch once, got auth=%d management=%d", metadata.authCalls, metadata.managementCalls)
+	if metadata.authCalls != 1 || metadata.providerCalls() != 5 {
+		t.Fatalf("expected metadata fetch once, got auth=%d provider=%d", metadata.authCalls, metadata.providerCalls())
 	}
 }
 
@@ -957,8 +1013,8 @@ func TestSyncMetadataRefreshesMetadataWithoutSnapshot(t *testing.T) {
 	if err := service.SyncMetadata(context.Background()); err != nil {
 		t.Fatalf("SyncMetadata returned error: %v", err)
 	}
-	if metadata.authCalls != 1 || metadata.managementCalls != 1 {
-		t.Fatalf("expected metadata fetch once, got auth=%d management=%d", metadata.authCalls, metadata.managementCalls)
+	if metadata.authCalls != 1 || metadata.providerCalls() != 5 {
+		t.Fatalf("expected metadata fetch once, got auth=%d provider=%d", metadata.authCalls, metadata.providerCalls())
 	}
 	var snapshotCount int64
 	if err := db.Model(&models.SnapshotRun{}).Count(&snapshotCount).Error; err != nil {
@@ -966,6 +1022,56 @@ func TestSyncMetadataRefreshesMetadataWithoutSnapshot(t *testing.T) {
 	}
 	if snapshotCount != 0 {
 		t.Fatalf("expected metadata sync not to create snapshots, got %d", snapshotCount)
+	}
+}
+
+func TestSyncMetadataPersistsProviderMetadataFromDedicatedEndpoints(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
+		BaseURL: "https://cpa.example.com",
+		MetadataFetcher: stubExportFetcher{providerConfig: cpa.ManagementConfig{
+			GeminiAPIKeys: []cpa.ProviderKeyConfig{{APIKey: "gemini-key", Prefix: "gemini-prefix", Name: "Gemini"}},
+			ClaudeAPIKeys: []cpa.ProviderKeyConfig{{APIKey: "claude-key", Prefix: "claude-prefix", Name: "Claude"}},
+			OpenAICompatibility: []cpa.OpenAICompatibilityConfig{{
+				Name:          "Custom OpenAI",
+				Prefix:        "custom-openai",
+				APIKeyEntries: []cpa.OpenAIApiKeyEntry{{APIKey: "custom-key"}},
+			}},
+		}},
+	})
+
+	if err := service.SyncMetadata(context.Background()); err != nil {
+		t.Fatalf("SyncMetadata returned error: %v", err)
+	}
+	items, err := repository.ListProviderMetadata(db)
+	if err != nil {
+		t.Fatalf("list provider metadata: %v", err)
+	}
+	if len(items) != 6 {
+		t.Fatalf("expected provider metadata rows from dedicated endpoints, got %+v", items)
+	}
+}
+
+func TestSyncMetadataPersistsSuccessfulProviderMetadataWhenOneEndpointFails(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
+		BaseURL: "https://cpa.example.com",
+		MetadataFetcher: stubExportFetcher{
+			providerConfig: cpa.ManagementConfig{ClaudeAPIKeys: []cpa.ProviderKeyConfig{{APIKey: "claude-key", Prefix: "claude-prefix", Name: "Claude"}}},
+			geminiErr:      errors.New("gemini unavailable"),
+		},
+	})
+
+	err := service.SyncMetadata(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "gemini unavailable") {
+		t.Fatalf("expected provider metadata warning, got %v", err)
+	}
+	items, listErr := repository.ListProviderMetadata(db)
+	if listErr != nil {
+		t.Fatalf("list provider metadata: %v", listErr)
+	}
+	if len(items) != 2 || items[0].ProviderType != "claude" {
+		t.Fatalf("expected successful provider metadata to persist, got %+v", items)
 	}
 }
 
