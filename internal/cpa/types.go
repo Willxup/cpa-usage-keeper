@@ -62,15 +62,6 @@ type TokenStats struct {
 	TotalTokens     int64 `json:"total_tokens"`
 }
 
-type APIKeysResult struct {
-	StatusCode int
-	Payload    APIKeysResponse
-}
-
-type APIKeysResponse struct {
-	APIKeys []string `json:"api-keys"`
-}
-
 type ModelsResult struct {
 	StatusCode int
 	Body       []byte

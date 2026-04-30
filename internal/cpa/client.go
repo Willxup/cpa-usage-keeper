@@ -91,16 +91,6 @@ func (c *Client) FetchUsageExport(ctx context.Context) (*ExportResult, error) {
 	return result, nil
 }
 
-func (c *Client) FetchAPIKeys(ctx context.Context) (*APIKeysResult, error) {
-	result := &APIKeysResult{}
-	statusCode, _, err := c.doManagementJSONRequest(ctx, "/v0/management/api-keys", &result.Payload, "api keys")
-	result.StatusCode = statusCode
-	if err != nil {
-		return result, err
-	}
-	return result, nil
-}
-
 func (c *Client) FetchModels(ctx context.Context) (*ModelsResult, error) {
 	config, err := c.FetchManagementConfig(ctx)
 	if err != nil {
