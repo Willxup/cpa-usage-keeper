@@ -10,11 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"cpa-usage-keeper/internal/cpa"
 	"github.com/joho/godotenv"
 )
 
 const (
-	RedisQueueKeyDefault             = "queue"
+	DefaultTimeZone                  = "Asia/Shanghai"
+	RedisQueueKeyDefault             = cpa.ManagementUsageQueueKey
 	RedisQueueErrorBackoffDefault    = 10 * time.Second
 	RedisMetadataSyncIntervalDefault = 30 * time.Second
 )
@@ -28,9 +30,9 @@ type Config struct {
 	CPABaseURL string
 	// CPAManagementKey 是访问 CPA 管理数据的密钥。
 	CPAManagementKey string
-	// PollInterval 是 legacy 拉取间隔，也是 auto 模式 fallback 的节流间隔。
+	// PollInterval 是 legacy export 拉取间隔。
 	PollInterval time.Duration
-	// UsageSyncMode 决定使用 auto、redis 或 legacy_export 同步模式。
+	// UsageSyncMode 决定使用 auto、redis 或 legacy_export；auto 会在启动时解析为一种有效模式。
 	UsageSyncMode string
 	// RedisQueueAddr 是 CPA management data stream 的 TCP 地址，空值时按 CPA_BASE_URL 推导。
 	RedisQueueAddr string
@@ -76,17 +78,16 @@ func LoadFromEnv() (*Config, error) {
 	if err := loadDotEnvIfPresent(); err != nil {
 		return nil, err
 	}
+	if err := applyProjectTimeZone(); err != nil {
+		return nil, err
+	}
 
 	usageSyncMode := getString("USAGE_SYNC_MODE", "auto")
 	if usageSyncMode != "auto" && usageSyncMode != "redis" && usageSyncMode != "legacy_export" {
 		return nil, fmt.Errorf("USAGE_SYNC_MODE must be one of auto, redis, legacy_export")
 	}
 
-	pollIntervalDefault := 30 * time.Second
-	if usageSyncMode == "legacy_export" {
-		pollIntervalDefault = 5 * time.Minute
-	}
-	pollInterval, err := getDuration("POLL_INTERVAL", pollIntervalDefault)
+	pollInterval, err := getDuration("POLL_INTERVAL", 5*time.Minute)
 	if err != nil {
 		return nil, err
 	}
@@ -195,6 +196,22 @@ func LoadFromEnv() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func applyProjectTimeZone() error {
+	zoneName := strings.TrimSpace(os.Getenv("TZ"))
+	if zoneName == "" {
+		zoneName = DefaultTimeZone
+		if err := os.Setenv("TZ", zoneName); err != nil {
+			return fmt.Errorf("set default TZ: %w", err)
+		}
+	}
+	location, err := time.LoadLocation(zoneName)
+	if err != nil {
+		return fmt.Errorf("TZ is invalid: %w", err)
+	}
+	time.Local = location
+	return nil
 }
 
 func loadDotEnvIfPresent() error {

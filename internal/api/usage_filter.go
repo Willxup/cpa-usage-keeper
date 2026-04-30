@@ -42,6 +42,16 @@ func parseUsageTimeFilterQuery(req *http.Request, anchor time.Time) (service.Usa
 	return filter, nil
 }
 
+func parseCustomUsageRangeBoundary(value string, endOfDay bool) (time.Time, error) {
+	if date, err := time.ParseInLocation(time.DateOnly, value, time.Local); err == nil {
+		if endOfDay {
+			return date.AddDate(0, 0, 1).Add(-time.Nanosecond), nil
+		}
+		return date, nil
+	}
+	return time.Parse(time.RFC3339, value)
+}
+
 func parseUsageFilterQuery(req *http.Request, anchor time.Time) (service.UsageFilter, error) {
 	if req == nil {
 		return service.UsageFilter{}, nil
@@ -88,8 +98,10 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (service.UsageFi
 	case "all":
 		return filter, nil
 	case "today":
-		startTime := anchor.UTC().Truncate(24 * time.Hour)
-		endTime := startTime.Add(24*time.Hour - time.Nanosecond)
+		localAnchor := anchor.In(time.Local)
+		localStart := time.Date(localAnchor.Year(), localAnchor.Month(), localAnchor.Day(), 0, 0, 0, 0, time.Local)
+		startTime := localStart.UTC()
+		endTime := localStart.AddDate(0, 0, 1).Add(-time.Nanosecond).UTC()
 		filter.StartTime = &startTime
 		filter.EndTime = &endTime
 		return filter, nil
@@ -99,11 +111,11 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (service.UsageFi
 		if startValue == "" || endValue == "" {
 			return service.UsageFilter{}, fmt.Errorf("custom range requires start and end")
 		}
-		startTime, err := time.Parse(time.RFC3339, startValue)
+		startTime, err := parseCustomUsageRangeBoundary(startValue, false)
 		if err != nil {
 			return service.UsageFilter{}, fmt.Errorf("invalid start: %w", err)
 		}
-		endTime, err := time.Parse(time.RFC3339, endValue)
+		endTime, err := parseCustomUsageRangeBoundary(endValue, true)
 		if err != nil {
 			return service.UsageFilter{}, fmt.Errorf("invalid end: %w", err)
 		}

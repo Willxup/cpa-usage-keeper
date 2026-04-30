@@ -71,6 +71,28 @@ func TestStatusReturnsPollerState(t *testing.T) {
 	}
 }
 
+func TestStatusReturnsProjectTimezone(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	t.Cleanup(func() { time.Local = previousLocal })
+	time.Local = location
+
+	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	if body := resp.Body.String(); !contains(body, `"timezone":"Asia/Shanghai"`) {
+		t.Fatalf("expected status response to include project timezone, got %s", body)
+	}
+}
+
 func TestStatusReturnsEmptyStateWithoutProvider(t *testing.T) {
 	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
@@ -80,7 +102,7 @@ func TestStatusReturnsEmptyStateWithoutProvider(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
-	if body := resp.Body.String(); body != "{\"running\":false,\"sync_running\":false}" {
+	if body := resp.Body.String(); !contains(body, `"running":false`) || !contains(body, `"sync_running":false`) || !contains(body, `"timezone":`) {
 		t.Fatalf("unexpected response body: %s", body)
 	}
 }

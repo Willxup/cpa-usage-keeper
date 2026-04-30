@@ -34,7 +34,8 @@ const formatHourLabel = (key: string): string => {
 const startOfDayKey = (key: string): string => {
   const date = new Date(key);
   if (Number.isNaN(date.getTime())) return key;
-  return date.toISOString().slice(0, 10);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 };
 
 const resolveHourBucketCount = (hourWindowHours?: number): number => {

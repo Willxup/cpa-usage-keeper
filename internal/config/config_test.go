@@ -3,10 +3,12 @@ package config
 import (
 	"testing"
 	"time"
+
+	"cpa-usage-keeper/internal/cpa"
 )
 
 func TestLoadFromEnvAppliesDefaults(t *testing.T) {
-	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:8317")
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
 	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
 
 	cfg, err := LoadFromEnv()
@@ -53,8 +55,8 @@ func TestLoadFromEnvAppliesDefaults(t *testing.T) {
 	if cfg.RedisQueueBatchSize != 1000 {
 		t.Fatalf("expected default redis queue batch size 1000, got %d", cfg.RedisQueueBatchSize)
 	}
-	if cfg.PollInterval != 30*time.Second {
-		t.Fatalf("expected default auto mode poll interval 30s, got %s", cfg.PollInterval)
+	if cfg.PollInterval != 5*time.Minute {
+		t.Fatalf("expected default legacy export poll interval 5m, got %s", cfg.PollInterval)
 	}
 	if cfg.RedisQueueIdleInterval != time.Second {
 		t.Fatalf("expected default redis queue idle interval 1s, got %s", cfg.RedisQueueIdleInterval)
@@ -76,6 +78,40 @@ func TestLoadFromEnvAppliesDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvAppliesDefaultTimeZone(t *testing.T) {
+	previousLocal := time.Local
+	t.Cleanup(func() { time.Local = previousLocal })
+	t.Setenv("TZ", "")
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
+	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
+
+	_, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("LoadFromEnv returned error: %v", err)
+	}
+
+	if time.Local.String() != "Asia/Shanghai" {
+		t.Fatalf("expected default local timezone Asia/Shanghai, got %s", time.Local)
+	}
+}
+
+func TestLoadFromEnvHonorsExplicitTimeZone(t *testing.T) {
+	previousLocal := time.Local
+	t.Cleanup(func() { time.Local = previousLocal })
+	t.Setenv("TZ", "UTC")
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
+	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
+
+	_, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("LoadFromEnv returned error: %v", err)
+	}
+
+	if time.Local.String() != "UTC" {
+		t.Fatalf("expected explicit local timezone UTC, got %s", time.Local)
+	}
+}
+
 func TestLoadFromEnvRequiresCriticalValues(t *testing.T) {
 	t.Run("missing base url", func(t *testing.T) {
 		t.Setenv("CPA_MANAGEMENT_KEY", "secret")
@@ -88,7 +124,7 @@ func TestLoadFromEnvRequiresCriticalValues(t *testing.T) {
 	})
 
 	t.Run("missing management key", func(t *testing.T) {
-		t.Setenv("CPA_BASE_URL", "http://127.0.0.1:8317")
+		t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
 		t.Setenv("SQLITE_PATH", "/tmp/app.db")
 
 		_, err := LoadFromEnv()
@@ -98,7 +134,7 @@ func TestLoadFromEnvRequiresCriticalValues(t *testing.T) {
 	})
 
 	t.Run("missing login password when auth enabled", func(t *testing.T) {
-		t.Setenv("CPA_BASE_URL", "http://127.0.0.1:8317")
+		t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
 		t.Setenv("CPA_MANAGEMENT_KEY", "secret")
 		t.Setenv("AUTH_ENABLED", "true")
 
@@ -110,7 +146,7 @@ func TestLoadFromEnvRequiresCriticalValues(t *testing.T) {
 }
 
 func TestLoadFromEnvUsesLegacyExportPollDefault(t *testing.T) {
-	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:8317")
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
 	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
 	t.Setenv("USAGE_SYNC_MODE", "legacy_export")
 
@@ -125,7 +161,7 @@ func TestLoadFromEnvUsesLegacyExportPollDefault(t *testing.T) {
 }
 
 func TestLoadFromEnvUsesExplicitPollIntervalOverride(t *testing.T) {
-	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:8317")
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
 	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
 	t.Setenv("POLL_INTERVAL", "1m")
 
@@ -169,7 +205,7 @@ func TestLoadFromEnvIgnoresRemovedRedisQueueKeyOverride(t *testing.T) {
 }
 
 func TestLoadFromEnvRejectsInvalidUsageSyncMode(t *testing.T) {
-	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:8317")
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
 	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
 	t.Setenv("USAGE_SYNC_MODE", "invalid")
 
@@ -180,7 +216,7 @@ func TestLoadFromEnvRejectsInvalidUsageSyncMode(t *testing.T) {
 }
 
 func TestLoadFromEnvRejectsNonPositiveRedisQueueBatchSize(t *testing.T) {
-	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:8317")
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
 	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
 	t.Setenv("REDIS_QUEUE_BATCH_SIZE", "0")
 
@@ -191,7 +227,7 @@ func TestLoadFromEnvRejectsNonPositiveRedisQueueBatchSize(t *testing.T) {
 }
 
 func TestLoadFromEnvParsesOverrides(t *testing.T) {
-	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:8317")
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
 	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
 	t.Setenv("SQLITE_PATH", "/tmp/app.db")
 	t.Setenv("APP_PORT", "9090")
@@ -222,7 +258,7 @@ func TestLoadFromEnvParsesOverrides(t *testing.T) {
 }
 
 func TestLoadFromEnvRejectsNegativeLogRetentionDays(t *testing.T) {
-	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:8317")
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
 	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
 	t.Setenv("LOG_RETENTION_DAYS", "-1")
 
@@ -233,7 +269,7 @@ func TestLoadFromEnvRejectsNegativeLogRetentionDays(t *testing.T) {
 }
 
 func TestLoadFromEnvRejectsNonPositiveRedisQueueIdleInterval(t *testing.T) {
-	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:8317")
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
 	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
 	t.Setenv("REDIS_QUEUE_IDLE_INTERVAL", "0s")
 
@@ -244,7 +280,7 @@ func TestLoadFromEnvRejectsNonPositiveRedisQueueIdleInterval(t *testing.T) {
 }
 
 func TestLoadFromEnvIgnoresRemovedRedisDrainEnvOverrides(t *testing.T) {
-	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:8317")
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
 	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
 	t.Setenv("REDIS_QUEUE_ERROR_BACKOFF", "20s")
 	t.Setenv("REDIS_METADATA_SYNC_INTERVAL", "45s")
@@ -259,7 +295,7 @@ func TestLoadFromEnvIgnoresRemovedRedisDrainEnvOverrides(t *testing.T) {
 }
 
 func TestLoadFromEnvRejectsInvalidBasePath(t *testing.T) {
-	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:8317")
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
 	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
 	t.Setenv("SQLITE_PATH", "/tmp/app.db")
 	t.Setenv("APP_BASE_PATH", "cpa")
@@ -271,7 +307,7 @@ func TestLoadFromEnvRejectsInvalidBasePath(t *testing.T) {
 }
 
 func TestLoadFromEnvRejectsNonPositiveAuthSessionTTL(t *testing.T) {
-	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:8317")
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
 	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
 	t.Setenv("AUTH_SESSION_TTL", "0s")
 

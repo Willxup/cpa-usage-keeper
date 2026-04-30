@@ -237,6 +237,160 @@ func TestFinalizeSnapshotRunUpdatesResultFields(t *testing.T) {
 	}
 }
 
+func TestCleanupSnapshotRunsKeepsLatestSnapshotPerLocalDayForSevenDays(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	time.Local = location
+	t.Cleanup(func() { time.Local = previousLocal })
+	db := openTestDatabase(t)
+	now := time.Date(2026, 4, 27, 2, 30, 0, 0, time.UTC)
+
+	oldDay, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 20, 15, 0, 0, 0, time.UTC), RawPayload: []byte(`old`)})
+	if err != nil {
+		t.Fatalf("CreateSnapshotRun oldDay returned error: %v", err)
+	}
+	if _, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 20, 17, 0, 0, 0, time.UTC), RawPayload: []byte(`first-day-early`)}); err != nil {
+		t.Fatalf("CreateSnapshotRun firstDayEarly returned error: %v", err)
+	}
+	firstDayLatest, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 21, 15, 30, 0, 0, time.UTC), RawPayload: []byte(`first-day-latest`)})
+	if err != nil {
+		t.Fatalf("CreateSnapshotRun firstDayLatest returned error: %v", err)
+	}
+	if _, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 26, 16, 10, 0, 0, time.UTC), RawPayload: []byte(`today-early`)}); err != nil {
+		t.Fatalf("CreateSnapshotRun todayEarly returned error: %v", err)
+	}
+	todayLatest, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 27, 2, 0, 0, 0, time.UTC), RawPayload: []byte(`today-latest`)})
+	if err != nil {
+		t.Fatalf("CreateSnapshotRun todayLatest returned error: %v", err)
+	}
+	if _, _, err := InsertUsageEvents(db, []models.UsageEvent{{EventKey: "event-old-snapshot", SnapshotRunID: oldDay.ID, Timestamp: now, TotalTokens: 1}}); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	result, err := CleanupSnapshotRuns(db, now)
+	if err != nil {
+		t.Fatalf("CleanupSnapshotRuns returned error: %v", err)
+	}
+	if result.Deleted != 3 {
+		t.Fatalf("expected 3 deleted snapshot runs, got %+v", result)
+	}
+
+	var remaining []models.SnapshotRun
+	if err := db.Order("id asc").Find(&remaining).Error; err != nil {
+		t.Fatalf("load remaining snapshot runs: %v", err)
+	}
+	remainingIDs := make([]uint, 0, len(remaining))
+	for _, run := range remaining {
+		remainingIDs = append(remainingIDs, run.ID)
+	}
+	expectedIDs := []uint{firstDayLatest.ID, todayLatest.ID}
+	if fmt.Sprint(remainingIDs) != fmt.Sprint(expectedIDs) {
+		t.Fatalf("expected remaining snapshot ids %v, got %v", expectedIDs, remainingIDs)
+	}
+
+	var eventCount int64
+	if err := db.Model(&models.UsageEvent{}).Count(&eventCount).Error; err != nil {
+		t.Fatalf("count usage events: %v", err)
+	}
+	if eventCount != 1 {
+		t.Fatalf("expected usage events to remain untouched, got %d", eventCount)
+	}
+}
+
+func TestCleanupSnapshotRunsDeletesFutureSnapshots(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	time.Local = location
+	t.Cleanup(func() { time.Local = previousLocal })
+	db := openTestDatabase(t)
+	now := time.Date(2026, 4, 27, 2, 30, 0, 0, time.UTC)
+
+	kept, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 27, 2, 0, 0, 0, time.UTC), RawPayload: []byte(`kept`)})
+	if err != nil {
+		t.Fatalf("CreateSnapshotRun kept returned error: %v", err)
+	}
+	future, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 27, 4, 0, 0, 0, time.UTC), RawPayload: []byte(`future`)})
+	if err != nil {
+		t.Fatalf("CreateSnapshotRun future returned error: %v", err)
+	}
+
+	result, err := CleanupSnapshotRuns(db, now)
+	if err != nil {
+		t.Fatalf("CleanupSnapshotRuns returned error: %v", err)
+	}
+	if result.Deleted != 1 {
+		t.Fatalf("expected future snapshot to be deleted, got %+v", result)
+	}
+
+	var remaining []models.SnapshotRun
+	if err := db.Order("id asc").Find(&remaining).Error; err != nil {
+		t.Fatalf("load remaining snapshot runs: %v", err)
+	}
+	if len(remaining) != 1 || remaining[0].ID != kept.ID {
+		t.Fatalf("expected only current snapshot %d to remain after deleting %d, got %+v", kept.ID, future.ID, remaining)
+	}
+}
+
+func TestCleanupStorageCleansRedisInboxAndSnapshotRuns(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	time.Local = location
+	t.Cleanup(func() { time.Local = previousLocal })
+	db := openTestDatabase(t)
+	now := time.Date(2026, 4, 27, 2, 30, 0, 0, time.UTC)
+
+	inboxRows, err := InsertRedisUsageInboxMessages(db, []RedisInboxInsert{
+		{QueueKey: "queue", RawMessage: `{"request_id":"processed-old"}`, PoppedAt: now.AddDate(0, 0, -2)},
+		{QueueKey: "queue", RawMessage: `{"request_id":"pending"}`, PoppedAt: now.AddDate(0, 0, -2)},
+	})
+	if err != nil {
+		t.Fatalf("InsertRedisUsageInboxMessages returned error: %v", err)
+	}
+	if err := db.Model(&models.RedisUsageInbox{}).Where("id = ?", inboxRows[0].ID).Updates(map[string]any{"status": RedisUsageInboxStatusProcessed, "processed_at": time.Date(2026, 4, 26, 15, 59, 59, 0, time.UTC)}).Error; err != nil {
+		t.Fatalf("seed processed inbox row: %v", err)
+	}
+	oldSnapshot, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 20, 15, 0, 0, 0, time.UTC), RawPayload: []byte(`old`)})
+	if err != nil {
+		t.Fatalf("CreateSnapshotRun old returned error: %v", err)
+	}
+	keptSnapshot, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 27, 2, 0, 0, 0, time.UTC), RawPayload: []byte(`kept`)})
+	if err != nil {
+		t.Fatalf("CreateSnapshotRun kept returned error: %v", err)
+	}
+
+	result, err := CleanupStorage(db, now)
+	if err != nil {
+		t.Fatalf("CleanupStorage returned error: %v", err)
+	}
+	if result.RedisInbox.ProcessedDeleted != 1 || result.SnapshotRuns.Deleted != 1 {
+		t.Fatalf("unexpected cleanup result: %+v", result)
+	}
+
+	var inboxRemaining []models.RedisUsageInbox
+	if err := db.Order("id asc").Find(&inboxRemaining).Error; err != nil {
+		t.Fatalf("load remaining inbox rows: %v", err)
+	}
+	if len(inboxRemaining) != 1 || inboxRemaining[0].ID != inboxRows[1].ID {
+		t.Fatalf("expected only pending inbox row to remain, got %+v", inboxRemaining)
+	}
+	var snapshotRemaining []models.SnapshotRun
+	if err := db.Order("id asc").Find(&snapshotRemaining).Error; err != nil {
+		t.Fatalf("load remaining snapshot runs: %v", err)
+	}
+	if len(snapshotRemaining) != 1 || snapshotRemaining[0].ID != keptSnapshot.ID {
+		t.Fatalf("expected only retained snapshot %d to remain after deleting %d, got %+v", keptSnapshot.ID, oldSnapshot.ID, snapshotRemaining)
+	}
+}
+
 func TestFindLastSnapshotRunWithBackupReturnsLatestCompletedBackup(t *testing.T) {
 	db := openTestDatabase(t)
 

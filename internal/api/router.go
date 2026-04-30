@@ -166,6 +166,7 @@ func stripBasePath(basePath, requestPath string) (string, bool) {
 type statusResponse struct {
 	Running     bool       `json:"running"`
 	SyncRunning bool       `json:"sync_running"`
+	Timezone    string     `json:"timezone"`
 	LastRunAt   *time.Time `json:"last_run_at,omitempty"`
 	LastError   string     `json:"last_error,omitempty"`
 	LastWarning string     `json:"last_warning,omitempty"`
@@ -175,7 +176,7 @@ type statusResponse struct {
 func registerStatusRoutes(router gin.IRoutes, statusProvider StatusProvider) {
 	router.GET("/status", func(c *gin.Context) {
 		if statusProvider == nil {
-			c.JSON(http.StatusOK, statusResponse{})
+			c.JSON(http.StatusOK, statusResponse{Timezone: time.Local.String()})
 			return
 		}
 
@@ -219,6 +220,7 @@ func buildStatusResponse(status poller.Status) statusResponse {
 	response := statusResponse{
 		Running:     status.Running,
 		SyncRunning: status.SyncRunning,
+		Timezone:    time.Local.String(),
 		LastError:   status.LastError,
 		LastWarning: status.LastWarning,
 		LastStatus:  status.LastStatus,

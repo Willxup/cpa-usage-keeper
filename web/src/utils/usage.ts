@@ -137,9 +137,14 @@ const toNumber = (value: unknown): number => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const formatLocalDayKey = (date: Date): string => {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+};
+
 const startOfDayKey = (timestamp: string): string => {
   const date = new Date(timestamp);
-  return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10);
+  return Number.isNaN(date.getTime()) ? '' : formatLocalDayKey(date);
 };
 
 const formatHourBucketKey = (timestampMs: number): string => `${new Date(timestampMs).toISOString().slice(0, 13)}:00:00Z`;
@@ -356,7 +361,7 @@ export function resolveUsageFilterWindow(
 
   if (range === 'today') {
     const start = new Date(fallbackNow);
-    start.setUTCHours(0, 0, 0, 0);
+    start.setHours(0, 0, 0, 0);
     const startMs = start.getTime();
     const endMs = fallbackNow;
     return {

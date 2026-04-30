@@ -85,7 +85,7 @@ type queuedUsageDetail struct {
 
 func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) models.UsageEvent {
 	tokens := normalizeTokens(d.Tokens)
-	apiGroupKey := firstNonEmpty(d.Provider, d.Endpoint, "unknown")
+	apiGroupKey := firstNonEmpty(d.APIKey, d.Provider, d.Endpoint, "unknown")
 	model := firstNonEmpty(d.Model, "unknown")
 	timestamp := d.Timestamp.UTC()
 	if timestamp.IsZero() {

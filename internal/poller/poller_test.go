@@ -64,6 +64,28 @@ type fakeTicker struct {
 func (t *fakeTicker) Chan() <-chan time.Time { return t.ch }
 func (t *fakeTicker) Stop()                  { t.stopped = true }
 
+func TestRunLogsPollerStart(t *testing.T) {
+	logs := capturePollerLogrusOutput(t)
+	syncer := &syncStub{}
+	ft := &fakeTicker{ch: make(chan time.Time)}
+	p := New(syncer, time.Minute)
+	p.ticker = func(time.Duration) ticker { return ft }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- p.Run(ctx) }()
+	waitFor(t, func() bool { return syncer.CallCount() == 1 })
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("poller returned error: %v", err)
+	}
+
+	content := logs.String()
+	if !strings.Contains(content, "level=info") || !strings.Contains(content, "msg=\"legacy export poller task started\"") {
+		t.Fatalf("expected poller start info log, got %q", content)
+	}
+}
+
 func TestRunExecutesImmediateAndScheduledSyncs(t *testing.T) {
 	syncer := &syncStub{}
 	ft := &fakeTicker{ch: make(chan time.Time, 2)}

@@ -82,7 +82,7 @@ func NewClient(baseURL, managementKey string, timeout time.Duration) *Client {
 
 func (c *Client) FetchUsageExport(ctx context.Context) (*ExportResult, error) {
 	result := &ExportResult{}
-	statusCode, body, err := c.doManagementJSONRequest(ctx, "/v0/management/usage/export", &result.Payload, "export")
+	statusCode, body, err := c.doManagementJSONRequest(ctx, cpaManagementUsageExportEndpoint, &result.Payload, "export")
 	result.StatusCode = statusCode
 	result.Body = body
 	if err != nil {
@@ -91,10 +91,11 @@ func (c *Client) FetchUsageExport(ctx context.Context) (*ExportResult, error) {
 	return result, nil
 }
 
-func (c *Client) FetchAPIKeys(ctx context.Context) (*APIKeysResult, error) {
-	result := &APIKeysResult{}
-	statusCode, _, err := c.doManagementJSONRequest(ctx, "/v0/management/api-keys", &result.Payload, "api keys")
+func (c *Client) FetchExternalAPIKeys(ctx context.Context) (*ExternalAPIKeysResult, error) {
+	result := &ExternalAPIKeysResult{}
+	statusCode, body, err := c.doManagementJSONRequest(ctx, cpaManagementExternalAPIKeysEndpoint, &result.Payload, "external api keys")
 	result.StatusCode = statusCode
+	result.Body = body
 	if err != nil {
 		return result, err
 	}
@@ -102,18 +103,18 @@ func (c *Client) FetchAPIKeys(ctx context.Context) (*APIKeysResult, error) {
 }
 
 func (c *Client) FetchModels(ctx context.Context) (*ModelsResult, error) {
-	apiKeys, err := c.FetchAPIKeys(ctx)
+	externalAPIKeys, err := c.FetchExternalAPIKeys(ctx)
 	if err != nil {
 		return &ModelsResult{}, err
 	}
-	apiKey := firstNonEmptyString(apiKeys.Payload.APIKeys)
-	if apiKey == "" {
-		return &ModelsResult{}, fmt.Errorf("cpa api keys are required")
+	externalAPIKey := firstNonEmptyString(externalAPIKeys.Payload.ExternalAPIKeys)
+	if externalAPIKey == "" {
+		return &ModelsResult{}, fmt.Errorf("cpa external api keys are required")
 	}
 
 	result := &ModelsResult{}
-	statusCode, body, err := c.doJSONRequest(ctx, "/v1/models", &result.Payload, "models", func(req *http.Request) {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
+	statusCode, body, err := c.doJSONRequest(ctx, cpaModelsEndpoint, &result.Payload, "models", func(req *http.Request) {
+		req.Header.Set("Authorization", "Bearer "+externalAPIKey)
 	})
 	result.StatusCode = statusCode
 	result.Body = body
@@ -125,7 +126,7 @@ func (c *Client) FetchModels(ctx context.Context) (*ModelsResult, error) {
 
 func (c *Client) FetchAuthFiles(ctx context.Context) (*AuthFilesResult, error) {
 	result := &AuthFilesResult{}
-	statusCode, body, err := c.doManagementJSONRequest(ctx, "/v0/management/auth-files", &result.Payload, "auth files")
+	statusCode, body, err := c.doManagementJSONRequest(ctx, cpaManagementAuthFilesEndpoint, &result.Payload, "auth files")
 	result.StatusCode = statusCode
 	result.Body = body
 	if err != nil {
@@ -134,9 +135,36 @@ func (c *Client) FetchAuthFiles(ctx context.Context) (*AuthFilesResult, error) {
 	return result, nil
 }
 
-func (c *Client) FetchManagementConfig(ctx context.Context) (*ManagementConfigResult, error) {
-	result := &ManagementConfigResult{}
-	statusCode, body, err := c.doManagementJSONRequest(ctx, "/v0/management/config", &result.Payload, "config")
+func (c *Client) FetchGeminiAPIKeys(ctx context.Context) (*ProviderKeyConfigResult, error) {
+	return c.fetchProviderKeyConfig(ctx, cpaManagementGeminiAPIKeyEndpoint, "gemini api keys")
+}
+
+func (c *Client) FetchClaudeAPIKeys(ctx context.Context) (*ProviderKeyConfigResult, error) {
+	return c.fetchProviderKeyConfig(ctx, cpaManagementClaudeAPIKeyEndpoint, "claude api keys")
+}
+
+func (c *Client) FetchCodexAPIKeys(ctx context.Context) (*ProviderKeyConfigResult, error) {
+	return c.fetchProviderKeyConfig(ctx, cpaManagementCodexAPIKeyEndpoint, "codex api keys")
+}
+
+func (c *Client) FetchVertexAPIKeys(ctx context.Context) (*ProviderKeyConfigResult, error) {
+	return c.fetchProviderKeyConfig(ctx, cpaManagementVertexAPIKeyEndpoint, "vertex api keys")
+}
+
+func (c *Client) fetchProviderKeyConfig(ctx context.Context, path string, kind string) (*ProviderKeyConfigResult, error) {
+	result := &ProviderKeyConfigResult{}
+	statusCode, body, err := c.doManagementJSONRequest(ctx, path, &result.Payload, kind)
+	result.StatusCode = statusCode
+	result.Body = body
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (c *Client) FetchOpenAICompatibility(ctx context.Context) (*OpenAICompatibilityResult, error) {
+	result := &OpenAICompatibilityResult{}
+	statusCode, body, err := c.doManagementJSONRequest(ctx, cpaManagementOpenAICompatibilityEndpoint, &result.Payload, "openai compatibility")
 	result.StatusCode = statusCode
 	result.Body = body
 	if err != nil {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getOverviewChartEndMs, getOverviewDisplayLoading, getOverviewHourWindowHours, getTimeRangeOptions, getUsageTabOptions, refreshPageData, sanitizeRequestEventFilters, scheduleOverviewAutoRefresh, syncCpaData } from './UsagePage';
+import { buildCustomDateRangeQuery, getOverviewChartEndMs, getOverviewDisplayLoading, getOverviewHourWindowHours, getTimeRangeOptions, getUsageTabOptions, refreshPageData, sanitizeRequestEventFilters, scheduleOverviewAutoRefresh, syncCpaData } from './UsagePage';
 import { filterUsageByWindow, type UsageFilterWindow } from '@/utils/usage';
 import type { StatusResponse, UsageSnapshot } from '@/lib/types';
 
@@ -232,8 +232,26 @@ describe('UsagePage time range options', () => {
   });
 });
 
+describe('UsagePage custom date query', () => {
+  it('keeps custom date query bounds as project-local dates for the backend', () => {
+    expect(buildCustomDateRangeQuery({ start: '2026-04-20', end: '2026-04-21' })).toEqual({
+      valid: true,
+      start: '2026-04-20',
+      end: '2026-04-21',
+    });
+  });
+
+  it('rejects rollover calendar dates before sending them to the backend', () => {
+    expect(buildCustomDateRangeQuery({ start: '2026-02-31', end: '2026-03-31' })).toEqual({
+      valid: false,
+      start: undefined,
+      end: undefined,
+    });
+  });
+});
+
 describe('UsagePage Overview chart window', () => {
-  it('uses the whole UTC day for Today hourly chart buckets', () => {
+  it('uses the backend-resolved range end for Today hourly chart buckets', () => {
     const filterWindow: UsageFilterWindow = {
       startMs: Date.parse('2026-04-23T00:00:00.000Z'),
       endMs: Date.parse('2026-04-23T12:34:56.000Z'),
@@ -245,7 +263,8 @@ describe('UsagePage Overview chart window', () => {
       timeRange: 'today',
       filterWindow,
       fallbackEndMs: filterWindow.endMs ?? 0,
-    })).toBe(Date.parse('2026-04-23T23:59:59.999Z'));
+      resolvedRangeEndMs: Date.parse('2026-04-23T15:59:59.999Z'),
+    })).toBe(Date.parse('2026-04-23T15:59:59.999Z'));
   });
 });
 

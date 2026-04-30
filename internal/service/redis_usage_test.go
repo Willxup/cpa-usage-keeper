@@ -36,7 +36,7 @@ func TestRedisUsageFetcherMapsPayloadToUsageEvent(t *testing.T) {
 		t.Fatalf("expected one event, got %d", len(result.Events))
 	}
 	event := result.Events[0]
-	if event.EventKey != "req-123" || event.APIGroupKey != "claude" || event.Model != "claude-sonnet-4-6" || event.Source != "sk-test" || event.AuthIndex != "auth-1" || !event.Failed || event.LatencyMS != 1234 {
+	if event.EventKey != "req-123" || event.APIGroupKey != "raw-key" || event.Model != "claude-sonnet-4-6" || event.Source != "sk-test" || event.AuthIndex != "auth-1" || !event.Failed || event.LatencyMS != 1234 {
 		t.Fatalf("unexpected event: %+v", event)
 	}
 	if event.InputTokens != 10 || event.OutputTokens != 20 || event.ReasoningTokens != 3 || event.CachedTokens != 4 || event.TotalTokens != 33 {
@@ -72,6 +72,19 @@ func TestRedisUsageFetcherFallsBackFieldsAndEventKey(t *testing.T) {
 	expectedKey := BuildEventKey("/fallback", "unknown", fetchedAt, "", "", false, cpa.TokenStats{InputTokens: 1, OutputTokens: 2})
 	if event.EventKey != expectedKey {
 		t.Fatalf("expected fallback event key %s, got %s", expectedKey, event.EventKey)
+	}
+}
+
+func TestRedisUsageFetcherFallsBackToProviderWhenAPIKeyIsBlank(t *testing.T) {
+	fetcher := redisUsageFetcher{queue: staticRedisQueue{messages: []string{`{"api_key":"   ","provider":"claude","endpoint":"/v1/messages","request_id":"req-blank-key"}`}}}
+
+	result, err := fetcher.FetchUsage(context.Background(), time.Date(2026, 4, 27, 8, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("FetchUsage returned error: %v", err)
+	}
+	event := result.Events[0]
+	if event.EventKey != "req-blank-key" || event.APIGroupKey != "claude" {
+		t.Fatalf("unexpected fallback event: %+v", event)
 	}
 }
 

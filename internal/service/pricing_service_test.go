@@ -93,7 +93,7 @@ func TestPricingServiceListsModelsFromCPAWhenAvailable(t *testing.T) {
 	if strings.Join(modelsList, ",") != strings.Join(expected, ",") {
 		t.Fatalf("expected CPA models %#v, got %#v", expected, modelsList)
 	}
-	if !strings.Contains(logs.String(), "using CPA /v1/models") {
+	if !strings.Contains(logs.String(), "using CPA models endpoint") {
 		t.Fatalf("expected CPA source debug log, got %q", logs.String())
 	}
 }

@@ -12,18 +12,18 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const redisInboxProcessInterval = 5 * time.Second // Redis inbox 处理频率固定在这里，后续如需配置优先改这里。
+
 type RedisBatchSyncer interface {
-	SyncRedisBatch(ctx context.Context, syncMetadata bool) (*service.RedisBatchSyncResult, error)
+	PullRedisUsageInbox(ctx context.Context) (*service.RedisInboxPullResult, error)
+	ProcessRedisUsageInbox(ctx context.Context, syncMetadata bool) (*service.RedisBatchSyncResult, error)
 	SyncMetadata(ctx context.Context) error
-	SyncLegacyStatus(ctx context.Context) (string, error)
 }
 
 type RedisDrainConfig struct {
-	IdleInterval           time.Duration
-	ErrorBackoff           time.Duration
-	MetadataInterval       time.Duration
-	EnableLegacyFallback   bool
-	LegacyFallbackInterval time.Duration
+	IdleInterval     time.Duration
+	ErrorBackoff     time.Duration
+	MetadataInterval time.Duration
 }
 
 type RedisDrain struct {
@@ -38,9 +38,9 @@ type RedisDrain struct {
 	lastError          string
 	lastWarning        string
 	lastStatus         string
-	syncRunning        bool
+	pullRunning        bool
+	processRunning     bool
 	lastMetadataSyncAt time.Time
-	lastFallbackAt     time.Time
 }
 
 func NewRedisDrain(syncer RedisBatchSyncer, cfg RedisDrainConfig) *RedisDrain {
@@ -59,47 +59,75 @@ func (d *RedisDrain) Run(ctx context.Context) error {
 	d.setRunning(true)
 	defer d.setRunning(false)
 
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		d.runPullLoop(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		d.runProcessLoop(ctx)
+	}()
+	<-ctx.Done()
+	wg.Wait()
+	return nil
+}
+
+func (d *RedisDrain) runPullLoop(ctx context.Context) {
+	logrus.WithField("idle_interval", d.config.IdleInterval.String()).Info("redis inbox pull task started")
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return
 		default:
 		}
+		result, err := d.runRedisPull(ctx)
+		if err != nil {
+			if shouldLogSyncError(err) {
+				logrus.WithError(err).Error("redis drain pull failed")
+			}
+			if !d.sleep(ctx, d.config.ErrorBackoff) {
+				return
+			}
+			continue
+		}
+		if result != nil && result.Empty {
+			if !d.sleep(ctx, d.config.IdleInterval) {
+				return
+			}
+		}
+	}
+}
 
+func (d *RedisDrain) runProcessLoop(ctx context.Context) {
+	logrus.WithField("interval", redisInboxProcessInterval.String()).Info("redis inbox process task started")
+	for {
+		if !d.sleep(ctx, redisInboxProcessInterval) {
+			return
+		}
 		syncMetadata := d.shouldSyncMetadata()
-		result, err := d.runRedisBatch(ctx, syncMetadata)
+		result, err := d.runRedisProcess(ctx, syncMetadata)
 		if err != nil && !errors.Is(err, ErrSyncCompletedWithWarnings) {
 			if shouldLogSyncError(err) {
 				d.logBatchFailure(result, syncMetadata, err)
-			}
-			if !errors.Is(err, cpa.ErrRedisQueueAuth) {
-				d.maybeRunLegacyFallback(ctx)
-			}
-			if !d.sleep(ctx, d.config.ErrorBackoff) {
-				return nil
 			}
 			continue
 		}
 		if syncMetadata && result != nil && (!result.Empty || errors.Is(err, ErrSyncCompletedWithWarnings)) {
 			d.setLastMetadataSyncAt(d.now().UTC())
 		}
-		if result != nil && result.Empty {
-			if !d.sleep(ctx, d.config.IdleInterval) {
-				return nil
-			}
-		}
 	}
 }
 
 func (d *RedisDrain) logBatchFailure(result *service.RedisBatchSyncResult, syncMetadata bool, err error) {
 	fields := logrus.Fields{
-		"sync_metadata":           syncMetadata,
-		"legacy_fallback_enabled": d.config.EnableLegacyFallback,
-		"auth_error":              errors.Is(err, cpa.ErrRedisQueueAuth),
-		"status":                  "",
-		"empty":                   false,
-		"inserted_events":         0,
-		"deduped_events":          0,
+		"sync_metadata":   syncMetadata,
+		"auth_error":      errors.Is(err, cpa.ErrRedisQueueAuth),
+		"status":          "",
+		"empty":           false,
+		"inserted_events": 0,
+		"deduped_events":  0,
 	}
 	if result != nil {
 		fields["status"] = result.Status
@@ -119,7 +147,7 @@ func (d *RedisDrain) Status() Status {
 		LastError:   d.lastError,
 		LastWarning: d.lastWarning,
 		LastStatus:  d.lastStatus,
-		SyncRunning: d.syncRunning,
+		SyncRunning: d.pullRunning || d.processRunning,
 	}
 }
 
@@ -127,26 +155,49 @@ func (d *RedisDrain) SyncNow(ctx context.Context) error {
 	if err := d.validate(); err != nil {
 		return err
 	}
-	_, err := d.runRedisBatch(ctx, true)
+	if _, err := d.runRedisPull(ctx); err != nil {
+		return err
+	}
+	_, err := d.runRedisProcess(ctx, true)
 	return err
 }
 
-func (d *RedisDrain) runRedisBatch(ctx context.Context, syncMetadata bool) (*service.RedisBatchSyncResult, error) {
+func (d *RedisDrain) runRedisPull(ctx context.Context) (*service.RedisInboxPullResult, error) {
 	d.mu.Lock()
-	if d.syncRunning {
+	if d.pullRunning {
 		d.mu.Unlock()
 		return nil, ErrSyncAlreadyRunning
 	}
-	d.syncRunning = true
+	d.pullRunning = true
 	d.mu.Unlock()
 
 	defer func() {
 		d.mu.Lock()
-		d.syncRunning = false
+		d.pullRunning = false
 		d.mu.Unlock()
 	}()
 
-	result, err := d.syncer.SyncRedisBatch(ctx, syncMetadata)
+	result, err := d.syncer.PullRedisUsageInbox(ctx)
+	d.recordPullResult(result, err)
+	return result, err
+}
+
+func (d *RedisDrain) runRedisProcess(ctx context.Context, syncMetadata bool) (*service.RedisBatchSyncResult, error) {
+	d.mu.Lock()
+	if d.processRunning {
+		d.mu.Unlock()
+		return nil, ErrSyncAlreadyRunning
+	}
+	d.processRunning = true
+	d.mu.Unlock()
+
+	defer func() {
+		d.mu.Lock()
+		d.processRunning = false
+		d.mu.Unlock()
+	}()
+
+	result, err := d.syncer.ProcessRedisUsageInbox(ctx, syncMetadata)
 	returnErr := err
 	if err != nil && result != nil && result.Status != "" && result.Status != "failed" {
 		returnErr = fmt.Errorf("%w: %v", ErrSyncCompletedWithWarnings, err)
@@ -163,36 +214,22 @@ func (d *RedisDrain) runRedisBatch(ctx context.Context, syncMetadata bool) (*ser
 	return result, returnErr
 }
 
-func (d *RedisDrain) maybeRunLegacyFallback(ctx context.Context) {
-	if !d.config.EnableLegacyFallback || d.config.LegacyFallbackInterval <= 0 {
-		return
-	}
-	now := d.now().UTC()
-	d.mu.Lock()
-	due := d.lastFallbackAt.IsZero() || now.Sub(d.lastFallbackAt) >= d.config.LegacyFallbackInterval
-	if due {
-		d.lastFallbackAt = now
-	}
-	d.mu.Unlock()
-	if !due {
-		return
-	}
-
-	status, err := d.syncer.SyncLegacyStatus(ctx)
+func (d *RedisDrain) recordPullResult(result *service.RedisInboxPullResult, err error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.lastRunAt = d.now().UTC()
+	status := ""
+	if result != nil {
+		status = result.Status
+	}
+	if status == "" && err == nil {
+		status = "completed"
+	}
+	d.lastStatus = status
+	d.lastError = ""
+	d.lastWarning = ""
 	if err != nil {
-		if shouldLogSyncError(err) {
-			logrus.WithError(err).WithField("legacy_fallback_interval", d.config.LegacyFallbackInterval.String()).Error("redis drain legacy fallback failed")
-		}
-		d.lastWarning = stringsJoinNonEmpty(d.lastWarning, fmt.Sprintf("legacy fallback: %v", err))
-		return
-	}
-	if status != "" {
-		d.lastStatus = status
-	}
-	if d.lastWarning == "" {
-		d.lastWarning = "redis unavailable; legacy fallback completed"
+		d.lastError = err.Error()
 	}
 }
 
@@ -279,14 +316,4 @@ func sleepContext(ctx context.Context, d time.Duration) bool {
 	case <-timer.C:
 		return true
 	}
-}
-
-func stringsJoinNonEmpty(left, right string) string {
-	if left == "" {
-		return right
-	}
-	if right == "" {
-		return left
-	}
-	return left + "; " + right
 }

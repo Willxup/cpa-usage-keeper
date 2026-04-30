@@ -137,7 +137,7 @@ func TestRedisUsageInboxFailureTransitionsBoundErrors(t *testing.T) {
 	}
 }
 
-func TestMarkRedisUsageInboxProcessFailedDiscardsAfterFiveAttempts(t *testing.T) {
+func TestMarkRedisUsageInboxProcessFailedKeepsRowsRetryableAfterRepeatedFailures(t *testing.T) {
 	db := openTestDatabase(t)
 	poppedAt := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
 
@@ -155,11 +155,11 @@ func TestMarkRedisUsageInboxProcessFailedDiscardsAfterFiveAttempts(t *testing.T)
 	if err := db.First(&stored, rows[0].ID).Error; err != nil {
 		t.Fatalf("load inbox row: %v", err)
 	}
-	if stored.Status != RedisUsageInboxStatusDiscarded {
-		t.Fatalf("expected discarded after 5 process failures, got %q", stored.Status)
+	if stored.Status != RedisUsageInboxStatusProcessFailed {
+		t.Fatalf("expected process_failed after repeated process failures, got %q", stored.Status)
 	}
-	if stored.AttemptCount != redisUsageInboxMaxProcessAttempts {
-		t.Fatalf("expected %d attempts, got %d", redisUsageInboxMaxProcessAttempts, stored.AttemptCount)
+	if stored.AttemptCount != 5 {
+		t.Fatalf("expected 5 attempts, got %d", stored.AttemptCount)
 	}
 	if stored.LastError != "insert failed 5" {
 		t.Fatalf("expected last error from final attempt, got %q", stored.LastError)
@@ -169,8 +169,8 @@ func TestMarkRedisUsageInboxProcessFailedDiscardsAfterFiveAttempts(t *testing.T)
 	if err != nil {
 		t.Fatalf("ListProcessableRedisUsageInbox returned error: %v", err)
 	}
-	if len(processable) != 0 {
-		t.Fatalf("expected discarded row to be excluded from processable rows, got %+v", processable)
+	if len(processable) != 1 || processable[0].ID != rows[0].ID {
+		t.Fatalf("expected repeated process failure row to remain processable, got %+v", processable)
 	}
 }
 
@@ -202,6 +202,64 @@ func TestListProcessableRedisUsageInboxIncludesProcessFailedRows(t *testing.T) {
 	}
 	if processable[0].ID != rows[0].ID || processable[1].ID != rows[1].ID {
 		t.Fatalf("expected pending and process_failed rows in id order, got %+v", processable)
+	}
+}
+
+func TestCleanupRedisUsageInboxRemovesOldProcessedAndFailedRows(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	time.Local = location
+	t.Cleanup(func() { time.Local = previousLocal })
+	db := openTestDatabase(t)
+	now := time.Date(2026, 4, 27, 2, 30, 0, 0, time.UTC)
+
+	rows, err := InsertRedisUsageInboxMessages(db, []RedisInboxInsert{
+		{QueueKey: "queue", RawMessage: `{"request_id":"processed-old"}`, PoppedAt: now.Add(-48 * time.Hour)},
+		{QueueKey: "queue", RawMessage: `{"request_id":"processed-today"}`, PoppedAt: now.Add(-time.Hour)},
+		{QueueKey: "queue", RawMessage: `{"request_id":"failed-old"}`, PoppedAt: now.AddDate(0, 0, -8)},
+		{QueueKey: "queue", RawMessage: `{"request_id":"failed-recent"}`, PoppedAt: now.AddDate(0, 0, -6)},
+		{QueueKey: "queue", RawMessage: `{"request_id":"pending-old"}`, PoppedAt: now.AddDate(0, 0, -10)},
+	})
+	if err != nil {
+		t.Fatalf("InsertRedisUsageInboxMessages returned error: %v", err)
+	}
+	oldProcessedAt := time.Date(2026, 4, 26, 15, 59, 59, 0, time.UTC)
+	todayProcessedAt := time.Date(2026, 4, 26, 16, 0, 0, 0, time.UTC)
+	if err := db.Model(&models.RedisUsageInbox{}).Where("id = ?", rows[0].ID).Updates(map[string]any{"status": RedisUsageInboxStatusProcessed, "processed_at": oldProcessedAt}).Error; err != nil {
+		t.Fatalf("seed old processed row: %v", err)
+	}
+	if err := db.Model(&models.RedisUsageInbox{}).Where("id = ?", rows[1].ID).Updates(map[string]any{"status": RedisUsageInboxStatusProcessed, "processed_at": todayProcessedAt}).Error; err != nil {
+		t.Fatalf("seed today processed row: %v", err)
+	}
+	if err := db.Model(&models.RedisUsageInbox{}).Where("id = ?", rows[2].ID).Updates(map[string]any{"status": RedisUsageInboxStatusProcessFailed, "updated_at": now.AddDate(0, 0, -8)}).Error; err != nil {
+		t.Fatalf("seed old failed row: %v", err)
+	}
+	if err := db.Model(&models.RedisUsageInbox{}).Where("id = ?", rows[3].ID).Updates(map[string]any{"status": RedisUsageInboxStatusDecodeFailed, "updated_at": now.AddDate(0, 0, -6)}).Error; err != nil {
+		t.Fatalf("seed recent failed row: %v", err)
+	}
+
+	result, err := CleanupRedisUsageInbox(db, now)
+	if err != nil {
+		t.Fatalf("CleanupRedisUsageInbox returned error: %v", err)
+	}
+	if result.ProcessedDeleted != 1 || result.FailedDeleted != 1 {
+		t.Fatalf("unexpected cleanup result: %+v", result)
+	}
+
+	var remaining []models.RedisUsageInbox
+	if err := db.Order("id asc").Find(&remaining).Error; err != nil {
+		t.Fatalf("load remaining inbox rows: %v", err)
+	}
+	remainingIDs := make([]uint, 0, len(remaining))
+	for _, row := range remaining {
+		remainingIDs = append(remainingIDs, row.ID)
+	}
+	expectedIDs := []uint{rows[1].ID, rows[3].ID, rows[4].ID}
+	if fmt.Sprint(remainingIDs) != fmt.Sprint(expectedIDs) {
+		t.Fatalf("expected remaining ids %v, got %v", expectedIDs, remainingIDs)
 	}
 }
 

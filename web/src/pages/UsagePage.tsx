@@ -235,14 +235,32 @@ const toDateInputValue = (timestamp: number): string => {
 
 const parseCustomDateBoundary = (value: string, endOfDay: boolean): number | undefined => {
   if (!value) return undefined;
-  const suffix = endOfDay ? 'T23:59:59.999Z' : 'T00:00:00.000Z';
-  const timestamp = Date.parse(`${value}${suffix}`);
-  return Number.isFinite(timestamp) ? timestamp : undefined;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return undefined;
+  const [, year, month, day] = match;
+  const yearNumber = Number(year);
+  const monthNumber = Number(month);
+  const dayNumber = Number(day);
+  const date = endOfDay
+    ? new Date(yearNumber, monthNumber - 1, dayNumber, 23, 59, 59, 999)
+    : new Date(yearNumber, monthNumber - 1, dayNumber, 0, 0, 0, 0);
+  if (Number.isNaN(date.getTime())) return undefined;
+  if (date.getFullYear() !== yearNumber || date.getMonth() !== monthNumber - 1 || date.getDate() !== dayNumber) return undefined;
+  return date.getTime();
 };
 
 const parseCustomDateStart = (value: string): number | undefined => parseCustomDateBoundary(value, false);
 
 const parseCustomDateEnd = (value: string): number | undefined => parseCustomDateBoundary(value, true);
+
+export const buildCustomDateRangeQuery = (range: { start: string; end: string }) => {
+  const startMs = parseCustomDateStart(range.start);
+  const endMs = parseCustomDateEnd(range.end);
+  if (!range.start || !range.end || startMs === undefined || endMs === undefined || startMs > endMs) {
+    return { valid: false, start: undefined, end: undefined };
+  }
+  return { valid: true, start: range.start, end: range.end };
+};
 
 const buildDefaultCustomRange = (anchorMs: number) => ({
   start: toDateInputValue(anchorMs - DEFAULT_CUSTOM_WINDOW_HOURS * 60 * 60 * 1000),
@@ -342,7 +360,14 @@ export const getOverviewHourWindowHours = ({ timeRange, filterWindow }: { timeRa
   return Math.min(Math.max(Math.ceil(filterWindow.windowMinutes / 60), 1), 24);
 };
 
-export const getOverviewChartEndMs = ({ timeRange, filterWindow, fallbackEndMs }: { timeRange: UsageTimeRange; filterWindow: UsageFilterWindow; fallbackEndMs: number }) => {
+const toTimestampMs = (value: string | undefined): number | undefined => {
+  if (!value) return undefined;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : undefined;
+};
+
+export const getOverviewChartEndMs = ({ timeRange, filterWindow, fallbackEndMs, resolvedRangeEndMs }: { timeRange: UsageTimeRange; filterWindow: UsageFilterWindow; fallbackEndMs: number; resolvedRangeEndMs?: number }) => {
+  if (resolvedRangeEndMs !== undefined) return resolvedRangeEndMs;
   if (timeRange === 'today' && filterWindow.startMs !== undefined) {
     return filterWindow.startMs + 24 * 60 * 60 * 1000 - 1;
   }
@@ -441,16 +466,18 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     [t]
   );
 
+  const resolvedRangeStartMs = toTimestampMs(usage?.range_start);
+  const resolvedRangeEndMs = toTimestampMs(usage?.range_end);
   const filterWindow = useMemo<UsageFilterWindow>(() => {
     if (!usage) return {};
     return resolveUsageFilterWindow(usage.usage, timeRange, {
-      nowMs: lastRefreshedAt?.getTime() ?? Date.now(),
+      nowMs: resolvedRangeEndMs ?? lastRefreshedAt?.getTime() ?? Date.now(),
       customStart:
-        timeRange === 'custom' ? parseCustomDateStart(customTimeRange.start) : customTimeRange.start,
+        timeRange === 'custom' ? (resolvedRangeStartMs ?? parseCustomDateStart(customTimeRange.start)) : customTimeRange.start,
       customEnd:
-        timeRange === 'custom' ? parseCustomDateEnd(customTimeRange.end) : customTimeRange.end
+        timeRange === 'custom' ? (resolvedRangeEndMs ?? parseCustomDateEnd(customTimeRange.end)) : customTimeRange.end
     });
-  }, [customTimeRange.end, customTimeRange.start, lastRefreshedAt, timeRange, usage]);
+  }, [customTimeRange.end, customTimeRange.start, lastRefreshedAt, resolvedRangeEndMs, resolvedRangeStartMs, timeRange, usage]);
 
   useEffect(() => {
     if (timeRange !== 'custom') {
@@ -504,9 +531,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setAnalysisError('');
     setAnalysisData({ apis: [], models: [] });
     try {
-      const start = timeRange === 'custom' ? new Date(`${customTimeRange.start}T00:00:00.000Z`).toISOString() : undefined;
-      const end = timeRange === 'custom' ? new Date(`${customTimeRange.end}T23:59:59.999Z`).toISOString() : undefined;
-      const response = await fetchUsageAnalysis(timeRange, start, end, controller.signal);
+      const queryWindow = timeRange === 'custom' ? buildCustomDateRangeQuery(customTimeRange) : { start: undefined, end: undefined };
+      const response = await fetchUsageAnalysis(timeRange, queryWindow.start, queryWindow.end, controller.signal);
       if (analysisRequestControllerRef.current !== controller) {
         return;
       }
@@ -539,6 +565,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     timeRange,
     filterWindow,
     fallbackEndMs: lastRefreshedAt?.getTime() ?? Date.now(),
+    resolvedRangeEndMs,
   });
   const isCustomRange = timeRange === 'custom';
 
@@ -641,11 +668,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     if (startMs === undefined || endMs === undefined || startMs > endMs) {
       return { valid: false, start: undefined, end: undefined };
     }
-    return {
-      valid: true,
-      start: new Date(`${customTimeRange.start}T00:00:00.000Z`).toISOString(),
-      end: new Date(`${customTimeRange.end}T23:59:59.999Z`).toISOString(),
-    };
+    return buildCustomDateRangeQuery(customTimeRange);
   }, [customTimeRange.end, customTimeRange.start, timeRange]);
 
   const loadEventFilterOptions = useCallback(async () => {
@@ -808,9 +831,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setCredentialsError('');
     setCredentialsData([]);
     try {
-      const start = timeRange === 'custom' ? new Date(`${customTimeRange.start}T00:00:00.000Z`).toISOString() : undefined;
-      const end = timeRange === 'custom' ? new Date(`${customTimeRange.end}T23:59:59.999Z`).toISOString() : undefined;
-      const response = await fetchUsageCredentials(timeRange, start, end, controller.signal);
+      const queryWindow = timeRange === 'custom' ? buildCustomDateRangeQuery(customTimeRange) : { start: undefined, end: undefined };
+      const response = await fetchUsageCredentials(timeRange, queryWindow.start, queryWindow.end, controller.signal);
       if (credentialsRequestControllerRef.current !== controller) {
         return;
       }

@@ -85,6 +85,7 @@ func (p *Poller) Run(ctx context.Context) error {
 		p.now = time.Now
 	}
 
+	logrus.WithField("interval", p.interval.String()).Info("legacy export poller task started")
 	p.setRunning(true)
 	defer p.setRunning(false)
 

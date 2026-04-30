@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { buildOverviewCostTrendSeries, shouldShowCostPricingHint } from './CostTrendChart';
 import type { UsageOverviewResponse } from '@/lib/types';
 
+const formatTestLocalDayKey = (date: Date): string => {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+};
+
 const usageWithBackendCost: UsageOverviewResponse = {
   usage: {
     total_requests: 9,
@@ -203,6 +208,25 @@ describe('buildOverviewCostTrendSeries', () => {
     expect(result.labels).toEqual(['2026-04-22']);
     expect(result.data).toEqual([0.46]);
     expect(result.hasData).toBe(true);
+  });
+
+  it('aggregates hourly cost fallback into local day buckets', () => {
+    const result = buildOverviewCostTrendSeries({
+      usage: {
+        ...usageWithBackendCost,
+        daily_series: undefined,
+        series: {
+          ...usageWithBackendCost.series!,
+          cost: {
+            '2026-04-22T16:30:00Z': 0.5,
+          },
+        },
+      },
+      period: 'day',
+    });
+
+    expect(result.labels).toEqual([formatTestLocalDayKey(new Date('2026-04-22T16:30:00Z'))]);
+    expect(result.data).toEqual([0.5]);
   });
 
   it('limits hour view to the latest 24 hourly buckets for long ranges', () => {

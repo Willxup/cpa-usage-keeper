@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"time"
 
 	"cpa-usage-keeper/internal/api"
 	"cpa-usage-keeper/internal/auth"
@@ -26,11 +27,25 @@ type Runner interface {
 }
 
 type App struct {
-	Config    *config.Config
-	DB        *gorm.DB
-	Router    *gin.Engine
-	Poller    Runner
-	LogCloser io.Closer
+	Config                  *config.Config
+	ConfiguredUsageSyncMode string
+	DB                      *gorm.DB
+	Router                  *gin.Engine
+	Poller                  Runner
+	Maintenance             *StorageCleanupRunner
+	LogCloser               io.Closer
+}
+
+var redisStartupProbe = func(ctx context.Context, cfg config.Config) error {
+	client := cpa.NewRedisQueueClient(
+		cfg.CPABaseURL,
+		cfg.RedisQueueAddr,
+		cfg.CPAManagementKey,
+		cfg.RequestTimeout,
+		cfg.RedisQueueKey,
+		cfg.RedisQueueBatchSize,
+	)
+	return client.Probe(ctx)
 }
 
 func New() (*App, error) {
@@ -53,7 +68,13 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		_ = logCloser.Close()
 		return nil, err
 	}
+	if err := runTemporaryStartupSnapshotRunsCleanup(db); err != nil {
+		_ = logCloser.Close()
+		return nil, err
+	}
 
+	configuredUsageSyncMode := cfg.UsageSyncMode
+	cfg = resolveUsageSyncMode(context.Background(), cfg)
 	syncService := service.NewSyncService(db, cfg)
 	backgroundPoller := newBackgroundRunner(syncService, cfg)
 
@@ -71,10 +92,12 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	}, sessionManager)
 
 	return &App{
-		Config:    &cfg,
-		DB:        db,
-		Poller:    backgroundPoller,
-		LogCloser: logCloser,
+		Config:                  &cfg,
+		ConfiguredUsageSyncMode: configuredUsageSyncMode,
+		DB:                      db,
+		Poller:                  backgroundPoller,
+		Maintenance:             NewStorageCleanupRunner(syncService),
+		LogCloser:               logCloser,
 		Router: api.NewRouter(
 			filepath.Join("web", "dist"),
 			backgroundPoller,
@@ -94,17 +117,50 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	}, nil
 }
 
+func resolveUsageSyncMode(ctx context.Context, cfg config.Config) config.Config {
+	if cfg.UsageSyncMode != "auto" {
+		return cfg
+	}
+	if err := redisStartupProbe(ctx, cfg); err != nil {
+		cfg.UsageSyncMode = "legacy_export"
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"configured_mode": "auto",
+			"effective_mode":  cfg.UsageSyncMode,
+		}).Info("usage sync auto mode resolved")
+		return cfg
+	}
+	cfg.UsageSyncMode = "redis"
+	logrus.WithFields(logrus.Fields{
+		"configured_mode": "auto",
+		"effective_mode":  cfg.UsageSyncMode,
+	}).Info("usage sync auto mode resolved")
+	return cfg
+}
+
 func newBackgroundRunner(syncService *service.SyncService, cfg config.Config) Runner {
-	if cfg.UsageSyncMode == "redis" || cfg.UsageSyncMode == "auto" {
+	if cfg.UsageSyncMode == "redis" {
 		return poller.NewRedisDrain(syncService, poller.RedisDrainConfig{
-			IdleInterval:           cfg.RedisQueueIdleInterval,
-			ErrorBackoff:           cfg.RedisQueueErrorBackoff,
-			MetadataInterval:       cfg.RedisMetadataSyncInterval,
-			EnableLegacyFallback:   cfg.UsageSyncMode == "auto",
-			LegacyFallbackInterval: cfg.PollInterval,
+			IdleInterval:     cfg.RedisQueueIdleInterval,
+			ErrorBackoff:     cfg.RedisQueueErrorBackoff,
+			MetadataInterval: cfg.RedisMetadataSyncInterval,
 		})
 	}
 	return poller.New(syncService, cfg.PollInterval)
+}
+
+// runTemporaryStartupSnapshotRunsCleanup 是临时启动清理入口，后续删除 snapshot_runs 临时治理时可直接移除。
+func runTemporaryStartupSnapshotRunsCleanup(db *gorm.DB) error {
+	logrus.Info("temporary snapshot runs cleanup started")
+	if _, err := repository.CleanupSnapshotRuns(db, time.Now()); err != nil {
+		logrus.WithError(err).Error("temporary snapshot runs cleanup failed")
+		return err
+	}
+	if err := repository.Vacuum(db); err != nil {
+		logrus.WithError(err).Error("temporary snapshot runs cleanup failed")
+		return err
+	}
+	logrus.Info("temporary snapshot runs cleanup completed")
+	return nil
 }
 
 func (a *App) Close() error {
@@ -119,12 +175,26 @@ func (a *App) Run() error {
 		return fmt.Errorf("application is not initialized")
 	}
 
-	logrus.WithField("mode", a.Config.UsageSyncMode).Info("usage sync mode selected")
+	configuredMode := a.ConfiguredUsageSyncMode
+	if configuredMode == "" {
+		configuredMode = a.Config.UsageSyncMode
+	}
+	logrus.WithFields(logrus.Fields{
+		"configured_mode": configuredMode,
+		"effective_mode":  a.Config.UsageSyncMode,
+	}).Info("usage sync mode selected")
 
 	if a.Poller != nil {
 		go func() {
 			if err := a.Poller.Run(context.Background()); err != nil {
 				logrus.Errorf("poller stopped: %v", err)
+			}
+		}()
+	}
+	if a.Maintenance != nil {
+		go func() {
+			if err := a.Maintenance.Run(context.Background()); err != nil {
+				logrus.Errorf("maintenance cleanup stopped: %v", err)
 			}
 		}()
 	}

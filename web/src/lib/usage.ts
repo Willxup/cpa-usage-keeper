@@ -29,6 +29,11 @@ function getPriceMap(pricing: PricingEntry[]): Map<string, PricingEntry> {
   return new Map(pricing.map((entry) => [entry.model, entry]))
 }
 
+function formatLocalDayKey(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
 function calculateEventCost(event: UsageEventWithNames, priceMap: Map<string, PricingEntry>): number {
   const pricing = priceMap.get(event.modelName)
   if (!pricing) return 0
@@ -81,7 +86,7 @@ export function filterUsageSnapshot(usage: UsageSnapshot, range: UsageTimeRange)
   }
   const nowMs = Date.now()
   const threshold = range === 'today'
-    ? Date.UTC(new Date(nowMs).getUTCFullYear(), new Date(nowMs).getUTCMonth(), new Date(nowMs).getUTCDate())
+    ? new Date(nowMs).setHours(0, 0, 0, 0)
     : latestTimestamp - (presetWindowMs[range] ?? 0)
   const upperThreshold = range === 'today' ? nowMs : Number.POSITIVE_INFINITY
 
@@ -146,7 +151,7 @@ export function filterUsageSnapshot(usage: UsageSnapshot, range: UsageTimeRange)
     }
 
     const time = new Date(event.timestamp)
-    const dayKey = time.toISOString().slice(0, 10)
+    const dayKey = formatLocalDayKey(time)
     const hourKey = `${time.toISOString().slice(0, 13)}:00:00Z`
     filtered.requests_by_day[dayKey] = (filtered.requests_by_day[dayKey] ?? 0) + 1
     filtered.requests_by_hour[hourKey] = (filtered.requests_by_hour[hourKey] ?? 0) + 1
