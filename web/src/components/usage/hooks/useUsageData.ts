@@ -31,12 +31,10 @@ const toRangeQuery = (value: string): UsageTimeRange => (
     : 'all'
 );
 
-const toCustomBoundary = (value: string | undefined, endOfDay: boolean): string | undefined => {
-  if (!value) return undefined;
-  const suffix = endOfDay ? 'T23:59:59.999Z' : 'T00:00:00.000Z';
-  const date = new Date(`${value}${suffix}`);
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
-}
+const toCustomDateParam = (value: string | undefined): string | undefined => {
+  const trimmed = value?.trim();
+  return trimmed && /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : undefined;
+};
 
 export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataReturn {
   const { onAuthRequired, range = 'all', customStart, customEnd, enabled = true } = options;
@@ -47,10 +45,12 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
   const loadUsageStats = useUsageStatsStore((state) => state.loadUsageStats);
 
   const resolvedRange = toRangeQuery(range);
-  const requestStart = resolvedRange === 'custom' ? toCustomBoundary(customStart, false) : undefined;
-  const requestEnd = resolvedRange === 'custom' ? toCustomBoundary(customEnd, true) : undefined;
+  const requestStart = resolvedRange === 'custom' ? toCustomDateParam(customStart) : undefined;
+  const requestEnd = resolvedRange === 'custom' ? toCustomDateParam(customEnd) : undefined;
+  const customRangeReady = resolvedRange !== 'custom' || (requestStart !== undefined && requestEnd !== undefined);
 
   const loadUsage = useCallback(async () => {
+    if (!customRangeReady) return;
     try {
       await loadUsageStats({
         force: true,
@@ -65,10 +65,10 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
       }
       throw error;
     }
-  }, [loadUsageStats, onAuthRequired, requestEnd, requestStart, resolvedRange]);
+  }, [customRangeReady, loadUsageStats, onAuthRequired, requestEnd, requestStart, resolvedRange]);
 
   useEffect(() => {
-    if (!enabled) {
+    if (!enabled || !customRangeReady) {
       return;
     }
     void loadUsageStats({
@@ -81,7 +81,7 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
         onAuthRequired?.();
       }
     });
-  }, [enabled, loadUsageStats, onAuthRequired, requestEnd, requestStart, resolvedRange]);
+  }, [customRangeReady, enabled, loadUsageStats, onAuthRequired, requestEnd, requestStart, resolvedRange]);
 
   return {
     usage: usageSnapshot as UsageOverviewPayload | null,

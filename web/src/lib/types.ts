@@ -5,6 +5,7 @@ export interface AuthSessionResponse {
 export interface StatusResponse {
   running: boolean
   sync_running: boolean
+  timezone: string
   last_run_at?: string
   last_error?: string
   last_warning?: string
@@ -113,6 +114,9 @@ export interface UsageOverviewResponse {
   hourly_series?: UsageOverviewSeries
   daily_series?: UsageOverviewSeries
   service_health?: UsageOverviewServiceHealth
+  timezone?: string
+  range_start?: string
+  range_end?: string
 }
 
 export interface UsageEventTokens {
