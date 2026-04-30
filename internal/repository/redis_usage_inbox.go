@@ -111,6 +111,8 @@ func ListPendingRedisUsageInbox(db *gorm.DB, limit int) ([]models.RedisUsageInbo
 	return rows, nil
 }
 
+// CleanupRedisUsageInbox 清理已完成和失败的 Redis inbox 原始消息，pending 数据永远不在这里删除。
+// processed 保留到下一个本地日开始后才清理；decode_failed/process_failed/discarded 保留 7 天便于排查。
 func CleanupRedisUsageInbox(db *gorm.DB, now time.Time) (RedisUsageInboxCleanupResult, error) {
 	localNow := now.In(time.Local)
 	localDayStart := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, time.Local)

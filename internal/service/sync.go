@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -247,6 +246,8 @@ func (s *SyncService) SyncMetadata(ctx context.Context) error {
 	return err
 }
 
+// PullRedisUsageInbox 是 Redis 同步的拉取阶段：只 LPOP 队列消息并原样写入 redis_usage_inboxes。
+// 这个阶段不解码消息、不写 usage_events、不创建 snapshot_runs，保证 Redis 消费和本地处理职责分离。
 func (s *SyncService) PullRedisUsageInbox(ctx context.Context) (*RedisInboxPullResult, error) {
 	if err := s.validate(syncMetadataOptional); err != nil {
 		return nil, err
@@ -279,6 +280,8 @@ func (s *SyncService) PullRedisUsageInbox(ctx context.Context) (*RedisInboxPullR
 	return &RedisInboxPullResult{Status: "completed", InsertedRows: len(inboxRows)}, nil
 }
 
+// ProcessRedisUsageInbox 是 Redis 同步的本地处理阶段：只读取 pending/process_failed inbox 行并写入 usage_events。
+// Redis 路径不再写 snapshot_runs；成功处理后仅用 usage_event_key 记录 inbox 与最终事件的关联。
 func (s *SyncService) ProcessRedisUsageInbox(ctx context.Context, syncMetadata bool) (*RedisBatchSyncResult, error) {
 	if err := s.validate(syncMetadata); err != nil {
 		return nil, err
@@ -295,6 +298,7 @@ func (s *SyncService) ProcessRedisUsageInbox(ctx context.Context, syncMetadata b
 	return s.processRedisInboxRows(ctx, processableRows, fetchedAt, syncMetadata)
 }
 
+// CleanupRedisUsageInbox 只清理 Redis inbox 表，供测试和单独维护入口使用；每日任务使用 CleanupStorage 统一执行。
 func (s *SyncService) CleanupRedisUsageInbox(ctx context.Context) error {
 	if err := s.validate(syncMetadataOptional); err != nil {
 		return err
@@ -303,6 +307,7 @@ func (s *SyncService) CleanupRedisUsageInbox(ctx context.Context) error {
 	return err
 }
 
+// CleanupStorage 是每日 03:00 维护任务调用的统一入口：先清 Redis inbox，再清 snapshot_runs，最后 VACUUM 收缩 SQLite。
 func (s *SyncService) CleanupStorage(ctx context.Context) error {
 	if err := s.validate(syncMetadataOptional); err != nil {
 		return err
@@ -311,7 +316,8 @@ func (s *SyncService) CleanupStorage(ctx context.Context) error {
 	return err
 }
 
-// SyncRedisBatch 保留为手动兼容入口；后台 Redis drain 使用拆分后的 pull/process/cleanup 方法。
+// SyncRedisBatch 保留为兼容入口：先处理本地存量 inbox，空了再拉一次 Redis 并立即处理。
+// 后台任务不要调用它，后台必须使用拆分后的 PullRedisUsageInbox、ProcessRedisUsageInbox 和 CleanupStorage。
 func (s *SyncService) SyncRedisBatch(ctx context.Context, syncMetadata bool) (*RedisBatchSyncResult, error) {
 	if result, err := s.ProcessRedisUsageInbox(ctx, syncMetadata); err != nil || result == nil || !result.Empty {
 		return result, err
@@ -322,7 +328,8 @@ func (s *SyncService) SyncRedisBatch(ctx context.Context, syncMetadata bool) (*R
 	return s.ProcessRedisUsageInbox(ctx, syncMetadata)
 }
 
-// processRedisInboxRows 只从已落库的原始消息解码和写入事件，坏消息不会阻塞同批其它数据。
+// processRedisInboxRows 只从已落库的原始消息解码和写入事件，坏消息会标记为 decode_failed，不阻塞同批其它数据。
+// 可解码但入库失败的消息标记为 process_failed，后续 ProcessRedisUsageInbox 会按 id 顺序重试。
 func (s *SyncService) processRedisInboxRows(ctx context.Context, inboxRows []models.RedisUsageInbox, fetchedAt time.Time, syncMetadata bool) (*RedisBatchSyncResult, error) {
 	logrus.WithFields(logrus.Fields{
 		"row_count":     len(inboxRows),
@@ -397,7 +404,8 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, inboxRows []mod
 	}, returnErr
 }
 
-// SyncLegacyStatus 执行 legacy export 同步并返回最终状态。
+// SyncLegacyStatus 执行 legacy_export 回退路径并返回 snapshot_run 最终状态。
+// legacy_export 仍然会创建 snapshot_runs、保存原始导出 payload，并把 usage_events 关联到本次 snapshot_run。
 func (s *SyncService) SyncLegacyStatus(ctx context.Context) (string, error) {
 	if err := s.validate(syncMetadataRequired); err != nil {
 		return "", err
@@ -415,7 +423,8 @@ func (s *SyncService) SyncLegacyStatus(ctx context.Context) (string, error) {
 	return result.Status, err
 }
 
-// syncOnce 执行一次完整的 legacy 拉取、快照落库和事件写入流程。
+// syncOnce 执行一次完整的 legacy_export 同步：拉取导出、创建 snapshot_run、写 usage_events、同步 metadata 和备份。
+// 该路径用于 legacy_export 模式以及 auto 探测 Redis 不可用后的回退模式，不参与 Redis inbox 分阶段处理。
 func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
 	if err := s.validate(syncMetadataRequired); err != nil {
 		return nil, err
@@ -432,6 +441,7 @@ func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
 	return s.persistUsageResult(ctx, fetchedAt, fetchResult, fetchErr, true, true)
 }
 
+// persistRedisUsageEvents 是 Redis inbox 专用入库路径，只写 usage_events 和可选 metadata，不创建 snapshot_runs。
 func (s *SyncService) persistRedisUsageEvents(ctx context.Context, fetchResult *UsageFetchResult, syncMetadata bool) (*SyncResult, error) {
 	if fetchResult == nil {
 		return nil, fmt.Errorf("redis usage fetch result is nil")
@@ -490,7 +500,8 @@ func (s *SyncService) persistRedisUsageEvents(ctx context.Context, fetchResult *
 	return result, nil
 }
 
-// persistUsageResult 保存 legacy export 快照和 usage_events。
+// persistUsageResult 是 legacy_export 专用入库路径，负责 snapshot_runs 的完整生命周期和 usage_events 写入。
+// 即使拉取失败也会创建并 finalize snapshot_run，用于保留失败状态、HTTP 状态、错误信息和原始 payload 审计线索。
 func (s *SyncService) persistUsageResult(ctx context.Context, fetchedAt time.Time, fetchResult *UsageFetchResult, fetchErr error, syncMetadata bool, filterByWatermark bool) (*SyncResult, error) {
 	logrus.WithFields(logrus.Fields{
 		"sync_metadata":       syncMetadata,
@@ -736,7 +747,7 @@ func alignUsageEventKeysWithExistingCanonicalEvents(db *gorm.DB, events []models
 		}
 
 		var existing models.UsageEvent
-		err := db.Select("event_key").Where(
+		result := db.Select("event_key").Where(
 			"TRIM(api_group_key) = ? AND TRIM(model) = ? AND timestamp = ? AND TRIM(source) = ? AND TRIM(auth_index) = ? AND failed = ? AND input_tokens = ? AND output_tokens = ? AND reasoning_tokens = ? AND cached_tokens = ? AND total_tokens = ?",
 			strings.TrimSpace(events[i].APIGroupKey),
 			strings.TrimSpace(events[i].Model),
@@ -749,13 +760,13 @@ func alignUsageEventKeysWithExistingCanonicalEvents(db *gorm.DB, events []models
 			events[i].ReasoningTokens,
 			events[i].CachedTokens,
 			events[i].TotalTokens,
-		).Order("id ASC").Take(&existing).Error
-		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				canonicalEventKeys[canonicalKey] = incomingKey
-				continue
-			}
-			return nil, fmt.Errorf("find equivalent usage event: %w", err)
+		).Order("id ASC").Limit(1).Find(&existing)
+		if result.Error != nil {
+			return nil, fmt.Errorf("find equivalent usage event: %w", result.Error)
+		}
+		if result.RowsAffected == 0 {
+			canonicalEventKeys[canonicalKey] = incomingKey
+			continue
 		}
 		existingKey := strings.TrimSpace(existing.EventKey)
 		if existingKey != "" {
@@ -811,7 +822,8 @@ type legacyUsageFetcher struct {
 	}
 }
 
-// FetchUsage 从 legacy export 拉取用量数据，只记录状态和计数，不记录原始 payload。
+// FetchUsage 从 legacy export 接口拉取完整导出结果，保留 raw payload 给 persistUsageResult 写入 snapshot_runs。
+// 这是 Redis 队列不可用时的回退数据源，事件 key 仍在后续入库阶段与既有 canonical event 对齐。
 func (f legacyUsageFetcher) FetchUsage(ctx context.Context, _ time.Time) (*UsageFetchResult, error) {
 	if f.client == nil {
 		return nil, fmt.Errorf("legacy usage client is nil")
