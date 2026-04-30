@@ -74,6 +74,82 @@ func ReplaceProviderMetadata(db *gorm.DB, items []ProviderMetadataInput) error {
 	})
 }
 
+func ReplaceProviderMetadataForProviderTypes(db *gorm.DB, items []ProviderMetadataInput, providerTypes []string) error {
+	if db == nil {
+		return fmt.Errorf("database is nil")
+	}
+
+	allowedTypes := make(map[string]struct{}, len(providerTypes))
+	for _, providerType := range providerTypes {
+		providerType = strings.TrimSpace(providerType)
+		if providerType != "" {
+			allowedTypes[providerType] = struct{}{}
+		}
+	}
+	if len(allowedTypes) == 0 {
+		return nil
+	}
+
+	normalized := make([]models.ProviderMetadata, 0, len(items))
+	lookupKeys := make([]string, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		lookupKey := strings.TrimSpace(item.LookupKey)
+		providerType := strings.TrimSpace(item.ProviderType)
+		if lookupKey == "" {
+			continue
+		}
+		if _, ok := allowedTypes[providerType]; !ok {
+			continue
+		}
+		if _, ok := seen[lookupKey]; ok {
+			continue
+		}
+		seen[lookupKey] = struct{}{}
+		lookupKeys = append(lookupKeys, lookupKey)
+		normalized = append(normalized, models.ProviderMetadata{
+			LookupKey:    lookupKey,
+			ProviderType: providerType,
+			DisplayName:  strings.TrimSpace(item.DisplayName),
+			ProviderKey:  strings.TrimSpace(item.ProviderKey),
+			MatchKind:    strings.TrimSpace(item.MatchKind),
+		})
+	}
+
+	types := make([]string, 0, len(allowedTypes))
+	for providerType := range allowedTypes {
+		types = append(types, providerType)
+	}
+
+	return db.Transaction(func(tx *gorm.DB) error {
+		if len(normalized) > 0 {
+			if err := tx.Clauses(clause.OnConflict{
+				Columns: []clause.Column{{Name: "lookup_key"}},
+				DoUpdates: clause.AssignmentColumns([]string{
+					"provider_type",
+					"display_name",
+					"provider_key",
+					"match_kind",
+					"updated_at",
+					"deleted_at",
+				}),
+			}).Create(&normalized).Error; err != nil {
+				return fmt.Errorf("upsert provider metadata: %w", err)
+			}
+		}
+
+		query := tx.Where("provider_type IN ?", types)
+		if len(lookupKeys) > 0 {
+			query = query.Where("lookup_key NOT IN ?", lookupKeys)
+		}
+		if err := query.Delete(&models.ProviderMetadata{}).Error; err != nil {
+			return fmt.Errorf("soft delete stale provider metadata: %w", err)
+		}
+
+		return nil
+	})
+}
+
 func ListProviderMetadata(db *gorm.DB) ([]models.ProviderMetadata, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")

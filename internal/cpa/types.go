@@ -62,14 +62,14 @@ type TokenStats struct {
 	TotalTokens     int64 `json:"total_tokens"`
 }
 
-type APIKeysResult struct {
+type ExternalAPIKeysResult struct {
 	StatusCode int
 	Body       []byte
-	Payload    APIKeysResponse
+	Payload    ExternalAPIKeysResponse
 }
 
-type APIKeysResponse struct {
-	APIKeys []string `json:"api-keys"`
+type ExternalAPIKeysResponse struct {
+	ExternalAPIKeys []string `json:"api-keys"`
 }
 
 type ModelsResult struct {
@@ -126,8 +126,7 @@ type OpenAICompatibilityResult struct {
 	Payload    []OpenAICompatibilityConfig
 }
 
-type ManagementConfig struct {
-	APIKeys             []string                    `json:"api-keys"`
+type ProviderMetadataConfig struct {
 	GeminiAPIKeys       []ProviderKeyConfig         `json:"gemini-api-key"`
 	ClaudeAPIKeys       []ProviderKeyConfig         `json:"claude-api-key"`
 	CodexAPIKeys        []ProviderKeyConfig         `json:"codex-api-key"`

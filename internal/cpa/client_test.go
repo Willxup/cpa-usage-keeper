@@ -55,9 +55,9 @@ func TestFetchUsageExportRejectsInvalidJSON(t *testing.T) {
 	}
 }
 
-func TestFetchAPIKeysSendsBearerTokenAndParsesKeys(t *testing.T) {
+func TestFetchExternalAPIKeysSendsBearerTokenAndParsesExternalKeys(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != cpaManagementAPIKeysEndpoint {
+		if r.URL.Path != cpaManagementExternalAPIKeysEndpoint {
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}
 		if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
@@ -69,9 +69,9 @@ func TestFetchAPIKeysSendsBearerTokenAndParsesKeys(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "management-secret", 2*time.Second)
-	result, err := client.FetchAPIKeys(context.Background())
+	result, err := client.FetchExternalAPIKeys(context.Background())
 	if err != nil {
-		t.Fatalf("FetchAPIKeys returned error: %v", err)
+		t.Fatalf("FetchExternalAPIKeys returned error: %v", err)
 	}
 	if result.StatusCode != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", result.StatusCode)
@@ -79,15 +79,15 @@ func TestFetchAPIKeysSendsBearerTokenAndParsesKeys(t *testing.T) {
 	if string(result.Body) != `{"api-keys":["", "   ", "normal-api-key"]}` {
 		t.Fatalf("unexpected body: %s", string(result.Body))
 	}
-	if len(result.Payload.APIKeys) != 3 || result.Payload.APIKeys[2] != "normal-api-key" {
-		t.Fatalf("unexpected API keys payload: %#v", result.Payload)
+	if len(result.Payload.ExternalAPIKeys) != 3 || result.Payload.ExternalAPIKeys[2] != "normal-api-key" {
+		t.Fatalf("unexpected external API keys payload: %#v", result.Payload)
 	}
 }
 
-func TestFetchModelsFetchesAPIKeyAndParsesOpenAICompatibleResponse(t *testing.T) {
+func TestFetchModelsUsesExternalAPIKeyAndParsesOpenAICompatibleResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case cpaManagementAPIKeysEndpoint:
+		case cpaManagementExternalAPIKeysEndpoint:
 			if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
 				t.Fatalf("expected management Authorization header, got %q", got)
 			}
@@ -118,9 +118,9 @@ func TestFetchModelsFetchesAPIKeyAndParsesOpenAICompatibleResponse(t *testing.T)
 	}
 }
 
-func TestFetchModelsRejectsMissingAPIKeys(t *testing.T) {
+func TestFetchModelsRejectsMissingExternalAPIKeys(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != cpaManagementAPIKeysEndpoint {
+		if r.URL.Path != cpaManagementExternalAPIKeysEndpoint {
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}
 		_, _ = w.Write([]byte(`{"api-keys":[]}`))
@@ -129,17 +129,17 @@ func TestFetchModelsRejectsMissingAPIKeys(t *testing.T) {
 
 	client := NewClient(server.URL, "management-secret", 2*time.Second)
 	if _, err := client.FetchModels(context.Background()); err == nil {
-		t.Fatal("expected missing API keys error")
+		t.Fatal("expected missing external API keys error")
 	}
 }
 
-func TestFetchModelsDoesNotUseProviderEndpointsWhenCPAAPIKeysAreMissing(t *testing.T) {
+func TestFetchModelsDoesNotUseProviderEndpointsWhenCPAExternalAPIKeysAreMissing(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case cpaManagementAPIKeysEndpoint:
+		case cpaManagementExternalAPIKeysEndpoint:
 			_, _ = w.Write([]byte(`{"api-keys":[]}`))
 		case cpaManagementClaudeAPIKeyEndpoint, cpaManagementCodexAPIKeyEndpoint, cpaManagementOpenAICompatibilityEndpoint, cpaModelsEndpoint:
-			t.Fatalf("FetchModels should not request %s when CPA API keys are missing", r.URL.Path)
+			t.Fatalf("FetchModels should not request %s when CPA external API keys are missing", r.URL.Path)
 		default:
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}
@@ -148,14 +148,14 @@ func TestFetchModelsDoesNotUseProviderEndpointsWhenCPAAPIKeysAreMissing(t *testi
 
 	client := NewClient(server.URL, "management-secret", 2*time.Second)
 	if _, err := client.FetchModels(context.Background()); err == nil {
-		t.Fatal("expected missing CPA API keys error")
+		t.Fatal("expected missing CPA external API keys error")
 	}
 }
 
 func TestFetchModelsHandlesModelNonSuccessStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case cpaManagementAPIKeysEndpoint:
+		case cpaManagementExternalAPIKeysEndpoint:
 			_, _ = w.Write([]byte(`{"api-keys":["normal-api-key"]}`))
 		case cpaModelsEndpoint:
 			http.Error(w, `{"error":"unavailable"}`, http.StatusBadGateway)
@@ -175,7 +175,7 @@ func TestFetchModelsHandlesModelNonSuccessStatus(t *testing.T) {
 func TestFetchModelsRejectsRedirectStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case cpaManagementAPIKeysEndpoint:
+		case cpaManagementExternalAPIKeysEndpoint:
 			_, _ = w.Write([]byte(`{"api-keys":["normal-api-key"]}`))
 		case cpaModelsEndpoint:
 			w.WriteHeader(http.StatusFound)
@@ -196,7 +196,7 @@ func TestFetchModelsRejectsRedirectStatus(t *testing.T) {
 func TestFetchModelsRejectsInvalidModelsJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case cpaManagementAPIKeysEndpoint:
+		case cpaManagementExternalAPIKeysEndpoint:
 			_, _ = w.Write([]byte(`{"api-keys":["normal-api-key"]}`))
 		case cpaModelsEndpoint:
 			w.WriteHeader(http.StatusOK)

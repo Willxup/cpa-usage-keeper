@@ -33,15 +33,18 @@ func NewRedisQueueClient(baseURL, redisQueueAddr, managementKey string, timeout 
 	}
 }
 
+func (c *RedisQueueClient) Probe(ctx context.Context) error {
+	conn, _, err := c.openAuthenticatedConnection(ctx)
+	if err != nil {
+		return err
+	}
+	_ = conn.Close()
+	return nil
+}
+
 func (c *RedisQueueClient) PopUsage(ctx context.Context) ([]string, error) {
 	if c == nil {
 		return nil, fmt.Errorf("redis queue client is nil")
-	}
-	if c.address == "" {
-		return nil, fmt.Errorf("redis queue address is required")
-	}
-	if c.managementKey == "" {
-		return nil, fmt.Errorf("redis queue management key is required")
 	}
 	if c.queueKey == "" {
 		return nil, fmt.Errorf("redis queue key is required")
@@ -50,29 +53,13 @@ func (c *RedisQueueClient) PopUsage(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("redis queue batch size must be positive")
 	}
 
-	dialer := net.Dialer{Timeout: c.timeout}
-	conn, err := dialer.DialContext(ctx, "tcp", c.address)
+	conn, reader, err := c.openAuthenticatedConnection(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("connect redis queue: %w", err)
+		return nil, err
 	}
 	defer conn.Close()
-	if c.timeout > 0 {
-		_ = conn.SetDeadline(time.Now().Add(c.timeout))
-	}
 
-	reader := bufio.NewReader(conn)
-	if err := writeRESPCommand(conn, "AUTH", c.managementKey); err != nil {
-		return nil, fmt.Errorf("write redis queue auth command: %w", err)
-	}
-	authResponse, err := readRESPValue(reader)
-	if err != nil {
-		return nil, fmt.Errorf("read redis queue auth response: %w", err)
-	}
-	if authResponse.err != "" {
-		return nil, fmt.Errorf("%w: %s", ErrRedisQueueAuth, authResponse.err)
-	}
-
-	if err := writeRESPCommand(conn, "LPOP", c.queueKey, strconv.Itoa(c.batchSize)); err != nil {
+	if err := writeRESPCommand(conn, cpaManagementRedisPopCommand, c.queueKey, strconv.Itoa(c.batchSize)); err != nil {
 		return nil, fmt.Errorf("write redis queue pop command: %w", err)
 	}
 	popResponse, err := readRESPValue(reader)
@@ -83,6 +70,43 @@ func (c *RedisQueueClient) PopUsage(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("redis queue pop failed: %s", popResponse.err)
 	}
 	return popResponse.strings(), nil
+}
+
+func (c *RedisQueueClient) openAuthenticatedConnection(ctx context.Context) (net.Conn, *bufio.Reader, error) {
+	if c == nil {
+		return nil, nil, fmt.Errorf("redis queue client is nil")
+	}
+	if c.address == "" {
+		return nil, nil, fmt.Errorf("redis queue address is required")
+	}
+	if c.managementKey == "" {
+		return nil, nil, fmt.Errorf("redis queue management key is required")
+	}
+
+	dialer := net.Dialer{Timeout: c.timeout}
+	conn, err := dialer.DialContext(ctx, cpaManagementRedisNetwork, c.address)
+	if err != nil {
+		return nil, nil, fmt.Errorf("connect redis queue: %w", err)
+	}
+	if c.timeout > 0 {
+		_ = conn.SetDeadline(time.Now().Add(c.timeout))
+	}
+
+	reader := bufio.NewReader(conn)
+	if err := writeRESPCommand(conn, cpaManagementRedisAuthCommand, c.managementKey); err != nil {
+		conn.Close()
+		return nil, nil, fmt.Errorf("write redis queue auth command: %w", err)
+	}
+	authResponse, err := readRESPValue(reader)
+	if err != nil {
+		conn.Close()
+		return nil, nil, fmt.Errorf("read redis queue auth response: %w", err)
+	}
+	if authResponse.err != "" {
+		conn.Close()
+		return nil, nil, fmt.Errorf("%w: %s", ErrRedisQueueAuth, authResponse.err)
+	}
+	return conn, reader, nil
 }
 
 func redisQueueAddress(baseURL, redisQueueAddr string) string {
@@ -102,13 +126,13 @@ func redisQueueAddress(baseURL, redisQueueAddr string) string {
 		if parsed.Port() != "" {
 			return parsed.Host
 		}
-		return net.JoinHostPort(parsed.Hostname(), "8317")
+		return net.JoinHostPort(parsed.Hostname(), ManagementRedisDefaultPort)
 	}
 	trimmed = strings.TrimPrefix(strings.TrimPrefix(trimmed, "http://"), "https://")
 	if _, _, err := net.SplitHostPort(trimmed); err == nil {
 		return trimmed
 	}
-	return net.JoinHostPort(trimmed, "8317")
+	return net.JoinHostPort(trimmed, ManagementRedisDefaultPort)
 }
 
 func writeRESPCommand(writer io.Writer, parts ...string) error {

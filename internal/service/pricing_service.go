@@ -97,7 +97,7 @@ func (s *pricingService) effectiveModels(ctx context.Context) ([]string, error) 
 		return repository.ListUsedModels(s.db)
 	}
 
-	logrus.Debug("pricing model listing using CPA /v1/models")
+	logrus.Debug("pricing model listing using CPA models endpoint")
 	return normalizeCPAModels(result), nil
 }
 

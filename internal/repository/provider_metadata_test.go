@@ -66,6 +66,52 @@ func TestReplaceProviderMetadataUpsertsSoftDeletesAndRestoresRows(t *testing.T) 
 	}
 }
 
+func TestReplaceProviderMetadataForProviderTypesOnlyDeletesFetchedProviderRows(t *testing.T) {
+	db := openProviderMetadataTestDatabase(t)
+	if err := ReplaceProviderMetadata(db, []ProviderMetadataInput{{
+		LookupKey:    "gemini-old",
+		ProviderType: "gemini",
+		DisplayName:  "Gemini Old",
+		ProviderKey:  "gemini:old",
+		MatchKind:    "api_key",
+	}, {
+		LookupKey:    "claude-old",
+		ProviderType: "claude",
+		DisplayName:  "Claude Old",
+		ProviderKey:  "claude:old",
+		MatchKind:    "api_key",
+	}}); err != nil {
+		t.Fatalf("ReplaceProviderMetadata returned error: %v", err)
+	}
+
+	if err := ReplaceProviderMetadataForProviderTypes(db, []ProviderMetadataInput{{
+		LookupKey:    "claude-new",
+		ProviderType: "claude",
+		DisplayName:  "Claude New",
+		ProviderKey:  "claude:new",
+		MatchKind:    "api_key",
+	}}, []string{"claude"}); err != nil {
+		t.Fatalf("ReplaceProviderMetadataForProviderTypes returned error: %v", err)
+	}
+
+	items, err := ListProviderMetadata(db)
+	if err != nil {
+		t.Fatalf("ListProviderMetadata returned error: %v", err)
+	}
+	lookupKeys := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		lookupKeys[item.LookupKey] = struct{}{}
+	}
+	for _, expected := range []string{"gemini-old", "claude-new"} {
+		if _, ok := lookupKeys[expected]; !ok {
+			t.Fatalf("expected %q to remain, got %+v", expected, items)
+		}
+	}
+	if _, ok := lookupKeys["claude-old"]; ok {
+		t.Fatalf("expected stale claude row to be deleted, got %+v", items)
+	}
+}
+
 func openProviderMetadataTestDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "provider_metadata.db")})
