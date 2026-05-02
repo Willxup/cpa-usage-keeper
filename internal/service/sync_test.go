@@ -1535,7 +1535,22 @@ func openSyncTestDatabase(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
 	}
+	closeTestDatabase(t, db)
 	return db
+}
+
+func closeTestDatabase(t *testing.T, db *gorm.DB) {
+	t.Helper()
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get sql database: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Fatalf("close database: %v", err)
+		}
+	})
 }
 
 func captureSyncDebugLogs(t *testing.T) *bytes.Buffer {
@@ -1569,6 +1584,7 @@ func openSyncTestDatabaseWithLogs(t *testing.T) (*gorm.DB, *bytes.Buffer) {
 	if err != nil {
 		t.Fatalf("gorm.Open returned error: %v", err)
 	}
+	closeTestDatabase(t, db)
 	if err := db.AutoMigrate(models.All()...); err != nil {
 		t.Fatalf("AutoMigrate returned error: %v", err)
 	}

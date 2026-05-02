@@ -203,7 +203,11 @@ func TestLoadResolvesRelativeEnvFilePathBase(t *testing.T) {
 		t.Fatalf("Load returned error: %v", err)
 	}
 
-	expectedWorkDir := filepath.Join(cwd, "config", "data")
+	envFileAbsolutePath, err := filepath.Abs(filepath.Join("config", "app.env"))
+	if err != nil {
+		t.Fatalf("resolve env file path: %v", err)
+	}
+	expectedWorkDir := filepath.Join(filepath.Dir(envFileAbsolutePath), "data")
 	if cfg.WorkDir != expectedWorkDir || cfg.SQLitePath != filepath.Join(expectedWorkDir, "app.db") || cfg.LogDir != filepath.Join(expectedWorkDir, "logs") || cfg.BackupDir != filepath.Join(expectedWorkDir, "backups") {
 		t.Fatalf("expected paths under %q, got %+v", expectedWorkDir, cfg)
 	}
