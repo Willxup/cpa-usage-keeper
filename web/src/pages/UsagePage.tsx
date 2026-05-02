@@ -531,7 +531,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setAnalysisError('');
     setAnalysisData({ apis: [], models: [] });
     try {
-      const queryWindow = timeRange === 'custom' ? buildCustomDateRangeQuery(customTimeRange) : { start: undefined, end: undefined };
+      const queryWindow = timeRange === 'custom' ? buildCustomDateRangeQuery({ start: customTimeRange.start, end: customTimeRange.end }) : { start: undefined, end: undefined };
       const response = await fetchUsageAnalysis(timeRange, queryWindow.start, queryWindow.end, controller.signal);
       if (analysisRequestControllerRef.current !== controller) {
         return;
@@ -556,7 +556,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         analysisRequestControllerRef.current = null;
       }
     }
-  }, [customTimeRange, onAuthRequired, timeRange]);
+  }, [customTimeRange.end, customTimeRange.start, onAuthRequired, timeRange]);
   const hourWindowHours = useMemo(
     () => getOverviewHourWindowHours({ timeRange, filterWindow }),
     [filterWindow, timeRange]
@@ -668,8 +668,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     if (startMs === undefined || endMs === undefined || startMs > endMs) {
       return { valid: false, start: undefined, end: undefined };
     }
-    return buildCustomDateRangeQuery(customTimeRange);
-  }, [customTimeRange, timeRange]);
+    return buildCustomDateRangeQuery({ start: customTimeRange.start, end: customTimeRange.end });
+  }, [customTimeRange.end, customTimeRange.start, timeRange]);
 
   const loadEventFilterOptions = useCallback(async () => {
     const queryWindow = getEventQueryWindow();
@@ -831,7 +831,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setCredentialsError('');
     setCredentialsData([]);
     try {
-      const queryWindow = timeRange === 'custom' ? buildCustomDateRangeQuery(customTimeRange) : { start: undefined, end: undefined };
+      const queryWindow = timeRange === 'custom' ? buildCustomDateRangeQuery({ start: customTimeRange.start, end: customTimeRange.end }) : { start: undefined, end: undefined };
       const response = await fetchUsageCredentials(timeRange, queryWindow.start, queryWindow.end, controller.signal);
       if (credentialsRequestControllerRef.current !== controller) {
         return;
@@ -855,7 +855,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         credentialsRequestControllerRef.current = null;
       }
     }
-  }, [customTimeRange, onAuthRequired, timeRange]);
+  }, [customTimeRange.end, customTimeRange.start, onAuthRequired, timeRange]);
 
   const refreshActiveTab = useCallback(async () => {
     if (activeTab === 'events') {
