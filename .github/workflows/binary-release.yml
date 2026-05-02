@@ -30,13 +30,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.22'
+          go-version: stable
+          check-latest: true
           cache: true
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: '24'
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -70,7 +71,7 @@ jobs:
           tar -czf "dist/${package_name}.tar.gz" -C dist "${package_name}"
 
       - name: Upload binary package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cpa-usage-keeper-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.asset_arch }}
           path: dist/cpa-usage-keeper_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.asset_arch }}.tar.gz
@@ -97,13 +98,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.22'
+          go-version: stable
+          check-latest: true
           cache: true
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: '24'
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -133,7 +135,7 @@ jobs:
           tar -czf "dist/${package_name}.tar.gz" -C dist "${package_name}"
 
       - name: Upload binary package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cpa-usage-keeper-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.asset_arch }}
           path: dist/cpa-usage-keeper_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.asset_arch }}.tar.gz
@@ -164,13 +166,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.22'
+          go-version: stable
+          check-latest: true
           cache: true
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: '24'
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -220,7 +223,7 @@ jobs:
           Compress-Archive -Path "dist/$packageName" -DestinationPath "dist/$packageName.zip"
 
       - name: Upload binary package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cpa-usage-keeper-${{ github.ref_name }}-windows-${{ matrix.asset_arch }}
           path: dist/cpa-usage-keeper_${{ github.ref_name }}_windows_${{ matrix.asset_arch }}.zip
@@ -234,7 +237,7 @@ jobs:
       - binary-release-windows
     steps:
       - name: Download binary package artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           path: dist
           merge-multiple: true
@@ -246,7 +249,7 @@ jobs:
           sha256sum *.tar.gz *.zip > checksums.txt
 
       - name: Upload release assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/*.tar.gz
