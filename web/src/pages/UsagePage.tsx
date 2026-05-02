@@ -531,7 +531,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setAnalysisError('');
     setAnalysisData({ apis: [], models: [] });
     try {
-      const queryWindow = timeRange === 'custom' ? buildCustomDateRangeQuery(customTimeRange) : { start: undefined, end: undefined };
+      const queryWindow = timeRange === 'custom' ? buildCustomDateRangeQuery({ start: customTimeRange.start, end: customTimeRange.end }) : { start: undefined, end: undefined };
       const response = await fetchUsageAnalysis(timeRange, queryWindow.start, queryWindow.end, controller.signal);
       if (analysisRequestControllerRef.current !== controller) {
         return;
@@ -668,7 +668,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     if (startMs === undefined || endMs === undefined || startMs > endMs) {
       return { valid: false, start: undefined, end: undefined };
     }
-    return buildCustomDateRangeQuery(customTimeRange);
+    return buildCustomDateRangeQuery({ start: customTimeRange.start, end: customTimeRange.end });
   }, [customTimeRange.end, customTimeRange.start, timeRange]);
 
   const loadEventFilterOptions = useCallback(async () => {
@@ -831,7 +831,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setCredentialsError('');
     setCredentialsData([]);
     try {
-      const queryWindow = timeRange === 'custom' ? buildCustomDateRangeQuery(customTimeRange) : { start: undefined, end: undefined };
+      const queryWindow = timeRange === 'custom' ? buildCustomDateRangeQuery({ start: customTimeRange.start, end: customTimeRange.end }) : { start: undefined, end: undefined };
       const response = await fetchUsageCredentials(timeRange, queryWindow.start, queryWindow.end, controller.signal);
       if (credentialsRequestControllerRef.current !== controller) {
         return;

@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   binary-release-linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -30,13 +30,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.22'
+          go-version: stable
+          check-latest: true
           cache: true
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: '24'
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -70,7 +71,7 @@ jobs:
           tar -czf "dist/${package_name}.tar.gz" -C dist "${package_name}"
 
       - name: Upload binary package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cpa-usage-keeper-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.asset_arch }}
           path: dist/cpa-usage-keeper_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.asset_arch }}.tar.gz
@@ -85,11 +86,11 @@ jobs:
           - goos: darwin
             goarch: amd64
             asset_arch: amd64
-            runs_on: macos-13
+            runs_on: macos-15-intel
           - goos: darwin
             goarch: arm64
             asset_arch: arm64
-            runs_on: macos-14
+            runs_on: macos-15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -97,13 +98,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.22'
+          go-version: stable
+          check-latest: true
           cache: true
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: '24'
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -133,14 +135,30 @@ jobs:
           tar -czf "dist/${package_name}.tar.gz" -C dist "${package_name}"
 
       - name: Upload binary package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cpa-usage-keeper-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.asset_arch }}
           path: dist/cpa-usage-keeper_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.asset_arch }}.tar.gz
           if-no-files-found: error
 
   binary-release-windows:
-    runs-on: windows-latest
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            asset_arch: amd64
+            runs_on: windows-2025
+            msystem: UCRT64
+            install: mingw-w64-ucrt-x86_64-gcc
+            cc: gcc
+          - goarch: arm64
+            asset_arch: arm64
+            runs_on: windows-11-arm
+            msystem: CLANGARM64
+            install: mingw-w64-clang-aarch64-gcc
+            cc: gcc
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -148,23 +166,24 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.22'
+          go-version: stable
+          check-latest: true
           cache: true
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: '24'
           cache: npm
           cache-dependency-path: web/package-lock.json
 
       - name: Set up MSYS2
         uses: msys2/setup-msys2@v2
         with:
-          msystem: UCRT64
+          msystem: ${{ matrix.msystem }}
           update: true
           path-type: inherit
-          install: mingw-w64-ucrt-x86_64-gcc
+          install: ${{ matrix.install }}
 
       - name: Install frontend dependencies
         shell: bash
@@ -179,15 +198,16 @@ jobs:
         env:
           VERSION: ${{ github.ref_name }}
           GOOS: windows
-          GOARCH: amd64
-          ASSET_ARCH: amd64
+          GOARCH: ${{ matrix.goarch }}
+          ASSET_ARCH: ${{ matrix.asset_arch }}
+          CC: ${{ matrix.cc }}
         run: |
           set -euo pipefail
           package_name="cpa-usage-keeper_${VERSION}_${GOOS}_${ASSET_ARCH}"
           package_dir="dist/${package_name}"
           mkdir -p "${package_dir}/web" "${package_dir}/data"
 
-          CGO_ENABLED=1 GOOS="${GOOS}" GOARCH="${GOARCH}" CC=gcc \
+          CGO_ENABLED=1 GOOS="${GOOS}" GOARCH="${GOARCH}" CC="${CC}" \
             go build -trimpath -ldflags="-s -w" -o "${package_dir}/cpa-usage-keeper.exe" ./cmd/server/main.go
 
           cp -R web/dist "${package_dir}/web/dist"
@@ -197,26 +217,27 @@ jobs:
         shell: pwsh
         env:
           VERSION: ${{ github.ref_name }}
+          ASSET_ARCH: ${{ matrix.asset_arch }}
         run: |
-          $packageName = "cpa-usage-keeper_${env:VERSION}_windows_amd64"
+          $packageName = "cpa-usage-keeper_${env:VERSION}_windows_${env:ASSET_ARCH}"
           Compress-Archive -Path "dist/$packageName" -DestinationPath "dist/$packageName.zip"
 
       - name: Upload binary package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: cpa-usage-keeper-${{ github.ref_name }}-windows-amd64
-          path: dist/cpa-usage-keeper_${{ github.ref_name }}_windows_amd64.zip
+          name: cpa-usage-keeper-${{ github.ref_name }}-windows-${{ matrix.asset_arch }}
+          path: dist/cpa-usage-keeper_${{ github.ref_name }}_windows_${{ matrix.asset_arch }}.zip
           if-no-files-found: error
 
   publish-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs:
       - binary-release-linux
       - binary-release-darwin
       - binary-release-windows
     steps:
       - name: Download binary package artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           path: dist
           merge-multiple: true
@@ -228,7 +249,7 @@ jobs:
           sha256sum *.tar.gz *.zip > checksums.txt
 
       - name: Upload release assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/*.tar.gz
