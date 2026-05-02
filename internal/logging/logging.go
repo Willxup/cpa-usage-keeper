@@ -48,6 +48,18 @@ func (c *restoreCloser) Close() error {
 	return c.closer.Close()
 }
 
+func resolveLogDir(cfg config.Config) string {
+	logDir := strings.TrimSpace(cfg.LogDir)
+	if logDir != "" {
+		return logDir
+	}
+	workDir := strings.TrimSpace(cfg.WorkDir)
+	if workDir == "" {
+		workDir = config.DefaultWorkDir
+	}
+	return filepath.Join(workDir, filepath.Base(config.DefaultLogDir))
+}
+
 func Configure(cfg config.Config) (io.Closer, error) {
 	previousLogrusOutput := logrus.StandardLogger().Out
 	previousLogrusLevel := logrus.GetLevel()
@@ -67,10 +79,7 @@ func Configure(cfg config.Config) (io.Closer, error) {
 	writer := io.Writer(os.Stderr)
 	var closer io.Closer = noopCloser{}
 	if cfg.LogFileEnabled {
-		logDir := strings.TrimSpace(cfg.LogDir)
-		if logDir == "" {
-			logDir = "/data/logs"
-		}
+		logDir := resolveLogDir(cfg)
 		dailyWriter, err := newDailyFileWriter(logDir, cfg.LogRetentionDays, time.Now)
 		if err != nil {
 			return nil, err

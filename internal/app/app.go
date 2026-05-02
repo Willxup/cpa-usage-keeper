@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -24,6 +26,10 @@ type Runner interface {
 	Run(ctx context.Context) error
 	Status() poller.Status
 	SyncNow(ctx context.Context) error
+}
+
+type Options struct {
+	EnvFile string
 }
 
 type App struct {
@@ -49,7 +55,11 @@ var redisStartupProbe = func(ctx context.Context, cfg config.Config) error {
 }
 
 func New() (*App, error) {
-	cfg, err := config.LoadFromEnv()
+	return NewWithOptions(Options{})
+}
+
+func NewWithOptions(options Options) (*App, error) {
+	cfg, err := config.Load(config.LoadOptions{EnvFile: options.EnvFile})
 	if err != nil {
 		return nil, err
 	}
@@ -58,6 +68,13 @@ func New() (*App, error) {
 }
 
 func NewWithConfig(cfg config.Config) (*App, error) {
+	staticDir := filepath.Join("web", "dist")
+	if cwd, cwdErr := filepath.Abs("."); cwdErr == nil {
+		if executablePath, exeErr := os.Executable(); exeErr == nil {
+			staticDir = resolveStaticDir(cwd, filepath.Dir(executablePath))
+		}
+	}
+
 	logCloser, err := logging.Configure(cfg)
 	if err != nil {
 		return nil, err
@@ -69,6 +86,9 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		return nil, err
 	}
 	if err := runTemporaryStartupSnapshotRunsCleanup(db); err != nil {
+		if sqlDB, dbErr := db.DB(); dbErr == nil {
+			_ = sqlDB.Close()
+		}
 		_ = logCloser.Close()
 		return nil, err
 	}
@@ -99,7 +119,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		Maintenance:             NewStorageCleanupRunner(syncService),
 		LogCloser:               logCloser,
 		Router: api.NewRouter(
-			filepath.Join("web", "dist"),
+			staticDir,
 			backgroundPoller,
 			usageService,
 			authFileService,
@@ -115,6 +135,18 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 			cfg.AppBasePath,
 		),
 	}, nil
+}
+
+func resolveStaticDir(cwd, exeDir string) string {
+	cwdStaticDir := filepath.Join(cwd, "web", "dist")
+	if info, err := os.Stat(cwdStaticDir); err == nil && info.IsDir() {
+		return cwdStaticDir
+	}
+	executableStaticDir := filepath.Join(exeDir, "web", "dist")
+	if info, err := os.Stat(executableStaticDir); err == nil && info.IsDir() {
+		return executableStaticDir
+	}
+	return cwdStaticDir
 }
 
 func resolveUsageSyncMode(ctx context.Context, cfg config.Config) config.Config {
@@ -165,10 +197,25 @@ func runTemporaryStartupSnapshotRunsCleanup(db *gorm.DB) error {
 }
 
 func (a *App) Close() error {
-	if a == nil || a.LogCloser == nil {
+	if a == nil {
 		return nil
 	}
-	return a.LogCloser.Close()
+
+	var closeErr error
+	if a.DB != nil {
+		sqlDB, err := a.DB.DB()
+		if err != nil {
+			closeErr = errors.Join(closeErr, err)
+		} else if err := sqlDB.Close(); err != nil {
+			closeErr = errors.Join(closeErr, err)
+		}
+		a.DB = nil
+	}
+	if a.LogCloser != nil {
+		closeErr = errors.Join(closeErr, a.LogCloser.Close())
+		a.LogCloser = nil
+	}
+	return closeErr
 }
 
 func (a *App) Run() error {

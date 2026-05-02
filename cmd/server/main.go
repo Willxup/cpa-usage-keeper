@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"os"
 
@@ -8,7 +9,10 @@ import (
 )
 
 func main() {
-	application, err := app.New()
+	envFile := flag.String("env", "", "path to env file")
+	flag.Parse()
+
+	application, err := app.NewWithOptions(app.Options{EnvFile: *envFile})
 	if err != nil {
 		log.Fatalf("initialize app: %v", err)
 	}

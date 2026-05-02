@@ -21,6 +21,16 @@ const (
 	RedisMetadataSyncIntervalDefault = 30 * time.Second
 )
 
+var (
+	DefaultWorkDir      = filepath.Join(".", "data")
+	DefaultSQLitePath   = filepath.Join(DefaultWorkDir, "app.db")
+	DefaultLogDir       = filepath.Join(DefaultWorkDir, "logs")
+	DefaultBackupDir    = filepath.Join(DefaultWorkDir, "backups")
+	workDirDatabaseName = filepath.Base(DefaultSQLitePath)
+	workDirLogsName     = filepath.Base(DefaultLogDir)
+	workDirBackupsName  = filepath.Base(DefaultBackupDir)
+)
+
 type Config struct {
 	// AppPort 是 Web 服务监听端口。
 	AppPort string
@@ -46,6 +56,8 @@ type Config struct {
 	RedisQueueErrorBackoff time.Duration
 	// RedisMetadataSyncInterval 是 Redis drain 模式下 metadata 的固定刷新间隔。
 	RedisMetadataSyncInterval time.Duration
+	// WorkDir 是应用工作目录，数据库、日志和备份默认从这里派生。
+	WorkDir string
 	// SQLitePath 是 SQLite 数据库文件路径。
 	SQLitePath string
 	// BackupEnabled 控制是否保存原始 export 备份文件。
@@ -74,8 +86,25 @@ type Config struct {
 	AuthSessionTTL time.Duration
 }
 
+type LoadOptions struct {
+	EnvFile string
+}
+
+var executableDir = func() (string, error) {
+	executablePath, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(executablePath), nil
+}
+
 func LoadFromEnv() (*Config, error) {
-	if err := loadDotEnvIfPresent(); err != nil {
+	return Load(LoadOptions{})
+}
+
+func Load(options LoadOptions) (*Config, error) {
+	envBaseDir, err := loadDotEnv(options)
+	if err != nil {
 		return nil, err
 	}
 	if err := applyProjectTimeZone(); err != nil {
@@ -158,6 +187,8 @@ func LoadFromEnv() (*Config, error) {
 		return nil, fmt.Errorf("APP_BASE_PATH is invalid: %w", err)
 	}
 
+	workDir := getString("WORK_DIR", DefaultWorkDir)
+
 	cfg := &Config{
 		AppPort:                   getString("APP_PORT", "8080"),
 		AppBasePath:               appBasePath,
@@ -171,15 +202,16 @@ func LoadFromEnv() (*Config, error) {
 		RedisQueueIdleInterval:    redisQueueIdleInterval,
 		RedisQueueErrorBackoff:    RedisQueueErrorBackoffDefault,
 		RedisMetadataSyncInterval: RedisMetadataSyncIntervalDefault,
-		SQLitePath:                getString("SQLITE_PATH", "/data/app.db"),
+		WorkDir:                   workDir,
+		SQLitePath:                filepath.Join(workDir, workDirDatabaseName),
 		BackupEnabled:             backupEnabled,
-		BackupDir:                 getString("BACKUP_DIR", "/data/backups"),
+		BackupDir:                 filepath.Join(workDir, workDirBackupsName),
 		BackupInterval:            backupInterval,
 		BackupRetentionDays:       backupRetentionDays,
 		RequestTimeout:            requestTimeout,
 		LogLevel:                  getString("LOG_LEVEL", "info"),
 		LogFileEnabled:            logFileEnabled,
-		LogDir:                    getString("LOG_DIR", "/data/logs"),
+		LogDir:                    filepath.Join(workDir, workDirLogsName),
 		LogRetentionDays:          logRetentionDays,
 		AuthEnabled:               authEnabled,
 		LoginPassword:             strings.TrimSpace(os.Getenv("LOGIN_PASSWORD")),
@@ -194,6 +226,7 @@ func LoadFromEnv() (*Config, error) {
 	if cfg.AuthEnabled && cfg.LoginPassword == "" {
 		return nil, fmt.Errorf("LOGIN_PASSWORD is required when AUTH_ENABLED is true")
 	}
+	cfg.resolveRelativePaths(envBaseDir)
 
 	return cfg, nil
 }
@@ -214,25 +247,78 @@ func applyProjectTimeZone() error {
 	return nil
 }
 
-func loadDotEnvIfPresent() error {
+func loadDotEnv(options LoadOptions) (string, error) {
+	if strings.TrimSpace(options.EnvFile) != "" {
+		return loadDotEnvFile(options.EnvFile, true)
+	}
+
 	cwd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("get working directory: %w", err)
+		return "", fmt.Errorf("get working directory: %w", err)
 	}
-
-	dotEnvPath := filepath.Join(cwd, ".env")
-	if _, err := os.Stat(dotEnvPath); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
+	if loaded, err := loadOptionalDotEnv(filepath.Join(cwd, ".env")); err != nil || loaded {
+		if loaded {
+			return cwd, err
 		}
-		return fmt.Errorf("stat .env: %w", err)
+		return "", err
 	}
 
-	if err := godotenv.Overload(dotEnvPath); err != nil {
-		return fmt.Errorf("load .env: %w", err)
+	exeDir, err := executableDir()
+	if err != nil {
+		return "", fmt.Errorf("get executable directory: %w", err)
 	}
+	loaded, err := loadOptionalDotEnv(filepath.Join(exeDir, ".env"))
+	if loaded {
+		return exeDir, err
+	}
+	return "", err
+}
 
-	return nil
+func loadOptionalDotEnv(path string) (bool, error) {
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("stat .env: %w", err)
+	}
+	if err := godotenv.Overload(path); err != nil {
+		return false, fmt.Errorf("load .env: %w", err)
+	}
+	return true, nil
+}
+
+func loadDotEnvFile(path string, required bool) (string, error) {
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) && !required {
+			return "", nil
+		}
+		return "", fmt.Errorf("stat env file: %w", err)
+	}
+	if err := godotenv.Overload(path); err != nil {
+		return "", fmt.Errorf("load env file: %w", err)
+	}
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve env file path: %w", err)
+	}
+	return filepath.Dir(absolutePath), nil
+}
+
+func (cfg *Config) resolveRelativePaths(baseDir string) {
+	if baseDir == "" {
+		return
+	}
+	cfg.WorkDir = resolveRelativePath(baseDir, cfg.WorkDir)
+	cfg.SQLitePath = resolveRelativePath(baseDir, cfg.SQLitePath)
+	cfg.LogDir = resolveRelativePath(baseDir, cfg.LogDir)
+	cfg.BackupDir = resolveRelativePath(baseDir, cfg.BackupDir)
+}
+
+func resolveRelativePath(baseDir, value string) string {
+	if value == "" || filepath.IsAbs(value) {
+		return value
+	}
+	return filepath.Join(baseDir, value)
 }
 
 func normalizeBasePath(value string) (string, error) {

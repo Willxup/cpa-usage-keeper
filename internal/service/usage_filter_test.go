@@ -17,6 +17,7 @@ func TestUsageServiceGetUsageWithFilterDelegatesToFilteredSnapshot(t *testing.T)
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
 	}
+	closeTestDatabase(t, db)
 	if _, _, err := repository.InsertUsageEvents(db, []models.UsageEvent{
 		{EventKey: "event-1", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), TotalTokens: 10},
 		{EventKey: "event-2", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), TotalTokens: 20},
@@ -41,6 +42,7 @@ func TestUsageServiceGetUsageOverviewDelegatesToFilteredOverview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
 	}
+	closeTestDatabase(t, db)
 	if _, err := repository.UpsertModelPriceSetting(db, repository.ModelPriceSettingInput{
 		Model:                "claude-sonnet",
 		PromptPricePer1M:     3,

@@ -58,13 +58,11 @@ cp .env.example .env
 | `REDIS_QUEUE_IDLE_INTERVAL` | 否 | `1s` | 队列为空时的检查间隔 |
 | `POLL_INTERVAL` | 否 | `5m` | `legacy_export` 拉取间隔 |
 | `REQUEST_TIMEOUT` | 否 | `30s` | CPA 请求超时 |
-| `SQLITE_PATH` | 否 | `/data/app.db` | SQLite 数据库路径 |
+| `WORK_DIR` | 否 | `./data` | 应用工作目录；数据库、日志和备份默认分别写入 `app.db`、`logs/`、`backups/` |
 | `LOG_LEVEL` | 否 | `info` | 日志级别 |
 | `LOG_FILE_ENABLED` | 否 | `true` | 是否写入持久化日志文件 |
-| `LOG_DIR` | 否 | `/data/logs` | 日志文件目录 |
 | `LOG_RETENTION_DAYS` | 否 | `7` | 日志保留天数；`0` 表示不自动清理 |
 | `BACKUP_ENABLED` | 否 | `true` | 是否启用原始备份 |
-| `BACKUP_DIR` | 否 | `/data/backups` | 备份目录 |
 | `BACKUP_INTERVAL` | 否 | `1h` | 两次备份写入之间的最小间隔 |
 | `BACKUP_RETENTION_DAYS` | 否 | `30` | 备份保留天数 |
 

@@ -3,6 +3,7 @@ package backup
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -31,6 +32,9 @@ func TestWriterWritePersistsPayload(t *testing.T) {
 }
 
 func TestWriterWriteRestrictsBackupPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits are not meaningful on Windows")
+	}
 	root := t.TempDir()
 	writer := NewWriter(root)
 	fetchedAt := time.Date(2026, 4, 16, 12, 34, 56, 0, time.UTC)

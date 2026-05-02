@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +17,25 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 )
+
+func TestAppCloseClosesDatabase(t *testing.T) {
+	app, err := NewWithConfig(testAppConfig(t, "legacy_export"))
+	if err != nil {
+		t.Fatalf("NewWithConfig returned error: %v", err)
+	}
+	sqlDB, err := app.DB.DB()
+	if err != nil {
+		t.Fatalf("load sql db: %v", err)
+	}
+
+	if err := app.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	if err := sqlDB.Ping(); err == nil {
+		t.Fatal("expected database ping to fail after app close")
+	}
+}
 
 func TestNewWithConfigBuildsPollerAndRouter(t *testing.T) {
 	app, err := NewWithConfig(testAppConfig(t, "legacy_export"))
@@ -226,6 +247,39 @@ func TestNewWithConfigDoesNotProbeForExplicitModes(t *testing.T) {
 	}
 }
 
+func TestResolveStaticDirPrefersWorkingDirectory(t *testing.T) {
+	cwd := t.TempDir()
+	exeDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cwd, "web", "dist"), 0o755); err != nil {
+		t.Fatalf("create cwd static dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(exeDir, "web", "dist"), 0o755); err != nil {
+		t.Fatalf("create executable static dir: %v", err)
+	}
+
+	staticDir := resolveStaticDir(cwd, exeDir)
+
+	expected := filepath.Join(cwd, "web", "dist")
+	if staticDir != expected {
+		t.Fatalf("expected working directory static dir %q, got %q", expected, staticDir)
+	}
+}
+
+func TestResolveStaticDirFallsBackToExecutableDirectory(t *testing.T) {
+	cwd := t.TempDir()
+	exeDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(exeDir, "web", "dist"), 0o755); err != nil {
+		t.Fatalf("create executable static dir: %v", err)
+	}
+
+	staticDir := resolveStaticDir(cwd, exeDir)
+
+	expected := filepath.Join(exeDir, "web", "dist")
+	if staticDir != expected {
+		t.Fatalf("expected executable directory static dir %q, got %q", expected, staticDir)
+	}
+}
+
 func TestTemporaryStartupSnapshotCleanupLogsStartAndSuccess(t *testing.T) {
 	logs := captureAppInfoLogs(t)
 	db, err := repository.OpenDatabase(testAppConfig(t, "legacy_export"))
@@ -235,6 +289,13 @@ func TestTemporaryStartupSnapshotCleanupLogsStartAndSuccess(t *testing.T) {
 
 	if err := runTemporaryStartupSnapshotRunsCleanup(db); err != nil {
 		t.Fatalf("runTemporaryStartupSnapshotRunsCleanup returned error: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("load sql db: %v", err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatalf("close sql db: %v", err)
 	}
 
 	content := logs.String()

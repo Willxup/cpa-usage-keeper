@@ -58,13 +58,11 @@ cp .env.example .env
 | `REDIS_QUEUE_IDLE_INTERVAL` | No | `1s` | Empty queue check interval |
 | `POLL_INTERVAL` | No | `5m` | Pull interval for `legacy_export` |
 | `REQUEST_TIMEOUT` | No | `30s` | CPA request timeout |
-| `SQLITE_PATH` | No | `/data/app.db` | SQLite database path |
+| `WORK_DIR` | No | `./data` | Application work directory; database, logs, and backups default to `app.db`, `logs/`, and `backups/` under it |
 | `LOG_LEVEL` | No | `info` | Log level |
 | `LOG_FILE_ENABLED` | No | `true` | Write persistent log files |
-| `LOG_DIR` | No | `/data/logs` | Log file directory |
 | `LOG_RETENTION_DAYS` | No | `7` | Log retention days; `0` disables cleanup |
 | `BACKUP_ENABLED` | No | `true` | Enable raw backups |
-| `BACKUP_DIR` | No | `/data/backups` | Backup directory |
 | `BACKUP_INTERVAL` | No | `1h` | Minimum interval between backup writes |
 | `BACKUP_RETENTION_DAYS` | No | `30` | Backup retention days |
 
