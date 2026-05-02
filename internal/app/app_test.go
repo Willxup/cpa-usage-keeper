@@ -290,6 +290,13 @@ func TestTemporaryStartupSnapshotCleanupLogsStartAndSuccess(t *testing.T) {
 	if err := runTemporaryStartupSnapshotRunsCleanup(db); err != nil {
 		t.Fatalf("runTemporaryStartupSnapshotRunsCleanup returned error: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("load sql db: %v", err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatalf("close sql db: %v", err)
+	}
 
 	content := logs.String()
 	for _, expected := range []string{"level=info", "msg=\"temporary snapshot runs cleanup started\"", "msg=\"temporary snapshot runs cleanup completed\""} {
