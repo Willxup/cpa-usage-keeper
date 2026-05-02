@@ -188,8 +188,24 @@ jobs:
           if-no-files-found: error
 
   binary-dev-windows:
-    runs-on: windows-latest
+    runs-on: ${{ matrix.runs_on }}
     needs: resolve-dev-name
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            asset_arch: amd64
+            runs_on: windows-latest
+            msystem: UCRT64
+            install: mingw-w64-ucrt-x86_64-gcc
+            cc: gcc
+          - goarch: arm64
+            asset_arch: arm64
+            runs_on: windows-11-arm
+            msystem: CLANGARM64
+            install: mingw-w64-clang-aarch64-gcc
+            cc: gcc
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -210,10 +226,10 @@ jobs:
       - name: Set up MSYS2
         uses: msys2/setup-msys2@v2
         with:
-          msystem: UCRT64
+          msystem: ${{ matrix.msystem }}
           update: true
           path-type: inherit
-          install: mingw-w64-ucrt-x86_64-gcc
+          install: ${{ matrix.install }}
 
       - name: Install frontend dependencies
         shell: bash
@@ -228,15 +244,16 @@ jobs:
         env:
           PACKAGE_SUFFIX: ${{ needs.resolve-dev-name.outputs.specific_name }}
           GOOS: windows
-          GOARCH: amd64
-          ASSET_ARCH: amd64
+          GOARCH: ${{ matrix.goarch }}
+          ASSET_ARCH: ${{ matrix.asset_arch }}
+          CC: ${{ matrix.cc }}
         run: |
           set -euo pipefail
           package_name="cpa-usage-keeper_dev_${PACKAGE_SUFFIX}_${GITHUB_SHA::7}_${GOOS}_${ASSET_ARCH}"
           package_dir="dist/${package_name}"
           mkdir -p "${package_dir}/web" "${package_dir}/data"
 
-          CGO_ENABLED=1 GOOS="${GOOS}" GOARCH="${GOARCH}" CC=gcc \
+          CGO_ENABLED=1 GOOS="${GOOS}" GOARCH="${GOARCH}" CC="${CC}" \
             go build -trimpath -ldflags="-s -w" -o "${package_dir}/cpa-usage-keeper.exe" ./cmd/server/main.go
 
           cp -R web/dist "${package_dir}/web/dist"
@@ -246,16 +263,17 @@ jobs:
         shell: pwsh
         env:
           PACKAGE_SUFFIX: ${{ needs.resolve-dev-name.outputs.specific_name }}
+          ASSET_ARCH: ${{ matrix.asset_arch }}
         run: |
           $shortSha = "${env:GITHUB_SHA}".Substring(0, 7)
-          $packageName = "cpa-usage-keeper_dev_${env:PACKAGE_SUFFIX}_${shortSha}_windows_amd64"
+          $packageName = "cpa-usage-keeper_dev_${env:PACKAGE_SUFFIX}_${shortSha}_windows_${env:ASSET_ARCH}"
           Compress-Archive -Path "dist/$packageName" -DestinationPath "dist/$packageName.zip"
 
       - name: Upload binary package artifact
         uses: actions/upload-artifact@v4
         with:
-          name: cpa-usage-keeper-dev-${{ needs.resolve-dev-name.outputs.specific_name }}-windows-amd64
-          path: dist/cpa-usage-keeper_dev_${{ needs.resolve-dev-name.outputs.specific_name }}_*_windows_amd64.zip
+          name: cpa-usage-keeper-dev-${{ needs.resolve-dev-name.outputs.specific_name }}-windows-${{ matrix.asset_arch }}
+          path: dist/cpa-usage-keeper_dev_${{ needs.resolve-dev-name.outputs.specific_name }}_*_windows_${{ matrix.asset_arch }}.zip
           if-no-files-found: error
 
   publish-dev-artifacts:
