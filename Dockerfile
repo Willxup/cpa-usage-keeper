@@ -17,7 +17,7 @@ COPY internal/ ./internal/
 RUN CGO_ENABLED=1 GOOS=linux go build -o /out/cpa-usage-keeper ./cmd/server/main.go
 
 FROM alpine:3.20
-WORKDIR /app
+WORKDIR /
 RUN apk add --no-cache ca-certificates tzdata su-exec \
 	&& addgroup -S app \
 	&& adduser -S -G app app \

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -223,6 +225,39 @@ func TestNewWithConfigDoesNotProbeForExplicitModes(t *testing.T) {
 				t.Fatalf("expected mode %q to remain unchanged, got %q", mode, app.Config.UsageSyncMode)
 			}
 		})
+	}
+}
+
+func TestResolveStaticDirPrefersWorkingDirectory(t *testing.T) {
+	cwd := t.TempDir()
+	exeDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cwd, "web", "dist"), 0o755); err != nil {
+		t.Fatalf("create cwd static dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(exeDir, "web", "dist"), 0o755); err != nil {
+		t.Fatalf("create executable static dir: %v", err)
+	}
+
+	staticDir := resolveStaticDir(cwd, exeDir)
+
+	expected := filepath.Join(cwd, "web", "dist")
+	if staticDir != expected {
+		t.Fatalf("expected working directory static dir %q, got %q", expected, staticDir)
+	}
+}
+
+func TestResolveStaticDirFallsBackToExecutableDirectory(t *testing.T) {
+	cwd := t.TempDir()
+	exeDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(exeDir, "web", "dist"), 0o755); err != nil {
+		t.Fatalf("create executable static dir: %v", err)
+	}
+
+	staticDir := resolveStaticDir(cwd, exeDir)
+
+	expected := filepath.Join(exeDir, "web", "dist")
+	if staticDir != expected {
+		t.Fatalf("expected executable directory static dir %q, got %q", expected, staticDir)
 	}
 }
 

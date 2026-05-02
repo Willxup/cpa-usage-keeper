@@ -16,6 +16,16 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+func TestResolveLogDirUsesWorkDirFallback(t *testing.T) {
+	workDir := filepath.Join(t.TempDir(), "work")
+
+	logDir := resolveLogDir(config.Config{WorkDir: workDir})
+
+	if logDir != filepath.Join(workDir, filepath.Base(config.DefaultLogDir)) {
+		t.Fatalf("expected log dir under work dir, got %q", logDir)
+	}
+}
+
 func TestConfigureWritesLogrusToDailyFile(t *testing.T) {
 	reset := captureGlobalLogState(t)
 	defer reset()

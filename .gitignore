@@ -10,6 +10,8 @@
 !deploy/.env.example
 
 # runtime data
+/data/
+/test/
 *.db
 *.db-*
 .tmp-test.db

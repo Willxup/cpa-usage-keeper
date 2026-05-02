@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -109,9 +110,7 @@ func NewRouter(
 					return
 				}
 
-				relPath := strings.TrimPrefix(filepath.Clean(requestPath), "/")
-				if relPath != "." && relPath != "" {
-					assetPath := filepath.Join(staticDir, relPath)
+				if assetPath, ok := staticAssetPath(staticDir, requestPath); ok {
 					if assetInfo, err := os.Stat(assetPath); err == nil && !assetInfo.IsDir() {
 						c.File(assetPath)
 						return
@@ -139,8 +138,44 @@ func renderIndexHTML(indexPath, basePath string) ([]byte, error) {
 	), nil
 }
 
+func cleanURLPath(requestPath string) string {
+	cleaned := path.Clean(requestPath)
+	if cleaned == "." {
+		return "/"
+	}
+	if !strings.HasPrefix(cleaned, "/") {
+		return "/" + cleaned
+	}
+	return cleaned
+}
+
+func staticAssetPath(staticDir, requestPath string) (string, bool) {
+	cleaned := cleanURLPath(requestPath)
+	if strings.Contains(cleaned, "\\") {
+		return "", false
+	}
+	relPath := strings.TrimPrefix(cleaned, "/")
+	if relPath == "." || relPath == "" {
+		return "", false
+	}
+	assetPath := filepath.Join(staticDir, relPath)
+	staticRoot, err := filepath.Abs(staticDir)
+	if err != nil {
+		return "", false
+	}
+	assetAbsolutePath, err := filepath.Abs(assetPath)
+	if err != nil {
+		return "", false
+	}
+	relativePath, err := filepath.Rel(staticRoot, assetAbsolutePath)
+	if err != nil || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return assetPath, true
+}
+
 func stripBasePath(basePath, requestPath string) (string, bool) {
-	cleaned := filepath.Clean(requestPath)
+	cleaned := cleanURLPath(requestPath)
 	if cleaned == "." {
 		cleaned = "/"
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -24,6 +25,10 @@ type Runner interface {
 	Run(ctx context.Context) error
 	Status() poller.Status
 	SyncNow(ctx context.Context) error
+}
+
+type Options struct {
+	EnvFile string
 }
 
 type App struct {
@@ -49,7 +54,11 @@ var redisStartupProbe = func(ctx context.Context, cfg config.Config) error {
 }
 
 func New() (*App, error) {
-	cfg, err := config.LoadFromEnv()
+	return NewWithOptions(Options{})
+}
+
+func NewWithOptions(options Options) (*App, error) {
+	cfg, err := config.Load(config.LoadOptions{EnvFile: options.EnvFile})
 	if err != nil {
 		return nil, err
 	}
@@ -58,6 +67,13 @@ func New() (*App, error) {
 }
 
 func NewWithConfig(cfg config.Config) (*App, error) {
+	staticDir := filepath.Join("web", "dist")
+	if cwd, cwdErr := filepath.Abs("."); cwdErr == nil {
+		if executablePath, exeErr := os.Executable(); exeErr == nil {
+			staticDir = resolveStaticDir(cwd, filepath.Dir(executablePath))
+		}
+	}
+
 	logCloser, err := logging.Configure(cfg)
 	if err != nil {
 		return nil, err
@@ -99,7 +115,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		Maintenance:             NewStorageCleanupRunner(syncService),
 		LogCloser:               logCloser,
 		Router: api.NewRouter(
-			filepath.Join("web", "dist"),
+			staticDir,
 			backgroundPoller,
 			usageService,
 			authFileService,
@@ -115,6 +131,18 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 			cfg.AppBasePath,
 		),
 	}, nil
+}
+
+func resolveStaticDir(cwd, exeDir string) string {
+	cwdStaticDir := filepath.Join(cwd, "web", "dist")
+	if info, err := os.Stat(cwdStaticDir); err == nil && info.IsDir() {
+		return cwdStaticDir
+	}
+	executableStaticDir := filepath.Join(exeDir, "web", "dist")
+	if info, err := os.Stat(executableStaticDir); err == nil && info.IsDir() {
+		return executableStaticDir
+	}
+	return cwdStaticDir
 }
 
 func resolveUsageSyncMode(ctx context.Context, cfg config.Config) config.Config {

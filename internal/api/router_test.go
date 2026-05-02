@@ -246,6 +246,42 @@ func TestSubpathStaticRoutesServeOnlyUnderPrefix(t *testing.T) {
 	}
 }
 
+func TestCleanURLPathUsesSlashSemantics(t *testing.T) {
+	if cleaned := cleanURLPath("/cpa//dashboard/../assets/app.js"); cleaned != "/cpa/assets/app.js" {
+		t.Fatalf("expected slash-normalized URL path, got %q", cleaned)
+	}
+}
+
+func TestStaticAssetPathRejectsBackslashTraversal(t *testing.T) {
+	staticDir := t.TempDir()
+
+	if _, ok := staticAssetPath(staticDir, `/..\.env`); ok {
+		t.Fatal("expected backslash traversal path to be rejected")
+	}
+}
+
+func TestStaticFallbackRejectsBackslashPath(t *testing.T) {
+	staticDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte("index page"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(staticDir, `..\.env`), []byte("sentinel secret"), 0o644); err != nil {
+		t.Fatalf("write sentinel: %v", err)
+	}
+
+	router := NewRouter(staticDir, nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, `/..\.env`, nil)
+	router.ServeHTTP(resp, req)
+
+	if contains(resp.Body.String(), "sentinel secret") {
+		t.Fatalf("expected backslash path not to serve sentinel file, got %s", resp.Body.String())
+	}
+	if !contains(resp.Body.String(), "index page") {
+		t.Fatalf("expected SPA fallback response, got %s", resp.Body.String())
+	}
+}
+
 func TestRootStaticRouteInjectsEmptyBasePath(t *testing.T) {
 	staticDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte(`<html><head><script>window.__APP_BASE_PATH__ = "__APP_BASE_PATH__";</script></head><body>app</body></html>`), 0o644); err != nil {
