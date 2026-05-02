@@ -1,0 +1,143 @@
+name: Publish dev binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      specific_name:
+        description: 'Optional binary package name suffix; defaults to the current branch name, for example pr-123 or feature-login-test'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  binary-dev:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            cc: gcc
+            asset_arch: amd64
+          - goos: linux
+            goarch: arm64
+            cc: aarch64-linux-gnu-gcc
+            asset_arch: arm64
+    steps:
+      - name: Validate branch ref
+        if: ${{ !startsWith(github.ref, 'refs/heads/') || github.ref_name == 'main' }}
+        run: |
+          echo "Manual dev binary publishing must be run from a non-main branch." >&2
+          echo "Current ref: $GITHUB_REF" >&2
+          exit 1
+
+      - name: Resolve specific binary package name
+        id: dev_name
+        env:
+          INPUT_NAME: ${{ inputs.specific_name }}
+        run: |
+          raw_name="${INPUT_NAME:-$GITHUB_REF_NAME}"
+          specific_name=$(printf '%s' "$raw_name" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^[^a-z0-9]+//; s/[._-]+$//' | cut -c1-96)
+
+          if [[ -z "$INPUT_NAME" ]]; then
+            case "$specific_name" in
+              dev|latest|sha-*)
+                specific_name=$(printf '%s-%s' "$specific_name" "${GITHUB_SHA::7}" | cut -c1-96)
+                ;;
+            esac
+          fi
+
+          if [[ ! "$specific_name" =~ ^[a-z0-9][a-z0-9._-]{0,95}$ ]]; then
+            echo "Unable to generate a valid binary package name from: $raw_name" >&2
+            exit 1
+          fi
+
+          case "$specific_name" in
+            dev|latest|sha-*)
+              echo "Invalid binary package name: $specific_name is reserved." >&2
+              exit 1
+              ;;
+          esac
+
+          echo "specific_name=$specific_name" >> "$GITHUB_OUTPUT"
+          echo "Using specific binary package name: $specific_name"
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential gcc-aarch64-linux-gnu
+
+      - name: Install frontend dependencies
+        run: npm --prefix ./web ci
+
+      - name: Build frontend
+        run: npm --prefix ./web run build
+
+      - name: Build binary package
+        env:
+          PACKAGE_SUFFIX: ${{ steps.dev_name.outputs.specific_name }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CC: ${{ matrix.cc }}
+          ASSET_ARCH: ${{ matrix.asset_arch }}
+        run: |
+          set -euo pipefail
+          package_name="cpa-usage-keeper_dev_${PACKAGE_SUFFIX}_${GITHUB_SHA::7}_${GOOS}_${ASSET_ARCH}"
+          package_dir="dist/${package_name}"
+          mkdir -p "${package_dir}/web"
+
+          CGO_ENABLED=1 GOOS="${GOOS}" GOARCH="${GOARCH}" CC="${CC}" \
+            go build -trimpath -ldflags="-s -w" -o "${package_dir}/cpa-usage-keeper" ./cmd/server/main.go
+
+          cp -R web/dist "${package_dir}/web/dist"
+          cp .env.example README.md README.en.md LICENSE CONTRIBUTORS.md "${package_dir}/"
+          tar -czf "dist/${package_name}.tar.gz" -C dist "${package_name}"
+
+      - name: Upload binary package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpa-usage-keeper-dev-${{ steps.dev_name.outputs.specific_name }}-${{ matrix.goos }}-${{ matrix.asset_arch }}
+          path: dist/cpa-usage-keeper_dev_${{ steps.dev_name.outputs.specific_name }}_*_${{ matrix.goos }}_${{ matrix.asset_arch }}.tar.gz
+          if-no-files-found: error
+
+  publish-dev-artifacts:
+    runs-on: ubuntu-latest
+    needs: binary-dev
+    steps:
+      - name: Download binary package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum *.tar.gz > checksums.txt
+
+      - name: Upload dev binary packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpa-usage-keeper-dev-binaries-${{ github.run_id }}
+          path: |
+            dist/*.tar.gz
+            dist/checksums.txt
+          if-no-files-found: error

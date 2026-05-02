@@ -1,0 +1,100 @@
+name: Publish release binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  binary-release:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            cc: gcc
+            asset_arch: amd64
+          - goos: linux
+            goarch: arm64
+            cc: aarch64-linux-gnu-gcc
+            asset_arch: arm64
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential gcc-aarch64-linux-gnu
+
+      - name: Install frontend dependencies
+        run: npm --prefix ./web ci
+
+      - name: Build frontend
+        run: npm --prefix ./web run build
+
+      - name: Build binary package
+        env:
+          VERSION: ${{ github.ref_name }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CC: ${{ matrix.cc }}
+          ASSET_ARCH: ${{ matrix.asset_arch }}
+        run: |
+          set -euo pipefail
+          package_name="cpa-usage-keeper_${VERSION}_${GOOS}_${ASSET_ARCH}"
+          package_dir="dist/${package_name}"
+          mkdir -p "${package_dir}/web"
+
+          CGO_ENABLED=1 GOOS="${GOOS}" GOARCH="${GOARCH}" CC="${CC}" \
+            go build -trimpath -ldflags="-s -w" -o "${package_dir}/cpa-usage-keeper" ./cmd/server/main.go
+
+          cp -R web/dist "${package_dir}/web/dist"
+          cp .env.example README.md README.en.md LICENSE CONTRIBUTORS.md "${package_dir}/"
+          tar -czf "dist/${package_name}.tar.gz" -C dist "${package_name}"
+
+      - name: Upload binary package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpa-usage-keeper-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.asset_arch }}
+          path: dist/cpa-usage-keeper_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.asset_arch }}.tar.gz
+          if-no-files-found: error
+
+  publish-release:
+    runs-on: ubuntu-latest
+    needs: binary-release
+    steps:
+      - name: Download binary package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum *.tar.gz > checksums.txt
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/checksums.txt
