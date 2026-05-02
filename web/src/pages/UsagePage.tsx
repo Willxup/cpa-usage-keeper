@@ -556,7 +556,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         analysisRequestControllerRef.current = null;
       }
     }
-  }, [customTimeRange.end, customTimeRange.start, onAuthRequired, timeRange]);
+  }, [customTimeRange, onAuthRequired, timeRange]);
   const hourWindowHours = useMemo(
     () => getOverviewHourWindowHours({ timeRange, filterWindow }),
     [filterWindow, timeRange]
@@ -669,7 +669,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       return { valid: false, start: undefined, end: undefined };
     }
     return buildCustomDateRangeQuery(customTimeRange);
-  }, [customTimeRange.end, customTimeRange.start, timeRange]);
+  }, [customTimeRange, timeRange]);
 
   const loadEventFilterOptions = useCallback(async () => {
     const queryWindow = getEventQueryWindow();
@@ -855,7 +855,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         credentialsRequestControllerRef.current = null;
       }
     }
-  }, [customTimeRange.end, customTimeRange.start, onAuthRequired, timeRange]);
+  }, [customTimeRange, onAuthRequired, timeRange]);
 
   const refreshActiveTab = useCallback(async () => {
     if (activeTab === 'events') {
