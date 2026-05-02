@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   binary-release-linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -90,7 +90,7 @@ jobs:
           - goos: darwin
             goarch: arm64
             asset_arch: arm64
-            runs_on: macos-14
+            runs_on: macos-15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -149,7 +149,7 @@ jobs:
         include:
           - goarch: amd64
             asset_arch: amd64
-            runs_on: windows-latest
+            runs_on: windows-2025
             msystem: UCRT64
             install: mingw-w64-ucrt-x86_64-gcc
             cc: gcc
@@ -230,7 +230,7 @@ jobs:
           if-no-files-found: error
 
   publish-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs:
       - binary-release-linux
       - binary-release-darwin
