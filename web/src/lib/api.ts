@@ -237,3 +237,25 @@ export async function deletePricing(model: string): Promise<void> {
     await parseApiError(response, `Failed to delete pricing: ${response.status}`)
   }
 }
+
+export interface UsageImportResult {
+  added: number
+  skipped: number
+  total: number
+  failed: number
+}
+
+export async function importUsage(snapshot: unknown, signal?: AbortSignal): Promise<UsageImportResult> {
+  const response = await apiFetch(apiPath('/usage/import'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(snapshot),
+    signal,
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to import usage: ${response.status}`)
+  }
+  return response.json()
+}

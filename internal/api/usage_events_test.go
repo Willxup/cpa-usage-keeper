@@ -75,7 +75,7 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 		CachedTokens:    1,
 		TotalTokens:     18,
 	}}}
-	router := NewRouter("", nil, provider, authFileStub{files: []models.AuthFile{{AuthIndex: "2", Email: "user@example.com", Type: "auth-file"}}}, providerMetadataStub{items: []models.ProviderMetadata{{LookupKey: "sk-provider-key", ProviderType: "openai", DisplayName: "OpenAI Mirror", ProviderKey: "openai:OpenAI Mirror"}}}, nil, AuthConfig{}, nil, "")
+	router := NewRouter("", nil, provider, authFileStub{files: []models.AuthFile{{AuthIndex: "2", Email: "user@example.com", Type: "auth-file"}}}, providerMetadataStub{items: []models.ProviderMetadata{{LookupKey: "sk-provider-key", ProviderType: "openai", DisplayName: "OpenAI Mirror", ProviderKey: "openai:OpenAI Mirror"}}}, nil, AuthConfig{}, nil, "", nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h", nil)
 	resp := httptest.NewRecorder()
 
@@ -122,7 +122,7 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 
 func TestUsageEventsPassesPaginationAndServerFilters(t *testing.T) {
 	provider := &usageEventsStub{eventsPage: &service.UsageEventsPage{Events: []service.UsageEventRecord{}, TotalCount: 0, Page: 3, PageSize: 100, TotalPages: 0}}
-	router := NewRouter("", nil, provider, nil, providerMetadataStub{items: []models.ProviderMetadata{{LookupKey: "source-a", ProviderType: "openai", DisplayName: "Provider A", ProviderKey: "openai:Provider A"}}}, nil, AuthConfig{}, nil, "")
+	router := NewRouter("", nil, provider, nil, providerMetadataStub{items: []models.ProviderMetadata{{LookupKey: "source-a", ProviderType: "openai", DisplayName: "Provider A", ProviderKey: "openai:Provider A"}}}, nil, AuthConfig{}, nil, "", nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?page=3&page_size=100&model=claude-sonnet&source=openai:Provider%20A&result=failed", nil)
 	resp := httptest.NewRecorder()
 
@@ -152,7 +152,7 @@ func TestUsageEventsReturnsFilterOptions(t *testing.T) {
 		Sources:    []string{"source-a", "source-b"},
 		TotalCount: 2, Page: 1, PageSize: 20, TotalPages: 1,
 	}}
-	router := NewRouter("", nil, provider, authFileStub{files: []models.AuthFile{{AuthIndex: "1", Email: "user@example.com", Type: "auth-file"}}}, providerMetadataStub{items: []models.ProviderMetadata{{LookupKey: "source-a", ProviderType: "openai", DisplayName: "Provider A", ProviderKey: "openai:Provider A"}, {LookupKey: "source-b", ProviderType: "anthropic", DisplayName: "Provider B", ProviderKey: "anthropic:Provider B"}}}, nil, AuthConfig{}, nil, "")
+	router := NewRouter("", nil, provider, authFileStub{files: []models.AuthFile{{AuthIndex: "1", Email: "user@example.com", Type: "auth-file"}}}, providerMetadataStub{items: []models.ProviderMetadata{{LookupKey: "source-a", ProviderType: "openai", DisplayName: "Provider A", ProviderKey: "openai:Provider A"}, {LookupKey: "source-b", ProviderType: "anthropic", DisplayName: "Provider B", ProviderKey: "anthropic:Provider B"}}}, nil, AuthConfig{}, nil, "", nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events", nil)
 	resp := httptest.NewRecorder()
 
@@ -178,7 +178,7 @@ func TestUsageEventFilterOptionsReturnsStableModelsAndSources(t *testing.T) {
 		Models:  []string{"claude-sonnet", "gpt-5"},
 		Sources: []string{"source-a", "source-b"},
 	}}
-	router := NewRouter("", nil, provider, authFileStub{files: []models.AuthFile{{AuthIndex: "1", Email: "user@example.com", Type: "auth-file"}}}, providerMetadataStub{items: []models.ProviderMetadata{{LookupKey: "source-a", ProviderType: "openai", DisplayName: "Provider A", ProviderKey: "openai:Provider A"}, {LookupKey: "source-b", ProviderType: "anthropic", DisplayName: "Provider B", ProviderKey: "anthropic:Provider B"}}}, nil, AuthConfig{}, nil, "")
+	router := NewRouter("", nil, provider, authFileStub{files: []models.AuthFile{{AuthIndex: "1", Email: "user@example.com", Type: "auth-file"}}}, providerMetadataStub{items: []models.ProviderMetadata{{LookupKey: "source-a", ProviderType: "openai", DisplayName: "Provider A", ProviderKey: "openai:Provider A"}, {LookupKey: "source-b", ProviderType: "anthropic", DisplayName: "Provider B", ProviderKey: "anthropic:Provider B"}}}, nil, AuthConfig{}, nil, "", nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/filters?range=24h&model=ignored&source=ignored&result=failed&page=3&page_size=20", nil)
 	resp := httptest.NewRecorder()
 
@@ -217,7 +217,7 @@ func TestUsageCredentialsReturnsAggregatedRows(t *testing.T) {
 		Failed:       true,
 		RequestCount: 1,
 	}}}
-	router := NewRouter("", nil, provider, authFileStub{files: []models.AuthFile{{AuthIndex: "2", Email: "user@example.com", Type: "auth-file"}}}, providerMetadataStub{items: []models.ProviderMetadata{{LookupKey: "sk-provider-key", ProviderType: "openai", DisplayName: "OpenAI Mirror", ProviderKey: "openai:OpenAI Mirror"}}}, nil, AuthConfig{}, nil, "")
+	router := NewRouter("", nil, provider, authFileStub{files: []models.AuthFile{{AuthIndex: "2", Email: "user@example.com", Type: "auth-file"}}}, providerMetadataStub{items: []models.ProviderMetadata{{LookupKey: "sk-provider-key", ProviderType: "openai", DisplayName: "OpenAI Mirror", ProviderKey: "openai:OpenAI Mirror"}}}, nil, AuthConfig{}, nil, "", nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/credentials?range=24h", nil)
 	resp := httptest.NewRecorder()
 

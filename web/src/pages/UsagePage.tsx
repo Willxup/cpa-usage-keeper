@@ -14,7 +14,7 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { ApiError, fetchStatus, fetchUsageAnalysis, fetchUsageCredentials, fetchUsageEventFilterOptions, fetchUsageEvents, triggerSync } from '@/lib/api';
+import { ApiError, fetchStatus, fetchUsageAnalysis, fetchUsageCredentials, fetchUsageEventFilterOptions, fetchUsageEvents, importUsage, triggerSync } from '@/lib/api';
 import type { StatusResponse, UsageAnalysisResponse, UsageCredential, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -445,6 +445,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const loadedEventsFilterOptionsKeyRef = useRef('');
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
   const [manualSyncLoading, setManualSyncLoading] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [credentialsLoading, setCredentialsLoading] = useState(false);
   const [credentialsError, setCredentialsError] = useState('');
   const [credentialsData, setCredentialsData] = useState<UsageCredential[]>([]);
@@ -914,6 +916,32 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [onAuthRequired, refreshActiveTab, t]);
 
+  const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportLoading(true);
+    try {
+      const text = await file.text();
+      const snapshot = JSON.parse(text);
+      const result = await importUsage(snapshot);
+      if (result.added > 0 || result.skipped > 0) {
+        await refreshActiveTab();
+      }
+      setStatusError('');
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      setStatusError(error instanceof SyntaxError ? t('usage_stats.import_invalid') : (error instanceof Error ? error.message : t('notification.refresh_failed')));
+    } finally {
+      setImportLoading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  }, [onAuthRequired, refreshActiveTab, t]);
+
   useEffect(() => scheduleOverviewAutoRefresh({
     enabled: isOverviewTab,
     refreshOverview: loadUsage,
@@ -1149,6 +1177,22 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               >
                 {manualSyncLoading ? t('common.loading') : t('usage_stats.sync_now')}
               </button>
+              <button
+                type="button"
+                className={styles.syncPill}
+                onClick={() => fileInputRef.current?.click()}
+                disabled={importLoading}
+                title={t('usage_stats.import')}
+              >
+                {importLoading ? t('common.loading') : t('usage_stats.import')}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                style={{ display: 'none' }}
+                onChange={handleImportFile}
+              />
             </div>
           </div>
         </header>

@@ -15,6 +15,7 @@ import (
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/service"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 const appBasePathPlaceholder = "__APP_BASE_PATH__"
@@ -54,6 +55,7 @@ func NewRouter(
 	authConfig AuthConfig,
 	authHandler *authHandler,
 	basePath string,
+	db *gorm.DB,
 ) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Recovery())
@@ -83,6 +85,7 @@ func NewRouter(
 	registerAuthFileRoutes(protected, authFileProvider)
 	registerProviderMetadataRoutes(protected, providerMetadataProvider)
 	registerPricingRoutes(protected, pricingProvider)
+	registerUsageImportRoute(protected, db)
 
 	if staticDir != "" {
 		if info, err := os.Stat(staticDir); err == nil && info.IsDir() {

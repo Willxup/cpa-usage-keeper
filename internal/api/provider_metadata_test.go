@@ -20,7 +20,7 @@ func (s providerMetadataStub) ListProviderMetadata(context.Context) ([]models.Pr
 }
 
 func TestProviderMetadataRouteReturnsEmptyResponseWithoutProvider(t *testing.T) {
-	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil, "", nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/provider-metadata", nil)
 	resp := httptest.NewRecorder()
 
@@ -37,7 +37,7 @@ func TestProviderMetadataRouteReturnsStoredMetadata(t *testing.T) {
 		ProviderType: "openai",
 		DisplayName:  "ChatGPT Mirror",
 		ProviderKey:  "openai:ChatGPT Mirror",
-	}}}, nil, AuthConfig{}, nil, "")
+	}}}, nil, AuthConfig{}, nil, "", nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/provider-metadata", nil)
 	resp := httptest.NewRecorder()
 
@@ -56,7 +56,7 @@ func TestProviderMetadataRouteReturnsStoredMetadata(t *testing.T) {
 }
 
 func TestProviderMetadataRouteHidesInternalErrors(t *testing.T) {
-	router := NewRouter("", nil, nil, nil, providerMetadataStub{err: errors.New("database contains sk-secret-1234")}, nil, AuthConfig{}, nil, "")
+	router := NewRouter("", nil, nil, nil, providerMetadataStub{err: errors.New("database contains sk-secret-1234")}, nil, AuthConfig{}, nil, "", nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/provider-metadata", nil)
 	resp := httptest.NewRecorder()
 
@@ -78,7 +78,7 @@ func TestProviderMetadataRouteDisambiguatesSameNamedProviders(t *testing.T) {
 	router := NewRouter("", nil, nil, nil, providerMetadataStub{items: []models.ProviderMetadata{
 		{ID: 1, LookupKey: "sk-test-1234", ProviderType: "openai", DisplayName: "Shared"},
 		{ID: 2, LookupKey: "sk-test-5678", ProviderType: "openai", DisplayName: "Shared"},
-	}}, nil, AuthConfig{}, nil, "")
+	}}, nil, AuthConfig{}, nil, "", nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/provider-metadata", nil)
 	resp := httptest.NewRecorder()
 

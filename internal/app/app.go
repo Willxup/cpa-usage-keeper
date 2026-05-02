@@ -113,6 +113,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 			},
 			authHandler,
 			cfg.AppBasePath,
+			db,
 		),
 	}, nil
 }

@@ -36,7 +36,7 @@ func (s *syncStatusStub) SyncNow(context.Context) error {
 }
 
 func TestHealthzReturnsOK(t *testing.T) {
-	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil, "", nil)
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	resp := httptest.NewRecorder()
 
@@ -56,7 +56,7 @@ func TestStatusReturnsPollerState(t *testing.T) {
 		LastError:   "boom",
 		LastWarning: "metadata unavailable",
 		LastStatus:  "completed_with_warnings",
-	}}, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	}}, nil, nil, nil, nil, AuthConfig{}, nil, "", nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
 	resp := httptest.NewRecorder()
@@ -80,7 +80,7 @@ func TestStatusReturnsProjectTimezone(t *testing.T) {
 	t.Cleanup(func() { time.Local = previousLocal })
 	time.Local = location
 
-	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil, "", nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -94,7 +94,7 @@ func TestStatusReturnsProjectTimezone(t *testing.T) {
 }
 
 func TestStatusReturnsEmptyStateWithoutProvider(t *testing.T) {
-	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil, "", nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -110,7 +110,7 @@ func TestStatusReturnsEmptyStateWithoutProvider(t *testing.T) {
 func TestManualSyncTriggersSyncRunner(t *testing.T) {
 	lastRunAt := time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC)
 	syncer := &syncStatusStub{status: poller.Status{Running: true, LastRunAt: lastRunAt, LastStatus: "completed"}}
-	router := NewRouter("", syncer, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter("", syncer, nil, nil, nil, nil, AuthConfig{}, nil, "", nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sync", nil)
 	resp := httptest.NewRecorder()
 
@@ -130,7 +130,7 @@ func TestManualSyncTriggersSyncRunner(t *testing.T) {
 
 func TestManualSyncReturnsConflictWhenAlreadyRunning(t *testing.T) {
 	syncer := &syncStatusStub{err: poller.ErrSyncAlreadyRunning}
-	router := NewRouter("", syncer, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter("", syncer, nil, nil, nil, nil, AuthConfig{}, nil, "", nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sync", nil)
 	resp := httptest.NewRecorder()
 
@@ -146,7 +146,7 @@ func TestManualSyncReturnsWarningsAsSuccessfulStatus(t *testing.T) {
 		status: poller.Status{LastStatus: "completed_with_warnings", LastWarning: "metadata unavailable"},
 		err:    poller.ErrSyncCompletedWithWarnings,
 	}
-	router := NewRouter("", syncer, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter("", syncer, nil, nil, nil, nil, AuthConfig{}, nil, "", nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sync", nil)
 	resp := httptest.NewRecorder()
 
@@ -163,7 +163,7 @@ func TestManualSyncReturnsWarningsAsSuccessfulStatus(t *testing.T) {
 
 func TestManualSyncRateLimitsRepeatedRequests(t *testing.T) {
 	syncer := &syncStatusStub{status: poller.Status{LastStatus: "completed"}}
-	router := NewRouter("", syncer, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter("", syncer, nil, nil, nil, nil, AuthConfig{}, nil, "", nil)
 
 	firstResp := httptest.NewRecorder()
 	firstReq := httptest.NewRequest(http.MethodPost, "/api/v1/sync", nil)
@@ -188,7 +188,7 @@ func TestSubpathRoutesOnlyServePrefixedEndpoints(t *testing.T) {
 	router := NewRouter("", statusStub{status: poller.Status{
 		Running:   true,
 		LastRunAt: lastRunAt,
-	}}, nil, nil, nil, nil, AuthConfig{BasePath: "/cpa"}, nil, "/cpa")
+	}}, nil, nil, nil, nil, AuthConfig{BasePath: "/cpa"}, nil, "/cpa", nil)
 
 	for _, testCase := range []struct {
 		path       string
@@ -220,7 +220,7 @@ func TestSubpathStaticRoutesServeOnlyUnderPrefix(t *testing.T) {
 		t.Fatalf("write asset: %v", err)
 	}
 
-	router := NewRouter(staticDir, nil, nil, nil, nil, nil, AuthConfig{BasePath: "/cpa"}, nil, "/cpa")
+	router := NewRouter(staticDir, nil, nil, nil, nil, nil, AuthConfig{BasePath: "/cpa"}, nil, "/cpa", nil)
 
 	for _, testCase := range []struct {
 		path       string
@@ -252,7 +252,7 @@ func TestRootStaticRouteInjectsEmptyBasePath(t *testing.T) {
 		t.Fatalf("write index: %v", err)
 	}
 
-	router := NewRouter(staticDir, nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter(staticDir, nil, nil, nil, nil, nil, AuthConfig{}, nil, "", nil)
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	router.ServeHTTP(resp, req)
