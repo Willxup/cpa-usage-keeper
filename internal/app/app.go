@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -85,6 +86,9 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		return nil, err
 	}
 	if err := runTemporaryStartupSnapshotRunsCleanup(db); err != nil {
+		if sqlDB, dbErr := db.DB(); dbErr == nil {
+			_ = sqlDB.Close()
+		}
 		_ = logCloser.Close()
 		return nil, err
 	}
@@ -193,10 +197,25 @@ func runTemporaryStartupSnapshotRunsCleanup(db *gorm.DB) error {
 }
 
 func (a *App) Close() error {
-	if a == nil || a.LogCloser == nil {
+	if a == nil {
 		return nil
 	}
-	return a.LogCloser.Close()
+
+	var closeErr error
+	if a.DB != nil {
+		sqlDB, err := a.DB.DB()
+		if err != nil {
+			closeErr = errors.Join(closeErr, err)
+		} else if err := sqlDB.Close(); err != nil {
+			closeErr = errors.Join(closeErr, err)
+		}
+		a.DB = nil
+	}
+	if a.LogCloser != nil {
+		closeErr = errors.Join(closeErr, a.LogCloser.Close())
+		a.LogCloser = nil
+	}
+	return closeErr
 }
 
 func (a *App) Run() error {

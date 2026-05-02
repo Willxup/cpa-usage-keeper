@@ -18,6 +18,25 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+func TestAppCloseClosesDatabase(t *testing.T) {
+	app, err := NewWithConfig(testAppConfig(t, "legacy_export"))
+	if err != nil {
+		t.Fatalf("NewWithConfig returned error: %v", err)
+	}
+	sqlDB, err := app.DB.DB()
+	if err != nil {
+		t.Fatalf("load sql db: %v", err)
+	}
+
+	if err := app.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	if err := sqlDB.Ping(); err == nil {
+		t.Fatal("expected database ping to fail after app close")
+	}
+}
+
 func TestNewWithConfigBuildsPollerAndRouter(t *testing.T) {
 	app, err := NewWithConfig(testAppConfig(t, "legacy_export"))
 	if err != nil {
