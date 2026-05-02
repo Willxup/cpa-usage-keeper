@@ -11,7 +11,14 @@ permissions:
 
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runs-on:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -22,7 +29,22 @@ jobs:
           go-version: '1.22'
           cache: true
 
+      - name: Set up MSYS2
+        if: ${{ runner.os == 'Windows' }}
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          path-type: inherit
+          install: mingw-w64-ucrt-x86_64-gcc
+
       - name: Run backend tests
+        if: ${{ runner.os != 'Windows' }}
+        run: go test ./cmd/... ./internal/...
+
+      - name: Run backend tests
+        if: ${{ runner.os == 'Windows' }}
+        shell: msys2 {0}
         run: go test ./cmd/... ./internal/...
 
   frontend:
