@@ -187,5 +187,6 @@ func openUsageTestDatabase(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
 	}
+	closeTestDatabase(t, db)
 	return db
 }

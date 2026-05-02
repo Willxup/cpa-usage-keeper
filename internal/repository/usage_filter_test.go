@@ -27,6 +27,7 @@ func TestBuildUsageSnapshotWithFilterAppliesTimeBounds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
 	}
+	closeTestDatabase(t, db)
 
 	events := []models.UsageEvent{
 		{EventKey: "event-1", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), Source: "source-a", AuthIndex: "1", TotalTokens: 10},
@@ -66,6 +67,7 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
 	}
+	closeTestDatabase(t, db)
 
 	if _, err := UpsertModelPriceSetting(db, ModelPriceSettingInput{
 		Model:                "claude-sonnet",
@@ -277,6 +279,7 @@ func TestBuildUsageOverviewWithFilterBuilds24hHealthGridFor24hRange(t *testing.T
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
 	}
+	closeTestDatabase(t, db)
 
 	events := []models.UsageEvent{
 		{EventKey: "event-success", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 17, 9, 31, 0, 0, time.UTC), Failed: false, TotalTokens: 10},
@@ -349,6 +352,7 @@ func TestBuildUsageOverviewWithFilterReturnsUnavailableCostForPartialPricing(t *
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
 	}
+	closeTestDatabase(t, db)
 
 	if _, err := UpsertModelPriceSetting(db, ModelPriceSettingInput{
 		Model:                "priced-model",
@@ -395,6 +399,7 @@ func TestBuildUsageOverviewWithFilterReturnsUnavailableCostWithoutPricing(t *tes
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
 	}
+	closeTestDatabase(t, db)
 
 	events := []models.UsageEvent{{
 		EventKey: "event-1", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet",
@@ -425,6 +430,7 @@ func TestBuildUsageOverviewWithFilterUsesExactPresetWindowMinutes(t *testing.T) 
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
 	}
+	closeTestDatabase(t, db)
 
 	cases := []struct {
 		name            string
@@ -493,6 +499,7 @@ func TestBuildUsageOverviewWithFilterBuildsLatestHourlySeriesForLongRanges(t *te
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
 	}
+	closeTestDatabase(t, db)
 
 	if _, err := UpsertModelPriceSetting(db, ModelPriceSettingInput{
 		Model:                "claude-sonnet",
@@ -545,6 +552,7 @@ func TestBuildUsageOverviewWithFilterUsesDailyBucketsForLongCustomRanges(t *test
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
 	}
+	closeTestDatabase(t, db)
 
 	events := []models.UsageEvent{
 		{EventKey: "event-1", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 20, 8, 0, 0, 0, time.UTC), TotalTokens: 10},
