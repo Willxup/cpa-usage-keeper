@@ -1,7 +1,6 @@
 package cpa
 
 const (
-	cpaManagementUsageExportEndpoint         = "/v0/management/usage/export"
 	cpaManagementAuthFilesEndpoint           = "/v0/management/auth-files"
 	cpaManagementExternalAPIKeysEndpoint     = "/v0/management/api-keys"
 	cpaManagementVertexAPIKeyEndpoint        = "/v0/management/vertex-api-key"
