@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"path"
@@ -45,16 +46,19 @@ type SyncRunner interface {
 	SyncNow(ctx context.Context) error
 }
 
+type syncUserMessageError interface {
+	UserMessage() string
+}
+
 func NewRouter(
 	staticDir string,
 	statusProvider StatusProvider,
 	usageProvider service.UsageProvider,
-	authFileProvider service.AuthFileProvider,
-	providerMetadataProvider service.ProviderMetadataProvider,
 	pricingProvider service.PricingProvider,
 	authConfig AuthConfig,
 	authHandler *authHandler,
 	basePath string,
+	usageIdentityProviders ...service.UsageIdentityProvider,
 ) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Recovery())
@@ -73,16 +77,20 @@ func NewRouter(
 	}
 	authHandler.registerRoutes(authGroup)
 
+	var usageIdentityProvider service.UsageIdentityProvider
+	if len(usageIdentityProviders) > 0 {
+		usageIdentityProvider = usageIdentityProviders[0]
+	}
+
 	protected := apiV1.Group("")
 	protected.Use(authHandler.middleware())
 	registerStatusRoutes(protected, statusProvider)
 	registerSyncRoutes(protected, statusProvider, &syncLimiter{window: manualSyncRateLimitWindow})
 	registerUsageOverviewRoute(protected, usageProvider)
 	registerUsageAnalysisRoute(protected, usageProvider)
-	registerUsageEventsRoute(protected, usageProvider, authFileProvider, providerMetadataProvider)
-	registerUsageCredentialsRoute(protected, usageProvider, authFileProvider, providerMetadataProvider)
-	registerAuthFileRoutes(protected, authFileProvider)
-	registerProviderMetadataRoutes(protected, providerMetadataProvider)
+	registerUsageEventsRoute(protected, usageProvider, usageIdentityProvider)
+	registerUsageCredentialsRoute(protected, usageProvider, usageIdentityProvider)
+	registerUsageIdentityRoutes(protected, usageIdentityProvider)
 	registerPricingRoutes(protected, pricingProvider)
 
 	if staticDir != "" {
@@ -219,6 +227,14 @@ func registerStatusRoutes(router gin.IRoutes, statusProvider StatusProvider) {
 	})
 }
 
+func manualSyncErrorMessage(err error) string {
+	var userMessage syncUserMessageError
+	if errors.As(err, &userMessage) && userMessage.UserMessage() != "" {
+		return userMessage.UserMessage()
+	}
+	return "manual sync failed"
+}
+
 func registerSyncRoutes(router gin.IRoutes, statusProvider StatusProvider, limiter *syncLimiter) {
 	router.POST("/sync", func(c *gin.Context) {
 		if limiter != nil && !limiter.allow(time.Now()) {
@@ -237,10 +253,9 @@ func registerSyncRoutes(router gin.IRoutes, statusProvider StatusProvider, limit
 				c.JSON(http.StatusConflict, gin.H{"error": "sync already running"})
 				return
 			}
-			if !errors.Is(err, poller.ErrSyncCompletedWithWarnings) {
-				writeInternalError(c, "manual sync failed", err)
-				return
-			}
+			slog.Error("manual sync failed", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": manualSyncErrorMessage(err)})
+			return
 		}
 
 		if statusProvider, ok := syncRunner.(StatusProvider); ok {
