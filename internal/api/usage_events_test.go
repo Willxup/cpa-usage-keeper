@@ -77,7 +77,7 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 		CachedTokens:    1,
 		TotalTokens:     18,
 	}}}
-	router := NewRouter("", nil, provider, nil, AuthConfig{}, nil, "")
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h", nil)
 	resp := httptest.NewRecorder()
 
@@ -121,7 +121,7 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 
 func TestUsageEventsPassesPaginationAndProviderSourceFilter(t *testing.T) {
 	provider := &usageEventsStub{eventsPage: &service.UsageEventsPage{Events: []service.UsageEventRecord{}, TotalCount: 0, Page: 3, PageSize: 100, TotalPages: 0}}
-	router := NewRouter("", nil, provider, nil, AuthConfig{}, nil, "")
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?page=3&page_size=100&model=claude-sonnet&source=provider:OpenAI%20Mirror&result=failed", nil)
 	resp := httptest.NewRecorder()
 
@@ -144,7 +144,7 @@ func TestUsageEventsPassesPaginationAndProviderSourceFilter(t *testing.T) {
 
 func TestUsageEventsPassesAuthSourceFilter(t *testing.T) {
 	provider := &usageEventsStub{eventsPage: &service.UsageEventsPage{Events: []service.UsageEventRecord{}, TotalCount: 0, Page: 1, PageSize: 100, TotalPages: 0}}
-	router := NewRouter("", nil, provider, nil, AuthConfig{}, nil, "")
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?source=auth:2", nil)
 	resp := httptest.NewRecorder()
 
@@ -162,7 +162,7 @@ func TestUsageEventsRejectsEmptyPrefixedSourceFilter(t *testing.T) {
 	for _, path := range []string{"/api/v1/usage/events?source=auth:", "/api/v1/usage/events?source=provider:"} {
 		t.Run(path, func(t *testing.T) {
 			provider := &usageEventsStub{eventsPage: &service.UsageEventsPage{Events: []service.UsageEventRecord{}, TotalCount: 0, Page: 1, PageSize: 100, TotalPages: 0}}
-			router := NewRouter("", nil, provider, nil, AuthConfig{}, nil, "")
+			router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			resp := httptest.NewRecorder()
 
@@ -187,7 +187,7 @@ func TestUsageEventsReturnsFilterOptions(t *testing.T) {
 		Sources:    []string{"source-a", "source-b"},
 		TotalCount: 2, Page: 1, PageSize: 20, TotalPages: 1,
 	}}
-	router := NewRouter("", nil, provider, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []models.UsageIdentity{{ID: 1, Name: "sk-source-prefix", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "source-a", Type: "openai", Provider: "Provider A"}, {ID: 2, Name: "Provider A", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "source-b", Type: "openai", Provider: "Provider A"}, {ID: 3, Name: "Auth User", AuthType: models.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-1", Type: "claude", Provider: "Claude"}}})
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []models.UsageIdentity{{ID: 1, Name: "sk-source-prefix", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "source-a", Type: "openai", Provider: "Provider A"}, {ID: 2, Name: "Provider A", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "source-b", Type: "openai", Provider: "Provider A"}, {ID: 3, Name: "Auth User", AuthType: models.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-1", Type: "claude", Provider: "Claude"}}})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events", nil)
 	resp := httptest.NewRecorder()
 
@@ -213,7 +213,7 @@ func TestUsageEventFilterOptionsReturnsStableModelsAndSources(t *testing.T) {
 		Models:  []string{"claude-sonnet", "gpt-5"},
 		Sources: []string{"source-a", "source-b"},
 	}}
-	router := NewRouter("", nil, provider, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []models.UsageIdentity{{ID: 1, Name: "sk-source-prefix", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "source-a", Type: "openai", Provider: "Provider A"}, {ID: 2, Name: "Provider A", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "source-b", Type: "openai", Provider: "Provider A"}, {ID: 3, Name: "Auth User", AuthType: models.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-1", Type: "claude", Provider: "Claude"}}})
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []models.UsageIdentity{{ID: 1, Name: "sk-source-prefix", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "source-a", Type: "openai", Provider: "Provider A"}, {ID: 2, Name: "Provider A", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "source-b", Type: "openai", Provider: "Provider A"}, {ID: 3, Name: "Auth User", AuthType: models.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-1", Type: "claude", Provider: "Claude"}}})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/filters?range=24h&model=ignored&source=ignored&result=failed&page=3&page_size=20", nil)
 	resp := httptest.NewRecorder()
 
@@ -252,7 +252,7 @@ func TestUsageCredentialsReturnsAggregatedRows(t *testing.T) {
 		Failed:       true,
 		RequestCount: 1,
 	}}}
-	router := NewRouter("", nil, provider, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []models.UsageIdentity{{ID: 1, Name: "sk-provider-prefix", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "sk-provider-key", Type: "openai", Provider: "OpenAI Mirror"}}})
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []models.UsageIdentity{{ID: 1, Name: "sk-provider-prefix", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "sk-provider-key", Type: "openai", Provider: "OpenAI Mirror"}}})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/credentials?range=24h", nil)
 	resp := httptest.NewRecorder()
 

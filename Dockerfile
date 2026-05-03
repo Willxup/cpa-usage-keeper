@@ -14,6 +14,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
+COPY --from=web-builder /app/web/dist ./web/dist
+COPY web/static.go ./web/static.go
 RUN CGO_ENABLED=1 GOOS=linux go build -o /out/cpa-usage-keeper ./cmd/server/main.go
 
 FROM alpine:3.20
@@ -24,7 +26,6 @@ RUN apk add --no-cache ca-certificates tzdata su-exec \
 	&& mkdir -p /data \
 	&& chown -R app:app /data
 COPY --from=go-builder /out/cpa-usage-keeper /app/cpa-usage-keeper
-COPY --from=web-builder /app/web/dist /app/web/dist
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 VOLUME ["/data"]

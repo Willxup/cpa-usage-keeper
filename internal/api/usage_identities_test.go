@@ -28,7 +28,7 @@ func TestUsageIdentitiesRouteReturnsMetadataStatsAndDeletedRows(t *testing.T) {
 	updatedAt := time.Date(2026, 5, 4, 10, 30, 0, 0, time.UTC)
 	deletedAt := time.Date(2026, 5, 4, 11, 0, 0, 0, time.UTC)
 
-	router := NewRouter("", nil, nil, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []models.UsageIdentity{
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []models.UsageIdentity{
 		{
 			ID:                         1,
 			Name:                       "Claude Desktop",
@@ -109,7 +109,7 @@ func TestUsageIdentitiesRouteMasksAIProviderIdentity(t *testing.T) {
 	rawLookupKey := "sk-live-secret-value"
 	rawPrefix := "sk-live-prefix"
 	maskedLookupKey := redact.APIKeyDisplayName(rawLookupKey)
-	router := NewRouter("", nil, nil, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []models.UsageIdentity{
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []models.UsageIdentity{
 		{ID: 1, Name: rawPrefix, AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: rawLookupKey, Type: "openai " + rawLookupKey, Provider: "OpenAI " + rawPrefix},
 	}})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/identities", nil)
@@ -130,7 +130,7 @@ func TestUsageIdentitiesRouteMasksAIProviderIdentity(t *testing.T) {
 }
 
 func TestUsageIdentityReplacesLegacyMetadataRoutes(t *testing.T) {
-	router := NewRouter("", nil, nil, nil, AuthConfig{}, nil, "", usageIdentitiesStub{})
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", usageIdentitiesStub{})
 	for _, path := range []string{"/api/v1/auth-files", "/api/v1/provider-metadata"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		resp := httptest.NewRecorder()
