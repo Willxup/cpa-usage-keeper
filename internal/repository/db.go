@@ -28,7 +28,6 @@ type SnapshotRunInput struct {
 type SnapshotRunResult struct {
 	Status         string
 	HTTPStatus     int
-	BackupFilePath string
 	ErrorMessage   string
 	InsertedEvents int
 	DedupedEvents  int
@@ -116,12 +115,11 @@ func FinalizeSnapshotRun(db *gorm.DB, snapshotRunID uint, result SnapshotRunResu
 	}
 
 	updates := map[string]any{
-		"status":           strings.TrimSpace(result.Status),
-		"http_status":      result.HTTPStatus,
-		"backup_file_path": strings.TrimSpace(result.BackupFilePath),
-		"error_message":    strings.TrimSpace(result.ErrorMessage),
-		"inserted_events":  result.InsertedEvents,
-		"deduped_events":   result.DedupedEvents,
+		"status":          strings.TrimSpace(result.Status),
+		"http_status":     result.HTTPStatus,
+		"error_message":   strings.TrimSpace(result.ErrorMessage),
+		"inserted_events": result.InsertedEvents,
+		"deduped_events":  result.DedupedEvents,
 	}
 	if updates["status"] == "" {
 		updates["status"] = "completed"
@@ -241,22 +239,6 @@ func Vacuum(db *gorm.DB) error {
 		return fmt.Errorf("database is nil")
 	}
 	return db.Exec("VACUUM").Error
-}
-
-func FindLastSnapshotRunWithBackup(db *gorm.DB) (*models.SnapshotRun, error) {
-	if db == nil {
-		return nil, fmt.Errorf("database is nil")
-	}
-
-	var run models.SnapshotRun
-	if err := db.Where("status IN ? AND backup_file_path <> ?", []string{"completed", "completed_with_warnings"}, "").Order("id DESC").First(&run).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("find last snapshot run with backup: %w", err)
-	}
-
-	return &run, nil
 }
 
 func normalizeOptionalTime(value *time.Time) *time.Time {

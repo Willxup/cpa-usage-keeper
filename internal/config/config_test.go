@@ -108,8 +108,11 @@ func TestLoadFromEnvAppliesDefaults(t *testing.T) {
 	if cfg.BackupDir != filepath.Join("data", "backups") {
 		t.Fatalf("expected default backup dir data/backups, got %s", cfg.BackupDir)
 	}
-	if cfg.BackupInterval != time.Hour {
-		t.Fatalf("expected default backup interval 1h, got %s", cfg.BackupInterval)
+	if cfg.BackupInterval != 24*time.Hour {
+		t.Fatalf("expected default backup interval 24h, got %s", cfg.BackupInterval)
+	}
+	if cfg.BackupRetentionDays != 7 {
+		t.Fatalf("expected default backup retention 7 days, got %d", cfg.BackupRetentionDays)
 	}
 	if cfg.RequestTimeout != 30*time.Second {
 		t.Fatalf("expected default request timeout 30s, got %s", cfg.RequestTimeout)
@@ -436,6 +439,32 @@ func TestLoadFromEnvParsesOverrides(t *testing.T) {
 
 	if cfg.AppPort != "9090" || cfg.AppBasePath != "/cpa" || cfg.PollInterval != time.Minute || cfg.WorkDir != "/tmp/work" || cfg.SQLitePath != filepath.Join("/tmp/work", "app.db") || cfg.BackupEnabled || cfg.BackupDir != filepath.Join("/tmp/work", "backups") || cfg.BackupInterval != 2*time.Hour || cfg.BackupRetentionDays != 7 || cfg.RequestTimeout != 15*time.Second || cfg.LogLevel != "debug" || cfg.LogFileEnabled || cfg.LogDir != filepath.Join("/tmp/work", "logs") || cfg.LogRetentionDays != 14 || !cfg.AuthEnabled || cfg.LoginPassword != "top-secret" || cfg.AuthSessionTTL != 12*time.Hour || cfg.RedisQueueIdleInterval != 2*time.Second {
 		t.Fatalf("unexpected config override result: %+v", cfg)
+	}
+}
+
+func TestLoadFromEnvRejectsNonPositiveBackupInterval(t *testing.T) {
+	for _, value := range []string{"0s", "-1h"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
+			t.Setenv("CPA_MANAGEMENT_KEY", "secret")
+			t.Setenv("BACKUP_INTERVAL", value)
+
+			_, err := LoadFromEnv()
+			if err == nil || err.Error() != "BACKUP_INTERVAL must be positive" {
+				t.Fatalf("expected BACKUP_INTERVAL validation error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestLoadFromEnvRejectsNegativeBackupRetentionDays(t *testing.T) {
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
+	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
+	t.Setenv("BACKUP_RETENTION_DAYS", "-1")
+
+	_, err := LoadFromEnv()
+	if err == nil || err.Error() != "BACKUP_RETENTION_DAYS must be non-negative" {
+		t.Fatalf("expected BACKUP_RETENTION_DAYS validation error, got %v", err)
 	}
 }
 

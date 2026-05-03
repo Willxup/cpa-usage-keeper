@@ -14,7 +14,7 @@ It relies on [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) a
 - Aggregated usage and pricing APIs
 - Built-in React dashboard
 - Optional password login protection
-- Local raw data backups with retention
+- Local SQLite database backups with retention
 - Docker / Docker Compose deployment
 
 ## Project Structure
@@ -24,7 +24,7 @@ cmd/                 Application entrypoint
 internal/api/        HTTP routes and handlers
 internal/app/        App wiring and startup
 internal/auth/       In-memory session auth
-internal/backup/     Raw data backup management
+internal/backup/     SQLite database backup management
 internal/config/     Environment config loading
 internal/cpa/        CPA client and types
 internal/models/     GORM models
@@ -51,7 +51,7 @@ cp .env.example .env
 | `AUTH_SESSION_TTL` | No | `168h` | Session lifetime |
 | `APP_PORT` | No | `8080` | HTTP listen port |
 | `APP_BASE_PATH` | No | root path | Subpath prefix such as `/cpa`; empty means `/` |
-| `TZ` | No | `Asia/Shanghai` | Project business timezone; affects Today, daily aggregation, daily 03:00 cleanup, and log timestamps |
+| `TZ` | No | `Asia/Shanghai` | Project business timezone; affects Today, daily aggregation, scheduled tasks, and log timestamps |
 | `USAGE_SYNC_MODE` | No | `auto` | Sync mode: `auto` probes at startup and then fixes the process to `redis` or `legacy_export`; can also be set explicitly to `redis` or `legacy_export` |
 | `REDIS_QUEUE_ADDR` | No | `CPA_BASE_URL` hostname + `8317` | CPA Redis/RESP TCP address; set `host:port` for non-default ports |
 | `REDIS_QUEUE_BATCH_SIZE` | No | `1000` | Maximum queue records per pull |
@@ -62,15 +62,15 @@ cp .env.example .env
 | `LOG_LEVEL` | No | `info` | Log level |
 | `LOG_FILE_ENABLED` | No | `true` | Write persistent log files |
 | `LOG_RETENTION_DAYS` | No | `7` | Log retention days; `0` disables cleanup |
-| `BACKUP_ENABLED` | No | `true` | Enable raw backups |
-| `BACKUP_INTERVAL` | No | `1h` | Minimum interval between backup writes |
-| `BACKUP_RETENTION_DAYS` | No | `30` | Backup retention days |
+| `BACKUP_ENABLED` | No | `true` | Enable SQLite database backups |
+| `BACKUP_INTERVAL` | No | `24h` | Database backup interval |
+| `BACKUP_RETENTION_DAYS` | No | `7` | Backup retention days |
 
 `APP_BASE_PATH` must be empty or start with `/`; for example `/cpa`. `/cpa/` is normalized to `/cpa`.
 
 Security and data notes:
 
-- SQLite and raw backups store original data pulled from CPA, and backup files are not encrypted.
+- SQLite database backups store original data from the application database, and backup files are not encrypted.
 - Browser-facing APIs redact key-like source/lookup fields or map them to stable public identifiers, but raw database values are unchanged.
 - For public deployments, enable `AUTH_ENABLED=true` and terminate HTTPS at your reverse proxy.
 - Login sessions are stored in process memory and become invalid after restart.
