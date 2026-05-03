@@ -19,7 +19,7 @@ func (s authFileStub) ListAuthFiles(context.Context) ([]models.AuthFile, error) 
 }
 
 func TestAuthFilesRouteReturnsEmptyResponseWithoutProvider(t *testing.T) {
-	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter(nil, nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth-files", nil)
 	resp := httptest.NewRecorder()
 
@@ -31,7 +31,7 @@ func TestAuthFilesRouteReturnsEmptyResponseWithoutProvider(t *testing.T) {
 }
 
 func TestAuthFilesRouteReturnsStoredMetadata(t *testing.T) {
-	router := NewRouter("", nil, nil, authFileStub{files: []models.AuthFile{{
+	router := NewRouter(nil, nil, nil, authFileStub{files: []models.AuthFile{{
 		AuthIndex: "2",
 		Name:      "Claude Desktop",
 		Email:     "user@example.com",

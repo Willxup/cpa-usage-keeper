@@ -108,12 +108,10 @@ jobs:
           set -euo pipefail
           package_name="cpa-usage-keeper_dev_${PACKAGE_SUFFIX}_${GITHUB_SHA::7}_${GOOS}_${ASSET_ARCH}"
           package_dir="dist/${package_name}"
-          mkdir -p "${package_dir}/web" "${package_dir}/data"
+          mkdir -p "${package_dir}/data"
 
           CGO_ENABLED=1 GOOS="${GOOS}" GOARCH="${GOARCH}" CC="${CC}" \
             go build -trimpath -ldflags="-s -w" -o "${package_dir}/cpa-usage-keeper" ./cmd/server/main.go
-
-          cp -R web/dist "${package_dir}/web/dist"
           cp .env.example README.md README.en.md LICENSE CONTRIBUTORS.md "${package_dir}/"
           tar -czf "dist/${package_name}.tar.gz" -C dist "${package_name}"
 
@@ -173,12 +171,10 @@ jobs:
           set -euo pipefail
           package_name="cpa-usage-keeper_dev_${PACKAGE_SUFFIX}_${GITHUB_SHA::7}_${GOOS}_${ASSET_ARCH}"
           package_dir="dist/${package_name}"
-          mkdir -p "${package_dir}/web" "${package_dir}/data"
+          mkdir -p "${package_dir}/data"
 
           CGO_ENABLED=1 GOOS="${GOOS}" GOARCH="${GOARCH}" \
             go build -trimpath -ldflags="-s -w" -o "${package_dir}/cpa-usage-keeper" ./cmd/server/main.go
-
-          cp -R web/dist "${package_dir}/web/dist"
           cp .env.example README.md README.en.md LICENSE CONTRIBUTORS.md "${package_dir}/"
           tar -czf "dist/${package_name}.tar.gz" -C dist "${package_name}"
 
@@ -254,12 +250,10 @@ jobs:
           set -euo pipefail
           package_name="cpa-usage-keeper_dev_${PACKAGE_SUFFIX}_${GITHUB_SHA::7}_${GOOS}_${ASSET_ARCH}"
           package_dir="dist/${package_name}"
-          mkdir -p "${package_dir}/web" "${package_dir}/data"
+          mkdir -p "${package_dir}/data"
 
           CGO_ENABLED=1 GOOS="${GOOS}" GOARCH="${GOARCH}" CC="${CC}" \
             go build -trimpath -ldflags="-s -w" -o "${package_dir}/cpa-usage-keeper.exe" ./cmd/server/main.go
-
-          cp -R web/dist "${package_dir}/web/dist"
           cp .env.example README.md README.en.md LICENSE CONTRIBUTORS.md "${package_dir}/"
 
       - name: Archive binary package

@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -18,6 +16,7 @@ import (
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
+	webui "cpa-usage-keeper/web"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -73,13 +72,6 @@ func NewWithOptions(options Options) (*App, error) {
 }
 
 func NewWithConfig(cfg config.Config) (*App, error) {
-	staticDir := filepath.Join("web", "dist")
-	if cwd, cwdErr := filepath.Abs("."); cwdErr == nil {
-		if executablePath, exeErr := os.Executable(); exeErr == nil {
-			staticDir = resolveStaticDir(cwd, filepath.Dir(executablePath))
-		}
-	}
-
 	logCloser, err := logging.Configure(cfg)
 	if err != nil {
 		return nil, err
@@ -134,7 +126,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		BackupMaintenance:       backupMaintenance,
 		LogCloser:               logCloser,
 		Router: api.NewRouter(
-			staticDir,
+			webui.Static,
 			backgroundPoller,
 			usageService,
 			authFileService,
@@ -161,18 +153,6 @@ func closeGormDB(db *gorm.DB) error {
 		return err
 	}
 	return sqlDB.Close()
-}
-
-func resolveStaticDir(cwd, exeDir string) string {
-	cwdStaticDir := filepath.Join(cwd, "web", "dist")
-	if info, err := os.Stat(cwdStaticDir); err == nil && info.IsDir() {
-		return cwdStaticDir
-	}
-	executableStaticDir := filepath.Join(exeDir, "web", "dist")
-	if info, err := os.Stat(executableStaticDir); err == nil && info.IsDir() {
-		return executableStaticDir
-	}
-	return cwdStaticDir
 }
 
 func resolveUsageSyncMode(ctx context.Context, cfg config.Config) config.Config {

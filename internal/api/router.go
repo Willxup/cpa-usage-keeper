@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
+	"io/fs"
 	"net/http"
-	"os"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,7 +46,7 @@ type SyncRunner interface {
 }
 
 func NewRouter(
-	staticDir string,
+	staticFS fs.FS,
 	statusProvider StatusProvider,
 	usageProvider service.UsageProvider,
 	authFileProvider service.AuthFileProvider,
@@ -85,11 +85,12 @@ func NewRouter(
 	registerProviderMetadataRoutes(protected, providerMetadataProvider)
 	registerPricingRoutes(protected, pricingProvider)
 
-	if staticDir != "" {
-		if info, err := os.Stat(staticDir); err == nil && info.IsDir() {
-			indexPath := filepath.Join(staticDir, "index.html")
+	if staticFS != nil {
+		if indexFile, err := staticFS.Open("index.html"); err == nil {
+			_ = indexFile.Close()
+			httpFS := http.FS(staticFS)
 			serveIndex := func(c *gin.Context) {
-				indexHTML, err := renderIndexHTML(indexPath, basePath)
+				indexHTML, err := renderIndexHTML(staticFS, basePath)
 				if err != nil {
 					c.Status(http.StatusNotFound)
 					return
@@ -98,7 +99,8 @@ func NewRouter(
 			}
 
 			appGroup.GET("/", serveIndex)
-			appGroup.Static("/assets", filepath.Join(staticDir, "assets"))
+			assetsFS, _ := fs.Sub(staticFS, "assets")
+			appGroup.StaticFS("/assets", http.FS(assetsFS))
 			router.NoRoute(func(c *gin.Context) {
 				requestPath, ok := stripBasePath(basePath, c.Request.URL.Path)
 				if !ok {
@@ -110,9 +112,10 @@ func NewRouter(
 					return
 				}
 
-				if assetPath, ok := staticAssetPath(staticDir, requestPath); ok {
-					if assetInfo, err := os.Stat(assetPath); err == nil && !assetInfo.IsDir() {
-						c.File(assetPath)
+				if assetPath, ok := staticAssetPath(requestPath); ok {
+					if assetFile, err := staticFS.Open(assetPath); err == nil {
+						_ = assetFile.Close()
+						c.FileFromFS(assetPath, httpFS)
 						return
 					}
 				}
@@ -125,8 +128,13 @@ func NewRouter(
 	return router
 }
 
-func renderIndexHTML(indexPath, basePath string) ([]byte, error) {
-	indexHTML, err := os.ReadFile(indexPath)
+func renderIndexHTML(staticFS fs.FS, basePath string) ([]byte, error) {
+	indexFile, err := staticFS.Open("index.html")
+	if err != nil {
+		return nil, err
+	}
+	defer indexFile.Close()
+	indexHTML, err := io.ReadAll(indexFile)
 	if err != nil {
 		return nil, err
 	}
@@ -149,39 +157,20 @@ func cleanURLPath(requestPath string) string {
 	return cleaned
 }
 
-func staticAssetPath(staticDir, requestPath string) (string, bool) {
+func staticAssetPath(requestPath string) (string, bool) {
 	cleaned := cleanURLPath(requestPath)
 	if strings.Contains(cleaned, "\\") {
 		return "", false
 	}
 	relPath := strings.TrimPrefix(cleaned, "/")
-	if relPath == "." || relPath == "" {
+	if relPath == "" {
 		return "", false
 	}
-	assetPath := filepath.Join(staticDir, relPath)
-	staticRoot, err := filepath.Abs(staticDir)
-	if err != nil {
-		return "", false
-	}
-	assetAbsolutePath, err := filepath.Abs(assetPath)
-	if err != nil {
-		return "", false
-	}
-	relativePath, err := filepath.Rel(staticRoot, assetAbsolutePath)
-	if err != nil || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
-		return "", false
-	}
-	return assetPath, true
+	return relPath, true
 }
 
 func stripBasePath(basePath, requestPath string) (string, bool) {
 	cleaned := cleanURLPath(requestPath)
-	if cleaned == "." {
-		cleaned = "/"
-	}
-	if !strings.HasPrefix(cleaned, "/") {
-		cleaned = "/" + cleaned
-	}
 	if basePath == "" {
 		return cleaned, true
 	}
