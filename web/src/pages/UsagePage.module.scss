@@ -1135,6 +1135,14 @@
 }
 
 // Pricing Section (80%比例)
+.pricingFixedCard {
+  @include mobile {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+}
+
 .pricingSection {
   display: flex;
   flex-direction: column;
@@ -1215,6 +1223,12 @@
   overflow: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+
+  .pricingFixedCard & {
+    @include mobile {
+      overflow: visible;
+    }
+  }
 }
 
 .priceItem {
@@ -1264,6 +1278,15 @@
   display: flex;
   gap: 3px;
   flex-shrink: 0;
+
+  @include mobile {
+    width: 100%;
+
+    :global(.btn) {
+      flex: 1 1 0;
+      justify-content: center;
+    }
+  }
 }
 
 .editModalBody {

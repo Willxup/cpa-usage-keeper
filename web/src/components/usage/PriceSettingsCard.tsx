@@ -156,7 +156,7 @@ export function PriceSettingsCard({
           subtitle={t('usage_stats.model_price_settings_subtitle')}
         />
       }
-      className={styles.detailsFixedCard}
+      className={`${styles.detailsFixedCard} ${styles.pricingFixedCard}`}
     >
       <div className={styles.pricingSection}>
         {loading && modelNames.length === 0 && Object.keys(modelPrices).length === 0 ? (
