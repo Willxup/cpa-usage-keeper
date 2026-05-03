@@ -11,7 +11,7 @@ import (
 )
 
 func TestAuthSessionReportsAuthenticatedWhenDisabled(t *testing.T) {
-	router := NewRouter("", nil, nil, nil, nil, nil, AuthConfig{Enabled: false}, nil, "")
+	router := NewRouter(nil, nil, nil, nil, nil, nil, AuthConfig{Enabled: false}, nil, "")
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil)
 
@@ -25,7 +25,7 @@ func TestAuthSessionReportsAuthenticatedWhenDisabled(t *testing.T) {
 func TestAuthProtectedRouteRequiresSessionWhenEnabled(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	router := NewRouter("", nil, nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "")
+	router := NewRouter(nil, nil, nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "")
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview", nil)
 
@@ -40,7 +40,7 @@ func TestAuthLoginSetsCookieAndUnlocksProtectedRoute(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
 	handler := NewAuthHandler(config, sessions)
-	router := NewRouter("", nil, nil, nil, nil, nil, config, handler, "")
+	router := NewRouter(nil, nil, nil, nil, nil, nil, config, handler, "")
 
 	loginResp := httptest.NewRecorder()
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"secret"}`))
@@ -74,7 +74,7 @@ func TestAuthLoginSetsCookieAndUnlocksProtectedRoute(t *testing.T) {
 func TestAuthLoginRejectsWrongPassword(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	router := NewRouter("", nil, nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "")
+	router := NewRouter(nil, nil, nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "")
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"wrong"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -89,7 +89,7 @@ func TestAuthLoginRejectsWrongPassword(t *testing.T) {
 func TestAuthLoginRateLimitsRepeatedFailures(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	router := NewRouter("", nil, nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "")
+	router := NewRouter(nil, nil, nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "")
 
 	for i := 0; i < 5; i++ {
 		resp := httptest.NewRecorder()
@@ -116,7 +116,7 @@ func TestAuthLoginRateLimitsRepeatedFailures(t *testing.T) {
 func TestAuthLoginAllowsCorrectPasswordAfterRateLimitThreshold(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	router := NewRouter("", nil, nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "")
+	router := NewRouter(nil, nil, nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "")
 
 	for i := 0; i < 5; i++ {
 		resp := httptest.NewRecorder()
@@ -144,7 +144,7 @@ func TestAuthLogoutDeletesSessionCookie(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
 	handler := NewAuthHandler(config, sessions)
-	router := NewRouter("", nil, nil, nil, nil, nil, config, handler, "")
+	router := NewRouter(nil, nil, nil, nil, nil, nil, config, handler, "")
 
 	loginResp := httptest.NewRecorder()
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"secret"}`))
@@ -183,7 +183,7 @@ func TestSubpathAuthUsesPrefixedRoutesAndCookiePath(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour, BasePath: "/cpa"}
 	handler := NewAuthHandler(config, sessions)
-	router := NewRouter("", nil, nil, nil, nil, nil, config, handler, "/cpa")
+	router := NewRouter(nil, nil, nil, nil, nil, nil, config, handler, "/cpa")
 
 	sessionResp := httptest.NewRecorder()
 	sessionReq := httptest.NewRequest(http.MethodGet, "/cpa/api/v1/auth/session", nil)

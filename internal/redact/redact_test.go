@@ -53,7 +53,7 @@ func TestUsageSnapshotRedactsOnlyAPIKeys(t *testing.T) {
 							Source:    "source-a",
 							AuthIndex: "3",
 							Failed:    false,
-							Tokens: cpa.TokenStats{TotalTokens: 42},
+							Tokens:    cpa.TokenStats{TotalTokens: 42},
 						}},
 					},
 				},
