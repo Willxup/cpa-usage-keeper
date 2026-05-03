@@ -11,52 +11,8 @@ import (
 	"cpa-usage-keeper/internal/models"
 )
 
-type UsageFetchResult struct {
-	HTTPStatus int
-	RawPayload []byte
-	ExportedAt *time.Time
-	Version    string
-	Events     []models.UsageEvent
-}
-
 type RedisQueue interface {
 	PopUsage(ctx context.Context) ([]string, error)
-}
-
-type redisUsageFetcher struct {
-	queue RedisQueue
-}
-
-func newRedisUsageFetcher(queue RedisQueue) redisUsageFetcher {
-	return redisUsageFetcher{queue: queue}
-}
-
-func (f redisUsageFetcher) FetchUsage(ctx context.Context, fetchedAt time.Time) (*UsageFetchResult, error) {
-	if f.queue == nil {
-		return nil, fmt.Errorf("redis usage queue is nil")
-	}
-	messages, err := f.queue.PopUsage(ctx)
-	if err != nil {
-		return nil, err
-	}
-	rawMessages := make([]json.RawMessage, 0, len(messages))
-	events := make([]models.UsageEvent, 0, len(messages))
-	for i, message := range messages {
-		event, raw, err := DecodeRedisUsageMessage(message, fetchedAt)
-		if err != nil {
-			return nil, fmt.Errorf("decode redis usage message %d: %w", i, err)
-		}
-		rawMessages = append(rawMessages, raw)
-		events = append(events, event)
-	}
-	rawPayload, err := json.Marshal(rawMessages)
-	if err != nil {
-		return nil, fmt.Errorf("encode redis usage batch: %w", err)
-	}
-	return &UsageFetchResult{
-		RawPayload: rawPayload,
-		Events:     events,
-	}, nil
 }
 
 func DecodeRedisUsageMessage(message string, fetchedAt time.Time) (models.UsageEvent, json.RawMessage, error) {
@@ -83,6 +39,14 @@ type queuedUsageDetail struct {
 	RequestID string         `json:"request_id"`
 }
 
+func normalizeRedisAuthType(value string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(value))
+	if trimmed == "api_key" {
+		return "apikey"
+	}
+	return trimmed
+}
+
 func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) models.UsageEvent {
 	tokens := normalizeTokens(d.Tokens)
 	apiGroupKey := firstNonEmpty(d.APIKey, d.Provider, d.Endpoint, "unknown")
@@ -100,6 +64,10 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) models.UsageEvent {
 	return models.UsageEvent{
 		EventKey:        eventKey,
 		APIGroupKey:     apiGroupKey,
+		Provider:        strings.TrimSpace(d.Provider),
+		Endpoint:        strings.TrimSpace(d.Endpoint),
+		AuthType:        normalizeRedisAuthType(d.AuthType),
+		RequestID:       strings.TrimSpace(d.RequestID),
 		Model:           model,
 		Timestamp:       timestamp,
 		Source:          source,

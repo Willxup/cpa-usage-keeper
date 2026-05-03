@@ -52,11 +52,9 @@ cp .env.example .env
 | `APP_PORT` | 否 | `8080` | HTTP 监听端口 |
 | `APP_BASE_PATH` | 否 | 根路径 | 子路径部署前缀，例如 `/cpa`；留空表示 `/` |
 | `TZ` | 否 | `Asia/Shanghai` | 项目业务时区，影响 Today、按天聚合、定时任务和日志时间 |
-| `USAGE_SYNC_MODE` | 否 | `auto` | 同步模式：`auto` 启动时探测后固定为 `redis` 或 `legacy_export`；也可显式设置 `redis`、`legacy_export` |
 | `REDIS_QUEUE_ADDR` | 否 | `CPA_BASE_URL` 主机名 + `8317` | CPA Redis/RESP TCP 地址；非默认端口时填写 `host:port` |
 | `REDIS_QUEUE_BATCH_SIZE` | 否 | `1000` | 每次最多拉取的队列记录数 |
 | `REDIS_QUEUE_IDLE_INTERVAL` | 否 | `1s` | 队列为空时的检查间隔 |
-| `POLL_INTERVAL` | 否 | `5m` | `legacy_export` 拉取间隔 |
 | `REQUEST_TIMEOUT` | 否 | `30s` | CPA 请求超时 |
 | `WORK_DIR` | 否 | `./data` | 应用工作目录；数据库、日志和备份默认分别写入 `app.db`、`logs/`、`backups/` |
 | `LOG_LEVEL` | 否 | `info` | 日志级别 |

@@ -1,34 +1,15 @@
 package models
 
-import (
-	"time"
-
-	"gorm.io/gorm"
-)
-
-type SnapshotRun struct {
-	ID             uint      `gorm:"primaryKey"`
-	FetchedAt      time.Time `gorm:"index:idx_snapshot_runs_fetched_at"`
-	CPABaseURL     string
-	ExportedAt     *time.Time
-	Version        string
-	Status         string `gorm:"index:idx_snapshot_runs_status"`
-	HTTPStatus     int
-	PayloadHash    string
-	RawPayload     []byte
-	BackupFilePath string
-	ErrorMessage   string
-	InsertedEvents int
-	DedupedEvents  int
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-}
+import "time"
 
 type UsageEvent struct {
-	ID              uint   `gorm:"primaryKey"`
-	EventKey        string `gorm:"uniqueIndex:uniq_usage_events_event_key"`
-	SnapshotRunID   uint
+	ID              uint      `gorm:"primaryKey"`
+	EventKey        string    `gorm:"uniqueIndex:uniq_usage_events_event_key"`
 	APIGroupKey     string    `gorm:"index:idx_usage_events_api_group_key"`
+	Provider        string    `gorm:"column:provider"`
+	Endpoint        string    `gorm:"column:endpoint"`
+	AuthType        string    `gorm:"column:auth_type"`
+	RequestID       string    `gorm:"column:request_id"`
 	Model           string    `gorm:"index:idx_usage_events_model"`
 	Timestamp       time.Time `gorm:"index:idx_usage_events_timestamp"`
 	Source          string    `gorm:"index:idx_usage_events_source"`
@@ -51,42 +32,11 @@ type RedisUsageInbox struct {
 	Status        string `gorm:"not null;index"`
 	AttemptCount  int    `gorm:"not null;default:0"`
 	LastError     string
-	SnapshotRunID *uint     `gorm:"index"`
 	UsageEventKey string    `gorm:"index"`
 	PoppedAt      time.Time `gorm:"not null;index"`
 	ProcessedAt   *time.Time
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
-}
-
-type AuthFile struct {
-	ID          uint   `gorm:"primaryKey"`
-	AuthIndex   string `gorm:"uniqueIndex:uniq_auth_files_auth_index"`
-	Name        string
-	Email       string
-	Type        string
-	Provider    string
-	Label       string
-	Status      string
-	Source      string
-	Disabled    bool
-	Unavailable bool
-	RuntimeOnly bool
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	DeletedAt   gorm.DeletedAt `gorm:"index"`
-}
-
-type ProviderMetadata struct {
-	ID           uint   `gorm:"primaryKey"`
-	LookupKey    string `gorm:"uniqueIndex:uniq_provider_metadata_lookup_key"`
-	ProviderType string `gorm:"index:idx_provider_metadata_provider_type"`
-	DisplayName  string
-	ProviderKey  string `gorm:"index:idx_provider_metadata_provider_key"`
-	MatchKind    string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	DeletedAt    gorm.DeletedAt `gorm:"index"`
 }
 
 type ModelPriceSetting struct {
@@ -99,13 +49,47 @@ type ModelPriceSetting struct {
 	UpdatedAt            time.Time
 }
 
+type UsageIdentityAuthType int
+
+const (
+	UsageIdentityAuthTypeAuthFile   UsageIdentityAuthType = 1
+	UsageIdentityAuthTypeAIProvider UsageIdentityAuthType = 2
+)
+
+type UsageIdentity struct {
+	ID           uint `gorm:"primaryKey"`
+	Name         string
+	AuthType     UsageIdentityAuthType `gorm:"uniqueIndex:uniq_usage_identities_type_identity;index:idx_usage_identities_auth_type"`
+	AuthTypeName string                `gorm:"index:idx_usage_identities_auth_type_name"`
+	Identity     string                `gorm:"uniqueIndex:uniq_usage_identities_type_identity;index:idx_usage_identities_identity"`
+	Type         string                `gorm:"column:type"`
+	Provider     string
+
+	TotalRequests   int64
+	SuccessCount    int64
+	FailureCount    int64
+	InputTokens     int64
+	OutputTokens    int64
+	ReasoningTokens int64
+	CachedTokens    int64
+	TotalTokens     int64
+
+	LastAggregatedUsageEventID uint `gorm:"index:idx_usage_identities_last_aggregated_usage_event_id"`
+	FirstUsedAt                *time.Time
+	LastUsedAt                 *time.Time
+	StatsUpdatedAt             *time.Time
+
+	IsDeleted bool `gorm:"index:idx_usage_identities_is_deleted"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt *time.Time `gorm:"index:idx_usage_identities_deleted_at"`
+}
+
 func All() []any {
 	return []any{
-		&SnapshotRun{},
 		&UsageEvent{},
 		&RedisUsageInbox{},
-		&AuthFile{},
-		&ProviderMetadata{},
 		&ModelPriceSetting{},
+		&UsageIdentity{},
 	}
 }

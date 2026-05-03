@@ -70,47 +70,6 @@ func TestRedisQueueClientClassifiesAuthErrors(t *testing.T) {
 	}
 }
 
-func TestRedisQueueClientProbeAuthenticatesWithoutPopping(t *testing.T) {
-	server := newRedisQueueTestServer(t, func(t *testing.T, conn net.Conn) {
-		reader := bufio.NewReader(conn)
-		if got := readRESPCommand(t, reader); strings.Join(got, " ") != cpaManagementRedisAuthCommand+" secret" {
-			t.Fatalf("unexpected auth command: %v", got)
-		}
-		fmt.Fprint(conn, "+OK\r\n")
-		if err := conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
-			t.Fatalf("set read deadline: %v", err)
-		}
-		line, err := reader.ReadString('\n')
-		if err == nil {
-			t.Fatalf("expected probe to close without pop command, got %q", line)
-		}
-		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-			t.Fatal("probe left connection open waiting for another command")
-		}
-	})
-
-	client := NewRedisQueueClient(server.URL, "", "secret", time.Second, ManagementUsageQueueKey, 2)
-	if err := client.Probe(ctxWithTimeout(t)); err != nil {
-		t.Fatalf("Probe returned error: %v", err)
-	}
-}
-
-func TestRedisQueueClientProbeClassifiesAuthErrors(t *testing.T) {
-	server := newRedisQueueTestServer(t, func(t *testing.T, conn net.Conn) {
-		readRESPCommand(t, bufio.NewReader(conn))
-		fmt.Fprint(conn, "-ERR invalid password\r\n")
-	})
-
-	client := NewRedisQueueClient(server.URL, "", "wrong", time.Second, ManagementUsageQueueKey, 1000)
-	err := client.Probe(ctxWithTimeout(t))
-	if err == nil {
-		t.Fatal("expected auth error")
-	}
-	if !errors.Is(err, ErrRedisQueueAuth) {
-		t.Fatalf("expected ErrRedisQueueAuth, got %v", err)
-	}
-}
-
 func TestRedisQueueClientPrefersExplicitQueueAddr(t *testing.T) {
 	if got := redisQueueAddress("https://cpa.example.com", "redis-stream.example.com:6380"); got != "redis-stream.example.com:6380" {
 		t.Fatalf("expected explicit redis queue addr, got %q", got)

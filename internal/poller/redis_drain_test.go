@@ -19,13 +19,10 @@ type redisDrainSyncStub struct {
 	pullErrs       []error
 	processResults []*service.RedisBatchSyncResult
 	processErrs    []error
-	metadataFlags  []bool
 	pullStarted    chan struct{}
 	releasePull    chan struct{}
 	pullCalls      int
 	processCalls   int
-	metadataCalls  int
-	metadataErr    error
 }
 
 func (s *redisDrainSyncStub) PullRedisUsageInbox(context.Context) (*service.RedisInboxPullResult, error) {
@@ -56,11 +53,10 @@ func (s *redisDrainSyncStub) PullRedisUsageInbox(context.Context) (*service.Redi
 	return result, err
 }
 
-func (s *redisDrainSyncStub) ProcessRedisUsageInbox(ctx context.Context, syncMetadata bool) (*service.RedisBatchSyncResult, error) {
+func (s *redisDrainSyncStub) ProcessRedisUsageInbox(ctx context.Context) (*service.RedisBatchSyncResult, error) {
 	s.mu.Lock()
 	s.processCalls++
 	call := s.processCalls
-	s.metadataFlags = append(s.metadataFlags, syncMetadata)
 	result := &service.RedisBatchSyncResult{Status: "completed", InsertedEvents: 1}
 	if len(s.processResults) >= call {
 		result = s.processResults[call-1]
@@ -82,23 +78,10 @@ func (s *redisDrainSyncStub) ProcessRedisUsageInbox(ctx context.Context, syncMet
 	return result, err
 }
 
-func (s *redisDrainSyncStub) SyncMetadata(context.Context) error {
+func (s *redisDrainSyncStub) counts() (int, int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.metadataCalls++
-	return s.metadataErr
-}
-
-func (s *redisDrainSyncStub) counts() (int, int, int, int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.pullCalls, s.processCalls, 0, s.metadataCalls
-}
-
-func (s *redisDrainSyncStub) flags() []bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]bool(nil), s.metadataFlags...)
+	return s.pullCalls, s.processCalls
 }
 
 func captureRedisDrainLogrusOutput(t *testing.T) *bytes.Buffer {
@@ -121,7 +104,7 @@ func captureRedisDrainLogrusOutput(t *testing.T) *bytes.Buffer {
 func TestRedisDrainLoopsLogTaskStarts(t *testing.T) {
 	logs := captureRedisDrainLogrusOutput(t)
 	syncer := &redisDrainSyncStub{pullResults: []*service.RedisInboxPullResult{{Empty: true, Status: "empty"}}}
-	drain := NewRedisDrain(syncer, RedisDrainConfig{IdleInterval: time.Hour, ErrorBackoff: time.Hour, MetadataInterval: time.Hour})
+	drain := NewRedisDrain(syncer, RedisDrainConfig{IdleInterval: time.Hour, ErrorBackoff: time.Hour})
 
 	pullCtx, cancelPull := context.WithCancel(context.Background())
 	drain.sleep = func(context.Context, time.Duration) bool {
@@ -147,7 +130,7 @@ func TestRedisDrainLoopsLogTaskStarts(t *testing.T) {
 
 func TestRedisDrainPullLoopDoesNotProcessInbox(t *testing.T) {
 	syncer := &redisDrainSyncStub{pullResults: []*service.RedisInboxPullResult{{Empty: true, Status: "empty"}}}
-	drain := NewRedisDrain(syncer, RedisDrainConfig{IdleInterval: time.Hour, ErrorBackoff: time.Hour, MetadataInterval: time.Hour})
+	drain := NewRedisDrain(syncer, RedisDrainConfig{IdleInterval: time.Hour, ErrorBackoff: time.Hour})
 	ctx, cancel := context.WithCancel(context.Background())
 	drain.sleep = func(context.Context, time.Duration) bool {
 		cancel()
@@ -156,7 +139,7 @@ func TestRedisDrainPullLoopDoesNotProcessInbox(t *testing.T) {
 
 	drain.runPullLoop(ctx)
 
-	pulls, processes, _, _ := syncer.counts()
+	pulls, processes := syncer.counts()
 	if pulls != 1 || processes != 0 {
 		t.Fatalf("expected pull loop to pull once and not process inbox, got pulls=%d processes=%d", pulls, processes)
 	}
@@ -164,7 +147,7 @@ func TestRedisDrainPullLoopDoesNotProcessInbox(t *testing.T) {
 
 func TestRedisDrainProcessLoopUsesFixedInterval(t *testing.T) {
 	syncer := &redisDrainSyncStub{}
-	drain := NewRedisDrain(syncer, RedisDrainConfig{IdleInterval: time.Hour, ErrorBackoff: time.Hour, MetadataInterval: time.Hour})
+	drain := NewRedisDrain(syncer, RedisDrainConfig{IdleInterval: time.Hour, ErrorBackoff: time.Hour})
 	ctx, cancel := context.WithCancel(context.Background())
 	calls := 0
 	drain.sleep = func(_ context.Context, d time.Duration) bool {
@@ -181,7 +164,7 @@ func TestRedisDrainProcessLoopUsesFixedInterval(t *testing.T) {
 
 	drain.runProcessLoop(ctx)
 
-	_, processes, _, _ := syncer.counts()
+	_, processes := syncer.counts()
 	if processes != 1 {
 		t.Fatalf("expected process loop to process once, got %d", processes)
 	}
@@ -192,25 +175,21 @@ func TestRedisDrainProcessLoopUsesFixedInterval(t *testing.T) {
 
 func TestRedisDrainSyncNowPullsThenProcesses(t *testing.T) {
 	syncer := &redisDrainSyncStub{}
-	drain := NewRedisDrain(syncer, RedisDrainConfig{IdleInterval: time.Hour, ErrorBackoff: time.Hour, MetadataInterval: time.Hour})
+	drain := NewRedisDrain(syncer, RedisDrainConfig{IdleInterval: time.Hour, ErrorBackoff: time.Hour})
 
 	if err := drain.SyncNow(context.Background()); err != nil {
 		t.Fatalf("SyncNow returned error: %v", err)
 	}
 
-	pulls, processes, _, _ := syncer.counts()
+	pulls, processes := syncer.counts()
 	if pulls != 1 || processes != 1 {
 		t.Fatalf("expected SyncNow to pull and process once, got pulls=%d processes=%d", pulls, processes)
-	}
-	flags := syncer.flags()
-	if len(flags) != 1 || !flags[0] {
-		t.Fatalf("expected SyncNow processing to sync metadata, got %v", flags)
 	}
 }
 
 func TestRedisDrainPullAndProcessCanRunIndependently(t *testing.T) {
 	syncer := &redisDrainSyncStub{pullStarted: make(chan struct{}), releasePull: make(chan struct{})}
-	drain := NewRedisDrain(syncer, RedisDrainConfig{IdleInterval: time.Hour, ErrorBackoff: time.Hour, MetadataInterval: time.Hour})
+	drain := NewRedisDrain(syncer, RedisDrainConfig{IdleInterval: time.Hour, ErrorBackoff: time.Hour})
 	ctx := context.Background()
 	pullDone := make(chan error, 1)
 	go func() {
@@ -219,7 +198,7 @@ func TestRedisDrainPullAndProcessCanRunIndependently(t *testing.T) {
 	}()
 	<-syncer.pullStarted
 
-	if _, err := drain.runRedisProcess(ctx, false); err != nil {
+	if _, err := drain.runRedisProcess(ctx); err != nil {
 		close(syncer.releasePull)
 		t.Fatalf("expected process to run while pull is active, got %v", err)
 	}
@@ -228,7 +207,7 @@ func TestRedisDrainPullAndProcessCanRunIndependently(t *testing.T) {
 		t.Fatalf("pull returned error: %v", err)
 	}
 
-	pulls, processes, _, _ := syncer.counts()
+	pulls, processes := syncer.counts()
 	if pulls != 1 || processes != 1 {
 		t.Fatalf("expected pull and process to each run once, got pulls=%d processes=%d", pulls, processes)
 	}
@@ -236,7 +215,7 @@ func TestRedisDrainPullAndProcessCanRunIndependently(t *testing.T) {
 
 func TestRedisDrainBacksOffAfterPullError(t *testing.T) {
 	syncer := &redisDrainSyncStub{pullErrs: []error{errors.New("dial failed")}}
-	drain := NewRedisDrain(syncer, RedisDrainConfig{IdleInterval: time.Hour, ErrorBackoff: 25 * time.Millisecond, MetadataInterval: time.Hour})
+	drain := NewRedisDrain(syncer, RedisDrainConfig{IdleInterval: time.Hour, ErrorBackoff: 25 * time.Millisecond})
 	ctx, cancel := context.WithCancel(context.Background())
 	var slept time.Duration
 	drain.sleep = func(_ context.Context, d time.Duration) bool {

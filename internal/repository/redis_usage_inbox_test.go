@@ -71,7 +71,7 @@ func TestRedisUsageInboxStatusTransitions(t *testing.T) {
 		t.Fatalf("InsertRedisUsageInboxMessages returned error: %v", err)
 	}
 
-	if err := MarkRedisUsageInboxProcessed(db, rows[0].ID, 42, "event-1", processedAt); err != nil {
+	if err := MarkRedisUsageInboxProcessed(db, rows[0].ID, "event-1", processedAt); err != nil {
 		t.Fatalf("MarkRedisUsageInboxProcessed returned error: %v", err)
 	}
 
@@ -81,9 +81,6 @@ func TestRedisUsageInboxStatusTransitions(t *testing.T) {
 	}
 	if stored.Status != RedisUsageInboxStatusProcessed {
 		t.Fatalf("expected processed status, got %q", stored.Status)
-	}
-	if stored.SnapshotRunID == nil || *stored.SnapshotRunID != 42 {
-		t.Fatalf("expected snapshot id 42, got %+v", stored.SnapshotRunID)
 	}
 	if stored.UsageEventKey != "event-1" {
 		t.Fatalf("expected event key to be stored, got %q", stored.UsageEventKey)
@@ -137,7 +134,7 @@ func TestRedisUsageInboxFailureTransitionsBoundErrors(t *testing.T) {
 	}
 }
 
-func TestMarkRedisUsageInboxProcessFailedKeepsRowsRetryableAfterRepeatedFailures(t *testing.T) {
+func TestMarkRedisUsageInboxProcessFailedDiscardsRowsAfterMaxAttempts(t *testing.T) {
 	db := openTestDatabase(t)
 	poppedAt := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
 
@@ -145,7 +142,8 @@ func TestMarkRedisUsageInboxProcessFailedKeepsRowsRetryableAfterRepeatedFailures
 	if err != nil {
 		t.Fatalf("InsertRedisUsageInboxMessages returned error: %v", err)
 	}
-	for i := 0; i < 5; i++ {
+	const maxProcessAttempts = 5
+	for i := 0; i < maxProcessAttempts; i++ {
 		if err := MarkRedisUsageInboxProcessFailed(db, rows[0].ID, fmt.Errorf("insert failed %d", i+1)); err != nil {
 			t.Fatalf("MarkRedisUsageInboxProcessFailed attempt %d returned error: %v", i+1, err)
 		}
@@ -155,11 +153,11 @@ func TestMarkRedisUsageInboxProcessFailedKeepsRowsRetryableAfterRepeatedFailures
 	if err := db.First(&stored, rows[0].ID).Error; err != nil {
 		t.Fatalf("load inbox row: %v", err)
 	}
-	if stored.Status != RedisUsageInboxStatusProcessFailed {
-		t.Fatalf("expected process_failed after repeated process failures, got %q", stored.Status)
+	if stored.Status != RedisUsageInboxStatusDiscarded {
+		t.Fatalf("expected discarded after repeated process failures, got %q", stored.Status)
 	}
-	if stored.AttemptCount != 5 {
-		t.Fatalf("expected 5 attempts, got %d", stored.AttemptCount)
+	if stored.AttemptCount != maxProcessAttempts {
+		t.Fatalf("expected %d attempts, got %d", maxProcessAttempts, stored.AttemptCount)
 	}
 	if stored.LastError != "insert failed 5" {
 		t.Fatalf("expected last error from final attempt, got %q", stored.LastError)
@@ -169,8 +167,8 @@ func TestMarkRedisUsageInboxProcessFailedKeepsRowsRetryableAfterRepeatedFailures
 	if err != nil {
 		t.Fatalf("ListProcessableRedisUsageInbox returned error: %v", err)
 	}
-	if len(processable) != 1 || processable[0].ID != rows[0].ID {
-		t.Fatalf("expected repeated process failure row to remain processable, got %+v", processable)
+	if len(processable) != 0 {
+		t.Fatalf("expected discarded row to be excluded from processing, got %+v", processable)
 	}
 }
 
@@ -220,6 +218,7 @@ func TestCleanupRedisUsageInboxRemovesOldProcessedAndFailedRows(t *testing.T) {
 		{QueueKey: "queue", RawMessage: `{"request_id":"processed-old"}`, PoppedAt: now.Add(-48 * time.Hour)},
 		{QueueKey: "queue", RawMessage: `{"request_id":"processed-today"}`, PoppedAt: now.Add(-time.Hour)},
 		{QueueKey: "queue", RawMessage: `{"request_id":"failed-old"}`, PoppedAt: now.AddDate(0, 0, -8)},
+		{QueueKey: "queue", RawMessage: `{"request_id":"discarded-old"}`, PoppedAt: now.AddDate(0, 0, -8)},
 		{QueueKey: "queue", RawMessage: `{"request_id":"failed-recent"}`, PoppedAt: now.AddDate(0, 0, -6)},
 		{QueueKey: "queue", RawMessage: `{"request_id":"pending-old"}`, PoppedAt: now.AddDate(0, 0, -10)},
 	})
@@ -237,7 +236,10 @@ func TestCleanupRedisUsageInboxRemovesOldProcessedAndFailedRows(t *testing.T) {
 	if err := db.Model(&models.RedisUsageInbox{}).Where("id = ?", rows[2].ID).Updates(map[string]any{"status": RedisUsageInboxStatusProcessFailed, "updated_at": now.AddDate(0, 0, -8)}).Error; err != nil {
 		t.Fatalf("seed old failed row: %v", err)
 	}
-	if err := db.Model(&models.RedisUsageInbox{}).Where("id = ?", rows[3].ID).Updates(map[string]any{"status": RedisUsageInboxStatusDecodeFailed, "updated_at": now.AddDate(0, 0, -6)}).Error; err != nil {
+	if err := db.Model(&models.RedisUsageInbox{}).Where("id = ?", rows[3].ID).Updates(map[string]any{"status": RedisUsageInboxStatusDiscarded, "updated_at": now.AddDate(0, 0, -8)}).Error; err != nil {
+		t.Fatalf("seed old discarded row: %v", err)
+	}
+	if err := db.Model(&models.RedisUsageInbox{}).Where("id = ?", rows[4].ID).Updates(map[string]any{"status": RedisUsageInboxStatusDecodeFailed, "updated_at": now.AddDate(0, 0, -6)}).Error; err != nil {
 		t.Fatalf("seed recent failed row: %v", err)
 	}
 
@@ -245,7 +247,7 @@ func TestCleanupRedisUsageInboxRemovesOldProcessedAndFailedRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CleanupRedisUsageInbox returned error: %v", err)
 	}
-	if result.ProcessedDeleted != 1 || result.FailedDeleted != 1 {
+	if result.ProcessedDeleted != 1 || result.FailedDeleted != 2 {
 		t.Fatalf("unexpected cleanup result: %+v", result)
 	}
 
@@ -257,7 +259,7 @@ func TestCleanupRedisUsageInboxRemovesOldProcessedAndFailedRows(t *testing.T) {
 	for _, row := range remaining {
 		remainingIDs = append(remainingIDs, row.ID)
 	}
-	expectedIDs := []uint{rows[1].ID, rows[3].ID, rows[4].ID}
+	expectedIDs := []uint{rows[1].ID, rows[4].ID, rows[5].ID}
 	if fmt.Sprint(remainingIDs) != fmt.Sprint(expectedIDs) {
 		t.Fatalf("expected remaining ids %v, got %v", expectedIDs, remainingIDs)
 	}
@@ -275,7 +277,7 @@ func TestListPendingRedisUsageInboxReturnsPendingRowsInIDOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InsertRedisUsageInboxMessages returned error: %v", err)
 	}
-	if err := MarkRedisUsageInboxProcessed(db, rows[1].ID, 7, "event-2", poppedAt.Add(time.Minute)); err != nil {
+	if err := MarkRedisUsageInboxProcessed(db, rows[1].ID, "event-2", poppedAt.Add(time.Minute)); err != nil {
 		t.Fatalf("MarkRedisUsageInboxProcessed returned error: %v", err)
 	}
 

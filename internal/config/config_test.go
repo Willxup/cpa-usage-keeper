@@ -126,9 +126,6 @@ func TestLoadFromEnvAppliesDefaults(t *testing.T) {
 	if cfg.AuthSessionTTL != 7*24*time.Hour {
 		t.Fatalf("expected default auth session ttl 168h, got %s", cfg.AuthSessionTTL)
 	}
-	if cfg.UsageSyncMode != "auto" {
-		t.Fatalf("expected default usage sync mode auto, got %s", cfg.UsageSyncMode)
-	}
 	if cfg.RedisQueueAddr != "" {
 		t.Fatalf("expected default redis queue addr to be empty, got %q", cfg.RedisQueueAddr)
 	}
@@ -138,17 +135,14 @@ func TestLoadFromEnvAppliesDefaults(t *testing.T) {
 	if cfg.RedisQueueBatchSize != 1000 {
 		t.Fatalf("expected default redis queue batch size 1000, got %d", cfg.RedisQueueBatchSize)
 	}
-	if cfg.PollInterval != 5*time.Minute {
-		t.Fatalf("expected default legacy export poll interval 5m, got %s", cfg.PollInterval)
-	}
 	if cfg.RedisQueueIdleInterval != time.Second {
 		t.Fatalf("expected default redis queue idle interval 1s, got %s", cfg.RedisQueueIdleInterval)
 	}
 	if cfg.RedisQueueErrorBackoff != RedisQueueErrorBackoffDefault {
 		t.Fatalf("expected default redis queue error backoff 10s, got %s", cfg.RedisQueueErrorBackoff)
 	}
-	if cfg.RedisMetadataSyncInterval != RedisMetadataSyncIntervalDefault {
-		t.Fatalf("expected default redis metadata sync interval 30s, got %s", cfg.RedisMetadataSyncInterval)
+	if cfg.MetadataSyncInterval != MetadataSyncIntervalDefault {
+		t.Fatalf("expected default metadata sync interval 30s, got %s", cfg.MetadataSyncInterval)
 	}
 	if !cfg.LogFileEnabled {
 		t.Fatal("expected log file output to be enabled by default")
@@ -372,33 +366,15 @@ func TestLoadFromEnvRequiresCriticalValues(t *testing.T) {
 	})
 }
 
-func TestLoadFromEnvUsesLegacyExportPollDefault(t *testing.T) {
+func TestLoadFromEnvIgnoresRemovedLegacySyncEnvVars(t *testing.T) {
 	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
 	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
-	t.Setenv("USAGE_SYNC_MODE", "legacy_export")
+	t.Setenv("USAGE_SYNC_MODE", "invalid")
+	t.Setenv("POLL_INTERVAL", "not-a-duration")
 
-	cfg, err := LoadFromEnv()
+	_, err := LoadFromEnv()
 	if err != nil {
-		t.Fatalf("LoadFromEnv returned error: %v", err)
-	}
-
-	if cfg.PollInterval != 5*time.Minute {
-		t.Fatalf("expected legacy export poll interval 5m, got %s", cfg.PollInterval)
-	}
-}
-
-func TestLoadFromEnvUsesExplicitPollIntervalOverride(t *testing.T) {
-	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
-	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
-	t.Setenv("POLL_INTERVAL", "1m")
-
-	cfg, err := LoadFromEnv()
-	if err != nil {
-		t.Fatalf("LoadFromEnv returned error: %v", err)
-	}
-
-	if cfg.PollInterval != time.Minute {
-		t.Fatalf("expected explicit poll interval 1m, got %s", cfg.PollInterval)
+		t.Fatalf("LoadFromEnv should ignore removed legacy sync env vars, got error: %v", err)
 	}
 }
 
@@ -431,17 +407,6 @@ func TestLoadFromEnvIgnoresRemovedRedisQueueKeyOverride(t *testing.T) {
 	}
 }
 
-func TestLoadFromEnvRejectsInvalidUsageSyncMode(t *testing.T) {
-	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
-	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
-	t.Setenv("USAGE_SYNC_MODE", "invalid")
-
-	_, err := LoadFromEnv()
-	if err == nil || err.Error() != "USAGE_SYNC_MODE must be one of auto, redis, legacy_export" {
-		t.Fatalf("expected usage sync mode validation error, got %v", err)
-	}
-}
-
 func TestLoadFromEnvRejectsNonPositiveRedisQueueBatchSize(t *testing.T) {
 	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
 	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
@@ -459,7 +424,6 @@ func TestLoadFromEnvParsesOverrides(t *testing.T) {
 	t.Setenv("WORK_DIR", "/tmp/work")
 	t.Setenv("APP_PORT", "9090")
 	t.Setenv("APP_BASE_PATH", "/cpa/")
-	t.Setenv("POLL_INTERVAL", "1m")
 	t.Setenv("BACKUP_ENABLED", "false")
 	t.Setenv("BACKUP_INTERVAL", "2h")
 	t.Setenv("BACKUP_RETENTION_DAYS", "7")
@@ -477,7 +441,7 @@ func TestLoadFromEnvParsesOverrides(t *testing.T) {
 		t.Fatalf("LoadFromEnv returned error: %v", err)
 	}
 
-	if cfg.AppPort != "9090" || cfg.AppBasePath != "/cpa" || cfg.PollInterval != time.Minute || cfg.WorkDir != "/tmp/work" || cfg.SQLitePath != filepath.Join("/tmp/work", "app.db") || cfg.BackupEnabled || cfg.BackupDir != filepath.Join("/tmp/work", "backups") || cfg.BackupInterval != 2*time.Hour || cfg.BackupRetentionDays != 7 || cfg.RequestTimeout != 15*time.Second || cfg.LogLevel != "debug" || cfg.LogFileEnabled || cfg.LogDir != filepath.Join("/tmp/work", "logs") || cfg.LogRetentionDays != 14 || !cfg.AuthEnabled || cfg.LoginPassword != "top-secret" || cfg.AuthSessionTTL != 12*time.Hour || cfg.RedisQueueIdleInterval != 2*time.Second {
+	if cfg.AppPort != "9090" || cfg.AppBasePath != "/cpa" || cfg.WorkDir != "/tmp/work" || cfg.SQLitePath != filepath.Join("/tmp/work", "app.db") || cfg.BackupEnabled || cfg.BackupDir != filepath.Join("/tmp/work", "backups") || cfg.BackupInterval != 2*time.Hour || cfg.BackupRetentionDays != 7 || cfg.RequestTimeout != 15*time.Second || cfg.LogLevel != "debug" || cfg.LogFileEnabled || cfg.LogDir != filepath.Join("/tmp/work", "logs") || cfg.LogRetentionDays != 14 || !cfg.AuthEnabled || cfg.LoginPassword != "top-secret" || cfg.AuthSessionTTL != 12*time.Hour || cfg.RedisQueueIdleInterval != 2*time.Second {
 		t.Fatalf("unexpected config override result: %+v", cfg)
 	}
 }
@@ -540,8 +504,8 @@ func TestLoadFromEnvIgnoresRemovedRedisDrainEnvOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadFromEnv returned error: %v", err)
 	}
-	if cfg.RedisQueueErrorBackoff != RedisQueueErrorBackoffDefault || cfg.RedisMetadataSyncInterval != RedisMetadataSyncIntervalDefault {
-		t.Fatalf("expected removed env overrides to be ignored, got error_backoff=%s metadata_interval=%s", cfg.RedisQueueErrorBackoff, cfg.RedisMetadataSyncInterval)
+	if cfg.RedisQueueErrorBackoff != RedisQueueErrorBackoffDefault || cfg.MetadataSyncInterval != MetadataSyncIntervalDefault {
+		t.Fatalf("expected removed env overrides to be ignored, got error_backoff=%s metadata_interval=%s", cfg.RedisQueueErrorBackoff, cfg.MetadataSyncInterval)
 	}
 }
 
