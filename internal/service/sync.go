@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"cpa-usage-keeper/internal/backup"
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/models"
@@ -39,14 +38,6 @@ type CPAClientFetcher interface {
 	MetadataFetcher
 }
 
-type BackupWriter interface {
-	Write(snapshotRunID uint, fetchedAt time.Time, payload []byte) (string, error)
-}
-
-type BackupCleaner interface {
-	Cleanup(retentionDays int, now time.Time) (int, error)
-}
-
 const syncPrefilterOverlapWindow = 24 * time.Hour
 const redisInboxProcessLimit = 1000
 
@@ -56,22 +47,17 @@ const (
 )
 
 type SyncService struct {
-	db                  *gorm.DB
-	client              CPAClientFetcher
-	usageFetcher        UsageFetcher
-	redisUsageFetcher   UsageFetcher
-	redisQueue          RedisQueue
-	redisQueueKey       string
-	usageSyncMode       string
-	legacyUsageFetcher  UsageFetcher
-	metadataFetcher     MetadataFetcher
-	baseURL             string
-	backupEnabled       bool
-	backupInterval      time.Duration
-	backupRetentionDays int
-	backupWriter        BackupWriter
-	backupCleaner       BackupCleaner
-	now                 func() time.Time
+	db                 *gorm.DB
+	client             CPAClientFetcher
+	usageFetcher       UsageFetcher
+	redisUsageFetcher  UsageFetcher
+	redisQueue         RedisQueue
+	redisQueueKey      string
+	usageSyncMode      string
+	legacyUsageFetcher UsageFetcher
+	metadataFetcher    MetadataFetcher
+	baseURL            string
+	now                func() time.Time
 }
 
 type SyncResult struct {
@@ -82,7 +68,6 @@ type SyncResult struct {
 	DedupedEvents  int
 	PayloadHash    string
 	ExportedAt     *time.Time
-	BackupFilePath string
 }
 
 type RedisBatchSyncResult struct {
@@ -100,41 +85,24 @@ type RedisInboxPullResult struct {
 }
 
 func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
-	var writer BackupWriter
-	var cleaner BackupCleaner
-	if cfg.BackupEnabled {
-		backupStore := backup.NewWriter(cfg.BackupDir)
-		writer = backupStore
-		cleaner = backupStore
-	}
 	return NewSyncServiceWithOptions(db, SyncServiceOptions{
-		BaseURL:             cfg.CPABaseURL,
-		Client:              cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout),
-		UsageSyncMode:       cfg.UsageSyncMode,
-		RedisQueue:          cpa.NewRedisQueueClient(cfg.CPABaseURL, cfg.RedisQueueAddr, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.RedisQueueKey, cfg.RedisQueueBatchSize),
-		RedisQueueKey:       cfg.RedisQueueKey,
-		BackupEnabled:       cfg.BackupEnabled,
-		BackupWriter:        writer,
-		BackupInterval:      cfg.BackupInterval,
-		BackupRetentionDays: cfg.BackupRetentionDays,
-		BackupCleaner:       cleaner,
+		BaseURL:       cfg.CPABaseURL,
+		Client:        cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout),
+		UsageSyncMode: cfg.UsageSyncMode,
+		RedisQueue:    cpa.NewRedisQueueClient(cfg.CPABaseURL, cfg.RedisQueueAddr, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.RedisQueueKey, cfg.RedisQueueBatchSize),
+		RedisQueueKey: cfg.RedisQueueKey,
 	})
 }
 
 type SyncServiceOptions struct {
-	BaseURL             string
-	Client              CPAClientFetcher
-	UsageFetcher        UsageFetcher
-	MetadataFetcher     MetadataFetcher
-	UsageSyncMode       string
-	RedisQueue          RedisQueue
-	RedisQueueKey       string
-	BackupEnabled       bool
-	BackupWriter        BackupWriter
-	BackupInterval      time.Duration
-	BackupRetentionDays int
-	BackupCleaner       BackupCleaner
-	Now                 func() time.Time
+	BaseURL         string
+	Client          CPAClientFetcher
+	UsageFetcher    UsageFetcher
+	MetadataFetcher MetadataFetcher
+	UsageSyncMode   string
+	RedisQueue      RedisQueue
+	RedisQueueKey   string
+	Now             func() time.Time
 }
 
 func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncService {
@@ -162,22 +130,17 @@ func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncServic
 		usageFetcher = redisFetcher
 	}
 	return &SyncService{
-		db:                  db,
-		client:              opts.Client,
-		usageFetcher:        usageFetcher,
-		redisUsageFetcher:   redisFetcher,
-		redisQueue:          opts.RedisQueue,
-		redisQueueKey:       redisQueueKey(opts.RedisQueueKey),
-		usageSyncMode:       strings.TrimSpace(opts.UsageSyncMode),
-		legacyUsageFetcher:  legacyFetcher,
-		metadataFetcher:     metadataFetcher,
-		baseURL:             strings.TrimSpace(opts.BaseURL),
-		backupEnabled:       opts.BackupEnabled,
-		backupInterval:      opts.BackupInterval,
-		backupRetentionDays: opts.BackupRetentionDays,
-		backupWriter:        opts.BackupWriter,
-		backupCleaner:       opts.BackupCleaner,
-		now:                 now,
+		db:                 db,
+		client:             opts.Client,
+		usageFetcher:       usageFetcher,
+		redisUsageFetcher:  redisFetcher,
+		redisQueue:         opts.RedisQueue,
+		redisQueueKey:      redisQueueKey(opts.RedisQueueKey),
+		usageSyncMode:      strings.TrimSpace(opts.UsageSyncMode),
+		legacyUsageFetcher: legacyFetcher,
+		metadataFetcher:    metadataFetcher,
+		baseURL:            strings.TrimSpace(opts.BaseURL),
+		now:                now,
 	}
 }
 
@@ -423,7 +386,7 @@ func (s *SyncService) SyncLegacyStatus(ctx context.Context) (string, error) {
 	return result.Status, err
 }
 
-// syncOnce 执行一次完整的 legacy_export 同步：拉取导出、创建 snapshot_run、写 usage_events、同步 metadata 和备份。
+// syncOnce 执行一次完整的 legacy_export 同步：拉取导出、创建 snapshot_run、写 usage_events 并同步 metadata。
 // 该路径用于 legacy_export 模式以及 auto 探测 Redis 不可用后的回退模式，不参与 Redis inbox 分阶段处理。
 func (s *SyncService) syncOnce(ctx context.Context) (*SyncResult, error) {
 	if err := s.validate(syncMetadataRequired); err != nil {
@@ -578,46 +541,6 @@ func (s *SyncService) persistUsageResult(ctx context.Context, fetchedAt time.Tim
 		}, fmt.Errorf("fetch usage export: %w", fetchErr)
 	}
 
-	var lastBackupSnapshotRun *models.SnapshotRun
-	if s.backupEnabled {
-		lastBackupSnapshotRun, err = repository.FindLastSnapshotRunWithBackup(s.db)
-		if err != nil {
-			finalizeErr := repository.FinalizeSnapshotRun(s.db, snapshotRun.ID, repository.SnapshotRunResult{
-				Status:       "failed",
-				HTTPStatus:   httpStatus,
-				ErrorMessage: errorMessage(err),
-				ExportedAt:   exportedAt,
-			})
-			if finalizeErr != nil {
-				return nil, fmt.Errorf("load last backup snapshot run: %v; finalize snapshot run: %w", err, finalizeErr)
-			}
-			return nil, fmt.Errorf("load last backup snapshot run: %w", err)
-		}
-	}
-
-	backupFilePath := ""
-	if s.shouldWriteBackup(fetchedAt, lastBackupSnapshotRun) {
-		logrus.WithField("snapshot_run_id", snapshotRun.ID).Debug("usage backup write started")
-		backupFilePath, err = s.writeBackup(snapshotRun.ID, fetchedAt, rawPayload)
-		if err != nil {
-			finalizeErr := repository.FinalizeSnapshotRun(s.db, snapshotRun.ID, repository.SnapshotRunResult{
-				Status:         "failed",
-				HTTPStatus:     httpStatus,
-				ErrorMessage:   errorMessage(err),
-				BackupFilePath: backupFilePath,
-				ExportedAt:     exportedAt,
-			})
-			if finalizeErr != nil {
-				return nil, fmt.Errorf("write backup: %v; finalize snapshot run: %w", err, finalizeErr)
-			}
-			return nil, fmt.Errorf("write backup: %w", err)
-		}
-		logrus.WithFields(logrus.Fields{
-			"snapshot_run_id": snapshotRun.ID,
-			"backup_written":  backupFilePath != "",
-		}).Debug("usage backup write finished")
-	}
-
 	events := fetchResult.Events
 	for i := range events {
 		events[i].SnapshotRunID = snapshotRun.ID
@@ -626,11 +549,10 @@ func (s *SyncService) persistUsageResult(ctx context.Context, fetchedAt time.Tim
 		events, err = filterUsageEventsByLocalWatermark(s.db, events, syncPrefilterOverlapWindow)
 		if err != nil {
 			finalizeErr := repository.FinalizeSnapshotRun(s.db, snapshotRun.ID, repository.SnapshotRunResult{
-				Status:         "failed",
-				HTTPStatus:     httpStatus,
-				ErrorMessage:   errorMessage(err),
-				BackupFilePath: backupFilePath,
-				ExportedAt:     exportedAt,
+				Status:       "failed",
+				HTTPStatus:   httpStatus,
+				ErrorMessage: errorMessage(err),
+				ExportedAt:   exportedAt,
 			})
 			if finalizeErr != nil {
 				return nil, fmt.Errorf("filter usage events: %v; finalize snapshot run: %w", err, finalizeErr)
@@ -642,11 +564,10 @@ func (s *SyncService) persistUsageResult(ctx context.Context, fetchedAt time.Tim
 	fetchResult.Events = events
 	if err != nil {
 		finalizeErr := repository.FinalizeSnapshotRun(s.db, snapshotRun.ID, repository.SnapshotRunResult{
-			Status:         "failed",
-			HTTPStatus:     httpStatus,
-			ErrorMessage:   errorMessage(err),
-			BackupFilePath: backupFilePath,
-			ExportedAt:     exportedAt,
+			Status:       "failed",
+			HTTPStatus:   httpStatus,
+			ErrorMessage: errorMessage(err),
+			ExportedAt:   exportedAt,
 		})
 		if finalizeErr != nil {
 			return nil, fmt.Errorf("align usage events: %v; finalize snapshot run: %w", err, finalizeErr)
@@ -657,11 +578,10 @@ func (s *SyncService) persistUsageResult(ctx context.Context, fetchedAt time.Tim
 	inserted, deduped, err := repository.InsertUsageEvents(s.db, events)
 	if err != nil {
 		finalizeErr := repository.FinalizeSnapshotRun(s.db, snapshotRun.ID, repository.SnapshotRunResult{
-			Status:         "failed",
-			HTTPStatus:     httpStatus,
-			ErrorMessage:   errorMessage(err),
-			BackupFilePath: backupFilePath,
-			ExportedAt:     exportedAt,
+			Status:       "failed",
+			HTTPStatus:   httpStatus,
+			ErrorMessage: errorMessage(err),
+			ExportedAt:   exportedAt,
 		})
 		if finalizeErr != nil {
 			return nil, fmt.Errorf("insert usage events: %v; finalize snapshot run: %w", err, finalizeErr)
@@ -689,7 +609,6 @@ func (s *SyncService) persistUsageResult(ctx context.Context, fetchedAt time.Tim
 	if err := repository.FinalizeSnapshotRun(s.db, snapshotRun.ID, repository.SnapshotRunResult{
 		Status:         finalStatus,
 		HTTPStatus:     httpStatus,
-		BackupFilePath: backupFilePath,
 		InsertedEvents: inserted,
 		DedupedEvents:  deduped,
 		ExportedAt:     exportedAt,
@@ -702,7 +621,6 @@ func (s *SyncService) persistUsageResult(ctx context.Context, fetchedAt time.Tim
 		"status":          finalStatus,
 		"inserted_events": inserted,
 		"deduped_events":  deduped,
-		"backup_written":  backupFilePath != "",
 	}).Debug("snapshot run finalized")
 
 	result := &SyncResult{
@@ -713,13 +631,9 @@ func (s *SyncService) persistUsageResult(ctx context.Context, fetchedAt time.Tim
 		DedupedEvents:  deduped,
 		PayloadHash:    payloadHash,
 		ExportedAt:     exportedAt,
-		BackupFilePath: backupFilePath,
 	}
 	if partialSyncErr != nil {
 		return result, partialSyncErr
-	}
-	if err := s.cleanupBackups(fetchedAt); err != nil {
-		return result, fmt.Errorf("cleanup backups: %w", err)
 	}
 	return result, nil
 }
@@ -878,40 +792,6 @@ func (s *SyncService) validate(syncMetadata bool) error {
 		}
 	}
 	return nil
-}
-
-func (s *SyncService) cleanupBackups(now time.Time) error {
-	if !s.backupEnabled || s.backupRetentionDays <= 0 {
-		return nil
-	}
-	if s.backupCleaner == nil {
-		return fmt.Errorf("backup cleaner is nil")
-	}
-	_, err := s.backupCleaner.Cleanup(s.backupRetentionDays, now)
-	return err
-}
-
-func (s *SyncService) writeBackup(snapshotRunID uint, fetchedAt time.Time, payload []byte) (string, error) {
-	if !s.backupEnabled || len(payload) == 0 {
-		return "", nil
-	}
-	if s.backupWriter == nil {
-		return "", fmt.Errorf("backup writer is nil")
-	}
-	return s.backupWriter.Write(snapshotRunID, fetchedAt, payload)
-}
-
-func (s *SyncService) shouldWriteBackup(fetchedAt time.Time, lastBackupSnapshotRun *models.SnapshotRun) bool {
-	if !s.backupEnabled {
-		return false
-	}
-	if s.backupInterval <= 0 {
-		return true
-	}
-	if lastBackupSnapshotRun == nil {
-		return true
-	}
-	return fetchedAt.UTC().Sub(lastBackupSnapshotRun.FetchedAt.UTC()) >= s.backupInterval
 }
 
 // insertRedisInboxMessages 在解码前先把 Redis 原始消息落库，降低 LPOP 后本地处理失败导致的数据丢失风险。

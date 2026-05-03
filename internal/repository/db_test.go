@@ -211,7 +211,6 @@ func TestFinalizeSnapshotRunUpdatesResultFields(t *testing.T) {
 	err = FinalizeSnapshotRun(db, run.ID, SnapshotRunResult{
 		Status:         "completed",
 		HTTPStatus:     200,
-		BackupFilePath: "/tmp/export.json",
 		InsertedEvents: 7,
 		DedupedEvents:  2,
 		ExportedAt:     &exportedAt,
@@ -229,9 +228,6 @@ func TestFinalizeSnapshotRunUpdatesResultFields(t *testing.T) {
 	}
 	if stored.InsertedEvents != 7 || stored.DedupedEvents != 2 {
 		t.Fatalf("unexpected event counts: %+v", stored)
-	}
-	if stored.BackupFilePath != "/tmp/export.json" {
-		t.Fatalf("expected backup path to be stored, got %q", stored.BackupFilePath)
 	}
 	if stored.ExportedAt == nil || !stored.ExportedAt.Equal(exportedAt) {
 		t.Fatalf("expected exportedAt to be updated, got %+v", stored.ExportedAt)
@@ -477,50 +473,6 @@ func TestCleanupStorageCleansRedisInboxAndSnapshotRuns(t *testing.T) {
 	}
 	if len(snapshotRemaining) != 1 || snapshotRemaining[0].ID != keptSnapshot.ID {
 		t.Fatalf("expected only retained snapshot %d to remain after deleting %d, got %+v", keptSnapshot.ID, oldSnapshot.ID, snapshotRemaining)
-	}
-}
-
-func TestFindLastSnapshotRunWithBackupReturnsLatestCompletedBackup(t *testing.T) {
-	db := openTestDatabase(t)
-
-	first, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), Status: "pending"})
-	if err != nil {
-		t.Fatalf("CreateSnapshotRun first returned error: %v", err)
-	}
-	if err := FinalizeSnapshotRun(db, first.ID, SnapshotRunResult{Status: "completed", BackupFilePath: "/tmp/first.json"}); err != nil {
-		t.Fatalf("FinalizeSnapshotRun first returned error: %v", err)
-	}
-
-	second, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC), Status: "pending"})
-	if err != nil {
-		t.Fatalf("CreateSnapshotRun second returned error: %v", err)
-	}
-	if err := FinalizeSnapshotRun(db, second.ID, SnapshotRunResult{Status: "completed"}); err != nil {
-		t.Fatalf("FinalizeSnapshotRun second returned error: %v", err)
-	}
-
-	third, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC), Status: "pending"})
-	if err != nil {
-		t.Fatalf("CreateSnapshotRun third returned error: %v", err)
-	}
-	if err := FinalizeSnapshotRun(db, third.ID, SnapshotRunResult{Status: "completed", BackupFilePath: "/tmp/third.json"}); err != nil {
-		t.Fatalf("FinalizeSnapshotRun third returned error: %v", err)
-	}
-
-	fourth, err := CreateSnapshotRun(db, SnapshotRunInput{FetchedAt: time.Date(2026, 4, 16, 13, 0, 0, 0, time.UTC), Status: "pending"})
-	if err != nil {
-		t.Fatalf("CreateSnapshotRun fourth returned error: %v", err)
-	}
-	if err := FinalizeSnapshotRun(db, fourth.ID, SnapshotRunResult{Status: "completed_with_warnings", BackupFilePath: "/tmp/fourth.json"}); err != nil {
-		t.Fatalf("FinalizeSnapshotRun fourth returned error: %v", err)
-	}
-
-	run, err := FindLastSnapshotRunWithBackup(db)
-	if err != nil {
-		t.Fatalf("FindLastSnapshotRunWithBackup returned error: %v", err)
-	}
-	if run == nil || run.ID != fourth.ID {
-		t.Fatalf("expected latest successful backup snapshot %d, got %+v", fourth.ID, run)
 	}
 }
 

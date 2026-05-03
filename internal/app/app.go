@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"cpa-usage-keeper/internal/api"
@@ -39,7 +40,11 @@ type App struct {
 	Router                  *gin.Engine
 	Poller                  Runner
 	Maintenance             *StorageCleanupRunner
+	BackupMaintenance       *DatabaseBackupRunner
 	LogCloser               io.Closer
+
+	backgroundCancel context.CancelFunc
+	backgroundWG     sync.WaitGroup
 }
 
 var redisStartupProbe = func(ctx context.Context, cfg config.Config) error {
@@ -86,9 +91,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		return nil, err
 	}
 	if err := runTemporaryStartupSnapshotRunsCleanup(db); err != nil {
-		if sqlDB, dbErr := db.DB(); dbErr == nil {
-			_ = sqlDB.Close()
-		}
+		_ = closeGormDB(db)
 		_ = logCloser.Close()
 		return nil, err
 	}
@@ -97,6 +100,17 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	cfg = resolveUsageSyncMode(context.Background(), cfg)
 	syncService := service.NewSyncService(db, cfg)
 	backgroundPoller := newBackgroundRunner(syncService, cfg)
+	var backupMaintenance *DatabaseBackupRunner
+	if cfg.BackupEnabled {
+		sqlDB, err := db.DB()
+		if err != nil {
+			_ = closeGormDB(db)
+			_ = logCloser.Close()
+			return nil, err
+		}
+		backupStore := newDatabaseBackupStore(sqlDB, cfg.BackupDir)
+		backupMaintenance = NewDatabaseBackupRunner(backupStore, backupStore, cfg.BackupInterval, cfg.BackupRetentionDays)
+	}
 
 	usageService := service.NewUsageService(db)
 	authFileService := service.NewAuthFileService(db)
@@ -117,6 +131,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		DB:                      db,
 		Poller:                  backgroundPoller,
 		Maintenance:             NewStorageCleanupRunner(syncService),
+		BackupMaintenance:       backupMaintenance,
 		LogCloser:               logCloser,
 		Router: api.NewRouter(
 			staticDir,
@@ -135,6 +150,17 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 			cfg.AppBasePath,
 		),
 	}, nil
+}
+
+func closeGormDB(db *gorm.DB) error {
+	if db == nil {
+		return nil
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
 }
 
 func resolveStaticDir(cwd, exeDir string) string {
@@ -201,14 +227,11 @@ func (a *App) Close() error {
 		return nil
 	}
 
+	a.stopBackgroundTasks()
+
 	var closeErr error
 	if a.DB != nil {
-		sqlDB, err := a.DB.DB()
-		if err != nil {
-			closeErr = errors.Join(closeErr, err)
-		} else if err := sqlDB.Close(); err != nil {
-			closeErr = errors.Join(closeErr, err)
-		}
+		closeErr = errors.Join(closeErr, closeGormDB(a.DB))
 		a.DB = nil
 	}
 	if a.LogCloser != nil {
@@ -232,20 +255,51 @@ func (a *App) Run() error {
 		"effective_mode":  a.Config.UsageSyncMode,
 	}).Info("usage sync mode selected")
 
+	ctx := a.startBackgroundContext()
+	defer a.stopBackgroundTasks()
 	if a.Poller != nil {
-		go func() {
-			if err := a.Poller.Run(context.Background()); err != nil {
+		a.startBackgroundTask(func() {
+			if err := a.Poller.Run(ctx); err != nil {
 				logrus.Errorf("poller stopped: %v", err)
 			}
-		}()
+		})
 	}
 	if a.Maintenance != nil {
-		go func() {
-			if err := a.Maintenance.Run(context.Background()); err != nil {
+		a.startBackgroundTask(func() {
+			if err := a.Maintenance.Run(ctx); err != nil {
 				logrus.Errorf("maintenance cleanup stopped: %v", err)
 			}
-		}()
+		})
+	}
+	if a.BackupMaintenance != nil {
+		a.startBackgroundTask(func() {
+			if err := a.BackupMaintenance.Run(ctx); err != nil {
+				logrus.Errorf("database backup stopped: %v", err)
+			}
+		})
 	}
 
 	return a.Router.Run(":" + a.Config.AppPort)
+}
+
+func (a *App) startBackgroundContext() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	a.backgroundCancel = cancel
+	return ctx
+}
+
+func (a *App) startBackgroundTask(run func()) {
+	a.backgroundWG.Add(1)
+	go func() {
+		defer a.backgroundWG.Done()
+		run()
+	}()
+}
+
+func (a *App) stopBackgroundTasks() {
+	if a.backgroundCancel != nil {
+		a.backgroundCancel()
+		a.backgroundCancel = nil
+	}
+	a.backgroundWG.Wait()
 }

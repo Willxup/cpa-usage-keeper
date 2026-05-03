@@ -52,6 +52,22 @@ func TestNewWithConfigBuildsPollerAndRouter(t *testing.T) {
 	if app.LogCloser == nil {
 		t.Fatal("expected log closer to be initialized")
 	}
+	if app.BackupMaintenance == nil {
+		t.Fatal("expected database backup runner to be initialized")
+	}
+}
+
+func TestNewWithConfigSkipsBackupRunnerWhenDisabled(t *testing.T) {
+	cfg := testAppConfig(t, "legacy_export")
+	cfg.BackupEnabled = false
+	app, err := NewWithConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewWithConfig returned error: %v", err)
+	}
+	defer app.Close()
+	if app.BackupMaintenance != nil {
+		t.Fatal("expected database backup runner to be skipped when backups are disabled")
+	}
 }
 
 func TestNewWithConfigSelectsLegacyPoller(t *testing.T) {
@@ -326,16 +342,23 @@ func TestRunStartsPollerAndMaintenanceIndependently(t *testing.T) {
 	cfg.AppPort = "invalid-port"
 	pollerStarted := make(chan struct{})
 	maintenanceStarted := make(chan struct{})
+	backupStarted := make(chan struct{})
 	maintenance := NewStorageCleanupRunner(&maintenanceSyncStub{})
 	maintenance.sleep = func(context.Context, time.Duration) bool {
 		close(maintenanceStarted)
 		return false
 	}
+	backupRunner := NewDatabaseBackupRunner(&databaseBackupWriterStub{}, nil, time.Second, 0)
+	backupRunner.sleep = func(context.Context, time.Duration) bool {
+		close(backupStarted)
+		return false
+	}
 	app := &App{
-		Config:      &cfg,
-		Router:      gin.New(),
-		Poller:      &appRunStub{started: pollerStarted},
-		Maintenance: maintenance,
+		Config:            &cfg,
+		Router:            gin.New(),
+		Poller:            &appRunStub{started: pollerStarted},
+		Maintenance:       maintenance,
+		BackupMaintenance: backupRunner,
 	}
 
 	if err := app.Run(); err == nil {
@@ -350,6 +373,44 @@ func TestRunStartsPollerAndMaintenanceIndependently(t *testing.T) {
 	case <-maintenanceStarted:
 	case <-time.After(time.Second):
 		t.Fatal("expected maintenance runner to start")
+	}
+	select {
+	case <-backupStarted:
+	case <-time.After(time.Second):
+		t.Fatal("expected database backup runner to start")
+	}
+}
+
+func TestRunCancelsBackgroundTasksWhenRouterStops(t *testing.T) {
+	cfg := testAppConfig(t, "redis")
+	cfg.AppPort = "invalid-port"
+	backupStarted := make(chan struct{})
+	backupCanceled := make(chan struct{})
+	backupRunner := NewDatabaseBackupRunner(&databaseBackupWriterStub{}, nil, time.Second, 0)
+	backupRunner.sleep = func(ctx context.Context, _ time.Duration) bool {
+		close(backupStarted)
+		<-ctx.Done()
+		close(backupCanceled)
+		return false
+	}
+	app := &App{
+		Config:            &cfg,
+		Router:            gin.New(),
+		BackupMaintenance: backupRunner,
+	}
+
+	if err := app.Run(); err == nil {
+		t.Fatal("expected Run to return an error for invalid port")
+	}
+	select {
+	case <-backupStarted:
+	case <-time.After(time.Second):
+		t.Fatal("expected database backup runner to start")
+	}
+	select {
+	case <-backupCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("expected database backup runner context to be canceled")
 	}
 }
 
@@ -441,7 +502,7 @@ func testAppConfig(t *testing.T, syncMode string) config.Config {
 		SQLitePath:                t.TempDir() + "/app.db",
 		BackupEnabled:             true,
 		BackupDir:                 t.TempDir() + "/backups",
-		BackupRetentionDays:       30,
+		BackupRetentionDays:       7,
 		RequestTimeout:            5 * time.Second,
 		LogLevel:                  "info",
 		LogFileEnabled:            false,

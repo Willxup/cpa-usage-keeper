@@ -60,9 +60,9 @@ type Config struct {
 	WorkDir string
 	// SQLitePath 是 SQLite 数据库文件路径。
 	SQLitePath string
-	// BackupEnabled 控制是否保存原始 export 备份文件。
+	// BackupEnabled 控制是否保存 SQLite 数据库备份文件。
 	BackupEnabled bool
-	// BackupDir 是原始 export 备份目录。
+	// BackupDir 是 SQLite 数据库备份目录。
 	BackupDir string
 	// BackupInterval 是两次备份写入之间的最小间隔。
 	BackupInterval time.Duration
@@ -147,14 +147,20 @@ func Load(options LoadOptions) (*Config, error) {
 		return nil, err
 	}
 
-	backupInterval, err := getDuration("BACKUP_INTERVAL", time.Hour)
+	backupInterval, err := getDuration("BACKUP_INTERVAL", 24*time.Hour)
 	if err != nil {
 		return nil, err
 	}
+	if backupInterval <= 0 {
+		return nil, fmt.Errorf("BACKUP_INTERVAL must be positive")
+	}
 
-	backupRetentionDays, err := getInt("BACKUP_RETENTION_DAYS", 30)
+	backupRetentionDays, err := getInt("BACKUP_RETENTION_DAYS", 7)
 	if err != nil {
 		return nil, err
+	}
+	if backupRetentionDays < 0 {
+		return nil, fmt.Errorf("BACKUP_RETENTION_DAYS must be non-negative")
 	}
 
 	logFileEnabled, err := getBool("LOG_FILE_ENABLED", true)

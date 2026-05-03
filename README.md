@@ -14,7 +14,7 @@
 - usage 聚合 API 与 pricing API
 - 内置 React Dashboard
 - 可选密码登录保护
-- 原始数据本地备份与保留策略
+- SQLite 数据库本地备份与保留策略
 - Docker / Docker Compose 部署
 
 ## 项目结构
@@ -24,7 +24,7 @@ cmd/                 应用入口
 internal/api/        HTTP 路由与处理器
 internal/app/        应用装配与启动
 internal/auth/       内存 session 鉴权
-internal/backup/     原始数据备份管理
+internal/backup/     SQLite 数据库备份管理
 internal/config/     环境配置加载
 internal/cpa/        CPA 客户端与类型定义
 internal/models/     GORM 模型
@@ -51,7 +51,7 @@ cp .env.example .env
 | `AUTH_SESSION_TTL` | 否 | `168h` | Session 生命周期 |
 | `APP_PORT` | 否 | `8080` | HTTP 监听端口 |
 | `APP_BASE_PATH` | 否 | 根路径 | 子路径部署前缀，例如 `/cpa`；留空表示 `/` |
-| `TZ` | 否 | `Asia/Shanghai` | 项目业务时区，影响 Today、按天聚合、每日 03:00 清理和日志时间 |
+| `TZ` | 否 | `Asia/Shanghai` | 项目业务时区，影响 Today、按天聚合、定时任务和日志时间 |
 | `USAGE_SYNC_MODE` | 否 | `auto` | 同步模式：`auto` 启动时探测后固定为 `redis` 或 `legacy_export`；也可显式设置 `redis`、`legacy_export` |
 | `REDIS_QUEUE_ADDR` | 否 | `CPA_BASE_URL` 主机名 + `8317` | CPA Redis/RESP TCP 地址；非默认端口时填写 `host:port` |
 | `REDIS_QUEUE_BATCH_SIZE` | 否 | `1000` | 每次最多拉取的队列记录数 |
@@ -62,15 +62,15 @@ cp .env.example .env
 | `LOG_LEVEL` | 否 | `info` | 日志级别 |
 | `LOG_FILE_ENABLED` | 否 | `true` | 是否写入持久化日志文件 |
 | `LOG_RETENTION_DAYS` | 否 | `7` | 日志保留天数；`0` 表示不自动清理 |
-| `BACKUP_ENABLED` | 否 | `true` | 是否启用原始备份 |
-| `BACKUP_INTERVAL` | 否 | `1h` | 两次备份写入之间的最小间隔 |
-| `BACKUP_RETENTION_DAYS` | 否 | `30` | 备份保留天数 |
+| `BACKUP_ENABLED` | 否 | `true` | 是否启用 SQLite 数据库备份 |
+| `BACKUP_INTERVAL` | 否 | `24h` | 数据库备份间隔 |
+| `BACKUP_RETENTION_DAYS` | 否 | `7` | 备份保留天数 |
 
 `APP_BASE_PATH` 必须为空或以 `/` 开头；例如 `/cpa`，`/cpa/` 会规范为 `/cpa`。
 
 安全与数据说明：
 
-- SQLite 数据库和原始备份会保存从 CPA 拉取到的原始数据，备份文件不做加密。
+- SQLite 数据库备份会保存应用数据库中的原始数据，备份文件不做加密。
 - 面向浏览器的 API 会对 key-like source/lookup 字段做脱敏或稳定公开标识映射，但不会修改数据库原始值。
 - 公开部署建议开启 `AUTH_ENABLED=true`，并在反向代理层配置 HTTPS。
 - 登录 session 存在服务进程内存中，服务重启后已登录 session 会失效。

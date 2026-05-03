@@ -35,20 +35,6 @@ type stubExportFetcher struct {
 	geminiNilResult bool
 }
 
-type stubBackupWriter struct {
-	path    string
-	payload []byte
-	err     error
-	calls   int
-}
-
-type stubBackupCleaner struct {
-	retentionDays int
-	now           time.Time
-	err           error
-	calls         int
-}
-
 type trackingMetadataFetcher struct {
 	authCalls   int
 	geminiCalls int
@@ -108,22 +94,6 @@ func openAICompatibilityResult(payload []cpa.OpenAICompatibilityConfig, err erro
 	return &cpa.OpenAICompatibilityResult{StatusCode: 200, Payload: payload}, nil
 }
 
-func (s *stubBackupWriter) Write(_ uint, _ time.Time, payload []byte) (string, error) {
-	s.calls++
-	s.payload = append([]byte(nil), payload...)
-	if s.err != nil {
-		return "", s.err
-	}
-	return s.path, nil
-}
-
-func (s *stubBackupCleaner) Cleanup(retentionDays int, now time.Time) (int, error) {
-	s.calls++
-	s.retentionDays = retentionDays
-	s.now = now
-	return 0, s.err
-}
-
 func (s *trackingMetadataFetcher) FetchAuthFiles(context.Context) (*cpa.AuthFilesResult, error) {
 	s.authCalls++
 	if s.authErr != nil {
@@ -164,7 +134,6 @@ func (s *trackingMetadataFetcher) providerCalls() int {
 func TestSyncOncePersistsSnapshotAndEvents(t *testing.T) {
 	db := openSyncTestDatabase(t)
 	body := []byte(`{"version":1,"exported_at":"2026-04-16T10:00:00Z","usage":{"apis":{"provider-a":{"models":{"claude-sonnet":{"details":[{"timestamp":"2026-04-16T09:30:00Z","latency_ms":123,"source":"codex-a","auth_index":"1","failed":false,"tokens":{"input_tokens":10,"output_tokens":20,"reasoning_tokens":5,"cached_tokens":0,"total_tokens":35}}]}}}}}}`)
-	backupWriter := &stubBackupWriter{path: "/tmp/export.json"}
 	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
 		BaseURL: "https://cpa.example.com",
 		Client: stubExportFetcher{
@@ -177,8 +146,6 @@ func TestSyncOncePersistsSnapshotAndEvents(t *testing.T) {
 				Provider:  "anthropic",
 			}}}},
 		},
-		BackupEnabled: true,
-		BackupWriter:  backupWriter,
 	})
 
 	result, err := service.SyncNow(context.Background())
@@ -191,13 +158,6 @@ func TestSyncOncePersistsSnapshotAndEvents(t *testing.T) {
 	if result.InsertedEvents != 1 || result.DedupedEvents != 0 {
 		t.Fatalf("unexpected sync counts: %+v", result)
 	}
-	if result.BackupFilePath != "/tmp/export.json" || backupWriter.calls != 1 {
-		t.Fatalf("expected backup file path to be recorded, got result=%+v calls=%d", result, backupWriter.calls)
-	}
-	if string(backupWriter.payload) != string(body) {
-		t.Fatalf("expected backup payload to match raw body, got %s", string(backupWriter.payload))
-	}
-
 	var snapshot models.SnapshotRun
 	if err := db.First(&snapshot, result.SnapshotRunID).Error; err != nil {
 		t.Fatalf("load snapshot run: %v", err)
@@ -208,10 +168,6 @@ func TestSyncOncePersistsSnapshotAndEvents(t *testing.T) {
 	if snapshot.PayloadHash == "" || snapshot.InsertedEvents != 1 {
 		t.Fatalf("unexpected snapshot values: %+v", snapshot)
 	}
-	if snapshot.BackupFilePath != "/tmp/export.json" {
-		t.Fatalf("expected snapshot backup path to be stored, got %q", snapshot.BackupFilePath)
-	}
-
 	var event models.UsageEvent
 	if err := db.First(&event).Error; err != nil {
 		t.Fatalf("load usage event: %v", err)
@@ -324,31 +280,6 @@ func TestSyncOnceDoesNotLogExpectedEventAlignmentMiss(t *testing.T) {
 	}
 	if strings.Contains(logs.String(), "record not found") {
 		t.Fatalf("expected normal event alignment miss not to be logged, got %s", logs.String())
-	}
-}
-
-func TestSyncOnceSkipsBackupWhenDisabled(t *testing.T) {
-	db, logs := openSyncTestDatabaseWithLogs(t)
-	backupWriter := &stubBackupWriter{path: "/tmp/export.json"}
-	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
-		BaseURL:       "https://cpa.example.com",
-		Client:        stubExportFetcher{result: successfulExportResult([]byte(`{"version":1}`))},
-		BackupEnabled: false,
-		BackupWriter:  backupWriter,
-	})
-
-	result, err := service.SyncNow(context.Background())
-	if err != nil {
-		t.Fatalf("SyncOnce returned error: %v", err)
-	}
-	if result.BackupFilePath != "" {
-		t.Fatalf("expected empty backup path, got %+v", result)
-	}
-	if backupWriter.calls != 0 {
-		t.Fatalf("expected backup writer not to be called, got %d", backupWriter.calls)
-	}
-	if strings.Contains(logs.String(), "/internal/repository/db.go:156 record not found") {
-		t.Fatalf("expected no backup snapshot lookup log when backup is disabled, got %s", logs.String())
 	}
 }
 
@@ -493,145 +424,6 @@ func TestSyncOnceKeepsZeroTimestampEvents(t *testing.T) {
 	}
 	if result.InsertedEvents != 1 {
 		t.Fatalf("expected zero timestamp event to be kept, got %+v", result)
-	}
-}
-
-func TestSyncOnceSkipsBackupWithinConfiguredInterval(t *testing.T) {
-	db := openSyncTestDatabase(t)
-	body := []byte(`{"version":1,"exported_at":"2026-04-16T10:00:00Z","usage":{"apis":{"provider-a":{"models":{"claude-sonnet":{"details":[{"timestamp":"2026-04-16T09:30:00Z","latency_ms":123,"source":"codex-a","auth_index":"1","failed":false,"tokens":{"input_tokens":10,"output_tokens":20,"reasoning_tokens":5,"cached_tokens":0,"total_tokens":35}}]}}}}}}`)
-	backupWriter := &stubBackupWriter{path: "/tmp/export.json"}
-	now := time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC)
-	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
-		BaseURL:        "https://cpa.example.com",
-		Client:         stubExportFetcher{result: successfulExportResult(body)},
-		BackupEnabled:  true,
-		BackupWriter:   backupWriter,
-		BackupInterval: time.Hour,
-		Now: func() time.Time {
-			return now
-		},
-	})
-
-	first, err := service.SyncNow(context.Background())
-	if err != nil {
-		t.Fatalf("first SyncNow returned error: %v", err)
-	}
-	if first.BackupFilePath != "/tmp/export.json" {
-		t.Fatalf("expected first sync to write backup, got %+v", first)
-	}
-
-	now = now.Add(30 * time.Minute)
-	second, err := service.SyncNow(context.Background())
-	if err != nil {
-		t.Fatalf("second SyncNow returned error: %v", err)
-	}
-
-	if second.BackupFilePath != "" {
-		t.Fatalf("expected second sync to skip backup, got %+v", second)
-	}
-	if backupWriter.calls != 1 {
-		t.Fatalf("expected backup writer to be called once, got %d", backupWriter.calls)
-	}
-
-	var snapshots []models.SnapshotRun
-	if err := db.Order("id ASC").Find(&snapshots).Error; err != nil {
-		t.Fatalf("load snapshot runs: %v", err)
-	}
-	if len(snapshots) != 2 {
-		t.Fatalf("expected 2 snapshot runs, got %d", len(snapshots))
-	}
-	if snapshots[0].BackupFilePath == "" {
-		t.Fatalf("expected first snapshot backup path to be recorded, got %+v", snapshots[0])
-	}
-	if snapshots[1].Status != "completed" || snapshots[1].BackupFilePath != "" {
-		t.Fatalf("expected second snapshot to complete without backup path, got %+v", snapshots[1])
-	}
-}
-
-func TestSyncOnceWritesBackupAgainAfterConfiguredInterval(t *testing.T) {
-	db := openSyncTestDatabase(t)
-	backupWriter := &stubBackupWriter{path: "/tmp/export.json"}
-	now := time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC)
-	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
-		BaseURL:        "https://cpa.example.com",
-		BackupEnabled:  true,
-		BackupWriter:   backupWriter,
-		BackupInterval: time.Hour,
-		Now: func() time.Time {
-			return now
-		},
-	})
-
-	service.client = stubExportFetcher{result: successfulExportResult([]byte(`{"version":1}`))}
-	first, err := service.SyncNow(context.Background())
-	if err != nil {
-		t.Fatalf("first SyncNow returned error: %v", err)
-	}
-
-	now = now.Add(time.Hour)
-	service.client = stubExportFetcher{result: successfulExportResult([]byte(`{"version":2}`))}
-	second, err := service.SyncNow(context.Background())
-	if err != nil {
-		t.Fatalf("second SyncNow returned error: %v", err)
-	}
-
-	if first.BackupFilePath == "" || second.BackupFilePath == "" {
-		t.Fatalf("expected both syncs to write backups, got first=%+v second=%+v", first, second)
-	}
-	if backupWriter.calls != 2 {
-		t.Fatalf("expected backup writer to be called twice, got %d", backupWriter.calls)
-	}
-}
-
-func TestSyncOnceFailsWhenBackupWriteFails(t *testing.T) {
-	db := openSyncTestDatabase(t)
-	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
-		BaseURL:       "https://cpa.example.com",
-		Client:        stubExportFetcher{result: successfulExportResult([]byte(`{"version":1}`))},
-		BackupEnabled: true,
-		BackupWriter:  &stubBackupWriter{err: errors.New("disk full")},
-	})
-
-	_, err := service.SyncNow(context.Background())
-	if err == nil || err.Error() != "write backup: disk full" {
-		t.Fatalf("expected backup write error, got %v", err)
-	}
-
-	var snapshot models.SnapshotRun
-	if err := db.Last(&snapshot).Error; err != nil {
-		t.Fatalf("load snapshot run: %v", err)
-	}
-	if snapshot.Status != "failed" || snapshot.ErrorMessage != "disk full" {
-		t.Fatalf("unexpected snapshot after backup failure: %+v", snapshot)
-	}
-}
-
-func TestSyncOnceCleansBackupsAfterSuccessfulSync(t *testing.T) {
-	db := openSyncTestDatabase(t)
-	backupWriter := &stubBackupWriter{path: "/tmp/export.json"}
-	backupCleaner := &stubBackupCleaner{}
-	now := time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC)
-	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
-		BaseURL:             "https://cpa.example.com",
-		Client:              stubExportFetcher{result: successfulExportResult([]byte(`{"version":1}`))},
-		BackupEnabled:       true,
-		BackupWriter:        backupWriter,
-		BackupRetentionDays: 3,
-		BackupCleaner:       backupCleaner,
-		Now: func() time.Time {
-			return now
-		},
-	})
-
-	_, err := service.SyncNow(context.Background())
-	if err != nil {
-		t.Fatalf("SyncNow returned error: %v", err)
-	}
-	if backupCleaner.calls != 1 {
-		t.Fatalf("expected backup cleaner to be called once, got %d", backupCleaner.calls)
-	}
-	if backupCleaner.retentionDays != 3 || !backupCleaner.now.Equal(now) {
-		t.Fatalf("unexpected cleanup input: %+v", backupCleaner)
 	}
 }
 
@@ -1436,21 +1228,12 @@ func TestNewSyncServiceBuildsClientFromConfig(t *testing.T) {
 		CPABaseURL:       " https://cpa.example.com ",
 		CPAManagementKey: "secret",
 		RequestTimeout:   5 * time.Second,
-		BackupEnabled:    true,
-		BackupDir:        "/tmp/backups",
-		BackupInterval:   2 * time.Hour,
 	})
 	if service == nil || service.client == nil {
 		t.Fatal("expected sync service client to be initialized")
 	}
 	if service.baseURL != "https://cpa.example.com" {
 		t.Fatalf("expected trimmed base url, got %q", service.baseURL)
-	}
-	if service.backupWriter == nil {
-		t.Fatal("expected backup writer to be initialized when backups are enabled")
-	}
-	if service.backupInterval != 2*time.Hour {
-		t.Fatalf("expected backup interval to be initialized, got %s", service.backupInterval)
 	}
 }
 
