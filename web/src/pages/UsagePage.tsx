@@ -211,6 +211,7 @@ export const syncCpaData = async ({ triggerBackendSync, refreshActiveTab, refres
         const nextStatus = await refreshStatus();
         onStatus(nextStatus);
       } catch {
+        // 忽略状态刷新失败，继续抛出原始同步错误。
       }
     }
     throw error;
