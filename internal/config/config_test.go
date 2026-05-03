@@ -265,6 +265,16 @@ func TestLoadFallsBackToExecutableDirEnv(t *testing.T) {
 	}
 }
 
+func TestDefaultTimeZoneIsLoadable(t *testing.T) {
+	location, err := time.LoadLocation(DefaultTimeZone)
+	if err != nil {
+		t.Fatalf("expected default timezone %s to be loadable: %v", DefaultTimeZone, err)
+	}
+	if location.String() != DefaultTimeZone {
+		t.Fatalf("expected location %s, got %s", DefaultTimeZone, location)
+	}
+}
+
 func TestLoadFromEnvAppliesDefaultTimeZone(t *testing.T) {
 	previousLocal := time.Local
 	t.Cleanup(func() { time.Local = previousLocal })
@@ -296,6 +306,36 @@ func TestLoadFromEnvHonorsExplicitTimeZone(t *testing.T) {
 
 	if time.Local.String() != "UTC" {
 		t.Fatalf("expected explicit local timezone UTC, got %s", time.Local)
+	}
+}
+
+func TestLoadFromEnvHonorsExplicitIANATimeZone(t *testing.T) {
+	previousLocal := time.Local
+	t.Cleanup(func() { time.Local = previousLocal })
+	t.Setenv("TZ", "America/New_York")
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
+	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
+
+	_, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("LoadFromEnv returned error: %v", err)
+	}
+
+	if time.Local.String() != "America/New_York" {
+		t.Fatalf("expected explicit local timezone America/New_York, got %s", time.Local)
+	}
+}
+
+func TestLoadFromEnvRejectsInvalidTimeZone(t *testing.T) {
+	previousLocal := time.Local
+	t.Cleanup(func() { time.Local = previousLocal })
+	t.Setenv("TZ", "Not/AZone")
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
+	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
+
+	_, err := LoadFromEnv()
+	if err == nil || !strings.Contains(err.Error(), "TZ is invalid") {
+		t.Fatalf("expected invalid TZ error, got %v", err)
 	}
 }
 
