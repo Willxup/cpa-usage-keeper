@@ -24,8 +24,7 @@ type usageCredentialPayload struct {
 func registerUsageCredentialsRoute(
 	router gin.IRoutes,
 	usageProvider service.UsageProvider,
-	authFileProvider service.AuthFileProvider,
-	providerMetadataProvider service.ProviderMetadataProvider,
+	usageIdentityProvider service.UsageIdentityProvider,
 ) {
 	router.GET("/usage/credentials", func(c *gin.Context) {
 		if usageProvider == nil {
@@ -45,12 +44,12 @@ func registerUsageCredentialsRoute(
 			return
 		}
 
-		authFiles, providerMetadata, err := loadUsageResolutionData(c, authFileProvider, providerMetadataProvider)
+		identities, err := loadUsageResolutionData(c, usageIdentityProvider)
 		if err != nil {
 			writeInternalError(c, "load usage resolution data failed", err)
 			return
 		}
-		resolver := newUsageSourceResolver(authFiles, providerMetadata)
+		resolver := newUsageSourceResolver(identities)
 		c.JSON(http.StatusOK, usageCredentialsResponse{Credentials: buildUsageCredentialsPayload(rows, resolver)})
 	})
 }

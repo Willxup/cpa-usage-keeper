@@ -161,17 +161,36 @@ export interface UsageEventFilterOptionsResponse {
   sources: UsageSourceFilterOption[]
 }
 
-export interface UsageCredential {
-  source: string
-  source_type?: string
-  source_key?: string
+export type UsageIdentityAuthType = 1 | 2
+
+export interface UsageIdentity {
+  id: number
+  name: string
+  auth_type: UsageIdentityAuthType
+  auth_type_name: string
+  identity: string
+  type: string
+  provider: string
+  total_requests: number
   success_count: number
   failure_count: number
-  total_count: number
+  input_tokens: number
+  output_tokens: number
+  reasoning_tokens: number
+  cached_tokens: number
+  total_tokens: number
+  last_aggregated_usage_event_id: number
+  first_used_at?: string
+  last_used_at?: string
+  stats_updated_at?: string
+  is_deleted: boolean
+  created_at: string
+  updated_at: string
+  deleted_at?: string
 }
 
-export interface UsageCredentialsResponse {
-  credentials: UsageCredential[]
+export interface UsageIdentitiesResponse {
+  identities: UsageIdentity[]
 }
 
 export interface UsageAnalysisModel {

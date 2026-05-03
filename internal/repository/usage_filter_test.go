@@ -30,9 +30,9 @@ func TestBuildUsageSnapshotWithFilterAppliesTimeBounds(t *testing.T) {
 	closeTestDatabase(t, db)
 
 	events := []models.UsageEvent{
-		{EventKey: "event-1", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), Source: "source-a", AuthIndex: "1", TotalTokens: 10},
-		{EventKey: "event-2", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), Source: "source-b", AuthIndex: "2", TotalTokens: 20},
-		{EventKey: "event-3", SnapshotRunID: 1, APIGroupKey: "provider-b", Model: "claude-opus", Timestamp: time.Date(2026, 4, 17, 10, 0, 0, 0, time.UTC), Source: "source-c", AuthIndex: "3", TotalTokens: 30},
+		{EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), Source: "source-a", AuthIndex: "1", TotalTokens: 10},
+		{EventKey: "event-2", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), Source: "source-b", AuthIndex: "2", TotalTokens: 20},
+		{EventKey: "event-3", APIGroupKey: "provider-b", Model: "claude-opus", Timestamp: time.Date(2026, 4, 17, 10, 0, 0, 0, time.UTC), Source: "source-c", AuthIndex: "3", TotalTokens: 30},
 	}
 	if _, _, err := InsertUsageEvents(db, events); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
@@ -80,17 +80,17 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 
 	events := []models.UsageEvent{
 		{
-			EventKey: "event-1", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet",
+			EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet",
 			Timestamp: time.Date(2026, 4, 16, 9, 15, 0, 0, time.UTC), Failed: false,
 			InputTokens: 1000, OutputTokens: 500, ReasoningTokens: 100, CachedTokens: 200, TotalTokens: 1800,
 		},
 		{
-			EventKey: "event-2", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet",
+			EventKey: "event-2", APIGroupKey: "provider-a", Model: "claude-sonnet",
 			Timestamp: time.Date(2026, 4, 16, 10, 45, 0, 0, time.UTC), Failed: true,
 			InputTokens: 2000, OutputTokens: 1000, ReasoningTokens: 50, CachedTokens: 100, TotalTokens: 3150,
 		},
 		{
-			EventKey: "event-3", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet",
+			EventKey: "event-3", APIGroupKey: "provider-a", Model: "claude-sonnet",
 			Timestamp: time.Date(2026, 4, 17, 11, 5, 0, 0, time.UTC), Failed: false,
 			InputTokens: 500, OutputTokens: 250, ReasoningTokens: 25, CachedTokens: 50, TotalTokens: 825,
 		},
@@ -198,13 +198,13 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 func TestBuildUsageOverviewFromEventsBuildsSnapshotAndOverviewInOnePass(t *testing.T) {
 	events := []models.UsageEvent{
 		{
-			EventKey: "event-1", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet",
+			EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet",
 			Timestamp: time.Date(2026, 4, 16, 9, 15, 0, 0, time.UTC), Failed: false,
 			InputTokens: 1000, OutputTokens: 500, ReasoningTokens: 100, CachedTokens: 200, TotalTokens: 1800,
 			Source: "source-a", AuthIndex: "1", LatencyMS: 120,
 		},
 		{
-			EventKey: "event-2", SnapshotRunID: 1, APIGroupKey: "", Model: "",
+			EventKey: "event-2", APIGroupKey: "", Model: "",
 			Timestamp: time.Date(2026, 4, 16, 10, 45, 0, 0, time.UTC), Failed: true,
 			InputTokens: 2000, OutputTokens: 1000, ReasoningTokens: 50, CachedTokens: 100, TotalTokens: 3150,
 			Source: " source-b ", AuthIndex: " 2 ", LatencyMS: 250,
@@ -282,8 +282,8 @@ func TestBuildUsageOverviewWithFilterBuilds24hHealthGridFor24hRange(t *testing.T
 	closeTestDatabase(t, db)
 
 	events := []models.UsageEvent{
-		{EventKey: "event-success", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 17, 9, 31, 0, 0, time.UTC), Failed: false, TotalTokens: 10},
-		{EventKey: "event-failed", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 17, 23, 59, 0, 0, time.UTC), Failed: true, TotalTokens: 20},
+		{EventKey: "event-success", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 17, 9, 31, 0, 0, time.UTC), Failed: false, TotalTokens: 10},
+		{EventKey: "event-failed", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 17, 23, 59, 0, 0, time.UTC), Failed: true, TotalTokens: 20},
 	}
 	if _, _, err := InsertUsageEvents(db, events); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
@@ -365,12 +365,12 @@ func TestBuildUsageOverviewWithFilterReturnsUnavailableCostForPartialPricing(t *
 
 	events := []models.UsageEvent{
 		{
-			EventKey: "event-priced", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "priced-model",
+			EventKey: "event-priced", APIGroupKey: "provider-a", Model: "priced-model",
 			Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), TotalTokens: 1_000_000,
 			InputTokens: 1_000_000,
 		},
 		{
-			EventKey: "event-unpriced", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "unpriced-model",
+			EventKey: "event-unpriced", APIGroupKey: "provider-a", Model: "unpriced-model",
 			Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), TotalTokens: 1_000_000,
 			InputTokens: 1_000_000,
 		},
@@ -402,7 +402,7 @@ func TestBuildUsageOverviewWithFilterReturnsUnavailableCostWithoutPricing(t *tes
 	closeTestDatabase(t, db)
 
 	events := []models.UsageEvent{{
-		EventKey: "event-1", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet",
+		EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet",
 		Timestamp: time.Date(2026, 4, 16, 9, 15, 0, 0, time.UTC), TotalTokens: 1800,
 		InputTokens: 1000, OutputTokens: 500, CachedTokens: 200,
 	}}
@@ -462,7 +462,6 @@ func TestBuildUsageOverviewWithFilterUsesExactPresetWindowMinutes(t *testing.T) 
 		t.Run(tc.name, func(t *testing.T) {
 			event := models.UsageEvent{
 				EventKey:        "event-" + tc.rangeName,
-				SnapshotRunID:   1,
 				APIGroupKey:     "provider-a",
 				Model:           "claude-sonnet",
 				Timestamp:       tc.end,
@@ -511,9 +510,9 @@ func TestBuildUsageOverviewWithFilterBuildsLatestHourlySeriesForLongRanges(t *te
 	}
 
 	events := []models.UsageEvent{
-		{EventKey: "event-old", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 17, 8, 0, 0, 0, time.UTC), TotalTokens: 1_000_000, InputTokens: 1_000_000},
-		{EventKey: "event-latest-1", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 23, 22, 15, 0, 0, time.UTC), TotalTokens: 2_000_000, InputTokens: 2_000_000, OutputTokens: 5, CachedTokens: 7, ReasoningTokens: 11},
-		{EventKey: "event-latest-2", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 23, 23, 45, 0, 0, time.UTC), TotalTokens: 3_000_000, InputTokens: 3_000_000, OutputTokens: 13, CachedTokens: 17, ReasoningTokens: 19},
+		{EventKey: "event-old", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 17, 8, 0, 0, 0, time.UTC), TotalTokens: 1_000_000, InputTokens: 1_000_000},
+		{EventKey: "event-latest-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 23, 22, 15, 0, 0, time.UTC), TotalTokens: 2_000_000, InputTokens: 2_000_000, OutputTokens: 5, CachedTokens: 7, ReasoningTokens: 11},
+		{EventKey: "event-latest-2", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 23, 23, 45, 0, 0, time.UTC), TotalTokens: 3_000_000, InputTokens: 3_000_000, OutputTokens: 13, CachedTokens: 17, ReasoningTokens: 19},
 	}
 	if _, _, err := InsertUsageEvents(db, events); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
@@ -555,8 +554,8 @@ func TestBuildUsageOverviewWithFilterUsesDailyBucketsForLongCustomRanges(t *test
 	closeTestDatabase(t, db)
 
 	events := []models.UsageEvent{
-		{EventKey: "event-1", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 20, 8, 0, 0, 0, time.UTC), TotalTokens: 10},
-		{EventKey: "event-2", SnapshotRunID: 1, APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 26, 18, 0, 0, 0, time.UTC), TotalTokens: 20},
+		{EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 20, 8, 0, 0, 0, time.UTC), TotalTokens: 10},
+		{EventKey: "event-2", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 26, 18, 0, 0, 0, time.UTC), TotalTokens: 20},
 	}
 	if _, _, err := InsertUsageEvents(db, events); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)

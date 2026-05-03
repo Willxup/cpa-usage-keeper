@@ -82,7 +82,7 @@ func TestUsageAnalysisReturnsAggregatedRows(t *testing.T) {
 			LatencySampleCount: 2,
 		}},
 	}}
-	router := NewRouter("", nil, provider, nil, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter("", nil, provider, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/analysis?range=24h", nil)
 	resp := httptest.NewRecorder()
 
@@ -116,7 +116,7 @@ func TestUsageAnalysisReturnsAggregatedRows(t *testing.T) {
 }
 
 func TestUsageAnalysisRequiresAuthWhenEnabled(t *testing.T) {
-	router := NewRouter("", nil, &usageAnalysisStub{}, nil, nil, nil, AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}, nil, "")
+	router := NewRouter("", nil, &usageAnalysisStub{}, nil, AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/analysis", nil)
 	resp := httptest.NewRecorder()
 

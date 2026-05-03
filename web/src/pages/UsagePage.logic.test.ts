@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildCustomDateRangeQuery, getOverviewChartEndMs, getOverviewDisplayLoading, getOverviewHourWindowHours, getTimeRangeOptions, getUsageTabOptions, refreshPageData, sanitizeRequestEventFilters, scheduleOverviewAutoRefresh, syncCpaData } from './UsagePage';
+import { ApiError } from '@/lib/api';
 import { filterUsageByWindow, type UsageFilterWindow } from '@/utils/usage';
 import type { StatusResponse, UsageSnapshot } from '@/lib/types';
 
@@ -332,6 +333,39 @@ describe('UsagePage sync action', () => {
     });
 
     expect(calls).toEqual(['sync', 'refresh', 'status', 'set-status']);
+    expect(receivedStatus).toBe(refreshedStatus);
+  });
+
+  it('reloads status and preserves the sync error when backend sync fails', async () => {
+    const calls: string[] = [];
+    let receivedStatus: StatusResponse | null = null;
+    const refreshedStatus: StatusResponse = {
+      running: true,
+      sync_running: false,
+      last_status: 'completed',
+      last_run_at: '2026-04-26T13:00:00.000Z',
+    };
+    const syncError = new ApiError('metadata sync failed', 500);
+
+    await expect(syncCpaData({
+      triggerBackendSync: async () => {
+        calls.push('sync');
+        throw syncError;
+      },
+      refreshActiveTab: async () => {
+        calls.push('refresh');
+      },
+      refreshStatus: async () => {
+        calls.push('status');
+        return refreshedStatus;
+      },
+      onStatus: (status) => {
+        calls.push('set-status');
+        receivedStatus = status;
+      },
+    })).rejects.toBe(syncError);
+
+    expect(calls).toEqual(['sync', 'status', 'set-status']);
     expect(receivedStatus).toBe(refreshedStatus);
   });
 });
