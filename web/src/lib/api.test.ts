@@ -7,7 +7,7 @@ describe('fetchUsageEvents', () => {
     vi.unstubAllGlobals();
   });
 
-  it('loads stable filter options without event pagination or selected filters', async () => {
+  it('loads stable filter options without query params', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
@@ -15,16 +15,17 @@ describe('fetchUsageEvents', () => {
     } as Response);
     const signal = new AbortController().signal;
 
-    const response = await fetchUsageEventFilterOptions('custom', '2026-04-20T00:00:00Z', '2026-04-21T00:00:00Z', signal);
+    const response = await fetchUsageEventFilterOptions(signal);
 
     const [url, init] = fetchMock.mock.calls[0];
     const parsed = new URL(String(url), 'http://localhost');
 
     expect(response.models).toEqual(['claude-sonnet']);
     expect(parsed.pathname).toBe('/api/v1/usage/events/filters');
-    expect(parsed.searchParams.get('range')).toBe('custom');
-    expect(parsed.searchParams.get('start')).toBe('2026-04-20T00:00:00Z');
-    expect(parsed.searchParams.get('end')).toBe('2026-04-21T00:00:00Z');
+    expect(parsed.search).toBe('');
+    expect(parsed.searchParams.get('range')).toBeNull();
+    expect(parsed.searchParams.get('start')).toBeNull();
+    expect(parsed.searchParams.get('end')).toBeNull();
     expect(parsed.searchParams.get('page')).toBeNull();
     expect(parsed.searchParams.get('page_size')).toBeNull();
     expect(parsed.searchParams.get('model')).toBeNull();

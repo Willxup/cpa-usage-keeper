@@ -64,13 +64,7 @@ func registerUsageEventsRoute(
 			return
 		}
 
-		filter, err := parseUsageTimeFilterQuery(c.Request, time.Now().UTC())
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		options, err := usageProvider.ListUsageEventFilterOptions(c.Request.Context(), filter)
+		options, err := usageProvider.ListUsageEventFilterOptions(c.Request.Context(), service.UsageFilter{})
 		if err != nil {
 			writeInternalError(c, "list usage event filter options failed", err)
 			return
@@ -213,6 +207,9 @@ func buildUsageSourceFilterOptions(sources []string, identities []models.UsageId
 	options := make([]usageSourceFilterOption, 0, len(identities))
 	seen := make(map[string]struct{}, len(identities))
 	for _, identity := range identities {
+		if identity.TotalRequests == 0 {
+			continue
+		}
 		option, ok := usageSourceFilterOptionFromIdentity(identity)
 		if !ok {
 			continue

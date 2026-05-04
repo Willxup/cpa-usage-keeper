@@ -96,17 +96,8 @@ export interface FetchUsageEventsOptions {
   result?: string
 }
 
-export async function fetchUsageEventFilterOptions(range: string, start?: string, end?: string, signal?: AbortSignal): Promise<UsageEventFilterOptionsResponse> {
-  const params = new URLSearchParams()
-  params.set('range', range)
-  if (start) {
-    params.set('start', start)
-  }
-  if (end) {
-    params.set('end', end)
-  }
-  const query = params.toString()
-  const response = await apiFetch(`${apiPath('/usage/events/filters')}${query ? `?${query}` : ''}`, { signal })
+export async function fetchUsageEventFilterOptions(signal?: AbortSignal): Promise<UsageEventFilterOptionsResponse> {
+  const response = await apiFetch(apiPath('/usage/events/filters'), { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load usage event filters: ${response.status}`)
   }

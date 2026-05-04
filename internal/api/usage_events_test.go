@@ -187,7 +187,7 @@ func TestUsageEventsReturnsFilterOptions(t *testing.T) {
 		Sources:    []string{"source-a", "source-b"},
 		TotalCount: 2, Page: 1, PageSize: 20, TotalPages: 1,
 	}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []models.UsageIdentity{{ID: 1, Name: "sk-source-prefix", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "source-a", Type: "openai", Provider: "Provider A"}, {ID: 2, Name: "Provider A", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "source-b", Type: "openai", Provider: "Provider A"}, {ID: 3, Name: "Auth User", AuthType: models.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-1", Type: "claude", Provider: "Claude"}}})
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []models.UsageIdentity{{ID: 1, Name: "sk-source-prefix", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "source-a", Type: "openai", Provider: "Provider A", TotalRequests: 1}, {ID: 2, Name: "Provider A", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "source-b", Type: "openai", Provider: "Provider A", TotalRequests: 1}, {ID: 3, Name: "Auth User", AuthType: models.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-1", Type: "claude", Provider: "Claude", TotalRequests: 1}}})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events", nil)
 	resp := httptest.NewRecorder()
 
@@ -213,7 +213,7 @@ func TestUsageEventFilterOptionsReturnsStableModelsAndSources(t *testing.T) {
 		Models:  []string{"claude-sonnet", "gpt-5"},
 		Sources: []string{"source-a", "source-b"},
 	}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []models.UsageIdentity{{ID: 1, Name: "sk-source-prefix", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "source-a", Type: "openai", Provider: "Provider A"}, {ID: 2, Name: "Provider A", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "source-b", Type: "openai", Provider: "Provider A"}, {ID: 3, Name: "Auth User", AuthType: models.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-1", Type: "claude", Provider: "Claude"}}})
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []models.UsageIdentity{{ID: 1, Name: "sk-source-prefix", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "source-a", Type: "openai", Provider: "Provider A", TotalRequests: 3}, {ID: 2, Name: "Provider A", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "source-b", Type: "openai", Provider: "Provider A"}, {ID: 3, Name: "Auth User", AuthType: models.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-1", Type: "claude", Provider: "Claude", TotalRequests: 2}, {ID: 4, Name: "Zero Request User", AuthType: models.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-zero", Type: "claude", Provider: "Claude"}, {ID: 5, Name: "Zero Provider", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "source-zero", Type: "openai", Provider: "Zero Provider"}}})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/filters?range=24h&model=ignored&source=ignored&result=failed&page=3&page_size=20", nil)
 	resp := httptest.NewRecorder()
 
@@ -225,8 +225,8 @@ func TestUsageEventFilterOptionsReturnsStableModelsAndSources(t *testing.T) {
 	if provider.filterOptionCalls != 1 || provider.filterCalls != 0 {
 		t.Fatalf("expected filter options endpoint only, events=%d filterOptions=%d", provider.filterCalls, provider.filterOptionCalls)
 	}
-	if provider.lastFilter.Range != "24h" || provider.lastFilter.Model != "" || provider.lastFilter.Source != "" || provider.lastFilter.Result != "" || provider.lastFilter.Page != 0 || provider.lastFilter.PageSize != 0 {
-		t.Fatalf("expected time range only filter, got %+v", provider.lastFilter)
+	if provider.lastFilter.Range != "" || provider.lastFilter.StartTime != nil || provider.lastFilter.EndTime != nil || provider.lastFilter.Model != "" || provider.lastFilter.Source != "" || provider.lastFilter.Result != "" || provider.lastFilter.Page != 0 || provider.lastFilter.PageSize != 0 {
+		t.Fatalf("expected filters endpoint to ignore query filters, got %+v", provider.lastFilter)
 	}
 	body := resp.Body.String()
 	if !contains(body, `"models":["claude-sonnet","gpt-5"]`) {
@@ -237,6 +237,9 @@ func TestUsageEventFilterOptionsReturnsStableModelsAndSources(t *testing.T) {
 	}
 	if contains(body, `"value":"source-a"`) || contains(body, `"value":"source-b"`) || contains(body, `"provider:1"`) || contains(body, `"provider:2"`) || contains(body, `sk-source-prefix`) {
 		t.Fatalf("expected raw source filter values to be redacted, got %s", body)
+	}
+	if contains(body, `Zero Request User`) || contains(body, `Zero Provider`) || contains(body, `auth-zero`) || contains(body, `source-zero`) {
+		t.Fatalf("expected zero-request source filter options to be omitted, got %s", body)
 	}
 }
 

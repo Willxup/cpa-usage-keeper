@@ -684,17 +684,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [customTimeRange.end, customTimeRange.start, timeRange]);
 
   const loadEventFilterOptions = useCallback(async () => {
-    const queryWindow = getEventQueryWindow();
-    const optionsKey = `${timeRange}|${queryWindow.start ?? ''}|${queryWindow.end ?? ''}`;
+    const optionsKey = 'stable';
 
-    if (!queryWindow.valid) {
-      eventsFilterOptionsRequestControllerRef.current?.abort();
-      eventsFilterOptionsRequestControllerRef.current = null;
-      loadedEventsFilterOptionsKeyRef.current = '';
-      setEventsModelOptions([]);
-      setEventsSourceOptions([]);
-      return;
-    }
     if (loadedEventsFilterOptionsKeyRef.current === optionsKey) {
       return;
     }
@@ -704,7 +695,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     eventsFilterOptionsRequestControllerRef.current = controller;
 
     try {
-      const response = await fetchUsageEventFilterOptions(timeRange, queryWindow.start, queryWindow.end, controller.signal);
+      const response = await fetchUsageEventFilterOptions(controller.signal);
       if (eventsFilterOptionsRequestControllerRef.current !== controller) {
         return;
       }
@@ -728,7 +719,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         eventsFilterOptionsRequestControllerRef.current = null;
       }
     }
-  }, [getEventQueryWindow, onAuthRequired, timeRange]);
+  }, [onAuthRequired]);
 
   const loadEvents = useCallback(async () => {
     const queryWindow = getEventQueryWindow();
