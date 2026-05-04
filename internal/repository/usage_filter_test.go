@@ -252,7 +252,7 @@ func TestBuildUsageOverviewFromEventsBuildsSnapshotAndOverviewInOnePass(t *testi
 		t.Fatalf("unexpected summary token breakdown: %+v", overview.Summary)
 	}
 	if overview.Summary.CostAvailable {
-		t.Fatalf("expected cost to be unavailable when any event model is unpriced, got %+v", overview.Summary)
+		t.Fatalf("expected cost to be unavailable when any event model with billable tokens is unpriced, got %+v", overview.Summary)
 	}
 	if overview.Series.Requests["2026-04-16T09:00:00Z"] != 1 || overview.Series.Requests["2026-04-16T10:00:00Z"] != 1 {
 		t.Fatalf("unexpected hourly request series: %+v", overview.Series.Requests)
@@ -387,10 +387,56 @@ func TestBuildUsageOverviewWithFilterReturnsUnavailableCostForPartialPricing(t *
 	}
 
 	if overview.Summary.CostAvailable {
-		t.Fatalf("expected cost to be unavailable when any in-range model is unpriced, got %+v", overview.Summary)
+		t.Fatalf("expected cost to be unavailable when any in-range event model with billable tokens is unpriced, got %+v", overview.Summary)
 	}
 	if overview.Summary.TotalCost != 1 {
 		t.Fatalf("expected priced portion to remain in total cost, got %+v", overview.Summary)
+	}
+}
+
+func TestBuildUsageOverviewWithFilterReturnsAvailableCostWhenUnpricedEventsHaveNoBillableTokens(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-zero-token-unpriced.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	if _, err := UpsertModelPriceSetting(db, ModelPriceSettingInput{
+		Model:                "priced-model",
+		PromptPricePer1M:     1,
+		CompletionPricePer1M: 0,
+		CachePricePer1M:      0,
+	}); err != nil {
+		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
+	}
+
+	events := []models.UsageEvent{
+		{
+			EventKey: "event-priced", APIGroupKey: "provider-a", Model: "priced-model",
+			Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), TotalTokens: 1_000_000,
+			InputTokens: 1_000_000,
+		},
+		{
+			EventKey: "event-zero-token", APIGroupKey: "provider-a", Model: "unpriced-image-model",
+			Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		},
+	}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	start := time.Date(2026, 4, 16, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 4, 16, 23, 59, 59, 999000000, time.UTC)
+	overview, err := BuildUsageOverviewWithFilter(db, UsageQueryFilter{Range: "24h", StartTime: &start, EndTime: &end})
+	if err != nil {
+		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
+	}
+
+	if !overview.Summary.CostAvailable {
+		t.Fatalf("expected zero-token unpriced model not to make cost unavailable, got %+v", overview.Summary)
+	}
+	if overview.Summary.TotalCost != 1 {
+		t.Fatalf("expected priced event cost to remain available, got %+v", overview.Summary)
 	}
 }
 

@@ -504,6 +504,10 @@ func applyUsageEventToOverviewSeries(series *UsageOverviewSeriesRecord, event mo
 	series.Models[modelName] = modelSeries
 }
 
+func usageEventRequiresPricing(event models.UsageEvent) bool {
+	return event.InputTokens > 0 || event.OutputTokens > 0 || event.CachedTokens > 0
+}
+
 func applyUsageEventToOverview(overview *UsageOverviewRecord, event models.UsageEvent, bucketByDay bool, latestHourlyStart *time.Time, pricingByModel map[string]models.ModelPriceSetting) {
 	overview.Summary.CachedTokens += event.CachedTokens
 	overview.Summary.ReasoningTokens += event.ReasoningTokens
@@ -513,7 +517,7 @@ func applyUsageEventToOverview(overview *UsageOverviewRecord, event models.Usage
 		overview.Health.TotalSuccess++
 	}
 	pricing, ok := pricingByModel[strings.TrimSpace(event.Model)]
-	if !ok {
+	if !ok && usageEventRequiresPricing(event) {
 		overview.Summary.CostAvailable = false
 	}
 	cost := calculateUsageEventCost(event, pricing)
