@@ -21,6 +21,7 @@ const (
 	migrationBackfillUsageEventIdentityFields = "20260504_backfill_usage_event_identity_fields"
 	migrationBackfillUsageIdentityStats       = "20260504_backfill_usage_identity_stats"
 	migrationDropLegacyMetadataTables         = "20260504_drop_legacy_metadata_tables"
+	migrationRemovePrefixUsageIdentities      = "20260504_remove_prefix_usage_identities"
 )
 
 type schemaMigration struct {
@@ -52,6 +53,7 @@ func runSchemaMigrations(db *gorm.DB) error {
 		{version: migrationBackfillUsageEventIdentityFields, run: backfillUsageEventIdentityFieldsMigration},
 		{version: migrationBackfillUsageIdentityStats, run: backfillUsageIdentityStatsMigration},
 		{version: migrationDropLegacyMetadataTables, run: dropLegacyMetadataTablesMigration},
+		{version: migrationRemovePrefixUsageIdentities, run: removePrefixUsageIdentitiesMigration},
 	}
 	for _, migration := range migrations {
 		if err := runSchemaMigration(db, migration); err != nil {
@@ -482,6 +484,19 @@ func dropLegacyMetadataTablesMigration(tx *gorm.DB) error {
 	}
 	if err := tx.Exec("DROP TABLE IF EXISTS provider_metadata").Error; err != nil {
 		return fmt.Errorf("drop provider_metadata table: %w", err)
+	}
+	return nil
+}
+
+func removePrefixUsageIdentitiesMigration(tx *gorm.DB) error {
+	if !tx.Migrator().HasTable(&models.UsageIdentity{}) {
+		return nil
+	}
+	if err := tx.Exec(`
+		DELETE FROM usage_identities
+		WHERE auth_type = ?
+			AND LOWER(TRIM(identity)) IN ('gemini', 'claude', 'codex', 'vertex', 'openai')`, models.UsageIdentityAuthTypeAIProvider).Error; err != nil {
+		return fmt.Errorf("remove prefix-generated usage identities: %w", err)
 	}
 	return nil
 }

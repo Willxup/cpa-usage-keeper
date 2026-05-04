@@ -41,6 +41,7 @@ func TestOpenDatabaseRunsSchemaMigrationsAndAddsUsageEventRedisFields(t *testing
 		"20260504_drop_legacy_metadata_tables",
 		"20260504_drop_legacy_snapshot_run_columns",
 		"20260504_migrate_usage_identities_metadata",
+		"20260504_remove_prefix_usage_identities",
 	}
 	if len(versions) != len(expected) {
 		t.Fatalf("expected migration versions %v, got %v", expected, versions)
@@ -72,8 +73,8 @@ func TestOpenDatabaseMigrationsAreIdempotent(t *testing.T) {
 	if err := db.Table("schema_migrations").Count(&count).Error; err != nil {
 		t.Fatalf("count schema migrations: %v", err)
 	}
-	if count != 9 {
-		t.Fatalf("expected 9 applied migrations after reopening database, got %d", count)
+	if count != 10 {
+		t.Fatalf("expected 10 applied migrations after reopening database, got %d", count)
 	}
 }
 
@@ -465,7 +466,7 @@ func TestOpenDatabaseUsageIdentityMigrationsAreIdempotent(t *testing.T) {
 	if duplicateVersions != 0 {
 		t.Fatalf("expected no duplicate schema migration versions, got %d", duplicateVersions)
 	}
-	for _, version := range []string{"20260504_create_usage_identities", "20260504_migrate_usage_identities_metadata", "20260504_backfill_usage_event_identity_fields", "20260504_backfill_usage_identity_stats", "20260504_drop_legacy_metadata_tables", "20260504_drop_legacy_snapshot_run_columns"} {
+	for _, version := range []string{"20260504_create_usage_identities", "20260504_migrate_usage_identities_metadata", "20260504_backfill_usage_event_identity_fields", "20260504_backfill_usage_identity_stats", "20260504_drop_legacy_metadata_tables", "20260504_drop_legacy_snapshot_run_columns", "20260504_remove_prefix_usage_identities"} {
 		var count int64
 		if err := db.Table("schema_migrations").Where("version = ?", version).Count(&count).Error; err != nil {
 			t.Fatalf("count schema migration %s: %v", version, err)
@@ -500,6 +501,56 @@ func TestOpenDatabaseSkipsUsageIdentityMetadataMigrationWhenLegacyTablesAreMissi
 	}
 }
 
+func TestOpenDatabaseRemovesPrefixGeneratedUsageIdentities(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "prefix-identities.db")
+	seedPrefixGeneratedUsageIdentities(t, dbPath)
+
+	db := openMigratedDatabase(t, dbPath)
+	defer closeOpenedDatabase(t, db)
+
+	for _, prefix := range []string{"gemini", "claude", "codex", "vertex", "openai"} {
+		var prefixCount int64
+		if err := db.Model(&models.UsageIdentity{}).Where("auth_type = ? AND identity = ?", models.UsageIdentityAuthTypeAIProvider, prefix).Count(&prefixCount).Error; err != nil {
+			t.Fatalf("count prefix usage identity %q: %v", prefix, err)
+		}
+		if prefixCount != 0 {
+			t.Fatalf("expected fixed prefix usage identity %q to be removed, got %d", prefix, prefixCount)
+		}
+	}
+
+	var apiKey models.UsageIdentity
+	if err := db.Where("auth_type = ? AND identity = ?", models.UsageIdentityAuthTypeAIProvider, "claude-key").First(&apiKey).Error; err != nil {
+		t.Fatalf("load real api key identity: %v", err)
+	}
+	if apiKey.TotalRequests != 1 || apiKey.LastAggregatedUsageEventID != 1 {
+		t.Fatalf("expected real api key identity stats to remain, got %+v", apiKey)
+	}
+
+	var unusedSiblingKey models.UsageIdentity
+	if err := db.Where("auth_type = ? AND identity = ?", models.UsageIdentityAuthTypeAIProvider, "claude-unused-key").First(&unusedSiblingKey).Error; err != nil {
+		t.Fatalf("load unused sibling api key identity: %v", err)
+	}
+	if unusedSiblingKey.Type != "claude" || unusedSiblingKey.Provider != "Claude Team" {
+		t.Fatalf("expected unused sibling api key identity to remain unchanged, got %+v", unusedSiblingKey)
+	}
+
+	var unusedKey models.UsageIdentity
+	if err := db.Where("auth_type = ? AND identity = ?", models.UsageIdentityAuthTypeAIProvider, "gemini-unused-key").First(&unusedKey).Error; err != nil {
+		t.Fatalf("load unused real api key identity: %v", err)
+	}
+	if unusedKey.Type != "gemini" || unusedKey.Provider != "Gemini Team" {
+		t.Fatalf("expected unused real api key identity to remain unchanged, got %+v", unusedKey)
+	}
+
+	var customPrefix models.UsageIdentity
+	if err := db.Where("auth_type = ? AND identity = ?", models.UsageIdentityAuthTypeAIProvider, "https://proxy.internal/v1").First(&customPrefix).Error; err != nil {
+		t.Fatalf("load custom prefix-like identity: %v", err)
+	}
+	if customPrefix.Type != "openai" || customPrefix.Provider != "Custom OpenAI" {
+		t.Fatalf("expected non-fixed custom prefix-like identity to remain unchanged, got %+v", customPrefix)
+	}
+}
+
 func findUsageIdentity(t *testing.T, identities []models.UsageIdentity, authType models.UsageIdentityAuthType, identity string) models.UsageIdentity {
 	t.Helper()
 	for _, usageIdentity := range identities {
@@ -509,6 +560,89 @@ func findUsageIdentity(t *testing.T, identities []models.UsageIdentity, authType
 	}
 	t.Fatalf("usage identity auth_type=%d identity=%q not found in %+v", authType, identity, identities)
 	return models.UsageIdentity{}
+}
+
+func seedPrefixGeneratedUsageIdentities(t *testing.T, dbPath string) {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(sqliteDSN(dbPath)), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open prefix identity database: %v", err)
+	}
+	defer closeOpenedDatabase(t, db)
+
+	if err := db.Exec(`CREATE TABLE usage_identities (
+		id integer PRIMARY KEY AUTOINCREMENT,
+		name text,
+		auth_type integer,
+		auth_type_name text,
+		identity text,
+		type text,
+		provider text,
+		total_requests integer DEFAULT 0,
+		success_count integer DEFAULT 0,
+		failure_count integer DEFAULT 0,
+		input_tokens integer DEFAULT 0,
+		output_tokens integer DEFAULT 0,
+		reasoning_tokens integer DEFAULT 0,
+		cached_tokens integer DEFAULT 0,
+		total_tokens integer DEFAULT 0,
+		last_aggregated_usage_event_id integer DEFAULT 0,
+		first_used_at datetime,
+		last_used_at datetime,
+		stats_updated_at datetime,
+		is_deleted numeric DEFAULT false,
+		created_at datetime,
+		updated_at datetime,
+		deleted_at datetime
+	)`).Error; err != nil {
+		t.Fatalf("create usage_identities table: %v", err)
+	}
+	if err := db.Exec(`CREATE UNIQUE INDEX uniq_usage_identities_type_identity ON usage_identities(auth_type, identity)`).Error; err != nil {
+		t.Fatalf("create usage identity unique index: %v", err)
+	}
+	if err := db.Exec(`CREATE TABLE usage_events (
+		id integer PRIMARY KEY AUTOINCREMENT,
+		event_key text,
+		api_group_key text,
+		provider text,
+		endpoint text,
+		auth_type text,
+		request_id text,
+		model text,
+		timestamp datetime,
+		source text,
+		auth_index text,
+		failed numeric,
+		latency_ms integer,
+		input_tokens integer,
+		output_tokens integer,
+		reasoning_tokens integer,
+		cached_tokens integer,
+		total_tokens integer,
+		created_at datetime
+	)`).Error; err != nil {
+		t.Fatalf("create usage_events table: %v", err)
+	}
+
+	now := time.Date(2026, 5, 4, 8, 0, 0, 0, time.UTC)
+	rows := []models.UsageIdentity{
+		{Name: "Claude Team", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "claude-key", Type: "claude", Provider: "Claude Team", TotalRequests: 1, SuccessCount: 1, TotalTokens: 30, LastAggregatedUsageEventID: 1, CreatedAt: now, UpdatedAt: now},
+		{Name: "Claude Team", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "claude-unused-key", Type: "claude", Provider: "Claude Team", CreatedAt: now, UpdatedAt: now},
+		{Name: "Gemini Team", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "gemini", Type: "gemini", Provider: "Gemini Team", TotalRequests: 2, SuccessCount: 2, TotalTokens: 40, LastAggregatedUsageEventID: 2, CreatedAt: now, UpdatedAt: now},
+		{Name: "Claude Team", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "claude", Type: "claude", Provider: "Claude Team", CreatedAt: now, UpdatedAt: now},
+		{Name: "Codex Team", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "codex", Type: "codex", Provider: "Codex Team", CreatedAt: now, UpdatedAt: now},
+		{Name: "Vertex Team", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "vertex", Type: "vertex", Provider: "Vertex Team", CreatedAt: now, UpdatedAt: now},
+		{Name: "OpenAI Team", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "openai", Type: "openai", Provider: "OpenAI Team", CreatedAt: now, UpdatedAt: now},
+		{Name: "Gemini Team", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "gemini-unused-key", Type: "gemini", Provider: "Gemini Team", CreatedAt: now, UpdatedAt: now},
+		{Name: "Custom OpenAI", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "https://proxy.internal/v1", Type: "openai", Provider: "Custom OpenAI", CreatedAt: now, UpdatedAt: now},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatalf("seed usage identities: %v", err)
+	}
+	if err := db.Exec(`INSERT INTO usage_events (event_key, api_group_key, provider, endpoint, auth_type, request_id, model, timestamp, source, failed, latency_ms, input_tokens, output_tokens, total_tokens, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, "claude-event", "group", "Claude Team", "/v1/messages", "apikey", "req", "claude-sonnet", now, "claude-key", false, 100, 10, 20, 30, now).Error; err != nil {
+		t.Fatalf("seed usage event: %v", err)
+	}
 }
 
 func seedLegacyUsageIdentityTables(t *testing.T, dbPath string) {

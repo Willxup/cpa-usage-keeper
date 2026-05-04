@@ -716,11 +716,31 @@ func TestSyncMetadataWritesProviderMetadataToUsageIdentities(t *testing.T) {
 	if apiKey.Name != "Claude Team" || apiKey.AuthType != models.UsageIdentityAuthTypeAIProvider || apiKey.AuthTypeName != "apikey" || apiKey.Identity != "claude-key" || apiKey.Type != "claude" || apiKey.Provider != "Claude Team" || apiKey.IsDeleted {
 		t.Fatalf("unexpected provider usage identity for api key: %+v", apiKey)
 	}
-	prefix := byIdentity["claude-prefix"]
-	if prefix.Name != "Claude Team" || prefix.AuthTypeName != "apikey" || prefix.Identity != "claude-prefix" || prefix.Type != "claude" || prefix.Provider != "Claude Team" || prefix.IsDeleted {
-		t.Fatalf("unexpected provider usage identity for prefix: %+v", prefix)
+	if _, ok := byIdentity["claude-prefix"]; ok {
+		t.Fatalf("expected provider prefix not to be stored as usage identity, got %+v", byIdentity["claude-prefix"])
 	}
 	assertTableNotExists(t, db, "provider_metadata")
+}
+
+func TestSyncMetadataKeepsProviderIdentityWhenPrefixEqualsAPIKey(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
+		BaseURL: "https://cpa.example.com",
+		MetadataFetcher: stubMetadataFetcher{providerConfig: cpa.ProviderMetadataConfig{
+			ClaudeAPIKeys: []cpa.ProviderKeyConfig{{APIKey: "same-value", Prefix: "same-value", Name: "Claude Same"}},
+		}},
+	})
+
+	if err := service.SyncMetadata(context.Background()); err != nil {
+		t.Fatalf("SyncMetadata returned error: %v", err)
+	}
+	var identity models.UsageIdentity
+	if err := db.Where("auth_type = ? AND identity = ?", models.UsageIdentityAuthTypeAIProvider, "same-value").First(&identity).Error; err != nil {
+		t.Fatalf("load protected api key usage identity: %v", err)
+	}
+	if identity.IsDeleted || identity.Type != "claude" || identity.Provider != "Claude Same" {
+		t.Fatalf("expected api key matching prefix to remain active, got %+v", identity)
+	}
 }
 
 func TestSyncMetadataDoesNotUseOpenAICompatibilityPrefixAsDisplayName(t *testing.T) {
@@ -743,14 +763,15 @@ func TestSyncMetadataDoesNotUseOpenAICompatibilityPrefixAsDisplayName(t *testing
 		t.Fatalf("list usage identities: %v", err)
 	}
 	byIdentity := usageIdentitiesByIdentity(items)
-	for _, identityKey := range []string{"https://proxy.internal/v1", "openai-compatible-key"} {
-		identity := byIdentity[identityKey]
-		if identity.Identity != identityKey {
-			t.Fatalf("expected usage identity %q, got %+v", identityKey, identity)
-		}
-		if identity.Name != "openai" || identity.Provider != "openai" {
-			t.Fatalf("expected raw OpenAI compatibility prefix not to be used as display value, got %+v", identity)
-		}
+	identity := byIdentity["openai-compatible-key"]
+	if identity.Identity != "openai-compatible-key" {
+		t.Fatalf("expected OpenAI compatibility api key usage identity, got %+v", identity)
+	}
+	if identity.Name != "openai" || identity.Provider != "openai" {
+		t.Fatalf("expected raw OpenAI compatibility prefix not to be used as display value, got %+v", identity)
+	}
+	if _, ok := byIdentity["https://proxy.internal/v1"]; ok {
+		t.Fatalf("expected OpenAI compatibility prefix not to create usage identity, got %+v", items)
 	}
 }
 
@@ -870,10 +891,15 @@ func TestSyncMetadataPersistsProviderUsageIdentitiesFromDedicatedEndpoints(t *te
 		t.Fatalf("list usage identities: %v", err)
 	}
 	providerItems := usageIdentitiesByIdentity(items)
-	for _, expected := range []string{"gemini-key", "gemini-prefix", "claude-key", "claude-prefix", "custom-key", "custom-openai"} {
+	for _, expected := range []string{"gemini-key", "claude-key", "custom-key"} {
 		identity := providerItems[expected]
 		if identity.Identity != expected || identity.AuthType != models.UsageIdentityAuthTypeAIProvider || identity.AuthTypeName != "apikey" || identity.IsDeleted {
 			t.Fatalf("expected active provider usage identity %q, got %+v", expected, identity)
+		}
+	}
+	for _, prefix := range []string{"gemini-prefix", "claude-prefix", "custom-openai"} {
+		if _, ok := providerItems[prefix]; ok {
+			t.Fatalf("expected provider prefix %q not to create usage identity, got %+v", prefix, items)
 		}
 	}
 	assertTableNotExists(t, db, "provider_metadata")
@@ -898,11 +924,12 @@ func TestSyncMetadataPersistsSuccessfulProviderUsageIdentitiesWhenOneEndpointFai
 		t.Fatalf("list usage identities: %v", listErr)
 	}
 	byIdentity := usageIdentitiesByIdentity(items)
-	for _, expected := range []string{"claude-key", "claude-prefix"} {
-		identity := byIdentity[expected]
-		if identity.Identity != expected || identity.Type != "claude" || identity.AuthType != models.UsageIdentityAuthTypeAIProvider || identity.IsDeleted {
-			t.Fatalf("expected successful provider usage identity %q to persist, got %+v", expected, identity)
-		}
+	identity := byIdentity["claude-key"]
+	if identity.Identity != "claude-key" || identity.Type != "claude" || identity.AuthType != models.UsageIdentityAuthTypeAIProvider || identity.IsDeleted {
+		t.Fatalf("expected successful provider usage identity to persist, got %+v", identity)
+	}
+	if _, ok := byIdentity["claude-prefix"]; ok {
+		t.Fatalf("expected successful provider prefix not to create usage identity, got %+v", items)
 	}
 	if _, ok := byIdentity["gemini-key"]; ok {
 		t.Fatalf("expected failed gemini endpoint not to create usage identity, got %+v", items)
@@ -953,11 +980,12 @@ func TestSyncMetadataKeepsFailedProviderUsageIdentitiesDuringPartialFailure(t *t
 	if oldClaude := byIdentity["old-claude-key"]; oldClaude.Identity == "" || !oldClaude.IsDeleted || oldClaude.DeletedAt == nil || !oldClaude.DeletedAt.Equal(now) {
 		t.Fatalf("expected stale successful claude usage identity to be deleted, got %+v", oldClaude)
 	}
-	for _, expected := range []string{"new-claude-key", "new-claude-prefix"} {
-		identity := byIdentity[expected]
-		if identity.Identity != expected || identity.IsDeleted {
-			t.Fatalf("expected active replacement usage identity %q, got %+v", expected, identity)
-		}
+	newClaude := byIdentity["new-claude-key"]
+	if newClaude.Identity != "new-claude-key" || newClaude.IsDeleted {
+		t.Fatalf("expected active replacement usage identity, got %+v", newClaude)
+	}
+	if _, ok := byIdentity["new-claude-prefix"]; ok {
+		t.Fatalf("expected replacement prefix not to create usage identity, got %+v", items)
 	}
 }
 

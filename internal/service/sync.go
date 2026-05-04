@@ -608,8 +608,6 @@ type providerMetadataInput struct {
 	LookupKey    string
 	ProviderType string
 	DisplayName  string
-	ProviderKey  string
-	MatchKind    string
 }
 
 func providerMetadataUsageIdentities(inputs []providerMetadataInput) []models.UsageIdentity {
@@ -630,13 +628,11 @@ func providerMetadataUsageIdentities(inputs []providerMetadataInput) []models.Us
 func flattenProviderMetadata(cfg cpa.ProviderMetadataConfig) []providerMetadataInput {
 	items := make([]providerMetadataInput, 0)
 	seen := make(map[string]struct{})
-	appendItem := func(lookupKey, providerType, displayName, providerKey, matchKind string) {
+	appendItem := func(lookupKey, providerType, displayName string) {
 		lookupKey = strings.TrimSpace(lookupKey)
 		providerType = strings.TrimSpace(providerType)
 		displayName = strings.TrimSpace(displayName)
-		providerKey = strings.TrimSpace(providerKey)
-		matchKind = strings.TrimSpace(matchKind)
-		if lookupKey == "" || providerType == "" || displayName == "" || providerKey == "" || matchKind == "" {
+		if lookupKey == "" || providerType == "" || displayName == "" {
 			return
 		}
 		if _, ok := seen[lookupKey]; ok {
@@ -647,16 +643,12 @@ func flattenProviderMetadata(cfg cpa.ProviderMetadataConfig) []providerMetadataI
 			LookupKey:    lookupKey,
 			ProviderType: providerType,
 			DisplayName:  displayName,
-			ProviderKey:  providerKey,
-			MatchKind:    matchKind,
 		})
 	}
 	appendProviderEntries := func(providerType string, configs []cpa.ProviderKeyConfig) {
 		for _, cfg := range configs {
 			displayName := firstNonEmpty(cfg.Name, providerType)
-			providerKey := providerType + ":" + displayName
-			appendItem(cfg.APIKey, providerType, displayName, providerKey, "api_key")
-			appendItem(cfg.Prefix, providerType, displayName, providerKey, "prefix")
+			appendItem(cfg.APIKey, providerType, displayName)
 		}
 	}
 
@@ -667,10 +659,8 @@ func flattenProviderMetadata(cfg cpa.ProviderMetadataConfig) []providerMetadataI
 
 	for _, provider := range cfg.OpenAICompatibility {
 		displayName := firstNonEmpty(provider.Name, "openai")
-		providerKey := "openai:" + displayName
-		appendItem(provider.Prefix, "openai", displayName, providerKey, "prefix")
 		for _, entry := range provider.APIKeyEntries {
-			appendItem(entry.APIKey, "openai", displayName, providerKey, "api_key")
+			appendItem(entry.APIKey, "openai", displayName)
 		}
 	}
 
