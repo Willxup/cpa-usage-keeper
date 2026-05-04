@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/cpa"
-	"cpa-usage-keeper/internal/models"
 	"cpa-usage-keeper/internal/service"
 )
 
@@ -68,7 +67,7 @@ func TestUsageOverviewResponseIncludesResolvedRangeAndTimezone(t *testing.T) {
 	time.Local = location
 
 	provider := &usageFilterStub{overview: &service.UsageOverviewSnapshot{}}
-	router := NewRouter(nil, nil, provider, nil, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview?range=custom&start=2026-04-20&end=2026-04-21", nil)
 	resp := httptest.NewRecorder()
 
@@ -147,7 +146,7 @@ func TestUsageOverviewReturnsFilteredSnapshot(t *testing.T) {
 			}},
 		},
 	}}
-	router := NewRouter(nil, nil, provider, authFileStub{files: []models.AuthFile{{AuthIndex: "2", Email: "user@example.com", Type: "auth-file"}}}, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview?range=24h", nil)
 	resp := httptest.NewRecorder()
 

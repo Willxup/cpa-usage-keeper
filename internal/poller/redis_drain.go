@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/service"
 	"github.com/sirupsen/logrus"
 )
@@ -17,14 +16,12 @@ const redisInboxProcessInterval = 5 * time.Second
 
 type RedisBatchSyncer interface {
 	PullRedisUsageInbox(ctx context.Context) (*service.RedisInboxPullResult, error)
-	ProcessRedisUsageInbox(ctx context.Context, syncMetadata bool) (*service.RedisBatchSyncResult, error)
-	SyncMetadata(ctx context.Context) error
+	ProcessRedisUsageInbox(ctx context.Context) (*service.RedisBatchSyncResult, error)
 }
 
 type RedisDrainConfig struct {
-	IdleInterval     time.Duration
-	ErrorBackoff     time.Duration
-	MetadataInterval time.Duration
+	IdleInterval time.Duration
+	ErrorBackoff time.Duration
 }
 
 type RedisDrain struct {
@@ -33,15 +30,14 @@ type RedisDrain struct {
 	now    func() time.Time
 	sleep  func(context.Context, time.Duration) bool
 
-	mu                 sync.Mutex
-	running            bool
-	lastRunAt          time.Time
-	lastError          string
-	lastWarning        string
-	lastStatus         string
-	pullRunning        bool
-	processRunning     bool
-	lastMetadataSyncAt time.Time
+	mu             sync.Mutex
+	running        bool
+	lastRunAt      time.Time
+	lastError      string
+	lastWarning    string
+	lastStatus     string
+	pullRunning    bool
+	processRunning bool
 }
 
 func NewRedisDrain(syncer RedisBatchSyncer, cfg RedisDrainConfig) *RedisDrain {
@@ -76,7 +72,7 @@ func (d *RedisDrain) Run(ctx context.Context) error {
 	return nil
 }
 
-// runPullLoop 只从 CPA Redis 队列 LPOP 数据并写入 redis_usage_inboxes，不解码、不写 usage_events、不创建 snapshot_runs。
+// runPullLoop 只从 CPA Redis 队列 LPOP 数据并写入 redis_usage_inboxes，不解码、不写 usage_events。
 func (d *RedisDrain) runPullLoop(ctx context.Context) {
 	logrus.WithField("idle_interval", d.config.IdleInterval.String()).Info("redis inbox pull task started")
 	for {
@@ -110,24 +106,18 @@ func (d *RedisDrain) runProcessLoop(ctx context.Context) {
 		if !d.sleep(ctx, redisInboxProcessInterval) {
 			return
 		}
-		syncMetadata := d.shouldSyncMetadata()
-		result, err := d.runRedisProcess(ctx, syncMetadata)
+		result, err := d.runRedisProcess(ctx)
 		if err != nil && !errors.Is(err, ErrSyncCompletedWithWarnings) {
 			if shouldLogSyncError(err) {
-				d.logBatchFailure(result, syncMetadata, err)
+				d.logBatchFailure(result, err)
 			}
 			continue
-		}
-		if syncMetadata && result != nil && (!result.Empty || errors.Is(err, ErrSyncCompletedWithWarnings)) {
-			d.setLastMetadataSyncAt(d.now().UTC())
 		}
 	}
 }
 
-func (d *RedisDrain) logBatchFailure(result *service.RedisBatchSyncResult, syncMetadata bool, err error) {
+func (d *RedisDrain) logBatchFailure(result *service.RedisBatchSyncResult, err error) {
 	fields := logrus.Fields{
-		"sync_metadata":   syncMetadata,
-		"auth_error":      errors.Is(err, cpa.ErrRedisQueueAuth),
 		"status":          "",
 		"empty":           false,
 		"inserted_events": 0,
@@ -163,7 +153,7 @@ func (d *RedisDrain) SyncNow(ctx context.Context) error {
 	if _, err := d.runRedisPull(ctx); err != nil {
 		return err
 	}
-	_, err := d.runRedisProcess(ctx, true)
+	_, err := d.runRedisProcess(ctx)
 	return err
 }
 
@@ -189,7 +179,7 @@ func (d *RedisDrain) runRedisPull(ctx context.Context) (*service.RedisInboxPullR
 }
 
 // runRedisProcess 只防止 Process 自身重入，不阻塞 Pull；Process 的输入必须来自已持久化的 redis_usage_inboxes。
-func (d *RedisDrain) runRedisProcess(ctx context.Context, syncMetadata bool) (*service.RedisBatchSyncResult, error) {
+func (d *RedisDrain) runRedisProcess(ctx context.Context) (*service.RedisBatchSyncResult, error) {
 	d.mu.Lock()
 	if d.processRunning {
 		d.mu.Unlock()
@@ -204,20 +194,12 @@ func (d *RedisDrain) runRedisProcess(ctx context.Context, syncMetadata bool) (*s
 		d.mu.Unlock()
 	}()
 
-	result, err := d.syncer.ProcessRedisUsageInbox(ctx, syncMetadata)
+	result, err := d.syncer.ProcessRedisUsageInbox(ctx)
 	returnErr := err
 	if err != nil && result != nil && result.Status != "" && result.Status != "failed" {
 		returnErr = fmt.Errorf("%w: %v", ErrSyncCompletedWithWarnings, err)
 	}
 	d.recordResult(result, err)
-	if err == nil && result != nil && result.Empty && syncMetadata {
-		metadataErr := d.syncer.SyncMetadata(ctx)
-		if metadataErr != nil {
-			d.recordMetadataWarning(metadataErr)
-			return result, fmt.Errorf("%w: %v", ErrSyncCompletedWithWarnings, metadataErr)
-		}
-		d.setLastMetadataSyncAt(d.now().UTC())
-	}
 	return result, returnErr
 }
 
@@ -238,13 +220,6 @@ func (d *RedisDrain) recordPullResult(result *service.RedisInboxPullResult, err 
 	if err != nil {
 		d.lastError = err.Error()
 	}
-}
-
-func (d *RedisDrain) recordMetadataWarning(err error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.lastWarning = err.Error()
-	d.lastError = ""
 }
 
 func (d *RedisDrain) recordResult(result *service.RedisBatchSyncResult, err error) {
@@ -270,19 +245,6 @@ func (d *RedisDrain) recordResult(result *service.RedisBatchSyncResult, err erro
 	}
 }
 
-func (d *RedisDrain) shouldSyncMetadata() bool {
-	d.mu.Lock()
-	last := d.lastMetadataSyncAt
-	d.mu.Unlock()
-	return last.IsZero() || d.now().UTC().Sub(last.UTC()) >= d.config.MetadataInterval
-}
-
-func (d *RedisDrain) setLastMetadataSyncAt(t time.Time) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.lastMetadataSyncAt = t.UTC()
-}
-
 func (d *RedisDrain) setRunning(running bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -301,9 +263,6 @@ func (d *RedisDrain) validate() error {
 	}
 	if d.config.ErrorBackoff <= 0 {
 		return fmt.Errorf("redis drain error backoff must be greater than zero")
-	}
-	if d.config.MetadataInterval <= 0 {
-		return fmt.Errorf("redis drain metadata interval must be greater than zero")
 	}
 	if d.now == nil {
 		d.now = time.Now

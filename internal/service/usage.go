@@ -105,6 +105,8 @@ func (s *usageService) ListUsageEvents(_ context.Context, filter UsageFilter) (*
 		Model:     filter.Model,
 		Source:    filter.Source,
 		AuthIndex: filter.AuthIndex,
+		AuthType:  filter.AuthType,
+		Provider:  filter.Provider,
 		Result:    filter.Result,
 	})
 	if err != nil {
@@ -117,6 +119,8 @@ func (s *usageService) ListUsageEvents(_ context.Context, filter UsageFilter) (*
 			Timestamp:       row.Timestamp,
 			APIGroupKey:     row.APIGroupKey,
 			Model:           row.Model,
+			AuthType:        row.AuthType,
+			Provider:        row.Provider,
 			Source:          row.Source,
 			AuthIndex:       row.AuthIndex,
 			Failed:          row.Failed,

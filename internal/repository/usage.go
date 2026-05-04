@@ -70,6 +70,8 @@ func ListUsageEventsWithFilter(db *gorm.DB, filter UsageQueryFilter) (*UsageEven
 			Timestamp:       event.Timestamp.UTC(),
 			APIGroupKey:     strings.TrimSpace(event.APIGroupKey),
 			Model:           strings.TrimSpace(event.Model),
+			AuthType:        strings.TrimSpace(event.AuthType),
+			Provider:        strings.TrimSpace(event.Provider),
 			Source:          strings.TrimSpace(event.Source),
 			AuthIndex:       strings.TrimSpace(event.AuthIndex),
 			Failed:          event.Failed,
@@ -127,10 +129,19 @@ func applyUsageEventsListFilter(query *gorm.DB, filter UsageQueryFilter) *gorm.D
 	if model := strings.TrimSpace(filter.Model); model != "" {
 		query = query.Where("TRIM(model) = ?", model)
 	}
-	if source := strings.TrimSpace(filter.Source); source != "" {
-		query = query.Where("TRIM(source) = ?", source)
+	if authType := strings.TrimSpace(filter.AuthType); authType != "" {
+		query = query.Where("TRIM(auth_type) = ?", authType)
 	}
-	if authIndex := strings.TrimSpace(filter.AuthIndex); authIndex != "" {
+	if provider := strings.TrimSpace(filter.Provider); provider != "" {
+		query = query.Where("TRIM(provider) = ?", provider)
+	}
+	if source := strings.TrimSpace(filter.Source); source != "" {
+		if authIndex := strings.TrimSpace(filter.AuthIndex); authIndex != "" && strings.TrimSpace(filter.AuthType) == "oauth" {
+			query = query.Where("(TRIM(auth_index) = ? OR TRIM(source) = ?)", authIndex, source)
+		} else {
+			query = query.Where("TRIM(source) = ?", source)
+		}
+	} else if authIndex := strings.TrimSpace(filter.AuthIndex); authIndex != "" {
 		query = query.Where("TRIM(auth_index) = ?", authIndex)
 	}
 	switch strings.TrimSpace(filter.Result) {
@@ -493,6 +504,10 @@ func applyUsageEventToOverviewSeries(series *UsageOverviewSeriesRecord, event mo
 	series.Models[modelName] = modelSeries
 }
 
+func usageEventRequiresPricing(event models.UsageEvent) bool {
+	return event.InputTokens > 0 || event.OutputTokens > 0 || event.CachedTokens > 0
+}
+
 func applyUsageEventToOverview(overview *UsageOverviewRecord, event models.UsageEvent, bucketByDay bool, latestHourlyStart *time.Time, pricingByModel map[string]models.ModelPriceSetting) {
 	overview.Summary.CachedTokens += event.CachedTokens
 	overview.Summary.ReasoningTokens += event.ReasoningTokens
@@ -502,7 +517,7 @@ func applyUsageEventToOverview(overview *UsageOverviewRecord, event models.Usage
 		overview.Health.TotalSuccess++
 	}
 	pricing, ok := pricingByModel[strings.TrimSpace(event.Model)]
-	if !ok {
+	if !ok && usageEventRequiresPricing(event) {
 		overview.Summary.CostAvailable = false
 	}
 	cost := calculateUsageEventCost(event, pricing)

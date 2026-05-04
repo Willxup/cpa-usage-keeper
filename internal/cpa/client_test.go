@@ -8,53 +8,6 @@ import (
 	"time"
 )
 
-func TestFetchUsageExportSendsBearerToken(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("Authorization"); got != "Bearer secret" {
-			t.Fatalf("expected Authorization header, got %q", got)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"version":1,"exported_at":"2026-04-16T00:00:00Z","usage":{}}`))
-	}))
-	defer server.Close()
-
-	client := NewClient(server.URL, "secret", 2*time.Second)
-	result, err := client.FetchUsageExport(context.Background())
-	if err != nil {
-		t.Fatalf("FetchUsageExport returned error: %v", err)
-	}
-	if result.StatusCode != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", result.StatusCode)
-	}
-}
-
-func TestFetchUsageExportHandlesUnauthorized(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, `{"error":"invalid management key"}`, http.StatusUnauthorized)
-	}))
-	defer server.Close()
-
-	client := NewClient(server.URL, "secret", 2*time.Second)
-	_, err := client.FetchUsageExport(context.Background())
-	if err == nil {
-		t.Fatal("expected unauthorized error")
-	}
-}
-
-func TestFetchUsageExportRejectsInvalidJSON(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`not-json`))
-	}))
-	defer server.Close()
-
-	client := NewClient(server.URL, "secret", 2*time.Second)
-	_, err := client.FetchUsageExport(context.Background())
-	if err == nil {
-		t.Fatal("expected invalid json error")
-	}
-}
-
 func TestFetchExternalAPIKeysSendsBearerTokenAndParsesExternalKeys(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != cpaManagementExternalAPIKeysEndpoint {
@@ -280,6 +233,88 @@ func TestProviderMetadataFetchersUseDedicatedEndpoints(t *testing.T) {
 				t.Fatalf("unexpected provider payload: %#v", result.Payload)
 			}
 		})
+	}
+}
+
+func TestProviderMetadataFetchersParseWrappedEndpointResponses(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		fetch    func(context.Context, *Client) (*ProviderKeyConfigResult, error)
+		response string
+	}{
+		{
+			name: "gemini",
+			path: cpaManagementGeminiAPIKeyEndpoint,
+			fetch: func(ctx context.Context, client *Client) (*ProviderKeyConfigResult, error) {
+				return client.FetchGeminiAPIKeys(ctx)
+			},
+			response: `{"gemini-api-key":[{"apiKey":"gemini-key","prefix":"gemini-prefix","name":"Gemini"}]}`,
+		},
+		{
+			name: "claude",
+			path: cpaManagementClaudeAPIKeyEndpoint,
+			fetch: func(ctx context.Context, client *Client) (*ProviderKeyConfigResult, error) {
+				return client.FetchClaudeAPIKeys(ctx)
+			},
+			response: `{"claude-api-key":[{"api-key":"claude-key","prefix":"claude-prefix","name":"Claude"}]}`,
+		},
+		{
+			name: "codex",
+			path: cpaManagementCodexAPIKeyEndpoint,
+			fetch: func(ctx context.Context, client *Client) (*ProviderKeyConfigResult, error) {
+				return client.FetchCodexAPIKeys(ctx)
+			},
+			response: `{"codex-api-key":[{"key":"codex-key","prefix":"codex-prefix","name":"Codex"}]}`,
+		},
+		{
+			name: "vertex",
+			path: cpaManagementVertexAPIKeyEndpoint,
+			fetch: func(ctx context.Context, client *Client) (*ProviderKeyConfigResult, error) {
+				return client.FetchVertexAPIKeys(ctx)
+			},
+			response: `{"vertex-api-key":[{"apiKey":"vertex-key","prefix":"vertex-prefix","name":"Vertex"}]}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != tt.path {
+					t.Fatalf("unexpected path %q", r.URL.Path)
+				}
+				_, _ = w.Write([]byte(tt.response))
+			}))
+			defer server.Close()
+
+			client := NewClient(server.URL, "management-secret", 2*time.Second)
+			result, err := tt.fetch(context.Background(), client)
+			if err != nil {
+				t.Fatalf("fetch returned error: %v", err)
+			}
+			if len(result.Payload) != 1 || result.Payload[0].APIKey == "" || result.Payload[0].Prefix == "" || result.Payload[0].Name == "" {
+				t.Fatalf("unexpected wrapped provider payload: %#v", result.Payload)
+			}
+		})
+	}
+}
+
+func TestFetchOpenAICompatibilityParsesWrappedEndpointResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != cpaManagementOpenAICompatibilityEndpoint {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"openai-compatibility":[{"id":"custom-openai","prefix":"custom","api-keys":["custom-key"]}]}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 2*time.Second)
+	result, err := client.FetchOpenAICompatibility(context.Background())
+	if err != nil {
+		t.Fatalf("FetchOpenAICompatibility returned error: %v", err)
+	}
+	if len(result.Payload) != 1 || result.Payload[0].Name != "custom-openai" || result.Payload[0].Prefix != "custom" || len(result.Payload[0].APIKeyEntries) != 1 || result.Payload[0].APIKeyEntries[0].APIKey != "custom-key" {
+		t.Fatalf("unexpected wrapped openai compatibility payload: %#v", result.Payload)
 	}
 }
 

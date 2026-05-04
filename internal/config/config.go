@@ -15,10 +15,10 @@ import (
 )
 
 const (
-	DefaultTimeZone                  = "Asia/Shanghai"
-	RedisQueueKeyDefault             = cpa.ManagementUsageQueueKey
-	RedisQueueErrorBackoffDefault    = 10 * time.Second
-	RedisMetadataSyncIntervalDefault = 30 * time.Second
+	DefaultTimeZone               = "Asia/Shanghai"
+	RedisQueueKeyDefault          = cpa.ManagementUsageQueueKey
+	RedisQueueErrorBackoffDefault = 10 * time.Second
+	MetadataSyncIntervalDefault   = 30 * time.Second
 )
 
 var (
@@ -40,10 +40,6 @@ type Config struct {
 	CPABaseURL string
 	// CPAManagementKey 是访问 CPA 管理数据的密钥。
 	CPAManagementKey string
-	// PollInterval 是 legacy export 拉取间隔。
-	PollInterval time.Duration
-	// UsageSyncMode 决定使用 auto、redis 或 legacy_export；auto 会在启动时解析为一种有效模式。
-	UsageSyncMode string
 	// RedisQueueAddr 是 CPA management data stream 的 TCP 地址，空值时按 CPA_BASE_URL 推导。
 	RedisQueueAddr string
 	// RedisQueueKey 是 CPA usage 队列名。
@@ -54,8 +50,8 @@ type Config struct {
 	RedisQueueIdleInterval time.Duration
 	// RedisQueueErrorBackoff 是 Redis 临时错误后的固定退避间隔。
 	RedisQueueErrorBackoff time.Duration
-	// RedisMetadataSyncInterval 是 Redis drain 模式下 metadata 的固定刷新间隔。
-	RedisMetadataSyncInterval time.Duration
+	// MetadataSyncInterval 是 auth files 和 provider metadata 的固定刷新间隔。
+	MetadataSyncInterval time.Duration
 	// WorkDir 是应用工作目录，数据库、日志和备份默认从这里派生。
 	WorkDir string
 	// SQLitePath 是 SQLite 数据库文件路径。
@@ -108,16 +104,6 @@ func Load(options LoadOptions) (*Config, error) {
 		return nil, err
 	}
 	if err := applyProjectTimeZone(); err != nil {
-		return nil, err
-	}
-
-	usageSyncMode := getString("USAGE_SYNC_MODE", "auto")
-	if usageSyncMode != "auto" && usageSyncMode != "redis" && usageSyncMode != "legacy_export" {
-		return nil, fmt.Errorf("USAGE_SYNC_MODE must be one of auto, redis, legacy_export")
-	}
-
-	pollInterval, err := getDuration("POLL_INTERVAL", 5*time.Minute)
-	if err != nil {
 		return nil, err
 	}
 
@@ -196,32 +182,30 @@ func Load(options LoadOptions) (*Config, error) {
 	workDir := getString("WORK_DIR", DefaultWorkDir)
 
 	cfg := &Config{
-		AppPort:                   getString("APP_PORT", "8080"),
-		AppBasePath:               appBasePath,
-		CPABaseURL:                strings.TrimSpace(os.Getenv("CPA_BASE_URL")),
-		CPAManagementKey:          strings.TrimSpace(os.Getenv("CPA_MANAGEMENT_KEY")),
-		PollInterval:              pollInterval,
-		UsageSyncMode:             usageSyncMode,
-		RedisQueueAddr:            strings.TrimSpace(os.Getenv("REDIS_QUEUE_ADDR")),
-		RedisQueueKey:             RedisQueueKeyDefault,
-		RedisQueueBatchSize:       redisQueueBatchSize,
-		RedisQueueIdleInterval:    redisQueueIdleInterval,
-		RedisQueueErrorBackoff:    RedisQueueErrorBackoffDefault,
-		RedisMetadataSyncInterval: RedisMetadataSyncIntervalDefault,
-		WorkDir:                   workDir,
-		SQLitePath:                filepath.Join(workDir, workDirDatabaseName),
-		BackupEnabled:             backupEnabled,
-		BackupDir:                 filepath.Join(workDir, workDirBackupsName),
-		BackupInterval:            backupInterval,
-		BackupRetentionDays:       backupRetentionDays,
-		RequestTimeout:            requestTimeout,
-		LogLevel:                  getString("LOG_LEVEL", "info"),
-		LogFileEnabled:            logFileEnabled,
-		LogDir:                    filepath.Join(workDir, workDirLogsName),
-		LogRetentionDays:          logRetentionDays,
-		AuthEnabled:               authEnabled,
-		LoginPassword:             strings.TrimSpace(os.Getenv("LOGIN_PASSWORD")),
-		AuthSessionTTL:            authSessionTTL,
+		AppPort:                getString("APP_PORT", "8080"),
+		AppBasePath:            appBasePath,
+		CPABaseURL:             strings.TrimSpace(os.Getenv("CPA_BASE_URL")),
+		CPAManagementKey:       strings.TrimSpace(os.Getenv("CPA_MANAGEMENT_KEY")),
+		RedisQueueAddr:         strings.TrimSpace(os.Getenv("REDIS_QUEUE_ADDR")),
+		RedisQueueKey:          RedisQueueKeyDefault,
+		RedisQueueBatchSize:    redisQueueBatchSize,
+		RedisQueueIdleInterval: redisQueueIdleInterval,
+		RedisQueueErrorBackoff: RedisQueueErrorBackoffDefault,
+		MetadataSyncInterval:   MetadataSyncIntervalDefault,
+		WorkDir:                workDir,
+		SQLitePath:             filepath.Join(workDir, workDirDatabaseName),
+		BackupEnabled:          backupEnabled,
+		BackupDir:              filepath.Join(workDir, workDirBackupsName),
+		BackupInterval:         backupInterval,
+		BackupRetentionDays:    backupRetentionDays,
+		RequestTimeout:         requestTimeout,
+		LogLevel:               getString("LOG_LEVEL", "info"),
+		LogFileEnabled:         logFileEnabled,
+		LogDir:                 filepath.Join(workDir, workDirLogsName),
+		LogRetentionDays:       logRetentionDays,
+		AuthEnabled:            authEnabled,
+		LoginPassword:          strings.TrimSpace(os.Getenv("LOGIN_PASSWORD")),
+		AuthSessionTTL:         authSessionTTL,
 	}
 	if cfg.CPABaseURL == "" {
 		return nil, fmt.Errorf("CPA_BASE_URL is required")

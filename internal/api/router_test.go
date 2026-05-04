@@ -31,6 +31,18 @@ type syncStatusStub struct {
 	err    error
 }
 
+type userFacingSyncError struct {
+	message string
+}
+
+func (e userFacingSyncError) Error() string {
+	return e.message
+}
+
+func (e userFacingSyncError) UserMessage() string {
+	return e.message
+}
+
 func (s statusStub) Status() poller.Status {
 	return s.status
 }
@@ -45,7 +57,7 @@ func (s *syncStatusStub) SyncNow(context.Context) error {
 }
 
 func TestHealthzReturnsOK(t *testing.T) {
-	router := NewRouter(nil, nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	resp := httptest.NewRecorder()
 
@@ -65,7 +77,7 @@ func TestStatusReturnsPollerState(t *testing.T) {
 		LastError:   "boom",
 		LastWarning: "metadata unavailable",
 		LastStatus:  "completed_with_warnings",
-	}}, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	}}, nil, nil, AuthConfig{}, nil, "")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
 	resp := httptest.NewRecorder()
@@ -89,7 +101,7 @@ func TestStatusReturnsProjectTimezone(t *testing.T) {
 	t.Cleanup(func() { time.Local = previousLocal })
 	time.Local = location
 
-	router := NewRouter(nil, nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -103,7 +115,7 @@ func TestStatusReturnsProjectTimezone(t *testing.T) {
 }
 
 func TestStatusReturnsEmptyStateWithoutProvider(t *testing.T) {
-	router := NewRouter(nil, nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -119,7 +131,7 @@ func TestStatusReturnsEmptyStateWithoutProvider(t *testing.T) {
 func TestManualSyncTriggersSyncRunner(t *testing.T) {
 	lastRunAt := time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC)
 	syncer := &syncStatusStub{status: poller.Status{Running: true, LastRunAt: lastRunAt, LastStatus: "completed"}}
-	router := NewRouter(nil, syncer, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter(nil, syncer, nil, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sync", nil)
 	resp := httptest.NewRecorder()
 
@@ -139,7 +151,7 @@ func TestManualSyncTriggersSyncRunner(t *testing.T) {
 
 func TestManualSyncReturnsConflictWhenAlreadyRunning(t *testing.T) {
 	syncer := &syncStatusStub{err: poller.ErrSyncAlreadyRunning}
-	router := NewRouter(nil, syncer, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter(nil, syncer, nil, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sync", nil)
 	resp := httptest.NewRecorder()
 
@@ -150,29 +162,44 @@ func TestManualSyncReturnsConflictWhenAlreadyRunning(t *testing.T) {
 	}
 }
 
-func TestManualSyncReturnsWarningsAsSuccessfulStatus(t *testing.T) {
+func TestManualSyncReturnsWarningsAsError(t *testing.T) {
 	syncer := &syncStatusStub{
 		status: poller.Status{LastStatus: "completed_with_warnings", LastWarning: "metadata unavailable"},
 		err:    poller.ErrSyncCompletedWithWarnings,
 	}
-	router := NewRouter(nil, syncer, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter(nil, syncer, nil, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sync", nil)
 	resp := httptest.NewRecorder()
 
 	router.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", resp.Code)
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", resp.Code)
 	}
-	body := resp.Body.String()
-	if !(contains(body, `"last_status":"completed_with_warnings"`) && contains(body, `"last_warning":"metadata unavailable"`)) {
+	if body := resp.Body.String(); !contains(body, `"error":"manual sync failed"`) {
+		t.Fatalf("unexpected response body: %s", body)
+	}
+}
+
+func TestManualSyncReturnsUserFacingStageError(t *testing.T) {
+	syncer := &syncStatusStub{err: userFacingSyncError{message: "metadata sync failed"}}
+	router := NewRouter(nil, syncer, nil, nil, AuthConfig{}, nil, "")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sync", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", resp.Code)
+	}
+	if body := resp.Body.String(); !contains(body, `"error":"metadata sync failed"`) {
 		t.Fatalf("unexpected response body: %s", body)
 	}
 }
 
 func TestManualSyncRateLimitsRepeatedRequests(t *testing.T) {
 	syncer := &syncStatusStub{status: poller.Status{LastStatus: "completed"}}
-	router := NewRouter(nil, syncer, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter(nil, syncer, nil, nil, AuthConfig{}, nil, "")
 
 	firstResp := httptest.NewRecorder()
 	firstReq := httptest.NewRequest(http.MethodPost, "/api/v1/sync", nil)
@@ -197,7 +224,7 @@ func TestSubpathRoutesOnlyServePrefixedEndpoints(t *testing.T) {
 	router := NewRouter(nil, statusStub{status: poller.Status{
 		Running:   true,
 		LastRunAt: lastRunAt,
-	}}, nil, nil, nil, nil, AuthConfig{BasePath: "/cpa"}, nil, "/cpa")
+	}}, nil, nil, AuthConfig{BasePath: "/cpa"}, nil, "/cpa")
 
 	for _, testCase := range []struct {
 		path       string
@@ -223,7 +250,7 @@ func TestSubpathStaticRoutesServeOnlyUnderPrefix(t *testing.T) {
 		"assets/app.js": "console.log('ok')",
 	})
 
-	router := NewRouter(staticFS, nil, nil, nil, nil, nil, AuthConfig{BasePath: "/cpa"}, nil, "/cpa")
+	router := NewRouter(staticFS, nil, nil, nil, AuthConfig{BasePath: "/cpa"}, nil, "/cpa")
 
 	for _, testCase := range []struct {
 		path       string
@@ -267,7 +294,7 @@ func TestRootStaticRouteInjectsEmptyBasePath(t *testing.T) {
 		"index.html": `<html><head><script>window.__APP_BASE_PATH__ = "__APP_BASE_PATH__";</script></head><body>app</body></html>`,
 	})
 
-	router := NewRouter(staticFS, nil, nil, nil, nil, nil, AuthConfig{}, nil, "")
+	router := NewRouter(staticFS, nil, nil, nil, AuthConfig{}, nil, "")
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	router.ServeHTTP(resp, req)

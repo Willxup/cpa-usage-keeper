@@ -4,66 +4,41 @@ import (
 	"strconv"
 	"strings"
 
-	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/models"
 	"cpa-usage-keeper/internal/redact"
 )
 
 type usageSourceResolver struct {
-	authFiles        map[string]models.AuthFile
-	providerMetadata map[string]models.ProviderMetadata
-	providerRawByKey map[string]string
+	authIdentities     map[string]models.UsageIdentity
+	providerIdentities map[string]models.UsageIdentity
+	providerRawByKey   map[string]string
 }
 
-func newUsageSourceResolver(authFiles []models.AuthFile, providerMetadata []models.ProviderMetadata) usageSourceResolver {
-	authFileMap := make(map[string]models.AuthFile, len(authFiles))
-	for _, file := range authFiles {
-		authIndex := strings.TrimSpace(file.AuthIndex)
-		if authIndex == "" {
+func newUsageSourceResolver(identities []models.UsageIdentity) usageSourceResolver {
+	authIdentities := make(map[string]models.UsageIdentity, len(identities))
+	providerIdentities := make(map[string]models.UsageIdentity, len(identities))
+	providerRawByKey := make(map[string]string, len(identities))
+	for _, identity := range identities {
+		key := strings.TrimSpace(identity.Identity)
+		if key == "" {
 			continue
 		}
-		authFileMap[authIndex] = file
-	}
-
-	providerMetadataMap := make(map[string]models.ProviderMetadata, len(providerMetadata))
-	providerRawByKey := make(map[string]string, len(providerMetadata))
-	for _, item := range providerMetadata {
-		lookupKey := strings.TrimSpace(item.LookupKey)
-		if lookupKey == "" {
-			continue
-		}
-		providerMetadataMap[lookupKey] = item
-		resolved := usageSourceResolutionFromMetadata(item, lookupKey)
-		if resolved.SourceKey != "" {
-			providerRawByKey[resolved.SourceKey] = lookupKey
+		switch identity.AuthType {
+		case models.UsageIdentityAuthTypeAuthFile:
+			authIdentities[key] = identity
+		case models.UsageIdentityAuthTypeAIProvider:
+			providerIdentities[key] = identity
+			resolved := usageSourceResolutionFromIdentity(identity, key)
+			if resolved.SourceKey != "" {
+				providerRawByKey[resolved.SourceKey] = key
+			}
 		}
 	}
 
 	return usageSourceResolver{
-		authFiles:        authFileMap,
-		providerMetadata: providerMetadataMap,
-		providerRawByKey: providerRawByKey,
-	}
-}
-
-func applyUsageSourceResolution(snapshot *cpa.StatisticsSnapshot, resolver usageSourceResolver) {
-	if snapshot == nil {
-		return
-	}
-
-	for apiName, apiSnapshot := range snapshot.APIs {
-		for modelName, modelSnapshot := range apiSnapshot.Models {
-			for i := range modelSnapshot.Details {
-				resolved := resolver.resolve(modelSnapshot.Details[i].Source, modelSnapshot.Details[i].AuthIndex)
-				modelSnapshot.Details[i].SourceRaw = modelSnapshot.Details[i].Source
-				modelSnapshot.Details[i].Source = resolved.DisplayName
-				modelSnapshot.Details[i].SourceDisplay = resolved.DisplayName
-				modelSnapshot.Details[i].SourceType = resolved.SourceType
-				modelSnapshot.Details[i].SourceKey = resolved.SourceKey
-			}
-			apiSnapshot.Models[modelName] = modelSnapshot
-		}
-		snapshot.APIs[apiName] = apiSnapshot
+		authIdentities:     authIdentities,
+		providerIdentities: providerIdentities,
+		providerRawByKey:   providerRawByKey,
 	}
 }
 
@@ -73,20 +48,22 @@ type usageSourceResolution struct {
 	SourceKey   string
 }
 
-func usageSourceResolutionFromMetadata(item models.ProviderMetadata, fallbackLookupKey string) usageSourceResolution {
-	displayName := firstNonEmptyString(item.DisplayName, item.ProviderType, redact.APIKeyDisplayName(fallbackLookupKey))
-	providerType := strings.TrimSpace(item.ProviderType)
-	providerKey := strings.TrimSpace(item.ProviderKey)
-	if providerKey == "" && item.ID > 0 {
-		providerKey = "provider:" + uintToString(item.ID)
-	}
-	if providerKey == "" {
-		providerKey = "provider:" + firstNonEmptyString(providerType, displayName)
+func usageSourceResolutionFromIdentity(item models.UsageIdentity, fallbackIdentity string) usageSourceResolution {
+	identityType := safeAIProviderDisplayValue(item.Type, fallbackIdentity, "")
+	displayName := firstNonEmptyString(
+		safeAIProviderDisplayValue(item.Name, fallbackIdentity, ""),
+		safeAIProviderDisplayValue(item.Provider, fallbackIdentity, ""),
+		identityType,
+		redact.APIKeyDisplayName(fallbackIdentity),
+	)
+	sourceKey := "provider:" + uintToString(item.ID)
+	if item.ID == 0 {
+		sourceKey = "provider:" + redact.APIKeyDisplayName(fallbackIdentity)
 	}
 	return usageSourceResolution{
 		DisplayName: displayName,
-		SourceType:  providerType,
-		SourceKey:   providerKey,
+		SourceType:  identityType,
+		SourceKey:   sourceKey,
 	}
 }
 
@@ -104,18 +81,18 @@ func (r usageSourceResolver) rawSourceForPublicValue(value string) string {
 func (r usageSourceResolver) resolve(rawSource string, authIndex string) usageSourceResolution {
 	normalizedSource := strings.TrimSpace(rawSource)
 	if normalizedSource != "" {
-		if item, ok := r.providerMetadata[normalizedSource]; ok {
-			return usageSourceResolutionFromMetadata(item, normalizedSource)
+		if item, ok := r.providerIdentities[normalizedSource]; ok {
+			return usageSourceResolutionFromIdentity(item, normalizedSource)
 		}
 	}
 
 	normalizedAuthIndex := strings.TrimSpace(authIndex)
 	if normalizedAuthIndex != "" {
-		if file, ok := r.authFiles[normalizedAuthIndex]; ok {
-			displayName := firstNonEmptyString(file.Email, file.Label, file.Name, normalizedAuthIndex)
+		if identity, ok := r.authIdentities[normalizedAuthIndex]; ok {
+			displayName := firstNonEmptyString(identity.Name, normalizedAuthIndex)
 			return usageSourceResolution{
 				DisplayName: displayName,
-				SourceType:  firstNonEmptyString(file.Type, file.Provider),
+				SourceType:  firstNonEmptyString(identity.Type, identity.Provider),
 				SourceKey:   "auth:" + normalizedAuthIndex,
 			}
 		}

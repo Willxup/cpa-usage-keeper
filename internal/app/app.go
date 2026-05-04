@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"sync"
-	"time"
 
 	"cpa-usage-keeper/internal/api"
 	"cpa-usage-keeper/internal/auth"
@@ -33,29 +32,17 @@ type Options struct {
 }
 
 type App struct {
-	Config                  *config.Config
-	ConfiguredUsageSyncMode string
-	DB                      *gorm.DB
-	Router                  *gin.Engine
-	Poller                  Runner
-	Maintenance             *StorageCleanupRunner
-	BackupMaintenance       *DatabaseBackupRunner
-	LogCloser               io.Closer
+	Config            *config.Config
+	DB                *gorm.DB
+	Router            *gin.Engine
+	Poller            Runner
+	Maintenance       *StorageCleanupRunner
+	MetadataSync      *MetadataSyncRunner
+	BackupMaintenance *DatabaseBackupRunner
+	LogCloser         io.Closer
 
 	backgroundCancel context.CancelFunc
 	backgroundWG     sync.WaitGroup
-}
-
-var redisStartupProbe = func(ctx context.Context, cfg config.Config) error {
-	client := cpa.NewRedisQueueClient(
-		cfg.CPABaseURL,
-		cfg.RedisQueueAddr,
-		cfg.CPAManagementKey,
-		cfg.RequestTimeout,
-		cfg.RedisQueueKey,
-		cfg.RedisQueueBatchSize,
-	)
-	return client.Probe(ctx)
 }
 
 func New() (*App, error) {
@@ -82,16 +69,12 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		_ = logCloser.Close()
 		return nil, err
 	}
-	if err := runTemporaryStartupSnapshotRunsCleanup(db); err != nil {
-		_ = closeGormDB(db)
-		_ = logCloser.Close()
-		return nil, err
-	}
 
-	configuredUsageSyncMode := cfg.UsageSyncMode
-	cfg = resolveUsageSyncMode(context.Background(), cfg)
 	syncService := service.NewSyncService(db, cfg)
-	backgroundPoller := newBackgroundRunner(syncService, cfg)
+	backgroundPoller := poller.NewRedisDrain(syncService, poller.RedisDrainConfig{
+		IdleInterval: cfg.RedisQueueIdleInterval,
+		ErrorBackoff: cfg.RedisQueueErrorBackoff,
+	})
 	var backupMaintenance *DatabaseBackupRunner
 	if cfg.BackupEnabled {
 		sqlDB, err := db.DB()
@@ -105,8 +88,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	}
 
 	usageService := service.NewUsageService(db)
-	authFileService := service.NewAuthFileService(db)
-	providerMetadataService := service.NewProviderMetadataService(db)
+	usageIdentityService := service.NewUsageIdentityService(db)
 	pricingModelsClient := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout)
 	pricingService := service.NewPricingService(db, pricingModelsClient)
 	sessionManager := auth.NewSessionManager(cfg.AuthSessionTTL)
@@ -118,19 +100,17 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	}, sessionManager)
 
 	return &App{
-		Config:                  &cfg,
-		ConfiguredUsageSyncMode: configuredUsageSyncMode,
-		DB:                      db,
-		Poller:                  backgroundPoller,
-		Maintenance:             NewStorageCleanupRunner(syncService),
-		BackupMaintenance:       backupMaintenance,
-		LogCloser:               logCloser,
+		Config:            &cfg,
+		DB:                db,
+		Poller:            backgroundPoller,
+		Maintenance:       NewStorageCleanupRunner(syncService),
+		MetadataSync:      NewMetadataSyncRunner(syncService, cfg.MetadataSyncInterval),
+		BackupMaintenance: backupMaintenance,
+		LogCloser:         logCloser,
 		Router: api.NewRouter(
 			webui.Static,
-			backgroundPoller,
+			newManualSyncRunner(backgroundPoller, syncService),
 			usageService,
-			authFileService,
-			providerMetadataService,
 			pricingService,
 			api.AuthConfig{
 				Enabled:       cfg.AuthEnabled,
@@ -140,6 +120,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 			},
 			authHandler,
 			cfg.AppBasePath,
+			usageIdentityService,
 		),
 	}, nil
 }
@@ -153,53 +134,6 @@ func closeGormDB(db *gorm.DB) error {
 		return err
 	}
 	return sqlDB.Close()
-}
-
-func resolveUsageSyncMode(ctx context.Context, cfg config.Config) config.Config {
-	if cfg.UsageSyncMode != "auto" {
-		return cfg
-	}
-	if err := redisStartupProbe(ctx, cfg); err != nil {
-		cfg.UsageSyncMode = "legacy_export"
-		logrus.WithError(err).WithFields(logrus.Fields{
-			"configured_mode": "auto",
-			"effective_mode":  cfg.UsageSyncMode,
-		}).Info("usage sync auto mode resolved")
-		return cfg
-	}
-	cfg.UsageSyncMode = "redis"
-	logrus.WithFields(logrus.Fields{
-		"configured_mode": "auto",
-		"effective_mode":  cfg.UsageSyncMode,
-	}).Info("usage sync auto mode resolved")
-	return cfg
-}
-
-func newBackgroundRunner(syncService *service.SyncService, cfg config.Config) Runner {
-	if cfg.UsageSyncMode == "redis" {
-		return poller.NewRedisDrain(syncService, poller.RedisDrainConfig{
-			IdleInterval:     cfg.RedisQueueIdleInterval,
-			ErrorBackoff:     cfg.RedisQueueErrorBackoff,
-			MetadataInterval: cfg.RedisMetadataSyncInterval,
-		})
-	}
-	return poller.New(syncService, cfg.PollInterval)
-}
-
-// runTemporaryStartupSnapshotRunsCleanup 是启动期额外执行的 snapshot_runs 治理入口，和每日清理共用 CleanupSnapshotRuns 语义。
-// 它只处理 snapshot_runs 并执行 VACUUM，不包含每日 CleanupStorage 中的 redis_usage_inboxes 清理。
-func runTemporaryStartupSnapshotRunsCleanup(db *gorm.DB) error {
-	logrus.Info("temporary snapshot runs cleanup started")
-	if _, err := repository.CleanupSnapshotRuns(db, time.Now()); err != nil {
-		logrus.WithError(err).Error("temporary snapshot runs cleanup failed")
-		return err
-	}
-	if err := repository.Vacuum(db); err != nil {
-		logrus.WithError(err).Error("temporary snapshot runs cleanup failed")
-		return err
-	}
-	logrus.Info("temporary snapshot runs cleanup completed")
-	return nil
 }
 
 func (a *App) Close() error {
@@ -226,15 +160,6 @@ func (a *App) Run() error {
 		return fmt.Errorf("application is not initialized")
 	}
 
-	configuredMode := a.ConfiguredUsageSyncMode
-	if configuredMode == "" {
-		configuredMode = a.Config.UsageSyncMode
-	}
-	logrus.WithFields(logrus.Fields{
-		"configured_mode": configuredMode,
-		"effective_mode":  a.Config.UsageSyncMode,
-	}).Info("usage sync mode selected")
-
 	ctx := a.startBackgroundContext()
 	defer a.stopBackgroundTasks()
 	if a.Poller != nil {
@@ -248,6 +173,13 @@ func (a *App) Run() error {
 		a.startBackgroundTask(func() {
 			if err := a.Maintenance.Run(ctx); err != nil {
 				logrus.Errorf("maintenance cleanup stopped: %v", err)
+			}
+		})
+	}
+	if a.MetadataSync != nil {
+		a.startBackgroundTask(func() {
+			if err := a.MetadataSync.Run(ctx); err != nil {
+				logrus.Errorf("metadata sync stopped: %v", err)
 			}
 		})
 	}

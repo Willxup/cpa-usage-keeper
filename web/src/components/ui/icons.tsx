@@ -396,16 +396,6 @@ export function IconSidebarProviders({ size = 20, ...props }: IconProps) {
   );
 }
 
-export function IconSidebarAuthFiles({ size = 20, ...props }: IconProps) {
-  return (
-    <svg {...sidebarSvgProps} width={size} height={size} {...props}>
-      <path d="M7 3h7l4 4v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" />
-      <path d="M14 3v4h4" fill="currentColor" fillOpacity="0.12" />
-      <path d="M9 13l2 2 4-4" />
-    </svg>
-  );
-}
-
 export function IconSidebarOauth({ size = 20, ...props }: IconProps) {
   return (
     <svg {...sidebarSvgProps} width={size} height={size} {...props}>

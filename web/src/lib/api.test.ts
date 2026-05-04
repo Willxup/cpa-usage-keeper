@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchUsageEventFilterOptions, fetchUsageEvents, triggerSync } from './api';
+import { fetchUsageEventFilterOptions, fetchUsageEvents, fetchUsageIdentities, triggerSync } from './api';
 
 describe('fetchUsageEvents', () => {
   afterEach(() => {
@@ -7,7 +7,7 @@ describe('fetchUsageEvents', () => {
     vi.unstubAllGlobals();
   });
 
-  it('loads stable filter options without event pagination or selected filters', async () => {
+  it('loads stable filter options without query params', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
@@ -15,16 +15,17 @@ describe('fetchUsageEvents', () => {
     } as Response);
     const signal = new AbortController().signal;
 
-    const response = await fetchUsageEventFilterOptions('custom', '2026-04-20T00:00:00Z', '2026-04-21T00:00:00Z', signal);
+    const response = await fetchUsageEventFilterOptions(signal);
 
     const [url, init] = fetchMock.mock.calls[0];
     const parsed = new URL(String(url), 'http://localhost');
 
     expect(response.models).toEqual(['claude-sonnet']);
     expect(parsed.pathname).toBe('/api/v1/usage/events/filters');
-    expect(parsed.searchParams.get('range')).toBe('custom');
-    expect(parsed.searchParams.get('start')).toBe('2026-04-20T00:00:00Z');
-    expect(parsed.searchParams.get('end')).toBe('2026-04-21T00:00:00Z');
+    expect(parsed.search).toBe('');
+    expect(parsed.searchParams.get('range')).toBeNull();
+    expect(parsed.searchParams.get('start')).toBeNull();
+    expect(parsed.searchParams.get('end')).toBeNull();
     expect(parsed.searchParams.get('page')).toBeNull();
     expect(parsed.searchParams.get('page_size')).toBeNull();
     expect(parsed.searchParams.get('model')).toBeNull();
@@ -62,6 +63,51 @@ describe('fetchUsageEvents', () => {
     expect(parsed.searchParams.get('source')).toBe('source-a');
     expect(parsed.searchParams.get('result')).toBe('failed');
     expect(parsed.searchParams.get('auth_index')).toBeNull();
+    expect(init).toMatchObject({ credentials: 'include', signal });
+  });
+
+  it('loads unified usage identities for credential stats', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        identities: [
+          {
+            id: 1,
+            name: 'Claude primary',
+            auth_type: 2,
+            auth_type_name: 'apikey',
+            identity: 'sk-a***1234',
+            type: 'claude',
+            provider: 'anthropic',
+            total_requests: 3,
+            success_count: 2,
+            failure_count: 1,
+            input_tokens: 10,
+            output_tokens: 20,
+            reasoning_tokens: 0,
+            cached_tokens: 0,
+            total_tokens: 30,
+            last_aggregated_usage_event_id: 9,
+            is_deleted: false,
+            created_at: '2026-05-04T00:00:00Z',
+            updated_at: '2026-05-04T00:00:00Z',
+          },
+        ],
+      }),
+    } as Response);
+    const signal = new AbortController().signal;
+
+    const response = await fetchUsageIdentities(signal);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(url), 'http://localhost');
+
+    expect(response.identities[0].identity).toBe('sk-a***1234');
+    expect(response.identities[0].auth_type).toBe(2);
+    expect(typeof response.identities[0].auth_type).toBe('number');
+    expect(parsed.pathname).toBe('/api/v1/usage/identities');
+    expect(parsed.search).toBe('');
     expect(init).toMatchObject({ credentials: 'include', signal });
   });
 

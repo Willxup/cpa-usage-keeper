@@ -4,11 +4,11 @@ import { Bar } from 'react-chartjs-2';
 import type { ChartData, ChartOptions, TooltipItem } from 'chart.js';
 import { Card } from '@/components/ui/Card';
 import { formatCompactNumber } from '@/utils/usage';
-import type { UsageCredential } from '@/lib/types';
+import type { UsageIdentity } from '@/lib/types';
 import styles from '@/pages/UsagePage.module.scss';
 
 export interface CredentialStatsCardProps {
-  credentials: UsageCredential[];
+  credentials: UsageIdentity[];
   loading: boolean;
 }
 
@@ -22,15 +22,15 @@ export interface CredentialRow {
   successRate: number;
 }
 
-export function buildCredentialRows(credentials: UsageCredential[]): CredentialRow[] {
+export function buildCredentialRows(credentials: UsageIdentity[]): CredentialRow[] {
   return credentials
     .map((credential) => {
-      const displayName = String(credential.source ?? '').trim() || '-';
-      const sourceType = String(credential.source_type ?? '').trim();
-      const key = String(credential.source_key ?? '').trim() || displayName;
+      const displayName = String(credential.name || credential.identity || '').trim() || '-';
+      const sourceType = String(credential.type || credential.auth_type_name || '').trim();
+      const key = String(credential.id || credential.identity || '').trim() || displayName;
       const success = Number(credential.success_count) || 0;
       const failure = Number(credential.failure_count) || 0;
-      const total = Number(credential.total_count) || success + failure;
+      const total = Number(credential.total_requests) || success + failure;
       return {
         key,
         displayName,

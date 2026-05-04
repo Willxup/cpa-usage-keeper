@@ -33,15 +33,6 @@ func NewRedisQueueClient(baseURL, redisQueueAddr, managementKey string, timeout 
 	}
 }
 
-func (c *RedisQueueClient) Probe(ctx context.Context) error {
-	conn, _, err := c.openAuthenticatedConnection(ctx)
-	if err != nil {
-		return err
-	}
-	_ = conn.Close()
-	return nil
-}
-
 func (c *RedisQueueClient) PopUsage(ctx context.Context) ([]string, error) {
 	if c == nil {
 		return nil, fmt.Errorf("redis queue client is nil")

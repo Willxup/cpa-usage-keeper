@@ -1,9 +1,12 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
+	"cpa-usage-keeper/internal/models"
 	"cpa-usage-keeper/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -53,8 +56,7 @@ type usageEventTokenPayload struct {
 func registerUsageEventsRoute(
 	router gin.IRoutes,
 	usageProvider service.UsageProvider,
-	authFileProvider service.AuthFileProvider,
-	providerMetadataProvider service.ProviderMetadataProvider,
+	usageIdentityProvider service.UsageIdentityProvider,
 ) {
 	router.GET("/usage/events/filters", func(c *gin.Context) {
 		if usageProvider == nil {
@@ -62,27 +64,20 @@ func registerUsageEventsRoute(
 			return
 		}
 
-		filter, err := parseUsageTimeFilterQuery(c.Request, time.Now().UTC())
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		options, err := usageProvider.ListUsageEventFilterOptions(c.Request.Context(), filter)
+		options, err := usageProvider.ListUsageEventFilterOptions(c.Request.Context(), service.UsageFilter{})
 		if err != nil {
 			writeInternalError(c, "list usage event filter options failed", err)
 			return
 		}
 
-		authFiles, providerMetadata, err := loadUsageResolutionData(c, authFileProvider, providerMetadataProvider)
+		identities, err := loadUsageResolutionData(c, usageIdentityProvider)
 		if err != nil {
 			writeInternalError(c, "load usage resolution data failed", err)
 			return
 		}
-		resolver := newUsageSourceResolver(authFiles, providerMetadata)
 		c.JSON(http.StatusOK, usageEventFilterOptionsResponse{
 			Models:  options.Models,
-			Sources: buildUsageSourceFilterOptions(options.Sources, resolver),
+			Sources: buildUsageSourceFilterOptions(options.Sources, identities),
 		})
 	})
 
@@ -97,14 +92,10 @@ func registerUsageEventsRoute(
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-
-		authFiles, providerMetadata, err := loadUsageResolutionData(c, authFileProvider, providerMetadataProvider)
-		if err != nil {
-			writeInternalError(c, "load usage resolution data failed", err)
+		if err := applyUsageEventsSourceFilter(&filter); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		resolver := newUsageSourceResolver(authFiles, providerMetadata)
-		filter.Source = resolver.rawSourceForPublicValue(filter.Source)
 
 		rows, err := usageProvider.ListUsageEvents(c.Request.Context(), filter)
 		if err != nil {
@@ -112,10 +103,15 @@ func registerUsageEventsRoute(
 			return
 		}
 
+		identities, err := loadUsageResolutionData(c, usageIdentityProvider)
+		if err != nil {
+			writeInternalError(c, "load usage resolution data failed", err)
+			return
+		}
 		c.JSON(http.StatusOK, usageEventsResponse{
-			Events:     buildUsageEventsPayload(rows.Events, resolver),
+			Events:     buildUsageEventsPayload(rows.Events),
 			Models:     rows.Models,
-			Sources:    buildUsageSourceFilterOptions(rows.Sources, resolver),
+			Sources:    buildUsageSourceFilterOptions(rows.Sources, identities),
 			TotalCount: rows.TotalCount,
 			Page:       rows.Page,
 			PageSize:   rows.PageSize,
@@ -124,23 +120,54 @@ func registerUsageEventsRoute(
 	})
 }
 
-func buildUsageEventsPayload(rows []service.UsageEventRecord, resolver usageSourceResolver) []usageEventPayload {
+func applyUsageEventsSourceFilter(filter *service.UsageFilter) error {
+	if filter == nil {
+		return nil
+	}
+	source := strings.TrimSpace(filter.Source)
+	if source == "" {
+		return nil
+	}
+	if value, ok := strings.CutPrefix(source, "auth:"); ok {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return fmt.Errorf("source auth filter value is required")
+		}
+		filter.AuthType = "oauth"
+		filter.AuthIndex = value
+		filter.Source = value
+		filter.Provider = ""
+		return nil
+	}
+	if value, ok := strings.CutPrefix(source, "provider:"); ok {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return fmt.Errorf("source provider filter value is required")
+		}
+		filter.AuthType = "apikey"
+		filter.Provider = value
+		filter.Source = ""
+		filter.AuthIndex = ""
+	}
+	return nil
+}
+
+func buildUsageEventsPayload(rows []service.UsageEventRecord) []usageEventPayload {
 	if len(rows) == 0 {
 		return []usageEventPayload{}
 	}
 	payload := make([]usageEventPayload, 0, len(rows))
 	for _, row := range rows {
-		resolved := resolver.resolve(row.Source, row.AuthIndex)
+		source, sourceKey := usageEventPublicSource(row)
 		payload = append(payload, usageEventPayload{
-			ID:         row.ID,
-			Timestamp:  row.Timestamp.UTC().Format(time.RFC3339),
-			Model:      row.Model,
-			Source:     resolved.DisplayName,
-			SourceType: resolved.SourceType,
-			SourceKey:  resolved.SourceKey,
-			AuthIndex:  row.AuthIndex,
-			Failed:     row.Failed,
-			LatencyMS:  row.LatencyMS,
+			ID:        row.ID,
+			Timestamp: row.Timestamp.UTC().Format(time.RFC3339),
+			Model:     row.Model,
+			Source:    source,
+			SourceKey: sourceKey,
+			AuthIndex: row.AuthIndex,
+			Failed:    row.Failed,
+			LatencyMS: row.LatencyMS,
 			Tokens: usageEventTokenPayload{
 				InputTokens:     row.InputTokens,
 				OutputTokens:    row.OutputTokens,
@@ -153,14 +180,66 @@ func buildUsageEventsPayload(rows []service.UsageEventRecord, resolver usageSour
 	return payload
 }
 
-func buildUsageSourceFilterOptions(sources []string, resolver usageSourceResolver) []usageSourceFilterOption {
-	if len(sources) == 0 {
+func usageEventPublicSource(row service.UsageEventRecord) (string, string) {
+	switch strings.TrimSpace(row.AuthType) {
+	case "apikey":
+		provider := strings.TrimSpace(row.Provider)
+		if provider == "" {
+			provider = "AI Provider"
+		}
+		return provider, "provider:" + provider
+	case "oauth":
+		source := firstNonEmptyString(row.Source, row.AuthIndex, "unknown")
+		return source, "auth:" + source
+	default:
+		if provider := strings.TrimSpace(row.Provider); provider != "" {
+			return provider, "provider:" + provider
+		}
+		source := firstNonEmptyString(row.Source, row.AuthIndex, "unknown")
+		return source, "auth:" + source
+	}
+}
+
+func buildUsageSourceFilterOptions(sources []string, identities []models.UsageIdentity) []usageSourceFilterOption {
+	if len(identities) == 0 {
 		return []usageSourceFilterOption{}
 	}
-	options := make([]usageSourceFilterOption, 0, len(sources))
-	for _, source := range sources {
-		resolved := resolver.resolve(source, "")
-		options = append(options, usageSourceFilterOption{Value: resolved.SourceKey, Label: resolved.DisplayName})
+	options := make([]usageSourceFilterOption, 0, len(identities))
+	seen := make(map[string]struct{}, len(identities))
+	for _, identity := range identities {
+		if identity.TotalRequests == 0 {
+			continue
+		}
+		option, ok := usageSourceFilterOptionFromIdentity(identity)
+		if !ok {
+			continue
+		}
+		if _, exists := seen[option.Value]; exists {
+			continue
+		}
+		seen[option.Value] = struct{}{}
+		options = append(options, option)
 	}
 	return options
+}
+
+func usageSourceFilterOptionFromIdentity(identity models.UsageIdentity) (usageSourceFilterOption, bool) {
+	switch identity.AuthType {
+	case models.UsageIdentityAuthTypeAuthFile:
+		value := strings.TrimSpace(identity.Identity)
+		if value == "" {
+			return usageSourceFilterOption{}, false
+		}
+		label := firstNonEmptyString(identity.Name, value)
+		return usageSourceFilterOption{Value: "auth:" + value, Label: label}, true
+	case models.UsageIdentityAuthTypeAIProvider:
+		provider := safeAIProviderDisplayValue(identity.Provider, identity.Identity, "")
+		label := firstNonEmptyString(provider, safeAIProviderDisplayValue(identity.Name, identity.Identity, ""), safeAIProviderDisplayValue(identity.Type, identity.Identity, ""))
+		if label == "" {
+			return usageSourceFilterOption{}, false
+		}
+		return usageSourceFilterOption{Value: "provider:" + label, Label: label}, true
+	default:
+		return usageSourceFilterOption{}, false
+	}
 }

@@ -17,6 +17,8 @@ type UsageFilter struct {
 	Model     string
 	Source    string
 	AuthIndex string
+	AuthType  string
+	Provider  string
 	Result    string
 }
 
@@ -42,6 +44,8 @@ type UsageEventRecord struct {
 	Timestamp       time.Time
 	APIGroupKey     string
 	Model           string
+	AuthType        string
+	Provider        string
 	Source          string
 	AuthIndex       string
 	Failed          bool

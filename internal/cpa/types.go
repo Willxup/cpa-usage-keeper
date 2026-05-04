@@ -6,12 +6,6 @@ import (
 	"time"
 )
 
-type UsageExport struct {
-	Version    int                `json:"version"`
-	ExportedAt time.Time          `json:"exported_at"`
-	Usage      StatisticsSnapshot `json:"usage"`
-}
-
 type StatisticsSnapshot struct {
 	TotalRequests  int64                  `json:"total_requests"`
 	SuccessCount   int64                  `json:"success_count"`

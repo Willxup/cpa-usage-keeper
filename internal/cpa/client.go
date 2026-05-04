@@ -16,12 +16,6 @@ type Client struct {
 	httpClient    *http.Client
 }
 
-type ExportResult struct {
-	StatusCode int
-	Body       []byte
-	Payload    UsageExport
-}
-
 func (c *Client) doJSONRequest(ctx context.Context, path string, target any, kind string, configure func(*http.Request)) (int, []byte, error) {
 	if c == nil {
 		return 0, nil, fmt.Errorf("cpa client is nil")
@@ -80,17 +74,6 @@ func NewClient(baseURL, managementKey string, timeout time.Duration) *Client {
 	}
 }
 
-func (c *Client) FetchUsageExport(ctx context.Context) (*ExportResult, error) {
-	result := &ExportResult{}
-	statusCode, body, err := c.doManagementJSONRequest(ctx, cpaManagementUsageExportEndpoint, &result.Payload, "export")
-	result.StatusCode = statusCode
-	result.Body = body
-	if err != nil {
-		return result, err
-	}
-	return result, nil
-}
-
 func (c *Client) FetchExternalAPIKeys(ctx context.Context) (*ExternalAPIKeysResult, error) {
 	result := &ExternalAPIKeysResult{}
 	statusCode, body, err := c.doManagementJSONRequest(ctx, cpaManagementExternalAPIKeysEndpoint, &result.Payload, "external api keys")
@@ -136,41 +119,91 @@ func (c *Client) FetchAuthFiles(ctx context.Context) (*AuthFilesResult, error) {
 }
 
 func (c *Client) FetchGeminiAPIKeys(ctx context.Context) (*ProviderKeyConfigResult, error) {
-	return c.fetchProviderKeyConfig(ctx, cpaManagementGeminiAPIKeyEndpoint, "gemini api keys")
+	return c.fetchProviderKeyConfig(ctx, cpaManagementGeminiAPIKeyEndpoint, "gemini-api-key", "gemini api keys")
 }
 
 func (c *Client) FetchClaudeAPIKeys(ctx context.Context) (*ProviderKeyConfigResult, error) {
-	return c.fetchProviderKeyConfig(ctx, cpaManagementClaudeAPIKeyEndpoint, "claude api keys")
+	return c.fetchProviderKeyConfig(ctx, cpaManagementClaudeAPIKeyEndpoint, "claude-api-key", "claude api keys")
 }
 
 func (c *Client) FetchCodexAPIKeys(ctx context.Context) (*ProviderKeyConfigResult, error) {
-	return c.fetchProviderKeyConfig(ctx, cpaManagementCodexAPIKeyEndpoint, "codex api keys")
+	return c.fetchProviderKeyConfig(ctx, cpaManagementCodexAPIKeyEndpoint, "codex-api-key", "codex api keys")
 }
 
 func (c *Client) FetchVertexAPIKeys(ctx context.Context) (*ProviderKeyConfigResult, error) {
-	return c.fetchProviderKeyConfig(ctx, cpaManagementVertexAPIKeyEndpoint, "vertex api keys")
+	return c.fetchProviderKeyConfig(ctx, cpaManagementVertexAPIKeyEndpoint, "vertex-api-key", "vertex api keys")
 }
 
-func (c *Client) fetchProviderKeyConfig(ctx context.Context, path string, kind string) (*ProviderKeyConfigResult, error) {
+func (c *Client) fetchProviderKeyConfig(ctx context.Context, path string, payloadKey string, kind string) (*ProviderKeyConfigResult, error) {
 	result := &ProviderKeyConfigResult{}
-	statusCode, body, err := c.doManagementJSONRequest(ctx, path, &result.Payload, kind)
+	var raw json.RawMessage
+	statusCode, body, err := c.doManagementJSONRequest(ctx, path, &raw, kind)
 	result.StatusCode = statusCode
 	result.Body = body
 	if err != nil {
 		return result, err
 	}
+	payload, err := decodeProviderKeyConfigPayload(raw, payloadKey)
+	if err != nil {
+		return result, fmt.Errorf("decode management %s json: %w", kind, err)
+	}
+	result.Payload = payload
 	return result, nil
 }
 
 func (c *Client) FetchOpenAICompatibility(ctx context.Context) (*OpenAICompatibilityResult, error) {
 	result := &OpenAICompatibilityResult{}
-	statusCode, body, err := c.doManagementJSONRequest(ctx, cpaManagementOpenAICompatibilityEndpoint, &result.Payload, "openai compatibility")
+	var raw json.RawMessage
+	statusCode, body, err := c.doManagementJSONRequest(ctx, cpaManagementOpenAICompatibilityEndpoint, &raw, "openai compatibility")
 	result.StatusCode = statusCode
 	result.Body = body
 	if err != nil {
 		return result, err
 	}
+	payload, err := decodeOpenAICompatibilityPayload(raw, "openai-compatibility")
+	if err != nil {
+		return result, fmt.Errorf("decode management openai compatibility json: %w", err)
+	}
+	result.Payload = payload
 	return result, nil
+}
+
+func decodeProviderKeyConfigPayload(raw json.RawMessage, payloadKey string) ([]ProviderKeyConfig, error) {
+	var direct []ProviderKeyConfig
+	if err := json.Unmarshal(raw, &direct); err == nil {
+		return direct, nil
+	}
+	var wrapped map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &wrapped); err != nil {
+		return nil, err
+	}
+	payloadRaw, ok := wrapped[payloadKey]
+	if !ok {
+		return nil, fmt.Errorf("missing %s payload", payloadKey)
+	}
+	if err := json.Unmarshal(payloadRaw, &direct); err != nil {
+		return nil, err
+	}
+	return direct, nil
+}
+
+func decodeOpenAICompatibilityPayload(raw json.RawMessage, payloadKey string) ([]OpenAICompatibilityConfig, error) {
+	var direct []OpenAICompatibilityConfig
+	if err := json.Unmarshal(raw, &direct); err == nil {
+		return direct, nil
+	}
+	var wrapped map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &wrapped); err != nil {
+		return nil, err
+	}
+	payloadRaw, ok := wrapped[payloadKey]
+	if !ok {
+		return nil, fmt.Errorf("missing %s payload", payloadKey)
+	}
+	if err := json.Unmarshal(payloadRaw, &direct); err != nil {
+		return nil, err
+	}
+	return direct, nil
 }
 
 func firstNonEmptyString(values []string) string {

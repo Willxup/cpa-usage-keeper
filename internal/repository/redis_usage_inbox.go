@@ -18,7 +18,8 @@ const (
 	RedisUsageInboxStatusProcessFailed = "process_failed"
 	RedisUsageInboxStatusDiscarded     = "discarded"
 
-	redisUsageInboxMaxErrorLength = 1024
+	redisUsageInboxMaxErrorLength     = 1024
+	redisUsageInboxMaxProcessAttempts = 5
 )
 
 type RedisInboxInsert struct {
@@ -58,20 +59,9 @@ func InsertRedisUsageInboxMessages(db *gorm.DB, inputs []RedisInboxInsert) ([]mo
 	return rows, nil
 }
 
-func MarkRedisUsageInboxProcessed(db *gorm.DB, id uint, snapshotRunID uint, eventKey string, processedAt time.Time) error {
+func MarkRedisUsageInboxProcessed(db *gorm.DB, id uint, eventKey string, processedAt time.Time) error {
 	return db.Model(&models.RedisUsageInbox{}).Where("id = ?", id).Updates(map[string]any{
 		"status":          RedisUsageInboxStatusProcessed,
-		"snapshot_run_id": snapshotRunID,
-		"usage_event_key": eventKey,
-		"processed_at":    processedAt.UTC(),
-		"last_error":      "",
-	}).Error
-}
-
-func MarkRedisUsageInboxProcessedWithoutSnapshot(db *gorm.DB, id uint, eventKey string, processedAt time.Time) error {
-	return db.Model(&models.RedisUsageInbox{}).Where("id = ?", id).Updates(map[string]any{
-		"status":          RedisUsageInboxStatusProcessed,
-		"snapshot_run_id": nil,
 		"usage_event_key": eventKey,
 		"processed_at":    processedAt.UTC(),
 		"last_error":      "",
@@ -83,7 +73,17 @@ func MarkRedisUsageInboxDecodeFailed(db *gorm.DB, id uint, decodeErr error) erro
 }
 
 func MarkRedisUsageInboxProcessFailed(db *gorm.DB, id uint, processErr error) error {
-	return markRedisUsageInboxFailed(db, id, RedisUsageInboxStatusProcessFailed, processErr)
+	return db.Model(&models.RedisUsageInbox{}).Where("id = ?", id).Updates(map[string]any{
+		"status": gorm.Expr(
+			"CASE WHEN attempt_count + ? >= ? THEN ? ELSE ? END",
+			1,
+			redisUsageInboxMaxProcessAttempts,
+			RedisUsageInboxStatusDiscarded,
+			RedisUsageInboxStatusProcessFailed,
+		),
+		"attempt_count": gorm.Expr("attempt_count + ?", 1),
+		"last_error":    boundedRedisUsageInboxError(processErr),
+	}).Error
 }
 
 // ListProcessableRedisUsageInbox 返回待处理和可重试的数据，不返回已解码失败或已丢弃的数据。
