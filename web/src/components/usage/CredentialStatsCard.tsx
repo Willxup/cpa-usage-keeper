@@ -26,7 +26,7 @@ export function buildCredentialRows(credentials: UsageIdentity[]): CredentialRow
   return credentials
     .map((credential) => {
       const displayName = String(credential.name || credential.identity || '').trim() || '-';
-      const sourceType = String(credential.auth_type_name || credential.type || '').trim();
+      const sourceType = String(credential.type || credential.auth_type_name || '').trim();
       const key = String(credential.id || credential.identity || '').trim() || displayName;
       const success = Number(credential.success_count) || 0;
       const failure = Number(credential.failure_count) || 0;

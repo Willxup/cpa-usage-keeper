@@ -58,6 +58,20 @@ describe('CredentialStatsCard helpers', () => {
     });
   });
 
+  it('prefers identity type over auth type name for the credential tag', () => {
+    const credentials = [
+      usageIdentity({
+        auth_type_name: 'apikey',
+        identity: 'sk-a***1234',
+        type: 'openai',
+      }),
+    ] satisfies UsageIdentity[];
+
+    const rows = buildCredentialRows(credentials);
+
+    expect(rows[0].type).toBe('openai');
+  });
+
   it('falls back to success plus failure when total count is empty', () => {
     const credentials = [
       usageIdentity({
