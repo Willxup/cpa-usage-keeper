@@ -8,6 +8,7 @@ import (
 
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/models"
+	"cpa-usage-keeper/internal/repository/migration"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -41,7 +42,7 @@ func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 		return nil, fmt.Errorf("enable sqlite foreign keys: %w", err)
 	}
 
-	if err := runSchemaMigrations(db); err != nil {
+	if err := migration.Run(db); err != nil {
 		return nil, fmt.Errorf("run schema migrations: %w", err)
 	}
 	if err := db.AutoMigrate(models.All()...); err != nil {
