@@ -61,6 +61,7 @@ func NewRouter(
 	usageIdentityProviders ...service.UsageIdentityProvider,
 ) *gin.Engine {
 	router := gin.New()
+	_ = router.SetTrustedProxies(nil)
 	router.Use(gin.Recovery())
 
 	appGroup := router.Group(basePath)

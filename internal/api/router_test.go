@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/poller"
+	"github.com/gin-gonic/gin"
 )
 
 func testStaticFS(t *testing.T, files map[string]string) fs.FS {
@@ -65,6 +66,23 @@ func TestHealthzReturnsOK(t *testing.T) {
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+}
+
+func TestRouterDoesNotTrustForwardedClientIPByDefault(t *testing.T) {
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "")
+	router.GET("/client-ip", func(c *gin.Context) {
+		c.String(http.StatusOK, c.ClientIP())
+	})
+	req := httptest.NewRequest(http.MethodGet, "/client-ip", nil)
+	req.RemoteAddr = "198.51.100.10:1234"
+	req.Header.Set("X-Forwarded-For", "203.0.113.7")
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Body.String() != "198.51.100.10" {
+		t.Fatalf("expected direct remote IP, got %q", resp.Body.String())
 	}
 }
 
