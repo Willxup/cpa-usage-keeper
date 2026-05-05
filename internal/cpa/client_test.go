@@ -37,6 +37,42 @@ func TestFetchExternalAPIKeysSendsBearerTokenAndParsesExternalKeys(t *testing.T)
 	}
 }
 
+func TestFetchUsageQueueUsesManagementEndpointAndParsesMessages(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != cpaManagementUsageQueueEndpoint {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("count"); got != "2" {
+			t.Fatalf("expected count=2, got %q", got)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
+			t.Fatalf("expected management Authorization header, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"request_id":"req-1"},{"request_id":"req-2"}]`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 2*time.Second)
+	result, err := client.FetchUsageQueue(context.Background(), 2)
+	if err != nil {
+		t.Fatalf("FetchUsageQueue returned error: %v", err)
+	}
+	if result.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", result.StatusCode)
+	}
+	if len(result.Payload) != 2 || string(result.Payload[0]) != `{"request_id":"req-1"}` || string(result.Payload[1]) != `{"request_id":"req-2"}` {
+		t.Fatalf("unexpected usage queue payload: %#v", result.Payload)
+	}
+}
+
+func TestFetchUsageQueueRejectsNonPositiveCount(t *testing.T) {
+	client := NewClient("https://cpa.example.com", "management-secret", 2*time.Second)
+	if _, err := client.FetchUsageQueue(context.Background(), 0); err == nil {
+		t.Fatal("expected invalid count error")
+	}
+}
+
 func TestFetchModelsUsesExternalAPIKeyAndParsesOpenAICompatibleResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

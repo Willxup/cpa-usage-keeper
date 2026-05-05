@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -77,6 +79,21 @@ func NewClient(baseURL, managementKey string, timeout time.Duration) *Client {
 func (c *Client) FetchExternalAPIKeys(ctx context.Context) (*ExternalAPIKeysResult, error) {
 	result := &ExternalAPIKeysResult{}
 	statusCode, body, err := c.doManagementJSONRequest(ctx, cpaManagementExternalAPIKeysEndpoint, &result.Payload, "external api keys")
+	result.StatusCode = statusCode
+	result.Body = body
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (c *Client) FetchUsageQueue(ctx context.Context, count int) (*UsageQueueResult, error) {
+	result := &UsageQueueResult{}
+	if count <= 0 {
+		return result, fmt.Errorf("usage queue count must be positive")
+	}
+	queryPath := cpaManagementUsageQueueEndpoint + "?count=" + url.QueryEscape(strconv.Itoa(count))
+	statusCode, body, err := c.doManagementJSONRequest(ctx, queryPath, &result.Payload, "usage queue")
 	result.StatusCode = statusCode
 	result.Body = body
 	if err != nil {

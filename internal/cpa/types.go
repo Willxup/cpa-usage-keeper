@@ -108,6 +108,12 @@ type AuthFile struct {
 	RuntimeOnly bool   `json:"runtime_only"`
 }
 
+type UsageQueueResult struct {
+	StatusCode int
+	Body       []byte
+	Payload    []json.RawMessage
+}
+
 type ProviderKeyConfigResult struct {
 	StatusCode int
 	Body       []byte
@@ -219,21 +225,17 @@ func decodeOpenAIApiKeyEntry(raw any) (OpenAIApiKeyEntry, error) {
 	case nil:
 		return OpenAIApiKeyEntry{}, nil
 	default:
-		return OpenAIApiKeyEntry{}, fmt.Errorf("decode openai api key entry: unsupported value %T", raw)
+		return OpenAIApiKeyEntry{}, fmt.Errorf("unsupported openai api key entry type %T", raw)
 	}
 }
 
 func firstString(raw map[string]any, keys ...string) string {
 	for _, key := range keys {
 		value, ok := raw[key]
-		if !ok || value == nil {
-			continue
-		}
-		text, ok := value.(string)
 		if !ok {
 			continue
 		}
-		if text != "" {
+		if text, ok := value.(string); ok {
 			return text
 		}
 	}
