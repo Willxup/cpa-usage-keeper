@@ -39,6 +39,7 @@ func InsertRedisUsageInboxMessages(db *gorm.DB, inputs []RedisInboxInsert) ([]mo
 	}
 
 	rows := make([]models.RedisUsageInbox, 0, len(inputs))
+	// 先把 Redis 原始消息转换成 inbox 行，后续落库只处理标准化后的模型数据。
 	for _, input := range inputs {
 		hash := sha256.Sum256([]byte(input.RawMessage))
 		rows = append(rows, models.RedisUsageInbox{
@@ -52,7 +53,8 @@ func InsertRedisUsageInboxMessages(db *gorm.DB, inputs []RedisInboxInsert) ([]mo
 	}
 
 	if err := db.Transaction(func(tx *gorm.DB) error {
-		return tx.Create(&rows).Error
+		// Redis 拉取批次仍由配置控制；这里只把数据库写入拆成安全大小。
+		return tx.CreateInBatches(&rows, defaultRepositoryInsertBatchSize).Error
 	}); err != nil {
 		return nil, err
 	}

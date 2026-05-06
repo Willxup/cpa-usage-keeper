@@ -12,11 +12,19 @@ import (
 )
 
 type usageIdentitiesStub struct {
-	items []models.UsageIdentity
-	err   error
+	items       []models.UsageIdentity
+	activeItems []models.UsageIdentity
+	err         error
 }
 
 func (s usageIdentitiesStub) ListUsageIdentities(context.Context) ([]models.UsageIdentity, error) {
+	return s.items, s.err
+}
+
+func (s usageIdentitiesStub) ListActiveUsageIdentities(context.Context) ([]models.UsageIdentity, error) {
+	if s.activeItems != nil {
+		return s.activeItems, s.err
+	}
 	return s.items, s.err
 }
 

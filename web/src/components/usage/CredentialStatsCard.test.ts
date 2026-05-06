@@ -64,6 +64,7 @@ describe('CredentialStatsCard helpers', () => {
         auth_type_name: 'apikey',
         identity: 'sk-a***1234',
         type: 'openai',
+        total_requests: 1,
       }),
     ] satisfies UsageIdentity[];
 
@@ -72,20 +73,29 @@ describe('CredentialStatsCard helpers', () => {
     expect(rows[0].type).toBe('openai');
   });
 
-  it('falls back to success plus failure when total count is empty', () => {
+  it('omits credentials whose total request count is zero', () => {
     const credentials = [
       usageIdentity({
-        identity: 'fallback-total',
+        id: 1,
+        identity: 'empty',
         success_count: 3,
         failure_count: 2,
         total_requests: 0,
       }),
+      usageIdentity({
+        id: 2,
+        identity: 'active',
+        success_count: 4,
+        failure_count: 1,
+        total_requests: 5,
+      }),
     ] satisfies UsageIdentity[];
 
     const rows = buildCredentialRows(credentials);
+    const topRows = getTopCredentialRows(rows);
 
-    expect(rows[0].total).toBe(5);
-    expect(rows[0].successRate).toBe(60);
+    expect(rows.map((row) => row.displayName)).toEqual(['active']);
+    expect(topRows.map((row) => row.displayName)).toEqual(['active']);
   });
 
   it('returns only the top 10 non-empty credential rows', () => {

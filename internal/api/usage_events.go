@@ -202,7 +202,8 @@ func buildUsageSourceFilterOptions(sources []string, identities []models.UsageId
 	options := make([]usageSourceFilterOption, 0, len(identities))
 	seen := make(map[string]struct{}, len(identities))
 	for _, identity := range identities {
-		if identity.TotalRequests == 0 {
+		// Source 下拉只展示活跃且有流量的身份，避免已删除身份继续出现在筛选项里。
+		if identity.IsDeleted || identity.TotalRequests == 0 {
 			continue
 		}
 		option, ok := usageSourceFilterOptionFromIdentity(identity)

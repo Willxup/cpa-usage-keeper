@@ -24,13 +24,14 @@ export interface CredentialRow {
 
 export function buildCredentialRows(credentials: UsageIdentity[]): CredentialRow[] {
   return credentials
+    .filter((credential) => Number(credential.total_requests) > 0)
     .map((credential) => {
       const displayName = String(credential.name || credential.identity || '').trim() || '-';
       const sourceType = String(credential.type || credential.auth_type_name || '').trim();
       const key = String(credential.id || credential.identity || '').trim() || displayName;
       const success = Number(credential.success_count) || 0;
       const failure = Number(credential.failure_count) || 0;
-      const total = Number(credential.total_requests) || success + failure;
+      const total = Number(credential.total_requests) || 0;
       return {
         key,
         displayName,

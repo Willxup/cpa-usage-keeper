@@ -17,25 +17,23 @@ func ReplaceUsageIdentitiesForAuthType(ctx context.Context, db *gorm.DB, identit
 		return fmt.Errorf("database is nil")
 	}
 
+	// 先统一清洗和去重输入，后续 upsert 与 stale 判断都使用同一组 identity。
 	normalized, incomingIdentities := normalizeUsageIdentities(identities, authType)
 
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 先写入或恢复本次同步到的身份，确保 CPA 返回的 deleted row 会重新变为 active。
 		if err := upsertUsageIdentities(tx, normalized); err != nil {
 			return err
 		}
 
-		query := tx.Model(&models.UsageIdentity{}).Where("auth_type = ?", authType)
-		if len(incomingIdentities) > 0 {
-			query = query.Where("identity NOT IN ?", incomingIdentities)
-		}
-		if err := query.Updates(map[string]any{
-			"is_deleted": true,
-			"deleted_at": now,
-		}).Error; err != nil {
-			return fmt.Errorf("mark stale usage identities deleted: %w", err)
-		}
-
-		return nil
+		// 再按 auth_type 范围只对当前 active 身份做 stale 对比；未返回且已 deleted 的历史行不刷新 deleted_at。
+		return markStaleUsageIdentitiesDeleted(
+			tx,
+			tx.Model(&models.UsageIdentity{}).Where("auth_type = ? AND is_deleted = ?", authType, false),
+			incomingIdentities,
+			now,
+			"mark stale usage identities deleted",
+		)
 	})
 }
 
@@ -44,10 +42,12 @@ func ReplaceUsageIdentitiesForProviderTypes(ctx context.Context, db *gorm.DB, id
 		return fmt.Errorf("database is nil")
 	}
 
+	// Provider metadata 只允许刷新 AI provider 身份，输入类型和 identity 先统一规范化。
 	normalized, incomingIdentities := normalizeUsageIdentities(identities, models.UsageIdentityAuthTypeAIProvider)
 	types := normalizeProviderTypes(providerTypes)
 
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 先 upsert 本次成功拉到的 provider identity，CPA 返回的历史 deleted provider 会在这里恢复 active。
 		if err := upsertUsageIdentities(tx, normalized); err != nil {
 			return err
 		}
@@ -55,17 +55,16 @@ func ReplaceUsageIdentitiesForProviderTypes(ctx context.Context, db *gorm.DB, id
 			return nil
 		}
 
-		query := tx.Model(&models.UsageIdentity{}).
-			Where("auth_type = ?", models.UsageIdentityAuthTypeAIProvider).
-			Where("type IN ?", types)
-		if len(incomingIdentities) > 0 {
-			query = query.Where("identity NOT IN ?", incomingIdentities)
-		}
-		if err := query.Updates(map[string]any{
-			"is_deleted": true,
-			"deleted_at": now,
-		}).Error; err != nil {
-			return fmt.Errorf("mark stale provider usage identities deleted: %w", err)
+		// fetched provider type 也按批次切分，避免极端情况下 type IN 变量过多。
+		for start := 0; start < len(types); start += defaultRepositoryInsertBatchSize {
+			end := min(start+defaultRepositoryInsertBatchSize, len(types))
+			// 每批只处理本次成功 fetch 的 provider type；未返回且仍 active 的身份才会被标记 deleted。
+			query := tx.Model(&models.UsageIdentity{}).
+				Where("auth_type = ? AND is_deleted = ?", models.UsageIdentityAuthTypeAIProvider, false).
+				Where("type IN ?", types[start:end])
+			if err := markStaleUsageIdentitiesDeleted(tx, query, incomingIdentities, now, "mark stale provider usage identities deleted"); err != nil {
+				return err
+			}
 		}
 
 		return nil
@@ -77,9 +76,23 @@ func ListUsageIdentities(ctx context.Context, db *gorm.DB) ([]models.UsageIdenti
 		return nil, fmt.Errorf("database is nil")
 	}
 
+	// usage identities 页面需要展示 active/deleted 全量历史，因此这里不加 is_deleted 条件。
 	var identities []models.UsageIdentity
 	if err := db.WithContext(ctx).Order("auth_type asc, name asc, id asc").Find(&identities).Error; err != nil {
 		return nil, fmt.Errorf("list usage identities: %w", err)
+	}
+	return identities, nil
+}
+
+func ListActiveUsageIdentities(ctx context.Context, db *gorm.DB) ([]models.UsageIdentity, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database is nil")
+	}
+
+	// 解析和筛选场景只需要活跃身份，直接在 SQL 层过滤 deleted rows，避免无效数据进入内存 resolver。
+	var identities []models.UsageIdentity
+	if err := db.WithContext(ctx).Where("is_deleted = ?", false).Order("auth_type asc, name asc, id asc").Find(&identities).Error; err != nil {
+		return nil, fmt.Errorf("list active usage identities: %w", err)
 	}
 	return identities, nil
 }
@@ -89,6 +102,7 @@ func AggregateUsageIdentityStats(ctx context.Context, db *gorm.DB, now time.Time
 		return fmt.Errorf("database is nil")
 	}
 
+	// 聚合统计需要覆盖 active/deleted 全量身份，避免历史已删除身份停止累计对应 usage_events。
 	var identities []models.UsageIdentity
 	if err := db.WithContext(ctx).Find(&identities).Error; err != nil {
 		return fmt.Errorf("list usage identities for aggregation: %w", err)
@@ -257,11 +271,49 @@ func normalizeProviderTypes(providerTypes []string) []string {
 	return types
 }
 
+func markStaleUsageIdentitiesDeleted(tx *gorm.DB, query *gorm.DB, incomingIdentities []string, now time.Time, context string) error {
+	// 把本次同步到的 identity 放进内存集合，避免生成超大的 identity NOT IN SQL。
+	incoming := make(map[string]struct{}, len(incomingIdentities))
+	for _, identity := range incomingIdentities {
+		incoming[identity] = struct{}{}
+	}
+
+	// 只从数据库读取候选行的最小字段，后续在 Go 中判断哪些行已经 stale。
+	var candidates []struct {
+		ID       uint
+		Identity string
+	}
+	if err := query.Select("id, identity").Find(&candidates).Error; err != nil {
+		return fmt.Errorf("%s: %w", context, err)
+	}
+
+	// 候选行中没有出现在本次输入里的 ID，就是需要标记删除的 stale 数据。
+	staleIDs := make([]uint, 0)
+	for _, candidate := range candidates {
+		if _, ok := incoming[candidate.Identity]; ok {
+			continue
+		}
+		staleIDs = append(staleIDs, candidate.ID)
+	}
+
+	// stale ID 也按批次更新，避免 id IN 在数据量大时再次触发 SQLite 变量上限。
+	for start := 0; start < len(staleIDs); start += defaultRepositoryInsertBatchSize {
+		end := min(start+defaultRepositoryInsertBatchSize, len(staleIDs))
+		if err := tx.Model(&models.UsageIdentity{}).
+			Where("id IN ?", staleIDs[start:end]).
+			Updates(map[string]any{"is_deleted": true, "deleted_at": now}).Error; err != nil {
+			return fmt.Errorf("%s: %w", context, err)
+		}
+	}
+	return nil
+}
+
 func upsertUsageIdentities(tx *gorm.DB, identities []models.UsageIdentity) error {
 	if len(identities) == 0 {
 		return nil
 	}
 
+	// 使用相同的冲突更新语义，CPA 本次返回的身份需要恢复为 active，同时保留历史统计字段。
 	if err := tx.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "auth_type"}, {Name: "identity"}},
 		DoUpdates: clause.Assignments(map[string]any{
@@ -274,7 +326,7 @@ func upsertUsageIdentities(tx *gorm.DB, identities []models.UsageIdentity) error
 			"deleted_at":     nil,
 			"updated_at":     gorm.Expr("excluded.updated_at"),
 		}),
-	}).Create(&identities).Error; err != nil {
+	}).CreateInBatches(&identities, defaultRepositoryInsertBatchSize).Error; err != nil {
 		return fmt.Errorf("upsert usage identities: %w", err)
 	}
 	return nil

@@ -49,6 +49,40 @@ func TestInsertRedisUsageInboxMessagesPersistsPendingRows(t *testing.T) {
 	}
 }
 
+func TestInsertRedisUsageInboxMessagesBatchesLargeInsertSet(t *testing.T) {
+	db := openTestDatabase(t)
+	poppedAt := time.Date(2026, 5, 6, 13, 0, 0, 0, time.UTC)
+	inputs := make([]RedisInboxInsert, 0, 901)
+	for i := 0; i < 901; i++ {
+		inputs = append(inputs, RedisInboxInsert{
+			QueueKey:   "queue",
+			RawMessage: fmt.Sprintf(`{"request_id":"large-%04d"}`, i),
+			PoppedAt:   poppedAt.Add(time.Duration(i) * time.Second),
+		})
+	}
+
+	rows, err := InsertRedisUsageInboxMessages(db, inputs)
+	if err != nil {
+		t.Fatalf("InsertRedisUsageInboxMessages returned error: %v", err)
+	}
+	if len(rows) != len(inputs) {
+		t.Fatalf("expected %d returned rows, got %d", len(inputs), len(rows))
+	}
+	for i, row := range rows {
+		if row.ID == 0 {
+			t.Fatalf("expected row %d to have an ID", i)
+		}
+	}
+
+	var count int64
+	if err := db.Model(&models.RedisUsageInbox{}).Where("status = ?", RedisUsageInboxStatusPending).Count(&count).Error; err != nil {
+		t.Fatalf("count pending inbox rows: %v", err)
+	}
+	if count != int64(len(inputs)) {
+		t.Fatalf("expected %d pending inbox rows, got %d", len(inputs), count)
+	}
+}
+
 func TestInsertRedisUsageInboxMessagesAllowsEmptyInput(t *testing.T) {
 	db := openTestDatabase(t)
 
