@@ -341,6 +341,42 @@ describe('overview chart data flow', () => {
     expect(withEvents.dataByCategory.input.some((value) => value > 0)).toBe(true);
   });
 
+  it('keeps today overview hour charts aligned to full-day boundary buckets', () => {
+    const chartUsage = {
+      ...overviewUsage.usage,
+      requests_by_hour: {
+        '2026-04-23T00:00:00Z': 11,
+        '2026-04-24T00:00:00Z': 0,
+      },
+      tokens_by_hour: {
+        '2026-04-23T00:00:00Z': 1100,
+        '2026-04-24T00:00:00Z': 0,
+      },
+    };
+
+    const requests = buildChartData(chartUsage, 'hour', 'requests', ['all'], {
+      hourWindowHours: 24,
+      endMs: Date.parse('2026-04-24T00:00:00Z'),
+      includeFinalHourBucket: true,
+    });
+    const tokens = buildChartData(chartUsage, 'hour', 'tokens', ['all'], {
+      hourWindowHours: 24,
+      endMs: Date.parse('2026-04-24T00:00:00Z'),
+      includeFinalHourBucket: true,
+    });
+
+    expect(requests.labels).toHaveLength(25);
+    expect(requests.labels[0]).toBe('00:00');
+    expect(requests.labels[24]).toBe('24:00');
+    expect(requests.datasets[0]?.data[0]).toBe(11);
+    expect(requests.datasets[0]?.data[24]).toBe(0);
+    expect(tokens.labels).toHaveLength(25);
+    expect(tokens.labels[0]).toBe('00:00');
+    expect(tokens.labels[24]).toBe('24:00');
+    expect(tokens.datasets[0]?.data[0]).toBe(1100);
+    expect(tokens.datasets[0]?.data[24]).toBe(0);
+  });
+
   it('keeps short-range overview hour charts aligned to backend partial-hour buckets', () => {
     const chartUsage = {
       ...overviewUsage.usage,
@@ -400,6 +436,37 @@ describe('overview chart data flow', () => {
     expect(requests.labels).toHaveLength(5);
     expect(requests.datasets[0]?.data).toEqual([0, 0, 1, 0, 2]);
     expect(tokens.datasets[0]?.data).toEqual([0, 0, 100, 0, 200]);
+  });
+
+  it('keeps today token breakdown hour buckets aligned to full-day boundary buckets', () => {
+    const series = buildTokenBreakdownChartSeries({
+      usage: {
+        ...overviewUsage,
+        hourly_series: {
+          ...overviewUsage.hourly_series!,
+          input_tokens: {
+            '2026-04-23T00:00:00Z': 100,
+            '2026-04-24T00:00:00Z': 0,
+          },
+          output_tokens: {
+            '2026-04-23T00:00:00Z': 50,
+            '2026-04-24T00:00:00Z': 0,
+          },
+          cached_tokens: {},
+          reasoning_tokens: {},
+        },
+      },
+      period: 'hour',
+      hourWindowHours: 24,
+      endMs: Date.parse('2026-04-24T00:00:00Z'),
+      includeFinalHourBucket: true,
+    });
+
+    expect(series.labels).toHaveLength(25);
+    expect(series.dataByCategory.input[0]).toBe(100);
+    expect(series.dataByCategory.input[24]).toBe(0);
+    expect(series.dataByCategory.output[0]).toBe(50);
+    expect(series.dataByCategory.output[24]).toBe(0);
   });
 
   it('fills token breakdown hour buckets across the latest 24 hours when only one bucket has data', () => {
@@ -473,6 +540,29 @@ describe('overview chart data flow', () => {
       dataset: { label: 'All' },
       parsed: { y: 2_500_000_000 },
     } as never)).toBe('All: 2.50B tokens');
+  });
+
+  it('keeps today cost trend hour buckets aligned to full-day boundary buckets', () => {
+    const series = buildOverviewCostTrendSeries({
+      usage: {
+        ...overviewUsage,
+        hourly_series: {
+          ...overviewUsage.hourly_series!,
+          cost: {
+            '2026-04-23T00:00:00Z': 1.25,
+            '2026-04-24T00:00:00Z': 0,
+          },
+        },
+      },
+      period: 'hour',
+      hourWindowHours: 24,
+      endMs: Date.parse('2026-04-24T00:00:00Z'),
+      includeFinalHourBucket: true,
+    });
+
+    expect(series.labels).toHaveLength(25);
+    expect(series.data[0]).toBe(1.25);
+    expect(series.data[24]).toBe(0);
   });
 
   it('formats token breakdown axis and tooltip values with K/M/B units', () => {

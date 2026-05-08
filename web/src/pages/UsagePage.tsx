@@ -391,10 +391,10 @@ const toTimestampMs = (value: string | undefined): number | undefined => {
 };
 
 export const getOverviewChartEndMs = ({ timeRange, filterWindow, fallbackEndMs, resolvedRangeEndMs }: { timeRange: UsageTimeRange; filterWindow: UsageFilterWindow; fallbackEndMs: number; resolvedRangeEndMs?: number }) => {
-  if (resolvedRangeEndMs !== undefined) return resolvedRangeEndMs;
   if (timeRange === 'today' && filterWindow.startMs !== undefined) {
-    return filterWindow.startMs + 24 * 60 * 60 * 1000 - 1;
+    return filterWindow.startMs + 24 * 60 * 60 * 1000;
   }
+  if (resolvedRangeEndMs !== undefined) return resolvedRangeEndMs;
   return filterWindow.endMs ?? fallbackEndMs;
 };
 
@@ -598,6 +598,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     fallbackEndMs: lastRefreshedAt?.getTime() ?? Date.now(),
     resolvedRangeEndMs,
   });
+  const includeFinalHourBucket = timeRange === 'today';
   const preferredOverviewChartPeriod = getPreferredOverviewChartPeriod({
     windowMinutes: filterWindow.windowMinutes,
   });
@@ -1060,6 +1061,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     isMobile,
     hourWindowHours,
     endMs: filterWindowEndMs,
+    includeFinalHourBucket,
     preferredPeriod: preferredOverviewChartPeriod,
   });
 
@@ -1404,6 +1406,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   isMobile={isMobile}
                   hourWindowHours={hourWindowHours}
                   endMs={filterWindowEndMs}
+                  includeFinalHourBucket={includeFinalHourBucket}
                   preferredPeriod={preferredOverviewChartPeriod}
                 />
 
@@ -1414,6 +1417,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   isMobile={isMobile}
                   hourWindowHours={hourWindowHours}
                   endMs={filterWindowEndMs}
+                  includeFinalHourBucket={includeFinalHourBucket}
                   preferredPeriod={preferredOverviewChartPeriod}
                 />
               </>

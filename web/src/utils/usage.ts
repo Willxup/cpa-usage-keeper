@@ -173,16 +173,19 @@ const normalizeHourWindow = (hourWindowHours?: number): number => {
 const resolveHourlyChartWindowHours = (hourWindowHours?: number): number =>
   normalizeHourWindow(hourWindowHours);
 
-const buildHourlyWindow = (hourWindowHours?: number, endMs?: number) => {
+const buildHourlyWindow = (hourWindowHours?: number, endMs?: number, includeFinalBucket = false) => {
   const resolvedHourWindow = resolveHourlyChartWindowHours(hourWindowHours);
-  const bucketCount = resolvedHourWindow >= 24 ? 24 : resolvedHourWindow + 1;
+  const bucketCount = includeFinalBucket ? resolvedHourWindow + 1 : resolvedHourWindow >= 24 ? 24 : resolvedHourWindow + 1;
   const hourMs = 60 * 60 * 1000;
   const currentHour = new Date(Number.isFinite(endMs) && endMs && endMs > 0 ? endMs : Date.now());
   currentHour.setUTCMinutes(0, 0, 0);
   const earliestTime = currentHour.getTime() - ((bucketCount - 1) * hourMs);
-  const labels = Array.from({ length: bucketCount }, (_, index) =>
-    formatHourLabel(formatHourBucketKey(earliestTime + index * hourMs))
-  );
+  const labels = Array.from({ length: bucketCount }, (_, index) => {
+    if (includeFinalBucket) {
+      return `${String(index).padStart(2, '0')}:00`;
+    }
+    return formatHourLabel(formatHourBucketKey(earliestTime + index * hourMs));
+  });
   return {
     hourMs,
     earliestTime,
@@ -531,7 +534,7 @@ export function buildChartData(
   period: 'hour' | 'day',
   metric: 'requests' | 'tokens',
   chartLines: string[],
-  options: { hourWindowHours?: number; endMs?: number } = {}
+  options: { hourWindowHours?: number; endMs?: number; includeFinalHourBucket?: boolean } = {}
 ): ChartData {
   const details = collectUsageDetails(usage);
   if (!details.length) {
@@ -543,13 +546,18 @@ export function buildChartData(
     if (!rawBucketKeys.length) {
       return { labels: [], datasets: [] };
     }
-    const bucketKeys = period === 'hour'
+    const hourWindow = period === 'hour'
       ? (() => {
         const endMs = options.endMs ?? Date.parse(rawBucketKeys[rawBucketKeys.length - 1]);
-        const { earliestTime, hourMs, labels } = buildHourlyWindow(options.hourWindowHours, endMs);
-        return labels.map((_, index) => formatHourBucketKey(earliestTime + index * hourMs));
+        const { earliestTime, hourMs, labels } = buildHourlyWindow(options.hourWindowHours, endMs, options.includeFinalHourBucket);
+        return {
+          bucketKeys: labels.map((_, index) => formatHourBucketKey(earliestTime + index * hourMs)),
+          labels,
+        };
       })()
-      : rawBucketKeys;
+      : null;
+    const bucketKeys = period === 'hour' ? hourWindow!.bucketKeys : rawBucketKeys;
+    const displayLabels = period === 'hour' ? hourWindow!.labels : rawBucketKeys;
     const datasets: ChartDataset[] = [];
     if (lines.includes('all')) {
       datasets.push({
@@ -583,7 +591,7 @@ export function buildChartData(
       });
     });
     return {
-      labels: bucketKeys.map((key) => (period === 'hour' ? formatHourLabel(key) : formatDayLabel(key))),
+      labels: displayLabels.map((key) => (period === 'hour' ? key : formatDayLabel(key))),
       datasets
     };
   }
@@ -594,7 +602,7 @@ export function buildChartData(
 
   if (period === 'hour') {
     const hourEndMs = resolveHourlyChartEndMs(details, options.hourWindowHours, options.endMs);
-    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(options.hourWindowHours, hourEndMs);
+    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(options.hourWindowHours, hourEndMs, options.includeFinalHourBucket);
     const bucketKeys = labels.map((_, index) => formatHourBucketKey(earliestTime + index * hourMs));
     bucketKeys.forEach((key) => orderedKeys.add(key));
 
@@ -671,15 +679,15 @@ export function buildChartData(
   };
 }
 
-export function buildHourlyTokenBreakdown(usage: UsagePayload | null, hourWindowHours = 24, endMs?: number) {
-  return buildTokenBreakdownSeries(usage, 'hour', hourWindowHours, endMs);
+export function buildHourlyTokenBreakdown(usage: UsagePayload | null, hourWindowHours = 24, endMs?: number, includeFinalBucket = false) {
+  return buildTokenBreakdownSeries(usage, 'hour', hourWindowHours, endMs, includeFinalBucket);
 }
 
 export function buildDailyTokenBreakdown(usage: UsagePayload | null) {
   return buildTokenBreakdownSeries(usage, 'day');
 }
 
-function buildTokenBreakdownSeries(usage: UsagePayload | null, period: 'hour' | 'day', hourWindowHours?: number, endMs?: number) {
+function buildTokenBreakdownSeries(usage: UsagePayload | null, period: 'hour' | 'day', hourWindowHours?: number, endMs?: number, includeFinalBucket = false) {
   const details = collectUsageDetails(usage);
   if (!details.length) {
     return { labels: [], dataByCategory: { input: [], output: [], cached: [], reasoning: [] } as Record<TokenCategory, number[]> };
@@ -687,7 +695,7 @@ function buildTokenBreakdownSeries(usage: UsagePayload | null, period: 'hour' | 
 
   if (period === 'hour') {
     const hourEndMs = resolveHourlyChartEndMs(details, hourWindowHours, endMs);
-    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(hourWindowHours, hourEndMs);
+    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(hourWindowHours, hourEndMs, includeFinalBucket);
     const dataByCategory = {
       input: new Array(labels.length).fill(0),
       output: new Array(labels.length).fill(0),
@@ -725,21 +733,21 @@ function buildTokenBreakdownSeries(usage: UsagePayload | null, period: 'hour' | 
   return { labels: keys.map((key) => formatDayLabel(key)), dataByCategory };
 }
 
-export function buildHourlyCostSeries(usage: UsagePayload | null, modelPrices: Record<string, ModelPrice>, hourWindowHours = 24, endMs?: number) {
-  return buildCostSeries(usage, modelPrices, 'hour', hourWindowHours, endMs);
+export function buildHourlyCostSeries(usage: UsagePayload | null, modelPrices: Record<string, ModelPrice>, hourWindowHours = 24, endMs?: number, includeFinalBucket = false) {
+  return buildCostSeries(usage, modelPrices, 'hour', hourWindowHours, endMs, includeFinalBucket);
 }
 
 export function buildDailyCostSeries(usage: UsagePayload | null, modelPrices: Record<string, ModelPrice>) {
   return buildCostSeries(usage, modelPrices, 'day');
 }
 
-function buildCostSeries(usage: UsagePayload | null, modelPrices: Record<string, ModelPrice>, period: 'hour' | 'day', hourWindowHours?: number, endMs?: number) {
+function buildCostSeries(usage: UsagePayload | null, modelPrices: Record<string, ModelPrice>, period: 'hour' | 'day', hourWindowHours?: number, endMs?: number, includeFinalBucket = false) {
   const details = collectUsageDetails(usage);
   if (!details.length) return { labels: [], data: [], hasData: false };
 
   if (period === 'hour') {
     const hourEndMs = resolveHourlyChartEndMs(details, hourWindowHours, endMs);
-    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(hourWindowHours, hourEndMs);
+    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(hourWindowHours, hourEndMs, includeFinalBucket);
     const data = new Array(labels.length).fill(0);
     let hasData = false;
 

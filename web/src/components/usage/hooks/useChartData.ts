@@ -29,6 +29,7 @@ export interface UseChartDataOptions {
   isMobile: boolean;
   hourWindowHours?: number;
   endMs?: number;
+  includeFinalHourBucket?: boolean;
   preferredPeriod?: 'hour' | 'day';
 }
 
@@ -50,6 +51,7 @@ export function useChartData({
   isMobile,
   hourWindowHours,
   endMs,
+  includeFinalHourBucket = false,
   preferredPeriod = 'hour'
 }: UseChartDataOptions): UseChartDataReturn {
   const [requestsPeriod, setRequestsPeriod] = useState<'hour' | 'day'>(preferredPeriod);
@@ -63,14 +65,14 @@ export function useChartData({
   const requestsChartData = useMemo(() => {
     if (!usage) return { labels: [], datasets: [] };
     const source = requestsPeriod === 'hour' ? (usage.hourly_series ?? usage.series) : (usage.daily_series ?? usage.series);
-    return buildChartData(buildChartUsageFromOverview(usage, source), requestsPeriod, 'requests', chartLines, { hourWindowHours, endMs });
-  }, [usage, requestsPeriod, chartLines, hourWindowHours, endMs]);
+    return buildChartData(buildChartUsageFromOverview(usage, source), requestsPeriod, 'requests', chartLines, { hourWindowHours, endMs, includeFinalHourBucket });
+  }, [usage, requestsPeriod, chartLines, hourWindowHours, endMs, includeFinalHourBucket]);
 
   const tokensChartData = useMemo(() => {
     if (!usage) return { labels: [], datasets: [] };
     const source = tokensPeriod === 'hour' ? (usage.hourly_series ?? usage.series) : (usage.daily_series ?? usage.series);
-    return buildChartData(buildChartUsageFromOverview(usage, source), tokensPeriod, 'tokens', chartLines, { hourWindowHours, endMs });
-  }, [usage, tokensPeriod, chartLines, hourWindowHours, endMs]);
+    return buildChartData(buildChartUsageFromOverview(usage, source), tokensPeriod, 'tokens', chartLines, { hourWindowHours, endMs, includeFinalHourBucket });
+  }, [usage, tokensPeriod, chartLines, hourWindowHours, endMs, includeFinalHourBucket]);
 
   const requestsChartOptions = useMemo(
     () =>

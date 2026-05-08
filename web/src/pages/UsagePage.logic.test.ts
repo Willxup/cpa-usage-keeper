@@ -331,7 +331,7 @@ describe('UsagePage Overview chart window', () => {
       filterWindow,
       fallbackEndMs: filterWindow.endMs ?? 0,
       resolvedRangeEndMs: Date.parse('2026-04-23T15:59:59.999Z'),
-    })).toBe(Date.parse('2026-04-23T15:59:59.999Z'));
+    })).toBe(Date.parse('2026-04-24T00:00:00.000Z'));
   });
 });
 

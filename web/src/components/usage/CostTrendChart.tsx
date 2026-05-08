@@ -16,6 +16,7 @@ export interface CostTrendChartProps {
   isMobile: boolean;
   hourWindowHours?: number;
   endMs?: number;
+  includeFinalHourBucket?: boolean;
   preferredPeriod?: 'hour' | 'day';
 }
 
@@ -26,7 +27,8 @@ interface OverviewCostTrendSeries {
   costAvailable: boolean;
 }
 
-const formatHourLabel = (key: string): string => {
+const formatHourLabel = (key: string, isFinalBucket = false): string => {
+  if (isFinalBucket) return '24:00';
   const date = new Date(key);
   if (Number.isNaN(date.getTime())) return key;
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
@@ -39,12 +41,12 @@ const startOfDayKey = (key: string): string => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 };
 
-const resolveHourBucketCount = (hourWindowHours?: number): number => {
+const resolveHourBucketCount = (hourWindowHours?: number, includeFinalBucket = false): number => {
   if (!Number.isFinite(hourWindowHours) || !hourWindowHours || hourWindowHours <= 0) {
-    return 24;
+    return includeFinalBucket ? 25 : 24;
   }
   const resolvedHours = Math.min(Math.max(Math.floor(hourWindowHours), 1), 24);
-  return resolvedHours >= 24 ? 24 : resolvedHours + 1;
+  return includeFinalBucket ? resolvedHours + 1 : resolvedHours >= 24 ? 24 : resolvedHours + 1;
 };
 
 const toUtcHourMs = (value: string | number): number => {
@@ -59,11 +61,13 @@ export function buildOverviewCostTrendSeries({
   period,
   hourWindowHours,
   endMs,
+  includeFinalHourBucket = false,
 }: {
   usage: UsageOverviewPayload | null;
   period: 'hour' | 'day';
   hourWindowHours?: number;
   endMs?: number;
+  includeFinalHourBucket?: boolean;
 }): OverviewCostTrendSeries {
   if (!usage) {
     return { labels: [], data: [], hasData: false, costAvailable: false };
@@ -82,7 +86,7 @@ export function buildOverviewCostTrendSeries({
     .sort(([left], [right]) => left.localeCompare(right));
 
   if (period === 'hour') {
-    const bucketCount = resolveHourBucketCount(hourWindowHours);
+    const bucketCount = resolveHourBucketCount(hourWindowHours, includeFinalHourBucket);
     const anchorMs = Number.isFinite(endMs) && endMs ? endMs : (hourlyEntries.length ? Date.parse(hourlyEntries[hourlyEntries.length - 1][0]) : Date.now());
     const currentHour = new Date(anchorMs);
     currentHour.setUTCMinutes(0, 0, 0);
@@ -90,7 +94,7 @@ export function buildOverviewCostTrendSeries({
     const earliestMs = currentHour.getTime() - ((bucketCount - 1) * hourMs);
     const labels = Array.from({ length: bucketCount }, (_, index) => {
       const bucketMs = earliestMs + (index * hourMs);
-      return formatHourLabel(new Date(bucketMs).toISOString());
+      return formatHourLabel(new Date(bucketMs).toISOString(), includeFinalHourBucket && index === bucketCount - 1);
     });
     const valueByHour = new Map(hourlyEntries.map(([label, value]) => [toUtcHourMs(label), Number(value ?? 0)]));
     const data = Array.from({ length: bucketCount }, (_, index) => {
@@ -153,6 +157,7 @@ export function CostTrendChart({
   isMobile,
   hourWindowHours,
   endMs,
+  includeFinalHourBucket = false,
   preferredPeriod = 'hour'
 }: CostTrendChartProps) {
   const { t } = useTranslation();
@@ -163,7 +168,7 @@ export function CostTrendChart({
   }, [preferredPeriod]);
 
   const { chartData, chartOptions, hasData, costAvailable } = useMemo(() => {
-    const series = buildOverviewCostTrendSeries({ usage, period, hourWindowHours, endMs });
+    const series = buildOverviewCostTrendSeries({ usage, period, hourWindowHours, endMs, includeFinalHourBucket });
 
     const data = {
       labels: series.labels,
@@ -197,7 +202,7 @@ export function CostTrendChart({
     };
 
     return { chartData: data, chartOptions: options, hasData: series.hasData, costAvailable: series.costAvailable };
-  }, [usage, period, isDark, isMobile, hourWindowHours, endMs, t]);
+  }, [usage, period, isDark, isMobile, hourWindowHours, endMs, includeFinalHourBucket, t]);
 
   const shouldRenderChart = chartData.labels.length > 0 && hasData;
   const showPricingHint = shouldShowCostPricingHint({ costAvailable, hasData });
