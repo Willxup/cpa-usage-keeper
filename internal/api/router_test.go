@@ -364,6 +364,38 @@ func TestRootStaticRouteInjectsEmptyBasePath(t *testing.T) {
 	}
 }
 
+func TestStaticHTMLResponsesBypassCache(t *testing.T) {
+	staticFS := testStaticFS(t, map[string]string{
+		"index.html": `<html><head><script>window.__APP_BASE_PATH__ = "__APP_BASE_PATH__";</script></head><body>app</body></html>`,
+		"assets/app.js": "console.log('ok')",
+	})
+
+	router := NewRouter(staticFS, nil, nil, nil, AuthConfig{}, nil, "/cpa")
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/cpa/dashboard", nil)
+	router.ServeHTTP(resp, req)
+
+	if got := resp.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("expected HTML Cache-Control no-store, got %q", got)
+	}
+}
+
+func TestStaticAssetResponsesUseLongCache(t *testing.T) {
+	staticFS := testStaticFS(t, map[string]string{
+		"index.html": `<html><head><script>window.__APP_BASE_PATH__ = "__APP_BASE_PATH__";</script></head><body>app</body></html>`,
+		"assets/app.js": "console.log('ok')",
+	})
+
+	router := NewRouter(staticFS, nil, nil, nil, AuthConfig{}, nil, "/cpa")
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/cpa/assets/app.js", nil)
+	router.ServeHTTP(resp, req)
+
+	if got := resp.Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
+		t.Fatalf("expected asset Cache-Control immutable cache, got %q", got)
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(sub) == 0 || (len(s) >= len(sub) && (func() bool { return stringContains(s, sub) })())
 }

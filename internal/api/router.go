@@ -106,12 +106,23 @@ func NewRouter(
 					c.Status(http.StatusNotFound)
 					return
 				}
+				setHTMLCacheHeaders(c)
 				c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
+			}
+			serveAsset := func(c *gin.Context) {
+				assetPath := "assets/" + strings.TrimPrefix(c.Param("filepath"), "/")
+				if assetFile, err := staticFS.Open(assetPath); err == nil {
+					_ = assetFile.Close()
+					setStaticAssetCacheHeaders(c)
+					c.FileFromFS(assetPath, httpFS)
+					return
+				}
+				c.Status(http.StatusNotFound)
 			}
 
 			appGroup.GET("/", serveIndex)
-			assetsFS, _ := fs.Sub(staticFS, "assets")
-			appGroup.StaticFS("/assets", http.FS(assetsFS))
+			appGroup.GET("/assets/*filepath", serveAsset)
+			appGroup.HEAD("/assets/*filepath", serveAsset)
 			router.NoRoute(func(c *gin.Context) {
 				requestPath, ok := stripBasePath(basePath, c.Request.URL.Path)
 				if !ok {
@@ -126,6 +137,7 @@ func NewRouter(
 				if assetPath, ok := staticAssetPath(requestPath); ok {
 					if assetFile, err := staticFS.Open(assetPath); err == nil {
 						_ = assetFile.Close()
+						setStaticAssetCacheHeaders(c)
 						c.FileFromFS(assetPath, httpFS)
 						return
 					}
@@ -137,6 +149,16 @@ func NewRouter(
 	}
 
 	return router
+}
+
+func setHTMLCacheHeaders(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
+}
+
+func setStaticAssetCacheHeaders(c *gin.Context) {
+	c.Header("Cache-Control", "public, max-age=31536000, immutable")
 }
 
 func renderIndexHTML(staticFS fs.FS, basePath string) ([]byte, error) {
