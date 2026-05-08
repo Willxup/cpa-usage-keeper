@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/poller"
+	"cpa-usage-keeper/internal/version"
 	"github.com/gin-gonic/gin"
 )
 
@@ -142,6 +143,44 @@ func TestStatusReturnsEmptyStateWithoutProvider(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
 	if body := resp.Body.String(); !contains(body, `"running":false`) || !contains(body, `"sync_running":false`) || !contains(body, `"timezone":`) {
+		t.Fatalf("unexpected response body: %s", body)
+	}
+}
+
+func TestStatusReturnsVersionAndUpdateCheckFlag(t *testing.T) {
+	previousVersion := version.Version
+	t.Cleanup(func() { version.Version = previousVersion })
+	version.Version = "v1.2.3"
+
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	body := resp.Body.String()
+	if !contains(body, `"version":"v1.2.3"`) || !contains(body, `"updateCheckEnabled":true`) {
+		t.Fatalf("unexpected response body: %s", body)
+	}
+}
+
+func TestStatusHidesUpdateCheckForDevVersion(t *testing.T) {
+	previousVersion := version.Version
+	t.Cleanup(func() { version.Version = previousVersion })
+	version.Version = "dev"
+
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	body := resp.Body.String()
+	if !contains(body, `"version":"dev"`) || !contains(body, `"updateCheckEnabled":false`) {
 		t.Fatalf("unexpected response body: %s", body)
 	}
 }

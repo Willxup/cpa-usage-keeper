@@ -16,6 +16,8 @@ import (
 
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/service"
+	"cpa-usage-keeper/internal/updatecheck"
+	"cpa-usage-keeper/internal/version"
 	"github.com/gin-gonic/gin"
 )
 
@@ -86,6 +88,7 @@ func NewRouter(
 	protected := apiV1.Group("")
 	protected.Use(authHandler.middleware())
 	registerStatusRoutes(protected, statusProvider)
+	registerUpdateRoutes(protected, nil)
 	registerSyncRoutes(protected, statusProvider, &syncLimiter{window: manualSyncRateLimitWindow})
 	registerUsageOverviewRoute(protected, usageProvider)
 	registerUsageAnalysisRoute(protected, usageProvider)
@@ -196,19 +199,21 @@ func stripBasePath(basePath, requestPath string) (string, bool) {
 }
 
 type statusResponse struct {
-	Running     bool       `json:"running"`
-	SyncRunning bool       `json:"sync_running"`
-	Timezone    string     `json:"timezone"`
-	LastRunAt   *time.Time `json:"last_run_at,omitempty"`
-	LastError   string     `json:"last_error,omitempty"`
-	LastWarning string     `json:"last_warning,omitempty"`
-	LastStatus  string     `json:"last_status,omitempty"`
+	Running            bool       `json:"running"`
+	SyncRunning        bool       `json:"sync_running"`
+	Timezone           string     `json:"timezone"`
+	Version            string     `json:"version"`
+	UpdateCheckEnabled bool       `json:"updateCheckEnabled"`
+	LastRunAt          *time.Time `json:"last_run_at,omitempty"`
+	LastError          string     `json:"last_error,omitempty"`
+	LastWarning        string     `json:"last_warning,omitempty"`
+	LastStatus         string     `json:"last_status,omitempty"`
 }
 
 func registerStatusRoutes(router gin.IRoutes, statusProvider StatusProvider) {
 	router.GET("/status", func(c *gin.Context) {
 		if statusProvider == nil {
-			c.JSON(http.StatusOK, statusResponse{Timezone: time.Local.String()})
+			c.JSON(http.StatusOK, buildStatusResponse(poller.Status{}))
 			return
 		}
 
@@ -257,12 +262,14 @@ func registerSyncRoutes(router gin.IRoutes, statusProvider StatusProvider, limit
 
 func buildStatusResponse(status poller.Status) statusResponse {
 	response := statusResponse{
-		Running:     status.Running,
-		SyncRunning: status.SyncRunning,
-		Timezone:    time.Local.String(),
-		LastError:   status.LastError,
-		LastWarning: status.LastWarning,
-		LastStatus:  status.LastStatus,
+		Running:            status.Running,
+		SyncRunning:        status.SyncRunning,
+		Timezone:           time.Local.String(),
+		Version:            version.Version,
+		UpdateCheckEnabled: updatecheck.IsStableVersion(version.Version),
+		LastError:          status.LastError,
+		LastWarning:        status.LastWarning,
+		LastStatus:         status.LastStatus,
 	}
 	if !status.LastRunAt.IsZero() {
 		lastRunAt := status.LastRunAt.UTC()
