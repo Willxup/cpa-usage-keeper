@@ -141,4 +141,17 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).not.toContain('Export CSV');
     expect(html).not.toContain('Export JSON');
   });
+
+  it('renders cache hit rate after cached tokens', () => {
+    const html = renderCard();
+
+    const cachedHeaderIndex = html.indexOf('<th>Cached</th>');
+    const cacheHitRateHeaderIndex = html.indexOf('<th>Cache Hit Rate</th>');
+    const totalHeaderIndex = html.indexOf('<th>Total Tokens</th>');
+
+    expect(cachedHeaderIndex).toBeGreaterThan(-1);
+    expect(cacheHitRateHeaderIndex).toBeGreaterThan(cachedHeaderIndex);
+    expect(totalHeaderIndex).toBeGreaterThan(cacheHitRateHeaderIndex);
+    expect(html).toContain('<td>20</td><td>20%</td><td>200</td>');
+  });
 });

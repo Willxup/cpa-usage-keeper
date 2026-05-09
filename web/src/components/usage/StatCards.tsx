@@ -2,6 +2,7 @@ import { useMemo, type CSSProperties, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Line } from 'react-chartjs-2';
 import {
+  IconCheck,
   IconDiamond,
   IconDollarSign,
   IconSatellite,
@@ -9,8 +10,10 @@ import {
   IconTrendingUp,
 } from '@/components/ui/icons';
 import {
+  calculateCacheHitRatePercent,
   formatCompactNumber,
   formatPerMinuteValue,
+  formatPercentValue,
   formatUsd,
 } from '@/utils/usage';
 import { sparklineOptions } from '@/utils/usage/chartConfig';
@@ -38,6 +41,7 @@ export interface StatCardsProps {
     tokens: SparklineBundle | null;
     rpm: SparklineBundle | null;
     tpm: SparklineBundle | null;
+    cacheHitRate: SparklineBundle | null;
     cost: SparklineBundle | null;
   };
 }
@@ -45,23 +49,33 @@ export interface StatCardsProps {
 interface StatCardMetrics {
   tokenBreakdown: { cachedTokens: number; reasoningTokens: number };
   rateStats: { rpm: number; tpm: number; windowMinutes: number; requestCount: number; tokenCount: number };
+  inputTokens: number;
+  cacheHitRate: number;
   totalCost: number;
   costAvailable: boolean;
 }
+
+const sumNumberRecord = (record: Record<string, number> | undefined): number =>
+  Object.values(record ?? {}).reduce((sum, value) => sum + Math.max(Number(value) || 0, 0), 0);
 
 export function buildStatCardMetrics({ usage }: { usage: UsageOverviewPayload | null }): StatCardMetrics {
   if (!usage?.summary) {
     return {
       tokenBreakdown: { cachedTokens: 0, reasoningTokens: 0 },
       rateStats: { rpm: 0, tpm: 0, windowMinutes: 1, requestCount: 0, tokenCount: 0 },
+      inputTokens: 0,
+      cacheHitRate: 0,
       totalCost: 0,
       costAvailable: false,
     };
   }
 
+  const cachedTokens = Math.max(Number(usage.summary.cached_tokens) || 0, 0);
+  const inputTokens = sumNumberRecord(usage.series?.input_tokens);
+
   return {
     tokenBreakdown: {
-      cachedTokens: usage.summary.cached_tokens ?? 0,
+      cachedTokens,
       reasoningTokens: usage.summary.reasoning_tokens ?? 0,
     },
     rateStats: {
@@ -71,6 +85,8 @@ export function buildStatCardMetrics({ usage }: { usage: UsageOverviewPayload | 
       requestCount: usage.summary.request_count ?? 0,
       tokenCount: usage.summary.token_count ?? 0,
     },
+    inputTokens,
+    cacheHitRate: calculateCacheHitRatePercent({ cachedTokens, inputTokens }),
     totalCost: usage.summary.total_cost ?? 0,
     costAvailable: usage.summary.cost_available === true,
   };
@@ -79,7 +95,7 @@ export function buildStatCardMetrics({ usage }: { usage: UsageOverviewPayload | 
 export function StatCards({ usage, loading, sparklines }: StatCardsProps) {
   const { t } = useTranslation();
   const usageSnapshot = usage?.usage ?? null;
-  const { tokenBreakdown, rateStats, totalCost, costAvailable } = useMemo(
+  const { tokenBreakdown, rateStats, inputTokens, cacheHitRate, totalCost, costAvailable } = useMemo(
     () => buildStatCardMetrics({ usage }),
     [usage]
   );
@@ -160,6 +176,28 @@ export function StatCards({ usage, loading, sparklines }: StatCardsProps) {
         </span>
       ),
       trend: sparklines.tpm,
+    },
+    {
+      key: 'cache-hit-rate',
+      label: t('usage_stats.cache_hit_rate'),
+      icon: <IconCheck size={16} />,
+      accent: '#14b8a6',
+      accentSoft: 'rgba(20, 184, 166, 0.18)',
+      accentBorder: 'rgba(20, 184, 166, 0.32)',
+      value: loading ? '-' : formatPercentValue(cacheHitRate),
+      meta: (
+        <>
+          <span className={styles.statMetaItem}>
+            {t('usage_stats.cached_tokens')}:{' '}
+            {loading ? '-' : formatCompactNumber(tokenBreakdown.cachedTokens)}
+          </span>
+          <span className={styles.statMetaItem}>
+            {t('usage_stats.input_tokens')}:{' '}
+            {loading ? '-' : formatCompactNumber(inputTokens)}
+          </span>
+        </>
+      ),
+      trend: sparklines.cacheHitRate,
     },
     {
       key: 'cost',

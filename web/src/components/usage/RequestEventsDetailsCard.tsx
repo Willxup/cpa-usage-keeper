@@ -5,7 +5,13 @@ import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Select } from '@/components/ui/Select';
 import type { UsageEvent, UsageSourceFilterOption } from '@/lib/types';
-import { formatDurationMs, LATENCY_SOURCE_FIELD, normalizeAuthIndex } from '@/utils/usage';
+import {
+  calculateCacheHitRatePercent,
+  formatDurationMs,
+  formatPercentValue,
+  LATENCY_SOURCE_FIELD,
+  normalizeAuthIndex
+} from '@/utils/usage';
 import { downloadBlob } from '@/utils/download';
 import styles from '@/pages/UsagePage.module.scss';
 
@@ -41,6 +47,7 @@ type RequestEventRow = {
   outputTokens: number;
   reasoningTokens: number;
   cachedTokens: number;
+  cacheHitRate: number;
   totalTokens: number;
 };
 
@@ -130,6 +137,7 @@ export function RequestEventsDetailsCard({
       const outputTokens = Math.max(toNumber(event.tokens?.output_tokens), 0);
       const reasoningTokens = Math.max(toNumber(event.tokens?.reasoning_tokens), 0);
       const cachedTokens = Math.max(toNumber(event.tokens?.cached_tokens), 0);
+      const cacheHitRate = calculateCacheHitRatePercent({ cachedTokens, inputTokens });
       const totalTokens = Math.max(toNumber(event.tokens?.total_tokens), 0);
       const latencyMs = Number.isFinite(event.latency_ms) ? event.latency_ms : null;
 
@@ -150,6 +158,7 @@ export function RequestEventsDetailsCard({
         outputTokens,
         reasoningTokens,
         cachedTokens,
+        cacheHitRate,
         totalTokens,
       };
     });
@@ -238,6 +247,7 @@ export function RequestEventsDetailsCard({
       'output_tokens',
       'reasoning_tokens',
       'cached_tokens',
+      'cache_hit_rate',
       'total_tokens',
     ];
 
@@ -254,6 +264,7 @@ export function RequestEventsDetailsCard({
         row.outputTokens,
         row.reasoningTokens,
         row.cachedTokens,
+        row.cacheHitRate,
         row.totalTokens,
       ]
         .map((value) => encodeCsv(value))
@@ -284,6 +295,7 @@ export function RequestEventsDetailsCard({
         output_tokens: row.outputTokens,
         reasoning_tokens: row.reasoningTokens,
         cached_tokens: row.cachedTokens,
+        cache_hit_rate: row.cacheHitRate,
         total_tokens: row.totalTokens,
       },
     }));
@@ -431,6 +443,7 @@ export function RequestEventsDetailsCard({
                   <th>{t('usage_stats.output_tokens')}</th>
                   <th>{t('usage_stats.reasoning_tokens')}</th>
                   <th>{t('usage_stats.cached_tokens')}</th>
+                  <th>{t('usage_stats.cache_hit_rate')}</th>
                   <th>{t('usage_stats.total_tokens')}</th>
                 </tr>
               </thead>
@@ -474,6 +487,7 @@ export function RequestEventsDetailsCard({
                     <td>{row.outputTokens.toLocaleString()}</td>
                     <td>{row.reasoningTokens.toLocaleString()}</td>
                     <td>{row.cachedTokens.toLocaleString()}</td>
+                    <td>{formatPercentValue(row.cacheHitRate)}</td>
                     <td>{row.totalTokens.toLocaleString()}</td>
                   </tr>
                 ))}

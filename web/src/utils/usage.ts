@@ -269,6 +269,24 @@ export function formatPerMinuteValue(value: number): string {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: value >= 100 ? 0 : value >= 10 ? 1 : 2 }).format(value);
 }
 
+export function calculateCacheHitRatePercent({
+  cachedTokens,
+  inputTokens
+}: {
+  cachedTokens: number;
+  inputTokens: number;
+}): number {
+  const safeInputTokens = Math.max(toNumber(inputTokens), 0);
+  if (safeInputTokens <= 0) return 0;
+  const safeCachedTokens = Math.max(toNumber(cachedTokens), 0);
+  return (safeCachedTokens / safeInputTokens) * 100;
+}
+
+export function formatPercentValue(value: number): string {
+  const safeValue = Number.isFinite(value) ? value : 0;
+  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(safeValue)}%`;
+}
+
 export function formatUsd(value: number): string {
   return new Intl.NumberFormat(undefined, {
     style: 'currency',

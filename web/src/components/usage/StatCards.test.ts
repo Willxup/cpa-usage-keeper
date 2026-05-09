@@ -51,8 +51,22 @@ const usageWithBackendSummary: UsagePayload = {
     tpm: 6.475,
     total_cost: 1.234,
     cost_available: true,
-    cached_tokens: 22,
+    cached_tokens: 25,
     reasoning_tokens: 33,
+  },
+  series: {
+    requests: {},
+    tokens: {},
+    rpm: {},
+    tpm: {},
+    cost: {},
+    input_tokens: {
+      '2026-04-23T00:00:00Z': 40,
+      '2026-04-23T01:00:00Z': 60,
+    },
+    output_tokens: {},
+    cached_tokens: {},
+    reasoning_tokens: {},
   },
 };
 
@@ -67,9 +81,32 @@ describe('buildStatCardMetrics', () => {
     expect(metrics.rateStats.windowMinutes).toBe(120);
     expect(metrics.rateStats.rpm).toBe(0.025);
     expect(metrics.rateStats.tpm).toBe(6.475);
-    expect(metrics.tokenBreakdown.cachedTokens).toBe(22);
+    expect(metrics.tokenBreakdown.cachedTokens).toBe(25);
     expect(metrics.tokenBreakdown.reasoningTokens).toBe(33);
+    expect(metrics.inputTokens).toBe(100);
+    expect(metrics.cacheHitRate).toBe(25);
     expect(metrics.totalCost).toBe(1.234);
+  });
+
+  it('returns a zero cache hit rate when input tokens are zero', () => {
+    const metrics = buildStatCardMetrics({
+      usage: {
+        ...usageWithBackendSummary,
+        summary: {
+          ...usageWithBackendSummary.summary!,
+          cached_tokens: 10,
+        },
+        series: {
+          ...usageWithBackendSummary.series!,
+          input_tokens: {
+            '2026-04-23T00:00:00Z': 0,
+          },
+        },
+      },
+    });
+
+    expect(metrics.inputTokens).toBe(0);
+    expect(metrics.cacheHitRate).toBe(0);
   });
 
   it('keeps priced total cost visible when availability is partial', () => {
