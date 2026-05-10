@@ -163,10 +163,10 @@ func TestQuotaCheckMapsUnsupportedTypeTo422(t *testing.T) {
 }
 
 func TestQuotaCheckMapsProviderInputTo422(t *testing.T) {
-	provider := &quotaProviderStub{err: errors.Join(quota.ErrProviderInput, errors.New("missing account_id parameter"))}
+	provider := &quotaProviderStub{err: errors.Join(quota.ErrProviderInput, errors.New("missing project_id parameter"))}
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{Quota: provider})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/quota/check", strings.NewReader(`{"auth_index":"codex-auth"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/quota/check", strings.NewReader(`{"auth_index":"gemini-auth"}`))
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -174,7 +174,7 @@ func TestQuotaCheckMapsProviderInputTo422(t *testing.T) {
 	if resp.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected status 422, got %d body=%s", resp.Code, resp.Body.String())
 	}
-	if !contains(resp.Body.String(), "missing account_id parameter") {
+	if !contains(resp.Body.String(), "missing project_id parameter") {
 		t.Fatalf("expected provider input message in response, got %s", resp.Body.String())
 	}
 }

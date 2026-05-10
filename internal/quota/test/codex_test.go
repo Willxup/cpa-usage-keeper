@@ -3,8 +3,6 @@ package test
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"strings"
 	"testing"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
@@ -69,16 +67,23 @@ func TestCodexProviderUsesAccountIDForUsageRequest(t *testing.T) {
 	}
 }
 
-func TestCodexProviderRejectsMissingAccountID(t *testing.T) {
-	caller := &recordingManagementCaller{}
+func TestCodexProviderOmitsAccountIDHeaderWhenMissing(t *testing.T) {
+	caller := &recordingManagementCaller{responses: []*apicall.Response{{
+		StatusCode: 200,
+		BodyText:   `{"plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false}}`,
+		Body:       json.RawMessage(`{"plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false}}`),
+	}}}
 	provider := quota.NewCodexProvider(caller, quota.DefaultProviderConfigs().Codex)
 
 	_, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "codex-auth"}})
-	if !errors.Is(err, quota.ErrProviderInput) || !strings.Contains(err.Error(), "missing account_id parameter") {
-		t.Fatalf("expected missing account_id provider input error, got %v", err)
+	if err != nil {
+		t.Fatalf("Check returned error: %v", err)
 	}
-	if len(caller.requests) != 0 {
-		t.Fatalf("provider should not call api-call without account_id, got %d requests", len(caller.requests))
+	if len(caller.requests) != 1 {
+		t.Fatalf("expected one api-call request without account_id, got %d", len(caller.requests))
+	}
+	if _, ok := caller.requests[0].Header["Chatgpt-Account-Id"]; ok {
+		t.Fatalf("expected account id header to be omitted, got headers: %+v", caller.requests[0].Header)
 	}
 }
 

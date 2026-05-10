@@ -2,12 +2,14 @@ package test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"cpa-usage-keeper/internal/config"
+	"cpa-usage-keeper/internal/cpa/dto/apicall"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/repository"
@@ -100,14 +102,22 @@ func TestServiceReturnsUnsupportedType(t *testing.T) {
 	}
 }
 
-func TestServiceReturnsProviderInputError(t *testing.T) {
+func TestServiceAllowsCodexQuotaWithoutAccountID(t *testing.T) {
 	db := openQuotaTestDB(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: "codex-auth", Type: "codex", Name: "auth file"})
-	service := quota.NewServiceWithRegistry(db, quota.NewDefaultProviderRegistry(&recordingManagementCaller{}, quota.DefaultProviderConfigs()))
+	caller := &recordingManagementCaller{responses: []*apicall.Response{{
+		StatusCode: 200,
+		BodyText:   `{"plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false}}`,
+		Body:       json.RawMessage(`{"plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false}}`),
+	}}}
+	service := quota.NewServiceWithRegistry(db, quota.NewDefaultProviderRegistry(caller, quota.DefaultProviderConfigs()))
 
-	_, err := service.Check(context.Background(), quota.CheckRequest{AuthIndex: "codex-auth"})
-	if !errors.Is(err, quota.ErrProviderInput) {
-		t.Fatalf("expected provider input error, got %v", err)
+	response, err := service.Check(context.Background(), quota.CheckRequest{AuthIndex: "codex-auth"})
+	if err != nil {
+		t.Fatalf("Check returned error: %v", err)
+	}
+	if response.ID != "codex-auth" || len(caller.requests) != 1 {
+		t.Fatalf("expected codex quota request without account_id, got response=%+v requests=%d", response, len(caller.requests))
 	}
 }
 
