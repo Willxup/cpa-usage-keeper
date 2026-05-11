@@ -2,10 +2,10 @@ import { useMemo, type CSSProperties, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Line } from 'react-chartjs-2';
 import {
-  IconCheck,
   IconDiamond,
   IconDollarSign,
   IconSatellite,
+  IconTarget,
   IconTimer,
   IconTrendingUp,
 } from '@/components/ui/icons';
@@ -179,7 +179,7 @@ export function StatCards({ usage, loading, sparklines }: StatCardsProps) {
     {
       key: 'cache-hit-rate',
       label: t('usage_stats.cache_hit_rate'),
-      icon: <IconCheck size={16} />,
+      icon: <IconTarget size={16} />,
       accent: '#14b8a6',
       accentSoft: 'rgba(20, 184, 166, 0.18)',
       accentBorder: 'rgba(20, 184, 166, 0.32)',
