@@ -113,6 +113,9 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 	if overview.Summary.CachedTokens != 350 || overview.Summary.ReasoningTokens != 175 {
 		t.Fatalf("unexpected summary token breakdown: %+v", overview.Summary)
 	}
+	if overview.Summary.CacheHitBaseTokens != 3500 || overview.Summary.CacheHitRate != 10 {
+		t.Fatalf("unexpected summary cache hit metrics: %+v", overview.Summary)
+	}
 	if overview.Summary.WindowMinutes != 2880 {
 		t.Fatalf("expected 2880 minute window, got %+v", overview.Summary)
 	}
@@ -152,6 +155,12 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 	}
 	if !reflect.DeepEqual(overview.Series.ReasoningTokens, map[string]int64{"2026-04-16": 150, "2026-04-17": 25}) {
 		t.Fatalf("unexpected reasoning token series: %+v", overview.Series.ReasoningTokens)
+	}
+	if !reflect.DeepEqual(overview.Series.CacheHitBaseTokens, map[string]int64{"2026-04-16": 3000, "2026-04-17": 500}) {
+		t.Fatalf("unexpected cache hit base series: %+v", overview.Series.CacheHitBaseTokens)
+	}
+	if overview.Series.CacheHitRate["2026-04-16"] != 10 || overview.Series.CacheHitRate["2026-04-17"] != 10 {
+		t.Fatalf("unexpected cache hit rate series: %+v", overview.Series.CacheHitRate)
 	}
 	if overview.Health.TotalSuccess != 2 || overview.Health.TotalFailure != 1 {
 		t.Fatalf("unexpected overview health totals: %+v", overview.Health)
@@ -196,6 +205,100 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 	}
 }
 
+func TestBuildUsageOverviewWithFilterComputesProviderAwareCacheHitRate(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-cache-hit.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	deletedAt := time.Date(2026, 4, 24, 0, 0, 0, 0, time.UTC)
+	identities := []entities.UsageIdentity{
+		{
+			Name:         "OpenAI",
+			AuthType:     entities.UsageIdentityAuthTypeAIProvider,
+			AuthTypeName: "apikey",
+			Identity:     "openai-auth",
+			Type:         "openai",
+			Provider:     "OpenAI",
+		},
+		{
+			Name:         "Anthropic",
+			AuthType:     entities.UsageIdentityAuthTypeAIProvider,
+			AuthTypeName: "apikey",
+			Identity:     "anthropic-deleted-auth",
+			Type:         "anthropic",
+			Provider:     "Anthropic",
+			IsDeleted:    true,
+			DeletedAt:    &deletedAt,
+		},
+	}
+	if err := db.Create(&identities).Error; err != nil {
+		t.Fatalf("create usage identities: %v", err)
+	}
+
+	events := []entities.UsageEvent{
+		{
+			EventKey: "openai-event", APIGroupKey: "provider-a", Model: "gpt-5",
+			Timestamp: time.Date(2026, 4, 23, 10, 15, 0, 0, time.UTC), AuthType: "apikey", AuthIndex: "openai-auth",
+			InputTokens: 1000, OutputTokens: 100, CachedTokens: 600, TotalTokens: 1100,
+		},
+		{
+			EventKey: "anthropic-event", APIGroupKey: "provider-a", Model: "claude-sonnet",
+			Timestamp: time.Date(2026, 4, 23, 10, 30, 0, 0, time.UTC), AuthType: "apikey", AuthIndex: "anthropic-deleted-auth",
+			InputTokens: 400, OutputTokens: 100, CachedTokens: 600, TotalTokens: 1100,
+		},
+	}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	start := time.Date(2026, 4, 23, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 4, 23, 23, 59, 59, 999000000, time.UTC)
+	overview, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "24h", StartTime: &start, EndTime: &end})
+	if err != nil {
+		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
+	}
+
+	if overview.Summary.CachedTokens != 1200 || overview.Summary.CacheHitBaseTokens != 2000 {
+		t.Fatalf("unexpected summary cache hit base: %+v", overview.Summary)
+	}
+	if overview.Summary.CacheHitRate != 60 {
+		t.Fatalf("expected summary cache hit rate 60, got %+v", overview.Summary)
+	}
+
+	bucket := "2026-04-23T10:00:00Z"
+	if overview.Series.CacheHitBaseTokens[bucket] != 2000 || overview.Series.CacheHitRate[bucket] != 60 {
+		t.Fatalf("unexpected cache hit series: base=%+v rate=%+v", overview.Series.CacheHitBaseTokens, overview.Series.CacheHitRate)
+	}
+	if overview.Series.Models["gpt-5"].CacheHitBaseTokens[bucket] != 1000 || overview.Series.Models["gpt-5"].CacheHitRate[bucket] != 60 {
+		t.Fatalf("unexpected OpenAI-style model cache hit series: %+v", overview.Series.Models["gpt-5"])
+	}
+	if overview.Series.Models["claude-sonnet"].CacheHitBaseTokens[bucket] != 1000 || overview.Series.Models["claude-sonnet"].CacheHitRate[bucket] != 60 {
+		t.Fatalf("unexpected Anthropic-style model cache hit series: %+v", overview.Series.Models["claude-sonnet"])
+	}
+}
+
+func TestCacheTokenStyleFromUsageIdentityUsesReliableProviderFields(t *testing.T) {
+	aiProvider := entities.UsageIdentity{
+		AuthType: entities.UsageIdentityAuthTypeAIProvider,
+		Type:     "openai",
+		Provider: "Anthropic Display Name",
+	}
+	if style := cacheTokenStyleFromUsageIdentity(aiProvider); style != cacheTokenStyleInputIncludesCached {
+		t.Fatalf("expected AI provider type to win over display provider, got %s", style)
+	}
+
+	authFile := entities.UsageIdentity{
+		AuthType: entities.UsageIdentityAuthTypeAuthFile,
+		Type:     "auth-file",
+		Provider: "claude",
+	}
+	if style := cacheTokenStyleFromUsageIdentity(authFile); style != cacheTokenStyleInputExcludesCached {
+		t.Fatalf("expected AuthFile provider fallback to identify Anthropic style, got %s", style)
+	}
+}
+
 func TestBuildUsageOverviewFromEventsBuildsSnapshotAndOverviewInOnePass(t *testing.T) {
 	events := []entities.UsageEvent{
 		{
@@ -223,7 +326,7 @@ func TestBuildUsageOverviewFromEventsBuildsSnapshotAndOverviewInOnePass(t *testi
 		},
 	}
 
-	overview := buildUsageOverviewFromEvents(events, filter, pricingByModel)
+	overview := buildUsageOverviewFromEvents(events, filter, pricingByModel, nil)
 
 	if overview.Usage == nil {
 		t.Fatal("expected usage snapshot to be populated")

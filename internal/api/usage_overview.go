@@ -36,40 +36,46 @@ type usageOverviewPayload struct {
 }
 
 type usageOverviewSummary struct {
-	RequestCount    int64   `json:"request_count"`
-	TokenCount      int64   `json:"token_count"`
-	WindowMinutes   int64   `json:"window_minutes"`
-	RPM             float64 `json:"rpm"`
-	TPM             float64 `json:"tpm"`
-	TotalCost       float64 `json:"total_cost"`
-	CostAvailable   bool    `json:"cost_available"`
-	CachedTokens    int64   `json:"cached_tokens"`
-	ReasoningTokens int64   `json:"reasoning_tokens"`
+	RequestCount       int64   `json:"request_count"`
+	TokenCount         int64   `json:"token_count"`
+	WindowMinutes      int64   `json:"window_minutes"`
+	RPM                float64 `json:"rpm"`
+	TPM                float64 `json:"tpm"`
+	TotalCost          float64 `json:"total_cost"`
+	CostAvailable      bool    `json:"cost_available"`
+	CachedTokens       int64   `json:"cached_tokens"`
+	ReasoningTokens    int64   `json:"reasoning_tokens"`
+	CacheHitBaseTokens int64   `json:"cache_hit_base_tokens"`
+	CacheHitRate       float64 `json:"cache_hit_rate"`
 }
 
 type usageOverviewSeries struct {
-	Requests        map[string]int64                   `json:"requests"`
-	Tokens          map[string]int64                   `json:"tokens"`
-	RPM             map[string]float64                 `json:"rpm"`
-	TPM             map[string]float64                 `json:"tpm"`
-	Cost            map[string]float64                 `json:"cost"`
-	InputTokens     map[string]int64                   `json:"input_tokens"`
-	OutputTokens    map[string]int64                   `json:"output_tokens"`
-	CachedTokens    map[string]int64                   `json:"cached_tokens"`
-	ReasoningTokens map[string]int64                   `json:"reasoning_tokens"`
-	Models          map[string]usageOverviewSeriesLine `json:"models"`
+	Requests           map[string]int64                   `json:"requests"`
+	Tokens             map[string]int64                   `json:"tokens"`
+	RPM                map[string]float64                 `json:"rpm"`
+	TPM                map[string]float64                 `json:"tpm"`
+	Cost               map[string]float64                 `json:"cost"`
+	InputTokens        map[string]int64                   `json:"input_tokens"`
+	OutputTokens       map[string]int64                   `json:"output_tokens"`
+	CachedTokens       map[string]int64                   `json:"cached_tokens"`
+	ReasoningTokens    map[string]int64                   `json:"reasoning_tokens"`
+	CacheHitBaseTokens map[string]int64                   `json:"cache_hit_base_tokens"`
+	CacheHitRate       map[string]float64                 `json:"cache_hit_rate"`
+	Models             map[string]usageOverviewSeriesLine `json:"models"`
 }
 
 type usageOverviewSeriesLine struct {
-	Requests        map[string]int64   `json:"requests"`
-	Tokens          map[string]int64   `json:"tokens"`
-	RPM             map[string]float64 `json:"rpm"`
-	TPM             map[string]float64 `json:"tpm"`
-	Cost            map[string]float64 `json:"cost"`
-	InputTokens     map[string]int64   `json:"input_tokens"`
-	OutputTokens    map[string]int64   `json:"output_tokens"`
-	CachedTokens    map[string]int64   `json:"cached_tokens"`
-	ReasoningTokens map[string]int64   `json:"reasoning_tokens"`
+	Requests           map[string]int64   `json:"requests"`
+	Tokens             map[string]int64   `json:"tokens"`
+	RPM                map[string]float64 `json:"rpm"`
+	TPM                map[string]float64 `json:"tpm"`
+	Cost               map[string]float64 `json:"cost"`
+	InputTokens        map[string]int64   `json:"input_tokens"`
+	OutputTokens       map[string]int64   `json:"output_tokens"`
+	CachedTokens       map[string]int64   `json:"cached_tokens"`
+	ReasoningTokens    map[string]int64   `json:"reasoning_tokens"`
+	CacheHitBaseTokens map[string]int64   `json:"cache_hit_base_tokens"`
+	CacheHitRate       map[string]float64 `json:"cache_hit_rate"`
 }
 
 type usageOverviewServiceHealth struct {
@@ -205,44 +211,50 @@ func buildUsageOverviewSummary(overview *servicedto.UsageOverviewSnapshot) usage
 		return usageOverviewSummary{}
 	}
 	return usageOverviewSummary{
-		RequestCount:    overview.Summary.RequestCount,
-		TokenCount:      overview.Summary.TokenCount,
-		WindowMinutes:   overview.Summary.WindowMinutes,
-		RPM:             overview.Summary.RPM,
-		TPM:             overview.Summary.TPM,
-		TotalCost:       overview.Summary.TotalCost,
-		CostAvailable:   overview.Summary.CostAvailable,
-		CachedTokens:    overview.Summary.CachedTokens,
-		ReasoningTokens: overview.Summary.ReasoningTokens,
+		RequestCount:       overview.Summary.RequestCount,
+		TokenCount:         overview.Summary.TokenCount,
+		WindowMinutes:      overview.Summary.WindowMinutes,
+		RPM:                overview.Summary.RPM,
+		TPM:                overview.Summary.TPM,
+		TotalCost:          overview.Summary.TotalCost,
+		CostAvailable:      overview.Summary.CostAvailable,
+		CachedTokens:       overview.Summary.CachedTokens,
+		ReasoningTokens:    overview.Summary.ReasoningTokens,
+		CacheHitBaseTokens: overview.Summary.CacheHitBaseTokens,
+		CacheHitRate:       overview.Summary.CacheHitRate,
 	}
 }
 
 func emptyUsageOverviewSeries() usageOverviewSeries {
 	return usageOverviewSeries{
-		Requests:        map[string]int64{},
-		Tokens:          map[string]int64{},
-		RPM:             map[string]float64{},
-		TPM:             map[string]float64{},
-		Cost:            map[string]float64{},
-		InputTokens:     map[string]int64{},
-		OutputTokens:    map[string]int64{},
-		CachedTokens:    map[string]int64{},
-		ReasoningTokens: map[string]int64{},
-		Models:          map[string]usageOverviewSeriesLine{},
+		Requests:           map[string]int64{},
+		Tokens:             map[string]int64{},
+		RPM:                map[string]float64{},
+		TPM:                map[string]float64{},
+		Cost:               map[string]float64{},
+		InputTokens:        map[string]int64{},
+		OutputTokens:       map[string]int64{},
+		CachedTokens:       map[string]int64{},
+		ReasoningTokens:    map[string]int64{},
+		CacheHitBaseTokens: map[string]int64{},
+		CacheHitRate:       map[string]float64{},
+		Models:             map[string]usageOverviewSeriesLine{},
 	}
 }
 
 func mapUsageOverviewSeriesLine(series servicedto.UsageOverviewSeries) usageOverviewSeriesLine {
 	return usageOverviewSeriesLine{
-		Requests:        cloneInt64Map(series.Requests),
-		Tokens:          cloneInt64Map(series.Tokens),
-		RPM:             cloneFloat64Map(series.RPM),
-		TPM:             cloneFloat64Map(series.TPM),
-		Cost:            cloneFloat64Map(series.Cost),
-		InputTokens:     cloneInt64Map(series.InputTokens),
-		OutputTokens:    cloneInt64Map(series.OutputTokens),
-		CachedTokens:    cloneInt64Map(series.CachedTokens),
-		ReasoningTokens: cloneInt64Map(series.ReasoningTokens),
+		Requests:           cloneInt64Map(series.Requests),
+		Tokens:             cloneInt64Map(series.Tokens),
+		RPM:                cloneFloat64Map(series.RPM),
+		TPM:                cloneFloat64Map(series.TPM),
+		Cost:               cloneFloat64Map(series.Cost),
+		InputTokens:        cloneInt64Map(series.InputTokens),
+		OutputTokens:       cloneInt64Map(series.OutputTokens),
+		CachedTokens:       cloneInt64Map(series.CachedTokens),
+		ReasoningTokens:    cloneInt64Map(series.ReasoningTokens),
+		CacheHitBaseTokens: cloneInt64Map(series.CacheHitBaseTokens),
+		CacheHitRate:       cloneFloat64Map(series.CacheHitRate),
 	}
 }
 
@@ -252,16 +264,18 @@ func mapUsageOverviewSeries(series servicedto.UsageOverviewSeries) usageOverview
 		models[model] = mapUsageOverviewSeriesLine(modelSeries)
 	}
 	return usageOverviewSeries{
-		Requests:        cloneInt64Map(series.Requests),
-		Tokens:          cloneInt64Map(series.Tokens),
-		RPM:             cloneFloat64Map(series.RPM),
-		TPM:             cloneFloat64Map(series.TPM),
-		Cost:            cloneFloat64Map(series.Cost),
-		InputTokens:     cloneInt64Map(series.InputTokens),
-		OutputTokens:    cloneInt64Map(series.OutputTokens),
-		CachedTokens:    cloneInt64Map(series.CachedTokens),
-		ReasoningTokens: cloneInt64Map(series.ReasoningTokens),
-		Models:          models,
+		Requests:           cloneInt64Map(series.Requests),
+		Tokens:             cloneInt64Map(series.Tokens),
+		RPM:                cloneFloat64Map(series.RPM),
+		TPM:                cloneFloat64Map(series.TPM),
+		Cost:               cloneFloat64Map(series.Cost),
+		InputTokens:        cloneInt64Map(series.InputTokens),
+		OutputTokens:       cloneInt64Map(series.OutputTokens),
+		CachedTokens:       cloneInt64Map(series.CachedTokens),
+		ReasoningTokens:    cloneInt64Map(series.ReasoningTokens),
+		CacheHitBaseTokens: cloneInt64Map(series.CacheHitBaseTokens),
+		CacheHitRate:       cloneFloat64Map(series.CacheHitRate),
+		Models:             models,
 	}
 }
 

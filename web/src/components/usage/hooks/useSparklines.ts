@@ -1,5 +1,4 @@
 import { useCallback, useMemo } from 'react';
-import { calculateCacheHitRatePercent } from '@/utils/usage';
 import type { UsageOverviewPayload } from './useUsageData';
 
 export interface SparklineData {
@@ -61,10 +60,7 @@ export function buildUsageSparklineSeries({ usage }: Omit<UseSparklinesOptions, 
     tokens: labels.map((label) => Number(usage.series?.tokens?.[label] ?? 0)),
     rpm: labels.map((label) => Number(usage.series?.rpm?.[label] ?? 0)),
     tpm: labels.map((label) => Number(usage.series?.tpm?.[label] ?? 0)),
-    cacheHitRate: labels.map((label) => calculateCacheHitRatePercent({
-      cachedTokens: Number(usage.series?.cached_tokens?.[label] ?? 0),
-      inputTokens: Number(usage.series?.input_tokens?.[label] ?? 0),
-    })),
+    cacheHitRate: labels.map((label) => Number(usage.series?.cache_hit_rate?.[label] ?? 0)),
     cost: labels.map((label) => Number(usage.series?.cost?.[label] ?? 0)),
   };
 }

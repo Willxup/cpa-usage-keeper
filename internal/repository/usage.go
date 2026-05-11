@@ -327,11 +327,15 @@ func BuildUsageOverviewWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dt
 	if err != nil {
 		return nil, err
 	}
+	identityStyles, err := loadUsageIdentityCacheTokenStyles(db)
+	if err != nil {
+		return nil, err
+	}
 
-	return buildUsageOverviewFromEvents(events, filter, pricingByModel), nil
+	return buildUsageOverviewFromEvents(events, filter, pricingByModel, identityStyles), nil
 }
 
-func buildUsageOverviewFromEvents(events []entities.UsageEvent, filter dto.UsageQueryFilter, pricingByModel map[string]entities.ModelPriceSetting) *dto.UsageOverviewRecord {
+func buildUsageOverviewFromEvents(events []entities.UsageEvent, filter dto.UsageQueryFilter, pricingByModel map[string]entities.ModelPriceSetting, identityStyles map[usageIdentityStyleKey]cacheTokenStyle) *dto.UsageOverviewRecord {
 	windowMinutes := computeWindowMinutes(filter)
 	bucketByDay := shouldBucketUsageOverviewByDay(filter, windowMinutes)
 	latestHourlyStart := latestHourlySeriesStart(filter)
@@ -358,10 +362,80 @@ func buildUsageOverviewFromEvents(events []entities.UsageEvent, filter dto.Usage
 
 	for _, event := range events {
 		applyUsageEventToSnapshot(overview.Usage, event, false)
-		applyUsageEventToOverview(overview, event, bucketByDay, latestHourlyStart, pricingByModel)
+		applyUsageEventToOverview(overview, event, bucketByDay, latestHourlyStart, pricingByModel, identityStyles)
 	}
 	finalizeUsageOverview(overview, false)
 	return overview
+}
+
+type cacheTokenStyle string
+
+const (
+	cacheTokenStyleInputIncludesCached cacheTokenStyle = "input_includes_cached"
+	cacheTokenStyleInputExcludesCached cacheTokenStyle = "input_excludes_cached"
+)
+
+type usageIdentityStyleKey struct {
+	EventAuthType string
+	AuthIndex     string
+}
+
+func loadUsageIdentityCacheTokenStyles(db *gorm.DB) (map[usageIdentityStyleKey]cacheTokenStyle, error) {
+	var identities []entities.UsageIdentity
+	if err := db.Find(&identities).Error; err != nil {
+		return nil, fmt.Errorf("load usage identity cache token styles: %w", err)
+	}
+
+	styles := make(map[usageIdentityStyleKey]cacheTokenStyle, len(identities))
+	for _, identity := range identities {
+		eventAuthType := usageIdentityEventAuthType(identity.AuthType)
+		authIndex := strings.TrimSpace(identity.Identity)
+		if eventAuthType == "" || authIndex == "" {
+			continue
+		}
+
+		styles[usageIdentityStyleKey{
+			EventAuthType: eventAuthType,
+			AuthIndex:     authIndex,
+		}] = cacheTokenStyleFromUsageIdentity(identity)
+	}
+	return styles, nil
+}
+
+func usageIdentityEventAuthType(authType entities.UsageIdentityAuthType) string {
+	switch authType {
+	case entities.UsageIdentityAuthTypeAuthFile:
+		return "oauth"
+	case entities.UsageIdentityAuthTypeAIProvider:
+		return "apikey"
+	default:
+		return ""
+	}
+}
+
+func cacheTokenStyleFromUsageIdentity(identity entities.UsageIdentity) cacheTokenStyle {
+	identityType := strings.ToLower(strings.TrimSpace(identity.Type))
+	if isAnthropicStyleProvider(identityType) {
+		return cacheTokenStyleInputExcludesCached
+	}
+
+	if identity.AuthType == entities.UsageIdentityAuthTypeAuthFile {
+		provider := strings.ToLower(strings.TrimSpace(identity.Provider))
+		if isAnthropicStyleProvider(provider) {
+			return cacheTokenStyleInputExcludesCached
+		}
+	}
+
+	return cacheTokenStyleInputIncludesCached
+}
+
+func isAnthropicStyleProvider(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "anthropic", "claude":
+		return true
+	default:
+		return false
+	}
 }
 
 // Overview 第二步：按时间窗口读事件，再交给内存汇总。
@@ -465,27 +539,36 @@ func finalizeUsageSnapshot(snapshot *dto.StatisticsSnapshot, includeDetails bool
 
 func newUsageOverviewSeriesRecord() dto.UsageOverviewSeriesRecord {
 	return dto.UsageOverviewSeriesRecord{
-		Requests:        map[string]int64{},
-		Tokens:          map[string]int64{},
-		RPM:             map[string]float64{},
-		TPM:             map[string]float64{},
-		Cost:            map[string]float64{},
-		InputTokens:     map[string]int64{},
-		OutputTokens:    map[string]int64{},
-		CachedTokens:    map[string]int64{},
-		ReasoningTokens: map[string]int64{},
-		Models:          map[string]dto.UsageOverviewSeriesRecord{},
+		Requests:           map[string]int64{},
+		Tokens:             map[string]int64{},
+		RPM:                map[string]float64{},
+		TPM:                map[string]float64{},
+		Cost:               map[string]float64{},
+		InputTokens:        map[string]int64{},
+		OutputTokens:       map[string]int64{},
+		CachedTokens:       map[string]int64{},
+		ReasoningTokens:    map[string]int64{},
+		CacheHitBaseTokens: map[string]int64{},
+		CacheHitRate:       map[string]float64{},
+		Models:             map[string]dto.UsageOverviewSeriesRecord{},
 	}
 }
 
-func applyUsageEventToOverviewSeries(series *dto.UsageOverviewSeriesRecord, event entities.UsageEvent, cost float64, bucketKey string, bucketMinutes int64) {
+func applyUsageEventToOverviewSeries(series *dto.UsageOverviewSeriesRecord, event entities.UsageEvent, cost float64, bucketKey string, bucketMinutes int64, identityStyles map[usageIdentityStyleKey]cacheTokenStyle) {
+	cachedTokens, cacheHitBaseTokens := cacheTokenPartsForUsageEvent(event, identityStyles)
+
 	series.Requests[bucketKey]++
 	series.Tokens[bucketKey] += event.TotalTokens
 	series.Cost[bucketKey] += cost
 	series.InputTokens[bucketKey] += event.InputTokens
 	series.OutputTokens[bucketKey] += event.OutputTokens
-	series.CachedTokens[bucketKey] += event.CachedTokens
+	series.CachedTokens[bucketKey] += cachedTokens
 	series.ReasoningTokens[bucketKey] += event.ReasoningTokens
+	series.CacheHitBaseTokens[bucketKey] += cacheHitBaseTokens
+	series.CacheHitRate[bucketKey] = cacheHitRatePercent(
+		series.CachedTokens[bucketKey],
+		series.CacheHitBaseTokens[bucketKey],
+	)
 	series.RPM[bucketKey] = float64(series.Requests[bucketKey]) / float64(bucketMinutes)
 	series.TPM[bucketKey] = float64(series.Tokens[bucketKey]) / float64(bucketMinutes)
 
@@ -499,8 +582,13 @@ func applyUsageEventToOverviewSeries(series *dto.UsageOverviewSeriesRecord, even
 	modelSeries.Cost[bucketKey] += cost
 	modelSeries.InputTokens[bucketKey] += event.InputTokens
 	modelSeries.OutputTokens[bucketKey] += event.OutputTokens
-	modelSeries.CachedTokens[bucketKey] += event.CachedTokens
+	modelSeries.CachedTokens[bucketKey] += cachedTokens
 	modelSeries.ReasoningTokens[bucketKey] += event.ReasoningTokens
+	modelSeries.CacheHitBaseTokens[bucketKey] += cacheHitBaseTokens
+	modelSeries.CacheHitRate[bucketKey] = cacheHitRatePercent(
+		modelSeries.CachedTokens[bucketKey],
+		modelSeries.CacheHitBaseTokens[bucketKey],
+	)
 	modelSeries.RPM[bucketKey] = float64(modelSeries.Requests[bucketKey]) / float64(bucketMinutes)
 	modelSeries.TPM[bucketKey] = float64(modelSeries.Tokens[bucketKey]) / float64(bucketMinutes)
 	series.Models[modelName] = modelSeries
@@ -510,8 +598,11 @@ func usageEventRequiresPricing(event entities.UsageEvent) bool {
 	return event.InputTokens > 0 || event.OutputTokens > 0 || event.CachedTokens > 0
 }
 
-func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities.UsageEvent, bucketByDay bool, latestHourlyStart *time.Time, pricingByModel map[string]entities.ModelPriceSetting) {
-	overview.Summary.CachedTokens += event.CachedTokens
+func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities.UsageEvent, bucketByDay bool, latestHourlyStart *time.Time, pricingByModel map[string]entities.ModelPriceSetting, identityStyles map[usageIdentityStyleKey]cacheTokenStyle) {
+	cachedTokens, cacheHitBaseTokens := cacheTokenPartsForUsageEvent(event, identityStyles)
+
+	overview.Summary.CachedTokens += cachedTokens
+	overview.Summary.CacheHitBaseTokens += cacheHitBaseTokens
 	overview.Summary.ReasoningTokens += event.ReasoningTokens
 	if event.Failed {
 		overview.Health.TotalFailure++
@@ -526,15 +617,15 @@ func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities
 	overview.Summary.TotalCost += cost
 
 	bucketKey, bucketMinutes := usageOverviewBucket(event.Timestamp.UTC(), bucketByDay)
-	applyUsageEventToOverviewSeries(&overview.Series, event, cost, bucketKey, bucketMinutes)
+	applyUsageEventToOverviewSeries(&overview.Series, event, cost, bucketKey, bucketMinutes, identityStyles)
 
 	hourKey, hourMinutes := usageOverviewBucket(event.Timestamp.UTC(), false)
 	if latestHourlyStart == nil || !event.Timestamp.UTC().Before(*latestHourlyStart) {
-		applyUsageEventToOverviewSeries(&overview.HourlySeries, event, cost, hourKey, hourMinutes)
+		applyUsageEventToOverviewSeries(&overview.HourlySeries, event, cost, hourKey, hourMinutes, identityStyles)
 	}
 
 	dayKey, dayMinutes := usageOverviewBucket(event.Timestamp.UTC(), true)
-	applyUsageEventToOverviewSeries(&overview.DailySeries, event, cost, dayKey, dayMinutes)
+	applyUsageEventToOverviewSeries(&overview.DailySeries, event, cost, dayKey, dayMinutes, identityStyles)
 	updateUsageOverviewHealthBlock(overview.Health.BlockDetails, event)
 }
 
@@ -549,6 +640,38 @@ func finalizeUsageOverview(overview *dto.UsageOverviewRecord, includeDetails boo
 	if total := overview.Health.TotalSuccess + overview.Health.TotalFailure; total > 0 {
 		overview.Health.SuccessRate = (float64(overview.Health.TotalSuccess) / float64(total)) * 100
 	}
+	overview.Summary.CacheHitRate = cacheHitRatePercent(
+		overview.Summary.CachedTokens,
+		overview.Summary.CacheHitBaseTokens,
+	)
+}
+
+func cacheTokenPartsForUsageEvent(event entities.UsageEvent, styles map[usageIdentityStyleKey]cacheTokenStyle) (cachedTokens int64, denominator int64) {
+	cachedTokens = nonNegativeInt64(event.CachedTokens)
+	inputTokens := nonNegativeInt64(event.InputTokens)
+
+	style := styles[usageIdentityStyleKey{
+		EventAuthType: strings.TrimSpace(event.AuthType),
+		AuthIndex:     strings.TrimSpace(event.AuthIndex),
+	}]
+	if style == cacheTokenStyleInputExcludesCached {
+		return cachedTokens, inputTokens + cachedTokens
+	}
+	return cachedTokens, inputTokens
+}
+
+func nonNegativeInt64(value int64) int64 {
+	if value < 0 {
+		return 0
+	}
+	return value
+}
+
+func cacheHitRatePercent(cachedTokens int64, denominator int64) float64 {
+	if denominator <= 0 {
+		return 0
+	}
+	return (float64(cachedTokens) / float64(denominator)) * 100
 }
 
 func normalizeUsageOverviewDimension(value string) string {

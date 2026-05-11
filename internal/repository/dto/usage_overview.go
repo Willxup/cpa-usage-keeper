@@ -4,29 +4,33 @@ import "time"
 
 // UsageOverviewSummaryRecord 是 overview 的 summary 聚合结果。
 type UsageOverviewSummaryRecord struct {
-	RequestCount    int64
-	TokenCount      int64
-	WindowMinutes   int64
-	RPM             float64
-	TPM             float64
-	TotalCost       float64
-	CostAvailable   bool
-	CachedTokens    int64
-	ReasoningTokens int64
+	RequestCount       int64
+	TokenCount         int64
+	WindowMinutes      int64
+	RPM                float64
+	TPM                float64
+	TotalCost          float64
+	CostAvailable      bool
+	CachedTokens       int64
+	ReasoningTokens    int64
+	CacheHitBaseTokens int64
+	CacheHitRate       float64
 }
 
 // UsageOverviewSeriesRecord 是 overview 的 series 聚合结果。
 type UsageOverviewSeriesRecord struct {
-	Requests        map[string]int64
-	Tokens          map[string]int64
-	RPM             map[string]float64
-	TPM             map[string]float64
-	Cost            map[string]float64
-	InputTokens     map[string]int64
-	OutputTokens    map[string]int64
-	CachedTokens    map[string]int64
-	ReasoningTokens map[string]int64
-	Models          map[string]UsageOverviewSeriesRecord
+	Requests           map[string]int64
+	Tokens             map[string]int64
+	RPM                map[string]float64
+	TPM                map[string]float64
+	Cost               map[string]float64
+	InputTokens        map[string]int64
+	OutputTokens       map[string]int64
+	CachedTokens       map[string]int64
+	ReasoningTokens    map[string]int64
+	CacheHitBaseTokens map[string]int64
+	CacheHitRate       map[string]float64
+	Models             map[string]UsageOverviewSeriesRecord
 }
 
 // UsageOverviewHealthBlockRecord 是 overview health 的单个时间块。

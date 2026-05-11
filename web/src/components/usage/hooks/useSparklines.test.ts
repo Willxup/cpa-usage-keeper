@@ -69,6 +69,14 @@ const usageWithBackendSeries: UsagePayload = {
       '2026-04-23T10:00:00Z': 25,
       '2026-04-23T11:00:00Z': 10,
     },
+    cache_hit_base_tokens: {
+      '2026-04-23T10:00:00Z': 40,
+      '2026-04-23T11:00:00Z': 100,
+    },
+    cache_hit_rate: {
+      '2026-04-23T10:00:00Z': 62.5,
+      '2026-04-23T11:00:00Z': 10,
+    },
     reasoning_tokens: {},
     cost: {
       '2026-04-23T10:00:00Z': 0.2,
@@ -88,7 +96,7 @@ describe('buildUsageSparklineSeries', () => {
     expect(series.tokens).toEqual([200, 800]);
     expect(series.rpm).toEqual([2 / 60, 4 / 60]);
     expect(series.tpm).toEqual([200 / 60, 800 / 60]);
-    expect(series.cacheHitRate).toEqual([25, 0]);
+    expect(series.cacheHitRate).toEqual([62.5, 10]);
     expect(series.cost).toEqual([0.2, 0.8]);
   });
 });

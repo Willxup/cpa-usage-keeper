@@ -83,6 +83,8 @@ export interface UsageOverviewSummary {
   cost_available: boolean
   cached_tokens: number
   reasoning_tokens: number
+  cache_hit_base_tokens?: number
+  cache_hit_rate?: number
 }
 
 export interface UsageOverviewSeries {
@@ -95,6 +97,8 @@ export interface UsageOverviewSeries {
   output_tokens: Record<string, number>
   cached_tokens: Record<string, number>
   reasoning_tokens: Record<string, number>
+  cache_hit_base_tokens?: Record<string, number>
+  cache_hit_rate?: Record<string, number>
   models?: Record<string, UsageOverviewSeries>
 }
 

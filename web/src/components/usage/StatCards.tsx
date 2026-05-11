@@ -10,7 +10,6 @@ import {
   IconTrendingUp,
 } from '@/components/ui/icons';
 import {
-  calculateCacheHitRatePercent,
   formatCompactNumber,
   formatPerMinuteValue,
   formatPercentValue,
@@ -86,7 +85,7 @@ export function buildStatCardMetrics({ usage }: { usage: UsageOverviewPayload | 
       tokenCount: usage.summary.token_count ?? 0,
     },
     inputTokens,
-    cacheHitRate: calculateCacheHitRatePercent({ cachedTokens, inputTokens }),
+    cacheHitRate: usage.summary.cache_hit_rate ?? 0,
     totalCost: usage.summary.total_cost ?? 0,
     costAvailable: usage.summary.cost_available === true,
   };

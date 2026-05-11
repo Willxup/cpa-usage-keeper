@@ -108,26 +108,30 @@ func TestUsageOverviewReturnsFilteredSnapshot(t *testing.T) {
 			},
 		},
 		Summary: servicedto.UsageOverviewSummary{
-			RequestCount:    1,
-			TokenCount:      20,
-			WindowMinutes:   1440,
-			RPM:             1.0 / 1440.0,
-			TPM:             20.0 / 1440.0,
-			TotalCost:       0.123,
-			CostAvailable:   true,
-			CachedTokens:    2,
-			ReasoningTokens: 3,
+			RequestCount:       1,
+			TokenCount:         20,
+			WindowMinutes:      1440,
+			RPM:                1.0 / 1440.0,
+			TPM:                20.0 / 1440.0,
+			TotalCost:          0.123,
+			CostAvailable:      true,
+			CachedTokens:       2,
+			ReasoningTokens:    3,
+			CacheHitBaseTokens: 10,
+			CacheHitRate:       20,
 		},
 		Series: servicedto.UsageOverviewSeries{
-			Requests:        map[string]int64{"2026-04-22T11:00:00Z": 1},
-			Tokens:          map[string]int64{"2026-04-22T11:00:00Z": 20},
-			RPM:             map[string]float64{"2026-04-22T11:00:00Z": 1.0 / 60.0},
-			TPM:             map[string]float64{"2026-04-22T11:00:00Z": 20.0 / 60.0},
-			Cost:            map[string]float64{"2026-04-22T11:00:00Z": 0.123},
-			InputTokens:     map[string]int64{"2026-04-22T11:00:00Z": 11},
-			OutputTokens:    map[string]int64{"2026-04-22T11:00:00Z": 7},
-			CachedTokens:    map[string]int64{"2026-04-22T11:00:00Z": 2},
-			ReasoningTokens: map[string]int64{"2026-04-22T11:00:00Z": 3},
+			Requests:           map[string]int64{"2026-04-22T11:00:00Z": 1},
+			Tokens:             map[string]int64{"2026-04-22T11:00:00Z": 20},
+			RPM:                map[string]float64{"2026-04-22T11:00:00Z": 1.0 / 60.0},
+			TPM:                map[string]float64{"2026-04-22T11:00:00Z": 20.0 / 60.0},
+			Cost:               map[string]float64{"2026-04-22T11:00:00Z": 0.123},
+			InputTokens:        map[string]int64{"2026-04-22T11:00:00Z": 11},
+			OutputTokens:       map[string]int64{"2026-04-22T11:00:00Z": 7},
+			CachedTokens:       map[string]int64{"2026-04-22T11:00:00Z": 2},
+			ReasoningTokens:    map[string]int64{"2026-04-22T11:00:00Z": 3},
+			CacheHitBaseTokens: map[string]int64{"2026-04-22T11:00:00Z": 10},
+			CacheHitRate:       map[string]float64{"2026-04-22T11:00:00Z": 20},
 		},
 		Health: servicedto.UsageOverviewHealth{
 			TotalSuccess: 1,
@@ -161,13 +165,18 @@ func TestUsageOverviewReturnsFilteredSnapshot(t *testing.T) {
 	if !contains(body, `"cost_available":true`) {
 		t.Fatalf("expected backend cost availability in response body: %s", body)
 	}
+	if !contains(body, `"cache_hit_base_tokens":10`) || !contains(body, `"cache_hit_rate":20`) {
+		t.Fatalf("expected backend cache hit metrics in response body: %s", body)
+	}
 	if !contains(body, `"series":{"requests":{"2026-04-22T11:00:00Z":1}`) {
 		t.Fatalf("expected backend series in response body: %s", body)
 	}
 	if !contains(body, `"input_tokens":{"2026-04-22T11:00:00Z":11}`) ||
 		!contains(body, `"output_tokens":{"2026-04-22T11:00:00Z":7}`) ||
 		!contains(body, `"cached_tokens":{"2026-04-22T11:00:00Z":2}`) ||
-		!contains(body, `"reasoning_tokens":{"2026-04-22T11:00:00Z":3}`) {
+		!contains(body, `"reasoning_tokens":{"2026-04-22T11:00:00Z":3}`) ||
+		!contains(body, `"cache_hit_base_tokens":{"2026-04-22T11:00:00Z":10}`) ||
+		!contains(body, `"cache_hit_rate":{"2026-04-22T11:00:00Z":20}`) {
 		t.Fatalf("expected token breakdown series in response body: %s", body)
 	}
 	if !contains(body, `"service_health":{"total_success":1,"total_failure":0,"success_rate":100`) ||

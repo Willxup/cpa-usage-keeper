@@ -53,6 +53,8 @@ const usageWithBackendSummary: UsagePayload = {
     cost_available: true,
     cached_tokens: 25,
     reasoning_tokens: 33,
+    cache_hit_base_tokens: 80,
+    cache_hit_rate: 31.25,
   },
   series: {
     requests: {},
@@ -84,17 +86,18 @@ describe('buildStatCardMetrics', () => {
     expect(metrics.tokenBreakdown.cachedTokens).toBe(25);
     expect(metrics.tokenBreakdown.reasoningTokens).toBe(33);
     expect(metrics.inputTokens).toBe(100);
-    expect(metrics.cacheHitRate).toBe(25);
+    expect(metrics.cacheHitRate).toBe(31.25);
     expect(metrics.totalCost).toBe(1.234);
   });
 
-  it('returns a zero cache hit rate when input tokens are zero', () => {
+  it('uses the backend cache hit rate instead of deriving from input tokens', () => {
     const metrics = buildStatCardMetrics({
       usage: {
         ...usageWithBackendSummary,
         summary: {
           ...usageWithBackendSummary.summary!,
           cached_tokens: 10,
+          cache_hit_rate: 62.5,
         },
         series: {
           ...usageWithBackendSummary.series!,
@@ -106,7 +109,7 @@ describe('buildStatCardMetrics', () => {
     });
 
     expect(metrics.inputTokens).toBe(0);
-    expect(metrics.cacheHitRate).toBe(0);
+    expect(metrics.cacheHitRate).toBe(62.5);
   });
 
   it('keeps priced total cost visible when availability is partial', () => {

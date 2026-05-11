@@ -95,29 +95,33 @@ type UsageAnalysisSnapshot struct {
 
 // UsageOverviewSummary 是 overview summary 的服务层结果。
 type UsageOverviewSummary struct {
-	RequestCount    int64
-	TokenCount      int64
-	WindowMinutes   int64
-	RPM             float64
-	TPM             float64
-	TotalCost       float64
-	CostAvailable   bool
-	CachedTokens    int64
-	ReasoningTokens int64
+	RequestCount       int64
+	TokenCount         int64
+	WindowMinutes      int64
+	RPM                float64
+	TPM                float64
+	TotalCost          float64
+	CostAvailable      bool
+	CachedTokens       int64
+	ReasoningTokens    int64
+	CacheHitBaseTokens int64
+	CacheHitRate       float64
 }
 
 // UsageOverviewSeries 是 overview series 的服务层结果。
 type UsageOverviewSeries struct {
-	Requests        map[string]int64
-	Tokens          map[string]int64
-	RPM             map[string]float64
-	TPM             map[string]float64
-	Cost            map[string]float64
-	InputTokens     map[string]int64
-	OutputTokens    map[string]int64
-	CachedTokens    map[string]int64
-	ReasoningTokens map[string]int64
-	Models          map[string]UsageOverviewSeries
+	Requests           map[string]int64
+	Tokens             map[string]int64
+	RPM                map[string]float64
+	TPM                map[string]float64
+	Cost               map[string]float64
+	InputTokens        map[string]int64
+	OutputTokens       map[string]int64
+	CachedTokens       map[string]int64
+	ReasoningTokens    map[string]int64
+	CacheHitBaseTokens map[string]int64
+	CacheHitRate       map[string]float64
+	Models             map[string]UsageOverviewSeries
 }
 
 // UsageOverviewHealthBlock 是 overview health 的单个时间块。
