@@ -40,6 +40,7 @@ const renderCard = (props: Partial<React.ComponentProps<typeof RequestEventsDeta
       modelFilter="__all__"
       sourceFilter="__all__"
       resultFilter="__all__"
+      modelPrices={{}}
       onPageChange={() => undefined}
       onPageSizeChange={() => undefined}
       onModelFilterChange={() => undefined}
@@ -153,5 +154,16 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(cacheHitRateHeaderIndex).toBeGreaterThan(cachedHeaderIndex);
     expect(totalHeaderIndex).toBeGreaterThan(cacheHitRateHeaderIndex);
     expect(html).toContain('<td>20</td><td>20%</td><td>200</td>');
+  });
+
+  it('shows per-event cost when model pricing exists', () => {
+    const html = renderCard({
+      modelPrices: {
+        'claude-sonnet': { prompt: 15, completion: 75, cache: 1.5 },
+      },
+    });
+
+    expect(html).toContain('Total Cost');
+    expect(html).toContain('$0.0057');
   });
 });

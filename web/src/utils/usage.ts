@@ -463,13 +463,24 @@ export function calculateCost(detail: UsageDetailRecord, modelPrices: Record<str
     toNumber(detail.tokens.cached_tokens),
     toNumber(detail.tokens.cache_tokens)
   );
-  const promptTokens = Math.max(inputTokens - cachedTokens, 0);
+  // Anthropic 的 input_tokens 已不含 cached（与 OpenAI/Gemini 风格相反），不能再减一次。
+  const promptTokens = isAnthropicStyleProvider(detail.source_type)
+    ? inputTokens
+    : Math.max(inputTokens - cachedTokens, 0);
 
   return (
     (promptTokens / 1_000_000) * pricing.prompt +
     (completionTokens / 1_000_000) * pricing.completion +
     (cachedTokens / 1_000_000) * pricing.cache
   );
+}
+
+// CPA 把 provider 原始口径直接落库；Anthropic 的 input_tokens 不含 cached，其它 provider 都含。
+// 计算成本/缓存率时需要按 source_type 区分公式。
+export function isAnthropicStyleProvider(sourceType: unknown): boolean {
+  if (typeof sourceType !== 'string') return false;
+  const value = sourceType.trim().toLowerCase();
+  return value === 'claude' || value === 'anthropic';
 }
 
 export function buildCandidateUsageSourceIds({ apiKey, prefix }: { apiKey?: string; prefix?: string }): string[] {

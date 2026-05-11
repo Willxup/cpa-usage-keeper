@@ -1,6 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import i18n, { persistLanguage } from '@/i18n';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -17,6 +16,7 @@ import {
 import { ApiError, fetchStatus, fetchUpdateCheck, fetchUsageAnalysis, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents } from '@/lib/api';
 import type { StatusResponse, UsageAnalysisResponse, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { Select } from '@/components/ui/Select';
 import { IconRefreshCw } from '@/components/ui/icons';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
@@ -413,7 +413,6 @@ const loadUsageTab = (): UsageTab => {
 
 export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const { t } = useTranslation();
-  const currentLanguage = i18n.language === 'zh' ? 'zh' : 'en';
   const isMobile = useMediaQuery('(max-width: 768px)');
   const theme = useThemeStore((state) => state.theme);
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
@@ -978,12 +977,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [eventsModelFilter, eventsModelOptions, eventsResultFilter, eventsSourceFilter, eventsSourceOptions, resetEventsPage]);
 
-  const handleLanguageChange = useCallback(async (language: 'en' | 'zh') => {
-    if (currentLanguage === language) return;
-    await i18n.changeLanguage(language);
-    persistLanguage(language);
-  }, [currentLanguage]);
-
   const lastSyncAt = useMemo(() => {
     if (!status?.last_run_at) return null;
     const parsed = new Date(status.last_run_at);
@@ -1096,26 +1089,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             <span className={styles.eyebrow}>CPA Usage Keeper</span>
           </div>
           <div className={styles.topBarActions}>
-            <div className={styles.languageSwitcher} role="group" aria-label={t('usage_stats.language_switch')}>
-              <button
-                type="button"
-                className={`${styles.languagePill} ${currentLanguage === 'en' ? styles.languagePillActive : ''}`.trim()}
-                onClick={() => void handleLanguageChange('en')}
-                aria-pressed={currentLanguage === 'en'}
-                title={t('usage_stats.language_switch')}
-              >
-                EN
-              </button>
-              <button
-                type="button"
-                className={`${styles.languagePill} ${currentLanguage === 'zh' ? styles.languagePillActive : ''}`.trim()}
-                onClick={() => void handleLanguageChange('zh')}
-                aria-pressed={currentLanguage === 'zh'}
-                title={t('usage_stats.language_switch')}
-              >
-                中
-              </button>
-            </div>
+            <LanguageSwitcher />
             <div className={styles.themeSwitcher} role="tablist" aria-label={t('usage_stats.theme_switch')}>
               {themeOptions.map((option) => {
                 const active = theme === option.value;
@@ -1401,6 +1375,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   modelFilter={eventsModelFilter}
                   sourceFilter={eventsSourceFilter}
                   resultFilter={eventsResultFilter}
+                  modelPrices={modelPrices}
                   onPageChange={setEventsPage}
                   onPageSizeChange={handleEventsPageSizeChange}
                   onModelFilterChange={handleEventsModelFilterChange}

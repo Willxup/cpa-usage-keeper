@@ -3,14 +3,18 @@ import { initReactI18next } from 'react-i18next';
 
 const LANGUAGE_STORAGE_KEY = 'cpa-usage-keeper-language';
 const DEFAULT_LANGUAGE = 'en';
-const SUPPORTED_LANGUAGES = ['en', 'zh'] as const;
+export const SUPPORTED_LANGUAGES = ['en', 'zh', 'zh-TW'] as const;
 
-type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
+export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
+
+export const isSupportedLanguage = (language: string | null): language is SupportedLanguage => (
+  SUPPORTED_LANGUAGES.includes(language as SupportedLanguage)
+);
 
 const getInitialLanguage = (): SupportedLanguage => {
   if (typeof window === 'undefined') return DEFAULT_LANGUAGE;
   const saved = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
-  return saved === 'zh' ? 'zh' : DEFAULT_LANGUAGE;
+  return isSupportedLanguage(saved) ? saved : DEFAULT_LANGUAGE;
 };
 
 const resources = {
@@ -441,6 +445,219 @@ const resources = {
         model_stats_eyebrow: '模型视图'
       }
     }
+  },
+  'zh-TW': {
+    translation: {
+      common: {
+        loading: '載入中...',
+        save: '儲存',
+        cancel: '取消',
+        edit: '編輯',
+        delete: '刪除',
+        close: '關閉'
+      },
+      notification: {
+        download_failed: '下載失敗',
+        upload_failed: '上傳失敗',
+        refresh_failed: '重新整理失敗'
+      },
+      status_bar: {
+        success_short: '成功',
+        failure_short: '失敗',
+        no_requests: '尚無請求'
+      },
+      auth: {
+        login_title: '受保護的 Usage 存取',
+        login_subtitle: '請輸入已設定的登入密碼後，再進入 usage dashboard。',
+        password_label: '登入密碼',
+        password_placeholder: '請輸入密碼',
+        login_submit: '繼續進入',
+        invalid_password: '密碼錯誤',
+        login_failed: '目前無法完成登入',
+        session_expired: '登入狀態已失效，請重新登入。'
+      },
+      usage_stats: {
+        title: '用量',
+        refresh: '重新整理',
+        sync_now: '立即同步',
+        check_updates: '檢查更新',
+        update_check_dev_build: '目前是開發版本，暫時無法比較更新。',
+        update_check_new_version: '發現新版本：{{version}}',
+        update_check_latest: '目前已經是最新版本。',
+        update_check_failed: '暫時無法檢查更新，請稍後再試。',
+        dismiss_notice: '關閉',
+        export: '匯出',
+        import: '匯入',
+        export_success: '用量已匯出',
+        import_invalid: '匯入檔案無效',
+        import_success: '匯入完成：新增 {{added}}，略過 {{skipped}}，總計 {{total}}，失敗 {{failed}}',
+        last_updated: '最近更新',
+        tabs_aria_label: '用量頁面分區',
+        tab_overview: '總覽',
+        tab_analysis: 'API 與模型',
+        tab_events: '請求事件',
+        tab_credentials: '憑證',
+        tab_pricing: '定價',
+        range_filter: '範圍',
+        range_all: '全部',
+        range_4h: '4 小時',
+        range_8h: '8 小時',
+        range_12h: '12 小時',
+        range_24h: '24 小時',
+        range_today: '今天',
+        range_7d: '7 天',
+        range_30d: '30 天',
+        range_custom: '自訂',
+        custom_start: '開始日期',
+        custom_end: '結束日期',
+        custom_invalid: '開始日期不能晚於結束日期',
+        custom_incomplete: '請選擇完整的開始與結束日期',
+        no_data: '尚無資料',
+        requests_trend: '請求趨勢',
+        tokens_trend: 'Token 趨勢',
+        by_hour: '按小時',
+        by_day: '按天',
+        total_requests: '請求總數',
+        success_requests: '成功',
+        failed_requests: '失敗',
+        avg_time: '平均耗時',
+        total_time: '總耗時',
+        time: '耗時',
+        total_tokens: 'Token 總數',
+        cache_rate: '快取率',
+        cached_tokens: '快取',
+        reasoning_tokens: '推理',
+        rpm: 'RPM',
+        tpm: 'TPM',
+        rpm_30m: 'RPM（30 分鐘）',
+        tpm_30m: 'TPM（30 分鐘）',
+        total_cost: '總成本',
+        cost_need_price: '請先設定價格以計算成本',
+        cost_no_data: '尚無成本資料',
+        latency_unit_hint: '使用 {{field}}，單位 {{unit}}',
+        duration_unit_ms: '毫秒',
+        duration_unit_s: '秒',
+        duration_unit_m: '分鐘',
+        duration_unit_h: '小時',
+        duration_unit_d: '天',
+        filter_all: '全部',
+        clear_filters: '清除篩選',
+        export_csv: '匯出 CSV',
+        export_json: '匯出 JSON',
+        request_events_title: '請求事件記錄',
+        request_events_eyebrow: '事件流',
+        request_events_subtitle: '篩選、查看並匯出頁面中各項彙總資料背後的原始請求事件。',
+        request_events_showing: '顯示 {{shown}} / {{total}}',
+        request_events_filtered: '已篩選 {{count}} 筆',
+        request_events_filter_model: '模型',
+        request_events_filter_source: '來源',
+        request_events_filter_result: '結果',
+        request_events_filter_auth_index: '憑證',
+        request_events_empty_title: '尚無請求事件',
+        request_events_empty_desc: '開始產生流量後，請求事件會顯示在這裡。',
+        request_events_no_result_title: '沒有符合的請求事件',
+        request_events_no_result_desc: '可以嘗試清除篩選條件或放寬篩選範圍。',
+        request_events_count: '本頁 {{count}} 筆事件',
+        request_events_total_count: '共 {{count}} 筆事件',
+        request_events_rows_per_page: '大小',
+        request_events_page_control: '分頁（{{page}}/{{totalPages}}）',
+        request_events_page_label: '第 {{page}} / {{totalPages}} 頁',
+        request_events_page_empty: '第 0 / 0 頁',
+        request_events_previous_page: '上一頁',
+        request_events_next_page: '下一頁',
+        request_events_timestamp: '時間',
+        request_events_source: '來源',
+        request_events_auth_index: '憑證',
+        request_events_result: '結果',
+        model_name: '模型',
+        source_name: '來源',
+        auth_index: '認證索引',
+        result: '結果',
+        success: '成功',
+        failure: '失敗',
+        deleted: '已刪除',
+        requests_count: '請求數',
+        tokens_count: 'Token 數',
+        input_tokens: '輸入',
+        output_tokens: '輸出',
+        latency: '延遲',
+        credential_stats: '憑證統計',
+        credential_name: '憑證',
+        credentials_count: '{{count}} 個憑證',
+        credentials_auth_files_eyebrow: '憑證',
+        credentials_auth_files_title: '認證檔案',
+        credentials_auth_files_subtitle: '查看本機認證檔案的請求活動與限額狀態。',
+        credentials_auth_files_empty: '目前頁面沒有認證檔案憑證。',
+        credentials_ai_providers_eyebrow: '憑證',
+        credentials_ai_providers_title: 'AI 供應商',
+        credentials_ai_providers_subtitle: '查看 AI 供應商的請求活動。',
+        credentials_ai_providers_empty: '目前頁面沒有 AI 供應商憑證。',
+        credentials_quota_refresh_current_page: '更新限額',
+        credentials_quota_refreshing: '正在重新整理限額',
+        credentials_quota_loading: '正在查詢限額',
+        credentials_quota_unavailable: '暫無限額資料',
+        credentials_quota_remaining: '剩餘 {{count}}',
+        credentials_quota_percent_used: '已用 {{percent}}',
+        credentials_quota_percent_remaining: '剩餘 {{percent}}',
+        credentials_refresh_status: '重新整理',
+        credentials_refresh_status_queued: '排隊中',
+        credentials_refresh_status_running: '執行中',
+        credentials_refresh_status_completed: '已完成',
+        credentials_refresh_status_failed: '失敗',
+        credentials_last_used: '最後使用',
+        credentials_stats_updated: '統計更新',
+        previous_page: '上一頁',
+        next_page: '下一頁',
+        success_count: '成功',
+        failure_count: '失敗',
+        success_rate: '成功率',
+        api_details: 'API 詳細資料',
+        api_endpoint: 'API',
+        model_stats: '模型統計',
+        model_price_settings: '價格設定',
+        model_price_settings_title: '模型價格表',
+        model_price_settings_subtitle: '維護後端定價，讓 token 活動可以換算成成本分析。',
+        model_price_settings_eyebrow: '定價',
+        model_price_select_placeholder: '選擇模型',
+        model_price_configured: '已設定',
+        model_price_prompt: '輸入',
+        model_price_completion: '輸出',
+        model_price_cache: '快取',
+        saved_prices: '已儲存價格',
+        model_price_empty: '尚無已儲存價格',
+        token_breakdown: 'Token 組成',
+        token_breakdown_title: 'Token 組成',
+        cost_trend: '成本趨勢',
+        cost_trend_title: '成本趨勢',
+        service_health: '服務健康',
+        service_health_title: '請求健康時間軸',
+        service_health_subtitle: '用緊湊的可靠性條帶呈現目前篩選範圍內的請求結果，時間軸最多顯示 7 天細節。',
+        service_health_eyebrow: '穩定性',
+        service_health_window: '最近 7 天',
+        service_health_oldest: '最早',
+        service_health_newest: '最新',
+        service_health_block_label: '{{timeRange}}：{{summary}}',
+        healthy: '健康',
+        unhealthy: '異常',
+        chart_line_title: '圖表線條選擇',
+        chart_line_add: '新增線條',
+        chart_line_delete: '刪除',
+        chart_line_hint: '選擇你希望在趨勢圖中對比顯示的模型線條。',
+        chart_line_label: '線條 {{index}}',
+        chart_line_all_traffic: '全部流量',
+        theme_light: '淺色',
+        theme_dark: '深色',
+        theme_auto: '自動',
+        theme_switch: '主題切換',
+        language_switch: '語言切換',
+        api_details_title: 'API 用量拆分',
+        api_details_subtitle: '對比不同 API 面的請求量、Token 負載和預估成本。',
+        api_details_eyebrow: 'API 視圖',
+        model_stats_title: '模型表現表',
+        model_stats_subtitle: '按模型查看吞吐、延遲、穩定性與成本分布。',
+        model_stats_eyebrow: '模型視圖'
+      }
+    }
   }
 };
 
@@ -453,9 +670,9 @@ if (!i18n.isInitialized) {
   });
 }
 
-export const persistLanguage = (language: string) => {
+export const persistLanguage = (language: SupportedLanguage) => {
   if (typeof window === 'undefined') return;
-  if (!SUPPORTED_LANGUAGES.includes(language as SupportedLanguage)) return;
+  if (!isSupportedLanguage(language)) return;
   window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
 };
 

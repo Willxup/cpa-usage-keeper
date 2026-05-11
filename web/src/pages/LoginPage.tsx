@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import styles from './LoginPage.module.scss';
 
 interface LoginPageProps {
@@ -23,6 +24,9 @@ export function LoginPage({ loading = false, error = '', onSubmit }: LoginPagePr
   return (
     <div className={styles.pageShell}>
       <div className={styles.frame}>
+        <div className={styles.languageDock}>
+          <LanguageSwitcher />
+        </div>
         <div className={styles.brandBlock}>
           <span className={styles.eyebrow}>CPA Usage Keeper</span>
           <h1 className={styles.title}>{t('auth.login_title')}</h1>

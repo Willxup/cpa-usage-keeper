@@ -7,10 +7,13 @@ import { Select } from '@/components/ui/Select';
 import type { UsageEvent, UsageSourceFilterOption } from '@/lib/types';
 import {
   calculateCacheHitRatePercent,
+  calculateCost,
   formatDurationMs,
   formatPercentValue,
+  formatUsd,
   LATENCY_SOURCE_FIELD,
-  normalizeAuthIndex
+  normalizeAuthIndex,
+  type ModelPrice,
 } from '@/utils/usage';
 import { downloadBlob } from '@/utils/download';
 import styles from '@/pages/UsagePage.module.scss';
@@ -49,6 +52,8 @@ type RequestEventRow = {
   cachedTokens: number;
   cacheHitRate: number;
   totalTokens: number;
+  cost: number;
+  hasPrice: boolean;
 };
 
 export interface RequestEventsDetailsCardProps {
@@ -64,6 +69,7 @@ export interface RequestEventsDetailsCardProps {
   modelFilter: string;
   sourceFilter: string;
   resultFilter: string;
+  modelPrices: Record<string, ModelPrice>;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
   onModelFilterChange: (model: string) => void;
@@ -107,6 +113,7 @@ export function RequestEventsDetailsCard({
   modelFilter,
   sourceFilter,
   resultFilter,
+  modelPrices,
   onPageChange,
   onPageSizeChange,
   onModelFilterChange,
@@ -140,6 +147,24 @@ export function RequestEventsDetailsCard({
       const cacheHitRate = calculateCacheHitRatePercent({ cachedTokens, inputTokens });
       const totalTokens = Math.max(toNumber(event.tokens?.total_tokens), 0);
       const latencyMs = Number.isFinite(event.latency_ms) ? event.latency_ms : null;
+      const pricing = modelPrices[model];
+      const cost = calculateCost({
+        timestamp,
+        source,
+        source_raw: sourceRaw,
+        source_type: sourceType,
+        auth_index: authIndex,
+        failed: event.failed === true,
+        latency_ms: latencyMs ?? 0,
+        tokens: {
+          input_tokens: inputTokens,
+          output_tokens: outputTokens,
+          reasoning_tokens: reasoningTokens,
+          cached_tokens: cachedTokens,
+          total_tokens: totalTokens,
+        },
+        __modelName: model,
+      }, modelPrices);
 
       return {
         id: event.id ? String(event.id) : `${timestamp}-${model}-${sourceRaw || source}-${authIndex}-${index}`,
@@ -160,9 +185,11 @@ export function RequestEventsDetailsCard({
         cachedTokens,
         cacheHitRate,
         totalTokens,
+        cost,
+        hasPrice: Boolean(pricing),
       };
     });
-  }, [events, i18n.language]);
+  }, [events, i18n.language, modelPrices]);
 
   const hasLatencyData = useMemo(() => rows.some((row) => row.latencyMs !== null), [rows]);
 
@@ -249,6 +276,7 @@ export function RequestEventsDetailsCard({
       'cached_tokens',
       'cache_hit_rate',
       'total_tokens',
+      'cost_usd',
     ];
 
     const csvRows = rows.map((row) =>
@@ -266,6 +294,7 @@ export function RequestEventsDetailsCard({
         row.cachedTokens,
         row.cacheHitRate,
         row.totalTokens,
+        row.hasPrice ? row.cost.toFixed(6) : '',
       ]
         .map((value) => encodeCsv(value))
         .join(',')
@@ -298,6 +327,7 @@ export function RequestEventsDetailsCard({
         cache_hit_rate: row.cacheHitRate,
         total_tokens: row.totalTokens,
       },
+      ...(row.hasPrice ? { cost_usd: Number(row.cost.toFixed(6)) } : {}),
     }));
 
     const content = JSON.stringify(payload, null, 2);
@@ -446,6 +476,7 @@ export function RequestEventsDetailsCard({
                   <th>{t('usage_stats.cached_tokens')}</th>
                   <th>{t('usage_stats.cache_hit_rate')}</th>
                   <th>{t('usage_stats.total_tokens')}</th>
+                  <th>{t('usage_stats.total_cost')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -490,6 +521,9 @@ export function RequestEventsDetailsCard({
                     <td>{row.cachedTokens.toLocaleString()}</td>
                     <td>{formatPercentValue(row.cacheHitRate)}</td>
                     <td>{row.totalTokens.toLocaleString()}</td>
+                    <td title={row.hasPrice ? undefined : t('usage_stats.cost_need_price')}>
+                      {row.hasPrice ? formatUsd(row.cost) : '-'}
+                    </td>
                   </tr>
                 ))}
               </tbody>
