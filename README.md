@@ -6,7 +6,10 @@
 
 它依赖 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI) 作为后端 CPA 数据来源，目标是在 CPA 之上补充持久化存储与统计分析能力。服务会从 CPA Redis usage 队列消费事件并写入 SQLite，定时拉取 CPA metadata，暴露聚合 API，并提供内置 Web Dashboard 用于查看 usage、pricing、request health 和 model/API 维度的统计信息。
 
-![cpa-usage-keeper-screenshot](https://images.bitskyline.com/i/2026/05/1pmg6l.png)
+<p float="left">
+  <img src="https://images.bitskyline.com/i/2026/05/3lgvpz.png" width="49%" />
+  <img src="https://images.bitskyline.com/i/2026/05/3lgenc.png" width="49%" />
+</p>
 
 ## 功能特性
 

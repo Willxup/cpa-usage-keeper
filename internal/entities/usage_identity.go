@@ -22,20 +22,11 @@ type UsageIdentity struct {
 	LookupKey    string
 	Prefix       string
 	AccountID    *string
+	ProjectID    *string
 
 	ActiveStart *time.Time
 	ActiveUntil *time.Time
 	PlanType    *string
-
-	LimitReached                *bool
-	PrimaryWindowUsedPercent    *int
-	PrimaryWindowLimitSeconds   *int
-	PrimaryWindowResetSeconds   *int
-	PrimaryWindowResetAt        *time.Time
-	SecondaryWindowUsedPercent  *int
-	SecondaryWindowLimitSeconds *int
-	SecondaryWindowResetSeconds *int
-	SecondaryWindowResetAt      *time.Time
 
 	TotalRequests   int64
 	SuccessCount    int64

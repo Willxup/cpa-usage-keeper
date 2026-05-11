@@ -1,6 +1,7 @@
 package cpa
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"cpa-usage-keeper/internal/cpa/dto/apicall"
 	"cpa-usage-keeper/internal/cpa/dto/providerconfig"
 	"cpa-usage-keeper/internal/cpa/dto/response"
 )
@@ -23,6 +25,10 @@ type Client struct {
 }
 
 func (c *Client) doJSONRequest(ctx context.Context, path string, target any, kind string, configure func(*http.Request)) (int, []byte, error) {
+	return c.doJSONRequestWithBody(ctx, http.MethodGet, path, nil, target, kind, configure)
+}
+
+func (c *Client) doJSONRequestWithBody(ctx context.Context, method string, path string, body []byte, target any, kind string, configure func(*http.Request)) (int, []byte, error) {
 	if c == nil {
 		return 0, nil, fmt.Errorf("cpa client is nil")
 	}
@@ -30,7 +36,7 @@ func (c *Client) doJSONRequest(ctx context.Context, path string, target any, kin
 		return 0, nil, fmt.Errorf("cpa base url is required")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(body))
 	if err != nil {
 		return 0, nil, fmt.Errorf("build %s request: %w", kind, err)
 	}
@@ -44,18 +50,18 @@ func (c *Client) doJSONRequest(ctx context.Context, path string, target any, kin
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return resp.StatusCode, nil, fmt.Errorf("read %s response: %w", kind, err)
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return resp.StatusCode, body, fmt.Errorf("%s request returned status %d", kind, resp.StatusCode)
+		return resp.StatusCode, responseBody, fmt.Errorf("%s request returned status %d", kind, resp.StatusCode)
 	}
-	if err := json.Unmarshal(body, target); err != nil {
-		return resp.StatusCode, body, fmt.Errorf("decode %s json: %w", kind, err)
+	if err := json.Unmarshal(responseBody, target); err != nil {
+		return resp.StatusCode, responseBody, fmt.Errorf("decode %s json: %w", kind, err)
 	}
-	return resp.StatusCode, body, nil
+	return resp.StatusCode, responseBody, nil
 }
 
 func (c *Client) doManagementJSONRequest(ctx context.Context, path string, target any, kind string) (int, []byte, error) {
@@ -67,6 +73,23 @@ func (c *Client) doManagementJSONRequest(ctx context.Context, path string, targe
 	}
 	return c.doJSONRequest(ctx, path, target, "management "+kind, func(req *http.Request) {
 		req.Header.Set("Authorization", "Bearer "+c.managementKey)
+	})
+}
+
+func (c *Client) doManagementJSONPostRequest(ctx context.Context, path string, requestBody any, target any, kind string) (int, []byte, error) {
+	if c == nil {
+		return 0, nil, fmt.Errorf("cpa client is nil")
+	}
+	if c.managementKey == "" {
+		return 0, nil, fmt.Errorf("cpa management key is required")
+	}
+	body, err := json.Marshal(requestBody)
+	if err != nil {
+		return 0, nil, fmt.Errorf("encode management %s json: %w", kind, err)
+	}
+	return c.doJSONRequestWithBody(ctx, http.MethodPost, path, body, target, "management "+kind, func(req *http.Request) {
+		req.Header.Set("Authorization", "Bearer "+c.managementKey)
+		req.Header.Set("Content-Type", "application/json")
 	})
 }
 
@@ -139,6 +162,15 @@ func (c *Client) FetchAuthFiles(ctx context.Context) (*response.AuthFilesResult,
 	statusCode, body, err := c.doManagementJSONRequest(ctx, cpaManagementAuthFilesEndpoint, &result.Payload, "auth files")
 	result.StatusCode = statusCode
 	result.Body = body
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (c *Client) CallManagementAPI(ctx context.Context, request apicall.Request) (*apicall.Response, error) {
+	result := &apicall.Response{}
+	_, _, err := c.doManagementJSONPostRequest(ctx, cpaManagementAPICallEndpoint, request, result, "api call")
 	if err != nil {
 		return result, err
 	}

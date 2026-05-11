@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/poller"
+	"cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/service"
 	"cpa-usage-keeper/internal/updatecheck"
 	"cpa-usage-keeper/internal/version"
@@ -48,6 +49,18 @@ type SyncRunner interface {
 	SyncNow(ctx context.Context) error
 }
 
+type QuotaProvider interface {
+	Check(context.Context, quota.CheckRequest) (quota.CheckResponse, error)
+	GetCachedQuota(context.Context, quota.CacheRequest) (quota.CacheResponse, error)
+	Refresh(context.Context, quota.RefreshRequest) (quota.RefreshResponse, error)
+	GetRefreshTask(context.Context, string) (quota.RefreshTaskResponse, error)
+}
+
+type OptionalProviders struct {
+	UsageIdentity service.UsageIdentityProvider
+	Quota         QuotaProvider
+}
+
 type syncUserMessageError interface {
 	UserMessage() string
 }
@@ -60,7 +73,7 @@ func NewRouter(
 	authConfig AuthConfig,
 	authHandler *authHandler,
 	basePath string,
-	usageIdentityProviders ...service.UsageIdentityProvider,
+	optionalProviders ...OptionalProviders,
 ) *gin.Engine {
 	router := gin.New()
 	_ = router.SetTrustedProxies(nil)
@@ -81,8 +94,10 @@ func NewRouter(
 	authHandler.registerRoutes(authGroup)
 
 	var usageIdentityProvider service.UsageIdentityProvider
-	if len(usageIdentityProviders) > 0 {
-		usageIdentityProvider = usageIdentityProviders[0]
+	var quotaProvider QuotaProvider
+	if len(optionalProviders) > 0 {
+		usageIdentityProvider = optionalProviders[0].UsageIdentity
+		quotaProvider = optionalProviders[0].Quota
 	}
 
 	protected := apiV1.Group("")
@@ -95,6 +110,7 @@ func NewRouter(
 	registerUsageEventsRoute(protected, usageProvider, usageIdentityProvider)
 	registerUsageIdentityRoutes(protected, usageIdentityProvider)
 	registerPricingRoutes(protected, pricingProvider)
+	registerQuotaRoutes(protected, quotaProvider)
 
 	if staticFS != nil {
 		if indexFile, err := staticFS.Open("index.html"); err == nil {

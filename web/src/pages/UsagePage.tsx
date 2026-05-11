@@ -14,8 +14,8 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { ApiError, fetchStatus, fetchUpdateCheck, fetchUsageAnalysis, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities } from '@/lib/api';
-import type { StatusResponse, UsageAnalysisResponse, UsageEvent, UsageIdentity, UsageSourceFilterOption } from '@/lib/types';
+import { ApiError, fetchStatus, fetchUpdateCheck, fetchUsageAnalysis, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents } from '@/lib/api';
+import type { StatusResponse, UsageAnalysisResponse, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Select } from '@/components/ui/Select';
 import { IconRefreshCw } from '@/components/ui/icons';
@@ -29,8 +29,8 @@ import {
   ApiDetailsCard,
   ModelStatsCard,
   PriceSettingsCard,
-  CredentialStatsCard,
-  CredentialTopChartCard,
+  AuthFileCredentialsSection,
+  AiProviderCredentialsSection,
   RequestEventsDetailsCard,
   TokenBreakdownChart,
   CostTrendChart,
@@ -38,7 +38,8 @@ import {
   useUsageData,
   usePricingData,
   useSparklines,
-  useChartData
+  useChartData,
+  useCredentialsTabData
 } from '@/components/usage';
 import {
   getModelNamesFromUsage,
@@ -93,7 +94,7 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'dark', labelKey: 'usage_stats.theme_dark' },
   { value: 'auto', labelKey: 'usage_stats.theme_auto' }
 ];
-const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'credentials', 'pricing'] as const;
+const USAGE_TAB_OPTIONS = ['overview', 'credentials', 'events', 'analysis', 'pricing'] as const;
 type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];
 type Translate = (key: string) => string;
 const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
@@ -471,10 +472,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const eventsRequestControllerRef = useRef<AbortController | null>(null);
   const eventsFilterOptionsRequestControllerRef = useRef<AbortController | null>(null);
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
-  const [credentialsLoading, setCredentialsLoading] = useState(false);
-  const [credentialsError, setCredentialsError] = useState('');
-  const [credentialsData, setCredentialsData] = useState<UsageIdentity[]>([]);
-  const credentialsRequestControllerRef = useRef<AbortController | null>(null);
+  const credentialsData = useCredentialsTabData({
+    enabled: activeTab === 'credentials',
+    onAuthRequired,
+  });
+  const refreshCredentials = credentialsData.refresh;
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
   const [analysisData, setAnalysisData] = useState<UsageAnalysisResponse>({ apis: [], models: [] });
@@ -695,7 +697,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     if (!shouldShowUpdateCheckButton(status)) {
       setHasNewVersion(false);
     }
-  }, [status?.updateCheckEnabled]);
+  }, [status]);
 
   useEffect(() => () => {
     if (updateCheckNoticeTimerRef.current !== null) {
@@ -835,48 +837,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     resetEventsPage();
   }, [resetEventsPage]);
 
-  const loadCredentials = useCallback(async () => {
-    credentialsRequestControllerRef.current?.abort();
-    const controller = new AbortController();
-    credentialsRequestControllerRef.current = controller;
-
-    setCredentialsLoading(true);
-    setCredentialsError('');
-    setCredentialsData([]);
-    try {
-      const response = await fetchUsageIdentities(controller.signal);
-      if (credentialsRequestControllerRef.current !== controller) {
-        return;
-      }
-      setCredentialsData(response.identities);
-    } catch (error) {
-      if (controller.signal.aborted) {
-        return;
-      }
-      if (credentialsRequestControllerRef.current === controller) {
-        setCredentialsData([]);
-      }
-      if (error instanceof ApiError && error.status === 401) {
-        onAuthRequired?.();
-        return;
-      }
-      setCredentialsError(error instanceof Error ? error.message : 'Failed to load usage identities');
-    } finally {
-      if (credentialsRequestControllerRef.current === controller) {
-        setCredentialsLoading(false);
-        credentialsRequestControllerRef.current = null;
-      }
-    }
-  }, [onAuthRequired]);
-
   const refreshActiveTab = useCallback(async () => {
     if (activeTab === 'events') {
-      await loadEventFilterOptions();
-      await loadEvents();
+      await Promise.all([loadEventFilterOptions(), loadEvents()]);
       return;
     }
     if (activeTab === 'credentials') {
-      await loadCredentials();
+      await refreshCredentials();
       return;
     }
     if (activeTab === 'analysis') {
@@ -888,7 +855,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       return;
     }
     await loadUsage();
-  }, [activeTab, loadAnalysis, loadCredentials, loadEventFilterOptions, loadEvents, loadPricing, loadUsage]);
+  }, [activeTab, loadAnalysis, loadEventFilterOptions, loadEvents, loadPricing, loadUsage, refreshCredentials]);
 
   const handleManualRefresh = useCallback(async () => {
     setManualRefreshLoading(true);
@@ -971,20 +938,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [activeTab, loadEventFilterOptions, loadEvents]);
 
   useEffect(() => {
-    if (activeTab !== 'credentials') {
-      credentialsRequestControllerRef.current?.abort();
-      credentialsRequestControllerRef.current = null;
-      setCredentialsLoading(false);
-      return;
-    }
-    void loadCredentials();
-    return () => {
-      credentialsRequestControllerRef.current?.abort();
-      credentialsRequestControllerRef.current = null;
-    };
-  }, [activeTab, loadCredentials]);
-
-  useEffect(() => {
     if (activeTab !== 'analysis') {
       analysisRequestControllerRef.current?.abort();
       analysisRequestControllerRef.current = null;
@@ -1036,6 +989,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     const parsed = new Date(status.last_run_at);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }, [status?.last_run_at]);
+  // 只有需要时间范围的 tab 才渲染 Range 控件，避免 Credentials/Pricing 产生空白占位。
   const showRangeControls = shouldShowRangeControls(activeTab);
   const {
     requestsSparkline,
@@ -1265,61 +1219,57 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </div>
 
               <div className={styles.toolbarActionsRight}>
-                <div
-                  className={`${styles.timeRangeGroup} ${!showRangeControls ? styles.timeRangeGroupCollapsed : ''}`.trim()}
-                  aria-hidden={!showRangeControls}
-                >
-                  <span className={styles.timeRangeLabel}>{t('usage_stats.range_filter')}</span>
-                  <Select
-                    value={timeRange}
-                    options={timeRangeOptions}
-                    onChange={(value) => setTimeRange(value as UsageTimeRange)}
-                    className={styles.timeRangeSelectControl}
-                    ariaLabel={t('usage_stats.range_filter')}
-                    fullWidth={false}
-                    disabled={!showRangeControls}
-                  />
-                  <div
-                    className={`${styles.customRangeInline} ${showRangeControls && isCustomRange ? styles.customRangeInlineOpen : ''}`.trim()}
-                    aria-hidden={!showRangeControls || !isCustomRange}
-                  >
-                    <div className={styles.customRangeFields}>
-                      <label className={styles.customRangeField}>
-                        <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_start')}</span>
-                        <input
-                          type="date"
-                          className={`input ${styles.customRangeInput}`}
-                          value={customTimeRange.start}
-                          onChange={(event) =>
-                            setCustomTimeRange((current) => ({
-                              ...current,
-                              start: event.target.value
-                            }))
-                          }
-                          aria-label={t('usage_stats.custom_start')}
-                          disabled={!showRangeControls || !isCustomRange}
-                        />
-                      </label>
-                      <span className={styles.customRangeSeparator} aria-hidden="true">—</span>
-                      <label className={styles.customRangeField}>
-                        <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_end')}</span>
-                        <input
-                          type="date"
-                          className={`input ${styles.customRangeInput}`}
-                          value={customTimeRange.end}
-                          onChange={(event) =>
-                            setCustomTimeRange((current) => ({
-                              ...current,
-                              end: event.target.value
-                            }))
-                          }
-                          aria-label={t('usage_stats.custom_end')}
-                          disabled={!showRangeControls || !isCustomRange}
-                        />
-                      </label>
-                    </div>
+                {showRangeControls && (
+                  <div className={styles.timeRangeGroup}>
+                    <span className={styles.timeRangeLabel}>{t('usage_stats.range_filter')}</span>
+                    <Select
+                      value={timeRange}
+                      options={timeRangeOptions}
+                      onChange={(value) => setTimeRange(value as UsageTimeRange)}
+                      className={styles.timeRangeSelectControl}
+                      ariaLabel={t('usage_stats.range_filter')}
+                      fullWidth={false}
+                    />
+                    {/* 自定义日期只在 Custom 模式挂载，非自定义范围保持工具栏内容宽度。 */}
+                    {isCustomRange && (
+                      <div className={`${styles.customRangeInline} ${styles.customRangeInlineOpen}`.trim()}>
+                        <div className={styles.customRangeFields}>
+                          <label className={styles.customRangeField}>
+                            <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_start')}</span>
+                            <input
+                              type="date"
+                              className={`input ${styles.customRangeInput}`}
+                              value={customTimeRange.start}
+                              onChange={(event) =>
+                                setCustomTimeRange((current) => ({
+                                  ...current,
+                                  start: event.target.value
+                                }))
+                              }
+                              aria-label={t('usage_stats.custom_start')}
+                            />
+                          </label>
+                          <span className={styles.customRangeSeparator} aria-hidden="true">—</span>
+                          <label className={styles.customRangeField}>
+                            <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_end')}</span>
+                            <input
+                              type="date"
+                              className={`input ${styles.customRangeInput}`}
+                              value={customTimeRange.end}
+                              onChange={(event) =>
+                                setCustomTimeRange((current) => ({
+                                  ...current,
+                                  end: event.target.value
+                                }))
+                              }
+                              aria-label={t('usage_stats.custom_end')}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
+                )}
                 {showRangeControls && isCustomRange && customRangeHint && (
                   <span className={styles.customRangeHint}>{customRangeHint}</span>
                 )}
@@ -1462,15 +1412,29 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
             {activeTab === 'credentials' && (
               <>
-                {credentialsError && <div className={styles.errorBox}>{credentialsError}</div>}
-                <CredentialStatsCard
-                  credentials={credentialsData}
-                  loading={credentialsLoading}
-                />
-                <CredentialTopChartCard
-                  credentials={credentialsData}
-                  loading={credentialsLoading}
-                />
+                {credentialsData.error && <div className={styles.errorBox}>{credentialsData.error}</div>}
+                <div className={styles.credentialsSections}>
+                  <AuthFileCredentialsSection
+                    rows={credentialsData.authFileRows}
+                    total={credentialsData.authFileTotal}
+                    page={credentialsData.authFilePage}
+                    totalPages={credentialsData.authFileTotalPages}
+                    loading={credentialsData.loading}
+                    quotaRefreshing={credentialsData.quotaRefreshing}
+                    quotaRefreshError={credentialsData.quotaRefreshError}
+                    onPageChange={credentialsData.setAuthFilePage}
+                    onRefreshQuota={credentialsData.refreshQuotaForCurrentAuthFilePage}
+                    onRefreshQuotaForAuthIndex={credentialsData.refreshQuotaForAuthIndex}
+                  />
+                  <AiProviderCredentialsSection
+                    rows={credentialsData.aiProviderRows}
+                    total={credentialsData.aiProviderTotal}
+                    page={credentialsData.aiProviderPage}
+                    totalPages={credentialsData.aiProviderTotalPages}
+                    loading={credentialsData.loading}
+                    onPageChange={credentialsData.setAiProviderPage}
+                  />
+                </div>
               </>
             )}
 

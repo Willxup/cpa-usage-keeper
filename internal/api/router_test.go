@@ -366,7 +366,7 @@ func TestRootStaticRouteInjectsEmptyBasePath(t *testing.T) {
 
 func TestStaticHTMLResponsesBypassCache(t *testing.T) {
 	staticFS := testStaticFS(t, map[string]string{
-		"index.html": `<html><head><script>window.__APP_BASE_PATH__ = "__APP_BASE_PATH__";</script></head><body>app</body></html>`,
+		"index.html":    `<html><head><script>window.__APP_BASE_PATH__ = "__APP_BASE_PATH__";</script></head><body>app</body></html>`,
 		"assets/app.js": "console.log('ok')",
 	})
 
@@ -382,7 +382,7 @@ func TestStaticHTMLResponsesBypassCache(t *testing.T) {
 
 func TestStaticAssetResponsesUseLongCache(t *testing.T) {
 	staticFS := testStaticFS(t, map[string]string{
-		"index.html": `<html><head><script>window.__APP_BASE_PATH__ = "__APP_BASE_PATH__";</script></head><body>app</body></html>`,
+		"index.html":    `<html><head><script>window.__APP_BASE_PATH__ = "__APP_BASE_PATH__";</script></head><body>app</body></html>`,
 		"assets/app.js": "console.log('ok')",
 	})
 

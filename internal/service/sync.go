@@ -540,6 +540,7 @@ func authFileUsageIdentity(file authfiles.AuthFile) entities.UsageIdentity {
 	if extend, ok := authFileUsageIdentityExtensions[strings.ToLower(strings.TrimSpace(file.Type))]; ok {
 		extend(file, &identity)
 	}
+	identity.ProjectID = resolveAuthFileProjectID(file)
 	return identity
 }
 
@@ -556,13 +557,10 @@ func baseAuthFileUsageIdentity(file authfiles.AuthFile) entities.UsageIdentity {
 
 // Codex 的 ChatGPT id_token 字段只在 type=codex 且字段存在时写入；缺失字段保持 nil，入库后就是 NULL。
 func extendCodexAuthFileUsageIdentity(file authfiles.AuthFile, identity *entities.UsageIdentity) {
-	if file.IDToken == nil {
-		return
-	}
-	identity.AccountID = file.IDToken.AccountID
-	identity.ActiveStart = file.IDToken.ActiveStart
-	identity.ActiveUntil = file.IDToken.ActiveUntil
-	identity.PlanType = file.IDToken.PlanType
+	identity.AccountID = resolveCodexAccountID(file)
+	identity.ActiveStart = resolveCodexActiveStart(file)
+	identity.ActiveUntil = resolveCodexActiveUntil(file)
+	identity.PlanType = resolveCodexPlanType(file)
 }
 
 func fetchProviderMetadata(ctx context.Context, fetcher MetadataFetcher) (providerconfig.ProviderMetadataConfig, []string, error) {

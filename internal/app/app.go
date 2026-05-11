@@ -13,6 +13,7 @@ import (
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/logging"
 	"cpa-usage-keeper/internal/poller"
+	"cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
 	webui "cpa-usage-keeper/web"
@@ -89,11 +90,12 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 
 	usageService := service.NewUsageService(db)
 	usageIdentityService := service.NewUsageIdentityService(db)
-	pricingModelsClient := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)
+	cpaClient := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)
 	if cfg.TLSSkipVerify {
 		logrus.WithField("cpa_base_url", cfg.CPABaseURL).Warn("TLS certificate verification is disabled for CPA and Redis queue connections")
 	}
-	pricingService := service.NewPricingService(db, pricingModelsClient)
+	pricingService := service.NewPricingService(db, cpaClient)
+	quotaService := quota.NewService(db, cpaClient)
 	sessionManager := auth.NewSessionManager(cfg.AuthSessionTTL)
 	authHandler := api.NewAuthHandler(api.AuthConfig{
 		Enabled:       cfg.AuthEnabled,
@@ -123,7 +125,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 			},
 			authHandler,
 			cfg.AppBasePath,
-			usageIdentityService,
+			api.OptionalProviders{UsageIdentity: usageIdentityService, Quota: quotaService},
 		),
 	}, nil
 }

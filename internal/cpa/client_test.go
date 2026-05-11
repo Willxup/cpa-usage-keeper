@@ -3,12 +3,14 @@ package cpa
 import (
 	"context"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"cpa-usage-keeper/internal/cpa/dto/apicall"
 	"cpa-usage-keeper/internal/cpa/dto/response"
 )
 
@@ -77,6 +79,78 @@ func TestFetchAuthFilesParsesCodexIDTokenFields(t *testing.T) {
 	}
 	if file.IDToken.PlanType == nil || *file.IDToken.PlanType != "team" {
 		t.Fatalf("expected plan type to decode, got %+v", file.IDToken.PlanType)
+	}
+}
+
+func TestCallManagementAPIPostsWrappedRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST method, got %s", r.Method)
+		}
+		if r.URL.Path != cpaManagementAPICallEndpoint {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
+			t.Fatalf("expected management Authorization header, got %q", got)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Fatalf("expected JSON content type, got %q", got)
+		}
+
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if body["authIndex"] != "codex-auth" || body["method"] != "GET" || body["url"] != "https://provider.example.com/usage" {
+			t.Fatalf("unexpected api-call body: %#v", body)
+		}
+		header, ok := body["header"].(map[string]any)
+		if !ok || header["Chatgpt-Account-Id"] != "acct_123" {
+			t.Fatalf("unexpected api-call header body: %#v", body["header"])
+		}
+		data, ok := body["data"].(map[string]any)
+		if !ok || data["project"] != "project-123" {
+			t.Fatalf("unexpected api-call data body: %#v", body["data"])
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"statusCode":200,"bodyText":"ok","body":{"remaining":10}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
+	result, err := client.CallManagementAPI(context.Background(), apicall.Request{
+		AuthIndex: "codex-auth",
+		Method:    "GET",
+		URL:       "https://provider.example.com/usage",
+		Header:    map[string]string{"Chatgpt-Account-Id": "acct_123"},
+		Data:      map[string]string{"project": "project-123"},
+	})
+	if err != nil {
+		t.Fatalf("CallManagementAPI returned error: %v", err)
+	}
+	if result.StatusCode != http.StatusOK || result.BodyText != "ok" || string(result.Body) != `{"remaining":10}` {
+		t.Fatalf("unexpected api-call response: %+v", result)
+	}
+}
+
+func TestCallManagementAPIParsesSnakeCaseResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != cpaManagementAPICallEndpoint {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status_code":201,"body_text":"created","body":{"ok":true}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
+	result, err := client.CallManagementAPI(context.Background(), apicall.Request{AuthIndex: "kimi-auth", Method: "GET", URL: "https://provider.example.com/usage"})
+	if err != nil {
+		t.Fatalf("CallManagementAPI returned error: %v", err)
+	}
+	if result.StatusCode != http.StatusCreated || result.BodyText != "created" || string(result.Body) != `{"ok":true}` {
+		t.Fatalf("unexpected snake case api-call response: %+v", result)
 	}
 }
 

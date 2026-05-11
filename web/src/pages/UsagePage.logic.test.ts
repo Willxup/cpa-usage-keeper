@@ -341,9 +341,9 @@ describe('UsagePage tab labels', () => {
 
     expect(labels).toEqual([
       'translated:usage_stats.tab_overview',
-      'translated:usage_stats.tab_analysis',
-      'translated:usage_stats.tab_events',
       'translated:usage_stats.tab_credentials',
+      'translated:usage_stats.tab_events',
+      'translated:usage_stats.tab_analysis',
       'translated:usage_stats.tab_pricing',
     ]);
   });

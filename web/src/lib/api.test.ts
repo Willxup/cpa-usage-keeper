@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, triggerSync } from './api';
+import { fetchUsageQuotaCache, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaCheck, fetchUsageQuotaRefreshTask, refreshUsageQuotas, triggerSync } from './api';
 
 describe('fetchUsageEvents', () => {
   afterEach(() => {
@@ -85,7 +85,7 @@ describe('fetchUsageEvents', () => {
     expect(init).toMatchObject({ credentials: 'include', signal });
   });
 
-  it('loads unified usage identities for credential stats', async () => {
+  it('loads unified usage identities without query params', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
@@ -127,6 +127,125 @@ describe('fetchUsageEvents', () => {
     expect(typeof response.identities[0].auth_type).toBe('number');
     expect(parsed.pathname).toBe('/api/v1/usage/identities');
     expect(parsed.search).toBe('');
+    expect(init).toMatchObject({ credentials: 'include', signal });
+  });
+
+  it('loads paged usage identities for one credential auth type', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ identities: [], total_count: 25, page: 3, page_size: 10, total_pages: 3 }),
+    } as Response);
+    const signal = new AbortController().signal;
+
+    const response = await fetchUsageIdentitiesPage(signal, { authType: 2, page: 3, pageSize: 10 });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(url), 'http://localhost');
+
+    expect(response.total_count).toBe(25);
+    expect(parsed.pathname).toBe('/api/v1/usage/identities/page');
+    expect(parsed.searchParams.get('auth_type')).toBe('2');
+    expect(parsed.searchParams.get('page')).toBe('3');
+    expect(parsed.searchParams.get('page_size')).toBe('10');
+    expect(init).toMatchObject({ credentials: 'include', signal });
+  });
+
+  it('checks quota for a single auth index', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: 'auth-1',
+        quota: [{ key: 'rate_limit.primary_window', label: '5h', remaining: 12 }],
+      }),
+    } as Response);
+    const signal = new AbortController().signal;
+
+    const response = await fetchUsageQuotaCheck('auth-1', signal);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(url), 'http://localhost');
+
+    expect(response.id).toBe('auth-1');
+    expect(response.quota[0].remaining).toBe(12);
+    expect(parsed.pathname).toBe('/api/v1/quota/check');
+    expect(init).toMatchObject({ credentials: 'include', method: 'POST', signal });
+    expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(init?.body).toBe(JSON.stringify({ auth_index: 'auth-1' }));
+  });
+
+  it('loads cached quota for current page auth indexes without refreshing', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        items: [{ id: 'auth-1', quota: [{ key: 'rate_limit.secondary_window', label: 'Weekly', remaining: 12 }] }],
+      }),
+    } as Response);
+    const signal = new AbortController().signal;
+
+    const response = await fetchUsageQuotaCache(['auth-1'], signal);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(url), 'http://localhost');
+
+    expect(response.items[0].id).toBe('auth-1');
+    expect(response.items[0].quota[0].remaining).toBe(12);
+    expect(parsed.pathname).toBe('/api/v1/quota/cache');
+    expect(init).toMatchObject({ credentials: 'include', method: 'POST', signal });
+    expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(init?.body).toBe(JSON.stringify({ auth_indexes: ['auth-1'] }));
+  });
+
+  it('creates quota refresh tasks for current page auth indexes', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        tasks: [{ authIndex: 'auth-1', taskId: 'task-1' }],
+        rejected: [],
+        accepted: 1,
+        skipped: 0,
+        limit: 20,
+      }),
+    } as Response);
+    const signal = new AbortController().signal;
+
+    const response = await refreshUsageQuotas(['auth-1'], signal);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(url), 'http://localhost');
+
+    expect(response.tasks[0]).toEqual({ authIndex: 'auth-1', taskId: 'task-1' });
+    expect(response.limit).toBe(20);
+    expect(parsed.pathname).toBe('/api/v1/quota/refresh');
+    expect(init).toMatchObject({ credentials: 'include', method: 'POST', signal });
+    expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(init?.body).toBe(JSON.stringify({ auth_indexes: ['auth-1'], limit: 20 }));
+  });
+
+  it('loads quota refresh task status', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        taskId: 'task-1',
+        authIndex: 'auth-1',
+        status: 'completed',
+        quota: { id: 'auth-1', quota: [{ key: 'rate_limit.primary_window', label: '5h' }] },
+      }),
+    } as Response);
+    const signal = new AbortController().signal;
+
+    const response = await fetchUsageQuotaRefreshTask('task-1', signal);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(url), 'http://localhost');
+
+    expect(response.status).toBe('completed');
+    expect(response.quota?.id).toBe('auth-1');
+    expect(parsed.pathname).toBe('/api/v1/quota/refresh/task-1');
     expect(init).toMatchObject({ credentials: 'include', signal });
   });
 

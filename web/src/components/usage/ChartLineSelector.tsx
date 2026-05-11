@@ -88,6 +88,7 @@ export function ChartLineSelector({
               value={line}
               options={options}
               onChange={(value) => handleChange(index, value)}
+              className={styles.usagePillControl}
             />
             {chartLines.length > 1 && (
               <Button variant="danger" size="sm" onClick={() => handleRemove(index)}>

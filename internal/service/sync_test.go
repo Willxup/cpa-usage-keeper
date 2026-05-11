@@ -760,6 +760,153 @@ func TestSyncMetadataWritesCodexAuthFileIDTokenFieldsOnlyForCodex(t *testing.T) 
 	}
 }
 
+func TestSyncMetadataWritesCodexAuthFileFieldsFromMetadataAndAttributes(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
+		BaseURL: "https://cpa.example.com",
+		MetadataFetcher: stubMetadataFetcher{authFilesResult: &response.AuthFilesResult{StatusCode: 200, Payload: authfiles.AuthFilesResponse{Files: []authfiles.AuthFile{{
+			AuthIndex: "codex-metadata-snake",
+			Type:      "codex",
+			Provider:  "Codex",
+			Metadata: map[string]any{
+				"id_token": map[string]any{
+					"chatgpt_account_id": "acct-metadata-snake",
+					"plan_type":          "enterprise",
+				},
+			},
+		}, {
+			AuthIndex: "codex-attributes-camel",
+			Type:      "codex",
+			Provider:  "Codex",
+			Attributes: map[string]any{
+				"idToken": map[string]any{
+					"chatgptAccountId": "acct-attributes-camel",
+					"planType":         "business",
+				},
+			},
+		}}}}},
+	})
+
+	if err := service.SyncMetadata(context.Background()); err != nil {
+		t.Fatalf("SyncMetadata returned error: %v", err)
+	}
+	items, err := repository.ListUsageIdentities(context.Background(), db)
+	if err != nil {
+		t.Fatalf("list usage identities: %v", err)
+	}
+	byIdentity := usageIdentitiesByIdentity(items)
+	metadataSnake := byIdentity["codex-metadata-snake"]
+	if metadataSnake.AccountID == nil || *metadataSnake.AccountID != "acct-metadata-snake" || metadataSnake.PlanType == nil || *metadataSnake.PlanType != "enterprise" {
+		t.Fatalf("expected codex metadata fields to persist, got %+v", metadataSnake)
+	}
+	attributesCamel := byIdentity["codex-attributes-camel"]
+	if attributesCamel.AccountID == nil || *attributesCamel.AccountID != "acct-attributes-camel" || attributesCamel.PlanType == nil || *attributesCamel.PlanType != "business" {
+		t.Fatalf("expected codex attribute fields to persist, got %+v", attributesCamel)
+	}
+}
+
+func TestSyncMetadataWritesGeminiCLIProjectIDFromAccountMetadataAndAttributes(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
+		BaseURL: "https://cpa.example.com",
+		MetadataFetcher: stubMetadataFetcher{authFilesResult: &response.AuthFilesResult{StatusCode: 200, Payload: authfiles.AuthFilesResponse{Files: []authfiles.AuthFile{{
+			AuthIndex: "gemini-account",
+			Type:      "gemini-cli",
+			Provider:  "Gemini",
+			Account:   "user@example.com (account-project)",
+		}, {
+			AuthIndex: "gemini-metadata",
+			Type:      "gemini-cli",
+			Provider:  "Gemini",
+			Metadata: map[string]any{
+				"account": "user@example.com (metadata-project)",
+			},
+		}, {
+			AuthIndex: "gemini-attributes",
+			Type:      "gemini-cli",
+			Provider:  "Gemini",
+			Attributes: map[string]any{
+				"account": "user@example.com (attributes-project)",
+			},
+		}}}}},
+	})
+
+	if err := service.SyncMetadata(context.Background()); err != nil {
+		t.Fatalf("SyncMetadata returned error: %v", err)
+	}
+	items, err := repository.ListUsageIdentities(context.Background(), db)
+	if err != nil {
+		t.Fatalf("list usage identities: %v", err)
+	}
+	byIdentity := usageIdentitiesByIdentity(items)
+	if projectID := byIdentity["gemini-account"].ProjectID; projectID == nil || *projectID != "account-project" {
+		t.Fatalf("expected gemini account project to persist, got %+v", byIdentity["gemini-account"])
+	}
+	if projectID := byIdentity["gemini-metadata"].ProjectID; projectID == nil || *projectID != "metadata-project" {
+		t.Fatalf("expected gemini metadata project to persist, got %+v", byIdentity["gemini-metadata"])
+	}
+	if projectID := byIdentity["gemini-attributes"].ProjectID; projectID == nil || *projectID != "attributes-project" {
+		t.Fatalf("expected gemini attributes project to persist, got %+v", byIdentity["gemini-attributes"])
+	}
+}
+
+func TestSyncMetadataWritesAntigravityProjectIDFromProjectMetadataAndAttributes(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
+		BaseURL: "https://cpa.example.com",
+		MetadataFetcher: stubMetadataFetcher{authFilesResult: &response.AuthFilesResult{StatusCode: 200, Payload: authfiles.AuthFilesResponse{Files: []authfiles.AuthFile{{
+			AuthIndex: "antigravity-direct",
+			Type:      "antigravity",
+			Provider:  "Antigravity",
+			ProjectID: "direct-project",
+		}, {
+			AuthIndex:      "antigravity-project-id2",
+			Type:           "antigravity",
+			Provider:       "Antigravity",
+			ProjectIDCamel: "id2-project",
+		}, {
+			AuthIndex: "antigravity-metadata",
+			Type:      "antigravity",
+			Provider:  "Antigravity",
+			Metadata: map[string]any{
+				"installed": map[string]any{
+					"projectId": "installed-project",
+				},
+			},
+		}, {
+			AuthIndex: "antigravity-attributes",
+			Type:      "antigravity",
+			Provider:  "Antigravity",
+			Attributes: map[string]any{
+				"web": map[string]any{
+					"project_id": "web-project",
+				},
+			},
+		}}}}},
+	})
+
+	if err := service.SyncMetadata(context.Background()); err != nil {
+		t.Fatalf("SyncMetadata returned error: %v", err)
+	}
+	items, err := repository.ListUsageIdentities(context.Background(), db)
+	if err != nil {
+		t.Fatalf("list usage identities: %v", err)
+	}
+	byIdentity := usageIdentitiesByIdentity(items)
+	if projectID := byIdentity["antigravity-direct"].ProjectID; projectID == nil || *projectID != "direct-project" {
+		t.Fatalf("expected direct antigravity project to persist, got %+v", byIdentity["antigravity-direct"])
+	}
+	if projectID := byIdentity["antigravity-project-id2"].ProjectID; projectID == nil || *projectID != "id2-project" {
+		t.Fatalf("expected antigravity projectId to persist, got %+v", byIdentity["antigravity-project-id2"])
+	}
+	if projectID := byIdentity["antigravity-metadata"].ProjectID; projectID == nil || *projectID != "installed-project" {
+		t.Fatalf("expected antigravity metadata project to persist, got %+v", byIdentity["antigravity-metadata"])
+	}
+	if projectID := byIdentity["antigravity-attributes"].ProjectID; projectID == nil || *projectID != "web-project" {
+		t.Fatalf("expected antigravity attribute project to persist, got %+v", byIdentity["antigravity-attributes"])
+	}
+}
+
 func TestSyncMetadataWritesProviderMetadataToUsageIdentities(t *testing.T) {
 	db := openSyncTestDatabase(t)
 	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
@@ -1132,6 +1279,10 @@ func equivalentRedisMessage(apiGroupKey, model string, timestamp time.Time, sour
 
 func int64String(value int64) string {
 	return strconv.FormatInt(value, 10)
+}
+
+func strPtr(value string) *string {
+	return &value
 }
 
 func usageIdentitiesByIdentity(items []entities.UsageIdentity) map[string]entities.UsageIdentity {

@@ -1,7 +1,6 @@
 package migration
 
 import (
-	"database/sql"
 	"path/filepath"
 	"testing"
 
@@ -61,33 +60,10 @@ func TestAddUsageIdentityMetadataFieldsMigrationAddsNullableColumns(t *testing.T
 		"active_start",
 		"active_until",
 		"plan_type",
-		"limit_reached",
-		"primary_window_used_percent",
-		"primary_window_limit_seconds",
-		"primary_window_reset_seconds",
-		"primary_window_reset_at",
-		"secondary_window_used_percent",
-		"secondary_window_limit_seconds",
-		"secondary_window_reset_seconds",
-		"secondary_window_reset_at",
 	}
 	for _, column := range newColumns {
 		if !db.Migrator().HasColumn(&entities.UsageIdentity{}, column) {
 			t.Fatalf("expected usage_identities.%s column to exist", column)
 		}
-	}
-
-	var limitReached sql.NullBool
-	var primaryUsed sql.NullInt64
-	var primaryResetAt sql.NullTime
-	err = db.Raw(`
-		SELECT limit_reached, primary_window_used_percent, primary_window_reset_at
-		FROM usage_identities
-		WHERE identity = ?`, "legacy-auth").Row().Scan(&limitReached, &primaryUsed, &primaryResetAt)
-	if err != nil {
-		t.Fatalf("scan added nullable fields: %v", err)
-	}
-	if limitReached.Valid || primaryUsed.Valid || primaryResetAt.Valid {
-		t.Fatalf("expected reserved fields to default NULL, got limit=%+v used=%+v reset=%+v", limitReached, primaryUsed, primaryResetAt)
 	}
 }

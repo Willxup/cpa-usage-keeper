@@ -6,7 +6,10 @@ CPA Usage Keeper is a standalone CPA usage persistence and dashboard service.
 
 It relies on [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) as the backend CPA data source and adds persistent storage and statistical analysis capabilities on top of CPA. The service consumes events from the CPA Redis usage queue into SQLite, periodically pulls CPA metadata, exposes aggregation APIs, and serves a built-in web dashboard for usage, pricing, request health, and model/API statistics.
 
-![cpa-usage-keeper-screenshot](https://images.bitskyline.com/i/2026/05/1pmg6l.png)
+<p float="left">
+  <img src="https://images.bitskyline.com/i/2026/05/3lgvpz.png" width="49%" />
+  <img src="https://images.bitskyline.com/i/2026/05/3lgenc.png" width="49%" />
+</p>
 
 ## Features
 
