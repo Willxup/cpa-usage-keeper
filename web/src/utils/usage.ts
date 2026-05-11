@@ -271,15 +271,20 @@ export function formatPerMinuteValue(value: number): string {
 
 export function calculateCacheHitRatePercent({
   cachedTokens,
-  inputTokens
+  inputTokens,
+  sourceType
 }: {
   cachedTokens: number;
   inputTokens: number;
+  sourceType?: unknown;
 }): number {
-  const safeInputTokens = Math.max(toNumber(inputTokens), 0);
-  if (safeInputTokens <= 0) return 0;
-  const safeCachedTokens = Math.max(toNumber(cachedTokens), 0);
-  return (safeCachedTokens / safeInputTokens) * 100;
+  const normalizedInputTokens = Math.max(toNumber(inputTokens), 0);
+  const normalizedCachedTokens = Math.max(toNumber(cachedTokens), 0);
+  const denominator = isAnthropicStyleProvider(sourceType)
+    ? normalizedInputTokens + normalizedCachedTokens
+    : normalizedInputTokens;
+  if (denominator <= 0) return 0;
+  return (normalizedCachedTokens / denominator) * 100;
 }
 
 export function formatPercentValue(value: number): string {

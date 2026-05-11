@@ -156,6 +156,24 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('<td>20</td><td>20%</td><td>200</td>');
   });
 
+  it('uses provider-aware cache hit rate for Anthropic-style events', () => {
+    const html = renderCard({
+      events: [{
+        ...events[0],
+        source_type: 'anthropic',
+        tokens: {
+          input_tokens: 400,
+          output_tokens: 100,
+          reasoning_tokens: 0,
+          cached_tokens: 600,
+          total_tokens: 1100,
+        },
+      }],
+    });
+
+    expect(html).toContain('<td>600</td><td>60%</td><td>1,100</td>');
+  });
+
   it('shows per-event cost when model pricing exists', () => {
     const html = renderCard({
       modelPrices: {

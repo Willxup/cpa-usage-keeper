@@ -144,7 +144,7 @@ export function RequestEventsDetailsCard({
       const outputTokens = Math.max(toNumber(event.tokens?.output_tokens), 0);
       const reasoningTokens = Math.max(toNumber(event.tokens?.reasoning_tokens), 0);
       const cachedTokens = Math.max(toNumber(event.tokens?.cached_tokens), 0);
-      const cacheHitRate = calculateCacheHitRatePercent({ cachedTokens, inputTokens });
+      const cacheHitRate = calculateCacheHitRatePercent({ cachedTokens, inputTokens, sourceType });
       const totalTokens = Math.max(toNumber(event.tokens?.total_tokens), 0);
       const latencyMs = Number.isFinite(event.latency_ms) ? event.latency_ms : null;
       const pricing = modelPrices[model];

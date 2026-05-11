@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildChartData, buildUsageFromDetails, calculateCost, filterUsageByWindow, filterUsageSnapshot, resolveUsageFilterWindow, sanitizeChartLines } from '@/utils/usage';
+import { buildChartData, buildUsageFromDetails, calculateCacheHitRatePercent, calculateCost, filterUsageByWindow, filterUsageSnapshot, resolveUsageFilterWindow, sanitizeChartLines } from '@/utils/usage';
 import type { UsageSnapshot } from '@/lib/types';
 
 afterEach(() => {
@@ -205,6 +205,24 @@ describe('resolveUsageFilterWindow', () => {
 describe('sanitizeChartLines', () => {
   it('falls back to all when persisted lines no longer exist in the current overview payload', () => {
     expect(sanitizeChartLines(['stale-model'], ['gpt-5.4', 'gpt-5.4-mini'])).toEqual(['all']);
+  });
+});
+
+describe('calculateCacheHitRatePercent', () => {
+  it('treats input as containing cached for OpenAI-style providers', () => {
+    expect(calculateCacheHitRatePercent({
+      sourceType: 'openai',
+      inputTokens: 1000,
+      cachedTokens: 600,
+    })).toBe(60);
+  });
+
+  it('treats input as excluding cached for Anthropic-style providers', () => {
+    expect(calculateCacheHitRatePercent({
+      sourceType: 'anthropic',
+      inputTokens: 400,
+      cachedTokens: 600,
+    })).toBe(60);
   });
 });
 
