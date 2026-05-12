@@ -934,6 +934,68 @@ func TestSyncMetadataWritesProviderMetadataToUsageIdentities(t *testing.T) {
 	assertTableNotExists(t, db, "provider_metadata")
 }
 
+func TestSyncMetadataStoresProviderBaseURLWithoutOverwritingNameOrProvider(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
+		BaseURL: "https://cpa.example.com",
+		MetadataFetcher: stubMetadataFetcher{providerConfig: providerconfig.ProviderMetadataConfig{
+			CodexAPIKeys: []providerconfig.ProviderKeyConfig{
+				{APIKey: "codex-key-a", BaseURL: "https://api.openai.com/v1", AuthIndex: "codex-auth-a"},
+				{APIKey: "codex-key-b", Name: "Codex Team", BaseURL: "https://chatgpt.com/backend-api/codex/", AuthIndex: "codex-auth-b"},
+			},
+		}},
+	})
+
+	if err := service.SyncMetadata(context.Background()); err != nil {
+		t.Fatalf("SyncMetadata returned error: %v", err)
+	}
+	items, err := repository.ListUsageIdentities(context.Background(), db)
+	if err != nil {
+		t.Fatalf("list usage identities: %v", err)
+	}
+	byIdentity := usageIdentitiesByIdentity(items)
+	unnamed := byIdentity["codex-auth-a"]
+	if unnamed.Name != "codex" || unnamed.Provider != "codex" || unnamed.BaseURL != "https://api.openai.com/v1" {
+		t.Fatalf("expected unnamed codex to keep provider identity and store base URL separately, got %+v", unnamed)
+	}
+	named := byIdentity["codex-auth-b"]
+	if named.Name != "Codex Team" || named.Provider != "Codex Team" || named.BaseURL != "https://chatgpt.com/backend-api/codex/" {
+		t.Fatalf("expected named codex to keep name/provider and store base URL separately, got %+v", named)
+	}
+}
+
+func TestSyncMetadataStoresOpenAICompatibilityBaseURL(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
+		BaseURL: "https://cpa.example.com",
+		MetadataFetcher: stubMetadataFetcher{providerConfig: providerconfig.ProviderMetadataConfig{
+			OpenAICompatibility: []providerconfig.OpenAICompatibilityConfig{
+				{
+					Name:    "OpenRouter",
+					Prefix:  "openrouter",
+					BaseURL: "https://openrouter.ai/api/v1",
+					APIKeyEntries: []providerconfig.OpenAIApiKeyEntry{
+						{APIKey: "openrouter-key", AuthIndex: "openrouter-auth"},
+					},
+				},
+			},
+		}},
+	})
+
+	if err := service.SyncMetadata(context.Background()); err != nil {
+		t.Fatalf("SyncMetadata returned error: %v", err)
+	}
+	items, err := repository.ListUsageIdentities(context.Background(), db)
+	if err != nil {
+		t.Fatalf("list usage identities: %v", err)
+	}
+	byIdentity := usageIdentitiesByIdentity(items)
+	identity := byIdentity["openrouter-auth"]
+	if identity.Name != "OpenRouter" || identity.Provider != "OpenRouter" || identity.Type != "openai" || identity.BaseURL != "https://openrouter.ai/api/v1" {
+		t.Fatalf("expected openai compatibility identity to keep name/provider/type and store base URL, got %+v", identity)
+	}
+}
+
 func TestSyncMetadataKeepsProviderIdentityWhenPrefixEqualsAPIKey(t *testing.T) {
 	db := openSyncTestDatabase(t)
 	service := NewSyncServiceWithOptions(db, SyncServiceOptions{

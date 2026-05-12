@@ -17,8 +17,12 @@ export interface CredentialPagesState {
   aiProviderTotalPages: number
   authFilePage: number
   aiProviderPage: number
+  authFilePageSize: number
+  aiProviderPageSize: number
   setAuthFilePage: (page: number) => void
   setAiProviderPage: (page: number) => void
+  setAuthFilePageSize: (pageSize: number) => void
+  setAiProviderPageSize: (pageSize: number) => void
   loading: boolean
   error: string
   refresh: () => Promise<void>
@@ -35,7 +39,18 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
   const [error, setError] = useState('')
   const [authFilePage, setAuthFilePage] = useState(1)
   const [aiProviderPage, setAiProviderPage] = useState(1)
+  const [authFilePageSize, setAuthFilePageSizeState] = useState(CREDENTIALS_PAGE_SIZE)
+  const [aiProviderPageSize, setAiProviderPageSizeState] = useState(CREDENTIALS_PAGE_SIZE)
   const requestControllerRef = useRef<AbortController | null>(null)
+
+  const setAuthFilePageSize = useCallback((pageSize: number) => {
+    setAuthFilePage(1)
+    setAuthFilePageSizeState(pageSize)
+  }, [])
+  const setAiProviderPageSize = useCallback((pageSize: number) => {
+    setAiProviderPage(1)
+    setAiProviderPageSizeState(pageSize)
+  }, [])
 
   const refresh = useCallback(async () => {
     // 每次刷新先取消旧请求，避免切页后旧响应覆盖新页数据。
@@ -48,8 +63,8 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
     try {
       // Auth Files 和 AI Provider 分别按 auth_type 请求，分页互不影响。
       const [authFiles, aiProviders] = await Promise.all([
-        fetchUsageIdentitiesPage(controller.signal, { authType: 1, page: authFilePage, pageSize: CREDENTIALS_PAGE_SIZE }),
-        fetchUsageIdentitiesPage(controller.signal, { authType: 2, page: aiProviderPage, pageSize: CREDENTIALS_PAGE_SIZE }),
+        fetchUsageIdentitiesPage(controller.signal, { authType: 1, page: authFilePage, pageSize: authFilePageSize }),
+        fetchUsageIdentitiesPage(controller.signal, { authType: 2, page: aiProviderPage, pageSize: aiProviderPageSize }),
       ])
       if (requestControllerRef.current !== controller) {
         return
@@ -84,7 +99,7 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
         requestControllerRef.current = null
       }
     }
-  }, [aiProviderPage, authFilePage, onAuthRequired])
+  }, [aiProviderPage, aiProviderPageSize, authFilePage, authFilePageSize, onAuthRequired])
 
   useEffect(() => {
     if (!enabled) {
@@ -109,8 +124,12 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
     aiProviderTotalPages,
     authFilePage,
     aiProviderPage,
+    authFilePageSize,
+    aiProviderPageSize,
     setAuthFilePage,
     setAiProviderPage,
+    setAuthFilePageSize,
+    setAiProviderPageSize,
     loading,
     error,
     refresh,

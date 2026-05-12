@@ -31,6 +31,7 @@ type QuotaRow struct {
 	Label             string       `json:"label,omitempty"`
 	Scope             string       `json:"scope,omitempty"`
 	Metric            string       `json:"metric,omitempty"`
+	PlanType          string       `json:"planType,omitempty"`
 	Used              *float64     `json:"used,omitempty"`
 	Limit             *float64     `json:"limit,omitempty"`
 	Remaining         *float64     `json:"remaining,omitempty"`

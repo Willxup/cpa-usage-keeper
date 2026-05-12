@@ -1615,6 +1615,29 @@
   }
 }
 
+.requestEventsCard:global(.card) {
+  padding-bottom: 0;
+}
+
+.requestEventsTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.requestEventsCountBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: $radius-full;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 28%, var(--border-color));
+  background: color-mix(in srgb, var(--primary-color) 8%, var(--bg-primary));
+  color: color-mix(in srgb, var(--text-primary) 80%, var(--primary-color));
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .requestEventsActions {
   display: inline-flex;
   align-items: center;
@@ -1628,11 +1651,9 @@
   justify-content: space-between;
   gap: $spacing-sm;
   flex-wrap: wrap;
-  margin-bottom: $spacing-sm;
-  padding: $spacing-sm;
-  border: 1px solid var(--border-color);
-  border-radius: 22px;
-  background: color-mix(in srgb, var(--bg-secondary) 58%, transparent);
+  margin: 0 calc(-1 * #{$spacing-lg}) $spacing-sm;
+  padding: 0 $spacing-lg $spacing-sm;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .requestEventsFiltersGroup {
@@ -1662,8 +1683,7 @@
 }
 
 .requestEventsSelect button,
-.requestEventsResultSelect button,
-.requestEventsPageSizeSelect button {
+.requestEventsResultSelect button {
   height: 40px;
 }
 
@@ -1671,83 +1691,77 @@
   min-width: 118px;
 }
 
-.requestEventsPageSizeSelect {
-  min-width: 96px;
-}
+.requestEventsPaginationFooter {
+  --usage-pagination-bar-height: 51px;
 
-.requestEventsPageSizeSelectCompact {
-  min-width: 86px;
-  width: 86px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: $spacing-md;
+  height: var(--usage-pagination-bar-height);
+  box-sizing: border-box;
+  margin: $spacing-sm calc(-1 * #{$spacing-lg}) 0;
+  padding: 0 #{$spacing-lg};
+  border-top: 1px solid var(--border-color);
 }
 
 .requestEventsPaginationControls {
-  display: inline-flex;
-  align-items: flex-end;
-  justify-content: flex-end;
-  gap: $spacing-md;
-  flex-wrap: wrap;
-  margin-left: auto;
-}
-
-.requestEventsPaginationItem {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.requestEventsPagerControls {
-  gap: 4px;
-  flex-wrap: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .requestEventsPagerButton {
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: $radius-full;
+  background: var(--bg-secondary);
   color: var(--text-primary);
+  font: inherit;
+  font-weight: 800;
+  padding: 6px 10px;
   cursor: pointer;
-  min-width: 76px;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1;
-  transition: background-color 0.15s ease, color 0.15s ease;
+
+  &:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--accent-color) 45%, var(--border-color));
+    transform: translateY(-1px);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
 }
 
-.requestEventsPagerButton:hover:not(:disabled) {
-  background: var(--bg-primary);
+.requestEventsPaginationPage {
+  min-width: 44px;
+  text-align: center;
+  font-weight: 800;
 }
 
-.requestEventsPagerButton:disabled {
-  color: var(--text-tertiary);
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-
-.requestEventsTableMeta {
+.requestEventsPageSizeControl {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: $spacing-sm;
-  margin: 0 0 $spacing-xs;
-  font-size: 12px;
+  gap: 8px;
   color: var(--text-secondary);
-  flex-wrap: wrap;
+  font-size: 12px;
+  font-weight: 800;
+
+  select {
+    height: 32px;
+    border: 1px solid var(--border-color);
+    border-radius: $radius-full;
+    padding: 0 24px 0 10px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer;
+  }
 }
 
-.requestEventsCountGroup {
-  display: inline-flex;
-  align-items: center;
-  gap: $spacing-sm;
-  flex-wrap: wrap;
-}
 
-.requestEventsLimitHint {
-  color: var(--text-tertiary);
-}
 
 .requestEventsTableWrapper {
   overflow: auto;

@@ -35,6 +35,7 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260508_add_usage_event_model_alias",
 		"20260509_update_usage_identity_quota_fields",
 		"20260510_remove_usage_identity_quota_fields",
+		"20260511_add_usage_identity_base_url",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("expected ordered migrations %v, got %v", want, got)
@@ -87,6 +88,7 @@ func TestOpenDatabaseRunsSchemaMigrationsAndAddsUsageEventRedisFields(t *testing
 		"20260508_add_usage_event_model_alias",
 		"20260509_update_usage_identity_quota_fields",
 		"20260510_remove_usage_identity_quota_fields",
+		"20260511_add_usage_identity_base_url",
 	}
 	if len(versions) != len(expected) {
 		t.Fatalf("expected migration versions %v, got %v", expected, versions)

@@ -98,7 +98,7 @@ func ListActiveUsageIdentities(ctx context.Context, db *gorm.DB) ([]entities.Usa
 
 	// 解析和筛选场景只需要活跃身份，直接在 SQL 层过滤 deleted rows，避免无效数据进入内存 resolver。
 	var identities []entities.UsageIdentity
-	if err := activeUsageIdentitiesQuery(db.WithContext(ctx), nil).Find(&identities).Error; err != nil {
+	if err := activeUsageIdentitiesQuery(db.WithContext(ctx), nil).Order("auth_type asc, name asc, id asc").Find(&identities).Error; err != nil {
 		return nil, fmt.Errorf("list active usage identities: %w", err)
 	}
 	return identities, nil
@@ -124,7 +124,7 @@ func ListActiveUsageIdentitiesPage(ctx context.Context, db *gorm.DB, request Lis
 		return nil, 0, fmt.Errorf("count active usage identities page: %w", err)
 	}
 	var identities []entities.UsageIdentity
-	if err := query.Offset((page - 1) * pageSize).Limit(pageSize).Find(&identities).Error; err != nil {
+	if err := query.Order("total_requests DESC").Order("id ASC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&identities).Error; err != nil {
 		return nil, 0, fmt.Errorf("list active usage identities page: %w", err)
 	}
 	return identities, total, nil
@@ -136,7 +136,7 @@ func activeUsageIdentitiesQuery(db *gorm.DB, authType *entities.UsageIdentityAut
 	if authType != nil {
 		query = query.Where("auth_type = ?", *authType)
 	}
-	return query.Order("auth_type asc, name asc, id asc")
+	return query
 }
 
 func GetActiveAuthFileUsageIdentityByAuthIndex(ctx context.Context, db *gorm.DB, authIndex string) (entities.UsageIdentity, error) {
@@ -295,6 +295,7 @@ func normalizeUsageIdentities(identities []entities.UsageIdentity, authType enti
 		identity.Provider = strings.TrimSpace(identity.Provider)
 		identity.LookupKey = strings.TrimSpace(identity.LookupKey)
 		identity.Prefix = strings.TrimSpace(identity.Prefix)
+		identity.BaseURL = strings.TrimSpace(identity.BaseURL)
 		identity.AccountID = trimOptionalString(identity.AccountID)
 		identity.ProjectID = trimOptionalString(identity.ProjectID)
 		identity.PlanType = trimOptionalString(identity.PlanType)
@@ -386,6 +387,7 @@ func upsertUsageIdentities(tx *gorm.DB, identities []entities.UsageIdentity) err
 			"provider":       gorm.Expr("excluded.provider"),
 			"lookup_key":     gorm.Expr("excluded.lookup_key"),
 			"prefix":         gorm.Expr("excluded.prefix"),
+			"base_url":       gorm.Expr("excluded.base_url"),
 			"account_id":     gorm.Expr("excluded.account_id"),
 			"project_id":     gorm.Expr("excluded.project_id"),
 			"active_start":   gorm.Expr("excluded.active_start"),

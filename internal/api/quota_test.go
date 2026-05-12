@@ -181,7 +181,7 @@ func TestQuotaCheckMapsProviderInputTo422(t *testing.T) {
 
 func TestQuotaCacheReturnsCachedCurrentPageQuota(t *testing.T) {
 	provider := &quotaProviderStub{cacheResponse: quota.CacheResponse{
-		Items: []quota.CheckResponse{{ID: "auth-1", Quota: []quota.QuotaRow{{Key: "rate_limit.secondary_window", Label: "Weekly"}}}},
+		Items: []quota.CheckResponse{{ID: "auth-1", Quota: []quota.QuotaRow{{Key: "rate_limit.secondary_window", Label: "Weekly", PlanType: "plus"}}}},
 	}}
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{Quota: provider})
 
@@ -200,7 +200,7 @@ func TestQuotaCacheReturnsCachedCurrentPageQuota(t *testing.T) {
 		t.Fatalf("expected outer cache limit 20, got %d", provider.cacheRequest.Limit)
 	}
 	body := resp.Body.String()
-	if !contains(body, `"items"`) || !contains(body, `"id":"auth-1"`) || !contains(body, `"label":"Weekly"`) {
+	if !contains(body, `"items"`) || !contains(body, `"id":"auth-1"`) || !contains(body, `"label":"Weekly"`) || !contains(body, `"planType":"plus"`) {
 		t.Fatalf("unexpected response body: %s", body)
 	}
 }
@@ -304,7 +304,7 @@ func TestQuotaRefreshTaskReturnsCachedQuota(t *testing.T) {
 		TaskID:    "task-1",
 		AuthIndex: "auth-1",
 		Status:    quota.RefreshTaskStatusCompleted,
-		Quota:     &quota.CheckResponse{ID: "auth-1", Quota: []quota.QuotaRow{{Key: "rate_limit.primary_window", Label: "5h"}}},
+		Quota:     &quota.CheckResponse{ID: "auth-1", Quota: []quota.QuotaRow{{Key: "rate_limit.primary_window", Label: "5h", PlanType: "pro"}}},
 	}}
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{Quota: provider})
 
@@ -319,7 +319,7 @@ func TestQuotaRefreshTaskReturnsCachedQuota(t *testing.T) {
 		t.Fatalf("expected task id to be forwarded, got %q", provider.taskID)
 	}
 	body := resp.Body.String()
-	if !contains(body, `"status":"completed"`) || !contains(body, `"quota":{"id":"auth-1"`) || !contains(body, `"key":"rate_limit.primary_window"`) {
+	if !contains(body, `"status":"completed"`) || !contains(body, `"quota":{"id":"auth-1"`) || !contains(body, `"key":"rate_limit.primary_window"`) || !contains(body, `"planType":"pro"`) {
 		t.Fatalf("unexpected response body: %s", body)
 	}
 }

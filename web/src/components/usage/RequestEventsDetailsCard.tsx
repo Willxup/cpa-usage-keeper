@@ -90,11 +90,14 @@ const encodeCsv = (value: string | number): string => {
   return `"${safeText.replace(/"/g, '""')}"`;
 };
 
-function RequestEventsTitle({ title, subtitle, eyebrow }: { title: string; subtitle: string; eyebrow: string }) {
+function RequestEventsTitle({ title, subtitle, eyebrow, totalLabel }: { title: string; subtitle: string; eyebrow: string; totalLabel: string }) {
   return (
     <div className={styles.sectionTitleBlock}>
       <span className={styles.sectionEyebrow}>{eyebrow}</span>
-      <h3 className={styles.sectionTitle}>{title}</h3>
+      <div className={styles.requestEventsTitleRow}>
+        <h3 className={styles.sectionTitle}>{title}</h3>
+        <span className={styles.requestEventsCountBadge}>{totalLabel}</span>
+      </div>
       <p className={styles.sectionSubtitle}>{subtitle}</p>
     </div>
   );
@@ -242,16 +245,10 @@ export function RequestEventsDetailsCard({
     sourceFilter !== ALL_FILTER ||
     resultFilter !== ALL_FILTER;
 
-  const pageSizeSelectOptions = useMemo(
-    () => pageSizeOptions.map((option) => ({ value: String(option), label: String(option) })),
-    [pageSizeOptions]
-  );
   const computedTotalPages = pageSize > 0 ? Math.ceil(totalCount / pageSize) : 0;
   const safeTotalPages = Math.max(totalPages, computedTotalPages, rows.length > 0 ? 1 : 0);
   const safePage = safeTotalPages > 0 ? Math.min(Math.max(page, 1), safeTotalPages) : 0;
-  const pageLabel = safeTotalPages > 0
-    ? t('usage_stats.request_events_page_control', { page: safePage, totalPages: safeTotalPages })
-    : t('usage_stats.request_events_page_empty');
+  const pageLabel = safeTotalPages > 0 ? `${safePage} / ${safeTotalPages}` : t('usage_stats.request_events_page_empty');
 
   const handleClearFilters = () => {
     onModelFilterChange(ALL_FILTER);
@@ -343,11 +340,13 @@ export function RequestEventsDetailsCard({
 
   return (
     <Card
+      className={styles.requestEventsCard}
       title={
         <RequestEventsTitle
           eyebrow={t('usage_stats.request_events_eyebrow')}
           title={t('usage_stats.request_events_title')}
           subtitle={t('usage_stats.request_events_subtitle')}
+          totalLabel={t('usage_stats.request_events_total_count', { count: totalCount })}
         />
       }
       extra={
@@ -406,42 +405,6 @@ export function RequestEventsDetailsCard({
             />
           </label>
         </div>
-
-        <div className={styles.requestEventsPaginationControls}>
-          <div className={styles.requestEventsPaginationItem}>
-            <span className={styles.requestEventsFilterLabel}>{t('usage_stats.request_events_rows_per_page')}</span>
-            <Select
-              value={String(pageSize)}
-              options={pageSizeSelectOptions}
-              onChange={(value) => onPageSizeChange(Number(value))}
-              className={`${styles.requestEventsPageSizeSelect} ${styles.requestEventsPageSizeSelectCompact} ${styles.usagePillControl}`}
-              ariaLabel={`${t('usage_stats.request_events_rows_per_page')}: ${pageSizeOptions.join(', ')}`}
-              fullWidth={false}
-              disabled={loading}
-            />
-          </div>
-          <div className={styles.requestEventsPaginationItem}>
-            <span className={styles.requestEventsFilterLabel}>{pageLabel}</span>
-            <div className={`${styles.requestEventsPagerControls} ${styles.usagePillShell}`}>
-              <button
-                type="button"
-                className={`${styles.requestEventsPagerButton} ${styles.usagePillAction}`}
-                onClick={() => onPageChange(page - 1)}
-                disabled={loading || safePage <= 1}
-              >
-                {t('usage_stats.request_events_previous_page')}
-              </button>
-              <button
-                type="button"
-                className={`${styles.requestEventsPagerButton} ${styles.usagePillAction}`}
-                onClick={() => onPageChange(page + 1)}
-                disabled={loading || safeTotalPages === 0 || safePage >= safeTotalPages}
-              >
-                {t('usage_stats.request_events_next_page')}
-              </button>
-            </div>
-          </div>
-        </div>
       </div>
 
       {loading && rows.length === 0 ? (
@@ -453,14 +416,6 @@ export function RequestEventsDetailsCard({
         />
       ) : (
         <>
-          <div className={styles.requestEventsTableMeta}>
-            <div className={styles.requestEventsCountGroup}>
-              <span>{t('usage_stats.request_events_count', { count: rows.length })}</span>
-              <span>{t('usage_stats.request_events_total_count', { count: totalCount })}</span>
-            </div>
-            {hasLatencyData && <span className={styles.requestEventsLimitHint}>{latencyHint}</span>}
-          </div>
-
           <div className={styles.requestEventsTableWrapper}>
             <table className={styles.table}>
               <thead>
@@ -528,6 +483,24 @@ export function RequestEventsDetailsCard({
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div className={styles.requestEventsPaginationFooter}>
+            <div className={styles.requestEventsPaginationControls}>
+              <label className={styles.requestEventsPageSizeControl}>
+                <span>{t('usage_stats.request_events_rows_per_page')}</span>
+                <select value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))} disabled={loading}>
+                  {pageSizeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
+              <button type="button" className={styles.requestEventsPagerButton} onClick={() => onPageChange(page - 1)} disabled={loading || safePage <= 1}>
+                {t('usage_stats.request_events_previous_page')}
+              </button>
+              <span className={styles.requestEventsPaginationPage}>{pageLabel}</span>
+              <button type="button" className={styles.requestEventsPagerButton} onClick={() => onPageChange(page + 1)} disabled={loading || safeTotalPages === 0 || safePage >= safeTotalPages}>
+                {t('usage_stats.request_events_next_page')}
+              </button>
+            </div>
           </div>
         </>
       )}

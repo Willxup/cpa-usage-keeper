@@ -57,7 +57,7 @@ describe('RequestEventsDetailsCard pagination', () => {
     const html = renderCard();
 
     expect(html).toContain('120 total events');
-    expect(html).toContain('Page (1/6)');
+    expect(html).toContain('1 / 6');
     expect(html).toContain('20');
     expect(html).toContain('50');
     expect(html).toContain('100');
@@ -120,19 +120,32 @@ describe('RequestEventsDetailsCard pagination', () => {
   it('falls back to a computed page count when metadata is not populated', () => {
     const html = renderCard({ totalPages: 0, totalCount: 120, pageSize: 20 });
 
-    expect(html).toContain('Page (1/6)');
+    expect(html).toContain('1 / 6');
   });
 
-  it('groups filters and pager controls in a compact toolbar', () => {
+  it('shows total count in the title and uses the shared pager footer', () => {
     const html = renderCard();
 
     expect(html).toContain('_requestEventsFiltersGroup_');
+    expect(html).toContain('_requestEventsTitleRow_');
+    expect(html).toContain('_requestEventsCountBadge_');
+    expect(html).toContain('120 total events');
+    expect(html).toContain('_requestEventsPaginationFooter_');
     expect(html).toContain('_requestEventsPaginationControls_');
-    expect(html).toContain('_requestEventsPaginationItem_');
+    expect(html).toContain('_requestEventsPageSizeControl_');
+    expect(html).toContain('Size');
+    expect(html).not.toContain('Rows per page');
+    expect(html).toContain('_requestEventsPaginationPage_');
     expect(html).toContain('_requestEventsPagerButton_');
-    expect(html).toContain('_requestEventsPageSizeSelectCompact_');
+    expect(html).toContain('<select');
+    expect(html).toContain('value="20"');
     expect(html).toContain('_requestEventsActions_');
-    expect(html).toContain('_requestEventsTableMeta_');
+    expect(html).not.toContain('_requestEventsPaginationItem_');
+    expect(html).not.toContain('_requestEventsPageSizeSelectCompact_');
+    expect(html).not.toContain('_usagePillShell_');
+    expect(html).not.toContain('_requestEventsTableMeta_');
+    expect(html).not.toContain('_requestEventsCountGroup_');
+    expect(html).not.toContain('_requestEventsLimitHint_');
   });
 
   it('hides export buttons while keeping clear filters available', () => {

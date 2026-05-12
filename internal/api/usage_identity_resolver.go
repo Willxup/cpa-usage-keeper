@@ -51,17 +51,61 @@ func usageIdentityDisplayName(item entities.UsageIdentity) string {
 		return provider
 	}
 
+	if strings.TrimSpace(item.Type) == "openai" && name != "" && name != "openai" && provider == name {
+		return name
+	}
+
 	prefix := strings.TrimSpace(item.Prefix)
+	baseURL := formatUsageIdentityBaseURLDisplay(item.BaseURL)
+	qualifiers := usageIdentityDisplayQualifiers(prefix, baseURL)
 	switch {
-	case name != "" && prefix != "":
-		return name + "(" + prefix + ")"
+	case name != "" && len(qualifiers) > 0:
+		return name + "(" + strings.Join(qualifiers, " @ ") + ")"
 	case name != "":
 		return name
+	case prefix != "" && baseURL != "":
+		return prefix + "(" + baseURL + ")"
 	case prefix != "":
 		return prefix
+	case provider != "" && baseURL != "":
+		return provider + "(" + baseURL + ")"
+	case baseURL != "":
+		return baseURL
 	default:
 		return provider
 	}
+}
+
+func usageIdentityDisplayQualifiers(values ...string) []string {
+	qualifiers := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		qualifiers = append(qualifiers, value)
+	}
+	return qualifiers
+}
+
+func formatUsageIdentityBaseURLDisplay(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	lower := strings.ToLower(trimmed)
+	for _, prefix := range []string{"https://", "http://"} {
+		if strings.HasPrefix(lower, prefix) {
+			trimmed = trimmed[len(prefix):]
+			break
+		}
+	}
+	return strings.TrimRight(trimmed, "/")
 }
 
 func resolvedUsageIdentityFromEntity(item entities.UsageIdentity) resolvedUsageIdentity {

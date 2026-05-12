@@ -233,6 +233,7 @@ export interface UsageQuotaRow {
   label?: string
   scope?: string
   metric?: string
+  planType?: string
   used?: number
   limit?: number
   remaining?: number

@@ -1,6 +1,5 @@
 import { useMemo } from 'react'
 import {
-  CREDENTIALS_PAGE_SIZE,
   buildAiProviderCredentialRows,
   buildAuthFileCredentialRows,
   selectQuotaEligibleAuthIndexes,
@@ -21,13 +20,16 @@ export interface CredentialsTabData {
   aiProviderRows: AiProviderCredentialRow[]
   authFileTotal: number
   aiProviderTotal: number
-  pageSize: number
+  authFilePageSize: number
+  aiProviderPageSize: number
   authFilePage: number
   aiProviderPage: number
   authFileTotalPages: number
   aiProviderTotalPages: number
   setAuthFilePage: (page: number) => void
   setAiProviderPage: (page: number) => void
+  setAuthFilePageSize: (pageSize: number) => void
+  setAiProviderPageSize: (pageSize: number) => void
   loading: boolean
   error: string
   quotaRefreshing: boolean
@@ -80,13 +82,16 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
     aiProviderRows,
     authFileTotal: credentialPages.authFileTotal,
     aiProviderTotal: credentialPages.aiProviderTotal,
-    pageSize: CREDENTIALS_PAGE_SIZE,
+    authFilePageSize: credentialPages.authFilePageSize,
+    aiProviderPageSize: credentialPages.aiProviderPageSize,
     authFilePage: credentialPages.authFilePage,
     aiProviderPage: credentialPages.aiProviderPage,
     authFileTotalPages: credentialPages.authFileTotalPages,
     aiProviderTotalPages: credentialPages.aiProviderTotalPages,
     setAuthFilePage: credentialPages.setAuthFilePage,
     setAiProviderPage: credentialPages.setAiProviderPage,
+    setAuthFilePageSize: credentialPages.setAuthFilePageSize,
+    setAiProviderPageSize: credentialPages.setAiProviderPageSize,
     loading: credentialPages.loading,
     error: credentialPages.error,
     quotaRefreshing: quotaRefreshTasks.quotaRefreshing,

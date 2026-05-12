@@ -640,6 +640,7 @@ func providerMetadataUsageIdentities(inputs []servicedto.ProviderMetadataInput) 
 			Provider:     input.DisplayName,
 			LookupKey:    input.LookupKey,
 			Prefix:       input.Prefix,
+			BaseURL:      input.BaseURL,
 		})
 	}
 	return identities
@@ -649,12 +650,13 @@ func flattenProviderMetadata(cfg providerconfig.ProviderMetadataConfig) []servic
 	items := make([]servicedto.ProviderMetadataInput, 0)
 	seen := make(map[string]struct{})
 	// Provider metadata 只生成 auth-index 身份；prefix 作为同一身份的附加字段保存，不再生成独立行。
-	appendItem := func(lookupKey, prefix, providerType, displayName, authIndex string) {
+	appendItem := func(lookupKey, prefix, providerType, displayName, authIndex, baseURL string) {
 		lookupKey = strings.TrimSpace(lookupKey)
 		prefix = strings.TrimSpace(prefix)
 		providerType = strings.TrimSpace(providerType)
 		displayName = strings.TrimSpace(displayName)
 		authIndex = strings.TrimSpace(authIndex)
+		baseURL = strings.TrimSpace(baseURL)
 		if lookupKey == "" || providerType == "" || displayName == "" || authIndex == "" {
 			return
 		}
@@ -668,12 +670,13 @@ func flattenProviderMetadata(cfg providerconfig.ProviderMetadataConfig) []servic
 			ProviderType: providerType,
 			DisplayName:  displayName,
 			AuthIndex:    authIndex,
+			BaseURL:      baseURL,
 		})
 	}
 	appendProviderEntries := func(providerType string, configs []providerconfig.ProviderKeyConfig) {
 		for _, cfg := range configs {
 			displayName := firstNonEmpty(cfg.Name, providerType)
-			appendItem(cfg.APIKey, cfg.Prefix, providerType, displayName, cfg.AuthIndex)
+			appendItem(cfg.APIKey, cfg.Prefix, providerType, displayName, cfg.AuthIndex, cfg.BaseURL)
 		}
 	}
 
@@ -685,7 +688,7 @@ func flattenProviderMetadata(cfg providerconfig.ProviderMetadataConfig) []servic
 	for _, provider := range cfg.OpenAICompatibility {
 		displayName := firstNonEmpty(provider.Name, "openai")
 		for _, entry := range provider.APIKeyEntries {
-			appendItem(entry.APIKey, provider.Prefix, "openai", displayName, entry.AuthIndex)
+			appendItem(entry.APIKey, provider.Prefix, "openai", displayName, entry.AuthIndex, provider.BaseURL)
 		}
 	}
 

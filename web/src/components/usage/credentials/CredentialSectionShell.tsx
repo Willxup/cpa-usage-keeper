@@ -109,16 +109,44 @@ export function cacheRateTone(value: number | null): 'success' | 'warning' | 'da
   return 'neutral'
 }
 
-export function CredentialsPagination({ page, totalPages, previousLabel, nextLabel, onPageChange }: { page: number; totalPages: number; previousLabel: string; nextLabel: string; onPageChange: (page: number) => void }) {
+const CREDENTIAL_PAGE_SIZE_OPTIONS = [5, 10, 20, 50]
+
+export function CredentialsPagination({
+  page,
+  totalPages,
+  pageSize,
+  previousLabel,
+  nextLabel,
+  rowsPerPageLabel,
+  onPageChange,
+  onPageSizeChange,
+}: {
+  page: number
+  totalPages: number
+  pageSize: number
+  previousLabel: string
+  nextLabel: string
+  rowsPerPageLabel: string
+  onPageChange: (page: number) => void
+  onPageSizeChange: (pageSize: number) => void
+}) {
   if (totalPages <= 1) {
     return null
   }
 
   return (
     <div className={styles.credentialPagination}>
-      <button type="button" onClick={() => onPageChange(page - 1)} disabled={page <= 1}>{previousLabel}</button>
-      <span>{page} / {totalPages}</span>
-      <button type="button" onClick={() => onPageChange(page + 1)} disabled={page >= totalPages}>{nextLabel}</button>
+      <div className={styles.credentialPaginationControls}>
+        <label className={styles.credentialPageSizeControl}>
+          <span>{rowsPerPageLabel}</span>
+          <select value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))}>
+            {CREDENTIAL_PAGE_SIZE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
+        </label>
+        <button type="button" onClick={() => onPageChange(page - 1)} disabled={page <= 1}>{previousLabel}</button>
+        <span className={styles.credentialPaginationPage}>{page} / {totalPages}</span>
+        <button type="button" onClick={() => onPageChange(page + 1)} disabled={page >= totalPages}>{nextLabel}</button>
+      </div>
     </div>
   )
 }

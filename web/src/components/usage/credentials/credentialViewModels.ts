@@ -117,6 +117,7 @@ export function buildAuthFileCredentialRows(
     const quota = quotas.get(identity.identity) ?? []
     const state = quotaStates.get(identity.identity)
     const displayQuotas = quota.map(toDisplayQuota)
+    const planType = firstNonEmpty(...quota.map((row) => row.planType), identity.plan_type)
     // 先挑 5h 主窗口，再挑 Weekly 次窗口，其余限额保留到 chips 中展示。
     const primaryQuota = displayQuotas.find(isPrimaryQuota)
     const secondaryQuota = displayQuotas.find((item) => item !== primaryQuota && isSecondaryQuota(item))
@@ -129,8 +130,8 @@ export function buildAuthFileCredentialRows(
       providerLabel: credentialProviderLabel(identity),
       typeLabel: credentialTypeLabel(identity),
       authTypeLabel: credentialAuthTypeLabel(identity),
-      planTypeLabel: credentialPlanTypeLabel(identity.plan_type),
-      planTypeTone: credentialPlanTypeTone(identity.plan_type),
+      planTypeLabel: credentialPlanTypeLabel(planType),
+      planTypeTone: credentialPlanTypeTone(planType),
       remainingDaysLabel: remainingDaysLabel(identity.active_until),
       totalRequests: safeNumber(identity.total_requests),
       successCount: safeNumber(identity.success_count),
@@ -300,10 +301,8 @@ function credentialPlanTypeLabel(planType?: string): string | undefined {
   if (!tone) {
     return undefined
   }
-  if (tone === 'neutral') {
-    return firstNonEmpty(planType)
-  }
-  return tone.charAt(0).toUpperCase() + tone.slice(1)
+  const label = tone === 'neutral' ? firstNonEmpty(planType) : tone
+  return label ? label.charAt(0).toUpperCase() + label.slice(1) : undefined
 }
 
 function credentialPlanTypeTone(planType?: string): PlanTypeTone | undefined {

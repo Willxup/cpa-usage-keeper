@@ -107,6 +107,11 @@ func normalizeCodexQuotaRows(result CodexResult) []QuotaRow {
 		secondaryLabel := additional.LimitName + " Weekly"
 		rows = appendCodexWindowQuotaRows(rows, "additional_rate_limits."+additional.LimitName, primaryLabel, secondaryLabel, "additional", metric, additional.RateLimit)
 	}
+	if planType := strings.TrimSpace(result.Usage.PlanType); planType != "" {
+		for index := range rows {
+			rows[index].PlanType = planType
+		}
+	}
 	return rows
 }
 

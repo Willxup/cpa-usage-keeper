@@ -69,6 +69,36 @@ describe('credentialViewModels', () => {
     ])
   })
 
+  it('prefers refreshed quota plan type over usage identity plan type', () => {
+    const quotas = new Map<string, UsageQuotaRow[]>([
+      ['auth-1', [
+        { key: 'rate_limit.primary_window', planType: 'pro' },
+      ]],
+    ])
+
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'auth-1', plan_type: 'plus' }),
+    ], quotas)
+
+    expect(rows[0].planTypeLabel).toBe('Pro')
+    expect(rows[0].planTypeTone).toBe('pro')
+  })
+
+  it('formats unknown refreshed quota plan types in the frontend', () => {
+    const quotas = new Map<string, UsageQuotaRow[]>([
+      ['auth-1', [
+        { key: 'rate_limit.primary_window', planType: ' enterprise ' },
+      ]],
+    ])
+
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'auth-1', plan_type: 'plus' }),
+    ], quotas)
+
+    expect(rows[0].planTypeLabel).toBe('Enterprise')
+    expect(rows[0].planTypeTone).toBe('neutral')
+  })
+
   it('builds active-until remaining days badge with zero as the minimum', () => {
     vi.setSystemTime(new Date('2026-05-10T10:00:00Z'))
     try {

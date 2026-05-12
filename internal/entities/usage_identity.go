@@ -21,6 +21,7 @@ type UsageIdentity struct {
 	Provider     string
 	LookupKey    string
 	Prefix       string
+	BaseURL      string
 	AccountID    *string
 	ProjectID    *string
 

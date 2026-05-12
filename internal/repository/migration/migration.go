@@ -26,6 +26,7 @@ const (
 	migrationAddUsageEventModelAlias                = "20260508_add_usage_event_model_alias"
 	migrationUpdateUsageIdentityQuotaFields         = "20260509_update_usage_identity_quota_fields"
 	migrationRemoveUsageIdentityQuotaFields         = "20260510_remove_usage_identity_quota_fields"
+	migrationAddUsageIdentityBaseURL                = "20260511_add_usage_identity_base_url"
 )
 
 type schemaMigration struct {
@@ -96,6 +97,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageEventModelAlias, run: addUsageEventModelAliasMigration},
 		{version: migrationUpdateUsageIdentityQuotaFields, run: updateUsageIdentityQuotaFieldsMigration},
 		{version: migrationRemoveUsageIdentityQuotaFields, run: removeUsageIdentityQuotaFieldsMigration},
+		{version: migrationAddUsageIdentityBaseURL, run: addUsageIdentityBaseURLMigration},
 	}
 }
 

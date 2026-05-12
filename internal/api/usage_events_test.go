@@ -124,6 +124,60 @@ func TestUsageIdentityDisplayNameFormatsProviderNameAndPrefix(t *testing.T) {
 	}
 }
 
+func TestUsageIdentityDisplayNameAddsProviderBaseURLQualifier(t *testing.T) {
+	withPrefix := entities.UsageIdentity{
+		Name:     "Provider Name",
+		Prefix:   "Team Prefix",
+		BaseURL:  "https://api.openai.com/v1/",
+		AuthType: entities.UsageIdentityAuthTypeAIProvider,
+		Identity: "provider-auth-index",
+	}
+	providerOnly := entities.UsageIdentity{
+		Name:     "codex",
+		BaseURL:  "https://chatgpt.com/backend-api/codex/",
+		AuthType: entities.UsageIdentityAuthTypeAIProvider,
+		Identity: "codex-auth-index",
+	}
+
+	if got := usageIdentityDisplayName(withPrefix); got != "Provider Name(Team Prefix @ api.openai.com/v1)" {
+		t.Fatalf("expected base URL to be an extra display qualifier, got %q", got)
+	}
+	if got := usageIdentityDisplayName(providerOnly); got != "codex(chatgpt.com/backend-api/codex)" {
+		t.Fatalf("expected provider displayName to include base URL qualifier, got %q", got)
+	}
+}
+
+func TestUsageIdentityDisplayNameKeepsOpenAICompatibilityName(t *testing.T) {
+	identity := entities.UsageIdentity{
+		Name:     "OpenRouter",
+		Prefix:   "openrouter",
+		BaseURL:  "https://openrouter.ai/api/v1",
+		AuthType: entities.UsageIdentityAuthTypeAIProvider,
+		Type:     "openai",
+		Provider: "OpenRouter",
+		Identity: "openrouter-auth-index",
+	}
+
+	if got := usageIdentityDisplayName(identity); got != "OpenRouter" {
+		t.Fatalf("expected openai compatibility displayName to keep name without qualifiers, got %q", got)
+	}
+}
+
+func TestUsageIdentityDisplayNameFallsBackWhenOpenAICompatibilityNameIsMissing(t *testing.T) {
+	identity := entities.UsageIdentity{
+		Prefix:   "openrouter",
+		BaseURL:  "https://openrouter.ai/api/v1",
+		AuthType: entities.UsageIdentityAuthTypeAIProvider,
+		Type:     "openai",
+		Provider: "openai",
+		Identity: "openrouter-auth-index",
+	}
+
+	if got := usageIdentityDisplayName(identity); got != "openrouter(openrouter.ai/api/v1)" {
+		t.Fatalf("expected unnamed openai compatibility displayName to fall back to provider qualifier rules, got %q", got)
+	}
+}
+
 func TestUsageIdentityDisplayNameUsesProviderWhenAuthFileNameIsMissing(t *testing.T) {
 	identity := entities.UsageIdentity{
 		AuthType: entities.UsageIdentityAuthTypeAuthFile,
