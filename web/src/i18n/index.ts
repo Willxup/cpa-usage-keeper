@@ -526,6 +526,7 @@ const resources = {
         total_tokens: 'Token 總數',
         cache_rate: '快取率',
         cached_tokens: '快取',
+        cache_hit_rate: '快取命中率',
         reasoning_tokens: '推理',
         rpm: 'RPM',
         tpm: 'TPM',
