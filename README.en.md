@@ -60,6 +60,9 @@ cp .env.example .env
 | `LOGIN_PASSWORD` | When auth is enabled | - | Login password |
 | `AUTH_SESSION_TTL` | No | `168h` | Session lifetime |
 | `APP_PORT` | No | `8080` | HTTP listen port |
+| `TLS_ENABLED` | No | `false` | Enable HTTPS/TLS |
+| `TLS_CERT_FILE` | Required when TLS is enabled | - | HTTPS certificate file path |
+| `TLS_KEY_FILE` | Required when TLS is enabled | - | HTTPS private key file path |
 | `APP_BASE_PATH` | No | root path | Subpath prefix such as `/cpa`; empty means `/` |
 | `TZ` | No | `Asia/Shanghai` | Project business timezone; affects Today, daily aggregation, scheduled tasks, and log timestamps |
 | `REDIS_QUEUE_ADDR` | No | `CPA_BASE_URL` hostname + `8317` | CPA Redis/RESP TCP address; when empty, uses the `CPA_BASE_URL` hostname with port `8317` and auto-detects TLS from whether `CPA_BASE_URL` is https; set `host:port` for non-default ports |
@@ -77,6 +80,8 @@ cp .env.example .env
 | `BACKUP_RETENTION_DAYS` | No | `7` | Backup retention days |
 
 `APP_BASE_PATH` must be empty or start with `/`; for example `/cpa`. `/cpa/` is normalized to `/cpa`.
+
+To enable HTTPS, set `TLS_ENABLED=true` and provide `TLS_CERT_FILE` and `TLS_KEY_FILE`; relative paths are resolved against the `.env` file directory.
 
 Security and data notes:
 

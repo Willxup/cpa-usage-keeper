@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"sync"
 
 	"cpa-usage-keeper/internal/api"
@@ -196,7 +197,14 @@ func (a *App) Run() error {
 		})
 	}
 
-	return a.Router.Run(":" + a.Config.AppPort)
+	server := &http.Server{
+		Addr:    ":" + a.Config.AppPort,
+		Handler: a.Router,
+	}
+	if a.Config.TLSEnabled {
+		return server.ListenAndServeTLS(a.Config.TLSCertFile, a.Config.TLSKeyFile)
+	}
+	return server.ListenAndServe()
 }
 
 func (a *App) startBackgroundContext() context.Context {

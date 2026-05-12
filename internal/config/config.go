@@ -36,6 +36,12 @@ type Config struct {
 	AppPort string
 	// AppBasePath 是 Web 服务部署子路径，空值表示根路径。
 	AppBasePath string
+	// TLSEnabled 控制是否以 HTTPS 模式启动 HTTP 服务。
+	TLSEnabled bool
+	// TLSCertFile 是 HTTPS 证书文件路径。
+	TLSCertFile string
+	// TLSKeyFile 是 HTTPS 私钥文件路径。
+	TLSKeyFile string
 	// CPABaseURL 是 CPA 服务基础地址。
 	CPABaseURL string
 	// CPAManagementKey 是访问 CPA 管理数据的密钥。
@@ -177,6 +183,10 @@ func Load(options LoadOptions) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	tlsEnabled, err := getBool("TLS_ENABLED", false)
+	if err != nil {
+		return nil, err
+	}
 
 	tlsSkipVerify, err := getBool("TLS_SKIP_VERIFY", false)
 	if err != nil {
@@ -198,6 +208,9 @@ func Load(options LoadOptions) (*Config, error) {
 	cfg := &Config{
 		AppPort:                getString("APP_PORT", "8080"),
 		AppBasePath:            appBasePath,
+		TLSEnabled:             tlsEnabled,
+		TLSCertFile:            strings.TrimSpace(os.Getenv("TLS_CERT_FILE")),
+		TLSKeyFile:             strings.TrimSpace(os.Getenv("TLS_KEY_FILE")),
 		CPABaseURL:             strings.TrimSpace(os.Getenv("CPA_BASE_URL")),
 		CPAManagementKey:       strings.TrimSpace(os.Getenv("CPA_MANAGEMENT_KEY")),
 		RedisQueueAddr:         strings.TrimSpace(os.Getenv("REDIS_QUEUE_ADDR")),
@@ -231,6 +244,14 @@ func Load(options LoadOptions) (*Config, error) {
 	}
 	if cfg.AuthEnabled && cfg.LoginPassword == "" {
 		return nil, fmt.Errorf("LOGIN_PASSWORD is required when AUTH_ENABLED is true")
+	}
+	if cfg.TLSEnabled {
+		if cfg.TLSCertFile == "" {
+			return nil, fmt.Errorf("TLS_CERT_FILE is required when TLS_ENABLED is true")
+		}
+		if cfg.TLSKeyFile == "" {
+			return nil, fmt.Errorf("TLS_KEY_FILE is required when TLS_ENABLED is true")
+		}
 	}
 	cfg.resolveRelativePaths(envBaseDir)
 
@@ -318,6 +339,8 @@ func (cfg *Config) resolveRelativePaths(baseDir string) {
 	cfg.SQLitePath = resolveRelativePath(baseDir, cfg.SQLitePath)
 	cfg.LogDir = resolveRelativePath(baseDir, cfg.LogDir)
 	cfg.BackupDir = resolveRelativePath(baseDir, cfg.BackupDir)
+	cfg.TLSCertFile = resolveRelativePath(baseDir, cfg.TLSCertFile)
+	cfg.TLSKeyFile = resolveRelativePath(baseDir, cfg.TLSKeyFile)
 }
 
 func resolveRelativePath(baseDir, value string) string {

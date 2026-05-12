@@ -60,6 +60,9 @@ cp .env.example .env
 | `LOGIN_PASSWORD` | 鉴权启用时必填 | - | 登录密码 |
 | `AUTH_SESSION_TTL` | 否 | `168h` | Session 生命周期 |
 | `APP_PORT` | 否 | `8080` | HTTP 监听端口 |
+| `TLS_ENABLED` | 否 | `false` | 是否启用 HTTPS/TLS |
+| `TLS_CERT_FILE` | 启用 TLS 时必填 | - | HTTPS 证书文件路径 |
+| `TLS_KEY_FILE` | 启用 TLS 时必填 | - | HTTPS 私钥文件路径 |
 | `APP_BASE_PATH` | 否 | 根路径 | 子路径部署前缀，例如 `/cpa`；留空表示 `/` |
 | `TZ` | 否 | `Asia/Shanghai` | 项目业务时区，影响 Today、按天聚合、定时任务和日志时间 |
 | `REDIS_QUEUE_ADDR` | 否 | `CPA_BASE_URL` 主机名 + `8317` | CPA Redis/RESP TCP 地址；留空时会使用 `CPA_BASE_URL` 的主机名和默认端口 `8317`，且当 `CPA_BASE_URL` 为 https 时自动启用 TLS；非默认端口时填写 `host:port` |
@@ -77,6 +80,8 @@ cp .env.example .env
 | `BACKUP_RETENTION_DAYS` | 否 | `7` | 备份保留天数 |
 
 `APP_BASE_PATH` 必须为空或以 `/` 开头；例如 `/cpa`，`/cpa/` 会规范为 `/cpa`。
+
+启用 HTTPS 时，把 `TLS_ENABLED=true`，并填写 `TLS_CERT_FILE` 和 `TLS_KEY_FILE`；如果路径是相对路径，会按 `.env` 所在目录解析。
 
 安全与数据说明：
 
