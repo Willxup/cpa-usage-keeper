@@ -117,6 +117,23 @@ export const shouldShowUpdateCheckButton = (status: Pick<StatusResponse, 'update
 
 export const getUpdateCheckToastDuration = (kind: 'success' | 'info' | 'error') => (kind === 'error' ? 6_000 : 4_000);
 
+export const shouldAutoRefreshUsageTab = ({
+  activeTab,
+  eventsPage,
+  authFilePage,
+  aiProviderPage,
+}: {
+  activeTab: UsageTab;
+  eventsPage: number;
+  authFilePage: number;
+  aiProviderPage: number;
+}) => {
+  if (activeTab === 'overview') return true;
+  if (activeTab === 'events') return eventsPage === 1;
+  if (activeTab === 'credentials') return authFilePage === 1 && aiProviderPage === 1;
+  return false;
+};
+
 type RequestEventFilterState = {
   model: string;
   source: string;
@@ -856,6 +873,25 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     await loadUsage();
   }, [activeTab, loadAnalysis, loadEventFilterOptions, loadEvents, loadPricing, loadUsage, refreshCredentials]);
 
+  const refreshAutoRefreshTab = useCallback(async () => {
+    if (activeTab === 'events') {
+      await loadEvents();
+      return;
+    }
+    if (activeTab === 'credentials') {
+      await refreshCredentials();
+      return;
+    }
+    await loadUsage();
+  }, [activeTab, loadEvents, loadUsage, refreshCredentials]);
+
+  const autoRefreshEnabled = shouldAutoRefreshUsageTab({
+    activeTab,
+    eventsPage,
+    authFilePage: credentialsData.authFilePage,
+    aiProviderPage: credentialsData.aiProviderPage,
+  });
+
   const handleManualRefresh = useCallback(async () => {
     setManualRefreshLoading(true);
     try {
@@ -911,9 +947,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [onAuthRequired, showUpdateCheckNotice, t]);
 
   useEffect(() => scheduleOverviewAutoRefresh({
-    enabled: isOverviewTab,
-    refreshOverview: loadUsage,
-  }), [isOverviewTab, loadUsage]);
+    enabled: autoRefreshEnabled,
+    refreshOverview: refreshAutoRefreshTab,
+  }), [autoRefreshEnabled, refreshAutoRefreshTab]);
 
   useHeaderRefresh(refreshActiveTab);
 
