@@ -29,4 +29,5 @@ type ProviderMetadataInput struct {
 	ProviderType string
 	DisplayName  string
 	AuthIndex    string
+	BaseURL      string
 }

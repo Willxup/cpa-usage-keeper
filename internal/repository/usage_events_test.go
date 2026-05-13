@@ -43,6 +43,37 @@ func TestListUsageEventsWithFilterAppliesTimeBoundsAndPagination(t *testing.T) {
 	}
 }
 
+func TestListUsageEventsWithFilterFindsProjectTimezoneStorageTimestamp(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	time.Local = location
+	t.Cleanup(func() { time.Local = previousLocal })
+
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-events-project-tz.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	eventTime := time.Date(2026, 5, 12, 21, 59, 18, 353569620, location)
+	if _, _, err := InsertUsageEvents(db, []entities.UsageEvent{{EventKey: "event-project-tz", Model: "claude-sonnet", Timestamp: eventTime, TotalTokens: 10}}); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	start := time.Date(2026, 5, 12, 13, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 5, 12, 14, 0, 0, 0, time.UTC)
+	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{StartTime: &start, EndTime: &end, Page: 1, PageSize: 20})
+	if err != nil {
+		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
+	}
+	if page.TotalCount != 1 || len(page.Events) != 1 || page.Events[0].Model != "claude-sonnet" {
+		t.Fatalf("expected project timezone timestamp to match UTC query window, got %+v", page)
+	}
+}
+
 func TestListUsageEventsWithFilterPagesByTimestampAndID(t *testing.T) {
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-events-pages.db")})
 	if err != nil {

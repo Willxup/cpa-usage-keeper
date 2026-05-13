@@ -18,6 +18,7 @@ const TOKEN_COLORS: Record<TokenCategory, { border: string; bg: string }> = {
 
 const CATEGORIES: TokenCategory[] = ['input', 'output', 'cached', 'reasoning'];
 const HOUR_MS = 60 * 60 * 1000;
+const HOUR_BUCKET_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 
 type TokenBreakdownChartPeriod = 'hour' | 'day';
 
@@ -44,11 +45,36 @@ const resolveHourBucketCount = (hourWindowHours?: number, includeFinalBucket = f
   return includeFinalBucket ? resolvedHours + 1 : resolvedHours >= 24 ? 24 : resolvedHours + 1;
 };
 
-const formatHourBucketKey = (timestampMs: number): string => `${new Date(timestampMs).toISOString().slice(0, 13)}:00:00Z`;
+const parseHourBucketOffsetMinutes = (key?: string): number => {
+  const match = key?.match(HOUR_BUCKET_PATTERN);
+  const offset = match?.[7];
+  if (!offset || offset === 'Z') return 0;
+  const sign = offset[0] === '-' ? -1 : 1;
+  const hours = Number(offset.slice(1, 3));
+  const minutes = Number(offset.slice(4, 6));
+  return sign * ((hours * 60) + minutes);
+};
+
+const startOfOffsetHourMs = (timestampMs: number, offsetMinutes: number): number => {
+  const shiftedMs = timestampMs + offsetMinutes * 60 * 1000;
+  return Math.floor(shiftedMs / HOUR_MS) * HOUR_MS - offsetMinutes * 60 * 1000;
+};
+
+const formatHourBucketKey = (timestampMs: number, referenceKey?: string): string => {
+  const offsetMinutes = parseHourBucketOffsetMinutes(referenceKey);
+  const shifted = new Date(timestampMs + offsetMinutes * 60 * 1000);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const offset = offsetMinutes === 0
+    ? 'Z'
+    : `${offsetMinutes < 0 ? '-' : '+'}${pad(Math.floor(Math.abs(offsetMinutes) / 60))}:${pad(Math.abs(offsetMinutes) % 60)}`;
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}T${pad(shifted.getUTCHours())}:00:00${offset}`;
+};
 
 const formatChartLabel = (label: string, period: TokenBreakdownChartPeriod, isFinalBucket = false) => {
   if (period !== 'hour') return label;
   if (isFinalBucket) return '24:00';
+  const match = label.match(HOUR_BUCKET_PATTERN);
+  if (match) return `${match[4]}:${match[5]}`;
   const date = new Date(label);
   if (Number.isNaN(date.getTime())) return label;
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
@@ -59,17 +85,19 @@ const getTokenSource = (usage: UsageOverviewPayload | null, period: TokenBreakdo
 );
 
 const buildHourlyLabels = (source: TokenSeriesSource | undefined, hourWindowHours?: number, endMs?: number, includeFinalBucket = false) => {
-  const labels = Object.keys(source?.input_tokens ?? {}).sort((a, b) => a.localeCompare(b));
+  const labels = Array.from(new Set(CATEGORIES.flatMap((category) => Object.keys(source?.[`${category}_tokens`] ?? {}))))
+    .sort((a, b) => a.localeCompare(b));
   if (labels.length === 0) return [];
 
   const bucketCount = resolveHourBucketCount(hourWindowHours, includeFinalBucket);
-  const latestLabelMs = Date.parse(labels[labels.length - 1]);
+  const referenceKey = labels[labels.length - 1];
+  const offsetMinutes = parseHourBucketOffsetMinutes(referenceKey);
+  const latestLabelMs = Date.parse(referenceKey);
   const requestedEndMs = Number.isFinite(endMs) && endMs && endMs > 0 ? endMs : latestLabelMs;
-  const currentHour = new Date(requestedEndMs);
-  currentHour.setUTCMinutes(0, 0, 0);
-  const earliestTime = currentHour.getTime() - ((bucketCount - 1) * HOUR_MS);
+  const currentHourMs = startOfOffsetHourMs(requestedEndMs, offsetMinutes);
+  const earliestTime = currentHourMs - ((bucketCount - 1) * HOUR_MS);
 
-  return Array.from({ length: bucketCount }, (_, index) => formatHourBucketKey(earliestTime + index * HOUR_MS));
+  return Array.from({ length: bucketCount }, (_, index) => formatHourBucketKey(earliestTime + index * HOUR_MS, referenceKey));
 };
 
 export const buildTokenBreakdownChartSeries = ({

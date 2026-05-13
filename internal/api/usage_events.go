@@ -8,6 +8,7 @@ import (
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
+	"cpa-usage-keeper/internal/timeutil"
 
 	"github.com/gin-gonic/gin"
 )
@@ -82,7 +83,7 @@ func registerUsageEventsRoute(
 			return
 		}
 
-		filter, err := parseUsageFilterQuery(c.Request, time.Now().UTC())
+		filter, err := parseUsageFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -139,7 +140,7 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 		source, isDelete := usageEventPublicSource(row, identity, matched)
 		payload = append(payload, usageEventPayload{
 			ID:         row.ID,
-			Timestamp:  row.Timestamp.UTC().Format(time.RFC3339),
+			Timestamp:  timeutil.FormatStorageTime(row.Timestamp),
 			Model:      row.Model,
 			Source:     source,
 			SourceType: identity.Type,

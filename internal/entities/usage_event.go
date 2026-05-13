@@ -13,7 +13,7 @@ type UsageEvent struct {
 	RequestID       string    `gorm:"column:request_id"`
 	Model           string    `gorm:"index:idx_usage_events_model;index:idx_usage_events_trim_model,expression:TRIM(model)"`
 	ModelAlias      *string   `gorm:"column:model_alias"`
-	Timestamp       time.Time `gorm:"index:idx_usage_events_timestamp_id,sort:desc,priority:1"`
+	Timestamp       time.Time `gorm:"serializer:storageTime;index:idx_usage_events_timestamp_id,sort:desc,priority:1"`
 	Source          string    `gorm:"index:idx_usage_events_trim_source,expression:TRIM(source);index:idx_usage_events_auth_type_source_id,priority:2"`
 	AuthIndex       string    `gorm:"index:idx_usage_events_trim_auth_index,expression:TRIM(auth_index);index:idx_usage_events_auth_type_auth_index_id,priority:2"`
 	Failed          bool      `gorm:"index:idx_usage_events_failed"`
@@ -23,5 +23,5 @@ type UsageEvent struct {
 	ReasoningTokens int64
 	CachedTokens    int64
 	TotalTokens     int64
-	CreatedAt       time.Time
+	CreatedAt       time.Time `gorm:"serializer:storageTime"`
 }

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
 )
 
@@ -42,7 +43,7 @@ func backfillUsageIdentityStatsMigration(tx *gorm.DB) error {
 			"last_aggregated_usage_event_id": stats.MaxUsageEventID,
 		}
 		if stats.TotalRequests > 0 {
-			now := time.Now().UTC()
+			now := timeutil.NormalizeStorageTime(time.Now())
 			updates["stats_updated_at"] = now
 		}
 		if err := tx.Model(&entities.UsageIdentity{}).Where("id = ?", identity.ID).Updates(updates).Error; err != nil {

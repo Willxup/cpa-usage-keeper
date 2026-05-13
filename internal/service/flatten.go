@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/repository/dto"
+	"cpa-usage-keeper/internal/timeutil"
 )
 
 func BuildEventKey(apiGroupKey, model string, timestamp time.Time, source, authIndex string, failed bool, tokens dto.TokenStats) string {
@@ -16,7 +17,7 @@ func BuildEventKey(apiGroupKey, model string, timestamp time.Time, source, authI
 		"%s|%s|%s|%s|%s|%t|%d|%d|%d|%d|%d",
 		strings.TrimSpace(apiGroupKey),
 		strings.TrimSpace(model),
-		timestamp.UTC().Format(time.RFC3339Nano),
+		timeutil.FormatStorageTime(timestamp),
 		strings.TrimSpace(source),
 		strings.TrimSpace(authIndex),
 		failed,

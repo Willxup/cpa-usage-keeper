@@ -53,6 +53,14 @@ func (s *usageEventsStub) GetUsageAnalysis(context.Context, servicedto.UsageFilt
 }
 
 func TestUsageEventsReturnsFilteredRows(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	t.Cleanup(func() { time.Local = previousLocal })
+	time.Local = location
+
 	provider := &usageEventsStub{events: []servicedto.UsageEventRecord{{
 		ID:              42,
 		Timestamp:       time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
@@ -97,6 +105,9 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	if !contains(body, `"auth_index":"2"`) {
 		t.Fatalf("expected auth index in response body: %s", body)
 	}
+	if !contains(body, `"timestamp":"2026-04-22T19:00:00+08:00"`) {
+		t.Fatalf("expected project timezone timestamp in response body: %s", body)
+	}
 	if provider.filterCalls != 1 {
 		t.Fatalf("expected ListUsageEvents to be called once, got %d", provider.filterCalls)
 	}
@@ -121,6 +132,60 @@ func TestUsageIdentityDisplayNameFormatsProviderNameAndPrefix(t *testing.T) {
 
 	if got := usageIdentityDisplayName(identity); got != "Provider Name(Team Prefix)" {
 		t.Fatalf("expected provider displayName to include name and prefix, got %q", got)
+	}
+}
+
+func TestUsageIdentityDisplayNameAddsProviderBaseURLQualifier(t *testing.T) {
+	withPrefix := entities.UsageIdentity{
+		Name:     "Provider Name",
+		Prefix:   "Team Prefix",
+		BaseURL:  "https://api.openai.com/v1/",
+		AuthType: entities.UsageIdentityAuthTypeAIProvider,
+		Identity: "provider-auth-index",
+	}
+	providerOnly := entities.UsageIdentity{
+		Name:     "codex",
+		BaseURL:  "https://chatgpt.com/backend-api/codex/",
+		AuthType: entities.UsageIdentityAuthTypeAIProvider,
+		Identity: "codex-auth-index",
+	}
+
+	if got := usageIdentityDisplayName(withPrefix); got != "Provider Name(Team Prefix @ api.openai.com/v1)" {
+		t.Fatalf("expected base URL to be an extra display qualifier, got %q", got)
+	}
+	if got := usageIdentityDisplayName(providerOnly); got != "codex(chatgpt.com/backend-api/codex)" {
+		t.Fatalf("expected provider displayName to include base URL qualifier, got %q", got)
+	}
+}
+
+func TestUsageIdentityDisplayNameKeepsOpenAICompatibilityName(t *testing.T) {
+	identity := entities.UsageIdentity{
+		Name:     "OpenRouter",
+		Prefix:   "openrouter",
+		BaseURL:  "https://openrouter.ai/api/v1",
+		AuthType: entities.UsageIdentityAuthTypeAIProvider,
+		Type:     "openai",
+		Provider: "OpenRouter",
+		Identity: "openrouter-auth-index",
+	}
+
+	if got := usageIdentityDisplayName(identity); got != "OpenRouter" {
+		t.Fatalf("expected openai compatibility displayName to keep name without qualifiers, got %q", got)
+	}
+}
+
+func TestUsageIdentityDisplayNameFallsBackWhenOpenAICompatibilityNameIsMissing(t *testing.T) {
+	identity := entities.UsageIdentity{
+		Prefix:   "openrouter",
+		BaseURL:  "https://openrouter.ai/api/v1",
+		AuthType: entities.UsageIdentityAuthTypeAIProvider,
+		Type:     "openai",
+		Provider: "openai",
+		Identity: "openrouter-auth-index",
+	}
+
+	if got := usageIdentityDisplayName(identity); got != "openrouter(openrouter.ai/api/v1)" {
+		t.Fatalf("expected unnamed openai compatibility displayName to fall back to provider qualifier rules, got %q", got)
 	}
 }
 

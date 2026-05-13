@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { ApiError, fetchUsageQuotaRefreshTask, refreshUsageQuotas } from '@/lib/api'
 import type { UsageQuotaRow } from '@/lib/types'
-import { CREDENTIALS_PAGE_SIZE } from './credentialViewModels'
 
 export interface QuotaState {
   loading?: boolean
@@ -173,7 +172,7 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaByAu
   const refreshQuotaForCurrentAuthFilePage = useCallback(async () => {
     // 批量刷新只提交当前页且未在工作的条目，单行刷新中的任务不会重复入队。
     const refreshableAuthIndexes = currentAuthIndexes.filter((authIndex) => !isQuotaRefreshWorking(quotaStateByAuthIndex[authIndex]))
-    await startQuotaRefresh(refreshableAuthIndexes.slice(0, CREDENTIALS_PAGE_SIZE), 'batch')
+    await startQuotaRefresh(refreshableAuthIndexes, 'batch')
   }, [currentAuthIndexes, quotaStateByAuthIndex, startQuotaRefresh])
 
   const refreshQuotaForAuthIndex = useCallback(async (authIndex: string) => {

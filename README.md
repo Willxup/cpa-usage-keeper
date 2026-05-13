@@ -24,18 +24,24 @@
 ## 项目结构
 
 ```text
-cmd/                 应用入口
-internal/api/        HTTP 路由与处理器
-internal/app/        应用装配与启动
-internal/auth/       内存 session 鉴权
-internal/backup/     SQLite 数据库备份管理
-internal/config/     环境配置加载
-internal/cpa/        CPA 客户端与类型定义
-internal/models/     GORM 模型
-internal/poller/     后台同步轮询
-internal/repository/ SQLite 访问与聚合逻辑
-internal/service/    同步、usage 与 pricing 服务
-web/                 React + TypeScript 前端
+cmd/server/              应用入口
+internal/api/            HTTP 路由与处理器
+internal/app/            应用装配与启动
+internal/auth/           内存 session 鉴权
+internal/backup/         SQLite 数据库备份管理
+internal/config/         环境配置加载
+internal/cpa/            CPA 客户端与类型定义
+internal/entities/       GORM 数据模型
+internal/logging/        日志初始化与保留策略
+internal/poller/         后台队列消费与 metadata 同步
+internal/quota/          quota 缓存、刷新与查询服务
+internal/redact/         前端展示字段脱敏
+internal/repository/     SQLite 访问与聚合逻辑
+internal/service/        usage、pricing 与身份数据服务
+internal/timeutil/       项目时区与时间工具
+internal/updatecheck/    GitHub Release 更新检查
+deploy/                  systemd、Docker 与部署资源
+web/                     React + TypeScript 前端
 ```
 
 ## 配置
@@ -54,6 +60,9 @@ cp .env.example .env
 | `LOGIN_PASSWORD` | 鉴权启用时必填 | - | 登录密码 |
 | `AUTH_SESSION_TTL` | 否 | `168h` | Session 生命周期 |
 | `APP_PORT` | 否 | `8080` | HTTP 监听端口 |
+| `TLS_ENABLED` | 否 | `false` | 是否启用 HTTPS/TLS |
+| `TLS_CERT_FILE` | 启用 TLS 时必填 | - | HTTPS 证书文件路径 |
+| `TLS_KEY_FILE` | 启用 TLS 时必填 | - | HTTPS 私钥文件路径 |
 | `APP_BASE_PATH` | 否 | 根路径 | 子路径部署前缀，例如 `/cpa`；留空表示 `/` |
 | `TZ` | 否 | `Asia/Shanghai` | 项目业务时区，影响 Today、按天聚合、定时任务和日志时间 |
 | `REDIS_QUEUE_ADDR` | 否 | `CPA_BASE_URL` 主机名 + `8317` | CPA Redis/RESP TCP 地址；留空时会使用 `CPA_BASE_URL` 的主机名和默认端口 `8317`，且当 `CPA_BASE_URL` 为 https 时自动启用 TLS；非默认端口时填写 `host:port` |
@@ -71,6 +80,8 @@ cp .env.example .env
 | `BACKUP_RETENTION_DAYS` | 否 | `7` | 备份保留天数 |
 
 `APP_BASE_PATH` 必须为空或以 `/` 开头；例如 `/cpa`，`/cpa/` 会规范为 `/cpa`。
+
+启用 HTTPS 时，把 `TLS_ENABLED=true`，并填写 `TLS_CERT_FILE` 和 `TLS_KEY_FILE`；如果路径是相对路径，会按 `.env` 所在目录解析。
 
 安全与数据说明：
 

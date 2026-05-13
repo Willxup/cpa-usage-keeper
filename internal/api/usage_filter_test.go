@@ -61,13 +61,19 @@ func TestParseUsageFilterQueryTodayRangeUsesLocalDayBoundary(t *testing.T) {
 	if filter.StartTime == nil || filter.EndTime == nil {
 		t.Fatalf("expected today range to resolve concrete times, got %+v", filter)
 	}
-	expectedStart := time.Date(2026, 4, 22, 0, 0, 0, 0, location).UTC()
-	expectedEnd := time.Date(2026, 4, 23, 0, 0, 0, 0, location).Add(-time.Nanosecond).UTC()
+	expectedStart := time.Date(2026, 4, 22, 0, 0, 0, 0, location)
+	expectedEnd := time.Date(2026, 4, 23, 0, 0, 0, 0, location).Add(-time.Nanosecond)
 	if !filter.StartTime.Equal(expectedStart) {
 		t.Fatalf("expected today start %s, got %s", expectedStart, *filter.StartTime)
 	}
+	if filter.StartTime.Location().String() != location.String() {
+		t.Fatalf("expected today start to keep project timezone, got %s", filter.StartTime.Location())
+	}
 	if !filter.EndTime.Equal(expectedEnd) {
 		t.Fatalf("expected today end %s, got %s", expectedEnd, *filter.EndTime)
+	}
+	if filter.EndTime.Location().String() != location.String() {
+		t.Fatalf("expected today end to keep project timezone, got %s", filter.EndTime.Location())
 	}
 }
 
@@ -90,13 +96,19 @@ func TestParseUsageFilterQueryTodayRangeUsesLocalDSTBoundary(t *testing.T) {
 	if filter.StartTime == nil || filter.EndTime == nil {
 		t.Fatalf("expected today range to resolve concrete times, got %+v", filter)
 	}
-	expectedStart := time.Date(2026, 3, 8, 0, 0, 0, 0, location).UTC()
-	expectedEnd := time.Date(2026, 3, 9, 0, 0, 0, 0, location).Add(-time.Nanosecond).UTC()
+	expectedStart := time.Date(2026, 3, 8, 0, 0, 0, 0, location)
+	expectedEnd := time.Date(2026, 3, 9, 0, 0, 0, 0, location).Add(-time.Nanosecond)
 	if !filter.StartTime.Equal(expectedStart) {
 		t.Fatalf("expected DST today start %s, got %s", expectedStart, *filter.StartTime)
 	}
+	if filter.StartTime.Location().String() != location.String() {
+		t.Fatalf("expected DST today start to keep project timezone, got %s", filter.StartTime.Location())
+	}
 	if !filter.EndTime.Equal(expectedEnd) {
 		t.Fatalf("expected DST today end %s, got %s", expectedEnd, *filter.EndTime)
+	}
+	if filter.EndTime.Location().String() != location.String() {
+		t.Fatalf("expected DST today end to keep project timezone, got %s", filter.EndTime.Location())
 	}
 }
 
@@ -136,13 +148,19 @@ func TestParseUsageFilterQueryCustomDateRangeUsesLocalDayBoundary(t *testing.T) 
 	if filter.StartTime == nil || filter.EndTime == nil {
 		t.Fatalf("expected custom date range bounds, got %+v", filter)
 	}
-	expectedStart := time.Date(2026, 4, 20, 0, 0, 0, 0, location).UTC()
-	expectedEnd := time.Date(2026, 4, 22, 0, 0, 0, 0, location).Add(-time.Nanosecond).UTC()
+	expectedStart := time.Date(2026, 4, 20, 0, 0, 0, 0, location)
+	expectedEnd := time.Date(2026, 4, 22, 0, 0, 0, 0, location).Add(-time.Nanosecond)
 	if !filter.StartTime.Equal(expectedStart) {
 		t.Fatalf("expected custom date start %s, got %s", expectedStart, *filter.StartTime)
 	}
+	if filter.StartTime.Location().String() != location.String() {
+		t.Fatalf("expected custom date start to keep project timezone, got %s", filter.StartTime.Location())
+	}
 	if !filter.EndTime.Equal(expectedEnd) {
 		t.Fatalf("expected custom date end %s, got %s", expectedEnd, *filter.EndTime)
+	}
+	if filter.EndTime.Location().String() != location.String() {
+		t.Fatalf("expected custom date end to keep project timezone, got %s", filter.EndTime.Location())
 	}
 }
 

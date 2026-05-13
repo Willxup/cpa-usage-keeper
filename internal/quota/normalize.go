@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"cpa-usage-keeper/internal/timeutil"
 )
 
 func NormalizeQuotaRows(output ProviderOutput) []QuotaRow {
@@ -107,6 +109,11 @@ func normalizeCodexQuotaRows(result CodexResult) []QuotaRow {
 		secondaryLabel := additional.LimitName + " Weekly"
 		rows = appendCodexWindowQuotaRows(rows, "additional_rate_limits."+additional.LimitName, primaryLabel, secondaryLabel, "additional", metric, additional.RateLimit)
 	}
+	if planType := strings.TrimSpace(result.Usage.PlanType); planType != "" {
+		for index := range rows {
+			rows[index].PlanType = planType
+		}
+	}
 	return rows
 }
 
@@ -168,7 +175,7 @@ func appendCodexWindowQuotaRow(rows []QuotaRow, key string, label string, scope 
 		row.Window = &QuotaWindow{Seconds: intPtr(window.LimitWindowSeconds)}
 	}
 	if window.ResetAt != 0 {
-		row.ResetAt = time.Unix(window.ResetAt, 0).UTC().Format(time.RFC3339)
+		row.ResetAt = timeutil.FormatStorageTime(time.Unix(window.ResetAt, 0))
 	}
 	return append(rows, row)
 }

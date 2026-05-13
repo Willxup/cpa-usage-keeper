@@ -5,11 +5,12 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
 )
 
 func migrateUsageIdentitiesMetadataMigration(tx *gorm.DB) error {
-	now := time.Now().UTC()
+	now := timeutil.NormalizeStorageTime(time.Now())
 	if tx.Migrator().HasTable("auth_files") {
 		isDeletedSelect, deletedAtSelect := legacyDeletedStateSelect(tx, "auth_files")
 		if err := tx.Exec(`

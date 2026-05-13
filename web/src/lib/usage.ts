@@ -34,6 +34,33 @@ function formatLocalDayKey(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
+const HOUR_BUCKET_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/
+
+function parseHourBucketOffsetMinutes(key?: string): number {
+  const match = key?.match(HOUR_BUCKET_PATTERN)
+  const offset = match?.[7]
+  if (!offset || offset === 'Z') return 0
+  const sign = offset[0] === '-' ? -1 : 1
+  const hours = Number(offset.slice(1, 3))
+  const minutes = Number(offset.slice(4, 6))
+  return sign * ((hours * 60) + minutes)
+}
+
+function formatHourBucketKey(timestampMs: number, referenceKey?: string): string {
+  const offsetMinutes = parseHourBucketOffsetMinutes(referenceKey)
+  const shifted = new Date(timestampMs + offsetMinutes * 60 * 1000)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  const offset = offsetMinutes === 0
+    ? 'Z'
+    : `${offsetMinutes < 0 ? '-' : '+'}${pad(Math.floor(Math.abs(offsetMinutes) / 60))}:${pad(Math.abs(offsetMinutes) % 60)}`
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}T${pad(shifted.getUTCHours())}:00:00${offset}`
+}
+
+function startOfHourKey(timestamp: string): string {
+  const timestampMs = Date.parse(timestamp)
+  return Number.isNaN(timestampMs) ? '' : formatHourBucketKey(timestampMs, timestamp)
+}
+
 function calculateEventCost(event: UsageEventWithNames, priceMap: Map<string, PricingEntry>): number {
   const pricing = priceMap.get(event.modelName)
   if (!pricing) return 0
@@ -152,7 +179,7 @@ export function filterUsageSnapshot(usage: UsageSnapshot, range: UsageTimeRange)
 
     const time = new Date(event.timestamp)
     const dayKey = formatLocalDayKey(time)
-    const hourKey = `${time.toISOString().slice(0, 13)}:00:00Z`
+    const hourKey = startOfHourKey(event.timestamp)
     filtered.requests_by_day[dayKey] = (filtered.requests_by_day[dayKey] ?? 0) + 1
     filtered.requests_by_hour[hourKey] = (filtered.requests_by_hour[hourKey] ?? 0) + 1
     filtered.tokens_by_day[dayKey] = (filtered.tokens_by_day[dayKey] ?? 0) + event.tokens.total_tokens
@@ -341,7 +368,7 @@ export function buildSeriesTrends(usage: UsageSnapshot, dimension: UsageSeriesDi
   const grouped = new Map<string, Record<string, number>>()
   for (const event of collectUsageEvents(usage)) {
     const key = dimension === 'api' ? event.apiName : event.modelName
-    const hourKey = `${new Date(event.timestamp).toISOString().slice(0, 13)}:00:00Z`
+    const hourKey = startOfHourKey(event.timestamp)
     const bucket = grouped.get(key) ?? {}
     bucket[hourKey] = (bucket[hourKey] ?? 0) + (metric === 'requests' ? 1 : event.tokens.total_tokens)
     grouped.set(key, bucket)
@@ -366,7 +393,7 @@ export function buildCostTrendPoints(usage: UsageSnapshot, pricing: PricingEntry
   const priceMap = getPriceMap(pricing)
   const buckets: Record<string, number> = {}
   for (const event of collectUsageEvents(usage)) {
-    const hourKey = `${new Date(event.timestamp).toISOString().slice(0, 13)}:00:00Z`
+    const hourKey = startOfHourKey(event.timestamp)
     buckets[hourKey] = (buckets[hourKey] ?? 0) + calculateEventCost(event, priceMap)
   }
   return buildTrendPoints(buckets)

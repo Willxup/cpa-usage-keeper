@@ -24,6 +24,8 @@ func withRepositoryTestLocation(t *testing.T, name string) {
 }
 
 func TestBuildUsageSnapshotWithFilterAppliesTimeBounds(t *testing.T) {
+	withRepositoryTestLocation(t, "Asia/Shanghai")
+
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-filter.db")})
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
@@ -55,15 +57,17 @@ func TestBuildUsageSnapshotWithFilterAppliesTimeBounds(t *testing.T) {
 	if len(snapshot.APIs) != 1 {
 		t.Fatalf("expected one API in filtered snapshot, got %+v", snapshot.APIs)
 	}
-	if snapshot.RequestsByHour["2026-04-16T10:00:00Z"] != 1 {
-		t.Fatalf("expected only 10:00 bucket to remain, got %+v", snapshot.RequestsByHour)
+	if snapshot.RequestsByHour["2026-04-16T18:00:00+08:00"] != 1 {
+		t.Fatalf("expected only 18:00 project-time bucket to remain, got %+v", snapshot.RequestsByHour)
 	}
-	if _, ok := snapshot.RequestsByHour["2026-04-16T09:00:00Z"]; ok {
-		t.Fatalf("expected 09:00 bucket to be filtered out, got %+v", snapshot.RequestsByHour)
+	if _, ok := snapshot.RequestsByHour["2026-04-16T17:00:00+08:00"]; ok {
+		t.Fatalf("expected 17:00 project-time bucket to be filtered out, got %+v", snapshot.RequestsByHour)
 	}
 }
 
 func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
+	withRepositoryTestLocation(t, "Asia/Shanghai")
+
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview.db")})
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
@@ -163,40 +167,43 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 	if overview.Health.Rows != 7 || overview.Health.Columns != 96 || overview.Health.BucketSeconds != 15*60 {
 		t.Fatalf("unexpected service health grid metadata: %+v", overview.Health)
 	}
-	if overview.Health.WindowStart != time.Date(2026, 4, 11, 0, 0, 0, 0, time.UTC) ||
-		overview.Health.WindowEnd != time.Date(2026, 4, 18, 0, 0, 0, 0, time.UTC) {
+	location := time.Local
+	if overview.Health.WindowStart != time.Date(2026, 4, 11, 8, 0, 0, 0, location) ||
+		overview.Health.WindowEnd != time.Date(2026, 4, 18, 8, 0, 0, 0, location) {
 		t.Fatalf("unexpected service health window: %+v", overview.Health)
 	}
 	if len(overview.Health.BlockDetails) != overview.Health.Rows*overview.Health.Columns {
 		t.Fatalf("expected full service health grid, got %d blocks", len(overview.Health.BlockDetails))
 	}
 	firstBlock := overview.Health.BlockDetails[0]
-	if firstBlock.StartTime != time.Date(2026, 4, 11, 0, 0, 0, 0, time.UTC) ||
-		firstBlock.EndTime != time.Date(2026, 4, 11, 0, 15, 0, 0, time.UTC) ||
+	if firstBlock.StartTime != time.Date(2026, 4, 11, 8, 0, 0, 0, location) ||
+		firstBlock.EndTime != time.Date(2026, 4, 11, 8, 15, 0, 0, location) ||
 		firstBlock.Success != 0 || firstBlock.Failure != 0 || firstBlock.Rate != -1 {
 		t.Fatalf("unexpected first health block: %+v", firstBlock)
 	}
 	populatedBlock := overview.Health.BlockDetails[517]
-	if populatedBlock.StartTime != time.Date(2026, 4, 16, 9, 15, 0, 0, time.UTC) ||
-		populatedBlock.EndTime != time.Date(2026, 4, 16, 9, 30, 0, 0, time.UTC) ||
+	if populatedBlock.StartTime != time.Date(2026, 4, 16, 17, 15, 0, 0, location) ||
+		populatedBlock.EndTime != time.Date(2026, 4, 16, 17, 30, 0, 0, location) ||
 		populatedBlock.Success != 1 || populatedBlock.Failure != 0 || populatedBlock.Rate != 1 {
 		t.Fatalf("unexpected populated health block: %+v", populatedBlock)
 	}
 	failedBlock := overview.Health.BlockDetails[523]
-	if failedBlock.StartTime != time.Date(2026, 4, 16, 10, 45, 0, 0, time.UTC) ||
-		failedBlock.EndTime != time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC) ||
+	if failedBlock.StartTime != time.Date(2026, 4, 16, 18, 45, 0, 0, location) ||
+		failedBlock.EndTime != time.Date(2026, 4, 16, 19, 0, 0, 0, location) ||
 		failedBlock.Success != 0 || failedBlock.Failure != 1 || failedBlock.Rate != 0 {
 		t.Fatalf("unexpected failed health block: %+v", failedBlock)
 	}
 	latestPopulatedBlock := overview.Health.BlockDetails[620]
-	if latestPopulatedBlock.StartTime != time.Date(2026, 4, 17, 11, 0, 0, 0, time.UTC) ||
-		latestPopulatedBlock.EndTime != time.Date(2026, 4, 17, 11, 15, 0, 0, time.UTC) ||
+	if latestPopulatedBlock.StartTime != time.Date(2026, 4, 17, 19, 0, 0, 0, location) ||
+		latestPopulatedBlock.EndTime != time.Date(2026, 4, 17, 19, 15, 0, 0, location) ||
 		latestPopulatedBlock.Success != 1 || latestPopulatedBlock.Failure != 0 || latestPopulatedBlock.Rate != 1 {
 		t.Fatalf("unexpected latest populated health block: %+v", latestPopulatedBlock)
 	}
 }
 
 func TestBuildUsageOverviewFromEventsBuildsSnapshotAndOverviewInOnePass(t *testing.T) {
+	withRepositoryTestLocation(t, "Asia/Shanghai")
+
 	events := []entities.UsageEvent{
 		{
 			EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet",
@@ -255,13 +262,13 @@ func TestBuildUsageOverviewFromEventsBuildsSnapshotAndOverviewInOnePass(t *testi
 	if overview.Summary.CostAvailable {
 		t.Fatalf("expected cost to be unavailable when any event model with billable tokens is unpriced, got %+v", overview.Summary)
 	}
-	if overview.Series.Requests["2026-04-16T09:00:00Z"] != 1 || overview.Series.Requests["2026-04-16T10:00:00Z"] != 1 {
+	if overview.Series.Requests["2026-04-16T17:00:00+08:00"] != 1 || overview.Series.Requests["2026-04-16T18:00:00+08:00"] != 1 {
 		t.Fatalf("unexpected hourly request series: %+v", overview.Series.Requests)
 	}
-	if overview.HourlySeries.Models["claude-sonnet"].Requests["2026-04-16T09:00:00Z"] != 1 {
+	if overview.HourlySeries.Models["claude-sonnet"].Requests["2026-04-16T17:00:00+08:00"] != 1 {
 		t.Fatalf("expected claude-sonnet hourly model series, got %+v", overview.HourlySeries.Models)
 	}
-	if overview.HourlySeries.Models["unknown"].Tokens["2026-04-16T10:00:00Z"] != 3150 {
+	if overview.HourlySeries.Models["unknown"].Tokens["2026-04-16T18:00:00+08:00"] != 3150 {
 		t.Fatalf("expected unknown hourly model token series, got %+v", overview.HourlySeries.Models)
 	}
 	if overview.DailySeries.Models["claude-sonnet"].Requests["2026-04-16"] != 1 {
@@ -473,6 +480,8 @@ func TestBuildUsageOverviewWithFilterReturnsUnavailableCostWithoutPricing(t *tes
 }
 
 func TestBuildUsageOverviewWithFilterUsesExactPresetWindowMinutes(t *testing.T) {
+	withRepositoryTestLocation(t, "Asia/Shanghai")
+
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-preset-window.db")})
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
@@ -493,7 +502,7 @@ func TestBuildUsageOverviewWithFilterUsesExactPresetWindowMinutes(t *testing.T) 
 			start:           time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC),
 			end:             time.Date(2026, 4, 17, 12, 0, 0, 0, time.UTC),
 			expectMinutes:   1440,
-			expectBucketKey: "2026-04-17T12:00:00Z",
+			expectBucketKey: "2026-04-17T20:00:00+08:00",
 		},
 		{
 			name:            "7d uses daily buckets with 10080 minute window",
@@ -575,16 +584,16 @@ func TestBuildUsageOverviewWithFilterBuildsLatestHourlySeriesForLongRanges(t *te
 	if len(overview.Series.Requests) != 2 || overview.Series.Requests["2026-04-17"] != 1 || overview.Series.Requests["2026-04-24"] != 2 {
 		t.Fatalf("expected main overview series to remain daily for 7d, got %+v", overview.Series.Requests)
 	}
-	if _, ok := overview.HourlySeries.Requests["2026-04-17T08:00:00Z"]; ok {
+	if _, ok := overview.HourlySeries.Requests["2026-04-17T16:00:00+08:00"]; ok {
 		t.Fatalf("expected latest hourly series to exclude buckets before the latest 24 hours, got %+v", overview.HourlySeries.Requests)
 	}
-	if overview.HourlySeries.Requests["2026-04-23T22:00:00Z"] != 1 || overview.HourlySeries.Requests["2026-04-23T23:00:00Z"] != 1 {
+	if overview.HourlySeries.Requests["2026-04-24T06:00:00+08:00"] != 1 || overview.HourlySeries.Requests["2026-04-24T07:00:00+08:00"] != 1 {
 		t.Fatalf("unexpected latest hourly request series: %+v", overview.HourlySeries.Requests)
 	}
-	if overview.HourlySeries.Cost["2026-04-23T22:00:00Z"] != 1.999993 || overview.HourlySeries.Cost["2026-04-23T23:00:00Z"] != 2.999983 {
+	if overview.HourlySeries.Cost["2026-04-24T06:00:00+08:00"] != 1.999993 || overview.HourlySeries.Cost["2026-04-24T07:00:00+08:00"] != 2.999983 {
 		t.Fatalf("unexpected latest hourly cost series: %+v", overview.HourlySeries.Cost)
 	}
-	if overview.HourlySeries.InputTokens["2026-04-23T22:00:00Z"] != 2_000_000 || overview.HourlySeries.OutputTokens["2026-04-23T23:00:00Z"] != 13 {
+	if overview.HourlySeries.InputTokens["2026-04-24T06:00:00+08:00"] != 2_000_000 || overview.HourlySeries.OutputTokens["2026-04-24T07:00:00+08:00"] != 13 {
 		t.Fatalf("unexpected latest hourly token category series: %+v", overview.HourlySeries)
 	}
 	if overview.DailySeries.Requests["2026-04-17"] != 1 || overview.DailySeries.Requests["2026-04-24"] != 2 {

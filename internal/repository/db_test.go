@@ -2,6 +2,7 @@ package repository
 
 import (
 	"bytes"
+	"context"
 	"cpa-usage-keeper/internal/repository/dto"
 	"fmt"
 	"path/filepath"
@@ -52,8 +53,8 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 	if err := db.Table("schema_migrations").Count(&count).Error; err != nil {
 		t.Fatalf("count schema migrations: %v", err)
 	}
-	if count != 17 {
-		t.Fatalf("expected fresh database to mark 17 migrations applied, got %d", count)
+	if count != 19 {
+		t.Fatalf("expected fresh database to mark 19 migrations applied, got %d", count)
 	}
 	if strings.Contains(logs.String(), "schema migration started") {
 		t.Fatalf("expected fresh database creation not to run version migrations, got logs:\n%s", logs.String())
@@ -185,6 +186,82 @@ func TestInsertUsageEventsPersistsModelAlias(t *testing.T) {
 	}
 }
 
+func TestDatabaseTimeFieldsUseProjectTimezoneRFC3339Nano(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	time.Local = location
+	t.Cleanup(func() { time.Local = previousLocal })
+	db := openTestDatabase(t)
+
+	storageTime := time.Date(2026, 5, 12, 21, 59, 18, 353569620, location)
+	if _, _, err := InsertUsageEvents(db, []entities.UsageEvent{{
+		EventKey:    "event-storage-time",
+		APIGroupKey: "provider-a",
+		Model:       "claude-sonnet",
+		Timestamp:   storageTime,
+		AuthType:    "oauth",
+		AuthIndex:   "auth-1",
+		TotalTokens: 1,
+	}}); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "claude-sonnet", PromptPricePer1M: 1}); err != nil {
+		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
+	}
+	inboxRows, err := InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{{QueueKey: "queue", RawMessage: `{"request_id":"event-storage-time"}`, PoppedAt: storageTime}})
+	if err != nil {
+		t.Fatalf("InsertRedisUsageInboxMessages returned error: %v", err)
+	}
+	if err := MarkRedisUsageInboxProcessed(db, inboxRows[0].ID, "event-storage-time", storageTime); err != nil {
+		t.Fatalf("MarkRedisUsageInboxProcessed returned error: %v", err)
+	}
+	activeStart := storageTime
+	activeUntil := storageTime.Add(time.Hour)
+	if err := ReplaceUsageIdentitiesForAuthType(context.Background(), db, []entities.UsageIdentity{{
+		Name:        "Auth 1",
+		Identity:    "auth-1",
+		ActiveStart: &activeStart,
+		ActiveUntil: &activeUntil,
+	}}, entities.UsageIdentityAuthTypeAuthFile, storageTime); err != nil {
+		t.Fatalf("ReplaceUsageIdentitiesForAuthType returned error: %v", err)
+	}
+	if err := AggregateUsageIdentityStats(context.Background(), db, storageTime); err != nil {
+		t.Fatalf("AggregateUsageIdentityStats returned error: %v", err)
+	}
+	if err := ReplaceUsageIdentitiesForAuthType(context.Background(), db, nil, entities.UsageIdentityAuthTypeAuthFile, storageTime); err != nil {
+		t.Fatalf("ReplaceUsageIdentitiesForAuthType delete returned error: %v", err)
+	}
+
+	for _, check := range []struct {
+		table string
+		field string
+		where string
+	}{
+		{table: "usage_events", field: "timestamp", where: "event_key = 'event-storage-time'"},
+		{table: "usage_events", field: "created_at", where: "event_key = 'event-storage-time'"},
+		{table: "model_price_settings", field: "created_at", where: "model = 'claude-sonnet'"},
+		{table: "model_price_settings", field: "updated_at", where: "model = 'claude-sonnet'"},
+		{table: "redis_usage_inboxes", field: "popped_at", where: "usage_event_key = 'event-storage-time'"},
+		{table: "redis_usage_inboxes", field: "processed_at", where: "usage_event_key = 'event-storage-time'"},
+		{table: "redis_usage_inboxes", field: "created_at", where: "usage_event_key = 'event-storage-time'"},
+		{table: "redis_usage_inboxes", field: "updated_at", where: "usage_event_key = 'event-storage-time'"},
+		{table: "usage_identities", field: "active_start", where: "identity = 'auth-1'"},
+		{table: "usage_identities", field: "active_until", where: "identity = 'auth-1'"},
+		{table: "usage_identities", field: "first_used_at", where: "identity = 'auth-1'"},
+		{table: "usage_identities", field: "last_used_at", where: "identity = 'auth-1'"},
+		{table: "usage_identities", field: "stats_updated_at", where: "identity = 'auth-1'"},
+		{table: "usage_identities", field: "created_at", where: "identity = 'auth-1'"},
+		{table: "usage_identities", field: "updated_at", where: "identity = 'auth-1'"},
+		{table: "usage_identities", field: "deleted_at", where: "identity = 'auth-1'"},
+		{table: "schema_migrations", field: "applied_at", where: "version = '20260503_add_usage_event_redis_fields'"},
+	} {
+		assertProjectTimezoneStorageValue(t, rawSQLiteTimeValue(t, db, check.table, check.field, check.where), check.table+"."+check.field)
+	}
+}
+
 func TestCleanupStorageCleansRedisInboxAndVacuums(t *testing.T) {
 	previousLocal := time.Local
 	location, err := time.LoadLocation("Asia/Shanghai")
@@ -234,6 +311,28 @@ func openTestDatabase(t *testing.T) *gorm.DB {
 	}
 	closeTestDatabase(t, db)
 	return db
+}
+
+func rawSQLiteTimeValue(t *testing.T, db *gorm.DB, table string, field string, where string) string {
+	t.Helper()
+	var value string
+	if err := db.Raw(fmt.Sprintf("SELECT %s FROM %s WHERE %s LIMIT 1", field, table, where)).Scan(&value).Error; err != nil {
+		t.Fatalf("read raw time value %s.%s: %v", table, field, err)
+	}
+	if strings.TrimSpace(value) == "" {
+		t.Fatalf("expected raw time value for %s.%s", table, field)
+	}
+	return value
+}
+
+func assertProjectTimezoneStorageValue(t *testing.T, value string, field string) {
+	t.Helper()
+	if _, err := time.Parse(time.RFC3339Nano, value); err != nil {
+		t.Fatalf("expected %s to use RFC3339Nano storage format, got %q: %v", field, value, err)
+	}
+	if !strings.Contains(value, "T") || !strings.Contains(value, "+08:00") || strings.Contains(value, "Z") || strings.Contains(value, "+00:00") {
+		t.Fatalf("expected %s to use project timezone offset storage format, got %q", field, value)
+	}
 }
 
 func closeTestDatabase(t *testing.T, db *gorm.DB) {

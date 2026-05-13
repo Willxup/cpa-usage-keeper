@@ -40,6 +40,14 @@ func TestUsageServiceGetUsageWithFilterDelegatesToFilteredSnapshot(t *testing.T)
 }
 
 func TestUsageServiceGetUsageOverviewDelegatesToFilteredOverview(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	t.Cleanup(func() { time.Local = previousLocal })
+	time.Local = location
+
 	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-service-overview.db")})
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
@@ -73,10 +81,10 @@ func TestUsageServiceGetUsageOverviewDelegatesToFilteredOverview(t *testing.T) {
 	if overview.Summary.WindowMinutes != 1440 {
 		t.Fatalf("expected 24h overview to use exact 1440 minute window, got %+v", overview.Summary)
 	}
-	if overview.Series.Requests["2026-04-16T09:00:00Z"] != 1 || overview.Series.Requests["2026-04-16T10:00:00Z"] != 1 {
+	if overview.Series.Requests["2026-04-16T17:00:00+08:00"] != 1 || overview.Series.Requests["2026-04-16T18:00:00+08:00"] != 1 {
 		t.Fatalf("expected hourly request series values, got %+v", overview.Series)
 	}
-	if math.Abs(overview.Series.Cost["2026-04-16T09:00:00Z"]-0.01023) > 0.000000001 || math.Abs(overview.Series.Cost["2026-04-16T10:00:00Z"]-0.00525) > 0.000000001 {
+	if math.Abs(overview.Series.Cost["2026-04-16T17:00:00+08:00"]-0.01023) > 0.000000001 || math.Abs(overview.Series.Cost["2026-04-16T18:00:00+08:00"]-0.00525) > 0.000000001 {
 		t.Fatalf("expected hourly cost series values, got %+v", overview.Series)
 	}
 }

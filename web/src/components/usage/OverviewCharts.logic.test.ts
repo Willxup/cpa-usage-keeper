@@ -377,6 +377,40 @@ describe('overview chart data flow', () => {
     expect(tokens.datasets[0]?.data[24]).toBe(0);
   });
 
+  it('keeps short-range overview hour charts aligned to project timezone backend buckets', () => {
+    const chartUsage = {
+      ...overviewUsage.usage,
+      requests_by_hour: {
+        '2026-04-24T02:00:00+08:00': 34,
+        '2026-04-24T03:00:00+08:00': 41,
+        '2026-04-24T04:00:00+08:00': 9,
+        '2026-04-24T05:00:00+08:00': 16,
+        '2026-04-24T06:00:00+08:00': 93,
+      },
+      tokens_by_hour: {
+        '2026-04-24T02:00:00+08:00': 3664982,
+        '2026-04-24T03:00:00+08:00': 5003310,
+        '2026-04-24T04:00:00+08:00': 1362696,
+        '2026-04-24T05:00:00+08:00': 2583370,
+        '2026-04-24T06:00:00+08:00': 6477989,
+      },
+    };
+
+    const requests = buildChartData(chartUsage, 'hour', 'requests', ['all'], {
+      hourWindowHours: 4,
+      endMs: Date.parse('2026-04-24T06:16:00+08:00'),
+    });
+    const tokens = buildChartData(chartUsage, 'hour', 'tokens', ['all'], {
+      hourWindowHours: 4,
+      endMs: Date.parse('2026-04-24T06:16:00+08:00'),
+    });
+
+    expect(requests.labels).toHaveLength(5);
+    expect(requests.datasets[0]?.data).toEqual([34, 41, 9, 16, 93]);
+    expect(tokens.labels).toHaveLength(5);
+    expect(tokens.datasets[0]?.data[0]).toBe(3664982);
+  });
+
   it('keeps short-range overview hour charts aligned to backend partial-hour buckets', () => {
     const chartUsage = {
       ...overviewUsage.usage,
@@ -494,6 +528,30 @@ describe('overview chart data flow', () => {
     expect(series.dataByCategory.input.slice(0, 23)).toEqual(Array(23).fill(0));
     expect(series.dataByCategory.input[23]).toBe(100);
     expect(series.dataByCategory.output[23]).toBe(50);
+  });
+
+  it('aligns token breakdown sub-day hour buckets with project timezone backend buckets', () => {
+    const series = buildTokenBreakdownChartSeries({
+      usage: {
+        ...overviewUsage,
+        hourly_series: {
+          ...overviewUsage.hourly_series!,
+          input_tokens: {
+            '2026-04-24T02:00:00+08:00': 100,
+            '2026-04-24T04:00:00+08:00': 200,
+          },
+          output_tokens: {},
+          cached_tokens: {},
+          reasoning_tokens: {},
+        },
+      },
+      period: 'hour',
+      hourWindowHours: 4,
+      endMs: Date.parse('2026-04-24T04:16:00+08:00'),
+    });
+
+    expect(series.labels).toHaveLength(5);
+    expect(series.dataByCategory.input).toEqual([0, 0, 100, 0, 200]);
   });
 
   it('aligns token breakdown sub-day hour buckets with request and token trends', () => {

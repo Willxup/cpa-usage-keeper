@@ -8,6 +8,7 @@ import (
 	"time"
 
 	servicedto "cpa-usage-keeper/internal/service/dto"
+	"cpa-usage-keeper/internal/timeutil"
 )
 
 var presetUsageRangeDurations = map[string]time.Duration{
@@ -99,10 +100,10 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (servicedto.Usag
 	case "all":
 		return filter, nil
 	case "today":
-		localAnchor := anchor.In(time.Local)
+		localAnchor := timeutil.NormalizeStorageTime(anchor)
 		localStart := time.Date(localAnchor.Year(), localAnchor.Month(), localAnchor.Day(), 0, 0, 0, 0, time.Local)
-		startTime := localStart.UTC()
-		endTime := localStart.AddDate(0, 0, 1).Add(-time.Nanosecond).UTC()
+		startTime := timeutil.NormalizeStorageTime(localStart)
+		endTime := timeutil.NormalizeStorageTime(localStart.AddDate(0, 0, 1).Add(-time.Nanosecond))
 		filter.StartTime = &startTime
 		filter.EndTime = &endTime
 		return filter, nil
@@ -120,8 +121,8 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (servicedto.Usag
 		if err != nil {
 			return servicedto.UsageFilter{}, fmt.Errorf("invalid end: %w", err)
 		}
-		startTime = startTime.UTC()
-		endTime = endTime.UTC()
+		startTime = timeutil.NormalizeStorageTime(startTime)
+		endTime = timeutil.NormalizeStorageTime(endTime)
 		if startTime.After(endTime) {
 			return servicedto.UsageFilter{}, fmt.Errorf("custom range start must be before end")
 		}
@@ -133,8 +134,8 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (servicedto.Usag
 		if !ok {
 			return servicedto.UsageFilter{}, fmt.Errorf("unsupported usage range %q", rangeValue)
 		}
-		endTime := anchor.UTC()
-		startTime := endTime.Add(-duration)
+		endTime := timeutil.NormalizeStorageTime(anchor)
+		startTime := timeutil.NormalizeStorageTime(endTime.Add(-duration))
 		filter.StartTime = &startTime
 		filter.EndTime = &endTime
 		return filter, nil

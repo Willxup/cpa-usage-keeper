@@ -21,11 +21,12 @@ type UsageIdentity struct {
 	Provider     string
 	LookupKey    string
 	Prefix       string
+	BaseURL      string
 	AccountID    *string
 	ProjectID    *string
 
-	ActiveStart *time.Time
-	ActiveUntil *time.Time
+	ActiveStart *time.Time `gorm:"serializer:storageTime"`
+	ActiveUntil *time.Time `gorm:"serializer:storageTime"`
 	PlanType    *string
 
 	TotalRequests   int64
@@ -38,12 +39,12 @@ type UsageIdentity struct {
 	TotalTokens     int64
 
 	LastAggregatedUsageEventID uint
-	FirstUsedAt                *time.Time
-	LastUsedAt                 *time.Time
-	StatsUpdatedAt             *time.Time
+	FirstUsedAt                *time.Time `gorm:"serializer:storageTime"`
+	LastUsedAt                 *time.Time `gorm:"serializer:storageTime"`
+	StatsUpdatedAt             *time.Time `gorm:"serializer:storageTime"`
 
 	IsDeleted bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt *time.Time
+	CreatedAt time.Time  `gorm:"serializer:storageTime"`
+	UpdatedAt time.Time  `gorm:"serializer:storageTime"`
+	DeletedAt *time.Time `gorm:"serializer:storageTime"`
 }

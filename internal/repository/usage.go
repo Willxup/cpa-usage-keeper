@@ -8,6 +8,7 @@ import (
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository/dto"
+	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
 )
 
@@ -67,7 +68,7 @@ func ListUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.U
 	for _, event := range events {
 		rows = append(rows, dto.UsageEventRecord{
 			ID:              event.ID,
-			Timestamp:       event.Timestamp.UTC(),
+			Timestamp:       timeutil.NormalizeStorageTime(event.Timestamp),
 			APIGroupKey:     strings.TrimSpace(event.APIGroupKey),
 			Model:           strings.TrimSpace(event.Model),
 			AuthType:        strings.TrimSpace(event.AuthType),
@@ -119,11 +120,12 @@ func queryUsageEvents(db *gorm.DB) *gorm.DB {
 }
 
 func applyUsageQueryWindow(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
+	// 查询参数和落库 timestamp 使用同一格式，避免 SQLite TEXT 范围比较失真。
 	if filter.StartTime != nil {
-		query = query.Where("timestamp >= ?", filter.StartTime.UTC())
+		query = query.Where("timestamp >= ?", timeutil.FormatStorageTime(*filter.StartTime))
 	}
 	if filter.EndTime != nil {
-		query = query.Where("timestamp <= ?", filter.EndTime.UTC())
+		query = query.Where("timestamp <= ?", timeutil.FormatStorageTime(*filter.EndTime))
 	}
 	return query
 }
@@ -406,7 +408,7 @@ func applyUsageEventToSnapshot(snapshot *dto.StatisticsSnapshot, event entities.
 	modelSnapshot := apiSnapshot.Models[modelName]
 	if includeDetails {
 		detail := dto.RequestDetail{
-			Timestamp: event.Timestamp.UTC(),
+			Timestamp: timeutil.NormalizeStorageTime(event.Timestamp),
 			LatencyMS: event.LatencyMS,
 			Source:    strings.TrimSpace(event.Source),
 			AuthIndex: strings.TrimSpace(event.AuthIndex),
@@ -437,8 +439,9 @@ func applyUsageEventToSnapshot(snapshot *dto.StatisticsSnapshot, event entities.
 		snapshot.SuccessCount++
 	}
 
-	dayKey := event.Timestamp.In(time.Local).Format("2006-01-02")
-	hourKey := event.Timestamp.UTC().Format("2006-01-02T15:00:00Z")
+	eventTime := timeutil.NormalizeStorageTime(event.Timestamp)
+	dayKey := eventTime.Format("2006-01-02")
+	hourKey := timeutil.FormatStorageTime(eventTime.Truncate(time.Hour))
 	snapshot.RequestsByDay[dayKey]++
 	snapshot.RequestsByHour[hourKey]++
 	snapshot.TokensByDay[dayKey] += event.TotalTokens
@@ -525,15 +528,15 @@ func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities
 	cost := calculateUsageEventCost(event, pricing)
 	overview.Summary.TotalCost += cost
 
-	bucketKey, bucketMinutes := usageOverviewBucket(event.Timestamp.UTC(), bucketByDay)
+	bucketKey, bucketMinutes := usageOverviewBucket(timeutil.NormalizeStorageTime(event.Timestamp), bucketByDay)
 	applyUsageEventToOverviewSeries(&overview.Series, event, cost, bucketKey, bucketMinutes)
 
-	hourKey, hourMinutes := usageOverviewBucket(event.Timestamp.UTC(), false)
-	if latestHourlyStart == nil || !event.Timestamp.UTC().Before(*latestHourlyStart) {
+	hourKey, hourMinutes := usageOverviewBucket(timeutil.NormalizeStorageTime(event.Timestamp), false)
+	if latestHourlyStart == nil || !timeutil.NormalizeStorageTime(event.Timestamp).Before(*latestHourlyStart) {
 		applyUsageEventToOverviewSeries(&overview.HourlySeries, event, cost, hourKey, hourMinutes)
 	}
 
-	dayKey, dayMinutes := usageOverviewBucket(event.Timestamp.UTC(), true)
+	dayKey, dayMinutes := usageOverviewBucket(timeutil.NormalizeStorageTime(event.Timestamp), true)
 	applyUsageEventToOverviewSeries(&overview.DailySeries, event, cost, dayKey, dayMinutes)
 	updateUsageOverviewHealthBlock(overview.Health.BlockDetails, event)
 }
@@ -599,8 +602,8 @@ func computeWindowMinutes(filter dto.UsageQueryFilter) int64 {
 	if filter.StartTime == nil || filter.EndTime == nil {
 		return 0
 	}
-	start := filter.StartTime.UTC()
-	end := filter.EndTime.UTC()
+	start := timeutil.NormalizeStorageTime(*filter.StartTime)
+	end := timeutil.NormalizeStorageTime(*filter.EndTime)
 	if end.Before(start) {
 		return 0
 	}
@@ -623,16 +626,16 @@ func shouldBucketUsageOverviewByDay(filter dto.UsageQueryFilter, windowMinutes i
 
 func usageOverviewBucket(timestamp time.Time, byDay bool) (string, int64) {
 	if byDay {
-		return timestamp.In(time.Local).Format("2006-01-02"), 24 * 60
+		return timeutil.NormalizeStorageTime(timestamp).Format("2006-01-02"), 24 * 60
 	}
-	return timestamp.UTC().Format("2006-01-02T15:00:00Z"), 60
+	return timeutil.FormatStorageTime(timeutil.NormalizeStorageTime(timestamp).Truncate(time.Hour)), 60
 }
 
 func latestHourlySeriesStart(filter dto.UsageQueryFilter) *time.Time {
 	if filter.EndTime == nil {
 		return nil
 	}
-	currentHour := filter.EndTime.UTC().Truncate(time.Hour)
+	currentHour := timeutil.NormalizeStorageTime(*filter.EndTime).Truncate(time.Hour)
 	start := currentHour.Add(-23 * time.Hour)
 	return &start
 }
@@ -686,9 +689,9 @@ func isUsageOverviewShortHealthRange(value string) bool {
 }
 
 func usageOverviewHealthWindow(filter dto.UsageQueryFilter, totalBlocks int, span time.Duration) (time.Time, time.Time) {
-	end := time.Now().UTC()
+	end := timeutil.NormalizeStorageTime(time.Now())
 	if filter.EndTime != nil {
-		end = filter.EndTime.UTC()
+		end = timeutil.NormalizeStorageTime(*filter.EndTime)
 	}
 	if isUsageOverviewShortHealthRange(filter.Range) {
 		return end.Add(-usageOverviewHealthPresetWindow), end
@@ -699,7 +702,7 @@ func usageOverviewHealthWindow(filter dto.UsageQueryFilter, totalBlocks int, spa
 }
 
 func updateUsageOverviewHealthBlock(blocks []dto.UsageOverviewHealthBlockRecord, event entities.UsageEvent) {
-	timestamp := event.Timestamp.UTC()
+	timestamp := timeutil.NormalizeStorageTime(event.Timestamp)
 	for index := range blocks {
 		block := &blocks[index]
 		if timestamp.Before(block.StartTime) || !timestamp.Before(block.EndTime) {

@@ -146,14 +146,42 @@ const startOfDayKey = (timestamp: string): string => {
   return Number.isNaN(date.getTime()) ? '' : formatLocalDayKey(date);
 };
 
-const formatHourBucketKey = (timestampMs: number): string => `${new Date(timestampMs).toISOString().slice(0, 13)}:00:00Z`;
+const HOUR_BUCKET_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+
+const parseHourBucketOffsetMinutes = (key?: string): number => {
+  const match = key?.match(HOUR_BUCKET_PATTERN);
+  const offset = match?.[7];
+  if (!offset || offset === 'Z') return 0;
+  const sign = offset[0] === '-' ? -1 : 1;
+  const hours = Number(offset.slice(1, 3));
+  const minutes = Number(offset.slice(4, 6));
+  return sign * ((hours * 60) + minutes);
+};
+
+const startOfOffsetHourMs = (timestampMs: number, offsetMinutes: number): number => {
+  const hourMs = 60 * 60 * 1000;
+  const shiftedMs = timestampMs + offsetMinutes * 60 * 1000;
+  return Math.floor(shiftedMs / hourMs) * hourMs - offsetMinutes * 60 * 1000;
+};
+
+const formatHourBucketKey = (timestampMs: number, referenceKey?: string): string => {
+  const offsetMinutes = parseHourBucketOffsetMinutes(referenceKey);
+  const shifted = new Date(timestampMs + offsetMinutes * 60 * 1000);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const offset = offsetMinutes === 0
+    ? 'Z'
+    : `${offsetMinutes < 0 ? '-' : '+'}${pad(Math.floor(Math.abs(offsetMinutes) / 60))}:${pad(Math.abs(offsetMinutes) % 60)}`;
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}T${pad(shifted.getUTCHours())}:00:00${offset}`;
+};
 
 const startOfHourKey = (timestamp: string): string => {
   const date = new Date(timestamp);
-  return Number.isNaN(date.getTime()) ? '' : formatHourBucketKey(date.getTime());
+  return Number.isNaN(date.getTime()) ? '' : formatHourBucketKey(date.getTime(), timestamp);
 };
 
 const formatHourLabel = (key: string): string => {
+  const match = key.match(HOUR_BUCKET_PATTERN);
+  if (match) return `${match[2]}-${match[3]} ${match[4]}:${match[5]}`;
   const date = new Date(key);
   if (Number.isNaN(date.getTime())) return key;
   const md = `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -173,18 +201,17 @@ const normalizeHourWindow = (hourWindowHours?: number): number => {
 const resolveHourlyChartWindowHours = (hourWindowHours?: number): number =>
   normalizeHourWindow(hourWindowHours);
 
-const buildHourlyWindow = (hourWindowHours?: number, endMs?: number, includeFinalBucket = false) => {
+const buildHourlyWindow = (hourWindowHours?: number, endMs?: number, includeFinalBucket = false, referenceKey?: string) => {
   const resolvedHourWindow = resolveHourlyChartWindowHours(hourWindowHours);
   const bucketCount = includeFinalBucket ? resolvedHourWindow + 1 : resolvedHourWindow >= 24 ? 24 : resolvedHourWindow + 1;
   const hourMs = 60 * 60 * 1000;
-  const currentHour = new Date(Number.isFinite(endMs) && endMs && endMs > 0 ? endMs : Date.now());
-  currentHour.setUTCMinutes(0, 0, 0);
-  const earliestTime = currentHour.getTime() - ((bucketCount - 1) * hourMs);
+  const requestedEndMs = Number.isFinite(endMs) && endMs && endMs > 0 ? endMs : Date.now();
+  const earliestTime = startOfOffsetHourMs(requestedEndMs, parseHourBucketOffsetMinutes(referenceKey)) - ((bucketCount - 1) * hourMs);
   const labels = Array.from({ length: bucketCount }, (_, index) => {
     if (includeFinalBucket) {
       return `${String(index).padStart(2, '0')}:00`;
     }
-    return formatHourLabel(formatHourBucketKey(earliestTime + index * hourMs));
+    return formatHourLabel(formatHourBucketKey(earliestTime + index * hourMs, referenceKey));
   });
   return {
     hourMs,
@@ -445,13 +472,24 @@ export function calculateCost(detail: UsageDetailRecord, modelPrices: Record<str
     toNumber(detail.tokens.cached_tokens),
     toNumber(detail.tokens.cache_tokens)
   );
-  const promptTokens = Math.max(inputTokens - cachedTokens, 0);
+  // Anthropic 的 input_tokens 已不含 cached（与 OpenAI/Gemini 风格相反），不能再减一次。
+  const promptTokens = isAnthropicStyleProvider(detail.source_type)
+    ? inputTokens
+    : Math.max(inputTokens - cachedTokens, 0);
 
   return (
     (promptTokens / 1_000_000) * pricing.prompt +
     (completionTokens / 1_000_000) * pricing.completion +
     (cachedTokens / 1_000_000) * pricing.cache
   );
+}
+
+// CPA 把 provider 原始口径直接落库；Anthropic 的 input_tokens 不含 cached，其它 provider 都含。
+// 计算成本/缓存率时需要按 source_type 区分公式。
+export function isAnthropicStyleProvider(sourceType: unknown): boolean {
+  if (typeof sourceType !== 'string') return false;
+  const value = sourceType.trim().toLowerCase();
+  return value === 'claude' || value === 'anthropic';
 }
 
 export function buildCandidateUsageSourceIds({ apiKey, prefix }: { apiKey?: string; prefix?: string }): string[] {
@@ -548,10 +586,11 @@ export function buildChartData(
     }
     const hourWindow = period === 'hour'
       ? (() => {
-        const endMs = options.endMs ?? Date.parse(rawBucketKeys[rawBucketKeys.length - 1]);
-        const { earliestTime, hourMs, labels } = buildHourlyWindow(options.hourWindowHours, endMs, options.includeFinalHourBucket);
+        const referenceKey = rawBucketKeys[rawBucketKeys.length - 1];
+        const endMs = options.endMs ?? Date.parse(referenceKey);
+        const { earliestTime, hourMs, labels } = buildHourlyWindow(options.hourWindowHours, endMs, options.includeFinalHourBucket, referenceKey);
         return {
-          bucketKeys: labels.map((_, index) => formatHourBucketKey(earliestTime + index * hourMs)),
+          bucketKeys: labels.map((_, index) => formatHourBucketKey(earliestTime + index * hourMs, referenceKey)),
           labels,
         };
       })()
@@ -602,18 +641,17 @@ export function buildChartData(
 
   if (period === 'hour') {
     const hourEndMs = resolveHourlyChartEndMs(details, options.hourWindowHours, options.endMs);
-    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(options.hourWindowHours, hourEndMs, options.includeFinalHourBucket);
-    const bucketKeys = labels.map((_, index) => formatHourBucketKey(earliestTime + index * hourMs));
+    const referenceKey = details.find((detail) => (detail.__timestampMs ?? 0) === hourEndMs)?.timestamp ?? details[0]?.timestamp;
+    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(options.hourWindowHours, hourEndMs, options.includeFinalHourBucket, referenceKey);
+    const bucketKeys = labels.map((_, index) => formatHourBucketKey(earliestTime + index * hourMs, referenceKey));
     bucketKeys.forEach((key) => orderedKeys.add(key));
 
     details.forEach((detail) => {
       const timestamp = detail.__timestampMs ?? 0;
       if (!Number.isFinite(timestamp) || timestamp <= 0) return;
-      const normalized = new Date(timestamp);
-      normalized.setUTCMinutes(0, 0, 0);
-      const bucketStart = normalized.getTime();
+      const bucketStart = startOfOffsetHourMs(timestamp, parseHourBucketOffsetMinutes(detail.timestamp));
       if (bucketStart < earliestTime || bucketStart > lastBucketTime) return;
-      const key = new Date(bucketStart).toISOString();
+      const key = formatHourBucketKey(bucketStart, detail.timestamp);
       const lineKey = lines.includes(detail.__modelName ?? '')
         ? detail.__modelName ?? 'all'
         : lines.includes(detail.__apiName ?? '')
@@ -695,7 +733,8 @@ function buildTokenBreakdownSeries(usage: UsagePayload | null, period: 'hour' | 
 
   if (period === 'hour') {
     const hourEndMs = resolveHourlyChartEndMs(details, hourWindowHours, endMs);
-    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(hourWindowHours, hourEndMs, includeFinalBucket);
+    const referenceKey = details.find((detail) => (detail.__timestampMs ?? 0) === hourEndMs)?.timestamp ?? details[0]?.timestamp;
+    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(hourWindowHours, hourEndMs, includeFinalBucket, referenceKey);
     const dataByCategory = {
       input: new Array(labels.length).fill(0),
       output: new Array(labels.length).fill(0),
@@ -706,9 +745,7 @@ function buildTokenBreakdownSeries(usage: UsagePayload | null, period: 'hour' | 
     details.forEach((detail) => {
       const timestamp = detail.__timestampMs ?? 0;
       if (!Number.isFinite(timestamp) || timestamp <= 0) return;
-      const normalized = new Date(timestamp);
-      normalized.setUTCMinutes(0, 0, 0);
-      const bucketStart = normalized.getTime();
+      const bucketStart = startOfOffsetHourMs(timestamp, parseHourBucketOffsetMinutes(detail.timestamp));
       if (bucketStart < earliestTime || bucketStart > lastBucketTime) return;
       const bucketIndex = Math.floor((bucketStart - earliestTime) / hourMs);
       if (bucketIndex < 0 || bucketIndex >= labels.length) return;
@@ -747,16 +784,15 @@ function buildCostSeries(usage: UsagePayload | null, modelPrices: Record<string,
 
   if (period === 'hour') {
     const hourEndMs = resolveHourlyChartEndMs(details, hourWindowHours, endMs);
-    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(hourWindowHours, hourEndMs, includeFinalBucket);
+    const referenceKey = details.find((detail) => (detail.__timestampMs ?? 0) === hourEndMs)?.timestamp ?? details[0]?.timestamp;
+    const { labels, earliestTime, lastBucketTime, hourMs } = buildHourlyWindow(hourWindowHours, hourEndMs, includeFinalBucket, referenceKey);
     const data = new Array(labels.length).fill(0);
     let hasData = false;
 
     details.forEach((detail) => {
       const timestamp = detail.__timestampMs ?? 0;
       if (!Number.isFinite(timestamp) || timestamp <= 0) return;
-      const normalized = new Date(timestamp);
-      normalized.setUTCMinutes(0, 0, 0);
-      const bucketStart = normalized.getTime();
+      const bucketStart = startOfOffsetHourMs(timestamp, parseHourBucketOffsetMinutes(detail.timestamp));
       if (bucketStart < earliestTime || bucketStart > lastBucketTime) return;
       const bucketIndex = Math.floor((bucketStart - earliestTime) / hourMs);
       if (bucketIndex < 0 || bucketIndex >= labels.length) return;

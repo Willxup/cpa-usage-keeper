@@ -1,6 +1,5 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef, type KeyboardEvent, type SyntheticEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import i18n, { persistLanguage } from '@/i18n';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -17,6 +16,7 @@ import {
 import { ApiError, fetchStatus, fetchUpdateCheck, fetchUsageAnalysis, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents } from '@/lib/api';
 import type { StatusResponse, UsageAnalysisResponse, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { Select } from '@/components/ui/Select';
 import { IconRefreshCw } from '@/components/ui/icons';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
@@ -116,6 +116,23 @@ export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'pricing' && t
 export const shouldShowUpdateCheckButton = (status: Pick<StatusResponse, 'updateCheckEnabled'> | null) => status?.updateCheckEnabled === true;
 
 export const getUpdateCheckToastDuration = (kind: 'success' | 'info' | 'error') => (kind === 'error' ? 6_000 : 4_000);
+
+export const shouldAutoRefreshUsageTab = ({
+  activeTab,
+  eventsPage,
+  authFilePage,
+  aiProviderPage,
+}: {
+  activeTab: UsageTab;
+  eventsPage: number;
+  authFilePage: number;
+  aiProviderPage: number;
+}) => {
+  if (activeTab === 'overview') return true;
+  if (activeTab === 'events') return eventsPage === 1;
+  if (activeTab === 'credentials') return authFilePage === 1 && aiProviderPage === 1;
+  return false;
+};
 
 type RequestEventFilterState = {
   model: string;
@@ -252,6 +269,54 @@ const toDateInputValue = (timestamp: number): string => {
   if (Number.isNaN(date.getTime())) return '';
   const pad = (value: number) => String(value).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+};
+
+const toDateInputValueInTimezone = (timestamp: number, timezone?: string): string => {
+  if (!timezone) return toDateInputValue(timestamp);
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date(timestamp));
+    const year = parts.find((part) => part.type === 'year')?.value;
+    const month = parts.find((part) => part.type === 'month')?.value;
+    const day = parts.find((part) => part.type === 'day')?.value;
+    if (!year || !month || !day) return toDateInputValue(timestamp);
+    return `${year}-${month}-${day}`;
+  } catch {
+    return toDateInputValue(timestamp);
+  }
+};
+
+const previousMonthStartDateInputValue = (value: string): string => {
+  const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(value);
+  if (!match) return value;
+  const [, year, month] = match;
+  const date = new Date(Date.UTC(Number(year), Number(month) - 2, 1));
+  const pad = (nextValue: number) => String(nextValue).padStart(2, '0');
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-01`;
+};
+
+export const getCustomDateRangeBounds = (anchorMs = Date.now(), timezone?: string) => {
+  const max = toDateInputValueInTimezone(anchorMs, timezone);
+  return {
+    min: previousMonthStartDateInputValue(max),
+    max,
+  };
+};
+
+export const isCustomDateWithinBounds = (value: string, bounds: { min: string; max: string }) => (
+  value === '' || (value >= bounds.min && value <= bounds.max)
+);
+
+export const openDateInputPicker = (input: HTMLInputElement) => {
+  try {
+    input.showPicker?.();
+  } catch {
+    // 某些浏览器会拒绝非用户手势触发的 showPicker。
+  }
 };
 
 const parseCustomDateBoundary = (value: string, endOfDay: boolean): number | undefined => {
@@ -413,7 +478,6 @@ const loadUsageTab = (): UsageTab => {
 
 export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const { t } = useTranslation();
-  const currentLanguage = i18n.language === 'zh' ? 'zh' : 'en';
   const isMobile = useMediaQuery('(max-width: 768px)');
   const theme = useThemeStore((state) => state.theme);
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
@@ -605,6 +669,15 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     windowMinutes: filterWindow.windowMinutes,
   });
   const isCustomRange = timeRange === 'custom';
+  const customDateRangeBounds = useMemo(() => getCustomDateRangeBounds(Date.now(), status?.timezone), [status?.timezone]);
+  const handleCustomDateInputKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Tab') return;
+    event.preventDefault();
+    openDateInputPicker(event.currentTarget);
+  }, []);
+  const handleCustomDateInputActivate = useCallback((event: SyntheticEvent<HTMLInputElement>) => {
+    openDateInputPicker(event.currentTarget);
+  }, []);
 
   const handleChartLinesChange = useCallback((lines: string[]) => {
     setChartLines(normalizeChartLines(lines));
@@ -857,6 +930,25 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     await loadUsage();
   }, [activeTab, loadAnalysis, loadEventFilterOptions, loadEvents, loadPricing, loadUsage, refreshCredentials]);
 
+  const refreshAutoRefreshTab = useCallback(async () => {
+    if (activeTab === 'events') {
+      await loadEvents();
+      return;
+    }
+    if (activeTab === 'credentials') {
+      await refreshCredentials();
+      return;
+    }
+    await loadUsage();
+  }, [activeTab, loadEvents, loadUsage, refreshCredentials]);
+
+  const autoRefreshEnabled = shouldAutoRefreshUsageTab({
+    activeTab,
+    eventsPage,
+    authFilePage: credentialsData.authFilePage,
+    aiProviderPage: credentialsData.aiProviderPage,
+  });
+
   const handleManualRefresh = useCallback(async () => {
     setManualRefreshLoading(true);
     try {
@@ -912,9 +1004,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [onAuthRequired, showUpdateCheckNotice, t]);
 
   useEffect(() => scheduleOverviewAutoRefresh({
-    enabled: isOverviewTab,
-    refreshOverview: loadUsage,
-  }), [isOverviewTab, loadUsage]);
+    enabled: autoRefreshEnabled,
+    refreshOverview: refreshAutoRefreshTab,
+  }), [autoRefreshEnabled, refreshAutoRefreshTab]);
 
   useHeaderRefresh(refreshActiveTab);
 
@@ -977,12 +1069,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       resetEventsPage();
     }
   }, [eventsModelFilter, eventsModelOptions, eventsResultFilter, eventsSourceFilter, eventsSourceOptions, resetEventsPage]);
-
-  const handleLanguageChange = useCallback(async (language: 'en' | 'zh') => {
-    if (currentLanguage === language) return;
-    await i18n.changeLanguage(language);
-    persistLanguage(language);
-  }, [currentLanguage]);
 
   const lastSyncAt = useMemo(() => {
     if (!status?.last_run_at) return null;
@@ -1095,26 +1181,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             <span className={styles.eyebrow}>CPA Usage Keeper</span>
           </div>
           <div className={styles.topBarActions}>
-            <div className={styles.languageSwitcher} role="group" aria-label={t('usage_stats.language_switch')}>
-              <button
-                type="button"
-                className={`${styles.languagePill} ${currentLanguage === 'en' ? styles.languagePillActive : ''}`.trim()}
-                onClick={() => void handleLanguageChange('en')}
-                aria-pressed={currentLanguage === 'en'}
-                title={t('usage_stats.language_switch')}
-              >
-                EN
-              </button>
-              <button
-                type="button"
-                className={`${styles.languagePill} ${currentLanguage === 'zh' ? styles.languagePillActive : ''}`.trim()}
-                onClick={() => void handleLanguageChange('zh')}
-                aria-pressed={currentLanguage === 'zh'}
-                title={t('usage_stats.language_switch')}
-              >
-                中
-              </button>
-            </div>
+            <LanguageSwitcher />
             <div className={styles.themeSwitcher} role="tablist" aria-label={t('usage_stats.theme_switch')}>
               {themeOptions.map((option) => {
                 const active = theme === option.value;
@@ -1239,12 +1306,20 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                               type="date"
                               className={`input ${styles.customRangeInput}`}
                               value={customTimeRange.start}
-                              onChange={(event) =>
+                              min={customDateRangeBounds.min}
+                              max={customDateRangeBounds.max}
+                              onClick={handleCustomDateInputActivate}
+                              onFocus={handleCustomDateInputActivate}
+                              onKeyDown={handleCustomDateInputKeyDown}
+                              onPaste={(event) => event.preventDefault()}
+                              onChange={(event) => {
+                                const nextValue = event.target.value;
+                                if (!isCustomDateWithinBounds(nextValue, customDateRangeBounds)) return;
                                 setCustomTimeRange((current) => ({
                                   ...current,
-                                  start: event.target.value
-                                }))
-                              }
+                                  start: nextValue
+                                }));
+                              }}
                               aria-label={t('usage_stats.custom_start')}
                             />
                           </label>
@@ -1255,12 +1330,20 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                               type="date"
                               className={`input ${styles.customRangeInput}`}
                               value={customTimeRange.end}
-                              onChange={(event) =>
+                              min={customDateRangeBounds.min}
+                              max={customDateRangeBounds.max}
+                              onClick={handleCustomDateInputActivate}
+                              onFocus={handleCustomDateInputActivate}
+                              onKeyDown={handleCustomDateInputKeyDown}
+                              onPaste={(event) => event.preventDefault()}
+                              onChange={(event) => {
+                                const nextValue = event.target.value;
+                                if (!isCustomDateWithinBounds(nextValue, customDateRangeBounds)) return;
                                 setCustomTimeRange((current) => ({
                                   ...current,
-                                  end: event.target.value
-                                }))
-                              }
+                                  end: nextValue
+                                }));
+                              }}
                               aria-label={t('usage_stats.custom_end')}
                             />
                           </label>
@@ -1399,6 +1482,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   modelFilter={eventsModelFilter}
                   sourceFilter={eventsSourceFilter}
                   resultFilter={eventsResultFilter}
+                  modelPrices={modelPrices}
                   onPageChange={setEventsPage}
                   onPageSizeChange={handleEventsPageSizeChange}
                   onModelFilterChange={handleEventsModelFilterChange}
@@ -1417,10 +1501,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                     total={credentialsData.authFileTotal}
                     page={credentialsData.authFilePage}
                     totalPages={credentialsData.authFileTotalPages}
+                    pageSize={credentialsData.authFilePageSize}
                     loading={credentialsData.loading}
                     quotaRefreshing={credentialsData.quotaRefreshing}
                     quotaRefreshError={credentialsData.quotaRefreshError}
                     onPageChange={credentialsData.setAuthFilePage}
+                    onPageSizeChange={credentialsData.setAuthFilePageSize}
                     onRefreshQuota={credentialsData.refreshQuotaForCurrentAuthFilePage}
                     onRefreshQuotaForAuthIndex={credentialsData.refreshQuotaForAuthIndex}
                   />
@@ -1429,8 +1515,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                     total={credentialsData.aiProviderTotal}
                     page={credentialsData.aiProviderPage}
                     totalPages={credentialsData.aiProviderTotalPages}
+                    pageSize={credentialsData.aiProviderPageSize}
                     loading={credentialsData.loading}
                     onPageChange={credentialsData.setAiProviderPage}
+                    onPageSizeChange={credentialsData.setAiProviderPageSize}
                   />
                 </div>
               </>

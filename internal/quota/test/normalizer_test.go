@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/quota"
+	"cpa-usage-keeper/internal/timeutil"
 )
 
 func TestNormalizeClaudeQuotaRows(t *testing.T) {
@@ -42,6 +43,14 @@ func TestNormalizeClaudeQuotaRows(t *testing.T) {
 }
 
 func TestNormalizeCodexQuotaRows(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	t.Cleanup(func() { time.Local = previousLocal })
+	time.Local = location
+
 	allowed := true
 	limitReached := false
 	resetAt := int64(1760000000)
@@ -77,10 +86,13 @@ func TestNormalizeCodexQuotaRows(t *testing.T) {
 	}
 	primary := findQuotaRow(t, rows, "rate_limit.primary_window")
 	assertQuotaText(t, primary, "5h", "window", "")
+	if primary.PlanType != "plus" {
+		t.Fatalf("expected primary planType plus, got %#v", primary.PlanType)
+	}
 	assertFloatField(t, primary.UsedPercent, 25, "primary usedPercent")
 	assertIntField(t, primary.Window.Seconds, 18000, "primary window seconds")
 	assertIntField(t, primary.ResetAfterSeconds, 1200, "primary resetAfterSeconds")
-	if primary.ResetAt != time.Unix(resetAt, 0).UTC().Format(time.RFC3339) {
+	if primary.ResetAt != timeutil.FormatStorageTime(time.Unix(resetAt, 0)) {
 		t.Fatalf("unexpected primary resetAt: %#v", primary)
 	}
 	assertBoolField(t, primary.Allowed, true, "primary allowed")
@@ -93,6 +105,9 @@ func TestNormalizeCodexQuotaRows(t *testing.T) {
 	assertQuotaText(t, codeReview, "Code Review 5h", "code_review", "")
 	additional := findQuotaRow(t, rows, "additional_rate_limits.codex-spark.primary_window")
 	assertQuotaText(t, additional, "codex-spark 5h", "additional", "spark")
+	if additional.PlanType != "plus" {
+		t.Fatalf("expected additional planType plus, got %#v", additional.PlanType)
+	}
 	assertFloatField(t, additional.UsedPercent, 12, "additional usedPercent")
 }
 

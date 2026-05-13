@@ -24,18 +24,24 @@ It relies on [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) a
 ## Project Structure
 
 ```text
-cmd/                 Application entrypoint
-internal/api/        HTTP routes and handlers
-internal/app/        App wiring and startup
-internal/auth/       In-memory session auth
-internal/backup/     SQLite database backup management
-internal/config/     Environment config loading
-internal/cpa/        CPA client and types
-internal/models/     GORM models
-internal/poller/     Background sync loop
-internal/repository/ SQLite access and aggregations
-internal/service/    Sync, usage, and pricing services
-web/                 React + TypeScript frontend
+cmd/server/              Application entrypoint
+internal/api/            HTTP routes and handlers
+internal/app/            App wiring and startup
+internal/auth/           In-memory session auth
+internal/backup/         SQLite database backup management
+internal/config/         Environment config loading
+internal/cpa/            CPA client and types
+internal/entities/       GORM data models
+internal/logging/        Logging setup and retention
+internal/poller/         Background queue consumption and metadata sync
+internal/quota/          Quota cache, refresh, and query services
+internal/redact/         Browser-facing field redaction
+internal/repository/     SQLite access and aggregations
+internal/service/        Usage, pricing, and identity services
+internal/timeutil/       Project timezone and time helpers
+internal/updatecheck/    GitHub Release update checks
+deploy/                  systemd, Docker, and deployment assets
+web/                     React + TypeScript frontend
 ```
 
 ## Configuration
@@ -54,6 +60,9 @@ cp .env.example .env
 | `LOGIN_PASSWORD` | When auth is enabled | - | Login password |
 | `AUTH_SESSION_TTL` | No | `168h` | Session lifetime |
 | `APP_PORT` | No | `8080` | HTTP listen port |
+| `TLS_ENABLED` | No | `false` | Enable HTTPS/TLS |
+| `TLS_CERT_FILE` | Required when TLS is enabled | - | HTTPS certificate file path |
+| `TLS_KEY_FILE` | Required when TLS is enabled | - | HTTPS private key file path |
 | `APP_BASE_PATH` | No | root path | Subpath prefix such as `/cpa`; empty means `/` |
 | `TZ` | No | `Asia/Shanghai` | Project business timezone; affects Today, daily aggregation, scheduled tasks, and log timestamps |
 | `REDIS_QUEUE_ADDR` | No | `CPA_BASE_URL` hostname + `8317` | CPA Redis/RESP TCP address; when empty, uses the `CPA_BASE_URL` hostname with port `8317` and auto-detects TLS from whether `CPA_BASE_URL` is https; set `host:port` for non-default ports |
@@ -71,6 +80,8 @@ cp .env.example .env
 | `BACKUP_RETENTION_DAYS` | No | `7` | Backup retention days |
 
 `APP_BASE_PATH` must be empty or start with `/`; for example `/cpa`. `/cpa/` is normalized to `/cpa`.
+
+To enable HTTPS, set `TLS_ENABLED=true` and provide `TLS_CERT_FILE` and `TLS_KEY_FILE`; relative paths are resolved against the `.env` file directory.
 
 Security and data notes:
 

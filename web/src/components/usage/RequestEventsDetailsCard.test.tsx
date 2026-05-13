@@ -40,6 +40,7 @@ const renderCard = (props: Partial<React.ComponentProps<typeof RequestEventsDeta
       modelFilter="__all__"
       sourceFilter="__all__"
       resultFilter="__all__"
+      modelPrices={{}}
       onPageChange={() => undefined}
       onPageSizeChange={() => undefined}
       onModelFilterChange={() => undefined}
@@ -56,7 +57,7 @@ describe('RequestEventsDetailsCard pagination', () => {
     const html = renderCard();
 
     expect(html).toContain('120 total events');
-    expect(html).toContain('Page (1/6)');
+    expect(html).toContain('1 / 6');
     expect(html).toContain('20');
     expect(html).toContain('50');
     expect(html).toContain('100');
@@ -65,6 +66,33 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('Previous');
     expect(html).toContain('Next');
     expect(html).toContain('disabled');
+  });
+
+  it('formats timestamps with compact numeric date and time', () => {
+    const html = renderCard({
+      events: [{ ...events[0], timestamp: '2026-05-13T00:38:19+08:00' }],
+    });
+
+    expect(html).toContain('2026/05/13 00:38:19');
+    expect(html).not.toContain('5/13/2026, 12:38:19 AM');
+  });
+
+  it('renders cache rate after cached tokens with two decimal places', () => {
+    const html = renderCard({
+      events: [{ ...events[0], tokens: { ...events[0].tokens, input_tokens: 100, cached_tokens: 25 } }],
+    });
+
+    expect(html.indexOf('<th>Cached</th>')).toBeLessThan(html.indexOf('<th>Cache Rate</th>'));
+    expect(html.indexOf('<th>Cache Rate</th>')).toBeLessThan(html.indexOf('<th>Total Tokens</th>'));
+    expect(html).toContain('<td>25</td><td>25.00%</td><td>200</td>');
+  });
+
+  it('shows a dash for cache rate when input tokens are zero', () => {
+    const html = renderCard({
+      events: [{ ...events[0], tokens: { ...events[0].tokens, input_tokens: 0, cached_tokens: 25 } }],
+    });
+
+    expect(html).toContain('<td>0</td><td>60</td><td>20</td><td>25</td><td>-</td><td>200</td>');
   });
 
   it('stacks source value above source tags', () => {
@@ -119,19 +147,32 @@ describe('RequestEventsDetailsCard pagination', () => {
   it('falls back to a computed page count when metadata is not populated', () => {
     const html = renderCard({ totalPages: 0, totalCount: 120, pageSize: 20 });
 
-    expect(html).toContain('Page (1/6)');
+    expect(html).toContain('1 / 6');
   });
 
-  it('groups filters and pager controls in a compact toolbar', () => {
+  it('shows total count in the title and uses the shared pager footer', () => {
     const html = renderCard();
 
     expect(html).toContain('_requestEventsFiltersGroup_');
+    expect(html).toContain('_requestEventsTitleRow_');
+    expect(html).toContain('_requestEventsCountBadge_');
+    expect(html).toContain('120 total events');
+    expect(html).toContain('_requestEventsPaginationFooter_');
     expect(html).toContain('_requestEventsPaginationControls_');
-    expect(html).toContain('_requestEventsPaginationItem_');
+    expect(html).toContain('_requestEventsPageSizeControl_');
+    expect(html).toContain('Size');
+    expect(html).not.toContain('Rows per page');
+    expect(html).toContain('_requestEventsPaginationPage_');
     expect(html).toContain('_requestEventsPagerButton_');
-    expect(html).toContain('_requestEventsPageSizeSelectCompact_');
+    expect(html).toContain('<select');
+    expect(html).toContain('value="20"');
     expect(html).toContain('_requestEventsActions_');
-    expect(html).toContain('_requestEventsTableMeta_');
+    expect(html).not.toContain('_requestEventsPaginationItem_');
+    expect(html).not.toContain('_requestEventsPageSizeSelectCompact_');
+    expect(html).not.toContain('_usagePillShell_');
+    expect(html).not.toContain('_requestEventsTableMeta_');
+    expect(html).not.toContain('_requestEventsCountGroup_');
+    expect(html).not.toContain('_requestEventsLimitHint_');
   });
 
   it('hides export buttons while keeping clear filters available', () => {
@@ -140,5 +181,16 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('Clear Filters');
     expect(html).not.toContain('Export CSV');
     expect(html).not.toContain('Export JSON');
+  });
+
+  it('shows per-event cost when model pricing exists', () => {
+    const html = renderCard({
+      modelPrices: {
+        'claude-sonnet': { prompt: 15, completion: 75, cache: 1.5 },
+      },
+    });
+
+    expect(html).toContain('Total Cost');
+    expect(html).toContain('$0.0057');
   });
 });

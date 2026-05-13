@@ -7,6 +7,7 @@ import (
 	"cpa-usage-keeper/internal/redact"
 	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
+	"cpa-usage-keeper/internal/timeutil"
 	"github.com/gin-gonic/gin"
 )
 
@@ -50,7 +51,7 @@ func registerUsageAnalysisRoute(router gin.IRoutes, usageProvider service.UsageP
 			return
 		}
 
-		filter, err := parseUsageFilterQuery(c.Request, time.Now().UTC())
+		filter, err := parseUsageFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return

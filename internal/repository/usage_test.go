@@ -26,6 +26,8 @@ func TestBuildUsageSnapshotReturnsEmptyStructureWithoutEvents(t *testing.T) {
 }
 
 func TestBuildUsageSnapshotAggregatesEvents(t *testing.T) {
+	withRepositoryTestLocation(t, "Asia/Shanghai")
+
 	db := openUsageTestDatabase(t)
 	events := []entities.UsageEvent{
 		{EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), Source: "codex-a", AuthIndex: "1", Failed: false, LatencyMS: 100, InputTokens: 10, OutputTokens: 20, ReasoningTokens: 5, CachedTokens: 0, TotalTokens: 35},
@@ -46,7 +48,7 @@ func TestBuildUsageSnapshotAggregatesEvents(t *testing.T) {
 	if snapshot.RequestsByDay["2026-04-16"] != 2 || snapshot.RequestsByDay["2026-04-17"] != 1 {
 		t.Fatalf("unexpected requests by day: %+v", snapshot.RequestsByDay)
 	}
-	if snapshot.TokensByHour["2026-04-16T09:00:00Z"] != 35 || snapshot.TokensByHour["2026-04-17T10:00:00Z"] != 185 {
+	if snapshot.TokensByHour["2026-04-16T17:00:00+08:00"] != 35 || snapshot.TokensByHour["2026-04-17T18:00:00+08:00"] != 185 {
 		t.Fatalf("unexpected tokens by hour: %+v", snapshot.TokensByHour)
 	}
 	providerA := snapshot.APIs["provider-a"]

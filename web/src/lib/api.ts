@@ -1,4 +1,4 @@
-import { USAGE_QUOTA_REFRESH_LIMIT, type AuthSessionResponse, type PricingEntry, type PricingResponse, type StatusResponse, type UpdateCheckResponse, type UsageAnalysisResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaCheckResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse } from './types'
+import { type AuthSessionResponse, type PricingEntry, type PricingResponse, type StatusResponse, type UpdateCheckResponse, type UsageAnalysisResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -181,21 +181,6 @@ export async function fetchUsageIdentitiesPage(signal?: AbortSignal, options?: F
   return response.json()
 }
 
-export async function fetchUsageQuotaCheck(authIndex: string, signal?: AbortSignal): Promise<UsageQuotaCheckResponse> {
-  const response = await apiFetch(apiPath('/quota/check'), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ auth_index: authIndex }),
-    signal,
-  })
-  if (!response.ok) {
-    await parseApiError(response, `Failed to check usage quota: ${response.status}`)
-  }
-  return response.json()
-}
-
 export async function fetchUsageQuotaCache(authIndexes: string[], signal?: AbortSignal): Promise<UsageQuotaCacheResponse> {
   // cache 只读后端已有结果，不携带刷新 limit，避免把缓存读取误当队列提交。
   const response = await apiFetch(apiPath('/quota/cache'), {
@@ -213,13 +198,13 @@ export async function fetchUsageQuotaCache(authIndexes: string[], signal?: Abort
 }
 
 export async function refreshUsageQuotas(authIndexes: string[], signal?: AbortSignal): Promise<UsageQuotaRefreshResponse> {
-  // refresh 会创建后台任务，前端固定提交当前页上限，真正上限仍由后端入口校验。
+  // refresh 会创建后台任务，前端提交当前页所有 auth_index。
   const response = await apiFetch(apiPath('/quota/refresh'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ auth_indexes: authIndexes, limit: USAGE_QUOTA_REFRESH_LIMIT }),
+    body: JSON.stringify({ auth_indexes: authIndexes }),
     signal,
   })
   if (!response.ok) {

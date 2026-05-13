@@ -1,0 +1,39 @@
+.languageSwitcher {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 4px;
+  min-height: 42px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.languagePill {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    color: var(--text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+}
+
+.languagePillActive {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+}

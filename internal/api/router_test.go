@@ -88,6 +88,14 @@ func TestRouterDoesNotTrustForwardedClientIPByDefault(t *testing.T) {
 }
 
 func TestStatusReturnsPollerState(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	t.Cleanup(func() { time.Local = previousLocal })
+	time.Local = location
+
 	lastRunAt := time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC)
 	router := NewRouter(nil, statusStub{status: poller.Status{
 		Running:     true,
@@ -106,7 +114,7 @@ func TestStatusReturnsPollerState(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
 	body := resp.Body.String()
-	if !(contains(body, `"running":true`) && contains(body, `"sync_running":false`) && contains(body, `"last_error":"boom"`) && contains(body, `"last_warning":"metadata unavailable"`) && contains(body, `"last_status":"completed_with_warnings"`) && contains(body, `"last_run_at":"2026-04-16T12:00:00Z"`)) {
+	if !(contains(body, `"running":true`) && contains(body, `"sync_running":false`) && contains(body, `"last_error":"boom"`) && contains(body, `"last_warning":"metadata unavailable"`) && contains(body, `"last_status":"completed_with_warnings"`) && contains(body, `"last_run_at":"2026-04-16T20:00:00+08:00"`)) {
 		t.Fatalf("unexpected response body: %s", body)
 	}
 }
@@ -186,6 +194,14 @@ func TestStatusHidesUpdateCheckForDevVersion(t *testing.T) {
 }
 
 func TestManualSyncTriggersSyncRunner(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	t.Cleanup(func() { time.Local = previousLocal })
+	time.Local = location
+
 	lastRunAt := time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC)
 	syncer := &syncStatusStub{status: poller.Status{Running: true, LastRunAt: lastRunAt, LastStatus: "completed"}}
 	router := NewRouter(nil, syncer, nil, nil, AuthConfig{}, nil, "")
@@ -201,7 +217,7 @@ func TestManualSyncTriggersSyncRunner(t *testing.T) {
 		t.Fatalf("expected sync runner to be called once, got %d", syncer.calls)
 	}
 	body := resp.Body.String()
-	if !(contains(body, `"last_status":"completed"`) && contains(body, `"last_run_at":"2026-04-16T12:00:00Z"`)) {
+	if !(contains(body, `"last_status":"completed"`) && contains(body, `"last_run_at":"2026-04-16T20:00:00+08:00"`)) {
 		t.Fatalf("unexpected response body: %s", body)
 	}
 }

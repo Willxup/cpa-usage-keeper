@@ -171,6 +171,31 @@ describe('buildOverviewCostTrendSeries', () => {
     expect(result.hasData).toBe(true);
   });
 
+  it('keeps short-range hour view aligned to project timezone backend buckets', () => {
+    const result = buildOverviewCostTrendSeries({
+      usage: {
+        ...usageWithBackendCost,
+        hourly_series: {
+          ...usageWithBackendCost.hourly_series!,
+          cost: {
+            '2026-04-24T02:00:00+08:00': 1.47,
+            '2026-04-24T03:00:00+08:00': 0,
+            '2026-04-24T04:00:00+08:00': 0,
+            '2026-04-24T05:00:00+08:00': 0,
+            '2026-04-24T06:00:00+08:00': 0,
+          },
+        },
+      },
+      period: 'hour',
+      hourWindowHours: 4,
+      endMs: Date.parse('2026-04-24T06:16:00+08:00'),
+    });
+
+    expect(result.labels).toHaveLength(5);
+    expect(result.data).toEqual([1.47, 0, 0, 0, 0]);
+    expect(result.hasData).toBe(true);
+  });
+
   it('keeps short-range hour view aligned to backend partial-hour buckets', () => {
     const result = buildOverviewCostTrendSeries({
       usage: {

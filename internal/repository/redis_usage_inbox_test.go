@@ -262,10 +262,10 @@ func TestCleanupRedisUsageInboxRemovesOldProcessedAndFailedRows(t *testing.T) {
 	}
 	oldProcessedAt := time.Date(2026, 4, 26, 15, 59, 59, 0, time.UTC)
 	todayProcessedAt := time.Date(2026, 4, 26, 16, 0, 0, 0, time.UTC)
-	if err := db.Model(&entities.RedisUsageInbox{}).Where("id = ?", rows[0].ID).Updates(map[string]any{"status": RedisUsageInboxStatusProcessed, "processed_at": oldProcessedAt}).Error; err != nil {
+	if err := MarkRedisUsageInboxProcessed(db, rows[0].ID, "processed-old", oldProcessedAt); err != nil {
 		t.Fatalf("seed old processed row: %v", err)
 	}
-	if err := db.Model(&entities.RedisUsageInbox{}).Where("id = ?", rows[1].ID).Updates(map[string]any{"status": RedisUsageInboxStatusProcessed, "processed_at": todayProcessedAt}).Error; err != nil {
+	if err := MarkRedisUsageInboxProcessed(db, rows[1].ID, "processed-today", todayProcessedAt); err != nil {
 		t.Fatalf("seed today processed row: %v", err)
 	}
 	if err := db.Model(&entities.RedisUsageInbox{}).Where("id = ?", rows[2].ID).Updates(map[string]any{"status": RedisUsageInboxStatusProcessFailed, "updated_at": now.AddDate(0, 0, -8)}).Error; err != nil {

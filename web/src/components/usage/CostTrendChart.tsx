@@ -27,8 +27,38 @@ interface OverviewCostTrendSeries {
   costAvailable: boolean;
 }
 
+const HOUR_MS = 60 * 60 * 1000;
+const HOUR_BUCKET_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+
+const parseHourBucketOffsetMinutes = (key?: string): number => {
+  const match = key?.match(HOUR_BUCKET_PATTERN);
+  const offset = match?.[7];
+  if (!offset || offset === 'Z') return 0;
+  const sign = offset[0] === '-' ? -1 : 1;
+  const hours = Number(offset.slice(1, 3));
+  const minutes = Number(offset.slice(4, 6));
+  return sign * ((hours * 60) + minutes);
+};
+
+const startOfOffsetHourMs = (timestampMs: number, offsetMinutes: number): number => {
+  const shiftedMs = timestampMs + offsetMinutes * 60 * 1000;
+  return Math.floor(shiftedMs / HOUR_MS) * HOUR_MS - offsetMinutes * 60 * 1000;
+};
+
+const formatHourBucketKey = (timestampMs: number, referenceKey?: string): string => {
+  const offsetMinutes = parseHourBucketOffsetMinutes(referenceKey);
+  const shifted = new Date(timestampMs + offsetMinutes * 60 * 1000);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const offset = offsetMinutes === 0
+    ? 'Z'
+    : `${offsetMinutes < 0 ? '-' : '+'}${pad(Math.floor(Math.abs(offsetMinutes) / 60))}:${pad(Math.abs(offsetMinutes) % 60)}`;
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}T${pad(shifted.getUTCHours())}:00:00${offset}`;
+};
+
 const formatHourLabel = (key: string, isFinalBucket = false): string => {
   if (isFinalBucket) return '24:00';
+  const match = key.match(HOUR_BUCKET_PATTERN);
+  if (match) return `${match[4]}:${match[5]}`;
   const date = new Date(key);
   if (Number.isNaN(date.getTime())) return key;
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
@@ -49,11 +79,9 @@ const resolveHourBucketCount = (hourWindowHours?: number, includeFinalBucket = f
   return includeFinalBucket ? resolvedHours + 1 : resolvedHours >= 24 ? 24 : resolvedHours + 1;
 };
 
-const toUtcHourMs = (value: string | number): number => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return NaN;
-  date.setUTCMinutes(0, 0, 0);
-  return date.getTime();
+const toOffsetHourMs = (value: string | number): number => {
+  const timestampMs = typeof value === 'number' ? value : Date.parse(value);
+  return Number.isNaN(timestampMs) ? NaN : startOfOffsetHourMs(timestampMs, parseHourBucketOffsetMinutes(String(value)));
 };
 
 export function buildOverviewCostTrendSeries({
@@ -87,16 +115,16 @@ export function buildOverviewCostTrendSeries({
 
   if (period === 'hour') {
     const bucketCount = resolveHourBucketCount(hourWindowHours, includeFinalHourBucket);
-    const anchorMs = Number.isFinite(endMs) && endMs ? endMs : (hourlyEntries.length ? Date.parse(hourlyEntries[hourlyEntries.length - 1][0]) : Date.now());
-    const currentHour = new Date(anchorMs);
-    currentHour.setUTCMinutes(0, 0, 0);
+    const referenceKey = hourlyEntries[hourlyEntries.length - 1]?.[0];
+    const offsetMinutes = parseHourBucketOffsetMinutes(referenceKey);
+    const anchorMs = Number.isFinite(endMs) && endMs ? endMs : (referenceKey ? Date.parse(referenceKey) : Date.now());
     const hourMs = 60 * 60 * 1000;
-    const earliestMs = currentHour.getTime() - ((bucketCount - 1) * hourMs);
+    const earliestMs = startOfOffsetHourMs(anchorMs, offsetMinutes) - ((bucketCount - 1) * hourMs);
     const labels = Array.from({ length: bucketCount }, (_, index) => {
       const bucketMs = earliestMs + (index * hourMs);
-      return formatHourLabel(new Date(bucketMs).toISOString(), includeFinalHourBucket && index === bucketCount - 1);
+      return formatHourLabel(formatHourBucketKey(bucketMs, referenceKey), includeFinalHourBucket && index === bucketCount - 1);
     });
-    const valueByHour = new Map(hourlyEntries.map(([label, value]) => [toUtcHourMs(label), Number(value ?? 0)]));
+    const valueByHour = new Map(hourlyEntries.map(([label, value]) => [toOffsetHourMs(label), Number(value ?? 0)]));
     const data = Array.from({ length: bucketCount }, (_, index) => {
       const bucketMs = earliestMs + (index * hourMs);
       return valueByHour.get(bucketMs) ?? 0;

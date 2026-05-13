@@ -9,6 +9,7 @@ import (
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository/dto"
+	"cpa-usage-keeper/internal/timeutil"
 )
 
 type RedisQueue interface {
@@ -63,9 +64,9 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 	tokens := normalizeTokens(d.Tokens)
 	apiGroupKey := firstNonEmpty(d.APIKey, d.Provider, d.Endpoint, "unknown")
 	model := firstNonEmpty(d.Model, "unknown")
-	timestamp := d.Timestamp.UTC()
+	timestamp := timeutil.NormalizeStorageTime(d.Timestamp)
 	if timestamp.IsZero() {
-		timestamp = fetchedAt.UTC()
+		timestamp = timeutil.NormalizeStorageTime(fetchedAt)
 	}
 	source := strings.TrimSpace(d.Source)
 	authIndex := strings.TrimSpace(d.AuthIndex)

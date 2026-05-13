@@ -51,7 +51,7 @@ func TestRefreshCreatesTaskPerAuthIndexAndCachesCompletedQuota(t *testing.T) {
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := NewServiceWithRegistry(db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Limit: 20, Source: RefreshSourceManual})
+	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
 	if err != nil {
 		t.Fatalf("Refresh returned error: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestRefreshRejectsInvalidEntriesAndIgnoresRunningTask(t *testing.T) {
 	handler := &refreshHandlerStub{block: block, output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
 	service := NewServiceWithRegistry(db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1", "auth-1", "provider-1", "deleted-1", "missing"}, Limit: 20, Source: RefreshSourceManual})
+	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1", "auth-1", "provider-1", "deleted-1", "missing"}, Source: RefreshSourceManual})
 	if err != nil {
 		t.Fatalf("Refresh returned error: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestRefreshRejectsInvalidEntriesAndIgnoresRunningTask(t *testing.T) {
 
 	firstTaskID := response.Tasks[0].TaskID
 	waitForRefreshTask(t, service, firstTaskID, RefreshTaskStatusRunning)
-	second, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Limit: 20, Source: RefreshSourceManual})
+	second, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
 	if err != nil {
 		t.Fatalf("second Refresh returned error: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestRefreshTaskFailureReturnsFriendlyMessage(t *testing.T) {
 	handler := &refreshHandlerStub{err: errors.New("upstream exploded")}
 	service := NewServiceWithRegistry(db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Limit: 20, Source: RefreshSourceManual})
+	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
 	if err != nil {
 		t.Fatalf("Refresh returned error: %v", err)
 	}

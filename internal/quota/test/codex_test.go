@@ -11,10 +11,11 @@ import (
 )
 
 func TestCodexProviderUsesAccountIDForUsageRequest(t *testing.T) {
+	codexUsageJSON := `{"user_id":"user-k7itHYqWm38P92JR13zywJOr","account_id":"user-k7itHYqWm38P92JR13zywJOr","email":"gykrcvk0839e@hotmail.com","plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":64,"limit_window_seconds":18000,"reset_after_seconds":11676,"reset_at":1778509871},"secondary_window":{"used_percent":10,"limit_window_seconds":604800,"reset_after_seconds":598476,"reset_at":1779096671}},"code_review_rate_limit":null,"additional_rate_limits":null,"credits":{"has_credits":false,"unlimited":false,"overage_limit_reached":false,"balance":"0","approx_local_messages":[0,0],"approx_cloud_messages":[0,0]},"spend_control":{"reached":false,"individual_limit":null},"rate_limit_reached_type":null,"promo":null,"referral_beacon":null}`
 	caller := &recordingManagementCaller{responses: []*apicall.Response{{
 		StatusCode: 200,
-		BodyText:   `{"plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":25,"limit_window_seconds":18000,"reset_after_seconds":1200}},"code_review_rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":40,"limit_window_seconds":18000,"reset_after_seconds":600}},"additional_rate_limits":[{"limit_name":"codex-spark","metered_feature":"codex-spark","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":12,"limit_window_seconds":18000,"reset_after_seconds":900}}}]}`,
-		Body:       json.RawMessage(`{"plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":25,"limit_window_seconds":18000,"reset_after_seconds":1200}},"code_review_rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":40,"limit_window_seconds":18000,"reset_after_seconds":600}},"additional_rate_limits":[{"limit_name":"codex-spark","metered_feature":"codex-spark","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":12,"limit_window_seconds":18000,"reset_after_seconds":900}}}]}`),
+		BodyText:   codexUsageJSON,
+		Body:       json.RawMessage(codexUsageJSON),
 	}}}
 	provider := quota.NewCodexProvider(caller, quota.DefaultProviderConfigs().Codex)
 
@@ -35,14 +36,21 @@ func TestCodexProviderUsesAccountIDForUsageRequest(t *testing.T) {
 	if result.Usage == nil || result.Usage.PlanType != "plus" {
 		t.Fatalf("expected parsed usage payload, got %#v", result.Usage)
 	}
-	if result.Usage.RateLimit == nil || result.Usage.RateLimit.PrimaryWindow == nil || result.Usage.RateLimit.PrimaryWindow.UsedPercent != 25 {
+	if result.Usage.RateLimit == nil || result.Usage.RateLimit.PrimaryWindow == nil || result.Usage.RateLimit.PrimaryWindow.UsedPercent != 64 {
 		t.Fatalf("expected parsed rate limit payload, got %#v", result.Usage.RateLimit)
 	}
-	if result.Usage.CodeReviewRateLimit == nil || result.Usage.CodeReviewRateLimit.PrimaryWindow == nil || result.Usage.CodeReviewRateLimit.PrimaryWindow.UsedPercent != 40 {
-		t.Fatalf("expected parsed code review rate limit payload, got %#v", result.Usage.CodeReviewRateLimit)
+	if result.Usage.RateLimit.SecondaryWindow == nil || result.Usage.RateLimit.SecondaryWindow.UsedPercent != 10 {
+		t.Fatalf("expected parsed secondary rate limit payload, got %#v", result.Usage.RateLimit)
 	}
-	if len(result.Usage.AdditionalRateLimits) != 1 || result.Usage.AdditionalRateLimits[0].LimitName != "codex-spark" || result.Usage.AdditionalRateLimits[0].RateLimit == nil {
-		t.Fatalf("expected parsed additional rate limit payload, got %#v", result.Usage.AdditionalRateLimits)
+	if result.Usage.CodeReviewRateLimit != nil {
+		t.Fatalf("expected nil code review rate limit payload, got %#v", result.Usage.CodeReviewRateLimit)
+	}
+	if result.Usage.AdditionalRateLimits != nil {
+		t.Fatalf("expected nil additional rate limit payload, got %#v", result.Usage.AdditionalRateLimits)
+	}
+	rows := quota.NormalizeQuotaRows(output)
+	if len(rows) != 2 || rows[0].PlanType != "plus" || rows[1].PlanType != "plus" {
+		t.Fatalf("expected normalized Codex rows to carry planType plus, got %#v", rows)
 	}
 	encoded, err := json.Marshal(output.Result)
 	if err != nil {

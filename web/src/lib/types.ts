@@ -1,5 +1,3 @@
-export const USAGE_QUOTA_REFRESH_LIMIT = 20
-
 export interface AuthSessionResponse {
   authenticated: boolean
 }
@@ -229,6 +227,7 @@ export interface UsageQuotaRow {
   label?: string
   scope?: string
   metric?: string
+  planType?: string
   used?: number
   limit?: number
   remaining?: number

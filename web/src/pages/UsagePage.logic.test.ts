@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildCustomDateRangeQuery, getOverviewChartEndMs, getOverviewDisplayLoading, getOverviewHourWindowHours, getPreferredOverviewChartPeriod, getTimeRangeOptions, getUsageTabOptions, refreshPageData, sanitizeRequestEventFilters, scheduleOverviewAutoRefresh, shouldShowRangeControls, shouldShowUpdateCheckButton, getUpdateCheckToastDuration, syncCpaData } from './UsagePage';
+import { buildCustomDateRangeQuery, getCustomDateRangeBounds, getOverviewChartEndMs, getOverviewDisplayLoading, getOverviewHourWindowHours, getPreferredOverviewChartPeriod, getTimeRangeOptions, getUsageTabOptions, isCustomDateWithinBounds, openDateInputPicker, refreshPageData, sanitizeRequestEventFilters, scheduleOverviewAutoRefresh, shouldAutoRefreshUsageTab, shouldShowRangeControls, shouldShowUpdateCheckButton, getUpdateCheckToastDuration, syncCpaData } from './UsagePage';
 import { ApiError } from '@/lib/api';
 import { filterUsageByWindow, type UsageFilterWindow } from '@/utils/usage';
 import type { StatusResponse, UsageSnapshot } from '@/lib/types';
@@ -206,6 +206,25 @@ describe('UsagePage Overview auto-refresh', () => {
   });
 });
 
+describe('UsagePage active tab auto-refresh guard', () => {
+  it('allows Request Events auto-refresh only on the first page', () => {
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'events', eventsPage: 1, authFilePage: 1, aiProviderPage: 1 })).toBe(true);
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'events', eventsPage: 2, authFilePage: 1, aiProviderPage: 1 })).toBe(false);
+  });
+
+  it('allows Credentials auto-refresh only when both lists are on the first page', () => {
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'credentials', eventsPage: 1, authFilePage: 1, aiProviderPage: 1 })).toBe(true);
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'credentials', eventsPage: 1, authFilePage: 2, aiProviderPage: 1 })).toBe(false);
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'credentials', eventsPage: 1, authFilePage: 1, aiProviderPage: 2 })).toBe(false);
+  });
+
+  it('keeps Overview auto-refresh enabled and does not auto-refresh other tabs', () => {
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'overview', eventsPage: 2, authFilePage: 2, aiProviderPage: 2 })).toBe(true);
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'analysis', eventsPage: 1, authFilePage: 1, aiProviderPage: 1 })).toBe(false);
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'pricing', eventsPage: 1, authFilePage: 1, aiProviderPage: 1 })).toBe(false);
+  });
+});
+
 describe('UsagePage range filtering bug', () => {
   it('changes the usage payload that summary metrics read from', () => {
     const filterWindow: UsageFilterWindow = {
@@ -296,6 +315,45 @@ describe('UsagePage Overview chart period preference', () => {
     expect(getPreferredOverviewChartPeriod({ windowMinutes: 24 * 60 })).toBe('hour');
     expect(getPreferredOverviewChartPeriod({ windowMinutes: (24 * 60) + 1 })).toBe('day');
     expect(getPreferredOverviewChartPeriod({ windowMinutes: 30 * 24 * 60 })).toBe('day');
+  });
+});
+
+describe('UsagePage custom date input bounds', () => {
+  it('limits selectable Custom dates to today through the first day of the previous month', () => {
+    expect(getCustomDateRangeBounds(Date.parse('2026-05-13T12:00:00.000Z'), 'UTC')).toEqual({
+      min: '2026-04-01',
+      max: '2026-05-13',
+    });
+  });
+
+  it('uses the project timezone when deriving Custom date bounds', () => {
+    expect(getCustomDateRangeBounds(Date.parse('2026-05-13T06:30:00.000Z'), 'America/Los_Angeles')).toEqual({
+      min: '2026-04-01',
+      max: '2026-05-12',
+    });
+  });
+
+  it('rejects tomorrow and dates before the first day of the previous month', () => {
+    const bounds = { min: '2026-04-01', max: '2026-05-13' };
+
+    expect(isCustomDateWithinBounds('2026-05-13', bounds)).toBe(true);
+    expect(isCustomDateWithinBounds('2026-04-01', bounds)).toBe(true);
+    expect(isCustomDateWithinBounds('2026-05-14', bounds)).toBe(false);
+    expect(isCustomDateWithinBounds('2026-03-31', bounds)).toBe(false);
+  });
+
+  it('opens the native date picker when the date field is activated', () => {
+    const showPicker = vi.fn();
+
+    openDateInputPicker({ showPicker } as unknown as HTMLInputElement);
+
+    expect(showPicker).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores browsers that reject programmatic date picker opening', () => {
+    const input = { showPicker: vi.fn(() => { throw new Error('not allowed') }) } as unknown as HTMLInputElement;
+
+    expect(() => openDateInputPicker(input)).not.toThrow();
   });
 });
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchUsageQuotaCache, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaCheck, fetchUsageQuotaRefreshTask, refreshUsageQuotas, triggerSync } from './api';
+import { fetchUsageQuotaCache, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, refreshUsageQuotas, triggerSync } from './api';
 
 describe('fetchUsageEvents', () => {
   afterEach(() => {
@@ -151,30 +151,6 @@ describe('fetchUsageEvents', () => {
     expect(init).toMatchObject({ credentials: 'include', signal });
   });
 
-  it('checks quota for a single auth index', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        id: 'auth-1',
-        quota: [{ key: 'rate_limit.primary_window', label: '5h', remaining: 12 }],
-      }),
-    } as Response);
-    const signal = new AbortController().signal;
-
-    const response = await fetchUsageQuotaCheck('auth-1', signal);
-
-    const [url, init] = fetchMock.mock.calls[0];
-    const parsed = new URL(String(url), 'http://localhost');
-
-    expect(response.id).toBe('auth-1');
-    expect(response.quota[0].remaining).toBe(12);
-    expect(parsed.pathname).toBe('/api/v1/quota/check');
-    expect(init).toMatchObject({ credentials: 'include', method: 'POST', signal });
-    expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
-    expect(init?.body).toBe(JSON.stringify({ auth_index: 'auth-1' }));
-  });
-
   it('loads cached quota for current page auth indexes without refreshing', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
@@ -207,7 +183,7 @@ describe('fetchUsageEvents', () => {
         rejected: [],
         accepted: 1,
         skipped: 0,
-        limit: 20,
+        limit: 1,
       }),
     } as Response);
     const signal = new AbortController().signal;
@@ -218,11 +194,11 @@ describe('fetchUsageEvents', () => {
     const parsed = new URL(String(url), 'http://localhost');
 
     expect(response.tasks[0]).toEqual({ authIndex: 'auth-1', taskId: 'task-1' });
-    expect(response.limit).toBe(20);
+    expect(response.limit).toBe(1);
     expect(parsed.pathname).toBe('/api/v1/quota/refresh');
     expect(init).toMatchObject({ credentials: 'include', method: 'POST', signal });
     expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
-    expect(init?.body).toBe(JSON.stringify({ auth_indexes: ['auth-1'], limit: 20 }));
+    expect(init?.body).toBe(JSON.stringify({ auth_indexes: ['auth-1'] }));
   });
 
   it('loads quota refresh task status', async () => {

@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
 )
 
@@ -38,7 +39,7 @@ func InsertRedisUsageInboxMessages(db *gorm.DB, inputs []dto.RedisInboxInsert) (
 			RawMessage:   input.RawMessage,
 			Status:       RedisUsageInboxStatusPending,
 			AttemptCount: 0,
-			PoppedAt:     input.PoppedAt.UTC(),
+			PoppedAt:     timeutil.NormalizeStorageTime(input.PoppedAt),
 		})
 	}
 
@@ -55,7 +56,7 @@ func MarkRedisUsageInboxProcessed(db *gorm.DB, id uint, eventKey string, process
 	return db.Model(&entities.RedisUsageInbox{}).Where("id = ?", id).Updates(map[string]any{
 		"status":          RedisUsageInboxStatusProcessed,
 		"usage_event_key": eventKey,
-		"processed_at":    processedAt.UTC(),
+		"processed_at":    timeutil.FormatStorageTime(processedAt),
 		"last_error":      "",
 	}).Error
 }
@@ -108,8 +109,8 @@ func ListPendingRedisUsageInbox(db *gorm.DB, limit int) ([]entities.RedisUsageIn
 func CleanupRedisUsageInbox(db *gorm.DB, now time.Time) (dto.RedisUsageInboxCleanupResult, error) {
 	localNow := now.In(time.Local)
 	localDayStart := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, time.Local)
-	processedCutoff := localDayStart.UTC()
-	failedCutoff := now.UTC().AddDate(0, 0, -7)
+	processedCutoff := timeutil.FormatStorageTime(localDayStart)
+	failedCutoff := timeutil.FormatStorageTime(now.AddDate(0, 0, -7))
 	result := dto.RedisUsageInboxCleanupResult{}
 
 	processedDelete := db.Where("status = ? AND processed_at IS NOT NULL AND processed_at < ?", RedisUsageInboxStatusProcessed, processedCutoff).Delete(&entities.RedisUsageInbox{})

@@ -69,6 +69,36 @@ describe('credentialViewModels', () => {
     ])
   })
 
+  it('prefers refreshed quota plan type over usage identity plan type', () => {
+    const quotas = new Map<string, UsageQuotaRow[]>([
+      ['auth-1', [
+        { key: 'rate_limit.primary_window', planType: 'pro' },
+      ]],
+    ])
+
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'auth-1', plan_type: 'plus' }),
+    ], quotas)
+
+    expect(rows[0].planTypeLabel).toBe('Pro')
+    expect(rows[0].planTypeTone).toBe('pro')
+  })
+
+  it('formats unknown refreshed quota plan types in the frontend', () => {
+    const quotas = new Map<string, UsageQuotaRow[]>([
+      ['auth-1', [
+        { key: 'rate_limit.primary_window', planType: ' enterprise ' },
+      ]],
+    ])
+
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'auth-1', plan_type: 'plus' }),
+    ], quotas)
+
+    expect(rows[0].planTypeLabel).toBe('Enterprise')
+    expect(rows[0].planTypeTone).toBe('neutral')
+  })
+
   it('builds active-until remaining days badge with zero as the minimum', () => {
     vi.setSystemTime(new Date('2026-05-10T10:00:00Z'))
     try {
@@ -134,6 +164,22 @@ describe('credentialViewModels', () => {
     expect(rows[0].secondaryQuota?.percentKind).toBe('used')
     expect(rows[0].secondaryQuota?.barPercent).toBe(60)
     expect(rows[0].extraQuota.map((quota) => quota.label)).toEqual(['Code Assist Credit'])
+  })
+
+  it('classifies quota bar colors at 50 and 20 percent remaining thresholds', () => {
+    const quotas = new Map<string, UsageQuotaRow[]>([
+      ['green-auth', [{ key: 'rate_limit.primary_window', label: '5h', remainingFraction: 0.5 }]],
+      ['yellow-auth', [{ key: 'rate_limit.primary_window', label: '5h', remainingFraction: 0.49 }]],
+      ['red-auth', [{ key: 'rate_limit.primary_window', label: '5h', remainingFraction: 0.19 }]],
+    ])
+
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'green-auth' }),
+      identity({ identity: 'yellow-auth' }),
+      identity({ identity: 'red-auth' }),
+    ], quotas)
+
+    expect(rows.map((row) => row.primaryQuota?.status)).toEqual(['ok', 'warning', 'danger'])
   })
 
   it('uses quota window duration instead of raw key when classifying Codex windows', () => {

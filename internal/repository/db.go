@@ -11,6 +11,7 @@ import (
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository/migration"
+	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -22,7 +23,8 @@ func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 		return nil, err
 	}
 	dsn := sqliteDSN(cfg.SQLitePath)
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	// GORM 自动时间也先落到项目 TZ，再由 storageTime serializer 输出统一字符串。
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{NowFunc: func() time.Time { return timeutil.NormalizeStorageTime(time.Now()) }})
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite database %s: %w", filepath.Clean(cfg.SQLitePath), err)
 	}
@@ -113,6 +115,9 @@ func InsertUsageEvents(db *gorm.DB, events []entities.UsageEvent) (int, int, err
 	for start := 0; start < len(events); start += insertBatchSize(entities.UsageEvent{}) {
 		end := min(start+insertBatchSize(entities.UsageEvent{}), len(events))
 		batch := events[start:end]
+		for index := range batch {
+			batch[index].Timestamp = timeutil.NormalizeStorageTime(batch[index].Timestamp)
+		}
 
 		// 每批仍按 event_key 去重，保持原有重复事件忽略语义。
 		result := db.Clauses(clause.OnConflict{

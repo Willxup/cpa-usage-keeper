@@ -72,8 +72,8 @@ func TestUsageOverviewResponseIncludesResolvedRangeAndTimezone(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
-	expectedStart := time.Date(2026, 4, 20, 0, 0, 0, 0, location).UTC().Format(time.RFC3339Nano)
-	expectedEnd := time.Date(2026, 4, 22, 0, 0, 0, 0, location).Add(-time.Nanosecond).UTC().Format(time.RFC3339Nano)
+	expectedStart := time.Date(2026, 4, 20, 0, 0, 0, 0, location).Format(time.RFC3339Nano)
+	expectedEnd := time.Date(2026, 4, 22, 0, 0, 0, 0, location).Add(-time.Nanosecond).Format(time.RFC3339Nano)
 	body := resp.Body.String()
 	if !contains(body, `"timezone":"Asia/Shanghai"`) || !contains(body, `"range_start":"`+expectedStart+`"`) || !contains(body, `"range_end":"`+expectedEnd+`"`) {
 		t.Fatalf("expected overview response to include resolved range and timezone, got %s", body)

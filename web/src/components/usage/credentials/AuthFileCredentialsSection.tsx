@@ -13,15 +13,17 @@ interface AuthFileCredentialsSectionProps {
   total: number
   page: number
   totalPages: number
+  pageSize: number
   loading: boolean
   quotaRefreshing: boolean
   quotaRefreshError: string
   onPageChange: (page: number) => void
+  onPageSizeChange: (pageSize: number) => void
   onRefreshQuota: () => Promise<void>
   onRefreshQuotaForAuthIndex: (authIndex: string) => Promise<void>
 }
 
-export function AuthFileCredentialsSection({ rows, total, page, totalPages, loading, quotaRefreshing, quotaRefreshError, onPageChange, onRefreshQuota, onRefreshQuotaForAuthIndex }: AuthFileCredentialsSectionProps) {
+export function AuthFileCredentialsSection({ rows, total, page, totalPages, pageSize, loading, quotaRefreshing, quotaRefreshError, onPageChange, onPageSizeChange, onRefreshQuota, onRefreshQuotaForAuthIndex }: AuthFileCredentialsSectionProps) {
   const { t } = useTranslation()
   const quotaRotationPhase = useQuotaRotationPhase()
   const canRefresh = rows.some((row) => !isRowRefreshing(row) && !row.identity.is_deleted) && !quotaRefreshing
@@ -93,7 +95,16 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, load
           />
         )
       })}
-      <CredentialsPagination page={page} totalPages={totalPages} previousLabel={t('usage_stats.previous_page')} nextLabel={t('usage_stats.next_page')} onPageChange={onPageChange} />
+      <CredentialsPagination
+        page={page}
+        totalPages={totalPages}
+        pageSize={pageSize}
+        previousLabel={t('usage_stats.previous_page')}
+        nextLabel={t('usage_stats.next_page')}
+        rowsPerPageLabel={t('usage_stats.rows_per_page')}
+        onPageChange={onPageChange}
+        onPageSizeChange={onPageSizeChange}
+      />
     </CredentialSectionShell>
   )
 }
@@ -222,4 +233,3 @@ function QuotaBar({ quota, rotationPhase }: { quota: DisplayQuota; rotationPhase
     </div>
   )
 }
-

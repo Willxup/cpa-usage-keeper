@@ -8,6 +8,7 @@ import (
 	"time"
 
 	servicedto "cpa-usage-keeper/internal/service/dto"
+	"cpa-usage-keeper/internal/timeutil"
 	"github.com/sirupsen/logrus"
 )
 
@@ -206,7 +207,7 @@ func (d *RedisDrain) runRedisProcess(ctx context.Context) (*servicedto.RedisBatc
 func (d *RedisDrain) recordPullResult(result *servicedto.RedisInboxPullResult, err error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.lastRunAt = d.now().UTC()
+	d.lastRunAt = timeutil.NormalizeStorageTime(d.now())
 	status := ""
 	if result != nil {
 		status = result.Status
@@ -225,7 +226,7 @@ func (d *RedisDrain) recordPullResult(result *servicedto.RedisInboxPullResult, e
 func (d *RedisDrain) recordResult(result *servicedto.RedisBatchSyncResult, err error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.lastRunAt = d.now().UTC()
+	d.lastRunAt = timeutil.NormalizeStorageTime(d.now())
 	status := ""
 	if result != nil {
 		status = result.Status

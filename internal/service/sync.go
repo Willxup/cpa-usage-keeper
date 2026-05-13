@@ -10,6 +10,7 @@ import (
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
+	"cpa-usage-keeper/internal/timeutil"
 
 	"cpa-usage-keeper/internal/cpa/dto/authfiles"
 	"cpa-usage-keeper/internal/cpa/dto/providerconfig"
@@ -141,7 +142,7 @@ func (s *SyncService) SyncMetadata(ctx context.Context) error {
 		return err
 	}
 	logrus.Debug("metadata sync started")
-	fetchedAt := s.now().UTC()
+	fetchedAt := timeutil.NormalizeStorageTime(s.now())
 	authFilesResult, authFilesErr := s.metadataFetcher.FetchAuthFiles(ctx)
 	providerConfig, fetchedProviderTypes, providerMetadataErr := fetchProviderMetadata(ctx, s.metadataFetcher)
 	authSyncErr := syncAuthFiles(ctx, s.db, authFilesResult, authFilesErr, fetchedAt)
@@ -176,7 +177,7 @@ func (s *SyncService) PullRedisUsageInbox(ctx context.Context) (*servicedto.Redi
 		return nil, fmt.Errorf("sync service redis queue is nil")
 	}
 
-	fetchedAt := s.now().UTC()
+	fetchedAt := timeutil.NormalizeStorageTime(s.now())
 	messages, err := s.redisQueue.PopUsage(ctx)
 	if err != nil {
 		return &servicedto.RedisInboxPullResult{Status: "failed"}, fmt.Errorf("fetch redis usage: %w", err)
@@ -206,7 +207,7 @@ func (s *SyncService) ProcessRedisUsageInbox(ctx context.Context) (*servicedto.R
 	if err := s.validate(syncMetadataOptional); err != nil {
 		return nil, err
 	}
-	fetchedAt := s.now().UTC()
+	fetchedAt := timeutil.NormalizeStorageTime(s.now())
 	processableRows, err := repository.ListProcessableRedisUsageInbox(s.db, redisInboxProcessLimit)
 	if err != nil {
 		return &servicedto.RedisBatchSyncResult{Status: "failed"}, fmt.Errorf("list processable redis usage inbox: %w", err)
@@ -345,7 +346,7 @@ func alignUsageEventKeysWithExistingCanonicalEvents(db *gorm.DB, events []entiti
 	canonicalEventKeys := make(map[string]string, len(events))
 	consumedCanonicalKeys := make(map[string]struct{}, len(events))
 	for i := range events {
-		events[i].Timestamp = events[i].Timestamp.UTC()
+		events[i].Timestamp = timeutil.NormalizeStorageTime(events[i].Timestamp)
 		canonicalKey := canonicalUsageEventKey(events[i])
 		incomingKey := strings.TrimSpace(events[i].EventKey)
 		if strings.TrimSpace(events[i].RequestID) != "" {
@@ -640,6 +641,7 @@ func providerMetadataUsageIdentities(inputs []servicedto.ProviderMetadataInput) 
 			Provider:     input.DisplayName,
 			LookupKey:    input.LookupKey,
 			Prefix:       input.Prefix,
+			BaseURL:      input.BaseURL,
 		})
 	}
 	return identities
@@ -649,12 +651,13 @@ func flattenProviderMetadata(cfg providerconfig.ProviderMetadataConfig) []servic
 	items := make([]servicedto.ProviderMetadataInput, 0)
 	seen := make(map[string]struct{})
 	// Provider metadata 只生成 auth-index 身份；prefix 作为同一身份的附加字段保存，不再生成独立行。
-	appendItem := func(lookupKey, prefix, providerType, displayName, authIndex string) {
+	appendItem := func(lookupKey, prefix, providerType, displayName, authIndex, baseURL string) {
 		lookupKey = strings.TrimSpace(lookupKey)
 		prefix = strings.TrimSpace(prefix)
 		providerType = strings.TrimSpace(providerType)
 		displayName = strings.TrimSpace(displayName)
 		authIndex = strings.TrimSpace(authIndex)
+		baseURL = strings.TrimSpace(baseURL)
 		if lookupKey == "" || providerType == "" || displayName == "" || authIndex == "" {
 			return
 		}
@@ -668,12 +671,13 @@ func flattenProviderMetadata(cfg providerconfig.ProviderMetadataConfig) []servic
 			ProviderType: providerType,
 			DisplayName:  displayName,
 			AuthIndex:    authIndex,
+			BaseURL:      baseURL,
 		})
 	}
 	appendProviderEntries := func(providerType string, configs []providerconfig.ProviderKeyConfig) {
 		for _, cfg := range configs {
 			displayName := firstNonEmpty(cfg.Name, providerType)
-			appendItem(cfg.APIKey, cfg.Prefix, providerType, displayName, cfg.AuthIndex)
+			appendItem(cfg.APIKey, cfg.Prefix, providerType, displayName, cfg.AuthIndex, cfg.BaseURL)
 		}
 	}
 
@@ -685,7 +689,7 @@ func flattenProviderMetadata(cfg providerconfig.ProviderMetadataConfig) []servic
 	for _, provider := range cfg.OpenAICompatibility {
 		displayName := firstNonEmpty(provider.Name, "openai")
 		for _, entry := range provider.APIKeyEntries {
-			appendItem(entry.APIKey, provider.Prefix, "openai", displayName, entry.AuthIndex)
+			appendItem(entry.APIKey, provider.Prefix, "openai", displayName, entry.AuthIndex, provider.BaseURL)
 		}
 	}
 

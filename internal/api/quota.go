@@ -9,65 +9,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const quotaRefreshMaxAuthIndexes = 20
-
-type quotaCheckRequest struct {
-	AuthIndex string `json:"auth_index"`
-}
-
-type quotaRefreshRequest struct {
+type quotaRequest struct {
 	AuthIndexes []string `json:"auth_indexes"`
-	Limit       int      `json:"limit"`
 }
 
 func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
-	router.POST("/quota/check", func(c *gin.Context) {
-		if provider == nil {
-			writeInternalError(c, "quota provider is not configured", nil)
-			return
-		}
-
-		// 先解析并校验 auth_index，避免空值进入后端身份解析流程。
-		var request quotaCheckRequest
-		if err := c.ShouldBindJSON(&request); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_index is required"})
-			return
-		}
-		request.AuthIndex = strings.TrimSpace(request.AuthIndex)
-		if request.AuthIndex == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_index is required"})
-			return
-		}
-
-		// 统一把 service 层错误映射为前端可展示的 HTTP 状态和提示文案。
-		response, err := provider.Check(c.Request.Context(), quota.CheckRequest{AuthIndex: request.AuthIndex})
-		if err != nil {
-			switch {
-			case errors.Is(err, quota.ErrValidation):
-				c.JSON(http.StatusBadRequest, gin.H{"error": "auth_index is required"})
-			case errors.Is(err, quota.ErrNotFound):
-				c.JSON(http.StatusNotFound, gin.H{"error": "quota identity not found"})
-			case errors.Is(err, quota.ErrUnsupportedType):
-				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "quota identity type is unsupported"})
-			case errors.Is(err, quota.ErrProviderInput):
-				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": quotaProviderInputErrorMessage(err)})
-			default:
-				writeInternalError(c, "quota check failed", err)
-			}
-			return
-		}
-
-		c.JSON(http.StatusOK, response)
-	})
-
 	router.POST("/quota/cache", func(c *gin.Context) {
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)
 			return
 		}
 
-		// 缓存读取只校验查询列表，不套用刷新队列的 20 条上限。
-		var request quotaRefreshRequest
+		// 缓存读取只校验查询列表；列表返回多少 auth_index，就按相同数量读取缓存。
+		var request quotaRequest
 		if err := c.ShouldBindJSON(&request); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_indexes are required"})
 			return
@@ -76,14 +30,8 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_indexes are required"})
 			return
 		}
-		if request.Limit <= 0 {
-			request.Limit = len(request.AuthIndexes)
-		}
 
-		response, err := provider.GetCachedQuota(c.Request.Context(), quota.CacheRequest{
-			AuthIndexes: request.AuthIndexes,
-			Limit:       request.Limit,
-		})
+		response, err := provider.GetCachedQuota(c.Request.Context(), quota.CacheRequest{AuthIndexes: request.AuthIndexes})
 		if err != nil {
 			switch {
 			case errors.Is(err, quota.ErrValidation):
@@ -103,8 +51,7 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 			return
 		}
 
-		// 手动刷新会真正触发 provider 请求，所以在入口层限制当前页最多 20 条。
-		var request quotaRefreshRequest
+		var request quotaRequest
 		if err := c.ShouldBindJSON(&request); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_indexes are required"})
 			return
@@ -113,21 +60,9 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_indexes are required"})
 			return
 		}
-		if len(request.AuthIndexes) > quotaRefreshMaxAuthIndexes {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_indexes must not exceed 20"})
-			return
-		}
-		if request.Limit <= 0 {
-			request.Limit = quotaRefreshMaxAuthIndexes
-		}
-		if request.Limit > quotaRefreshMaxAuthIndexes {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "limit must not exceed 20"})
-			return
-		}
 
 		response, err := provider.Refresh(c.Request.Context(), quota.RefreshRequest{
 			AuthIndexes: request.AuthIndexes,
-			Limit:       request.Limit,
 			Source:      quota.RefreshSourceManual,
 		})
 		if err != nil {
@@ -168,8 +103,4 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 
 		c.JSON(http.StatusOK, response)
 	})
-}
-
-func quotaProviderInputErrorMessage(err error) string {
-	return quota.ProviderInputErrorMessage(err, "quota provider input is invalid")
 }

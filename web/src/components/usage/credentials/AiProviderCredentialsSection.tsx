@@ -8,11 +8,13 @@ interface AiProviderCredentialsSectionProps {
   total: number
   page: number
   totalPages: number
+  pageSize: number
   loading: boolean
   onPageChange: (page: number) => void
+  onPageSizeChange: (pageSize: number) => void
 }
 
-export function AiProviderCredentialsSection({ rows, total, page, totalPages, loading, onPageChange }: AiProviderCredentialsSectionProps) {
+export function AiProviderCredentialsSection({ rows, total, page, totalPages, pageSize, loading, onPageChange, onPageSizeChange }: AiProviderCredentialsSectionProps) {
   const { t } = useTranslation()
 
   return (
@@ -41,7 +43,16 @@ export function AiProviderCredentialsSection({ rows, total, page, totalPages, lo
           side={<AiProviderTrafficPanel row={row} />}
         />
       ))}
-      <CredentialsPagination page={page} totalPages={totalPages} previousLabel={t('usage_stats.previous_page')} nextLabel={t('usage_stats.next_page')} onPageChange={onPageChange} />
+      <CredentialsPagination
+        page={page}
+        totalPages={totalPages}
+        pageSize={pageSize}
+        previousLabel={t('usage_stats.previous_page')}
+        nextLabel={t('usage_stats.next_page')}
+        rowsPerPageLabel={t('usage_stats.rows_per_page')}
+        onPageChange={onPageChange}
+        onPageSizeChange={onPageSizeChange}
+      />
     </CredentialSectionShell>
   )
 }

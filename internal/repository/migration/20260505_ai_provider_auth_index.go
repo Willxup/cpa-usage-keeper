@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
 )
 
@@ -154,7 +155,7 @@ func backfillAIProviderUsageIdentityStatsByAuthIndex(tx *gorm.DB) error {
 		}
 		var statsUpdatedAt *time.Time
 		if stats.TotalRequests > 0 {
-			now := time.Now().UTC()
+			now := timeutil.NormalizeStorageTime(time.Now())
 			statsUpdatedAt = &now
 		}
 		if err := tx.Exec(`
