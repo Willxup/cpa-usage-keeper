@@ -393,6 +393,35 @@ func TestSyncRedisBatchMarksMalformedOnlyBatchWithoutSnapshot(t *testing.T) {
 	}
 }
 
+func TestSyncRedisBatchLogsErrorAndMarksDecodeFailedWhenRequestIDMissing(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	logs := captureSyncDebugLogs(t)
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
+		BaseURL:    "https://cpa.example.com",
+		RedisQueue: staticRedisQueue{messages: []string{`{"timestamp":"2026-04-27T08:00:00Z","provider":"claude","model":"sonnet","tokens":{"input_tokens":1,"output_tokens":2}}`}},
+	})
+
+	result, err := service.SyncRedisBatch(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "request_id is required") {
+		t.Fatalf("expected missing request_id warning, got %v", err)
+	}
+	if result == nil || result.Status != "completed_with_warnings" {
+		t.Fatalf("expected warning result, got %+v", result)
+	}
+
+	var inbox entities.RedisUsageInbox
+	if err := db.First(&inbox).Error; err != nil {
+		t.Fatalf("load inbox row: %v", err)
+	}
+	if inbox.Status != repository.RedisUsageInboxStatusDecodeFailed || !strings.Contains(inbox.LastError, "request_id is required") {
+		t.Fatalf("expected missing request_id decode_failed row, got %+v", inbox)
+	}
+	output := logs.String()
+	if !strings.Contains(output, "level=error") || !strings.Contains(output, "redis usage message decode failed") || !strings.Contains(output, "request_id is required") {
+		t.Fatalf("expected missing request_id error log, got:\n%s", output)
+	}
+}
+
 func TestSyncRedisBatchProcessesPendingInboxBeforePoppingRedis(t *testing.T) {
 	db := openSyncTestDatabase(t)
 	poppedAt := time.Date(2026, 4, 27, 8, 0, 0, 0, time.UTC)
@@ -529,53 +558,7 @@ func TestSyncNowInRedisModeUsesDurableInbox(t *testing.T) {
 	}
 }
 
-func TestSyncRedisBatchKeepsRedisRequestIDWhenEquivalentCanonicalEventExists(t *testing.T) {
-	db := openSyncTestDatabase(t)
-	timestamp := time.Date(2026, 4, 27, 8, 0, 0, 0, time.UTC)
-	tokens := dto.TokenStats{InputTokens: 10, OutputTokens: 20, ReasoningTokens: 5, CachedTokens: 4, TotalTokens: 39}
-	canonicalKey := BuildEventKey("external-api-key", "claude-sonnet", timestamp, "codex-a", "1", false, tokens)
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
-		EventKey:        canonicalKey,
-		APIGroupKey:     "external-api-key",
-		Model:           "claude-sonnet",
-		Timestamp:       timestamp,
-		Source:          "codex-a",
-		AuthIndex:       "1",
-		Failed:          false,
-		LatencyMS:       123,
-		InputTokens:     tokens.InputTokens,
-		OutputTokens:    tokens.OutputTokens,
-		ReasoningTokens: tokens.ReasoningTokens,
-		CachedTokens:    tokens.CachedTokens,
-		TotalTokens:     tokens.TotalTokens,
-	}}); err != nil {
-		t.Fatalf("seed canonical usage event: %v", err)
-	}
-	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
-		BaseURL: "https://cpa.example.com",
-		RedisQueue: staticRedisQueue{messages: []string{
-			equivalentRedisMessage("external-api-key", "claude-sonnet", timestamp, "codex-a", "1", false, 123, tokens, "redis-request-canonical"),
-		}},
-	})
-
-	result, err := service.SyncRedisBatch(context.Background())
-	if err != nil {
-		t.Fatalf("SyncRedisBatch returned error: %v", err)
-	}
-	if result.InsertedEvents != 1 || result.DedupedEvents != 0 {
-		t.Fatalf("expected Redis request_id event to insert separately from canonical event, got %+v", result)
-	}
-	assertUsageEventCount(t, db, 2)
-	var inbox entities.RedisUsageInbox
-	if err := db.First(&inbox).Error; err != nil {
-		t.Fatalf("load inbox row: %v", err)
-	}
-	if inbox.UsageEventKey != "redis-request-canonical" {
-		t.Fatalf("expected inbox to keep Redis request_id event key, got %+v", inbox)
-	}
-}
-
-func TestSyncRedisBatchKeepsDistinctRedisRequestIDsWithSameCanonicalFields(t *testing.T) {
+func TestSyncRedisBatchKeepsDistinctRedisRequestIDsWithSameEventFields(t *testing.T) {
 	db := openSyncTestDatabase(t)
 	timestamp := time.Date(2026, 4, 27, 8, 0, 0, 0, time.UTC)
 	tokens := dto.TokenStats{InputTokens: 10, OutputTokens: 20, ReasoningTokens: 5, CachedTokens: 4, TotalTokens: 39}

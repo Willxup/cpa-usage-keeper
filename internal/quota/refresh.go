@@ -198,7 +198,7 @@ func (s *Service) validateRefreshAuthIndex(ctx context.Context, authIndex string
 	}
 
 	var active entities.UsageIdentity
-	if err := s.db.WithContext(ctx).Where("identity = ? AND is_deleted = ?", authIndex, false).First(&active).Error; err == nil {
+	if err := s.db.WithContext(ctx).Select("id, auth_type").Where("identity = ? AND is_deleted = ?", authIndex, false).First(&active).Error; err == nil {
 		return "not_auth_file", nil
 	} else if errors.Is(err, gorm.ErrRecordNotFound) {
 		return "not_found", nil

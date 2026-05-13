@@ -22,6 +22,9 @@ func DecodeRedisUsageMessage(message string, fetchedAt time.Time) (entities.Usag
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return entities.UsageEvent{}, nil, fmt.Errorf("decode redis usage message: %w", err)
 	}
+	if strings.TrimSpace(payload.RequestID) == "" {
+		return entities.UsageEvent{}, raw, fmt.Errorf("decode redis usage message: request_id is required")
+	}
 	return payload.toUsageEvent(fetchedAt), raw, nil
 }
 
@@ -71,9 +74,6 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 	source := strings.TrimSpace(d.Source)
 	authIndex := strings.TrimSpace(d.AuthIndex)
 	eventKey := strings.TrimSpace(d.RequestID)
-	if eventKey == "" {
-		eventKey = BuildEventKey(apiGroupKey, model, timestamp, source, authIndex, d.Failed, tokens)
-	}
 	return entities.UsageEvent{
 		EventKey:        eventKey,
 		APIGroupKey:     apiGroupKey,

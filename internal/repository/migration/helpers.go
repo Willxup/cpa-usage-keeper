@@ -20,7 +20,7 @@ type usageIdentityStatsDelta struct {
 	TotalTokens     int64
 	FirstUsedAt     *time.Time
 	LastUsedAt      *time.Time
-	MaxUsageEventID uint
+	MaxUsageEventID int64
 }
 
 func dropColumnIfExists(tx *gorm.DB, model any, columnName string, tableName string) error {

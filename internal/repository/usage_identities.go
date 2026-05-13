@@ -79,6 +79,10 @@ type ListUsageIdentitiesPageRequest struct {
 	PageSize int
 }
 
+const usageIdentityReadColumns = "id, name, auth_type, auth_type_name, identity, type, provider, lookup_key, prefix, base_url, account_id, project_id, active_start, active_until, plan_type, total_requests, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, total_tokens, last_aggregated_usage_event_id, first_used_at, last_used_at, stats_updated_at, is_deleted, created_at, updated_at, deleted_at"
+
+const usageIdentityAggregationColumns = "id, auth_type, identity, total_requests, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, total_tokens, last_aggregated_usage_event_id, first_used_at, last_used_at"
+
 func ListUsageIdentities(ctx context.Context, db *gorm.DB) ([]entities.UsageIdentity, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
@@ -86,7 +90,7 @@ func ListUsageIdentities(ctx context.Context, db *gorm.DB) ([]entities.UsageIden
 
 	// usage identities 页面需要展示 active/deleted 全量历史，因此这里不加 is_deleted 条件。
 	var identities []entities.UsageIdentity
-	if err := db.WithContext(ctx).Order("auth_type asc, name asc, id asc").Find(&identities).Error; err != nil {
+	if err := db.WithContext(ctx).Select(usageIdentityReadColumns).Order("auth_type asc, name asc, id asc").Find(&identities).Error; err != nil {
 		return nil, fmt.Errorf("list usage identities: %w", err)
 	}
 	return identities, nil
@@ -99,7 +103,7 @@ func ListActiveUsageIdentities(ctx context.Context, db *gorm.DB) ([]entities.Usa
 
 	// 解析和筛选场景只需要活跃身份，直接在 SQL 层过滤 deleted rows，避免无效数据进入内存 resolver。
 	var identities []entities.UsageIdentity
-	if err := activeUsageIdentitiesQuery(db.WithContext(ctx), nil).Order("auth_type asc, name asc, id asc").Find(&identities).Error; err != nil {
+	if err := activeUsageIdentitiesQuery(db.WithContext(ctx), nil).Select(usageIdentityReadColumns).Order("auth_type asc, name asc, id asc").Find(&identities).Error; err != nil {
 		return nil, fmt.Errorf("list active usage identities: %w", err)
 	}
 	return identities, nil
@@ -125,7 +129,7 @@ func ListActiveUsageIdentitiesPage(ctx context.Context, db *gorm.DB, request Lis
 		return nil, 0, fmt.Errorf("count active usage identities page: %w", err)
 	}
 	var identities []entities.UsageIdentity
-	if err := query.Order("total_requests DESC").Order("id ASC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&identities).Error; err != nil {
+	if err := query.Select(usageIdentityReadColumns).Order("total_requests DESC").Order("id ASC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&identities).Error; err != nil {
 		return nil, 0, fmt.Errorf("list active usage identities page: %w", err)
 	}
 	return identities, total, nil
@@ -146,6 +150,7 @@ func GetActiveAuthFileUsageIdentityByAuthIndex(ctx context.Context, db *gorm.DB,
 		return identity, fmt.Errorf("database is nil")
 	}
 	if err := db.WithContext(ctx).
+		Select(usageIdentityReadColumns).
 		Where("auth_type = ? AND identity = ? AND is_deleted = ?", entities.UsageIdentityAuthTypeAuthFile, strings.TrimSpace(authIndex), false).
 		First(&identity).Error; err != nil {
 		return identity, fmt.Errorf("get active auth file usage identity by auth index: %w", err)
@@ -160,7 +165,7 @@ func AggregateUsageIdentityStats(ctx context.Context, db *gorm.DB, now time.Time
 
 	// 聚合统计需要覆盖 active/deleted 全量身份，避免历史已删除身份停止累计对应 usage_events。
 	var identities []entities.UsageIdentity
-	if err := db.WithContext(ctx).Find(&identities).Error; err != nil {
+	if err := db.WithContext(ctx).Select(usageIdentityAggregationColumns).Find(&identities).Error; err != nil {
 		return fmt.Errorf("list usage identities for aggregation: %w", err)
 	}
 
@@ -237,17 +242,21 @@ func aggregateUsageIdentityDelta(tx *gorm.DB, identity entities.UsageIdentity) (
 	}
 
 	// 统计总量不包含首尾时间，首尾时间用同一组身份过滤条件分别取最早和最晚事件。
-	var firstEvent entities.UsageEvent
+	var firstEvent struct {
+		Timestamp time.Time
+	}
 	firstQuery, _ := usageIdentityEventsQuery(tx.Model(&entities.UsageEvent{}), identity)
-	if err := firstQuery.Where("id > ?", identity.LastAggregatedUsageEventID).Order("timestamp asc, id asc").First(&firstEvent).Error; err != nil {
+	if err := firstQuery.Select("timestamp").Where("id > ?", identity.LastAggregatedUsageEventID).Order("timestamp asc, id asc").First(&firstEvent).Error; err != nil {
 		return delta, fmt.Errorf("find first usage identity event for %q: %w", identity.Identity, err)
 	}
 	firstUsedAt := firstEvent.Timestamp
 	delta.FirstUsedAt = &firstUsedAt
 
-	var lastEvent entities.UsageEvent
+	var lastEvent struct {
+		Timestamp time.Time
+	}
 	lastQuery, _ := usageIdentityEventsQuery(tx.Model(&entities.UsageEvent{}), identity)
-	if err := lastQuery.Where("id > ?", identity.LastAggregatedUsageEventID).Order("timestamp desc, id desc").First(&lastEvent).Error; err != nil {
+	if err := lastQuery.Select("timestamp").Where("id > ?", identity.LastAggregatedUsageEventID).Order("timestamp desc, id desc").First(&lastEvent).Error; err != nil {
 		return delta, fmt.Errorf("find last usage identity event for %q: %w", identity.Identity, err)
 	}
 	lastUsedAt := lastEvent.Timestamp
@@ -362,7 +371,7 @@ func markStaleUsageIdentitiesDeleted(tx *gorm.DB, query *gorm.DB, incomingIdenti
 
 	// 只从数据库读取候选行的最小字段，后续在 Go 中判断哪些行已经 stale。
 	var candidates []struct {
-		ID       uint
+		ID       int64
 		Identity string
 	}
 	if err := query.Select("id, identity").Find(&candidates).Error; err != nil {
@@ -370,7 +379,7 @@ func markStaleUsageIdentitiesDeleted(tx *gorm.DB, query *gorm.DB, incomingIdenti
 	}
 
 	// 候选行中没有出现在本次输入里的 ID，就是需要标记删除的 stale 数据。
-	staleIDs := make([]uint, 0)
+	staleIDs := make([]int64, 0)
 	for _, candidate := range candidates {
 		if _, ok := incoming[candidate.Identity]; ok {
 			continue

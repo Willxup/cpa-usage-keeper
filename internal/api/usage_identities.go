@@ -24,7 +24,7 @@ type usageIdentitiesPageResponse struct {
 }
 
 type usageIdentityResponse struct {
-	ID                         uint                           `json:"id"`
+	ID                         string                         `json:"id"`
 	Name                       string                         `json:"name"`
 	DisplayName                string                         `json:"displayName"`
 	AuthType                   entities.UsageIdentityAuthType `json:"auth_type"`
@@ -43,7 +43,7 @@ type usageIdentityResponse struct {
 	ReasoningTokens            int64                          `json:"reasoning_tokens"`
 	CachedTokens               int64                          `json:"cached_tokens"`
 	TotalTokens                int64                          `json:"total_tokens"`
-	LastAggregatedUsageEventID uint                           `json:"last_aggregated_usage_event_id"`
+	LastAggregatedUsageEventID string                         `json:"last_aggregated_usage_event_id"`
 	FirstUsedAt                *time.Time                     `json:"first_used_at,omitempty"`
 	LastUsedAt                 *time.Time                     `json:"last_used_at,omitempty"`
 	StatsUpdatedAt             *time.Time                     `json:"stats_updated_at,omitempty"`
@@ -145,7 +145,7 @@ func mapUsageIdentityResponse(item entities.UsageIdentity) usageIdentityResponse
 	}
 
 	return usageIdentityResponse{
-		ID:                         item.ID,
+		ID:                         strconv.FormatInt(item.ID, 10),
 		Name:                       item.Name,
 		DisplayName:                usageIdentityDisplayName(item),
 		AuthType:                   item.AuthType,
@@ -164,7 +164,7 @@ func mapUsageIdentityResponse(item entities.UsageIdentity) usageIdentityResponse
 		ReasoningTokens:            item.ReasoningTokens,
 		CachedTokens:               item.CachedTokens,
 		TotalTokens:                item.TotalTokens,
-		LastAggregatedUsageEventID: item.LastAggregatedUsageEventID,
+		LastAggregatedUsageEventID: strconv.FormatInt(item.LastAggregatedUsageEventID, 10),
 		FirstUsedAt:                item.FirstUsedAt,
 		LastUsedAt:                 item.LastUsedAt,
 		StatsUpdatedAt:             item.StatsUpdatedAt,

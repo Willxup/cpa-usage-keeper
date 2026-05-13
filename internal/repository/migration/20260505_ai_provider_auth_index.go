@@ -54,7 +54,7 @@ func migrateAIProviderIdentitiesToAuthIndexMigration(tx *gorm.DB) error {
 }
 
 type aiProviderIdentityMigrationRow struct {
-	ID           uint   `gorm:"column:id"`
+	ID           int64  `gorm:"column:id"`
 	Name         string `gorm:"column:name"`
 	AuthTypeName string `gorm:"column:auth_type_name"`
 	Identity     string `gorm:"column:identity"`
@@ -145,7 +145,7 @@ func migrateAIProviderIdentityToAuthIndex(tx *gorm.DB, oldIdentity aiProviderIde
 
 func backfillAIProviderUsageIdentityStatsByAuthIndex(tx *gorm.DB) error {
 	var identities []entities.UsageIdentity
-	if err := tx.Where("auth_type_name = ?", "apikey").Find(&identities).Error; err != nil {
+	if err := tx.Select("id, identity").Where("auth_type_name = ?", "apikey").Find(&identities).Error; err != nil {
 		return fmt.Errorf("list AI provider usage identities for auth-index stats backfill: %w", err)
 	}
 	for _, identity := range identities {
@@ -199,15 +199,19 @@ func aggregateAIProviderUsageIdentityFullStatsByAuthIndex(tx *gorm.DB, identity 
 		return stats, nil
 	}
 
-	var firstEvent entities.UsageEvent
-	if err := tx.Model(&entities.UsageEvent{}).Where("auth_index = ? AND (auth_type = ? OR TRIM(COALESCE(auth_type, '')) = '')", identity.Identity, "apikey").Order("timestamp asc, id asc").First(&firstEvent).Error; err != nil {
+	var firstEvent struct {
+		Timestamp time.Time
+	}
+	if err := tx.Model(&entities.UsageEvent{}).Select("timestamp").Where("auth_index = ? AND (auth_type = ? OR TRIM(COALESCE(auth_type, '')) = '')", identity.Identity, "apikey").Order("timestamp asc, id asc").First(&firstEvent).Error; err != nil {
 		return stats, fmt.Errorf("find first AI provider usage identity event by auth-index for %q: %w", identity.Identity, err)
 	}
 	firstUsedAt := firstEvent.Timestamp
 	stats.FirstUsedAt = &firstUsedAt
 
-	var lastEvent entities.UsageEvent
-	if err := tx.Model(&entities.UsageEvent{}).Where("auth_index = ? AND (auth_type = ? OR TRIM(COALESCE(auth_type, '')) = '')", identity.Identity, "apikey").Order("timestamp desc, id desc").First(&lastEvent).Error; err != nil {
+	var lastEvent struct {
+		Timestamp time.Time
+	}
+	if err := tx.Model(&entities.UsageEvent{}).Select("timestamp").Where("auth_index = ? AND (auth_type = ? OR TRIM(COALESCE(auth_type, '')) = '')", identity.Identity, "apikey").Order("timestamp desc, id desc").First(&lastEvent).Error; err != nil {
 		return stats, fmt.Errorf("find last AI provider usage identity event by auth-index for %q: %w", identity.Identity, err)
 	}
 	lastUsedAt := lastEvent.Timestamp

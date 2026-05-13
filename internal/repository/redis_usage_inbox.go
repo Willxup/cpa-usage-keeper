@@ -13,6 +13,8 @@ import (
 	"gorm.io/gorm"
 )
 
+const redisUsageInboxProcessingColumns = "id, queue_key, raw_message, status, attempt_count, usage_event_key, popped_at"
+
 const (
 	RedisUsageInboxStatusPending       = "pending"
 	RedisUsageInboxStatusProcessed     = "processed"
@@ -52,7 +54,7 @@ func InsertRedisUsageInboxMessages(db *gorm.DB, inputs []dto.RedisInboxInsert) (
 	return rows, nil
 }
 
-func MarkRedisUsageInboxProcessed(db *gorm.DB, id uint, eventKey string, processedAt time.Time) error {
+func MarkRedisUsageInboxProcessed(db *gorm.DB, id int64, eventKey string, processedAt time.Time) error {
 	return db.Model(&entities.RedisUsageInbox{}).Where("id = ?", id).Updates(map[string]any{
 		"status":          RedisUsageInboxStatusProcessed,
 		"usage_event_key": eventKey,
@@ -61,11 +63,11 @@ func MarkRedisUsageInboxProcessed(db *gorm.DB, id uint, eventKey string, process
 	}).Error
 }
 
-func MarkRedisUsageInboxDecodeFailed(db *gorm.DB, id uint, decodeErr error) error {
+func MarkRedisUsageInboxDecodeFailed(db *gorm.DB, id int64, decodeErr error) error {
 	return markRedisUsageInboxFailed(db, id, RedisUsageInboxStatusDecodeFailed, decodeErr)
 }
 
-func MarkRedisUsageInboxProcessFailed(db *gorm.DB, id uint, processErr error) error {
+func MarkRedisUsageInboxProcessFailed(db *gorm.DB, id int64, processErr error) error {
 	return db.Model(&entities.RedisUsageInbox{}).Where("id = ?", id).Updates(map[string]any{
 		"status": gorm.Expr(
 			"CASE WHEN attempt_count + ? >= ? THEN ? ELSE ? END",
@@ -81,7 +83,7 @@ func MarkRedisUsageInboxProcessFailed(db *gorm.DB, id uint, processErr error) er
 
 // ListProcessableRedisUsageInbox 返回待处理和可重试的数据，不返回已解码失败或已丢弃的数据。
 func ListProcessableRedisUsageInbox(db *gorm.DB, limit int) ([]entities.RedisUsageInbox, error) {
-	query := db.Where("status = ? OR status = ?", RedisUsageInboxStatusPending, RedisUsageInboxStatusProcessFailed).Order("id asc")
+	query := db.Select(redisUsageInboxProcessingColumns).Where("status = ? OR status = ?", RedisUsageInboxStatusPending, RedisUsageInboxStatusProcessFailed).Order("id asc")
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
@@ -93,7 +95,7 @@ func ListProcessableRedisUsageInbox(db *gorm.DB, limit int) ([]entities.RedisUsa
 }
 
 func ListPendingRedisUsageInbox(db *gorm.DB, limit int) ([]entities.RedisUsageInbox, error) {
-	query := db.Where("status = ?", RedisUsageInboxStatusPending).Order("id asc")
+	query := db.Select(redisUsageInboxProcessingColumns).Where("status = ?", RedisUsageInboxStatusPending).Order("id asc")
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
@@ -128,7 +130,7 @@ func CleanupRedisUsageInbox(db *gorm.DB, now time.Time) (dto.RedisUsageInboxClea
 	return result, nil
 }
 
-func markRedisUsageInboxFailed(db *gorm.DB, id uint, status string, err error) error {
+func markRedisUsageInboxFailed(db *gorm.DB, id int64, status string, err error) error {
 	return db.Model(&entities.RedisUsageInbox{}).Where("id = ?", id).Updates(map[string]any{
 		"status":        status,
 		"attempt_count": gorm.Expr("attempt_count + ?", 1),

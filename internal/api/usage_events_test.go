@@ -90,7 +90,7 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	if !contains(body, `"events":[`) || !contains(body, `"model":"claude-sonnet"`) {
 		t.Fatalf("unexpected response body: %s", body)
 	}
-	if !contains(body, `"id":42`) || !contains(body, `"total_count":1`) || !contains(body, `"page":1`) || !contains(body, `"page_size":100`) || !contains(body, `"total_pages":1`) {
+	if !contains(body, `"id":"42"`) || !contains(body, `"total_count":1`) || !contains(body, `"page":1`) || !contains(body, `"page_size":100`) || !contains(body, `"total_pages":1`) {
 		t.Fatalf("expected pagination metadata and event id in response body: %s", body)
 	}
 	if !contains(body, `"source":"OpenAI Mirror"`) {

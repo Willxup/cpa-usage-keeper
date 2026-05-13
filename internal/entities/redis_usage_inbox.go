@@ -4,7 +4,7 @@ import "time"
 
 // RedisUsageInbox 是从 CPA Redis queue 拉取后等待解码/入库的原始消息实体。
 type RedisUsageInbox struct {
-	ID            uint   `gorm:"primaryKey;index:idx_redis_usage_inboxes_status_id,priority:2"`
+	ID            int64  `gorm:"primaryKey;index:idx_redis_usage_inboxes_status_id,priority:2"`
 	QueueKey      string `gorm:"not null"`
 	MessageHash   string `gorm:"not null"`
 	RawMessage    string `gorm:"not null"`

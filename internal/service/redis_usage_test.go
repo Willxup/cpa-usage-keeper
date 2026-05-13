@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"cpa-usage-keeper/internal/repository/dto"
 )
 
 func TestDecodeRedisUsageMessageMapsPayloadToUsageEvent(t *testing.T) {
@@ -51,28 +49,10 @@ func TestDecodeRedisUsageMessageMapsPayloadToUsageEvent(t *testing.T) {
 	}
 }
 
-func TestDecodeRedisUsageMessageFallsBackFieldsAndEventKey(t *testing.T) {
-	fetchedAt := time.Date(2026, 4, 27, 8, 0, 0, 0, time.UTC)
-
-	event, _, err := DecodeRedisUsageMessage(`{"latency_ms":-5,"tokens":{"input_tokens":1,"output_tokens":2},"endpoint":"/fallback"}`, fetchedAt)
-	if err != nil {
-		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
-	}
-	if event.APIGroupKey != "/fallback" || event.Model != "unknown" || event.LatencyMS != 0 {
-		t.Fatalf("unexpected fallback event: %+v", event)
-	}
-	if event.Provider != "" || event.Endpoint != "/fallback" || event.AuthType != "" || event.RequestID != "" {
-		t.Fatalf("unexpected fallback redis identity fields: %+v", event)
-	}
-	if event.ModelAlias != nil {
-		t.Fatalf("expected missing alias to stay nil, got %+v", event.ModelAlias)
-	}
-	if !event.Timestamp.Equal(fetchedAt) {
-		t.Fatalf("expected fetchedAt timestamp, got %s", event.Timestamp)
-	}
-	expectedKey := BuildEventKey("/fallback", "unknown", fetchedAt, "", "", false, dto.TokenStats{InputTokens: 1, OutputTokens: 2})
-	if event.EventKey != expectedKey {
-		t.Fatalf("expected fallback event key %s, got %s", expectedKey, event.EventKey)
+func TestDecodeRedisUsageMessageRequiresRequestID(t *testing.T) {
+	_, _, err := DecodeRedisUsageMessage(`{"latency_ms":-5,"tokens":{"input_tokens":1,"output_tokens":2},"endpoint":"/fallback"}`, time.Date(2026, 4, 27, 8, 0, 0, 0, time.UTC))
+	if err == nil || !strings.Contains(err.Error(), "request_id is required") {
+		t.Fatalf("expected missing request_id error, got %v", err)
 	}
 }
 

@@ -14,5 +14,5 @@ type UsageIdentityStatsDelta struct {
 	TotalTokens     int64
 	FirstUsedAt     *time.Time
 	LastUsedAt      *time.Time
-	MaxUsageEventID uint
+	MaxUsageEventID int64
 }

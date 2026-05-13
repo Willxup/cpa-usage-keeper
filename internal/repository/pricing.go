@@ -47,7 +47,7 @@ func ListModelPriceSettings(db *gorm.DB) ([]entities.ModelPriceSetting, error) {
 	}
 
 	var settings []entities.ModelPriceSetting
-	if err := db.Order("model asc").Find(&settings).Error; err != nil {
+	if err := db.Select("ID", "Model", "PromptPricePer1M", "CompletionPricePer1M", "CachePricePer1M", "CreatedAt", "UpdatedAt").Order("model asc").Find(&settings).Error; err != nil {
 		return nil, fmt.Errorf("list pricing settings: %w", err)
 	}
 	return settings, nil
@@ -64,7 +64,7 @@ func UpsertModelPriceSetting(db *gorm.DB, input dto.ModelPriceSettingInput) (*en
 	}
 
 	setting := &entities.ModelPriceSetting{}
-	if err := db.Where("model = ?", modelName).First(setting).Error; err != nil {
+	if err := db.Select("ID", "Model", "PromptPricePer1M", "CompletionPricePer1M", "CachePricePer1M", "CreatedAt", "UpdatedAt").Where("model = ?", modelName).First(setting).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			setting = &entities.ModelPriceSetting{Model: modelName}
 		} else {

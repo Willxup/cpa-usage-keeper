@@ -11,7 +11,7 @@ import {
 
 function identity(overrides: Partial<UsageIdentity>): UsageIdentity {
   return {
-    id: overrides.id ?? 1,
+    id: overrides.id ?? '1',
     name: overrides.name ?? '',
     auth_type: overrides.auth_type ?? 1,
     auth_type_name: overrides.auth_type_name ?? 'Auth File',
@@ -27,7 +27,7 @@ function identity(overrides: Partial<UsageIdentity>): UsageIdentity {
     reasoning_tokens: overrides.reasoning_tokens ?? 0,
     cached_tokens: overrides.cached_tokens ?? 0,
     total_tokens: overrides.total_tokens ?? 0,
-    last_aggregated_usage_event_id: overrides.last_aggregated_usage_event_id ?? 0,
+    last_aggregated_usage_event_id: overrides.last_aggregated_usage_event_id ?? '0',
     first_used_at: overrides.first_used_at,
     last_used_at: overrides.last_used_at,
     stats_updated_at: overrides.stats_updated_at,
@@ -44,9 +44,9 @@ function identity(overrides: Partial<UsageIdentity>): UsageIdentity {
 describe('credentialViewModels', () => {
   it('splits usage identities by auth type while keeping deleted rows for traffic display', () => {
     const groups = splitCredentialIdentities([
-      identity({ id: 1, auth_type: 1, identity: 'auth-file' }),
-      identity({ id: 2, auth_type: 2, identity: 'api-key' }),
-      identity({ id: 3, auth_type: 1, identity: 'deleted-auth-file', is_deleted: true }),
+      identity({ id: '1', auth_type: 1, identity: 'auth-file' }),
+      identity({ id: '2', auth_type: 2, identity: 'api-key' }),
+      identity({ id: '3', auth_type: 1, identity: 'deleted-auth-file', is_deleted: true }),
     ])
 
     expect(groups.authFiles.map((item) => item.identity)).toEqual(['auth-file', 'deleted-auth-file'])
@@ -115,16 +115,16 @@ describe('credentialViewModels', () => {
 
   it('selects only active current-page auth files for quota requests', () => {
     const rows = [
-      identity({ id: 1, auth_type: 1, identity: 'active-auth-file' }),
-      identity({ id: 2, auth_type: 1, identity: 'deleted-auth-file', is_deleted: true }),
-      identity({ id: 3, auth_type: 2, identity: 'api-key' }),
+      identity({ id: '1', auth_type: 1, identity: 'active-auth-file' }),
+      identity({ id: '2', auth_type: 1, identity: 'deleted-auth-file', is_deleted: true }),
+      identity({ id: '3', auth_type: 2, identity: 'api-key' }),
     ]
 
     expect(selectQuotaEligibleAuthIndexes(rows)).toEqual(['active-auth-file'])
   })
 
   it('paginates credentials with a fixed page size of ten', () => {
-    const identities = Array.from({ length: 25 }, (_, index) => identity({ id: index + 1, identity: `auth-${index + 1}` }))
+    const identities = Array.from({ length: 25 }, (_, index) => identity({ id: String(index + 1), identity: `auth-${index + 1}` }))
 
     const firstPage = paginateCredentials(identities, 1)
     const thirdPage = paginateCredentials(identities, 3)

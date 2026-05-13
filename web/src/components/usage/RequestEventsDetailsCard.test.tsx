@@ -6,7 +6,7 @@ import type { UsageEvent } from '@/lib/types';
 
 const events: UsageEvent[] = [
   {
-    id: 101,
+    id: '101',
     timestamp: '2026-04-23T02:00:00.000Z',
     model: 'claude-sonnet',
     source: 'Provider A',

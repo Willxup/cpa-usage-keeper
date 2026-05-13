@@ -137,7 +137,7 @@ export interface UsageEventTokens {
 }
 
 export interface UsageEvent {
-  id?: number
+  id?: string
   timestamp: string
   model: string
   source: string
@@ -175,7 +175,7 @@ export interface UsageEventSourceFilterOptionsResponse {
 export type UsageIdentityAuthType = 1 | 2
 
 export interface UsageIdentity {
-  id: number
+  id: string
   name: string
   displayName?: string
   auth_type: UsageIdentityAuthType
@@ -194,7 +194,7 @@ export interface UsageIdentity {
   reasoning_tokens: number
   cached_tokens: number
   total_tokens: number
-  last_aggregated_usage_event_id: number
+  last_aggregated_usage_event_id: string
   first_used_at?: string
   last_used_at?: string
   stats_updated_at?: string

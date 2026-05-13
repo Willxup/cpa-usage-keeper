@@ -40,7 +40,7 @@ type UsageEventFilterOptions struct {
 
 // UsageEventRecord 是单条 usage event 的服务层结果。
 type UsageEventRecord struct {
-	ID              uint
+	ID              int64
 	Timestamp       time.Time
 	APIGroupKey     string
 	Model           string

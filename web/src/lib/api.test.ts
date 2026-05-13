@@ -92,7 +92,7 @@ describe('fetchUsageEvents', () => {
       json: async () => ({
         identities: [
           {
-            id: 1,
+            id: '1',
             name: 'Claude primary',
             auth_type: 2,
             auth_type_name: 'apikey',
@@ -107,7 +107,7 @@ describe('fetchUsageEvents', () => {
             reasoning_tokens: 0,
             cached_tokens: 0,
             total_tokens: 30,
-            last_aggregated_usage_event_id: 9,
+            last_aggregated_usage_event_id: '9',
             is_deleted: false,
             created_at: '2026-05-04T00:00:00Z',
             updated_at: '2026-05-04T00:00:00Z',

@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,7 +34,7 @@ type usageEventFilterOptionsResponse struct {
 }
 
 type usageEventPayload struct {
-	ID         uint                   `json:"id,omitempty"`
+	ID         string                 `json:"id,omitempty"`
 	Timestamp  string                 `json:"timestamp"`
 	Model      string                 `json:"model"`
 	Source     string                 `json:"source"`
@@ -138,8 +139,12 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 	for _, row := range rows {
 		identity, matched := resolver.resolveByAuthIndex(row.AuthIndex)
 		source, isDelete := usageEventPublicSource(row, identity, matched)
+		id := ""
+		if row.ID != 0 {
+			id = strconv.FormatInt(row.ID, 10)
+		}
 		payload = append(payload, usageEventPayload{
-			ID:         row.ID,
+			ID:         id,
 			Timestamp:  timeutil.FormatStorageTime(row.Timestamp),
 			Model:      row.Model,
 			Source:     source,

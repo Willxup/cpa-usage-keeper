@@ -20,7 +20,7 @@ func backfillUsageIdentityStatsMigration(tx *gorm.DB) error {
 	}
 
 	var identities []entities.UsageIdentity
-	if err := tx.Find(&identities).Error; err != nil {
+	if err := tx.Select("id, auth_type, identity").Find(&identities).Error; err != nil {
 		return fmt.Errorf("list usage identities for stats backfill: %w", err)
 	}
 	for _, identity := range identities {
@@ -76,17 +76,21 @@ func aggregateUsageIdentityFullStats(tx *gorm.DB, identity entities.UsageIdentit
 		return stats, nil
 	}
 
-	var firstEvent entities.UsageEvent
+	var firstEvent struct {
+		Timestamp time.Time
+	}
 	firstQuery, _ := usageIdentityBackfillEventsQuery(tx.Model(&entities.UsageEvent{}), identity)
-	if err := firstQuery.Order("timestamp asc, id asc").First(&firstEvent).Error; err != nil {
+	if err := firstQuery.Select("timestamp").Order("timestamp asc, id asc").First(&firstEvent).Error; err != nil {
 		return stats, fmt.Errorf("find first usage identity event for %q: %w", identity.Identity, err)
 	}
 	firstUsedAt := firstEvent.Timestamp
 	stats.FirstUsedAt = &firstUsedAt
 
-	var lastEvent entities.UsageEvent
+	var lastEvent struct {
+		Timestamp time.Time
+	}
 	lastQuery, _ := usageIdentityBackfillEventsQuery(tx.Model(&entities.UsageEvent{}), identity)
-	if err := lastQuery.Order("timestamp desc, id desc").First(&lastEvent).Error; err != nil {
+	if err := lastQuery.Select("timestamp").Order("timestamp desc, id desc").First(&lastEvent).Error; err != nil {
 		return stats, fmt.Errorf("find last usage identity event for %q: %w", identity.Identity, err)
 	}
 	lastUsedAt := lastEvent.Timestamp

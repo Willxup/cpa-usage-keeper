@@ -14,7 +14,7 @@ describe('AiProviderCredentialsSection', () => {
   it('keeps the unified four-metric row layout without auth-file-only badges or quota content', () => {
     const row = {
       identity: {
-        id: 1,
+        id: '1',
         name: 'Provider Key',
         auth_type: 2,
         auth_type_name: 'apikey',
@@ -29,7 +29,7 @@ describe('AiProviderCredentialsSection', () => {
         reasoning_tokens: 0,
         cached_tokens: 0,
         total_tokens: 0,
-        last_aggregated_usage_event_id: 0,
+        last_aggregated_usage_event_id: '0',
         is_deleted: false,
         created_at: '2026-05-10T00:00:00Z',
         updated_at: '2026-05-10T00:00:00Z',

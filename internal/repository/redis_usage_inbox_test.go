@@ -290,11 +290,11 @@ func TestCleanupRedisUsageInboxRemovesOldProcessedAndFailedRows(t *testing.T) {
 	if err := db.Order("id asc").Find(&remaining).Error; err != nil {
 		t.Fatalf("load remaining inbox rows: %v", err)
 	}
-	remainingIDs := make([]uint, 0, len(remaining))
+	remainingIDs := make([]int64, 0, len(remaining))
 	for _, row := range remaining {
 		remainingIDs = append(remainingIDs, row.ID)
 	}
-	expectedIDs := []uint{rows[1].ID, rows[4].ID, rows[5].ID}
+	expectedIDs := []int64{rows[1].ID, rows[4].ID, rows[5].ID}
 	if fmt.Sprint(remainingIDs) != fmt.Sprint(expectedIDs) {
 		t.Fatalf("expected remaining ids %v, got %v", expectedIDs, remainingIDs)
 	}

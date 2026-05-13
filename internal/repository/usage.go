@@ -12,6 +12,26 @@ import (
 	"gorm.io/gorm"
 )
 
+const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, model, timestamp, source, auth_index, failed, latency_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, total_tokens"
+
+type usageEventProjection struct {
+	ID              int64
+	APIGroupKey     string
+	Provider        string
+	AuthType        string
+	Model           string
+	Timestamp       time.Time
+	Source          string
+	AuthIndex       string
+	Failed          bool
+	LatencyMS       int64
+	InputTokens     int64
+	OutputTokens    int64
+	ReasoningTokens int64
+	CachedTokens    int64
+	TotalTokens     int64
+}
+
 func BuildUsageSnapshot(db *gorm.DB) (*dto.StatisticsSnapshot, error) {
 	return BuildUsageSnapshotWithFilter(db, dto.UsageQueryFilter{})
 }
@@ -57,32 +77,16 @@ func ListUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.U
 	}
 
 	query := applyUsageEventListQuery(db.Model(&entities.UsageEvent{}), filter)
-	query = query.Order("timestamp DESC, id DESC").Limit(pageSize).Offset(offset)
+	query = query.Select(usageEventProjectionColumns).Order("timestamp DESC, id DESC").Limit(pageSize).Offset(offset)
 
-	var events []entities.UsageEvent
+	var events []usageEventProjection
 	if err := query.Find(&events).Error; err != nil {
 		return nil, fmt.Errorf("load usage events: %w", err)
 	}
 
 	rows := make([]dto.UsageEventRecord, 0, len(events))
 	for _, event := range events {
-		rows = append(rows, dto.UsageEventRecord{
-			ID:              event.ID,
-			Timestamp:       timeutil.NormalizeStorageTime(event.Timestamp),
-			APIGroupKey:     strings.TrimSpace(event.APIGroupKey),
-			Model:           strings.TrimSpace(event.Model),
-			AuthType:        strings.TrimSpace(event.AuthType),
-			Provider:        strings.TrimSpace(event.Provider),
-			Source:          strings.TrimSpace(event.Source),
-			AuthIndex:       strings.TrimSpace(event.AuthIndex),
-			Failed:          event.Failed,
-			LatencyMS:       event.LatencyMS,
-			InputTokens:     event.InputTokens,
-			OutputTokens:    event.OutputTokens,
-			ReasoningTokens: event.ReasoningTokens,
-			CachedTokens:    event.CachedTokens,
-			TotalTokens:     event.TotalTokens,
-		})
+		rows = append(rows, usageEventProjectionToRecord(event))
 	}
 	totalPages := 0
 	if totalCount > 0 {
@@ -117,6 +121,46 @@ func listUsageEventModelFilterOptions(db *gorm.DB, filter dto.UsageQueryFilter) 
 
 func queryUsageEvents(db *gorm.DB) *gorm.DB {
 	return db.Model(&entities.UsageEvent{})
+}
+
+func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventRecord {
+	return dto.UsageEventRecord{
+		ID:              event.ID,
+		Timestamp:       timeutil.NormalizeStorageTime(event.Timestamp),
+		APIGroupKey:     strings.TrimSpace(event.APIGroupKey),
+		Model:           strings.TrimSpace(event.Model),
+		AuthType:        strings.TrimSpace(event.AuthType),
+		Provider:        strings.TrimSpace(event.Provider),
+		Source:          strings.TrimSpace(event.Source),
+		AuthIndex:       strings.TrimSpace(event.AuthIndex),
+		Failed:          event.Failed,
+		LatencyMS:       event.LatencyMS,
+		InputTokens:     event.InputTokens,
+		OutputTokens:    event.OutputTokens,
+		ReasoningTokens: event.ReasoningTokens,
+		CachedTokens:    event.CachedTokens,
+		TotalTokens:     event.TotalTokens,
+	}
+}
+
+func usageEventProjectionToEntity(event usageEventProjection) entities.UsageEvent {
+	return entities.UsageEvent{
+		ID:              event.ID,
+		APIGroupKey:     event.APIGroupKey,
+		Provider:        event.Provider,
+		AuthType:        event.AuthType,
+		Model:           event.Model,
+		Timestamp:       event.Timestamp,
+		Source:          event.Source,
+		AuthIndex:       event.AuthIndex,
+		Failed:          event.Failed,
+		LatencyMS:       event.LatencyMS,
+		InputTokens:     event.InputTokens,
+		OutputTokens:    event.OutputTokens,
+		ReasoningTokens: event.ReasoningTokens,
+		CachedTokens:    event.CachedTokens,
+		TotalTokens:     event.TotalTokens,
+	}
 }
 
 func applyUsageQueryWindow(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
@@ -368,11 +412,15 @@ func buildUsageOverviewFromEvents(events []entities.UsageEvent, filter dto.Usage
 
 // Overview 第二步：按时间窗口读事件，再交给内存汇总。
 func loadUsageOverviewEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) ([]entities.UsageEvent, error) {
-	query := applyUsageOverviewQuery(db.Model(&entities.UsageEvent{}), filter).Order("timestamp asc")
+	query := applyUsageOverviewQuery(db.Model(&entities.UsageEvent{}), filter).Select(usageEventProjectionColumns).Order("timestamp asc")
 
-	var events []entities.UsageEvent
-	if err := query.Find(&events).Error; err != nil {
+	var rows []usageEventProjection
+	if err := query.Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load usage events: %w", err)
+	}
+	events := make([]entities.UsageEvent, 0, len(rows))
+	for _, row := range rows {
+		events = append(events, usageEventProjectionToEntity(row))
 	}
 	return events, nil
 }
