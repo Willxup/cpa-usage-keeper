@@ -63,8 +63,52 @@ func TestRefreshCreatesTaskPerAuthIndexAndCachesCompletedQuota(t *testing.T) {
 	if task.AuthIndex != "auth-1" || task.Quota == nil || task.Quota.ID != "auth-1" || len(task.Quota.Quota) != 1 {
 		t.Fatalf("expected completed task to expose cached quota, got %+v", task)
 	}
+	if task.ExpiresAt != nil {
+		t.Fatalf("expected completed quota cache to have no expiry, got %v", task.ExpiresAt)
+	}
+	service.cleanupExpiredRefreshTasks(time.Now().Add(defaultRefreshTaskTTL * 2))
+	cache, err := service.GetCachedQuota(context.Background(), CacheRequest{AuthIndexes: []string{"auth-1"}})
+	if err != nil {
+		t.Fatalf("GetCachedQuota returned error: %v", err)
+	}
+	if len(cache.Items) != 1 || cache.Items[0].ID != "auth-1" {
+		t.Fatalf("expected completed quota cache to survive cleanup, got %+v", cache)
+	}
 	if handler.callCount() != 1 {
 		t.Fatalf("expected one provider call, got %d", handler.callCount())
+	}
+}
+
+func TestRefreshPrunesPreviousCompletedTaskForSameAuthIndex(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
+	service := NewServiceWithRegistry(db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
+
+	first, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
+	if err != nil {
+		t.Fatalf("first Refresh returned error: %v", err)
+	}
+	firstTask := waitForRefreshTask(t, service, first.Tasks[0].TaskID, RefreshTaskStatusCompleted)
+
+	handler.output = ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 60}}}}
+	second, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
+	if err != nil {
+		t.Fatalf("second Refresh returned error: %v", err)
+	}
+	secondTask := waitForRefreshTask(t, service, second.Tasks[0].TaskID, RefreshTaskStatusCompleted)
+	if firstTask.TaskID == secondTask.TaskID {
+		t.Fatalf("expected a new task id for the second refresh, got %s", secondTask.TaskID)
+	}
+	if _, err := service.GetRefreshTask(context.Background(), firstTask.TaskID); !errors.Is(err, ErrTaskNotFound) {
+		t.Fatalf("expected first task to be pruned, got error %v", err)
+	}
+	cache, err := service.GetCachedQuota(context.Background(), CacheRequest{AuthIndexes: []string{"auth-1"}})
+	if err != nil {
+		t.Fatalf("GetCachedQuota returned error: %v", err)
+	}
+	if len(cache.Items) != 1 || cache.Items[0].Quota[0].UsedPercent == nil || *cache.Items[0].Quota[0].UsedPercent != 60 {
+		t.Fatalf("expected cache to expose latest quota, got %+v", cache)
 	}
 }
 
