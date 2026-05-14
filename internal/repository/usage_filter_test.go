@@ -237,6 +237,93 @@ func TestBuildUsageOverviewWithFilterReusesBoundaryEventsForHealth(t *testing.T)
 	}
 }
 
+func TestBuildUsageOverviewWithFilterKeepsRawEventQueriesAtBoundaries(t *testing.T) {
+	withRepositoryTestLocation(t, "Asia/Shanghai")
+
+	end := time.Date(2026, 5, 15, 1, 40, 17, 271676179, time.Local)
+	cases := []struct {
+		name       string
+		rangeValue string
+		start      time.Time
+		end        time.Time
+	}{
+		{name: "4h", rangeValue: "4h", start: end.Add(-4 * time.Hour), end: end},
+		{name: "8h", rangeValue: "8h", start: end.Add(-8 * time.Hour), end: end},
+		{name: "12h", rangeValue: "12h", start: end.Add(-12 * time.Hour), end: end},
+		{name: "24h", rangeValue: "24h", start: end.Add(-24 * time.Hour), end: end},
+		{name: "today", rangeValue: "today", start: time.Date(2026, 5, 15, 0, 0, 0, 0, time.Local), end: end},
+		{name: "yesterday", rangeValue: "yesterday", start: time.Date(2026, 5, 14, 0, 0, 0, 0, time.Local), end: time.Date(2026, 5, 14, 23, 59, 59, 0, time.Local)},
+		{name: "7d", rangeValue: "7d", start: end.AddDate(0, 0, -7), end: end},
+		{name: "30d", rangeValue: "30d", start: end.AddDate(0, 0, -30), end: end},
+		{name: "custom-long", rangeValue: "custom", start: end.AddDate(0, 0, -30), end: end},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-boundary-sql.db")})
+			if err != nil {
+				t.Fatalf("OpenDatabase returned error: %v", err)
+			}
+			closeTestDatabase(t, db)
+
+			filter := dto.UsageQueryFilter{Range: tc.rangeValue, StartTime: &tc.start, EndTime: &tc.end}
+			var ranges []usageEventQueryRange
+			callbackName := "test:capture_overview_usage_event_sql_" + tc.name
+			if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+				sql := tx.Statement.SQL.String()
+				if strings.Contains(sql, "FROM `usage_events`") || strings.Contains(sql, "FROM \"usage_events\"") {
+					ranges = append(ranges, usageEventQueryRangesFromVars(t, tx.Statement.Vars)...)
+				}
+			}); err != nil {
+				t.Fatalf("register query callback returned error: %v", err)
+			}
+			t.Cleanup(func() { _ = db.Callback().Query().Remove(callbackName) })
+
+			if _, err := BuildUsageOverviewWithFilter(db, filter); err != nil {
+				t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
+			}
+			if len(ranges) == 0 {
+				t.Fatalf("expected raw usage_events boundary queries to be captured")
+			}
+			for _, queryRange := range ranges {
+				if queryRange.end.Sub(queryRange.start) > time.Hour {
+					t.Fatalf("expected overview raw usage_events query to stay near bucket boundaries, got %s to %s", queryRange.start, queryRange.end)
+				}
+			}
+		})
+	}
+}
+
+type usageEventQueryRange struct {
+	start time.Time
+	end   time.Time
+}
+
+func usageEventQueryRangesFromVars(t *testing.T, vars []any) []usageEventQueryRange {
+	t.Helper()
+	ranges := make([]usageEventQueryRange, 0)
+	for i := 0; i+1 < len(vars); i++ {
+		start, startOK := usageEventQueryTime(vars[i])
+		end, endOK := usageEventQueryTime(vars[i+1])
+		if startOK && endOK && end.After(start) {
+			ranges = append(ranges, usageEventQueryRange{start: start, end: end})
+		}
+	}
+	return ranges
+}
+
+func usageEventQueryTime(value any) (time.Time, bool) {
+	switch typed := value.(type) {
+	case time.Time:
+		return typed, true
+	case string:
+		parsed, err := time.Parse(time.RFC3339Nano, typed)
+		return parsed, err == nil
+	default:
+		return time.Time{}, false
+	}
+}
+
 func TestBuildUsageOverviewWithFilterUsesStatsForFullHoursAndRawEventsForBoundaries(t *testing.T) {
 	withRepositoryTestLocation(t, "Asia/Shanghai")
 

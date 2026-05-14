@@ -437,11 +437,11 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, prici
 
 	// fullStart/fullEnd 是能被 hourly stats 完整覆盖的半开区间。
 	fullStart, fullEnd := usageOverviewFullHourWindow(*filter.StartTime, *filter.EndTime)
-	// 原始事件边界要同时覆盖完整小时边界和 health bucket 边界，查询结果再按使用场景过滤，避免重复查 usage_events。
-	rawCoveredStart, rawCoveredEnd := usageOverviewRawEventStatsWindow(filter, overview.Health, fullStart, fullEnd)
+	// 原始事件只补主统计和 health grid 各自的窄边界，避免长窗口被 health 7d 展示窗口扩大成大范围事件扫描。
+	rawEventWindows := usageOverviewRawEventWindows(filter, overview.Health, fullStart, fullEnd)
 
 	// 非整点窗口的头尾不能用小时 stats，否则会把窗口外事件算进去。
-	boundaryEvents, err := loadUsageOverviewBoundaryEventsWithFilter(db, filter, rawCoveredStart, rawCoveredEnd)
+	boundaryEvents, err := loadUsageOverviewRawEventWindowsWithFilter(db, filter, rawEventWindows)
 	if err != nil {
 		return nil, err
 	}
@@ -560,32 +560,81 @@ func usageOverviewFullDayWindow(start, end time.Time) (time.Time, time.Time) {
 	return fullStart, fullEnd
 }
 
-// usageOverviewRawEventStatsWindow 返回所有消费者都可安全依赖 stats 的交集窗口，交集外统一用一次 raw event 边界查询补偿。
-func usageOverviewRawEventStatsWindow(filter dto.UsageQueryFilter, health dto.UsageOverviewHealthRecord, fullHourStart, fullHourEnd time.Time) (time.Time, time.Time) {
+type usageOverviewRawEventWindow struct {
+	start      time.Time
+	end        time.Time
+	includeEnd bool
+}
+
+// usageOverviewRawEventWindows 返回 Overview 需要读取 usage_events 的小窗口并集，完整小时和完整 health bucket 都交给 stats 表。
+func usageOverviewRawEventWindows(filter dto.UsageQueryFilter, health dto.UsageOverviewHealthRecord, fullHourStart, fullHourEnd time.Time) []usageOverviewRawEventWindow {
 	if filter.StartTime == nil || filter.EndTime == nil {
-		return fullHourStart, fullHourEnd
+		return nil
 	}
+	windowStart := timeutil.NormalizeStorageTime(*filter.StartTime)
+	windowEnd := timeutil.NormalizeStorageTime(*filter.EndTime)
+	windows := make([]usageOverviewRawEventWindow, 0, 4)
+	windows = appendUsageOverviewRawEventBoundaryWindows(windows, windowStart, windowEnd, fullHourStart, fullHourEnd, true)
+
 	exactStart, exactEnd := usageOverviewHealthExactWindow(health, filter)
-	if !exactStart.Before(exactEnd) {
-		return fullHourStart, fullHourEnd
+	if exactStart.Before(exactEnd) {
+		span := time.Duration(health.BucketSeconds) * time.Second
+		healthFullStart, healthFullEnd := usageOverviewFullHealthWindow(exactStart, exactEnd, span)
+		windows = appendUsageOverviewRawEventBoundaryWindows(windows, exactStart, exactEnd, healthFullStart, healthFullEnd, false)
 	}
-	healthFullStart, healthFullEnd := usageOverviewFullHealthWindow(exactStart, exactEnd, time.Duration(health.BucketSeconds)*time.Second)
-	if !healthFullEnd.After(healthFullStart) {
-		windowStart := timeutil.NormalizeStorageTime(*filter.StartTime)
-		return windowStart, windowStart
+	return mergeUsageOverviewRawEventWindows(windows)
+}
+
+func appendUsageOverviewRawEventBoundaryWindows(windows []usageOverviewRawEventWindow, windowStart, windowEnd, coveredStart, coveredEnd time.Time, includeRightEnd bool) []usageOverviewRawEventWindow {
+	if !windowStart.Before(windowEnd) {
+		return windows
 	}
-	coveredStart := fullHourStart
-	if healthFullStart.After(coveredStart) {
-		coveredStart = healthFullStart
+	if windowStart.Before(coveredStart) {
+		leftEnd := coveredStart
+		if windowEnd.Before(leftEnd) {
+			leftEnd = windowEnd
+		}
+		if windowStart.Before(leftEnd) {
+			windows = append(windows, usageOverviewRawEventWindow{start: windowStart, end: leftEnd})
+		}
 	}
-	coveredEnd := fullHourEnd
-	if healthFullEnd.Before(coveredEnd) {
-		coveredEnd = healthFullEnd
+	if !windowEnd.Before(coveredEnd) {
+		rightStart := coveredEnd
+		if rightStart.Before(windowStart) {
+			rightStart = windowStart
+		}
+		if rightStart.Before(windowEnd) || (includeRightEnd && rightStart.Equal(windowEnd)) {
+			windows = append(windows, usageOverviewRawEventWindow{start: rightStart, end: windowEnd, includeEnd: includeRightEnd})
+		}
 	}
-	if coveredEnd.Before(coveredStart) {
-		coveredEnd = coveredStart
+	return windows
+}
+
+func mergeUsageOverviewRawEventWindows(windows []usageOverviewRawEventWindow) []usageOverviewRawEventWindow {
+	if len(windows) < 2 {
+		return windows
 	}
-	return coveredStart, coveredEnd
+	sort.Slice(windows, func(i, j int) bool {
+		if windows[i].start.Equal(windows[j].start) {
+			return windows[i].end.Before(windows[j].end)
+		}
+		return windows[i].start.Before(windows[j].start)
+	})
+	merged := windows[:1]
+	for _, window := range windows[1:] {
+		last := &merged[len(merged)-1]
+		if window.start.After(last.end) {
+			merged = append(merged, window)
+			continue
+		}
+		if window.end.After(last.end) {
+			last.end = window.end
+			last.includeEnd = window.includeEnd
+		} else if window.end.Equal(last.end) && window.includeEnd {
+			last.includeEnd = true
+		}
+	}
+	return merged
 }
 
 // usageOverviewEventInsideWindow 判断事件是否已由某个 stats 窗口覆盖。
@@ -622,6 +671,18 @@ func loadUsageOverviewDailyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFil
 		return nil, fmt.Errorf("load usage overview daily stats: %w", err)
 	}
 	return rows, nil
+}
+
+func loadUsageOverviewRawEventWindowsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, windows []usageOverviewRawEventWindow) ([]entities.UsageEvent, error) {
+	events := make([]entities.UsageEvent, 0)
+	for _, window := range windows {
+		windowEvents, err := loadUsageOverviewEventRangeWithFilter(db, filter, window.start, window.end, window.includeEnd)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, windowEvents...)
+	}
+	return events, nil
 }
 
 // loadUsageOverviewBoundaryEventsWithFilter 只读取不能被完整小时 stats 覆盖的边界事件。
