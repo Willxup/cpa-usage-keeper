@@ -196,6 +196,48 @@ sudo journalctl -u cpa-usage-keeper -f # Follow service logs.
 sudo systemctl restart cpa-usage-keeper # Restart the service.
 ```
 
+## Arch Linux (AUR)
+
+Arch Linux users can install the prebuilt package from the AUR ([cpa-usage-keeper-bin](https://aur.archlinux.org/packages/cpa-usage-keeper-bin)):
+
+```bash
+yay -S cpa-usage-keeper-bin
+```
+
+The AUR package uses a user-level systemd service and stores its configuration under the current user account:
+
+```bash
+install -Dm600 \
+  /usr/share/doc/cpa-usage-keeper-bin/cpa-usage-keeper.env.example \
+  ~/.config/cpa-usage-keeper/cpa-usage-keeper.env
+
+vim ~/.config/cpa-usage-keeper/cpa-usage-keeper.env
+systemctl --user daemon-reload
+systemctl --user enable --now cpa-usage-keeper.service
+```
+
+At minimum, set `CPA_BASE_URL` and `CPA_MANAGEMENT_KEY`. CPA must publish usage events, so enable `usage-statistics-enabled: true` in the CLIProxyAPI config. If `APP_PORT` conflicts with another local service, change it in the config file.
+
+The SQLite database, logs, and backups are stored by default in:
+
+```text
+~/.local/state/cpa-usage-keeper/
+```
+
+Useful commands:
+
+```bash
+systemctl --user status cpa-usage-keeper.service
+journalctl --user -u cpa-usage-keeper.service -f
+systemctl --user restart cpa-usage-keeper.service
+```
+
+To keep the user service running without an active login session, enable linger:
+
+```bash
+loginctl enable-linger "$USER"
+```
+
 ## Docker
 
 If CPA is already running on the host:
