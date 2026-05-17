@@ -1,9 +1,6 @@
 package authfiles
 
-import (
-	"encoding/json"
-	"time"
-)
+import "time"
 
 // AuthFilesResponse 是 CPA /management/auth-files 响应 DTO。
 type AuthFilesResponse struct {
@@ -29,20 +26,6 @@ type AuthFile struct {
 	Account     string           `json:"account,omitempty"`
 	ProjectID   string           `json:"project_id,omitempty"`
 	IDToken     *AuthFileIDToken `json:"id_token"`
-}
-
-func (f *AuthFile) UnmarshalJSON(data []byte) error {
-	type alias AuthFile
-	var raw struct {
-		*alias
-		Disabled *bool `json:"disabled"`
-	}
-	raw.alias = (*alias)(f)
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	f.Disabled = raw.Disabled
-	return nil
 }
 
 // AuthFileIDToken 是 Codex auth file 的 id_token 订阅元数据 DTO。
