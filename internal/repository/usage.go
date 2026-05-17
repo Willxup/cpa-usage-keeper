@@ -322,6 +322,8 @@ type analysisHeatmapKey struct {
 	model  string
 }
 
+const analysisIdentityLookupBatchSize = 900
+
 type analysisIdentityInfo struct {
 	identity string
 	label    string
@@ -331,27 +333,22 @@ type analysisIdentityInfo struct {
 type analysisIdentityLookup map[entities.UsageIdentityAuthType]map[string]analysisIdentityInfo
 
 func loadAnalysisHourlyIdentityLookup(db *gorm.DB, rows []entities.UsageOverviewHourlyStat) (analysisIdentityLookup, error) {
-	authIndexes := make([]string, 0, len(rows))
-	seen := map[string]struct{}{}
-	for _, row := range rows {
-		authIndex := strings.TrimSpace(row.AuthIndex)
-		if authIndex == "" {
-			continue
-		}
-		if _, ok := seen[authIndex]; ok {
-			continue
-		}
-		seen[authIndex] = struct{}{}
-		authIndexes = append(authIndexes, authIndex)
-	}
-	return loadAnalysisIdentityLookup(db, authIndexes)
+	return loadAnalysisIdentityLookup(db, collectAnalysisAuthIndexes(len(rows), func(i int) string {
+		return rows[i].AuthIndex
+	}))
 }
 
 func loadAnalysisDailyIdentityLookup(db *gorm.DB, rows []entities.UsageOverviewDailyStat) (analysisIdentityLookup, error) {
-	authIndexes := make([]string, 0, len(rows))
+	return loadAnalysisIdentityLookup(db, collectAnalysisAuthIndexes(len(rows), func(i int) string {
+		return rows[i].AuthIndex
+	}))
+}
+
+func collectAnalysisAuthIndexes(count int, authIndexAt func(int) string) []string {
+	authIndexes := make([]string, 0, count)
 	seen := map[string]struct{}{}
-	for _, row := range rows {
-		authIndex := strings.TrimSpace(row.AuthIndex)
+	for i := range count {
+		authIndex := strings.TrimSpace(authIndexAt(i))
 		if authIndex == "" {
 			continue
 		}
@@ -361,7 +358,7 @@ func loadAnalysisDailyIdentityLookup(db *gorm.DB, rows []entities.UsageOverviewD
 		seen[authIndex] = struct{}{}
 		authIndexes = append(authIndexes, authIndex)
 	}
-	return loadAnalysisIdentityLookup(db, authIndexes)
+	return authIndexes
 }
 
 func loadAnalysisIdentityLookup(db *gorm.DB, authIndexes []string) (analysisIdentityLookup, error) {
@@ -372,9 +369,8 @@ func loadAnalysisIdentityLookup(db *gorm.DB, authIndexes []string) (analysisIden
 	if len(authIndexes) == 0 {
 		return lookup, nil
 	}
-	batchSize := insertBatchSize(entities.UsageIdentity{})
-	for start := 0; start < len(authIndexes); start += batchSize {
-		end := min(start+batchSize, len(authIndexes))
+	for start := 0; start < len(authIndexes); start += analysisIdentityLookupBatchSize {
+		end := min(start+analysisIdentityLookupBatchSize, len(authIndexes))
 		var identities []entities.UsageIdentity
 		if err := db.Where("identity IN ? AND auth_type IN ? AND is_deleted = ?", authIndexes[start:end], []entities.UsageIdentityAuthType{entities.UsageIdentityAuthTypeAuthFile, entities.UsageIdentityAuthTypeAIProvider}, false).Find(&identities).Error; err != nil {
 			return nil, fmt.Errorf("load analysis usage identities: %w", err)
