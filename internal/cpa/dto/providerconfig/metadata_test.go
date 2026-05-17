@@ -21,6 +21,30 @@ func TestProviderKeyConfigUnmarshalsBaseURLVariants(t *testing.T) {
 	}
 }
 
+func TestProviderKeyConfigUnmarshalsSyncMetadataFields(t *testing.T) {
+	data := []byte(`{"apiKey":"provider-key","auth-index":"provider-auth","prefix":"team","priority":8,"disabled":false,"note":"primary provider"}`)
+
+	var cfg ProviderKeyConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("unmarshal provider key config: %v", err)
+	}
+	if cfg.Prefix != "team" || cfg.Priority == nil || *cfg.Priority != 8 || cfg.Disabled == nil || *cfg.Disabled || cfg.Note == nil || *cfg.Note != "primary provider" {
+		t.Fatalf("expected sync metadata fields to decode, got %+v", cfg)
+	}
+}
+
+func TestOpenAICompatibilityConfigUnmarshalsProviderLevelSyncMetadataFields(t *testing.T) {
+	data := []byte(`{"name":"OpenRouter","prefix":"openrouter","base-url":"https://openrouter.ai/api/v1","priority":4,"disabled":true,"note":"shared provider","api-key-entries":[{"apiKey":"provider-key","auth-index":"openrouter-auth"}]}`)
+
+	var cfg OpenAICompatibilityConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("unmarshal openai compatibility config: %v", err)
+	}
+	if cfg.Priority == nil || *cfg.Priority != 4 || cfg.Disabled == nil || !*cfg.Disabled || cfg.Note == nil || *cfg.Note != "shared provider" {
+		t.Fatalf("expected provider-level sync metadata fields to decode, got %+v", cfg)
+	}
+}
+
 func TestOpenAICompatibilityConfigUnmarshalsBaseURLVariants(t *testing.T) {
 	for _, field := range []string{"base-url", "base_url", "baseURL"} {
 		t.Run(field, func(t *testing.T) {

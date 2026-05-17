@@ -9,9 +9,11 @@ import (
 )
 
 type ListUsageIdentitiesRequest struct {
-	AuthType *entities.UsageIdentityAuthType
-	Page     int
-	PageSize int
+	AuthType   *entities.UsageIdentityAuthType
+	ActiveOnly *bool
+	Sort       string
+	Page       int
+	PageSize   int
 }
 
 type ListUsageIdentitiesResponse struct {
@@ -45,9 +47,11 @@ func (s *usageIdentityService) ListActiveUsageIdentities(ctx context.Context) ([
 
 func (s *usageIdentityService) ListActiveUsageIdentitiesPage(ctx context.Context, request ListUsageIdentitiesRequest) (ListUsageIdentitiesResponse, error) {
 	items, total, err := repository.ListActiveUsageIdentitiesPage(ctx, s.db, repository.ListUsageIdentitiesPageRequest{
-		AuthType: request.AuthType,
-		Page:     request.Page,
-		PageSize: request.PageSize,
+		AuthType:   request.AuthType,
+		ActiveOnly: request.ActiveOnly,
+		Sort:       request.Sort,
+		Page:       request.Page,
+		PageSize:   request.PageSize,
 	})
 	if err != nil {
 		return ListUsageIdentitiesResponse{}, err

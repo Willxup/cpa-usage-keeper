@@ -799,6 +799,10 @@ func TestSyncMetadataWritesAuthFilesToUsageIdentities(t *testing.T) {
 			Type:      "claude",
 			Provider:  "Claude",
 			Label:     "Label Name",
+			Prefix:    "auth-prefix",
+			Priority:  intPtr(6),
+			Disabled:  boolPtr(false),
+			Note:      strPtr("auth note"),
 		}, {
 			AuthIndex: "auth-2",
 			Name:      "Name Fallback",
@@ -828,6 +832,9 @@ func TestSyncMetadataWritesAuthFilesToUsageIdentities(t *testing.T) {
 	first := byIdentity["auth-1"]
 	if first.Name != "user@example.com" || first.AuthType != entities.UsageIdentityAuthTypeAuthFile || first.AuthTypeName != "oauth" || first.Identity != "auth-1" || first.Type != "claude" || first.Provider != "Claude" || first.IsDeleted {
 		t.Fatalf("unexpected auth usage identity for auth-1: %+v", first)
+	}
+	if first.Prefix != "auth-prefix" || first.Priority == nil || *first.Priority != 6 || first.Disabled == nil || *first.Disabled || first.Note == nil || *first.Note != "auth note" {
+		t.Fatalf("expected auth sync metadata to persist, got %+v", first)
 	}
 	second := byIdentity["auth-2"]
 	if second.Name != "Label Fallback" || second.AuthTypeName != "oauth" || second.Identity != "auth-2" || second.Type != "gemini" || second.Provider != "Gemini" || second.IsDeleted {
@@ -951,7 +958,7 @@ func TestSyncMetadataWritesProviderMetadataToUsageIdentities(t *testing.T) {
 	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
 		BaseURL: "https://cpa.example.com",
 		MetadataFetcher: stubMetadataFetcher{providerConfig: providerconfig.ProviderMetadataConfig{
-			ClaudeAPIKeys: []providerconfig.ProviderKeyConfig{{APIKey: "claude-key", Prefix: "claude-prefix", Name: "Claude Team", AuthIndex: "claude-auth-index"}},
+			ClaudeAPIKeys: []providerconfig.ProviderKeyConfig{{APIKey: "claude-key", Prefix: "claude-prefix", Name: "Claude Team", AuthIndex: "claude-auth-index", Priority: intPtr(2), Disabled: boolPtr(false), Note: strPtr("provider note")}},
 		}},
 	})
 
@@ -966,6 +973,9 @@ func TestSyncMetadataWritesProviderMetadataToUsageIdentities(t *testing.T) {
 	apiKey := byIdentity["claude-auth-index"]
 	if apiKey.Name != "Claude Team" || apiKey.AuthType != entities.UsageIdentityAuthTypeAIProvider || apiKey.AuthTypeName != "apikey" || apiKey.Identity != "claude-auth-index" || apiKey.Type != "claude" || apiKey.LookupKey != "claude-key" || apiKey.Prefix != "claude-prefix" || apiKey.Provider != "Claude Team" || apiKey.IsDeleted {
 		t.Fatalf("unexpected provider usage identity for api key: %+v", apiKey)
+	}
+	if apiKey.Priority == nil || *apiKey.Priority != 2 || apiKey.Disabled == nil || *apiKey.Disabled || apiKey.Note == nil || *apiKey.Note != "provider note" {
+		t.Fatalf("expected provider sync metadata to persist, got %+v", apiKey)
 	}
 	if _, ok := byIdentity["claude-prefix"]; ok {
 		t.Fatalf("expected provider prefix not to be stored as usage identity, got %+v", byIdentity["claude-prefix"])
@@ -1010,11 +1020,15 @@ func TestSyncMetadataStoresOpenAICompatibilityBaseURL(t *testing.T) {
 		MetadataFetcher: stubMetadataFetcher{providerConfig: providerconfig.ProviderMetadataConfig{
 			OpenAICompatibility: []providerconfig.OpenAICompatibilityConfig{
 				{
-					Name:    "OpenRouter",
-					Prefix:  "openrouter",
-					BaseURL: "https://openrouter.ai/api/v1",
+					Name:     "OpenRouter",
+					Prefix:   "openrouter",
+					BaseURL:  "https://openrouter.ai/api/v1",
+					Priority: intPtr(9),
+					Disabled: boolPtr(true),
+					Note:     strPtr("shared openai provider"),
 					APIKeyEntries: []providerconfig.OpenAIApiKeyEntry{
 						{APIKey: "openrouter-key", AuthIndex: "openrouter-auth"},
+						{APIKey: "openrouter-key-2", AuthIndex: "openrouter-auth-2"},
 					},
 				},
 			},
@@ -1032,6 +1046,13 @@ func TestSyncMetadataStoresOpenAICompatibilityBaseURL(t *testing.T) {
 	identity := byIdentity["openrouter-auth"]
 	if identity.Name != "OpenRouter" || identity.Provider != "OpenRouter" || identity.Type != "openai" || identity.BaseURL != "https://openrouter.ai/api/v1" {
 		t.Fatalf("expected openai compatibility identity to keep name/provider/type and store base URL, got %+v", identity)
+	}
+	if identity.Priority == nil || *identity.Priority != 9 || identity.Disabled == nil || !*identity.Disabled || identity.Note == nil || *identity.Note != "shared openai provider" {
+		t.Fatalf("expected openai compatibility provider-level sync metadata to persist, got %+v", identity)
+	}
+	second := byIdentity["openrouter-auth-2"]
+	if second.Priority == nil || *second.Priority != 9 || second.Disabled == nil || !*second.Disabled || second.Note == nil || *second.Note != "shared openai provider" {
+		t.Fatalf("expected openai compatibility metadata to apply to every entry, got %+v", second)
 	}
 }
 
@@ -1383,6 +1404,14 @@ func int64String(value int64) string {
 }
 
 func strPtr(value string) *string {
+	return &value
+}
+
+func intPtr(value int) *int {
+	return &value
+}
+
+func boolPtr(value bool) *bool {
 	return &value
 }
 

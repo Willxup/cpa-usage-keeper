@@ -87,6 +87,34 @@ func TestFetchManagementAPIKeysRejectsInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestFetchAuthFilesParsesSyncMetadataFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != cpaManagementAuthFilesEndpoint {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"files":[{"auth_index":"codex-auth","type":"codex","prefix":"team","priority":7,"disabled":false,"note":"primary auth"},{"auth_index":"gemini-auth","type":"gemini"}]}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
+	result, err := client.FetchAuthFiles(context.Background())
+	if err != nil {
+		t.Fatalf("FetchAuthFiles returned error: %v", err)
+	}
+	if len(result.Payload.Files) != 2 {
+		t.Fatalf("expected two auth files, got %#v", result.Payload.Files)
+	}
+	file := result.Payload.Files[0]
+	if file.Prefix != "team" || file.Priority == nil || *file.Priority != 7 || file.Disabled == nil || *file.Disabled || file.Note == nil || *file.Note != "primary auth" {
+		t.Fatalf("expected sync metadata fields to decode, got %+v", file)
+	}
+	missing := result.Payload.Files[1]
+	if missing.Priority != nil || missing.Disabled != nil || missing.Note != nil || missing.Prefix != "" {
+		t.Fatalf("expected missing sync metadata fields to stay empty, got %+v", missing)
+	}
+}
+
 func TestFetchAuthFilesParsesCodexIDTokenFields(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != cpaManagementAuthFilesEndpoint {

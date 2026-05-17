@@ -22,6 +22,9 @@ type UsageIdentity struct {
 	LookupKey    string
 	Prefix       string
 	BaseURL      string
+	Priority     *int
+	Disabled     *bool
+	Note         *string
 	AccountID    *string
 	ProjectID    *string
 

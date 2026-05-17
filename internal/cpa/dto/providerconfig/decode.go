@@ -49,3 +49,46 @@ func firstString(raw map[string]any, keys ...string) string {
 	}
 	return ""
 }
+
+func firstStringPtr(raw map[string]any, keys ...string) *string {
+	for _, key := range keys {
+		value, ok := raw[key]
+		if !ok {
+			continue
+		}
+		if text, ok := value.(string); ok {
+			return &text
+		}
+	}
+	return nil
+}
+
+func firstInt(raw map[string]any, keys ...string) *int {
+	for _, key := range keys {
+		value, ok := raw[key]
+		if !ok {
+			continue
+		}
+		switch typed := value.(type) {
+		case float64:
+			converted := int(typed)
+			return &converted
+		case int:
+			return &typed
+		}
+	}
+	return nil
+}
+
+func firstBool(raw map[string]any, keys ...string) *bool {
+	for _, key := range keys {
+		value, ok := raw[key]
+		if !ok {
+			continue
+		}
+		if typed, ok := value.(bool); ok {
+			return &typed
+		}
+	}
+	return nil
+}

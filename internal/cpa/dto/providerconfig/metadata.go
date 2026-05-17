@@ -21,6 +21,9 @@ type ProviderKeyConfig struct {
 	Name      string
 	BaseURL   string
 	AuthIndex string
+	Priority  *int
+	Disabled  *bool
+	Note      *string
 }
 
 func (p *ProviderKeyConfig) UnmarshalJSON(data []byte) error {
@@ -33,6 +36,9 @@ func (p *ProviderKeyConfig) UnmarshalJSON(data []byte) error {
 	p.Name = firstString(raw, "name")
 	p.BaseURL = firstString(raw, "base-url", "base_url", "baseURL")
 	p.AuthIndex = firstString(raw, "auth-index", "auth_index", "authIndex")
+	p.Priority = firstInt(raw, "priority")
+	p.Disabled = firstBool(raw, "disabled")
+	p.Note = firstStringPtr(raw, "note")
 	return nil
 }
 
@@ -41,6 +47,9 @@ type OpenAICompatibilityConfig struct {
 	Name          string
 	Prefix        string
 	BaseURL       string
+	Priority      *int
+	Disabled      *bool
+	Note          *string
 	APIKeyEntries []OpenAIApiKeyEntry
 }
 
@@ -52,6 +61,9 @@ func (c *OpenAICompatibilityConfig) UnmarshalJSON(data []byte) error {
 	c.Name = firstString(raw, "name", "id")
 	c.Prefix = firstString(raw, "prefix")
 	c.BaseURL = firstString(raw, "base-url", "base_url", "baseURL")
+	c.Priority = firstInt(raw, "priority")
+	c.Disabled = firstBool(raw, "disabled")
+	c.Note = firstStringPtr(raw, "note")
 	c.APIKeyEntries = nil
 	for _, key := range []string{"apiKeyEntries", "api-key-entries", "api-keys"} {
 		value, ok := raw[key]

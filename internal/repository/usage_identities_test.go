@@ -402,6 +402,9 @@ func TestUsageIdentityReplaceForProviderTypesRefreshesSourceMetadataAndPreserves
 			Provider:     "New Provider",
 			LookupKey:    "new-key",
 			Prefix:       "new-prefix",
+			Priority:     intPtr(5),
+			Disabled:     boolPtr(false),
+			Note:         strPtr("team provider"),
 		},
 	}, []string{"claude"}, now)
 	if err != nil {
@@ -415,6 +418,9 @@ func TestUsageIdentityReplaceForProviderTypesRefreshesSourceMetadataAndPreserves
 	updated := usageIdentitiesByIdentity(rows)["provider-auth-index"]
 	if updated.Prefix != "new-prefix" || updated.LookupKey != "new-key" || updated.Provider != "New Provider" {
 		t.Fatalf("expected source metadata refreshed, got %+v", updated)
+	}
+	if updated.Priority == nil || *updated.Priority != 5 || updated.Disabled == nil || *updated.Disabled || updated.Note == nil || *updated.Note != "team provider" {
+		t.Fatalf("expected sync metadata refreshed, got %+v", updated)
 	}
 	if updated.TotalRequests != 12 || updated.SuccessCount != 10 || updated.FailureCount != 2 {
 		t.Fatalf("expected stats preserved, got %+v", updated)
@@ -437,6 +443,10 @@ func TestUsageIdentityReplaceForAuthTypePersistsSourceMetadataFields(t *testing.
 			Identity:     "codex-auth",
 			Type:         "codex",
 			Provider:     "codex",
+			Prefix:       " codex-team ",
+			Priority:     intPtr(3),
+			Disabled:     boolPtr(true),
+			Note:         strPtr(" primary auth file "),
 			AccountID:    &accountID,
 			ActiveStart:  &activeStart,
 			ActiveUntil:  &activeUntil,
@@ -454,6 +464,9 @@ func TestUsageIdentityReplaceForAuthTypePersistsSourceMetadataFields(t *testing.
 	updated := usageIdentitiesByIdentity(rows)["codex-auth"]
 	if updated.AccountID == nil || *updated.AccountID != "acct_123" || updated.PlanType == nil || *updated.PlanType != "team" || updated.ActiveStart == nil || !updated.ActiveStart.Equal(activeStart) || updated.ActiveUntil == nil || !updated.ActiveUntil.Equal(activeUntil) {
 		t.Fatalf("expected auth file source metadata persisted, got %+v", updated)
+	}
+	if updated.Prefix != "codex-team" || updated.Priority == nil || *updated.Priority != 3 || updated.Disabled == nil || !*updated.Disabled || updated.Note == nil || *updated.Note != "primary auth file" {
+		t.Fatalf("expected auth file sync metadata persisted, got %+v", updated)
 	}
 }
 
@@ -758,6 +771,60 @@ func TestUsageIdentityListActivePageOrdersByTotalRequestsDesc(t *testing.T) {
 	}
 }
 
+func TestUsageIdentityListActivePageFiltersEnabledAuthFilesAndOrdersByPriority(t *testing.T) {
+	db := openTestDatabase(t)
+	now := time.Date(2026, 5, 11, 11, 0, 0, 0, time.UTC)
+	disabled := true
+	enabled := false
+	rows := []entities.UsageIdentity{
+		{Identity: "default", Name: "Default", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: nil, Disabled: nil, TotalRequests: 40, TotalTokens: 400, CreatedAt: now, UpdatedAt: now},
+		{Identity: "priority-1", Name: "Priority 1", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(1), Disabled: &enabled, TotalRequests: 10, TotalTokens: 100, CreatedAt: now, UpdatedAt: now},
+		{Identity: "priority-5", Name: "Priority 5", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(5), Disabled: &enabled, TotalRequests: 20, TotalTokens: 200, CreatedAt: now, UpdatedAt: now},
+		{Identity: "disabled", Name: "Disabled", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(0), Disabled: &disabled, TotalRequests: 99, TotalTokens: 999, CreatedAt: now, UpdatedAt: now},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatalf("seed usage identities: %v", err)
+	}
+	authType := entities.UsageIdentityAuthTypeAuthFile
+	activeOnly := true
+
+	items, total, err := ListActiveUsageIdentitiesPage(context.Background(), db, ListUsageIdentitiesPageRequest{AuthType: &authType, ActiveOnly: &activeOnly, Sort: UsageIdentityPageSortPriority, Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatalf("list page: %v", err)
+	}
+	if total != 3 {
+		t.Fatalf("expected total 3, got %d", total)
+	}
+	if got := []string{items[0].Identity, items[1].Identity, items[2].Identity}; !reflect.DeepEqual(got, []string{"priority-1", "priority-5", "default"}) {
+		t.Fatalf("expected enabled auth files sorted by priority asc with missing priority last, got %v", got)
+	}
+}
+
+func TestUsageIdentityListActivePageOrdersByTotalTokensDesc(t *testing.T) {
+	db := openTestDatabase(t)
+	now := time.Date(2026, 5, 11, 12, 0, 0, 0, time.UTC)
+	rows := []entities.UsageIdentity{
+		{Identity: "low", Name: "Low", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Type: "openai", Provider: "OpenAI", TotalRequests: 90, TotalTokens: 100, CreatedAt: now, UpdatedAt: now},
+		{Identity: "high", Name: "High", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Type: "openai", Provider: "OpenAI", TotalRequests: 10, TotalTokens: 900, CreatedAt: now, UpdatedAt: now},
+		{Identity: "middle", Name: "Middle", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Type: "openai", Provider: "OpenAI", TotalRequests: 50, TotalTokens: 500, CreatedAt: now, UpdatedAt: now},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatalf("seed usage identities: %v", err)
+	}
+	authType := entities.UsageIdentityAuthTypeAIProvider
+
+	items, total, err := ListActiveUsageIdentitiesPage(context.Background(), db, ListUsageIdentitiesPageRequest{AuthType: &authType, Sort: UsageIdentityPageSortTotalTokens, Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatalf("list page: %v", err)
+	}
+	if total != 3 {
+		t.Fatalf("expected total 3, got %d", total)
+	}
+	if got := []string{items[0].Identity, items[1].Identity, items[2].Identity}; !reflect.DeepEqual(got, []string{"high", "middle", "low"}) {
+		t.Fatalf("expected page sorted by total tokens desc, got %v", got)
+	}
+}
+
 func TestUsageIdentityListOrdersByAuthTypeNameIDAndIncludesDeletedRows(t *testing.T) {
 	db := openTestDatabase(t)
 	ctx := context.Background()
@@ -1037,4 +1104,16 @@ func usageIdentitiesByIdentity(rows []entities.UsageIdentity) map[string]entitie
 		result[row.Identity] = row
 	}
 	return result
+}
+
+func intPtr(value int) *int {
+	return &value
+}
+
+func boolPtr(value bool) *bool {
+	return &value
+}
+
+func strPtr(value string) *string {
+	return &value
 }

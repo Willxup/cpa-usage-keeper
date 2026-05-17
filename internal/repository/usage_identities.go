@@ -78,12 +78,20 @@ func ReplaceUsageIdentitiesForProviderTypes(ctx context.Context, db *gorm.DB, id
 }
 
 type ListUsageIdentitiesPageRequest struct {
-	AuthType *entities.UsageIdentityAuthType
-	Page     int
-	PageSize int
+	AuthType   *entities.UsageIdentityAuthType
+	ActiveOnly *bool
+	Sort       string
+	Page       int
+	PageSize   int
 }
 
-const usageIdentityReadColumns = "id, name, auth_type, auth_type_name, identity, type, provider, lookup_key, prefix, base_url, account_id, project_id, active_start, active_until, plan_type, total_requests, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, total_tokens, last_aggregated_usage_event_id, first_used_at, last_used_at, stats_updated_at, is_deleted, created_at, updated_at, deleted_at"
+const (
+	UsageIdentityPageSortPriority      = "priority"
+	UsageIdentityPageSortTotalRequests = "total_requests"
+	UsageIdentityPageSortTotalTokens   = "total_tokens"
+)
+
+const usageIdentityReadColumns = "id, name, auth_type, auth_type_name, identity, type, provider, lookup_key, prefix, base_url, priority, disabled, note, account_id, project_id, active_start, active_until, plan_type, total_requests, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, total_tokens, last_aggregated_usage_event_id, first_used_at, last_used_at, stats_updated_at, is_deleted, created_at, updated_at, deleted_at"
 
 const usageIdentityAggregationColumns = "id, auth_type, identity, total_requests, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, total_tokens, last_aggregated_usage_event_id, first_used_at, last_used_at"
 
@@ -128,12 +136,15 @@ func ListActiveUsageIdentitiesPage(ctx context.Context, db *gorm.DB, request Lis
 
 	// 先在同一过滤条件下统计总数，再追加 offset/limit 取当前页数据。
 	query := activeUsageIdentitiesQuery(db.WithContext(ctx), request.AuthType)
+	if request.ActiveOnly != nil && *request.ActiveOnly {
+		query = query.Where("disabled IS NULL OR disabled = ?", false)
+	}
 	var total int64
 	if err := query.Model(&entities.UsageIdentity{}).Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("count active usage identities page: %w", err)
 	}
 	var identities []entities.UsageIdentity
-	if err := query.Select(usageIdentityReadColumns).Order("total_requests DESC").Order("id ASC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&identities).Error; err != nil {
+	if err := applyUsageIdentityPageSort(query.Select(usageIdentityReadColumns), request.Sort).Offset((page - 1) * pageSize).Limit(pageSize).Find(&identities).Error; err != nil {
 		return nil, 0, fmt.Errorf("list active usage identities page: %w", err)
 	}
 	return identities, total, nil
@@ -146,6 +157,17 @@ func activeUsageIdentitiesQuery(db *gorm.DB, authType *entities.UsageIdentityAut
 		query = query.Where("auth_type = ?", *authType)
 	}
 	return query
+}
+
+func applyUsageIdentityPageSort(query *gorm.DB, sort string) *gorm.DB {
+	switch sort {
+	case UsageIdentityPageSortPriority:
+		return query.Order("priority IS NULL ASC").Order("priority ASC").Order("id ASC")
+	case UsageIdentityPageSortTotalTokens:
+		return query.Order("total_tokens DESC").Order("id ASC")
+	default:
+		return query.Order("total_requests DESC").Order("id ASC")
+	}
 }
 
 func GetActiveAuthFileUsageIdentityByAuthIndex(ctx context.Context, db *gorm.DB, authIndex string) (entities.UsageIdentity, error) {
@@ -310,6 +332,7 @@ func normalizeUsageIdentities(identities []entities.UsageIdentity, authType enti
 		identity.LookupKey = strings.TrimSpace(identity.LookupKey)
 		identity.Prefix = strings.TrimSpace(identity.Prefix)
 		identity.BaseURL = strings.TrimSpace(identity.BaseURL)
+		identity.Note = trimOptionalString(identity.Note)
 		identity.AccountID = trimOptionalString(identity.AccountID)
 		identity.ProjectID = trimOptionalString(identity.ProjectID)
 		identity.PlanType = trimOptionalString(identity.PlanType)
@@ -454,6 +477,9 @@ func usageIdentityMetadataUpdates(identity entities.UsageIdentity) map[string]an
 		"lookup_key":     identity.LookupKey,
 		"prefix":         identity.Prefix,
 		"base_url":       identity.BaseURL,
+		"priority":       identity.Priority,
+		"disabled":       identity.Disabled,
+		"note":           identity.Note,
 		"account_id":     identity.AccountID,
 		"project_id":     identity.ProjectID,
 		"active_start":   identity.ActiveStart,
