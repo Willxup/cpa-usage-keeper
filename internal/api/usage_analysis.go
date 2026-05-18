@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -190,25 +191,19 @@ func analysisAPIKeyLabel(apiKey string, apiKeyInfos map[string]analysisAPIKeyInf
 }
 
 func buildAnalysisHeatmapPayload(cells []servicedto.AnalysisHeatmapCell, apiKeyInfos map[string]analysisAPIKeyInfo) analysisHeatmap {
-	apiSeen := map[string]struct{}{}
-	modelSeen := map[string]struct{}{}
-	apiKeys := make([]string, 0)
-	models := make([]string, 0)
+	apiRequests := map[string]int64{}
+	modelRequests := map[string]int64{}
 	maxTokens := int64(0)
 	for _, cell := range cells {
 		apiKey := analysisAPIKeyLabel(cell.APIKey, apiKeyInfos)
-		if _, ok := apiSeen[apiKey]; !ok {
-			apiSeen[apiKey] = struct{}{}
-			apiKeys = append(apiKeys, apiKey)
-		}
-		if _, ok := modelSeen[cell.Model]; !ok {
-			modelSeen[cell.Model] = struct{}{}
-			models = append(models, cell.Model)
-		}
+		apiRequests[apiKey] += cell.Requests
+		modelRequests[cell.Model] += cell.Requests
 		if cell.TotalTokens > maxTokens {
 			maxTokens = cell.TotalTokens
 		}
 	}
+	apiKeys := sortedHeatmapKeysByRequests(apiRequests)
+	models := sortedHeatmapKeysByRequests(modelRequests)
 	payloadCells := make([]analysisHeatmapCell, 0, len(cells))
 	for _, cell := range cells {
 		intensity := 0.0
@@ -224,4 +219,18 @@ func buildAnalysisHeatmapPayload(cells []servicedto.AnalysisHeatmapCell, apiKeyI
 		})
 	}
 	return analysisHeatmap{APIKeys: apiKeys, Models: models, Cells: payloadCells}
+}
+
+func sortedHeatmapKeysByRequests(requestsByKey map[string]int64) []string {
+	keys := make([]string, 0, len(requestsByKey))
+	for key := range requestsByKey {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if requestsByKey[keys[i]] == requestsByKey[keys[j]] {
+			return keys[i] < keys[j]
+		}
+		return requestsByKey[keys[i]] > requestsByKey[keys[j]]
+	})
+	return keys
 }

@@ -183,6 +183,21 @@ func TestUsageAnalysisUsesCPAAPIKeyOptionLabels(t *testing.T) {
 	}
 }
 
+func TestBuildAnalysisHeatmapPayloadSortsKeysByRequests(t *testing.T) {
+	payload := buildAnalysisHeatmapPayload([]servicedto.AnalysisHeatmapCell{
+		{APIKey: "sk-low", Model: "model-low", Requests: 1, TotalTokens: 100},
+		{APIKey: "sk-high", Model: "model-high", Requests: 5, TotalTokens: 50},
+		{APIKey: "sk-high", Model: "model-low", Requests: 2, TotalTokens: 20},
+	}, nil)
+
+	if got := payload.APIKeys; len(got) != 2 || got[0] != redact.APIKeyDisplayName("sk-high") || got[1] != redact.APIKeyDisplayName("sk-low") {
+		t.Fatalf("expected api keys sorted by total requests desc, got %+v", got)
+	}
+	if got := payload.Models; len(got) != 2 || got[0] != "model-high" || got[1] != "model-low" {
+		t.Fatalf("expected models sorted by total requests desc, got %+v", got)
+	}
+}
+
 func TestUsageAnalysisRequiresAuthWhenEnabled(t *testing.T) {
 	router := NewRouter(nil, nil, &usageAnalysisStub{}, nil, AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/analysis", nil)
