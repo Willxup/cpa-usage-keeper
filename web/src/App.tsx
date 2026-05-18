@@ -6,6 +6,7 @@ import type { AuthRole, AuthSessionAPIKeySummary } from './lib/types';
 import { KeyOverviewPage } from './pages/KeyOverviewPage';
 import { LoginPage } from './pages/LoginPage';
 import { UsagePage } from './pages/UsagePage';
+import { useUsageStatsStore } from './stores/useUsageStatsStore';
 
 type AuthState = 'checking' | 'authenticated' | 'unauthenticated';
 
@@ -31,12 +32,14 @@ function App() {
   const [adminLoginError, setAdminLoginError] = useState('');
   const [apiKeyLoginError, setAPIKeyLoginError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const clearUsageStats = useUsageStatsStore((state) => state.clearUsageStats);
 
   const clearSession = useCallback(() => {
+    clearUsageStats();
     setAuthState('unauthenticated');
     setAuthRole(null);
     setSessionAPIKey(undefined);
-  }, []);
+  }, [clearUsageStats]);
 
   const applySession = useCallback((session: Awaited<ReturnType<typeof getSession>>) => {
     if (!session.authenticated) {
