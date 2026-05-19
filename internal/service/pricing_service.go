@@ -29,15 +29,15 @@ func NewPricingService(db *gorm.DB) PricingProvider {
 	return &pricingService{db: db}
 }
 
-func (s *pricingService) ListUsedModels(context.Context) ([]string, error) {
-	return repository.ListUsedModels(s.db)
+func (s *pricingService) ListUsedModels(ctx context.Context) ([]string, error) {
+	return repository.ListUsedModels(s.db.WithContext(ctx))
 }
 
-func (s *pricingService) ListPricing(context.Context) ([]entities.ModelPriceSetting, error) {
-	return repository.ListModelPriceSettings(s.db)
+func (s *pricingService) ListPricing(ctx context.Context) ([]entities.ModelPriceSetting, error) {
+	return repository.ListModelPriceSettings(s.db.WithContext(ctx))
 }
 
-func (s *pricingService) UpdatePricing(_ context.Context, input servicedto.UpdatePricingInput) (*entities.ModelPriceSetting, error) {
+func (s *pricingService) UpdatePricing(ctx context.Context, input servicedto.UpdatePricingInput) (*entities.ModelPriceSetting, error) {
 	modelName := strings.TrimSpace(input.Model)
 	if modelName == "" {
 		return nil, fmt.Errorf("model is required")
@@ -46,7 +46,8 @@ func (s *pricingService) UpdatePricing(_ context.Context, input servicedto.Updat
 		return nil, fmt.Errorf("prices must be non-negative")
 	}
 
-	usedModels, err := repository.ListUsedModels(s.db)
+	db := s.db.WithContext(ctx)
+	usedModels, err := repository.ListUsedModels(db)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +59,7 @@ func (s *pricingService) UpdatePricing(_ context.Context, input servicedto.Updat
 		return nil, fmt.Errorf("model %q has not been used", modelName)
 	}
 
-	return repository.UpsertModelPriceSetting(s.db, repodto.ModelPriceSettingInput{
+	return repository.UpsertModelPriceSetting(db, repodto.ModelPriceSettingInput{
 		Model:                modelName,
 		PromptPricePer1M:     input.PromptPricePer1M,
 		CompletionPricePer1M: input.CompletionPricePer1M,
@@ -66,6 +67,6 @@ func (s *pricingService) UpdatePricing(_ context.Context, input servicedto.Updat
 	})
 }
 
-func (s *pricingService) DeletePricing(_ context.Context, model string) error {
-	return repository.DeleteModelPriceSetting(s.db, model)
+func (s *pricingService) DeletePricing(ctx context.Context, model string) error {
+	return repository.DeleteModelPriceSetting(s.db.WithContext(ctx), model)
 }
