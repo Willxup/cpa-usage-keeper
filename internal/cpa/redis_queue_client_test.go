@@ -162,6 +162,65 @@ func TestRedisQueueClientCachesRedisModeAfterFirstSuccessfulPop(t *testing.T) {
 	}
 }
 
+func TestRedisQueueClientFallsBackToHTTPWhenCachedRedisModeFails(t *testing.T) {
+	logs := captureRedisQueueClientInfoLogs(t)
+	var redisCalls atomic.Int32
+	redisServer := newRedisQueueMultiTestServer(t, 2, func(t *testing.T, conn net.Conn) {
+		call := redisCalls.Add(1)
+		reader := bufio.NewReader(conn)
+		readRESPCommand(t, reader)
+		if call == 1 {
+			fmt.Fprint(conn, "+OK\r\n")
+			readRESPCommand(t, reader)
+			fmt.Fprint(conn, "*1\r\n$7\r\n{\"r\":1}\r\n")
+			return
+		}
+		fmt.Fprint(conn, "-ERR RESP AUTH disabled; use mTLS\r\n")
+	})
+	var httpCalls atomic.Int32
+	httpServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		httpCalls.Add(1)
+		if got := r.Header.Get("Authorization"); got != "Bearer secret" {
+			t.Fatalf("expected management Authorization header, got %q", got)
+		}
+		_, _ = w.Write([]byte(`[{"h":2}]`))
+	}))
+	defer httpServer.Close()
+
+	client := NewRedisQueueClientWithOptions(RedisQueueOptions{
+		BaseURL:       httpServer.URL,
+		RedisAddr:     redisServer.Addr,
+		ManagementKey: "secret",
+		Timeout:       time.Second,
+		QueueKey:      ManagementUsageQueueKey,
+		BatchSize:     1,
+	})
+	client.httpClient.httpClient = httpServer.Client()
+
+	firstMessages, err := client.PopUsage(ctxWithTimeout(t))
+	if err != nil {
+		t.Fatalf("first PopUsage returned error: %v", err)
+	}
+	if len(firstMessages) != 1 || firstMessages[0] != `{"r":1}` {
+		t.Fatalf("unexpected first messages: %#v", firstMessages)
+	}
+
+	secondMessages, err := client.PopUsage(ctxWithTimeout(t))
+	if err != nil {
+		t.Fatalf("second PopUsage returned error: %v", err)
+	}
+	if len(secondMessages) != 1 || secondMessages[0] != `{"h":2}` {
+		t.Fatalf("unexpected second messages: %#v", secondMessages)
+	}
+	if httpCalls.Load() != 1 {
+		t.Fatalf("expected cached redis failure to fall back to one http call, got %d", httpCalls.Load())
+	}
+	content := logs.String()
+	if !strings.Contains(content, `msg="usage queue sync used http protocol"`) {
+		t.Fatalf("expected http fallback log, got %q", content)
+	}
+}
+
 func TestRedisQueueClientPrefersRedisBeforeHTTPFallback(t *testing.T) {
 	redisServer := newRedisQueueTestServer(t, func(t *testing.T, conn net.Conn) {
 		reader := bufio.NewReader(conn)
