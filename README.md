@@ -215,6 +215,48 @@ sudo journalctl -u cpa-usage-keeper -f # 实时查看服务日志
 sudo systemctl restart cpa-usage-keeper # 重启服务
 ```
 
+## Arch Linux（AUR）
+
+Arch Linux 用户可以通过 AUR 安装预编译包（[cpa-usage-keeper-bin](https://aur.archlinux.org/packages/cpa-usage-keeper-bin)）：
+
+```bash
+yay -S cpa-usage-keeper-bin
+```
+
+AUR 包使用 user-level systemd 服务，配置文件放在当前用户目录下：
+
+```bash
+install -Dm600 \
+  /usr/share/doc/cpa-usage-keeper-bin/cpa-usage-keeper.env.example \
+  ~/.config/cpa-usage-keeper/cpa-usage-keeper.env
+
+vim ~/.config/cpa-usage-keeper/cpa-usage-keeper.env
+systemctl --user daemon-reload
+systemctl --user enable --now cpa-usage-keeper.service
+```
+
+请至少设置 `CPA_BASE_URL` 和 `CPA_MANAGEMENT_KEY`。CPA 侧需要启用 `usage-statistics-enabled: true` 才会发布 usage 事件。如果 `APP_PORT` 与本机其它服务冲突，也可以在配置文件中改成其它端口。
+
+SQLite 数据库、日志和备份默认存放在：
+
+```text
+~/.local/state/cpa-usage-keeper/
+```
+
+常用命令：
+
+```bash
+systemctl --user status cpa-usage-keeper.service
+journalctl --user -u cpa-usage-keeper.service -f
+systemctl --user restart cpa-usage-keeper.service
+```
+
+如果需要在没有活动登录会话时也自动运行用户服务，请启用 linger：
+
+```bash
+loginctl enable-linger "$USER"
+```
+
 ## Docker
 
 如果 CPA 已在宿主机运行：
