@@ -209,4 +209,15 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('Total Cost');
     expect(html).toContain('$0.0057');
   });
+
+  it('shows per-event cost when only source-qualified pricing exists', () => {
+    const html = renderCard({
+      modelPrices: {
+        'Provider A/claude-sonnet': { prompt: 15, completion: 75, cache: 1.5 },
+      },
+    });
+
+    expect(html).toContain('Total Cost');
+    expect(html).toContain('$0.0057');
+  });
 });
