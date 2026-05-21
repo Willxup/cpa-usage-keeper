@@ -65,11 +65,26 @@ func TestPricingServiceStoresPricingForUsedModel(t *testing.T) {
 
 func TestPricingServiceUsesStoredRequestModelNamesForPricing(t *testing.T) {
 	db := openPricingServiceTestDatabase(t)
+	now := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	if err := db.Create(&entities.UsageIdentity{
+		Name:         "third-party",
+		AuthType:     entities.UsageIdentityAuthTypeAIProvider,
+		AuthTypeName: "apikey",
+		Identity:     "auth-provider",
+		Type:         "claude",
+		Provider:     "third-party",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("seed usage identity: %v", err)
+	}
 	modelAlias := "friendly-sonnet"
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
 		EventKey:    "evt-actual-model",
 		Model:       "anthropic/claude-sonnet",
 		ModelAlias:  &modelAlias,
+		AuthType:    "apikey",
+		AuthIndex:   "auth-provider",
 		Timestamp:   time.Unix(2, 0),
 		APIGroupKey: "provider-a",
 	}}); err != nil {
@@ -81,7 +96,8 @@ func TestPricingServiceUsesStoredRequestModelNamesForPricing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list models: %v", err)
 	}
-	if len(modelsList) != 1 || modelsList[0] != "anthropic/claude-sonnet" {
+	expected := []string{"anthropic/claude-sonnet", "third-party/anthropic/claude-sonnet"}
+	if strings.Join(modelsList, ",") != strings.Join(expected, ",") {
 		t.Fatalf("expected stored request model name, got %#v", modelsList)
 	}
 
@@ -96,7 +112,7 @@ func TestPricingServiceUsesStoredRequestModelNamesForPricing(t *testing.T) {
 	}
 
 	setting, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
-		Model:                "anthropic/claude-sonnet",
+		Model:                "third-party/anthropic/claude-sonnet",
 		PromptPricePer1M:     3,
 		CompletionPricePer1M: 15,
 		CachePricePer1M:      0.3,
@@ -104,7 +120,7 @@ func TestPricingServiceUsesStoredRequestModelNamesForPricing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update pricing: %v", err)
 	}
-	if setting.Model != "anthropic/claude-sonnet" {
+	if setting.Model != "third-party/anthropic/claude-sonnet" {
 		t.Fatalf("unexpected setting: %#v", setting)
 	}
 }

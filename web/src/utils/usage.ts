@@ -454,7 +454,8 @@ export function saveModelPrices(prices: Record<string, ModelPrice>): void {
 
 export function calculateCost(detail: UsageDetailRecord, modelPrices: Record<string, ModelPrice>): number {
   const modelName = detail.__modelName ?? '';
-  const pricing = modelPrices[modelName];
+  const sourceName = typeof detail.source === 'string' ? detail.source.trim() : '';
+  const pricing = (sourceName ? modelPrices[`${sourceName}/${modelName}`] : undefined) ?? modelPrices[modelName];
   if (!pricing) return 0;
 
   const inputTokens = Math.max(toNumber(detail.tokens.input_tokens), 0);

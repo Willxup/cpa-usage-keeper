@@ -34,7 +34,7 @@ func buildUsageOverviewFromEventsForTest(events []entities.UsageEvent, filter dt
 	overview := newUsageOverviewRecord(filter, windowMinutes)
 	for _, event := range events {
 		applyUsageEventToSnapshot(overview.Usage, event, false)
-		applyUsageEventToOverview(overview, event, bucketByDay, latestHourlyStart, pricingByModel)
+		applyUsageEventToOverview(overview, event, bucketByDay, latestHourlyStart, pricingContextFromSettings(pricingByModel))
 	}
 	finalizeUsageOverview(overview, false)
 	return overview
@@ -896,6 +896,85 @@ func TestCalculateUsageEventCostDoesNotDoubleChargeReasoningTokens(t *testing.T)
 
 	if cost != 46.4 {
 		t.Fatalf("expected reasoning tokens not to be added to completion cost, got %f", cost)
+	}
+}
+
+func TestBuildUsageOverviewWithFilterPrefersSourceQualifiedPricingAndFallsBackToModel(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-source-pricing.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	now := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	if err := db.Create(&[]entities.UsageIdentity{
+		{
+			Name:         "third-party",
+			AuthType:     entities.UsageIdentityAuthTypeAIProvider,
+			AuthTypeName: "apikey",
+			Identity:     "auth-third-party",
+			Type:         "claude",
+			Provider:     "third-party",
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		},
+		{
+			Name:         "official",
+			AuthType:     entities.UsageIdentityAuthTypeAIProvider,
+			AuthTypeName: "apikey",
+			Identity:     "auth-official",
+			Type:         "claude",
+			Provider:     "official",
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		},
+	}).Error; err != nil {
+		t.Fatalf("seed usage identities: %v", err)
+	}
+	for _, input := range []dto.ModelPriceSettingInput{
+		{Model: "claude-opus", PromptPricePer1M: 2},
+		{Model: "third-party/claude-opus", PromptPricePer1M: 10},
+	} {
+		if _, err := UpsertModelPriceSetting(db, input); err != nil {
+			t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
+		}
+	}
+	events := []entities.UsageEvent{
+		{
+			EventKey: "event-third-party", APIGroupKey: "provider-a", Model: "claude-opus",
+			AuthType: "apikey", AuthIndex: "auth-third-party",
+			Timestamp: time.Date(2026, 4, 16, 10, 10, 0, 0, time.UTC), InputTokens: 1_000_000, TotalTokens: 1_000_000,
+		},
+		{
+			EventKey: "event-official-fallback", APIGroupKey: "provider-a", Model: "claude-opus",
+			AuthType: "apikey", AuthIndex: "auth-official",
+			Timestamp: time.Date(2026, 4, 16, 10, 20, 0, 0, time.UTC), InputTokens: 1_000_000, TotalTokens: 1_000_000,
+		},
+		{
+			EventKey: "event-no-source-fallback", APIGroupKey: "provider-a", Model: "claude-opus",
+			AuthType: "apikey", AuthIndex: "missing-auth",
+			Timestamp: time.Date(2026, 4, 16, 10, 30, 0, 0, time.UTC), InputTokens: 1_000_000, TotalTokens: 1_000_000,
+		},
+	}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+	if err := AggregateUsageOverviewStats(context.Background(), db, time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("AggregateUsageOverviewStats returned error: %v", err)
+	}
+
+	start := time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC)
+	overview, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "custom", StartTime: &start, EndTime: &end})
+	if err != nil {
+		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
+	}
+
+	if !overview.Summary.CostAvailable {
+		t.Fatalf("expected source-qualified pricing with model fallback to be complete, got %+v", overview.Summary)
+	}
+	if overview.Summary.TotalCost != 14 {
+		t.Fatalf("expected source-specific cost 10 plus two model fallbacks 2+2, got %+v", overview.Summary)
 	}
 }
 

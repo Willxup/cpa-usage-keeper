@@ -3,6 +3,7 @@ package repository
 import (
 	"cpa-usage-keeper/internal/repository/dto"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,11 +14,24 @@ import (
 
 func TestListUsedModelsReturnsDistinctSortedModels(t *testing.T) {
 	db := openPricingTestDatabase(t)
+	now := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	if err := db.Create(&entities.UsageIdentity{
+		Name:         "provider-a",
+		AuthType:     entities.UsageIdentityAuthTypeAIProvider,
+		AuthTypeName: "apikey",
+		Identity:     "auth-a",
+		Type:         "claude",
+		Provider:     "provider-a",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("seed usage identity: %v", err)
+	}
 
 	events := []entities.UsageEvent{
-		{EventKey: "1", Model: "claude-sonnet", Timestamp: time.Unix(1, 0)},
+		{EventKey: "1", Model: "claude-sonnet", AuthType: "apikey", AuthIndex: "auth-a", Timestamp: time.Unix(1, 0)},
 		{EventKey: "2", Model: "claude-haiku", Timestamp: time.Unix(2, 0)},
-		{EventKey: "3", Model: "claude-sonnet", Timestamp: time.Unix(3, 0)},
+		{EventKey: "3", Model: "claude-sonnet", AuthType: "apikey", AuthIndex: "auth-a", Timestamp: time.Unix(3, 0)},
 	}
 	if _, _, err := InsertUsageEvents(db, events); err != nil {
 		t.Fatalf("insert usage events: %v", err)
@@ -27,7 +41,8 @@ func TestListUsedModelsReturnsDistinctSortedModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list used models: %v", err)
 	}
-	if len(modelsList) != 2 || modelsList[0] != "claude-haiku" || modelsList[1] != "claude-sonnet" {
+	expected := []string{"claude-haiku", "claude-sonnet", "provider-a/claude-sonnet"}
+	if strings.Join(modelsList, ",") != strings.Join(expected, ",") {
 		t.Fatalf("unexpected models: %#v", modelsList)
 	}
 }

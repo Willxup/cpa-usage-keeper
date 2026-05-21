@@ -62,7 +62,8 @@ function startOfHourKey(timestamp: string): string {
 }
 
 function calculateEventCost(event: UsageEventWithNames, priceMap: Map<string, PricingEntry>): number {
-  const pricing = priceMap.get(event.modelName)
+  const sourceName = event.source?.trim() ?? ''
+  const pricing = (sourceName ? priceMap.get(`${sourceName}/${event.modelName}`) : undefined) ?? priceMap.get(event.modelName)
   if (!pricing) return 0
   return (
     (event.tokens.input_tokens / 1_000_000) * pricing.prompt_price_per_1m +

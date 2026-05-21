@@ -599,12 +599,12 @@ func BuildUsageOverviewWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dt
 	}
 
 	// stats 表不保存价格，所有 cost 都按当前 model_price_settings 在查询阶段动态计算。
-	pricingByModel, err := loadPriceSettingsByModel(db)
+	pricing, err := loadUsagePricingContext(db)
 	if err != nil {
 		return nil, err
 	}
 
-	return buildUsageOverviewFromStats(db, filter, pricingByModel)
+	return buildUsageOverviewFromStats(db, filter, pricing)
 }
 
 // newUsageOverviewRecord 初始化 Overview 返回结构中的 map，避免后续聚合写入 nil map。
@@ -629,7 +629,7 @@ func newUsageOverviewRecord(filter dto.UsageQueryFilter, windowMinutes int64) *d
 }
 
 // buildUsageOverviewFromStats 用预聚合表覆盖完整 bucket，用原始事件补偿窗口边界。
-func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, pricingByModel map[string]entities.ModelPriceSetting) (*dto.UsageOverviewRecord, error) {
+func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, pricing usagePricingContext) (*dto.UsageOverviewRecord, error) {
 	// 先确定响应粒度和最近小时序列窗口，后续 raw event 与 stats row 共用这些规则。
 	windowMinutes := computeWindowMinutes(filter)
 	bucketByDay := shouldBucketUsageOverviewByDay(filter, windowMinutes)
@@ -651,7 +651,7 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, prici
 			continue
 		}
 		applyUsageEventToSnapshot(overview.Usage, event, false)
-		applyUsageEventToOverview(overview, event, bucketByDay, latestHourlyStart, pricingByModel)
+		applyUsageEventToOverview(overview, event, bucketByDay, latestHourlyStart, pricing)
 	}
 
 	if fullEnd.After(fullStart) {
@@ -663,7 +663,7 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, prici
 				return nil, err
 			}
 			for _, row := range hourlyRows {
-				applyUsageOverviewHourlyStatToOverview(overview, row, bucketByDay, latestHourlyStart, pricingByModel)
+				applyUsageOverviewHourlyStatToOverview(overview, row, bucketByDay, latestHourlyStart, pricing)
 			}
 		} else {
 			// 长窗口中间的完整本地天用 daily stats，减少大量小时 row 累加。
@@ -672,7 +672,7 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, prici
 				return nil, err
 			}
 			for _, row := range dailyRows {
-				applyUsageOverviewDailyStatToOverview(overview, row, bucketByDay, pricingByModel)
+				applyUsageOverviewDailyStatToOverview(overview, row, bucketByDay, pricing)
 			}
 			// Snapshot 的 RequestsByHour/TokensByHour 是旧响应结构，daily stats 不能直接还原小时图。
 			snapshotHourlyRows, err := loadUsageOverviewHourlyStatsWithFilter(db, filter, fullDayStart, fullDayEnd)
@@ -693,7 +693,7 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, prici
 					return nil, err
 				}
 				for _, row := range hourlyRows {
-					applyUsageOverviewHourlyStatToOverview(overview, row, bucketByDay, latestHourlyStart, pricingByModel)
+					applyUsageOverviewHourlyStatToOverview(overview, row, bucketByDay, latestHourlyStart, pricing)
 				}
 			}
 
@@ -709,7 +709,7 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, prici
 						return nil, err
 					}
 					for _, row := range hourlyRows {
-						applyUsageOverviewHourlyStatToHourlySeries(overview, row, latestHourlyStart, pricingByModel)
+						applyUsageOverviewHourlyStatToHourlySeries(overview, row, latestHourlyStart, pricing)
 					}
 				}
 			}
@@ -1041,12 +1041,13 @@ func loadUsageOverviewHealthTotalsWithFilter(db *gorm.DB, filter dto.UsageQueryF
 }
 
 // applyUsageOverviewHourlyStatToOverview 把小时 stats 同步写入 summary、snapshot、主序列、小时序列和天序列。
-func applyUsageOverviewHourlyStatToOverview(overview *dto.UsageOverviewRecord, row entities.UsageOverviewHourlyStat, bucketByDay bool, latestHourlyStart *time.Time, pricingByModel map[string]entities.ModelPriceSetting) {
+func applyUsageOverviewHourlyStatToOverview(overview *dto.UsageOverviewRecord, row entities.UsageOverviewHourlyStat, bucketByDay bool, latestHourlyStart *time.Time, pricing usagePricingContext) {
 	// 小时 stats 是完整小时事实，可直接累计到 snapshot totals。
 	applyUsageOverviewHourlyStatToSnapshot(overview.Usage, row)
 	// cost 不入 stats 表，必须在读取时按当前价格表重新计算。
-	rowCost := calculateUsageOverviewStatCost(row.InputTokens, row.OutputTokens, row.CachedTokens, pricingByModel[strings.TrimSpace(row.Model)])
-	if _, ok := pricingByModel[strings.TrimSpace(row.Model)]; !ok && usageOverviewStatRequiresPricing(row.InputTokens, row.OutputTokens, row.CachedTokens) {
+	priceSetting, ok := pricing.lookup(row.Model, "", row.AuthIndex)
+	rowCost := calculateUsageOverviewStatCost(row.InputTokens, row.OutputTokens, row.CachedTokens, priceSetting)
+	if !ok && usageOverviewStatRequiresPricing(row.InputTokens, row.OutputTokens, row.CachedTokens) {
 		overview.Summary.CostAvailable = false
 	}
 	applyUsageOverviewStatToSummary(overview, row.RequestCount, row.CachedTokens, row.ReasoningTokens, rowCost)
@@ -1056,7 +1057,7 @@ func applyUsageOverviewHourlyStatToOverview(overview *dto.UsageOverviewRecord, r
 	applyUsageOverviewStatToSeries(&overview.Series, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, rowCost, bucketKey, bucketMinutes)
 
 	// 长窗口仍保留最近 24 小时 hourly_series。
-	applyUsageOverviewHourlyStatToHourlySeries(overview, row, latestHourlyStart, pricingByModel)
+	applyUsageOverviewHourlyStatToHourlySeries(overview, row, latestHourlyStart, pricing)
 
 	// daily_series 始终按天累计，供页面固定展示天趋势。
 	dayKey, dayMinutes := usageOverviewBucket(timeutil.NormalizeStorageTime(row.BucketStart), true)
@@ -1064,22 +1065,24 @@ func applyUsageOverviewHourlyStatToOverview(overview *dto.UsageOverviewRecord, r
 }
 
 // applyUsageOverviewHourlyStatToHourlySeries 只补最近 24 小时 hourly_series，供长窗口页面仍展示小时趋势。
-func applyUsageOverviewHourlyStatToHourlySeries(overview *dto.UsageOverviewRecord, row entities.UsageOverviewHourlyStat, latestHourlyStart *time.Time, pricingByModel map[string]entities.ModelPriceSetting) {
+func applyUsageOverviewHourlyStatToHourlySeries(overview *dto.UsageOverviewRecord, row entities.UsageOverviewHourlyStat, latestHourlyStart *time.Time, pricing usagePricingContext) {
 	// latestHourlyStart 非空时丢弃更早的小时，避免长窗口 hourly_series 过大。
 	if latestHourlyStart != nil && timeutil.NormalizeStorageTime(row.BucketStart).Before(*latestHourlyStart) {
 		return
 	}
-	rowCost := calculateUsageOverviewStatCost(row.InputTokens, row.OutputTokens, row.CachedTokens, pricingByModel[strings.TrimSpace(row.Model)])
+	priceSetting, _ := pricing.lookup(row.Model, "", row.AuthIndex)
+	rowCost := calculateUsageOverviewStatCost(row.InputTokens, row.OutputTokens, row.CachedTokens, priceSetting)
 	hourKey, hourMinutes := usageOverviewBucket(timeutil.NormalizeStorageTime(row.BucketStart), false)
 	applyUsageOverviewStatToSeries(&overview.HourlySeries, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, rowCost, hourKey, hourMinutes)
 }
 
 // applyUsageOverviewDailyStatToOverview 把完整天 stats 写入长窗口 summary、snapshot、主序列和天序列。
-func applyUsageOverviewDailyStatToOverview(overview *dto.UsageOverviewRecord, row entities.UsageOverviewDailyStat, bucketByDay bool, pricingByModel map[string]entities.ModelPriceSetting) {
+func applyUsageOverviewDailyStatToOverview(overview *dto.UsageOverviewRecord, row entities.UsageOverviewDailyStat, bucketByDay bool, pricing usagePricingContext) {
 	// 天 stats 只覆盖完整本地天，不能用于非整天边界。
 	applyUsageOverviewDailyStatToSnapshot(overview.Usage, row)
-	rowCost := calculateUsageOverviewStatCost(row.InputTokens, row.OutputTokens, row.CachedTokens, pricingByModel[strings.TrimSpace(row.Model)])
-	if _, ok := pricingByModel[strings.TrimSpace(row.Model)]; !ok && usageOverviewStatRequiresPricing(row.InputTokens, row.OutputTokens, row.CachedTokens) {
+	priceSetting, ok := pricing.lookup(row.Model, "", row.AuthIndex)
+	rowCost := calculateUsageOverviewStatCost(row.InputTokens, row.OutputTokens, row.CachedTokens, priceSetting)
+	if !ok && usageOverviewStatRequiresPricing(row.InputTokens, row.OutputTokens, row.CachedTokens) {
 		overview.Summary.CostAvailable = false
 	}
 	applyUsageOverviewStatToSummary(overview, row.RequestCount, row.CachedTokens, row.ReasoningTokens, rowCost)
@@ -1484,7 +1487,7 @@ func usageEventRequiresPricing(event entities.UsageEvent) bool {
 }
 
 // applyUsageEventToOverview 把边界 raw event 合并进 Overview，语义必须和 stats row 合并保持一致。
-func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities.UsageEvent, bucketByDay bool, latestHourlyStart *time.Time, pricingByModel map[string]entities.ModelPriceSetting) {
+func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities.UsageEvent, bucketByDay bool, latestHourlyStart *time.Time, pricing usagePricingContext) {
 	overview.Summary.CachedTokens += event.CachedTokens
 	overview.Summary.ReasoningTokens += event.ReasoningTokens
 	if event.Failed {
@@ -1493,11 +1496,11 @@ func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities
 		overview.Health.TotalSuccess++
 	}
 	// 边界事件也按当前价格表计算 cost；缺价格且有计费 token 时标记 cost 不完整。
-	pricing, ok := pricingByModel[strings.TrimSpace(event.Model)]
+	priceSetting, ok := pricing.lookup(event.Model, event.AuthType, event.AuthIndex)
 	if !ok && usageEventRequiresPricing(event) {
 		overview.Summary.CostAvailable = false
 	}
-	cost := calculateUsageEventCost(event, pricing)
+	cost := calculateUsageEventCost(event, priceSetting)
 	overview.Summary.TotalCost += cost
 
 	// 主序列使用页面当前粒度，hourly/daily 辅助序列固定按各自粒度累计。
@@ -1535,19 +1538,6 @@ func normalizeUsageOverviewDimension(value string) string {
 		return "unknown"
 	}
 	return trimmed
-}
-
-// loadPriceSettingsByModel 把当前价格配置转成按 model 查找的 map。
-func loadPriceSettingsByModel(db *gorm.DB) (map[string]entities.ModelPriceSetting, error) {
-	settings, err := ListModelPriceSettings(db)
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[string]entities.ModelPriceSetting, len(settings))
-	for _, setting := range settings {
-		result[strings.TrimSpace(setting.Model)] = setting
-	}
-	return result, nil
 }
 
 // calculateUsageEventCost 按当前价格表计算单条事件成本。

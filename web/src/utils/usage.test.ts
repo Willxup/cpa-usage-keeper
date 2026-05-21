@@ -275,6 +275,21 @@ describe('calculateCost', () => {
     // 用 anthropic 公式：promptTokens=1，不会被减成 0
     expect(cost).toBeGreaterThan(0);
   });
+
+  it('prefers source-qualified pricing and falls back to the model price', () => {
+    const sourcePrices = {
+      m: { prompt: 1, completion: 0, cache: 0 },
+      'Provider A/m': { prompt: 10, completion: 0, cache: 0 },
+    };
+    const detail = {
+      ...baseDetail,
+      source: 'Provider A',
+      tokens: { input_tokens: 1_000_000, output_tokens: 0, reasoning_tokens: 0, cached_tokens: 0, total_tokens: 1_000_000 },
+    };
+
+    expect(calculateCost(detail, sourcePrices)).toBe(10);
+    expect(calculateCost({ ...detail, source: 'Provider B' }, sourcePrices)).toBe(1);
+  });
 });
 
 describe('calculateCacheRate', () => {
