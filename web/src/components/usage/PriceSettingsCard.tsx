@@ -7,6 +7,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Select, type SelectOption } from '@/components/ui/Select';
 import { IconCheck } from '@/components/ui/icons';
 import type { ModelPrice } from '@/utils/usage';
+import type { PricingModelOption } from '@/lib/types';
 import styles from '@/pages/UsagePage.module.scss';
 
 const formatDisplayName = (value: string): string => {
@@ -17,6 +18,7 @@ const formatDisplayName = (value: string): string => {
 
 export interface PriceSettingsCardProps {
   modelNames: string[];
+  modelOptions?: PricingModelOption[];
   modelPrices: Record<string, ModelPrice>;
   onPricesChange: (prices: Record<string, ModelPrice>) => void;
   loading?: boolean;
@@ -38,33 +40,79 @@ const parsePriceValue = (value: string): number | null => {
 };
 
 export const buildPricingModelOptions = (
-  modelNames: string[],
+  modelOptions: PricingModelOption[],
+  selectedSource: string,
   modelPrices: Record<string, ModelPrice>,
   placeholder: string,
   configuredSuffix: React.ReactNode,
   configuredLabel: string,
 ): SelectOption[] => {
   const configuredModels = new Set(Object.keys(modelPrices));
-  const sortedModelNames = [...modelNames].sort((left, right) => {
-    const leftConfigured = configuredModels.has(left);
-    const rightConfigured = configuredModels.has(right);
-    if (leftConfigured !== rightConfigured) return leftConfigured ? 1 : -1;
-    return formatDisplayName(left).localeCompare(formatDisplayName(right));
-  });
+  const source = selectedSource.trim();
+  const seenModels = new Set<string>();
+  const sortedModelOptions = modelOptions
+    .filter((option) => option.source.trim() === source && option.model.trim() !== '')
+    .filter((option) => {
+      const model = option.model.trim();
+      if (seenModels.has(model)) return false;
+      seenModels.add(model);
+      return true;
+    })
+    .sort((left, right) => {
+      const leftConfigured = configuredModels.has(left.value);
+      const rightConfigured = configuredModels.has(right.value);
+      if (leftConfigured !== rightConfigured) return leftConfigured ? 1 : -1;
+      return formatDisplayName(left.model).localeCompare(formatDisplayName(right.model));
+    });
 
   return [
     { value: '', label: placeholder },
-    ...sortedModelNames.map((name) => ({
-      value: name,
-      label: formatDisplayName(name),
-      suffix: configuredModels.has(name) ? configuredSuffix : undefined,
-      suffixAriaLabel: configuredModels.has(name) ? configuredLabel : undefined,
+    ...sortedModelOptions.map((option) => ({
+      value: option.model,
+      label: formatDisplayName(option.model),
+      suffix: configuredModels.has(option.value) ? configuredSuffix : undefined,
+      suffixAriaLabel: configuredModels.has(option.value) ? configuredLabel : undefined,
     })),
   ];
 };
 
+export const buildPricingProviderOptions = (
+  modelOptions: PricingModelOption[],
+  defaultLabel: string,
+): SelectOption[] => {
+  const sources = Array.from(new Set(modelOptions.map((option) => option.source.trim()).filter(Boolean)));
+  sources.sort((left, right) => formatDisplayName(left).localeCompare(formatDisplayName(right)));
+  return [
+    { value: '', label: defaultLabel },
+    ...sources.map((source) => ({ value: source, label: formatDisplayName(source) })),
+  ];
+};
+
+export const normalizePricingModelOptions = (
+  modelNames: string[],
+  modelOptions?: PricingModelOption[],
+): PricingModelOption[] => {
+  const candidates = modelOptions && modelOptions.length > 0
+    ? modelOptions
+    : modelNames.map((model) => ({ value: model, source: '', model }));
+  const normalized: PricingModelOption[] = [];
+  const seen = new Set<string>();
+  for (const option of candidates) {
+    const value = option.value.trim();
+    const source = option.source.trim();
+    const model = option.model.trim();
+    if (!value || !model) continue;
+    const key = `${source}\x00${model}\x00${value}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push({ value, source, model });
+  }
+  return normalized;
+};
+
 export function PriceSettingsCard({
   modelNames,
+  modelOptions,
   modelPrices,
   onPricesChange,
   loading = false
@@ -72,6 +120,7 @@ export function PriceSettingsCard({
   const { t } = useTranslation();
 
   // 新增价格表单先暂存输入值，保存成功后再一次性同步到父级配置。
+  const [selectedSource, setSelectedSource] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
   const [promptPrice, setPromptPrice] = useState('');
   const [completionPrice, setCompletionPrice] = useState('');
@@ -83,18 +132,33 @@ export function PriceSettingsCard({
   const [editCompletion, setEditCompletion] = useState('');
   const [editCache, setEditCache] = useState('');
 
+  const normalizedModelOptions = useMemo(
+    () => normalizePricingModelOptions(modelNames, modelOptions),
+    [modelNames, modelOptions]
+  );
+
+  const selectedPricingOption = useMemo(
+    () => normalizedModelOptions.find((option) => option.source === selectedSource && option.model === selectedModel),
+    [normalizedModelOptions, selectedModel, selectedSource]
+  );
+
+  const clearDraftPrices = () => {
+    setPromptPrice('');
+    setCompletionPrice('');
+    setCachePrice('');
+  };
+
   const handleSavePrice = () => {
-    if (!selectedModel) return;
+    if (!selectedPricingOption) return;
     const prompt = parsePriceValue(promptPrice);
     const completion = parsePriceValue(completionPrice);
     const cache = cachePrice.trim() === '' ? prompt : parsePriceValue(cachePrice);
     if (prompt === null || completion === null || cache === null) return;
-    const newPrices = { ...modelPrices, [selectedModel]: { prompt, completion, cache } };
+    const newPrices = { ...modelPrices, [selectedPricingOption.value]: { prompt, completion, cache } };
     onPricesChange(newPrices);
+    setSelectedSource('');
     setSelectedModel('');
-    setPromptPrice('');
-    setCompletionPrice('');
-    setCachePrice('');
+    clearDraftPrices();
   };
 
   const handleDeletePrice = (model: string) => {
@@ -122,29 +186,43 @@ export function PriceSettingsCard({
     setEditModel(null);
   };
 
-  const handleModelSelect = (value: string) => {
-    setSelectedModel(value);
-    const price = modelPrices[value];
+  const handleSourceSelect = (value: string) => {
+    setSelectedSource(value);
+    setSelectedModel('');
+    clearDraftPrices();
+  };
+
+  const handleModelSelect = (model: string) => {
+    setSelectedModel(model);
+    const option = normalizedModelOptions.find((item) => item.source === selectedSource && item.model === model);
+    const price = option ? modelPrices[option.value] : undefined;
     if (price) {
       setPromptPrice(price.prompt.toString());
       setCompletionPrice(price.completion.toString());
       setCachePrice(price.cache.toString());
     } else {
-      setPromptPrice('');
-      setCompletionPrice('');
-      setCachePrice('');
+      clearDraftPrices();
     }
   };
 
-  const options = useMemo(
+  const providerOptions = useMemo(
+    () => buildPricingProviderOptions(
+      normalizedModelOptions,
+      t('usage_stats.model_price_provider_default')
+    ),
+    [normalizedModelOptions, t]
+  );
+
+  const modelSelectOptions = useMemo(
     () => buildPricingModelOptions(
-      modelNames,
+      normalizedModelOptions,
+      selectedSource,
       modelPrices,
       t('usage_stats.model_price_select_placeholder'),
       <IconCheck size={10} />,
       t('usage_stats.model_price_configured')
     ),
-    [modelNames, modelPrices, t]
+    [modelPrices, normalizedModelOptions, selectedSource, t]
   );
 
   return (
@@ -165,14 +243,26 @@ export function PriceSettingsCard({
           <>
             <div className={styles.priceForm}>
               <div className={styles.formRow}>
-                <div className={styles.formField}>
+                <div className={`${styles.formField} ${styles.priceSourceField}`.trim()}>
+                  <label>{t('usage_stats.model_price_provider')}</label>
+                  <Select
+                    value={selectedSource}
+                    options={providerOptions}
+                    onChange={handleSourceSelect}
+                    placeholder={t('usage_stats.model_price_provider_default')}
+                    className={styles.usagePillControl}
+                    dropdownMinWidth={320}
+                  />
+                </div>
+                <div className={`${styles.formField} ${styles.priceModelField}`.trim()}>
                   <label>{t('usage_stats.model_name')}</label>
                   <Select
                     value={selectedModel}
-                    options={options}
+                    options={modelSelectOptions}
                     onChange={handleModelSelect}
                     placeholder={t('usage_stats.model_price_select_placeholder')}
                     className={styles.usagePillControl}
+                    dropdownMinWidth={360}
                   />
                 </div>
                 <div className={styles.formField}>
@@ -208,7 +298,7 @@ export function PriceSettingsCard({
                     className={styles.usagePillControl}
                   />
                 </div>
-                <Button variant="primary" className={styles.usagePillAction} onClick={handleSavePrice} disabled={!selectedModel}>
+                <Button variant="primary" className={styles.usagePillAction} onClick={handleSavePrice} disabled={!selectedPricingOption}>
                   {t('common.save')}
                 </Button>
               </div>

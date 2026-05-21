@@ -139,9 +139,6 @@ func InsertUsageEvents(db *gorm.DB, events []entities.UsageEvent) (int, int, err
 			if result.Error != nil {
 				return fmt.Errorf("insert usage events: %w", result.Error)
 			}
-			if err := syncUsageModelsForEvents(tx, batch, time.Now()); err != nil {
-				return fmt.Errorf("sync usage models: %w", err)
-			}
 			inserted += int(result.RowsAffected)
 		}
 		return nil

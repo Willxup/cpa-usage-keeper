@@ -489,6 +489,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   });
   const {
     modelNames,
+    modelOptions,
     modelPrices,
     loading: pricingLoading,
     error: pricingError,
@@ -1630,6 +1631,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 />
                 <PriceSettingsCard
                   modelNames={modelNames}
+                  modelOptions={modelOptions}
                   modelPrices={modelPrices}
                   onPricesChange={setModelPrices}
                   loading={pricingLoading}

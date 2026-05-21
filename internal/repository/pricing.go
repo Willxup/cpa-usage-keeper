@@ -28,6 +28,18 @@ type usagePricingContext struct {
 }
 
 func ListUsedModels(db *gorm.DB) ([]string, error) {
+	options, err := ListUsedModelOptions(db)
+	if err != nil {
+		return nil, err
+	}
+	models := make([]string, 0, len(options))
+	for _, option := range options {
+		models = append(models, option.Value)
+	}
+	return models, nil
+}
+
+func ListUsedModelOptions(db *gorm.DB) ([]dto.UsedModelOption, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
 	}
@@ -45,30 +57,44 @@ func ListUsedModels(db *gorm.DB) ([]string, error) {
 		return nil, err
 	}
 
-	models := make([]string, 0, len(rows)*2)
+	models := make([]dto.UsedModelOption, 0, len(rows)*2)
 	seen := make(map[string]struct{}, len(rows)*2)
-	appendModel := func(model string) {
+	appendModel := func(source, model string) {
+		source = strings.TrimSpace(source)
 		model = strings.TrimSpace(model)
 		if model == "" {
 			return
 		}
-		if _, ok := seen[model]; ok {
+		value := usagePricingKey(source, model)
+		if _, ok := seen[value]; ok {
 			return
 		}
-		seen[model] = struct{}{}
-		models = append(models, model)
+		seen[value] = struct{}{}
+		models = append(models, dto.UsedModelOption{
+			Value:  value,
+			Source: source,
+			Model:  model,
+		})
 	}
 	for _, row := range rows {
 		model := strings.TrimSpace(row.Model)
 		if model == "" {
 			continue
 		}
-		appendModel(model)
+		appendModel("", model)
 		if source := sources.sourceFor(row.AuthType, row.AuthIndex); source != "" {
-			appendModel(usagePricingKey(source, model))
+			appendModel(source, model)
 		}
 	}
-	sort.Strings(models)
+	sort.Slice(models, func(i, j int) bool {
+		if models[i].Source != models[j].Source {
+			return models[i].Source < models[j].Source
+		}
+		if models[i].Model != models[j].Model {
+			return models[i].Model < models[j].Model
+		}
+		return models[i].Value < models[j].Value
+	})
 	return models, nil
 }
 

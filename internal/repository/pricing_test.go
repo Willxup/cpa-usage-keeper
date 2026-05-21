@@ -1,7 +1,7 @@
 package repository
 
 import (
-	"cpa-usage-keeper/internal/repository/dto"
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/repository/dto"
 	"gorm.io/gorm"
 )
 
@@ -36,6 +37,9 @@ func TestListUsedModelsReturnsDistinctSortedModels(t *testing.T) {
 	if _, _, err := InsertUsageEvents(db, events); err != nil {
 		t.Fatalf("insert usage events: %v", err)
 	}
+	if err := AggregateUsageModels(context.Background(), db, now); err != nil {
+		t.Fatalf("aggregate usage models: %v", err)
+	}
 
 	modelsList, err := ListUsedModels(db)
 	if err != nil {
@@ -44,6 +48,23 @@ func TestListUsedModelsReturnsDistinctSortedModels(t *testing.T) {
 	expected := []string{"claude-haiku", "claude-sonnet", "provider-a/claude-sonnet"}
 	if strings.Join(modelsList, ",") != strings.Join(expected, ",") {
 		t.Fatalf("unexpected models: %#v", modelsList)
+	}
+
+	options, err := ListUsedModelOptions(db)
+	if err != nil {
+		t.Fatalf("list used model options: %v", err)
+	}
+	optionValues := make([]string, 0, len(options))
+	for _, option := range options {
+		optionValues = append(optionValues, option.Value+"|"+option.Source+"|"+option.Model)
+	}
+	expectedOptions := []string{
+		"claude-haiku||claude-haiku",
+		"claude-sonnet||claude-sonnet",
+		"provider-a/claude-sonnet|provider-a|claude-sonnet",
+	}
+	if strings.Join(optionValues, ",") != strings.Join(expectedOptions, ",") {
+		t.Fatalf("unexpected model options: %#v", options)
 	}
 }
 

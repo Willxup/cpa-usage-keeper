@@ -10,7 +10,14 @@ import (
 )
 
 type usedModelsResponse struct {
-	Models []string `json:"models"`
+	Models       []string                  `json:"models"`
+	ModelOptions []usedModelOptionResponse `json:"model_options"`
+}
+
+type usedModelOptionResponse struct {
+	Value  string `json:"value"`
+	Source string `json:"source"`
+	Model  string `json:"model"`
 }
 
 type pricingEntryResponse struct {
@@ -34,17 +41,27 @@ type updatePricingRequest struct {
 func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingProvider) {
 	router.GET("/models/used", func(c *gin.Context) {
 		if pricingProvider == nil {
-			c.JSON(http.StatusOK, usedModelsResponse{Models: []string{}})
+			c.JSON(http.StatusOK, usedModelsResponse{Models: []string{}, ModelOptions: []usedModelOptionResponse{}})
 			return
 		}
 
-		models, err := pricingProvider.ListUsedModels(c.Request.Context())
+		options, err := pricingProvider.ListUsedModelOptions(c.Request.Context())
 		if err != nil {
 			writeInternalError(c, "list used models failed", err)
 			return
 		}
+		models := make([]string, 0, len(options))
+		responseOptions := make([]usedModelOptionResponse, 0, len(options))
+		for _, option := range options {
+			models = append(models, option.Value)
+			responseOptions = append(responseOptions, usedModelOptionResponse{
+				Value:  option.Value,
+				Source: option.Source,
+				Model:  option.Model,
+			})
+		}
 
-		c.JSON(http.StatusOK, usedModelsResponse{Models: models})
+		c.JSON(http.StatusOK, usedModelsResponse{Models: models, ModelOptions: responseOptions})
 	})
 
 	router.GET("/pricing", func(c *gin.Context) {

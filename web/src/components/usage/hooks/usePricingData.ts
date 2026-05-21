@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, deletePricing, fetchPricing, fetchUsedModels, updatePricing } from '@/lib/api';
+import type { PricingModelOption } from '@/lib/types';
 import { useNotificationStore } from '@/stores';
 import { loadModelPrices, saveModelPrices, type ModelPrice } from '@/utils/usage';
 
@@ -11,6 +12,7 @@ export interface UsePricingDataOptions {
 
 export interface UsePricingDataReturn {
   modelNames: string[];
+  modelOptions: PricingModelOption[];
   modelPrices: Record<string, ModelPrice>;
   loading: boolean;
   error: string;
@@ -35,6 +37,7 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
   const { t } = useTranslation();
   const { showNotification } = useNotificationStore();
   const [modelNames, setModelNames] = useState<string[]>([]);
+  const [modelOptions, setModelOptions] = useState<PricingModelOption[]>([]);
   const [modelPrices, setModelPricesState] = useState<Record<string, ModelPrice>>(() => loadModelPrices());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -63,6 +66,11 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
       saveModelPrices(prices);
       setModelPricesState(prices);
       setModelNames(usedModelsResponse.models);
+      setModelOptions(usedModelsResponse.model_options ?? usedModelsResponse.models.map((model) => ({
+        value: model,
+        source: '',
+        model,
+      })));
       setLastRefreshedAt(new Date());
     } catch (error) {
       if (controller.signal.aborted) {
@@ -134,6 +142,7 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
 
   return {
     modelNames,
+    modelOptions,
     modelPrices,
     loading,
     error,

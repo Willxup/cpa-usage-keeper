@@ -53,4 +53,12 @@ func TestCreateUsageModelsMigrationBackfillsDistinctModelSources(t *testing.T) {
 	if rows[1].Model != "claude-opus" || rows[1].AuthType != "oauth" || rows[1].AuthIndex != "auth-b" || rows[1].RequestCount != 1 || rows[1].LastUsageEventID != 3 {
 		t.Fatalf("unexpected second usage model row: %+v", rows[1])
 	}
+
+	var checkpoint entities.UsageOverviewAggregationCheckpoint
+	if err := db.Where("name = ?", "usage_models").First(&checkpoint).Error; err != nil {
+		t.Fatalf("load usage model checkpoint: %v", err)
+	}
+	if checkpoint.LastAggregatedUsageEventID != 4 || checkpoint.StatsUpdatedAt == nil {
+		t.Fatalf("unexpected usage model checkpoint: %+v", checkpoint)
+	}
 }

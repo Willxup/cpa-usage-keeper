@@ -48,6 +48,7 @@ type App struct {
 	RedisProcess      Runner
 	Maintenance       *StorageCleanupRunner
 	MetadataSync      *MetadataSyncRunner
+	UsageModels       Runner
 	BackupMaintenance *DatabaseBackupRunner
 	LogCloser         io.Closer
 
@@ -87,6 +88,13 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		return nil, err
 	}
 	logrus.Info("completed usage overview aggregation catch-up")
+	logrus.Info("starting usage model aggregation catch-up")
+	if err := repository.AggregateUsageModels(context.Background(), db, time.Now()); err != nil {
+		_ = closeGormDB(db)
+		_ = logCloser.Close()
+		return nil, err
+	}
+	logrus.Info("completed usage model aggregation catch-up")
 
 	syncService := service.NewSyncService(db, cfg)
 	backgroundPoller := poller.NewRedisDrain(syncService, poller.RedisDrainConfig{
@@ -131,6 +139,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		RedisProcess:      poller.NewRedisProcessRunner(backgroundPoller),
 		Maintenance:       NewStorageCleanupRunner(syncService),
 		MetadataSync:      NewMetadataSyncRunner(syncService, cfg.MetadataSyncInterval),
+		UsageModels:       NewUsageModelAggregationRunner(db),
 		BackupMaintenance: backupMaintenance,
 		LogCloser:         logCloser,
 		Router: api.NewRouter(
@@ -218,6 +227,13 @@ func (a *App) Run() error {
 		a.startBackgroundTask(func() {
 			if err := a.MetadataSync.Run(ctx); err != nil {
 				logrus.Errorf("metadata sync stopped: %v", err)
+			}
+		})
+	}
+	if a.UsageModels != nil {
+		a.startBackgroundTask(func() {
+			if err := a.UsageModels.Run(ctx); err != nil {
+				logrus.Errorf("usage model aggregation stopped: %v", err)
 			}
 		})
 	}

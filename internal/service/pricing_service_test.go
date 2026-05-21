@@ -39,6 +39,9 @@ func TestPricingServiceStoresPricingForUsedModel(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("insert usage event: %v", err)
 	}
+	if err := repository.AggregateUsageModels(context.Background(), db, time.Unix(2, 0)); err != nil {
+		t.Fatalf("aggregate usage models: %v", err)
+	}
 
 	service := NewPricingService(db)
 	setting, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
@@ -89,6 +92,9 @@ func TestPricingServiceUsesStoredRequestModelNamesForPricing(t *testing.T) {
 		APIGroupKey: "provider-a",
 	}}); err != nil {
 		t.Fatalf("insert usage event: %v", err)
+	}
+	if err := repository.AggregateUsageModels(context.Background(), db, now.Add(time.Minute)); err != nil {
+		t.Fatalf("aggregate usage models: %v", err)
 	}
 
 	service := NewPricingService(db)

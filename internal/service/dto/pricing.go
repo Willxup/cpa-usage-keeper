@@ -7,3 +7,10 @@ type UpdatePricingInput struct {
 	CompletionPricePer1M float64
 	CachePricePer1M      float64
 }
+
+// UsedModelOption 是前端定价表单的结构化模型候选项。
+type UsedModelOption struct {
+	Value  string
+	Source string
+	Model  string
+}

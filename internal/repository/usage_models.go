@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -10,6 +12,8 @@ import (
 	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
 )
+
+const usageModelAggregationCheckpointName = "usage_models"
 
 type usageModelAggregateKey struct {
 	model     string
@@ -27,18 +31,135 @@ type usageModelAggregate struct {
 	LastUsageEventID int64
 }
 
-// syncUsageModelsForEvents keeps a compact model/auth-index index in step with inserted usage_events.
-func syncUsageModelsForEvents(tx *gorm.DB, events []entities.UsageEvent, now time.Time) error {
-	if len(events) == 0 {
-		return nil
+// AggregateUsageModels 按 usage_events 自增 ID 增量推进定价模型索引。
+func AggregateUsageModels(ctx context.Context, db *gorm.DB, now time.Time) error {
+	if db == nil {
+		return fmt.Errorf("database is nil")
 	}
 	now = timeutil.NormalizeStorageTime(now)
-	for _, aggregate := range buildUsageModelAggregates(events) {
-		if err := applyUsageModelAggregate(tx, aggregate, now); err != nil {
+	batchSize := insertBatchSize(entities.UsageEvent{})
+	for {
+		processed, err := aggregateUsageModelsBatch(ctx, db, now, batchSize)
+		if err != nil {
 			return err
 		}
+		if processed < batchSize {
+			return nil
+		}
 	}
-	return nil
+}
+
+// HasPendingUsageModelAggregation 用轻量 ID cursor 判断 usage_models 是否落后。
+func HasPendingUsageModelAggregation(ctx context.Context, db *gorm.DB) (bool, error) {
+	if db == nil {
+		return false, fmt.Errorf("database is nil")
+	}
+	var maxEventID int64
+	if err := db.WithContext(ctx).Model(&entities.UsageEvent{}).Select("COALESCE(MAX(id), 0)").Scan(&maxEventID).Error; err != nil {
+		return false, fmt.Errorf("load max usage event id: %w", err)
+	}
+	if maxEventID == 0 {
+		return false, nil
+	}
+
+	var checkpoint entities.UsageOverviewAggregationCheckpoint
+	err := db.WithContext(ctx).Where("name = ?", usageModelAggregationCheckpointName).Take(&checkpoint).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("load usage model aggregation checkpoint: %w", err)
+	}
+	return checkpoint.LastAggregatedUsageEventID < maxEventID, nil
+}
+
+func aggregateUsageModelsBatch(ctx context.Context, db *gorm.DB, now time.Time, limit int) (int, error) {
+	processed := 0
+	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		checkpoint, err := getOrCreateUsageModelAggregationCheckpoint(tx, now)
+		if err != nil {
+			return err
+		}
+
+		var events []entities.UsageEvent
+		if err := tx.Select("id, model, auth_type, auth_index, timestamp").
+			Where("id > ?", checkpoint.LastAggregatedUsageEventID).
+			Order("id asc").
+			Limit(limit).
+			Find(&events).Error; err != nil {
+			return fmt.Errorf("load usage model aggregation events: %w", err)
+		}
+		if len(events) == 0 {
+			processed = 0
+			return nil
+		}
+
+		for _, aggregate := range buildUsageModelAggregates(events) {
+			if err := applyUsageModelAggregate(tx, aggregate, now); err != nil {
+				return err
+			}
+		}
+		if err := tx.Model(&entities.UsageOverviewAggregationCheckpoint{}).
+			Where("id = ?", checkpoint.ID).
+			Updates(map[string]any{
+				"last_aggregated_usage_event_id": maxUsageModelEventID(events),
+				"stats_updated_at":               timeutil.FormatStorageTime(now),
+			}).Error; err != nil {
+			return fmt.Errorf("update usage model aggregation checkpoint: %w", err)
+		}
+		processed = len(events)
+		return nil
+	})
+	return processed, err
+}
+
+func getOrCreateUsageModelAggregationCheckpoint(tx *gorm.DB, now time.Time) (entities.UsageOverviewAggregationCheckpoint, error) {
+	var checkpoint entities.UsageOverviewAggregationCheckpoint
+	err := tx.Where("name = ?", usageModelAggregationCheckpointName).Take(&checkpoint).Error
+	if err == nil {
+		return checkpoint, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return checkpoint, fmt.Errorf("load usage model aggregation checkpoint: %w", err)
+	}
+
+	lastAggregatedID, err := initialUsageModelAggregationCheckpointID(tx)
+	if err != nil {
+		return checkpoint, err
+	}
+	updatedAt := now
+	checkpoint = entities.UsageOverviewAggregationCheckpoint{
+		Name:                       usageModelAggregationCheckpointName,
+		LastAggregatedUsageEventID: lastAggregatedID,
+		StatsUpdatedAt:             &updatedAt,
+		CreatedAt:                  now,
+		UpdatedAt:                  now,
+	}
+	if err := tx.Create(&checkpoint).Error; err != nil {
+		if retryErr := tx.Where("name = ?", usageModelAggregationCheckpointName).Take(&checkpoint).Error; retryErr == nil {
+			return checkpoint, nil
+		}
+		return checkpoint, fmt.Errorf("create usage model aggregation checkpoint: %w", err)
+	}
+	return checkpoint, nil
+}
+
+func initialUsageModelAggregationCheckpointID(tx *gorm.DB) (int64, error) {
+	var maxUsageModelEventID int64
+	if err := tx.Model(&entities.UsageModel{}).Select("COALESCE(MAX(last_usage_event_id), 0)").Scan(&maxUsageModelEventID).Error; err != nil {
+		return 0, fmt.Errorf("load existing usage model checkpoint id: %w", err)
+	}
+	return maxUsageModelEventID, nil
+}
+
+func maxUsageModelEventID(events []entities.UsageEvent) int64 {
+	maxEventID := int64(0)
+	for _, event := range events {
+		if event.ID > maxEventID {
+			maxEventID = event.ID
+		}
+	}
+	return maxEventID
 }
 
 func buildUsageModelAggregates(events []entities.UsageEvent) []usageModelAggregate {

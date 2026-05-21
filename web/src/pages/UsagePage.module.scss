@@ -1703,6 +1703,12 @@
   }
 }
 
+.priceSourceField,
+.priceModelField {
+  flex: 1.4 1 180px;
+  min-width: 180px;
+}
+
 .apiKeySettingsCard:global(.card) {
   height: auto;
   min-height: auto;

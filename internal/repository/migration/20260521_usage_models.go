@@ -11,7 +11,7 @@ import (
 
 // createUsageModelsMigration creates the compact pricing model index and backfills historical usage_events.
 func createUsageModelsMigration(tx *gorm.DB) error {
-	if err := tx.AutoMigrate(&entities.UsageModel{}); err != nil {
+	if err := tx.AutoMigrate(&entities.UsageModel{}, &entities.UsageOverviewAggregationCheckpoint{}); err != nil {
 		return fmt.Errorf("auto migrate usage models: %w", err)
 	}
 	for _, stmt := range []string{
@@ -54,6 +54,24 @@ func createUsageModelsMigration(tx *gorm.DB) error {
 		GROUP BY TRIM(COALESCE(model, '')), TRIM(COALESCE(auth_type, '')), TRIM(COALESCE(auth_index, ''))
 	`, now, now).Error; err != nil {
 		return fmt.Errorf("backfill usage models: %w", err)
+	}
+	if err := tx.Exec(`
+		INSERT OR IGNORE INTO usage_overview_aggregation_checkpoints (
+			name,
+			last_aggregated_usage_event_id,
+			stats_updated_at,
+			created_at,
+			updated_at
+		)
+		SELECT
+			?,
+			COALESCE(MAX(id), 0),
+			?,
+			?,
+			?
+		FROM usage_events
+	`, "usage_models", now, now, now).Error; err != nil {
+		return fmt.Errorf("create usage model aggregation checkpoint: %w", err)
 	}
 	return nil
 }

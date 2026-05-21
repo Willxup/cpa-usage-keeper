@@ -14,6 +14,7 @@ import (
 
 type PricingProvider interface {
 	ListUsedModels(context.Context) ([]string, error)
+	ListUsedModelOptions(context.Context) ([]servicedto.UsedModelOption, error)
 	ListPricing(context.Context) ([]entities.ModelPriceSetting, error)
 	UpdatePricing(context.Context, servicedto.UpdatePricingInput) (*entities.ModelPriceSetting, error)
 	DeletePricing(context.Context, string) error
@@ -31,6 +32,22 @@ func NewPricingService(db *gorm.DB) PricingProvider {
 
 func (s *pricingService) ListUsedModels(ctx context.Context) ([]string, error) {
 	return repository.ListUsedModels(s.db.WithContext(ctx))
+}
+
+func (s *pricingService) ListUsedModelOptions(ctx context.Context) ([]servicedto.UsedModelOption, error) {
+	options, err := repository.ListUsedModelOptions(s.db.WithContext(ctx))
+	if err != nil {
+		return nil, err
+	}
+	result := make([]servicedto.UsedModelOption, 0, len(options))
+	for _, option := range options {
+		result = append(result, servicedto.UsedModelOption{
+			Value:  option.Value,
+			Source: option.Source,
+			Model:  option.Model,
+		})
+	}
+	return result, nil
 }
 
 func (s *pricingService) ListPricing(ctx context.Context) ([]entities.ModelPriceSetting, error) {
