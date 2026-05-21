@@ -23,6 +23,7 @@ type UsageEventRecord struct {
 	Timestamp           time.Time
 	APIGroupKey         string
 	Model               string
+	ReasoningEffort     string
 	AuthType            string
 	Provider            string
 	Source              string

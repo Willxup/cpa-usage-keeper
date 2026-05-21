@@ -9,6 +9,7 @@ const events: UsageEvent[] = [
     id: '101',
     timestamp: '2026-04-23T02:00:00.000Z',
     model: 'claude-sonnet',
+    reasoning_effort: 'medium',
     source: 'Provider A',
     source_raw: 'source-a',
     source_type: 'openai',
@@ -57,6 +58,8 @@ describe('RequestEventsDetailsCard pagination', () => {
     const html = renderCard();
 
     expect(html).toContain('120 total events');
+    expect(html).toContain('Reasoning Level');
+    expect(html).toContain('<td>medium</td>');
     expect(html).toContain('1 / 6');
     expect(html).toContain('20');
     expect(html).toContain('50');

@@ -1,0 +1,41 @@
+name: Question / Help
+description: Ask a usage, setup, or deployment question
+title: "[Question] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please remove sensitive information before submitting:
+        - CPA_MANAGEMENT_KEY
+        - API keys
+        - Login password
+        - Cookies / tokens
+        - Raw private logs or database files
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      placeholder: "Example: How should I configure CPA Usage Keeper when CPA and Keeper run in separate Docker containers?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Optional, but helpful for setup or deployment questions.
+      value: |
+        CPA Usage Keeper version:
+        CPA version:
+        Deployment: Docker Compose / Docker / binary / systemd / source
+        OS:
+        Browser, if this is a UI issue:
+      render: text
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried?
+      placeholder: "Example: I followed the Docker Compose section in the README, but ..."

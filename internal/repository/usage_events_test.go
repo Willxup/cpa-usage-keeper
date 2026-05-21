@@ -20,7 +20,7 @@ func TestListUsageEventsWithFilterAppliesTimeBoundsAndPagination(t *testing.T) {
 	events := []entities.UsageEvent{
 		{EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), Source: "source-a", AuthIndex: "1", TotalTokens: 10},
 		{EventKey: "event-2", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), Source: "source-b", AuthIndex: "2", TotalTokens: 20},
-		{EventKey: "event-3", APIGroupKey: "provider-b", Model: "claude-opus", Timestamp: time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC), Source: "source-c", AuthIndex: "3", TotalTokens: 30},
+		{EventKey: "event-3", APIGroupKey: "provider-b", Model: "claude-opus", ReasoningEffort: "high", Timestamp: time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC), Source: "source-c", AuthIndex: "3", TotalTokens: 30},
 	}
 	if _, _, err := InsertUsageEvents(db, events); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
@@ -40,6 +40,9 @@ func TestListUsageEventsWithFilterAppliesTimeBoundsAndPagination(t *testing.T) {
 	}
 	if page.Events[0].Source != "source-c" {
 		t.Fatalf("expected newest in-range row first, got %+v", page.Events[0])
+	}
+	if page.Events[0].ReasoningEffort != "high" {
+		t.Fatalf("expected reasoning effort to round trip, got %+v", page.Events[0])
 	}
 }
 

@@ -20,6 +20,7 @@ func TestDecodeRedisUsageMessageMapsPayloadToUsageEvent(t *testing.T) {
 		"provider":"claude",
 		"model":"claude-sonnet-4-6",
 		"alias":"claude-sonnet-alias",
+		"reasoning_effort":"medium",
 		"endpoint":"/v1/messages",
 		"auth_type":"api_key",
 		"api_key":"raw-key",
@@ -37,6 +38,9 @@ func TestDecodeRedisUsageMessageMapsPayloadToUsageEvent(t *testing.T) {
 	}
 	if event.ModelAlias == nil || *event.ModelAlias != "claude-sonnet-alias" {
 		t.Fatalf("expected model alias to decode, got %+v", event.ModelAlias)
+	}
+	if event.ReasoningEffort != "medium" {
+		t.Fatalf("expected reasoning effort to decode, got %q", event.ReasoningEffort)
 	}
 	if event.InputTokens != 10 || event.OutputTokens != 20 || event.ReasoningTokens != 3 || event.CachedTokens != 4 || event.CacheReadTokens != 5 || event.CacheCreationTokens != 6 || event.TotalTokens != 33 {
 		t.Fatalf("unexpected tokens: %+v", event)

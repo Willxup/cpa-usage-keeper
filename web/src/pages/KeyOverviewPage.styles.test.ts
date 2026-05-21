@@ -28,4 +28,16 @@ describe('KeyOverviewPage layout', () => {
     expect(styles).toMatch(/\.rangeSelectControl\s*\{[\s\S]*?width:\s*164px;/)
     expect(styles).toMatch(/\.lastRefreshed\s*\{[\s\S]*?font-size:\s*11px;/)
   })
+
+  it('uses the same soft active tab shadow as the admin usage tabs', () => {
+    const activeTabBlock = styles.slice(
+      styles.indexOf('.tabPillActive {'),
+      styles.indexOf('.toolbarActionsRight')
+    )
+
+    expect(activeTabBlock).toMatch(/border-color:\s*rgba\(\$primary-color, 0\.45\);/)
+    expect(activeTabBlock).toContain('0 0 0 1px rgba($primary-color, 0.08) inset,')
+    expect(activeTabBlock).toContain('0 4px 12px rgba($primary-color, 0.14);')
+    expect(activeTabBlock).not.toContain('box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);')
+  })
 })

@@ -232,6 +232,7 @@ func (s *usageService) ListUsageEvents(_ context.Context, filter servicedto.Usag
 			Timestamp:           row.Timestamp,
 			APIGroupKey:         row.APIGroupKey,
 			Model:               row.Model,
+			ReasoningEffort:     row.ReasoningEffort,
 			AuthType:            row.AuthType,
 			Provider:            row.Provider,
 			Source:              row.Source,

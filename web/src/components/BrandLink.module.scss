@@ -1,0 +1,17 @@
+@use '../styles/variables' as *;
+
+.brandLink {
+  text-decoration: none;
+  transition: border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+
+  &:hover {
+    border-color: rgba($primary-color, 0.42);
+    color: var(--primary-color);
+    transform: translateY(-1px);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 3px;
+  }
+}

@@ -127,6 +127,27 @@ func TestStatusReturnsEmptyStateWithoutProvider(t *testing.T) {
 	}
 }
 
+func TestBuildCPAManagementURLAppendsManagementPage(t *testing.T) {
+	got := BuildCPAManagementURL("https://cpa.example.com")
+	if got != "https://cpa.example.com/management.html" {
+		t.Fatalf("expected management URL, got %q", got)
+	}
+}
+
+func TestBuildCPAManagementURLAvoidsDoubleSlash(t *testing.T) {
+	got := BuildCPAManagementURL("https://cpa.example.com/")
+	if got != "https://cpa.example.com/management.html" {
+		t.Fatalf("expected management URL without double slash, got %q", got)
+	}
+}
+
+func TestBuildCPAManagementURLEmptyBaseURL(t *testing.T) {
+	got := BuildCPAManagementURL("")
+	if got != "" {
+		t.Fatalf("expected empty URL, got %q", got)
+	}
+}
+
 func TestStatusReturnsVersionAndUpdateCheckFlag(t *testing.T) {
 	previousVersion := version.Version
 	t.Cleanup(func() { version.Version = previousVersion })

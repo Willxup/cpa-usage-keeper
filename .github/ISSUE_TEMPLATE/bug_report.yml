@@ -1,0 +1,58 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug.
+
+        Please remove sensitive information before submitting:
+        - CPA_MANAGEMENT_KEY
+        - API keys
+        - Login password
+        - Cookies / tokens
+        - Raw private logs or database files
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem clearly.
+      placeholder: "Example: The Usage Overview page shows no data for Today, but request events exist."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce?
+      description: Steps, screenshots, or anything that helps reproduce the issue.
+      placeholder: |
+        1. Open ...
+        2. Select ...
+        3. See ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Version and deployment details.
+      value: |
+        CPA Usage Keeper version:
+        CPA version:
+        Deployment: Docker Compose / Docker / binary / systemd / source
+        OS:
+        Browser, if this is a UI issue:
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Paste relevant logs or screenshots. Please redact secrets.

@@ -31,19 +31,20 @@ func DecodeRedisUsageMessage(message string, fetchedAt time.Time) (entities.Usag
 
 // queuedUsageDetail 对应 CPA Redis 队列中的单条 usage JSON payload。
 type queuedUsageDetail struct {
-	Timestamp time.Time      `json:"timestamp"`
-	LatencyMS int64          `json:"latency_ms"`
-	Source    string         `json:"source"`
-	AuthIndex string         `json:"auth_index"`
-	Tokens    dto.TokenStats `json:"tokens"`
-	Failed    bool           `json:"failed"`
-	Provider  string         `json:"provider"`
-	Model     string         `json:"model"`
-	Alias     *string        `json:"alias"`
-	Endpoint  string         `json:"endpoint"`
-	AuthType  string         `json:"auth_type"`
-	APIKey    string         `json:"api_key"`
-	RequestID string         `json:"request_id"`
+	Timestamp       time.Time      `json:"timestamp"`
+	LatencyMS       int64          `json:"latency_ms"`
+	Source          string         `json:"source"`
+	AuthIndex       string         `json:"auth_index"`
+	Tokens          dto.TokenStats `json:"tokens"`
+	Failed          bool           `json:"failed"`
+	Provider        string         `json:"provider"`
+	Model           string         `json:"model"`
+	Alias           *string        `json:"alias"`
+	ReasoningEffort string         `json:"reasoning_effort"`
+	Endpoint        string         `json:"endpoint"`
+	AuthType        string         `json:"auth_type"`
+	APIKey          string         `json:"api_key"`
+	RequestID       string         `json:"request_id"`
 }
 
 func normalizeRedisAuthType(value string) string {
@@ -86,6 +87,7 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 		RequestID:           strings.TrimSpace(d.RequestID),
 		Model:               model,
 		ModelAlias:          trimRedisOptionalString(d.Alias),
+		ReasoningEffort:     strings.TrimSpace(d.ReasoningEffort),
 		Timestamp:           timestamp,
 		Source:              source,
 		AuthIndex:           authIndex,

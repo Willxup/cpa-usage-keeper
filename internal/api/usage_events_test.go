@@ -65,6 +65,7 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 		ID:                  42,
 		Timestamp:           time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
 		Model:               "claude-sonnet",
+		ReasoningEffort:     "medium",
 		AuthType:            "apikey",
 		Provider:            "OpenAI Mirror",
 		Source:              "sk-provider-key",
@@ -112,6 +113,9 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	}
 	if !contains(body, `"cache_read_tokens":3`) || !contains(body, `"cache_creation_tokens":4`) {
 		t.Fatalf("expected cache token fields in response body: %s", body)
+	}
+	if !contains(body, `"reasoning_effort":"medium"`) {
+		t.Fatalf("expected reasoning effort in response body: %s", body)
 	}
 	if provider.filterCalls != 1 {
 		t.Fatalf("expected ListUsageEvents to be called once, got %d", provider.filterCalls)

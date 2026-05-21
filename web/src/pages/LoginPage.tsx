@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/Input';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { useThemeStore } from '@/stores';
 import type { Theme } from '@/types';
+import { BrandLink } from '@/components/BrandLink';
 import styles from './LoginPage.module.scss';
 
 type LoginMode = 'admin' | 'api_key';
@@ -79,7 +80,7 @@ export function LoginPage({ loading = false, adminError = '', apiKeyError = '', 
           </div>
         </div>
         <div className={styles.brandBlock}>
-          <span className={styles.eyebrow}>CPA Usage Keeper</span>
+          <BrandLink className={styles.eyebrow} />
           <h1 className={styles.title}>{t('auth.login_title')}</h1>
           <p className={styles.subtitle}>{t('auth.login_subtitle')}</p>
         </div>

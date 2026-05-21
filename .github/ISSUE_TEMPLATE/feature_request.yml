@@ -1,0 +1,26 @@
+name: Feature Request
+description: Suggest an improvement or new feature
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem do you want to solve?
+      placeholder: "Example: I want to compare usage cost by API key over a custom time range."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: What would you like to happen?
+      placeholder: "Example: Add a cost comparison chart to the Analysis page."
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Screenshots, mockups, examples, or related links.

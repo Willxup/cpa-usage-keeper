@@ -74,13 +74,58 @@ describe('UsagePage toolbar styles', () => {
 
   it('lets API Key Settings content scroll inside the card instead of being clipped', () => {
     expect(usagePageStyles).toMatch(/\.apiKeySettingsCard:global\(\.card\)\s*\{[\s\S]*?min-height:\s*auto;/)
-    expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?flex:\s*1 1 auto;/)
+    expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?flex:\s*0 0 auto;/)
+    expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?height:\s*var\(--settings-list-scroll-height\);/)
     expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?min-height:\s*0;/)
     expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?overflow-y:\s*auto;/)
     expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?padding-right:\s*4px;/)
-    expect(usagePageStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.apiKeySettingsCard:global\(\.card\)\s*\{[\s\S]*?height:\s*auto;/)
-    expect(usagePageStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.apiKeySettingsBody\s*\{[\s\S]*?height:\s*480px;/)
-    expect(usagePageStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.apiKeySettingsList\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
+    const apiKeySettingsMobileBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('@include mobile {\n  .apiKeySettingsCard:global(.card)'),
+      usagePageStyles.indexOf('.pricesList')
+    )
+
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsCard:global\(\.card\)\s*\{[\s\S]*?height:\s*auto;/)
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?height:\s*var\(--settings-list-scroll-height\);/)
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsList\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsItem\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/)
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsItem\s*\{[^}]*align-items:\s*stretch;/)
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasField\s*\{[\s\S]*?width:\s*100%;/)
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasField\s*\{[\s\S]*?:global\(\.form-group\)\s*\{[\s\S]*?width:\s*100%;/)
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasField\s*\{[\s\S]*?:global\(\.form-group\)\s*\{[\s\S]*?min-width:\s*0;/)
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasField\s*\{[\s\S]*?:global\(\.form-group\)\s*\{[\s\S]*?margin-bottom:\s*0;/)
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasInput\s*\{[\s\S]*?max-width:\s*100%;/)
+  })
+
+  it('keeps Model Pricing Settings list viewport aligned with API Key Settings without shrinking it behind the form', () => {
+    const settingsSectionsBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.settingsSections {'),
+      usagePageStyles.indexOf('// Pricing Section')
+    )
+    const pricingBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.pricingFixedCard {'),
+      usagePageStyles.indexOf('.priceForm')
+    )
+    const apiKeyBodyBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.apiKeySettingsBody {'),
+      usagePageStyles.indexOf('.apiKeySettingsList')
+    )
+    const apiKeySettingsMobileBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('@include mobile {\n  .apiKeySettingsCard:global(.card)'),
+      usagePageStyles.indexOf('.pricesList')
+    )
+    const pricingGridBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.pricesGrid {'),
+      usagePageStyles.indexOf('.priceItem')
+    )
+
+    expect(settingsSectionsBlock).toMatch(/--settings-list-scroll-height:\s*480px;/)
+    expect(pricingBlock).toMatch(/\.pricingFixedCard\s*\{[\s\S]*?height:\s*auto;/)
+    expect(pricingBlock).not.toMatch(/\.pricingSection\s*\{[\s\S]*?height:\s*480px;/)
+    expect(apiKeyBodyBlock).toMatch(/height:\s*var\(--settings-list-scroll-height\);/)
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?height:\s*var\(--settings-list-scroll-height\);/)
+    expect(pricingGridBlock).toMatch(/height:\s*var\(--settings-list-scroll-height\);/)
+    expect(pricingGridBlock).toMatch(/\.pricesGrid\s*\{[\s\S]*?overflow:\s*auto;/)
+    expect(pricingGridBlock).not.toMatch(/@include mobile\s*\{[\s\S]*?overflow:\s*visible;/)
   })
 
   it('keeps the Analysis chart presentation aligned with the reference design', () => {

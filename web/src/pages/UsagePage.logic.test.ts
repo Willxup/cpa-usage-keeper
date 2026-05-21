@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildCustomDateRangeQuery, getCustomDateRangeBounds, getOverviewChartEndMs, getOverviewDisplayLoading, getOverviewHourWindowHours, getPreferredOverviewChartPeriod, getTimeRangeOptions, getUsageTabOptions, isCustomDateWithinBounds, openDateInputPicker, refreshPageData, sanitizeRequestEventFilters, scheduleOverviewAutoRefresh, shouldAutoRefreshUsageTab, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowUpdateCheckButton, getUpdateCheckToastDuration } from './UsagePage';
+import { buildCustomDateRangeQuery, getBackToCPALinkURL, getCustomDateRangeBounds, getOverviewChartEndMs, getOverviewDisplayLoading, getOverviewHourWindowHours, getPreferredOverviewChartPeriod, getTimeRangeOptions, getUsageTabOptions, isCustomDateWithinBounds, openDateInputPicker, refreshPageData, sanitizeRequestEventFilters, scheduleOverviewAutoRefresh, shouldAutoRefreshUsageTab, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowUpdateCheckButton, getUpdateCheckToastDuration } from './UsagePage';
 import { filterUsageByWindow, type UsageFilterWindow } from '@/utils/usage';
 import type { UsageSnapshot } from '@/lib/types';
 
@@ -91,6 +91,17 @@ describe('UsagePage Overview loading display', () => {
 
   it('shows loading before Overview data has loaded', () => {
     expect(getOverviewDisplayLoading({ loading: true, hasUsage: false })).toBe(true);
+  });
+});
+
+describe('UsagePage Back to CPA link', () => {
+  it('uses the CPA management URL from status', () => {
+    expect(getBackToCPALinkURL({ cpa_management_url: 'https://cpa.example.com/management.html' })).toBe('https://cpa.example.com/management.html');
+  });
+
+  it('hides the link when status does not include a CPA management URL', () => {
+    expect(getBackToCPALinkURL({})).toBe('');
+    expect(getBackToCPALinkURL(null)).toBe('');
   });
 });
 

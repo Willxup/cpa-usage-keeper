@@ -37,6 +37,7 @@ const (
 	migrationRemoveUsageEventEventKeyUniqueIndex    = "20260514_remove_usage_event_event_key_unique_index"
 	migrationAddUsageIdentitySyncMetadataFields     = "20260517_add_usage_identity_sync_metadata_fields"
 	migrationUsageOverviewRollupDimensions          = "20260518_usage_overview_rollup_dimensions"
+	migrationAddUsageEventReasoningEffort           = "20260519_add_usage_event_reasoning_effort"
 )
 
 type schemaMigration struct {
@@ -118,6 +119,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationRemoveUsageEventEventKeyUniqueIndex, run: removeUsageEventEventKeyUniqueIndexMigration},
 		{version: migrationAddUsageIdentitySyncMetadataFields, run: addUsageIdentitySyncMetadataFieldsMigration},
 		{version: migrationUsageOverviewRollupDimensions, run: usageOverviewRollupDimensionsMigration, disableTransaction: true},
+		{version: migrationAddUsageEventReasoningEffort, run: addUsageEventReasoningEffortMigration},
 	}
 }
 

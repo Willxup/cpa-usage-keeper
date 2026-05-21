@@ -266,8 +266,10 @@
 .tabPillActive {
   background: var(--bg-primary);
   color: var(--text-primary);
-  border-color: rgba($primary-color, 0.4);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+  border-color: rgba($primary-color, 0.45);
+  box-shadow:
+    0 0 0 1px rgba($primary-color, 0.08) inset,
+    0 4px 12px rgba($primary-color, 0.14);
 }
 
 .toolbarActionsRight {

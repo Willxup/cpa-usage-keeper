@@ -343,10 +343,65 @@
   display: flex;
   justify-content: flex-end;
   align-items: center;
+  gap: 10px;
   padding: 0 2px;
 
   @include mobile {
     justify-content: flex-start;
+  }
+}
+
+.toolbarMetaRight {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.backToCpaLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-secondary) 58%, transparent);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+
+  &:hover {
+    color: var(--text-primary);
+    border-color: color-mix(in srgb, var(--primary-color) 28%, var(--border-color));
+    background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
+    transform: translateY(-1px);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+}
+
+.backToCpaIcon {
+  display: inline-flex;
+  width: 13px;
+  height: 13px;
+
+  svg {
+    width: 13px;
+    height: 13px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 }
 
@@ -402,8 +457,10 @@
 .tabPillActive {
   background: var(--bg-primary);
   color: var(--text-primary);
-  border-color: rgba($primary-color, 0.4);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+  border-color: rgba($primary-color, 0.45);
+  box-shadow:
+    0 0 0 1px rgba($primary-color, 0.08) inset,
+    0 4px 12px rgba($primary-color, 0.14);
 }
 
 .toolbarActionsRight {
@@ -1566,13 +1623,15 @@
   gap: 18px;
 }
 
+.settingsSections {
+  --settings-list-scroll-height: 480px;
+}
+
 // Pricing Section (80%比例)
 .pricingFixedCard {
-  @include mobile {
-    height: auto;
-    min-height: 0;
-    overflow: visible;
-  }
+  height: auto;
+  min-height: 0;
+  overflow: visible;
 }
 
 .pricingSection {
@@ -1645,14 +1704,17 @@
 }
 
 .apiKeySettingsCard:global(.card) {
+  height: auto;
   min-height: auto;
+  overflow: visible;
 }
 
 .apiKeySettingsBody {
   display: flex;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 12px;
+  height: var(--settings-list-scroll-height);
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
@@ -1764,7 +1826,7 @@
   }
 
   .apiKeySettingsBody {
-    height: 480px;
+    height: var(--settings-list-scroll-height);
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
@@ -1777,12 +1839,28 @@
   }
 
   .apiKeySettingsItem {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
     padding: 12px;
     gap: 12px;
   }
 
   .apiKeySettingsForm {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .apiKeyAliasField {
+    width: 100%;
+
+    :global(.form-group) {
+      width: 100%;
+      min-width: 0;
+      margin-bottom: 0;
+    }
+  }
+
+  .apiKeyAliasInput {
+    max-width: 100%;
   }
 
   .apiKeySettingsActions,
@@ -1810,17 +1888,12 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
+  height: var(--settings-list-scroll-height);
   min-height: 0;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-
-  .pricingFixedCard & {
-    @include mobile {
-      overflow: visible;
-    }
-  }
 }
 
 .priceItem {

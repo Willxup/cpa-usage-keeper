@@ -19,6 +19,7 @@ import {
   useSparklines,
 } from '@/components/usage';
 import type { UsageOverviewPayload } from '@/components/usage/hooks/useUsageData';
+import { BrandLink } from '@/components/BrandLink';
 import {
   getModelNamesFromUsage,
   resolveUsageFilterWindow,
@@ -307,7 +308,7 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
       <div className={styles.pageFrame}>
         <header className={styles.topBar}>
           <div className={styles.brandBlock}>
-            <span className={styles.eyebrow}>CPA Usage Keeper</span>
+            <BrandLink className={styles.eyebrow} />
           </div>
           <div className={styles.topBarActions}>
             <span className={styles.identityChip} title={identityLabel}>

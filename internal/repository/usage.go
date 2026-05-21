@@ -14,7 +14,7 @@ import (
 )
 
 // usageEventProjectionColumns 限制 usage_events 查询列，避免 Overview 和列表页把 RawJSON 等大字段读入内存。
-const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, model, timestamp, source, auth_index, failed, latency_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, model, reasoning_effort, timestamp, source, auth_index, failed, latency_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
 
 // usageEventProjection 是 usage_events 轻量投影，专门承接 select columns 的查询结果。
 type usageEventProjection struct {
@@ -23,6 +23,7 @@ type usageEventProjection struct {
 	Provider            string
 	AuthType            string
 	Model               string
+	ReasoningEffort     string
 	Timestamp           time.Time
 	Source              string
 	AuthIndex           string
@@ -139,6 +140,7 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 		Timestamp:           timeutil.NormalizeStorageTime(event.Timestamp),
 		APIGroupKey:         strings.TrimSpace(event.APIGroupKey),
 		Model:               strings.TrimSpace(event.Model),
+		ReasoningEffort:     strings.TrimSpace(event.ReasoningEffort),
 		AuthType:            strings.TrimSpace(event.AuthType),
 		Provider:            strings.TrimSpace(event.Provider),
 		Source:              strings.TrimSpace(event.Source),
@@ -164,6 +166,7 @@ func usageEventProjectionToEntity(event usageEventProjection) entities.UsageEven
 		Provider:            event.Provider,
 		AuthType:            event.AuthType,
 		Model:               event.Model,
+		ReasoningEffort:     event.ReasoningEffort,
 		Timestamp:           event.Timestamp,
 		Source:              event.Source,
 		AuthIndex:           event.AuthIndex,
@@ -317,7 +320,14 @@ func analysisHourlyStatsEnd(filter dto.UsageQueryFilter, fullEnd time.Time) time
 	if filter.StartTime == nil || filter.EndTime == nil {
 		return fullEnd
 	}
-	if filter.Range != "today" && filter.Range != "yesterday" {
+	switch filter.Range {
+	case "4h", "8h", "12h", "24h":
+		if timeutil.NormalizeStorageTime(*filter.EndTime).After(fullEnd) {
+			return fullEnd.Add(time.Hour)
+		}
+		return fullEnd
+	case "today", "yesterday":
+	default:
 		return fullEnd
 	}
 	start := timeutil.NormalizeStorageTime(*filter.StartTime).Truncate(time.Hour)
