@@ -505,6 +505,8 @@ func (r *RedisIngestRunner) runRedisPullMode(ctx context.Context) error {
 		// 固定 redis_pull 模式优先从 Redis 队列拉取。
 		count, err := r.serialPullAndWrite(ctx, RedisIngestSourceRedisPull, r.redisSource)
 		if err == nil {
+			// Redis 成功表示固定 redis_pull 链路恢复，清掉状态快照中的旧失败。
+			r.recordAvailable(RedisIngestSyncModeRedisPull, RedisIngestSubStateRedisPullActive, pullStatus(count), count)
 			// Redis 成功后清掉失败退避。
 			r.failureBackoff.Reset()
 			if count > 0 {

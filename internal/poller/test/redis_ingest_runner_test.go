@@ -194,6 +194,47 @@ func TestRedisIngestRunnerSubscribeReceivingReportsSyncRunning(t *testing.T) {
 	}
 }
 
+func TestRedisIngestRunnerRedisPullRecoveryClearsStatusError(t *testing.T) {
+	writer := newFakeInboxWriter()
+	redisSource := &fakePullSource{
+		errs: []error{
+			nil,
+			errors.New("redis failed"),
+			nil,
+		},
+		batches: [][]string{
+			{`{"request_id":"redis-initial"}`},
+			{`{"request_id":"redis-recovered"}`},
+		},
+	}
+	runner := poller.NewRedisIngestRunner(
+		fakeSubscribeSource{err: errors.New("subscribe unavailable")},
+		redisSource,
+		&fakePullSource{err: errors.New("http failed")},
+		writer,
+		poller.RedisIngestRunnerConfig{IdleInterval: 10 * time.Millisecond, BatchSize: 10, HTTPBackoffInitial: 10 * time.Millisecond, HTTPBackoffMax: 10 * time.Millisecond},
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = runner.Run(ctx) }()
+
+	initial := writer.waitForInsert(t)
+	if initial.source != poller.RedisIngestSourceRedisPull {
+		t.Fatalf("expected initial Redis source, got %q", initial.source)
+	}
+	_ = waitForStatus(t, runner, func(status poller.Status) bool {
+		return strings.Contains(status.LastError, "redis failed") && strings.Contains(status.LastError, "http failed") && !status.SyncRunning
+	})
+	recovered := writer.waitForInsert(t)
+	if recovered.source != poller.RedisIngestSourceRedisPull {
+		t.Fatalf("expected recovered Redis source, got %q", recovered.source)
+	}
+	_ = waitForStatus(t, runner, func(status poller.Status) bool {
+		return status.LastError == "" && status.LastWarning == "" && status.SyncRunning
+	})
+	cancel()
+}
+
 func TestRedisIngestRunnerDegradedHTTPSuccessClearsStatusError(t *testing.T) {
 	writer := newFakeInboxWriter()
 	runner := poller.NewRedisIngestRunner(
