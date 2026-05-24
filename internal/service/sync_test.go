@@ -265,6 +265,17 @@ func TestProcessRedisUsageInboxPersistsEventsWithoutSnapshot(t *testing.T) {
 	if checkpoint.LastAggregatedUsageEventID != event.ID {
 		t.Fatalf("expected overview checkpoint to aggregate through event %d, got %+v", event.ID, checkpoint)
 	}
+	var modelCheckpoint entities.UsageOverviewAggregationCheckpoint
+	if err := db.Where("name = ?", "usage_models").First(&modelCheckpoint).Error; err != nil {
+		t.Fatalf("expected usage model aggregation checkpoint after processing inbox: %v", err)
+	}
+	if modelCheckpoint.LastAggregatedUsageEventID != event.ID {
+		t.Fatalf("expected usage model checkpoint to aggregate through event %d, got %+v", event.ID, modelCheckpoint)
+	}
+	var usageModel entities.UsageModel
+	if err := db.Where("model = ? AND auth_type = ? AND auth_index = ?", "sonnet", "apikey", "").First(&usageModel).Error; err != nil {
+		t.Fatalf("expected usage model row after processing inbox: %v", err)
+	}
 }
 
 func TestProcessRedisUsageInboxRollsBackEventsWhenProcessedMarkFails(t *testing.T) {
@@ -336,6 +347,38 @@ func TestProcessRedisUsageInboxRetriesOverviewAggregationWhenInboxIsEmpty(t *tes
 	}
 	if checkpoint.LastAggregatedUsageEventID == 0 {
 		t.Fatalf("expected empty process catch-up to aggregate stale usage events, got %+v", checkpoint)
+	}
+}
+
+func TestProcessRedisUsageInboxRetriesUsageModelAggregationWhenInboxIsEmpty(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	inserted, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
+		EventKey: "stale-model-event", AuthType: "apikey", AuthIndex: "auth-a", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 27, 8, 0, 0, 0, time.UTC), TotalTokens: 10,
+	}})
+	if err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+	if inserted != 1 {
+		t.Fatalf("expected one inserted event, got %d", inserted)
+	}
+	if err := repository.AggregateUsageOverviewStats(context.Background(), db, time.Date(2026, 4, 27, 8, 1, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("AggregateUsageOverviewStats returned error: %v", err)
+	}
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{BaseURL: "https://cpa.example.com"})
+
+	result, err := service.ProcessRedisUsageInbox(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
+	}
+	if result == nil || !result.Empty || result.Status != "empty" {
+		t.Fatalf("unexpected empty process result: %+v", result)
+	}
+	var row entities.UsageModel
+	if err := db.Where("model = ? AND auth_type = ? AND auth_index = ?", "claude-sonnet", "apikey", "auth-a").First(&row).Error; err != nil {
+		t.Fatalf("expected empty process catch-up to aggregate usage models: %v", err)
+	}
+	if row.RequestCount != 1 {
+		t.Fatalf("expected usage model request count 1, got %+v", row)
 	}
 }
 
