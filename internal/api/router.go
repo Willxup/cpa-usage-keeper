@@ -33,7 +33,7 @@ type QuotaProvider interface {
 }
 
 type StatusRouteConfig struct {
-	CPAManagementURL string
+	CPAPublicURL string
 }
 
 type OptionalProviders struct {
@@ -229,19 +229,11 @@ type statusResponse struct {
 	Timezone           string     `json:"timezone"`
 	Version            string     `json:"version"`
 	UpdateCheckEnabled bool       `json:"updateCheckEnabled"`
-	CPAManagementURL   string     `json:"cpa_management_url,omitempty"`
+	CPAPublicURL       string     `json:"cpa_public_url,omitempty"`
 	LastRunAt          *time.Time `json:"last_run_at,omitempty"`
 	LastError          string     `json:"last_error,omitempty"`
 	LastWarning        string     `json:"last_warning,omitempty"`
 	LastStatus         string     `json:"last_status,omitempty"`
-}
-
-func BuildCPAManagementURL(baseURL string) string {
-	trimmed := strings.TrimSpace(baseURL)
-	if trimmed == "" {
-		return ""
-	}
-	return strings.TrimRight(trimmed, "/") + "/management.html"
 }
 
 func registerStatusRoutes(router gin.IRoutes, statusProvider StatusProvider, config StatusRouteConfig) {
@@ -262,7 +254,7 @@ func buildStatusResponse(status poller.Status, config StatusRouteConfig) statusR
 		Timezone:           time.Local.String(),
 		Version:            version.Version,
 		UpdateCheckEnabled: updatecheck.IsStableVersion(version.Version),
-		CPAManagementURL:   config.CPAManagementURL,
+		CPAPublicURL:       config.CPAPublicURL,
 		LastError:          status.LastError,
 		LastWarning:        status.LastWarning,
 		LastStatus:         status.LastStatus,

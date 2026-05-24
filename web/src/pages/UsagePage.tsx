@@ -115,6 +115,10 @@ const REQUEST_EVENTS_PAGE_SIZES = [20, 50, 100, 500, 1000] as const;
 const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 100;
 const ALL_REQUEST_EVENTS_FILTER = '__all__';
 const OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
+const CPA_MANAGEMENT_PAGE = 'management.html';
+const ABSOLUTE_HTTP_URL_PATTERN = /^https?:\/\//i;
+const EXPLICIT_URL_SCHEME_PATTERN = /^[a-z][a-z\d+.-]*:/i;
+const BARE_HOST_WITH_PORT_PATTERN = /^[a-z0-9.-]+:\d+(?:[/?#]|$)/i;
 
 export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'settings' && tab !== 'credentials';
 
@@ -122,7 +126,48 @@ export const shouldShowApiKeyFilter = (tab: UsageTab) => shouldShowRangeControls
 
 export const shouldShowUpdateCheckButton = (status: Pick<StatusResponse, 'updateCheckEnabled'> | null) => status?.updateCheckEnabled === true;
 
-export const getBackToCPALinkURL = (status: Pick<StatusResponse, 'cpa_management_url'> | null) => status?.cpa_management_url ?? '';
+const getBrowserOrigin = () => (typeof window === 'undefined' ? '' : window.location.origin);
+
+const getProtocolForBareHost = (currentOrigin: string) => {
+  try {
+    return new URL(currentOrigin).protocol;
+  } catch {
+    return typeof window === 'undefined' ? 'https:' : window.location.protocol;
+  }
+};
+
+const prepareCPAPublicURL = (rawURL: string, currentOrigin: string) => {
+  const trimmed = rawURL.trim();
+  if (!trimmed) return '';
+  if (ABSOLUTE_HTTP_URL_PATTERN.test(trimmed) || trimmed.startsWith('//') || trimmed.startsWith('/')) {
+    return trimmed;
+  }
+  if (EXPLICIT_URL_SCHEME_PATTERN.test(trimmed) && !BARE_HOST_WITH_PORT_PATTERN.test(trimmed)) {
+    return '';
+  }
+  return `${getProtocolForBareHost(currentOrigin)}//${trimmed}`;
+};
+
+export const getBackToCPALinkURL = (
+  status: Pick<StatusResponse, 'cpa_public_url'> | null,
+  currentOrigin = getBrowserOrigin(),
+) => {
+  const preparedURL = prepareCPAPublicURL(status?.cpa_public_url ?? currentOrigin, currentOrigin);
+  if (!preparedURL) return '';
+
+  try {
+    const parsedURL = currentOrigin ? new URL(preparedURL, currentOrigin) : new URL(preparedURL);
+    if (!parsedURL.pathname.endsWith(`/${CPA_MANAGEMENT_PAGE}`)) {
+      const basePath = parsedURL.pathname.replace(/\/+$/, '');
+      parsedURL.pathname = basePath ? `${basePath}/${CPA_MANAGEMENT_PAGE}` : `/${CPA_MANAGEMENT_PAGE}`;
+      parsedURL.search = '';
+      parsedURL.hash = '';
+    }
+    return parsedURL.toString();
+  } catch {
+    return '';
+  }
+};
 
 export const getUpdateCheckToastDuration = (kind: 'success' | 'info' | 'error') => (kind === 'error' ? 6_000 : 4_000);
 

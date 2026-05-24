@@ -127,27 +127,6 @@ func TestStatusReturnsEmptyStateWithoutProvider(t *testing.T) {
 	}
 }
 
-func TestBuildCPAManagementURLAppendsManagementPage(t *testing.T) {
-	got := BuildCPAManagementURL("https://cpa.example.com")
-	if got != "https://cpa.example.com/management.html" {
-		t.Fatalf("expected management URL, got %q", got)
-	}
-}
-
-func TestBuildCPAManagementURLAvoidsDoubleSlash(t *testing.T) {
-	got := BuildCPAManagementURL("https://cpa.example.com/")
-	if got != "https://cpa.example.com/management.html" {
-		t.Fatalf("expected management URL without double slash, got %q", got)
-	}
-}
-
-func TestBuildCPAManagementURLEmptyBaseURL(t *testing.T) {
-	got := BuildCPAManagementURL("")
-	if got != "" {
-		t.Fatalf("expected empty URL, got %q", got)
-	}
-}
-
 func TestStatusReturnsVersionAndUpdateCheckFlag(t *testing.T) {
 	previousVersion := version.Version
 	t.Cleanup(func() { version.Version = previousVersion })
@@ -164,6 +143,42 @@ func TestStatusReturnsVersionAndUpdateCheckFlag(t *testing.T) {
 	body := resp.Body.String()
 	if !contains(body, `"version":"v1.2.3"`) || !contains(body, `"updateCheckEnabled":true`) {
 		t.Fatalf("unexpected response body: %s", body)
+	}
+}
+
+func TestStatusReturnsCPAPublicURL(t *testing.T) {
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{
+		Status: StatusRouteConfig{CPAPublicURL: "https://cpa.public.example.com/"},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	body := resp.Body.String()
+	if !contains(body, `"cpa_public_url":"https://cpa.public.example.com/"`) {
+		t.Fatalf("expected CPA public URL in status response, got %s", body)
+	}
+	if contains(body, "cpa_management_url") {
+		t.Fatalf("expected status response to use cpa_public_url instead of cpa_management_url, got %s", body)
+	}
+}
+
+func TestStatusOmitsCPAPublicURLWhenUnset(t *testing.T) {
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{
+		Status: StatusRouteConfig{},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	if body := resp.Body.String(); contains(body, "cpa_public_url") || contains(body, "cpa_management_url") {
+		t.Fatalf("expected status response to omit CPA browser URL fields when unset, got %s", body)
 	}
 }
 

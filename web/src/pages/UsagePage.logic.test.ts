@@ -95,13 +95,32 @@ describe('UsagePage Overview loading display', () => {
 });
 
 describe('UsagePage Back to CPA link', () => {
-  it('uses the CPA management URL from status', () => {
-    expect(getBackToCPALinkURL({ cpa_management_url: 'https://cpa.example.com/management.html' })).toBe('https://cpa.example.com/management.html');
+  it('uses the CPA public URL from status', () => {
+    expect(getBackToCPALinkURL({ cpa_public_url: 'https://cpa.example.com' }, 'https://keeper.example.com')).toBe('https://cpa.example.com/management.html');
   });
 
-  it('hides the link when status does not include a CPA management URL', () => {
-    expect(getBackToCPALinkURL({})).toBe('');
-    expect(getBackToCPALinkURL(null)).toBe('');
+  it('uses the current origin when status does not include a CPA public URL', () => {
+    expect(getBackToCPALinkURL({}, 'https://cpa.domain.com')).toBe('https://cpa.domain.com/management.html');
+    expect(getBackToCPALinkURL(null, 'https://cpa.domain.com')).toBe('https://cpa.domain.com/management.html');
+  });
+
+  it('normalizes trailing slashes and existing management pages', () => {
+    expect(getBackToCPALinkURL({ cpa_public_url: 'https://cpa.example.com/' }, 'https://keeper.example.com')).toBe('https://cpa.example.com/management.html');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'https://cpa.example.com/cpa/' }, 'https://keeper.example.com')).toBe('https://cpa.example.com/cpa/management.html');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'https://cpa.example.com/management.html' }, 'https://keeper.example.com')).toBe('https://cpa.example.com/management.html');
+  });
+
+  it('supports relative public paths and bare host names', () => {
+    expect(getBackToCPALinkURL({ cpa_public_url: '/cpa/' }, 'https://keeper.example.com')).toBe('https://keeper.example.com/cpa/management.html');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'cpa.domain.com/' }, 'https://keeper.example.com')).toBe('https://cpa.domain.com/management.html');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'cpa.domain.com:8317/' }, 'https://keeper.example.com')).toBe('https://cpa.domain.com:8317/management.html');
+  });
+
+  it('rejects explicit non-http public URL schemes', () => {
+    expect(getBackToCPALinkURL({ cpa_public_url: 'javascript://alert(1)' }, 'https://keeper.example.com')).toBe('');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'data://text/html,<script>alert(1)</script>' }, 'https://keeper.example.com')).toBe('');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'file:///etc/passwd' }, 'https://keeper.example.com')).toBe('');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'ftp://cpa.example.com' }, 'https://keeper.example.com')).toBe('');
   });
 });
 

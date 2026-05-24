@@ -159,7 +159,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 				UsageIdentity: usageIdentityService,
 				Quota:         quotaService,
 				CPAAPIKeys:    cpaAPIKeyService,
-				Status:        api.StatusRouteConfig{CPAManagementURL: api.BuildCPAManagementURL(cfg.CPABaseURL)},
+				Status:        api.StatusRouteConfig{CPAPublicURL: cfg.CPAPublicURL},
 			},
 		),
 	}, nil
