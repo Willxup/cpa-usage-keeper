@@ -7,3 +7,10 @@ type ModelPriceSettingInput struct {
 	CompletionPricePer1M float64
 	CachePricePer1M      float64
 }
+
+// UsedModelOption 是定价页面可选择的模型项；Value 是最终保存的 pricing key。
+type UsedModelOption struct {
+	Value  string
+	Source string
+	Model  string
+}

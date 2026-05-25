@@ -1,34 +1,70 @@
 package repository
 
 import (
-	"cpa-usage-keeper/internal/repository/dto"
+	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/repository/dto"
 	"gorm.io/gorm"
 )
 
 func TestListUsedModelsReturnsDistinctSortedModels(t *testing.T) {
 	db := openPricingTestDatabase(t)
+	now := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	if err := db.Create(&entities.UsageIdentity{
+		Name:         "provider-a",
+		AuthType:     entities.UsageIdentityAuthTypeAIProvider,
+		AuthTypeName: "apikey",
+		Identity:     "auth-a",
+		Type:         "claude",
+		Provider:     "provider-a",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("seed usage identity: %v", err)
+	}
 
 	events := []entities.UsageEvent{
-		{EventKey: "1", Model: "claude-sonnet", Timestamp: time.Unix(1, 0)},
+		{EventKey: "1", Model: "claude-sonnet", AuthType: "apikey", AuthIndex: "auth-a", Timestamp: time.Unix(1, 0)},
 		{EventKey: "2", Model: "claude-haiku", Timestamp: time.Unix(2, 0)},
-		{EventKey: "3", Model: "claude-sonnet", Timestamp: time.Unix(3, 0)},
+		{EventKey: "3", Model: "claude-sonnet", AuthType: "apikey", AuthIndex: "auth-a", Timestamp: time.Unix(3, 0)},
 	}
 	if _, _, err := InsertUsageEvents(db, events); err != nil {
 		t.Fatalf("insert usage events: %v", err)
+	}
+	if err := AggregateUsageModels(context.Background(), db, now); err != nil {
+		t.Fatalf("aggregate usage models: %v", err)
 	}
 
 	modelsList, err := ListUsedModels(db)
 	if err != nil {
 		t.Fatalf("list used models: %v", err)
 	}
-	if len(modelsList) != 2 || modelsList[0] != "claude-haiku" || modelsList[1] != "claude-sonnet" {
+	expected := []string{"claude-haiku", "claude-sonnet", "provider-a/claude-sonnet"}
+	if strings.Join(modelsList, ",") != strings.Join(expected, ",") {
 		t.Fatalf("unexpected models: %#v", modelsList)
+	}
+
+	options, err := ListUsedModelOptions(db)
+	if err != nil {
+		t.Fatalf("list used model options: %v", err)
+	}
+	optionValues := make([]string, 0, len(options))
+	for _, option := range options {
+		optionValues = append(optionValues, option.Value+"|"+option.Source+"|"+option.Model)
+	}
+	expectedOptions := []string{
+		"claude-haiku||claude-haiku",
+		"claude-sonnet||claude-sonnet",
+		"provider-a/claude-sonnet|provider-a|claude-sonnet",
+	}
+	if strings.Join(optionValues, ",") != strings.Join(expectedOptions, ",") {
+		t.Fatalf("unexpected model options: %#v", options)
 	}
 }
 
@@ -67,6 +103,104 @@ func TestUpsertModelPriceSettingCreatesAndUpdatesRow(t *testing.T) {
 	}
 	if len(settings) != 1 || settings[0].CompletionPricePer1M != 16 {
 		t.Fatalf("unexpected settings: %#v", settings)
+	}
+}
+
+func TestListUsedModelOptionsExcludesDeletedIdentities(t *testing.T) {
+	db := openPricingTestDatabase(t)
+	now := time.Date(2026, 5, 25, 12, 0, 0, 0, time.UTC)
+	deleted := true
+
+	for _, identity := range []entities.UsageIdentity{
+		{Name: "active-provider", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "key-active", Type: "claude", Provider: "active-provider", CreatedAt: now, UpdatedAt: now},
+		{Name: "deleted-provider", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "key-deleted", Type: "claude", Provider: "deleted-provider", IsDeleted: true, Disabled: &deleted, CreatedAt: now, UpdatedAt: now, DeletedAt: &now},
+	} {
+		if err := db.Create(&identity).Error; err != nil {
+			t.Fatalf("seed identity: %v", err)
+		}
+	}
+
+	events := []entities.UsageEvent{
+		{EventKey: "1", Model: "model-a", AuthType: "apikey", AuthIndex: "key-active", Timestamp: time.Unix(1, 0)},
+		{EventKey: "2", Model: "model-a", AuthType: "apikey", AuthIndex: "key-deleted", Timestamp: time.Unix(2, 0)},
+	}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+	if err := AggregateUsageModels(context.Background(), db, now); err != nil {
+		t.Fatalf("aggregate: %v", err)
+	}
+
+	options, err := ListUsedModelOptions(db)
+	if err != nil {
+		t.Fatalf("list options: %v", err)
+	}
+	sources := make(map[string]bool)
+	for _, opt := range options {
+		if opt.Source != "" {
+			sources[opt.Source] = true
+		}
+	}
+	if sources["deleted-provider"] {
+		t.Fatalf("deleted identity should not appear as source, got options: %#v", options)
+	}
+	if !sources["active-provider"] {
+		t.Fatalf("active identity should appear as source, got options: %#v", options)
+	}
+}
+
+func TestMigratePricingSourcePrefixRenamesMatchingKeys(t *testing.T) {
+	db := openPricingTestDatabase(t)
+
+	for _, model := range []string{"claude(old.host)/opus", "claude(old.host)/sonnet", "plain-model"} {
+		if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: model, PromptPricePer1M: 1}); err != nil {
+			t.Fatalf("seed pricing: %v", err)
+		}
+	}
+
+	if err := MigratePricingSourcePrefix(db, "claude(old.host)", "claude(new.host)"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	settings, err := ListModelPriceSettings(db)
+	if err != nil {
+		t.Fatalf("list settings: %v", err)
+	}
+	models := make(map[string]bool, len(settings))
+	for _, s := range settings {
+		models[s.Model] = true
+	}
+	if models["claude(old.host)/opus"] || models["claude(old.host)/sonnet"] {
+		t.Fatalf("old prefix should be gone, got: %v", models)
+	}
+	if !models["claude(new.host)/opus"] || !models["claude(new.host)/sonnet"] {
+		t.Fatalf("new prefix should exist, got: %v", models)
+	}
+	if !models["plain-model"] {
+		t.Fatalf("unrelated model should be untouched, got: %v", models)
+	}
+}
+
+func TestMigratePricingSourcePrefixSkipsNoOp(t *testing.T) {
+	db := openPricingTestDatabase(t)
+
+	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "src/model", PromptPricePer1M: 1}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	for _, tc := range []struct{ old, new string }{
+		{"", "new"},
+		{"old", ""},
+		{"same", "same"},
+	} {
+		if err := MigratePricingSourcePrefix(db, tc.old, tc.new); err != nil {
+			t.Fatalf("migrate(%q, %q): %v", tc.old, tc.new, err)
+		}
+	}
+
+	settings, _ := ListModelPriceSettings(db)
+	if len(settings) != 1 || settings[0].Model != "src/model" {
+		t.Fatalf("should be untouched, got: %#v", settings)
 	}
 }
 

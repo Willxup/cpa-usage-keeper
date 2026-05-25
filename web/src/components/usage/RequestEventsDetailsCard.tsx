@@ -12,6 +12,7 @@ import {
   formatUsd,
   LATENCY_SOURCE_FIELD,
   normalizeAuthIndex,
+  resolveModelPrice,
   type ModelPrice,
 } from '@/utils/usage';
 import { downloadBlob } from '@/utils/download';
@@ -160,8 +161,7 @@ export function RequestEventsDetailsCard({
       const cachedTokens = Math.max(toNumber(event.tokens?.cached_tokens), 0);
       const totalTokens = Math.max(toNumber(event.tokens?.total_tokens), 0);
       const latencyMs = Number.isFinite(event.latency_ms) ? event.latency_ms : null;
-      const pricing = modelPrices[model];
-      const cost = calculateCost({
+      const pricingDetail = {
         timestamp,
         source,
         source_raw: sourceRaw,
@@ -177,7 +177,9 @@ export function RequestEventsDetailsCard({
           total_tokens: totalTokens,
         },
         __modelName: model,
-      }, modelPrices);
+      };
+      const pricing = resolveModelPrice(pricingDetail, modelPrices);
+      const cost = calculateCost(pricingDetail, modelPrices);
 
       return {
         id: event.id ? String(event.id) : `${timestamp}-${model}-${sourceRaw || source}-${authIndex}-${index}`,

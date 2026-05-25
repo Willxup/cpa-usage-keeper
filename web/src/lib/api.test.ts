@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appPath, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchKeyOverview, fetchUsageOverview, fetchUsageQuotaCache, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, loginWithCPAAPIKey, logout, refreshUsageQuotas, updateCpaApiKeyAlias } from './api';
+import { appPath, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchKeyOverview, fetchUsageOverview, fetchUsageQuotaCache, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, fetchUsedModels, loginWithCPAAPIKey, logout, refreshUsageQuotas, updateCpaApiKeyAlias } from './api';
 
 describe('fetchUsageEvents', () => {
   afterEach(() => {
@@ -107,6 +107,30 @@ describe('fetchUsageEvents', () => {
     expect(parsed.pathname).toBe('/api/v1/usage/events/filters/sources');
     expect(parsed.search).toBe('');
     expect(init).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
+  });
+
+  it('loads used model options for pricing', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        models: ['claude-sonnet', 'provider-a/claude-sonnet'],
+        model_options: [
+          { value: 'claude-sonnet', source: '', model: 'claude-sonnet' },
+          { value: 'provider-a/claude-sonnet', source: 'provider-a', model: 'claude-sonnet' },
+        ],
+      }),
+    } as Response);
+    const signal = new AbortController().signal;
+
+    const response = await fetchUsedModels(signal);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(url), 'http://localhost');
+
+    expect(response.model_options?.[1]).toEqual({ value: 'provider-a/claude-sonnet', source: 'provider-a', model: 'claude-sonnet' });
+    expect(parsed.pathname).toBe('/api/v1/models/used');
+    expect(init).toMatchObject({ credentials: 'include', signal });
   });
 
   it('passes pagination and server-side filters as query params', async () => {

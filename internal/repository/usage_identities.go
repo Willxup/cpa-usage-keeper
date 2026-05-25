@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
 
@@ -41,7 +42,6 @@ func ReplaceUsageIdentitiesForProviderTypes(ctx context.Context, db *gorm.DB, id
 		return fmt.Errorf("database is nil")
 	}
 
-	// Provider metadata 只允许刷新 AI provider 身份，输入类型和 identity 先统一规范化。
 	normalized, incomingIdentities := normalizeUsageIdentities(identities, entities.UsageIdentityAuthTypeAIProvider)
 	types := normalizeProviderTypes(providerTypes)
 
@@ -50,30 +50,30 @@ func ReplaceUsageIdentitiesForProviderTypes(ctx context.Context, db *gorm.DB, id
 		if err != nil {
 			return fmt.Errorf("list provider usage identities for sync: %w", err)
 		}
-		// 先同步本次成功拉到的 provider identity，CPA 返回的历史 deleted provider 会在这里恢复 active。
+		oldDisplayNames, err := loadUsageIdentityDisplayNames(tx, entities.UsageIdentityAuthTypeAIProvider)
+		if err != nil {
+			return fmt.Errorf("load old provider display names for pricing migration: %w", err)
+		}
 		if err := syncUsageIdentities(tx, normalized, existingRows); err != nil {
 			return err
 		}
-		if len(types) == 0 {
-			return nil
-		}
 
-		// fetched provider type 也按批次切分，避免极端情况下 type IN 变量过多。
-		for start := 0; start < len(types); start += insertBatchSize(entities.UsageIdentity{}) {
-			end := min(start+insertBatchSize(entities.UsageIdentity{}), len(types))
-			// 每批只处理本次成功 fetch 的 provider type；未返回且仍 active 的身份才会被标记 deleted。
-			staleRows, err := listUsageIdentitySyncRows(tx.Model(&entities.UsageIdentity{}).
-				Where("auth_type = ? AND is_deleted = ?", entities.UsageIdentityAuthTypeAIProvider, false).
-				Where("type IN ?", types[start:end]))
-			if err != nil {
-				return fmt.Errorf("list stale provider usage identities: %w", err)
-			}
-			if err := markStaleUsageIdentityRowsDeleted(tx, staleRows, incomingIdentities, now, "mark stale provider usage identities deleted"); err != nil {
-				return err
+		if len(types) > 0 {
+			for start := 0; start < len(types); start += insertBatchSize(entities.UsageIdentity{}) {
+				end := min(start+insertBatchSize(entities.UsageIdentity{}), len(types))
+				staleRows, err := listUsageIdentitySyncRows(tx.Model(&entities.UsageIdentity{}).
+					Where("auth_type = ? AND is_deleted = ?", entities.UsageIdentityAuthTypeAIProvider, false).
+					Where("type IN ?", types[start:end]))
+				if err != nil {
+					return fmt.Errorf("list stale provider usage identities: %w", err)
+				}
+				if err := markStaleUsageIdentityRowsDeleted(tx, staleRows, incomingIdentities, now, "mark stale provider usage identities deleted"); err != nil {
+					return err
+				}
 			}
 		}
 
-		return nil
+		return migrateUsageIdentityPricingKeys(tx, normalized, oldDisplayNames)
 	})
 }
 
@@ -489,4 +489,68 @@ func usageIdentityMetadataUpdates(identity entities.UsageIdentity) map[string]an
 		"deleted_at":     nil,
 		"updated_at":     identity.UpdatedAt,
 	}
+}
+
+func loadUsageIdentityDisplayNames(tx *gorm.DB, authType entities.UsageIdentityAuthType) (map[string]string, error) {
+	var identities []entities.UsageIdentity
+	if err := tx.Select("auth_type, identity, name, type, provider, prefix, base_url").
+		Where("auth_type = ? AND is_deleted = ?", authType, false).
+		Find(&identities).Error; err != nil {
+		return nil, fmt.Errorf("load usage identity display names: %w", err)
+	}
+	names := make(map[string]string, len(identities))
+	for _, identity := range identities {
+		key := usageIdentitySyncKey(identity.AuthType, identity.Identity)
+		name := strings.TrimSpace(helper.UsageIdentityDisplayName(identity))
+		if name != "" {
+			names[key] = name
+		}
+	}
+	return names, nil
+}
+
+func migrateUsageIdentityPricingKeys(tx *gorm.DB, identities []entities.UsageIdentity, oldDisplayNames map[string]string) error {
+	if len(oldDisplayNames) == 0 {
+		return nil
+	}
+	currentDisplayNames, err := loadUsageIdentityDisplayNames(tx, entities.UsageIdentityAuthTypeAIProvider)
+	if err != nil {
+		return err
+	}
+	currentNameSet := make(map[string]struct{}, len(currentDisplayNames))
+	for _, name := range currentDisplayNames {
+		if name != "" {
+			currentNameSet[name] = struct{}{}
+		}
+	}
+
+	migrations := make(map[string]string)
+	for _, identity := range identities {
+		if identity.AuthType != entities.UsageIdentityAuthTypeAIProvider {
+			continue
+		}
+		key := usageIdentitySyncKey(identity.AuthType, identity.Identity)
+		oldName, ok := oldDisplayNames[key]
+		if !ok || oldName == "" {
+			continue
+		}
+		newName := strings.TrimSpace(helper.UsageIdentityDisplayName(identity))
+		if oldName == newName || newName == "" {
+			continue
+		}
+		if _, stillUsed := currentNameSet[oldName]; stillUsed {
+			continue
+		}
+		if existing, conflict := migrations[oldName]; conflict && existing != newName {
+			continue
+		}
+		migrations[oldName] = newName
+	}
+
+	for oldName, newName := range migrations {
+		if err := MigratePricingSourcePrefix(tx, oldName, newName); err != nil {
+			return fmt.Errorf("migrate pricing source prefix %q to %q: %w", oldName, newName, err)
+		}
+	}
+	return nil
 }

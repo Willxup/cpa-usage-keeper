@@ -12,16 +12,28 @@ import (
 )
 
 type pricingStub struct {
-	usedModels []string
-	pricing    []entities.ModelPriceSetting
-	updated    *entities.ModelPriceSetting
-	lastUpdate *servicedto.UpdatePricingInput
-	deleted    string
-	err        error
+	usedModels       []string
+	usedModelOptions []servicedto.UsedModelOption
+	pricing          []entities.ModelPriceSetting
+	updated          *entities.ModelPriceSetting
+	lastUpdate       *servicedto.UpdatePricingInput
+	deleted          string
+	err              error
 }
 
 func (s pricingStub) ListUsedModels(context.Context) ([]string, error) {
 	return s.usedModels, s.err
+}
+
+func (s pricingStub) ListUsedModelOptions(context.Context) ([]servicedto.UsedModelOption, error) {
+	if len(s.usedModelOptions) > 0 {
+		return s.usedModelOptions, s.err
+	}
+	options := make([]servicedto.UsedModelOption, 0, len(s.usedModels))
+	for _, model := range s.usedModels {
+		options = append(options, servicedto.UsedModelOption{Value: model, Model: model})
+	}
+	return options, s.err
 }
 
 func (s pricingStub) ListPricing(context.Context) ([]entities.ModelPriceSetting, error) {
@@ -47,6 +59,9 @@ func TestPricingRoutesReturnEmptyResponsesWithoutProvider(t *testing.T) {
 	if usedResp.Code != http.StatusOK || !contains(usedResp.Body.String(), `"models":[]`) {
 		t.Fatalf("unexpected used models response: %d %s", usedResp.Code, usedResp.Body.String())
 	}
+	if !contains(usedResp.Body.String(), `"model_options":[]`) {
+		t.Fatalf("expected empty model options response: %d %s", usedResp.Code, usedResp.Body.String())
+	}
 
 	pricingReq := httptest.NewRequest(http.MethodGet, "/api/v1/pricing", nil)
 	pricingResp := httptest.NewRecorder()
@@ -58,7 +73,7 @@ func TestPricingRoutesReturnEmptyResponsesWithoutProvider(t *testing.T) {
 
 func TestPricingRoutesReturnConfiguredData(t *testing.T) {
 	router := NewRouter(nil, nil, nil, &pricingStub{
-		usedModels: []string{"claude-sonnet"},
+		usedModelOptions: []servicedto.UsedModelOption{{Value: "claude-sonnet", Model: "claude-sonnet"}},
 		pricing: []entities.ModelPriceSetting{{
 			Model:                "claude-sonnet",
 			PromptPricePer1M:     3,
@@ -72,6 +87,9 @@ func TestPricingRoutesReturnConfiguredData(t *testing.T) {
 	router.ServeHTTP(usedResp, usedReq)
 	if usedResp.Code != http.StatusOK || !contains(usedResp.Body.String(), `claude-sonnet`) {
 		t.Fatalf("unexpected used models response: %d %s", usedResp.Code, usedResp.Body.String())
+	}
+	if !contains(usedResp.Body.String(), `"model_options":[{"value":"claude-sonnet","source":"","model":"claude-sonnet"}]`) {
+		t.Fatalf("unexpected used model options response: %d %s", usedResp.Code, usedResp.Body.String())
 	}
 
 	pricingReq := httptest.NewRequest(http.MethodGet, "/api/v1/pricing", nil)

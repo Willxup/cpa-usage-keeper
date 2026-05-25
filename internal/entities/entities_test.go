@@ -10,6 +10,7 @@ func TestAllIncludesCoreModels(t *testing.T) {
 	expected := []any{
 		&UsageEvent{},
 		&RedisUsageInbox{},
+		&UsageModel{},
 		&ModelPriceSetting{},
 		&UsageIdentity{},
 		&CPAAPIKey{},

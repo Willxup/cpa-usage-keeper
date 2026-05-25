@@ -194,7 +194,7 @@ func (s *SyncService) ProcessRedisUsageInbox(ctx context.Context) (*servicedto.R
 	}
 	if len(processableRows) == 0 {
 		// 空轮次先做轻量 cursor 检查，只有发现 usage_events 尚未聚合时才写派生统计。
-		pendingAggregation, err := repository.HasPendingUsageOverviewAggregation(ctx, s.db)
+		pendingAggregation, err := s.hasPendingUsageEventStatsAggregation(ctx)
 		if err != nil {
 			return &servicedto.RedisBatchSyncResult{Empty: true, Status: "failed"}, err
 		}
@@ -325,7 +325,21 @@ func (s *SyncService) aggregateUsageEventStats(ctx context.Context, now time.Tim
 	if err := repository.AggregateUsageOverviewStats(ctx, s.db, now); err != nil {
 		return fmt.Errorf("aggregate usage overview stats after redis inbox processing: %w", err)
 	}
+	if err := repository.AggregateUsageModels(ctx, s.db, now); err != nil {
+		return fmt.Errorf("aggregate usage models after redis inbox processing: %w", err)
+	}
 	return nil
+}
+
+func (s *SyncService) hasPendingUsageEventStatsAggregation(ctx context.Context) (bool, error) {
+	pendingOverview, err := repository.HasPendingUsageOverviewAggregation(ctx, s.db)
+	if err != nil {
+		return false, err
+	}
+	if pendingOverview {
+		return true, nil
+	}
+	return repository.HasPendingUsageModelAggregation(ctx, s.db)
 }
 
 // persistRedisUsageEvents 写入 Redis inbox 解码出的 usage_events。

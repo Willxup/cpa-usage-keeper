@@ -367,8 +367,15 @@ export interface PricingEntry {
   cache_price_per_1m: number
 }
 
+export interface PricingModelOption {
+  value: string
+  source: string
+  model: string
+}
+
 export interface UsedModelsResponse {
   models: string[]
+  model_options?: PricingModelOption[]
 }
 
 export interface PricingResponse {

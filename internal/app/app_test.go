@@ -65,6 +65,9 @@ func TestNewWithConfigBuildsRedisIngestAndRouter(t *testing.T) {
 	if app.MetadataSync == nil {
 		t.Fatal("expected metadata sync runner to be initialized")
 	}
+	if app.UsageModels == nil {
+		t.Fatal("expected usage model aggregation runner to be initialized")
+	}
 }
 
 func TestNewWithConfigExposesConfiguredCPAPublicURL(t *testing.T) {
@@ -139,6 +142,57 @@ func TestNewWithConfigAggregatesExistingOverviewStatsBeforeRunnersStart(t *testi
 	}
 }
 
+func TestNewWithConfigAggregatesExistingUsageModelsBeforeRunnersStart(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "app-startup-model-catchup.db")
+	seedDB, err := repository.OpenDatabase(config.Config{SQLitePath: dbPath})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	if _, _, err := repository.InsertUsageEvents(seedDB, []entities.UsageEvent{
+		{EventKey: "legacy-model-event", APIGroupKey: "provider-a", Model: "claude-sonnet", AuthType: "apikey", AuthIndex: "auth-a", Timestamp: time.Date(2026, 4, 16, 10, 10, 0, 0, time.UTC), TotalTokens: 150},
+	}); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+	seedSQL, err := seedDB.DB()
+	if err != nil {
+		t.Fatalf("load seed sql db: %v", err)
+	}
+	if err := seedSQL.Close(); err != nil {
+		t.Fatalf("close seed db: %v", err)
+	}
+
+	logDir := t.TempDir()
+
+	cfg := testAppConfig(t)
+	cfg.SQLitePath = dbPath
+	cfg.LogFileEnabled = true
+	cfg.LogDir = logDir
+	app, err := NewWithConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewWithConfig returned error: %v", err)
+	}
+	defer app.Close()
+
+	var checkpoint entities.UsageOverviewAggregationCheckpoint
+	if err := app.DB.Where("name = ?", "usage_models").First(&checkpoint).Error; err != nil {
+		t.Fatalf("load usage model checkpoint returned error: %v", err)
+	}
+	if checkpoint.LastAggregatedUsageEventID == 0 {
+		t.Fatalf("expected startup catch-up to aggregate usage models, got checkpoint %+v", checkpoint)
+	}
+	var row entities.UsageModel
+	if err := app.DB.Where("model = ? AND auth_type = ? AND auth_index = ?", "claude-sonnet", "apikey", "auth-a").First(&row).Error; err != nil {
+		t.Fatalf("load usage model row returned error: %v", err)
+	}
+	logContent := readAppLogFile(t, logDir)
+	if !strings.Contains(logContent, "starting usage model aggregation catch-up") {
+		t.Fatalf("expected usage model catch-up start log, got %s", logContent)
+	}
+	if !strings.Contains(logContent, "completed usage model aggregation catch-up") {
+		t.Fatalf("expected usage model catch-up completion log, got %s", logContent)
+	}
+}
+
 func TestNewWithConfigSkipsBackupRunnerWhenDisabled(t *testing.T) {
 	cfg := testAppConfig(t)
 	cfg.BackupEnabled = false
@@ -199,6 +253,7 @@ func TestRunStartsPollerAndMaintenanceIndependently(t *testing.T) {
 	processStarted := make(chan struct{})
 	maintenanceStarted := make(chan struct{})
 	metadataStarted := make(chan struct{})
+	usageModelsStarted := make(chan struct{})
 	backupStarted := make(chan struct{})
 	maintenance := NewStorageCleanupRunner(&maintenanceSyncStub{})
 	maintenance.sleep = func(context.Context, time.Duration) bool {
@@ -210,6 +265,7 @@ func TestRunStartsPollerAndMaintenanceIndependently(t *testing.T) {
 		close(metadataStarted)
 		return false
 	}
+	usageModelsRunner := &appRunStub{started: usageModelsStarted}
 	backupRunner := NewDatabaseBackupRunner(&databaseBackupWriterStub{}, nil, time.Second, 0)
 	backupRunner.sleep = func(context.Context, time.Duration) bool {
 		close(backupStarted)
@@ -224,6 +280,7 @@ func TestRunStartsPollerAndMaintenanceIndependently(t *testing.T) {
 		RedisProcess:      &appRunStub{started: processStarted},
 		Maintenance:       maintenance,
 		MetadataSync:      metadataRunner,
+		UsageModels:       usageModelsRunner,
 		BackupMaintenance: backupRunner,
 	}
 
@@ -254,6 +311,11 @@ func TestRunStartsPollerAndMaintenanceIndependently(t *testing.T) {
 	case <-metadataStarted:
 	case <-time.After(time.Second):
 		t.Fatal("expected metadata sync runner to start")
+	}
+	select {
+	case <-usageModelsStarted:
+	case <-time.After(time.Second):
+		t.Fatal("expected usage model aggregation runner to start")
 	}
 	select {
 	case <-backupStarted:

@@ -452,9 +452,14 @@ export function saveModelPrices(prices: Record<string, ModelPrice>): void {
   window.localStorage.setItem('cpa-model-prices', JSON.stringify(prices));
 }
 
-export function calculateCost(detail: UsageDetailRecord, modelPrices: Record<string, ModelPrice>): number {
+export function resolveModelPrice(detail: UsageDetailRecord, modelPrices: Record<string, ModelPrice>): ModelPrice | undefined {
   const modelName = detail.__modelName ?? '';
-  const pricing = modelPrices[modelName];
+  const sourceName = typeof detail.source === 'string' ? detail.source.trim() : '';
+  return (sourceName ? modelPrices[`${sourceName}/${modelName}`] : undefined) ?? modelPrices[modelName];
+}
+
+export function calculateCost(detail: UsageDetailRecord, modelPrices: Record<string, ModelPrice>): number {
+  const pricing = resolveModelPrice(detail, modelPrices);
   if (!pricing) return 0;
 
   const inputTokens = Math.max(toNumber(detail.tokens.input_tokens), 0);
