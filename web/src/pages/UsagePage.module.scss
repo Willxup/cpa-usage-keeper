@@ -1481,7 +1481,7 @@
   display: flex;
   flex-direction: column;
   height: 520px;
-  overflow: hidden;
+  overflow: clip;
 
   @include mobile {
     height: 420px;
@@ -1714,7 +1714,7 @@
   flex: 0 0 auto;
   flex-direction: column;
   gap: 12px;
-  height: var(--settings-list-scroll-height);
+  max-height: var(--settings-list-scroll-height);
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
@@ -1826,7 +1826,7 @@
   }
 
   .apiKeySettingsBody {
-    height: var(--settings-list-scroll-height);
+    max-height: var(--settings-list-scroll-height);
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
@@ -1889,7 +1889,7 @@
   flex-direction: column;
   gap: 6px;
   flex: 0 0 auto;
-  height: var(--settings-list-scroll-height);
+  max-height: var(--settings-list-scroll-height);
   min-height: 0;
   overflow: auto;
   -webkit-overflow-scrolling: touch;

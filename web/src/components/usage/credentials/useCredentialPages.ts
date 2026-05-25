@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ApiError, fetchUsageIdentitiesPage, type UsageIdentityPageSort } from '@/lib/api'
+import { ApiError, fetchUsageIdentities, fetchUsageIdentitiesPage, type UsageIdentityPageSort } from '@/lib/api'
 import type { UsageIdentity } from '@/lib/types'
 import { CREDENTIALS_PAGE_SIZE } from './credentialViewModels'
 
@@ -18,6 +18,7 @@ const getInitialAuthFileActiveOnly = () => {
 export interface CredentialPagesState {
   authFileIdentities: UsageIdentity[]
   aiProviderIdentities: UsageIdentity[]
+  allIdentitiesForFilter: UsageIdentity[]
   authFileTotal: number
   aiProviderTotal: number
   authFileTotalPages: number
@@ -44,6 +45,7 @@ export interface CredentialPagesState {
 export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPagesOptions): CredentialPagesState {
   const [authFileIdentities, setAuthFileIdentities] = useState<UsageIdentity[]>([])
   const [aiProviderIdentities, setAiProviderIdentities] = useState<UsageIdentity[]>([])
+  const [allIdentitiesForFilter, setAllIdentitiesForFilter] = useState<UsageIdentity[]>([])
   const [authFileTotal, setAuthFileTotal] = useState(0)
   const [aiProviderTotal, setAiProviderTotal] = useState(0)
   const [authFileTotalPages, setAuthFileTotalPages] = useState(0)
@@ -159,9 +161,44 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
     }
   }, [aiProviderPage, aiProviderPageSize, aiProviderSort, onAuthRequired])
 
+  const allIdentitiesControllerRef = useRef<AbortController | null>(null)
+  const refreshAllIdentitiesForFilter = useCallback(async () => {
+    allIdentitiesControllerRef.current?.abort()
+    const controller = new AbortController()
+    allIdentitiesControllerRef.current = controller
+    try {
+      const response = await fetchUsageIdentities(controller.signal)
+      if (allIdentitiesControllerRef.current === controller) {
+        setAllIdentitiesForFilter(response.identities ?? [])
+      }
+    } catch (nextError) {
+      if (controller.signal.aborted) return
+      if (nextError instanceof ApiError && nextError.status === 401) {
+        onAuthRequired?.()
+      }
+    } finally {
+      if (allIdentitiesControllerRef.current === controller) {
+        allIdentitiesControllerRef.current = null
+      }
+    }
+  }, [onAuthRequired])
+
   const refresh = useCallback(async () => {
-    await Promise.all([refreshAuthFiles(), refreshAiProviders()])
-  }, [refreshAiProviders, refreshAuthFiles])
+    await Promise.all([refreshAuthFiles(), refreshAiProviders(), refreshAllIdentitiesForFilter()])
+  }, [refreshAiProviders, refreshAllIdentitiesForFilter, refreshAuthFiles])
+
+  useEffect(() => {
+    if (!enabled) {
+      allIdentitiesControllerRef.current?.abort()
+      allIdentitiesControllerRef.current = null
+      return
+    }
+    void refreshAllIdentitiesForFilter()
+    return () => {
+      allIdentitiesControllerRef.current?.abort()
+      allIdentitiesControllerRef.current = null
+    }
+  }, [enabled, refreshAllIdentitiesForFilter])
 
   useEffect(() => {
     if (!enabled) {
@@ -194,6 +231,7 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
   return {
     authFileIdentities,
     aiProviderIdentities,
+    allIdentitiesForFilter,
     authFileTotal,
     aiProviderTotal,
     authFileTotalPages,

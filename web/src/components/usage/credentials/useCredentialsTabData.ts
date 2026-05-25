@@ -9,6 +9,7 @@ import {
 import { useCredentialPages } from './useCredentialPages'
 import { useQuotaCache } from './useQuotaCache'
 import type { UsageIdentityPageSort } from '@/lib/api'
+import type { UsageIdentity } from '@/lib/types'
 import { quotaRefreshDisplayError, useQuotaRefreshTasks } from './useQuotaRefreshTasks'
 
 interface UseCredentialsTabDataOptions {
@@ -19,6 +20,7 @@ interface UseCredentialsTabDataOptions {
 export interface CredentialsTabData {
   authFileRows: AuthFileCredentialRow[]
   aiProviderRows: AiProviderCredentialRow[]
+  allIdentitiesForFilter: UsageIdentity[]
   authFileTotal: number
   aiProviderTotal: number
   authFilePageSize: number
@@ -87,6 +89,7 @@ export function useCredentialsTabData({ enabled, onAuthRequired }: UseCredential
   return {
     authFileRows,
     aiProviderRows,
+    allIdentitiesForFilter: credentialPages.allIdentitiesForFilter,
     authFileTotal: credentialPages.authFileTotal,
     aiProviderTotal: credentialPages.aiProviderTotal,
     authFilePageSize: credentialPages.authFilePageSize,
