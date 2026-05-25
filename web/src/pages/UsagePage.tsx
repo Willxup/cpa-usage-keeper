@@ -579,7 +579,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     onAuthRequired,
   });
   const refreshCredentials = credentialsData.refresh;
-  const [credentialProviderFilter, setCredentialProviderFilter] = useState<CredentialProviderFilterKey>('all');
+  const [credentialProviderFilter, setCredentialProviderFilterRaw] = useState<CredentialProviderFilterKey>('all');
+  const setCredentialProviderFilter = useCallback((value: CredentialProviderFilterKey) => {
+    setCredentialProviderFilterRaw(value);
+    credentialsData.setAuthFilePage(1);
+  }, [credentialsData.setAuthFilePage]);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
   const [analysisData, setAnalysisData] = useState<AnalysisResponse | null>(null);
@@ -597,7 +601,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   );
   const credentialRowsForProviderFilter = useMemo(
     () => credentialsData.allIdentitiesForFilter
-      .filter((identity) => !credentialsData.authFileActiveOnly || identity.auth_type !== 1 || !identity.disabled)
+      .filter((identity) => identity.auth_type === 1 && (!credentialsData.authFileActiveOnly || !identity.disabled))
       .map((identity) => ({ identity })),
     [credentialsData.allIdentitiesForFilter, credentialsData.authFileActiveOnly],
   );

@@ -1493,7 +1493,6 @@
   min-height: 0;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
 }
 
 .detailsNote {
@@ -1721,7 +1720,6 @@
   padding-right: 4px;
   padding-bottom: 4px;
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
 }
 
 .apiKeySettingsList {
@@ -1831,7 +1829,6 @@
     overflow-y: auto;
     overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
   }
 
   .apiKeySettingsList {
@@ -1893,7 +1890,6 @@
   min-height: 0;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
 }
 
 .priceItem {
