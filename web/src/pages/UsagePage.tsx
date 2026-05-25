@@ -596,8 +596,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     [apiKeyOptions, t],
   );
   const credentialRowsForProviderFilter = useMemo(
-    () => credentialsData.allIdentitiesForFilter.map((identity) => ({ identity })),
-    [credentialsData.allIdentitiesForFilter],
+    () => credentialsData.allIdentitiesForFilter
+      .filter((identity) => !credentialsData.authFileActiveOnly || identity.auth_type !== 1 || !identity.disabled)
+      .map((identity) => ({ identity })),
+    [credentialsData.allIdentitiesForFilter, credentialsData.authFileActiveOnly],
   );
   const filteredAuthFileCredentialRows = useMemo(
     () => filterCredentialsByProvider(credentialsData.authFileRows, credentialProviderFilter),

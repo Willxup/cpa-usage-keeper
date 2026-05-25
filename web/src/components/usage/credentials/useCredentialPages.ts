@@ -175,7 +175,9 @@ export function useCredentialPages({ enabled, onAuthRequired }: UseCredentialPag
       if (controller.signal.aborted) return
       if (nextError instanceof ApiError && nextError.status === 401) {
         onAuthRequired?.()
+        return
       }
+      setError(nextError instanceof Error ? nextError.message : 'Failed to load filter counts')
     } finally {
       if (allIdentitiesControllerRef.current === controller) {
         allIdentitiesControllerRef.current = null
