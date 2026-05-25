@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/entities"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -495,7 +496,7 @@ func seedLegacyRedisUsageTables(t *testing.T, dbPath string) {
 	for _, inbox := range inboxes {
 		if err := db.Exec(
 			"INSERT INTO redis_usage_inboxes (queue_key, message_hash, raw_message, status, attempt_count, usage_event_key, popped_at, processed_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			"queue", inbox.hash, inbox.rawMessage, inbox.status, 0, inbox.usageEventKey, now, inbox.processedAt, now, now,
+			cpa.ManagementUsageQueueKey, inbox.hash, inbox.rawMessage, inbox.status, 0, inbox.usageEventKey, now, inbox.processedAt, now, now,
 		).Error; err != nil {
 			t.Fatalf("seed legacy redis inbox: %v", err)
 		}

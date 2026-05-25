@@ -29,10 +29,9 @@ type Runner interface {
 	Run(ctx context.Context) error
 }
 
-// StatusProvider 只提供前端状态和手动同步入口，不作为后台 runner 启动。
+// StatusProvider 只提供运行状态，不作为后台 runner 启动。
 type StatusProvider interface {
 	Status() poller.Status
-	SyncNow(ctx context.Context) error
 }
 
 type Options struct {
@@ -44,7 +43,7 @@ type App struct {
 	DB                *gorm.DB
 	Router            *gin.Engine
 	Poller            StatusProvider
-	RedisPull         Runner
+	RedisIngest       Runner
 	RedisProcess      Runner
 	Maintenance       *StorageCleanupRunner
 	MetadataSync      *MetadataSyncRunner
@@ -80,7 +79,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		_ = logCloser.Close()
 		return nil, err
 	}
-	// migrations 完成后、后台 runner 启动前先追平 Overview 增量表，避免首个页面请求触发大批量聚合。
+	// migrations 完成后、后台 runner 启动前先追平 Overview 增量表，避免首个 Overview 请求触发大批量聚合。
 	logrus.Info("starting usage overview aggregation catch-up")
 	if err := repository.AggregateUsageOverviewStats(context.Background(), db, time.Now()); err != nil {
 		_ = closeGormDB(db)
@@ -97,10 +96,33 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	logrus.Info("completed usage model aggregation catch-up")
 
 	syncService := service.NewSyncService(db, cfg)
-	backgroundPoller := poller.NewRedisDrain(syncService, poller.RedisDrainConfig{
-		IdleInterval: cfg.RedisQueueIdleInterval,
-		ErrorBackoff: cfg.RedisQueueErrorBackoff,
+	redisPullSource := poller.NewRedisPullSource(cpa.RedisQueueOptions{
+		BaseURL:       cfg.CPABaseURL,
+		RedisAddr:     cfg.RedisQueueAddr,
+		ManagementKey: cfg.CPAManagementKey,
+		Timeout:       cfg.RequestTimeout,
+		QueueKey:      cfg.RedisQueueKey,
+		BatchSize:     cfg.RedisQueueBatchSize,
+		TLS:           cfg.RedisQueueTLS,
+		TLSSkipVerify: cfg.TLSSkipVerify,
 	})
+	httpPullSource := poller.NewHTTPPullSource(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify, cfg.RedisQueueBatchSize)
+	redisSubscribeSource := poller.NewRedisSubscribeSource(poller.RedisSubscribeOptions{
+		BaseURL:       cfg.CPABaseURL,
+		RedisAddr:     cfg.RedisQueueAddr,
+		ManagementKey: cfg.CPAManagementKey,
+		Timeout:       cfg.RequestTimeout,
+		TLS:           cfg.RedisQueueTLS,
+		TLSSkipVerify: cfg.TLSSkipVerify,
+	})
+	redisIngestRunner := poller.NewRedisIngestRunner(redisSubscribeSource, redisPullSource, httpPullSource, poller.NewRedisInboxWriter(db, cfg.RedisQueueKey), poller.RedisIngestRunnerConfig{
+		IdleInterval:       cfg.RedisQueueIdleInterval,
+		BatchSize:          cfg.RedisQueueBatchSize,
+		HTTPBackoffInitial: time.Second,
+		HTTPBackoffMax:     30 * time.Second,
+	})
+	redisProcessRunner := poller.NewRedisProcessRunner(syncService)
+	backgroundPoller := poller.NewRedisPoller(redisIngestRunner, redisProcessRunner)
 	var backupMaintenance *DatabaseBackupRunner
 	if cfg.BackupEnabled {
 		sqlDB, err := db.DB()
@@ -134,9 +156,9 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		Config: &cfg,
 		DB:     db,
 		Poller: backgroundPoller,
-		// Redis pull/process 分成两个后台 runner，避免远端拉取和本地 SQLite 处理互相等待。
-		RedisPull:         poller.NewRedisPullRunner(backgroundPoller),
-		RedisProcess:      poller.NewRedisProcessRunner(backgroundPoller),
+		// Redis ingest/process 分成两个后台 runner，避免远端订阅拉取和本地 SQLite 处理互相等待。
+		RedisIngest:       redisIngestRunner,
+		RedisProcess:      redisProcessRunner,
 		Maintenance:       NewStorageCleanupRunner(syncService),
 		MetadataSync:      NewMetadataSyncRunner(syncService, cfg.MetadataSyncInterval),
 		UsageModels:       NewUsageModelAggregationRunner(db),
@@ -202,10 +224,10 @@ func (a *App) Run() error {
 
 	ctx := a.startBackgroundContext()
 	defer a.stopBackgroundTasks()
-	if a.RedisPull != nil {
+	if a.RedisIngest != nil {
 		a.startBackgroundTask(func() {
-			if err := a.RedisPull.Run(ctx); err != nil {
-				logrus.Errorf("redis pull stopped: %v", err)
+			if err := a.RedisIngest.Run(ctx); err != nil {
+				logrus.Errorf("redis ingest stopped: %v", err)
 			}
 		})
 	}

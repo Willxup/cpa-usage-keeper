@@ -15,7 +15,6 @@ import (
 	"cpa-usage-keeper/internal/cpa/dto/authfiles"
 	"cpa-usage-keeper/internal/cpa/dto/providerconfig"
 	"cpa-usage-keeper/internal/cpa/dto/response"
-	"cpa-usage-keeper/internal/repository/dto"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -150,8 +149,7 @@ func (s *SyncService) SyncMetadata(ctx context.Context) error {
 	return err
 }
 
-// PullRedisUsageInbox 是 Redis 同步的拉取阶段：只 LPOP 队列消息并原样写入 redis_usage_inboxes。
-// 这个阶段不解码消息、不写 usage_events，保证 Redis 消费和本地处理职责分离。
+// PullRedisUsageInbox 是兼容测试和手动同步的旧拉取入口；生产远端 ingest 已由 poller 状态机接管。
 func (s *SyncService) PullRedisUsageInbox(ctx context.Context) (*servicedto.RedisInboxPullResult, error) {
 	if err := s.validate(syncMetadataOptional); err != nil {
 		return nil, err
@@ -159,8 +157,6 @@ func (s *SyncService) PullRedisUsageInbox(ctx context.Context) (*servicedto.Redi
 	if s.redisQueue == nil {
 		return nil, fmt.Errorf("sync service redis queue is nil")
 	}
-
-	// LPOP 成功即代表远端队列已消费，所以必须先把原始消息持久化到 inbox。
 	fetchedAt := timeutil.NormalizeStorageTime(s.now())
 	messages, err := s.redisQueue.PopUsage(ctx)
 	if err != nil {
@@ -173,8 +169,6 @@ func (s *SyncService) PullRedisUsageInbox(ctx context.Context) (*servicedto.Redi
 	if len(messages) == 0 {
 		return &servicedto.RedisInboxPullResult{Empty: true, Status: "empty"}, nil
 	}
-
-	// inbox 行是本地 durable buffer，process runner 后续按状态重试，不再依赖 Redis 原始队列。
 	inboxRows, err := insertRedisInboxMessages(s.db, s.redisQueueKey, messages, fetchedAt)
 	if err != nil {
 		return &servicedto.RedisInboxPullResult{Status: "failed"}, fmt.Errorf("insert redis usage inbox: %w", err)
@@ -385,15 +379,7 @@ func (s *SyncService) validate(syncMetadata bool) error {
 
 // insertRedisInboxMessages 在解码前先把 Redis 原始消息落库，降低 LPOP 后本地处理失败导致的数据丢失风险。
 func insertRedisInboxMessages(db *gorm.DB, queueKey string, messages []string, poppedAt time.Time) ([]entities.RedisUsageInbox, error) {
-	inputs := make([]dto.RedisInboxInsert, 0, len(messages))
-	for _, message := range messages {
-		inputs = append(inputs, dto.RedisInboxInsert{
-			QueueKey:   queueKey,
-			RawMessage: message,
-			PoppedAt:   poppedAt,
-		})
-	}
-	return repository.InsertRedisUsageInboxMessages(db, inputs)
+	return repository.InsertRedisUsageInboxRawMessages(db, queueKey, messages, poppedAt)
 }
 
 // markRedisInboxRowsProcessFailed 记录可重试处理失败；达到仓储阈值后会转为 discarded 并打警告日志。
@@ -464,7 +450,7 @@ func syncAuthFiles(ctx context.Context, db *gorm.DB, result *response.AuthFilesR
 	return nil
 }
 
-// syncManagementAPIKeys 同步 CPA 管理 API key 清单；原值只在本地保存，前端查询时再脱敏。
+// syncManagementAPIKeys 同步 CPA 管理 API key 清单；原值只在本地保存，对外查询时再脱敏。
 func syncManagementAPIKeys(db *gorm.DB, result *response.ManagementAPIKeysResult, fetchErr error, now time.Time) error {
 	if fetchErr != nil {
 		return fmt.Errorf("fetch management api keys: %w", fetchErr)

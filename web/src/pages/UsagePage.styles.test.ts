@@ -1,20 +1,22 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-const usagePageStyles = readFileSync(new URL('./UsagePage.module.scss', import.meta.url), 'utf8')
-const usagePageSource = readFileSync(new URL('./UsagePage.tsx', import.meta.url), 'utf8')
-const requestEventsSource = readFileSync(new URL('../components/usage/RequestEventsDetailsCard.tsx', import.meta.url), 'utf8')
-const priceSettingsSource = readFileSync(new URL('../components/usage/PriceSettingsCard.tsx', import.meta.url), 'utf8')
-const chartLineSelectorSource = readFileSync(new URL('../components/usage/ChartLineSelector.tsx', import.meta.url), 'utf8')
-const selectSource = readFileSync(new URL('../components/ui/Select.tsx', import.meta.url), 'utf8')
-const apiIndexSource = readFileSync(new URL('../components/usage/index.ts', import.meta.url), 'utf8')
-const apiClientSource = readFileSync(new URL('../lib/api.ts', import.meta.url), 'utf8')
-const i18nSource = readFileSync(new URL('../i18n/index.ts', import.meta.url), 'utf8')
-const analysisPanelSource = readFileSync(new URL('../components/usage/analysis/AnalysisPanel.tsx', import.meta.url), 'utf8')
-const analysisPanelStyles = readFileSync(new URL('../components/usage/analysis/AnalysisPanel.module.scss', import.meta.url), 'utf8')
-const usageChartSource = readFileSync(new URL('../components/usage/UsageChart.tsx', import.meta.url), 'utf8')
-const tokenBreakdownChartSource = readFileSync(new URL('../components/usage/TokenBreakdownChart.tsx', import.meta.url), 'utf8')
-const costTrendChartSource = readFileSync(new URL('../components/usage/CostTrendChart.tsx', import.meta.url), 'utf8')
+const readSource = (url: URL) => readFileSync(url, 'utf8').replace(/\r\n/g, '\n')
+
+const usagePageStyles = readSource(new URL('./UsagePage.module.scss', import.meta.url))
+const usagePageSource = readSource(new URL('./UsagePage.tsx', import.meta.url))
+const requestEventsSource = readSource(new URL('../components/usage/RequestEventsDetailsCard.tsx', import.meta.url))
+const priceSettingsSource = readSource(new URL('../components/usage/PriceSettingsCard.tsx', import.meta.url))
+const chartLineSelectorSource = readSource(new URL('../components/usage/ChartLineSelector.tsx', import.meta.url))
+const selectSource = readSource(new URL('../components/ui/Select.tsx', import.meta.url))
+const apiIndexSource = readSource(new URL('../components/usage/index.ts', import.meta.url))
+const apiClientSource = readSource(new URL('../lib/api.ts', import.meta.url))
+const i18nSource = readSource(new URL('../i18n/index.ts', import.meta.url))
+const analysisPanelSource = readSource(new URL('../components/usage/analysis/AnalysisPanel.tsx', import.meta.url))
+const analysisPanelStyles = readSource(new URL('../components/usage/analysis/AnalysisPanel.module.scss', import.meta.url))
+const usageChartSource = readSource(new URL('../components/usage/UsageChart.tsx', import.meta.url))
+const tokenBreakdownChartSource = readSource(new URL('../components/usage/TokenBreakdownChart.tsx', import.meta.url))
+const costTrendChartSource = readSource(new URL('../components/usage/CostTrendChart.tsx', import.meta.url))
 
 describe('UsagePage toolbar styles', () => {
   it('keeps visible range controls content-sized in narrow layouts', () => {

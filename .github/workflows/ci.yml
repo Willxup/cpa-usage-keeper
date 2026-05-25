@@ -9,9 +9,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -26,7 +31,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.22'
+          go-version-file: go.mod
           cache: true
 
       - name: Set up MSYS2
@@ -34,7 +39,8 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
-          update: true
+          update: false
+          cache: true
           path-type: inherit
           install: mingw-w64-ucrt-x86_64-gcc
 
@@ -49,6 +55,7 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6

@@ -127,6 +127,9 @@ func Load(options LoadOptions) (*Config, error) {
 	if redisQueueBatchSize <= 0 {
 		return nil, fmt.Errorf("REDIS_QUEUE_BATCH_SIZE must be positive")
 	}
+	if redisQueueBatchSize > cpa.ManagementUsageQueueMaxBatchSize {
+		return nil, fmt.Errorf("REDIS_QUEUE_BATCH_SIZE must be <= %d", cpa.ManagementUsageQueueMaxBatchSize)
+	}
 
 	redisQueueIdleInterval, err := getDuration("REDIS_QUEUE_IDLE_INTERVAL", time.Second)
 	if err != nil {

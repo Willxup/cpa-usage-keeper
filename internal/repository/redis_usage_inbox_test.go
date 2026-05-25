@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/entities"
 )
 
@@ -16,8 +17,8 @@ func TestInsertRedisUsageInboxMessagesPersistsPendingRows(t *testing.T) {
 	poppedAt := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
 
 	rows, err := InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{
-		{QueueKey: "queue", RawMessage: `{"request_id":"one"}`, PoppedAt: poppedAt},
-		{QueueKey: "queue", RawMessage: `{"request_id":"two"}`, PoppedAt: poppedAt.Add(time.Second)},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"one"}`, PoppedAt: poppedAt},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"two"}`, PoppedAt: poppedAt.Add(time.Second)},
 	})
 	if err != nil {
 		t.Fatalf("InsertRedisUsageInboxMessages returned error: %v", err)
@@ -56,7 +57,7 @@ func TestInsertRedisUsageInboxMessagesBatchesLargeInsertSet(t *testing.T) {
 	inputs := make([]dto.RedisInboxInsert, 0, 901)
 	for i := 0; i < 901; i++ {
 		inputs = append(inputs, dto.RedisInboxInsert{
-			QueueKey:   "queue",
+			QueueKey:   cpa.ManagementUsageQueueKey,
 			RawMessage: fmt.Sprintf(`{"request_id":"large-%04d"}`, i),
 			PoppedAt:   poppedAt.Add(time.Duration(i) * time.Second),
 		})
@@ -101,7 +102,7 @@ func TestRedisUsageInboxStatusTransitions(t *testing.T) {
 	poppedAt := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
 	processedAt := poppedAt.Add(time.Minute)
 
-	rows, err := InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{{QueueKey: "queue", RawMessage: `{"request_id":"one"}`, PoppedAt: poppedAt}})
+	rows, err := InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"one"}`, PoppedAt: poppedAt}})
 	if err != nil {
 		t.Fatalf("InsertRedisUsageInboxMessages returned error: %v", err)
 	}
@@ -130,8 +131,8 @@ func TestRedisUsageInboxFailureTransitionsBoundErrors(t *testing.T) {
 	poppedAt := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
 
 	rows, err := InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{
-		{QueueKey: "queue", RawMessage: `{bad`, PoppedAt: poppedAt},
-		{QueueKey: "queue", RawMessage: `{"request_id":"two"}`, PoppedAt: poppedAt},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{bad`, PoppedAt: poppedAt},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"two"}`, PoppedAt: poppedAt},
 	})
 	if err != nil {
 		t.Fatalf("InsertRedisUsageInboxMessages returned error: %v", err)
@@ -173,7 +174,7 @@ func TestMarkRedisUsageInboxProcessFailedDiscardsRowsAfterMaxAttempts(t *testing
 	db := openTestDatabase(t)
 	poppedAt := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
 
-	rows, err := InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{{QueueKey: "queue", RawMessage: `{"request_id":"retry"}`, PoppedAt: poppedAt}})
+	rows, err := InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"retry"}`, PoppedAt: poppedAt}})
 	if err != nil {
 		t.Fatalf("InsertRedisUsageInboxMessages returned error: %v", err)
 	}
@@ -212,9 +213,9 @@ func TestListProcessableRedisUsageInboxIncludesProcessFailedRows(t *testing.T) {
 	poppedAt := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
 
 	rows, err := InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{
-		{QueueKey: "queue", RawMessage: `{"request_id":"pending"}`, PoppedAt: poppedAt},
-		{QueueKey: "queue", RawMessage: `{"request_id":"retry"}`, PoppedAt: poppedAt},
-		{QueueKey: "queue", RawMessage: `{bad`, PoppedAt: poppedAt},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"pending"}`, PoppedAt: poppedAt},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"retry"}`, PoppedAt: poppedAt},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{bad`, PoppedAt: poppedAt},
 	})
 	if err != nil {
 		t.Fatalf("InsertRedisUsageInboxMessages returned error: %v", err)
@@ -250,12 +251,12 @@ func TestCleanupRedisUsageInboxRemovesOldProcessedAndFailedRows(t *testing.T) {
 	now := time.Date(2026, 4, 27, 2, 30, 0, 0, time.UTC)
 
 	rows, err := InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{
-		{QueueKey: "queue", RawMessage: `{"request_id":"processed-old"}`, PoppedAt: now.Add(-48 * time.Hour)},
-		{QueueKey: "queue", RawMessage: `{"request_id":"processed-today"}`, PoppedAt: now.Add(-time.Hour)},
-		{QueueKey: "queue", RawMessage: `{"request_id":"failed-old"}`, PoppedAt: now.AddDate(0, 0, -8)},
-		{QueueKey: "queue", RawMessage: `{"request_id":"discarded-old"}`, PoppedAt: now.AddDate(0, 0, -8)},
-		{QueueKey: "queue", RawMessage: `{"request_id":"failed-recent"}`, PoppedAt: now.AddDate(0, 0, -6)},
-		{QueueKey: "queue", RawMessage: `{"request_id":"pending-old"}`, PoppedAt: now.AddDate(0, 0, -10)},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"processed-old"}`, PoppedAt: now.Add(-48 * time.Hour)},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"processed-today"}`, PoppedAt: now.Add(-time.Hour)},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"failed-old"}`, PoppedAt: now.AddDate(0, 0, -8)},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"discarded-old"}`, PoppedAt: now.AddDate(0, 0, -8)},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"failed-recent"}`, PoppedAt: now.AddDate(0, 0, -6)},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"pending-old"}`, PoppedAt: now.AddDate(0, 0, -10)},
 	})
 	if err != nil {
 		t.Fatalf("InsertRedisUsageInboxMessages returned error: %v", err)
@@ -305,9 +306,9 @@ func TestListPendingRedisUsageInboxReturnsPendingRowsInIDOrder(t *testing.T) {
 	poppedAt := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
 
 	rows, err := InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{
-		{QueueKey: "queue", RawMessage: `{"request_id":"one"}`, PoppedAt: poppedAt},
-		{QueueKey: "queue", RawMessage: `{"request_id":"two"}`, PoppedAt: poppedAt},
-		{QueueKey: "queue", RawMessage: `{"request_id":"three"}`, PoppedAt: poppedAt},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"one"}`, PoppedAt: poppedAt},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"two"}`, PoppedAt: poppedAt},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"three"}`, PoppedAt: poppedAt},
 	})
 	if err != nil {
 		t.Fatalf("InsertRedisUsageInboxMessages returned error: %v", err)

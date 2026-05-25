@@ -1,8 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -427,6 +429,18 @@ func TestLoadFromEnvRejectsNonPositiveRedisQueueBatchSize(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvRejectsOversizedRedisQueueBatchSize(t *testing.T) {
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
+	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
+	t.Setenv("REDIS_QUEUE_BATCH_SIZE", strconv.Itoa(cpa.ManagementUsageQueueMaxBatchSize+1))
+
+	_, err := LoadFromEnv()
+	expected := fmt.Sprintf("REDIS_QUEUE_BATCH_SIZE must be <= %d", cpa.ManagementUsageQueueMaxBatchSize)
+	if err == nil || err.Error() != expected {
+		t.Fatalf("expected REDIS_QUEUE_BATCH_SIZE max validation error, got %v", err)
+	}
+}
+
 func TestLoadFromEnvParsesOverrides(t *testing.T) {
 	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
 	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
@@ -512,7 +526,7 @@ func TestLoadFromEnvRejectsNonPositiveRedisQueueIdleInterval(t *testing.T) {
 	}
 }
 
-func TestLoadFromEnvIgnoresRemovedRedisDrainEnvOverrides(t *testing.T) {
+func TestLoadFromEnvIgnoresRemovedRedisPollerEnvOverrides(t *testing.T) {
 	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
 	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
 	t.Setenv("REDIS_QUEUE_ERROR_BACKOFF", "20s")

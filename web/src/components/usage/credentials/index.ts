@@ -1,5 +1,7 @@
 export { AiProviderCredentialsSection } from './AiProviderCredentialsSection'
 export { AuthFileCredentialsSection } from './AuthFileCredentialsSection'
+export { CredentialProviderFilterBar } from './CredentialProviderFilterBar'
 export { useCredentialsTabData } from './useCredentialsTabData'
 export { CREDENTIALS_PAGE_SIZE } from './credentialViewModels'
 export type { AiProviderCredentialRow, AuthFileCredentialRow, DisplayQuota } from './credentialViewModels'
+export type { CredentialProviderFilterKey } from './credentialProviderFilters'

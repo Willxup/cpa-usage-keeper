@@ -26,6 +26,14 @@ const (
 	redisUsageInboxMaxProcessAttempts = 5
 )
 
+func InsertRedisUsageInboxRawMessages(db *gorm.DB, queueKey string, messages []string, poppedAt time.Time) ([]entities.RedisUsageInbox, error) {
+	inputs := make([]dto.RedisInboxInsert, 0, len(messages))
+	for _, message := range messages {
+		inputs = append(inputs, dto.RedisInboxInsert{QueueKey: queueKey, RawMessage: message, PoppedAt: poppedAt})
+	}
+	return InsertRedisUsageInboxMessages(db, inputs)
+}
+
 func InsertRedisUsageInboxMessages(db *gorm.DB, inputs []dto.RedisInboxInsert) ([]entities.RedisUsageInbox, error) {
 	if len(inputs) == 0 {
 		return nil, nil

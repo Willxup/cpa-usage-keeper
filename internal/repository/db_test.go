@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/config"
+	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/entities"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -256,7 +257,7 @@ func TestDatabaseTimeFieldsUseProjectTimezoneRFC3339Nano(t *testing.T) {
 	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "claude-sonnet", PromptPricePer1M: 1}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}
-	inboxRows, err := InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{{QueueKey: "queue", RawMessage: `{"request_id":"event-storage-time"}`, PoppedAt: storageTime}})
+	inboxRows, err := InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"event-storage-time"}`, PoppedAt: storageTime}})
 	if err != nil {
 		t.Fatalf("InsertRedisUsageInboxMessages returned error: %v", err)
 	}
@@ -319,8 +320,8 @@ func TestCleanupStorageCleansRedisInboxAndVacuums(t *testing.T) {
 	now := time.Date(2026, 4, 27, 2, 30, 0, 0, time.UTC)
 
 	inboxRows, err := InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{
-		{QueueKey: "queue", RawMessage: `{"request_id":"processed-old"}`, PoppedAt: now.AddDate(0, 0, -2)},
-		{QueueKey: "queue", RawMessage: `{"request_id":"pending"}`, PoppedAt: now.AddDate(0, 0, -2)},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"processed-old"}`, PoppedAt: now.AddDate(0, 0, -2)},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"pending"}`, PoppedAt: now.AddDate(0, 0, -2)},
 	})
 	if err != nil {
 		t.Fatalf("InsertRedisUsageInboxMessages returned error: %v", err)

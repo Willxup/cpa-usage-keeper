@@ -11,20 +11,16 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
 var ErrRedisQueueAuth = errors.New("redis queue auth failed")
 
-type redisQueueSyncMode string
-
-const (
-	redisQueueSyncModeRedis redisQueueSyncMode = "redis"
-	redisQueueSyncModeHTTP  redisQueueSyncMode = "http"
-)
+const redisQueueMaxRESPBulkSize = 4 * 1024 * 1024
+const redisQueueMaxRESPArrayLength = ManagementUsageQueueMaxBatchSize
+const redisQueueMaxRESPTotalBulkSize = 16 * 1024 * 1024
+const redisQueueMaxRESPLineLength = 4096
+const redisQueueMaxRESPDepth = 4
 
 type RedisQueueClient struct {
 	address       string
@@ -32,9 +28,6 @@ type RedisQueueClient struct {
 	timeout       time.Duration
 	queueKey      string
 	batchSize     int
-	httpClient    *Client
-	mu            sync.Mutex
-	syncMode      redisQueueSyncMode
 	dial          func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
@@ -76,7 +69,6 @@ func NewRedisQueueClientWithOptions(opts RedisQueueOptions) *RedisQueueClient {
 		timeout:       opts.Timeout,
 		queueKey:      strings.TrimSpace(opts.QueueKey),
 		batchSize:     opts.BatchSize,
-		httpClient:    NewClient(opts.BaseURL, opts.ManagementKey, opts.Timeout, opts.TLSSkipVerify),
 		dial:          dial,
 	}
 }
@@ -91,43 +83,7 @@ func (c *RedisQueueClient) PopUsage(ctx context.Context) ([]string, error) {
 	if c.batchSize <= 0 {
 		return nil, fmt.Errorf("redis queue batch size must be positive")
 	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	switch c.syncMode {
-	case redisQueueSyncModeRedis:
-		messages, err := c.popUsageOverRedis(ctx)
-		if err == nil {
-			return messages, nil
-		}
-		return c.popUsageOverHTTPFallback(ctx, err)
-	case redisQueueSyncModeHTTP:
-		return c.popUsageOverHTTP(ctx)
-	}
-
-	messages, err := c.popUsageOverRedis(ctx)
-	if err == nil {
-		c.syncMode = redisQueueSyncModeRedis
-		logrus.WithField("message_count", len(messages)).Info("usage queue sync used redis protocol")
-		return messages, nil
-	}
-	return c.popUsageOverHTTPFallback(ctx, err)
-}
-
-func (c *RedisQueueClient) popUsageOverHTTPFallback(ctx context.Context, redisErr error) ([]string, error) {
-	logrus.WithField("redis_error", redisErr.Error()).Error("usage queue sync failed to used redis protocol")
-	if !c.canFallbackToHTTP() {
-		return nil, fmt.Errorf("usage queue sync failed: %w; http usage queue fallback not possible", redisErr)
-	}
-
-	messages, fallbackErr := c.popUsageOverHTTP(ctx)
-	if fallbackErr != nil {
-		return nil, fmt.Errorf("usage queue sync failed: %w; http usage queue fallback failed: %w", redisErr, fallbackErr)
-	}
-	c.syncMode = redisQueueSyncModeHTTP
-	logrus.WithField("message_count", len(messages)).Info("usage queue sync used http protocol")
-	return messages, nil
+	return c.popUsageOverRedis(ctx)
 }
 
 func (c *RedisQueueClient) popUsageOverRedis(ctx context.Context) ([]string, error) {
@@ -137,10 +93,10 @@ func (c *RedisQueueClient) popUsageOverRedis(ctx context.Context) ([]string, err
 	}
 	defer conn.Close()
 
-	if err := writeRESPCommand(conn, cpaManagementRedisPopCommand, c.queueKey, strconv.Itoa(c.batchSize)); err != nil {
+	if err := writeRESPCommand(conn, ManagementRedisPopCommand, c.queueKey, strconv.Itoa(c.batchSize)); err != nil {
 		return nil, fmt.Errorf("write redis queue pop command: %w", err)
 	}
-	popResponse, err := readRESPValue(reader)
+	popResponse, err := readRESPValueWithLimits(reader, c.batchSize)
 	if err != nil {
 		return nil, fmt.Errorf("read redis queue pop response: %w", err)
 	}
@@ -148,29 +104,6 @@ func (c *RedisQueueClient) popUsageOverRedis(ctx context.Context) ([]string, err
 		return nil, fmt.Errorf("redis queue pop failed: %s", popResponse.err)
 	}
 	return popResponse.strings(), nil
-}
-
-func (c *RedisQueueClient) canFallbackToHTTP() bool {
-	return c != nil && c.httpClient != nil && strings.TrimSpace(c.httpClient.baseURL) != ""
-}
-
-func (c *RedisQueueClient) popUsageOverHTTP(ctx context.Context) ([]string, error) {
-	if c == nil || c.httpClient == nil {
-		return nil, fmt.Errorf("redis queue http client is nil")
-	}
-	result, err := c.httpClient.FetchUsageQueue(ctx, c.batchSize)
-	if err != nil {
-		return nil, fmt.Errorf("fetch usage queue over http: %w", err)
-	}
-	messages := make([]string, 0, len(result.Payload))
-	for _, item := range result.Payload {
-		trimmed := strings.TrimSpace(string(item))
-		if trimmed == "" || trimmed == "null" {
-			continue
-		}
-		messages = append(messages, trimmed)
-	}
-	return messages, nil
 }
 
 func (c *RedisQueueClient) openAuthenticatedConnection(ctx context.Context) (net.Conn, *bufio.Reader, error) {
@@ -193,7 +126,7 @@ func (c *RedisQueueClient) openAuthenticatedConnection(ctx context.Context) (net
 	}
 
 	reader := bufio.NewReader(conn)
-	if err := writeRESPCommand(conn, cpaManagementRedisAuthCommand, c.managementKey); err != nil {
+	if err := writeRESPCommand(conn, ManagementRedisAuthCommand, c.managementKey); err != nil {
 		conn.Close()
 		return nil, nil, fmt.Errorf("write redis queue auth command: %w", err)
 	}
@@ -276,6 +209,21 @@ func (v respValue) strings() []string {
 }
 
 func readRESPValue(reader *bufio.Reader) (respValue, error) {
+	return readRESPValueWithLimits(reader, redisQueueMaxRESPArrayLength)
+}
+
+func readRESPValueWithLimits(reader *bufio.Reader, maxArrayLength int) (respValue, error) {
+	if maxArrayLength <= 0 || maxArrayLength > redisQueueMaxRESPArrayLength {
+		maxArrayLength = redisQueueMaxRESPArrayLength
+	}
+	remainingBulkBytes := redisQueueMaxRESPTotalBulkSize
+	return readRESPValueLimited(reader, maxArrayLength, &remainingBulkBytes, 0)
+}
+
+func readRESPValueLimited(reader *bufio.Reader, maxArrayLength int, remainingBulkBytes *int, depth int) (respValue, error) {
+	if depth > redisQueueMaxRESPDepth {
+		return respValue{}, fmt.Errorf("redis queue response nesting exceeds maximum depth")
+	}
 	prefix, err := reader.ReadByte()
 	if err != nil {
 		return respValue{}, err
@@ -288,15 +236,15 @@ func readRESPValue(reader *bufio.Reader) (respValue, error) {
 		line, err := readRESPLine(reader)
 		return respValue{err: line}, err
 	case '$':
-		return readRESPBulk(reader)
+		return readRESPBulk(reader, remainingBulkBytes)
 	case '*':
-		return readRESPArray(reader)
+		return readRESPArray(reader, maxArrayLength, remainingBulkBytes, depth)
 	default:
 		return respValue{}, fmt.Errorf("unexpected RESP prefix %q", prefix)
 	}
 }
 
-func readRESPBulk(reader *bufio.Reader) (respValue, error) {
+func readRESPBulk(reader *bufio.Reader, remainingBulkBytes *int) (respValue, error) {
 	line, err := readRESPLine(reader)
 	if err != nil {
 		return respValue{}, err
@@ -308,15 +256,27 @@ func readRESPBulk(reader *bufio.Reader) (respValue, error) {
 	if size < 0 {
 		return respValue{nil: true}, nil
 	}
+	if size > redisQueueMaxRESPBulkSize {
+		return respValue{}, fmt.Errorf("redis queue bulk string exceeds maximum size")
+	}
+	if remainingBulkBytes != nil {
+		if size > *remainingBulkBytes {
+			return respValue{}, fmt.Errorf("redis queue response exceeds maximum total bulk size")
+		}
+		*remainingBulkBytes -= size
+	}
 	buf := make([]byte, size+2)
 	if _, err := io.ReadFull(reader, buf); err != nil {
 		return respValue{}, err
+	}
+	if string(buf[size:]) != "\r\n" {
+		return respValue{}, fmt.Errorf("malformed redis queue bulk string")
 	}
 	value := string(buf[:size])
 	return respValue{bulk: &value}, nil
 }
 
-func readRESPArray(reader *bufio.Reader) (respValue, error) {
+func readRESPArray(reader *bufio.Reader, maxArrayLength int, remainingBulkBytes *int, depth int) (respValue, error) {
 	line, err := readRESPLine(reader)
 	if err != nil {
 		return respValue{}, err
@@ -328,9 +288,12 @@ func readRESPArray(reader *bufio.Reader) (respValue, error) {
 	if count < 0 {
 		return respValue{nil: true}, nil
 	}
+	if count > maxArrayLength {
+		return respValue{}, fmt.Errorf("redis queue array exceeds maximum length")
+	}
 	items := make([]respValue, 0, count)
 	for range count {
-		item, err := readRESPValue(reader)
+		item, err := readRESPValueLimited(reader, maxArrayLength, remainingBulkBytes, depth+1)
 		if err != nil {
 			return respValue{}, err
 		}
@@ -340,9 +303,23 @@ func readRESPArray(reader *bufio.Reader) (respValue, error) {
 }
 
 func readRESPLine(reader *bufio.Reader) (string, error) {
-	line, err := reader.ReadString('\n')
-	if err != nil {
+	line := make([]byte, 0, 128)
+	for {
+		part, err := reader.ReadSlice('\n')
+		if len(line)+len(part) > redisQueueMaxRESPLineLength {
+			return "", fmt.Errorf("redis queue line exceeds maximum length")
+		}
+		line = append(line, part...)
+		if err == nil {
+			break
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
 		return "", err
 	}
-	return strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r"), nil
+	if !strings.HasSuffix(string(line), "\r\n") {
+		return "", fmt.Errorf("malformed redis queue line")
+	}
+	return strings.TrimSuffix(string(line), "\r\n"), nil
 }
