@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/repository/dto"
 	"gorm.io/gorm"
 )
 
@@ -1095,6 +1096,140 @@ func TestUsageIdentityAggregateStatsDeletedIdentityStillAggregates(t *testing.T)
 	}
 	if got.TotalRequests != 1 || got.SuccessCount != 1 || got.FailureCount != 0 || got.InputTokens != 10 || got.OutputTokens != 5 || got.TotalTokens != 15 || got.LastAggregatedUsageEventID != event.ID {
 		t.Fatalf("expected deleted identity to aggregate matching event, got %+v", got)
+	}
+}
+
+func TestReplaceUsageIdentitiesForProviderTypesMigratesPricingKeysOnDisplayNameChange(t *testing.T) {
+	db := openTestDatabase(t)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 25, 12, 0, 0, 0, time.UTC)
+
+	seed := entities.UsageIdentity{
+		Name:         "claude",
+		AuthType:     entities.UsageIdentityAuthTypeAIProvider,
+		AuthTypeName: "apikey",
+		Identity:     "key-1",
+		Type:         "claude",
+		Provider:     "claude",
+		BaseURL:      "https://old.host/v1",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := db.Create(&seed).Error; err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+
+	for _, model := range []string{"claude(old.host)/opus", "claude(old.host)/sonnet", "plain-model"} {
+		if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: model, PromptPricePer1M: 1}); err != nil {
+			t.Fatalf("seed pricing: %v", err)
+		}
+	}
+
+	err := ReplaceUsageIdentitiesForProviderTypes(ctx, db, []entities.UsageIdentity{
+		{
+			Name:         "claude",
+			AuthTypeName: "apikey",
+			Identity:     "key-1",
+			Type:         "claude",
+			Provider:     "claude",
+			BaseURL:      "https://new.host/v1",
+		},
+	}, []string{"claude"}, now)
+	if err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+
+	settings, err := ListModelPriceSettings(db)
+	if err != nil {
+		t.Fatalf("list settings: %v", err)
+	}
+	models := make(map[string]bool, len(settings))
+	for _, s := range settings {
+		models[s.Model] = true
+	}
+	if models["claude(old.host)/opus"] || models["claude(old.host)/sonnet"] {
+		t.Fatalf("old prefix should be migrated, got: %v", models)
+	}
+	if !models["claude(new.host)/opus"] || !models["claude(new.host)/sonnet"] {
+		t.Fatalf("new prefix should exist, got: %v", models)
+	}
+	if !models["plain-model"] {
+		t.Fatalf("unrelated model should be untouched, got: %v", models)
+	}
+}
+
+func TestReplaceUsageIdentitiesForProviderTypesSkipsMigrationWhenDisplayNameUnchanged(t *testing.T) {
+	db := openTestDatabase(t)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 25, 12, 0, 0, 0, time.UTC)
+
+	seed := entities.UsageIdentity{
+		Name:         "claude",
+		AuthType:     entities.UsageIdentityAuthTypeAIProvider,
+		AuthTypeName: "apikey",
+		Identity:     "key-1",
+		Type:         "claude",
+		Provider:     "claude",
+		BaseURL:      "https://same.host/v1",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := db.Create(&seed).Error; err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+
+	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "claude(same.host)/opus", PromptPricePer1M: 5}); err != nil {
+		t.Fatalf("seed pricing: %v", err)
+	}
+
+	err := ReplaceUsageIdentitiesForProviderTypes(ctx, db, []entities.UsageIdentity{
+		{
+			Name:         "claude",
+			AuthTypeName: "apikey",
+			Identity:     "key-1",
+			Type:         "claude",
+			Provider:     "claude",
+			BaseURL:      "https://same.host/v1",
+		},
+	}, []string{"claude"}, now)
+	if err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+
+	settings, _ := ListModelPriceSettings(db)
+	if len(settings) != 1 || settings[0].Model != "claude(same.host)/opus" {
+		t.Fatalf("pricing should be untouched, got: %#v", settings)
+	}
+}
+
+func TestReplaceUsageIdentitiesForProviderTypesSkipsMigrationWhenOtherIdentityStillUsesOldName(t *testing.T) {
+	db := openTestDatabase(t)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 25, 12, 0, 0, 0, time.UTC)
+
+	seed := []entities.UsageIdentity{
+		{Name: "claude", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "key-1", Type: "claude", Provider: "claude", BaseURL: "https://shared.host/v1", CreatedAt: now, UpdatedAt: now},
+		{Name: "claude", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "key-2", Type: "claude", Provider: "claude", BaseURL: "https://shared.host/v1", CreatedAt: now, UpdatedAt: now},
+	}
+	if err := db.Create(&seed).Error; err != nil {
+		t.Fatalf("seed identities: %v", err)
+	}
+
+	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "claude(shared.host)/opus", PromptPricePer1M: 5}); err != nil {
+		t.Fatalf("seed pricing: %v", err)
+	}
+
+	err := ReplaceUsageIdentitiesForProviderTypes(ctx, db, []entities.UsageIdentity{
+		{Name: "my-claude", AuthTypeName: "apikey", Identity: "key-1", Type: "claude", Provider: "my-claude", BaseURL: "https://new.host/v1"},
+		{Name: "claude", AuthTypeName: "apikey", Identity: "key-2", Type: "claude", Provider: "claude", BaseURL: "https://shared.host/v1"},
+	}, []string{"claude"}, now)
+	if err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+
+	settings, _ := ListModelPriceSettings(db)
+	if len(settings) != 1 || settings[0].Model != "claude(shared.host)/opus" {
+		t.Fatalf("pricing should NOT be migrated because key-2 still uses the old name, got: %#v", settings)
 	}
 }
 

@@ -187,6 +187,7 @@ func loadUsagePricingSources(db *gorm.DB) (usagePricingSources, error) {
 	}
 	var identities []entities.UsageIdentity
 	if err := db.Select("auth_type, auth_type_name, identity, name, type, provider, prefix, base_url").
+		Where("is_deleted = ?", false).
 		Find(&identities).Error; err != nil {
 		return usagePricingSources{}, fmt.Errorf("load usage pricing sources: %w", err)
 	}
@@ -281,4 +282,20 @@ func pricingContextFromSettings(settings map[string]entities.ModelPriceSetting) 
 
 func pricingContextWithSources(settings map[string]entities.ModelPriceSetting, identities []entities.UsageIdentity) usagePricingContext {
 	return usagePricingContext{settingsByKey: settings, sources: buildUsagePricingSources(identities)}
+}
+
+func MigratePricingSourcePrefix(db *gorm.DB, oldSource, newSource string) error {
+	oldSource = strings.TrimSpace(oldSource)
+	newSource = strings.TrimSpace(newSource)
+	if oldSource == "" || newSource == "" || oldSource == newSource {
+		return nil
+	}
+	prefix := oldSource + "/"
+	result := db.Model(&entities.ModelPriceSetting{}).
+		Where("model LIKE ?", prefix+"%").
+		Update("model", gorm.Expr("? || substr(model, length(?) + 1)", newSource+"/", prefix))
+	if result.Error != nil {
+		return fmt.Errorf("migrate pricing source prefix %q to %q: %w", oldSource, newSource, result.Error)
+	}
+	return nil
 }

@@ -106,6 +106,104 @@ func TestUpsertModelPriceSettingCreatesAndUpdatesRow(t *testing.T) {
 	}
 }
 
+func TestListUsedModelOptionsExcludesDeletedIdentities(t *testing.T) {
+	db := openPricingTestDatabase(t)
+	now := time.Date(2026, 5, 25, 12, 0, 0, 0, time.UTC)
+	deleted := true
+
+	for _, identity := range []entities.UsageIdentity{
+		{Name: "active-provider", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "key-active", Type: "claude", Provider: "active-provider", CreatedAt: now, UpdatedAt: now},
+		{Name: "deleted-provider", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "key-deleted", Type: "claude", Provider: "deleted-provider", IsDeleted: true, Disabled: &deleted, CreatedAt: now, UpdatedAt: now, DeletedAt: &now},
+	} {
+		if err := db.Create(&identity).Error; err != nil {
+			t.Fatalf("seed identity: %v", err)
+		}
+	}
+
+	events := []entities.UsageEvent{
+		{EventKey: "1", Model: "model-a", AuthType: "apikey", AuthIndex: "key-active", Timestamp: time.Unix(1, 0)},
+		{EventKey: "2", Model: "model-a", AuthType: "apikey", AuthIndex: "key-deleted", Timestamp: time.Unix(2, 0)},
+	}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+	if err := AggregateUsageModels(context.Background(), db, now); err != nil {
+		t.Fatalf("aggregate: %v", err)
+	}
+
+	options, err := ListUsedModelOptions(db)
+	if err != nil {
+		t.Fatalf("list options: %v", err)
+	}
+	sources := make(map[string]bool)
+	for _, opt := range options {
+		if opt.Source != "" {
+			sources[opt.Source] = true
+		}
+	}
+	if sources["deleted-provider"] {
+		t.Fatalf("deleted identity should not appear as source, got options: %#v", options)
+	}
+	if !sources["active-provider"] {
+		t.Fatalf("active identity should appear as source, got options: %#v", options)
+	}
+}
+
+func TestMigratePricingSourcePrefixRenamesMatchingKeys(t *testing.T) {
+	db := openPricingTestDatabase(t)
+
+	for _, model := range []string{"claude(old.host)/opus", "claude(old.host)/sonnet", "plain-model"} {
+		if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: model, PromptPricePer1M: 1}); err != nil {
+			t.Fatalf("seed pricing: %v", err)
+		}
+	}
+
+	if err := MigratePricingSourcePrefix(db, "claude(old.host)", "claude(new.host)"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	settings, err := ListModelPriceSettings(db)
+	if err != nil {
+		t.Fatalf("list settings: %v", err)
+	}
+	models := make(map[string]bool, len(settings))
+	for _, s := range settings {
+		models[s.Model] = true
+	}
+	if models["claude(old.host)/opus"] || models["claude(old.host)/sonnet"] {
+		t.Fatalf("old prefix should be gone, got: %v", models)
+	}
+	if !models["claude(new.host)/opus"] || !models["claude(new.host)/sonnet"] {
+		t.Fatalf("new prefix should exist, got: %v", models)
+	}
+	if !models["plain-model"] {
+		t.Fatalf("unrelated model should be untouched, got: %v", models)
+	}
+}
+
+func TestMigratePricingSourcePrefixSkipsNoOp(t *testing.T) {
+	db := openPricingTestDatabase(t)
+
+	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "src/model", PromptPricePer1M: 1}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	for _, tc := range []struct{ old, new string }{
+		{"", "new"},
+		{"old", ""},
+		{"same", "same"},
+	} {
+		if err := MigratePricingSourcePrefix(db, tc.old, tc.new); err != nil {
+			t.Fatalf("migrate(%q, %q): %v", tc.old, tc.new, err)
+		}
+	}
+
+	settings, _ := ListModelPriceSettings(db)
+	if len(settings) != 1 || settings[0].Model != "src/model" {
+		t.Fatalf("should be untouched, got: %#v", settings)
+	}
+}
+
 func openPricingTestDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "pricing.db")})
