@@ -8,6 +8,7 @@ export { AiProviderCredentialsSection, AuthFileCredentialsSection, CredentialPro
 export { RequestEventsDetailsCard } from './RequestEventsDetailsCard';
 export { TokenBreakdownChart } from './TokenBreakdownChart';
 export { CostTrendChart } from './CostTrendChart';
+export { CycleCostSection } from './CycleCostSection';
 export { ServiceHealthCard } from './ServiceHealthCard';
 export { useUsageData } from './hooks/useUsageData';
 export { usePricingData } from './hooks/usePricingData';

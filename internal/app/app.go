@@ -145,6 +145,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	}
 	pricingService := service.NewPricingService(db, cpaClient)
 	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{RefreshWorkerLimit: cfg.QuotaRefreshWorkerLimit, AutoRefreshInterval: cfg.QuotaAutoRefreshInterval})
+	cycleCostService := service.NewCycleCostService(db)
 	sessionManager := auth.NewSessionManager(cfg.AuthSessionTTL)
 	authHandler := api.NewAuthHandler(api.AuthConfig{
 		Enabled:       cfg.AuthEnabled,
@@ -182,6 +183,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 			api.OptionalProviders{
 				UsageIdentity: usageIdentityService,
 				Quota:         quotaService,
+				CycleCost:     cycleCostService,
 				CPAAPIKeys:    cpaAPIKeyService,
 				Status:        api.StatusRouteConfig{CPAPublicURL: cfg.CPAPublicURL, ActiveRecorder: quotaActiveRecorder(cfg, quotaService)},
 			},

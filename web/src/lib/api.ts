@@ -1,4 +1,4 @@
-import { type AnalysisResponse, type AuthSessionResponse, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsItem, type CpaApiKeysResponse, type KeyOverviewTimeRange, type PricingEntry, type PricingResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse } from './types'
+import { type AnalysisResponse, type AuthSessionResponse, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsItem, type CpaApiKeysResponse, type CycleCostBreakdown, type CycleCostCurrentResponse, type CycleCostHistoryResponse, type KeyOverviewTimeRange, type PricingEntry, type PricingResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -390,4 +390,31 @@ export async function deletePricing(model: string): Promise<void> {
   if (!response.ok) {
     await parseApiError(response, `Failed to delete pricing: ${response.status}`)
   }
+}
+
+export async function fetchCycleCostCurrent(provider = 'codex', signal?: AbortSignal): Promise<CycleCostCurrentResponse> {
+  const params = new URLSearchParams({ provider })
+  const response = await apiFetch(`${apiPath('/quota/cycles/current')}?${params.toString()}`, { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load current cycle costs: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchCycleCostHistory(authIndex: string, provider = 'codex', limit = 12, signal?: AbortSignal): Promise<CycleCostHistoryResponse> {
+  const params = new URLSearchParams({ provider, auth_index: authIndex, limit: String(limit) })
+  const response = await apiFetch(`${apiPath('/quota/cycles/history')}?${params.toString()}`, { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load cycle history: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchCycleCostBreakdown(authIndex: string, cycleEnd: string, provider = 'codex', signal?: AbortSignal): Promise<CycleCostBreakdown> {
+  const params = new URLSearchParams({ provider, auth_index: authIndex, cycle_end: cycleEnd })
+  const response = await apiFetch(`${apiPath('/quota/cycles/breakdown')}?${params.toString()}`, { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load cycle breakdown: ${response.status}`)
+  }
+  return response.json()
 }

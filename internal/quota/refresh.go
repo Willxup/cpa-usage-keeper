@@ -364,6 +364,8 @@ func (s *Service) runRefreshTaskWithWorker(authIndex string) {
 	}
 	// provider 成功后立即把窗口内 token/cost 补进同一次缓存，前端读取缓存时不再触发额外统计请求。
 	response = s.attachWindowUsageStats(ctx, authIndex, response, time.Now())
+	// 持久化 cycle snapshot 用于 Cycle Cost tab; best-effort, 失败仅日志告警。
+	s.persistQuotaSnapshots(ctx, authIndex, response)
 	// quota rows 和 token/cost 都准备好后，把任务切到 completed 并写入长期成功缓存。
 	s.markRefreshTaskCompleted(authIndex, response)
 }

@@ -478,3 +478,51 @@ export interface RateStats {
   tokenCount: number
   windowMinutes: number
 }
+
+export interface CycleCostSummary {
+  provider: string
+  authIndex: string
+  identityName?: string
+  identityType?: string
+  windowSeconds: number
+  windowLabel?: string
+  cycleStart: string
+  cycleEnd: string
+  usedPercent: number
+  sealed: boolean
+  totalUsd: number
+  totalTokens: number
+  requestCount: number
+  lastCapturedAt?: string
+  pricingMissing: boolean
+}
+
+export interface CycleCostModelEntry {
+  model: string
+  modelAlias?: string
+  inputTokens: number
+  outputTokens: number
+  reasoningTokens: number
+  cachedTokens: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
+  totalTokens: number
+  requestCount: number
+  usdCost: number
+  pricingMissing: boolean
+}
+
+export interface CycleCostBreakdown extends CycleCostSummary {
+  models: CycleCostModelEntry[]
+}
+
+export interface CycleCostCurrentResponse {
+  provider: string
+  items: CycleCostSummary[]
+}
+
+export interface CycleCostHistoryResponse {
+  provider: string
+  authIndex: string
+  items: CycleCostSummary[]
+}

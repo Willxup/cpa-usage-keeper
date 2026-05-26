@@ -12,5 +12,6 @@ func All() []any {
 		&UsageOverviewDailyStat{},
 		&UsageOverviewHealthStat{},
 		&UsageOverviewAggregationCheckpoint{},
+		&QuotaCycleSnapshot{},
 	}
 }

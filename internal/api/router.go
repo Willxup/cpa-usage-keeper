@@ -44,6 +44,7 @@ type StatusRouteConfig struct {
 type OptionalProviders struct {
 	UsageIdentity service.UsageIdentityProvider
 	Quota         QuotaProvider
+	CycleCost     service.CycleCostProvider
 	CPAAPIKeys    service.CPAAPIKeyProvider
 	Status        StatusRouteConfig
 }
@@ -78,11 +79,13 @@ func NewRouter(
 
 	var usageIdentityProvider service.UsageIdentityProvider
 	var quotaProvider QuotaProvider
+	var cycleCostProvider service.CycleCostProvider
 	var cpaAPIKeyProvider service.CPAAPIKeyProvider
 	var statusConfig StatusRouteConfig
 	if len(optionalProviders) > 0 {
 		usageIdentityProvider = optionalProviders[0].UsageIdentity
 		quotaProvider = optionalProviders[0].Quota
+		cycleCostProvider = optionalProviders[0].CycleCost
 		cpaAPIKeyProvider = optionalProviders[0].CPAAPIKeys
 		statusConfig = optionalProviders[0].Status
 	}
@@ -99,6 +102,7 @@ func NewRouter(
 	registerCPAAPIKeyRoutes(adminProtected, cpaAPIKeyProvider)
 	registerPricingRoutes(adminProtected, pricingProvider)
 	registerQuotaRoutes(adminProtected, quotaProvider)
+	registerQuotaCycleRoutes(adminProtected, cycleCostProvider)
 
 	keyViewerProtected := apiV1.Group("")
 	keyViewerProtected.Use(authHandler.apiKeyViewerMiddleware())

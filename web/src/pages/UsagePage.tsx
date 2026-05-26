@@ -33,6 +33,7 @@ import {
   AuthFileCredentialsSection,
   AiProviderCredentialsSection,
   CredentialProviderFilterBar,
+  CycleCostSection,
   RequestEventsDetailsCard,
   TokenBreakdownChart,
   CostTrendChart,
@@ -101,7 +102,7 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'dark', labelKey: 'usage_stats.theme_dark' },
   { value: 'auto', labelKey: 'usage_stats.theme_auto' }
 ];
-const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'credentials', 'settings'] as const;
+const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'credentials', 'cycle-cost', 'settings'] as const;
 type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];
 type Translate = (key: string) => string;
 const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
@@ -109,6 +110,7 @@ const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
   analysis: 'usage_stats.tab_analysis',
   events: 'usage_stats.tab_events',
   credentials: 'usage_stats.tab_credentials',
+  'cycle-cost': 'usage_stats.tab_cycle_cost',
   settings: 'usage_stats.tab_settings',
 };
 const DEFAULT_USAGE_TAB: UsageTab = 'overview';
@@ -1778,6 +1780,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   />
                 </div>
               </>
+            )}
+
+            {activeTab === 'cycle-cost' && (
+              <CycleCostSection onAuthRequired={onAuthRequired} />
             )}
 
             {activeTab === 'settings' && (
