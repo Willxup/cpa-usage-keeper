@@ -11,18 +11,22 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const defaultCycleProvider = "codex"
-
 func registerQuotaCycleRoutes(router gin.IRoutes, provider service.CycleCostProvider) {
 	if provider == nil {
 		return
 	}
 
-	router.GET("/quota/cycles/current", func(c *gin.Context) {
-		providerName := strings.TrimSpace(c.Query("provider"))
-		if providerName == "" {
-			providerName = defaultCycleProvider
+	router.GET("/quota/cycles/providers", func(c *gin.Context) {
+		summaries, err := provider.ListProviders(c.Request.Context())
+		if err != nil {
+			writeInternalError(c, "quota cycle provider list failed", err)
+			return
 		}
+		c.JSON(http.StatusOK, gin.H{"items": summaries})
+	})
+
+	router.GET("/quota/cycles/current", func(c *gin.Context) {
+		providerName := normalizeProviderQuery(c.Query("provider"))
 		summaries, err := provider.GetCurrentCycles(c.Request.Context(), providerName)
 		if err != nil {
 			writeInternalError(c, "quota cycle current lookup failed", err)
@@ -35,9 +39,9 @@ func registerQuotaCycleRoutes(router gin.IRoutes, provider service.CycleCostProv
 	})
 
 	router.GET("/quota/cycles/history", func(c *gin.Context) {
-		providerName := strings.TrimSpace(c.Query("provider"))
+		providerName := normalizeProviderQuery(c.Query("provider"))
 		if providerName == "" {
-			providerName = defaultCycleProvider
+			providerName = "codex"
 		}
 		authIndex := strings.TrimSpace(c.Query("auth_index"))
 		if authIndex == "" {
@@ -51,16 +55,16 @@ func registerQuotaCycleRoutes(router gin.IRoutes, provider service.CycleCostProv
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"provider":   providerName,
-			"authIndex":  authIndex,
-			"items":      summaries,
+			"provider":  providerName,
+			"authIndex": authIndex,
+			"items":     summaries,
 		})
 	})
 
 	router.GET("/quota/cycles/breakdown", func(c *gin.Context) {
-		providerName := strings.TrimSpace(c.Query("provider"))
+		providerName := normalizeProviderQuery(c.Query("provider"))
 		if providerName == "" {
-			providerName = defaultCycleProvider
+			providerName = "codex"
 		}
 		authIndex := strings.TrimSpace(c.Query("auth_index"))
 		if authIndex == "" {
@@ -84,6 +88,15 @@ func registerQuotaCycleRoutes(router gin.IRoutes, provider service.CycleCostProv
 		}
 		c.JSON(http.StatusOK, breakdown)
 	})
+}
+
+// normalizeProviderQuery 把 "" / "all" / 大写都归一化成空字符串 (= 全部 provider).
+func normalizeProviderQuery(raw string) string {
+	value := strings.TrimSpace(strings.ToLower(raw))
+	if value == "" || value == "all" || value == "*" {
+		return ""
+	}
+	return value
 }
 
 func parseCycleEnd(raw string) (time.Time, bool) {

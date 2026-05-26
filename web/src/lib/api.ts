@@ -1,4 +1,4 @@
-import { type AnalysisResponse, type AuthSessionResponse, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsItem, type CpaApiKeysResponse, type CycleCostBreakdown, type CycleCostCurrentResponse, type CycleCostHistoryResponse, type KeyOverviewTimeRange, type PricingEntry, type PricingResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse } from './types'
+import { type AnalysisResponse, type AuthSessionResponse, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsItem, type CpaApiKeysResponse, type CycleCostBreakdown, type CycleCostCurrentResponse, type CycleCostHistoryResponse, type CycleProvidersResponse, type KeyOverviewTimeRange, type PricingEntry, type PricingResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -392,11 +392,22 @@ export async function deletePricing(model: string): Promise<void> {
   }
 }
 
-export async function fetchCycleCostCurrent(provider = 'codex', signal?: AbortSignal): Promise<CycleCostCurrentResponse> {
-  const params = new URLSearchParams({ provider })
-  const response = await apiFetch(`${apiPath('/quota/cycles/current')}?${params.toString()}`, { signal })
+export async function fetchCycleCostCurrent(provider = '', signal?: AbortSignal): Promise<CycleCostCurrentResponse> {
+  const params = new URLSearchParams()
+  if (provider) params.set('provider', provider)
+  const query = params.toString()
+  const url = query ? `${apiPath('/quota/cycles/current')}?${query}` : apiPath('/quota/cycles/current')
+  const response = await apiFetch(url, { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load current cycle costs: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchCycleCostProviders(signal?: AbortSignal): Promise<CycleProvidersResponse> {
+  const response = await apiFetch(apiPath('/quota/cycles/providers'), { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load cycle providers: ${response.status}`)
   }
   return response.json()
 }

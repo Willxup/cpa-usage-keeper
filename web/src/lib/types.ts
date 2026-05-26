@@ -484,12 +484,15 @@ export interface CycleCostSummary {
   authIndex: string
   identityName?: string
   identityType?: string
+  planType?: string
+  disabled?: boolean
   windowSeconds: number
   windowLabel?: string
   cycleStart: string
   cycleEnd: string
   usedPercent: number
   sealed: boolean
+  hasSnapshot: boolean
   totalUsd: number
   totalTokens: number
   requestCount: number
@@ -525,4 +528,13 @@ export interface CycleCostHistoryResponse {
   provider: string
   authIndex: string
   items: CycleCostSummary[]
+}
+
+export interface CycleProviderSummary {
+  provider: string
+  count: number
+}
+
+export interface CycleProvidersResponse {
+  items: CycleProviderSummary[]
 }

@@ -17,11 +17,21 @@ import (
 // CodexWeeklyWindowSeconds 是 Codex 上游对周限额窗口的固定长度 (7 days).
 const CodexWeeklyWindowSeconds int64 = 604800
 
+// ProviderAll 是 "全部 provider" 哨兵.
+const ProviderAll = ""
+
 // CycleCostProvider 暴露按 Codex 周限额 cycle 聚合的账号成本视图.
 type CycleCostProvider interface {
 	GetCurrentCycles(ctx context.Context, provider string) ([]CycleSummary, error)
 	GetHistoricalCycles(ctx context.Context, provider, authIndex string, limit int) ([]CycleSummary, error)
 	GetCycleBreakdown(ctx context.Context, provider, authIndex string, cycleEnd time.Time) (*CycleBreakdown, error)
+	ListProviders(ctx context.Context) ([]CycleProviderSummary, error)
+}
+
+// CycleProviderSummary 是 provider 过滤栏每一条数据.
+type CycleProviderSummary struct {
+	Provider string `json:"provider"`
+	Count    int64  `json:"count"`
 }
 
 // CycleSummary 是一个 (provider, auth_index, cycle window) 维度的聚合行.
@@ -30,12 +40,15 @@ type CycleSummary struct {
 	AuthIndex      string    `json:"authIndex"`
 	IdentityName   string    `json:"identityName"`
 	IdentityType   string    `json:"identityType,omitempty"`
+	PlanType       string    `json:"planType,omitempty"`
+	Disabled       bool      `json:"disabled,omitempty"`
 	WindowSeconds  int64     `json:"windowSeconds"`
 	WindowLabel    string    `json:"windowLabel,omitempty"`
 	CycleStart     time.Time `json:"cycleStart"`
 	CycleEnd       time.Time `json:"cycleEnd"`
 	UsedPercent    float64   `json:"usedPercent"`
 	Sealed         bool      `json:"sealed"`
+	HasSnapshot    bool      `json:"hasSnapshot"`
 	TotalUSD       float64   `json:"totalUsd"`
 	TotalTokens    int64     `json:"totalTokens"`
 	RequestCount   int64     `json:"requestCount"`
@@ -74,62 +87,103 @@ func NewCycleCostService(db *gorm.DB) CycleCostProvider {
 }
 
 func (s *cycleCostService) GetCurrentCycles(ctx context.Context, provider string) ([]CycleSummary, error) {
-	provider = strings.TrimSpace(provider)
-	if provider == "" {
-		return nil, fmt.Errorf("provider is required")
-	}
 	if s == nil || s.db == nil {
 		return nil, fmt.Errorf("database is nil")
 	}
+	provider = strings.TrimSpace(provider)
+	// 1. 列出全部 active auth-file identity (按 provider 过滤或全部)
+	identities, err := repository.ListActiveAuthFileIdentities(ctx, s.db, provider)
+	if err != nil {
+		return nil, err
+	}
+	if len(identities) == 0 {
+		return []CycleSummary{}, nil
+	}
+	// 2. 加载 snapshot — 用 provider 过滤如果指定, 否则一次拿全
 	snapshots, err := repository.LatestSnapshotForEachAuthIndex(ctx, s.db, provider, CodexWeeklyWindowSeconds)
 	if err != nil {
 		return nil, err
 	}
+	snapshotByKey := make(map[string]entities.QuotaCycleSnapshot, len(snapshots))
+	for _, snapshot := range snapshots {
+		snapshotByKey[snapshot.Provider+"::"+snapshot.AuthIndex] = snapshot
+	}
+	// 3. 加载 pricing
 	pricing, err := repository.ListModelPriceSettings(s.db)
 	if err != nil {
 		return nil, fmt.Errorf("load pricing settings: %w", err)
 	}
 	pricingByModel := buildPricingIndex(pricing)
-	identities, err := s.loadIdentitiesByAuthIndex(ctx, snapshotAuthIndexes(snapshots))
-	if err != nil {
-		return nil, err
-	}
-	summaries := make([]CycleSummary, 0, len(snapshots))
-	for _, snapshot := range snapshots {
-		cycleEnd := snapshot.ResetAt
-		cycleStart := cycleEnd.Add(-time.Duration(snapshot.WindowSeconds) * time.Second)
-		aggregate, missing, err := s.aggregateCycleCost(ctx, provider, snapshot.AuthIndex, cycleStart, cycleEnd, pricingByModel)
-		if err != nil {
-			return nil, err
+	// 4. 合并 — 每个 identity 一行, 有 snapshot 的填 cycle 数据, 没的 HasSnapshot=false
+	summaries := make([]CycleSummary, 0, len(identities))
+	for _, identity := range identities {
+		identityProvider := strings.TrimSpace(identity.Provider)
+		if identityProvider == "" {
+			identityProvider = strings.TrimSpace(identity.Type)
 		}
 		summary := CycleSummary{
-			Provider:       provider,
-			AuthIndex:      snapshot.AuthIndex,
-			WindowSeconds:  snapshot.WindowSeconds,
-			WindowLabel:    snapshot.WindowLabel,
-			CycleStart:     cycleStart,
-			CycleEnd:       cycleEnd,
-			UsedPercent:    snapshot.UsedPercent,
-			Sealed:         time.Now().After(cycleEnd),
-			TotalUSD:       aggregate.totalUSD,
-			TotalTokens:    aggregate.totalTokens,
-			RequestCount:   aggregate.requestCount,
-			LastCapturedAt: snapshot.CapturedAt,
-			PricingMissing: missing,
+			Provider:     identityProvider,
+			AuthIndex:    identity.Identity,
+			IdentityName: identity.Name,
+			IdentityType: identity.Type,
 		}
-		if identity, ok := identities[snapshot.AuthIndex]; ok {
-			summary.IdentityName = identity.Name
-			summary.IdentityType = identity.Type
+		if identity.PlanType != nil {
+			summary.PlanType = *identity.PlanType
+		}
+		if identity.Disabled != nil {
+			summary.Disabled = *identity.Disabled
+		}
+		if snapshot, ok := snapshotByKey[identityProvider+"::"+identity.Identity]; ok {
+			cycleEnd := snapshot.ResetAt
+			cycleStart := cycleEnd.Add(-time.Duration(snapshot.WindowSeconds) * time.Second)
+			aggregate, missing, err := s.aggregateCycleCost(ctx, identityProvider, identity.Identity, cycleStart, cycleEnd, pricingByModel)
+			if err != nil {
+				return nil, err
+			}
+			summary.HasSnapshot = true
+			summary.WindowSeconds = snapshot.WindowSeconds
+			summary.WindowLabel = snapshot.WindowLabel
+			summary.CycleStart = cycleStart
+			summary.CycleEnd = cycleEnd
+			summary.UsedPercent = snapshot.UsedPercent
+			summary.Sealed = time.Now().After(cycleEnd)
+			summary.TotalUSD = aggregate.totalUSD
+			summary.TotalTokens = aggregate.totalTokens
+			summary.RequestCount = aggregate.requestCount
+			summary.LastCapturedAt = snapshot.CapturedAt
+			summary.PricingMissing = missing
 		}
 		summaries = append(summaries, summary)
 	}
+	// 5. 默认按 $ DESC 然后 name ASC; 没 snapshot 的归到最后. (前端可再排序)
 	sort.SliceStable(summaries, func(i, j int) bool {
+		if summaries[i].HasSnapshot != summaries[j].HasSnapshot {
+			return summaries[i].HasSnapshot
+		}
 		if summaries[i].TotalUSD != summaries[j].TotalUSD {
 			return summaries[i].TotalUSD > summaries[j].TotalUSD
 		}
-		return summaries[i].AuthIndex < summaries[j].AuthIndex
+		return summaries[i].IdentityName < summaries[j].IdentityName
 	})
 	return summaries, nil
+}
+
+func (s *cycleCostService) ListProviders(ctx context.Context) ([]CycleProviderSummary, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("database is nil")
+	}
+	counts, err := repository.ListActiveAuthFileProviders(ctx, s.db)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]CycleProviderSummary, 0, len(counts))
+	for _, c := range counts {
+		if strings.TrimSpace(c.Provider) == "" {
+			continue
+		}
+		results = append(results, CycleProviderSummary{Provider: c.Provider, Count: c.Count})
+	}
+	return results, nil
 }
 
 func (s *cycleCostService) GetHistoricalCycles(ctx context.Context, provider, authIndex string, limit int) ([]CycleSummary, error) {

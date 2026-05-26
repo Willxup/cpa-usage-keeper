@@ -396,7 +396,20 @@ const resources = {
         cycle_cost_pagination_info: 'Showing {{from}}–{{to}} of {{total}}',
         cycle_cost_page_size_label: 'Per page',
         cycle_cost_prev: 'Prev',
-        cycle_cost_next: 'Next'
+        cycle_cost_next: 'Next',
+        cycle_cost_load_current_failed: 'Failed to load cycle data',
+        cycle_cost_load_history_failed: 'Failed to load history',
+        cycle_cost_load_breakdown_failed: 'Failed to load breakdown',
+        cycle_cost_summary_missing: 'Missing snapshots',
+        cycle_cost_summary_missing_hint: 'These accounts have not been refreshed yet — click "Refresh now" or bulk-refresh.',
+        cycle_cost_no_snapshot_hint: 'No quota snapshot yet — refresh this row to populate.',
+        cycle_cost_no_snapshot_metric_hint: 'Cycle data will appear after the first quota refresh.',
+        cycle_cost_no_data_placeholder: '— no data —',
+        cycle_cost_badge_disabled: 'disabled',
+        cycle_cost_bulk_refresh_one: 'Refresh 1 missing snapshot',
+        cycle_cost_bulk_refresh_other: 'Refresh {{count}} missing snapshots',
+        cycle_cost_bulk_refresh_progress: 'Refreshing {{done}} / {{total}}…',
+        cycle_cost_sort_missing_first: 'Missing first'
       }
     }
   },
@@ -778,7 +791,20 @@ const resources = {
         cycle_cost_pagination_info: '显示 {{from}}–{{to}} / 共 {{total}}',
         cycle_cost_page_size_label: '每页',
         cycle_cost_prev: '上一页',
-        cycle_cost_next: '下一页'
+        cycle_cost_next: '下一页',
+        cycle_cost_load_current_failed: '加载周期数据失败',
+        cycle_cost_load_history_failed: '加载历史失败',
+        cycle_cost_load_breakdown_failed: '加载明细失败',
+        cycle_cost_summary_missing: '缺少快照',
+        cycle_cost_summary_missing_hint: '这些账号还没刷新过——点单行"立即刷新"或批量刷新。',
+        cycle_cost_no_snapshot_hint: '还没有配额快照——刷新此行可补上。',
+        cycle_cost_no_snapshot_metric_hint: '首次配额刷新后会显示周期数据。',
+        cycle_cost_no_data_placeholder: '— 无数据 —',
+        cycle_cost_badge_disabled: '已禁用',
+        cycle_cost_bulk_refresh_one: '刷新 1 个缺失快照',
+        cycle_cost_bulk_refresh_other: '刷新 {{count}} 个缺失快照',
+        cycle_cost_bulk_refresh_progress: '刷新中 {{done}} / {{total}}…',
+        cycle_cost_sort_missing_first: '缺失优先'
       }
     }
   },
@@ -1160,7 +1186,20 @@ const resources = {
         cycle_cost_pagination_info: '顯示 {{from}}–{{to}} / 共 {{total}}',
         cycle_cost_page_size_label: '每頁',
         cycle_cost_prev: '上一頁',
-        cycle_cost_next: '下一頁'
+        cycle_cost_next: '下一頁',
+        cycle_cost_load_current_failed: '載入週期資料失敗',
+        cycle_cost_load_history_failed: '載入歷史失敗',
+        cycle_cost_load_breakdown_failed: '載入明細失敗',
+        cycle_cost_summary_missing: '缺少快照',
+        cycle_cost_summary_missing_hint: '這些帳號還沒刷新過——點單行「立即刷新」或批次刷新。',
+        cycle_cost_no_snapshot_hint: '還沒有配額快照——刷新此行可補上。',
+        cycle_cost_no_snapshot_metric_hint: '首次配額刷新後會顯示週期資料。',
+        cycle_cost_no_data_placeholder: '— 無資料 —',
+        cycle_cost_badge_disabled: '已停用',
+        cycle_cost_bulk_refresh_one: '刷新 1 個缺失快照',
+        cycle_cost_bulk_refresh_other: '刷新 {{count}} 個缺失快照',
+        cycle_cost_bulk_refresh_progress: '刷新中 {{done}} / {{total}}…',
+        cycle_cost_sort_missing_first: '缺失優先'
       }
     }
   }

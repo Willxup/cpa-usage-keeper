@@ -75,6 +75,7 @@ func ListDistinctResetAt(ctx context.Context, db *gorm.DB, provider, authIndex s
 
 // LatestSnapshotForEachAuthIndex 返回每个 auth_index 最新一次 snapshot (按 id DESC, 等价于 captured_at DESC)。
 // 用于 "当前 cycle" 概览。
+// provider 为空字符串时不限制 provider, 返回所有 provider 的 snapshot.
 func LatestSnapshotForEachAuthIndex(ctx context.Context, db *gorm.DB, provider string, windowSeconds int64) ([]entities.QuotaCycleSnapshot, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
@@ -82,15 +83,70 @@ func LatestSnapshotForEachAuthIndex(ctx context.Context, db *gorm.DB, provider s
 	var snapshots []entities.QuotaCycleSnapshot
 	subQuery := db.WithContext(ctx).Model(&entities.QuotaCycleSnapshot{}).
 		Select("MAX(id)").
-		Where("provider = ? AND window_seconds = ?", provider, windowSeconds).
-		Group("auth_index")
+		Where("window_seconds = ?", windowSeconds).
+		Group("provider, auth_index")
+	if strings.TrimSpace(provider) != "" {
+		subQuery = subQuery.Where("provider = ?", provider)
+	}
 	if err := db.WithContext(ctx).
 		Where("id IN (?)", subQuery).
-		Order("auth_index ASC").
+		Order("provider ASC, auth_index ASC").
 		Find(&snapshots).Error; err != nil {
 		return nil, fmt.Errorf("list latest snapshots per auth_index: %w", err)
 	}
 	return snapshots, nil
+}
+
+// ListActiveAuthFileIdentities 返回所有未删除的 auth-file 身份, 可选按 provider 过滤.
+// provider 为空字符串时不限制. 返回结果按 (provider, name) 排序.
+func ListActiveAuthFileIdentities(ctx context.Context, db *gorm.DB, provider string) ([]entities.UsageIdentity, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database is nil")
+	}
+	query := db.WithContext(ctx).
+		Where("auth_type = ? AND is_deleted = ?", entities.UsageIdentityAuthTypeAuthFile, false)
+	provider = strings.TrimSpace(provider)
+	if provider != "" {
+		query = query.Where("provider = ?", provider)
+	}
+	var identities []entities.UsageIdentity
+	if err := query.Order("provider ASC, name ASC, id ASC").Find(&identities).Error; err != nil {
+		return nil, fmt.Errorf("list active auth-file identities: %w", err)
+	}
+	return identities, nil
+}
+
+// AuthFileProviderCount 描述按 provider 聚合的 auth-file 身份数量.
+type AuthFileProviderCount struct {
+	Provider string
+	Count    int64
+}
+
+// ListActiveAuthFileProviders 返回所有未删除的 auth-file 身份按 provider 聚合的 count.
+// 用于前端 provider 过滤栏显示每个 provider 有多少账号.
+func ListActiveAuthFileProviders(ctx context.Context, db *gorm.DB) ([]AuthFileProviderCount, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database is nil")
+	}
+	type row struct {
+		Provider string
+		Count    int64
+	}
+	var rows []row
+	if err := db.WithContext(ctx).
+		Model(&entities.UsageIdentity{}).
+		Select("provider AS provider, COUNT(*) AS count").
+		Where("auth_type = ? AND is_deleted = ?", entities.UsageIdentityAuthTypeAuthFile, false).
+		Group("provider").
+		Order("provider ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("list active auth-file provider counts: %w", err)
+	}
+	results := make([]AuthFileProviderCount, 0, len(rows))
+	for _, r := range rows {
+		results = append(results, AuthFileProviderCount{Provider: r.Provider, Count: r.Count})
+	}
+	return results, nil
 }
 
 // AuthIndexTokenAggregate 是按 model 拆分的 token 用量聚合。
