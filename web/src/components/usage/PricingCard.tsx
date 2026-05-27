@@ -16,6 +16,7 @@ export function PricingCard({ usedModels, pricing, saving, error, onSave }: Pric
   const [promptPrice, setPromptPrice] = useState('')
   const [completionPrice, setCompletionPrice] = useState('')
   const [cachePrice, setCachePrice] = useState('')
+  const [requestPrice, setRequestPrice] = useState('')
 
   const pricingMap = useMemo(() => new Map(pricing.map((entry) => [entry.model, entry])), [pricing])
   const sortedPricing = useMemo(() => [...pricing].sort((left, right) => left.model.localeCompare(right.model)), [pricing])
@@ -26,6 +27,7 @@ export function PricingCard({ usedModels, pricing, saving, error, onSave }: Pric
     setPromptPrice(existing ? String(existing.prompt_price_per_1m) : '')
     setCompletionPrice(existing ? String(existing.completion_price_per_1m) : '')
     setCachePrice(existing ? String(existing.cache_price_per_1m) : '')
+    setRequestPrice(existing ? String(existing.price_per_request) : '')
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -36,6 +38,7 @@ export function PricingCard({ usedModels, pricing, saving, error, onSave }: Pric
       prompt_price_per_1m: Number(promptPrice) || 0,
       completion_price_per_1m: Number(completionPrice) || 0,
       cache_price_per_1m: Number(cachePrice) || 0,
+      price_per_request: Number(requestPrice) || 0,
     })
   }
 
@@ -73,6 +76,10 @@ export function PricingCard({ usedModels, pricing, saving, error, onSave }: Pric
           <span>Cache / 1M</span>
           <input type="number" min="0" step="0.0001" value={cachePrice} onChange={(event) => setCachePrice(event.target.value)} />
         </label>
+        <label className={styles.pricingField}>
+          <span>Request</span>
+          <input type="number" min="0" step="0.0001" value={requestPrice} onChange={(event) => setRequestPrice(event.target.value)} />
+        </label>
         <button type="submit" className={styles.secondaryButton} disabled={saving || !selectedModel}>
           {saving ? 'Saving...' : 'Save pricing'}
         </button>
@@ -87,6 +94,7 @@ export function PricingCard({ usedModels, pricing, saving, error, onSave }: Pric
             <span>Prompt / 1M</span>
             <span>Completion / 1M</span>
             <span>Cache / 1M</span>
+            <span>Request</span>
             <span>Seen in usage</span>
           </div>
           {sortedPricing.length > 0 ? (
@@ -96,6 +104,7 @@ export function PricingCard({ usedModels, pricing, saving, error, onSave }: Pric
                 <span>${formatNumber(entry.prompt_price_per_1m)}</span>
                 <span>${formatNumber(entry.completion_price_per_1m)}</span>
                 <span>${formatNumber(entry.cache_price_per_1m)}</span>
+                <span>${formatNumber(entry.price_per_request)}/request</span>
                 <span>{usedModels.includes(entry.model) ? 'Used' : 'Unknown'}</span>
               </div>
             ))

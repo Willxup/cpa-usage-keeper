@@ -1045,7 +1045,7 @@ func applyUsageOverviewHourlyStatToOverview(overview *dto.UsageOverviewRecord, r
 	// 小时 stats 是完整小时事实，可直接累计到 snapshot totals。
 	applyUsageOverviewHourlyStatToSnapshot(overview.Usage, row)
 	// cost 不入 stats 表，必须在读取时按当前价格表重新计算。
-	rowCost := helper.CalculateUsageTokenCost(helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens}, pricingByModel[strings.TrimSpace(row.Model)])
+	rowCost := helper.CalculateUsageTokenCost(helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens, Requests: row.RequestCount}, pricingByModel[strings.TrimSpace(row.Model)])
 	if _, ok := pricingByModel[strings.TrimSpace(row.Model)]; !ok && helper.UsageTokenInputRequiresPricing(helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens}) {
 		overview.Summary.CostAvailable = false
 	}
@@ -1069,7 +1069,7 @@ func applyUsageOverviewHourlyStatToHourlySeries(overview *dto.UsageOverviewRecor
 	if latestHourlyStart != nil && timeutil.NormalizeStorageTime(row.BucketStart).Before(*latestHourlyStart) {
 		return
 	}
-	rowCost := helper.CalculateUsageTokenCost(helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens}, pricingByModel[strings.TrimSpace(row.Model)])
+	rowCost := helper.CalculateUsageTokenCost(helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens, Requests: row.RequestCount}, pricingByModel[strings.TrimSpace(row.Model)])
 	hourKey, hourMinutes := usageOverviewBucket(timeutil.NormalizeStorageTime(row.BucketStart), false)
 	applyUsageOverviewStatToSeries(&overview.HourlySeries, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, rowCost, hourKey, hourMinutes)
 }
@@ -1078,7 +1078,7 @@ func applyUsageOverviewHourlyStatToHourlySeries(overview *dto.UsageOverviewRecor
 func applyUsageOverviewDailyStatToOverview(overview *dto.UsageOverviewRecord, row entities.UsageOverviewDailyStat, bucketByDay bool, pricingByModel map[string]entities.ModelPriceSetting) {
 	// 天 stats 只覆盖完整本地天，不能用于非整天边界。
 	applyUsageOverviewDailyStatToSnapshot(overview.Usage, row)
-	rowCost := helper.CalculateUsageTokenCost(helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens}, pricingByModel[strings.TrimSpace(row.Model)])
+	rowCost := helper.CalculateUsageTokenCost(helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens, Requests: row.RequestCount}, pricingByModel[strings.TrimSpace(row.Model)])
 	if _, ok := pricingByModel[strings.TrimSpace(row.Model)]; !ok && helper.UsageTokenInputRequiresPricing(helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens}) {
 		overview.Summary.CostAvailable = false
 	}

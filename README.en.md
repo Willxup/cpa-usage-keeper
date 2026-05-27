@@ -23,7 +23,7 @@ It relies on [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) a
 - Analysis page for token trends, model/API Key/AI Provider composition, and hourly heatmaps
 - Standalone API Key usage page for querying usage by CPA API Key
 - Credentials page for Auth File and AI Provider usage, with credential quota lookup and refresh
-- Maintain model prices for cost estimation and reporting
+- Maintain model prices for cost estimation and reporting, including token pricing and per-request pricing
 - Optional password login protection, SQLite backups, Docker/Docker Compose, and systemd deployment
 
 ## Quick Start

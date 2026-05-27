@@ -158,3 +158,27 @@ func TestSumUsageWindowStatsByAuthIndexTreatsMissingPriceAsZeroCost(t *testing.T
 		t.Fatalf("expected tokens with zero missing-price cost, got %+v", stats)
 	}
 }
+
+func TestSumUsageWindowStatsByAuthIndexIncludesPerRequestPricing(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-window-stats-per-request.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	start := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
+	if err := db.Create(&entities.ModelPriceSetting{Model: "image-2", PricePerRequest: 0.063}).Error; err != nil {
+		t.Fatalf("seed pricing: %v", err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := db.Create(&entities.UsageEvent{AuthType: "oauth", AuthIndex: "auth-image", Model: "image-2", Timestamp: start.Add(time.Duration(i) * time.Minute)}).Error; err != nil {
+			t.Fatalf("seed usage event: %v", err)
+		}
+	}
+	stats, err := SumUsageWindowStatsByAuthIndex(context.Background(), db, "auth-image", start.Add(-time.Minute), nil)
+	if err != nil {
+		t.Fatalf("SumUsageWindowStatsByAuthIndex returned error: %v", err)
+	}
+	if stats.Cost != 0.126 {
+		t.Fatalf("expected two image requests to cost 0.126, got %+v", stats)
+	}
+}

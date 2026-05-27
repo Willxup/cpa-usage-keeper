@@ -382,6 +382,7 @@ export interface PricingEntry {
   prompt_price_per_1m: number
   completion_price_per_1m: number
   cache_price_per_1m: number
+  price_per_request: number
 }
 
 export interface UsedModelsResponse {

@@ -6,4 +6,5 @@ type UpdatePricingInput struct {
 	PromptPricePer1M     float64
 	CompletionPricePer1M float64
 	CachePricePer1M      float64
+	PricePerRequest      float64
 }

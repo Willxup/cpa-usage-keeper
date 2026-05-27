@@ -31,3 +31,12 @@ func TestUsageEventRequiresPricingUsesBillableTokenFields(t *testing.T) {
 		t.Fatal("expected input tokens to require pricing")
 	}
 }
+
+func TestCalculateUsageTokenCostAddsPerRequestPricing(t *testing.T) {
+	pricing := entities.ModelPriceSetting{PricePerRequest: 0.063}
+	cost := CalculateUsageTokenCost(UsageTokenCostInput{Requests: 3}, pricing)
+	want := 0.189
+	if cost != want {
+		t.Fatalf("expected per-request cost %.3f, got %.3f", want, cost)
+	}
+}

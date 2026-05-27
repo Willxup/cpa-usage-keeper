@@ -76,25 +76,29 @@ export function PriceSettingsCard({
   const [promptPrice, setPromptPrice] = useState('');
   const [completionPrice, setCompletionPrice] = useState('');
   const [cachePrice, setCachePrice] = useState('');
+  const [requestPrice, setRequestPrice] = useState('');
 
   // 编辑弹窗独立保存草稿值，避免用户取消时污染已保存价格。
   const [editModel, setEditModel] = useState<string | null>(null);
   const [editPrompt, setEditPrompt] = useState('');
   const [editCompletion, setEditCompletion] = useState('');
   const [editCache, setEditCache] = useState('');
+  const [editRequest, setEditRequest] = useState('');
 
   const handleSavePrice = () => {
     if (!selectedModel) return;
     const prompt = parsePriceValue(promptPrice);
     const completion = parsePriceValue(completionPrice);
     const cache = cachePrice.trim() === '' ? prompt : parsePriceValue(cachePrice);
-    if (prompt === null || completion === null || cache === null) return;
-    const newPrices = { ...modelPrices, [selectedModel]: { prompt, completion, cache } };
+    const request = requestPrice.trim() === '' ? 0 : parsePriceValue(requestPrice);
+    if (prompt === null || completion === null || cache === null || request === null) return;
+    const newPrices = { ...modelPrices, [selectedModel]: { prompt, completion, cache, request } };
     onPricesChange(newPrices);
     setSelectedModel('');
     setPromptPrice('');
     setCompletionPrice('');
     setCachePrice('');
+    setRequestPrice('');
   };
 
   const handleDeletePrice = (model: string) => {
@@ -109,6 +113,7 @@ export function PriceSettingsCard({
     setEditPrompt(price?.prompt?.toString() || '');
     setEditCompletion(price?.completion?.toString() || '');
     setEditCache(price?.cache?.toString() || '');
+    setEditRequest(price?.request?.toString() || '');
   };
 
   const handleSaveEdit = () => {
@@ -116,8 +121,9 @@ export function PriceSettingsCard({
     const prompt = parsePriceValue(editPrompt);
     const completion = parsePriceValue(editCompletion);
     const cache = editCache.trim() === '' ? prompt : parsePriceValue(editCache);
-    if (prompt === null || completion === null || cache === null) return;
-    const newPrices = { ...modelPrices, [editModel]: { prompt, completion, cache } };
+    const request = editRequest.trim() === '' ? 0 : parsePriceValue(editRequest);
+    if (prompt === null || completion === null || cache === null || request === null) return;
+    const newPrices = { ...modelPrices, [editModel]: { prompt, completion, cache, request } };
     onPricesChange(newPrices);
     setEditModel(null);
   };
@@ -129,10 +135,12 @@ export function PriceSettingsCard({
       setPromptPrice(price.prompt.toString());
       setCompletionPrice(price.completion.toString());
       setCachePrice(price.cache.toString());
+      setRequestPrice(price.request?.toString() || '');
     } else {
       setPromptPrice('');
       setCompletionPrice('');
       setCachePrice('');
+      setRequestPrice('');
     }
   };
 
@@ -208,6 +216,17 @@ export function PriceSettingsCard({
                     className={styles.usagePillControl}
                   />
                 </div>
+                <div className={styles.formField}>
+                  <label>{t('usage_stats.model_price_request')} ($/request)</label>
+                  <Input
+                    type="number"
+                    value={requestPrice}
+                    onChange={(e) => setRequestPrice(e.target.value)}
+                    placeholder="0.00"
+                    step="0.0001"
+                    className={styles.usagePillControl}
+                  />
+                </div>
                 <Button variant="primary" className={styles.usagePillAction} onClick={handleSavePrice} disabled={!selectedModel}>
                   {t('common.save')}
                 </Button>
@@ -231,6 +250,9 @@ export function PriceSettingsCard({
                           </span>
                           <span>
                             {t('usage_stats.model_price_cache')}: ${price.cache.toFixed(4)}/1M
+                          </span>
+                          <span>
+                            {t('usage_stats.model_price_request')}: ${(price.request ?? 0).toFixed(4)}/request
                           </span>
                         </div>
                       </div>
@@ -299,6 +321,17 @@ export function PriceSettingsCard({
               type="number"
               value={editCache}
               onChange={(e) => setEditCache(e.target.value)}
+              placeholder="0.00"
+              step="0.0001"
+              className={styles.usagePillControl}
+            />
+          </div>
+          <div className={styles.formField}>
+            <label>{t('usage_stats.model_price_request')} ($/request)</label>
+            <Input
+              type="number"
+              value={editRequest}
+              onChange={(e) => setEditRequest(e.target.value)}
               placeholder="0.00"
               step="0.0001"
               className={styles.usagePillControl}

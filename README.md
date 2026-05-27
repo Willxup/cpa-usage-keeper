@@ -23,7 +23,7 @@
 - 分析页面提供 Token 趋势、模型/API Key/AI Provider 构成和时段热力图
 - API Key 独立查询页，可按 CPA API Key 查看专属用量
 - 凭证页面展示 Auth File 与 AI Provider 使用情况，支持凭证限额查询与刷新
-- 可维护模型价格，用于成本估算和统计展示
+- 可维护模型价格，用于成本估算和统计展示，支持 Token 单价与按请求次数计费
 - 可选密码登录保护、SQLite 备份、Docker/Docker Compose 和 systemd 部署
 
 ## 快速开始
