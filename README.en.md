@@ -225,7 +225,7 @@ For first-time deployments, start with "Minimum required" and "Web access and re
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `QUOTA_AUTO_REFRESH_ENABLED` | No | `true` | Enable Auth Files quota auto-refresh; it runs only while a backend page is visible and sending heartbeats |
+| `QUOTA_AUTO_REFRESH_ENABLED` | No | `false` | Enable Auth Files quota auto-refresh; it runs only while a backend page is visible and sending heartbeats |
 | `QUOTA_AUTO_REFRESH_INTERVAL` | No | `5m` | Auth Files quota auto-refresh interval, minimum `60s`, active only while a backend page is active |
 | `QUOTA_REFRESH_WORKER_LIMIT` | No | `10` | Maximum Auth Files quota refresh concurrency, capped at `100` |
 

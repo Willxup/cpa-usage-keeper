@@ -158,8 +158,8 @@ func TestLoadFromEnvAppliesDefaults(t *testing.T) {
 	if cfg.QuotaRefreshWorkerLimit != 10 {
 		t.Fatalf("expected default quota refresh worker limit 10, got %d", cfg.QuotaRefreshWorkerLimit)
 	}
-	if !cfg.QuotaAutoRefreshEnabled {
-		t.Fatal("expected quota auto refresh to be enabled by default")
+	if cfg.QuotaAutoRefreshEnabled {
+		t.Fatal("expected quota auto refresh to be disabled by default")
 	}
 	if cfg.QuotaAutoRefreshInterval != 5*time.Minute {
 		t.Fatalf("expected default quota auto refresh interval 5m, got %s", cfg.QuotaAutoRefreshInterval)

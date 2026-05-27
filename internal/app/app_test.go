@@ -39,14 +39,14 @@ func TestAppCloseClosesDatabase(t *testing.T) {
 	}
 }
 
-func TestNewWithConfigBuildsQuotaAutoRefreshByDefault(t *testing.T) {
+func TestNewWithConfigBuildsQuotaAutoRefreshWhenEnabled(t *testing.T) {
 	app, err := NewWithConfig(testAppConfig(t))
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
 	defer app.Close()
 	if app.QuotaAutoRefresh == nil {
-		t.Fatal("expected quota auto refresh runner by default")
+		t.Fatal("expected quota auto refresh runner when enabled")
 	}
 	if app.QuotaService == nil {
 		t.Fatal("expected quota service to remain available for manual refresh")

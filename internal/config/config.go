@@ -149,7 +149,7 @@ func Load(options LoadOptions) (*Config, error) {
 		return nil, fmt.Errorf("REDIS_QUEUE_IDLE_INTERVAL must be positive")
 	}
 
-	quotaAutoRefreshEnabled, err := getBool("QUOTA_AUTO_REFRESH_ENABLED", true)
+	quotaAutoRefreshEnabled, err := getBool("QUOTA_AUTO_REFRESH_ENABLED", false)
 	if err != nil {
 		return nil, err
 	}
