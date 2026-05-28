@@ -17,6 +17,8 @@ type ChartRow = {
   label: string;
   input: number;
   output: number;
+  rawInput: number;
+  rawOutput: number;
   cached: number;
   reasoning: number;
   total: number;
@@ -41,6 +43,10 @@ type LegendItem = {
 type GradientColor = {
   base: string;
   light: string;
+};
+
+type TokenTooltipDataset = ChartData<'bar', number[], string>['datasets'][number] & {
+  tooltipData?: number[];
 };
 
 const CHART_COLORS: GradientColor[] = [
@@ -94,6 +100,12 @@ const getChartTheme = (isDark: boolean): ChartTheme => ({
 const toNumber = (value: unknown) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const getTooltipTokenValue = (dataset: unknown, dataIndex: number | undefined, fallback: unknown): number => {
+  const tooltipData = (dataset as { tooltipData?: unknown[] }).tooltipData;
+  const tooltipValue = typeof dataIndex === 'number' ? tooltipData?.[dataIndex] : undefined;
+  return toNumber(tooltipValue ?? fallback);
 };
 
 const createChartGradient = (ctx: CanvasRenderingContext2D, chartArea: { top: number; bottom: number }, color: GradientColor) => {
@@ -160,6 +172,8 @@ function buildTokenUsageRows(buckets: AnalysisTokenUsageBucket[], granularity: A
       outputTokens: bucket.output_tokens,
       reasoningTokens: bucket.reasoning_tokens,
     }),
+    rawInput: toNumber(bucket.input_tokens),
+    rawOutput: toNumber(bucket.output_tokens),
     cached: toNumber(bucket.cached_tokens),
     reasoning: toNumber(bucket.reasoning_tokens),
     total: toNumber(bucket.total_tokens),
@@ -219,7 +233,8 @@ function buildAnalysisTokenChartOptions({ chartTheme, isMobile, totalTokens, tot
         callbacks: {
           label: (context) => {
             const label = context.dataset.label ? `${context.dataset.label}: ` : '';
-            return `${label}${formatCompactNumber(Number(context.parsed.y ?? 0))}`;
+            const value = getTooltipTokenValue(context.dataset, context.dataIndex, context.parsed.y);
+            return `${label}${formatCompactNumber(value)}`;
           },
           footer: (items) => {
             const dataIndex = items[0]?.dataIndex ?? -1;
@@ -262,10 +277,10 @@ function buildAnalysisTokenChartData(rows: ChartRow[], labels: TokenLabels): Cha
   return {
     labels: rows.map((row) => row.label),
     datasets: [
-      { label: labels.input, data: rows.map((row) => row.input), backgroundColor: (context) => toGradientFill(context, tokenColors.input), borderColor: tokenColors.input.base, stack: 'tokens', yAxisID: 'tokens' },
-      { label: labels.output, data: rows.map((row) => row.output), backgroundColor: (context) => toGradientFill(context, tokenColors.output), borderColor: tokenColors.output.base, stack: 'tokens', yAxisID: 'tokens' },
-      { label: labels.cached, data: rows.map((row) => row.cached), backgroundColor: (context) => toGradientFill(context, tokenColors.cached), borderColor: tokenColors.cached.base, stack: 'tokens', yAxisID: 'tokens' },
-      { label: labels.reasoning, data: rows.map((row) => row.reasoning), backgroundColor: (context) => toGradientFill(context, tokenColors.reasoning), borderColor: tokenColors.reasoning.base, stack: 'tokens', yAxisID: 'tokens' },
+      { label: labels.input, data: rows.map((row) => row.input), tooltipData: rows.map((row) => row.rawInput), backgroundColor: (context) => toGradientFill(context, tokenColors.input), borderColor: tokenColors.input.base, stack: 'tokens', yAxisID: 'tokens' } as TokenTooltipDataset,
+      { label: labels.output, data: rows.map((row) => row.output), tooltipData: rows.map((row) => row.rawOutput), backgroundColor: (context) => toGradientFill(context, tokenColors.output), borderColor: tokenColors.output.base, stack: 'tokens', yAxisID: 'tokens' } as TokenTooltipDataset,
+      { label: labels.cached, data: rows.map((row) => row.cached), tooltipData: rows.map((row) => row.cached), backgroundColor: (context) => toGradientFill(context, tokenColors.cached), borderColor: tokenColors.cached.base, stack: 'tokens', yAxisID: 'tokens' } as TokenTooltipDataset,
+      { label: labels.reasoning, data: rows.map((row) => row.reasoning), tooltipData: rows.map((row) => row.reasoning), backgroundColor: (context) => toGradientFill(context, tokenColors.reasoning), borderColor: tokenColors.reasoning.base, stack: 'tokens', yAxisID: 'tokens' } as TokenTooltipDataset,
       {
         type: 'line',
         label: labels.requests,

@@ -26,6 +26,7 @@ type TokenSeriesSource = NonNullable<UsageOverviewPayload['series']>;
 export type TokenBreakdownChartSeries = {
   labels: string[];
   dataByCategory: Record<TokenCategory, number[]>;
+  tooltipDataByCategory: Record<TokenCategory, number[]>;
   totalTokens: number[];
 };
 
@@ -84,6 +85,12 @@ const getTokenSource = (usage: UsageOverviewPayload | null, period: TokenBreakdo
   period === 'hour' ? (usage?.hourly_series ?? usage?.series) : (usage?.daily_series ?? usage?.series)
 );
 
+const getTooltipTokenValue = (dataset: unknown, dataIndex: number | undefined, fallback: unknown): number => {
+  const tooltipData = (dataset as { tooltipData?: unknown[] }).tooltipData;
+  const tooltipValue = typeof dataIndex === 'number' ? tooltipData?.[dataIndex] : undefined;
+  return Number(tooltipValue ?? fallback ?? 0);
+};
+
 const buildHourlyLabels = (source: TokenSeriesSource | undefined, hourWindowHours?: number, endMs?: number, includeFinalBucket = false) => {
   const labels = Array.from(new Set(CATEGORIES.flatMap((category) => Object.keys(source?.[`${category}_tokens`] ?? {}))))
     .sort((a, b) => a.localeCompare(b));
@@ -123,6 +130,12 @@ export const buildTokenBreakdownChartSeries = ({
         outputTokens: source?.output_tokens?.[label],
         reasoningTokens: source?.reasoning_tokens?.[label],
       })),
+      cached: labels.map((label) => Number(source?.cached_tokens?.[label] ?? 0)),
+      reasoning: labels.map((label) => Number(source?.reasoning_tokens?.[label] ?? 0)),
+    },
+    tooltipDataByCategory: {
+      input: labels.map((label) => Number(source?.input_tokens?.[label] ?? 0)),
+      output: labels.map((label) => Number(source?.output_tokens?.[label] ?? 0)),
       cached: labels.map((label) => Number(source?.cached_tokens?.[label] ?? 0)),
       reasoning: labels.map((label) => Number(source?.reasoning_tokens?.[label] ?? 0)),
     },
@@ -168,7 +181,8 @@ export const buildTokenBreakdownChartOptions = ({
         callbacks: {
           label: (context) => {
             const label = context.dataset.label ? `${context.dataset.label}: ` : '';
-            return `${label}${formatCompactTokenValue(Number(context.parsed.y ?? 0), true)}`;
+            const value = getTooltipTokenValue(context.dataset, context.dataIndex, context.parsed.y);
+            return `${label}${formatCompactTokenValue(value, true)}`;
           },
           footer: (items) => {
             const dataIndex = items[0]?.dataIndex ?? -1;
@@ -231,6 +245,7 @@ export function TokenBreakdownChart({
         backgroundColor: TOKEN_COLORS[cat].bg,
         pointBackgroundColor: TOKEN_COLORS[cat].border,
         pointBorderColor: TOKEN_COLORS[cat].border,
+        tooltipData: series.tooltipDataByCategory[cat],
         fill: true,
         tension: 0.35
       }))

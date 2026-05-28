@@ -577,6 +577,8 @@ describe('overview chart data flow', () => {
     expect(series.dataByCategory.cached).toEqual([0, 600]);
     expect(series.dataByCategory.output).toEqual([0, 50]);
     expect(series.dataByCategory.reasoning).toEqual([0, 50]);
+    expect(series.tooltipDataByCategory.input).toEqual([0, 1000]);
+    expect(series.tooltipDataByCategory.output).toEqual([0, 100]);
     expect(series.totalTokens).toEqual([0, 1150]);
   });
 
@@ -779,9 +781,10 @@ describe('overview chart data flow', () => {
     expect(tickCallback?.call({} as never, 1_500_000, 0, [])).toBe('1.50M');
     expect(typeof tooltipLabel).toBe('function');
     expect(tooltipLabel?.({
-      dataset: { label: 'Input' },
-      parsed: { y: 2_500_000_000 },
-    } as never)).toBe('Input: 2.50B tokens');
+      dataset: { label: 'Input', tooltipData: [1_000_000_000] },
+      dataIndex: 0,
+      parsed: { y: 400_000_000 },
+    } as never)).toBe('Input: 1.00B tokens');
     expect(typeof tooltipFooter).toBe('function');
     expect(tooltipFooter?.([{ dataIndex: 0 }] as never)).toBe('Total: 1.15K tokens');
   });

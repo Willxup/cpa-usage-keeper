@@ -67,6 +67,18 @@ describe('AnalysisPanel token chart data', () => {
     expect(datasets.find((dataset) => dataset.label === 'usage_stats.cached_tokens')?.data).toEqual([600]);
     expect(datasets.find((dataset) => dataset.label === 'usage_stats.output_tokens')?.data).toEqual([50]);
     expect(datasets.find((dataset) => dataset.label === 'usage_stats.reasoning_tokens')?.data).toEqual([50]);
+    const tooltipLabel = chartCapture.barOptions?.plugins?.tooltip?.callbacks?.label;
+    expect(typeof tooltipLabel).toBe('function');
+    expect(tooltipLabel?.({
+      dataset: { label: 'usage_stats.input_tokens', tooltipData: [1000] },
+      dataIndex: 0,
+      parsed: { y: 400 },
+    } as never)).toBe('usage_stats.input_tokens: 1.00K');
+    expect(tooltipLabel?.({
+      dataset: { label: 'usage_stats.output_tokens', tooltipData: [100] },
+      dataIndex: 0,
+      parsed: { y: 50 },
+    } as never)).toBe('usage_stats.output_tokens: 100');
     const tooltipFooter = chartCapture.barOptions?.plugins?.tooltip?.callbacks?.footer;
     expect(typeof tooltipFooter).toBe('function');
     expect(tooltipFooter?.([{ dataIndex: 0 }] as never)).toBe('usage_stats.total_tokens: 1.15K');
