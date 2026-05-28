@@ -1481,7 +1481,7 @@
   display: flex;
   flex-direction: column;
   height: 520px;
-  overflow: hidden;
+  overflow: clip;
 
   @include mobile {
     height: 420px;
@@ -1493,7 +1493,6 @@
   min-height: 0;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
 }
 
 .detailsNote {
@@ -1714,14 +1713,13 @@
   flex: 0 0 auto;
   flex-direction: column;
   gap: 12px;
-  height: var(--settings-list-scroll-height);
+  max-height: var(--settings-list-scroll-height);
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 4px;
   padding-bottom: 4px;
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
 }
 
 .apiKeySettingsList {
@@ -1826,12 +1824,11 @@
   }
 
   .apiKeySettingsBody {
-    height: var(--settings-list-scroll-height);
+    max-height: var(--settings-list-scroll-height);
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
   }
 
   .apiKeySettingsList {
@@ -1889,11 +1886,10 @@
   flex-direction: column;
   gap: 6px;
   flex: 0 0 auto;
-  height: var(--settings-list-scroll-height);
+  max-height: var(--settings-list-scroll-height);
   min-height: 0;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
 }
 
 .priceItem {
