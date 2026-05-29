@@ -86,7 +86,8 @@ describe('RequestEventsDetailsCard pagination', () => {
     });
 
     expect(html).toContain('<th>Tokens</th>');
-    expect(html).toContain('25 (25.00%)');
+    expect(html).toContain('>25<span');
+    expect(html).toContain('(25.00%)');
     expect(html.indexOf('Cached')).toBeLessThan(html.indexOf('Total Tokens'));
   });
 
@@ -99,7 +100,8 @@ describe('RequestEventsDetailsCard pagination', () => {
       }],
     });
 
-    expect(html).toContain('600 (60.00%)');
+    expect(html).toContain('>600<span');
+    expect(html).toContain('(60.00%)');
     expect(html).not.toContain('150.00%');
   });
 
@@ -109,8 +111,9 @@ describe('RequestEventsDetailsCard pagination', () => {
     });
 
     // 输入为 0 时缓存率回退为 '-'，缓存 token 仍展示数量但不附带百分比。
-    expect(html).toContain('<span>25</span>');
+    expect(html).toMatch(/Cached<\/span><span class="[^"]*">25<\/span>/);
     expect(html).not.toContain('25 (');
+    expect(html).not.toContain('(NaN');
   });
 
   it('stacks source value above source tags', () => {

@@ -1689,43 +1689,70 @@
 .durationCell {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  vertical-align: top;
+  vertical-align: middle;
 }
 
 .requestEventsTokensCell {
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  vertical-align: top;
+  vertical-align: middle;
 }
 
-.requestEventsMetricStack {
+// 耗时：主值在前，首字延迟跟随其后并弱化。
+.requestEventsTimingInline {
   display: inline-flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 96px;
-}
-
-.requestEventsMetricRow {
-  display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  line-height: 1.45;
+  gap: 8px;
+  white-space: nowrap;
 }
 
-.requestEventsMetricLabel {
-  color: var(--text-tertiary, var(--text-secondary));
+.requestEventsTimingPrimary {
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.requestEventsTimingSecondary {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+// Token：横排 入·出·缓·总，总数加粗高亮，窄屏允许换行。
+.requestEventsTokensInline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 14px;
+}
+
+.requestEventsTokenItem {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.requestEventsTokenLabel {
+  color: var(--text-tertiary);
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.02em;
 }
 
-.requestEventsMetricTotal {
-  margin-top: 2px;
-  padding-top: 3px;
-  border-top: 1px solid var(--border-color);
-  font-weight: 700;
+.requestEventsTokenValue {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.requestEventsTokenMuted {
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.requestEventsTokenTotal {
+  .requestEventsTokenValue {
+    font-weight: 800;
+    color: color-mix(in srgb, var(--text-primary) 82%, var(--primary-color));
+  }
 }
 
 .credentialsSections,

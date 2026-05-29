@@ -507,45 +507,44 @@ export function RequestEventsDetailsCard({
                     </td>
                     {(hasLatencyData || hasTtftData) && (
                       <td className={styles.durationCell}>
-                        <span className={styles.requestEventsMetricStack}>
+                        <span className={styles.requestEventsTimingInline}>
                           {hasLatencyData && (
-                            <span className={styles.requestEventsMetricRow}>
-                              <span className={styles.requestEventsMetricLabel}>{t('usage_stats.time')}</span>
-                              <span>{formatDurationMs(row.latencyMs)}</span>
-                            </span>
+                            <span className={styles.requestEventsTimingPrimary}>{formatDurationMs(row.latencyMs)}</span>
                           )}
                           {hasTtftData && (
-                            <span className={styles.requestEventsMetricRow}>
-                              <span className={styles.requestEventsMetricLabel}>{t('usage_stats.ttft')}</span>
-                              <span>{row.ttftMs && row.ttftMs > 0 ? formatDurationMs(row.ttftMs) : '-'}</span>
+                            <span className={styles.requestEventsTimingSecondary}>
+                              {t('usage_stats.ttft')} {row.ttftMs && row.ttftMs > 0 ? formatDurationMs(row.ttftMs) : '-'}
                             </span>
                           )}
                         </span>
                       </td>
                     )}
                     <td className={styles.requestEventsTokensCell}>
-                      <span className={styles.requestEventsMetricStack}>
-                        <span className={styles.requestEventsMetricRow}>
-                          <span className={styles.requestEventsMetricLabel}>{t('usage_stats.input_tokens')}</span>
-                          <span>{row.inputTokens.toLocaleString()}</span>
+                      <span className={styles.requestEventsTokensInline}>
+                        <span className={styles.requestEventsTokenItem}>
+                          <span className={styles.requestEventsTokenLabel}>{t('usage_stats.input_tokens')}</span>
+                          <span className={styles.requestEventsTokenValue}>{row.inputTokens.toLocaleString()}</span>
                         </span>
-                        <span className={styles.requestEventsMetricRow}>
-                          <span className={styles.requestEventsMetricLabel}>{t('usage_stats.output_tokens')}</span>
-                          <span>{row.outputTokens.toLocaleString()}</span>
+                        <span className={styles.requestEventsTokenItem}>
+                          <span className={styles.requestEventsTokenLabel}>{t('usage_stats.output_tokens')}</span>
+                          <span className={styles.requestEventsTokenValue}>{row.outputTokens.toLocaleString()}</span>
                         </span>
                         {row.reasoningTokens > 0 && (
-                          <span className={styles.requestEventsMetricRow}>
-                            <span className={styles.requestEventsMetricLabel}>{t('usage_stats.reasoning_tokens')}</span>
-                            <span>{row.reasoningTokens.toLocaleString()}</span>
+                          <span className={styles.requestEventsTokenItem}>
+                            <span className={styles.requestEventsTokenLabel}>{t('usage_stats.reasoning_tokens')}</span>
+                            <span className={styles.requestEventsTokenValue}>{row.reasoningTokens.toLocaleString()}</span>
                           </span>
                         )}
-                        <span className={styles.requestEventsMetricRow}>
-                          <span className={styles.requestEventsMetricLabel}>{t('usage_stats.cached_tokens')}</span>
-                          <span>{row.cachedTokens.toLocaleString()}{row.cacheRate !== '-' ? ` (${row.cacheRate})` : ''}</span>
+                        <span className={styles.requestEventsTokenItem}>
+                          <span className={styles.requestEventsTokenLabel}>{t('usage_stats.cached_tokens')}</span>
+                          <span className={styles.requestEventsTokenValue}>
+                            {row.cachedTokens.toLocaleString()}
+                            {row.cacheRate !== '-' && <span className={styles.requestEventsTokenMuted}> ({row.cacheRate})</span>}
+                          </span>
                         </span>
-                        <span className={`${styles.requestEventsMetricRow} ${styles.requestEventsMetricTotal}`}>
-                          <span className={styles.requestEventsMetricLabel}>{t('usage_stats.total_tokens')}</span>
-                          <span>{row.totalTokens.toLocaleString()}</span>
+                        <span className={`${styles.requestEventsTokenItem} ${styles.requestEventsTokenTotal}`}>
+                          <span className={styles.requestEventsTokenLabel}>{t('usage_stats.total_tokens')}</span>
+                          <span className={styles.requestEventsTokenValue}>{row.totalTokens.toLocaleString()}</span>
                         </span>
                       </span>
                     </td>

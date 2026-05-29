@@ -433,12 +433,12 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).toMatch(/\.requestEventsTimestamp\s*\{[\s\S]*?font-variant-numeric:\s*tabular-nums;/)
   })
 
-  it('merges token metrics into a single stacked Tokens column', () => {
-    expect(usagePageStyles).toMatch(/\.requestEventsMetricStack\s*\{[\s\S]*?flex-direction:\s*column;/)
-    expect(usagePageStyles).toMatch(/\.requestEventsMetricTotal\s*\{[\s\S]*?border-top:/)
+  it('renders token metrics inline within a single Tokens column', () => {
+    expect(usagePageStyles).toMatch(/\.requestEventsTokensInline\s*\{[\s\S]*?flex-wrap:\s*wrap;/)
+    expect(usagePageStyles).toMatch(/\.requestEventsTokenTotal\s*\{[\s\S]*?font-weight:\s*800;/)
     expect(requestEventsSource).toContain('<th>{t(\'usage_stats.tokens\')}</th>')
     expect(requestEventsSource).toContain('styles.requestEventsTokensCell')
-    expect(requestEventsSource).toContain('styles.requestEventsMetricStack')
+    expect(requestEventsSource).toContain('styles.requestEventsTokensInline')
   })
 
   it('provides reusable pill controls for usage subpages', () => {
