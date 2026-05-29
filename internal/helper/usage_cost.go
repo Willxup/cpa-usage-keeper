@@ -7,6 +7,7 @@ type UsageTokenCostInput struct {
 	InputTokens  int64
 	OutputTokens int64
 	CachedTokens int64
+	Requests     int64
 }
 
 // UsageEventRequiresPricing 判断事件是否包含需要价格表解释的计费 token。
@@ -29,6 +30,7 @@ func CalculateUsageEventCost(event entities.UsageEvent, pricing entities.ModelPr
 		InputTokens:  event.InputTokens,
 		OutputTokens: event.OutputTokens,
 		CachedTokens: event.CachedTokens,
+		Requests:     1,
 	}, pricing)
 }
 
@@ -46,11 +48,16 @@ func CalculateUsageTokenCost(input UsageTokenCostInput, pricing entities.ModelPr
 	if cachedTokens < 0 {
 		cachedTokens = 0
 	}
+	requests := input.Requests
+	if requests < 0 {
+		requests = 0
+	}
 	promptTokens := inputTokens - cachedTokens
 	if promptTokens < 0 {
 		promptTokens = 0
 	}
 	return (float64(promptTokens)/1_000_000.0)*pricing.PromptPricePer1M +
 		(float64(outputTokens)/1_000_000.0)*pricing.CompletionPricePer1M +
-		(float64(cachedTokens)/1_000_000.0)*pricing.CachePricePer1M
+		(float64(cachedTokens)/1_000_000.0)*pricing.CachePricePer1M +
+		float64(requests)*pricing.PricePerRequest
 }

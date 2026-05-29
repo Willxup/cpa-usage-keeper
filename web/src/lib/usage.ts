@@ -67,7 +67,8 @@ function calculateEventCost(event: UsageEventWithNames, priceMap: Map<string, Pr
   return (
     (event.tokens.input_tokens / 1_000_000) * pricing.prompt_price_per_1m +
     (event.tokens.output_tokens / 1_000_000) * pricing.completion_price_per_1m +
-    (event.tokens.cached_tokens / 1_000_000) * pricing.cache_price_per_1m
+    (event.tokens.cached_tokens / 1_000_000) * pricing.cache_price_per_1m +
+    (pricing.price_per_request ?? 0)
   )
 }
 

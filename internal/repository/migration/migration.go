@@ -39,6 +39,7 @@ const (
 	migrationUsageOverviewRollupDimensions          = "20260518_usage_overview_rollup_dimensions"
 	migrationAddUsageEventReasoningEffort           = "20260519_add_usage_event_reasoning_effort"
 	migrationAddUsageEventQuotaWindowIndexes        = "20260525_add_usage_event_quota_window_indexes"
+	migrationAddModelPricePerRequest                = "20260528_add_model_price_per_request"
 )
 
 type schemaMigration struct {
@@ -122,6 +123,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationUsageOverviewRollupDimensions, run: usageOverviewRollupDimensionsMigration, disableTransaction: true},
 		{version: migrationAddUsageEventReasoningEffort, run: addUsageEventReasoningEffortMigration},
 		{version: migrationAddUsageEventQuotaWindowIndexes, run: addUsageEventQuotaWindowIndexesMigration},
+		{version: migrationAddModelPricePerRequest, run: addModelPricePerRequestMigration},
 	}
 }
 

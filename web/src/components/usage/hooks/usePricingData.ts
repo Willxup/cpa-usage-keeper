@@ -24,10 +24,12 @@ const pricingToModelPrice = (entry: {
   prompt_price_per_1m: number;
   completion_price_per_1m: number;
   cache_price_per_1m: number;
+  price_per_request?: number;
 }): ModelPrice => ({
   prompt: entry.prompt_price_per_1m,
   completion: entry.completion_price_per_1m,
   cache: entry.cache_price_per_1m,
+  request: entry.price_per_request ?? 0,
 });
 
 export function usePricingData(options: UsePricingDataOptions = {}): UsePricingDataReturn {
@@ -110,6 +112,7 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
             prompt_price_per_1m: pricing.prompt,
             completion_price_per_1m: pricing.completion,
             cache_price_per_1m: pricing.cache,
+            price_per_request: pricing.request ?? 0,
           })
         ),
         ...Array.from(previousModels)

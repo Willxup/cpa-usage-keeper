@@ -23,6 +23,7 @@ export interface ModelPrice {
   prompt: number;
   completion: number;
   cache: number;
+  request: number;
 }
 
 export interface ChartDataset {
@@ -479,7 +480,8 @@ export function calculateCost(detail: UsageDetailRecord, modelPrices: Record<str
   return (
     (promptTokens / 1_000_000) * pricing.prompt +
     (completionTokens / 1_000_000) * pricing.completion +
-    (cachedTokens / 1_000_000) * pricing.cache
+    (cachedTokens / 1_000_000) * pricing.cache +
+    (pricing.request ?? 0)
   );
 }
 

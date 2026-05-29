@@ -18,6 +18,7 @@ type pricingEntryResponse struct {
 	PromptPricePer1M     float64 `json:"prompt_price_per_1m"`
 	CompletionPricePer1M float64 `json:"completion_price_per_1m"`
 	CachePricePer1M      float64 `json:"cache_price_per_1m"`
+	PricePerRequest      float64 `json:"price_per_request"`
 }
 
 type pricingListResponse struct {
@@ -29,6 +30,7 @@ type updatePricingRequest struct {
 	PromptPricePer1M     float64 `json:"prompt_price_per_1m"`
 	CompletionPricePer1M float64 `json:"completion_price_per_1m"`
 	CachePricePer1M      float64 `json:"cache_price_per_1m"`
+	PricePerRequest      float64 `json:"price_per_request"`
 }
 
 func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingProvider) {
@@ -66,6 +68,7 @@ func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingPr
 				PromptPricePer1M:     setting.PromptPricePer1M,
 				CompletionPricePer1M: setting.CompletionPricePer1M,
 				CachePricePer1M:      setting.CachePricePer1M,
+				PricePerRequest:      setting.PricePerRequest,
 			})
 		}
 		c.JSON(http.StatusOK, pricingListResponse{Pricing: response})
@@ -127,6 +130,7 @@ func updatePricing(c *gin.Context, pricingProvider service.PricingProvider, path
 		PromptPricePer1M:     request.PromptPricePer1M,
 		CompletionPricePer1M: request.CompletionPricePer1M,
 		CachePricePer1M:      request.CachePricePer1M,
+		PricePerRequest:      request.PricePerRequest,
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "has not been used") || strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "non-negative") {
@@ -142,5 +146,6 @@ func updatePricing(c *gin.Context, pricingProvider service.PricingProvider, path
 		PromptPricePer1M:     setting.PromptPricePer1M,
 		CompletionPricePer1M: setting.CompletionPricePer1M,
 		CachePricePer1M:      setting.CachePricePer1M,
+		PricePerRequest:      setting.PricePerRequest,
 	})
 }

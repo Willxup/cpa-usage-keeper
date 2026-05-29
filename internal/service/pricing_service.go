@@ -52,7 +52,7 @@ func (s *pricingService) UpdatePricing(ctx context.Context, input servicedto.Upd
 	if modelName == "" {
 		return nil, fmt.Errorf("model is required")
 	}
-	if input.PromptPricePer1M < 0 || input.CompletionPricePer1M < 0 || input.CachePricePer1M < 0 {
+	if input.PromptPricePer1M < 0 || input.CompletionPricePer1M < 0 || input.CachePricePer1M < 0 || input.PricePerRequest < 0 {
 		return nil, fmt.Errorf("prices must be non-negative")
 	}
 
@@ -74,6 +74,7 @@ func (s *pricingService) UpdatePricing(ctx context.Context, input servicedto.Upd
 		PromptPricePer1M:     input.PromptPricePer1M,
 		CompletionPricePer1M: input.CompletionPricePer1M,
 		CachePricePer1M:      input.CachePricePer1M,
+		PricePerRequest:      input.PricePerRequest,
 	})
 }
 
