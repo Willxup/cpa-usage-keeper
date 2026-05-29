@@ -239,6 +239,7 @@ func (s *usageService) ListUsageEvents(_ context.Context, filter servicedto.Usag
 			AuthIndex:           row.AuthIndex,
 			Failed:              row.Failed,
 			LatencyMS:           row.LatencyMS,
+			TTFTMS:              row.TTFTMS,
 			InputTokens:         row.InputTokens,
 			OutputTokens:        row.OutputTokens,
 			ReasoningTokens:     row.ReasoningTokens,

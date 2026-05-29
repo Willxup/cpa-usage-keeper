@@ -46,6 +46,7 @@ type RequestEventRow = {
   isDelete: boolean;
   failed: boolean;
   latencyMs: number | null;
+  ttftMs: number | null;
   inputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
@@ -139,6 +140,7 @@ export function RequestEventsDetailsCard({
     field: LATENCY_SOURCE_FIELD,
     unit: t('usage_stats.duration_unit_ms'),
   });
+  const ttftHint = t('usage_stats.ttft_hint');
 
   const rows = useMemo<RequestEventRow[]>(() => {
     return events.map((event, index) => {
@@ -160,6 +162,7 @@ export function RequestEventsDetailsCard({
       const cachedTokens = Math.max(toNumber(event.tokens?.cached_tokens), 0);
       const totalTokens = Math.max(toNumber(event.tokens?.total_tokens), 0);
       const latencyMs = Number.isFinite(event.latency_ms) ? event.latency_ms : null;
+      const ttftMs = Number.isFinite(event.ttft_ms) ? event.ttft_ms as number : null;
       const pricing = modelPrices[model];
       const cost = calculateCost({
         timestamp,
@@ -193,6 +196,7 @@ export function RequestEventsDetailsCard({
         isDelete: event.isDelete === true,
         failed: event.failed === true,
         latencyMs,
+        ttftMs,
         inputTokens,
         outputTokens,
         reasoningTokens,
@@ -206,6 +210,7 @@ export function RequestEventsDetailsCard({
   }, [events, modelPrices]);
 
   const hasLatencyData = useMemo(() => rows.some((row) => row.latencyMs !== null), [rows]);
+  const hasTTFTData = useMemo(() => rows.some((row) => row.ttftMs !== null), [rows]);
 
   const modelOptions = useMemo(() => {
     const options = [
@@ -278,6 +283,7 @@ export function RequestEventsDetailsCard({
       'source_raw',
       'auth_index',
       'result',
+      ...(hasTTFTData ? ['ttft_ms'] : []),
       ...(hasLatencyData ? ['latency_ms'] : []),
       'input_tokens',
       'output_tokens',
@@ -296,6 +302,7 @@ export function RequestEventsDetailsCard({
         row.sourceRaw,
         row.authIndex,
         row.failed ? 'failed' : 'success',
+        ...(hasTTFTData ? [row.ttftMs ?? ''] : []),
         ...(hasLatencyData ? [row.latencyMs ?? ''] : []),
         row.inputTokens,
         row.outputTokens,
@@ -327,6 +334,7 @@ export function RequestEventsDetailsCard({
       source_raw: row.sourceRaw,
       auth_index: row.authIndex,
       failed: row.failed,
+      ...(hasTTFTData && row.ttftMs !== null ? { ttft_ms: row.ttftMs } : {}),
       ...(hasLatencyData && row.latencyMs !== null ? { latency_ms: row.latencyMs } : {}),
       tokens: {
         input_tokens: row.inputTokens,
@@ -433,10 +441,11 @@ export function RequestEventsDetailsCard({
                 <tr>
                   <th>{t('usage_stats.request_events_timestamp')}</th>
                   <th>{t('usage_stats.model_name')}</th>
-                  <th>{t('usage_stats.reasoning_effort')}</th>
+                  <th title={t('usage_stats.reasoning_effort_hint')}>{t('usage_stats.reasoning_effort')}</th>
                   <th>{t('usage_stats.request_events_source')}</th>
                   <th>{t('usage_stats.request_events_result')}</th>
-                  {hasLatencyData && <th title={latencyHint}>{t('usage_stats.time')}</th>}
+                  {hasTTFTData && <th title={ttftHint}>{t('usage_stats.ttft')}</th>}
+                  {hasLatencyData && <th title={latencyHint}>{t('usage_stats.latency')}</th>}
                   <th>{t('usage_stats.input_tokens')}</th>
                   <th>{t('usage_stats.output_tokens')}</th>
                   <th className={styles.requestEventsReasoningHeader}>{t('usage_stats.reasoning_tokens')}</th>
@@ -480,6 +489,9 @@ export function RequestEventsDetailsCard({
                         {row.failed ? t('usage_stats.failure') : t('usage_stats.success')}
                       </span>
                     </td>
+                    {hasTTFTData && (
+                      <td className={styles.durationCell}>{formatDurationMs(row.ttftMs)}</td>
+                    )}
                     {hasLatencyData && (
                       <td className={styles.durationCell}>{formatDurationMs(row.latencyMs)}</td>
                     )}

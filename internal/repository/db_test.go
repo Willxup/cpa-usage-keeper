@@ -54,8 +54,8 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 	if err := db.Table("schema_migrations").Count(&count).Error; err != nil {
 		t.Fatalf("count schema migrations: %v", err)
 	}
-	if count != 29 {
-		t.Fatalf("expected fresh database to mark 29 migrations applied, got %d", count)
+	if count != 30 {
+		t.Fatalf("expected fresh database to mark 30 migrations applied, got %d", count)
 	}
 	if strings.Contains(logs.String(), "schema migration started") {
 		t.Fatalf("expected fresh database creation not to run version migrations, got logs:\n%s", logs.String())
@@ -226,6 +226,39 @@ func TestInsertUsageEventsPersistsModelAlias(t *testing.T) {
 	}
 	if got.ModelAlias == nil || *got.ModelAlias != "claude-sonnet-alias" {
 		t.Fatalf("expected model alias persisted, got %+v", got.ModelAlias)
+	}
+}
+
+func TestInsertUsageEventsPersistsTTFTMS(t *testing.T) {
+	db := openTestDatabase(t)
+	ttftMS := int64(456)
+	events := []entities.UsageEvent{{
+		EventKey:    "event-ttft",
+		APIGroupKey: "provider-a",
+		Model:       "claude-sonnet",
+		TTFTMS:      &ttftMS,
+		Timestamp:   time.Date(2026, 5, 28, 8, 0, 0, 0, time.UTC),
+		Source:      "source-a",
+		AuthIndex:   "auth-1",
+		TotalTokens: 10,
+	}}
+
+	inserted, deduped, err := InsertUsageEvents(db, events)
+	if err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+	if inserted != 1 || deduped != 0 {
+		t.Fatalf("expected inserted=1 deduped=0, got inserted=%d deduped=%d", inserted, deduped)
+	}
+
+	var got struct {
+		TTFTMS *int64 `gorm:"column:ttft_ms"`
+	}
+	if err := db.Table("usage_events").Select("ttft_ms").Where("event_key = ?", "event-ttft").First(&got).Error; err != nil {
+		t.Fatalf("load usage event ttft_ms: %v", err)
+	}
+	if got.TTFTMS == nil || *got.TTFTMS != 456 {
+		t.Fatalf("expected ttft_ms to persist, got %+v", got.TTFTMS)
 	}
 }
 

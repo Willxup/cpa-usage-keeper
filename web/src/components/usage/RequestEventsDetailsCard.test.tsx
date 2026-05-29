@@ -16,6 +16,7 @@ const events: UsageEvent[] = [
     auth_index: '1',
     failed: false,
     latency_ms: 120,
+    ttft_ms: 45,
     tokens: {
       input_tokens: 100,
       output_tokens: 60,
@@ -58,8 +59,11 @@ describe('RequestEventsDetailsCard pagination', () => {
     const html = renderCard();
 
     expect(html).toContain('120 total events');
-    expect(html).toContain('Reasoning Level');
+    expect(html).toContain('Effort');
+    expect(html).not.toContain('Reasoning Level');
+    expect(html.indexOf('<th title="Time to First Token">TTFT</th>')).toBeLessThan(html.indexOf('<th title="Using latency_ms in ms">Latency</th>'));
     expect(html).toContain('<td>medium</td>');
+    expect(html.indexOf('>45ms</td>')).toBeLessThan(html.indexOf('>120ms</td>'));
     expect(html).toContain('1 / 6');
     expect(html).toContain('20');
     expect(html).toContain('50');

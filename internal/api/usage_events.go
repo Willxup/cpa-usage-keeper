@@ -46,6 +46,7 @@ type usageEventPayload struct {
 	IsDelete        bool                   `json:"isDelete,omitempty"`
 	Failed          bool                   `json:"failed"`
 	LatencyMS       int64                  `json:"latency_ms"`
+	TTFTMS          *int64                 `json:"ttft_ms,omitempty"`
 	Tokens          usageEventTokenPayload `json:"tokens"`
 }
 
@@ -158,6 +159,7 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 			IsDelete:        isDelete,
 			Failed:          row.Failed,
 			LatencyMS:       row.LatencyMS,
+			TTFTMS:          row.TTFTMS,
 			Tokens: usageEventTokenPayload{
 				InputTokens:         row.InputTokens,
 				OutputTokens:        row.OutputTokens,

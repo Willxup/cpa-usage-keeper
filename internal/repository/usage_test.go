@@ -31,8 +31,9 @@ func TestBuildUsageSnapshotAggregatesEvents(t *testing.T) {
 	withRepositoryTestLocation(t, "Asia/Shanghai")
 
 	db := openUsageTestDatabase(t)
+	ttftMS := int64(45)
 	events := []entities.UsageEvent{
-		{EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), Source: "codex-a", AuthIndex: "1", Failed: false, LatencyMS: 100, InputTokens: 10, OutputTokens: 20, ReasoningTokens: 5, CachedTokens: 0, CacheReadTokens: 7, CacheCreationTokens: 8, TotalTokens: 35},
+		{EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), Source: "codex-a", AuthIndex: "1", Failed: false, LatencyMS: 100, TTFTMS: &ttftMS, InputTokens: 10, OutputTokens: 20, ReasoningTokens: 5, CachedTokens: 0, CacheReadTokens: 7, CacheCreationTokens: 8, TotalTokens: 35},
 		{EventKey: "event-2", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), Source: "codex-b", AuthIndex: "2", Failed: true, LatencyMS: 200, InputTokens: 2, OutputTokens: 3, ReasoningTokens: 0, CachedTokens: 0, TotalTokens: 5},
 		{EventKey: "event-3", APIGroupKey: "provider-b", Model: "claude-opus", Timestamp: time.Date(2026, 4, 17, 10, 0, 0, 0, time.UTC), Source: "codex-c", AuthIndex: "3", Failed: false, LatencyMS: 300, InputTokens: 100, OutputTokens: 50, ReasoningTokens: 25, CachedTokens: 10, TotalTokens: 185},
 	}
@@ -74,6 +75,9 @@ func TestBuildUsageSnapshotAggregatesEvents(t *testing.T) {
 	}
 	if page.Events[2].CacheReadTokens != 7 || page.Events[2].CacheCreationTokens != 8 {
 		t.Fatalf("expected cache token event list fields to be preserved, got %+v", page.Events[2])
+	}
+	if page.Events[2].TTFTMS == nil || *page.Events[2].TTFTMS != 45 {
+		t.Fatalf("expected ttft_ms event list field to be preserved, got %+v", page.Events[2].TTFTMS)
 	}
 }
 

@@ -160,6 +160,7 @@ export interface UsageEvent {
   isDelete?: boolean
   failed: boolean
   latency_ms: number
+  ttft_ms?: number
   tokens: UsageEventTokens
 }
 

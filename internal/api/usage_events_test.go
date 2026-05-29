@@ -72,6 +72,7 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 		AuthIndex:           "2",
 		Failed:              false,
 		LatencyMS:           321,
+		TTFTMS:              usageEventInt64Ptr(45),
 		InputTokens:         10,
 		OutputTokens:        5,
 		ReasoningTokens:     2,
@@ -116,6 +117,9 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	}
 	if !contains(body, `"reasoning_effort":"medium"`) {
 		t.Fatalf("expected reasoning effort in response body: %s", body)
+	}
+	if !contains(body, `"ttft_ms":45`) {
+		t.Fatalf("expected ttft_ms in response body: %s", body)
 	}
 	if provider.filterCalls != 1 {
 		t.Fatalf("expected ListUsageEvents to be called once, got %d", provider.filterCalls)
@@ -443,4 +447,8 @@ func TestUsageEventSourceFilterOptionsReturnsIdentitySources(t *testing.T) {
 	if contains(body, `Deleted Source`) || contains(body, `Deleted Provider`) || contains(body, `authidx-deleted`) {
 		t.Fatalf("expected deleted source filter options to be omitted, got %s", body)
 	}
+}
+
+func usageEventInt64Ptr(value int64) *int64 {
+	return &value
 }
