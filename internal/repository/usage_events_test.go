@@ -193,3 +193,38 @@ func TestListUsageEventFilterOptionsWithFilterReturnsStableModels(t *testing.T) 
 		t.Fatalf("expected stable model options, got %+v", options.Models)
 	}
 }
+
+// TTFTMS 字段全大写，GORM 默认命名会映射成 ttftms 而非 ttft_ms，
+// 必须靠投影结构上的 column tag 才能从 select 的 ttft_ms 列读回，
+// 否则列表查询里 TTFT 会恒为 0。本用例锁定该回归。
+func TestListUsageEventsWithFilterRoundTripsTTFTAndFailStatusCode(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-events-ttft.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	events := []entities.UsageEvent{
+		{EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), Source: "source-a", AuthIndex: "1", Failed: true, FailStatusCode: 503, LatencyMS: 1200, TTFTMS: 350, TotalTokens: 10},
+	}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
+	}
+	if len(page.Events) != 1 {
+		t.Fatalf("expected one row, got %d", len(page.Events))
+	}
+	if page.Events[0].TTFTMS != 350 {
+		t.Fatalf("expected TTFTMS to round trip as 350, got %d", page.Events[0].TTFTMS)
+	}
+	if page.Events[0].LatencyMS != 1200 {
+		t.Fatalf("expected LatencyMS to round trip as 1200, got %d", page.Events[0].LatencyMS)
+	}
+	if page.Events[0].FailStatusCode != 503 {
+		t.Fatalf("expected FailStatusCode to round trip as 503, got %d", page.Events[0].FailStatusCode)
+	}
+}

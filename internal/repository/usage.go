@@ -31,7 +31,7 @@ type usageEventProjection struct {
 	Failed              bool
 	FailStatusCode      int
 	LatencyMS           int64
-	TTFTMS              int64
+	TTFTMS              int64 `gorm:"column:ttft_ms"`
 	InputTokens         int64
 	OutputTokens        int64
 	ReasoningTokens     int64
