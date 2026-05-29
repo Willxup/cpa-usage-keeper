@@ -14,6 +14,7 @@ type UsageEvent struct {
 	Model               string    `gorm:"index:idx_usage_events_model"`
 	ModelAlias          *string   `gorm:"column:model_alias"`
 	ReasoningEffort     string    `gorm:"column:reasoning_effort;not null;default:''"`
+	ServiceTier         string    `gorm:"column:service_tier;not null;default:''"`
 	Timestamp           time.Time `gorm:"serializer:storageTime;index:idx_usage_events_timestamp_id,sort:desc,priority:1"`
 	Source              string
 	AuthIndex           string `gorm:"index:idx_usage_events_auth_index;index:idx_usage_events_auth_type_auth_index_id,priority:2"`

@@ -14,6 +14,7 @@ func TestDecodeRedisUsageMessageMapsPayloadToUsageEvent(t *testing.T) {
 		"timestamp":"2026-04-27T07:59:00Z",
 		"latency_ms":1234,
 		"ttft_ms":456,
+		"service_tier":"standard",
 		"source":"sk-test",
 		"auth_index":"auth-1",
 		"tokens":{"input_tokens":10,"output_tokens":20,"reasoning_tokens":3,"cached_tokens":4,"cache_read_tokens":5,"cache_creation_tokens":6,"total_tokens":0},
@@ -45,6 +46,9 @@ func TestDecodeRedisUsageMessageMapsPayloadToUsageEvent(t *testing.T) {
 	}
 	if event.ReasoningEffort != "medium" {
 		t.Fatalf("expected reasoning effort to decode, got %q", event.ReasoningEffort)
+	}
+	if event.ServiceTier != "standard" {
+		t.Fatalf("expected service tier to decode, got %q", event.ServiceTier)
 	}
 	if event.InputTokens != 10 || event.OutputTokens != 20 || event.ReasoningTokens != 3 || event.CachedTokens != 4 || event.CacheReadTokens != 5 || event.CacheCreationTokens != 6 || event.TotalTokens != 33 {
 		t.Fatalf("unexpected tokens: %+v", event)

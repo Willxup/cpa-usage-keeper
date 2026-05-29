@@ -54,8 +54,8 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 	if err := db.Table("schema_migrations").Count(&count).Error; err != nil {
 		t.Fatalf("count schema migrations: %v", err)
 	}
-	if count != 30 {
-		t.Fatalf("expected fresh database to mark 30 migrations applied, got %d", count)
+	if count != 31 {
+		t.Fatalf("expected fresh database to mark 31 migrations applied, got %d", count)
 	}
 	if strings.Contains(logs.String(), "schema migration started") {
 		t.Fatalf("expected fresh database creation not to run version migrations, got logs:\n%s", logs.String())
@@ -259,6 +259,38 @@ func TestInsertUsageEventsPersistsTTFTMS(t *testing.T) {
 	}
 	if got.TTFTMS == nil || *got.TTFTMS != 456 {
 		t.Fatalf("expected ttft_ms to persist, got %+v", got.TTFTMS)
+	}
+}
+
+func TestInsertUsageEventsPersistsServiceTier(t *testing.T) {
+	db := openTestDatabase(t)
+	events := []entities.UsageEvent{{
+		EventKey:    "event-service-tier",
+		APIGroupKey: "provider-a",
+		Model:       "claude-sonnet",
+		ServiceTier: "standard",
+		Timestamp:   time.Date(2026, 5, 29, 8, 0, 0, 0, time.UTC),
+		Source:      "source-a",
+		AuthIndex:   "auth-1",
+		TotalTokens: 10,
+	}}
+
+	inserted, deduped, err := InsertUsageEvents(db, events)
+	if err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+	if inserted != 1 || deduped != 0 {
+		t.Fatalf("expected inserted=1 deduped=0, got inserted=%d deduped=%d", inserted, deduped)
+	}
+
+	var got struct {
+		ServiceTier string `gorm:"column:service_tier"`
+	}
+	if err := db.Table("usage_events").Select("service_tier").Where("event_key = ?", "event-service-tier").First(&got).Error; err != nil {
+		t.Fatalf("load usage event service_tier: %v", err)
+	}
+	if got.ServiceTier != "standard" {
+		t.Fatalf("expected service_tier to persist, got %q", got.ServiceTier)
 	}
 }
 

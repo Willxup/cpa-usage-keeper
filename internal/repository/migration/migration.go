@@ -40,6 +40,7 @@ const (
 	migrationAddUsageEventReasoningEffort           = "20260519_add_usage_event_reasoning_effort"
 	migrationAddUsageEventQuotaWindowIndexes        = "20260525_add_usage_event_quota_window_indexes"
 	migrationAddUsageEventTTFTMS                    = "20260528_add_usage_event_ttft_ms"
+	migrationAddUsageEventServiceTier               = "20260529_add_usage_event_service_tier"
 )
 
 type schemaMigration struct {
@@ -124,6 +125,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageEventReasoningEffort, run: addUsageEventReasoningEffortMigration},
 		{version: migrationAddUsageEventQuotaWindowIndexes, run: addUsageEventQuotaWindowIndexesMigration},
 		{version: migrationAddUsageEventTTFTMS, run: addUsageEventTTFTMSMigration},
+		{version: migrationAddUsageEventServiceTier, run: addUsageEventServiceTierMigration},
 	}
 }
 
