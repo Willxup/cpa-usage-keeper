@@ -85,9 +85,9 @@ describe('RequestEventsDetailsCard pagination', () => {
       events: [{ ...events[0], tokens: { ...events[0].tokens, input_tokens: 100, cached_tokens: 25 } }],
     });
 
-    expect(html.indexOf('<th>Cached</th>')).toBeLessThan(html.indexOf('<th>Cache Rate</th>'));
-    expect(html.indexOf('<th>Cache Rate</th>')).toBeLessThan(html.indexOf('<th>Total Tokens</th>'));
-    expect(html).toContain('<td>25</td><td>25.00%</td><td>200</td>');
+    expect(html).toContain('<th>Tokens</th>');
+    expect(html).toContain('25 (25.00%)');
+    expect(html.indexOf('Cached')).toBeLessThan(html.indexOf('Total Tokens'));
   });
 
   it('uses Claude token semantics for cache rate', () => {
@@ -99,7 +99,7 @@ describe('RequestEventsDetailsCard pagination', () => {
       }],
     });
 
-    expect(html).toContain('<td>600</td><td>60.00%</td><td>500</td>');
+    expect(html).toContain('600 (60.00%)');
     expect(html).not.toContain('150.00%');
   });
 
@@ -108,7 +108,9 @@ describe('RequestEventsDetailsCard pagination', () => {
       events: [{ ...events[0], tokens: { ...events[0].tokens, input_tokens: 0, cached_tokens: 25 } }],
     });
 
-    expect(html).toContain('<td>0</td><td>60</td><td>20</td><td>25</td><td>-</td><td>200</td>');
+    // 输入为 0 时缓存率回退为 '-'，缓存 token 仍展示数量但不附带百分比。
+    expect(html).toContain('<span>25</span>');
+    expect(html).not.toContain('25 (');
   });
 
   it('stacks source value above source tags', () => {

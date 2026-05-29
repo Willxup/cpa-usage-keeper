@@ -433,10 +433,12 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).toMatch(/\.requestEventsTimestamp\s*\{[\s\S]*?font-variant-numeric:\s*tabular-nums;/)
   })
 
-  it('keeps the Request Event Log reasoning header on one line without fixing column width', () => {
-    expect(usagePageStyles).toMatch(/\.requestEventsReasoningHeader\s*\{[\s\S]*?white-space:\s*nowrap;/)
-    expect(usagePageStyles).not.toMatch(/\.requestEventsReasoningHeader\s*\{[^}]*width:/)
-    expect(requestEventsSource).toContain('<th className={styles.requestEventsReasoningHeader}>{t(\'usage_stats.reasoning_tokens\')}</th>')
+  it('merges token metrics into a single stacked Tokens column', () => {
+    expect(usagePageStyles).toMatch(/\.requestEventsMetricStack\s*\{[\s\S]*?flex-direction:\s*column;/)
+    expect(usagePageStyles).toMatch(/\.requestEventsMetricTotal\s*\{[\s\S]*?border-top:/)
+    expect(requestEventsSource).toContain('<th>{t(\'usage_stats.tokens\')}</th>')
+    expect(requestEventsSource).toContain('styles.requestEventsTokensCell')
+    expect(requestEventsSource).toContain('styles.requestEventsMetricStack')
   })
 
   it('provides reusable pill controls for usage subpages', () => {

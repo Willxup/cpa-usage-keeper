@@ -1689,6 +1689,43 @@
 .durationCell {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  vertical-align: top;
+}
+
+.requestEventsTokensCell {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  vertical-align: top;
+}
+
+.requestEventsMetricStack {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 96px;
+}
+
+.requestEventsMetricRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  line-height: 1.45;
+}
+
+.requestEventsMetricLabel {
+  color: var(--text-tertiary, var(--text-secondary));
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.requestEventsMetricTotal {
+  margin-top: 2px;
+  padding-top: 3px;
+  border-top: 1px solid var(--border-color);
+  font-weight: 700;
 }
 
 .credentialsSections,
@@ -2336,10 +2373,6 @@
   width: 136px;
   min-width: 136px;
   font-variant-numeric: tabular-nums;
-}
-
-.requestEventsReasoningHeader {
-  white-space: nowrap;
 }
 
 .requestEventsSourceCell,

@@ -459,14 +459,10 @@ export function RequestEventsDetailsCard({
                   <th>{t('usage_stats.service_tier')}</th>
                   <th>{t('usage_stats.request_events_source')}</th>
                   <th>{t('usage_stats.request_events_result')}</th>
-                  {hasLatencyData && <th title={latencyHint}>{t('usage_stats.time')}</th>}
-                  {hasTtftData && <th title={ttftHint}>{t('usage_stats.ttft')}</th>}
-                  <th>{t('usage_stats.input_tokens')}</th>
-                  <th>{t('usage_stats.output_tokens')}</th>
-                  <th className={styles.requestEventsReasoningHeader}>{t('usage_stats.reasoning_tokens')}</th>
-                  <th>{t('usage_stats.cached_tokens')}</th>
-                  <th>{t('usage_stats.cache_rate')}</th>
-                  <th>{t('usage_stats.total_tokens')}</th>
+                  {(hasLatencyData || hasTtftData) && (
+                    <th title={hasTtftData ? ttftHint : latencyHint}>{t('usage_stats.request_events_timing')}</th>
+                  )}
+                  <th>{t('usage_stats.tokens')}</th>
                   <th>{t('usage_stats.total_cost')}</th>
                 </tr>
               </thead>
@@ -509,18 +505,50 @@ export function RequestEventsDetailsCard({
                           : t('usage_stats.success')}
                       </span>
                     </td>
-                    {hasLatencyData && (
-                      <td className={styles.durationCell}>{formatDurationMs(row.latencyMs)}</td>
+                    {(hasLatencyData || hasTtftData) && (
+                      <td className={styles.durationCell}>
+                        <span className={styles.requestEventsMetricStack}>
+                          {hasLatencyData && (
+                            <span className={styles.requestEventsMetricRow}>
+                              <span className={styles.requestEventsMetricLabel}>{t('usage_stats.time')}</span>
+                              <span>{formatDurationMs(row.latencyMs)}</span>
+                            </span>
+                          )}
+                          {hasTtftData && (
+                            <span className={styles.requestEventsMetricRow}>
+                              <span className={styles.requestEventsMetricLabel}>{t('usage_stats.ttft')}</span>
+                              <span>{row.ttftMs && row.ttftMs > 0 ? formatDurationMs(row.ttftMs) : '-'}</span>
+                            </span>
+                          )}
+                        </span>
+                      </td>
                     )}
-                    {hasTtftData && (
-                      <td className={styles.durationCell}>{row.ttftMs && row.ttftMs > 0 ? formatDurationMs(row.ttftMs) : '-'}</td>
-                    )}
-                    <td>{row.inputTokens.toLocaleString()}</td>
-                    <td>{row.outputTokens.toLocaleString()}</td>
-                    <td>{row.reasoningTokens.toLocaleString()}</td>
-                    <td>{row.cachedTokens.toLocaleString()}</td>
-                    <td>{row.cacheRate}</td>
-                    <td>{row.totalTokens.toLocaleString()}</td>
+                    <td className={styles.requestEventsTokensCell}>
+                      <span className={styles.requestEventsMetricStack}>
+                        <span className={styles.requestEventsMetricRow}>
+                          <span className={styles.requestEventsMetricLabel}>{t('usage_stats.input_tokens')}</span>
+                          <span>{row.inputTokens.toLocaleString()}</span>
+                        </span>
+                        <span className={styles.requestEventsMetricRow}>
+                          <span className={styles.requestEventsMetricLabel}>{t('usage_stats.output_tokens')}</span>
+                          <span>{row.outputTokens.toLocaleString()}</span>
+                        </span>
+                        {row.reasoningTokens > 0 && (
+                          <span className={styles.requestEventsMetricRow}>
+                            <span className={styles.requestEventsMetricLabel}>{t('usage_stats.reasoning_tokens')}</span>
+                            <span>{row.reasoningTokens.toLocaleString()}</span>
+                          </span>
+                        )}
+                        <span className={styles.requestEventsMetricRow}>
+                          <span className={styles.requestEventsMetricLabel}>{t('usage_stats.cached_tokens')}</span>
+                          <span>{row.cachedTokens.toLocaleString()}{row.cacheRate !== '-' ? ` (${row.cacheRate})` : ''}</span>
+                        </span>
+                        <span className={`${styles.requestEventsMetricRow} ${styles.requestEventsMetricTotal}`}>
+                          <span className={styles.requestEventsMetricLabel}>{t('usage_stats.total_tokens')}</span>
+                          <span>{row.totalTokens.toLocaleString()}</span>
+                        </span>
+                      </span>
+                    </td>
                     <td title={row.hasPrice ? undefined : t('usage_stats.cost_need_price')}>
                       {row.hasPrice ? formatUsd(row.cost) : '-'}
                     </td>
