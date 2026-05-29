@@ -87,11 +87,12 @@ networks:
     driver: bridge
 ```
 
-如果想用 `.env` 文件管理 Keeper 配置，可以删除 `cpa-usage-keeper` 服务里的 `environment` 块，并把宿主机 `.env` 挂载到容器中：
+如果想用 `.env` 文件管理 Keeper 配置，可以删除 `cpa-usage-keeper` 服务里的 `environment` 块，并添加 `env_file`：
 
 ```yaml
+    env_file:
+      - .env
     volumes:
-      - ./.env:/.env:ro
       - ./keeper:/data
 ```
 
@@ -105,7 +106,7 @@ AUTH_ENABLED=true
 LOGIN_PASSWORD=replace-with-your-login-password
 ```
 
-应用启动时会读取 `/.env`。如果 CPA 使用非默认 Redis/RESP 地址，再在 `.env` 中设置 `REDIS_QUEUE_ADDR`。
+Docker Compose 会把 `.env` 中的配置注入 Keeper 容器环境变量。如果 CPA 使用非默认 Redis/RESP 地址，再在 `.env` 中设置 `REDIS_QUEUE_ADDR`。
 
 启动：
 
@@ -123,7 +124,7 @@ CPA 文件放在 `./cpa`，CPA Usage Keeper 数据放在 `./keeper`。
 
 ### Docker（CPA 已在宿主机运行）
 
-复制配置模板并编辑，至少设置 `CPA_BASE_URL`、`CPA_MANAGEMENT_KEY`、`REDIS_QUEUE_ADDR`、`AUTH_ENABLED` 和 `LOGIN_PASSWORD`：
+复制配置模板并编辑，至少设置 `CPA_BASE_URL` 和 `CPA_MANAGEMENT_KEY`。公网部署建议同时设置 `AUTH_ENABLED=true` 和 `LOGIN_PASSWORD`。如果 CPA 使用非默认 Redis/RESP 地址，再设置 `REDIS_QUEUE_ADDR`：
 
 ```bash
 cp .env.example .env
@@ -135,7 +136,6 @@ vim .env
 ```env
 CPA_BASE_URL=http://host.docker.internal:8317
 CPA_MANAGEMENT_KEY=replace-with-your-management-key
-REDIS_QUEUE_ADDR=host.docker.internal:8317
 AUTH_ENABLED=true
 LOGIN_PASSWORD=replace-with-your-login-password
 ```

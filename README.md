@@ -87,11 +87,12 @@ networks:
     driver: bridge
 ```
 
-To manage Keeper settings with a `.env` file, remove the `environment` block from the `cpa-usage-keeper` service and mount the host `.env` file into the container:
+To manage Keeper settings with a `.env` file, remove the `environment` block from the `cpa-usage-keeper` service and add `env_file`:
 
 ```yaml
+    env_file:
+      - .env
     volumes:
-      - ./.env:/.env:ro
       - ./keeper:/data
 ```
 
@@ -105,7 +106,7 @@ AUTH_ENABLED=true
 LOGIN_PASSWORD=replace-with-your-login-password
 ```
 
-The application reads `/.env` on startup. If CPA uses a non-default Redis/RESP address, also set `REDIS_QUEUE_ADDR` in `.env`.
+Docker Compose injects the `.env` values into the Keeper container as environment variables. If CPA uses a non-default Redis/RESP address, also set `REDIS_QUEUE_ADDR` in `.env`.
 
 Start:
 
@@ -123,7 +124,7 @@ CPA files are stored under `./cpa`, and CPA Usage Keeper data is stored under `.
 
 ### Docker (CPA Already Runs On The Host)
 
-Copy and edit the example config. At minimum, set `CPA_BASE_URL`, `CPA_MANAGEMENT_KEY`, `REDIS_QUEUE_ADDR`, `AUTH_ENABLED`, and `LOGIN_PASSWORD`:
+Copy and edit the example config. At minimum, set `CPA_BASE_URL` and `CPA_MANAGEMENT_KEY`. For public deployments, also set `AUTH_ENABLED=true` and `LOGIN_PASSWORD`. If CPA uses a non-default Redis/RESP address, also set `REDIS_QUEUE_ADDR`:
 
 ```bash
 cp .env.example .env
@@ -135,7 +136,6 @@ When CPA runs on the host, `.env` usually needs these values:
 ```env
 CPA_BASE_URL=http://host.docker.internal:8317
 CPA_MANAGEMENT_KEY=replace-with-your-management-key
-REDIS_QUEUE_ADDR=host.docker.internal:8317
 AUTH_ENABLED=true
 LOGIN_PASSWORD=replace-with-your-login-password
 ```
