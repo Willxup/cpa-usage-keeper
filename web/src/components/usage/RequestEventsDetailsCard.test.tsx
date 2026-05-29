@@ -209,4 +209,46 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('Total Cost');
     expect(html).toContain('$0.0057');
   });
+
+  it('renders service tier and TTFT columns, and shows fail status code for failed rows', () => {
+    const richEvents: UsageEvent[] = [
+      {
+        id: '201',
+        timestamp: '2026-05-29T01:00:00.000Z',
+        model: 'claude-sonnet',
+        reasoning_effort: 'high',
+        service_tier: 'priority',
+        source: 'Provider A',
+        source_raw: 'source-a',
+        source_type: 'openai',
+        auth_index: '1',
+        failed: false,
+        latency_ms: 200,
+        ttft_ms: 123,
+        tokens: { input_tokens: 10, output_tokens: 5, reasoning_tokens: 2, cached_tokens: 1, total_tokens: 18 },
+      },
+      {
+        id: '202',
+        timestamp: '2026-05-29T01:01:00.000Z',
+        model: 'claude-sonnet',
+        service_tier: 'standard',
+        source: 'Provider A',
+        source_raw: 'source-a',
+        source_type: 'openai',
+        auth_index: '1',
+        failed: true,
+        fail_status_code: 529,
+        latency_ms: 80,
+        ttft_ms: 0,
+        tokens: { input_tokens: 1, output_tokens: 0, reasoning_tokens: 0, cached_tokens: 0, total_tokens: 1 },
+      },
+    ];
+    const html = renderCard({ events: richEvents });
+
+    expect(html).toContain('Service Tier');
+    expect(html).toContain('TTFT');
+    expect(html).toContain('<td>priority</td>');
+    expect(html).toContain('<td>standard</td>');
+    expect(html).toContain('529');
+  });
 });

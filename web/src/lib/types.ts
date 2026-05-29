@@ -153,13 +153,16 @@ export interface UsageEvent {
   timestamp: string
   model: string
   reasoning_effort?: string
+  service_tier?: string
   source: string
   source_raw?: string
   source_type?: string
   auth_index?: string
   isDelete?: boolean
   failed: boolean
+  fail_status_code?: number
   latency_ms: number
+  ttft_ms?: number
   tokens: UsageEventTokens
 }
 

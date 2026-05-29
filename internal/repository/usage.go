@@ -14,7 +14,7 @@ import (
 )
 
 // usageEventProjectionColumns 限制 usage_events 查询列，避免 Overview 和列表页把 RawJSON 等大字段读入内存。
-const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, model, reasoning_effort, timestamp, source, auth_index, failed, latency_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, model, reasoning_effort, service_tier, timestamp, source, auth_index, failed, fail_status_code, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
 
 // usageEventProjection 是 usage_events 轻量投影，专门承接 select columns 的查询结果。
 type usageEventProjection struct {
@@ -24,11 +24,14 @@ type usageEventProjection struct {
 	AuthType            string
 	Model               string
 	ReasoningEffort     string
+	ServiceTier         string
 	Timestamp           time.Time
 	Source              string
 	AuthIndex           string
 	Failed              bool
+	FailStatusCode      int
 	LatencyMS           int64
+	TTFTMS              int64
 	InputTokens         int64
 	OutputTokens        int64
 	ReasoningTokens     int64
@@ -141,12 +144,15 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 		APIGroupKey:         strings.TrimSpace(event.APIGroupKey),
 		Model:               strings.TrimSpace(event.Model),
 		ReasoningEffort:     strings.TrimSpace(event.ReasoningEffort),
+		ServiceTier:         strings.TrimSpace(event.ServiceTier),
 		AuthType:            strings.TrimSpace(event.AuthType),
 		Provider:            strings.TrimSpace(event.Provider),
 		Source:              strings.TrimSpace(event.Source),
 		AuthIndex:           strings.TrimSpace(event.AuthIndex),
 		Failed:              event.Failed,
+		FailStatusCode:      event.FailStatusCode,
 		LatencyMS:           event.LatencyMS,
+		TTFTMS:              event.TTFTMS,
 		InputTokens:         event.InputTokens,
 		OutputTokens:        event.OutputTokens,
 		ReasoningTokens:     event.ReasoningTokens,
@@ -167,11 +173,14 @@ func usageEventProjectionToEntity(event usageEventProjection) entities.UsageEven
 		AuthType:            event.AuthType,
 		Model:               event.Model,
 		ReasoningEffort:     event.ReasoningEffort,
+		ServiceTier:         event.ServiceTier,
 		Timestamp:           event.Timestamp,
 		Source:              event.Source,
 		AuthIndex:           event.AuthIndex,
 		Failed:              event.Failed,
+		FailStatusCode:      event.FailStatusCode,
 		LatencyMS:           event.LatencyMS,
+		TTFTMS:              event.TTFTMS,
 		InputTokens:         event.InputTokens,
 		OutputTokens:        event.OutputTokens,
 		ReasoningTokens:     event.ReasoningTokens,

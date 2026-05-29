@@ -13,14 +13,17 @@ func TestDecodeRedisUsageMessageMapsPayloadToUsageEvent(t *testing.T) {
 	event, raw, err := DecodeRedisUsageMessage(`{
 		"timestamp":"2026-04-27T07:59:00Z",
 		"latency_ms":1234,
+		"ttft_ms":321,
 		"source":"sk-test",
 		"auth_index":"auth-1",
 		"tokens":{"input_tokens":10,"output_tokens":20,"reasoning_tokens":3,"cached_tokens":4,"cache_read_tokens":5,"cache_creation_tokens":6,"total_tokens":0},
 		"failed":true,
+		"fail":{"status_code":503,"body":"upstream overloaded"},
 		"provider":"claude",
 		"model":"claude-sonnet-4-6",
 		"alias":"claude-sonnet-alias",
 		"reasoning_effort":"medium",
+		"service_tier":"priority",
 		"endpoint":"/v1/messages",
 		"auth_type":"api_key",
 		"api_key":"raw-key",
@@ -41,6 +44,15 @@ func TestDecodeRedisUsageMessageMapsPayloadToUsageEvent(t *testing.T) {
 	}
 	if event.ReasoningEffort != "medium" {
 		t.Fatalf("expected reasoning effort to decode, got %q", event.ReasoningEffort)
+	}
+	if event.ServiceTier != "priority" {
+		t.Fatalf("expected service tier to decode, got %q", event.ServiceTier)
+	}
+	if event.TTFTMS != 321 {
+		t.Fatalf("expected ttft_ms to decode, got %d", event.TTFTMS)
+	}
+	if event.FailStatusCode != 503 {
+		t.Fatalf("expected fail.status_code to decode, got %d", event.FailStatusCode)
 	}
 	if event.InputTokens != 10 || event.OutputTokens != 20 || event.ReasoningTokens != 3 || event.CachedTokens != 4 || event.CacheReadTokens != 5 || event.CacheCreationTokens != 6 || event.TotalTokens != 33 {
 		t.Fatalf("unexpected tokens: %+v", event)
@@ -74,6 +86,33 @@ func TestDecodeRedisUsageMessageReportsOnlyMessageError(t *testing.T) {
 	_, _, err := DecodeRedisUsageMessage(`{bad-json}`, time.Date(2026, 4, 27, 8, 0, 0, 0, time.UTC))
 	if err == nil || !strings.Contains(err.Error(), "decode redis usage message") {
 		t.Fatalf("expected decode error, got %v", err)
+	}
+}
+
+func TestDecodeRedisUsageMessageDefaultsNewMetricsWhenAbsent(t *testing.T) {
+	fetchedAt := time.Date(2026, 5, 29, 8, 0, 0, 0, time.UTC)
+
+	// 旧版 CPA 消息不含 ttft_ms/service_tier/fail，应安全降级为零值。
+	event, _, err := DecodeRedisUsageMessage(`{
+		"request_id":"req-legacy",
+		"model":"claude-sonnet-4-6",
+		"latency_ms":-5,
+		"ttft_ms":-9
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
+	}
+	if event.ServiceTier != "" {
+		t.Fatalf("expected empty service tier for legacy payload, got %q", event.ServiceTier)
+	}
+	if event.TTFTMS != 0 {
+		t.Fatalf("expected negative ttft_ms to clamp to 0, got %d", event.TTFTMS)
+	}
+	if event.LatencyMS != 0 {
+		t.Fatalf("expected negative latency_ms to clamp to 0, got %d", event.LatencyMS)
+	}
+	if event.FailStatusCode != 0 {
+		t.Fatalf("expected fail_status_code default 0 for legacy payload, got %d", event.FailStatusCode)
 	}
 }
 

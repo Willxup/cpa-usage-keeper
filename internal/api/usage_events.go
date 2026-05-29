@@ -39,13 +39,16 @@ type usageEventPayload struct {
 	Timestamp       string                 `json:"timestamp"`
 	Model           string                 `json:"model"`
 	ReasoningEffort string                 `json:"reasoning_effort,omitempty"`
+	ServiceTier     string                 `json:"service_tier,omitempty"`
 	Source          string                 `json:"source"`
 	SourceRaw       string                 `json:"source_raw,omitempty"`
 	SourceType      string                 `json:"source_type,omitempty"`
 	AuthIndex       string                 `json:"auth_index,omitempty"`
 	IsDelete        bool                   `json:"isDelete,omitempty"`
 	Failed          bool                   `json:"failed"`
+	FailStatusCode  int                    `json:"fail_status_code,omitempty"`
 	LatencyMS       int64                  `json:"latency_ms"`
+	TTFTMS          int64                  `json:"ttft_ms"`
 	Tokens          usageEventTokenPayload `json:"tokens"`
 }
 
@@ -147,17 +150,25 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 		if row.ID != 0 {
 			id = strconv.FormatInt(row.ID, 10)
 		}
+		// 仅失败请求暴露错误码；成功请求保持省略，避免噪音（CPA 成功时会上报 200）。
+		failStatusCode := 0
+		if row.Failed {
+			failStatusCode = row.FailStatusCode
+		}
 		payload = append(payload, usageEventPayload{
 			ID:              id,
 			Timestamp:       timeutil.FormatStorageTime(row.Timestamp),
 			Model:           row.Model,
 			ReasoningEffort: strings.TrimSpace(row.ReasoningEffort),
+			ServiceTier:     strings.TrimSpace(row.ServiceTier),
 			Source:          source,
 			SourceType:      identity.Type,
 			AuthIndex:       row.AuthIndex,
 			IsDelete:        isDelete,
 			Failed:          row.Failed,
+			FailStatusCode:  failStatusCode,
 			LatencyMS:       row.LatencyMS,
+			TTFTMS:          row.TTFTMS,
 			Tokens: usageEventTokenPayload{
 				InputTokens:         row.InputTokens,
 				OutputTokens:        row.OutputTokens,

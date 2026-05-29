@@ -46,12 +46,15 @@ type UsageEventRecord struct {
 	APIGroupKey         string
 	Model               string
 	ReasoningEffort     string
+	ServiceTier         string
 	AuthType            string
 	Provider            string
 	Source              string
 	AuthIndex           string
 	Failed              bool
+	FailStatusCode      int
 	LatencyMS           int64
+	TTFTMS              int64
 	InputTokens         int64
 	OutputTokens        int64
 	ReasoningTokens     int64

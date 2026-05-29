@@ -39,13 +39,16 @@ type RequestEventRow = {
   timestampLabel: string;
   model: string;
   reasoningEffort: string;
+  serviceTier: string;
   sourceRaw: string;
   source: string;
   sourceType: string;
   authIndex: string;
   isDelete: boolean;
   failed: boolean;
+  failStatusCode: number | null;
   latencyMs: number | null;
+  ttftMs: number | null;
   inputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
@@ -139,6 +142,9 @@ export function RequestEventsDetailsCard({
     field: LATENCY_SOURCE_FIELD,
     unit: t('usage_stats.duration_unit_ms'),
   });
+  const ttftHint = t('usage_stats.ttft_hint', {
+    unit: t('usage_stats.duration_unit_ms'),
+  });
 
   const rows = useMemo<RequestEventRow[]>(() => {
     return events.map((event, index) => {
@@ -154,12 +160,15 @@ export function RequestEventsDetailsCard({
       const sourceType = String(event.source_type ?? '').trim();
       const model = String(event.model ?? '').trim() || '-';
       const reasoningEffort = String(event.reasoning_effort ?? '').trim() || '-';
+      const serviceTier = String(event.service_tier ?? '').trim() || '-';
       const inputTokens = Math.max(toNumber(event.tokens?.input_tokens), 0);
       const outputTokens = Math.max(toNumber(event.tokens?.output_tokens), 0);
       const reasoningTokens = Math.max(toNumber(event.tokens?.reasoning_tokens), 0);
       const cachedTokens = Math.max(toNumber(event.tokens?.cached_tokens), 0);
       const totalTokens = Math.max(toNumber(event.tokens?.total_tokens), 0);
       const latencyMs = Number.isFinite(event.latency_ms) ? event.latency_ms : null;
+      const ttftMs = Number.isFinite(event.ttft_ms) ? (event.ttft_ms as number) : null;
+      const failStatusCode = Number.isFinite(event.fail_status_code) ? (event.fail_status_code as number) : null;
       const pricing = modelPrices[model];
       const cost = calculateCost({
         timestamp,
@@ -186,13 +195,16 @@ export function RequestEventsDetailsCard({
         timestampLabel: formatRequestEventTimestamp(timestamp),
         model,
         reasoningEffort,
+        serviceTier,
         sourceRaw: sourceRaw || '-',
         source,
         sourceType,
         authIndex,
         isDelete: event.isDelete === true,
         failed: event.failed === true,
+        failStatusCode,
         latencyMs,
+        ttftMs,
         inputTokens,
         outputTokens,
         reasoningTokens,
@@ -206,6 +218,7 @@ export function RequestEventsDetailsCard({
   }, [events, modelPrices]);
 
   const hasLatencyData = useMemo(() => rows.some((row) => row.latencyMs !== null), [rows]);
+  const hasTtftData = useMemo(() => rows.some((row) => row.ttftMs !== null && row.ttftMs > 0), [rows]);
 
   const modelOptions = useMemo(() => {
     const options = [
@@ -274,11 +287,14 @@ export function RequestEventsDetailsCard({
       'timestamp',
       'model',
       'reasoning_effort',
+      'service_tier',
       'source',
       'source_raw',
       'auth_index',
       'result',
+      'fail_status_code',
       ...(hasLatencyData ? ['latency_ms'] : []),
+      ...(hasTtftData ? ['ttft_ms'] : []),
       'input_tokens',
       'output_tokens',
       'reasoning_tokens',
@@ -292,11 +308,14 @@ export function RequestEventsDetailsCard({
         row.timestamp,
         row.model,
         row.reasoningEffort === '-' ? '' : row.reasoningEffort,
+        row.serviceTier === '-' ? '' : row.serviceTier,
         row.source,
         row.sourceRaw,
         row.authIndex,
         row.failed ? 'failed' : 'success',
+        row.failed && row.failStatusCode ? row.failStatusCode : '',
         ...(hasLatencyData ? [row.latencyMs ?? ''] : []),
+        ...(hasTtftData ? [row.ttftMs ?? ''] : []),
         row.inputTokens,
         row.outputTokens,
         row.reasoningTokens,
@@ -323,11 +342,14 @@ export function RequestEventsDetailsCard({
       timestamp: row.timestamp,
       model: row.model,
       reasoning_effort: row.reasoningEffort === '-' ? '' : row.reasoningEffort,
+      service_tier: row.serviceTier === '-' ? '' : row.serviceTier,
       source: row.source,
       source_raw: row.sourceRaw,
       auth_index: row.authIndex,
       failed: row.failed,
+      ...(row.failed && row.failStatusCode ? { fail_status_code: row.failStatusCode } : {}),
       ...(hasLatencyData && row.latencyMs !== null ? { latency_ms: row.latencyMs } : {}),
+      ...(hasTtftData && row.ttftMs !== null ? { ttft_ms: row.ttftMs } : {}),
       tokens: {
         input_tokens: row.inputTokens,
         output_tokens: row.outputTokens,
@@ -434,9 +456,11 @@ export function RequestEventsDetailsCard({
                   <th>{t('usage_stats.request_events_timestamp')}</th>
                   <th>{t('usage_stats.model_name')}</th>
                   <th>{t('usage_stats.reasoning_effort')}</th>
+                  <th>{t('usage_stats.service_tier')}</th>
                   <th>{t('usage_stats.request_events_source')}</th>
                   <th>{t('usage_stats.request_events_result')}</th>
                   {hasLatencyData && <th title={latencyHint}>{t('usage_stats.time')}</th>}
+                  {hasTtftData && <th title={ttftHint}>{t('usage_stats.ttft')}</th>}
                   <th>{t('usage_stats.input_tokens')}</th>
                   <th>{t('usage_stats.output_tokens')}</th>
                   <th className={styles.requestEventsReasoningHeader}>{t('usage_stats.reasoning_tokens')}</th>
@@ -454,6 +478,7 @@ export function RequestEventsDetailsCard({
                     </td>
                     <td className={styles.modelCell}>{row.model}</td>
                     <td>{row.reasoningEffort}</td>
+                    <td>{row.serviceTier}</td>
                     <td className={styles.requestEventsSourceCell} title={row.source}>
                       <span className={styles.requestEventsSourceStack}>
                         <span className={styles.requestEventsSourceValue}>{row.source}</span>
@@ -477,11 +502,18 @@ export function RequestEventsDetailsCard({
                             : styles.requestEventsResultSuccess
                         }
                       >
-                        {row.failed ? t('usage_stats.failure') : t('usage_stats.success')}
+                        {row.failed
+                          ? row.failStatusCode
+                            ? `${t('usage_stats.failure')} (${row.failStatusCode})`
+                            : t('usage_stats.failure')
+                          : t('usage_stats.success')}
                       </span>
                     </td>
                     {hasLatencyData && (
                       <td className={styles.durationCell}>{formatDurationMs(row.latencyMs)}</td>
+                    )}
+                    {hasTtftData && (
+                      <td className={styles.durationCell}>{row.ttftMs && row.ttftMs > 0 ? formatDurationMs(row.ttftMs) : '-'}</td>
                     )}
                     <td>{row.inputTokens.toLocaleString()}</td>
                     <td>{row.outputTokens.toLocaleString()}</td>

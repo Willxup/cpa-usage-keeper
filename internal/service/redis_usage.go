@@ -33,18 +33,26 @@ func DecodeRedisUsageMessage(message string, fetchedAt time.Time) (entities.Usag
 type queuedUsageDetail struct {
 	Timestamp       time.Time      `json:"timestamp"`
 	LatencyMS       int64          `json:"latency_ms"`
+	TTFTMS          int64          `json:"ttft_ms"`
 	Source          string         `json:"source"`
 	AuthIndex       string         `json:"auth_index"`
 	Tokens          dto.TokenStats `json:"tokens"`
 	Failed          bool           `json:"failed"`
+	Fail            queuedFailDetail `json:"fail"`
 	Provider        string         `json:"provider"`
 	Model           string         `json:"model"`
 	Alias           *string        `json:"alias"`
 	ReasoningEffort string         `json:"reasoning_effort"`
+	ServiceTier     string         `json:"service_tier"`
 	Endpoint        string         `json:"endpoint"`
 	AuthType        string         `json:"auth_type"`
 	APIKey          string         `json:"api_key"`
 	RequestID       string         `json:"request_id"`
+}
+
+// queuedFailDetail 对应 CPA payload 中的 fail 块，keeper 仅取失败状态码。
+type queuedFailDetail struct {
+	StatusCode int `json:"status_code"`
 }
 
 func normalizeRedisAuthType(value string) string {
@@ -53,6 +61,14 @@ func normalizeRedisAuthType(value string) string {
 		return "apikey"
 	}
 	return trimmed
+}
+
+// normalizeFailStatusCode 防御负数 HTTP 状态码，缺失时归零。
+func normalizeFailStatusCode(code int) int {
+	if code < 0 {
+		return 0
+	}
+	return code
 }
 
 func trimRedisOptionalString(value *string) *string {
@@ -88,11 +104,14 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 		Model:               model,
 		ModelAlias:          trimRedisOptionalString(d.Alias),
 		ReasoningEffort:     strings.TrimSpace(d.ReasoningEffort),
+		ServiceTier:         strings.TrimSpace(d.ServiceTier),
 		Timestamp:           timestamp,
 		Source:              source,
 		AuthIndex:           authIndex,
 		Failed:              d.Failed,
+		FailStatusCode:      normalizeFailStatusCode(d.Fail.StatusCode),
 		LatencyMS:           max(d.LatencyMS, 0),
+		TTFTMS:              max(d.TTFTMS, 0),
 		InputTokens:         tokens.InputTokens,
 		OutputTokens:        tokens.OutputTokens,
 		ReasoningTokens:     tokens.ReasoningTokens,

@@ -66,12 +66,15 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 		Timestamp:           time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
 		Model:               "claude-sonnet",
 		ReasoningEffort:     "medium",
+		ServiceTier:         "priority",
 		AuthType:            "apikey",
 		Provider:            "OpenAI Mirror",
 		Source:              "sk-provider-key",
 		AuthIndex:           "2",
 		Failed:              false,
+		FailStatusCode:      200,
 		LatencyMS:           321,
+		TTFTMS:              123,
 		InputTokens:         10,
 		OutputTokens:        5,
 		ReasoningTokens:     2,
@@ -117,6 +120,15 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	if !contains(body, `"reasoning_effort":"medium"`) {
 		t.Fatalf("expected reasoning effort in response body: %s", body)
 	}
+	if !contains(body, `"service_tier":"priority"`) {
+		t.Fatalf("expected service tier in response body: %s", body)
+	}
+	if !contains(body, `"ttft_ms":123`) {
+		t.Fatalf("expected ttft_ms in response body: %s", body)
+	}
+	if contains(body, `"fail_status_code"`) {
+		t.Fatalf("expected fail_status_code to be omitted for successful events, got %s", body)
+	}
 	if provider.filterCalls != 1 {
 		t.Fatalf("expected ListUsageEvents to be called once, got %d", provider.filterCalls)
 	}
@@ -128,6 +140,39 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	}
 	if provider.lastFilter.StartTime == nil || provider.lastFilter.EndTime == nil {
 		t.Fatalf("expected resolved time bounds in filter, got %+v", provider.lastFilter)
+	}
+}
+
+func TestUsageEventsExposesFailStatusCodeForFailedRows(t *testing.T) {
+	provider := &usageEventsStub{events: []servicedto.UsageEventRecord{{
+		ID:             7,
+		Timestamp:      time.Date(2026, 5, 29, 1, 0, 0, 0, time.UTC),
+		Model:          "claude-sonnet",
+		Source:         "sk-key",
+		AuthIndex:      "1",
+		Failed:         true,
+		FailStatusCode: 529,
+		LatencyMS:      100,
+		TTFTMS:         0,
+	}}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	body := resp.Body.String()
+	if !contains(body, `"failed":true`) {
+		t.Fatalf("expected failed flag in response body: %s", body)
+	}
+	if !contains(body, `"fail_status_code":529`) {
+		t.Fatalf("expected fail_status_code for failed event, got %s", body)
+	}
+	if !contains(body, `"ttft_ms":0`) {
+		t.Fatalf("expected ttft_ms field to always be present, got %s", body)
 	}
 }
 
