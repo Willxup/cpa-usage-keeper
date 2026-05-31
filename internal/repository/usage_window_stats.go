@@ -21,11 +21,13 @@ type UsageWindowStats struct {
 }
 
 type usageWindowTokenStats struct {
-	Model        string `gorm:"column:model"`
-	TotalTokens  int64  `gorm:"column:total_tokens"`
-	InputTokens  int64  `gorm:"column:input_tokens"`
-	OutputTokens int64  `gorm:"column:output_tokens"`
-	CachedTokens int64  `gorm:"column:cached_tokens"`
+	Model               string `gorm:"column:model"`
+	TotalTokens         int64  `gorm:"column:total_tokens"`
+	InputTokens         int64  `gorm:"column:input_tokens"`
+	OutputTokens        int64  `gorm:"column:output_tokens"`
+	CachedTokens        int64  `gorm:"column:cached_tokens"`
+	CacheReadTokens     int64  `gorm:"column:cache_read_tokens"`
+	CacheCreationTokens int64  `gorm:"column:cache_creation_tokens"`
 }
 
 func SumUsageWindowStatsByAuthIndex(ctx context.Context, db *gorm.DB, authIndex string, start time.Time, end *time.Time) (UsageWindowStats, error) {
@@ -168,7 +170,7 @@ func sumRawUsageWindowTokenStats(db *gorm.DB, authIndex string, start time.Time,
 	// raw 查询只取 model 级汇总字段，避免把大量 usage_events 行读进 Go 内存。
 	query := db.Model(&entities.UsageEvent{}).
 		// SELECT 中只聚合 token/cost 需要的字段，不读取 raw_json 等大字段。
-		Select("model, COALESCE(SUM(total_tokens), 0) AS total_tokens, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(cached_tokens), 0) AS cached_tokens").
+		Select("model, COALESCE(SUM(total_tokens), 0) AS total_tokens, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(cached_tokens), 0) AS cached_tokens, COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens, COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens").
 		// auth_index 已经是唯一身份维度，这里不再额外按 auth_type 过滤。
 		Where("auth_index = ? AND timestamp >= ?", authIndex, timeutil.FormatStorageTime(start)).
 		// 按 model 分组，后续按 model 价格表计算 cost。
@@ -193,7 +195,7 @@ func sumHourlyUsageWindowTokenStats(db *gorm.DB, authIndex string, start time.Ti
 	// hourly 查询直接读取 overview 已经维护好的小时增量表。
 	query := db.Model(&entities.UsageOverviewHourlyStat{}).
 		// SELECT 中聚合 token/cost 需要的字段，保持和 raw 查询返回结构一致。
-		Select("model, COALESCE(SUM(total_tokens), 0) AS total_tokens, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(cached_tokens), 0) AS cached_tokens").
+		Select("model, COALESCE(SUM(total_tokens), 0) AS total_tokens, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(cached_tokens), 0) AS cached_tokens, COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens, COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens").
 		// auth_index + bucket_start 范围可以使用现有 hourly auth_bucket 索引。
 		Where("auth_index = ? AND bucket_start >= ? AND bucket_start < ?", authIndex, timeutil.FormatStorageTime(start), timeutil.FormatStorageTime(end)).
 		// 按 model 分组，后续按 model 价格表计算 cost。
@@ -226,6 +228,10 @@ func mergeUsageWindowTokenStats(merged map[string]usageWindowTokenStats, rows []
 		current.OutputTokens += row.OutputTokens
 		// 累加 cached_tokens，用于 cache 成本计算并从 prompt 中扣除。
 		current.CachedTokens += row.CachedTokens
+		// 累加 Claude cache read 明细，用于 Claude 风格价格计算。
+		current.CacheReadTokens += row.CacheReadTokens
+		// 累加 Claude cache creation/write 明细，用于 Claude 风格价格计算。
+		current.CacheCreationTokens += row.CacheCreationTokens
 		// 把合并后的 model 统计写回 map。
 		merged[model] = current
 	}
@@ -253,7 +259,13 @@ func usageWindowStatsFromTokenStats(rows []usageWindowTokenStats, pricingByModel
 		// model 名称按 trim 后查价格，保持和其它 Overview/Usage cost 逻辑一致。
 		pricing := pricingByModel[strings.TrimSpace(row.Model)]
 		// 使用统一 helper 按当前价格表计算该 model 的 cost。
-		stats.Cost += helper.CalculateUsageTokenCost(helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens}, pricing)
+		stats.Cost += helper.CalculateUsageTokenCost(helper.UsageTokenCostInput{
+			InputTokens:         row.InputTokens,
+			OutputTokens:        row.OutputTokens,
+			CachedTokens:        row.CachedTokens,
+			CacheReadTokens:     row.CacheReadTokens,
+			CacheCreationTokens: row.CacheCreationTokens,
+		}, pricing)
 	}
 	// 返回最终窗口统计。
 	return stats

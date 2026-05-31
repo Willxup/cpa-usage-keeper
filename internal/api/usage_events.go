@@ -50,6 +50,9 @@ type usageEventPayload struct {
 	LatencyMS       int64                  `json:"latency_ms"`
 	TTFTMS          *int64                 `json:"ttft_ms,omitempty"`
 	Tokens          usageEventTokenPayload `json:"tokens"`
+	CostUSD         float64                `json:"cost_usd"`
+	CostAvailable   bool                   `json:"cost_available"`
+	PricingStyle    string                 `json:"pricing_style,omitempty"`
 }
 
 type usageEventTokenPayload struct {
@@ -169,6 +172,9 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 			Failed:          row.Failed,
 			LatencyMS:       row.LatencyMS,
 			TTFTMS:          row.TTFTMS,
+			CostUSD:         row.CostUSD,
+			CostAvailable:   row.CostAvailable,
+			PricingStyle:    strings.TrimSpace(row.PricingStyle),
 			Tokens: usageEventTokenPayload{
 				InputTokens:         row.InputTokens,
 				OutputTokens:        row.OutputTokens,

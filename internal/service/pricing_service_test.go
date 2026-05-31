@@ -19,18 +19,23 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestPricingServiceRejectsUnusedModel(t *testing.T) {
+func TestPricingServiceAllowsModelWithoutUsage(t *testing.T) {
 	db := openPricingServiceTestDatabase(t)
 	service := NewPricingService(db)
 
-	_, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
-		Model:                "claude-sonnet",
-		PromptPricePer1M:     3,
-		CompletionPricePer1M: 15,
-		CachePricePer1M:      0.3,
+	setting, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
+		Model:                   "claude-sonnet",
+		PricingStyle:            "claude",
+		PromptPricePer1M:        3,
+		CompletionPricePer1M:    15,
+		CachePricePer1M:         0.3,
+		CacheCreationPricePer1M: 3.75,
 	})
-	if err == nil || !strings.Contains(err.Error(), "has not been used") {
-		t.Fatalf("expected unused model error, got %v", err)
+	if err != nil {
+		t.Fatalf("update pricing: %v", err)
+	}
+	if setting.Model != "claude-sonnet" || setting.PricingStyle != "claude" || setting.CacheCreationPricePer1M != 3.75 {
+		t.Fatalf("unexpected setting: %#v", setting)
 	}
 }
 
@@ -47,15 +52,17 @@ func TestPricingServiceStoresPricingForUsedModel(t *testing.T) {
 
 	service := NewPricingService(db)
 	setting, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
-		Model:                "claude-sonnet",
-		PromptPricePer1M:     3,
-		CompletionPricePer1M: 15,
-		CachePricePer1M:      0.3,
+		Model:                   "claude-sonnet",
+		PricingStyle:            "claude",
+		PromptPricePer1M:        3,
+		CompletionPricePer1M:    15,
+		CachePricePer1M:         0.3,
+		CacheCreationPricePer1M: 3.75,
 	})
 	if err != nil {
 		t.Fatalf("update pricing: %v", err)
 	}
-	if setting.Model != "claude-sonnet" || setting.CompletionPricePer1M != 15 {
+	if setting.Model != "claude-sonnet" || setting.PricingStyle != "claude" || setting.CompletionPricePer1M != 15 || setting.CacheCreationPricePer1M != 3.75 {
 		t.Fatalf("unexpected setting: %#v", setting)
 	}
 
@@ -65,6 +72,27 @@ func TestPricingServiceStoresPricingForUsedModel(t *testing.T) {
 	}
 	if len(usedModels) != 1 || usedModels[0] != "claude-sonnet" {
 		t.Fatalf("unexpected used models: %#v", usedModels)
+	}
+}
+
+func TestPricingServiceRejectsUnknownPricingStyle(t *testing.T) {
+	db := openPricingServiceTestDatabase(t)
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
+		EventKey:    "evt-style",
+		Model:       "claude-sonnet",
+		Timestamp:   time.Unix(1, 0),
+		APIGroupKey: "provider-a",
+	}}); err != nil {
+		t.Fatalf("insert usage event: %v", err)
+	}
+	service := NewPricingService(db)
+
+	_, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
+		Model:        "claude-sonnet",
+		PricingStyle: "legacy",
+	})
+	if err == nil || !strings.Contains(err.Error(), "pricing_style") {
+		t.Fatalf("expected pricing style validation error, got %v", err)
 	}
 }
 
@@ -171,43 +199,32 @@ func TestPricingServiceAllowsPricingForCPAModelWithoutUsage(t *testing.T) {
 	}
 }
 
-func TestPricingServiceRejectsLocalOnlyModelWhenCPAFetchSucceeds(t *testing.T) {
+func TestPricingServiceAllowsModelOutsideCPAModelList(t *testing.T) {
 	db := openPricingServiceTestDatabase(t)
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
-		EventKey:    "evt-local",
-		Model:       "local-model",
-		Timestamp:   time.Unix(1, 0),
-		APIGroupKey: "provider-a",
-	}}); err != nil {
-		t.Fatalf("insert usage event: %v", err)
-	}
 	service := NewPricingService(db, stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{{ID: "cpa-model"}}}}})
 
-	_, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
-		Model:                "local-model",
-		PromptPricePer1M:     3,
-		CompletionPricePer1M: 15,
-		CachePricePer1M:      0.3,
+	setting, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
+		Model:                   "local-model",
+		PricingStyle:            "claude",
+		PromptPricePer1M:        3,
+		CompletionPricePer1M:    15,
+		CachePricePer1M:         0.3,
+		CacheCreationPricePer1M: 3.75,
 	})
-	if err == nil || !strings.Contains(err.Error(), "has not been used") {
-		t.Fatalf("expected local-only model rejection, got %v", err)
+	if err != nil {
+		t.Fatalf("update pricing: %v", err)
+	}
+	if setting.Model != "local-model" || setting.PricingStyle != "claude" {
+		t.Fatalf("unexpected setting: %#v", setting)
 	}
 }
 
-func TestPricingServiceValidatesWithLocalModelsWhenCPAFetchFails(t *testing.T) {
+func TestPricingServiceSavesPricingWhenCPAFetchFails(t *testing.T) {
 	db := openPricingServiceTestDatabase(t)
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
-		EventKey:    "evt-local",
-		Model:       "local-model",
-		Timestamp:   time.Unix(1, 0),
-		APIGroupKey: "provider-a",
-	}}); err != nil {
-		t.Fatalf("insert usage event: %v", err)
-	}
 	service := NewPricingService(db, stubModelsFetcher{err: errors.New("cpa unavailable")})
 
 	setting, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
-		Model:                "local-model",
+		Model:                "any-model",
 		PromptPricePer1M:     3,
 		CompletionPricePer1M: 15,
 		CachePricePer1M:      0.3,
@@ -215,7 +232,7 @@ func TestPricingServiceValidatesWithLocalModelsWhenCPAFetchFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update pricing: %v", err)
 	}
-	if setting.Model != "local-model" {
+	if setting.Model != "any-model" {
 		t.Fatalf("unexpected setting: %#v", setting)
 	}
 }

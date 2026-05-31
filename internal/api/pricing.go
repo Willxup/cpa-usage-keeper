@@ -14,10 +14,12 @@ type usedModelsResponse struct {
 }
 
 type pricingEntryResponse struct {
-	Model                string  `json:"model"`
-	PromptPricePer1M     float64 `json:"prompt_price_per_1m"`
-	CompletionPricePer1M float64 `json:"completion_price_per_1m"`
-	CachePricePer1M      float64 `json:"cache_price_per_1m"`
+	Model                   string  `json:"model"`
+	PricingStyle            string  `json:"pricing_style"`
+	PromptPricePer1M        float64 `json:"prompt_price_per_1m"`
+	CompletionPricePer1M    float64 `json:"completion_price_per_1m"`
+	CachePricePer1M         float64 `json:"cache_price_per_1m"`
+	CacheCreationPricePer1M float64 `json:"cache_creation_price_per_1m"`
 }
 
 type pricingListResponse struct {
@@ -25,10 +27,12 @@ type pricingListResponse struct {
 }
 
 type updatePricingRequest struct {
-	Model                string  `json:"model"`
-	PromptPricePer1M     float64 `json:"prompt_price_per_1m"`
-	CompletionPricePer1M float64 `json:"completion_price_per_1m"`
-	CachePricePer1M      float64 `json:"cache_price_per_1m"`
+	Model                   string  `json:"model"`
+	PricingStyle            string  `json:"pricing_style"`
+	PromptPricePer1M        float64 `json:"prompt_price_per_1m"`
+	CompletionPricePer1M    float64 `json:"completion_price_per_1m"`
+	CachePricePer1M         float64 `json:"cache_price_per_1m"`
+	CacheCreationPricePer1M float64 `json:"cache_creation_price_per_1m"`
 }
 
 func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingProvider) {
@@ -62,10 +66,12 @@ func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingPr
 		response := make([]pricingEntryResponse, 0, len(settings))
 		for _, setting := range settings {
 			response = append(response, pricingEntryResponse{
-				Model:                setting.Model,
-				PromptPricePer1M:     setting.PromptPricePer1M,
-				CompletionPricePer1M: setting.CompletionPricePer1M,
-				CachePricePer1M:      setting.CachePricePer1M,
+				Model:                   setting.Model,
+				PricingStyle:            setting.PricingStyle,
+				PromptPricePer1M:        setting.PromptPricePer1M,
+				CompletionPricePer1M:    setting.CompletionPricePer1M,
+				CachePricePer1M:         setting.CachePricePer1M,
+				CacheCreationPricePer1M: setting.CacheCreationPricePer1M,
 			})
 		}
 		c.JSON(http.StatusOK, pricingListResponse{Pricing: response})
@@ -123,13 +129,15 @@ func updatePricing(c *gin.Context, pricingProvider service.PricingProvider, path
 	}
 
 	setting, err := pricingProvider.UpdatePricing(c.Request.Context(), servicedto.UpdatePricingInput{
-		Model:                model,
-		PromptPricePer1M:     request.PromptPricePer1M,
-		CompletionPricePer1M: request.CompletionPricePer1M,
-		CachePricePer1M:      request.CachePricePer1M,
+		Model:                   model,
+		PricingStyle:            request.PricingStyle,
+		PromptPricePer1M:        request.PromptPricePer1M,
+		CompletionPricePer1M:    request.CompletionPricePer1M,
+		CachePricePer1M:         request.CachePricePer1M,
+		CacheCreationPricePer1M: request.CacheCreationPricePer1M,
 	})
 	if err != nil {
-		if strings.Contains(err.Error(), "has not been used") || strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "non-negative") {
+		if strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "non-negative") || strings.Contains(err.Error(), "pricing_style") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -138,9 +146,11 @@ func updatePricing(c *gin.Context, pricingProvider service.PricingProvider, path
 	}
 
 	c.JSON(http.StatusOK, pricingEntryResponse{
-		Model:                setting.Model,
-		PromptPricePer1M:     setting.PromptPricePer1M,
-		CompletionPricePer1M: setting.CompletionPricePer1M,
-		CachePricePer1M:      setting.CachePricePer1M,
+		Model:                   setting.Model,
+		PricingStyle:            setting.PricingStyle,
+		PromptPricePer1M:        setting.PromptPricePer1M,
+		CompletionPricePer1M:    setting.CompletionPricePer1M,
+		CachePricePer1M:         setting.CachePricePer1M,
+		CacheCreationPricePer1M: setting.CacheCreationPricePer1M,
 	})
 }

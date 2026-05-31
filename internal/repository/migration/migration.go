@@ -40,6 +40,7 @@ const (
 	migrationAddUsageEventReasoningEffort           = "20260519_add_usage_event_reasoning_effort"
 	migrationAddUsageEventQuotaWindowIndexes        = "20260525_add_usage_event_quota_window_indexes"
 	migrationAddUsageEventCPAResponseFields         = "20260528_add_usage_event_cpa_response_fields"
+	migrationModelPricePricingStyle                 = "20260531_model_price_pricing_style"
 )
 
 type schemaMigration struct {
@@ -124,6 +125,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageEventReasoningEffort, run: addUsageEventReasoningEffortMigration},
 		{version: migrationAddUsageEventQuotaWindowIndexes, run: addUsageEventQuotaWindowIndexesMigration},
 		{version: migrationAddUsageEventCPAResponseFields, run: addUsageEventCPAResponseFieldsMigration},
+		{version: migrationModelPricePricingStyle, run: addModelPricePricingStyleMigration},
 	}
 }
 

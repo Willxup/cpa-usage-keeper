@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"math"
 	"path/filepath"
 	"testing"
 	"time"
@@ -42,6 +43,48 @@ func TestSumUsageWindowStatsByAuthIndexUsesAuthIndexAndWindow(t *testing.T) {
 	wantCost := 1.5*10 + 0.5*20 + 0.2*1
 	if stats.Cost != wantCost {
 		t.Fatalf("expected cost %.2f, got %.2f", wantCost, stats.Cost)
+	}
+}
+
+func TestSumUsageWindowStatsByAuthIndexCalculatesClaudeCacheReadAndCreationCost(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-window-stats-claude.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{
+		Model:                   "claude-sonnet",
+		PricingStyle:            entities.ModelPricingStyleClaude,
+		PromptPricePer1M:        10,
+		CompletionPricePer1M:    20,
+		CachePricePer1M:         1,
+		CacheCreationPricePer1M: 12.5,
+	}); err != nil {
+		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
+	}
+	start := time.Date(2026, 5, 25, 10, 0, 0, 0, time.UTC)
+	end := start.Add(time.Hour)
+	if err := db.Create(&entities.UsageEvent{
+		AuthIndex:           "auth-claude",
+		Model:               "claude-sonnet",
+		Timestamp:           start.Add(10 * time.Minute),
+		InputTokens:         1_300_000,
+		OutputTokens:        500_000,
+		CachedTokens:        200_000,
+		CacheReadTokens:     200_000,
+		CacheCreationTokens: 100_000,
+		TotalTokens:         1_800_000,
+	}).Error; err != nil {
+		t.Fatalf("seed usage event: %v", err)
+	}
+
+	stats, err := SumUsageWindowStatsByAuthIndex(context.Background(), db, "auth-claude", start, &end)
+	if err != nil {
+		t.Fatalf("SumUsageWindowStatsByAuthIndex returned error: %v", err)
+	}
+	wantCost := 1.0*10 + 0.5*20 + 0.2*1 + 0.1*12.5
+	if math.Abs(stats.Cost-wantCost) > 0.000000001 {
+		t.Fatalf("expected Claude cache read/write cost %.8f, got %.8f", wantCost, stats.Cost)
 	}
 }
 

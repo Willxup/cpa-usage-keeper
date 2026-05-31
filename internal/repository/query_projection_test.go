@@ -32,7 +32,7 @@ func TestRepositoryQueriesAvoidKnownFullEntityReads(t *testing.T) {
 		"Select(redisUsageInboxProcessingColumns).Where(\"status = ?\"",
 	)
 	assertFileContains(t, "pricing.go",
-		"Select(\"ID\", \"Model\", \"PromptPricePer1M\", \"CompletionPricePer1M\", \"CachePricePer1M\", \"CreatedAt\", \"UpdatedAt\")",
+		"Select(modelPriceSettingColumns)",
 	)
 }
 

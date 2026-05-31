@@ -49,6 +49,7 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260519_add_usage_event_reasoning_effort",
 		"20260525_add_usage_event_quota_window_indexes",
 		"20260528_add_usage_event_cpa_response_fields",
+		"20260531_model_price_pricing_style",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("expected ordered migrations %v, got %v", want, got)
@@ -114,6 +115,7 @@ func TestOpenDatabaseRunsSchemaMigrationsAndAddsUsageEventRedisFields(t *testing
 		"20260519_add_usage_event_reasoning_effort",
 		"20260525_add_usage_event_quota_window_indexes",
 		"20260528_add_usage_event_cpa_response_fields",
+		"20260531_model_price_pricing_style",
 	}
 	if len(versions) != len(expected) {
 		t.Fatalf("expected migration versions %v, got %v", expected, versions)

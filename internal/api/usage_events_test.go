@@ -76,6 +76,9 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 		CacheReadTokens:     3,
 		CacheCreationTokens: 4,
 		TotalTokens:         18,
+		CostUSD:             0.1234,
+		CostAvailable:       true,
+		PricingStyle:        "claude",
 	}}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h", nil)
@@ -119,6 +122,9 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	}
 	if !contains(body, `"ttft_ms":45`) {
 		t.Fatalf("expected ttft_ms in response body: %s", body)
+	}
+	if !contains(body, `"cost_usd":0.1234`) || !contains(body, `"cost_available":true`) || !contains(body, `"pricing_style":"claude"`) {
+		t.Fatalf("expected backend cost fields in response body: %s", body)
 	}
 	if provider.filterCalls != 1 {
 		t.Fatalf("expected ListUsageEvents to be called once, got %d", provider.filterCalls)

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"cpa-usage-keeper/internal/repository/dto"
+	"math"
 	"path/filepath"
 	"testing"
 	"time"
@@ -137,6 +138,77 @@ func TestListUsageEventsWithFilterAppliesModelSourceAndResultFilters(t *testing.
 	}
 	if page.Events[0].Model != "claude-sonnet" || page.Events[0].Source != "source-a" || page.Events[0].Failed {
 		t.Fatalf("unexpected filtered event: %+v", page.Events[0])
+	}
+}
+
+func TestListUsageEventsWithFilterAddsBackendCost(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-events-cost.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{
+		Model:                   "claude-sonnet",
+		PricingStyle:            entities.ModelPricingStyleClaude,
+		PromptPricePer1M:        10,
+		CompletionPricePer1M:    20,
+		CachePricePer1M:         1,
+		CacheCreationPricePer1M: 12.5,
+	}); err != nil {
+		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
+	}
+	if _, _, err := InsertUsageEvents(db, []entities.UsageEvent{{
+		EventKey:            "event-cost",
+		APIGroupKey:         "provider-a",
+		Model:               "claude-sonnet",
+		Timestamp:           time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC),
+		InputTokens:         1_300_000,
+		OutputTokens:        500_000,
+		CachedTokens:        200_000,
+		CacheReadTokens:     200_000,
+		CacheCreationTokens: 100_000,
+		TotalTokens:         1_800_000,
+	}}); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{Page: 1, PageSize: 20})
+	if err != nil {
+		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
+	}
+	if len(page.Events) != 1 {
+		t.Fatalf("expected one event, got %+v", page)
+	}
+	event := page.Events[0]
+	wantCost := 1.0*10 + 0.5*20 + 0.2*1 + 0.1*12.5
+	if math.Abs(event.CostUSD-wantCost) > 0.000000001 || !event.CostAvailable || event.PricingStyle != entities.ModelPricingStyleClaude {
+		t.Fatalf("unexpected backend cost fields: %+v", event)
+	}
+}
+
+func TestListUsageEventsWithFilterMarksCostUnavailableWhenPriceMissing(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-events-missing-cost.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	if _, _, err := InsertUsageEvents(db, []entities.UsageEvent{{
+		EventKey:    "event-missing-cost",
+		APIGroupKey: "provider-a",
+		Model:       "missing-model",
+		Timestamp:   time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC),
+		InputTokens: 1,
+		TotalTokens: 1,
+	}}); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{Page: 1, PageSize: 20})
+	if err != nil {
+		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
+	}
+	if len(page.Events) != 1 || page.Events[0].CostAvailable || page.Events[0].CostUSD != 0 {
+		t.Fatalf("expected missing pricing to mark cost unavailable, got %+v", page.Events)
 	}
 }
 

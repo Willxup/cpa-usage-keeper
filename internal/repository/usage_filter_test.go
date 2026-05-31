@@ -846,6 +846,44 @@ func TestCalculateUsageEventCostDoesNotDoubleChargeReasoningTokens(t *testing.T)
 	}
 }
 
+func TestBuildUsageOverviewCalculatesClaudeCacheReadAndCreationCost(t *testing.T) {
+	start := time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC)
+	filter := dto.UsageQueryFilter{
+		StartTime: &start,
+		EndTime:   &end,
+	}
+	event := entities.UsageEvent{
+		EventKey:            "claude-cache-cost",
+		APIGroupKey:         "provider-a",
+		Model:               "claude-sonnet",
+		Timestamp:           time.Date(2026, 4, 16, 9, 30, 0, 0, time.UTC),
+		InputTokens:         1_300_000,
+		OutputTokens:        500_000,
+		CachedTokens:        200_000,
+		CacheReadTokens:     200_000,
+		CacheCreationTokens: 100_000,
+		TotalTokens:         1_800_000,
+	}
+	overview := buildUsageOverviewFromEventsForTest([]entities.UsageEvent{event}, filter, map[string]entities.ModelPriceSetting{
+		"claude-sonnet": {
+			PricingStyle:            entities.ModelPricingStyleClaude,
+			PromptPricePer1M:        10,
+			CompletionPricePer1M:    20,
+			CachePricePer1M:         1,
+			CacheCreationPricePer1M: 12.5,
+		},
+	})
+
+	wantCost := 1.0*10 + 0.5*20 + 0.2*1 + 0.1*12.5
+	if math.Abs(overview.Summary.TotalCost-wantCost) > 0.000000001 {
+		t.Fatalf("expected Claude cache read/write cost %.8f, got %.8f", wantCost, overview.Summary.TotalCost)
+	}
+	if !overview.Summary.CostAvailable {
+		t.Fatalf("expected cost to be available, got %+v", overview.Summary)
+	}
+}
+
 func TestBuildUsageOverviewWithFilterReturnsUnavailableCostForPartialPricing(t *testing.T) {
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-partial-pricing.db")})
 	if err != nil {

@@ -52,28 +52,24 @@ func (s *pricingService) UpdatePricing(ctx context.Context, input servicedto.Upd
 	if modelName == "" {
 		return nil, fmt.Errorf("model is required")
 	}
-	if input.PromptPricePer1M < 0 || input.CompletionPricePer1M < 0 || input.CachePricePer1M < 0 {
+	pricingStyle := strings.ToLower(strings.TrimSpace(input.PricingStyle))
+	if pricingStyle == "" {
+		pricingStyle = entities.ModelPricingStyleOpenAI
+	}
+	if pricingStyle != entities.ModelPricingStyleOpenAI && pricingStyle != entities.ModelPricingStyleClaude {
+		return nil, fmt.Errorf("pricing_style must be openai or claude")
+	}
+	if input.PromptPricePer1M < 0 || input.CompletionPricePer1M < 0 || input.CachePricePer1M < 0 || input.CacheCreationPricePer1M < 0 {
 		return nil, fmt.Errorf("prices must be non-negative")
 	}
 
-	usedModels, err := s.effectiveModels(ctx)
-	if err != nil {
-		return nil, err
-	}
-	index := make(map[string]struct{}, len(usedModels))
-	for _, model := range usedModels {
-		index[model] = struct{}{}
-	}
-	if _, ok := index[modelName]; !ok {
-		sort.Strings(usedModels)
-		return nil, fmt.Errorf("model %q has not been used", modelName)
-	}
-
 	return repository.UpsertModelPriceSetting(s.db, repodto.ModelPriceSettingInput{
-		Model:                modelName,
-		PromptPricePer1M:     input.PromptPricePer1M,
-		CompletionPricePer1M: input.CompletionPricePer1M,
-		CachePricePer1M:      input.CachePricePer1M,
+		Model:                   modelName,
+		PricingStyle:            pricingStyle,
+		PromptPricePer1M:        input.PromptPricePer1M,
+		CompletionPricePer1M:    input.CompletionPricePer1M,
+		CachePricePer1M:         input.CachePricePer1M,
+		CacheCreationPricePer1M: input.CacheCreationPricePer1M,
 	})
 }
 
