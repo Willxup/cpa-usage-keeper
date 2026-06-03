@@ -1,9 +1,13 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '@/lib/api'
-import { quotaRefreshDisplayError } from './useCredentialsTabData'
+import { buildCredentialQuotaStateMap, quotaRefreshDisplayError } from './useCredentialsTabData'
 import { CREDENTIAL_PAGES_REFRESH_INTERVAL_MS } from './useCredentialPages'
 import { buildQuotaCacheAuthIndexesKey, QUOTA_CACHE_REFRESH_INTERVAL_MS } from './useQuotaCache'
 import { buildQuotaRefreshSubmissionUpdate, buildQuotaRefreshTaskErrorUpdate } from './useQuotaRefreshTasks'
+
+const credentialsTabDataSource = readFileSync(new URL('./useCredentialsTabData.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+const quotaCacheSource = readFileSync(new URL('./useQuotaCache.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 
 describe('Credentials polling intervals', () => {
   it('keeps list data on a 1 minute refresh interval', () => {
@@ -22,6 +26,41 @@ describe('buildQuotaCacheAuthIndexesKey', () => {
 
   it('changes when auth index contents or order changes', () => {
     expect(buildQuotaCacheAuthIndexesKey(['auth-1', 'auth-2'])).not.toBe(buildQuotaCacheAuthIndexesKey(['auth-2', 'auth-1']))
+  })
+})
+
+describe('useQuotaCache interval lifecycle', () => {
+  it('does not register the cache interval while disabled', () => {
+    const start = quotaCacheSource.indexOf('useEffect(() => {')
+    const end = quotaCacheSource.indexOf('const intervalID = window.setInterval')
+
+    expect(start).toBeGreaterThanOrEqual(0)
+    expect(end).toBeGreaterThan(start)
+
+    const beforeInterval = quotaCacheSource.slice(start, end)
+    expect(beforeInterval).toContain('if (!enabled)')
+    expect(beforeInterval).toContain('return')
+  })
+})
+
+describe('Credentials quota inspection cache refresh', () => {
+  it('refreshes the current Auth Files quota cache when inspection completes', () => {
+    expect(credentialsTabDataSource).toContain('refreshQuotaCache')
+    expect(credentialsTabDataSource).toMatch(/useQuotaInspection\(\{[\s\S]*?onInspectionCompleted:\s*refreshQuotaCache[\s\S]*?\}\)/)
+  })
+
+  it('lets completed cache quota clear stale row refresh failures after inspection', () => {
+    const states = buildCredentialQuotaStateMap(
+      {},
+      { 'auth-1': { refreshStatus: 'failed', error: 'HTTP 401: stale failure' } },
+      { 'auth-1': [{ key: 'rate_limit.primary_window', label: '5h' }] },
+    )
+
+    expect(states.get('auth-1')).toEqual({
+      quotaLoading: false,
+      quotaError: undefined,
+      refreshStatus: undefined,
+    })
   })
 })
 

@@ -1097,7 +1097,8 @@ func TestSyncMetadataWritesAuthFilesToUsageIdentities(t *testing.T) {
 		BaseURL: "https://cpa.example.com",
 		MetadataFetcher: stubMetadataFetcher{authFilesResult: &response.AuthFilesResult{StatusCode: 200, Payload: authfiles.AuthFilesResponse{Files: []authfiles.AuthFile{{
 			AuthIndex: "auth-1",
-			Name:      "Fallback Name",
+			Name:      "claude-user.json",
+			Path:      "/data/auths/claude-user.json",
 			Email:     "user@example.com",
 			Type:      "claude",
 			Provider:  "Claude",
@@ -1136,6 +1137,9 @@ func TestSyncMetadataWritesAuthFilesToUsageIdentities(t *testing.T) {
 	if first.Name != "user@example.com" || first.AuthType != entities.UsageIdentityAuthTypeAuthFile || first.AuthTypeName != "oauth" || first.Identity != "auth-1" || first.Type != "claude" || first.Provider != "Claude" || first.IsDeleted {
 		t.Fatalf("unexpected auth usage identity for auth-1: %+v", first)
 	}
+	if first.FileName == nil || *first.FileName != "claude-user.json" || first.FilePath == nil || *first.FilePath != "/data/auths/claude-user.json" {
+		t.Fatalf("expected auth file name/path to persist without changing display name, got %+v", first)
+	}
 	if first.Prefix != "auth-prefix" || first.Priority == nil || *first.Priority != 6 || first.Disabled == nil || *first.Disabled || first.Note == nil || *first.Note != "auth note" {
 		t.Fatalf("expected auth sync metadata to persist, got %+v", first)
 	}
@@ -1143,9 +1147,15 @@ func TestSyncMetadataWritesAuthFilesToUsageIdentities(t *testing.T) {
 	if second.Name != "Label Fallback" || second.AuthTypeName != "oauth" || second.Identity != "auth-2" || second.Type != "gemini" || second.Provider != "Gemini" || second.IsDeleted {
 		t.Fatalf("unexpected auth usage identity for auth-2: %+v", second)
 	}
+	if second.FileName == nil || *second.FileName != "Name Fallback" {
+		t.Fatalf("expected CPA name to persist as file_name for auth-2, got %+v", second)
+	}
 	third := byIdentity["auth-3"]
 	if third.Name != "Name Fallback" || third.AuthTypeName != "oauth" || third.Identity != "auth-3" || third.Type != "codex" || third.Provider != "Codex" || third.IsDeleted {
 		t.Fatalf("unexpected auth usage identity for auth-3: %+v", third)
+	}
+	if third.FileName == nil || *third.FileName != "Name Fallback" {
+		t.Fatalf("expected CPA name to persist as file_name for auth-3, got %+v", third)
 	}
 	fourth := byIdentity["auth-4"]
 	if fourth.Name != "auth-4" || fourth.AuthTypeName != "oauth" || fourth.Identity != "auth-4" || fourth.Type != "vertex" || fourth.Provider != "Vertex" || fourth.IsDeleted {

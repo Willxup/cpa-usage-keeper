@@ -174,6 +174,23 @@ func TestStatusReturnsCPAPublicURL(t *testing.T) {
 	}
 }
 
+func TestStatusReturnsQuotaAutoRefreshEnabled(t *testing.T) {
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{
+		Status: StatusRouteConfig{QuotaAutoRefreshEnabled: true},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	body := resp.Body.String()
+	if !contains(body, `"quotaAutoRefreshEnabled":true`) {
+		t.Fatalf("expected quota auto refresh flag in status response, got %s", body)
+	}
+}
+
 func TestStatusOmitsCPAPublicURLWhenUnset(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{
 		Status: StatusRouteConfig{},

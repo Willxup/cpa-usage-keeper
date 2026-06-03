@@ -66,10 +66,10 @@ export function CredentialProviderFilterBar({ scope, typeCounts, value, onChange
   )
 }
 
-function CredentialProviderFilterIcon({ provider }: { provider: CredentialProviderFilterKey | KnownCredentialProviderFilterKey }) {
+export function CredentialProviderFilterIcon({ provider }: { provider: string }) {
   if (provider === 'all') {
     return <IconFilterAll size={21} />
   }
-  const src = providerIconUrls[provider]
+  const src = providerIconUrls[provider as KnownCredentialProviderFilterKey]
   return src ? <img src={src} alt="" aria-hidden="true" /> : null
 }

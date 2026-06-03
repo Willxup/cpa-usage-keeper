@@ -39,6 +39,8 @@ type usageIdentityResponse struct {
 	Type                       string                         `json:"type"`
 	Provider                   string                         `json:"provider"`
 	Prefix                     string                         `json:"prefix"`
+	FileName                   *string                        `json:"file_name,omitempty"`
+	FilePath                   *string                        `json:"file_path,omitempty"`
 	Priority                   *int                           `json:"priority,omitempty"`
 	Disabled                   bool                           `json:"disabled"`
 	Note                       *string                        `json:"note,omitempty"`
@@ -182,6 +184,12 @@ func mapUsageIdentityResponse(item entities.UsageIdentity) usageIdentityResponse
 	if item.AuthType == entities.UsageIdentityAuthTypeAIProvider {
 		identity = helper.RedactSensitiveValue(item.Identity)
 	}
+	var fileName *string
+	var filePath *string
+	if item.AuthType == entities.UsageIdentityAuthTypeAuthFile {
+		fileName = item.FileName
+		filePath = item.FilePath
+	}
 
 	disabled := false
 	if item.Disabled != nil {
@@ -198,6 +206,8 @@ func mapUsageIdentityResponse(item entities.UsageIdentity) usageIdentityResponse
 		Type:                       item.Type,
 		Provider:                   item.Provider,
 		Prefix:                     item.Prefix,
+		FileName:                   fileName,
+		FilePath:                   filePath,
 		Priority:                   item.Priority,
 		Disabled:                   disabled,
 		Note:                       item.Note,

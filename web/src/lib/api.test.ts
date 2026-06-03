@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appPath, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchKeyOverview, fetchUsageOverview, fetchUsageQuotaCache, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, loginWithCPAAPIKey, logout, markStatusActive, refreshUsageQuotas, updateCpaApiKeyAlias } from './api';
+import { appPath, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchKeyOverview, fetchUsageOverview, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, loginWithCPAAPIKey, logout, markStatusActive, refreshUsageQuotas, startUsageQuotaInspection, updateCpaApiKeyAlias } from './api';
 
 describe('fetchUsageEvents', () => {
   afterEach(() => {
@@ -358,7 +358,7 @@ describe('fetchUsageEvents', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: async () => ({
-        items: [{ auth_index: 'auth-1', status: 'completed', quota: { id: 'auth-1', quota: [{ key: 'rate_limit.secondary_window', label: 'Weekly', remaining: 12 }] }, refreshed_at: '2026-05-25T00:00:00Z' }],
+        items: [{ auth_index: 'auth-1', file_name: 'claude-user.json', status: 'completed', quota: { id: 'auth-1', quota: [{ key: 'rate_limit.secondary_window', label: 'Weekly', remaining: 12 }] }, refreshed_at: '2026-05-25T00:00:00Z' }],
       }),
     } as Response);
     const signal = new AbortController().signal;
@@ -368,9 +368,10 @@ describe('fetchUsageEvents', () => {
     const [url, init] = fetchMock.mock.calls[0];
     const parsed = new URL(String(url), 'http://localhost');
 
-	    expect(response.items[0].auth_index).toBe('auth-1');
-	    expect(response.items[0].refreshed_at).toBe('2026-05-25T00:00:00Z');
-	    expect(response.items[0].quota?.quota[0].remaining).toBe(12);
+    expect(response.items[0].auth_index).toBe('auth-1');
+    expect(response.items[0].file_name).toBe('claude-user.json');
+    expect(response.items[0].refreshed_at).toBe('2026-05-25T00:00:00Z');
+    expect(response.items[0].quota?.quota[0].remaining).toBe(12);
     expect(parsed.pathname).toBe('/api/v1/quota/cache');
     expect(init).toMatchObject({ credentials: 'include', method: 'POST', signal });
     expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
@@ -404,16 +405,76 @@ describe('fetchUsageEvents', () => {
     expect(init?.body).toBe(JSON.stringify({ auth_indexes: ['auth-1'] }));
   });
 
+  it('loads quota inspection status', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        total: 2,
+        cached: 1,
+        running: true,
+        completed: false,
+        normal: 1,
+        unauthorized_401: 0,
+        payment_required_402: 0,
+        other_failed: 0,
+        results: [{ auth_index: 'auth-1', name: 'Claude Main', type: 'claude', file_name: 'claude-user.json', provider: 'claude', status: 'normal', refreshed_at: '2026-06-03T10:30:00Z' }],
+      }),
+    } as Response);
+    const signal = new AbortController().signal;
+
+    const response = await fetchUsageQuotaInspectionStatus(signal);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(url), 'http://localhost');
+
+    expect(response.total).toBe(2);
+    expect(response.cached).toBe(1);
+    expect(response.results[0].auth_index).toBe('auth-1');
+    expect(response.results[0].file_name).toBe('claude-user.json');
+    expect(parsed.pathname).toBe('/api/v1/quota/inspection');
+    expect(init).toMatchObject({ credentials: 'include', signal });
+  });
+
+  it('starts quota inspection from the protected endpoint', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        total: 2,
+        cached: 0,
+        running: true,
+        completed: false,
+        normal: 0,
+        unauthorized_401: 0,
+        payment_required_402: 0,
+        other_failed: 0,
+        results: [],
+      }),
+    } as Response);
+    const signal = new AbortController().signal;
+
+    const response = await startUsageQuotaInspection(signal);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(url), 'http://localhost');
+
+    expect(response.running).toBe(true);
+    expect(parsed.pathname).toBe('/api/v1/quota/inspection');
+    expect(init).toMatchObject({ credentials: 'include', method: 'POST', signal });
+  });
+
   it('loads quota refresh task status', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: async () => ({
-	        authIndex: 'auth-1',
-	        status: 'completed',
-	        http_status_code: 401,
-	        refreshed_at: '2026-05-25T00:00:00Z',
-	        quota: { id: 'auth-1', quota: [{ key: 'rate_limit.primary_window', label: '5h' }] },
+        authIndex: 'auth-1',
+        file_name: 'claude-user.json',
+        status: 'completed',
+        http_status_code: 401,
+        refreshed_at: '2026-05-25T00:00:00Z',
+        quota: { id: 'auth-1', quota: [{ key: 'rate_limit.primary_window', label: '5h' }] },
       }),
     } as Response);
     const signal = new AbortController().signal;
@@ -423,9 +484,10 @@ describe('fetchUsageEvents', () => {
     const [url, init] = fetchMock.mock.calls[0];
     const parsed = new URL(String(url), 'http://localhost');
 
-	    expect(response.status).toBe('completed');
-	    expect(response.http_status_code).toBe(401);
-	    expect(response.refreshed_at).toBe('2026-05-25T00:00:00Z');
+    expect(response.status).toBe('completed');
+    expect(response.file_name).toBe('claude-user.json');
+    expect(response.http_status_code).toBe(401);
+    expect(response.refreshed_at).toBe('2026-05-25T00:00:00Z');
     expect(response.quota?.id).toBe('auth-1');
     expect(parsed.pathname).toBe('/api/v1/quota/refresh/auth-1');
     expect(init).toMatchObject({ credentials: 'include', signal });

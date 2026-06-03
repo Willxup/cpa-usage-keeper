@@ -17,11 +17,12 @@ const createAutoRefreshTestDocument = (visibilityState: DocumentVisibilityState 
   };
 };
 
-const createStatusResponse = (lastError = ''): StatusResponse => ({
+const createStatusResponse = (lastError = '', quotaAutoRefreshEnabled = true): StatusResponse => ({
   running: true,
   sync_running: false,
   timezone: 'UTC',
   last_error: lastError,
+  quotaAutoRefreshEnabled,
 });
 
 const flushPromises = async () => {
@@ -234,6 +235,36 @@ describe('UsagePage status active heartbeat', () => {
     cleanup();
   });
 
+  it('loads status once without active heartbeat when quota auto refresh is disabled', async () => {
+    const testDocument = createAutoRefreshTestDocument();
+    const timerTarget = {
+      setInterval: vi.fn(() => 7),
+      clearInterval: vi.fn(),
+    };
+    const status = createStatusResponse('', false);
+    const loadStatus = vi.fn(async () => status);
+    const markActive = vi.fn(async () => undefined);
+    const setStatus = vi.fn();
+    const setStatusError = vi.fn();
+
+    const cleanup = scheduleStatusActiveHeartbeat({
+      loadStatus,
+      markActive,
+      setStatus,
+      setStatusError,
+      documentRef: testDocument,
+      timerTarget,
+    });
+    await flushPromises();
+
+    expect(loadStatus).toHaveBeenCalledTimes(1);
+    expect(markActive).not.toHaveBeenCalled();
+    expect(timerTarget.setInterval).not.toHaveBeenCalled();
+    expect(setStatus).toHaveBeenCalledWith(status);
+
+    cleanup();
+  });
+
   it('does not start while hidden and starts immediately when visible again', async () => {
     const testDocument = createAutoRefreshTestDocument('hidden');
     const timerTarget = {
@@ -265,7 +296,7 @@ describe('UsagePage status active heartbeat', () => {
     cleanup();
   });
 
-  it('aborts the in-flight heartbeat and clears the timer when hidden', () => {
+  it('aborts the in-flight heartbeat before creating an interval when hidden', () => {
     let capturedSignal: AbortSignal | undefined;
     const testDocument = createAutoRefreshTestDocument();
     const timerTarget = {
@@ -293,7 +324,8 @@ describe('UsagePage status active heartbeat', () => {
     testDocument.dispatchEvent(new Event('visibilitychange'));
 
     expect(capturedSignal?.aborted).toBe(true);
-    expect(timerTarget.clearInterval).toHaveBeenCalledWith(9);
+    expect(timerTarget.setInterval).not.toHaveBeenCalled();
+    expect(timerTarget.clearInterval).not.toHaveBeenCalled();
 
     cleanup();
   });

@@ -22,6 +22,8 @@ type UsageIdentity struct {
 	LookupKey    string
 	Prefix       string
 	BaseURL      string
+	FileName     *string
+	FilePath     *string
 	Priority     *int
 	Disabled     *bool
 	Note         *string

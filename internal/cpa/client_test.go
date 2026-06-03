@@ -93,7 +93,7 @@ func TestFetchAuthFilesParsesSyncMetadataFields(t *testing.T) {
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"files":[{"auth_index":"codex-auth","type":"codex","prefix":"team","priority":7,"disabled":false,"note":"primary auth"},{"auth_index":"gemini-auth","type":"gemini"}]}`))
+		_, _ = w.Write([]byte(`{"files":[{"auth_index":"codex-auth","name":"codex-user.json","path":"/data/auths/codex-user.json","type":"codex","prefix":"team","priority":7,"disabled":false,"note":"primary auth"},{"auth_index":"gemini-auth","type":"gemini"}]}`))
 	}))
 	defer server.Close()
 
@@ -108,6 +108,9 @@ func TestFetchAuthFilesParsesSyncMetadataFields(t *testing.T) {
 	file := result.Payload.Files[0]
 	if file.Prefix != "team" || file.Priority == nil || *file.Priority != 7 || file.Disabled == nil || *file.Disabled || file.Note == nil || *file.Note != "primary auth" {
 		t.Fatalf("expected sync metadata fields to decode, got %+v", file)
+	}
+	if file.Name != "codex-user.json" || file.Path != "/data/auths/codex-user.json" {
+		t.Fatalf("expected auth file name and path to decode, got %+v", file)
 	}
 	missing := result.Payload.Files[1]
 	if missing.Priority != nil || missing.Disabled != nil || missing.Note != nil || missing.Prefix != "" {

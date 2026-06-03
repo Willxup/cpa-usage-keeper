@@ -197,6 +197,38 @@ func TestUsageIdentitiesRouteReturnsPublishedMetadataFields(t *testing.T) {
 	}
 }
 
+func TestUsageIdentitiesRouteOmitsFileFieldsForAIProvider(t *testing.T) {
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{
+		ID:           1,
+		Name:         "Claude API Key",
+		AuthType:     entities.UsageIdentityAuthTypeAIProvider,
+		AuthTypeName: "apikey",
+		Identity:     "sk-ai-provider-secret",
+		Type:         "claude",
+		Provider:     "Claude",
+		FileName:     apiStringPtr("should-not-return.json"),
+		FilePath:     apiStringPtr("/data/auths/should-not-return.json"),
+	}}}})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/identities", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
+	}
+	for _, forbidden := range []string{
+		`"file_name"`,
+		`"file_path"`,
+		`should-not-return.json`,
+	} {
+		if contains(body, forbidden) {
+			t.Fatalf("expected AI provider response not to include %s, got %s", forbidden, body)
+		}
+	}
+}
+
 func TestUsageIdentitiesPageRouteFiltersByAuthTypeAndPaginates(t *testing.T) {
 	captured := service.ListUsageIdentitiesRequest{}
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{
@@ -210,6 +242,8 @@ func TestUsageIdentitiesPageRouteFiltersByAuthTypeAndPaginates(t *testing.T) {
 			Identity:     "codex-auth",
 			Type:         "codex",
 			Provider:     "Codex",
+			FileName:     apiStringPtr("codex-user.json"),
+			FilePath:     apiStringPtr("/data/auths/codex-user.json"),
 		}},
 	}})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/identities/page?auth_type=1&page=2&page_size=10&active_only=true&sort=priority", nil)
@@ -224,7 +258,7 @@ func TestUsageIdentitiesPageRouteFiltersByAuthTypeAndPaginates(t *testing.T) {
 	if captured.AuthType == nil || *captured.AuthType != entities.UsageIdentityAuthTypeAuthFile || captured.Page != 2 || captured.PageSize != 10 || captured.ActiveOnly == nil || !*captured.ActiveOnly || captured.Sort != "priority" {
 		t.Fatalf("expected auth_type/page/page_size/active_only/sort request, got %+v", captured)
 	}
-	for _, expected := range []string{`"identities":[`, `"id":"11"`, `"total_count":25`, `"page":2`, `"page_size":10`, `"total_pages":3`} {
+	for _, expected := range []string{`"identities":[`, `"id":"11"`, `"file_name":"codex-user.json"`, `"file_path":"/data/auths/codex-user.json"`, `"total_count":25`, `"page":2`, `"page_size":10`, `"total_pages":3`} {
 		if !contains(body, expected) {
 			t.Fatalf("expected %s in response body: %s", expected, body)
 		}

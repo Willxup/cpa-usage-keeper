@@ -26,13 +26,15 @@ type Service struct {
 	db       *gorm.DB
 	registry ProviderRegistry
 
-	refreshMu           sync.Mutex
-	refreshTasks        map[string]*RefreshTaskRecord
-	refreshWorkerTokens chan struct{}
-	refreshTaskTTL      time.Duration
-	refreshCooldown     func(time.Duration)
-	refreshContext      context.Context
-	refreshCancel       context.CancelFunc
+	refreshMu    sync.Mutex
+	refreshTasks map[string]*RefreshTaskRecord
+	// inspectionCompletedAt 记录最近一次巡检全量完成时间，只随内存刷新缓存生命周期存在。
+	inspectionCompletedAt time.Time
+	refreshWorkerTokens   chan struct{}
+	refreshTaskTTL        time.Duration
+	refreshCooldown       func(time.Duration)
+	refreshContext        context.Context
+	refreshCancel         context.CancelFunc
 	// autoRefreshInterval 控制后台 runner 的 tick 周期。
 	autoRefreshInterval time.Duration
 	// autoRefreshActiveTTL 控制前端心跳失效前可继续自动刷新的时间窗。

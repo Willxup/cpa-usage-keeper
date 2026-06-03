@@ -52,6 +52,7 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260531_model_price_pricing_style",
 		"20260601_backfill_claude_usage_tokens",
 		"20260602_add_usage_event_executor_type",
+		"20260603_add_usage_identity_file_fields",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("expected ordered migrations %v, got %v", want, got)
@@ -80,6 +81,11 @@ func TestOpenDatabaseRunsSchemaMigrationsAndAddsUsageEventRedisFields(t *testing
 	}
 	if !db.Migrator().HasColumn(&entities.UsageIdentity{}, "lookup_key") {
 		t.Fatal("expected usage_identities.lookup_key column to exist")
+	}
+	for _, column := range []string{"file_name", "file_path"} {
+		if !db.Migrator().HasColumn(&entities.UsageIdentity{}, column) {
+			t.Fatalf("expected usage_identities.%s column to exist", column)
+		}
 	}
 
 	var versions []string
@@ -120,6 +126,7 @@ func TestOpenDatabaseRunsSchemaMigrationsAndAddsUsageEventRedisFields(t *testing
 		"20260531_model_price_pricing_style",
 		"20260601_backfill_claude_usage_tokens",
 		"20260602_add_usage_event_executor_type",
+		"20260603_add_usage_identity_file_fields",
 	}
 	if len(versions) != len(expected) {
 		t.Fatalf("expected migration versions %v, got %v", expected, versions)

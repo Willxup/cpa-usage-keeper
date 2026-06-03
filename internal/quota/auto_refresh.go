@@ -11,6 +11,20 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type authFileRefreshRoundOptions struct {
+	source              RefreshSource
+	skipCachedHTTPError bool
+}
+
+type authFileRefreshRoundSummary struct {
+	scanned            int
+	queued             int
+	skippedCachedError int
+	skippedRunning     int
+	skippedUnsupported int
+	queuedAuthIndexes  []string
+}
+
 func (s *Service) RunAutoRefresh(ctx context.Context) error {
 	// nil service 或未初始化数据库时没有可刷新对象，直接安全返回。
 	if s == nil || s.db == nil {
@@ -44,58 +58,68 @@ func (s *Service) RunAutoRefresh(ctx context.Context) error {
 	}()
 	// 自动刷新每轮开始先清理过期任务，确保 401/402 过期后能重新进入队列，而不是被旧缓存一直拦住。
 	s.cleanupExpiredRefreshTasks(now)
-	identities, err := s.listAutoRefreshAuthFiles(ctx)
+	summary, err := s.queueAuthFileRefreshRound(ctx, now, authFileRefreshRoundOptions{
+		source:              RefreshSourceAuto,
+		skipCachedHTTPError: true,
+	})
 	if err != nil {
 		return err
 	}
 	// Auth Files 扫描成功后才记录整轮启动时间；扫描失败只依赖 attempt 时间做轻量退避。
 	s.markAutoRefreshRoundStartedAt(now)
-	queued := 0
-	skippedCachedError := 0
-	skippedRunning := 0
-	skippedUnsupported := 0
-	queuedAuthIndexes := make([]string, 0, len(identities))
+	if len(summary.queuedAuthIndexes) > 0 {
+		if s.startRefreshGoroutine(func() {
+			s.dispatchAutoRefreshTasks(summary.queuedAuthIndexes)
+		}) {
+			roundHandedToMonitor = true
+		} else {
+			// 关闭期间不能再启动 dispatcher，本轮已入队任务必须转为失败，避免永久停在 queued。
+			s.markQueuedRefreshTasksFailed(summary.queuedAuthIndexes, context.Canceled)
+		}
+	}
+	logrus.WithFields(logrus.Fields{
+		"scanned":              summary.scanned,
+		"queued":               summary.queued,
+		"skipped_cached_error": summary.skippedCachedError,
+		"skipped_running":      summary.skippedRunning,
+		"skipped_unsupported":  summary.skippedUnsupported,
+	}).Debug("quota auto refresh round summary")
+	return nil
+}
+
+func (s *Service) queueAuthFileRefreshRound(ctx context.Context, now time.Time, options authFileRefreshRoundOptions) (authFileRefreshRoundSummary, error) {
+	identities, err := s.listAutoRefreshAuthFiles(ctx)
+	if err != nil {
+		return authFileRefreshRoundSummary{}, err
+	}
+	summary := authFileRefreshRoundSummary{
+		scanned:           len(identities),
+		queuedAuthIndexes: make([]string, 0, len(identities)),
+	}
 	for _, identity := range identities {
 		authIndex := strings.TrimSpace(identity.Identity)
 		if authIndex == "" {
 			continue
 		}
 		if _, _, ok := s.resolveQuotaHandlerForIdentity(identity); !ok {
-			// 自动刷新和手动查询共用同一套 handler 解析逻辑，不支持的 Auth File 不占用 worker。
-			skippedUnsupported++
+			// 自动刷新和手动巡检共用同一套 handler 解析逻辑，不支持的 Auth File 不占用 worker。
+			summary.skippedUnsupported++
 			continue
 		}
-		if s.shouldSkipAutoRefreshForCachedHTTPError(authIndex, now) {
-			// 这里跳过的是未过期的可缓存 HTTP 错误，避免后台持续打已知不可自动恢复的身份。
-			skippedCachedError++
+		if options.skipCachedHTTPError && s.shouldSkipAutoRefreshForCachedHTTPError(authIndex, now) {
+			// 自动刷新跳过未过期的可缓存 HTTP 错误；手动巡检会先清缓存并重新尝试。
+			summary.skippedCachedError++
 			continue
 		}
-		if task, created := s.ensureRefreshTask(authIndex, RefreshSourceAuto); created {
-			queued++
-			queuedAuthIndexes = append(queuedAuthIndexes, task.AuthIndex)
+		if task, created := s.ensureRefreshTaskWithIdentity(authIndex, options.source, identity); created {
+			summary.queued++
+			summary.queuedAuthIndexes = append(summary.queuedAuthIndexes, task.AuthIndex)
 		} else if task != nil && task.isActive() {
-			// queued/running 已经代表这个 auth_index 在队列里，自动刷新不能重复入队。
-			skippedRunning++
+			// queued/running 已经代表这个 auth_index 在队列里，同一轮不能重复入队。
+			summary.skippedRunning++
 		}
 	}
-	if len(queuedAuthIndexes) > 0 {
-		if s.startRefreshGoroutine(func() {
-			s.dispatchAutoRefreshTasks(queuedAuthIndexes)
-		}) {
-			roundHandedToMonitor = true
-		} else {
-			// 关闭期间不能再启动 dispatcher，本轮已入队任务必须转为失败，避免永久停在 queued。
-			s.markQueuedRefreshTasksFailed(queuedAuthIndexes, context.Canceled)
-		}
-	}
-	logrus.WithFields(logrus.Fields{
-		"scanned":              len(identities),
-		"queued":               queued,
-		"skipped_cached_error": skippedCachedError,
-		"skipped_running":      skippedRunning,
-		"skipped_unsupported":  skippedUnsupported,
-	}).Debug("quota auto refresh round summary")
-	return nil
+	return summary, nil
 }
 
 func (s *Service) beginAutoRefreshRound(now time.Time) bool {
@@ -258,7 +282,7 @@ func (s *Service) listAutoRefreshAuthFiles(ctx context.Context) ([]entities.Usag
 	var identities []entities.UsageIdentity
 	// 自动刷新只扫描未删除且未禁用的 Auth Files；AI Provider 和用户停用的 Auth File 都不应产生后台请求。
 	err := s.db.WithContext(ctx).
-		Select("id, identity, provider, type, auth_type, is_deleted, disabled").
+		Select("id, name, identity, provider, type, file_name, auth_type, is_deleted, disabled").
 		Where("auth_type = ? AND is_deleted = ? AND (disabled IS NULL OR disabled = ?)", entities.UsageIdentityAuthTypeAuthFile, false, false).
 		Order("priority IS NULL ASC").
 		Order("priority DESC").

@@ -45,6 +45,36 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 		c.JSON(http.StatusOK, response)
 	})
 
+	router.GET("/quota/inspection", func(c *gin.Context) {
+		if provider == nil {
+			writeInternalError(c, "quota provider is not configured", nil)
+			return
+		}
+
+		response, err := provider.GetInspectionStatus(c.Request.Context())
+		if err != nil {
+			writeInternalError(c, "quota inspection status lookup failed", err)
+			return
+		}
+
+		c.JSON(http.StatusOK, response)
+	})
+
+	router.POST("/quota/inspection", func(c *gin.Context) {
+		if provider == nil {
+			writeInternalError(c, "quota provider is not configured", nil)
+			return
+		}
+
+		response, err := provider.StartInspection(c.Request.Context())
+		if err != nil {
+			writeInternalError(c, "quota inspection start failed", err)
+			return
+		}
+
+		c.JSON(http.StatusOK, response)
+	})
+
 	router.POST("/quota/refresh", func(c *gin.Context) {
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)

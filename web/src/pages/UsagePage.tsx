@@ -320,15 +320,18 @@ export const scheduleStatusActiveHeartbeat = ({
   let controller: AbortController | null = null;
   let timer: number | null = null;
   const isVisible = () => isUsagePageVisible(targetDocument);
-  const stopPolling = () => {
-    controller?.abort();
-    controller = null;
+  const stopTimer = () => {
     if (timer !== null) {
       timers.clearInterval(timer);
       timer = null;
     }
   };
-  const loadAndMarkActive = async () => {
+  const stopPolling = () => {
+    controller?.abort();
+    controller = null;
+    stopTimer();
+  };
+  const loadAndMaybeMarkActive = async () => {
     controller?.abort();
     const requestController = new AbortController();
     controller = requestController;
@@ -337,11 +340,21 @@ export const scheduleStatusActiveHeartbeat = ({
       const status = await loadStatus(requestController.signal);
       setStatus(status);
       setStatusError(status.last_error || '');
+      if (status.quotaAutoRefreshEnabled !== true) {
+        stopTimer();
+        return false;
+      }
       await markActive(requestController.signal);
+      return true;
     } catch (error) {
       if (requestController.signal.aborted) return;
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
+      }
+      return false;
+    } finally {
+      if (controller === requestController) {
+        controller = null;
       }
     }
   };
@@ -350,10 +363,14 @@ export const scheduleStatusActiveHeartbeat = ({
       stopPolling();
       return;
     }
-    void loadAndMarkActive();
-    timer = timers.setInterval(() => {
-      void loadAndMarkActive();
-    }, intervalMs);
+    void loadAndMaybeMarkActive().then((shouldHeartbeat) => {
+      if (!shouldHeartbeat || !isVisible() || timer !== null) {
+        return;
+      }
+      timer = timers.setInterval(() => {
+        void loadAndMaybeMarkActive();
+      }, intervalMs);
+    });
   };
   const handleVisibilityChange = () => {
     stopPolling();
@@ -690,6 +707,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const credentialsData = useCredentialsTabData({
     enabledAuthFiles: credentialSectionVisibility.showAuthFiles && pageVisible,
     enabledAiProviders: credentialSectionVisibility.showAiProvider && pageVisible,
+    quotaAutoRefreshEnabled: status?.quotaAutoRefreshEnabled === true,
     onAuthRequired,
   });
   const refreshCredentials = credentialsData.refresh;
@@ -1778,12 +1796,19 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       loading={credentialsData.loading}
                       quotaRefreshing={credentialsData.quotaRefreshing}
                       quotaRefreshError={credentialsData.quotaRefreshError}
+                      quotaAutoRefreshEnabled={status?.quotaAutoRefreshEnabled === true}
+                      quotaInspectionStatus={credentialsData.quotaInspectionStatus}
+                      quotaInspectionLoading={credentialsData.quotaInspectionLoading}
+                      quotaInspectionStarting={credentialsData.quotaInspectionStarting}
+                      quotaInspectionError={credentialsData.quotaInspectionError}
                       onPageChange={credentialsData.setAuthFilePage}
                       onPageSizeChange={credentialsData.setAuthFilePageSize}
                       onActiveOnlyChange={credentialsData.setAuthFileActiveOnly}
                       onSortChange={credentialsData.setAuthFileSort}
                       onRefreshQuota={credentialsData.refreshQuotaForCurrentAuthFilePage}
                       onRefreshQuotaForAuthIndex={credentialsData.refreshQuotaForAuthIndex}
+                      onRefreshInspectionStatus={credentialsData.refreshQuotaInspectionStatus}
+                      onStartInspection={credentialsData.startQuotaInspection}
                     />
                   )}
                   {credentialSectionVisibility.showAiProvider && (

@@ -19,6 +19,7 @@ type RefreshSource string
 const (
 	RefreshSourceManual        RefreshSource = "manual"
 	RefreshSourceAuto          RefreshSource = "auto"
+	RefreshSourceInspection    RefreshSource = "inspection"
 	RefreshSourceScheduled     RefreshSource = "scheduled"
 	RefreshSourceCacheBackfill RefreshSource = "cache_backfill"
 )
@@ -42,6 +43,7 @@ type CacheResponse struct {
 
 type CachedQuotaItem struct {
 	AuthIndex      string            `json:"auth_index"`
+	FileName       *string           `json:"file_name,omitempty"`
 	Status         RefreshTaskStatus `json:"status"`
 	Quota          *CheckResponse    `json:"quota,omitempty"`
 	Error          string            `json:"error,omitempty"`
@@ -74,6 +76,7 @@ type RefreshRejectedAuthIndex struct {
 
 type RefreshTaskResponse struct {
 	AuthIndex      string            `json:"authIndex"`
+	FileName       *string           `json:"file_name,omitempty"`
 	Status         RefreshTaskStatus `json:"status"`
 	Quota          *CheckResponse    `json:"quota,omitempty"`
 	Error          string            `json:"error,omitempty"`
@@ -84,6 +87,9 @@ type RefreshTaskResponse struct {
 
 type RefreshTaskRecord struct {
 	AuthIndex      string
+	Name           string
+	Type           string
+	FileName       *string
 	Status         RefreshTaskStatus
 	Quota          *CheckResponse
 	Error          string
@@ -126,11 +132,11 @@ func (s *Service) GetCachedQuota(ctx context.Context, request CacheRequest) (Cac
 		case task.Status == RefreshTaskStatusCompleted && task.Quota != nil:
 			quota := *task.Quota
 			refreshedAt := task.RefreshedAt
-			response.Items = append(response.Items, CachedQuotaItem{AuthIndex: authIndex, Status: RefreshTaskStatusCompleted, Quota: &quota, RefreshedAt: &refreshedAt})
+			response.Items = append(response.Items, CachedQuotaItem{AuthIndex: authIndex, FileName: task.FileName, Status: RefreshTaskStatusCompleted, Quota: &quota, RefreshedAt: &refreshedAt})
 		case task.Status == RefreshTaskStatusFailed && task.HTTPStatusCode != nil && isRefreshCacheableHTTPStatus(*task.HTTPStatusCode):
 			expiresAt := task.ExpiresAt
 			refreshedAt := task.RefreshedAt
-			response.Items = append(response.Items, CachedQuotaItem{AuthIndex: authIndex, Status: RefreshTaskStatusFailed, Error: task.Error, HTTPStatusCode: task.HTTPStatusCode, ExpiresAt: &expiresAt, RefreshedAt: &refreshedAt})
+			response.Items = append(response.Items, CachedQuotaItem{AuthIndex: authIndex, FileName: task.FileName, Status: RefreshTaskStatusFailed, Error: task.Error, HTTPStatusCode: task.HTTPStatusCode, ExpiresAt: &expiresAt, RefreshedAt: &refreshedAt})
 		}
 	}
 	return response, nil
@@ -188,7 +194,7 @@ func (s *Service) Refresh(ctx context.Context, request RefreshRequest) (RefreshR
 			continue
 		}
 		// 入队前先确认 auth_index 对应有效 auth file，并且 provider 支持 quota 查询。
-		if rejection, err := s.validateRefreshAuthIndex(ctx, authIndex); err != nil {
+		if identity, rejection, err := s.validateRefreshAuthIndex(ctx, authIndex); err != nil {
 			// 数据库错误等非业务拒绝直接返回，避免继续创建不可靠任务。
 			return RefreshResponse{}, err
 		} else if rejection != "" {
@@ -196,23 +202,23 @@ func (s *Service) Refresh(ctx context.Context, request RefreshRequest) (RefreshR
 			response.Rejected = append(response.Rejected, RefreshRejectedAuthIndex{AuthIndex: authIndex, Error: rejection})
 			// 当前项处理完毕，继续看下一项。
 			continue
+		} else {
+			// ensureRefreshTask 负责在锁内检查 queued/running 并创建新的 queued 任务。
+			task, created := s.ensureRefreshTaskWithIdentity(authIndex, request.Source, identity)
+			// created 为 false 表示同一 auth_index 已经 queued/running，不能重复入队。
+			if !created {
+				// duplicate 表示已有任务会产出结果，当前请求不再创建第二个任务。
+				response.Rejected = append(response.Rejected, RefreshRejectedAuthIndex{AuthIndex: authIndex, Error: "duplicate"})
+				// 当前项处理完毕，继续看下一项。
+				continue
+			}
+			// 返回任务引用只暴露 auth_index，前端后续也按 auth_index 轮询。
+			response.Tasks = append(response.Tasks, RefreshTaskRef{AuthIndex: task.AuthIndex})
+			// Accepted 记录实际新建并准备派发的任务数。
+			response.Accepted++
+			// 把任务放入本次派发列表，避免为每个等待 worker slot 的任务都创建阻塞 goroutine。
+			queuedAuthIndexes = append(queuedAuthIndexes, task.AuthIndex)
 		}
-
-		// ensureRefreshTask 负责在锁内检查 queued/running 并创建新的 queued 任务。
-		task, created := s.ensureRefreshTask(authIndex, request.Source)
-		// created 为 false 表示同一 auth_index 已经 queued/running，不能重复入队。
-		if !created {
-			// duplicate 表示已有任务会产出结果，当前请求不再创建第二个任务。
-			response.Rejected = append(response.Rejected, RefreshRejectedAuthIndex{AuthIndex: authIndex, Error: "duplicate"})
-			// 当前项处理完毕，继续看下一项。
-			continue
-		}
-		// 返回任务引用只暴露 auth_index，前端后续也按 auth_index 轮询。
-		response.Tasks = append(response.Tasks, RefreshTaskRef{AuthIndex: task.AuthIndex})
-		// Accepted 记录实际新建并准备派发的任务数。
-		response.Accepted++
-		// 把任务放入本次派发列表，避免为每个等待 worker slot 的任务都创建阻塞 goroutine。
-		queuedAuthIndexes = append(queuedAuthIndexes, task.AuthIndex)
 	}
 	// 如果本次有任务入队，就启动一个 dispatcher 顺序等待 worker slot 并派发实际 worker。
 	if len(queuedAuthIndexes) > 0 {
@@ -253,30 +259,34 @@ func (s *Service) GetRefreshTaskByAuthIndex(ctx context.Context, authIndex strin
 	return task.response(), nil
 }
 
-func (s *Service) validateRefreshAuthIndex(ctx context.Context, authIndex string) (string, error) {
+func (s *Service) validateRefreshAuthIndex(ctx context.Context, authIndex string) (entities.UsageIdentity, string, error) {
 	// 先按 auth-file 身份查找；查不到时再区分“非 auth file”和“不存在”。
 	identity, err := repository.GetActiveAuthFileUsageIdentityByAuthIndex(ctx, s.db, authIndex)
 	if err == nil {
 		if _, _, ok := s.resolveQuotaHandlerForIdentity(identity); !ok {
-			return "unsupported", nil
+			return identity, "unsupported", nil
 		}
-		return "", nil
+		return identity, "", nil
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return "", err
+		return entities.UsageIdentity{}, "", err
 	}
 
 	var active entities.UsageIdentity
 	if err := s.db.WithContext(ctx).Select("id, auth_type").Where("identity = ? AND is_deleted = ?", authIndex, false).First(&active).Error; err == nil {
-		return "not_auth_file", nil
+		return entities.UsageIdentity{}, "not_auth_file", nil
 	} else if errors.Is(err, gorm.ErrRecordNotFound) {
-		return "not_found", nil
+		return entities.UsageIdentity{}, "not_found", nil
 	} else {
-		return "", err
+		return entities.UsageIdentity{}, "", err
 	}
 }
 
 func (s *Service) ensureRefreshTask(authIndex string, source RefreshSource) (*RefreshTaskRecord, bool) {
+	return s.ensureRefreshTaskWithIdentity(authIndex, source, entities.UsageIdentity{Identity: authIndex})
+}
+
+func (s *Service) ensureRefreshTaskWithIdentity(authIndex string, source RefreshSource, identity entities.UsageIdentity) (*RefreshTaskRecord, bool) {
 	// auth_index 本身就是任务唯一标识；queued/running 时直接拒绝重复入队，避免重复打到上游接口。
 	// now 使用 storage time 归一化，保证任务时间字段和数据库/前端时间口径一致。
 	now := timeutil.NormalizeStorageTime(time.Now())
@@ -293,6 +303,11 @@ func (s *Service) ensureRefreshTask(authIndex string, source RefreshSource) (*Re
 	task := &RefreshTaskRecord{
 		// AuthIndex 是任务唯一 key，也是前端轮询 key。
 		AuthIndex: authIndex,
+		// 展示字段来自入队时的身份快照，巡检弹框读取缓存时无需逐条回查 identity。
+		Name: identity.Name,
+		Type: identity.Type,
+		// FileName 是 CPA auth-files 的原始 name，后续删除功能不能复用展示名。
+		FileName: identity.FileName,
 		// Status 初始为 queued，表示已经入队但尚未占用 worker。
 		Status: RefreshTaskStatusQueued,
 		// Source 记录任务来源，便于区分手动刷新和自动刷新。
@@ -511,6 +526,7 @@ func (t *RefreshTaskRecord) isActive() bool {
 func (t *RefreshTaskRecord) response() RefreshTaskResponse {
 	response := RefreshTaskResponse{
 		AuthIndex:      t.AuthIndex,
+		FileName:       t.FileName,
 		Status:         t.Status,
 		Error:          t.Error,
 		HTTPStatusCode: t.HTTPStatusCode,

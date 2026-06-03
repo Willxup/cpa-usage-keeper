@@ -4,6 +4,7 @@ import {
   useId,
   useRef,
   useState,
+  type MouseEvent,
   type PropsWithChildren,
   type ReactNode,
 } from 'react';
@@ -118,13 +119,13 @@ export function Modal({
     (notifyParent: boolean) => {
       if (closeTimerRef.current !== null) return;
       setIsClosing(true);
+      if (notifyParent) {
+        onClose();
+      }
       closeTimerRef.current = window.setTimeout(() => {
         setIsVisible(false);
         setIsClosing(false);
         closeTimerRef.current = null;
-        if (notifyParent) {
-          onClose();
-        }
       }, CLOSE_ANIMATION_DURATION);
     },
     [onClose]
@@ -158,6 +159,11 @@ export function Modal({
   const handleClose = useCallback(() => {
     startClose(true);
   }, [startClose]);
+
+  const handleOverlayMouseDown = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    if (closeDisabled || event.target !== event.currentTarget) return;
+    handleClose();
+  }, [closeDisabled, handleClose]);
 
   useEffect(() => {
     return () => {
@@ -270,7 +276,7 @@ export function Modal({
   const modalClass = `modal ${isClosing ? 'modal-closing' : 'modal-entering'}${className ? ` ${className}` : ''}`;
 
   const modalContent = (
-    <div ref={overlayRef} className={overlayClass}>
+    <div ref={overlayRef} className={overlayClass} onMouseDown={handleOverlayMouseDown}>
       <div
         ref={modalRef}
         className={modalClass}

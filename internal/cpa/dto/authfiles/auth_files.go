@@ -11,6 +11,7 @@ type AuthFilesResponse struct {
 type AuthFile struct {
 	AuthIndex   string           `json:"auth_index"`
 	Name        string           `json:"name"`
+	Path        string           `json:"path"`
 	Email       string           `json:"email"`
 	Type        string           `json:"type"`
 	Provider    string           `json:"provider"`

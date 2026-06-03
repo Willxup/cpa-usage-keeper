@@ -75,6 +75,13 @@ describe('i18n resources', () => {
     expect(i18n.getResource('zh-TW', 'translation', 'auth.invalid_api_key')).toBe('API Key 錯誤');
   });
 
+  it('uses compact status-code labels for Auth Files inspection failures', () => {
+    for (const language of SUPPORTED_LANGUAGES) {
+      expect(i18n.getResource(language, 'translation', 'usage_stats.credentials_inspection_401')).toBe('401');
+      expect(i18n.getResource(language, 'translation', 'usage_stats.credentials_inspection_402')).toBe('402');
+    }
+  });
+
   it('keeps the login product title aligned across languages', () => {
     expect(i18n.getResourceBundle('en', 'translation').auth.login_title).toBe('CPA Usage Statistics Dashboard');
     expect(i18n.getResourceBundle('zh', 'translation').auth.login_title).toBe('CPA 用量统计仪表盘');
