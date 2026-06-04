@@ -202,8 +202,7 @@ const getHeatmapCellColor = (intensity: number, isDark: boolean) => {
         { at: 0.48, color: [251, 146, 60] },
         { at: 0.72, color: [239, 68, 68] },
         { at: 1, color: [124, 45, 18] },
-      ] satisfies Array<{ at: number; color: [number, number, number] }
-      >),
+      ] satisfies Array<{ at: number; color: [number, number, number] }>),
   ];
   const upperIndex = stops.findIndex((stop) => clampedIntensity <= stop.at);
   if (upperIndex <= 0) return `rgb(${stops[0].color.join(', ')})`;
