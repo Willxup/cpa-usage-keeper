@@ -24,6 +24,8 @@ type analysisResponse struct {
 	AuthFilesComposition  []analysisCompositionItem `json:"auth_files_composition"`
 	AIProviderComposition []analysisCompositionItem `json:"ai_provider_composition"`
 	Heatmap               analysisHeatmap           `json:"heatmap"`
+	CostBreakdown         analysisCostBreakdown     `json:"cost_breakdown"`
+	ModelEfficiency       []analysisModelEfficiency `json:"model_efficiency"`
 }
 
 type analysisTokenUsage struct {
@@ -34,14 +36,22 @@ type analysisTokenUsage struct {
 	ReasoningTokens int64     `json:"reasoning_tokens"`
 	TotalTokens     int64     `json:"total_tokens"`
 	Requests        int64     `json:"requests"`
+	CostUSD         float64   `json:"cost_usd"`
+	CostAvailable   bool      `json:"cost_available"`
 }
 
 type analysisCompositionItem struct {
-	Key         string  `json:"key"`
-	Label       string  `json:"label"`
-	TotalTokens int64   `json:"total_tokens"`
-	Requests    int64   `json:"requests"`
-	Percent     float64 `json:"percent"`
+	Key             string  `json:"key"`
+	Label           string  `json:"label"`
+	TotalTokens     int64   `json:"total_tokens"`
+	Requests        int64   `json:"requests"`
+	Percent         float64 `json:"percent"`
+	InputTokens     int64   `json:"input_tokens"`
+	OutputTokens    int64   `json:"output_tokens"`
+	CachedTokens    int64   `json:"cached_tokens"`
+	ReasoningTokens int64   `json:"reasoning_tokens"`
+	CostUSD         float64 `json:"cost_usd"`
+	CostAvailable   bool    `json:"cost_available"`
 }
 
 type analysisHeatmap struct {
@@ -51,11 +61,40 @@ type analysisHeatmap struct {
 }
 
 type analysisHeatmapCell struct {
-	APIKey      string  `json:"api_key"`
-	Model       string  `json:"model"`
-	TotalTokens int64   `json:"total_tokens"`
-	Requests    int64   `json:"requests"`
-	Intensity   float64 `json:"intensity"`
+	APIKey          string  `json:"api_key"`
+	Model           string  `json:"model"`
+	InputTokens     int64   `json:"input_tokens"`
+	OutputTokens    int64   `json:"output_tokens"`
+	CachedTokens    int64   `json:"cached_tokens"`
+	ReasoningTokens int64   `json:"reasoning_tokens"`
+	TotalTokens     int64   `json:"total_tokens"`
+	Requests        int64   `json:"requests"`
+	CostUSD         float64 `json:"cost_usd"`
+	CostAvailable   bool    `json:"cost_available"`
+	Intensity       float64 `json:"intensity"`
+}
+
+type analysisCostBreakdown struct {
+	InputCostUSD  float64 `json:"input_cost_usd"`
+	OutputCostUSD float64 `json:"output_cost_usd"`
+	CachedCostUSD float64 `json:"cached_cost_usd"`
+	TotalCostUSD  float64 `json:"total_cost_usd"`
+	CostAvailable bool    `json:"cost_available"`
+}
+
+type analysisModelEfficiency struct {
+	Model                  string  `json:"model"`
+	Requests               int64   `json:"requests"`
+	InputTokens            int64   `json:"input_tokens"`
+	OutputTokens           int64   `json:"output_tokens"`
+	CachedTokens           int64   `json:"cached_tokens"`
+	ReasoningTokens        int64   `json:"reasoning_tokens"`
+	TotalTokens            int64   `json:"total_tokens"`
+	CostUSD                float64 `json:"cost_usd"`
+	CostAvailable          bool    `json:"cost_available"`
+	CostPerRequestUSD      float64 `json:"cost_per_request_usd"`
+	OutputTokensPerRequest float64 `json:"output_tokens_per_request"`
+	CacheRate              float64 `json:"cache_rate"`
 }
 
 type analysisAPIKeyInfo struct {
@@ -100,6 +139,8 @@ func emptyAnalysisResponse() analysisResponse {
 		AuthFilesComposition:  []analysisCompositionItem{},
 		AIProviderComposition: []analysisCompositionItem{},
 		Heatmap:               analysisHeatmap{APIKeys: []string{}, Models: []string{}, Cells: []analysisHeatmapCell{}},
+		CostBreakdown:         analysisCostBreakdown{CostAvailable: true},
+		ModelEfficiency:       []analysisModelEfficiency{},
 	}
 }
 
@@ -133,6 +174,8 @@ func buildAnalysisPayload(snapshot *servicedto.AnalysisSnapshot, apiKeyInfos map
 			ReasoningTokens: bucket.ReasoningTokens,
 			TotalTokens:     bucket.TotalTokens,
 			Requests:        bucket.Requests,
+			CostUSD:         bucket.CostUSD,
+			CostAvailable:   bucket.CostAvailable,
 		})
 	}
 	apiComposition := buildAnalysisCompositionPayload(snapshot.APIKeyComposition, apiKeyInfos)
@@ -150,6 +193,14 @@ func buildAnalysisPayload(snapshot *servicedto.AnalysisSnapshot, apiKeyInfos map
 		AuthFilesComposition:  authFilesComposition,
 		AIProviderComposition: aiProviderComposition,
 		Heatmap:               buildAnalysisHeatmapPayload(snapshot.Heatmap, apiKeyInfos),
+		CostBreakdown: analysisCostBreakdown{
+			InputCostUSD:  snapshot.CostBreakdown.InputCostUSD,
+			OutputCostUSD: snapshot.CostBreakdown.OutputCostUSD,
+			CachedCostUSD: snapshot.CostBreakdown.CachedCostUSD,
+			TotalCostUSD:  snapshot.CostBreakdown.TotalCostUSD,
+			CostAvailable: snapshot.CostBreakdown.CostAvailable,
+		},
+		ModelEfficiency: buildAnalysisModelEfficiencyPayload(snapshot.ModelEfficiency),
 	}
 }
 
@@ -172,7 +223,19 @@ func buildAnalysisCompositionPayload(items []servicedto.AnalysisCompositionItem,
 		if total > 0 {
 			percent = (float64(item.TotalTokens) / float64(total)) * 100
 		}
-		payload = append(payload, analysisCompositionItem{Key: key, Label: label, TotalTokens: item.TotalTokens, Requests: item.Requests, Percent: percent})
+		payload = append(payload, analysisCompositionItem{
+			Key:             key,
+			Label:           label,
+			TotalTokens:     item.TotalTokens,
+			Requests:        item.Requests,
+			Percent:         percent,
+			InputTokens:     item.InputTokens,
+			OutputTokens:    item.OutputTokens,
+			CachedTokens:    item.CachedTokens,
+			ReasoningTokens: item.ReasoningTokens,
+			CostUSD:         item.CostUSD,
+			CostAvailable:   item.CostAvailable,
+		})
 	}
 	return payload
 }
@@ -212,14 +275,41 @@ func buildAnalysisHeatmapPayload(cells []servicedto.AnalysisHeatmapCell, apiKeyI
 			intensity = float64(cell.TotalTokens) / float64(maxTokens)
 		}
 		payloadCells = append(payloadCells, analysisHeatmapCell{
-			APIKey:      analysisAPIKeyLabel(cell.APIKey, apiKeyInfos),
-			Model:       cell.Model,
-			TotalTokens: cell.TotalTokens,
-			Requests:    cell.Requests,
-			Intensity:   intensity,
+			APIKey:          analysisAPIKeyLabel(cell.APIKey, apiKeyInfos),
+			Model:           cell.Model,
+			InputTokens:     cell.InputTokens,
+			OutputTokens:    cell.OutputTokens,
+			CachedTokens:    cell.CachedTokens,
+			ReasoningTokens: cell.ReasoningTokens,
+			TotalTokens:     cell.TotalTokens,
+			Requests:        cell.Requests,
+			CostUSD:         cell.CostUSD,
+			CostAvailable:   cell.CostAvailable,
+			Intensity:       intensity,
 		})
 	}
 	return analysisHeatmap{APIKeys: apiKeys, Models: models, Cells: payloadCells}
+}
+
+func buildAnalysisModelEfficiencyPayload(items []servicedto.AnalysisModelEfficiencyItem) []analysisModelEfficiency {
+	payload := make([]analysisModelEfficiency, 0, len(items))
+	for _, item := range items {
+		payload = append(payload, analysisModelEfficiency{
+			Model:                  item.Model,
+			Requests:               item.Requests,
+			InputTokens:            item.InputTokens,
+			OutputTokens:           item.OutputTokens,
+			CachedTokens:           item.CachedTokens,
+			ReasoningTokens:        item.ReasoningTokens,
+			TotalTokens:            item.TotalTokens,
+			CostUSD:                item.CostUSD,
+			CostAvailable:          item.CostAvailable,
+			CostPerRequestUSD:      item.CostPerRequestUSD,
+			OutputTokensPerRequest: item.OutputTokensPerRequest,
+			CacheRate:              item.CacheRate,
+		})
+	}
+	return payload
 }
 
 func sortedHeatmapKeysByRequests(requestsByKey map[string]int64) []string {

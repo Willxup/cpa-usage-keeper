@@ -17,6 +17,8 @@ type AnalysisTokenUsageBucket struct {
 	ReasoningTokens int64
 	TotalTokens     int64
 	Requests        int64
+	CostUSD         float64
+	CostAvailable   bool
 }
 
 type AnalysisCompositionItem struct {
@@ -28,13 +30,44 @@ type AnalysisCompositionItem struct {
 	OutputTokens    int64
 	CachedTokens    int64
 	ReasoningTokens int64
+	CostUSD         float64
+	CostAvailable   bool
 }
 
 type AnalysisHeatmapCell struct {
-	APIKey      string
-	Model       string
-	TotalTokens int64
-	Requests    int64
+	APIKey          string
+	Model           string
+	InputTokens     int64
+	OutputTokens    int64
+	CachedTokens    int64
+	ReasoningTokens int64
+	TotalTokens     int64
+	Requests        int64
+	CostUSD         float64
+	CostAvailable   bool
+}
+
+type AnalysisCostBreakdown struct {
+	InputCostUSD  float64
+	OutputCostUSD float64
+	CachedCostUSD float64
+	TotalCostUSD  float64
+	CostAvailable bool
+}
+
+type AnalysisModelEfficiencyItem struct {
+	Model                  string
+	Requests               int64
+	InputTokens            int64
+	OutputTokens           int64
+	CachedTokens           int64
+	ReasoningTokens        int64
+	TotalTokens            int64
+	CostUSD                float64
+	CostAvailable          bool
+	CostPerRequestUSD      float64
+	OutputTokensPerRequest float64
+	CacheRate              float64
 }
 
 type AnalysisSnapshot struct {
@@ -47,4 +80,6 @@ type AnalysisSnapshot struct {
 	AuthFilesComposition  []AnalysisCompositionItem
 	AIProviderComposition []AnalysisCompositionItem
 	Heatmap               []AnalysisHeatmapCell
+	CostBreakdown         AnalysisCostBreakdown
+	ModelEfficiency       []AnalysisModelEfficiencyItem
 }
