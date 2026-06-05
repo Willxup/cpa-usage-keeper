@@ -428,8 +428,13 @@ describe('UsagePage toolbar styles', () => {
       'total_tokens',
       'total_cost',
     ]
+    const noWrapCellBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.requestEventsNoWrapCell {'),
+      usagePageStyles.indexOf('.requestEventsSourceCell')
+    )
 
-    expect(usagePageStyles).toMatch(/\.requestEventsNoWrapCell\s*\{[\s\S]*?white-space:\s*nowrap;/)
+    expect(noWrapCellBlock).toMatch(/white-space:\s*nowrap;/)
+    expect(noWrapCellBlock).toMatch(/font-variant-numeric:\s*tabular-nums;/)
     expect(usagePageStyles).not.toContain('.requestEventsSpeedCell')
 
     adaptiveColumnIds.forEach((columnId) => {
