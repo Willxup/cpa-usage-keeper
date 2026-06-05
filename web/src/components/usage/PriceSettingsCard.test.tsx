@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { buildPricingModelOptions, PriceSettingsCard } from './PriceSettingsCard';
 
+const countOccurrences = (text: string, value: string) => text.split(value).length - 1;
+
 describe('PriceSettingsCard', () => {
   it('uses the model pricing settings title', () => {
     const html = renderToStaticMarkup(
@@ -16,7 +18,7 @@ describe('PriceSettingsCard', () => {
     );
 
     expect(html).toContain('Model Pricing Settings');
-    expect(html).toContain('Pricing Settings');
+    expect(countOccurrences(html, 'Pricing Settings')).toBe(1);
     expect(html).not.toContain('Model Pricing Table');
   });
 

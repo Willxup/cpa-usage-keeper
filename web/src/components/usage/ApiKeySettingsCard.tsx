@@ -9,13 +9,11 @@ import styles from '@/pages/UsagePage.module.scss';
 interface ApiKeySettingsTitleProps {
   title: string;
   subtitle: string;
-  eyebrow: string;
 }
 
-function ApiKeySettingsTitle({ title, subtitle, eyebrow }: ApiKeySettingsTitleProps) {
+function ApiKeySettingsTitle({ title, subtitle }: ApiKeySettingsTitleProps) {
   return (
     <div className={styles.sectionTitleBlock}>
-      <span className={styles.sectionEyebrow}>{eyebrow}</span>
       <h3 className={styles.sectionTitle}>{title}</h3>
       <p className={styles.sectionSubtitle}>{subtitle}</p>
     </div>
@@ -45,7 +43,6 @@ export function ApiKeySettingsCard({ apiKeys, loading = false, savingId = null, 
     <Card
       title={
         <ApiKeySettingsTitle
-          eyebrow={t('usage_stats.api_key_settings_eyebrow')}
           title={t('usage_stats.api_key_settings_title')}
           subtitle={t('usage_stats.api_key_settings_subtitle')}
         />

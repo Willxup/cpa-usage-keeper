@@ -1018,21 +1018,6 @@
   min-width: 0;
 }
 
-.sectionEyebrow {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  padding: 4px 9px;
-  border-radius: $radius-full;
-  border: 1px solid rgba($primary-color, 0.2);
-  background: rgba($primary-color, 0.08);
-  color: var(--text-tertiary);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .sectionTitle {
   margin: 0;
   color: var(--text-primary);

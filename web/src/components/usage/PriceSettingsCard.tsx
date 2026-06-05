@@ -21,10 +21,9 @@ export interface PriceSettingsCardProps {
   loading?: boolean;
 }
 
-function PriceSettingsTitle({ title, subtitle, eyebrow }: { title: string; subtitle: string; eyebrow: string }) {
+function PriceSettingsTitle({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div className={styles.sectionTitleBlock}>
-      <span className={styles.sectionEyebrow}>{eyebrow}</span>
       <h3 className={styles.sectionTitle}>{title}</h3>
       <p className={styles.sectionSubtitle}>{subtitle}</p>
     </div>
@@ -174,7 +173,6 @@ export function PriceSettingsCard({
       <Card
         title={
           <PriceSettingsTitle
-            eyebrow={t('usage_stats.model_price_settings_eyebrow')}
             title={t('usage_stats.model_price_settings_title')}
             subtitle={t('usage_stats.model_price_settings_subtitle')}
           />

@@ -68,6 +68,13 @@ const renderCard = (props: Partial<React.ComponentProps<typeof RequestEventsDeta
 const countOccurrences = (text: string, value: string) => text.split(value).length - 1;
 
 describe('RequestEventsDetailsCard pagination', () => {
+  it('renders the title without the Event Stream eyebrow', () => {
+    const html = renderCard();
+
+    expect(html).toContain('Request Event Log');
+    expect(html).not.toContain('Event Stream');
+  });
+
   it('renders total events, current page, page size options, and disabled page buttons', () => {
     const html = renderCard();
 

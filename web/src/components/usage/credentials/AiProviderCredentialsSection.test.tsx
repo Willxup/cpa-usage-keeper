@@ -11,6 +11,26 @@ vi.mock('react-i18next', () => ({
 }))
 
 describe('AiProviderCredentialsSection', () => {
+  it('renders the AI Provider title without the Credentials eyebrow', () => {
+    const html = renderToStaticMarkup(
+      <AiProviderCredentialsSection
+        rows={[]}
+        total={0}
+        page={1}
+        totalPages={1}
+        pageSize={10}
+        sort="priority"
+        loading={false}
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+        onSortChange={() => undefined}
+      />,
+    )
+
+    expect(html).toContain('usage_stats.credentials_ai_providers_title')
+    expect(html).not.toContain('usage_stats.credentials_ai_providers_eyebrow')
+  })
+
   it('keeps the unified four-metric row layout without auth-file-only badges or quota content', () => {
     const row = {
       identity: {

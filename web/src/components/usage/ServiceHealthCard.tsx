@@ -60,10 +60,9 @@ export function parseTime(value?: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function ServiceHealthTitle({ title, subtitle, eyebrow }: { title: string; subtitle: string; eyebrow: string }) {
+function ServiceHealthTitle({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div className={styles.sectionTitleBlock}>
-      <span className={styles.sectionEyebrow}>{eyebrow}</span>
       <h3 className={styles.sectionTitle}>{title}</h3>
       <p className={styles.sectionSubtitle}>{subtitle}</p>
     </div>
@@ -274,7 +273,6 @@ export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
     <div className={styles.healthCard}>
       <div className={styles.healthHeader}>
         <ServiceHealthTitle
-          eyebrow={t('usage_stats.service_health_eyebrow')}
           title={t('usage_stats.service_health_title')}
           subtitle={t('usage_stats.service_health_subtitle')}
         />

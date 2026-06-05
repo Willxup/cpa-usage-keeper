@@ -22,7 +22,6 @@ export function AiProviderCredentialsSection({ rows, total, page, totalPages, pa
 
   return (
     <CredentialSectionShell
-      eyebrow={t('usage_stats.credentials_ai_providers_eyebrow')}
       title={t('usage_stats.credentials_ai_providers_title')}
       subtitle={t('usage_stats.credentials_ai_providers_subtitle')}
       countLabel={t('usage_stats.credentials_count', { count: total })}

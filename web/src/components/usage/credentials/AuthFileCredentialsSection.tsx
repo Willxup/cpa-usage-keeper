@@ -68,7 +68,6 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
   return (
     <>
       <CredentialSectionShell
-        eyebrow={t('usage_stats.credentials_auth_files_eyebrow')}
         title={t('usage_stats.credentials_auth_files_title')}
         subtitle={t('usage_stats.credentials_auth_files_subtitle')}
         countLabel={t('usage_stats.credentials_count', { count: total })}

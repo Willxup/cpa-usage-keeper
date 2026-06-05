@@ -3,7 +3,6 @@ import styles from './CredentialSections.module.scss'
 import { formatCompactNumber } from '@/utils/usage'
 
 interface CredentialSectionShellProps {
-  eyebrow: string
   title: string
   subtitle: string
   countLabel: string
@@ -21,12 +20,11 @@ interface CredentialRowShellProps {
   rowClassName?: string
 }
 
-export function CredentialSectionShell({ eyebrow, title, subtitle, countLabel, titleExtra, actions, children }: CredentialSectionShellProps) {
+export function CredentialSectionShell({ title, subtitle, countLabel, titleExtra, actions, children }: CredentialSectionShellProps) {
   return (
     <section className={styles.credentialSectionCard}>
       <div className={styles.credentialSectionHeader}>
         <div className={styles.credentialSectionTitleBlock}>
-          <span className={styles.credentialSectionEyebrow}>{eyebrow}</span>
           <div className={styles.credentialSectionTitleRow}>
             <h3 className={styles.credentialSectionTitle}>{title}</h3>
             <span className={styles.credentialCountBadge}>{countLabel}</span>

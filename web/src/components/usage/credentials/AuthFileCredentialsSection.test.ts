@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import { AuthFileQuotaPanel, formatInspectionCompletedAt, formatInspectionProgressPercent, formatQuotaErrorDisplay, formatQuotaResetDuration, formatQuotaResetLabel, formatQuotaWindowUsageAriaLabel, inspectionIndicatorTone, isInspectionStartDisabled } from './AuthFileCredentialsSection'
+import { AuthFileCredentialsSection, AuthFileQuotaPanel, formatInspectionCompletedAt, formatInspectionProgressPercent, formatQuotaErrorDisplay, formatQuotaResetDuration, formatQuotaResetLabel, formatQuotaWindowUsageAriaLabel, inspectionIndicatorTone, isInspectionStartDisabled } from './AuthFileCredentialsSection'
 import type { AuthFileCredentialRow, DisplayQuota } from './credentialViewModels'
 
 vi.mock('react-i18next', () => ({
@@ -41,6 +41,39 @@ describe('AuthFileCredentialsSection quota reset formatting', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('AuthFileCredentialsSection title', () => {
+  it('renders the Auth Files title without the Credentials eyebrow', () => {
+    const html = renderToStaticMarkup(createElement(AuthFileCredentialsSection, {
+      rows: [],
+      total: 0,
+      page: 1,
+      totalPages: 1,
+      pageSize: 10,
+      activeOnly: false,
+      sort: 'priority',
+      loading: false,
+      quotaRefreshing: false,
+      quotaRefreshError: '',
+      quotaAutoRefreshEnabled: false,
+      quotaInspectionStatus: null,
+      quotaInspectionLoading: false,
+      quotaInspectionStarting: false,
+      quotaInspectionError: '',
+      onPageChange: () => undefined,
+      onPageSizeChange: () => undefined,
+      onActiveOnlyChange: () => undefined,
+      onSortChange: () => undefined,
+      onRefreshQuota: async () => undefined,
+      onRefreshQuotaForAuthIndex: async () => undefined,
+      onRefreshInspectionStatus: async () => undefined,
+      onStartInspection: async () => undefined,
+    }))
+
+    expect(html).toContain('usage_stats.credentials_auth_files_title')
+    expect(html).not.toContain('usage_stats.credentials_auth_files_eyebrow')
   })
 })
 

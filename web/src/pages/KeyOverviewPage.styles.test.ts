@@ -21,6 +21,11 @@ describe('KeyOverviewPage layout', () => {
     expect(source).toContain('}, [onAuthRequired, timeRange]);')
   })
 
+  it('removes the Request Health Timeline label instead of toggling it off', () => {
+    expect(source).toContain('<ServiceHealthCard usage={usage} loading={overviewDisplayLoading} />')
+    expect(source).not.toContain('showEyebrow')
+  })
+
   it('copies the relevant admin toolbar class contracts into its own module', () => {
     expect(styles).toMatch(/\.toolbarRow\s*\{[\s\S]*?flex-direction:\s*column;/)
     expect(styles).toMatch(/\.toolbarActionsRight\s*\{[\s\S]*?justify-content:\s*flex-end;/)

@@ -460,10 +460,9 @@ function RequestEventsColumnSelector({
   );
 }
 
-function RequestEventsTitle({ title, subtitle, eyebrow, totalLabel }: { title: string; subtitle: string; eyebrow: string; totalLabel: string }) {
+function RequestEventsTitle({ title, subtitle, totalLabel }: { title: string; subtitle: string; totalLabel: string }) {
   return (
     <div className={styles.sectionTitleBlock}>
-      <span className={styles.sectionEyebrow}>{eyebrow}</span>
       <div className={styles.requestEventsTitleRow}>
         <h3 className={styles.sectionTitle}>{title}</h3>
         <span className={styles.requestEventsCountBadge}>{totalLabel}</span>
@@ -817,7 +816,6 @@ export function RequestEventsDetailsCard({
       className={styles.requestEventsCard}
       title={
         <RequestEventsTitle
-          eyebrow={t('usage_stats.request_events_eyebrow')}
           title={t('usage_stats.request_events_title')}
           subtitle={t('usage_stats.request_events_subtitle')}
           totalLabel={t('usage_stats.request_events_total_count', { count: totalCount })}

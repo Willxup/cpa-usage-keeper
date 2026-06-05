@@ -324,6 +324,11 @@ describe('UsagePage toolbar styles', () => {
     expect(chartsGridIndex).toBeGreaterThan(chartLineSelectorIndex)
   })
 
+  it('removes the Overview Request Health Timeline label instead of toggling it off', () => {
+    expect(usagePageSource).toContain('<ServiceHealthCard usage={usage} loading={overviewDisplayLoading} />')
+    expect(usagePageSource).not.toContain('showEyebrow')
+  })
+
   it('keeps chart line controls aligned with reusable pill controls', () => {
     expect(chartLineSelectorSource).toContain('className={styles.usagePillControl}')
     expect(chartLineSelectorSource).toContain('className={styles.usagePillAction}')

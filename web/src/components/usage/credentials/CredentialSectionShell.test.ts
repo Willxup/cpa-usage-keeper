@@ -1,9 +1,22 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { CredentialsPagination, formatCredentialNumber, formatCredentialPercent } from './CredentialSectionShell'
+import { CredentialSectionShell, CredentialsPagination, formatCredentialNumber, formatCredentialPercent } from './CredentialSectionShell'
 
 describe('CredentialSectionShell formatting', () => {
+  it('renders the title area without a label slot', () => {
+    const html = renderToStaticMarkup(createElement(CredentialSectionShell, {
+      title: 'Auth Files',
+      subtitle: 'Credential usage',
+      countLabel: '2',
+      children: createElement('div', null, 'Rows'),
+    }))
+
+    expect(html).toContain('Auth Files')
+    expect(html).not.toContain('_credentialSectionEyebrow_')
+    expect(html).not.toContain('Credentials')
+  })
+
   it('uses the shared compact K/M/B number format', () => {
     expect(formatCredentialNumber(950)).toBe('950')
     expect(formatCredentialNumber(12_345)).toBe('12.35K')

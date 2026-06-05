@@ -1,5 +1,8 @@
+import { createElement } from 'react';
+import '@/i18n';
 import { describe, expect, it } from 'vitest';
-import { parseTime } from './ServiceHealthCard';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { ServiceHealthCard, parseTime } from './ServiceHealthCard';
 
 describe('ServiceHealthCard time parsing', () => {
   it('rounds RFC3339 nanosecond day boundaries consistently across browsers', () => {
@@ -10,5 +13,14 @@ describe('ServiceHealthCard time parsing', () => {
   it('keeps ordinary timestamps unchanged', () => {
     expect(parseTime('2026-05-17T12:34:56+08:00')).toBe(Date.parse('2026-05-17T12:34:56+08:00'));
     expect(parseTime('2026-05-17T12:34:56.123456789+08:00')).toBe(Date.parse('2026-05-17T12:34:56.123456789+08:00'));
+  });
+});
+
+describe('ServiceHealthCard title', () => {
+  it('renders the health title without the reliability label', () => {
+    const html = renderToStaticMarkup(createElement(ServiceHealthCard, { usage: null, loading: false }));
+
+    expect(html).toContain('Request Health Timeline');
+    expect(html).not.toContain('Reliability');
   });
 });

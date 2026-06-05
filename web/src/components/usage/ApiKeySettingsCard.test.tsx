@@ -20,11 +20,14 @@ const renderCard = (props: Partial<React.ComponentProps<typeof ApiKeySettingsCar
   />,
 );
 
+const countOccurrences = (text: string, value: string) => text.split(value).length - 1;
+
 describe('ApiKeySettingsCard', () => {
   it('renders alias, display key fallback, and string ids without raw keys', () => {
     const html = renderCard();
 
     expect(html).toContain('API Key Settings');
+    expect(countOccurrences(html, 'API Key Settings')).toBe(1);
     expect(html).toContain('Primary');
     expect(html).toContain('sk-*********654321');
     expect(html).not.toContain('9007199254740993');
