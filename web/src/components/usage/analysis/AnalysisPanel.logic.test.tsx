@@ -120,6 +120,7 @@ const emptyAnalysis: AnalysisResponse = {
   model_efficiency: [],
   heatmap: {
     api_keys: [],
+    api_key_labels: {},
     models: [],
     cells: [],
   },
@@ -506,13 +507,17 @@ describe('AnalysisPanel token chart data', () => {
   });
 
   it('shows compact heatmap cells with detailed tooltip data', () => {
+    const responseKey = 'sk-*********123456';
     const analysis: AnalysisResponse = {
       ...emptyAnalysis,
       heatmap: {
-        api_keys: ['Primary Key'],
+        api_keys: [responseKey],
+        api_key_labels: {
+          [responseKey]: 'Primary Key',
+        },
         models: ['claude-3-7-sonnet-20250219-long-context'],
         cells: [{
-          api_key: 'Primary Key',
+          api_key: responseKey,
           model: 'claude-3-7-sonnet-20250219-long-context',
           input_tokens: 1000,
           output_tokens: 200,
@@ -530,6 +535,8 @@ describe('AnalysisPanel token chart data', () => {
     const markup = renderToStaticMarkup(<AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} />);
 
     expect(markup).toContain('1.33K');
+    expect(markup).toContain('Primary Key');
+    expect(markup).not.toContain(responseKey);
     expect(markup).toContain('title="claude-3-7-sonnet-20250219-long-context"');
     expect(markup).toContain('usage_stats.requests_count');
     expect(markup).toContain('usage_stats.input_tokens');

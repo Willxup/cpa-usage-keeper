@@ -221,11 +221,12 @@ func TestUsageAnalysisUsesCPAAPIKeyOptionLabels(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
 	body := resp.Body.String()
-	if !contains(body, `"key":"1"`) || !contains(body, `"label":"Primary Key"`) || !contains(body, `"api_key":"1"`) || !contains(body, `"api_key_labels":{"1":"Primary Key"}`) {
-		t.Fatalf("expected analysis payload to use CPA API key id and display label, got %s", body)
+	maskedKey := helper.RedactSensitiveValue("sk-alpha123456")
+	if !contains(body, `"key":"`+maskedKey+`"`) || !contains(body, `"label":"Primary Key"`) || !contains(body, `"api_key":"`+maskedKey+`"`) || !contains(body, `"api_key_labels":{"`+maskedKey+`":"Primary Key"}`) {
+		t.Fatalf("expected analysis payload to use redacted CPA API key and display label, got %s", body)
 	}
-	if contains(body, "sk-alpha123456") {
-		t.Fatalf("expected raw key value to stay hidden when a CPA key label exists, got %s", body)
+	if contains(body, "sk-alpha123456") || contains(body, `"key":"1"`) || contains(body, `"api_key":"1"`) {
+		t.Fatalf("expected raw key and database id to stay hidden when a CPA key label exists, got %s", body)
 	}
 	if provider.lastFilter.APIKeyID != "1" {
 		t.Fatalf("expected API key id to pass into usage filter, got %+v", provider.lastFilter)
@@ -252,18 +253,20 @@ func TestBuildAnalysisHeatmapPayloadKeepsDuplicateAPIKeyLabelsSeparate(t *testin
 		{APIKey: "sk-alpha123456", Model: "model", Requests: 1, TotalTokens: 100},
 		{APIKey: "sk-beta654321", Model: "model", Requests: 2, TotalTokens: 200},
 	}, map[string]analysisAPIKeyInfo{
-		"sk-alpha123456": {ID: 1, Label: "Shared"},
-		"sk-beta654321":  {ID: 2, Label: "Shared"},
+		"sk-alpha123456": {Label: "Shared"},
+		"sk-beta654321":  {Label: "Shared"},
 	})
 
-	if got := payload.APIKeys; len(got) != 2 || got[0] != "2" || got[1] != "1" {
-		t.Fatalf("expected heatmap API keys to use stable response keys sorted by requests, got %+v", got)
+	alphaKey := helper.RedactSensitiveValue("sk-alpha123456")
+	betaKey := helper.RedactSensitiveValue("sk-beta654321")
+	if got := payload.APIKeys; len(got) != 2 || got[0] != betaKey || got[1] != alphaKey {
+		t.Fatalf("expected heatmap API keys to use redacted response keys sorted by requests, got %+v", got)
 	}
-	if payload.APIKeyLabels["1"] != "Shared" || payload.APIKeyLabels["2"] != "Shared" {
+	if payload.APIKeyLabels[alphaKey] != "Shared" || payload.APIKeyLabels[betaKey] != "Shared" {
 		t.Fatalf("expected duplicate labels to be stored separately by response key, got %+v", payload.APIKeyLabels)
 	}
-	if len(payload.Cells) != 2 || payload.Cells[0].APIKey != "1" || payload.Cells[1].APIKey != "2" {
-		t.Fatalf("expected heatmap cells to use stable response keys, got %+v", payload.Cells)
+	if len(payload.Cells) != 2 || payload.Cells[0].APIKey != alphaKey || payload.Cells[1].APIKey != betaKey {
+		t.Fatalf("expected heatmap cells to use redacted response keys, got %+v", payload.Cells)
 	}
 }
 

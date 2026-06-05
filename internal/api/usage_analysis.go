@@ -3,7 +3,6 @@ package api
 import (
 	"net/http"
 	"sort"
-	"strconv"
 	"time"
 
 	"cpa-usage-keeper/internal/helper"
@@ -99,7 +98,6 @@ type analysisModelEfficiency struct {
 }
 
 type analysisAPIKeyInfo struct {
-	ID    int64
 	Label string
 }
 
@@ -156,7 +154,7 @@ func loadCPAAPIKeyInfos(c *gin.Context, provider service.CPAAPIKeyProvider) (map
 	}
 	infos := make(map[string]analysisAPIKeyInfo, len(rows))
 	for _, row := range rows {
-		infos[row.APIKey] = analysisAPIKeyInfo{ID: row.ID, Label: helper.CPAAPIKeyDisplayName(row)}
+		infos[row.APIKey] = analysisAPIKeyInfo{Label: helper.CPAAPIKeyDisplayName(row)}
 	}
 	return infos, nil
 }
@@ -215,7 +213,7 @@ func buildAnalysisCompositionPayload(items []servicedto.AnalysisCompositionItem,
 		key := helper.RedactSensitiveValue(item.Key)
 		label := item.Key
 		if apiKeyInfos != nil {
-			key = analysisAPIKeyResponseKey(item.Key, apiKeyInfos)
+			key = analysisAPIKeyResponseKey(item.Key)
 			label = analysisAPIKeyLabel(item.Key, apiKeyInfos)
 		} else if item.Label != "" {
 			label = item.Label
@@ -241,10 +239,8 @@ func buildAnalysisCompositionPayload(items []servicedto.AnalysisCompositionItem,
 	return payload
 }
 
-func analysisAPIKeyResponseKey(apiKey string, apiKeyInfos map[string]analysisAPIKeyInfo) string {
-	if info, ok := apiKeyInfos[apiKey]; ok && info.ID > 0 {
-		return strconv.FormatInt(info.ID, 10)
-	}
+func analysisAPIKeyResponseKey(apiKey string) string {
+	// Analysis 只展示统计维度，不需要暴露数据库 id；用脱敏 key 保持维度唯一并避免重复别名合并。
 	return helper.RedactSensitiveValue(apiKey)
 }
 
@@ -261,7 +257,7 @@ func buildAnalysisHeatmapPayload(cells []servicedto.AnalysisHeatmapCell, apiKeyI
 	modelRequests := map[string]int64{}
 	maxTokens := int64(0)
 	for _, cell := range cells {
-		apiKey := analysisAPIKeyResponseKey(cell.APIKey, apiKeyInfos)
+		apiKey := analysisAPIKeyResponseKey(cell.APIKey)
 		apiKeyLabels[apiKey] = analysisAPIKeyLabel(cell.APIKey, apiKeyInfos)
 		apiRequests[apiKey] += cell.Requests
 		modelRequests[cell.Model] += cell.Requests
@@ -277,7 +273,7 @@ func buildAnalysisHeatmapPayload(cells []servicedto.AnalysisHeatmapCell, apiKeyI
 		if maxTokens > 0 {
 			intensity = float64(cell.TotalTokens) / float64(maxTokens)
 		}
-		apiKey := analysisAPIKeyResponseKey(cell.APIKey, apiKeyInfos)
+		apiKey := analysisAPIKeyResponseKey(cell.APIKey)
 		payloadCells = append(payloadCells, analysisHeatmapCell{
 			APIKey:          apiKey,
 			Model:           cell.Model,
