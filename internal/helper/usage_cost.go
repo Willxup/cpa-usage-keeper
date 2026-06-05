@@ -11,6 +11,13 @@ type UsageTokenCostInput struct {
 	CacheCreationTokens int64
 }
 
+type UsageTokenCostBreakdown struct {
+	InputCostUSD  float64
+	OutputCostUSD float64
+	CachedCostUSD float64
+	TotalCostUSD  float64
+}
+
 // UsageEventRequiresPricing 判断事件是否包含需要价格表解释的计费 token。
 func UsageEventRequiresPricing(event entities.UsageEvent) bool {
 	return UsageTokenInputRequiresPricing(UsageTokenCostInput{
@@ -41,16 +48,21 @@ func CalculateUsageEventCost(event entities.UsageEvent, pricing entities.ModelPr
 // CalculateUsageTokenCost 按当前价格风格计算费用。
 // OpenAI 风格把 cached_tokens 视为 input_tokens 的子集；Claude 风格把 cache read/write 从已归一化的总 input 中拆回单独价格。
 func CalculateUsageTokenCost(input UsageTokenCostInput, pricing entities.ModelPriceSetting) float64 {
+	return CalculateUsageTokenCostBreakdown(input, pricing).TotalCostUSD
+}
+
+// CalculateUsageTokenCostBreakdown 把总费用拆成 input/output/cached 三段，供 Analysis 页面复用同一计价口径。
+func CalculateUsageTokenCostBreakdown(input UsageTokenCostInput, pricing entities.ModelPriceSetting) UsageTokenCostBreakdown {
 	input = clampUsageTokenCostInput(input)
 	switch pricing.PricingStyle {
 	case entities.ModelPricingStyleClaude:
-		return calculateClaudeUsageTokenCost(input, pricing)
+		return calculateClaudeUsageTokenCostBreakdown(input, pricing)
 	default:
-		return calculateOpenAIStyleUsageTokenCost(input, pricing)
+		return calculateOpenAIStyleUsageTokenCostBreakdown(input, pricing)
 	}
 }
 
-func calculateOpenAIStyleUsageTokenCost(input UsageTokenCostInput, pricing entities.ModelPriceSetting) float64 {
+func calculateOpenAIStyleUsageTokenCostBreakdown(input UsageTokenCostInput, pricing entities.ModelPriceSetting) UsageTokenCostBreakdown {
 	inputTokens := input.InputTokens
 	outputTokens := input.OutputTokens
 	cachedTokens := input.CachedTokens
@@ -58,20 +70,28 @@ func calculateOpenAIStyleUsageTokenCost(input UsageTokenCostInput, pricing entit
 	if promptTokens < 0 {
 		promptTokens = 0
 	}
-	return (float64(promptTokens)/1_000_000.0)*pricing.PromptPricePer1M +
-		(float64(outputTokens)/1_000_000.0)*pricing.CompletionPricePer1M +
-		(float64(cachedTokens)/1_000_000.0)*pricing.CachePricePer1M
+	breakdown := UsageTokenCostBreakdown{
+		InputCostUSD:  (float64(promptTokens) / 1_000_000.0) * pricing.PromptPricePer1M,
+		OutputCostUSD: (float64(outputTokens) / 1_000_000.0) * pricing.CompletionPricePer1M,
+		CachedCostUSD: (float64(cachedTokens) / 1_000_000.0) * pricing.CachePricePer1M,
+	}
+	breakdown.TotalCostUSD = breakdown.InputCostUSD + breakdown.OutputCostUSD + breakdown.CachedCostUSD
+	return breakdown
 }
 
-func calculateClaudeUsageTokenCost(input UsageTokenCostInput, pricing entities.ModelPriceSetting) float64 {
+func calculateClaudeUsageTokenCostBreakdown(input UsageTokenCostInput, pricing entities.ModelPriceSetting) UsageTokenCostBreakdown {
 	normalInputTokens := input.InputTokens - input.CacheReadTokens - input.CacheCreationTokens
 	if normalInputTokens < 0 {
 		normalInputTokens = 0
 	}
-	return (float64(normalInputTokens)/1_000_000.0)*pricing.PromptPricePer1M +
-		(float64(input.OutputTokens)/1_000_000.0)*pricing.CompletionPricePer1M +
-		(float64(input.CacheReadTokens)/1_000_000.0)*pricing.CachePricePer1M +
-		(float64(input.CacheCreationTokens)/1_000_000.0)*pricing.CacheCreationPricePer1M
+	breakdown := UsageTokenCostBreakdown{
+		InputCostUSD:  (float64(normalInputTokens) / 1_000_000.0) * pricing.PromptPricePer1M,
+		OutputCostUSD: (float64(input.OutputTokens) / 1_000_000.0) * pricing.CompletionPricePer1M,
+		CachedCostUSD: (float64(input.CacheReadTokens)/1_000_000.0)*pricing.CachePricePer1M +
+			(float64(input.CacheCreationTokens)/1_000_000.0)*pricing.CacheCreationPricePer1M,
+	}
+	breakdown.TotalCostUSD = breakdown.InputCostUSD + breakdown.OutputCostUSD + breakdown.CachedCostUSD
+	return breakdown
 }
 
 func clampUsageTokenCostInput(input UsageTokenCostInput) UsageTokenCostInput {

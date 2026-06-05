@@ -26,6 +26,16 @@
   flex-direction: column;
 }
 
+.heatmapCardDark .analysisChartSurface {
+  background: #100e16;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.heatmapCardLight .analysisChartSurface {
+  background: color-mix(in srgb, var(--bg-secondary) 58%, #fff);
+  border-color: var(--border-color);
+}
+
 .cardHeader {
   display: flex;
   justify-content: space-between;
@@ -100,10 +110,11 @@
   }
 }
 
-.compositionGrid {
+.insightGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
+  align-items: stretch;
 
   @include tablet {
     grid-template-columns: 1fr;
@@ -114,11 +125,335 @@
   }
 }
 
-.donutLayout {
-  display: grid;
-  grid-template-columns: minmax(180px, 0.85fr) minmax(180px, 1fr);
-  gap: 18px;
+.costBreakdownCard,
+.modelEfficiencyCard {
+  min-height: 360px;
+}
+
+.costBreakdownBody,
+.modelEfficiencyBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.costWarning {
+  border: 1px solid color-mix(in srgb, #d97706 38%, transparent);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, #d97706 10%, transparent);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.costStack {
+  display: flex;
+  min-width: 0;
+  height: 46px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.costStackSegment {
+  display: flex;
   align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 0 4px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--cost-segment-color) 72%, var(--bg-secondary)), var(--cost-segment-color));
+  transition: flex-basis 0.18s ease;
+  outline: none;
+
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #fff;
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.26);
+    white-space: nowrap;
+  }
+}
+
+.costStackSegment:focus-visible {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, #fff 82%, transparent);
+}
+
+.costStackFloatingTooltip {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  gap: 3px;
+  width: max-content;
+  max-width: min(280px, calc(100vw - 16px));
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
+  padding: 10px 12px;
+  pointer-events: none;
+  text-align: left;
+  font-size: 11px;
+  line-height: 1.45;
+
+  span {
+    display: block;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+.costStackTooltipTitle {
+  color: var(--text-primary);
+  font-weight: 900;
+  margin-bottom: 4px;
+}
+
+.costRatePanel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  align-items: stretch;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
+  overflow: hidden;
+  padding: 0;
+  min-width: 0;
+
+  @include mobile {
+    grid-template-columns: 1fr;
+  }
+}
+
+.costRateMetric {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  min-width: 0;
+  padding: 12px;
+
+  span,
+  small {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+
+  strong {
+    display: block;
+    margin: 7px 0 5px;
+    color: var(--text-primary);
+    font-size: 22px;
+    line-height: 1;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.costRateMetric + .costRateMetric,
+.costRateSparkline {
+  border-left: 1px solid var(--border-color);
+
+  @include mobile {
+    border-left: 0;
+    border-top: 1px solid var(--border-color);
+  }
+}
+
+.costRateSparkline {
+  min-width: 0;
+  height: 100%;
+  min-height: 86px;
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 12px;
+
+  @include mobile {
+    justify-content: center;
+  }
+}
+
+.costRateSparkBar {
+  width: 8px;
+  min-height: 10px;
+  border-radius: 6px 6px 2px 2px;
+  background: linear-gradient(180deg, #5eead4, #14b8a6);
+  box-shadow: 0 6px 14px color-mix(in srgb, #14b8a6 22%, transparent);
+}
+
+.costRateSparkEmpty {
+  width: 100%;
+  height: 1px;
+  align-self: center;
+  background: var(--border-color);
+}
+
+.costMetricGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+
+  @include mobile {
+    grid-template-columns: 1fr;
+  }
+}
+
+.costMetric {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 8px;
+  align-items: center;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--bg-secondary);
+  min-width: 0;
+
+  strong {
+    grid-column: 1 / -1;
+    color: var(--text-primary);
+    font-size: 16px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  small {
+    grid-column: 1 / -1;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.costMetricDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+}
+
+.costMetricLabel {
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.efficiencyChartFrame {
+  height: 300px;
+  min-width: 0;
+}
+
+.modelEfficiencyFloatingTooltip {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  gap: 10px;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 16px));
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
+  padding: 10px 12px;
+  pointer-events: none;
+  text-align: left;
+  font-size: 11px;
+  line-height: 1.45;
+  opacity: 0;
+}
+
+.modelEfficiencyTooltipGroup {
+  display: grid;
+  gap: 3px;
+}
+
+.modelEfficiencyTooltipGroup + .modelEfficiencyTooltipGroup {
+  border-top: 1px solid var(--border-color);
+  padding-top: 9px;
+}
+
+.modelEfficiencyTooltipHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-primary);
+
+  strong {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 12px;
+    font-weight: 900;
+  }
+}
+
+.modelEfficiencyTooltipDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.modelEfficiencyTooltipMetric {
+  padding-left: 17px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.compositionCard {
+  min-height: 420px;
+}
+
+.compositionTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -4px 0 14px;
+}
+
+.compositionTab {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.compositionTabActive {
+  border-color: color-mix(in srgb, var(--text-primary) 18%, var(--border-color));
+  background: color-mix(in srgb, var(--bg-primary) 84%, var(--bg-secondary));
+  color: var(--text-primary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 8px 18px rgba(15, 23, 42, 0.06);
+}
+
+.compositionLayout {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.72fr) minmax(0, 1.28fr);
+  gap: 18px;
+  align-items: stretch;
 
   @include mobile {
     grid-template-columns: 1fr;
@@ -126,25 +461,57 @@
 }
 
 .donutChartFrame {
-  height: 220px;
+  height: 260px;
   min-width: 0;
 }
 
-.compositionLegend {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.compositionTableWrap {
   min-width: 0;
+  overflow-x: auto;
 }
 
-.compositionLegendRow {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  min-width: 0;
-  color: var(--text-secondary);
+.compositionTable {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
   font-size: 12px;
+  color: var(--text-secondary);
+
+  th,
+  td {
+    padding: 10px 8px;
+    border-bottom: 1px solid var(--border-color);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  th {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 800;
+  }
+
+  th:first-child,
+  td:first-child {
+    text-align: left;
+  }
+
+  td:first-child {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+}
+
+.compositionName {
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-weight: 800;
 }
 
 .legendDot {
@@ -154,21 +521,6 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 12%, transparent);
 }
 
-.legendName {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-primary);
-  font-weight: 700;
-}
-
-.legendValue {
-  font-variant-numeric: tabular-nums;
-  font-weight: 800;
-  color: var(--text-primary);
-}
-
 .heatmapScroller {
   overflow-x: auto;
   padding-bottom: 2px;
@@ -176,9 +528,9 @@
 
 .heatmapGrid {
   display: grid;
-  gap: 6px;
+  gap: 4px;
   width: 100%;
-  min-width: 0;
+  min-width: 680px;
 }
 
 .heatmapRowContents {
@@ -189,8 +541,17 @@
 .heatmapHeaderCell,
 .heatmapCell {
   border: 1px solid var(--border-color);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+}
+
+.heatmapCardDark {
+  .heatmapCorner,
+  .heatmapHeaderCell,
+  .heatmapCell {
+    border-color: rgba(255, 255, 255, 0.08);
+    background: #17131d;
+  }
 }
 
 .heatmapCorner,
@@ -200,12 +561,26 @@
   color: var(--text-secondary);
   font-size: 11px;
   font-weight: 800;
-  letter-spacing: 0.02em;
+}
+
+.heatmapCardDark {
+  .heatmapCorner,
+  .heatmapHeaderCell,
+  .heatmapRowLabel {
+    color: color-mix(in srgb, var(--text-secondary) 86%, #d8b4fe);
+  }
 }
 
 .heatmapHeaderCell,
 .heatmapRowLabel {
   min-width: 0;
+}
+
+.heatmapCorner,
+.heatmapHeaderCell {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
 }
 
 .heatmapTooltipTarget {
@@ -220,6 +595,20 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.heatmapModelHeaderCell {
+  align-items: center;
+}
+
+.heatmapModelLabel {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  max-height: 2.5em;
+  line-height: 1.25;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .heatmapTooltipTarget:hover::after {
@@ -241,7 +630,9 @@
 }
 
 .heatmapRowLabel {
-  height: 24px;
+  height: 30px;
+  min-height: 30px;
+  align-self: center;
   display: flex;
   align-items: center;
   border: 0;
@@ -251,39 +642,54 @@
 }
 
 .heatmapCell {
-  height: 24px;
-  min-height: 24px;
+  position: relative;
+  overflow: hidden;
+  height: 30px;
+  min-height: 30px;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
-  padding: 0;
-  border-radius: 4px;
-  box-shadow: inset 0 0 0 1px rgba(220, 38, 38, 0.16);
+  padding: 0 4px;
+  border-radius: 5px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.20),
+    inset 0 -10px 18px rgba(127, 29, 29, 0.18),
+    0 1px 3px rgba(67, 20, 7, 0.10);
   font-variant-numeric: tabular-nums;
-  overflow: hidden;
+  outline: none;
 }
 
-.heatmapCellTokenValue,
-.heatmapCellRequestValue {
+.heatmapCell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 115%, rgba(255, 247, 237, 0.82), rgba(249, 115, 22, 0.36) 34%, rgba(127, 29, 29, 0) 72%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0) 38%);
+  opacity: var(--heatmap-flame-alpha, 0.35);
+  pointer-events: none;
+}
+
+.heatmapCardDark .heatmapCell::before {
+  background:
+    radial-gradient(circle at 50% 115%, rgba(254, 243, 199, 0.92), rgba(249, 115, 22, 0.48) 36%, rgba(127, 29, 29, 0) 74%),
+    linear-gradient(180deg, rgba(255, 247, 237, 0.10), rgba(255, 247, 237, 0) 42%);
+}
+
+.heatmapCell:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, #d86a4a 70%, transparent), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.heatmapCellTokenValue {
+  position: relative;
+  z-index: 1;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 1;
-}
-
-.heatmapCellTokenValue {
-  font-size: 9px;
-  font-weight: 700;
-  opacity: 0.72;
-}
-
-.heatmapCellRequestValue {
-  font-size: 8px;
-  font-weight: 600;
-  opacity: 0.62;
+  font-size: 10px;
+  font-weight: 900;
 }
 
 .heatmapLegend {
@@ -301,9 +707,45 @@
 .heatmapLegendRamp {
   width: 120px;
   height: 10px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, rgb(250, 244, 230), rgb(214, 162, 76), rgb(198, 87, 70));
-  box-shadow: inset 0 0 0 1px rgba(198, 87, 70, 0.16);
+  border-radius: 8px;
+  background: linear-gradient(90deg, #fff7ed, #fed7aa, #fb923c, #ef4444, #7c2d12);
+  box-shadow: inset 0 0 0 1px var(--border-color);
+}
+
+.heatmapCardDark .heatmapLegendRamp {
+  background: linear-gradient(90deg, #1a1118, #4a1f23, #9a3412, #f97316, #fde68a);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.10);
+}
+
+.heatmapFloatingTooltip {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  gap: 3px;
+  width: max-content;
+  max-width: min(280px, calc(100vw - 16px));
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
+  padding: 10px 12px;
+  pointer-events: none;
+  text-align: left;
+  font-size: 11px;
+  line-height: 1.45;
+
+  span {
+    display: block;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+.heatmapTooltipTitle {
+  color: var(--text-primary);
+  font-weight: 900;
+  margin-bottom: 4px;
 }
 
 .emptyState {

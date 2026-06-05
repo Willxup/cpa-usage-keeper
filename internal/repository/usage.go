@@ -271,6 +271,10 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 	if filter.StartTime == nil || filter.EndTime == nil {
 		return nil, fmt.Errorf("analysis requires start_time and end_time")
 	}
+	pricingByModel, err := loadPriceSettingsByModel(db)
+	if err != nil {
+		return nil, err
+	}
 	windowMinutes := computeWindowMinutes(filter)
 	bucketByDay := windowMinutes > 24*60
 	record := &dto.AnalysisRecord{
@@ -282,6 +286,9 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 		}(),
 		RangeStart: filter.StartTime,
 		RangeEnd:   filter.EndTime,
+		CostBreakdown: dto.AnalysisCostBreakdownRecord{
+			CostAvailable: true,
+		},
 	}
 
 	fullStart, fullEnd := usageOverviewFullHourWindow(*filter.StartTime, *filter.EndTime)
@@ -311,7 +318,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 		if err != nil {
 			return nil, err
 		}
-		applyAnalysisDailyAndBoundaryHourlyRows(record, dailyRows, dailyIdentityLookup, hourlyRows, hourlyIdentityLookup)
+		applyAnalysisDailyAndBoundaryHourlyRows(record, dailyRows, dailyIdentityLookup, hourlyRows, hourlyIdentityLookup, pricingByModel)
 		return record, nil
 	}
 	rows, err := loadAnalysisOverviewHourlyStatsWithFilter(db, filter, fullStart, fullEnd)
@@ -322,7 +329,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 	if err != nil {
 		return nil, err
 	}
-	applyAnalysisHourlyRows(record, rows, identityLookup)
+	applyAnalysisHourlyRows(record, rows, identityLookup, pricingByModel)
 	fillAnalysisFullDayHourlyBuckets(record, filter)
 	return record, nil
 }
@@ -415,7 +422,7 @@ func loadAnalysisIdentityLookup(db *gorm.DB, authIndexes []string) (analysisIden
 	return lookup, nil
 }
 
-func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []entities.UsageOverviewHourlyStat, identityLookup analysisIdentityLookup) {
+func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []entities.UsageOverviewHourlyStat, identityLookup analysisIdentityLookup, pricingByModel map[string]entities.ModelPriceSetting) {
 	bucketTotals := map[time.Time]*dto.AnalysisTokenUsageBucketRecord{}
 	apiTotals := map[string]*dto.AnalysisCompositionRecord{}
 	modelTotals := map[string]*dto.AnalysisCompositionRecord{}
@@ -424,17 +431,14 @@ func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []entities.UsageOv
 	heatmapTotals := map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord{}
 	for _, row := range rows {
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart).Truncate(time.Hour)
-		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens)
-		applyAnalysisIdentityComposition(identityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens)
+		cost, costAvailable := analysisRowCost(row.Model, row.InputTokens, row.OutputTokens, row.CachedTokens, row.CacheReadTokens, row.CacheCreationTokens, pricingByModel)
+		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
+		applyAnalysisIdentityComposition(identityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
 	finalizeAnalysisRecord(record, bucketTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 }
 
-func applyAnalysisDailyRows(record *dto.AnalysisRecord, rows []entities.UsageOverviewDailyStat, identityLookup analysisIdentityLookup) {
-	applyAnalysisDailyAndBoundaryHourlyRows(record, rows, identityLookup, nil, analysisIdentityLookup{})
-}
-
-func applyAnalysisDailyAndBoundaryHourlyRows(record *dto.AnalysisRecord, dailyRows []entities.UsageOverviewDailyStat, dailyIdentityLookup analysisIdentityLookup, hourlyRows []entities.UsageOverviewHourlyStat, hourlyIdentityLookup analysisIdentityLookup) {
+func applyAnalysisDailyAndBoundaryHourlyRows(record *dto.AnalysisRecord, dailyRows []entities.UsageOverviewDailyStat, dailyIdentityLookup analysisIdentityLookup, hourlyRows []entities.UsageOverviewHourlyStat, hourlyIdentityLookup analysisIdentityLookup, pricingByModel map[string]entities.ModelPriceSetting) {
 	bucketTotals := map[time.Time]*dto.AnalysisTokenUsageBucketRecord{}
 	apiTotals := map[string]*dto.AnalysisCompositionRecord{}
 	modelTotals := map[string]*dto.AnalysisCompositionRecord{}
@@ -443,24 +447,41 @@ func applyAnalysisDailyAndBoundaryHourlyRows(record *dto.AnalysisRecord, dailyRo
 	heatmapTotals := map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord{}
 	for _, row := range dailyRows {
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart)
-		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens)
-		applyAnalysisIdentityComposition(dailyIdentityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens)
+		cost, costAvailable := analysisRowCost(row.Model, row.InputTokens, row.OutputTokens, row.CachedTokens, row.CacheReadTokens, row.CacheCreationTokens, pricingByModel)
+		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
+		applyAnalysisIdentityComposition(dailyIdentityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
 	for _, row := range hourlyRows {
 		bucketStart := timeutil.NormalizeStorageTime(row.BucketStart)
 		bucket := time.Date(bucketStart.Year(), bucketStart.Month(), bucketStart.Day(), 0, 0, 0, 0, bucketStart.Location())
-		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens)
-		applyAnalysisIdentityComposition(hourlyIdentityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens)
+		cost, costAvailable := analysisRowCost(row.Model, row.InputTokens, row.OutputTokens, row.CachedTokens, row.CacheReadTokens, row.CacheCreationTokens, pricingByModel)
+		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
+		applyAnalysisIdentityComposition(hourlyIdentityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
 	finalizeAnalysisRecord(record, bucketTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 }
 
-func applyAnalysisRow(_ *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, apiTotals, modelTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord, bucket time.Time, apiGroupKey, model string, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens int64) {
+func analysisRowCost(model string, inputTokens, outputTokens, cachedTokens, cacheReadTokens, cacheCreationTokens int64, pricingByModel map[string]entities.ModelPriceSetting) (helper.UsageTokenCostBreakdown, bool) {
+	costInput := helper.UsageTokenCostInput{
+		InputTokens:         inputTokens,
+		OutputTokens:        outputTokens,
+		CachedTokens:        cachedTokens,
+		CacheReadTokens:     cacheReadTokens,
+		CacheCreationTokens: cacheCreationTokens,
+	}
+	pricing, ok := pricingByModel[strings.TrimSpace(model)]
+	if !ok {
+		return helper.UsageTokenCostBreakdown{}, !helper.UsageTokenInputRequiresPricing(costInput)
+	}
+	return helper.CalculateUsageTokenCostBreakdown(costInput, pricing), true
+}
+
+func applyAnalysisRow(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, apiTotals, modelTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord, bucket time.Time, apiGroupKey, model string, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens int64, cost helper.UsageTokenCostBreakdown, costAvailable bool) {
 	apiKey := normalizeUsageOverviewDimension(apiGroupKey)
 	modelName := normalizeUsageOverviewDimension(model)
 	bucketTotal := bucketTotals[bucket]
 	if bucketTotal == nil {
-		bucketTotal = &dto.AnalysisTokenUsageBucketRecord{Bucket: bucket}
+		bucketTotal = &dto.AnalysisTokenUsageBucketRecord{Bucket: bucket, CostAvailable: true}
 		bucketTotals[bucket] = bucketTotal
 	}
 	bucketTotal.Requests += requests
@@ -469,60 +490,84 @@ func applyAnalysisRow(_ *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.Ana
 	bucketTotal.CachedTokens += cachedTokens
 	bucketTotal.ReasoningTokens += reasoningTokens
 	bucketTotal.TotalTokens += totalTokens
+	bucketTotal.CostUSD += cost.TotalCostUSD
+	if !costAvailable {
+		bucketTotal.CostAvailable = false
+	}
 
 	apiTotal := apiTotals[apiKey]
 	if apiTotal == nil {
-		apiTotal = &dto.AnalysisCompositionRecord{Key: apiKey}
+		apiTotal = &dto.AnalysisCompositionRecord{Key: apiKey, CostAvailable: true}
 		apiTotals[apiKey] = apiTotal
 	}
-	applyAnalysisCompositionTotals(apiTotal, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens)
+	applyAnalysisCompositionTotals(apiTotal, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
 
 	modelTotal := modelTotals[modelName]
 	if modelTotal == nil {
-		modelTotal = &dto.AnalysisCompositionRecord{Key: modelName}
+		modelTotal = &dto.AnalysisCompositionRecord{Key: modelName, CostAvailable: true}
 		modelTotals[modelName] = modelTotal
 	}
-	applyAnalysisCompositionTotals(modelTotal, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens)
+	applyAnalysisCompositionTotals(modelTotal, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
 
 	heatmapKey := analysisHeatmapKey{apiKey: apiKey, model: modelName}
 	heatmapTotal := heatmapTotals[heatmapKey]
 	if heatmapTotal == nil {
-		heatmapTotal = &dto.AnalysisHeatmapRecord{APIKey: apiKey, Model: modelName}
+		heatmapTotal = &dto.AnalysisHeatmapRecord{APIKey: apiKey, Model: modelName, CostAvailable: true}
 		heatmapTotals[heatmapKey] = heatmapTotal
 	}
 	heatmapTotal.Requests += requests
+	heatmapTotal.InputTokens += inputTokens
+	heatmapTotal.OutputTokens += outputTokens
+	heatmapTotal.CachedTokens += cachedTokens
+	heatmapTotal.ReasoningTokens += reasoningTokens
 	heatmapTotal.TotalTokens += totalTokens
+	heatmapTotal.CostUSD += cost.TotalCostUSD
+	if !costAvailable {
+		heatmapTotal.CostAvailable = false
+	}
+
+	record.CostBreakdown.InputCostUSD += cost.InputCostUSD
+	record.CostBreakdown.OutputCostUSD += cost.OutputCostUSD
+	record.CostBreakdown.CachedCostUSD += cost.CachedCostUSD
+	record.CostBreakdown.TotalCostUSD += cost.TotalCostUSD
+	if !costAvailable {
+		record.CostBreakdown.CostAvailable = false
+	}
 }
 
-func applyAnalysisCompositionTotals(item *dto.AnalysisCompositionRecord, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens int64) {
+func applyAnalysisCompositionTotals(item *dto.AnalysisCompositionRecord, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens int64, costUSD float64, costAvailable bool) {
 	item.Requests += requests
 	item.InputTokens += inputTokens
 	item.OutputTokens += outputTokens
 	item.CachedTokens += cachedTokens
 	item.ReasoningTokens += reasoningTokens
 	item.TotalTokens += totalTokens
+	item.CostUSD += costUSD
+	if !costAvailable {
+		item.CostAvailable = false
+	}
 }
 
-func applyAnalysisIdentityComposition(identityLookup analysisIdentityLookup, authFileTotals, aiProviderTotals map[string]*dto.AnalysisCompositionRecord, authIndex string, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens int64) {
+func applyAnalysisIdentityComposition(identityLookup analysisIdentityLookup, authFileTotals, aiProviderTotals map[string]*dto.AnalysisCompositionRecord, authIndex string, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens int64, cost helper.UsageTokenCostBreakdown, costAvailable bool) {
 	authIndex = strings.TrimSpace(authIndex)
 	if authIndex == "" {
 		return
 	}
 	if identity, ok := identityLookup.find(entities.UsageIdentityAuthTypeAuthFile, authIndex); ok {
-		applyAnalysisIdentityCompositionTotal(authFileTotals, identity, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens)
+		applyAnalysisIdentityCompositionTotal(authFileTotals, identity, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
 	}
 	if identity, ok := identityLookup.find(entities.UsageIdentityAuthTypeAIProvider, authIndex); ok {
-		applyAnalysisIdentityCompositionTotal(aiProviderTotals, identity, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens)
+		applyAnalysisIdentityCompositionTotal(aiProviderTotals, identity, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
 	}
 }
 
-func applyAnalysisIdentityCompositionTotal(totals map[string]*dto.AnalysisCompositionRecord, identity analysisIdentityInfo, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens int64) {
+func applyAnalysisIdentityCompositionTotal(totals map[string]*dto.AnalysisCompositionRecord, identity analysisIdentityInfo, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens int64, costUSD float64, costAvailable bool) {
 	item := totals[identity.identity]
 	if item == nil {
-		item = &dto.AnalysisCompositionRecord{Key: identity.identity, Label: identity.label}
+		item = &dto.AnalysisCompositionRecord{Key: identity.identity, Label: identity.label, CostAvailable: true}
 		totals[identity.identity] = item
 	}
-	applyAnalysisCompositionTotals(item, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens)
+	applyAnalysisCompositionTotals(item, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens, costUSD, costAvailable)
 }
 
 func (lookup analysisIdentityLookup) find(authType entities.UsageIdentityAuthType, identity string) (analysisIdentityInfo, bool) {
@@ -551,7 +596,7 @@ func fillAnalysisFullDayHourlyBuckets(record *dto.AnalysisRecord, filter dto.Usa
 		bucketTime := start.Add(time.Duration(hour) * time.Hour)
 		bucket, ok := bucketByTime[bucketTime]
 		if !ok {
-			bucket = dto.AnalysisTokenUsageBucketRecord{Bucket: bucketTime}
+			bucket = dto.AnalysisTokenUsageBucketRecord{Bucket: bucketTime, CostAvailable: true}
 		}
 		record.TokenUsage = append(record.TokenUsage, bucket)
 	}
@@ -568,8 +613,18 @@ func finalizeAnalysisRecord(record *dto.AnalysisRecord, bucketTotals map[time.Ti
 	sortAnalysisComposition(record.APIKeyComposition)
 	for _, item := range modelTotals {
 		record.ModelComposition = append(record.ModelComposition, *item)
+		record.ModelEfficiency = append(record.ModelEfficiency, buildAnalysisModelEfficiencyRecord(*item))
 	}
 	sortAnalysisComposition(record.ModelComposition)
+	sort.Slice(record.ModelEfficiency, func(i, j int) bool {
+		if record.ModelEfficiency[i].CostUSD == record.ModelEfficiency[j].CostUSD {
+			if record.ModelEfficiency[i].TotalTokens == record.ModelEfficiency[j].TotalTokens {
+				return record.ModelEfficiency[i].Model < record.ModelEfficiency[j].Model
+			}
+			return record.ModelEfficiency[i].TotalTokens > record.ModelEfficiency[j].TotalTokens
+		}
+		return record.ModelEfficiency[i].CostUSD > record.ModelEfficiency[j].CostUSD
+	})
 	for _, item := range authFileTotals {
 		record.AuthFilesComposition = append(record.AuthFilesComposition, *item)
 	}
@@ -587,6 +642,28 @@ func finalizeAnalysisRecord(record *dto.AnalysisRecord, bucketTotals map[time.Ti
 		}
 		return record.Heatmap[i].APIKey < record.Heatmap[j].APIKey
 	})
+}
+
+func buildAnalysisModelEfficiencyRecord(item dto.AnalysisCompositionRecord) dto.AnalysisModelEfficiencyRecord {
+	result := dto.AnalysisModelEfficiencyRecord{
+		Model:           item.Key,
+		Requests:        item.Requests,
+		InputTokens:     item.InputTokens,
+		OutputTokens:    item.OutputTokens,
+		CachedTokens:    item.CachedTokens,
+		ReasoningTokens: item.ReasoningTokens,
+		TotalTokens:     item.TotalTokens,
+		CostUSD:         item.CostUSD,
+		CostAvailable:   item.CostAvailable,
+	}
+	if item.Requests > 0 {
+		result.CostPerRequestUSD = item.CostUSD / float64(item.Requests)
+		result.OutputTokensPerRequest = float64(item.OutputTokens) / float64(item.Requests)
+	}
+	if item.InputTokens > 0 {
+		result.CacheRate = float64(item.CachedTokens) / float64(item.InputTokens)
+	}
+	return result
 }
 
 func sortAnalysisComposition(items []dto.AnalysisCompositionRecord) {

@@ -321,6 +321,8 @@ export interface AnalysisTokenUsageBucket {
   reasoning_tokens: number
   total_tokens: number
   requests: number
+  cost_usd: number
+  cost_available: boolean
 }
 
 export interface AnalysisCompositionItem {
@@ -329,20 +331,56 @@ export interface AnalysisCompositionItem {
   total_tokens: number
   requests: number
   percent: number
+  input_tokens: number
+  output_tokens: number
+  cached_tokens: number
+  reasoning_tokens: number
+  cost_usd: number
+  cost_available: boolean
 }
 
 export interface AnalysisHeatmapCell {
   api_key: string
   model: string
+  input_tokens: number
+  output_tokens: number
+  cached_tokens: number
+  reasoning_tokens: number
   total_tokens: number
   requests: number
+  cost_usd: number
+  cost_available: boolean
   intensity: number
 }
 
 export interface AnalysisHeatmapPayload {
   api_keys: string[]
+  api_key_labels: Record<string, string>
   models: string[]
   cells: AnalysisHeatmapCell[]
+}
+
+export interface AnalysisCostBreakdown {
+  input_cost_usd: number
+  output_cost_usd: number
+  cached_cost_usd: number
+  total_cost_usd: number
+  cost_available: boolean
+}
+
+export interface AnalysisModelEfficiencyItem {
+  model: string
+  requests: number
+  input_tokens: number
+  output_tokens: number
+  cached_tokens: number
+  reasoning_tokens: number
+  total_tokens: number
+  cost_usd: number
+  cost_available: boolean
+  cost_per_request_usd: number
+  output_tokens_per_request: number
+  cache_rate: number
 }
 
 export interface AnalysisResponse {
@@ -356,6 +394,8 @@ export interface AnalysisResponse {
   auth_files_composition: AnalysisCompositionItem[]
   ai_provider_composition: AnalysisCompositionItem[]
   heatmap: AnalysisHeatmapPayload
+  cost_breakdown: AnalysisCostBreakdown
+  model_efficiency: AnalysisModelEfficiencyItem[]
 }
 
 export interface CpaApiKeySettingsItem {

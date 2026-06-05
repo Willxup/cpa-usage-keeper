@@ -142,6 +142,8 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 			ReasoningTokens: bucket.ReasoningTokens,
 			TotalTokens:     bucket.TotalTokens,
 			Requests:        bucket.Requests,
+			CostUSD:         bucket.CostUSD,
+			CostAvailable:   bucket.CostAvailable,
 		})
 	}
 	apiKeys := make([]servicedto.AnalysisCompositionItem, 0, len(record.APIKeyComposition))
@@ -163,10 +165,33 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 	heatmap := make([]servicedto.AnalysisHeatmapCell, 0, len(record.Heatmap))
 	for _, cell := range record.Heatmap {
 		heatmap = append(heatmap, servicedto.AnalysisHeatmapCell{
-			APIKey:      cell.APIKey,
-			Model:       cell.Model,
-			TotalTokens: cell.TotalTokens,
-			Requests:    cell.Requests,
+			APIKey:          cell.APIKey,
+			Model:           cell.Model,
+			InputTokens:     cell.InputTokens,
+			OutputTokens:    cell.OutputTokens,
+			CachedTokens:    cell.CachedTokens,
+			ReasoningTokens: cell.ReasoningTokens,
+			TotalTokens:     cell.TotalTokens,
+			Requests:        cell.Requests,
+			CostUSD:         cell.CostUSD,
+			CostAvailable:   cell.CostAvailable,
+		})
+	}
+	modelEfficiency := make([]servicedto.AnalysisModelEfficiencyItem, 0, len(record.ModelEfficiency))
+	for _, item := range record.ModelEfficiency {
+		modelEfficiency = append(modelEfficiency, servicedto.AnalysisModelEfficiencyItem{
+			Model:                  item.Model,
+			Requests:               item.Requests,
+			InputTokens:            item.InputTokens,
+			OutputTokens:           item.OutputTokens,
+			CachedTokens:           item.CachedTokens,
+			ReasoningTokens:        item.ReasoningTokens,
+			TotalTokens:            item.TotalTokens,
+			CostUSD:                item.CostUSD,
+			CostAvailable:          item.CostAvailable,
+			CostPerRequestUSD:      item.CostPerRequestUSD,
+			OutputTokensPerRequest: item.OutputTokensPerRequest,
+			CacheRate:              item.CacheRate,
 		})
 	}
 	return &servicedto.AnalysisSnapshot{
@@ -179,6 +204,14 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 		AuthFilesComposition:  authFiles,
 		AIProviderComposition: aiProviders,
 		Heatmap:               heatmap,
+		CostBreakdown: servicedto.AnalysisCostBreakdown{
+			InputCostUSD:  record.CostBreakdown.InputCostUSD,
+			OutputCostUSD: record.CostBreakdown.OutputCostUSD,
+			CachedCostUSD: record.CostBreakdown.CachedCostUSD,
+			TotalCostUSD:  record.CostBreakdown.TotalCostUSD,
+			CostAvailable: record.CostBreakdown.CostAvailable,
+		},
+		ModelEfficiency: modelEfficiency,
 	}
 }
 
@@ -192,6 +225,8 @@ func mapAnalysisCompositionRecord(item repodto.AnalysisCompositionRecord) servic
 		OutputTokens:    item.OutputTokens,
 		CachedTokens:    item.CachedTokens,
 		ReasoningTokens: item.ReasoningTokens,
+		CostUSD:         item.CostUSD,
+		CostAvailable:   item.CostAvailable,
 	}
 }
 

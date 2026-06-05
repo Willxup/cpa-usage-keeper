@@ -1184,7 +1184,7 @@
   --accent-soft: rgba($primary-color, 0.18);
   --accent-border: rgba($primary-color, 0.35);
 
-  grid-column: span 4;
+  grid-column: span 3;
   position: relative;
   padding: 18px;
   background:
@@ -1293,7 +1293,7 @@
   font-size: 12px;
   color: var(--text-tertiary);
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
 }
 
 .statValue {

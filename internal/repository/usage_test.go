@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"math"
 	"path/filepath"
 	"testing"
 	"time"
@@ -11,6 +12,13 @@ import (
 	repodto "cpa-usage-keeper/internal/repository/dto"
 	"gorm.io/gorm"
 )
+
+func assertAnalysisCostClose(t *testing.T, got, want float64) {
+	t.Helper()
+	if math.Abs(got-want) > 0.000000001 {
+		t.Fatalf("expected cost %.9f, got %.9f", want, got)
+	}
+}
 
 func TestListUsageEventsWithFilterPreservesEventFields(t *testing.T) {
 	db := openUsageTestDatabase(t)
@@ -111,6 +119,148 @@ func TestBuildAnalysisWithFilterUsesOverviewStatsWithoutUsageEvents(t *testing.T
 	}
 	if len(analysis.APIKeyComposition) != 1 || analysis.APIKeyComposition[0].Key != "sk-target-key" {
 		t.Fatalf("expected API composition from overview stats, got %+v", analysis.APIKeyComposition)
+	}
+}
+
+func TestBuildAnalysisWithFilterCalculatesCostInsightsFromOverviewStats(t *testing.T) {
+	db := openUsageTestDatabase(t)
+	bucket := time.Date(2026, 4, 20, 9, 0, 0, 0, time.UTC)
+	if err := db.Create(&entities.CPAAPIKey{APIKey: "sk-target-key", DisplayKey: "sk-*********target"}).Error; err != nil {
+		t.Fatalf("insert CPA API key: %v", err)
+	}
+	if _, err := UpsertModelPriceSetting(db, repodto.ModelPriceSettingInput{
+		Model:                "gpt-4o",
+		PromptPricePer1M:     3,
+		CompletionPricePer1M: 15,
+		CachePricePer1M:      0.3,
+	}); err != nil {
+		t.Fatalf("upsert gpt price: %v", err)
+	}
+	if _, err := UpsertModelPriceSetting(db, repodto.ModelPriceSettingInput{
+		Model:                   "claude-sonnet",
+		PricingStyle:            entities.ModelPricingStyleClaude,
+		PromptPricePer1M:        10,
+		CompletionPricePer1M:    20,
+		CachePricePer1M:         1,
+		CacheCreationPricePer1M: 12.5,
+	}); err != nil {
+		t.Fatalf("upsert claude price: %v", err)
+	}
+	if err := db.Create([]entities.UsageOverviewHourlyStat{
+		{
+			BucketStart:     bucket,
+			APIGroupKey:     "sk-target-key",
+			Model:           "gpt-4o",
+			RequestCount:    2,
+			InputTokens:     1_000_000,
+			OutputTokens:    500_000,
+			ReasoningTokens: 50_000,
+			CachedTokens:    200_000,
+			TotalTokens:     1_750_000,
+		},
+		{
+			BucketStart:         bucket.Add(time.Hour),
+			APIGroupKey:         "sk-target-key",
+			Model:               "claude-sonnet",
+			RequestCount:        1,
+			InputTokens:         1_300_000,
+			OutputTokens:        500_000,
+			CachedTokens:        200_000,
+			CacheReadTokens:     200_000,
+			CacheCreationTokens: 100_000,
+			TotalTokens:         2_000_000,
+		},
+	}).Error; err != nil {
+		t.Fatalf("insert hourly stats: %v", err)
+	}
+	if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
+		t.Fatalf("drop usage_events: %v", err)
+	}
+	start := bucket
+	end := bucket.Add(2 * time.Hour)
+
+	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end})
+	if err != nil {
+		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
+	}
+
+	if len(analysis.TokenUsage) != 2 {
+		t.Fatalf("expected two costed token buckets, got %+v", analysis.TokenUsage)
+	}
+	assertAnalysisCostClose(t, analysis.TokenUsage[0].CostUSD, 9.96)
+	assertAnalysisCostClose(t, analysis.TokenUsage[1].CostUSD, 21.45)
+	if !analysis.TokenUsage[0].CostAvailable || !analysis.TokenUsage[1].CostAvailable {
+		t.Fatalf("expected bucket cost to be available, got %+v", analysis.TokenUsage)
+	}
+	assertAnalysisCostClose(t, analysis.CostBreakdown.InputCostUSD, 12.4)
+	assertAnalysisCostClose(t, analysis.CostBreakdown.OutputCostUSD, 17.5)
+	assertAnalysisCostClose(t, analysis.CostBreakdown.CachedCostUSD, 1.51)
+	assertAnalysisCostClose(t, analysis.CostBreakdown.TotalCostUSD, 31.41)
+	if !analysis.CostBreakdown.CostAvailable {
+		t.Fatalf("expected aggregate cost to be available, got %+v", analysis.CostBreakdown)
+	}
+	if len(analysis.APIKeyComposition) != 1 {
+		t.Fatalf("expected one api composition row, got %+v", analysis.APIKeyComposition)
+	}
+	assertAnalysisCostClose(t, analysis.APIKeyComposition[0].CostUSD, 31.41)
+	if !analysis.APIKeyComposition[0].CostAvailable {
+		t.Fatalf("expected api composition cost to be available, got %+v", analysis.APIKeyComposition[0])
+	}
+	if len(analysis.Heatmap) != 2 {
+		t.Fatalf("expected two heatmap cells, got %+v", analysis.Heatmap)
+	}
+	if analysis.Heatmap[0].Model != "claude-sonnet" || analysis.Heatmap[0].InputTokens != 1_300_000 || analysis.Heatmap[0].OutputTokens != 500_000 || analysis.Heatmap[0].CachedTokens != 200_000 {
+		t.Fatalf("expected heatmap token detail for claude, got %+v", analysis.Heatmap[0])
+	}
+	assertAnalysisCostClose(t, analysis.Heatmap[0].CostUSD, 21.45)
+	if len(analysis.ModelEfficiency) != 2 {
+		t.Fatalf("expected two model efficiency rows, got %+v", analysis.ModelEfficiency)
+	}
+	if analysis.ModelEfficiency[0].Model != "claude-sonnet" || analysis.ModelEfficiency[0].Requests != 1 {
+		t.Fatalf("expected model efficiency sorted by cost desc, got %+v", analysis.ModelEfficiency)
+	}
+	assertAnalysisCostClose(t, analysis.ModelEfficiency[0].CostPerRequestUSD, 21.45)
+	assertAnalysisCostClose(t, analysis.ModelEfficiency[0].OutputTokensPerRequest, 500_000)
+	assertAnalysisCostClose(t, analysis.ModelEfficiency[0].CacheRate, 200_000.0/1_300_000.0)
+	if analysis.ModelEfficiency[1].Model != "gpt-4o" {
+		t.Fatalf("expected second model efficiency row for gpt-4o, got %+v", analysis.ModelEfficiency)
+	}
+	assertAnalysisCostClose(t, analysis.ModelEfficiency[1].OutputTokensPerRequest, 250_000)
+	if analysis.ModelEfficiency[0].OutputTokensPerRequest == 0 || analysis.ModelEfficiency[0].CacheRate == 0 {
+		t.Fatalf("unexpected model efficiency metrics: %+v", analysis.ModelEfficiency[0])
+	}
+}
+
+func TestBuildAnalysisWithFilterMarksCostUnavailableForUnpricedStats(t *testing.T) {
+	db := openUsageTestDatabase(t)
+	bucket := time.Date(2026, 4, 20, 9, 0, 0, 0, time.UTC)
+	if err := db.Create(&entities.CPAAPIKey{APIKey: "sk-target-key", DisplayKey: "sk-*********target"}).Error; err != nil {
+		t.Fatalf("insert CPA API key: %v", err)
+	}
+	if err := db.Create(&entities.UsageOverviewHourlyStat{
+		BucketStart:  bucket,
+		APIGroupKey:  "sk-target-key",
+		Model:        "unpriced-model",
+		RequestCount: 2,
+		InputTokens:  1_000,
+		OutputTokens: 500,
+		TotalTokens:  1_500,
+	}).Error; err != nil {
+		t.Fatalf("insert hourly stat: %v", err)
+	}
+	start := bucket
+	end := bucket.Add(time.Hour)
+
+	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end})
+	if err != nil {
+		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
+	}
+
+	if analysis.CostBreakdown.CostAvailable || analysis.TokenUsage[0].CostAvailable || analysis.APIKeyComposition[0].CostAvailable || analysis.Heatmap[0].CostAvailable || analysis.ModelEfficiency[0].CostAvailable {
+		t.Fatalf("expected all analysis cost surfaces to be unavailable, got cost=%+v buckets=%+v api=%+v heatmap=%+v efficiency=%+v", analysis.CostBreakdown, analysis.TokenUsage, analysis.APIKeyComposition, analysis.Heatmap, analysis.ModelEfficiency)
+	}
+	if analysis.CostBreakdown.TotalCostUSD != 0 || analysis.TokenUsage[0].CostUSD != 0 || analysis.ModelEfficiency[0].CostUSD != 0 {
+		t.Fatalf("expected unpriced stats to contribute zero computed cost, got cost=%+v buckets=%+v efficiency=%+v", analysis.CostBreakdown, analysis.TokenUsage, analysis.ModelEfficiency)
 	}
 }
 
