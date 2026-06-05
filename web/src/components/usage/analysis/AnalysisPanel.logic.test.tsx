@@ -506,8 +506,8 @@ describe('AnalysisPanel token chart data', () => {
     expect(markup).not.toContain('$8,181.82');
   });
 
-  it('shows compact heatmap cells with detailed tooltip data', () => {
-    const responseKey = 'sk-*********123456';
+  it('shows compact heatmap cells with id keys and display labels', () => {
+    const responseKey = '9007199254740993';
     const analysis: AnalysisResponse = {
       ...emptyAnalysis,
       heatmap: {
