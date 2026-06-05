@@ -1,313 +1,222 @@
 package migration
 
 import (
-	"errors"
-	"strings"
-	"time"
+	"fmt"
 
-	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
 )
 
-const geminiCodexBackfillOverviewCheckpointName = "overview"
-const geminiCodexBackfillEventBatchSize = 500
-
-type geminiCodexBackfillIdentityKey struct {
-	authType entities.UsageIdentityAuthType
-	identity string
-}
-
-type geminiCodexBackfillTokenDelta struct {
-	outputTokens int64
-	totalTokens  int64
-}
-
-type geminiCodexBackfillOverviewStatKey struct {
-	BucketStart time.Time
-	APIGroupKey string
-	Model       string
-	AuthIndex   string
-	ModelAlias  string
-}
-
-type geminiCodexBackfillAggregateDeltas struct {
-	identityDeltas map[int64]geminiCodexBackfillTokenDelta
-	hourlyDeltas   map[geminiCodexBackfillOverviewStatKey]geminiCodexBackfillTokenDelta
-	dailyDeltas    map[geminiCodexBackfillOverviewStatKey]geminiCodexBackfillTokenDelta
-}
-
+// backfillGeminiCodexTokenFormatMigration 把 Gemini family 旧事件归一到 Codex token 口径。
+//
+// 只迁移确认属于 Gemini family 的事件：
+// - 能匹配 usage_identities 时，以 identity.type 为准；
+// - 找不到 identity 时，才 fallback 到 event.provider；
+// - 不匹配 Gemini family 的事件不会进入临时表，也不会更新明细或聚合。
 func backfillGeminiCodexTokenFormatMigration(tx *gorm.DB) error {
-	for _, model := range []any{
-		&entities.UsageEvent{},
-		&entities.UsageIdentity{},
-		&entities.UsageOverviewHourlyStat{},
-		&entities.UsageOverviewDailyStat{},
-		&entities.UsageOverviewAggregationCheckpoint{},
-	} {
-		if !tx.Migrator().HasTable(model) {
+	for _, table := range []string{"usage_events", "usage_identities", "usage_overview_hourly_stats", "usage_overview_daily_stats", "usage_overview_aggregation_checkpoints"} {
+		if !tx.Migrator().HasTable(table) {
 			return nil
 		}
 	}
 
-	identityByKey, err := loadGeminiCodexBackfillIdentityLookup(tx)
-	if err != nil {
-		return err
-	}
-	overviewLastAggregatedID, err := loadGeminiCodexBackfillOverviewCursor(tx)
-	if err != nil {
-		return err
+	statements := []string{
+		`DROP TABLE IF EXISTS temp_gemini_codex_token_backfill`,
+		`CREATE TEMP TABLE temp_gemini_codex_token_backfill AS
+WITH source_events AS (
+	SELECT
+		e.id,
+		e.auth_type AS raw_auth_type,
+		e.auth_index AS raw_auth_index,
+		COALESCE(e.auth_index, '') AS auth_index,
+		CASE
+			WHEN COALESCE(e.api_group_key, '') = '' THEN 'unknown'
+			ELSE COALESCE(e.api_group_key, '')
+		END AS api_group_key,
+		CASE
+			WHEN COALESCE(e.model, '') = '' THEN 'unknown'
+			ELSE COALESCE(e.model, '')
+		END AS model,
+		CASE
+			WHEN COALESCE(e.model_alias, '') = '' THEN ''
+			ELSE COALESCE(e.model_alias, '')
+		END AS model_alias,
+		COALESCE(e.timestamp, '') AS timestamp_value,
+		COALESCE(e.input_tokens, 0) AS input_tokens,
+		COALESCE(e.output_tokens, 0) AS output_tokens,
+		COALESCE(e.reasoning_tokens, 0) AS reasoning_tokens,
+		COALESCE(e.total_tokens, 0) AS total_tokens,
+		CASE
+			WHEN lower(COALESCE(e.provider, '')) IN ('gemini', 'vertex', 'gemini-cli', 'gemini-cli-code-assist', 'antigravity', 'aistudio', 'ai-studio') THEN 1
+			ELSE 0
+		END AS provider_is_gemini_family
+	FROM usage_events e
+	WHERE COALESCE(e.reasoning_tokens, 0) > 0
+),
+candidate_events AS (
+	SELECT
+		e.id,
+		ui.id AS identity_id,
+		e.auth_index,
+		e.api_group_key,
+		e.model,
+		e.model_alias,
+		e.timestamp_value,
+		e.input_tokens,
+		e.output_tokens,
+		e.reasoning_tokens,
+		e.total_tokens,
+		e.provider_is_gemini_family,
+		CASE
+			WHEN lower(COALESCE(ui.type, '')) IN ('gemini', 'vertex', 'gemini-cli', 'gemini-cli-code-assist', 'antigravity', 'aistudio', 'ai-studio') THEN 1
+			ELSE 0
+		END AS identity_is_gemini_family,
+		COALESCE((SELECT last_aggregated_usage_event_id FROM usage_overview_aggregation_checkpoints WHERE name = 'overview' LIMIT 1), 0) AS overview_last_aggregated_usage_event_id,
+		COALESCE(ui.last_aggregated_usage_event_id, 0) AS identity_last_aggregated_usage_event_id
+	FROM source_events e
+	LEFT JOIN usage_identities ui
+		ON ui.auth_type = CASE e.raw_auth_type
+			WHEN 'oauth' THEN 1
+			WHEN 'apikey' THEN 2
+			ELSE -1
+		END
+		AND ui.identity = e.raw_auth_index
+),
+normalized_events AS (
+	SELECT
+		*,
+		output_tokens + reasoning_tokens AS new_output_tokens,
+		reasoning_tokens AS output_delta,
+		CASE WHEN id <= overview_last_aggregated_usage_event_id THEN 1 ELSE 0 END AS apply_overview_delta,
+		CASE WHEN identity_id IS NOT NULL AND id <= identity_last_aggregated_usage_event_id THEN 1 ELSE 0 END AS apply_identity_delta
+	FROM candidate_events
+	WHERE total_tokens > 0
+		AND input_tokens + output_tokens <> total_tokens
+		AND input_tokens + output_tokens + reasoning_tokens = total_tokens
+		AND (
+			(identity_id IS NOT NULL AND identity_is_gemini_family = 1)
+			OR (identity_id IS NULL AND provider_is_gemini_family = 1)
+		)
+)
+SELECT
+	id,
+	identity_id,
+	auth_index,
+	api_group_key,
+	model,
+	model_alias,
+	CASE
+		WHEN timestamp_value = '' THEN ''
+		WHEN substr(timestamp_value, length(timestamp_value), 1) = 'Z' THEN substr(timestamp_value, 1, 13) || ':00:00Z'
+		WHEN length(timestamp_value) >= 25 THEN substr(timestamp_value, 1, 13) || ':00:00' || substr(timestamp_value, length(timestamp_value) - 5, 6)
+		ELSE substr(timestamp_value, 1, 13) || ':00:00'
+	END AS hourly_bucket_start,
+	CASE
+		WHEN timestamp_value = '' THEN ''
+		WHEN substr(timestamp_value, length(timestamp_value), 1) = 'Z' THEN substr(timestamp_value, 1, 10) || 'T00:00:00Z'
+		WHEN length(timestamp_value) >= 25 THEN substr(timestamp_value, 1, 10) || 'T00:00:00' || substr(timestamp_value, length(timestamp_value) - 5, 6)
+		ELSE substr(timestamp_value, 1, 10) || 'T00:00:00'
+	END AS daily_bucket_start,
+	apply_overview_delta,
+	apply_identity_delta,
+	new_output_tokens,
+	output_delta
+FROM normalized_events`,
+		`CREATE INDEX temp_gemini_codex_token_backfill_id ON temp_gemini_codex_token_backfill (id)`,
+		`UPDATE usage_events
+SET
+	output_tokens = (SELECT new_output_tokens FROM temp_gemini_codex_token_backfill t WHERE t.id = usage_events.id)
+WHERE id IN (SELECT id FROM temp_gemini_codex_token_backfill)`,
+		`DROP TABLE IF EXISTS temp_gemini_codex_token_hourly`,
+		`CREATE TEMP TABLE temp_gemini_codex_token_hourly AS
+SELECT
+	hourly_bucket_start AS bucket_start,
+	api_group_key,
+	model,
+	auth_index,
+	model_alias,
+	SUM(output_delta) AS output_delta
+FROM temp_gemini_codex_token_backfill
+WHERE hourly_bucket_start <> ''
+	AND apply_overview_delta = 1
+GROUP BY hourly_bucket_start, api_group_key, model, auth_index, model_alias`,
+		`CREATE INDEX temp_gemini_codex_token_hourly_key ON temp_gemini_codex_token_hourly (bucket_start, api_group_key, model, auth_index, model_alias)`,
+		`UPDATE usage_overview_hourly_stats
+SET
+	output_tokens = COALESCE(output_tokens, 0) + (
+		SELECT output_delta FROM temp_gemini_codex_token_hourly t
+		WHERE t.bucket_start = usage_overview_hourly_stats.bucket_start
+			AND t.api_group_key = usage_overview_hourly_stats.api_group_key
+			AND t.model = usage_overview_hourly_stats.model
+			AND t.auth_index = usage_overview_hourly_stats.auth_index
+			AND t.model_alias = usage_overview_hourly_stats.model_alias
+	)
+WHERE EXISTS (
+	SELECT 1 FROM temp_gemini_codex_token_hourly t
+	WHERE t.bucket_start = usage_overview_hourly_stats.bucket_start
+		AND t.api_group_key = usage_overview_hourly_stats.api_group_key
+		AND t.model = usage_overview_hourly_stats.model
+		AND t.auth_index = usage_overview_hourly_stats.auth_index
+		AND t.model_alias = usage_overview_hourly_stats.model_alias
+)`,
+		`DROP TABLE IF EXISTS temp_gemini_codex_token_daily`,
+		`CREATE TEMP TABLE temp_gemini_codex_token_daily AS
+SELECT
+	daily_bucket_start AS bucket_start,
+	api_group_key,
+	model,
+	auth_index,
+	model_alias,
+	SUM(output_delta) AS output_delta
+FROM temp_gemini_codex_token_backfill
+WHERE daily_bucket_start <> ''
+	AND apply_overview_delta = 1
+GROUP BY daily_bucket_start, api_group_key, model, auth_index, model_alias`,
+		`CREATE INDEX temp_gemini_codex_token_daily_key ON temp_gemini_codex_token_daily (bucket_start, api_group_key, model, auth_index, model_alias)`,
+		`UPDATE usage_overview_daily_stats
+SET
+	output_tokens = COALESCE(output_tokens, 0) + (
+		SELECT output_delta FROM temp_gemini_codex_token_daily t
+		WHERE t.bucket_start = usage_overview_daily_stats.bucket_start
+			AND t.api_group_key = usage_overview_daily_stats.api_group_key
+			AND t.model = usage_overview_daily_stats.model
+			AND t.auth_index = usage_overview_daily_stats.auth_index
+			AND t.model_alias = usage_overview_daily_stats.model_alias
+	)
+WHERE EXISTS (
+	SELECT 1 FROM temp_gemini_codex_token_daily t
+	WHERE t.bucket_start = usage_overview_daily_stats.bucket_start
+		AND t.api_group_key = usage_overview_daily_stats.api_group_key
+		AND t.model = usage_overview_daily_stats.model
+		AND t.auth_index = usage_overview_daily_stats.auth_index
+		AND t.model_alias = usage_overview_daily_stats.model_alias
+)`,
+		`DROP TABLE IF EXISTS temp_gemini_codex_token_identity`,
+		`CREATE TEMP TABLE temp_gemini_codex_token_identity AS
+SELECT
+	identity_id,
+	SUM(output_delta) AS output_delta
+FROM temp_gemini_codex_token_backfill
+WHERE identity_id IS NOT NULL
+	AND apply_identity_delta = 1
+GROUP BY identity_id`,
+		`CREATE INDEX temp_gemini_codex_token_identity_key ON temp_gemini_codex_token_identity (identity_id)`,
+		`UPDATE usage_identities
+SET
+	output_tokens = COALESCE(output_tokens, 0) + (
+		SELECT output_delta FROM temp_gemini_codex_token_identity t
+		WHERE t.identity_id = usage_identities.id
+	)
+WHERE id IN (SELECT identity_id FROM temp_gemini_codex_token_identity)`,
+		`DROP TABLE IF EXISTS temp_gemini_codex_token_identity`,
+		`DROP TABLE IF EXISTS temp_gemini_codex_token_daily`,
+		`DROP TABLE IF EXISTS temp_gemini_codex_token_hourly`,
+		`DROP TABLE IF EXISTS temp_gemini_codex_token_backfill`,
 	}
 
-	// 明细行逐条修正；聚合表只记录 delta，最后按唯一 key 写一次，避免迁移时反复读写同一统计行。
-	aggregateDeltas := newGeminiCodexBackfillAggregateDeltas()
-	lastEventID := int64(0)
-	for {
-		events := make([]entities.UsageEvent, 0, geminiCodexBackfillEventBatchSize)
-		if err := tx.Where("id > ? AND reasoning_tokens > ?", lastEventID, 0).
-			Order("id asc").
-			Limit(geminiCodexBackfillEventBatchSize).
-			Find(&events).Error; err != nil {
-			return err
-		}
-		if len(events) == 0 {
-			return aggregateDeltas.flush(tx)
-		}
-		for _, event := range events {
-			key, hasKey := geminiCodexBackfillIdentityKeyForEvent(event)
-			identity, hasIdentity := identityByKey[key]
-			if !isGeminiCodexBackfillFamilyEvent(event, identity, hasKey && hasIdentity) {
-				continue
-			}
-
-			outputDelta, totalDelta := geminiCodexBackfillTokenDeltas(event)
-			if outputDelta == 0 && totalDelta == 0 {
-				continue
-			}
-			if err := updateGeminiCodexBackfillUsageEvent(tx, event, outputDelta, totalDelta); err != nil {
-				return err
-			}
-			if event.ID <= overviewLastAggregatedID {
-				aggregateDeltas.addOverview(event, outputDelta, totalDelta)
-			}
-			if hasKey && hasIdentity && event.ID <= identity.LastAggregatedUsageEventID {
-				aggregateDeltas.addIdentity(identity.ID, outputDelta, totalDelta)
-			}
-		}
-		lastEventID = events[len(events)-1].ID
-	}
-}
-
-func newGeminiCodexBackfillAggregateDeltas() geminiCodexBackfillAggregateDeltas {
-	return geminiCodexBackfillAggregateDeltas{
-		identityDeltas: make(map[int64]geminiCodexBackfillTokenDelta),
-		hourlyDeltas:   make(map[geminiCodexBackfillOverviewStatKey]geminiCodexBackfillTokenDelta),
-		dailyDeltas:    make(map[geminiCodexBackfillOverviewStatKey]geminiCodexBackfillTokenDelta),
-	}
-}
-
-func (deltas geminiCodexBackfillAggregateDeltas) addIdentity(identityID int64, outputDelta, totalDelta int64) {
-	delta := deltas.identityDeltas[identityID]
-	delta.outputTokens += outputDelta
-	delta.totalTokens += totalDelta
-	deltas.identityDeltas[identityID] = delta
-}
-
-func (deltas geminiCodexBackfillAggregateDeltas) addOverview(event entities.UsageEvent, outputDelta, totalDelta int64) {
-	key := geminiCodexBackfillOverviewKeyForEvent(event)
-	hourlyKey := geminiCodexBackfillOverviewStatKey{
-		BucketStart: key.HourBucketStart,
-		APIGroupKey: key.APIGroupKey,
-		Model:       key.Model,
-		AuthIndex:   key.AuthIndex,
-		ModelAlias:  key.ModelAlias,
-	}
-	dailyKey := geminiCodexBackfillOverviewStatKey{
-		BucketStart: key.DayBucketStart,
-		APIGroupKey: key.APIGroupKey,
-		Model:       key.Model,
-		AuthIndex:   key.AuthIndex,
-		ModelAlias:  key.ModelAlias,
-	}
-	deltas.addHourly(hourlyKey, outputDelta, totalDelta)
-	deltas.addDaily(dailyKey, outputDelta, totalDelta)
-}
-
-func (deltas geminiCodexBackfillAggregateDeltas) addHourly(key geminiCodexBackfillOverviewStatKey, outputDelta, totalDelta int64) {
-	delta := deltas.hourlyDeltas[key]
-	delta.outputTokens += outputDelta
-	delta.totalTokens += totalDelta
-	deltas.hourlyDeltas[key] = delta
-}
-
-func (deltas geminiCodexBackfillAggregateDeltas) addDaily(key geminiCodexBackfillOverviewStatKey, outputDelta, totalDelta int64) {
-	delta := deltas.dailyDeltas[key]
-	delta.outputTokens += outputDelta
-	delta.totalTokens += totalDelta
-	deltas.dailyDeltas[key] = delta
-}
-
-func (deltas geminiCodexBackfillAggregateDeltas) flush(tx *gorm.DB) error {
-	for identityID, delta := range deltas.identityDeltas {
-		if err := updateGeminiCodexBackfillUsageIdentity(tx, identityID, delta); err != nil {
-			return err
-		}
-	}
-	for key, delta := range deltas.hourlyDeltas {
-		if err := updateGeminiCodexBackfillHourlyStats(tx, key, delta); err != nil {
-			return err
-		}
-	}
-	for key, delta := range deltas.dailyDeltas {
-		if err := updateGeminiCodexBackfillDailyStats(tx, key, delta); err != nil {
-			return err
+	for _, stmt := range statements {
+		if err := tx.Exec(stmt).Error; err != nil {
+			return fmt.Errorf("backfill Gemini Codex token format: %w", err)
 		}
 	}
 	return nil
-}
-
-func loadGeminiCodexBackfillIdentityLookup(tx *gorm.DB) (map[geminiCodexBackfillIdentityKey]entities.UsageIdentity, error) {
-	var identities []entities.UsageIdentity
-	if err := tx.Find(&identities).Error; err != nil {
-		return nil, err
-	}
-	identityByKey := make(map[geminiCodexBackfillIdentityKey]entities.UsageIdentity, len(identities))
-	for _, identity := range identities {
-		key := geminiCodexBackfillIdentityKey{authType: identity.AuthType, identity: strings.TrimSpace(identity.Identity)}
-		if key.identity == "" {
-			continue
-		}
-		identityByKey[key] = identity
-	}
-	return identityByKey, nil
-}
-
-func loadGeminiCodexBackfillOverviewCursor(tx *gorm.DB) (int64, error) {
-	var checkpoint entities.UsageOverviewAggregationCheckpoint
-	err := tx.Where("name = ?", geminiCodexBackfillOverviewCheckpointName).First(&checkpoint).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, err
-	}
-	return checkpoint.LastAggregatedUsageEventID, nil
-}
-
-func geminiCodexBackfillIdentityKeyForEvent(event entities.UsageEvent) (geminiCodexBackfillIdentityKey, bool) {
-	authIndex := strings.TrimSpace(event.AuthIndex)
-	if authIndex == "" {
-		return geminiCodexBackfillIdentityKey{}, false
-	}
-	switch strings.ToLower(strings.TrimSpace(event.AuthType)) {
-	case "oauth":
-		return geminiCodexBackfillIdentityKey{authType: entities.UsageIdentityAuthTypeAuthFile, identity: authIndex}, true
-	case "apikey", "api_key":
-		return geminiCodexBackfillIdentityKey{authType: entities.UsageIdentityAuthTypeAIProvider, identity: authIndex}, true
-	default:
-		return geminiCodexBackfillIdentityKey{}, false
-	}
-}
-
-func isGeminiCodexBackfillFamilyEvent(event entities.UsageEvent, identity entities.UsageIdentity, hasIdentity bool) bool {
-	if hasIdentity {
-		return isGeminiCodexBackfillFamilyType(identity.Type)
-	}
-	return isGeminiCodexBackfillFamilyType(event.Provider)
-}
-
-func isGeminiCodexBackfillFamilyType(value string) bool {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "gemini", "vertex", "gemini-cli", "gemini-cli-code-assist", "antigravity", "aistudio", "ai-studio":
-		return true
-	default:
-		return false
-	}
-}
-
-func geminiCodexBackfillTokenDeltas(event entities.UsageEvent) (int64, int64) {
-	if event.ReasoningTokens <= 0 || event.TotalTokens <= 0 {
-		return 0, 0
-	}
-	if event.InputTokens+event.OutputTokens == event.TotalTokens {
-		return 0, 0
-	}
-	if event.InputTokens+event.OutputTokens+event.ReasoningTokens != event.TotalTokens {
-		return 0, 0
-	}
-	return event.ReasoningTokens, 0
-}
-
-func updateGeminiCodexBackfillUsageEvent(tx *gorm.DB, event entities.UsageEvent, outputDelta, totalDelta int64) error {
-	return tx.Model(&entities.UsageEvent{}).
-		Where("id = ?", event.ID).
-		Updates(map[string]any{
-			"output_tokens": event.OutputTokens + outputDelta,
-			"total_tokens":  event.TotalTokens + totalDelta,
-		}).Error
-}
-
-func updateGeminiCodexBackfillUsageIdentity(tx *gorm.DB, identityID int64, delta geminiCodexBackfillTokenDelta) error {
-	return tx.Model(&entities.UsageIdentity{}).
-		Where("id = ?", identityID).
-		Updates(geminiCodexBackfillTokenDeltaUpdates(delta)).Error
-}
-
-type geminiCodexBackfillOverviewKey struct {
-	HourBucketStart time.Time
-	DayBucketStart  time.Time
-	APIGroupKey     string
-	Model           string
-	AuthIndex       string
-	ModelAlias      string
-}
-
-func geminiCodexBackfillOverviewKeyForEvent(event entities.UsageEvent) geminiCodexBackfillOverviewKey {
-	timestamp := timeutil.NormalizeStorageTime(event.Timestamp)
-	dayBucket := time.Date(timestamp.Year(), timestamp.Month(), timestamp.Day(), 0, 0, 0, 0, timestamp.Location())
-	modelAlias := ""
-	if event.ModelAlias != nil {
-		modelAlias = normalizeGeminiCodexBackfillOptionalDimension(*event.ModelAlias)
-	}
-	return geminiCodexBackfillOverviewKey{
-		HourBucketStart: timestamp.Truncate(time.Hour),
-		DayBucketStart:  dayBucket,
-		APIGroupKey:     normalizeGeminiCodexBackfillDimension(event.APIGroupKey),
-		Model:           normalizeGeminiCodexBackfillDimension(event.Model),
-		AuthIndex:       normalizeGeminiCodexBackfillOptionalDimension(event.AuthIndex),
-		ModelAlias:      modelAlias,
-	}
-}
-
-func normalizeGeminiCodexBackfillDimension(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "unknown"
-	}
-	return value
-}
-
-func normalizeGeminiCodexBackfillOptionalDimension(value string) string {
-	return strings.TrimSpace(value)
-}
-
-func updateGeminiCodexBackfillHourlyStats(tx *gorm.DB, key geminiCodexBackfillOverviewStatKey, delta geminiCodexBackfillTokenDelta) error {
-	return tx.Model(&entities.UsageOverviewHourlyStat{}).
-		Where("bucket_start = ? AND api_group_key = ? AND model = ? AND auth_index = ? AND model_alias = ?",
-			timeutil.FormatStorageTime(key.BucketStart), key.APIGroupKey, key.Model, key.AuthIndex, key.ModelAlias).
-		Updates(geminiCodexBackfillTokenDeltaUpdates(delta)).Error
-}
-
-func updateGeminiCodexBackfillDailyStats(tx *gorm.DB, key geminiCodexBackfillOverviewStatKey, delta geminiCodexBackfillTokenDelta) error {
-	return tx.Model(&entities.UsageOverviewDailyStat{}).
-		Where("bucket_start = ? AND api_group_key = ? AND model = ? AND auth_index = ? AND model_alias = ?",
-			timeutil.FormatStorageTime(key.BucketStart), key.APIGroupKey, key.Model, key.AuthIndex, key.ModelAlias).
-		Updates(geminiCodexBackfillTokenDeltaUpdates(delta)).Error
-}
-
-func geminiCodexBackfillTokenDeltaUpdates(delta geminiCodexBackfillTokenDelta) map[string]any {
-	return map[string]any{
-		"output_tokens": gorm.Expr("output_tokens + ?", delta.outputTokens),
-		"total_tokens":  gorm.Expr("total_tokens + ?", delta.totalTokens),
-	}
 }
