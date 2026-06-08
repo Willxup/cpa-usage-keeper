@@ -370,4 +370,21 @@ describe('AuthFileCredentialsSection inspection results', () => {
     expect(authFileSectionSource).toContain('credentials_inspection_invalid_accounts_invert_selection')
     expect(authFileSectionSource).toContain('credentials_inspection_invalid_accounts_sync_tip')
   })
+
+  it('keeps the invalid account modal open until post-action refresh completes', () => {
+    const handlerIndex = authFileSectionSource.indexOf('const handleConfirmInvalidAccountAction = async () => {')
+    const catchIndex = authFileSectionSource.indexOf('} catch (nextError)', handlerIndex)
+
+    expect(handlerIndex).toBeGreaterThanOrEqual(0)
+    expect(catchIndex).toBeGreaterThan(handlerIndex)
+
+    const successPath = authFileSectionSource.slice(handlerIndex, catchIndex)
+    const refreshIndex = successPath.indexOf('await Promise.all([onRefreshStatus(), onAfterInvalidAccountAction?.()])')
+    const closeIndex = successPath.indexOf('setInvalidAccountAction(null)')
+    const clearSelectionIndex = successPath.indexOf('setSelectedInvalidFileNames([])')
+
+    expect(refreshIndex).toBeGreaterThanOrEqual(0)
+    expect(closeIndex).toBeGreaterThan(refreshIndex)
+    expect(clearSelectionIndex).toBeGreaterThan(refreshIndex)
+  })
 })

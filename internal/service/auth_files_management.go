@@ -95,6 +95,9 @@ func joinAuthFilesManagementError(joined error, err error) error {
 	if err == nil {
 		return joined
 	}
+	if joined == nil {
+		return err
+	}
 	if errors.Is(joined, context.Canceled) && errors.Is(err, context.Canceled) {
 		return joined
 	}

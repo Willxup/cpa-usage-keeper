@@ -416,9 +416,9 @@ function QuotaInspectionModal({
       } else {
         await deleteAuthFiles(selectedInvalidFileNames)
       }
+      await Promise.all([onRefreshStatus(), onAfterInvalidAccountAction?.()])
       setInvalidAccountAction(null)
       setSelectedInvalidFileNames([])
-      await Promise.all([onRefreshStatus(), onAfterInvalidAccountAction?.()])
     } catch (nextError) {
       setInvalidAccountError(nextError instanceof Error ? nextError.message : t('usage_stats.credentials_inspection_invalid_accounts_failed'))
     } finally {

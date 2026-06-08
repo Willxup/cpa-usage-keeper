@@ -132,3 +132,11 @@ func TestJoinAuthFilesManagementErrorDedupesContextCancellation(t *testing.T) {
 		t.Fatalf("expected context cancellation to appear once, got %q", joined.Error())
 	}
 }
+
+func TestJoinAuthFilesManagementErrorReturnsFirstErrorDirectly(t *testing.T) {
+	first := errors.New("first failure")
+
+	if joined := joinAuthFilesManagementError(nil, first); joined != first {
+		t.Fatalf("expected first error to be returned directly, got %T %[1]v", joined)
+	}
+}
