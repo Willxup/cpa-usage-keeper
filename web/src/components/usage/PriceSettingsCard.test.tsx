@@ -49,7 +49,7 @@ describe('PriceSettingsCard', () => {
 });
 
 describe('buildPricingModelOptions', () => {
-  it('keeps only unpriced models selectable', () => {
+  it('keeps configured models visible but disabled', () => {
     const options = buildPricingModelOptions(
       ['priced-zeta', 'unpriced-beta', 'priced-alpha', 'unpriced-alpha'],
       {
@@ -57,14 +57,22 @@ describe('buildPricingModelOptions', () => {
         'priced-alpha': { style: 'openai', prompt: 2, completion: 8, cache: 0.2, cacheCreation: 0 },
       },
       'Select model',
+      'Configured',
     );
 
     expect(options.map((option) => option.value)).toEqual([
       '',
+      'priced-alpha',
+      'priced-zeta',
       'unpriced-alpha',
       'unpriced-beta',
     ]);
+    expect(options.find((option) => option.value === 'priced-alpha')).toMatchObject({
+      disabled: true,
+      suffixAriaLabel: 'Configured',
+    });
+    expect(options.find((option) => option.value === 'priced-alpha')?.suffix).toBeTruthy();
     expect(options.find((option) => option.value === 'unpriced-alpha')?.suffix).toBeUndefined();
-    expect(options.find((option) => option.value === 'priced-alpha')).toBeUndefined();
+    expect(options.find((option) => option.value === 'unpriced-alpha')?.disabled).toBeUndefined();
   });
 });

@@ -17,7 +17,7 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { ApiError, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, logout, markStatusActive, updateCpaApiKeyAlias } from '@/lib/api';
+import { ApiError, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, logout, markStatusActive, updateCpaApiKeyAlias } from '@/lib/api';
 import type { AnalysisResponse, CpaApiKeyOption, CpaApiKeySettingsItem, StatusResponse, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
@@ -195,7 +195,9 @@ export const getBackToCPALinkURL = (
   }
 };
 
-export const getUpdateCheckToastDuration = (kind: 'success' | 'info' | 'error') => (kind === 'error' ? 6_000 : 4_000);
+type TopNoticeKind = 'success' | 'info' | 'error';
+
+export const getUpdateCheckToastDuration = (kind: TopNoticeKind) => (kind === 'error' ? 6_000 : 4_000);
 
 export const shouldAutoRefreshUsageTab = ({
   activeTab,
@@ -807,10 +809,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [statusError, setStatusError] = useState('');
   const [updateCheckLoading, setUpdateCheckLoading] = useState(false);
-  const [updateCheckNotice, setUpdateCheckNotice] = useState<{ kind: 'success' | 'info' | 'error'; message: string } | null>(null);
+  const [topNotice, setTopNotice] = useState<{ kind: TopNoticeKind; message: string } | null>(null);
   const [hasNewVersion, setHasNewVersion] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
-  const updateCheckNoticeTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const topNoticeTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const [customRangeError, setCustomRangeError] = useState('');
   const [customRangeHint, setCustomRangeHint] = useState('');
   const [initialRequestEventsPreferences] = useState(loadRequestEventsPreferences);
@@ -870,12 +872,23 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       })),
     [t]
   );
-  const updateCheckToastClassName = updateCheckNotice ? (() => {
-    if (updateCheckNotice.kind === 'error') return styles.updateCheckToastError;
-    if (updateCheckNotice.kind === 'success') return styles.updateCheckToastSuccess;
+  const topNoticeToastClassName = topNotice ? (() => {
+    if (topNotice.kind === 'error') return styles.updateCheckToastError;
+    if (topNotice.kind === 'success') return styles.updateCheckToastSuccess;
     return styles.updateCheckToastInfo;
   })() : '';
   const cpaManagementURL = useMemo(() => getBackToCPALinkURL(status), [status]);
+
+  const showTopNotice = useCallback((kind: TopNoticeKind, message: string) => {
+    if (topNoticeTimerRef.current !== null) {
+      window.clearTimeout(topNoticeTimerRef.current);
+    }
+    setTopNotice({ kind, message });
+    topNoticeTimerRef.current = window.setTimeout(() => {
+      setTopNotice(null);
+      topNoticeTimerRef.current = null;
+    }, getUpdateCheckToastDuration(kind));
+  }, []);
 
   const resolvedRangeStartMs = toTimestampMs(usage?.range_start);
   const resolvedRangeEndMs = toTimestampMs(usage?.range_end);
@@ -947,7 +960,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setApiKeySettingsLoading(true);
     setApiKeySettingsError('');
     try {
-      const response = await fetchCpaApiKeys(controller.signal);
+      const response = await fetchCpaApiKeySettings(controller.signal);
       if (apiKeySettingsRequestControllerRef.current !== controller) {
         return;
       }
@@ -977,18 +990,20 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setApiKeySettingsError('');
     try {
       const updated = await updateCpaApiKeyAlias(id, keyAlias);
-      setApiKeySettings((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setApiKeySettings((current) => current.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)));
       setApiKeyOptions((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      showTopNotice('success', t('usage_stats.api_key_settings_alias_save_success'));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
         return;
       }
       setApiKeySettingsError(error instanceof Error ? error.message : 'Failed to update CPA API key alias');
+      showTopNotice('error', t('usage_stats.api_key_settings_alias_save_failed'));
     } finally {
       setApiKeySettingsSavingId(null);
     }
-  }, [onAuthRequired]);
+  }, [onAuthRequired, showTopNotice, t]);
 
   const loadAnalysis = useCallback(async () => {
     const queryWindow = buildUsageRangeQuery({ range: timeRange, customStart: customTimeRange.start, customEnd: customTimeRange.end });
@@ -1177,9 +1192,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [status]);
 
   useEffect(() => () => {
-    if (updateCheckNoticeTimerRef.current !== null) {
-      window.clearTimeout(updateCheckNoticeTimerRef.current);
-      updateCheckNoticeTimerRef.current = null;
+    if (topNoticeTimerRef.current !== null) {
+      window.clearTimeout(topNoticeTimerRef.current);
+      topNoticeTimerRef.current = null;
     }
   }, []);
 
@@ -1360,17 +1375,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [onAuthRequired, refreshActiveTab]);
 
-  const showUpdateCheckNotice = useCallback((kind: 'success' | 'info' | 'error', message: string) => {
-    if (updateCheckNoticeTimerRef.current !== null) {
-      window.clearTimeout(updateCheckNoticeTimerRef.current);
-    }
-    setUpdateCheckNotice({ kind, message });
-    updateCheckNoticeTimerRef.current = window.setTimeout(() => {
-      setUpdateCheckNotice(null);
-      updateCheckNoticeTimerRef.current = null;
-    }, getUpdateCheckToastDuration(kind));
-  }, []);
-
   const handleLogout = useCallback(async () => {
     setLoggingOut(true);
     try {
@@ -1387,27 +1391,27 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       const result = await fetchUpdateCheck();
       if (!result.canCompare) {
         setHasNewVersion(false);
-        showUpdateCheckNotice('info', t('usage_stats.update_check_dev_build'));
+        showTopNotice('info', t('usage_stats.update_check_dev_build'));
         return;
       }
       if (result.updateAvailable) {
         setHasNewVersion(true);
-        showUpdateCheckNotice('success', t('usage_stats.update_check_new_version', { version: result.latestVersion }));
+        showTopNotice('success', t('usage_stats.update_check_new_version', { version: result.latestVersion }));
         return;
       }
       setHasNewVersion(false);
-      showUpdateCheckNotice('info', t('usage_stats.update_check_latest'));
+      showTopNotice('info', t('usage_stats.update_check_latest'));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
         return;
       }
       setHasNewVersion(false);
-      showUpdateCheckNotice('error', t('usage_stats.update_check_failed'));
+      showTopNotice('error', t('usage_stats.update_check_failed'));
     } finally {
       setUpdateCheckLoading(false);
     }
-  }, [onAuthRequired, showUpdateCheckNotice, t]);
+  }, [onAuthRequired, showTopNotice, t]);
 
   useEffect(() => scheduleOverviewAutoRefresh({
     enabled: autoRefreshEnabled,
@@ -1646,22 +1650,22 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </div>
             )}
 
-            {updateCheckNotice && (
+            {topNotice && (
               <div
-                className={`${styles.updateCheckToast} ${updateCheckToastClassName}`.trim()}
+                className={`${styles.updateCheckToast} ${topNoticeToastClassName}`.trim()}
                 role="status"
                 aria-live="polite"
               >
-                <span className={styles.updateCheckToastMessage}>{updateCheckNotice.message}</span>
+                <span className={styles.updateCheckToastMessage}>{topNotice.message}</span>
                 <button
                   type="button"
                   className={styles.updateCheckToastClose}
                   onClick={() => {
-                    if (updateCheckNoticeTimerRef.current !== null) {
-                      window.clearTimeout(updateCheckNoticeTimerRef.current);
-                      updateCheckNoticeTimerRef.current = null;
+                    if (topNoticeTimerRef.current !== null) {
+                      window.clearTimeout(topNoticeTimerRef.current);
+                      topNoticeTimerRef.current = null;
                     }
-                    setUpdateCheckNotice(null);
+                    setTopNotice(null);
                   }}
                 >
                   {t('usage_stats.dismiss_notice')}
@@ -1985,11 +1989,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   loading={apiKeySettingsLoading}
                   savingId={apiKeySettingsSavingId}
                   onSaveAlias={handleSaveApiKeyAlias}
+                  onNotice={showTopNotice}
                 />
                 <PriceSettingsCard
                   modelNames={modelNames}
                   modelPrices={modelPrices}
                   onPricesChange={setModelPrices}
+                  onNotice={showTopNotice}
                   loading={pricingLoading}
                 />
               </div>

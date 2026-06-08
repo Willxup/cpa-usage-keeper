@@ -30,6 +30,19 @@ type cpaAPIKeyListResponse struct {
 	Items []cpaAPIKeyResponse `json:"items"`
 }
 
+type cpaAPIKeySettingsResponse struct {
+	ID           string  `json:"id"`
+	APIKey       string  `json:"apiKey"`
+	KeyAlias     string  `json:"keyAlias"`
+	DisplayKey   string  `json:"displayKey"`
+	Label        string  `json:"label"`
+	LastSyncedAt *string `json:"lastSyncedAt"`
+}
+
+type cpaAPIKeySettingsListResponse struct {
+	Items []cpaAPIKeySettingsResponse `json:"items"`
+}
+
 type cpaAPIKeyOption struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
@@ -50,6 +63,14 @@ func registerCPAAPIKeyRoutes(router gin.IRoutes, provider service.CPAAPIKeyProvi
 			return
 		}
 		c.JSON(http.StatusOK, cpaAPIKeyListResponse{Items: rows})
+	})
+
+	router.GET("/usage/api-keys/settings", func(c *gin.Context) {
+		rows, err := listCPAAPIKeySettingsRows(c, provider)
+		if err != nil {
+			return
+		}
+		c.JSON(http.StatusOK, cpaAPIKeySettingsListResponse{Items: rows})
 	})
 
 	router.GET("/usage/api-keys/options", func(c *gin.Context) {
@@ -113,6 +134,22 @@ func listCPAAPIKeyRows(c *gin.Context, provider service.CPAAPIKeyProvider) ([]cp
 	return response, nil
 }
 
+func listCPAAPIKeySettingsRows(c *gin.Context, provider service.CPAAPIKeyProvider) ([]cpaAPIKeySettingsResponse, error) {
+	if provider == nil {
+		return []cpaAPIKeySettingsResponse{}, nil
+	}
+	rows, err := provider.ListCPAAPIKeys(c.Request.Context())
+	if err != nil {
+		writeInternalError(c, "list api key settings failed", err)
+		return nil, err
+	}
+	response := make([]cpaAPIKeySettingsResponse, 0, len(rows))
+	for _, row := range rows {
+		response = append(response, toCPAAPIKeySettingsResponse(row))
+	}
+	return response, nil
+}
+
 func listCPAAPIKeyOptionRows(c *gin.Context, provider service.CPAAPIKeyProvider) ([]cpaAPIKeyOption, error) {
 	if provider == nil {
 		return []cpaAPIKeyOption{}, nil
@@ -138,6 +175,23 @@ func toCPAAPIKeyResponse(row entities.CPAAPIKey) cpaAPIKeyResponse {
 	}
 	return cpaAPIKeyResponse{
 		ID:           strconv.FormatInt(row.ID, 10),
+		KeyAlias:     row.KeyAlias,
+		DisplayKey:   helper.CPAAPIKeyMaskedDisplayKey(row),
+		Label:        label,
+		LastSyncedAt: lastSyncedAt,
+	}
+}
+
+func toCPAAPIKeySettingsResponse(row entities.CPAAPIKey) cpaAPIKeySettingsResponse {
+	label := helper.CPAAPIKeyDisplayName(row)
+	var lastSyncedAt *string
+	if row.LastSyncedAt != nil {
+		value := timeutil.FormatStorageTime(*row.LastSyncedAt)
+		lastSyncedAt = &value
+	}
+	return cpaAPIKeySettingsResponse{
+		ID:           strconv.FormatInt(row.ID, 10),
+		APIKey:       row.APIKey,
 		KeyAlias:     row.KeyAlias,
 		DisplayKey:   helper.CPAAPIKeyMaskedDisplayKey(row),
 		Label:        label,

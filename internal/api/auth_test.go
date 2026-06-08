@@ -391,13 +391,15 @@ func TestViewerSessionCannotAccessAdminManagementRoutes(t *testing.T) {
 	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, DisplayKey: "sk-*********live"}}
 	router := NewRouter(nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
 
-	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/api-keys", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
-	router.ServeHTTP(resp, req)
+	for _, path := range []string{"/api/v1/usage/api-keys", "/api/v1/usage/api-keys/settings"} {
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+		router.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusForbidden {
-		t.Fatalf("expected viewer session to be forbidden from admin route, got %d %s", resp.Code, resp.Body.String())
+		if resp.Code != http.StatusForbidden {
+			t.Fatalf("%s: expected viewer session to be forbidden from admin route, got %d %s", path, resp.Code, resp.Body.String())
+		}
 	}
 }
 

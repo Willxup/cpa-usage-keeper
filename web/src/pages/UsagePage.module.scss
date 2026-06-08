@@ -1027,6 +1027,36 @@
   letter-spacing: -0.01em;
 }
 
+.apiKeySettingsTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.apiKeyVisibilityToggle:global(.btn) {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
+  box-shadow: none;
+
+  > span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+.apiKeyVisibilityToggleActive:global(.btn) {
+  border-color: color-mix(in srgb, var(--primary-color) 42%, var(--border-color));
+  color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 10%, var(--bg-primary));
+}
+
 .sectionSubtitle {
   margin: 0;
   color: var(--text-secondary);
@@ -1807,14 +1837,17 @@
 }
 
 .apiKeySettingsName {
-  display: flex;
-  align-items: center;
+  display: -webkit-box;
+  min-width: 0;
   min-height: 40px;
+  overflow: hidden;
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 800;
   line-height: 1.25;
-  word-break: break-word;
+  word-break: break-all;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .apiKeySettingsMeta {
@@ -1860,12 +1893,17 @@
   align-items: center;
   justify-content: flex-end;
   align-self: stretch;
+  gap: 8px;
+  min-width: 0;
 }
 
+.apiKeySettingsCopyButton,
 .apiKeySettingsSaveButton {
-  min-width: 72px;
+  min-width: 68px;
   min-height: 40px;
   justify-content: center;
+  padding-right: 11px;
+  padding-left: 11px;
 }
 
 @include tablet {
@@ -1902,6 +1940,15 @@
 
   .apiKeySettingsForm {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .apiKeySettingsActions {
+    justify-content: stretch;
+  }
+
+  .apiKeySettingsCopyButton,
+  .apiKeySettingsSaveButton {
+    flex: 1 1 0;
   }
 
   .apiKeyAliasField {

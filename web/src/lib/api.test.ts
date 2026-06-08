@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appPath, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchKeyOverview, fetchUsageOverview, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, loginWithCPAAPIKey, logout, markStatusActive, refreshUsageQuotas, startUsageQuotaInspection, updateCpaApiKeyAlias } from './api';
+import { appPath, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyOverview, fetchUsageOverview, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, loginWithCPAAPIKey, logout, markStatusActive, refreshUsageQuotas, startUsageQuotaInspection, updateCpaApiKeyAlias } from './api';
 
 describe('fetchUsageEvents', () => {
   afterEach(() => {
@@ -301,6 +301,25 @@ describe('fetchUsageEvents', () => {
     expect(response.items[0].id).toBe('9007199254740993');
     expect(typeof response.items[0].id).toBe('string');
     expect(parsed.pathname).toBe('/api/v1/usage/api-keys');
+    expect(init).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
+  });
+
+  it('loads CPA API key settings from the admin-only raw key endpoint', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [{ id: '9007199254740993', apiKey: 'sk-alpha123456', keyAlias: '', displayKey: 'sk-*********123456', label: 'sk-*********123456', lastSyncedAt: null }] }),
+    } as Response);
+    const signal = new AbortController().signal;
+
+    const response = await fetchCpaApiKeySettings(signal);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(url), 'http://localhost');
+
+    expect(response.items[0].apiKey).toBe('sk-alpha123456');
+    expect(response.items[0].id).toBe('9007199254740993');
+    expect(parsed.pathname).toBe('/api/v1/usage/api-keys/settings');
     expect(init).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
   });
 

@@ -18,6 +18,7 @@ export interface SelectOption {
   label: string;
   suffix?: ReactNode;
   suffixAriaLabel?: string;
+  disabled?: boolean;
 }
 
 interface SelectProps {
@@ -41,6 +42,21 @@ const DROPDOWN_MAX_HEIGHT = 240;
 const DROPDOWN_Z_INDEX = 2010;
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+const findNextEnabledOptionIndex = (
+  options: ReadonlyArray<SelectOption>,
+  startIndex: number,
+  direction: 1 | -1,
+) => {
+  if (options.length === 0) return -1;
+  for (let offset = 1; offset <= options.length; offset += 1) {
+    const index = (startIndex + direction * offset + options.length) % options.length;
+    if (!options[index]?.disabled) {
+      return index;
+    }
+  }
+  return -1;
+};
 
 const resolveDropdownStyle = (element: HTMLElement, dropdownMinWidth?: number): CSSProperties => {
   const rect = element.getBoundingClientRect();
@@ -174,8 +190,13 @@ export function Select({
   }, [isOpen, scheduleDropdownStyleUpdate, updateDropdownStyle]);
 
   const selectedIndex = useMemo(() => options.findIndex((option) => option.value === value), [options, value]);
+  const firstEnabledIndex = useMemo(() => options.findIndex((option) => !option.disabled), [options]);
   const resolvedHighlightedIndex =
-    highlightedIndex >= 0 ? highlightedIndex : selectedIndex >= 0 ? selectedIndex : options.length > 0 ? 0 : -1;
+    highlightedIndex >= 0
+      ? highlightedIndex
+      : selectedIndex >= 0 && !options[selectedIndex]?.disabled
+        ? selectedIndex
+        : firstEnabledIndex;
   const selected = selectedIndex >= 0 ? options[selectedIndex] : undefined;
   const displayText = selected?.label ?? placeholder ?? '';
   const isPlaceholder = !selected && placeholder;
@@ -183,7 +204,7 @@ export function Select({
   const commitSelection = useCallback(
     (nextIndex: number) => {
       const nextOption = options[nextIndex];
-      if (!nextOption) return;
+      if (!nextOption || nextOption.disabled) return;
       onChange(nextOption.value);
       setOpen(false);
       setHighlightedIndex(nextIndex);
@@ -194,10 +215,16 @@ export function Select({
   const moveHighlight = useCallback(
     (direction: 1 | -1) => {
       if (options.length === 0) return;
-      const nextIndex = (resolvedHighlightedIndex + direction + options.length) % options.length;
+      const startIndex = resolvedHighlightedIndex >= 0
+        ? resolvedHighlightedIndex
+        : direction === 1
+          ? -1
+          : options.length;
+      const nextIndex = findNextEnabledOptionIndex(options, startIndex, direction);
+      if (nextIndex < 0) return;
       setHighlightedIndex(nextIndex);
     },
-    [options.length, resolvedHighlightedIndex]
+    [options, resolvedHighlightedIndex]
   );
 
   const handleKeyDown = useCallback(
@@ -285,10 +312,12 @@ export function Select({
                   type="button"
                   role="option"
                   aria-selected={active}
-                  className={`${styles.option} ${active ? styles.optionActive : ''} ${highlighted ? styles.optionHighlighted : ''}`.trim()}
-                  onMouseEnter={() => setHighlightedIndex(index)}
+                  aria-disabled={opt.disabled || undefined}
+                  className={`${styles.option} ${active ? styles.optionActive : ''} ${highlighted ? styles.optionHighlighted : ''} ${opt.disabled ? styles.optionDisabled : ''}`.trim()}
+                  disabled={opt.disabled}
+                  onMouseEnter={opt.disabled ? undefined : () => setHighlightedIndex(index)}
                   onKeyDown={handleKeyDown}
-                  onClick={() => commitSelection(index)}
+                  onClick={opt.disabled ? undefined : () => commitSelection(index)}
                 >
                   <span className={styles.optionLabel}>{opt.label}</span>
                   {opt.suffix ? (

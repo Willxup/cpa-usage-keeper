@@ -62,6 +62,48 @@ func TestCPAAPIKeyRoutesReturnDisplayDataWithoutRawKeys(t *testing.T) {
 	}
 }
 
+func TestCPAAPIKeySettingsRouteReturnsRawKeys(t *testing.T) {
+	db := openCPAAPIKeyAPITestDatabase(t)
+	syncedAt := time.Date(2026, 5, 13, 10, 0, 0, 0, time.UTC)
+	if err := repository.SyncCPAAPIKeys(db, []string{"sk-alpha123456", "sk-beta654321"}, syncedAt); err != nil {
+		t.Fatalf("seed API keys: %v", err)
+	}
+	if err := repository.UpdateCPAAPIKeyAlias(db, 1, "Primary Key"); err != nil {
+		t.Fatalf("seed alias: %v", err)
+	}
+	router := NewRouter(nil, statusStub{}, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: service.NewCPAAPIKeyService(db)})
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/api-keys/settings", nil)
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var parsed struct {
+		Items []struct {
+			ID           string  `json:"id"`
+			APIKey       string  `json:"apiKey"`
+			KeyAlias     string  `json:"keyAlias"`
+			DisplayKey   string  `json:"displayKey"`
+			Label        string  `json:"label"`
+			LastSyncedAt *string `json:"lastSyncedAt"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &parsed); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(parsed.Items) != 2 {
+		t.Fatalf("expected two API key rows, got %+v", parsed.Items)
+	}
+	if parsed.Items[0].ID != "1" || parsed.Items[0].APIKey != "sk-alpha123456" || parsed.Items[0].KeyAlias != "Primary Key" || parsed.Items[0].DisplayKey != "sk-*********123456" || parsed.Items[0].Label != "Primary Key" || parsed.Items[0].LastSyncedAt == nil {
+		t.Fatalf("unexpected aliased settings row: %+v", parsed.Items[0])
+	}
+	if parsed.Items[1].ID != "2" || parsed.Items[1].APIKey != "sk-beta654321" || parsed.Items[1].KeyAlias != "" || parsed.Items[1].DisplayKey != "sk-*********654321" || parsed.Items[1].Label != "sk-*********654321" {
+		t.Fatalf("unexpected fallback settings row: %+v", parsed.Items[1])
+	}
+}
+
 func TestCPAAPIKeyRoutesNormalizeStaleDisplayKeys(t *testing.T) {
 	db := openCPAAPIKeyAPITestDatabase(t)
 	if err := db.Create(&entities.CPAAPIKey{

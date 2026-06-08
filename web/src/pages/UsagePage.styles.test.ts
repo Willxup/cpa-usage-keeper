@@ -79,7 +79,7 @@ describe('UsagePage toolbar styles', () => {
   })
 
   it('keeps Sign out as the rightmost header action after Check Updates', () => {
-    expect(usagePageSource).toContain("import { ApiError, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, logout, markStatusActive, updateCpaApiKeyAlias } from '@/lib/api';")
+    expect(usagePageSource).toContain("import { ApiError, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, logout, markStatusActive, updateCpaApiKeyAlias } from '@/lib/api';")
     expect(usagePageSource.indexOf("t('usage_stats.check_updates')")).toBeLessThan(usagePageSource.indexOf("t('common.logout')"))
     expect(usagePageStyles).toContain('.signOutSwitcher')
     expect(usagePageStyles).toContain('.signOutPill')

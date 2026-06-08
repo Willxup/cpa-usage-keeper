@@ -133,3 +133,13 @@
 .optionHighlighted {
   background: var(--bg-secondary);
 }
+
+.optionDisabled {
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+  opacity: 0.76;
+
+  &:hover {
+    background: transparent;
+  }
+}

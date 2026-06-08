@@ -399,12 +399,16 @@ export interface AnalysisResponse {
   model_efficiency: AnalysisModelEfficiencyItem[]
 }
 
-export interface CpaApiKeySettingsItem {
+export interface CpaApiKeyDisplayItem {
   id: string
   keyAlias: string
   displayKey: string
   label: string
   lastSyncedAt: string | null
+}
+
+export interface CpaApiKeySettingsItem extends CpaApiKeyDisplayItem {
+  apiKey: string
 }
 
 export interface CpaApiKeyOption {
@@ -413,6 +417,10 @@ export interface CpaApiKeyOption {
 }
 
 export interface CpaApiKeysResponse {
+  items: CpaApiKeyDisplayItem[]
+}
+
+export interface CpaApiKeySettingsResponse {
   items: CpaApiKeySettingsItem[]
 }
 

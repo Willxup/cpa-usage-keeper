@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Select, type SelectOption } from '@/components/ui/Select';
+import { IconCheck } from '@/components/ui/icons';
 import type { ModelPrice, PricingStyle } from '@/lib/types';
 import styles from '@/pages/UsagePage.module.scss';
 
@@ -18,6 +19,7 @@ export interface PriceSettingsCardProps {
   modelNames: string[];
   modelPrices: Record<string, ModelPrice>;
   onPricesChange: (prices: Record<string, ModelPrice>) => void;
+  onNotice?: (kind: 'success' | 'info' | 'error', message: string) => void;
   loading?: boolean;
 }
 
@@ -54,18 +56,24 @@ export const buildPricingModelOptions = (
   modelNames: string[],
   modelPrices: Record<string, ModelPrice>,
   placeholder: string,
+  configuredLabel = 'Configured',
 ): SelectOption[] => {
   const configuredModels = new Set(Object.keys(modelPrices));
   const sortedModelNames = [...modelNames]
-    .filter((name) => !configuredModels.has(name))
     .sort((left, right) => formatDisplayName(left).localeCompare(formatDisplayName(right)));
 
   return [
     { value: '', label: placeholder },
-    ...sortedModelNames.map((name) => ({
-      value: name,
-      label: formatDisplayName(name),
-    })),
+    ...sortedModelNames.map((name) => {
+      const configured = configuredModels.has(name);
+      return {
+        value: name,
+        label: formatDisplayName(name),
+        disabled: configured || undefined,
+        suffix: configured ? <IconCheck size={12} /> : undefined,
+        suffixAriaLabel: configured ? configuredLabel : undefined,
+      };
+    }),
   ];
 };
 
@@ -73,6 +81,7 @@ export function PriceSettingsCard({
   modelNames,
   modelPrices,
   onPricesChange,
+  onNotice,
   loading = false
 }: PriceSettingsCardProps) {
   const { t } = useTranslation();
@@ -97,12 +106,19 @@ export function PriceSettingsCard({
     if (!selectedModel) return;
     const prompt = parsePriceValue(promptPrice);
     const completion = parsePriceValue(completionPrice);
-    if (prompt === null || completion === null) return;
+    if (prompt === null || completion === null) {
+      onNotice?.('error', t('usage_stats.model_price_save_failed'));
+      return;
+    }
     const cache = parseCachePriceValue(cachePrice, pricingStyle, prompt);
     const cacheCreation = parseCacheCreationPriceValue(cacheCreationPrice, pricingStyle);
-    if (cache === null || cacheCreation === null) return;
+    if (cache === null || cacheCreation === null) {
+      onNotice?.('error', t('usage_stats.model_price_save_failed'));
+      return;
+    }
     const newPrices = { ...modelPrices, [selectedModel]: { style: pricingStyle, prompt, completion, cache, cacheCreation } };
     onPricesChange(newPrices);
+    onNotice?.('success', t('usage_stats.model_price_save_success'));
     setSelectedModel('');
     setPricingStyle('openai');
     setPromptPrice('');
@@ -115,6 +131,7 @@ export function PriceSettingsCard({
     const newPrices = { ...modelPrices };
     delete newPrices[model];
     onPricesChange(newPrices);
+    onNotice?.('success', t('usage_stats.model_price_delete_success'));
   };
 
   const handleOpenEdit = (model: string) => {
@@ -125,18 +142,26 @@ export function PriceSettingsCard({
     setEditCompletion(price?.completion?.toString() || '');
     setEditCache(price?.cache?.toString() || '');
     setEditCacheCreation(price?.cacheCreation?.toString() || '');
+    onNotice?.('info', t('usage_stats.model_price_edit_notice', { model: formatDisplayName(model) }));
   };
 
   const handleSaveEdit = () => {
     if (!editModel) return;
     const prompt = parsePriceValue(editPrompt);
     const completion = parsePriceValue(editCompletion);
-    if (prompt === null || completion === null) return;
+    if (prompt === null || completion === null) {
+      onNotice?.('error', t('usage_stats.model_price_edit_failed'));
+      return;
+    }
     const cache = parseCachePriceValue(editCache, editStyle, prompt);
     const cacheCreation = parseCacheCreationPriceValue(editCacheCreation, editStyle);
-    if (cache === null || cacheCreation === null) return;
+    if (cache === null || cacheCreation === null) {
+      onNotice?.('error', t('usage_stats.model_price_edit_failed'));
+      return;
+    }
     const newPrices = { ...modelPrices, [editModel]: { style: editStyle, prompt, completion, cache, cacheCreation } };
     onPricesChange(newPrices);
+    onNotice?.('success', t('usage_stats.model_price_edit_success'));
     setEditModel(null);
   };
 
@@ -163,6 +188,7 @@ export function PriceSettingsCard({
       modelNames,
       modelPrices,
       t('usage_stats.model_price_select_placeholder'),
+      t('usage_stats.model_price_configured'),
     ),
     [modelNames, modelPrices, t]
   );
