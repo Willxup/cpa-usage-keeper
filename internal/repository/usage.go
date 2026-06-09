@@ -1,7 +1,9 @@
 package repository
 
 import (
+	"database/sql"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -15,6 +17,7 @@ import (
 
 // usageEventProjectionColumns 限制 usage_events 查询列，避免 Overview 和列表页把 RawJSON 等大字段读入内存。
 const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, model, reasoning_effort, executor_type, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+const analysisLatencyMaxDisplayPoints = 2500
 
 // usageEventProjection 是 usage_events 轻量投影，专门承接 select columns 的查询结果。
 type usageEventProjection struct {
@@ -290,6 +293,11 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 			CostAvailable: true,
 		},
 	}
+	latencyDiagnostics, err := buildAnalysisLatencyDiagnosticsWithFilter(db, filter)
+	if err != nil {
+		return nil, err
+	}
+	record.LatencyDiagnostics = latencyDiagnostics
 
 	fullStart, fullEnd := usageOverviewFullHourWindow(*filter.StartTime, *filter.EndTime)
 	fullEnd = analysisHourlyStatsEnd(filter, fullEnd)
@@ -370,6 +378,114 @@ type analysisIdentityInfo struct {
 }
 
 type analysisIdentityLookup map[entities.UsageIdentityAuthType]map[string]analysisIdentityInfo
+
+func buildAnalysisLatencyDiagnosticsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (dto.AnalysisLatencyDiagnosticsRecord, error) {
+	empty := emptyAnalysisLatencyDiagnosticsRecord()
+	// 延迟诊断的 SQL 只按已有索引维度收窄窗口；TTFT/Latency 有效性在内存过滤，避免依赖未索引列。
+	query := db.Model(&entities.UsageEvent{}).
+		Select("latency_ms, ttft_ms")
+	query = applyUsageAnalysisTabQuery(query, filter)
+
+	rows, err := query.Rows()
+	if err != nil {
+		if isMissingUsageEventsTableError(err) {
+			return empty, nil
+		}
+		return empty, fmt.Errorf("load analysis latency diagnostics: %w", err)
+	}
+	defer rows.Close()
+
+	ttftValues := []int64{}
+	latencyValues := []int64{}
+	for rows.Next() {
+		var latencyMS int64
+		var ttftMS sql.NullInt64
+		if err := rows.Scan(&latencyMS, &ttftMS); err != nil {
+			return empty, fmt.Errorf("scan analysis latency diagnostics: %w", err)
+		}
+		if !ttftMS.Valid || ttftMS.Int64 <= 0 || latencyMS <= 0 {
+			continue
+		}
+		// 保留原始 int64 值，避免为毫秒字段引入额外 int32 转换。
+		ttftValues = append(ttftValues, ttftMS.Int64)
+		latencyValues = append(latencyValues, latencyMS)
+	}
+	if err := rows.Err(); err != nil {
+		return empty, fmt.Errorf("iterate analysis latency diagnostics: %w", err)
+	}
+	return buildAnalysisLatencyDiagnostics(ttftValues, latencyValues), nil
+}
+
+func emptyAnalysisLatencyDiagnosticsRecord() dto.AnalysisLatencyDiagnosticsRecord {
+	return dto.AnalysisLatencyDiagnosticsRecord{
+		Points:  []dto.AnalysisLatencyPointRecord{},
+		Density: []dto.AnalysisLatencyDensityCellRecord{},
+	}
+}
+
+func isMissingUsageEventsTableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "usage_events") && (strings.Contains(message, "no such table") || strings.Contains(message, "doesn't exist"))
+}
+
+func buildAnalysisLatencyDiagnostics(ttftValues, latencyValues []int64) dto.AnalysisLatencyDiagnosticsRecord {
+	result := emptyAnalysisLatencyDiagnosticsRecord()
+	if len(ttftValues) == 0 {
+		return result
+	}
+
+	for index, ttft := range ttftValues {
+		latency := latencyValues[index]
+		if ttft > result.MaxTTFTMS {
+			result.MaxTTFTMS = ttft
+		}
+		if latency > result.MaxLatencyMS {
+			result.MaxLatencyMS = latency
+		}
+	}
+
+	// p95 基于完整样本计算；前端散点只做确定性抽样，避免浏览器绘制过多点。
+	result.TotalPoints = int64(len(ttftValues))
+	result.P95TTFTMS = analysisNearestRankPercentile(ttftValues, 0.95)
+	result.P95LatencyMS = analysisNearestRankPercentile(latencyValues, 0.95)
+	result.Points, result.Sampled = sampleAnalysisLatencyPoints(ttftValues, latencyValues)
+	return result
+}
+
+func analysisNearestRankPercentile(values []int64, percentile float64) int64 {
+	if len(values) == 0 {
+		return 0
+	}
+	sortedValues := append([]int64(nil), values...)
+	sort.Slice(sortedValues, func(i, j int) bool { return sortedValues[i] < sortedValues[j] })
+	index := int(math.Ceil(percentile*float64(len(sortedValues)))) - 1
+	if index < 0 {
+		index = 0
+	}
+	if index >= len(sortedValues) {
+		index = len(sortedValues) - 1
+	}
+	return sortedValues[index]
+}
+
+func sampleAnalysisLatencyPoints(ttftValues, latencyValues []int64) ([]dto.AnalysisLatencyPointRecord, bool) {
+	if len(ttftValues) <= analysisLatencyMaxDisplayPoints {
+		points := make([]dto.AnalysisLatencyPointRecord, 0, len(ttftValues))
+		for index, ttft := range ttftValues {
+			points = append(points, dto.AnalysisLatencyPointRecord{TTFTMS: ttft, LatencyMS: latencyValues[index]})
+		}
+		return points, false
+	}
+	points := make([]dto.AnalysisLatencyPointRecord, 0, analysisLatencyMaxDisplayPoints)
+	for index := 0; index < analysisLatencyMaxDisplayPoints; index++ {
+		sourceIndex := int(math.Floor(float64(index) * float64(len(ttftValues)-1) / float64(analysisLatencyMaxDisplayPoints-1)))
+		points = append(points, dto.AnalysisLatencyPointRecord{TTFTMS: ttftValues[sourceIndex], LatencyMS: latencyValues[sourceIndex]})
+	}
+	return points, true
+}
 
 func loadAnalysisHourlyIdentityLookup(db *gorm.DB, rows []entities.UsageOverviewHourlyStat) (analysisIdentityLookup, error) {
 	return loadAnalysisIdentityLookup(db, collectAnalysisAuthIndexes(len(rows), func(i int) string {

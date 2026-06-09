@@ -390,6 +390,31 @@ export interface AnalysisModelEfficiencyItem {
   cache_rate: number
 }
 
+export interface AnalysisLatencyPoint {
+  ttft_ms: number
+  latency_ms: number
+}
+
+export interface AnalysisLatencyDensityCell {
+  ttft_min_ms: number
+  ttft_max_ms: number
+  latency_min_ms: number
+  latency_max_ms: number
+  count: number
+  intensity: number
+}
+
+export interface AnalysisLatencyDiagnostics {
+  points: AnalysisLatencyPoint[]
+  density: AnalysisLatencyDensityCell[]
+  total_points: number
+  sampled: boolean
+  p95_ttft_ms: number
+  p95_latency_ms: number
+  max_ttft_ms: number
+  max_latency_ms: number
+}
+
 export interface AnalysisResponse {
   granularity: 'hourly' | 'daily'
   timezone: string
@@ -403,6 +428,7 @@ export interface AnalysisResponse {
   heatmap: AnalysisHeatmapPayload
   cost_breakdown: AnalysisCostBreakdown
   model_efficiency: AnalysisModelEfficiencyItem[]
+  latency_diagnostics: AnalysisLatencyDiagnostics
 }
 
 export interface CpaApiKeyDisplayItem {

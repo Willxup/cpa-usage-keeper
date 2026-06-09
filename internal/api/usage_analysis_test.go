@@ -138,6 +138,26 @@ func TestUsageAnalysisReturnsAggregatedRows(t *testing.T) {
 			OutputTokensPerRequest: 5.5,
 			CacheRate:              1.0 / 30.0,
 		}},
+		LatencyDiagnostics: servicedto.AnalysisLatencyDiagnostics{
+			TotalPoints:  2,
+			Sampled:      false,
+			P95TTFTMS:    240,
+			P95LatencyMS: 1200,
+			MaxTTFTMS:    240,
+			MaxLatencyMS: 1200,
+			Points: []servicedto.AnalysisLatencyPoint{
+				{TTFTMS: 120, LatencyMS: 800},
+				{TTFTMS: 240, LatencyMS: 1200},
+			},
+			Density: []servicedto.AnalysisLatencyDensityCell{{
+				TTFTMinMS:    0,
+				TTFTMaxMS:    250,
+				LatencyMinMS: 0,
+				LatencyMaxMS: 1300,
+				Count:        2,
+				Intensity:    1,
+			}},
+		},
 	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/analysis?range=24h", nil)
@@ -175,6 +195,9 @@ func TestUsageAnalysisReturnsAggregatedRows(t *testing.T) {
 	}
 	if !contains(body, `"model_efficiency":`) || !contains(body, `"cost_per_request_usd":0.615`) || !contains(body, `"output_tokens_per_request":5.5`) || !contains(body, `"cache_rate":0.03333333333333333`) {
 		t.Fatalf("expected model efficiency in response body: %s", body)
+	}
+	if !contains(body, `"latency_diagnostics":`) || !contains(body, `"p95_ttft_ms":240`) || !contains(body, `"p95_latency_ms":1200`) || !contains(body, `"ttft_ms":120`) || !contains(body, `"count":2`) {
+		t.Fatalf("expected latency diagnostics in response body: %s", body)
 	}
 	if provider.analysisCalls != 1 {
 		t.Fatalf("expected GetAnalysis to be called once, got %d", provider.analysisCalls)

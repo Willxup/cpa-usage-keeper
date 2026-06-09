@@ -1,7 +1,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ChartData, ChartOptions } from 'chart.js';
+import type { ChartData, ChartOptions, Plugin } from 'chart.js';
 import type { AnalysisResponse } from '@/lib/types';
 
 const chartCapture = vi.hoisted(() => ({
@@ -9,8 +9,9 @@ const chartCapture = vi.hoisted(() => ({
   barOptions: null as ChartOptions<'bar'> | null,
   doughnutData: null as ChartData<'doughnut', number[], string> | null,
   doughnutCount: 0,
-  scatterData: null as ChartData<'scatter'> | null,
-  scatterOptions: null as ChartOptions<'scatter'> | null,
+  scatterData: [] as ChartData<'scatter'>[],
+  scatterOptions: [] as ChartOptions<'scatter'>[],
+  scatterPlugins: [] as Array<Plugin<'scatter'>[] | undefined>,
 }));
 
 vi.mock('react-chartjs-2', () => ({
@@ -24,9 +25,10 @@ vi.mock('react-chartjs-2', () => ({
     chartCapture.doughnutCount += 1;
     return React.createElement('div');
   },
-  Scatter: (props: { data: ChartData<'scatter'>; options: ChartOptions<'scatter'> }) => {
-    chartCapture.scatterData = props.data;
-    chartCapture.scatterOptions = props.options;
+  Scatter: (props: { data: ChartData<'scatter'>; options: ChartOptions<'scatter'>; plugins?: Plugin<'scatter'>[] }) => {
+    chartCapture.scatterData.push(props.data);
+    chartCapture.scatterOptions.push(props.options);
+    chartCapture.scatterPlugins.push(props.plugins);
     return React.createElement('div');
   },
 }));
@@ -124,6 +126,16 @@ const emptyAnalysis: AnalysisResponse = {
     models: [],
     cells: [],
   },
+  latency_diagnostics: {
+    points: [],
+    density: [],
+    total_points: 0,
+    sampled: false,
+    p95_ttft_ms: 0,
+    p95_latency_ms: 0,
+    max_ttft_ms: 0,
+    max_latency_ms: 0,
+  },
 };
 
 describe('AnalysisPanel token chart data', () => {
@@ -132,8 +144,9 @@ describe('AnalysisPanel token chart data', () => {
     chartCapture.barOptions = null;
     chartCapture.doughnutData = null;
     chartCapture.doughnutCount = 0;
-    chartCapture.scatterData = null;
-    chartCapture.scatterOptions = null;
+    chartCapture.scatterData = [];
+    chartCapture.scatterOptions = [];
+    chartCapture.scatterPlugins = [];
   });
 
   afterEach(() => {
@@ -235,6 +248,293 @@ describe('AnalysisPanel token chart data', () => {
     expect(markup).not.toContain('usage_stats.analysis_model_composition_title');
     expect(markup).not.toContain('usage_stats.analysis_auth_files_composition_title');
     expect(markup).not.toContain('usage_stats.analysis_ai_provider_composition_title');
+  });
+
+  it('renders latency diagnostics scatter before usage distribution', () => {
+    const analysis: AnalysisResponse = {
+      ...emptyAnalysis,
+      latency_diagnostics: {
+        total_points: 3,
+        sampled: false,
+        p95_ttft_ms: 300,
+        p95_latency_ms: 1400,
+        max_ttft_ms: 900,
+        max_latency_ms: 3600,
+        points: [
+          { ttft_ms: 120, latency_ms: 800 },
+          { ttft_ms: 300, latency_ms: 1400 },
+          { ttft_ms: 900, latency_ms: 3600 },
+        ],
+        density: [{
+          ttft_min_ms: 0,
+          ttft_max_ms: 400,
+          latency_min_ms: 0,
+          latency_max_ms: 1800,
+          count: 2,
+          intensity: 1,
+        }],
+      },
+    };
+
+    const markup = renderToStaticMarkup(<AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} />);
+
+    expect(markup).toContain('usage_stats.analysis_latency_title');
+    expect(markup.indexOf('usage_stats.analysis_latency_title')).toBeLessThan(markup.indexOf('usage_stats.analysis_composition_title'));
+    const latencyScatterIndex = chartCapture.scatterData.findIndex((data) => data.datasets[0]?.label === 'usage_stats.analysis_latency_samples');
+    expect(latencyScatterIndex).toBeGreaterThanOrEqual(0);
+    const latencyScatterData = chartCapture.scatterData[latencyScatterIndex];
+    const latencyScatterOptions = chartCapture.scatterOptions[latencyScatterIndex];
+    expect(latencyScatterData.datasets[0]?.data[0]).toMatchObject({ x: 120, y: 800 });
+    expect(latencyScatterData.datasets[0]?.pointRadius).toBe(3);
+    expect(latencyScatterData.datasets[0]?.pointBackgroundColor).toBe('rgba(45, 212, 191, 0.62)');
+    expect(latencyScatterData.datasets[0]?.pointBorderColor).toBe('transparent');
+    expect(latencyScatterData.datasets[0]?.pointBorderWidth).toBe(0);
+    expect(latencyScatterData.datasets[0]?.borderWidth).toBe(0);
+    expect(latencyScatterOptions.scales?.x?.type).toBe('logarithmic');
+    expect(latencyScatterOptions.scales?.y?.type).toBe('logarithmic');
+    expect((latencyScatterOptions.scales?.x as { min?: number }).min).toBeGreaterThan(0);
+    expect((latencyScatterOptions.scales?.y as { min?: number }).min).toBeGreaterThan(0);
+    expect(latencyScatterOptions.scales?.x?.title?.text).toBe('usage_stats.ttft');
+    expect(latencyScatterOptions.scales?.y?.title?.text).toBe('usage_stats.latency');
+    expect(latencyScatterOptions.plugins?.tooltip?.callbacks?.label?.({
+      parsed: { x: 120, y: 800 },
+    } as never)).toEqual([
+      'usage_stats.ttft: 120ms',
+      'usage_stats.latency: 800ms',
+    ]);
+    expect(chartCapture.scatterPlugins[latencyScatterIndex]?.map((plugin) => plugin.id)).toContain('analysis-latency-diagnostics');
+    const latencyPlugin = chartCapture.scatterPlugins[latencyScatterIndex]?.find((plugin) => plugin.id === 'analysis-latency-diagnostics');
+    expect(markup).toContain('usage_stats.analysis_latency_p95_ttft');
+    expect(markup).toContain('300ms');
+    expect(markup).toContain('usage_stats.analysis_latency_p95_latency');
+    expect(markup).toContain('1.4s');
+    expect(markup).toContain('usage_stats.analysis_latency_samples_count');
+    const latencyPluginOptions = (latencyScatterOptions.plugins as {
+      analysisLatencyDiagnostics?: {
+        labels?: {
+          p95TTFT?: string;
+          p95Latency?: string;
+        };
+        colors?: {
+          point?: string;
+          pointFill?: string;
+          p95TTFT?: string;
+          p95Latency?: string;
+        };
+      };
+    }).analysisLatencyDiagnostics;
+    expect(markup).not.toContain('usage_stats.analysis_latency_density');
+    expect(markup).not.toContain('usage_stats.analysis_latency_density_low');
+    expect(markup).not.toContain('usage_stats.analysis_latency_density_high');
+    expect(markup).not.toContain('usage_stats.analysis_latency_dots_hint');
+    expect(latencyPluginOptions?.labels).toMatchObject({
+      p95TTFT: 'usage_stats.analysis_latency_p95_ttft',
+      p95Latency: 'usage_stats.analysis_latency_p95_latency',
+    });
+    expect(latencyPluginOptions).not.toHaveProperty('visualStyle');
+    expect(latencyPluginOptions).not.toHaveProperty('density');
+    expect(latencyPluginOptions).not.toHaveProperty('isDark');
+    expect(latencyPluginOptions?.labels).not.toHaveProperty('equalLine');
+    expect(latencyPluginOptions?.labels).not.toHaveProperty('fastArea');
+    expect(latencyPluginOptions?.labels).not.toHaveProperty('longCompletionArea');
+    expect(latencyPluginOptions?.labels).not.toHaveProperty('slowFirstTokenArea');
+    expect(latencyPluginOptions?.colors).toMatchObject({
+      point: '#14b8a6',
+      pointFill: 'rgba(45, 212, 191, 0.62)',
+      p95TTFT: '#38bdf8',
+      p95Latency: '#fb7185',
+    });
+    expect(latencyPluginOptions?.colors).not.toHaveProperty('fastZone');
+    expect(latencyPluginOptions?.colors).not.toHaveProperty('longCompletionZone');
+    expect(latencyPluginOptions?.colors).not.toHaveProperty('slowFirstTokenZone');
+    expect(latencyPluginOptions?.colors).not.toHaveProperty('densityCloud');
+
+    const fakeCanvas = { style: {} as Record<string, string>, title: '' };
+    const lineStrokes: Array<{ lineWidth: number; strokeStyle: string; dash: number[] }> = [];
+    let currentLineWidth = 1;
+    let currentStrokeStyle = '';
+    let currentDash: number[] = [];
+    const fakeCtx = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      setLineDash: vi.fn((dash: number[]) => {
+        currentDash = dash;
+      }),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      stroke: vi.fn(() => {
+        lineStrokes.push({
+          lineWidth: currentLineWidth,
+          strokeStyle: currentStrokeStyle,
+          dash: [...currentDash],
+        });
+      }),
+      fillText: vi.fn(),
+      measureText: vi.fn((text: string) => ({ width: text.length * 6 })),
+      fillRect: vi.fn(),
+      strokeRect: vi.fn(),
+      fillStyle: '',
+      font: '',
+      textAlign: '',
+      textBaseline: '',
+      set lineWidth(value: number) {
+        currentLineWidth = value;
+      },
+      get lineWidth() {
+        return currentLineWidth;
+      },
+      set strokeStyle(value: string) {
+        currentStrokeStyle = value;
+      },
+      get strokeStyle() {
+        return currentStrokeStyle;
+      },
+    };
+    const fakeChart = {
+      options: latencyScatterOptions,
+      chartArea: { left: 10, right: 500, top: 20, bottom: 300 },
+      ctx: fakeCtx,
+      canvas: fakeCanvas,
+      scales: {
+        x: { getPixelForValue: (value: number) => (value === 300 ? 120 : 20) },
+        y: { getPixelForValue: (value: number) => (value === 1400 ? 80 : 280) },
+      },
+    };
+    const ttftHoverArgs = {
+      event: { type: 'mousemove', x: 124, y: 100, native: null },
+      replay: false,
+      cancelable: false,
+      inChartArea: true,
+      changed: false,
+    };
+    latencyPlugin?.afterEvent?.(fakeChart as never, ttftHoverArgs as never, {} as never);
+    expect(ttftHoverArgs.changed).toBe(true);
+    expect(fakeCanvas.style.cursor).toBe('');
+    expect(fakeCanvas.title).toBe('');
+    latencyPlugin?.afterDatasetsDraw?.(fakeChart as never, {} as never, {} as never);
+    expect(lineStrokes.some((stroke) => stroke.strokeStyle === '#38bdf8' && stroke.lineWidth > 1.4)).toBe(true);
+
+    const latencyHoverArgs = {
+      event: { type: 'mousemove', x: 260, y: 84, native: null },
+      replay: false,
+      cancelable: false,
+      inChartArea: true,
+      changed: false,
+    };
+    lineStrokes.length = 0;
+    latencyPlugin?.afterEvent?.(fakeChart as never, latencyHoverArgs as never, {} as never);
+    expect(latencyHoverArgs.changed).toBe(true);
+    expect(fakeCanvas.style.cursor).toBe('');
+    expect(fakeCanvas.title).toBe('');
+    latencyPlugin?.afterDatasetsDraw?.(fakeChart as never, {} as never, {} as never);
+    expect(lineStrokes.some((stroke) => stroke.strokeStyle === '#fb7185' && stroke.lineWidth > 1.4)).toBe(true);
+
+    const chartWithoutArea = {
+      ...fakeChart,
+      chartArea: undefined,
+    };
+    expect(() => latencyPlugin?.afterDatasetsDraw?.(chartWithoutArea as never, {} as never, {} as never)).not.toThrow();
+
+    const outArgs = {
+      event: { type: 'mouseout', x: null, y: null, native: null },
+      replay: false,
+      cancelable: false,
+      inChartArea: false,
+      changed: false,
+    };
+    latencyPlugin?.afterEvent?.(fakeChart as never, outArgs as never, {} as never);
+    expect(outArgs.changed).toBe(true);
+    expect(fakeCanvas.style.cursor).toBe('');
+    expect(fakeCanvas.title).toBe('');
+  });
+
+  it('builds latency diagnostics log bounds without spreading large point arrays', () => {
+    const points = Array.from({ length: 150_000 }, (_, index) => ({
+      ttft_ms: index + 1,
+      latency_ms: (index + 1) * 2,
+    }));
+    const analysis: AnalysisResponse = {
+      ...emptyAnalysis,
+      latency_diagnostics: {
+        total_points: points.length,
+        sampled: true,
+        p95_ttft_ms: 142_500,
+        p95_latency_ms: 285_000,
+        max_ttft_ms: 150_000,
+        max_latency_ms: 300_000,
+        points,
+        density: [],
+      },
+    };
+
+    expect(() => renderToStaticMarkup(<AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} />)).not.toThrow();
+    const latencyScatterIndex = chartCapture.scatterData.findIndex((data) => data.datasets[0]?.label === 'usage_stats.analysis_latency_samples');
+    expect(latencyScatterIndex).toBeGreaterThanOrEqual(0);
+    const latencyScatterOptions = chartCapture.scatterOptions[latencyScatterIndex];
+    expect((latencyScatterOptions.scales?.x as { max?: number }).max).toBeGreaterThan(150_000);
+    expect((latencyScatterOptions.scales?.y as { max?: number }).max).toBeGreaterThan(300_000);
+  });
+
+  it('uses theme-aware lighter colors for latency diagnostics', () => {
+    const analysis: AnalysisResponse = {
+      ...emptyAnalysis,
+      latency_diagnostics: {
+        total_points: 1,
+        sampled: false,
+        p95_ttft_ms: 240,
+        p95_latency_ms: 1200,
+        max_ttft_ms: 240,
+        max_latency_ms: 1200,
+        points: [{ ttft_ms: 240, latency_ms: 1200 }],
+        density: [{
+          ttft_min_ms: 100,
+          ttft_max_ms: 300,
+          latency_min_ms: 800,
+          latency_max_ms: 1400,
+          count: 1,
+          intensity: 1,
+        }],
+      },
+    };
+
+    renderToStaticMarkup(<AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} />);
+    const lightScatterIndex = chartCapture.scatterData.findIndex((data) => data.datasets[0]?.label === 'usage_stats.analysis_latency_samples');
+    const lightData = chartCapture.scatterData[lightScatterIndex];
+    const lightOptions = chartCapture.scatterOptions[lightScatterIndex];
+
+    chartCapture.scatterData = [];
+    chartCapture.scatterOptions = [];
+    chartCapture.scatterPlugins = [];
+    renderToStaticMarkup(<AnalysisPanel analysis={analysis} loading={false} isDark isMobile={false} />);
+    const darkScatterIndex = chartCapture.scatterData.findIndex((data) => data.datasets[0]?.label === 'usage_stats.analysis_latency_samples');
+    const darkData = chartCapture.scatterData[darkScatterIndex];
+    const darkOptions = chartCapture.scatterOptions[darkScatterIndex];
+
+    expect(lightData.datasets[0]?.pointBackgroundColor).toBe('rgba(45, 212, 191, 0.62)');
+    expect(darkData.datasets[0]?.pointBackgroundColor).toBe('rgba(94, 234, 212, 0.72)');
+    expect(lightData.datasets[0]?.pointBorderColor).toBe('transparent');
+    expect(darkData.datasets[0]?.pointBorderColor).toBe('transparent');
+    const lightPluginColors = (lightOptions.plugins as { analysisLatencyDiagnostics?: { colors?: Record<string, unknown> } }).analysisLatencyDiagnostics?.colors;
+    const darkPluginColors = (darkOptions.plugins as { analysisLatencyDiagnostics?: { colors?: Record<string, unknown> } }).analysisLatencyDiagnostics?.colors;
+    expect(lightPluginColors).toMatchObject({
+      point: '#14b8a6',
+      pointFill: 'rgba(45, 212, 191, 0.62)',
+      p95TTFT: '#38bdf8',
+      p95Latency: '#fb7185',
+    });
+    expect(darkPluginColors).toMatchObject({
+      point: '#5eead4',
+      pointFill: 'rgba(94, 234, 212, 0.72)',
+      p95TTFT: '#7dd3fc',
+      p95Latency: '#fda4af',
+    });
+    expect(lightPluginColors).not.toHaveProperty('densityRamp');
+    expect(darkPluginColors).not.toHaveProperty('densityRamp');
+    expect(lightPluginColors).not.toHaveProperty('equalLine');
+    expect(darkPluginColors).not.toHaveProperty('equalLine');
+    expect(lightPluginColors).not.toHaveProperty('guideText');
+    expect(darkPluginColors).not.toHaveProperty('guideText');
   });
 
   it('renders cost breakdown with total beside blended rate, segment percentages and sparkline', () => {
@@ -346,37 +646,41 @@ describe('AnalysisPanel token chart data', () => {
 
     const markup = renderToStaticMarkup(<AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} />);
 
-    expect(chartCapture.scatterData?.datasets[0]?.label).toBe('usage_stats.analysis_model_efficiency_title');
-    expect(chartCapture.scatterData?.datasets[0]?.data[0]).toMatchObject({ x: 2_000_000, y: 1 });
-    expect(chartCapture.scatterOptions?.scales?.x?.type).toBe('logarithmic');
-    expect(chartCapture.scatterOptions?.scales?.y?.type).toBe('logarithmic');
-    expect(chartCapture.scatterOptions?.scales?.x).not.toHaveProperty('beginAtZero');
-    expect(chartCapture.scatterOptions?.scales?.y).not.toHaveProperty('beginAtZero');
-    const pointRadii = chartCapture.scatterData?.datasets[0]?.pointRadius as number[];
+    const modelScatterIndex = chartCapture.scatterData.findIndex((data) => data.datasets[0]?.label === 'usage_stats.analysis_model_efficiency_title');
+    expect(modelScatterIndex).toBeGreaterThanOrEqual(0);
+    const modelScatterData = chartCapture.scatterData[modelScatterIndex];
+    const modelScatterOptions = chartCapture.scatterOptions[modelScatterIndex];
+    expect(modelScatterData.datasets[0]?.label).toBe('usage_stats.analysis_model_efficiency_title');
+    expect(modelScatterData.datasets[0]?.data[0]).toMatchObject({ x: 2_000_000, y: 1 });
+    expect(modelScatterOptions.scales?.x?.type).toBe('logarithmic');
+    expect(modelScatterOptions.scales?.y?.type).toBe('logarithmic');
+    expect(modelScatterOptions.scales?.x).not.toHaveProperty('beginAtZero');
+    expect(modelScatterOptions.scales?.y).not.toHaveProperty('beginAtZero');
+    const pointRadii = modelScatterData.datasets[0]?.pointRadius as number[];
     expect(pointRadii[0]).toBe(5);
     expect(pointRadii[1]).toBeGreaterThan(10);
     expect(pointRadii[2]).toBe(24);
     expect(pointRadii[2] - pointRadii[1]).toBeGreaterThan(4);
-    expect(chartCapture.scatterData?.datasets[0]?.clip).toBe(false);
-    expect(chartCapture.scatterOptions?.layout?.padding).toEqual({ top: 16, right: 24, bottom: 22, left: 18 });
-    expect((chartCapture.scatterOptions?.scales?.x as { min?: number }).min).toBeLessThan(2_000_000);
-    expect((chartCapture.scatterOptions?.scales?.x as { max?: number }).max).toBeGreaterThan(9_000_000);
-    expect((chartCapture.scatterOptions?.scales?.y as { min?: number }).min).toBeLessThan(1);
-    expect((chartCapture.scatterOptions?.scales?.y as { max?: number }).max).toBeGreaterThan(4);
+    expect(modelScatterData.datasets[0]?.clip).toBe(false);
+    expect(modelScatterOptions.layout?.padding).toEqual({ top: 16, right: 24, bottom: 22, left: 18 });
+    expect((modelScatterOptions.scales?.x as { min?: number }).min).toBeLessThan(2_000_000);
+    expect((modelScatterOptions.scales?.x as { max?: number }).max).toBeGreaterThan(9_000_000);
+    expect((modelScatterOptions.scales?.y as { min?: number }).min).toBeLessThan(1);
+    expect((modelScatterOptions.scales?.y as { max?: number }).max).toBeGreaterThan(4);
     expect(markup).not.toContain('gpt-4o');
     expect(markup).not.toContain('claude-sonnet');
     expect(markup).not.toContain('gemini-pro');
-    const modelColors = chartCapture.scatterData?.datasets[0]?.borderColor as string[];
+    const modelColors = modelScatterData.datasets[0]?.borderColor as string[];
     expect(new Set(modelColors)).toHaveProperty('size', 3);
     expect(modelColors).not.toContain('#dc2626');
     expect(modelColors).not.toContain('#2563eb');
-    expect(typeof chartCapture.scatterData?.datasets[0]?.backgroundColor).toBe('function');
+    expect(typeof modelScatterData.datasets[0]?.backgroundColor).toBe('function');
     const gradient = {
       addColorStop: vi.fn(),
     };
     const createLinearGradient = vi.fn(() => gradient);
     const createRadialGradient = vi.fn();
-    const fill = (chartCapture.scatterData?.datasets[0]?.backgroundColor as (context: unknown) => unknown)({
+    const fill = (modelScatterData.datasets[0]?.backgroundColor as (context: unknown) => unknown)({
       dataIndex: 0,
       chart: { ctx: { createLinearGradient, createRadialGradient } },
       element: { x: 40, y: 50, options: { radius: 12 } },
@@ -386,8 +690,8 @@ describe('AnalysisPanel token chart data', () => {
     expect(createLinearGradient).toHaveBeenCalledWith(28, 50, 52, 50);
     expect(gradient.addColorStop).toHaveBeenCalledWith(0, '#7898c8');
     expect(gradient.addColorStop).toHaveBeenCalledWith(1, '#5b7fb9');
-    expect(chartCapture.scatterOptions?.plugins?.tooltip?.enabled).toBe(false);
-    expect(typeof chartCapture.scatterOptions?.plugins?.tooltip?.external).toBe('function');
+    expect(modelScatterOptions.plugins?.tooltip?.enabled).toBe(false);
+    expect(typeof modelScatterOptions.plugins?.tooltip?.external).toBe('function');
   });
 
   it('keeps each overlapped model name grouped with its own model efficiency values', () => {
@@ -432,7 +736,9 @@ describe('AnalysisPanel token chart data', () => {
     vi.stubGlobal('document', fakeDocument);
     vi.stubGlobal('window', { innerWidth: 1024 });
 
-    chartCapture.scatterOptions?.plugins?.tooltip?.external?.({
+    const modelScatterIndex = chartCapture.scatterData.findIndex((data) => data.datasets[0]?.label === 'usage_stats.analysis_model_efficiency_title');
+    expect(modelScatterIndex).toBeGreaterThanOrEqual(0);
+    chartCapture.scatterOptions[modelScatterIndex]?.plugins?.tooltip?.external?.({
       chart: {
         canvas: {
           getBoundingClientRect: () => ({ left: 10, top: 20 }),
@@ -542,7 +848,7 @@ describe('AnalysisPanel token chart data', () => {
 
     const costDataset = chartCapture.barData?.datasets.find((dataset) => dataset.label === 'usage_stats.total_cost');
     expect(costDataset?.data).toEqual([0]);
-    expect(chartCapture.scatterData).toBeNull();
+    expect(chartCapture.scatterData).toHaveLength(0);
     expect(markup).toMatch(/Unpriced Key[\s\S]*\$0\.0000/);
     expect(markup).toContain('usage_stats.cost_need_price');
     expect(markup).toContain('<div class="_cardTitleLine_');

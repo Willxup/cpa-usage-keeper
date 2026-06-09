@@ -194,6 +194,24 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 			CacheRate:              item.CacheRate,
 		})
 	}
+	latencyPoints := make([]servicedto.AnalysisLatencyPoint, 0, len(record.LatencyDiagnostics.Points))
+	for _, point := range record.LatencyDiagnostics.Points {
+		latencyPoints = append(latencyPoints, servicedto.AnalysisLatencyPoint{
+			TTFTMS:    point.TTFTMS,
+			LatencyMS: point.LatencyMS,
+		})
+	}
+	latencyDensity := make([]servicedto.AnalysisLatencyDensityCell, 0, len(record.LatencyDiagnostics.Density))
+	for _, cell := range record.LatencyDiagnostics.Density {
+		latencyDensity = append(latencyDensity, servicedto.AnalysisLatencyDensityCell{
+			TTFTMinMS:    cell.TTFTMinMS,
+			TTFTMaxMS:    cell.TTFTMaxMS,
+			LatencyMinMS: cell.LatencyMinMS,
+			LatencyMaxMS: cell.LatencyMaxMS,
+			Count:        cell.Count,
+			Intensity:    cell.Intensity,
+		})
+	}
 	return &servicedto.AnalysisSnapshot{
 		Granularity:           servicedto.AnalysisGranularity(record.Granularity),
 		RangeStart:            record.RangeStart,
@@ -212,6 +230,16 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 			CostAvailable: record.CostBreakdown.CostAvailable,
 		},
 		ModelEfficiency: modelEfficiency,
+		LatencyDiagnostics: servicedto.AnalysisLatencyDiagnostics{
+			Points:       latencyPoints,
+			Density:      latencyDensity,
+			TotalPoints:  record.LatencyDiagnostics.TotalPoints,
+			Sampled:      record.LatencyDiagnostics.Sampled,
+			P95TTFTMS:    record.LatencyDiagnostics.P95TTFTMS,
+			P95LatencyMS: record.LatencyDiagnostics.P95LatencyMS,
+			MaxTTFTMS:    record.LatencyDiagnostics.MaxTTFTMS,
+			MaxLatencyMS: record.LatencyDiagnostics.MaxLatencyMS,
+		},
 	}
 }
 

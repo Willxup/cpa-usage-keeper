@@ -17,6 +17,7 @@
 }
 
 .tokenUsageCard,
+.latencyDiagnosticsCard,
 .heatmapCard {
   min-height: 420px;
 }
@@ -138,6 +139,65 @@
 
 .tokenChartFrame {
   height: 340px;
+  min-width: 0;
+
+  :global(canvas) {
+    touch-action: pan-x pan-y !important;
+  }
+}
+
+.latencyDiagnosticsBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.latencyMetricGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+
+  @include mobile {
+    grid-template-columns: 1fr;
+  }
+}
+
+.latencyMetric {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  padding: 12px;
+  min-width: 0;
+
+  span,
+  small {
+    display: block;
+    min-width: 0;
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1.35;
+    font-weight: 800;
+    overflow-wrap: anywhere;
+  }
+
+  strong {
+    display: block;
+    margin-top: 7px;
+    color: var(--text-primary);
+    font-size: 22px;
+    line-height: 1;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+  }
+
+  small {
+    margin-top: 5px;
+  }
+}
+
+.latencyChartFrame {
+  height: 330px;
   min-width: 0;
 
   :global(canvas) {

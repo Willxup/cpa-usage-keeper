@@ -120,6 +120,91 @@ func TestBuildAnalysisWithFilterUsesOverviewStatsWithoutUsageEvents(t *testing.T
 	if len(analysis.APIKeyComposition) != 1 || analysis.APIKeyComposition[0].Key != "sk-target-key" {
 		t.Fatalf("expected API composition from overview stats, got %+v", analysis.APIKeyComposition)
 	}
+	if analysis.LatencyDiagnostics.TotalPoints != 0 || len(analysis.LatencyDiagnostics.Points) != 0 {
+		t.Fatalf("expected empty latency diagnostics when usage_events is unavailable, got %+v", analysis.LatencyDiagnostics)
+	}
+}
+
+func TestBuildAnalysisWithFilterBuildsLatencyDiagnosticsFromUsageEvents(t *testing.T) {
+	db := openUsageTestDatabase(t)
+	start := time.Date(2026, 4, 20, 9, 0, 0, 0, time.UTC)
+	end := start.Add(time.Hour)
+	ttft120 := int64(120)
+	ttft300 := int64(300)
+	ttft450 := int64(450)
+	ttft900 := int64(900)
+	ttftZero := int64(0)
+	ttftOutside := int64(80)
+	ttftOtherKey := int64(700)
+	if err := db.Create([]entities.CPAAPIKey{
+		{APIKey: "sk-target-key", DisplayKey: "sk-*********target"},
+		{APIKey: "sk-other-key", DisplayKey: "sk-*********other"},
+	}).Error; err != nil {
+		t.Fatalf("insert CPA API keys: %v", err)
+	}
+	if _, _, err := InsertUsageEvents(db, []entities.UsageEvent{
+		{EventKey: "latency-1", APIGroupKey: "sk-target-key", Model: "claude-sonnet", Timestamp: start.Add(5 * time.Minute), LatencyMS: 1000, TTFTMS: &ttft120},
+		{EventKey: "latency-2", APIGroupKey: "sk-target-key", Model: "claude-sonnet", Timestamp: start.Add(10 * time.Minute), LatencyMS: 1600, TTFTMS: &ttft300},
+		{EventKey: "latency-3", APIGroupKey: "sk-target-key", Model: "claude-sonnet", Timestamp: start.Add(20 * time.Minute), LatencyMS: 2300, TTFTMS: &ttft450},
+		{EventKey: "latency-4", APIGroupKey: "sk-target-key", Model: "claude-sonnet", Timestamp: start.Add(30 * time.Minute), LatencyMS: 5000, TTFTMS: &ttft900},
+		{EventKey: "zero-ttft", APIGroupKey: "sk-target-key", Model: "claude-sonnet", Timestamp: start.Add(32 * time.Minute), LatencyMS: 6000, TTFTMS: &ttftZero},
+		{EventKey: "missing-ttft", APIGroupKey: "sk-target-key", Model: "claude-sonnet", Timestamp: start.Add(35 * time.Minute), LatencyMS: 7000},
+		{EventKey: "outside-window", APIGroupKey: "sk-target-key", Model: "claude-sonnet", Timestamp: start.Add(-time.Minute), LatencyMS: 900, TTFTMS: &ttftOutside},
+		{EventKey: "other-key", APIGroupKey: "sk-other-key", Model: "claude-sonnet", Timestamp: start.Add(15 * time.Minute), LatencyMS: 4100, TTFTMS: &ttftOtherKey},
+	}); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end, APIGroupKey: "sk-target-key"})
+	if err != nil {
+		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
+	}
+
+	diagnostics := analysis.LatencyDiagnostics
+	if diagnostics.TotalPoints != 4 || diagnostics.Sampled {
+		t.Fatalf("expected four unsampled latency points, got %+v", diagnostics)
+	}
+	if diagnostics.P95TTFTMS != 900 || diagnostics.P95LatencyMS != 5000 {
+		t.Fatalf("expected nearest-rank p95 from all matching rows, got %+v", diagnostics)
+	}
+	if diagnostics.MaxTTFTMS != 900 || diagnostics.MaxLatencyMS != 5000 {
+		t.Fatalf("expected axis max values from matching rows, got %+v", diagnostics)
+	}
+	if got := diagnostics.Points; len(got) != 4 || got[0].TTFTMS != 120 || got[0].LatencyMS != 1000 || got[3].TTFTMS != 900 || got[3].LatencyMS != 5000 {
+		t.Fatalf("expected latency points to preserve queried sample values, got %+v", got)
+	}
+	if len(diagnostics.Density) != 0 {
+		t.Fatalf("expected latency diagnostics to skip unused density cells, got %+v", diagnostics.Density)
+	}
+}
+
+func TestBuildAnalysisLatencyDiagnosticsSamplesDisplayPointsFromFullValues(t *testing.T) {
+	count := analysisLatencyMaxDisplayPoints + 100
+	ttftValues := make([]int64, 0, count)
+	latencyValues := make([]int64, 0, count)
+	for index := 0; index < count; index++ {
+		value := int64(index + 1)
+		ttftValues = append(ttftValues, value)
+		latencyValues = append(latencyValues, value*10)
+	}
+
+	diagnostics := buildAnalysisLatencyDiagnostics(ttftValues, latencyValues)
+
+	if diagnostics.TotalPoints != int64(count) || !diagnostics.Sampled {
+		t.Fatalf("expected full count with sampled display points, got %+v", diagnostics)
+	}
+	if len(diagnostics.Points) != analysisLatencyMaxDisplayPoints {
+		t.Fatalf("expected display points to be capped at %d, got %d", analysisLatencyMaxDisplayPoints, len(diagnostics.Points))
+	}
+	if diagnostics.P95TTFTMS != 2470 || diagnostics.P95LatencyMS != 24700 {
+		t.Fatalf("expected exact nearest-rank p95 from all values, got %+v", diagnostics)
+	}
+	if diagnostics.Points[0].TTFTMS != 1 || diagnostics.Points[len(diagnostics.Points)-1].TTFTMS != int64(count) {
+		t.Fatalf("expected sampled points to preserve range endpoints, got first=%+v last=%+v", diagnostics.Points[0], diagnostics.Points[len(diagnostics.Points)-1])
+	}
+	if len(diagnostics.Density) != 0 {
+		t.Fatalf("expected density to stay empty for simple scatter diagnostics, got %+v", diagnostics.Density)
+	}
 }
 
 func TestBuildAnalysisWithFilterCalculatesCostInsightsFromOverviewStats(t *testing.T) {

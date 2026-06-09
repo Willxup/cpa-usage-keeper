@@ -14,18 +14,19 @@ import (
 )
 
 type analysisResponse struct {
-	Granularity           string                    `json:"granularity"`
-	Timezone              string                    `json:"timezone"`
-	RangeStart            *time.Time                `json:"range_start,omitempty"`
-	RangeEnd              *time.Time                `json:"range_end,omitempty"`
-	TokenUsage            []analysisTokenUsage      `json:"token_usage"`
-	APIKeyComposition     []analysisCompositionItem `json:"api_key_composition"`
-	ModelComposition      []analysisCompositionItem `json:"model_composition"`
-	AuthFilesComposition  []analysisCompositionItem `json:"auth_files_composition"`
-	AIProviderComposition []analysisCompositionItem `json:"ai_provider_composition"`
-	Heatmap               analysisHeatmap           `json:"heatmap"`
-	CostBreakdown         analysisCostBreakdown     `json:"cost_breakdown"`
-	ModelEfficiency       []analysisModelEfficiency `json:"model_efficiency"`
+	Granularity           string                     `json:"granularity"`
+	Timezone              string                     `json:"timezone"`
+	RangeStart            *time.Time                 `json:"range_start,omitempty"`
+	RangeEnd              *time.Time                 `json:"range_end,omitempty"`
+	TokenUsage            []analysisTokenUsage       `json:"token_usage"`
+	APIKeyComposition     []analysisCompositionItem  `json:"api_key_composition"`
+	ModelComposition      []analysisCompositionItem  `json:"model_composition"`
+	AuthFilesComposition  []analysisCompositionItem  `json:"auth_files_composition"`
+	AIProviderComposition []analysisCompositionItem  `json:"ai_provider_composition"`
+	Heatmap               analysisHeatmap            `json:"heatmap"`
+	CostBreakdown         analysisCostBreakdown      `json:"cost_breakdown"`
+	ModelEfficiency       []analysisModelEfficiency  `json:"model_efficiency"`
+	LatencyDiagnostics    analysisLatencyDiagnostics `json:"latency_diagnostics"`
 }
 
 type analysisTokenUsage struct {
@@ -98,6 +99,31 @@ type analysisModelEfficiency struct {
 	CacheRate              float64 `json:"cache_rate"`
 }
 
+type analysisLatencyPoint struct {
+	TTFTMS    int64 `json:"ttft_ms"`
+	LatencyMS int64 `json:"latency_ms"`
+}
+
+type analysisLatencyDensityCell struct {
+	TTFTMinMS    int64   `json:"ttft_min_ms"`
+	TTFTMaxMS    int64   `json:"ttft_max_ms"`
+	LatencyMinMS int64   `json:"latency_min_ms"`
+	LatencyMaxMS int64   `json:"latency_max_ms"`
+	Count        int64   `json:"count"`
+	Intensity    float64 `json:"intensity"`
+}
+
+type analysisLatencyDiagnostics struct {
+	Points       []analysisLatencyPoint       `json:"points"`
+	Density      []analysisLatencyDensityCell `json:"density"`
+	TotalPoints  int64                        `json:"total_points"`
+	Sampled      bool                         `json:"sampled"`
+	P95TTFTMS    int64                        `json:"p95_ttft_ms"`
+	P95LatencyMS int64                        `json:"p95_latency_ms"`
+	MaxTTFTMS    int64                        `json:"max_ttft_ms"`
+	MaxLatencyMS int64                        `json:"max_latency_ms"`
+}
+
 type analysisAPIKeyInfo struct {
 	ID    string
 	Label string
@@ -142,6 +168,7 @@ func emptyAnalysisResponse() analysisResponse {
 		Heatmap:               analysisHeatmap{APIKeys: []string{}, APIKeyLabels: map[string]string{}, Models: []string{}, Cells: []analysisHeatmapCell{}},
 		CostBreakdown:         analysisCostBreakdown{CostAvailable: true},
 		ModelEfficiency:       []analysisModelEfficiency{},
+		LatencyDiagnostics:    analysisLatencyDiagnostics{Points: []analysisLatencyPoint{}, Density: []analysisLatencyDensityCell{}},
 	}
 }
 
@@ -204,7 +231,39 @@ func buildAnalysisPayload(snapshot *servicedto.AnalysisSnapshot, apiKeyInfos map
 			TotalCostUSD:  snapshot.CostBreakdown.TotalCostUSD,
 			CostAvailable: snapshot.CostBreakdown.CostAvailable,
 		},
-		ModelEfficiency: buildAnalysisModelEfficiencyPayload(snapshot.ModelEfficiency),
+		ModelEfficiency:    buildAnalysisModelEfficiencyPayload(snapshot.ModelEfficiency),
+		LatencyDiagnostics: buildAnalysisLatencyDiagnosticsPayload(snapshot.LatencyDiagnostics),
+	}
+}
+
+func buildAnalysisLatencyDiagnosticsPayload(diagnostics servicedto.AnalysisLatencyDiagnostics) analysisLatencyDiagnostics {
+	points := make([]analysisLatencyPoint, 0, len(diagnostics.Points))
+	for _, point := range diagnostics.Points {
+		points = append(points, analysisLatencyPoint{
+			TTFTMS:    point.TTFTMS,
+			LatencyMS: point.LatencyMS,
+		})
+	}
+	density := make([]analysisLatencyDensityCell, 0, len(diagnostics.Density))
+	for _, cell := range diagnostics.Density {
+		density = append(density, analysisLatencyDensityCell{
+			TTFTMinMS:    cell.TTFTMinMS,
+			TTFTMaxMS:    cell.TTFTMaxMS,
+			LatencyMinMS: cell.LatencyMinMS,
+			LatencyMaxMS: cell.LatencyMaxMS,
+			Count:        cell.Count,
+			Intensity:    cell.Intensity,
+		})
+	}
+	return analysisLatencyDiagnostics{
+		Points:       points,
+		Density:      density,
+		TotalPoints:  diagnostics.TotalPoints,
+		Sampled:      diagnostics.Sampled,
+		P95TTFTMS:    diagnostics.P95TTFTMS,
+		P95LatencyMS: diagnostics.P95LatencyMS,
+		MaxTTFTMS:    diagnostics.MaxTTFTMS,
+		MaxLatencyMS: diagnostics.MaxLatencyMS,
 	}
 }
 

@@ -70,6 +70,31 @@ type AnalysisModelEfficiencyItem struct {
 	CacheRate              float64
 }
 
+type AnalysisLatencyPoint struct {
+	TTFTMS    int64
+	LatencyMS int64
+}
+
+type AnalysisLatencyDensityCell struct {
+	TTFTMinMS    int64
+	TTFTMaxMS    int64
+	LatencyMinMS int64
+	LatencyMaxMS int64
+	Count        int64
+	Intensity    float64
+}
+
+type AnalysisLatencyDiagnostics struct {
+	Points       []AnalysisLatencyPoint
+	Density      []AnalysisLatencyDensityCell
+	TotalPoints  int64
+	Sampled      bool
+	P95TTFTMS    int64
+	P95LatencyMS int64
+	MaxTTFTMS    int64
+	MaxLatencyMS int64
+}
+
 type AnalysisSnapshot struct {
 	Granularity           AnalysisGranularity
 	RangeStart            *time.Time
@@ -82,4 +107,5 @@ type AnalysisSnapshot struct {
 	Heatmap               []AnalysisHeatmapCell
 	CostBreakdown         AnalysisCostBreakdown
 	ModelEfficiency       []AnalysisModelEfficiencyItem
+	LatencyDiagnostics    AnalysisLatencyDiagnostics
 }
