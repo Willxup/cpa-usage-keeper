@@ -113,7 +113,7 @@ func TestListUsageEventsWithFilterPagesByTimestampAndID(t *testing.T) {
 	}
 }
 
-func TestListUsageEventsWithFilterAppliesModelSourceAndResultFilters(t *testing.T) {
+func TestListUsageEventsWithFilterAppliesModelAuthIndexAndResultFilters(t *testing.T) {
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-events-filtered.db")})
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
@@ -228,7 +228,7 @@ func TestListUsageEventsWithFilterAppliesAuthIndexFilter(t *testing.T) {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
-	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{Source: "auth-1", AuthIndex: "auth-1", Page: 1, PageSize: 20})
+	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{AuthIndex: "auth-1", Page: 1, PageSize: 20})
 	if err != nil {
 		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
 	}

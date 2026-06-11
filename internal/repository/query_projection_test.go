@@ -11,10 +11,16 @@ func TestRepositoryQueriesAvoidKnownFullEntityReads(t *testing.T) {
 	assertFileDoesNotContain(t, "usage.go",
 		"var events []entities.UsageEvent\n\tif err := query.Find(&events)",
 		"var events []entities.UsageEvent\n\tif err := db.Find(&events)",
+		"Select(usageOverviewRealtimeProjectionColumns)",
+		"loadUsageOverviewRealtimeEventsWithFilter",
 	)
 	assertFileContains(t, "usage.go",
 		"Select(usageEventProjectionColumns).Order(\"timestamp DESC, id DESC\")",
-		"Select(usageEventProjectionColumns).Order(\"timestamp asc\")",
+		"Select(usageOverviewRawEventProjectionColumns).\n\t\tOrder(\"timestamp asc\")",
+		"usageOverviewRawEventProjectionColumns = \"api_group_key, provider, auth_type, model, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens\"",
+	)
+	assertFileContains(t, "usage_recent_event_cache.go",
+		"Select(\"api_group_key, provider, auth_type, model, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens\")",
 	)
 
 	assertFileDoesNotContain(t, "usage_identities.go",
@@ -34,6 +40,18 @@ func TestRepositoryQueriesAvoidKnownFullEntityReads(t *testing.T) {
 	assertFileContains(t, "pricing.go",
 		"Select(modelPriceSettingColumns)",
 	)
+}
+
+func TestUsageQueryFilterDoesNotExposeRawSourceFilter(t *testing.T) {
+	dtoContent := readRepositorySourceFile(t, "dto/usage_query_filter.go")
+	if strings.Contains(dtoContent, "Source          string") || strings.Contains(dtoContent, "Source string") {
+		t.Fatalf("repository UsageQueryFilter should query identities via auth_index, not expose raw Source")
+	}
+
+	serviceContent := readServiceSourceFile(t, "usage.go")
+	if strings.Contains(serviceContent, "Source:      filter.Source") {
+		t.Fatalf("service should not pass Request Events source through to repository queries")
+	}
 }
 
 func assertFileContains(t *testing.T, name string, snippets ...string) {
@@ -61,6 +79,15 @@ func readRepositorySourceFile(t *testing.T, name string) string {
 	content, err := os.ReadFile(filepath.Join(".", name))
 	if err != nil {
 		t.Fatalf("read %s: %v", name, err)
+	}
+	return string(content)
+}
+
+func readServiceSourceFile(t *testing.T, name string) string {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join("..", "service", name))
+	if err != nil {
+		t.Fatalf("read service %s: %v", name, err)
 	}
 	return string(content)
 }

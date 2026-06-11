@@ -12,11 +12,16 @@ import (
 )
 
 type usageService struct {
-	db *gorm.DB
+	db          *gorm.DB
+	recentUsage *repository.UsageRecentEventCache
 }
 
 func NewUsageService(db *gorm.DB) UsageProvider {
-	return &usageService{db: db}
+	return NewUsageServiceWithRecentCache(db, nil)
+}
+
+func NewUsageServiceWithRecentCache(db *gorm.DB, recentUsage *repository.UsageRecentEventCache) UsageProvider {
+	return &usageService{db: db, recentUsage: recentUsage}
 }
 
 func (s *usageService) resolveAPIGroupKey(apiKeyID string) (string, error) {
@@ -41,12 +46,13 @@ func (s *usageService) GetUsageOverview(_ context.Context, filter servicedto.Usa
 	if err != nil {
 		return nil, err
 	}
-	overview, err := repository.BuildUsageOverviewWithFilter(s.db, repodto.UsageQueryFilter{
+	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(s.db, repodto.UsageQueryFilter{
 		Range:       filter.Range,
 		StartTime:   filter.StartTime,
 		EndTime:     filter.EndTime,
+		QueryNow:    filter.QueryNow,
 		APIGroupKey: apiGroupKey,
-	})
+	}, s.recentUsage)
 	if err != nil {
 		return nil, err
 	}
@@ -60,12 +66,11 @@ func (s *usageService) GetUsageOverview(_ context.Context, filter servicedto.Usa
 			TPM:             overview.Summary.TPM,
 			TotalCost:       overview.Summary.TotalCost,
 			CostAvailable:   overview.Summary.CostAvailable,
+			InputTokens:     overview.Summary.InputTokens,
 			CachedTokens:    overview.Summary.CachedTokens,
 			ReasoningTokens: overview.Summary.ReasoningTokens,
 		},
-		Series:       mapUsageOverviewSeries(overview.Series),
-		HourlySeries: mapUsageOverviewSeries(overview.HourlySeries),
-		DailySeries:  mapUsageOverviewSeries(overview.DailySeries),
+		Series: mapUsageOverviewSeries(overview.Series),
 		Health: servicedto.UsageOverviewHealth{
 			TotalSuccess:  overview.Health.TotalSuccess,
 			TotalFailure:  overview.Health.TotalFailure,
@@ -92,23 +97,158 @@ func (s *usageService) GetUsageOverview(_ context.Context, filter servicedto.Usa
 	}, nil
 }
 
+func (s *usageService) GetUsageOverviewRealtime(_ context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewRealtime, error) {
+	apiGroupKey, err := s.resolveAPIGroupKey(filter.APIKeyID)
+	if err != nil {
+		return nil, err
+	}
+	realtime, err := repository.BuildUsageOverviewRealtimeWithFilterAndRecentCache(s.db, repodto.UsageQueryFilter{
+		RealtimeWindow:  filter.RealtimeWindow,
+		RealtimeEndTime: filter.RealtimeEndTime,
+		APIGroupKey:     apiGroupKey,
+	}, s.recentUsage)
+	if err != nil {
+		return nil, err
+	}
+	result := mapUsageOverviewRealtime(realtime)
+	return &result, nil
+}
+
 func mapUsageOverviewSeries(series repodto.UsageOverviewSeriesRecord) servicedto.UsageOverviewSeries {
-	models := make(map[string]servicedto.UsageOverviewSeries, len(series.Models))
-	for model, modelSeries := range series.Models {
-		models[model] = mapUsageOverviewSeries(modelSeries)
-	}
 	return servicedto.UsageOverviewSeries{
-		Requests:        series.Requests,
-		Tokens:          series.Tokens,
-		RPM:             series.RPM,
-		TPM:             series.TPM,
-		Cost:            series.Cost,
-		InputTokens:     series.InputTokens,
-		OutputTokens:    series.OutputTokens,
-		CachedTokens:    series.CachedTokens,
-		ReasoningTokens: series.ReasoningTokens,
-		Models:          models,
+		Requests:  series.Requests,
+		Tokens:    series.Tokens,
+		RPM:       series.RPM,
+		TPM:       series.TPM,
+		Cost:      series.Cost,
+		CacheRate: series.CacheRate,
 	}
+}
+
+func mapUsageOverviewRealtime(realtime repodto.UsageOverviewRealtimeRecord) servicedto.UsageOverviewRealtime {
+	return servicedto.UsageOverviewRealtime{
+		Window:               realtime.Window,
+		BucketSeconds:        realtime.BucketSeconds,
+		TokenVelocity:        mapRealtimeTokenVelocity(realtime.TokenVelocity),
+		ResponseLevel:        mapRealtimeResponseLevel(realtime.ResponseLevel),
+		ResponseDistribution: mapRealtimeResponseDistribution(realtime.ResponseDistribution),
+		CurrentUsage:         mapRealtimeCurrentUsage(realtime.CurrentUsage),
+		RequestLevel:         mapRealtimeRequestLevel(realtime.RequestLevel),
+		CacheLevel:           mapRealtimeCacheLevel(realtime.CacheLevel),
+	}
+}
+
+func mapRealtimeTokenVelocity(points []repodto.RealtimeTokenVelocityPointRecord) []servicedto.RealtimeTokenVelocityPoint {
+	result := make([]servicedto.RealtimeTokenVelocityPoint, 0, len(points))
+	for _, point := range points {
+		result = append(result, servicedto.RealtimeTokenVelocityPoint{
+			Bucket:          point.Bucket,
+			TokensPerMinute: point.TokensPerMinute,
+			Tokens:          point.Tokens,
+			CostUSD:         point.CostUSD,
+		})
+	}
+	return result
+}
+
+func mapRealtimeResponseLevel(points []repodto.RealtimeResponseLevelPointRecord) []servicedto.RealtimeResponseLevelPoint {
+	result := make([]servicedto.RealtimeResponseLevelPoint, 0, len(points))
+	for _, point := range points {
+		result = append(result, servicedto.RealtimeResponseLevelPoint{
+			Bucket:       point.Bucket,
+			TTFTP50MS:    point.TTFTP50MS,
+			TTFTP95MS:    point.TTFTP95MS,
+			LatencyP50MS: point.LatencyP50MS,
+			LatencyP95MS: point.LatencyP95MS,
+		})
+	}
+	return result
+}
+
+func mapRealtimeResponseDistribution(distribution repodto.RealtimeResponseDistributionRecord) servicedto.RealtimeResponseDistribution {
+	return servicedto.RealtimeResponseDistribution{
+		TTFT:    mapRealtimeResponseDistributionSeries(distribution.TTFT),
+		Latency: mapRealtimeResponseDistributionSeries(distribution.Latency),
+	}
+}
+
+func mapRealtimeResponseDistributionSeries(series repodto.RealtimeResponseDistributionSeriesRecord) servicedto.RealtimeResponseDistributionSeries {
+	return servicedto.RealtimeResponseDistributionSeries{
+		AverageLine: mapRealtimeResponseAveragePoints(series.AverageLine),
+		Particles:   mapRealtimeResponseParticles(series.Particles),
+	}
+}
+
+func mapRealtimeResponseAveragePoints(points []repodto.RealtimeResponseAveragePointRecord) []servicedto.RealtimeResponseAveragePoint {
+	result := make([]servicedto.RealtimeResponseAveragePoint, 0, len(points))
+	for _, point := range points {
+		result = append(result, servicedto.RealtimeResponseAveragePoint{
+			Bucket: point.Bucket,
+			AvgMS:  point.AvgMS,
+		})
+	}
+	return result
+}
+
+func mapRealtimeResponseParticles(points []repodto.RealtimeResponseParticleRecord) []servicedto.RealtimeResponseParticle {
+	result := make([]servicedto.RealtimeResponseParticle, 0, len(points))
+	for _, point := range points {
+		result = append(result, servicedto.RealtimeResponseParticle{
+			Bucket: point.Bucket,
+			MS:     point.MS,
+			Count:  point.Count,
+		})
+	}
+	return result
+}
+
+func mapRealtimeCurrentUsage(current repodto.RealtimeCurrentUsageRecord) servicedto.RealtimeCurrentUsage {
+	return servicedto.RealtimeCurrentUsage{
+		Models:      mapRealtimeUsageTopItems(current.Models),
+		APIKeys:     mapRealtimeUsageTopItems(current.APIKeys),
+		AuthFiles:   mapRealtimeUsageTopItems(current.AuthFiles),
+		AIProviders: mapRealtimeUsageTopItems(current.AIProviders),
+	}
+}
+
+func mapRealtimeUsageTopItems(items []repodto.RealtimeUsageTopItemRecord) []servicedto.RealtimeUsageTopItem {
+	result := make([]servicedto.RealtimeUsageTopItem, 0, len(items))
+	for _, item := range items {
+		result = append(result, servicedto.RealtimeUsageTopItem{
+			Key:      item.Key,
+			Label:    item.Label,
+			Tokens:   item.Tokens,
+			Requests: item.Requests,
+			CostUSD:  item.CostUSD,
+			Share:    item.Share,
+		})
+	}
+	return result
+}
+
+func mapRealtimeRequestLevel(points []repodto.RealtimeRequestLevelPointRecord) []servicedto.RealtimeRequestLevelPoint {
+	result := make([]servicedto.RealtimeRequestLevelPoint, 0, len(points))
+	for _, point := range points {
+		result = append(result, servicedto.RealtimeRequestLevelPoint{
+			Bucket:            point.Bucket,
+			RequestsPerMinute: point.RequestsPerMinute,
+			Requests:          point.Requests,
+		})
+	}
+	return result
+}
+
+func mapRealtimeCacheLevel(points []repodto.RealtimeCacheLevelPointRecord) []servicedto.RealtimeCacheLevelPoint {
+	result := make([]servicedto.RealtimeCacheLevelPoint, 0, len(points))
+	for _, point := range points {
+		result = append(result, servicedto.RealtimeCacheLevelPoint{
+			Bucket:       point.Bucket,
+			CacheRate:    point.CacheRate,
+			CachedTokens: point.CachedTokens,
+			InputTokens:  point.InputTokens,
+		})
+	}
+	return result
 }
 
 func (s *usageService) GetAnalysis(_ context.Context, filter servicedto.UsageFilter) (*servicedto.AnalysisSnapshot, error) {
@@ -244,7 +384,6 @@ func (s *usageService) ListUsageEvents(_ context.Context, filter servicedto.Usag
 		PageSize:    filter.PageSize,
 		Offset:      filter.Offset,
 		Model:       filter.Model,
-		Source:      filter.Source,
 		AuthIndex:   filter.AuthIndex,
 		APIGroupKey: apiGroupKey,
 		Result:      filter.Result,

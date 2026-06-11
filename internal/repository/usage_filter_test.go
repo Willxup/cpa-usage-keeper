@@ -31,14 +31,26 @@ func withRepositoryTestLocation(t *testing.T, name string) {
 func buildUsageOverviewFromEventsForTest(events []entities.UsageEvent, filter dto.UsageQueryFilter, pricingByModel map[string]entities.ModelPriceSetting) *dto.UsageOverviewRecord {
 	windowMinutes := computeWindowMinutes(filter)
 	bucketByDay := shouldBucketUsageOverviewByDay(filter, windowMinutes)
-	latestHourlyStart := latestHourlySeriesStart(filter)
 	overview := newUsageOverviewRecord(filter, windowMinutes)
 	for _, event := range events {
 		applyUsageEventToOverviewSnapshot(overview.Usage, event)
-		applyUsageEventToOverview(overview, event, bucketByDay, latestHourlyStart, pricingByModel)
+		applyUsageEventToOverview(overview, event, bucketByDay, pricingByModel)
 	}
 	finalizeUsageOverview(overview)
 	return overview
+}
+
+func loadUsageOverviewOracleEventsForTest(db *gorm.DB, filter dto.UsageQueryFilter) ([]entities.UsageEvent, error) {
+	query := applyUsageOverviewQuery(db.Model(&entities.UsageEvent{}), filter).Select(usageEventProjectionColumns).Order("timestamp asc")
+	var rows []usageEventProjection
+	if err := query.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	events := make([]entities.UsageEvent, 0, len(rows))
+	for _, row := range rows {
+		events = append(events, usageEventProjectionToEntity(row))
+	}
+	return events, nil
 }
 
 func TestBuildUsageOverviewWithFilterRequiresResolvedTimeRange(t *testing.T) {
@@ -86,7 +98,7 @@ func TestBuildUsageOverviewWithFilterDoesNotRunAggregationCatchup(t *testing.T) 
 	}
 }
 
-func TestLoadUsageOverviewBoundaryEventsUsesSeparateRangeQueries(t *testing.T) {
+func TestLoadUsageOverviewRawEventWindowsUsesSeparateRangeQueries(t *testing.T) {
 	withRepositoryTestLocation(t, "Asia/Shanghai")
 
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-boundary-sql.db")})
@@ -108,8 +120,12 @@ func TestLoadUsageOverviewBoundaryEventsUsesSeparateRangeQueries(t *testing.T) {
 		t.Fatalf("register query callback returned error: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Callback().Query().Remove(callbackName) })
-	if _, err := loadUsageOverviewBoundaryEventsWithFilter(db, filter, fullStart, fullEnd); err != nil {
-		t.Fatalf("loadUsageOverviewBoundaryEventsWithFilter returned error: %v", err)
+	windows := []usageOverviewRawEventWindow{
+		{start: start, end: fullStart},
+		{start: fullEnd, end: end, includeEnd: true},
+	}
+	if _, err := loadUsageOverviewRawEventWindowsWithFilter(db, filter, windows, nil); err != nil {
+		t.Fatalf("loadUsageOverviewRawEventWindowsWithFilter returned error: %v", err)
 	}
 	if len(sqls) != 2 {
 		t.Fatalf("expected two boundary range queries, got %d: %+v", len(sqls), sqls)
@@ -159,6 +175,32 @@ func TestBuildUsageOverviewWithFilterIncludesHealthBoundaryInsideFullHour(t *tes
 	}
 }
 
+func TestBuildUsageOverviewWithFilterIncludesEndBoundaryWhenNoFullHour(t *testing.T) {
+	withRepositoryTestLocation(t, "Asia/Shanghai")
+
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-end-boundary-no-full-hour.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	start := time.Date(2026, 4, 16, 9, 20, 0, 0, time.UTC)
+	end := time.Date(2026, 4, 16, 9, 40, 0, 0, time.UTC)
+	if _, _, err := InsertUsageEvents(db, []entities.UsageEvent{
+		{EventKey: "end-boundary", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: end, InputTokens: 10, OutputTokens: 5, TotalTokens: 15},
+	}); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	overview, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "custom", StartTime: &start, EndTime: &end})
+	if err != nil {
+		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
+	}
+	if overview.Usage.TotalRequests != 1 || overview.Summary.RequestCount != 1 || overview.Usage.TotalTokens != 15 {
+		t.Fatalf("expected end boundary event to be included, got usage=%+v summary=%+v", overview.Usage, overview.Summary)
+	}
+}
+
 func TestBuildUsageOverviewWithFilterReusesBoundaryEventsForHealth(t *testing.T) {
 	withRepositoryTestLocation(t, "Asia/Shanghai")
 
@@ -187,7 +229,7 @@ func TestBuildUsageOverviewWithFilterReusesBoundaryEventsForHealth(t *testing.T)
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 	}
 	if len(usageEventQueries) != 2 {
-		t.Fatalf("expected only the two main boundary usage_events queries, got %d: %+v", len(usageEventQueries), usageEventQueries)
+		t.Fatalf("expected two main boundary usage_events queries, got %d: %+v", len(usageEventQueries), usageEventQueries)
 	}
 	for _, sql := range usageEventQueries {
 		if strings.Contains(strings.ToUpper(sql), " OR ") {
@@ -324,9 +366,9 @@ func TestBuildUsageOverviewWithFilterUsesStatsForFullHoursAndRawEventsForBoundar
 	if err != nil {
 		t.Fatalf("loadPriceSettingsByModel returned error: %v", err)
 	}
-	oracleEvents, err := loadUsageOverviewEventsWithFilter(db, filter)
+	oracleEvents, err := loadUsageOverviewOracleEventsForTest(db, filter)
 	if err != nil {
-		t.Fatalf("loadUsageOverviewEventsWithFilter returned error: %v", err)
+		t.Fatalf("loadUsageOverviewOracleEventsForTest returned error: %v", err)
 	}
 	oracle := buildUsageOverviewFromEventsForTest(oracleEvents, filter, pricingByModel)
 
@@ -349,12 +391,6 @@ func TestBuildUsageOverviewWithFilterUsesStatsForFullHoursAndRawEventsForBoundar
 	}
 	if !reflect.DeepEqual(overview.Series, oracle.Series) {
 		t.Fatalf("series mismatch after full-hour raw events were removed\ngot:  %+v\nwant: %+v", overview.Series, oracle.Series)
-	}
-	if !reflect.DeepEqual(overview.HourlySeries, oracle.HourlySeries) {
-		t.Fatalf("hourly series mismatch after full-hour raw events were removed\ngot:  %+v\nwant: %+v", overview.HourlySeries, oracle.HourlySeries)
-	}
-	if !reflect.DeepEqual(overview.DailySeries, oracle.DailySeries) {
-		t.Fatalf("daily series mismatch after full-hour raw events were removed\ngot:  %+v\nwant: %+v", overview.DailySeries, oracle.DailySeries)
 	}
 	if !reflect.DeepEqual(overview.Health, oracle.Health) {
 		t.Fatalf("health mismatch after full-hour raw events were removed\ngot:  %+v\nwant: %+v", overview.Health, oracle.Health)
@@ -389,9 +425,9 @@ func TestBuildUsageOverviewWithFilterKeepsHealthWindowExactAtStatsBoundaries(t *
 	if err != nil {
 		t.Fatalf("loadPriceSettingsByModel returned error: %v", err)
 	}
-	oracleEvents, err := loadUsageOverviewEventsWithFilter(db, filter)
+	oracleEvents, err := loadUsageOverviewOracleEventsForTest(db, filter)
 	if err != nil {
-		t.Fatalf("loadUsageOverviewEventsWithFilter returned error: %v", err)
+		t.Fatalf("loadUsageOverviewOracleEventsForTest returned error: %v", err)
 	}
 	oracle := buildUsageOverviewFromEventsForTest(oracleEvents, filter, pricingByModel)
 
@@ -432,9 +468,9 @@ func TestBuildUsageOverviewWithFilterKeepsHourlyBucketsWhenShortWindowContainsCo
 	if err != nil {
 		t.Fatalf("loadPriceSettingsByModel returned error: %v", err)
 	}
-	oracleEvents, err := loadUsageOverviewEventsWithFilter(db, filter)
+	oracleEvents, err := loadUsageOverviewOracleEventsForTest(db, filter)
 	if err != nil {
-		t.Fatalf("loadUsageOverviewEventsWithFilter returned error: %v", err)
+		t.Fatalf("loadUsageOverviewOracleEventsForTest returned error: %v", err)
 	}
 	oracle := buildUsageOverviewFromEventsForTest(oracleEvents, filter, pricingByModel)
 
@@ -446,8 +482,8 @@ func TestBuildUsageOverviewWithFilterKeepsHourlyBucketsWhenShortWindowContainsCo
 	if !reflect.DeepEqual(overview.Series, oracle.Series) {
 		t.Fatalf("series mismatch for short window with complete day\ngot:  %+v\nwant: %+v", overview.Series, oracle.Series)
 	}
-	if !reflect.DeepEqual(overview.Usage.RequestsByHour, oracle.Usage.RequestsByHour) {
-		t.Fatalf("snapshot hourly requests mismatch\ngot:  %+v\nwant: %+v", overview.Usage.RequestsByHour, oracle.Usage.RequestsByHour)
+	if !reflect.DeepEqual(overview.Usage, oracle.Usage) {
+		t.Fatalf("usage totals mismatch for short window with complete day\ngot:  %+v\nwant: %+v", overview.Usage, oracle.Usage)
 	}
 }
 
@@ -478,9 +514,9 @@ func TestBuildUsageOverviewWithFilterKeepsHealthTotalsForFullQueryWindow(t *test
 	if err != nil {
 		t.Fatalf("loadPriceSettingsByModel returned error: %v", err)
 	}
-	oracleEvents, err := loadUsageOverviewEventsWithFilter(db, filter)
+	oracleEvents, err := loadUsageOverviewOracleEventsForTest(db, filter)
 	if err != nil {
-		t.Fatalf("loadUsageOverviewEventsWithFilter returned error: %v", err)
+		t.Fatalf("loadUsageOverviewOracleEventsForTest returned error: %v", err)
 	}
 	oracle := buildUsageOverviewFromEventsForTest(oracleEvents, filter, pricingByModel)
 
@@ -532,9 +568,9 @@ func TestBuildUsageOverviewWithFilterUsesDailyStatsForCompleteDays(t *testing.T)
 	if err != nil {
 		t.Fatalf("loadPriceSettingsByModel returned error: %v", err)
 	}
-	oracleEvents, err := loadUsageOverviewEventsWithFilter(db, filter)
+	oracleEvents, err := loadUsageOverviewOracleEventsForTest(db, filter)
 	if err != nil {
-		t.Fatalf("loadUsageOverviewEventsWithFilter returned error: %v", err)
+		t.Fatalf("loadUsageOverviewOracleEventsForTest returned error: %v", err)
 	}
 	oracle := buildUsageOverviewFromEventsForTest(oracleEvents, filter, pricingByModel)
 
@@ -554,11 +590,8 @@ func TestBuildUsageOverviewWithFilterUsesDailyStatsForCompleteDays(t *testing.T)
 	if !reflect.DeepEqual(overview.Series, oracle.Series) {
 		t.Fatalf("series mismatch after full-day hourly/raw data were removed\ngot:  %+v\nwant: %+v", overview.Series, oracle.Series)
 	}
-	if !reflect.DeepEqual(overview.DailySeries, oracle.DailySeries) {
-		t.Fatalf("daily series mismatch after full-day hourly/raw data were removed\ngot:  %+v\nwant: %+v", overview.DailySeries, oracle.DailySeries)
-	}
-	if !reflect.DeepEqual(overview.Usage.RequestsByHour, oracle.Usage.RequestsByHour) || !reflect.DeepEqual(overview.Usage.TokensByHour, oracle.Usage.TokensByHour) {
-		t.Fatalf("snapshot hourly maps mismatch after full-day raw data were removed\ngot:  %+v/%+v\nwant: %+v/%+v", overview.Usage.RequestsByHour, overview.Usage.TokensByHour, oracle.Usage.RequestsByHour, oracle.Usage.TokensByHour)
+	if !reflect.DeepEqual(overview.Usage, oracle.Usage) {
+		t.Fatalf("usage totals mismatch after full-day hourly/raw data were removed\ngot:  %+v\nwant: %+v", overview.Usage, oracle.Usage)
 	}
 }
 
@@ -614,7 +647,7 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 	if overview.Summary.RequestCount != 3 || overview.Summary.TokenCount != 5775 {
 		t.Fatalf("unexpected summary counts: %+v", overview.Summary)
 	}
-	if overview.Summary.CachedTokens != 350 || overview.Summary.ReasoningTokens != 175 {
+	if overview.Summary.InputTokens != 3500 || overview.Summary.CachedTokens != 350 || overview.Summary.ReasoningTokens != 175 {
 		t.Fatalf("unexpected summary token breakdown: %+v", overview.Summary)
 	}
 	if overview.Summary.WindowMinutes != 2880 {
@@ -645,17 +678,9 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 	if math.Abs(overview.Series.Cost["2026-04-16"]-0.03069) > 0.000000001 || math.Abs(overview.Series.Cost["2026-04-17"]-0.005115) > 0.000000001 {
 		t.Fatalf("unexpected cost series: %+v", overview.Series.Cost)
 	}
-	if !reflect.DeepEqual(overview.Series.InputTokens, map[string]int64{"2026-04-16": 3000, "2026-04-17": 500}) {
-		t.Fatalf("unexpected input token series: %+v", overview.Series.InputTokens)
-	}
-	if !reflect.DeepEqual(overview.Series.OutputTokens, map[string]int64{"2026-04-16": 1500, "2026-04-17": 250}) {
-		t.Fatalf("unexpected output token series: %+v", overview.Series.OutputTokens)
-	}
-	if !reflect.DeepEqual(overview.Series.CachedTokens, map[string]int64{"2026-04-16": 300, "2026-04-17": 50}) {
-		t.Fatalf("unexpected cached token series: %+v", overview.Series.CachedTokens)
-	}
-	if !reflect.DeepEqual(overview.Series.ReasoningTokens, map[string]int64{"2026-04-16": 150, "2026-04-17": 25}) {
-		t.Fatalf("unexpected reasoning token series: %+v", overview.Series.ReasoningTokens)
+	if overview.Series.CacheRate["2026-04-16"] == nil || math.Abs(*overview.Series.CacheRate["2026-04-16"]-10) > 0.000000001 ||
+		overview.Series.CacheRate["2026-04-17"] == nil || math.Abs(*overview.Series.CacheRate["2026-04-17"]-10) > 0.000000001 {
+		t.Fatalf("unexpected cache-rate series: %+v", overview.Series.CacheRate)
 	}
 	if overview.Health.TotalSuccess != 2 || overview.Health.TotalFailure != 1 {
 		t.Fatalf("unexpected overview health totals: %+v", overview.Health)
@@ -744,7 +769,7 @@ func TestBuildUsageOverviewFromEventsBuildsSnapshotAndOverviewInOnePass(t *testi
 	if overview.Summary.RequestCount != 2 || overview.Summary.TokenCount != 4950 {
 		t.Fatalf("unexpected summary totals: %+v", overview.Summary)
 	}
-	if overview.Summary.CachedTokens != 300 || overview.Summary.ReasoningTokens != 150 {
+	if overview.Summary.InputTokens != 3000 || overview.Summary.CachedTokens != 300 || overview.Summary.ReasoningTokens != 150 {
 		t.Fatalf("unexpected summary token breakdown: %+v", overview.Summary)
 	}
 	if overview.Summary.CostAvailable {
@@ -753,14 +778,9 @@ func TestBuildUsageOverviewFromEventsBuildsSnapshotAndOverviewInOnePass(t *testi
 	if overview.Series.Requests["2026-04-16T17:00:00+08:00"] != 1 || overview.Series.Requests["2026-04-16T18:00:00+08:00"] != 1 {
 		t.Fatalf("unexpected hourly request series: %+v", overview.Series.Requests)
 	}
-	if overview.HourlySeries.Models["claude-sonnet"].Requests["2026-04-16T17:00:00+08:00"] != 1 {
-		t.Fatalf("expected claude-sonnet hourly model series, got %+v", overview.HourlySeries.Models)
-	}
-	if overview.HourlySeries.Models["unknown"].Tokens["2026-04-16T18:00:00+08:00"] != 3150 {
-		t.Fatalf("expected unknown hourly model token series, got %+v", overview.HourlySeries.Models)
-	}
-	if overview.DailySeries.Models["claude-sonnet"].Requests["2026-04-16"] != 1 {
-		t.Fatalf("expected claude-sonnet daily model series, got %+v", overview.DailySeries.Models)
+	if overview.Series.CacheRate["2026-04-16T17:00:00+08:00"] == nil || math.Abs(*overview.Series.CacheRate["2026-04-16T17:00:00+08:00"]-20) > 0.000000001 ||
+		overview.Series.CacheRate["2026-04-16T18:00:00+08:00"] == nil || math.Abs(*overview.Series.CacheRate["2026-04-16T18:00:00+08:00"]-5) > 0.000000001 {
+		t.Fatalf("unexpected hourly cache-rate series: %+v", overview.Series.CacheRate)
 	}
 	if overview.Health.TotalSuccess != 1 || overview.Health.TotalFailure != 1 {
 		t.Fatalf("unexpected health totals: %+v", overview.Health)
@@ -1091,62 +1111,6 @@ func TestBuildUsageOverviewWithFilterUsesExactPresetWindowMinutes(t *testing.T) 
 	}
 }
 
-func TestBuildUsageOverviewWithFilterBuildsLatestHourlySeriesForLongRanges(t *testing.T) {
-	withRepositoryTestLocation(t, "Asia/Shanghai")
-	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-hourly-series.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	closeTestDatabase(t, db)
-
-	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{
-		Model:                "claude-sonnet",
-		PromptPricePer1M:     1,
-		CompletionPricePer1M: 0,
-		CachePricePer1M:      0,
-	}); err != nil {
-		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
-	}
-
-	events := []entities.UsageEvent{
-		{EventKey: "event-old", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 17, 8, 0, 0, 0, time.UTC), TotalTokens: 1_000_000, InputTokens: 1_000_000},
-		{EventKey: "event-latest-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 23, 22, 15, 0, 0, time.UTC), TotalTokens: 2_000_000, InputTokens: 2_000_000, OutputTokens: 5, CachedTokens: 7, ReasoningTokens: 11},
-		{EventKey: "event-latest-2", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 23, 23, 45, 0, 0, time.UTC), TotalTokens: 3_000_000, InputTokens: 3_000_000, OutputTokens: 13, CachedTokens: 17, ReasoningTokens: 19},
-	}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
-		t.Fatalf("InsertUsageEvents returned error: %v", err)
-	}
-	if err := AggregateUsageOverviewStats(context.Background(), db, time.Date(2026, 4, 24, 0, 0, 0, 0, time.UTC)); err != nil {
-		t.Fatalf("AggregateUsageOverviewStats returned error: %v", err)
-	}
-
-	start := time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC)
-	end := time.Date(2026, 4, 23, 23, 59, 59, 999000000, time.UTC)
-	overview, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "7d", StartTime: &start, EndTime: &end})
-	if err != nil {
-		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
-	}
-
-	if len(overview.Series.Requests) != 2 || overview.Series.Requests["2026-04-17"] != 1 || overview.Series.Requests["2026-04-24"] != 2 {
-		t.Fatalf("expected main overview series to remain daily for 7d, got %+v", overview.Series.Requests)
-	}
-	if _, ok := overview.HourlySeries.Requests["2026-04-17T16:00:00+08:00"]; ok {
-		t.Fatalf("expected latest hourly series to exclude buckets before the latest 24 hours, got %+v", overview.HourlySeries.Requests)
-	}
-	if overview.HourlySeries.Requests["2026-04-24T06:00:00+08:00"] != 1 || overview.HourlySeries.Requests["2026-04-24T07:00:00+08:00"] != 1 {
-		t.Fatalf("unexpected latest hourly request series: %+v", overview.HourlySeries.Requests)
-	}
-	if overview.HourlySeries.Cost["2026-04-24T06:00:00+08:00"] != 1.999993 || overview.HourlySeries.Cost["2026-04-24T07:00:00+08:00"] != 2.999983 {
-		t.Fatalf("unexpected latest hourly cost series: %+v", overview.HourlySeries.Cost)
-	}
-	if overview.HourlySeries.InputTokens["2026-04-24T06:00:00+08:00"] != 2_000_000 || overview.HourlySeries.OutputTokens["2026-04-24T07:00:00+08:00"] != 13 {
-		t.Fatalf("unexpected latest hourly token category series: %+v", overview.HourlySeries)
-	}
-	if overview.DailySeries.Requests["2026-04-17"] != 1 || overview.DailySeries.Requests["2026-04-24"] != 2 {
-		t.Fatalf("unexpected daily request series: %+v", overview.DailySeries.Requests)
-	}
-}
-
 func TestBuildUsageOverviewWithFilterUsesDailyBucketsForLongCustomRanges(t *testing.T) {
 	withRepositoryTestLocation(t, "Asia/Shanghai")
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-custom-buckets.db")})
@@ -1184,6 +1148,530 @@ func TestBuildUsageOverviewWithFilterUsesDailyBucketsForLongCustomRanges(t *test
 	}
 	if _, ok := overview.Series.Requests["2026-04-20T08:00:00Z"]; ok {
 		t.Fatalf("expected long custom range not to keep hourly buckets, got %+v", overview.Series.Requests)
+	}
+}
+
+func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(t *testing.T) {
+	withRepositoryTestLocation(t, "UTC")
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-realtime.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "gpt-5", PromptPricePer1M: 1, CompletionPricePer1M: 1, CachePricePer1M: 0.5}); err != nil {
+		t.Fatalf("UpsertModelPriceSetting gpt-5 returned error: %v", err)
+	}
+	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "claude-sonnet", PromptPricePer1M: 1, CompletionPricePer1M: 1, CachePricePer1M: 0.5}); err != nil {
+		t.Fatalf("UpsertModelPriceSetting claude returned error: %v", err)
+	}
+
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	ttft100 := int64(100)
+	ttft200 := int64(200)
+	cache := newEmptyUsageRecentEventCache(UsageRecentEventCacheOptions{Now: func() time.Time { return now }})
+	t.Cleanup(cache.Close)
+	cache.appendEvents([]entities.UsageEvent{
+		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-16 * time.Minute), InputTokens: 900, TotalTokens: 900},
+		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 50*time.Second), InputTokens: 100, OutputTokens: 60, CachedTokens: 20, TotalTokens: 120, LatencyMS: 500, TTFTMS: &ttft100},
+		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 45*time.Second), InputTokens: 50, OutputTokens: 40, CachedTokens: 5, TotalTokens: 80, LatencyMS: 700, TTFTMS: &ttft200},
+		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 30*time.Second), Failed: true, InputTokens: 1000, TotalTokens: 1000, LatencyMS: 900},
+		{APIGroupKey: "provider-a", Model: "claude-sonnet", AuthType: "apikey", Provider: "OpenAI Provider", AuthIndex: "provider-1", Timestamp: now.Add(-20 * time.Second), InputTokens: 100, OutputTokens: 25, TotalTokens: 50, LatencyMS: 300},
+		{APIGroupKey: "provider-b", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-2", Timestamp: now.Add(-10 * time.Second), InputTokens: 700, TotalTokens: 700, LatencyMS: 100},
+	})
+	if err := db.Create([]entities.UsageIdentity{
+		{Name: "Claude Account", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-file-1", Type: "claude", Provider: "Claude", CreatedAt: now, UpdatedAt: now},
+		{Name: "OpenAI Provider", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "provider-1", Type: "openai", Provider: "OpenAI", CreatedAt: now, UpdatedAt: now},
+	}).Error; err != nil {
+		t.Fatalf("create usage identities returned error: %v", err)
+	}
+	if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
+		t.Fatalf("drop usage_events returned error: %v", err)
+	}
+
+	realtime, err := BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, dto.UsageQueryFilter{
+		APIGroupKey:     "provider-a",
+		RealtimeWindow:  "15m",
+		RealtimeEndTime: &now,
+	}, cache)
+	if err != nil {
+		t.Fatalf("BuildUsageOverviewRealtimeWithFilterAndRecentCache returned error: %v", err)
+	}
+
+	if realtime.Window != "15m" || realtime.BucketSeconds != 30 {
+		t.Fatalf("unexpected realtime metadata: %+v", realtime)
+	}
+	if len(realtime.TokenVelocity) != 30 || len(realtime.ResponseLevel) != 30 || len(realtime.RequestLevel) != 30 || len(realtime.CacheLevel) != 30 {
+		t.Fatalf("expected 30 realtime buckets, got token=%d response=%d request=%d cache=%d", len(realtime.TokenVelocity), len(realtime.ResponseLevel), len(realtime.RequestLevel), len(realtime.CacheLevel))
+	}
+
+	firstUsageBucket := realtime.TokenVelocity[20]
+	if firstUsageBucket.Bucket != "2026-06-09T11:55:00Z" || firstUsageBucket.Tokens != 200 || math.Abs(firstUsageBucket.TokensPerMinute-(200.0/3.0)) > 0.000000001 {
+		t.Fatalf("unexpected first token velocity bucket: %+v", firstUsageBucket)
+	}
+	carriedUsageBucket := realtime.TokenVelocity[25]
+	if carriedUsageBucket.Tokens != 200 || math.Abs(carriedUsageBucket.TokensPerMinute-(200.0/3.0)) > 0.000000001 {
+		t.Fatalf("expected token velocity to carry over the 3m sliding window, got %+v", carriedUsageBucket)
+	}
+	expiredUsageBucket := realtime.TokenVelocity[26]
+	if expiredUsageBucket.Tokens != 0 || expiredUsageBucket.TokensPerMinute != 0 {
+		t.Fatalf("expected token velocity to expire after the 3m sliding window, got %+v", expiredUsageBucket)
+	}
+	if realtime.ResponseLevel[21].LatencyP95MS == nil || *realtime.ResponseLevel[21].LatencyP95MS != 900 ||
+		realtime.ResponseLevel[21].TTFTP95MS == nil || *realtime.ResponseLevel[21].TTFTP95MS != 200 {
+		t.Fatalf("expected response level to carry over the sliding window, got %+v", realtime.ResponseLevel[21])
+	}
+	if realtime.ResponseLevel[26].LatencyP95MS == nil || *realtime.ResponseLevel[26].LatencyP95MS != 900 || realtime.ResponseLevel[26].TTFTP95MS != nil {
+		t.Fatalf("expected failed request latency to remain visible without token TTFT, got %+v", realtime.ResponseLevel[26])
+	}
+	if realtime.ResponseLevel[27].LatencyP95MS != nil || realtime.ResponseLevel[27].TTFTP95MS != nil {
+		t.Fatalf("expected response level to expire after the sliding window, got %+v", realtime.ResponseLevel[27])
+	}
+	if len(realtime.ResponseDistribution.TTFT.AverageLine) != 30 || len(realtime.ResponseDistribution.Latency.AverageLine) != 30 {
+		t.Fatalf("expected response distribution average lines to use the realtime buckets, got ttft=%d latency=%d", len(realtime.ResponseDistribution.TTFT.AverageLine), len(realtime.ResponseDistribution.Latency.AverageLine))
+	}
+	if realtime.ResponseDistribution.TTFT.AverageLine[21].AvgMS == nil || math.Abs(*realtime.ResponseDistribution.TTFT.AverageLine[21].AvgMS-150) > 0.000000001 {
+		t.Fatalf("expected ttft average line to use sliding samples, got %+v", realtime.ResponseDistribution.TTFT.AverageLine[21])
+	}
+	if realtime.ResponseDistribution.Latency.AverageLine[21].AvgMS == nil || math.Abs(*realtime.ResponseDistribution.Latency.AverageLine[21].AvgMS-700) > 0.000000001 {
+		t.Fatalf("expected latency average line to include failed request latency, got %+v", realtime.ResponseDistribution.Latency.AverageLine[21])
+	}
+	if realtime.ResponseDistribution.TTFT.AverageLine[26].AvgMS != nil ||
+		realtime.ResponseDistribution.Latency.AverageLine[26].AvgMS == nil || math.Abs(*realtime.ResponseDistribution.Latency.AverageLine[26].AvgMS-900) > 0.000000001 {
+		t.Fatalf("expected failed request latency distribution without ttft after sliding carry, got ttft=%+v latency=%+v", realtime.ResponseDistribution.TTFT.AverageLine[26], realtime.ResponseDistribution.Latency.AverageLine[26])
+	}
+	if len(realtime.ResponseDistribution.TTFT.Particles) == 0 || len(realtime.ResponseDistribution.Latency.Particles) == 0 {
+		t.Fatalf("expected response distribution particles to be populated, got ttft=%+v latency=%+v", realtime.ResponseDistribution.TTFT.Particles, realtime.ResponseDistribution.Latency.Particles)
+	}
+	if realtime.RequestLevel[21].Requests != 3 || realtime.RequestLevel[21].RequestsPerMinute != 1 {
+		t.Fatalf("expected request level to use the 3m sliding window, got %+v", realtime.RequestLevel[21])
+	}
+	if realtime.RequestLevel[26].Requests != 1 || math.Abs(realtime.RequestLevel[26].RequestsPerMinute-(1.0/3.0)) > 0.000000001 {
+		t.Fatalf("expected failed request to remain visible inside the sliding window, got %+v", realtime.RequestLevel[26])
+	}
+	if realtime.CacheLevel[20].InputTokens != 150 || realtime.CacheLevel[20].CachedTokens != 25 ||
+		realtime.CacheLevel[20].CacheRate == nil || math.Abs(*realtime.CacheLevel[20].CacheRate-(25.0/150.0)*100) > 0.000000001 {
+		t.Fatalf("unexpected cache level bucket: %+v", realtime.CacheLevel[20])
+	}
+	if realtime.CacheLevel[25].InputTokens != 150 || realtime.CacheLevel[25].CachedTokens != 25 ||
+		realtime.CacheLevel[25].CacheRate == nil || math.Abs(*realtime.CacheLevel[25].CacheRate-(25.0/150.0)*100) > 0.000000001 {
+		t.Fatalf("expected cache level to carry over the sliding window, got %+v", realtime.CacheLevel[25])
+	}
+	if realtime.CacheLevel[26].CacheRate != nil || realtime.CacheLevel[26].InputTokens != 0 || realtime.CacheLevel[26].CachedTokens != 0 {
+		t.Fatalf("expected cache level to expire after the sliding window, got %+v", realtime.CacheLevel[26])
+	}
+
+	if len(realtime.CurrentUsage.Models) != 2 ||
+		realtime.CurrentUsage.Models[0].Key != "gpt-5" ||
+		realtime.CurrentUsage.Models[0].Tokens != 200 ||
+		math.Abs(realtime.CurrentUsage.Models[0].Share-80) > 0.000000001 {
+		t.Fatalf("unexpected realtime model usage: %+v", realtime.CurrentUsage.Models)
+	}
+	if len(realtime.CurrentUsage.APIKeys) != 1 ||
+		realtime.CurrentUsage.APIKeys[0].Key != "provider-a" ||
+		realtime.CurrentUsage.APIKeys[0].Requests != 4 ||
+		realtime.CurrentUsage.APIKeys[0].Tokens != 250 {
+		t.Fatalf("unexpected realtime api key usage: %+v", realtime.CurrentUsage.APIKeys)
+	}
+	if len(realtime.CurrentUsage.AuthFiles) != 1 ||
+		realtime.CurrentUsage.AuthFiles[0].Label != "Claude Account" ||
+		realtime.CurrentUsage.AuthFiles[0].Tokens != 200 {
+		t.Fatalf("unexpected realtime auth file usage: %+v", realtime.CurrentUsage.AuthFiles)
+	}
+	if len(realtime.CurrentUsage.AIProviders) != 1 ||
+		realtime.CurrentUsage.AIProviders[0].Label != "OpenAI Provider" ||
+		realtime.CurrentUsage.AIProviders[0].Tokens != 50 {
+		t.Fatalf("unexpected realtime ai provider usage: %+v", realtime.CurrentUsage.AIProviders)
+	}
+}
+
+func TestBuildUsageOverviewRealtimeWithFilterUsesWarmupEventsForSlidingBucketsOnly(t *testing.T) {
+	withRepositoryTestLocation(t, "UTC")
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-realtime-warmup.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	windowStart := now.Add(-15 * time.Minute)
+	cache := newEmptyUsageRecentEventCache(UsageRecentEventCacheOptions{Now: func() time.Time { return now }})
+	t.Cleanup(cache.Close)
+	cache.appendEvents([]entities.UsageEvent{
+		{EventKey: "warmup", APIGroupKey: "provider-a", Model: "warmup-model", Timestamp: windowStart.Add(-30 * time.Second), InputTokens: 600, TotalTokens: 600},
+		{EventKey: "visible", APIGroupKey: "provider-a", Model: "visible-model", Timestamp: windowStart.Add(10 * time.Second), InputTokens: 60, TotalTokens: 60},
+	})
+	if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
+		t.Fatalf("drop usage_events returned error: %v", err)
+	}
+
+	realtime, err := BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, dto.UsageQueryFilter{
+		RealtimeWindow:  "15m",
+		RealtimeEndTime: &now,
+	}, cache)
+	if err != nil {
+		t.Fatalf("BuildUsageOverviewRealtimeWithFilterAndRecentCache returned error: %v", err)
+	}
+
+	if len(realtime.TokenVelocity) != 30 {
+		t.Fatalf("expected 30 visible token velocity buckets, got %d", len(realtime.TokenVelocity))
+	}
+	firstBucket := realtime.TokenVelocity[0]
+	if firstBucket.Tokens != 660 || math.Abs(firstBucket.TokensPerMinute-220) > 0.000000001 {
+		t.Fatalf("expected first visible bucket to include warmup sliding tokens only in chart, got %+v", firstBucket)
+	}
+	if len(realtime.CurrentUsage.Models) != 1 || realtime.CurrentUsage.Models[0].Label != "visible-model" || realtime.CurrentUsage.Models[0].Tokens != 60 {
+		t.Fatalf("expected current usage to exclude warmup-only model, got %+v", realtime.CurrentUsage.Models)
+	}
+}
+
+func TestBuildUsageOverviewRealtimeWithFilterUsesRecentCacheFallbackLabels(t *testing.T) {
+	withRepositoryTestLocation(t, "UTC")
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-realtime-fallback.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	cache := newEmptyUsageRecentEventCache(UsageRecentEventCacheOptions{Now: func() time.Time { return now }})
+	t.Cleanup(cache.Close)
+	cache.appendEvents([]entities.UsageEvent{{
+		APIGroupKey: "provider-a",
+		Model:       "gpt-5",
+		AuthType:    "oauth",
+		Source:      "auth-source@example.com",
+		AuthIndex:   "auth-index",
+		Timestamp:   now.Add(-2 * time.Minute),
+		InputTokens: 10,
+		TotalTokens: 100,
+	}, {
+		APIGroupKey: "provider-a",
+		Model:       "gpt-5",
+		AuthType:    "apikey",
+		Provider:    "Provider Display",
+		AuthIndex:   "provider-index",
+		Timestamp:   now.Add(-1 * time.Minute),
+		InputTokens: 20,
+		TotalTokens: 200,
+	}})
+
+	realtime, err := BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, dto.UsageQueryFilter{
+		APIGroupKey:     "provider-a",
+		RealtimeWindow:  "15m",
+		RealtimeEndTime: &now,
+	}, cache)
+	if err != nil {
+		t.Fatalf("BuildUsageOverviewRealtimeWithFilterAndRecentCache returned error: %v", err)
+	}
+
+	if len(realtime.CurrentUsage.AuthFiles) != 1 ||
+		realtime.CurrentUsage.AuthFiles[0].Key != "auth-index" ||
+		realtime.CurrentUsage.AuthFiles[0].Label != "auth-source@example.com" ||
+		realtime.CurrentUsage.AuthFiles[0].Tokens != 100 {
+		t.Fatalf("expected auth file fallback to use source label, got %+v", realtime.CurrentUsage.AuthFiles)
+	}
+	if len(realtime.CurrentUsage.AIProviders) != 1 ||
+		realtime.CurrentUsage.AIProviders[0].Key != "provider-index" ||
+		realtime.CurrentUsage.AIProviders[0].Label != "Provider Display" ||
+		realtime.CurrentUsage.AIProviders[0].Tokens != 200 {
+		t.Fatalf("expected ai provider fallback to use provider label, got %+v", realtime.CurrentUsage.AIProviders)
+	}
+}
+
+func TestBuildUsageOverviewRealtimeWithFilterFallsBackToDBWhenRecentCacheIsNil(t *testing.T) {
+	withRepositoryTestLocation(t, "UTC")
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-realtime-db-fallback.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	now := time.Date(2026, 6, 10, 12, 30, 0, 0, time.UTC)
+	if _, _, err := InsertUsageEvents(db, []entities.UsageEvent{{
+		APIGroupKey:  "provider-a",
+		Model:        "gpt-5",
+		AuthType:     "oauth",
+		Source:       "db-source@example.com",
+		AuthIndex:    "auth-db",
+		Timestamp:    now.Add(-10 * time.Minute),
+		InputTokens:  10,
+		OutputTokens: 20,
+		TotalTokens:  30,
+	}}); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	realtime, err := BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, dto.UsageQueryFilter{
+		RealtimeWindow:  "15m",
+		RealtimeEndTime: &now,
+	}, nil)
+	if err != nil {
+		t.Fatalf("BuildUsageOverviewRealtimeWithFilterAndRecentCache returned error: %v", err)
+	}
+
+	if len(realtime.CurrentUsage.Models) != 1 ||
+		realtime.CurrentUsage.Models[0].Key != "gpt-5" ||
+		realtime.CurrentUsage.Models[0].Tokens != 30 {
+		t.Fatalf("expected realtime db fallback to populate model usage, got %+v", realtime.CurrentUsage.Models)
+	}
+	if len(realtime.RequestLevel) != 30 || realtime.RequestLevel[10].Requests != 1 {
+		t.Fatalf("expected realtime db fallback to populate request level, got %+v", realtime.RequestLevel[10])
+	}
+}
+
+func TestBuildUsageOverviewWithFilterUsesRecentCacheForCoveredBoundaryEvents(t *testing.T) {
+	withRepositoryTestLocation(t, "UTC")
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-cache-boundary.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	now := time.Date(2026, 6, 10, 12, 30, 0, 0, time.UTC)
+	start := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 6, 10, 12, 20, 0, 0, time.UTC)
+	cache := newEmptyUsageRecentEventCache(UsageRecentEventCacheOptions{Now: func() time.Time { return now }})
+	t.Cleanup(cache.Close)
+	cache.appendEvents([]entities.UsageEvent{{
+		APIGroupKey:         "provider-a",
+		Model:               "gpt-5",
+		AuthType:            "oauth",
+		Source:              "auth-user@example.com",
+		AuthIndex:           "auth-1",
+		Timestamp:           start.Add(10 * time.Minute),
+		InputTokens:         100,
+		OutputTokens:        50,
+		ReasoningTokens:     7,
+		CachedTokens:        25,
+		CacheReadTokens:     3,
+		CacheCreationTokens: 4,
+		TotalTokens:         150,
+	}, {
+		APIGroupKey:  "provider-b",
+		Model:        "gpt-5",
+		AuthType:     "apikey",
+		Provider:     "Provider B",
+		AuthIndex:    "provider-b",
+		Timestamp:    start.Add(11 * time.Minute),
+		InputTokens:  900,
+		OutputTokens: 100,
+		TotalTokens:  1000,
+	}})
+
+	filter := dto.UsageQueryFilter{
+		Range:       "custom",
+		StartTime:   &start,
+		EndTime:     &end,
+		QueryNow:    &now,
+		APIGroupKey: "provider-a",
+	}
+	overview, err := BuildUsageOverviewWithFilterAndRecentCache(db, filter, cache)
+	if err != nil {
+		t.Fatalf("BuildUsageOverviewWithFilterAndRecentCache returned error: %v", err)
+	}
+
+	if overview.Usage.TotalRequests != 1 || overview.Usage.SuccessCount != 1 || overview.Usage.TotalTokens != 150 {
+		t.Fatalf("expected cached boundary event in usage totals, got %+v", overview.Usage)
+	}
+	if overview.Summary.InputTokens != 100 || overview.Summary.CachedTokens != 25 || overview.Summary.ReasoningTokens != 7 {
+		t.Fatalf("expected cached boundary event in summary, got %+v", overview.Summary)
+	}
+	if overview.Series.Requests["2026-06-10T12:00:00Z"] != 1 || overview.Series.Tokens["2026-06-10T12:00:00Z"] != 150 {
+		t.Fatalf("expected cached boundary event in series, got %+v", overview.Series)
+	}
+}
+
+func TestBuildUsageOverviewWithFilterUsesOpenEndedRecentCacheForCurrentRightBoundary(t *testing.T) {
+	withRepositoryTestLocation(t, "UTC")
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-cache-open-right.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	now := time.Date(2026, 6, 10, 12, 0, 5, 0, time.UTC)
+	start := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	cache := newEmptyUsageRecentEventCache(UsageRecentEventCacheOptions{Now: func() time.Time { return now }})
+	t.Cleanup(cache.Close)
+	cache.appendEvents([]entities.UsageEvent{{
+		APIGroupKey: "provider-a",
+		Model:       "gpt-5",
+		AuthType:    "oauth",
+		Source:      "auth-user@example.com",
+		AuthIndex:   "auth-1",
+		Timestamp:   now,
+		InputTokens: 40,
+		TotalTokens: 100,
+	}})
+	overview, err := BuildUsageOverviewWithFilterAndRecentCache(db, dto.UsageQueryFilter{
+		Range:       "24h",
+		StartTime:   &start,
+		EndTime:     &end,
+		QueryNow:    &now,
+		APIGroupKey: "provider-a",
+	}, cache)
+	if err != nil {
+		t.Fatalf("BuildUsageOverviewWithFilterAndRecentCache returned error: %v", err)
+	}
+
+	if overview.Usage.TotalRequests != 1 || overview.Usage.TotalTokens != 100 {
+		t.Fatalf("expected open-ended right boundary cache event, got %+v", overview.Usage)
+	}
+}
+
+func TestBuildUsageOverviewWithFilterUsesBoundedRecentCacheForHistoricalCustomRightBoundary(t *testing.T) {
+	withRepositoryTestLocation(t, "UTC")
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-cache-bounded-custom.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	now := time.Date(2026, 6, 10, 12, 30, 0, 0, time.UTC)
+	start := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 6, 10, 12, 20, 0, 0, time.UTC)
+	cache := newEmptyUsageRecentEventCache(UsageRecentEventCacheOptions{Now: func() time.Time { return now }})
+	t.Cleanup(cache.Close)
+	cache.appendEvents([]entities.UsageEvent{{
+		APIGroupKey: "provider-a",
+		Model:       "gpt-5",
+		AuthType:    "oauth",
+		Source:      "inside@example.com",
+		AuthIndex:   "auth-inside",
+		Timestamp:   start.Add(10 * time.Minute),
+		InputTokens: 20,
+		TotalTokens: 50,
+	}, {
+		APIGroupKey: "provider-a",
+		Model:       "gpt-5",
+		AuthType:    "oauth",
+		Source:      "after@example.com",
+		AuthIndex:   "auth-after",
+		Timestamp:   end.Add(5 * time.Minute),
+		InputTokens: 80,
+		TotalTokens: 200,
+	}})
+	if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
+		t.Fatalf("drop usage_events returned error: %v", err)
+	}
+
+	overview, err := BuildUsageOverviewWithFilterAndRecentCache(db, dto.UsageQueryFilter{
+		Range:       "custom",
+		StartTime:   &start,
+		EndTime:     &end,
+		QueryNow:    &now,
+		APIGroupKey: "provider-a",
+	}, cache)
+	if err != nil {
+		t.Fatalf("BuildUsageOverviewWithFilterAndRecentCache returned error: %v", err)
+	}
+
+	if overview.Usage.TotalRequests != 1 || overview.Usage.TotalTokens != 50 {
+		t.Fatalf("expected historical custom right boundary to stop at end, got %+v", overview.Usage)
+	}
+}
+
+func TestBuildUsageOverviewWithFilterClampsFutureCustomEndToQueryNow(t *testing.T) {
+	withRepositoryTestLocation(t, "UTC")
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-cache-future-custom.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	queryNow := time.Date(2026, 6, 10, 12, 30, 0, 0, time.UTC)
+	start := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 6, 10, 23, 59, 59, 0, time.UTC)
+	cache := newEmptyUsageRecentEventCache(UsageRecentEventCacheOptions{Now: func() time.Time { return queryNow }})
+	t.Cleanup(cache.Close)
+	cache.appendEvents([]entities.UsageEvent{{
+		APIGroupKey: "provider-a",
+		Model:       "gpt-5",
+		AuthType:    "oauth",
+		Source:      "today@example.com",
+		AuthIndex:   "auth-today",
+		Timestamp:   start.Add(10 * time.Minute),
+		InputTokens: 40,
+		TotalTokens: 90,
+	}})
+	if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
+		t.Fatalf("drop usage_events returned error: %v", err)
+	}
+
+	overview, err := BuildUsageOverviewWithFilterAndRecentCache(db, dto.UsageQueryFilter{
+		Range:       "custom",
+		StartTime:   &start,
+		EndTime:     &end,
+		QueryNow:    &queryNow,
+		APIGroupKey: "provider-a",
+	}, cache)
+	if err != nil {
+		t.Fatalf("BuildUsageOverviewWithFilterAndRecentCache returned error: %v", err)
+	}
+
+	if overview.Usage.TotalRequests != 1 || overview.Usage.TotalTokens != 90 {
+		t.Fatalf("expected future-ended custom range to read current boundary from cache, got %+v", overview.Usage)
+	}
+}
+
+func TestBuildUsageOverviewWithFilterDoesNotFallbackToDBForEmptyCoveredRightBoundaryCache(t *testing.T) {
+	withRepositoryTestLocation(t, "UTC")
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-cache-empty-right.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	now := time.Date(2026, 6, 10, 12, 20, 0, 0, time.UTC)
+	start := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 6, 10, 12, 20, 0, 0, time.UTC)
+	cache := newEmptyUsageRecentEventCache(UsageRecentEventCacheOptions{Now: func() time.Time { return now }})
+	t.Cleanup(cache.Close)
+	if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
+		t.Fatalf("drop usage_events returned error: %v", err)
+	}
+
+	overview, err := BuildUsageOverviewWithFilterAndRecentCache(db, dto.UsageQueryFilter{
+		Range:       "custom",
+		StartTime:   &start,
+		EndTime:     &end,
+		QueryNow:    &now,
+		APIGroupKey: "provider-a",
+	}, cache)
+	if err != nil {
+		t.Fatalf("expected covered empty right boundary cache not to query DB, got %v", err)
+	}
+	if overview.Usage.TotalRequests != 0 || overview.Usage.TotalTokens != 0 {
+		t.Fatalf("expected empty overview from covered empty cache, got %+v", overview.Usage)
+	}
+}
+
+func TestUsageOverviewRealtimeWindowSupportsThirtyMinutes(t *testing.T) {
+	window, span := usageOverviewRealtimeWindow("30m")
+	if window != 30*time.Minute || span != time.Minute {
+		t.Fatalf("expected 30m realtime window to use 60s buckets, got window=%s span=%s", window, span)
+	}
+	if label := usageOverviewRealtimeWindowLabel(window); label != "30m" {
+		t.Fatalf("expected 30m realtime window label, got %q", label)
+	}
+	aggregationWindow := usageOverviewRealtimeAggregationWindow(window)
+	if aggregationWindow != 5*time.Minute {
+		t.Fatalf("expected 30m realtime window to aggregate over 5m, got %s", aggregationWindow)
+	}
+	if bucketCount := usageOverviewRealtimeAggregationBucketCount(span, aggregationWindow); bucketCount != 5 {
+		t.Fatalf("expected 30m realtime aggregation to cover 5 buckets, got %d", bucketCount)
+	}
+}
+
+func TestUsageOverviewRealtimeWindowDropsFiveMinutePreset(t *testing.T) {
+	window, span := usageOverviewRealtimeWindow("5m")
+	if window != 15*time.Minute || span != 30*time.Second {
+		t.Fatalf("expected removed 5m realtime window to fall back to 15m, got window=%s span=%s", window, span)
+	}
+	if label := usageOverviewRealtimeWindowLabel(window); label != "15m" {
+		t.Fatalf("expected removed 5m realtime window to label as 15m, got %q", label)
 	}
 }
 

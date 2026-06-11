@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -280,17 +281,25 @@ func (h *authHandler) clearFailedAttempts(key string) {
 	delete(h.failedAttempts, key)
 }
 
-func (h *authHandler) allowKeyOverviewRequest(token string) bool {
+func (h *authHandler) allowKeyOverviewRequest(token string, scopes ...string) bool {
 	if h == nil || token == "" {
 		return true
+	}
+	scope := "overview"
+	if len(scopes) > 0 && strings.TrimSpace(scopes[0]) != "" {
+		scope = strings.TrimSpace(scopes[0])
+	}
+	key := token
+	if scope != "overview" {
+		key = token + "\x00" + scope
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	now := time.Now()
-	if last, ok := h.keyOverviewRequests[token]; ok && now.Sub(last) < time.Second {
+	if last, ok := h.keyOverviewRequests[key]; ok && now.Sub(last) < time.Second {
 		return false
 	}
-	h.keyOverviewRequests[token] = now
+	h.keyOverviewRequests[key] = now
 	return true
 }
 
@@ -304,6 +313,12 @@ func (h *authHandler) deleteSession(token string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.keyOverviewRequests, token)
+	prefix := token + "\x00"
+	for key := range h.keyOverviewRequests {
+		if strings.HasPrefix(key, prefix) {
+			delete(h.keyOverviewRequests, key)
+		}
+	}
 }
 
 func loginClientKey(c *gin.Context) string {

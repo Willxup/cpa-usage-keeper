@@ -54,8 +54,8 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 	if err := db.Table("schema_migrations").Count(&count).Error; err != nil {
 		t.Fatalf("count schema migrations: %v", err)
 	}
-	if count != 35 {
-		t.Fatalf("expected fresh database to mark 35 migrations applied, got %d", count)
+	if count != 37 {
+		t.Fatalf("expected fresh database to mark 37 migrations applied, got %d", count)
 	}
 	if strings.Contains(logs.String(), "schema migration started") {
 		t.Fatalf("expected fresh database creation not to run version migrations, got logs:\n%s", logs.String())
@@ -65,6 +65,7 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 		"idx_usage_events_auth_index",
 		"idx_usage_events_model",
 		"idx_usage_events_auth_type_auth_index_id",
+		"idx_usage_events_auth_index_timestamp_id",
 		"uniq_usage_overview_hourly_stats_bucket_api_model_auth_alias",
 		"idx_usage_overview_hourly_stats_api_bucket",
 		"idx_usage_overview_hourly_stats_api_model_bucket",
@@ -81,7 +82,12 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 		assertSQLiteIndexExists(t, db, indexName)
 	}
 	for _, indexName := range []string{
+		"idx_usage_events_api_group_key_timestamp_id",
+		"idx_usage_events_event_key",
+		"idx_usage_events_failed",
 		"idx_usage_events_source",
+		"idx_usage_events_provider",
+		"idx_usage_events_auth_type",
 		"idx_usage_events_auth_type_source_id",
 	} {
 		if repositorySQLiteIndexExists(t, db, indexName) {

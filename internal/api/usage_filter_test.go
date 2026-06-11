@@ -39,6 +39,19 @@ func TestParseUsageFilterQueryPresetRange(t *testing.T) {
 	}
 }
 
+func TestParseUsageFilterQueryIgnoresRealtimeWindow(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/usage/overview?range=24h&realtime_window=45m", nil)
+	anchor := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)
+
+	filter, err := parseUsageFilterQuery(req, anchor)
+	if err != nil {
+		t.Fatalf("parseUsageFilterQuery returned error for ignored realtime_window: %v", err)
+	}
+	if filter.RealtimeWindow != "" || filter.RealtimeEndTime != nil {
+		t.Fatalf("expected main overview filter not to carry realtime fields, got %+v", filter)
+	}
+}
+
 func TestParseUsageFilterQueryTodayRangeUsesLocalDayBoundary(t *testing.T) {
 	previousLocal := time.Local
 	location, err := time.LoadLocation("Asia/Shanghai")
@@ -265,6 +278,24 @@ func TestParseUsageFilterQueryAcceptsAPIKeyID(t *testing.T) {
 	}
 	if timeFilter.APIKeyID != "1234567890123456789" {
 		t.Fatalf("expected time filter to preserve api key id, got %+v", timeFilter)
+	}
+}
+
+func TestParseUsageFilterQueryRejectsInvalidAPIKeyID(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/usage/events?range=24h&api_key_id=not-an-id", nil)
+
+	_, err := parseUsageFilterQuery(req, time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC))
+	if err == nil {
+		t.Fatal("expected invalid api_key_id error")
+	}
+}
+
+func TestParseUsageRealtimeFilterQueryRejectsInvalidAPIKeyID(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/usage/overview/realtime?window=60m&api_key_id=not-an-id", nil)
+
+	_, err := parseUsageRealtimeFilterQuery(req, time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC))
+	if err == nil {
+		t.Fatal("expected invalid realtime api_key_id error")
 	}
 }
 

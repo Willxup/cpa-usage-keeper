@@ -44,6 +44,18 @@ func parseUsageTimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.
 	return filter, nil
 }
 
+func parseUsageAPIKeyID(value string) (string, error) {
+	apiKeyID := strings.TrimSpace(value)
+	if apiKeyID == "" {
+		return "", nil
+	}
+	parsedID, err := strconv.ParseInt(apiKeyID, 10, 64)
+	if err != nil || parsedID <= 0 {
+		return "", fmt.Errorf("invalid api_key_id %q", apiKeyID)
+	}
+	return apiKeyID, nil
+}
+
 func parseCustomUsageRangeBoundary(value string, endOfDay bool) (time.Time, error) {
 	if date, err := time.ParseInLocation(time.DateOnly, value, time.Local); err == nil {
 		if endOfDay {
@@ -90,9 +102,14 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (servicedto.Usag
 	}
 	filter.Offset = (filter.Page - 1) * filter.PageSize
 	filter.Model = strings.TrimSpace(query.Get("model"))
+	// Request Events 前端参数仍叫 source，但它的值是 usage identity；路由层会转换成 auth_index 查询。
 	filter.Source = strings.TrimSpace(query.Get("source"))
 	filter.AuthIndex = strings.TrimSpace(query.Get("auth_index"))
-	filter.APIKeyID = strings.TrimSpace(query.Get("api_key_id"))
+	apiKeyID, err := parseUsageAPIKeyID(query.Get("api_key_id"))
+	if err != nil {
+		return servicedto.UsageFilter{}, err
+	}
+	filter.APIKeyID = apiKeyID
 	filter.Result = strings.TrimSpace(query.Get("result"))
 	if filter.Result != "" && filter.Result != "success" && filter.Result != "failed" {
 		return servicedto.UsageFilter{}, fmt.Errorf("invalid result %q", filter.Result)
@@ -141,5 +158,35 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (servicedto.Usag
 		filter.StartTime = &startTime
 		filter.EndTime = &endTime
 		return filter, nil
+	}
+}
+
+func parseUsageRealtimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
+	if req == nil {
+		return servicedto.UsageFilter{}, nil
+	}
+	query := req.URL.Query()
+	realtimeWindow := strings.TrimSpace(query.Get("window"))
+	if realtimeWindow == "" {
+		realtimeWindow = strings.TrimSpace(query.Get("realtime_window"))
+	}
+	if realtimeWindow == "" {
+		realtimeWindow = "15m"
+	}
+	apiKeyID, err := parseUsageAPIKeyID(query.Get("api_key_id"))
+	if err != nil {
+		return servicedto.UsageFilter{}, err
+	}
+	filter := servicedto.UsageFilter{
+		RealtimeWindow: realtimeWindow,
+		APIKeyID:       apiKeyID,
+	}
+	switch realtimeWindow {
+	case "15m", "30m", "60m":
+		realtimeEndTime := timeutil.NormalizeStorageTime(anchor)
+		filter.RealtimeEndTime = &realtimeEndTime
+		return filter, nil
+	default:
+		return servicedto.UsageFilter{}, fmt.Errorf("unsupported realtime window %q", realtimeWindow)
 	}
 }

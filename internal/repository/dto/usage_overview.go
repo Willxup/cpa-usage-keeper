@@ -11,22 +11,21 @@ type UsageOverviewSummaryRecord struct {
 	TPM             float64
 	TotalCost       float64
 	CostAvailable   bool
+	InputTokens     int64
 	CachedTokens    int64
 	ReasoningTokens int64
 }
 
 // UsageOverviewSeriesRecord 是 overview 的 series 聚合结果。
 type UsageOverviewSeriesRecord struct {
-	Requests        map[string]int64
-	Tokens          map[string]int64
-	RPM             map[string]float64
-	TPM             map[string]float64
-	Cost            map[string]float64
-	InputTokens     map[string]int64
-	OutputTokens    map[string]int64
-	CachedTokens    map[string]int64
-	ReasoningTokens map[string]int64
-	Models          map[string]UsageOverviewSeriesRecord
+	Requests              map[string]int64
+	Tokens                map[string]int64
+	RPM                   map[string]float64
+	TPM                   map[string]float64
+	Cost                  map[string]float64
+	CacheRate             map[string]*float64
+	CacheRateInputTokens  map[string]int64
+	CacheRateCachedTokens map[string]int64
 }
 
 // UsageOverviewHealthBlockRecord 是 overview health 的单个时间块。
@@ -51,12 +50,97 @@ type UsageOverviewHealthRecord struct {
 	BlockDetails  []UsageOverviewHealthBlockRecord
 }
 
+// RealtimeTokenVelocityPointRecord 是 Overview token 速度图的单个短窗口桶。
+type RealtimeTokenVelocityPointRecord struct {
+	Bucket          string
+	TokensPerMinute float64
+	Tokens          int64
+	CostUSD         *float64
+}
+
+// RealtimeResponseLevelPointRecord 是 Overview 响应水平图的单个短窗口桶。
+type RealtimeResponseLevelPointRecord struct {
+	Bucket       string
+	TTFTP50MS    *int64
+	TTFTP95MS    *int64
+	LatencyP50MS *int64
+	LatencyP95MS *int64
+}
+
+// RealtimeResponseAveragePointRecord 是响应分布图的一条平均线点。
+type RealtimeResponseAveragePointRecord struct {
+	Bucket string
+	AvgMS  *float64
+}
+
+// RealtimeResponseParticleRecord 是响应分布图的一个聚合粒子点。
+type RealtimeResponseParticleRecord struct {
+	Bucket string
+	MS     int64
+	Count  int64
+}
+
+// RealtimeResponseDistributionSeriesRecord 是单个响应指标的平均线和粒子分布。
+type RealtimeResponseDistributionSeriesRecord struct {
+	AverageLine []RealtimeResponseAveragePointRecord
+	Particles   []RealtimeResponseParticleRecord
+}
+
+// RealtimeResponseDistributionRecord 是 TTFT 和 Latency 的实时响应分布。
+type RealtimeResponseDistributionRecord struct {
+	TTFT    RealtimeResponseDistributionSeriesRecord
+	Latency RealtimeResponseDistributionSeriesRecord
+}
+
+// RealtimeUsageTopItemRecord 是 Overview 当前使用 Top 列表项。
+type RealtimeUsageTopItemRecord struct {
+	Key      string
+	Label    string
+	Tokens   int64
+	Requests int64
+	CostUSD  *float64
+	Share    float64
+}
+
+// RealtimeCurrentUsageRecord 是 Overview 当前使用按维度聚合的 Top 列表。
+type RealtimeCurrentUsageRecord struct {
+	Models      []RealtimeUsageTopItemRecord
+	APIKeys     []RealtimeUsageTopItemRecord
+	AuthFiles   []RealtimeUsageTopItemRecord
+	AIProviders []RealtimeUsageTopItemRecord
+}
+
+// UsageOverviewRealtimeRecord 是 Overview 页面实时图表区使用的数据块。
+type UsageOverviewRealtimeRecord struct {
+	Window               string
+	BucketSeconds        int64
+	TokenVelocity        []RealtimeTokenVelocityPointRecord
+	ResponseLevel        []RealtimeResponseLevelPointRecord
+	ResponseDistribution RealtimeResponseDistributionRecord
+	CurrentUsage         RealtimeCurrentUsageRecord
+	RequestLevel         []RealtimeRequestLevelPointRecord
+	CacheLevel           []RealtimeCacheLevelPointRecord
+}
+
+// RealtimeRequestLevelPointRecord 是 Overview 请求水平图的单个短窗口桶。
+type RealtimeRequestLevelPointRecord struct {
+	Bucket            string
+	RequestsPerMinute float64
+	Requests          int64
+}
+
+// RealtimeCacheLevelPointRecord 是 Overview 缓存水平图的单个短窗口桶。
+type RealtimeCacheLevelPointRecord struct {
+	Bucket       string
+	CacheRate    *float64
+	CachedTokens int64
+	InputTokens  int64
+}
+
 // UsageOverviewRecord 是仓储层的完整 usage overview 结果。
 type UsageOverviewRecord struct {
-	Usage        *StatisticsSnapshot
-	Summary      UsageOverviewSummaryRecord
-	Series       UsageOverviewSeriesRecord
-	HourlySeries UsageOverviewSeriesRecord
-	DailySeries  UsageOverviewSeriesRecord
-	Health       UsageOverviewHealthRecord
+	Usage   *StatisticsSnapshot
+	Summary UsageOverviewSummaryRecord
+	Series  UsageOverviewSeriesRecord
+	Health  UsageOverviewHealthRecord
 }

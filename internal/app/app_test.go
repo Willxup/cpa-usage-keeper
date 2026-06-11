@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"cpa-usage-keeper/internal/repository"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 func TestAppCloseClosesDatabase(t *testing.T) {
@@ -269,6 +271,33 @@ func TestNewWithConfigAggregatesExistingOverviewStatsBeforeRunnersStart(t *testi
 	}
 	if !strings.Contains(logContent, "completed usage overview aggregation catch-up") {
 		t.Fatalf("expected startup catch-up completion log, got %s", logContent)
+	}
+}
+
+func TestNewWithConfigContinuesWhenRecentUsageCacheInitializationFails(t *testing.T) {
+	cacheErr := errors.New("recent cache unavailable")
+	previousNewRecentUsageCache := newUsageRecentEventCache
+	newUsageRecentEventCache = func(*gorm.DB, repository.UsageRecentEventCacheOptions) (*repository.UsageRecentEventCache, error) {
+		return nil, cacheErr
+	}
+	t.Cleanup(func() { newUsageRecentEventCache = previousNewRecentUsageCache })
+
+	logDir := t.TempDir()
+	cfg := testAppConfig(t)
+	cfg.LogFileEnabled = true
+	cfg.LogDir = logDir
+	app, err := NewWithConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewWithConfig returned error: %v", err)
+	}
+	defer app.Close()
+
+	if app.RecentUsageCache != nil {
+		t.Fatalf("expected recent usage cache to be nil after initialization failure, got %T", app.RecentUsageCache)
+	}
+	logContent := readAppLogFile(t, logDir)
+	if !strings.Contains(logContent, "level=error") || !strings.Contains(logContent, "recent usage event cache initialization failed") || !strings.Contains(logContent, cacheErr.Error()) {
+		t.Fatalf("expected error log for recent usage cache initialization failure, got %s", logContent)
 	}
 }
 

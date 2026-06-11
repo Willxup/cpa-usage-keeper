@@ -70,6 +70,129 @@ func TestUsageServiceGetUsageOverviewDelegatesToFilteredOverview(t *testing.T) {
 	}
 }
 
+func TestUsageServiceGetUsageOverviewUsesRecentCacheForBoundaries(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("UTC")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	t.Cleanup(func() { time.Local = previousLocal })
+	time.Local = location
+
+	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-service-overview-recent-cache.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	now := time.Date(2026, 6, 10, 12, 30, 0, 0, time.UTC)
+	start := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 6, 10, 12, 20, 0, 0, time.UTC)
+	cache := newServiceRecentCacheFromEvents(t, db, now, []entities.UsageEvent{{
+		APIGroupKey:  "provider-a",
+		Model:        "gpt-5",
+		AuthType:     "oauth",
+		Source:       "auth-user@example.com",
+		AuthIndex:    "auth-1",
+		Timestamp:    start.Add(10 * time.Minute),
+		InputTokens:  40,
+		OutputTokens: 60,
+		TotalTokens:  100,
+	}})
+
+	provider := NewUsageServiceWithRecentCache(db, cache)
+	queryNow := now
+	overview, err := provider.GetUsageOverview(context.Background(), servicedto.UsageFilter{Range: "custom", StartTime: &start, EndTime: &end, QueryNow: &queryNow})
+	if err != nil {
+		t.Fatalf("GetUsageOverview returned error: %v", err)
+	}
+	if overview.Summary.RequestCount != 1 || overview.Summary.TokenCount != 100 {
+		t.Fatalf("expected overview service to use recent cache boundary event, got %+v", overview.Summary)
+	}
+}
+
+func TestUsageServiceGetUsageOverviewRealtimeUsesRecentCache(t *testing.T) {
+	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-service-overview-realtime-cache.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	cache := newServiceRecentCacheFromEvents(t, db, now, []entities.UsageEvent{{
+		APIGroupKey: "provider-a",
+		Model:       "gpt-5",
+		AuthType:    "oauth",
+		Source:      "auth-user@example.com",
+		AuthIndex:   "auth-1",
+		Timestamp:   now.Add(-2 * time.Minute),
+		InputTokens: 40,
+		TotalTokens: 100,
+	}})
+	if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
+		t.Fatalf("drop usage_events returned error: %v", err)
+	}
+
+	provider := NewUsageServiceWithRecentCache(db, cache)
+	realtime, err := provider.GetUsageOverviewRealtime(context.Background(), servicedto.UsageFilter{
+		RealtimeWindow:  "15m",
+		RealtimeEndTime: &now,
+	})
+	if err != nil {
+		t.Fatalf("GetUsageOverviewRealtime returned error: %v", err)
+	}
+	if len(realtime.CurrentUsage.Models) != 1 ||
+		realtime.CurrentUsage.Models[0].Key != "gpt-5" ||
+		realtime.CurrentUsage.Models[0].Tokens != 100 {
+		t.Fatalf("expected realtime service to use recent cache, got %+v", realtime.CurrentUsage.Models)
+	}
+}
+
+func TestUsageServiceGetUsageOverviewRealtimeResolvesAPIKeyIDForRecentCache(t *testing.T) {
+	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-service-overview-realtime-api-key-cache.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	if err := repository.SyncCPAAPIKeys(db, []string{"sk-target-key", "sk-other-key"}, time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("SyncCPAAPIKeys returned error: %v", err)
+	}
+	activeKeys, err := repository.ListActiveCPAAPIKeys(db)
+	if err != nil {
+		t.Fatalf("ListActiveCPAAPIKeys returned error: %v", err)
+	}
+	var targetID string
+	for _, key := range activeKeys {
+		if key.APIKey == "sk-target-key" {
+			targetID = strconv.FormatInt(key.ID, 10)
+		}
+	}
+	if targetID == "" {
+		t.Fatal("expected synced target API key")
+	}
+
+	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	cache := newServiceRecentCacheFromEvents(t, db, now, []entities.UsageEvent{
+		{APIGroupKey: "sk-target-key", Model: "gpt-5", AuthType: "oauth", Source: "target@example.com", AuthIndex: "target-auth", Timestamp: now.Add(-2 * time.Minute), InputTokens: 10, TotalTokens: 30},
+		{APIGroupKey: "sk-other-key", Model: "gpt-5", AuthType: "oauth", Source: "other@example.com", AuthIndex: "other-auth", Timestamp: now.Add(-1 * time.Minute), InputTokens: 100, TotalTokens: 300},
+	})
+
+	provider := NewUsageServiceWithRecentCache(db, cache)
+	realtime, err := provider.GetUsageOverviewRealtime(context.Background(), servicedto.UsageFilter{
+		APIKeyID:        targetID,
+		RealtimeWindow:  "15m",
+		RealtimeEndTime: &now,
+	})
+	if err != nil {
+		t.Fatalf("GetUsageOverviewRealtime returned error: %v", err)
+	}
+	if len(realtime.CurrentUsage.APIKeys) != 1 ||
+		realtime.CurrentUsage.APIKeys[0].Key != "sk-target-key" ||
+		realtime.CurrentUsage.APIKeys[0].Tokens != 30 {
+		t.Fatalf("expected realtime service to filter cache by resolved API key, got %+v", realtime.CurrentUsage.APIKeys)
+	}
+}
+
 func TestUsageServiceResolvesAPIKeyIDForUsageQueries(t *testing.T) {
 	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-service-api-key-filter.db")})
 	if err != nil {
@@ -169,4 +292,17 @@ func TestUsageServiceRejectsDeletedAPIKeyID(t *testing.T) {
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("expected deleted key to return record not found, got %v", err)
 	}
+}
+
+func newServiceRecentCacheFromEvents(t *testing.T, db *gorm.DB, now time.Time, events []entities.UsageEvent) *repository.UsageRecentEventCache {
+	t.Helper()
+	if _, _, err := repository.InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+	cache, err := repository.NewUsageRecentEventCache(db, repository.UsageRecentEventCacheOptions{Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatalf("NewUsageRecentEventCache returned error: %v", err)
+	}
+	t.Cleanup(cache.Close)
+	return cache
 }

@@ -133,7 +133,7 @@ func registerUsageEventsRoute(
 	})
 }
 
-// Source 下拉提交的是 usage identity，进入仓储前转换成 auth_index 查询。
+// Source 下拉提交的是 usage identity；为了兼容前端命名，API 收 source，但进入仓储前只转换成 auth_index 查询。
 func applyUsageEventsSourceFilter(filter *servicedto.UsageFilter) error {
 	if filter == nil {
 		return nil

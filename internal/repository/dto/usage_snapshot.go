@@ -2,14 +2,10 @@ package dto
 
 // StatisticsSnapshot 是 Overview 响应中仍需要的基础 usage 统计。
 type StatisticsSnapshot struct {
-	TotalRequests  int64            `json:"total_requests"`
-	SuccessCount   int64            `json:"success_count"`
-	FailureCount   int64            `json:"failure_count"`
-	TotalTokens    int64            `json:"total_tokens"`
-	RequestsByDay  map[string]int64 `json:"requests_by_day"`
-	RequestsByHour map[string]int64 `json:"requests_by_hour"`
-	TokensByDay    map[string]int64 `json:"tokens_by_day"`
-	TokensByHour   map[string]int64 `json:"tokens_by_hour"`
+	TotalRequests int64 `json:"total_requests"`
+	SuccessCount  int64 `json:"success_count"`
+	FailureCount  int64 `json:"failure_count"`
+	TotalTokens   int64 `json:"total_tokens"`
 }
 
 // TokenStats 是单次请求的 token 统计。

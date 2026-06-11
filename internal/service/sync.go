@@ -36,6 +36,11 @@ type CPAClientFetcher interface {
 	MetadataFetcher
 }
 
+// RecentUsageEventAppender 接收已提交入库的 usage_events，供最近窗口纯内存缓存异步维护。
+type RecentUsageEventAppender interface {
+	TryAppend([]entities.UsageEvent) bool
+}
+
 const (
 	redisInboxProcessLimit                = 1000
 	redisUsageIdentityTypeLookupBatchSize = 500
@@ -55,6 +60,7 @@ type SyncService struct {
 	metadataFetcher MetadataFetcher
 	baseURL         string
 	now             func() time.Time
+	recentUsage     RecentUsageEventAppender
 }
 
 // NewSyncService 按生产配置组装 CPA metadata client 和 Redis queue client。
@@ -78,12 +84,13 @@ func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 
 // SyncServiceOptions 提供测试和局部调用需要替换的依赖。
 type SyncServiceOptions struct {
-	BaseURL         string
-	Client          CPAClientFetcher
-	MetadataFetcher MetadataFetcher
-	RedisQueue      RedisQueue
-	RedisQueueKey   string
-	Now             func() time.Time
+	BaseURL           string
+	Client            CPAClientFetcher
+	MetadataFetcher   MetadataFetcher
+	RedisQueue        RedisQueue
+	RedisQueueKey     string
+	Now               func() time.Time
+	RecentUsageEvents RecentUsageEventAppender
 }
 
 // NewSyncServiceWithOptions 是统一构造入口，负责填充默认时钟、metadata fetcher 和 Redis 队列名。
@@ -104,6 +111,7 @@ func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncServic
 		metadataFetcher: metadataFetcher,
 		baseURL:         strings.TrimSpace(opts.BaseURL),
 		now:             now,
+		recentUsage:     opts.RecentUsageEvents,
 	}
 }
 
@@ -298,6 +306,11 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, inboxRows []ent
 		return &servicedto.RedisBatchSyncResult{Status: "failed"}, err
 	}
 	if result.InsertedEvents > 0 {
+		// usage_events 事务已经提交后才通知最近事件缓存，避免缓存看到未落库的数据。
+		if s.recentUsage != nil && !s.recentUsage.TryAppend(events) {
+			// 缓存队列满只影响 realtime/边界缓存的新鲜度，不能反向阻塞或回滚写入链路。
+			logrus.WithField("event_count", len(events)).Warn("recent usage event cache append skipped")
+		}
 		// Redis process 是 usage_events 的高频写入入口，成功插入后串行刷新依赖事件表的增量统计。
 		if err := s.aggregateUsageEventStats(ctx, timeutil.NormalizeStorageTime(s.now())); err != nil {
 			return &servicedto.RedisBatchSyncResult{Status: "failed"}, err
