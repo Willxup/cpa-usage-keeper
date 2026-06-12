@@ -132,7 +132,7 @@ func TestNormalizeCodexPrimaryWindowUsesWindowSecondsForWeeklyLabel(t *testing.T
 func TestNormalizeCodexPrimaryWindowUsesWindowSecondsForMonthlyLabel(t *testing.T) {
 	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "codex", Result: quota.CodexResult{Usage: &quota.CodexUsagePayload{
 		RateLimit: &quota.CodexRateLimitInfo{
-			PrimaryWindow: &quota.CodexUsageWindow{UsedPercent: 10, LimitWindowSeconds: 2592000},
+			PrimaryWindow: &quota.CodexUsageWindow{UsedPercent: 10, LimitWindowSeconds: 2628000},
 		},
 		CodeReviewRateLimit: &quota.CodexRateLimitInfo{
 			PrimaryWindow: &quota.CodexUsageWindow{UsedPercent: 25, LimitWindowSeconds: 2592000},
@@ -140,14 +140,14 @@ func TestNormalizeCodexPrimaryWindowUsesWindowSecondsForMonthlyLabel(t *testing.
 		AdditionalRateLimits: []quota.CodexAdditionalRateLimit{{
 			LimitName: "codex-spark",
 			RateLimit: &quota.CodexRateLimitInfo{
-				PrimaryWindow: &quota.CodexUsageWindow{UsedPercent: 40, LimitWindowSeconds: 2592000},
+				PrimaryWindow: &quota.CodexUsageWindow{UsedPercent: 40, LimitWindowSeconds: 2628000},
 			},
 		}},
 	}}})
 
 	primary := findQuotaRow(t, rows, "rate_limit.primary_window")
 	assertQuotaText(t, primary, "Monthly", "window", "")
-	assertIntField(t, primary.Window.Seconds, 2592000, "primary monthly window seconds")
+	assertIntField(t, primary.Window.Seconds, 2628000, "primary average monthly window seconds")
 	codeReview := findQuotaRow(t, rows, "code_review_rate_limit.primary_window")
 	assertQuotaText(t, codeReview, "Code Review Monthly", "code_review", "")
 	additional := findQuotaRow(t, rows, "additional_rate_limits.codex-spark.primary_window")

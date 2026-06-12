@@ -81,7 +81,7 @@ func shouldBackfillWindowUsageStats(row QuotaRow) bool {
 		return false
 	}
 	switch *row.Window.Seconds {
-	case quotaWindowFiveHourSeconds, quotaWindowSevenDaySeconds, quotaWindowThirtyDaySeconds:
+	case quotaWindowFiveHourSeconds, quotaWindowSevenDaySeconds, quotaWindowThirtyDaySeconds, quotaWindowAverageMonthSeconds:
 		return true
 	default:
 		return false

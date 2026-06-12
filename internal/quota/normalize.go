@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	quotaWindowFiveHourSeconds  int64 = 5 * 60 * 60
-	quotaWindowSevenDaySeconds  int64 = 7 * 24 * 60 * 60
-	quotaWindowThirtyDaySeconds int64 = 30 * 24 * 60 * 60
+	quotaWindowFiveHourSeconds     int64 = 5 * 60 * 60
+	quotaWindowSevenDaySeconds     int64 = 7 * 24 * 60 * 60
+	quotaWindowThirtyDaySeconds    int64 = 30 * 24 * 60 * 60
+	quotaWindowAverageMonthSeconds int64 = 365 * 24 * 60 * 60 / 12
 )
 
 func NormalizeQuotaRows(output ProviderOutput) []QuotaRow {
@@ -153,7 +154,7 @@ func codexWindowLabel(key string, label string, seconds int64) string {
 		return codexKnownWindowLabel(label, "5h")
 	case quotaWindowSevenDaySeconds:
 		return codexKnownWindowLabel(label, "Weekly")
-	case quotaWindowThirtyDaySeconds:
+	case quotaWindowThirtyDaySeconds, quotaWindowAverageMonthSeconds:
 		return codexKnownWindowLabel(label, "Monthly")
 	}
 	return codexRoleWindowLabel(key, label)

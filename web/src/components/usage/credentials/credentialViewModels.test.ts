@@ -330,12 +330,12 @@ describe('credentialViewModels', () => {
     expect(rows[0].displayQuotas[0]?.barPercent).toBe(90)
   })
 
-  it('uses monthly quota labels for 30 day Codex windows', () => {
+  it('uses monthly quota labels for monthly Codex windows', () => {
     const quotas = new Map<string, UsageQuotaRow[]>([
       ['auth-1', [
-        { key: 'rate_limit.primary_window', label: '5h', usedPercent: 20, window: { seconds: 2592000 } },
+        { key: 'rate_limit.primary_window', label: '5h', usedPercent: 20, window: { seconds: 2628000 } },
         { key: 'code_review_rate_limit.primary_window', label: 'Code Review Weekly', usedPercent: 40, window: { seconds: 2592000 } },
-        { key: 'additional_rate_limits.GPT-5.3-Codex-Spark.primary_window', label: 'GPT-5.3-Codex-Spark 5h', usedPercent: 60, window: { seconds: 2592000 } },
+        { key: 'additional_rate_limits.GPT-5.3-Codex-Spark.primary_window', label: 'GPT-5.3-Codex-Spark 5h', usedPercent: 60, window: { seconds: 2628000 } },
       ]],
     ])
 

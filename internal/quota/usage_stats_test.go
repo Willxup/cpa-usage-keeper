@@ -74,6 +74,7 @@ func TestAttachWindowUsageStatsOnlyBackfillsMissingKnownWindowScopeRows(t *testi
 	windowSeconds := int64(5 * 60 * 60)
 	weeklySeconds := int64(7 * 24 * 60 * 60)
 	monthlySeconds := int64(30 * 24 * 60 * 60)
+	averageMonthlySeconds := quotaWindowAverageMonthSeconds
 	unknownSeconds := int64(60 * 60)
 	resetAt := time.Date(2026, 6, 2, 5, 0, 0, 0, time.UTC)
 	now := time.Date(2026, 6, 2, 3, 0, 0, 0, time.UTC)
@@ -120,6 +121,13 @@ func TestAttachWindowUsageStatsOnlyBackfillsMissingKnownWindowScopeRows(t *testi
 			ResetAt: timeutil.FormatStorageTime(resetAt),
 		},
 		{
+			Key:     "rate_limit.average_monthly_window",
+			Label:   "Monthly",
+			Scope:   "window",
+			Window:  &QuotaWindow{Seconds: &averageMonthlySeconds},
+			ResetAt: timeutil.FormatStorageTime(resetAt),
+		},
+		{
 			Key:     "code_review_rate_limit.primary_window",
 			Label:   "Code Review 5h",
 			Scope:   "code_review",
@@ -161,6 +169,13 @@ func TestAttachWindowUsageStatsOnlyBackfillsMissingKnownWindowScopeRows(t *testi
 	}
 	if monthlyWindow.WindowUsageCost == nil || *monthlyWindow.WindowUsageCost != 0 {
 		t.Fatalf("expected missing monthly window cost to be backfilled from usage_events, got %#v", monthlyWindow.WindowUsageCost)
+	}
+	averageMonthlyWindow := findQuotaUsageStatsRow(t, response.Quota, "rate_limit.average_monthly_window")
+	if averageMonthlyWindow.WindowUsageTokens == nil || *averageMonthlyWindow.WindowUsageTokens != 222 {
+		t.Fatalf("expected missing average monthly window usage to be backfilled from usage_events, got %#v", averageMonthlyWindow.WindowUsageTokens)
+	}
+	if averageMonthlyWindow.WindowUsageCost == nil || *averageMonthlyWindow.WindowUsageCost != 0 {
+		t.Fatalf("expected missing average monthly window cost to be backfilled from usage_events, got %#v", averageMonthlyWindow.WindowUsageCost)
 	}
 	codeReview := findQuotaUsageStatsRow(t, response.Quota, "code_review_rate_limit.primary_window")
 	if codeReview.WindowUsageTokens != nil || codeReview.WindowUsageCost != nil {
