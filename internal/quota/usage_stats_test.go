@@ -74,7 +74,7 @@ func TestAttachWindowUsageStatsOnlyBackfillsMissingKnownWindowScopeRows(t *testi
 	windowSeconds := int64(5 * 60 * 60)
 	weeklySeconds := int64(7 * 24 * 60 * 60)
 	monthlySeconds := int64(30 * 24 * 60 * 60)
-	averageMonthlySeconds := int64(2628000)
+	averageMonthlySeconds := quotaWindowAverageMonthSeconds
 	unknownSeconds := int64(60 * 60)
 	resetAt := time.Date(2026, 6, 2, 5, 0, 0, 0, time.UTC)
 	now := time.Date(2026, 6, 2, 3, 0, 0, 0, time.UTC)
