@@ -135,8 +135,8 @@ func extractFailureFields(failed bool, fail *queuedUsageFailure) (statusCode *in
 		return nil, "", "", ""
 	}
 	if fail.StatusCode > 0 {
-		code := fail.StatusCode
-		statusCode = &code
+		sc := fail.StatusCode
+		statusCode = &sc
 	}
 	body = sanitizeFailureBody(fail.Body)
 	code, message = extractFailureCodeAndMessage(body)

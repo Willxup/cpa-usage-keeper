@@ -600,7 +600,10 @@ export function RequestEventsDetailsCard({
       const failureMessage = event.failed === true ? (event.failure_message ?? '') : '';
       const failureBody = event.failed === true ? (event.failure_body ?? '') : '';
 
-      return {       id: event.id ? String(event.id) : `${timestamp}-${model}-${sourceRaw || source}-${authIndex}-${index}`,
+      return {
+        id: event.id
+          ? String(event.id)
+          : `${timestamp}-${model}-${sourceRaw || source}-${index}`,
         failureStatusCode,
         failureCode,
         failureMessage,
@@ -767,7 +770,6 @@ export function RequestEventsDetailsCard({
                   : styles.requestEventsResultSuccess
               }
               onClick={row.failed ? () => setFailureDetailEvent(row) : undefined}
-              style={row.failed ? {cursor:"pointer"} : undefined}
             >
               {row.failed ? t('usage_stats.failure') : t('usage_stats.success')}
             </span>
