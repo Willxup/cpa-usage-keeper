@@ -198,6 +198,10 @@ export interface UsageEvent {
   latency_ms: number
   ttft_ms?: number
   speed_tps?: number
+  failure_status_code?: number | null
+  failure_code?: string
+  failure_message?: string
+  failure_body?: string
   tokens: UsageEventTokens
   cost_usd?: number
   cost_available?: boolean

@@ -65,6 +65,10 @@ type UsageEventRecord struct {
 	ReasoningTokens     int64
 	CachedTokens        int64
 	CacheReadTokens     int64
+	FailureStatusCode   *int
+	FailureCode         string
+	FailureMessage      string
+	FailureBody         string
 	CacheCreationTokens int64
 	TotalTokens         int64
 	CostUSD             float64

@@ -129,6 +129,10 @@ type RequestEventRow = {
   cacheRate: string;
   cost: number | null;
   costAvailable: boolean;
+  failureStatusCode: number | null;
+  failureCode: string;
+  failureMessage: string;
+  failureBody: string;
 };
 
 type RequestEventColumnDefinition = {
@@ -472,6 +476,67 @@ function RequestEventsTitle({ title, subtitle, totalLabel }: { title: string; su
   );
 }
 
+export interface FailureDetailModalProps {
+  failureStatusCode: number | null;
+  failureCode: string;
+  failureMessage: string;
+  failureBody: string;
+  onClose: () => void;
+}
+
+export function FailureDetailModal({
+  failureStatusCode,
+  failureCode,
+  failureMessage,
+  failureBody,
+  onClose,
+}: FailureDetailModalProps) {
+  const { t } = useTranslation();
+  const statusCodeLabel = failureStatusCode === null || failureStatusCode === 0 ? '-' : String(failureStatusCode);
+  const codeLabel = failureCode.trim() === '' ? '-' : failureCode;
+  const messageLabel = failureMessage.trim() === '' ? '-' : failureMessage;
+  const bodyLabel = failureBody.trim() === '' ? '-' : failureBody;
+
+  const modal = (
+    <div className={styles.failureDetailOverlay} role="presentation" onClick={onClose}>
+      <div
+        className={styles.failureDetailModal}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('usage_stats.failure_details_title')}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className={styles.failureDetailHeader}>
+          <h4 className={styles.failureDetailTitle}>{t('usage_stats.failure_details_title')}</h4>
+          <button type="button" className={styles.failureDetailClose} onClick={onClose}>
+            {t('usage_stats.close')}
+          </button>
+        </div>
+        <div className={styles.failureDetailBody}>
+          <div className={styles.failureDetailRow}>
+            <span className={styles.failureDetailLabel}>{t('usage_stats.failure_status_code')}</span>
+            <span className={styles.failureDetailValue}>{statusCodeLabel}</span>
+          </div>
+          <div className={styles.failureDetailRow}>
+            <span className={styles.failureDetailLabel}>{t('usage_stats.failure_error_code')}</span>
+            <span className={styles.failureDetailValue}>{codeLabel}</span>
+          </div>
+          <div className={styles.failureDetailRow}>
+            <span className={styles.failureDetailLabel}>{t('usage_stats.failure_message')}</span>
+            <span className={styles.failureDetailValue}>{messageLabel}</span>
+          </div>
+          <div className={styles.failureDetailRow}>
+            <span className={styles.failureDetailLabel}>{t('usage_stats.failure_body')}</span>
+            <pre className={styles.failureDetailBodyPre}>{bodyLabel}</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  return typeof document === 'undefined' ? modal : createPortal(modal, document.body);
+}
+
 export function RequestEventsDetailsCard({
   events,
   loading,
@@ -495,6 +560,7 @@ export function RequestEventsDetailsCard({
   onVisibleColumnIdsChange,
 }: RequestEventsDetailsCardProps) {
   const { t } = useTranslation();
+  const [failureDetailEvent, setFailureDetailEvent] = useState<RequestEventRow | null>(null);
   const latencyHint = t('usage_stats.latency_unit_hint', {
     field: LATENCY_SOURCE_FIELD,
     unit: t('usage_stats.duration_unit_ms'),
@@ -529,9 +595,16 @@ export function RequestEventsDetailsCard({
       // 费用由后端按当前价格配置运行时计算，前端只负责展示可用/不可用状态。
       const costAvailable = event.cost_available === true;
       const cost = costAvailable ? Math.max(toNumber(event.cost_usd), 0) : null;
+      const failureStatusCode = event.failed === true ? (event.failure_status_code ?? null) : null;
+      const failureCode = event.failed === true ? (event.failure_code ?? '') : '';
+      const failureMessage = event.failed === true ? (event.failure_message ?? '') : '';
+      const failureBody = event.failed === true ? (event.failure_body ?? '') : '';
 
-      return {
-        id: event.id ? String(event.id) : `${timestamp}-${model}-${sourceRaw || source}-${authIndex}-${index}`,
+      return {       id: event.id ? String(event.id) : `${timestamp}-${model}-${sourceRaw || source}-${authIndex}-${index}`,
+        failureStatusCode,
+        failureCode,
+        failureMessage,
+        failureBody,
         timestamp,
         timestampMs: Number.isNaN(timestampMs) ? 0 : timestampMs,
         timestampLabel: formatRequestEventTimestamp(timestamp),
@@ -690,9 +763,11 @@ export function RequestEventsDetailsCard({
             <span
               className={
                 row.failed
-                  ? styles.requestEventsResultFailed
+                  ? styles.requestEventsResultFailed + ' ' + styles.requestEventsFailedBadge
                   : styles.requestEventsResultSuccess
               }
+              onClick={row.failed ? () => setFailureDetailEvent(row) : undefined}
+              style={row.failed ? {cursor:"pointer"} : undefined}
             >
               {row.failed ? t('usage_stats.failure') : t('usage_stats.success')}
             </span>
@@ -935,6 +1010,15 @@ export function RequestEventsDetailsCard({
             </div>
           </div>
         </>
+      )}
+      {failureDetailEvent && (
+        <FailureDetailModal
+          failureStatusCode={failureDetailEvent.failureStatusCode}
+          failureCode={failureDetailEvent.failureCode}
+          failureMessage={failureDetailEvent.failureMessage}
+          failureBody={failureDetailEvent.failureBody}
+          onClose={() => setFailureDetailEvent(null)}
+        />
       )}
     </Card>
   );

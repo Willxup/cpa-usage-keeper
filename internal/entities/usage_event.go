@@ -22,6 +22,10 @@ type UsageEvent struct {
 	Failed              bool
 	LatencyMS           int64
 	TTFTMS              *int64 `gorm:"column:ttft_ms"`
+	FailureStatusCode   *int   `gorm:"column:failure_status_code"`
+	FailureCode         string `gorm:"column:failure_code;not null;default:''"`
+	FailureMessage      string `gorm:"column:failure_message;not null;default:''"`
+	FailureBody         string `gorm:"column:failure_body;not null;default:''"`
 	InputTokens         int64
 	OutputTokens        int64
 	ReasoningTokens     int64
