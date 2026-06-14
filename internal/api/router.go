@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"cpa-usage-keeper/internal/cooldown"
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/service"
@@ -46,13 +47,13 @@ type StatusRouteConfig struct {
 }
 
 type OptionalProviders struct {
-	UsageIdentity    service.UsageIdentityProvider
-	Quota            QuotaProvider
-	CPAAPIKeys       service.CPAAPIKeyProvider
-	AuthFiles        service.AuthFilesManagementProvider
-	Status           StatusRouteConfig
-	DB               *gorm.DB
-	CooldownDisabler CooldownDisabler
+	UsageIdentity   service.UsageIdentityProvider
+	Quota           QuotaProvider
+	CPAAPIKeys      service.CPAAPIKeyProvider
+	AuthFiles       service.AuthFilesManagementProvider
+	Status          StatusRouteConfig
+	DB              *gorm.DB
+	CooldownService *cooldown.CooldownService
 }
 
 func NewRouter(
@@ -90,7 +91,7 @@ func NewRouter(
 	var authFilesProvider service.AuthFilesManagementProvider
 	var statusConfig StatusRouteConfig
 	var db *gorm.DB
-	var cooldownDisabler CooldownDisabler
+	var cooldownService *cooldown.CooldownService
 	if len(optionalProviders) > 0 {
 		usageIdentityProvider = optionalProviders[0].UsageIdentity
 		quotaProvider = optionalProviders[0].Quota
@@ -98,7 +99,7 @@ func NewRouter(
 		authFilesProvider = optionalProviders[0].AuthFiles
 		statusConfig = optionalProviders[0].Status
 		db = optionalProviders[0].DB
-		cooldownDisabler = optionalProviders[0].CooldownDisabler
+		cooldownService = optionalProviders[0].CooldownService
 	}
 	authHandler.setCPAAPIKeyProvider(cpaAPIKeyProvider)
 
@@ -115,7 +116,7 @@ func NewRouter(
 	registerPricingRoutes(adminProtected, pricingProvider)
 	registerQuotaRoutes(adminProtected, quotaProvider)
 
-	registerCooldownRoutes(adminProtected, db, cooldownDisabler)
+	registerCooldownRoutes(adminProtected, db, cooldownService)
 
 	keyViewerProtected := apiV1.Group("")
 	keyViewerProtected.Use(authHandler.apiKeyViewerMiddleware())

@@ -372,7 +372,7 @@ describe('AuthFileCredentialsSection inspection results', () => {
   })
 
   it('keeps the invalid account modal open until post-action refresh completes', () => {
-    const handlerIndex = authFileSectionSource.indexOf('const handleConfirmInvalidAccountAction = async () => {')
+    const handlerIndex = authFileSectionSource.indexOf('const handleConfirmAccountAction = async () => {')
     const catchIndex = authFileSectionSource.indexOf('} catch (nextError)', handlerIndex)
 
     expect(handlerIndex).toBeGreaterThanOrEqual(0)
@@ -380,11 +380,9 @@ describe('AuthFileCredentialsSection inspection results', () => {
 
     const successPath = authFileSectionSource.slice(handlerIndex, catchIndex)
     const refreshIndex = successPath.indexOf('await Promise.all([onRefreshStatus(), onAfterInvalidAccountAction?.()])')
-    const closeIndex = successPath.indexOf('setInvalidAccountAction(null)')
-    const clearSelectionIndex = successPath.indexOf('setSelectedInvalidFileNames([])')
+    const closeIndex = successPath.indexOf('closeAccountAction()')
 
     expect(refreshIndex).toBeGreaterThanOrEqual(0)
     expect(closeIndex).toBeGreaterThan(refreshIndex)
-    expect(clearSelectionIndex).toBeGreaterThan(refreshIndex)
   })
 })
