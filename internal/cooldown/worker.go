@@ -40,7 +40,6 @@ func buildAuthFilesByIndex(files []authfiles.AuthFile) map[string]AuthFileRestor
 const (
 	defaultScanInterval = 3 * time.Minute
 	defaultBatchSize    = 10
-	defaultWorkerLimit  = 1
 	defaultMaxAttempts  = 0 // 0 = 无限重试
 )
 
@@ -52,8 +51,6 @@ type RestoreWorkerConfig struct {
 	ScanInterval time.Duration
 	// BatchSize 是单次扫描最多处理的数量。
 	BatchSize int
-	// WorkerLimit 是并发恢复的限制（默认 1）。
-	WorkerLimit int
 	// MaxAttempts 是最大恢复尝试次数，0 表示无限重试。
 	MaxAttempts int
 	// DryRun 控制是否只记录不真正调用 CPA API。
@@ -68,7 +65,6 @@ func DefaultRestoreWorkerConfig() RestoreWorkerConfig {
 		Enabled:      true,
 		ScanInterval: defaultScanInterval,
 		BatchSize:    defaultBatchSize,
-		WorkerLimit:  defaultWorkerLimit,
 		MaxAttempts:  defaultMaxAttempts,
 		DryRun:       false,
 		Now:          time.Now,
@@ -97,10 +93,6 @@ func NewRestoreWorker(db *gorm.DB, client CooldownClient, config RestoreWorkerCo
 	if batchSize <= 0 {
 		batchSize = defaultBatchSize
 	}
-	workerLimit := config.WorkerLimit
-	if workerLimit <= 0 {
-		workerLimit = defaultWorkerLimit
-	}
 	return &RestoreWorker{
 		db:     db,
 		client: client,
@@ -108,7 +100,6 @@ func NewRestoreWorker(db *gorm.DB, client CooldownClient, config RestoreWorkerCo
 			Enabled:      config.Enabled,
 			ScanInterval: scanInterval,
 			BatchSize:    batchSize,
-			WorkerLimit:  workerLimit,
 			MaxAttempts:  config.MaxAttempts,
 			DryRun:       config.DryRun,
 			Now:          now,
