@@ -116,9 +116,9 @@ func (s *CooldownService) HandleUsageLimit429(ctx context.Context, tel *service.
 		return fmt.Errorf("fetch auth files for cooldown: %w", err)
 	}
 
-	if authFilesResult == nil || authFilesResult.Payload == nil {
+	if authFilesResult == nil {
 		logrus.WithField("auth_index", tel.AuthIndex).
-			Error("FetchAuthFiles returned nil result or nil payload")
+			Error("FetchAuthFiles returned nil result")
 		cooldown := s.buildCooldown(tel, *recoverAt, "", "", false, false)
 		cooldown.LastError = "FetchAuthFiles returned nil result"
 		if _, upsertErr := repository.UpsertCooldownExtendOnly(s.db, cooldown); upsertErr != nil {

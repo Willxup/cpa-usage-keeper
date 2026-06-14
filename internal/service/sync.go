@@ -597,7 +597,7 @@ func markRedisInboxRowsProcessFailed(db *gorm.DB, rows []entities.RedisUsageInbo
 		if stored.Status == repository.RedisUsageInboxStatusDiscarded {
 			logrus.WithFields(logrus.Fields{
 				"inbox_id":      stored.ID,
-				"queue_key":     stored.QueueKey,
+				"source":        stored.Source,
 				"message_hash":  stored.MessageHash,
 				"attempt_count": stored.AttemptCount,
 				"last_error":    stored.LastError,

@@ -1,4 +1,4 @@
-import { type AnalysisResponse, type AuthFilesManagementResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type KeyOverviewTimeRange, type PricingEntry, type PricingResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse } from './types'
+import { type AnalysisResponse, type AuthFilesManagementResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type KeyOverviewTimeRange, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -106,6 +106,96 @@ export async function fetchKeyOverview(range: KeyOverviewTimeRange, signal?: Abo
     await parseApiError(response, `Failed to load key overview: ${response.status}`)
   }
   return response.json()
+}
+
+export interface FetchKeyOverviewRealtimeOptions {
+  window?: OverviewRealtimeWindow
+  signal?: AbortSignal
+}
+
+export interface FetchUsageOverviewRealtimeOptions extends FetchKeyOverviewRealtimeOptions {
+  apiKeyId?: string
+}
+
+function realtimeBucketSecondsForWindow(window: OverviewRealtimeWindow): number {
+  if (window === '60m') return 120
+  if (window === '30m') return 60
+  return 30
+}
+
+function normalizeOverviewRealtimeBlock(
+  block: Partial<OverviewRealtimeBlock> & {
+    current_usage?: Partial<OverviewRealtimeBlock['current_usage']>;
+    response_distribution?: Partial<OverviewRealtimeBlock['response_distribution']>;
+  },
+  fallbackWindow?: OverviewRealtimeWindow,
+): OverviewRealtimeBlock {
+  const currentUsage: Partial<OverviewRealtimeBlock['current_usage']> = block.current_usage ?? {}
+  const responseDistribution: Partial<OverviewRealtimeBlock['response_distribution']> = block.response_distribution ?? {}
+  const resolvedWindow = block.window ?? fallbackWindow ?? '15m'
+  return {
+    window: resolvedWindow,
+    timezone: block.timezone,
+    bucket_seconds: block.bucket_seconds ?? realtimeBucketSecondsForWindow(resolvedWindow),
+    token_velocity: block.token_velocity ?? [],
+    response_level: block.response_level ?? [],
+    response_distribution: {
+      ttft: {
+        average_line: responseDistribution.ttft?.average_line ?? [],
+        particles: responseDistribution.ttft?.particles ?? [],
+      },
+      latency: {
+        average_line: responseDistribution.latency?.average_line ?? [],
+        particles: responseDistribution.latency?.particles ?? [],
+      },
+    },
+    current_usage: {
+      models: currentUsage.models ?? [],
+      api_keys: currentUsage.api_keys ?? [],
+      auth_files: currentUsage.auth_files ?? [],
+      ai_providers: currentUsage.ai_providers ?? [],
+    },
+    request_level: block.request_level ?? [],
+    cache_level: block.cache_level ?? [],
+  }
+}
+
+export async function fetchKeyOverviewRealtime(options: FetchKeyOverviewRealtimeOptions = {}): Promise<OverviewRealtimeBlock> {
+  const { window, signal } = options
+  const params = new URLSearchParams()
+  if (window) {
+    params.set('window', window)
+  }
+  const query = params.toString()
+  const response = await apiFetch(`${apiPath('/key-overview/realtime')}${query ? `?${query}` : ''}`, { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load key overview realtime: ${response.status}`)
+  }
+  const payload = await response.json() as Partial<OverviewRealtimeBlock> & {
+    current_usage?: Partial<OverviewRealtimeBlock['current_usage']>;
+  }
+  return normalizeOverviewRealtimeBlock(payload, window)
+}
+
+export async function fetchUsageOverviewRealtime(options: FetchUsageOverviewRealtimeOptions = {}): Promise<OverviewRealtimeBlock> {
+  const { signal, apiKeyId, window } = options
+  const params = new URLSearchParams()
+  const selectedAPIKeyId = apiKeyId?.trim()
+  if (selectedAPIKeyId) {
+    params.set('api_key_id', selectedAPIKeyId)
+  }
+  if (window) {
+    params.set('window', window)
+  }
+  const query = params.toString()
+  const response = await apiFetch(`${apiPath('/usage/overview/realtime')}${query ? `?${query}` : ''}`, { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load usage overview realtime: ${response.status}`)
+  }
+  const payload = await response.json() as Partial<OverviewRealtimeBlock> & {
+    current_usage?: Partial<OverviewRealtimeBlock['current_usage']>;
+  }
+  return normalizeOverviewRealtimeBlock(payload, window)
 }
 
 export async function fetchUsageOverview(range: string, start?: string, end?: string, signal?: AbortSignal, apiKeyId?: string): Promise<UsageOverviewResponse> {

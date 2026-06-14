@@ -57,6 +57,8 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260610_remove_usage_event_write_heavy_indexes",
 		"20260611_remove_usage_event_low_value_indexes",
 		"20260612_replace_redis_inbox_queue_key_with_source",
+		"20260614_create_auth_file_cooldowns",
+		"20260614_usage_event_failure_fields",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("expected ordered migrations %v, got %v", want, got)
@@ -141,6 +143,8 @@ func TestOpenDatabaseRunsSchemaMigrationsAndAddsUsageEventRedisFields(t *testing
 		"20260610_remove_usage_event_write_heavy_indexes",
 		"20260611_remove_usage_event_low_value_indexes",
 		"20260612_replace_redis_inbox_queue_key_with_source",
+		"20260614_create_auth_file_cooldowns",
+		"20260614_usage_event_failure_fields",
 	}
 	if len(versions) != len(expected) {
 		t.Fatalf("expected migration versions %v, got %v", expected, versions)

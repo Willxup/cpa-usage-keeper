@@ -281,3 +281,109 @@ func TestExtractCodex429TelemetryNoErrorBlock(t *testing.T) {
 		t.Fatal("expected nil when no error block present")
 	}
 }
+
+func TestDecodeRedisUsageMessageExtractsFailureFields(t *testing.T) {
+	fetchedAt := time.Date(2026, 6, 14, 10, 0, 0, 0, time.UTC)
+	event, _, err := DecodeRedisUsageMessage(`{
+		"request_id": "test-fail-1",
+		"failed": true,
+		"status_code": 503,
+		"error": {
+			"type": "auth_unavailable",
+			"message": "no auth available",
+			"response_body": "{\"error\":{\"code\":\"auth_unavailable\",\"message\":\"no auth available\"}}"
+		},
+		"provider": "openai",
+		"endpoint": "/v1/chat/completions"
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
+	}
+	if event.FailureStatusCode == nil {
+		t.Fatal("expected FailureStatusCode != nil")
+	}
+	if *event.FailureStatusCode != 503 {
+		t.Fatalf("expected FailureStatusCode==503, got %d", *event.FailureStatusCode)
+	}
+	if event.FailureCode != "auth_unavailable" {
+		t.Fatalf("expected FailureCode==auth_unavailable, got %q", event.FailureCode)
+	}
+	if event.FailureMessage != "no auth available" {
+		t.Fatalf("expected FailureMessage==\"no auth available\", got %q", event.FailureMessage)
+	}
+	if event.FailureBody == "" {
+		t.Fatal("expected FailureBody non-empty")
+	}
+}
+
+func TestDecodeRedisUsageMessageFailureFieldsSanitized(t *testing.T) {
+	fetchedAt := time.Date(2026, 6, 14, 10, 0, 0, 0, time.UTC)
+	sensitiveBody := `Authorization: Bearer test-token-secret sk-test123456789abc https://example.com/v1/chat/completions refresh_token=my_refresh_tok`
+	event, _, err := DecodeRedisUsageMessage(`{
+		"request_id": "test-fail-2",
+		"failed": true,
+		"status_code": 401,
+		"error": {
+			"type": "unauthorized",
+			"message": "invalid key",
+			"response_body": "`+strings.ReplaceAll(sensitiveBody, `"`, `\"`)+`"
+		},
+		"provider": "openai",
+		"endpoint": "/v1/chat/completions"
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
+	}
+	body := event.FailureBody
+	if strings.Contains(body, "Bearer test-token") {
+		t.Fatal("body should not contain Authorization Bearer token")
+	}
+	if strings.Contains(body, "sk-test123456789") {
+		t.Fatal("body should not contain sk- key")
+	}
+	if strings.Contains(body, "https://example.com") {
+		t.Fatal("body should not contain URL")
+	}
+	if strings.Contains(body, "my_refresh_tok") {
+		t.Fatal("body should not contain refresh_token value")
+	}
+	if !strings.Contains(body, "[redacted_authorization]") {
+		t.Fatal("body should contain [redacted_authorization]")
+	}
+	if !strings.Contains(body, "[redacted_key]") {
+		t.Fatal("body should contain [redacted_key]")
+	}
+	if !strings.Contains(body, "[redacted_url]") {
+		t.Fatal("body should contain [redacted_url]")
+	}
+}
+
+func TestDecodeRedisUsageMessageNotFailedNoFailureFields(t *testing.T) {
+	fetchedAt := time.Date(2026, 6, 14, 10, 0, 0, 0, time.UTC)
+	event, _, err := DecodeRedisUsageMessage(`{
+		"request_id": "test-success-1",
+		"failed": false,
+		"status_code": 429,
+		"error": {
+			"type": "usage_limit_reached",
+			"message": "should not appear"
+		},
+		"provider": "openai",
+		"endpoint": "/v1/chat/completions"
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
+	}
+	if event.FailureStatusCode != nil {
+		t.Fatal("expected FailureStatusCode nil for non-failed event")
+	}
+	if event.FailureCode != "" {
+		t.Fatalf("expected empty FailureCode, got %q", event.FailureCode)
+	}
+	if event.FailureMessage != "" {
+		t.Fatalf("expected empty FailureMessage, got %q", event.FailureMessage)
+	}
+	if event.FailureBody != "" {
+		t.Fatalf("expected empty FailureBody, got %q", event.FailureBody)
+	}
+}

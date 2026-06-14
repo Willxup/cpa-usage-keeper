@@ -129,6 +129,10 @@ type RequestEventRow = {
   cacheRate: string;
   cost: number | null;
   costAvailable: boolean;
+  failureStatusCode: number | null;
+  failureCode: string;
+  failureMessage: string;
+  failureBody: string;
 };
 
 type RequestEventColumnDefinition = {
@@ -557,9 +561,15 @@ export function RequestEventsDetailsCard({
         cacheRate: formatCacheRate(cachedTokens, inputTokens),
         cost,
         costAvailable,
+        failureStatusCode: event.failure_status_code ?? null,
+        failureCode: event.failure_code ?? '',
+        failureMessage: event.failure_message ?? '',
+        failureBody: event.failure_body ?? '',
       };
     });
   }, [events]);
+
+  const [failureDetailRow, setFailureDetailRow] = useState<RequestEventRow | null>(null);
 
   const [internalVisibleColumnIds, setInternalVisibleColumnIds] = useState<RequestEventColumnId[]>(() => (
     normalizeRequestEventVisibleColumnIds(initialVisibleColumnIds ?? visibleColumnIds ?? REQUEST_EVENT_COLUMN_IDS)
@@ -687,15 +697,20 @@ export function RequestEventsDetailsCard({
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_result')}</th>,
         renderCell: (row) => (
           <td className={styles.requestEventsNoWrapCell}>
-            <span
-              className={
-                row.failed
-                  ? styles.requestEventsResultFailed
-                  : styles.requestEventsResultSuccess
-              }
-            >
-              {row.failed ? t('usage_stats.failure') : t('usage_stats.success')}
-            </span>
+            {row.failed ? (
+              <span
+                className={styles.requestEventsResultFailed}
+                style={{ cursor: 'pointer' }}
+                onClick={() => setFailureDetailRow(row)}
+                title={t('usage_stats.request_events_open_failure_details')}
+              >
+                {formatFailureResultLabel(row)}
+              </span>
+            ) : (
+              <span className={styles.requestEventsResultSuccess}>
+                {t('usage_stats.success')}
+              </span>
+            )}
           </td>
         ),
       },
@@ -812,6 +827,7 @@ export function RequestEventsDetailsCard({
   };
 
   return (
+    <>
     <Card
       className={styles.requestEventsCard}
       title={
@@ -937,5 +953,56 @@ export function RequestEventsDetailsCard({
         </>
       )}
     </Card>
+    {failureDetailRow && (
+      <FailureDetailModal row={failureDetailRow} onClose={() => setFailureDetailRow(null)} />
+    )}
+  </>
   );
+}
+
+function formatFailureResultLabel(row: RequestEventRow): string {
+  if (row.failureStatusCode && row.failureCode) {
+    return `[${row.failureStatusCode}] ${row.failureCode}`
+  }
+  if (row.failureStatusCode && row.failureMessage) {
+    return `[${row.failureStatusCode}] ${row.failureMessage.slice(0, 30)}`
+  }
+  if (row.failureCode) {
+    return `Failure · ${row.failureCode}`
+  }
+  if (row.failureMessage) {
+    return `Failure · ${row.failureMessage.slice(0, 30)}`
+  }
+  return 'Failure'
+}
+
+function FailureDetailModal({ row, onClose }: { row: RequestEventRow; onClose: () => void }) {
+  const { t } = useTranslation()
+  return createPortal(
+    <div className={styles.failureDetailOverlay} onClick={onClose}>
+      <div className={styles.failureDetailModal} onClick={(e) => e.stopPropagation()}>
+        <h3>{t('usage_stats.request_events_failure_details_title')}</h3>
+        <div className={styles.failureDetailField}>
+          <span className={styles.failureDetailLabel}>{t('usage_stats.request_events_failure_status_code')}</span>
+          <span>{row.failureStatusCode ?? '-'}</span>
+        </div>
+        <div className={styles.failureDetailField}>
+          <span className={styles.failureDetailLabel}>{t('usage_stats.request_events_failure_code')}</span>
+          <span>{row.failureCode || '-'}</span>
+        </div>
+        <div className={styles.failureDetailField}>
+          <span className={styles.failureDetailLabel}>{t('usage_stats.request_events_failure_message')}</span>
+          <span>{row.failureMessage || '-'}</span>
+        </div>
+        <div className={styles.failureDetailField}>
+          <span className={styles.failureDetailLabel}>{t('usage_stats.request_events_failure_body')}</span>
+          <pre className={styles.failureDetailBody}>{row.failureBody || '-'}</pre>
+        </div>
+        <button type="button" className={styles.failureDetailClose} onClick={onClose}>
+          {t('usage_stats.close')}
+        </button>
+      </div>
+    </div>,
+    document.body
+  )
 }
