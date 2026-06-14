@@ -449,6 +449,7 @@ export interface CooldownDisableLimitedResponse {
   extended: number
   skipped: number
   failed: number
+  dry_run: number
   items: CooldownDisableLimitedItem[]
 }
 

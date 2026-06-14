@@ -69,7 +69,7 @@ func findCodexAuthFileByAuthIndex(files []authfiles.AuthFile, authIndex string) 
 
 // recordCooldownError 构建一条带 lastError 的 cooldown 并写入，用于容错场景。
 func (s *CooldownService) recordCooldownError(tel *service.Codex429Telemetry, recoverAt time.Time, lastError string) {
-	cd := BuildCooldown(CooldownBuildOptions{
+	cd := buildAuthFileCooldown(authFileCooldownBuildOptions{
 		AuthIndex:       tel.AuthIndex,
 		RecoverAt:       recoverAt,
 		Reason:          entities.AuthFileCooldownReasonCodex429,
@@ -123,7 +123,10 @@ func (s *CooldownService) HandleUsageLimit429(ctx context.Context, tel *service.
 	}).Info("codex 429 usage_limit_reached detected, processing cooldown")
 
 	// 先查 DB 中是否已有 active cooldown，避免不必要的 FetchAuthFiles 调用
-	existing, _ := repository.GetActiveCooldownByAuthIndex(s.db, "codex", tel.AuthIndex)
+	existing, err := repository.GetActiveCooldownByAuthIndex(s.db, "codex", tel.AuthIndex)
+	if err != nil {
+		return fmt.Errorf("get active cooldown: %w", err)
+	}
 	if existing != nil {
 		if !recoverAt.After(existing.RecoverAt) {
 			logrus.WithFields(logrus.Fields{
@@ -134,7 +137,7 @@ func (s *CooldownService) HandleUsageLimit429(ctx context.Context, tel *service.
 			return nil
 		}
 		// 新 recover_at 更晚，只更新 recover_at
-		cd := BuildCooldown(CooldownBuildOptions{
+		cd := buildAuthFileCooldown(authFileCooldownBuildOptions{
 			AuthIndex:        tel.AuthIndex,
 			AuthFileName:     existing.AuthFileName,
 			AuthFilePath:     existing.AuthFilePath,
@@ -182,7 +185,7 @@ func (s *CooldownService) HandleUsageLimit429(ctx context.Context, tel *service.
 	}
 
 	disabledByKeeper := !info.PreviousDisabled
-	cd := BuildCooldown(CooldownBuildOptions{
+	cd := buildAuthFileCooldown(authFileCooldownBuildOptions{
 		AuthFileName:     info.Name,
 		AuthFilePath:     info.Path,
 		AuthIndex:        tel.AuthIndex,

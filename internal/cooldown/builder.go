@@ -6,8 +6,8 @@ import (
 	"cpa-usage-keeper/internal/entities"
 )
 
-// CooldownBuildOptions 描述构建 AuthFileCooldown 所需的全部字段，429 和 inspection 两条路径共用。
-type CooldownBuildOptions struct {
+// authFileCooldownBuildOptions 描述构建 AuthFileCooldown 所需的全部字段，429 和 inspection 两条路径共用。
+type authFileCooldownBuildOptions struct {
 	AuthFileName     string
 	AuthFilePath     string
 	AuthIndex        string
@@ -24,8 +24,8 @@ type CooldownBuildOptions struct {
 	LastError        string
 }
 
-// BuildCooldown 是 429 自动 cooldown 和巡检手动 cooldown 共用的构造器，只组装实体不写库。
-func BuildCooldown(opts CooldownBuildOptions) *entities.AuthFileCooldown {
+// buildAuthFileCooldown 是 429 自动 cooldown 和巡检手动 cooldown 共用的构造器，只组装实体不写库。
+func buildAuthFileCooldown(opts authFileCooldownBuildOptions) *entities.AuthFileCooldown {
 	return &entities.AuthFileCooldown{
 		Provider:           "codex",
 		AuthIndex:          opts.AuthIndex,

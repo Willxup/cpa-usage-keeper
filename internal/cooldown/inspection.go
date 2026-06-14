@@ -3,6 +3,7 @@ package cooldown
 import (
 	"context"
 	"fmt"
+	"time"
 	"strings"
 
 	"cpa-usage-keeper/internal/entities"
@@ -40,6 +41,7 @@ type DisableLimitedResult struct {
 	Extended int
 	Skipped  int
 	Failed   int
+	DryRun   int
 	Items    []DisableLimitedResultItem
 }
 
@@ -87,7 +89,10 @@ func (s *CooldownService) DisableLimitedInspectionAccounts(ctx context.Context, 
 	}
 
 	// 从 usage_identities 表查询 auth file 信息
-	authFileMap := s.queryAuthFileMap(authIndexes)
+	authFileMap, err := s.queryAuthFileMap(authIndexes)
+	if err != nil {
+		return DisableLimitedResult{}, err
+	}
 
 	// 判断本次请求的 dry_run（request-level 覆盖 service-level）
 	dryRun := s.dryRun
@@ -116,22 +121,51 @@ func (s *CooldownService) DisableLimitedInspectionAccounts(ctx context.Context, 
 		}
 		item.AuthFileName = afi.Name
 
-		// 2. 解析 recover_at（在检查 active cooldown 之前，因为 extend 需要新的 recover_at）
-		recoverAt, resolveErr := ParseRecoverAtFromRequest(
-			now,
-			reqItem.ResetsAt, reqItem.RecoverAt, reqItem.ResetAt, reqItem.ResetTime,
-			reqItem.ResetsInSeconds, reqItem.ResetAfterSeconds, reqItem.RetryAfter,
-		)
-		if resolveErr != nil {
-			item.Status = "skipped_missing_recover_at"
-			item.Message = "cannot resolve recover_at: " + resolveErr.Error()
-			result.Skipped++
+		// 2. 检查是否已有 active cooldown。
+		// 这是 disable-limited 的关键：巡检结果本身不携带 recover_at，
+		// 如果该账号已有 active cooldown（之前被 429 自动禁用），则应允许 extend，
+		// 而不是因为没有 recover_at 就 skipped。
+		existingCooldown, err := repository.GetActiveCooldownByAuthIndex(s.db, "codex", authIndex)
+		if err != nil {
+			item.Status = "failed"
+			item.Message = "get active cooldown: " + err.Error()
+			result.Failed++
 			result.Items = append(result.Items, item)
 			continue
 		}
 
-		// 3. 检查 auth file 是否已被手动禁用
-		if afi.Disabled {
+		// 3. 解析 recover_at：优先用请求项里的值，没有则用 existing cooldown 兜底。
+		//    巡检结果不含 recover_at，所以大多数情况下走 existing 兜底路径。
+		var recoverAt time.Time
+		var resolveErr error
+		if reqItem != nil {
+			recoverAt, resolveErr = ParseRecoverAtFromRequest(
+				now,
+				reqItem.ResetsAt, reqItem.RecoverAt, reqItem.ResetAt, reqItem.ResetTime,
+				reqItem.ResetsInSeconds, reqItem.ResetAfterSeconds, reqItem.RetryAfter,
+			)
+		} else {
+			resolveErr = fmt.Errorf("no request item")
+		}
+		if resolveErr != nil {
+			if existingCooldown != nil {
+				// 请求没带 recover_at，但已有 active cooldown：用 existing 的 recover_at。
+				// UpsertOrExtendActiveCooldown 会判断是否需要 extend（新值不晚于旧值则 unchanged）。
+				recoverAt = existingCooldown.RecoverAt
+			} else {
+				// 既没有请求 recover_at，也没有现有 cooldown：无法创建，明确提示。
+				item.Status = "skipped_missing_recover_at"
+				item.Message = "cannot resolve recover_at (not in request, no existing cooldown): " + resolveErr.Error()
+				result.Skipped++
+				result.Items = append(result.Items, item)
+				continue
+			}
+		}
+
+		// 4. auth file 已禁用的处理：
+		//    - 有 active cooldown（keeper 禁用的）：允许 extend/unchanged，不跳过。
+		//    - 无 active cooldown（用户手动禁用的）：跳过，不干预。
+		if afi.Disabled && existingCooldown == nil {
 			item.Status = "skipped_manual_disabled"
 			item.Message = "auth file already disabled manually"
 			result.Skipped++
@@ -139,7 +173,7 @@ func (s *CooldownService) DisableLimitedInspectionAccounts(ctx context.Context, 
 			continue
 		}
 
-		// 4. 构建 cooldown 并 upsert
+		// 5. 构建 cooldown 并 upsert
 		upstreamMessage := reqItem.UpstreamMessage
 		if upstreamMessage == "" {
 			upstreamMessage = "usage_limit_reached (inspection)"
@@ -147,7 +181,7 @@ func (s *CooldownService) DisableLimitedInspectionAccounts(ctx context.Context, 
 		previousDisabled := afi.Disabled
 		disabledByKeeper := !previousDisabled
 
-		cd := BuildCooldown(CooldownBuildOptions{
+		cd := buildAuthFileCooldown(authFileCooldownBuildOptions{
 			AuthFileName:     afi.Name,
 			AuthFilePath:     afi.Path,
 			AuthIndex:        authIndex,
@@ -173,7 +207,7 @@ func (s *CooldownService) DisableLimitedInspectionAccounts(ctx context.Context, 
 
 		item.RecoverAt = timeutil.FormatStorageTime(recoverAt)
 
-		// 5. 根据 upsert 结果返回
+		// 6. 根据 upsert 结果返回
 		switch upsertResult {
 		case repository.CooldownUpsertUnchanged:
 			item.Status = "unchanged"
@@ -207,7 +241,7 @@ func (s *CooldownService) DisableLimitedInspectionAccounts(ctx context.Context, 
 			}).Info("DRY RUN: would disable auth file (inspection)")
 			item.Status = "dry_run"
 			item.Message = "dry run, auth file not actually disabled"
-			result.Disabled++
+			result.DryRun++
 			result.Items = append(result.Items, item)
 			continue
 		}
@@ -228,17 +262,17 @@ func (s *CooldownService) DisableLimitedInspectionAccounts(ctx context.Context, 
 }
 
 // queryAuthFileMap 从 usage_identities 表查询 auth file 信息。
-func (s *CooldownService) queryAuthFileMap(authIndexes []string) map[string]authFileInfo {
+// 查询失败时返回 error，避免调用方把所有账号误判为 not_found。
+func (s *CooldownService) queryAuthFileMap(authIndexes []string) (map[string]authFileInfo, error) {
 	fileMap := make(map[string]authFileInfo)
 	if len(authIndexes) == 0 {
-		return fileMap
+		return fileMap, nil
 	}
 	var identities []entities.UsageIdentity
 	if err := s.db.Where("auth_type = ? AND identity IN ? AND is_deleted = ? AND type = ?",
 		entities.UsageIdentityAuthTypeAuthFile, authIndexes, false, "codex",
 	).Find(&identities).Error; err != nil {
-		logrus.WithError(err).Error("failed to query usage identities for cooldown")
-		return fileMap
+		return nil, fmt.Errorf("query usage identities for cooldown: %w", err)
 	}
 	for _, id := range identities {
 		idx := strings.TrimSpace(id.Identity)
@@ -260,5 +294,5 @@ func (s *CooldownService) queryAuthFileMap(authIndexes []string) map[string]auth
 			Disabled: disabled,
 		}
 	}
-	return fileMap
+	return fileMap, nil
 }
