@@ -111,8 +111,6 @@ type Config struct {
 	CooldownRestoreScanInterval time.Duration
 	// CooldownRestoreBatchSize 是单次扫描最大处理数。
 	CooldownRestoreBatchSize int
-	// CooldownRestoreWorkerLimit 是恢复并发数限制。
-	CooldownRestoreWorkerLimit int
 	// CooldownRestoreMaxAttempts 是最大恢复尝试次数，0 为无限。
 	CooldownRestoreMaxAttempts int
 }
@@ -260,19 +258,12 @@ func Load(options LoadOptions) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	cooldownRestoreWorkerLimit, err := getInt("COOLDOWN_RESTORE_WORKER_LIMIT", 1)
-	if err != nil {
-		return nil, err
-	}
 	cooldownRestoreMaxAttempts, err := getInt("COOLDOWN_RESTORE_MAX_ATTEMPTS", 0)
 	if err != nil {
 		return nil, err
 	}
 	if cooldownRestoreBatchSize < 1 {
 		return nil, fmt.Errorf("COOLDOWN_RESTORE_BATCH_SIZE must be positive")
-	}
-	if cooldownRestoreWorkerLimit < 1 {
-		return nil, fmt.Errorf("COOLDOWN_RESTORE_WORKER_LIMIT must be positive")
 	}
 
 	tlsSkipVerify, err := getBool("TLS_SKIP_VERIFY", false)
@@ -328,11 +319,10 @@ func Load(options LoadOptions) (*Config, error) {
 
 		CooldownEnabled:              cooldownEnabled,
 		CooldownDryRun:               cooldownDryRun,
-		CooldownRestoreEnabled:       cooldownRestoreEnabled,
-		CooldownRestoreScanInterval:  cooldownRestoreScanInterval,
-		CooldownRestoreBatchSize:     cooldownRestoreBatchSize,
-		CooldownRestoreWorkerLimit:   cooldownRestoreWorkerLimit,
-		CooldownRestoreMaxAttempts:   cooldownRestoreMaxAttempts,
+		CooldownRestoreEnabled:      cooldownRestoreEnabled,
+		CooldownRestoreScanInterval: cooldownRestoreScanInterval,
+		CooldownRestoreBatchSize:    cooldownRestoreBatchSize,
+		CooldownRestoreMaxAttempts:  cooldownRestoreMaxAttempts,
 	}
 	if cfg.CPABaseURL == "" {
 		return nil, fmt.Errorf("CPA_BASE_URL is required")

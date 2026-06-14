@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"cpa-usage-keeper/internal/cpa/dto/authfiles"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/timeutil"
@@ -19,10 +20,26 @@ type AuthFileRestoreInfo struct {
 	Disabled bool
 }
 
+// buildAuthFilesByIndex 把 CPA auth files 列表转成 auth_index -> AuthFileRestoreInfo 映射，供 restore worker 批量查询。
+func buildAuthFilesByIndex(files []authfiles.AuthFile) map[string]AuthFileRestoreInfo {
+	byIndex := make(map[string]AuthFileRestoreInfo, len(files))
+	for _, file := range files {
+		idx := file.AuthIndex
+		disabled := false
+		if file.Disabled != nil {
+			disabled = *file.Disabled
+		}
+		byIndex[idx] = AuthFileRestoreInfo{
+			Name:     file.Name,
+			Disabled: disabled,
+		}
+	}
+	return byIndex
+}
+
 const (
 	defaultScanInterval = 3 * time.Minute
 	defaultBatchSize    = 10
-	defaultWorkerLimit  = 1
 	defaultMaxAttempts  = 0 // 0 = 无限重试
 )
 
@@ -34,8 +51,6 @@ type RestoreWorkerConfig struct {
 	ScanInterval time.Duration
 	// BatchSize 是单次扫描最多处理的数量。
 	BatchSize int
-	// WorkerLimit 是并发恢复的限制（默认 1）。
-	WorkerLimit int
 	// MaxAttempts 是最大恢复尝试次数，0 表示无限重试。
 	MaxAttempts int
 	// DryRun 控制是否只记录不真正调用 CPA API。
@@ -50,7 +65,6 @@ func DefaultRestoreWorkerConfig() RestoreWorkerConfig {
 		Enabled:      true,
 		ScanInterval: defaultScanInterval,
 		BatchSize:    defaultBatchSize,
-		WorkerLimit:  defaultWorkerLimit,
 		MaxAttempts:  defaultMaxAttempts,
 		DryRun:       false,
 		Now:          time.Now,
@@ -79,10 +93,6 @@ func NewRestoreWorker(db *gorm.DB, client CooldownClient, config RestoreWorkerCo
 	if batchSize <= 0 {
 		batchSize = defaultBatchSize
 	}
-	workerLimit := config.WorkerLimit
-	if workerLimit <= 0 {
-		workerLimit = defaultWorkerLimit
-	}
 	return &RestoreWorker{
 		db:     db,
 		client: client,
@@ -90,7 +100,6 @@ func NewRestoreWorker(db *gorm.DB, client CooldownClient, config RestoreWorkerCo
 			Enabled:      config.Enabled,
 			ScanInterval: scanInterval,
 			BatchSize:    batchSize,
-			WorkerLimit:  workerLimit,
 			MaxAttempts:  config.MaxAttempts,
 			DryRun:       config.DryRun,
 			Now:          now,
@@ -155,23 +164,11 @@ func (w *RestoreWorker) restoreDue(ctx context.Context) error {
 		return fmt.Errorf("fetch auth files for restore: %w", err)
 	}
 	if authFilesResult == nil {
-		return fmt.Errorf("FetchAuthFiles returned nil result for restore")
+		return fmt.Errorf("FetchAuthFiles returned nil result or payload for restore")
 	}
 
 	// 构建 auth_index -> auth file 的映射
-	type authFileInfo = AuthFileRestoreInfo
-	authFilesByIndex := make(map[string]authFileInfo)
-	for _, file := range authFilesResult.Payload.Files {
-		idx := file.AuthIndex
-		disabled := false
-		if file.Disabled != nil {
-			disabled = *file.Disabled
-		}
-		authFilesByIndex[idx] = authFileInfo{
-			Name:     file.Name,
-			Disabled: disabled,
-		}
-	}
+	authFilesByIndex := buildAuthFilesByIndex(authFilesResult.Payload.Files)
 
 	// 逐条恢复（worker_limit = 1 所以串行即可）
 	for _, record := range dueRecords {

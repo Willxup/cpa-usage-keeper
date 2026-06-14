@@ -12,18 +12,30 @@ import (
 	"gorm.io/gorm"
 )
 
+// CooldownUpsertResult 描述 UpsertOrExtendActiveCooldown 的写入结果，让调用方区分新建/延长/无变化。
+type CooldownUpsertResult string
+
+const (
+	// CooldownUpsertCreated 表示新建了一条 active cooldown 记录，后续通常需要执行禁用。
+	CooldownUpsertCreated CooldownUpsertResult = "created"
+	// CooldownUpsertExtended 表示已存在 active 记录，recover_at 被延长，不需要重复禁用。
+	CooldownUpsertExtended CooldownUpsertResult = "extended"
+	// CooldownUpsertUnchanged 表示已存在 active 记录且 recover_at 未被更新（新值不晚于旧值）。
+	CooldownUpsertUnchanged CooldownUpsertResult = "unchanged"
+)
+
 const authFileCooldownBatchSize = 50
 
-// UpsertCooldownExtendOnly 创建或延长 cooldown 记录。
+// UpsertOrExtendActiveCooldown 创建或延长 cooldown 记录。
 // recover_at 只延长不缩短：已存在 active cooldown 时，只有新 recover_at 更晚才更新。
 // 按 auth_index + state = active 匹配（不限定 owner），确保同一 auth_index 只有一条 active cooldown。
-// 返回是否实际 upsert 了数据。
-func UpsertCooldownExtendOnly(db *gorm.DB, cooldown *entities.AuthFileCooldown) (bool, error) {
+// 返回写入结果（created/extended/unchanged），调用方据此判断是否需要执行禁用操作。
+func UpsertOrExtendActiveCooldown(db *gorm.DB, cooldown *entities.AuthFileCooldown) (CooldownUpsertResult, error) {
 	if db == nil {
-		return false, fmt.Errorf("database is nil")
+		return "", fmt.Errorf("database is nil")
 	}
 	if cooldown == nil {
-		return false, fmt.Errorf("cooldown is nil")
+		return "", fmt.Errorf("cooldown is nil")
 	}
 
 	var existing entities.AuthFileCooldown
@@ -34,7 +46,7 @@ func UpsertCooldownExtendOnly(db *gorm.DB, cooldown *entities.AuthFileCooldown) 
 	if result.Error == nil {
 		// 已存在 active 记录，只延长不缩短
 		if !cooldown.RecoverAt.After(existing.RecoverAt) {
-			return false, nil // 新 recover_at 不晚于已有值，不更新
+			return CooldownUpsertUnchanged, nil // 新 recover_at 不晚于已有值，不更新
 		}
 		existing.RecoverAt = timeutil.NormalizeStorageTime(cooldown.RecoverAt)
 		existing.UpdatedAt = timeutil.NormalizeStorageTime(time.Now())
@@ -66,14 +78,14 @@ func UpsertCooldownExtendOnly(db *gorm.DB, cooldown *entities.AuthFileCooldown) 
 			existing.SourceRequestID = cooldown.SourceRequestID
 		}
 		if err := db.Save(&existing).Error; err != nil {
-			return true, err
+			return "", err
 		}
 		cooldown.ID = existing.ID
-		return true, nil
+		return CooldownUpsertExtended, nil
 	}
 
 	if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		return false, fmt.Errorf("query existing cooldown: %w", result.Error)
+		return "", fmt.Errorf("query existing cooldown: %w", result.Error)
 	}
 
 	// 不存在 active 记录，创建新记录
@@ -90,7 +102,7 @@ func UpsertCooldownExtendOnly(db *gorm.DB, cooldown *entities.AuthFileCooldown) 
 	if cooldown.Reason == "" {
 		cooldown.Reason = entities.AuthFileCooldownReasonCodex429
 	}
-	return true, db.Create(cooldown).Error
+	return CooldownUpsertCreated, db.Create(cooldown).Error
 }
 
 // ListDueCooldowns 查询到期待恢复的 cooldown 记录。
@@ -228,19 +240,23 @@ func boundedCooldownErrorBody(body string) string {
 	return body
 }
 
-// ValidateCooldownRecoverAt 验证 recover_at 是否合法：resets_at 优先，否则 now + resets_in_seconds。
-// 返回计算后的 recover_at。如果两者都为空，返回 nil 表示无效。
-func ValidateCooldownRecoverAt(now time.Time, resetsAt *time.Time, resetsInSeconds *int64) *time.Time {
+// ResolveCooldownRecoverAt 从已解析的输入计算恢复时间，按优先级 resets_at > resets_in_seconds。
+// 解析不到有效时间返回 error；计算出的时间不晚于 now 也返回 error，避免写入已过期的 cooldown。
+// recover_at 不晚于 now 是 cooldown 的基本前提：到期或已过期的 cooldown 没有存在意义。
+func ResolveCooldownRecoverAt(now time.Time, resetsAt *time.Time, resetsInSeconds *int64) (time.Time, error) {
+	var raw time.Time
 	if resetsAt != nil && !resetsAt.IsZero() {
-		normalized := timeutil.NormalizeStorageTime(*resetsAt)
-		return &normalized
+		raw = *resetsAt
+	} else if resetsInSeconds != nil && *resetsInSeconds > 0 {
+		raw = now.Add(time.Duration(*resetsInSeconds) * time.Second)
+	} else {
+		return time.Time{}, fmt.Errorf("no valid resets_at or resets_in_seconds")
 	}
-	if resetsInSeconds != nil && *resetsInSeconds > 0 {
-		recoverAt := now.Add(time.Duration(*resetsInSeconds) * time.Second)
-		normalized := timeutil.NormalizeStorageTime(recoverAt)
-		return &normalized
+	normalized := timeutil.NormalizeStorageTime(raw)
+	if !normalized.After(now) {
+		return time.Time{}, fmt.Errorf("recover_at %s is not after now %s", normalized.Format(time.RFC3339), now.Format(time.RFC3339))
 	}
-	return nil
+	return normalized, nil
 }
 
 // ListAllActiveCooldowns 返回所有 active 状态的 cooldown 记录，供 API 展示用。

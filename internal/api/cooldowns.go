@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -19,7 +20,7 @@ import (
 type CooldownDisabler interface {
 	GetDB() *gorm.DB
 	GetDryRun() bool
-	BuildInspectionCooldown(authIndex, authFileName, authFilePath string, recoverAt time.Time, previousDisabled bool, disabledByKeeper bool, upstreamMessage string) *entities.AuthFileCooldown
+	BuildInspectionCooldown(authIndex, authFileName, authFilePath string, recoverAt time.Time, previousDisabled bool, disabledByKeeper bool, upstreamMessage string, sourceRequestID string) *entities.AuthFileCooldown
 	DisableAuthFile(ctx context.Context, cooldownID int64, authFileName, authIndex string) error
 }
 
@@ -76,10 +77,15 @@ type disableLimitedRequest struct {
 }
 
 type disableLimitedRequestItem struct {
-	AuthIndex       string `json:"auth_index"`
-	RecoverAt       string `json:"recover_at,omitempty"`
+	AuthIndex string `json:"auth_index"`
+	// RecoverAt 是 RFC3339 格式的恢复时间，前端优先从巡检结果里带上。
+	RecoverAt string `json:"recover_at,omitempty"`
+	// ResetsAt 兼容上游字段名，与 RecoverAt 语义相同，按 resets_at > recover_at 优先级解析。
+	ResetsAt        string `json:"resets_at,omitempty"`
 	ResetsInSeconds *int64 `json:"resets_in_seconds,omitempty"`
 	UpstreamMessage string `json:"upstream_message,omitempty"`
+	// SourceRequestID 是触发本次禁用的请求 ID，便于追溯。
+	SourceRequestID string `json:"request_id,omitempty"`
 }
 
 // disableLimitedResponse 是巡检临时禁用接口的响应体。
@@ -253,22 +259,27 @@ func registerCooldownRoutes(router gin.IRoutes, db *gorm.DB, disabler CooldownDi
 				continue
 			}
 
-			// 解析 recover_at 优先级：request item > 无
-			var recoverAt *time.Time
-			if reqItem != nil && reqItem.RecoverAt != "" {
-				parsed, err := time.Parse(time.RFC3339, reqItem.RecoverAt)
-				if err == nil && !parsed.IsZero() {
-					n := timeutil.NormalizeStorageTime(parsed)
-					recoverAt = &n
+			// 解析 recover_at：优先 resets_at > recover_at（RFC3339），其次 resets_in_seconds。
+			// 解析逻辑统一走 ResolveCooldownRecoverAt，保证校验一致（必须晚于 now）。
+			var recoverAt time.Time
+			var resolveErr error
+			if reqItem != nil {
+				if t, err := time.Parse(time.RFC3339, reqItem.ResetsAt); err == nil && !t.IsZero() {
+					recoverAt, resolveErr = repository.ResolveCooldownRecoverAt(now, &t, nil)
+				} else if t, err := time.Parse(time.RFC3339, reqItem.RecoverAt); err == nil && !t.IsZero() {
+					recoverAt, resolveErr = repository.ResolveCooldownRecoverAt(now, &t, nil)
+				} else if reqItem.ResetsInSeconds != nil && *reqItem.ResetsInSeconds > 0 {
+					sec := *reqItem.ResetsInSeconds
+					recoverAt, resolveErr = repository.ResolveCooldownRecoverAt(now, nil, &sec)
+				} else {
+					resolveErr = fmt.Errorf("no recover_at / resets_at / resets_in_seconds in request item")
 				}
+			} else {
+				resolveErr = fmt.Errorf("no recover_at info (fallback auth_indexes has no recover time)")
 			}
-			if recoverAt == nil && reqItem != nil && reqItem.ResetsInSeconds != nil && *reqItem.ResetsInSeconds > 0 {
-				n := timeutil.NormalizeStorageTime(now.Add(time.Duration(*reqItem.ResetsInSeconds) * time.Second))
-				recoverAt = &n
-			}
-			if recoverAt == nil {
+			if resolveErr != nil {
 				item.Status = "skipped_missing_recover_at"
-				item.Message = "no recover_at provided, cannot disable"
+				item.Message = "cannot resolve recover_at: " + resolveErr.Error()
 				result.Skipped++
 				result.Items = append(result.Items, item)
 				continue
@@ -295,13 +306,17 @@ func registerCooldownRoutes(router gin.IRoutes, db *gorm.DB, disabler CooldownDi
 			previousDisabled := afi.Disabled
 			disabledByKeeper := !previousDisabled
 
+			sourceRequestID := ""
+			if reqItem != nil {
+				sourceRequestID = reqItem.SourceRequestID
+			}
 			cooldown := disabler.BuildInspectionCooldown(
 				authIndex, afi.Name, afi.Path,
-				*recoverAt, previousDisabled, disabledByKeeper,
-				upstreamMessage,
+				recoverAt, previousDisabled, disabledByKeeper,
+				upstreamMessage, sourceRequestID,
 			)
 
-			upserted, err := repository.UpsertCooldownExtendOnly(db, cooldown)
+			upsertResult, err := repository.UpsertOrExtendActiveCooldown(db, cooldown)
 			if err != nil {
 				item.Status = "failed"
 				item.Message = "upsert cooldown: " + err.Error()
@@ -310,11 +325,12 @@ func registerCooldownRoutes(router gin.IRoutes, db *gorm.DB, disabler CooldownDi
 				continue
 			}
 
-			item.RecoverAt = timeutil.FormatStorageTime(*recoverAt)
+			item.RecoverAt = timeutil.FormatStorageTime(recoverAt)
 
-			if !upserted {
+			// 已存在 active cooldown 且 recover_at 未被更新（unchanged）：账号已经在禁用流程里，跳过重复禁用。
+			if upsertResult == repository.CooldownUpsertUnchanged {
 				item.Status = "extended"
-				item.Message = "already active, recover_at extended"
+				item.Message = "already in cooldown, recover_at unchanged"
 				result.Extended++
 				result.Items = append(result.Items, item)
 				continue
