@@ -85,6 +85,7 @@ type disableLimitedAPIResponse struct {
 	Extended int                             `json:"extended"`
 	Skipped  int                             `json:"skipped"`
 	Failed   int                             `json:"failed"`
+	DryRun   int                             `json:"dry_run"`
 	Items    []disableLimitedAPIResponseItem `json:"items"`
 }
 
@@ -182,6 +183,7 @@ func registerCooldownRoutes(router gin.IRoutes, db *gorm.DB, cooldownService *co
 			Extended: result.Extended,
 			Skipped:  result.Skipped,
 			Failed:   result.Failed,
+			DryRun:   result.DryRun,
 			Items:    make([]disableLimitedAPIResponseItem, 0, len(result.Items)),
 		}
 		for _, item := range result.Items {

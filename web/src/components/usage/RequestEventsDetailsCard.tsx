@@ -10,6 +10,14 @@ import React, {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FailureDetailsModal, type FailureDetailsData } from '@/components/usage/request-events/FailureDetailsModal';
+import {
+  formatCacheRate,
+  formatRequestEventTimestamp,
+  formatSpeedTPS,
+  formatTTFTMs,
+  parseRequestEndpoint,
+  toNumber,
+} from '@/components/usage/request-events/requestEventFormatters';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -17,7 +25,6 @@ import { Select } from '@/components/ui/Select';
 import { IconCheck, IconChevronDown } from '@/components/ui/icons';
 import type { UsageEvent, UsageSourceFilterOption } from '@/lib/types';
 import {
-  calculateCacheRate,
   formatDurationMs,
   formatUsd,
   LATENCY_SOURCE_FIELD,
@@ -165,50 +172,7 @@ export interface RequestEventsDetailsCardProps {
   onVisibleColumnIdsChange?: (columnIds: RequestEventColumnId[]) => void;
 }
 
-const toNumber = (value: unknown): number => {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return 0;
-  return parsed;
-};
 
-const formatRequestEventTimestamp = (timestamp: string): string => {
-  const match = timestamp.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/);
-  if (!match) return timestamp || '-';
-  return `${match[1]}/${match[2]}/${match[3]} ${match[4]}:${match[5]}:${match[6]}`;
-};
-
-const formatCacheRate = (cachedTokens: number, inputTokens: number): string => {
-  const rate = calculateCacheRate({ inputTokens, cachedTokens });
-  return rate === null ? '-' : `${rate.toFixed(2)}%`;
-};
-
-const formatTTFTMs = (ttftMs: number | null): string => {
-  if (ttftMs === null || ttftMs <= 0) {
-    return '-';
-  }
-  return formatDurationMs(ttftMs);
-};
-
-const formatSpeedTPS = (speedTPS: number | null): string => {
-  if (speedTPS === null || speedTPS <= 0) {
-    return '-';
-  }
-  return `${speedTPS.toFixed(1)} t/s`;
-};
-
-const parseRequestEndpoint = (rawEndpoint: unknown): { requestType: string; endpoint: string } => {
-  const raw = String(rawEndpoint ?? '').trim().replace(/\s+/g, ' ');
-  if (!raw) {
-    return { requestType: '-', endpoint: '-' };
-  }
-  const [first, ...rest] = raw.split(' ');
-  const upperMethod = first.toUpperCase();
-  const hasMethod = ['GET', 'POST'].includes(upperMethod);
-  const requestType = upperMethod === 'POST' ? 'SSE' : upperMethod === 'GET' ? 'WS' : '-';
-  const path = hasMethod ? rest.join(' ').trim() : raw;
-  const normalizedPath = path.startsWith('/v1/') ? path.slice(3) : path === '/v1' ? '/' : path;
-  return { requestType, endpoint: normalizedPath || '-' };
-};
 
 type RequestEventColumnOption = {
   id: RequestEventColumnId;

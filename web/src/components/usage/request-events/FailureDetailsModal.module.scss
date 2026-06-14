@@ -10,14 +10,15 @@
 }
 
 .dialog {
-  background: var(--card-bg, #1a1a2e);
+  background: var(--floating-surface, var(--bg-primary));
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   width: 560px;
   max-width: 90vw;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--floating-shadow, 0 8px 32px rgba(0, 0, 0, 0.4));
   overflow: hidden;
 }
 
@@ -26,28 +27,30 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
-  color: #fff;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-error-light, color-mix(in srgb, var(--danger-color) 10%, var(--bg-primary)));
 }
 
 .title {
   font-size: 16px;
   font-weight: 600;
   margin: 0;
+  color: var(--danger-color);
 }
 
 .closeButton {
-  background: rgba(255, 255, 255, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  color: #fff;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
   padding: 4px 12px;
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
-  transition: background 0.15s;
+  transition: background 0.15s, color 0.15s;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.25);
+    background: var(--bg-hover, var(--bg-tertiary));
+    color: var(--text-primary);
   }
 }
 
@@ -68,7 +71,7 @@
 .label {
   font-size: 12px;
   font-weight: 600;
-  color: #dc3545;
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 4px;
@@ -76,14 +79,14 @@
 
 .value {
   font-size: 14px;
-  color: var(--text-primary, #e0e0e0);
+  color: var(--text-primary);
   word-break: break-word;
 }
 
 .statusBadge {
   display: inline-block;
-  background: rgba(220, 53, 69, 0.15);
-  color: #dc3545;
+  background: var(--bg-error-light, color-mix(in srgb, var(--danger-color) 12%, transparent));
+  color: var(--danger-color);
   padding: 2px 8px;
   border-radius: 4px;
   font-weight: 600;
@@ -91,8 +94,9 @@
 }
 
 .bodyBox {
-  background: var(--code-bg, #0d1117);
-  color: var(--code-text, #c9d1d9);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
   padding: 12px;
   border-radius: 6px;
   font-size: 12px;

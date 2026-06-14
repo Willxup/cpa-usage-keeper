@@ -53,7 +53,9 @@ export function FailureDetailsModal({ data, onClose }: Props) {
         <div className={styles.content}>
           {data.requestId && (
             <div className={styles.field}>
-              <div className={styles.label}>Request ID</div>
+              <div className={styles.label}>
+                {t('usage_stats.request_events_failure_request_id')}
+              </div>
               <div className={styles.value}>{data.requestId}</div>
             </div>
           )}
@@ -89,7 +91,9 @@ export function FailureDetailsModal({ data, onClose }: Props) {
           </div>
           {(data.source || data.authIndex) && (
             <div className={styles.field}>
-              <div className={styles.label}>Source / Auth Index</div>
+              <div className={styles.label}>
+                {t('usage_stats.request_events_failure_source_auth')}
+              </div>
               <div className={styles.value}>
                 {data.source || '-'} / {data.authIndex || '-'}
               </div>
