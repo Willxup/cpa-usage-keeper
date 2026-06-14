@@ -978,36 +978,66 @@ function formatFailureResultLabel(row: RequestEventRow): string {
 
 function FailureDetailModal({ row, onClose }: { row: RequestEventRow; onClose: () => void }) {
   const { t } = useTranslation()
-  const statusLabel = formatFailureResultLabel(row)
   return createPortal(
-    <div className={styles.failureDetailOverlay} onClick={onClose}>
-      <div className={styles.failureDetailModal} onClick={(e) => e.stopPropagation()}>
-        <div className={styles.failureDetailHeader}>
-          <h3>{t('usage_stats.request_events_failure_details_title')}</h3>
-          {row.failureStatusCode != null && (
-            <span className={styles.failureDetailStatusBadge}>{statusLabel}</span>
-          )}
+    <div
+      className={styles.requestEventsFailureOverlay}
+      role="presentation"
+      onClick={onClose}
+    >
+      <section
+        className={styles.requestEventsFailureDialog}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="request-events-failure-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className={styles.requestEventsFailureHeader}>
+          <h2 id="request-events-failure-title" className={styles.requestEventsFailureTitle}>
+            {t('usage_stats.request_events_failure_details_title')}
+          </h2>
+          <button
+            type="button"
+            className={styles.requestEventsFailureClose}
+            onClick={onClose}
+          >
+            {t('common.close')}
+          </button>
+        </header>
+        <div className={styles.requestEventsFailureContent}>
+          <div className={styles.requestEventsFailureField}>
+            <div className={styles.requestEventsFailureLabel}>
+              {t('usage_stats.request_events_failure_status_code')}
+            </div>
+            <div className={styles.requestEventsFailureValue}>
+              {row.failureStatusCode ?? '-'}
+            </div>
+          </div>
+          <div className={styles.requestEventsFailureField}>
+            <div className={styles.requestEventsFailureLabel}>
+              {t('usage_stats.request_events_failure_code')}
+            </div>
+            <div className={styles.requestEventsFailureValue}>
+              {row.failureCode || '-'}
+            </div>
+          </div>
+          <div className={styles.requestEventsFailureField}>
+            <div className={styles.requestEventsFailureLabel}>
+              {t('usage_stats.request_events_failure_message')}
+            </div>
+            <div className={styles.requestEventsFailureValue}>
+              {row.failureMessage || '-'}
+            </div>
+          </div>
+          <div className={styles.requestEventsFailureField}>
+            <div className={styles.requestEventsFailureLabel}>
+              {t('usage_stats.request_events_failure_body')}
+            </div>
+            <pre className={styles.requestEventsFailureBodyBox}>
+              {row.failureBody || '-'}
+            </pre>
+          </div>
         </div>
-        <div className={styles.failureDetailField}>
-          <span className={styles.failureDetailLabel}>{t('usage_stats.request_events_failure_status_code')}</span>
-          <span className={styles.failureDetailValue}>{row.failureStatusCode ?? '-'}</span>
-        </div>
-        <div className={styles.failureDetailField}>
-          <span className={styles.failureDetailLabel}>{t('usage_stats.request_events_failure_code')}</span>
-          <span className={styles.failureDetailValue}>{row.failureCode || '-'}</span>
-        </div>
-        <div className={styles.failureDetailField}>
-          <span className={styles.failureDetailLabel}>{t('usage_stats.request_events_failure_message')}</span>
-          <span className={styles.failureDetailValue}>{row.failureMessage || '-'}</span>
-        </div>
-        <div className={styles.failureDetailField}>
-          <span className={styles.failureDetailLabel}>{t('usage_stats.request_events_failure_body')}</span>
-          <pre className={styles.failureDetailBody}>{row.failureBody || '-'}</pre>
-        </div>
-        <button type="button" className={styles.failureDetailClose} onClick={onClose}>
-          {t('common.close')}
-        </button>
-      </div>
+      </section>
     </div>,
     document.body
   )

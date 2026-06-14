@@ -3126,6 +3126,182 @@
   }
 }
 
+.requestEventsFailureOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px;
+  background: rgba(17, 17, 17, 0.48);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+.requestEventsFailureDialog {
+  width: min(1080px, calc(100vw - 96px));
+  max-height: calc(100vh - 96px);
+  overflow: auto;
+  padding: 42px 48px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 86%, transparent);
+  border-radius: 30px;
+  background: var(--bg-primary);
+  box-shadow:
+    0 30px 90px rgba(0, 0, 0, 0.26),
+    0 1px 0 rgba(255, 255, 255, 0.65) inset;
+}
+
+.requestEventsFailureHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+.requestEventsFailureTitle {
+  margin: 0;
+  color: color-mix(in srgb, var(--danger-color) 82%, #7f1d1d);
+  font-size: 28px;
+  font-weight: 850;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.requestEventsFailureClose {
+  min-width: 92px;
+  min-height: 52px;
+  padding: 0 24px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 17px;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+
+  &:hover {
+    color: var(--text-primary);
+    border-color: color-mix(in srgb, var(--primary-color) 28%, var(--border-color));
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+    transform: translateY(-1px);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+}
+
+.requestEventsFailureContent {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.requestEventsFailureField {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.requestEventsFailureLabel {
+  color: var(--text-secondary);
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.requestEventsFailureValue {
+  color: var(--text-primary);
+  font-size: 20px;
+  font-weight: 780;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.requestEventsFailureBodyBox {
+  width: 100%;
+  max-height: 260px;
+  margin: 0;
+  padding: 20px 24px;
+  overflow: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-secondary) 52%, var(--bg-primary));
+  color: var(--text-primary);
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    'Liberation Mono',
+    'Courier New',
+    monospace;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+@include mobile {
+  .requestEventsFailureOverlay {
+    padding: 16px;
+  }
+
+  .requestEventsFailureDialog {
+    width: calc(100vw - 32px);
+    max-height: calc(100vh - 32px);
+    padding: 28px 24px;
+    border-radius: 24px;
+  }
+
+  .requestEventsFailureHeader {
+    gap: 16px;
+    margin-bottom: 26px;
+  }
+
+  .requestEventsFailureTitle {
+    font-size: 24px;
+  }
+
+  .requestEventsFailureClose {
+    min-width: 72px;
+    min-height: 42px;
+    padding: 0 18px;
+    font-size: 15px;
+  }
+
+  .requestEventsFailureContent {
+    gap: 22px;
+  }
+
+  .requestEventsFailureLabel {
+    font-size: 15px;
+  }
+
+  .requestEventsFailureValue {
+    font-size: 17px;
+  }
+
+  .requestEventsFailureBodyBox {
+    max-height: 220px;
+    padding: 16px;
+    font-size: 13px;
+  }
+}
+
 .failureDetailOverlay {
   position: fixed;
   inset: 0;

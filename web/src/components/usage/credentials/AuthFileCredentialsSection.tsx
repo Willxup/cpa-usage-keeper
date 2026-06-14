@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Modal } from '@/components/ui/Modal'
@@ -446,14 +446,36 @@ function QuotaInspectionModal({
   }
   const inspectionCloseDisabled = invalidAccountAction !== null || invalidAccountSubmitting
   const [limitedResult, setLimitedResult] = useState('')
+  const noLimitedNoticeTimerRef = useRef<number | null>(null)
+
+  const clearNoLimitedNoticeTimer = () => {
+    if (noLimitedNoticeTimerRef.current !== null) {
+      window.clearTimeout(noLimitedNoticeTimerRef.current)
+      noLimitedNoticeTimerRef.current = null
+    }
+  }
+
+  const showNoLimitedNotice = (message: string) => {
+    clearNoLimitedNoticeTimer()
+    setLimitedResult(message)
+    noLimitedNoticeTimerRef.current = window.setTimeout(() => {
+      setLimitedResult('')
+      noLimitedNoticeTimerRef.current = null
+    }, 4000)
+  }
+
+  useEffect(() => {
+    return () => clearNoLimitedNoticeTimer()
+  }, [])
 
   const handleDisableLimited = async () => {
+    clearNoLimitedNoticeTimer()
+    setLimitedResult('')
     if (limitedAuthIndexes.length === 0) {
-      setLimitedResult('目前没有达到限额的账号')
+      showNoLimitedNotice('目前没有达到限额的账号')
       return
     }
     setLimitedSubmitting(true)
-    setLimitedResult('')
     try {
       const result = await cooldownDisableLimited({ auth_indexes: limitedAuthIndexes })
       if (result.disabled > 0 || result.extended > 0 || result.skipped > 0 || result.failed > 0) {
