@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"cpa-usage-keeper/internal/cpa/dto/authfiles"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/timeutil"
@@ -17,6 +18,23 @@ import (
 type AuthFileRestoreInfo struct {
 	Name     string
 	Disabled bool
+}
+
+// buildAuthFilesByIndex 把 CPA auth files 列表转成 auth_index -> AuthFileRestoreInfo 映射，供 restore worker 批量查询。
+func buildAuthFilesByIndex(files []authfiles.AuthFile) map[string]AuthFileRestoreInfo {
+	byIndex := make(map[string]AuthFileRestoreInfo, len(files))
+	for _, file := range files {
+		idx := file.AuthIndex
+		disabled := false
+		if file.Disabled != nil {
+			disabled = *file.Disabled
+		}
+		byIndex[idx] = AuthFileRestoreInfo{
+			Name:     file.Name,
+			Disabled: disabled,
+		}
+	}
+	return byIndex
 }
 
 const (
@@ -154,24 +172,12 @@ func (w *RestoreWorker) restoreDue(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("fetch auth files for restore: %w", err)
 	}
-	if authFilesResult == nil {
-		return fmt.Errorf("FetchAuthFiles returned nil result for restore")
+	if authFilesResult == nil || authFilesResult.Payload == nil {
+		return fmt.Errorf("FetchAuthFiles returned nil result or payload for restore")
 	}
 
 	// 构建 auth_index -> auth file 的映射
-	type authFileInfo = AuthFileRestoreInfo
-	authFilesByIndex := make(map[string]authFileInfo)
-	for _, file := range authFilesResult.Payload.Files {
-		idx := file.AuthIndex
-		disabled := false
-		if file.Disabled != nil {
-			disabled = *file.Disabled
-		}
-		authFilesByIndex[idx] = authFileInfo{
-			Name:     file.Name,
-			Disabled: disabled,
-		}
-	}
+	authFilesByIndex := buildAuthFilesByIndex(authFilesResult.Payload.Files)
 
 	// 逐条恢复（worker_limit = 1 所以串行即可）
 	for _, record := range dueRecords {

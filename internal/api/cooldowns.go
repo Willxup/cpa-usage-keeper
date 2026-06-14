@@ -301,7 +301,7 @@ func registerCooldownRoutes(router gin.IRoutes, db *gorm.DB, disabler CooldownDi
 				upstreamMessage,
 			)
 
-			upserted, err := repository.UpsertCooldownExtendOnly(db, cooldown)
+			upsertResult, err := repository.UpsertCooldownExtendOnly(db, cooldown)
 			if err != nil {
 				item.Status = "failed"
 				item.Message = "upsert cooldown: " + err.Error()
@@ -312,9 +312,10 @@ func registerCooldownRoutes(router gin.IRoutes, db *gorm.DB, disabler CooldownDi
 
 			item.RecoverAt = timeutil.FormatStorageTime(*recoverAt)
 
-			if !upserted {
+			// 已存在 active cooldown 且 recover_at 未被更新（unchanged）：账号已经在禁用流程里，跳过重复禁用。
+			if upsertResult == repository.CooldownUpsertUnchanged {
 				item.Status = "extended"
-				item.Message = "already active, recover_at extended"
+				item.Message = "already in cooldown, recover_at unchanged"
 				result.Extended++
 				result.Items = append(result.Items, item)
 				continue

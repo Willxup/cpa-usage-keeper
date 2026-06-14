@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"cpa-usage-keeper/internal/cpa/dto/authfiles"
 	"cpa-usage-keeper/internal/cpa/dto/response"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
@@ -21,20 +22,6 @@ import (
 type CooldownClient interface {
 	FetchAuthFiles(ctx context.Context) (*response.AuthFilesResult, error)
 	UpdateAuthFileStatus(ctx context.Context, name string, disabled bool) error
-}
-
-// AuthFilesProvider 提供已解析的 auth file DTO 列表。
-type AuthFilesProvider interface {
-	Files() []AuthFileDTO
-}
-
-// AuthFileDTO 是 cooldown 使用的简化的 auth file DTO。
-type AuthFileDTO struct {
-	Name      string
-	AuthIndex string
-	Provider  string
-	Disabled  bool
-	Path      string
 }
 
 // CooldownService 处理 Codex 429 usage_limit_reached 事件的自动禁用逻辑。
@@ -55,13 +42,51 @@ func NewCooldownService(db *gorm.DB, client CooldownClient, dryRun bool) *Cooldo
 	}
 }
 
+// codexAuthFileInfo 是从 CPA auth files 解析出的单条 codex 账号信息，仅供 cooldown 内部使用。
+type codexAuthFileInfo struct {
+	Name            string
+	Path            string
+	PreviousDisabled bool
+	Found           bool
+}
+
+// findCodexAuthFileByAuthIndex 在 CPA auth files 中按 auth_index 查找 codex 账号。
+// 返回的 Found 为 false 表示未找到匹配。
+func findCodexAuthFileByAuthIndex(files []authfiles.AuthFile, authIndex string) codexAuthFileInfo {
+	for _, file := range files {
+		if strings.TrimSpace(file.Provider) != "codex" || strings.TrimSpace(file.AuthIndex) != authIndex {
+			continue
+		}
+		info := codexAuthFileInfo{
+			Name:  strings.TrimSpace(file.Name),
+			Path:  strings.TrimSpace(file.Path),
+			Found: true,
+		}
+		if file.Disabled != nil {
+			info.PreviousDisabled = *file.Disabled
+		}
+		return info
+	}
+	return codexAuthFileInfo{}
+}
+
+// recordCooldownError 构建一条带 lastError 的 cooldown 并写入，用于 FetchAuthFiles 失败、auth file 不匹配等容错场景。
+// 写入失败只记录日志，不返回错误，避免错误处理本身再抛错打断主流程。
+func (s *CooldownService) recordCooldownError(tel *service.Codex429Telemetry, recoverAt time.Time, lastError string) {
+	cooldown := s.buildCooldown(tel, recoverAt, "", "", false, false)
+	cooldown.LastError = lastError
+	if _, err := repository.UpsertCooldownExtendOnly(s.db, cooldown); err != nil {
+		logrus.WithError(err).WithField("auth_index", tel.AuthIndex).
+			Error("failed to upsert cooldown when recording error")
+	}
+}
+
 // HandleUsageLimit429 处理单条 Codex 429 usage_limit_reached 事件。
 // 1. 验证事件是否为 codex + 429 + usage_limit_reached
 // 2. 解析 recover_at
 // 3. 使用 auth_index 匹配 auth file
-// 4. 判断当前 disabled 状态
-// 5. Upsert cooldown（只延长不缩短）
-// 6. 如需禁用，调用 CPA API
+// 4. Upsert cooldown（只延长不缩短）
+// 5. 仅当首次新建 cooldown 时调用 CPA API 禁用；延长或无变化时不重复禁用
 func (s *CooldownService) HandleUsageLimit429(ctx context.Context, tel *service.Codex429Telemetry) error {
 	if tel == nil {
 		return nil
@@ -100,79 +125,58 @@ func (s *CooldownService) HandleUsageLimit429(ctx context.Context, tel *service.
 	}).Info("codex 429 usage_limit_reached detected, processing cooldown")
 
 	// 3. 使用 auth_index 定位 auth file
-	var authFileName string
-	var authFilePath string
-	var previousDisabled bool
-
 	authFilesResult, err := s.client.FetchAuthFiles(ctx)
 	if err != nil {
 		logrus.WithError(err).WithField("auth_index", tel.AuthIndex).
 			Error("failed to fetch auth files for cooldown")
-		cooldown := s.buildCooldown(tel, *recoverAt, "", "", false, false)
-		cooldown.LastError = fmt.Sprintf("fetch auth files: %v", err)
-		if _, upsertErr := repository.UpsertCooldownExtendOnly(s.db, cooldown); upsertErr != nil {
-			logrus.WithError(upsertErr).Error("failed to upsert cooldown after fetch error")
-		}
+		s.recordCooldownError(tel, *recoverAt, fmt.Sprintf("fetch auth files: %v", err))
 		return fmt.Errorf("fetch auth files for cooldown: %w", err)
 	}
-
-	if authFilesResult == nil {
+	if authFilesResult == nil || authFilesResult.Payload == nil {
 		logrus.WithField("auth_index", tel.AuthIndex).
-			Error("FetchAuthFiles returned nil result")
-		cooldown := s.buildCooldown(tel, *recoverAt, "", "", false, false)
-		cooldown.LastError = "FetchAuthFiles returned nil result"
-		if _, upsertErr := repository.UpsertCooldownExtendOnly(s.db, cooldown); upsertErr != nil {
-			logrus.WithError(upsertErr).Error("failed to upsert cooldown after nil result")
-		}
+			Error("FetchAuthFiles returned nil result or payload")
+		s.recordCooldownError(tel, *recoverAt, "FetchAuthFiles returned nil result or payload")
 		return fmt.Errorf("FetchAuthFiles returned nil result for cooldown")
 	}
 
-	for _, file := range authFilesResult.Payload.Files {
-		if strings.TrimSpace(file.Provider) == "codex" && strings.TrimSpace(file.AuthIndex) == tel.AuthIndex {
-			authFileName = strings.TrimSpace(file.Name)
-			authFilePath = strings.TrimSpace(file.Path)
-			if file.Disabled != nil {
-				previousDisabled = *file.Disabled
-			}
-			break
-		}
-	}
-
-	if authFileName == "" {
+	info := findCodexAuthFileByAuthIndex(authFilesResult.Payload.Files, tel.AuthIndex)
+	if !info.Found {
 		logrus.WithField("auth_index", tel.AuthIndex).Warn("no matching auth file found for cooldown")
-		cooldown := s.buildCooldown(tel, *recoverAt, "", "", false, false)
-		cooldown.LastError = fmt.Sprintf("no matching auth file for auth_index %s", tel.AuthIndex)
-		if _, upsertErr := repository.UpsertCooldownExtendOnly(s.db, cooldown); upsertErr != nil {
-			logrus.WithError(upsertErr).Error("failed to upsert cooldown when auth file not found")
-		}
+		s.recordCooldownError(tel, *recoverAt, fmt.Sprintf("no matching auth file for auth_index %s", tel.AuthIndex))
 		return nil
 	}
 
-	// 4. 判断当前 disabled 状态
-	disabledByKeeper := !previousDisabled
-
-	// 5. 构建并 upsert cooldown
-	cooldown := s.buildCooldown(tel, *recoverAt, authFileName, authFilePath, previousDisabled, disabledByKeeper)
+	// 4. 判断当前 disabled 状态并构建 cooldown
+	disabledByKeeper := !info.PreviousDisabled
+	cooldown := s.buildCooldown(tel, *recoverAt, info.Name, info.Path, info.PreviousDisabled, disabledByKeeper)
 	if tel.RawErrorBody != "" {
 		cooldown.LastErrorBody = tel.RawErrorBodyTruncated()
 	}
 
-	upserted, err := repository.UpsertCooldownExtendOnly(s.db, cooldown)
+	// 5. 写入 cooldown，根据结果决定是否需要调用 CPA API
+	upsertResult, err := repository.UpsertCooldownExtendOnly(s.db, cooldown)
 	if err != nil {
 		logrus.WithError(err).WithField("auth_index", tel.AuthIndex).
 			Error("failed to upsert cooldown record")
 		return fmt.Errorf("upsert cooldown: %w", err)
 	}
-	if !upserted {
-		logrus.WithField("auth_index", tel.AuthIndex).
-			Debug("cooldown already exists with later or equal recover_at, skipped")
+
+	// extended / unchanged 表示已有 cooldown 记录，auth file 的禁用状态已经处理过，不重复调用 CPA API。
+	if upsertResult != repository.CooldownUpsertCreated {
+		if upsertResult == repository.CooldownUpsertExtended {
+			logrus.WithFields(logrus.Fields{
+				"auth_file":  info.Name,
+				"auth_index": tel.AuthIndex,
+			}).Info("cooldown recover_at extended, skip re-disabling auth file")
+		}
 		return nil
 	}
 
-	// 6. 如果用户已手动禁用，不调用 CPA API
+	// 仅新建 cooldown 时，根据 disabled 状态决定后续动作。
+	// 如果用户已手动禁用，不调用 CPA API，标记为 skipped_manual。
 	if !disabledByKeeper {
 		logrus.WithFields(logrus.Fields{
-			"auth_file":  authFileName,
+			"auth_file":  info.Name,
 			"auth_index": tel.AuthIndex,
 		}).Info("auth file already disabled, keeper will not auto-restore")
 		if cooldown.ID > 0 {
@@ -181,21 +185,15 @@ func (s *CooldownService) HandleUsageLimit429(ctx context.Context, tel *service.
 		return nil
 	}
 
-	if !previousDisabled {
-		logrus.WithFields(logrus.Fields{
-			"auth_file":  authFileName,
-			"auth_index": tel.AuthIndex,
-		}).Info("cooldown: disabling auth file due to usage limit")
+	logrus.WithFields(logrus.Fields{
+		"auth_file":  info.Name,
+		"auth_index": tel.AuthIndex,
+	}).Info("cooldown: disabling auth file due to usage limit")
 
-		if cooldown.ID == 0 {
-			return fmt.Errorf("cooldown ID is 0 after upsert, cannot disable auth file")
-		}
-		if err := s.DisableAuthFile(ctx, cooldown.ID, authFileName, tel.AuthIndex); err != nil {
-			return err
-		}
+	if cooldown.ID == 0 {
+		return fmt.Errorf("cooldown ID is 0 after upsert, cannot disable auth file")
 	}
-
-	return nil
+	return s.DisableAuthFile(ctx, cooldown.ID, info.Name, tel.AuthIndex)
 }
 
 func (s *CooldownService) buildCooldown(tel *service.Codex429Telemetry, recoverAt time.Time, authFileName, authFilePath string, previousDisabled bool, disabledByKeeper bool) *entities.AuthFileCooldown {
@@ -274,10 +272,10 @@ func ValidateRecoverAt(now time.Time, resetsAt *time.Time, resetsInSeconds *int6
 	return repository.ValidateCooldownRecoverAt(now, resetsAt, resetsInSeconds)
 }
 
-// ValidateRecoverAtEx 从巡检 API 调用响应中解析 recover_at，支持多种字段名。
+// ParseInspectionRecoverAt 从巡检 API 调用响应中解析 recover_at，支持多种字段名。
 // 按优先级：resets_at > reset_at > reset_time > resets_in_seconds > reset_after_seconds > retry_after。
 // 返回 nil 表示无法解析。
-func ValidateRecoverAtEx(now time.Time, raw map[string]any) *time.Time {
+func ParseInspectionRecoverAt(now time.Time, raw map[string]any) *time.Time {
 	type parser struct {
 		timeField    string
 		secondsField string
