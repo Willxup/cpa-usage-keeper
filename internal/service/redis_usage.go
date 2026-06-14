@@ -240,6 +240,18 @@ func extractFailureFields(failed bool, statusCode int, errBody *errorTelemetryBo
 	return sc, code, message, body
 }
 
+// rawMessageToString 将 json.RawMessage 解析为字符串，解析失败返回空串。
+func rawMessageToString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	return ""
+}
+
 // extractFailureCodeAndMessage 从脱敏后的 body 和结构化 error 中提取 code 和 message。
 func extractFailureCodeAndMessage(body string, errBody *errorTelemetryBody) (code string, message string) {
 	if errBody == nil {
@@ -259,15 +271,8 @@ func extractFailureCodeAndMessage(body string, errBody *errorTelemetryBody) (cod
 			if nested.Message != "" && message == "" {
 				message = strings.TrimSpace(nested.Message)
 			}
-			nestedCode := ""
-			if len(nested.Code) > 0 {
-				var s string
-				if json.Unmarshal(nested.Code, &s) == nil {
-					nestedCode = s
-				}
-			}
-			if nestedCode != "" && code == "" {
-				code = nestedCode
+			if c := rawMessageToString(nested.Code); c != "" && code == "" {
+				code = c
 			}
 			if nested.Type != "" && code == "" {
 				code = strings.TrimSpace(nested.Type)
@@ -289,15 +294,8 @@ func extractFailureCodeAndMessage(body string, errBody *errorTelemetryBody) (cod
 			if parsed.Error.Message != "" && message == "" {
 				message = strings.TrimSpace(parsed.Error.Message)
 			}
-			parsedCode := ""
-			if len(parsed.Error.Code) > 0 {
-				var s string
-				if json.Unmarshal(parsed.Error.Code, &s) == nil {
-					parsedCode = s
-				}
-			}
-			if parsedCode != "" && code == "" {
-				code = parsedCode
+			if c := rawMessageToString(parsed.Error.Code); c != "" && code == "" {
+				code = c
 			}
 			if parsed.Error.Type != "" && code == "" {
 				code = strings.TrimSpace(parsed.Error.Type)
@@ -305,15 +303,8 @@ func extractFailureCodeAndMessage(body string, errBody *errorTelemetryBody) (cod
 			if parsed.Message != "" && message == "" {
 				message = strings.TrimSpace(parsed.Message)
 			}
-			topCode := ""
-			if len(parsed.Code) > 0 {
-				var s string
-				if json.Unmarshal(parsed.Code, &s) == nil {
-					topCode = s
-				}
-			}
-			if topCode != "" && code == "" {
-				code = topCode
+			if c := rawMessageToString(parsed.Code); c != "" && code == "" {
+				code = c
 			}
 		}
 	}

@@ -73,16 +73,16 @@ func findCodexAuthFileByAuthIndex(files []authfiles.AuthFile, authIndex string) 
 // 写入失败只记录日志，不返回错误，避免错误处理本身再抛错打断主流程。
 func (s *CooldownService) recordCooldownError(tel *service.Codex429Telemetry, recoverAt time.Time, lastError string) {
 	cooldown := buildAuthFileCooldown(cooldownBuildOptions{
-		AuthIndex:        tel.AuthIndex,
-		RecoverAt:        recoverAt,
-		Reason:           entities.AuthFileCooldownReasonCodex429,
-		Owner:            entities.AuthFileCooldownOwnerUsage429,
-		Source:           entities.AuthFileCooldownSourceRequestEvent,
-		UpstreamCode:     429,
-		UpstreamMessage:  "usage_limit_reached",
-		SourceEventKey:   tel.RequestID,
-		SourceRequestID:  tel.RequestID,
-		LastError:        lastError,
+		AuthIndex:       tel.AuthIndex,
+		RecoverAt:       recoverAt,
+		Reason:          entities.AuthFileCooldownReasonCodex429,
+		Owner:           entities.AuthFileCooldownOwnerUsage429,
+		Source:          entities.AuthFileCooldownSourceRequestEvent,
+		UpstreamCode:    429,
+		UpstreamMessage: "usage_limit_reached",
+		SourceEventKey:  tel.RequestID,
+		SourceRequestID: tel.RequestID,
+		LastError:       lastError,
 	})
 	if _, err := repository.UpsertOrExtendActiveCooldown(s.db, cooldown); err != nil {
 		logrus.WithError(err).WithField("auth_index", tel.AuthIndex).

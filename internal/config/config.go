@@ -317,8 +317,8 @@ func Load(options LoadOptions) (*Config, error) {
 		LoginPassword:            strings.TrimSpace(os.Getenv("LOGIN_PASSWORD")),
 		AuthSessionTTL:           authSessionTTL,
 
-		CooldownEnabled:              cooldownEnabled,
-		CooldownDryRun:               cooldownDryRun,
+		CooldownEnabled:             cooldownEnabled,
+		CooldownDryRun:              cooldownDryRun,
 		CooldownRestoreEnabled:      cooldownRestoreEnabled,
 		CooldownRestoreScanInterval: cooldownRestoreScanInterval,
 		CooldownRestoreBatchSize:    cooldownRestoreBatchSize,
@@ -340,6 +340,9 @@ func Load(options LoadOptions) (*Config, error) {
 		if cfg.TLSKeyFile == "" {
 			return nil, fmt.Errorf("TLS_KEY_FILE is required when TLS_ENABLED is true")
 		}
+	}
+	if cfg.CooldownEnabled && cfg.CooldownRestoreEnabled && cfg.CooldownRestoreScanInterval <= 0 {
+		return nil, fmt.Errorf("COOLDOWN_RESTORE_SCAN_INTERVAL must be positive when cooldown restore is enabled")
 	}
 	cfg.resolveRelativePaths(envBaseDir)
 

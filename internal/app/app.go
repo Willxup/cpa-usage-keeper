@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"cpa-usage-keeper/internal/api"
@@ -177,7 +180,13 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		syncService.SetCooldownHandler(cooldownService)
 
 		if cfg.CooldownRestoreEnabled {
-			cooldownRestore = cooldown.NewRestoreWorker(db, cpaClient, cooldown.DefaultRestoreWorkerConfig())
+			cooldownRestore = cooldown.NewRestoreWorker(db, cpaClient, cooldown.RestoreWorkerConfig{
+				Enabled:      true,
+				ScanInterval: cfg.CooldownRestoreScanInterval,
+				BatchSize:    cfg.CooldownRestoreBatchSize,
+				MaxAttempts:  cfg.CooldownRestoreMaxAttempts,
+				DryRun:       cfg.CooldownDryRun,
+			})
 			logrus.WithFields(logrus.Fields{
 				"scan_interval": cfg.CooldownRestoreScanInterval,
 				"batch_size":    cfg.CooldownRestoreBatchSize,
@@ -217,12 +226,12 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 			authHandler,
 			cfg.AppBasePath,
 			api.OptionalProviders{
-				UsageIdentity: usageIdentityService,
-				Quota:         quotaService,
-				CPAAPIKeys:    cpaAPIKeyService,
-				AuthFiles:     authFilesManagementService,
-				Status:        api.StatusRouteConfig{CPAPublicURL: cfg.CPAPublicURL, ActiveRecorder: quotaActiveRecorder(cfg, quotaService), QuotaAutoRefreshEnabled: cfg.QuotaAutoRefreshEnabled},
-				DB:            db,
+				UsageIdentity:    usageIdentityService,
+				Quota:            quotaService,
+				CPAAPIKeys:       cpaAPIKeyService,
+				AuthFiles:        authFilesManagementService,
+				Status:           api.StatusRouteConfig{CPAPublicURL: cfg.CPAPublicURL, ActiveRecorder: quotaActiveRecorder(cfg, quotaService), QuotaAutoRefreshEnabled: cfg.QuotaAutoRefreshEnabled},
+				DB:               db,
 				CooldownDisabler: cooldownService,
 			},
 		),
@@ -341,10 +350,33 @@ func (a *App) Run() error {
 		Addr:    ":" + a.Config.AppPort,
 		Handler: a.Router,
 	}
-	if a.Config.TLSEnabled {
-		return server.ListenAndServeTLS(a.Config.TLSCertFile, a.Config.TLSKeyFile)
+
+	// 优雅关闭：SIGTERM/SIGINT 触发 10 秒超时的 Shutdown。
+	shutdownCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	serverErr := make(chan error, 1)
+	go func() {
+		if a.Config.TLSEnabled {
+			serverErr <- server.ListenAndServeTLS(a.Config.TLSCertFile, a.Config.TLSKeyFile)
+		} else {
+			serverErr <- server.ListenAndServe()
+		}
+	}()
+
+	select {
+	case err := <-serverErr:
+		return err
+	case <-shutdownCtx.Done():
+		logrus.Info("received shutdown signal, draining connections...")
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer drainCancel()
+		if err := server.Shutdown(drainCtx); err != nil {
+			logrus.WithError(err).Error("HTTP server shutdown error")
+			return err
+		}
+		logrus.Info("HTTP server stopped gracefully")
+		return nil
 	}
-	return server.ListenAndServe()
 }
 
 func (a *App) startBackgroundContext() context.Context {

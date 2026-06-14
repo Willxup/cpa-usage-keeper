@@ -536,16 +536,31 @@ func (s *SyncService) persistRedisUsageEvents(db *gorm.DB, events []entities.Usa
 }
 
 // processCooldownEvents 在 usage events 入库后处理 cooldown 逻辑。
-// 只处理 Codex 429 usage_limit_reached 事件，失败不影响主流程。
+// 按 auth_index 去重，同一批次只保留 recover_at 最晚的事件，避免重复调用 FetchAuthFiles。
 func (s *SyncService) processCooldownEvents(ctx context.Context, inboxRows []entities.RedisUsageInbox) {
+	// 去重：同 auth_index 只保留 recover_at 最晚的 telemetry
+	deduped := make(map[string]*Codex429Telemetry, len(inboxRows))
 	for _, row := range inboxRows {
 		tel := ExtractCodex429Telemetry([]byte(row.RawMessage))
 		if tel == nil {
 			continue
 		}
+		key := tel.AuthIndex
+		if existing, ok := deduped[key]; ok {
+			// 保留 recover_at 更晚的
+			if tel.ResetsAt != nil && (existing.ResetsAt == nil || tel.ResetsAt.After(*existing.ResetsAt)) {
+				deduped[key] = tel
+			} else if tel.ResetsInSec != nil && existing.ResetsInSec != nil && *tel.ResetsInSec > *existing.ResetsInSec {
+				deduped[key] = tel
+			}
+		} else {
+			deduped[key] = tel
+		}
+	}
+
+	for _, tel := range deduped {
 		if err := s.cooldownHandler.HandleUsageLimit429(ctx, tel); err != nil {
 			logrus.WithError(err).WithFields(logrus.Fields{
-				"inbox_id":   row.ID,
 				"request_id": tel.RequestID,
 				"auth_index": tel.AuthIndex,
 			}).Warn("cooldown handler failed for usage event")

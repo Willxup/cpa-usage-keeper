@@ -28,6 +28,18 @@ It relies on [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) a
 - Maintain model prices for cost estimation and reporting
 - Automatically sync CPA Auth Files, API Keys, AI Providers, and other metadata changes
 - Optional password login protection, SQLite backups, Docker/Docker Compose, and systemd deployment
+- Codex 429 Auto-Disable/Restore (Cooldown): automatically disables auth files on `usage_limit_reached` and restores them after the upstream reset time
+- Request Events failure details: displays upstream error code, message, and sanitized response body for failed requests
+
+## Codex 429 Cooldown
+
+When enabled (`COOLDOWN_ENABLED=true`), the cooldown mechanism monitors incoming usage events for Codex 429 `usage_limit_reached` errors. Upon detection it:
+
+1. Records a cooldown entry with the upstream `resets_at` / `resets_in_seconds` time
+2. Calls the CPA API to disable the corresponding auth file
+3. A background restore worker periodically scans for expired cooldowns and re-enables the auth files
+
+See `.env.example` section 8 for all `COOLDOWN_*` configuration variables.
 
 ## Quick Start
 

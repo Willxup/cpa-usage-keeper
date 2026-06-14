@@ -17,7 +17,16 @@ import (
 
 const sessionCookieName = "cpa_usage_keeper_session"
 
-const maxFailedLoginAttempts = 5
+const (
+	maxFailedLoginAttempts = 5
+	loginLockDuration      = 5 * time.Minute
+	loginCleanupInterval   = 10 * time.Minute
+)
+
+type loginAttemptRecord struct {
+	count    int
+	lockedAt time.Time
+}
 
 type AuthConfig struct {
 	Enabled       bool
@@ -32,8 +41,10 @@ type authHandler struct {
 	cpaAPIKeyProvider service.CPAAPIKeyProvider
 
 	mu                  sync.Mutex
-	failedAttempts      map[string]int
+	failedAttempts      map[string]*loginAttemptRecord
+	lastLoginCleanup    time.Time
 	keyOverviewRequests map[string]time.Time
+	lastKeyCleanup      time.Time
 }
 
 type loginRequest struct {
@@ -56,7 +67,7 @@ type sessionAPIKeyResponse struct {
 }
 
 func NewAuthHandler(config AuthConfig, sessions *auth.SessionManager) *authHandler {
-	return &authHandler{config: config, sessions: sessions, failedAttempts: make(map[string]int), keyOverviewRequests: make(map[string]time.Time)}
+	return &authHandler{config: config, sessions: sessions, failedAttempts: make(map[string]*loginAttemptRecord), keyOverviewRequests: make(map[string]time.Time)}
 }
 
 func (h *authHandler) setCPAAPIKeyProvider(provider service.CPAAPIKeyProvider) {
@@ -266,19 +277,53 @@ func (h *authHandler) logout(c *gin.Context) {
 func (h *authHandler) tooManyFailedAttempts(key string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.failedAttempts[key] >= maxFailedLoginAttempts
+	h.cleanExpiredLoginAttemptsLocked()
+	rec := h.failedAttempts[key]
+	if rec == nil {
+		return false
+	}
+	if !rec.lockedAt.IsZero() && time.Since(rec.lockedAt) < loginLockDuration {
+		return true
+	}
+	if !rec.lockedAt.IsZero() {
+		// 锁定已过期，清除记录
+		delete(h.failedAttempts, key)
+		return false
+	}
+	return rec.count >= maxFailedLoginAttempts
 }
 
 func (h *authHandler) recordFailedAttempt(key string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.failedAttempts[key]++
+	rec := h.failedAttempts[key]
+	if rec == nil {
+		rec = &loginAttemptRecord{}
+		h.failedAttempts[key] = rec
+	}
+	rec.count++
+	if rec.count >= maxFailedLoginAttempts {
+		rec.lockedAt = time.Now()
+	}
 }
 
 func (h *authHandler) clearFailedAttempts(key string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.failedAttempts, key)
+}
+
+func (h *authHandler) cleanExpiredLoginAttemptsLocked() {
+	now := time.Now()
+	if now.Sub(h.lastLoginCleanup) < loginCleanupInterval {
+		return
+	}
+	h.lastLoginCleanup = now
+	for k, rec := range h.failedAttempts {
+		if !rec.lockedAt.IsZero() && now.Sub(rec.lockedAt) >= loginLockDuration {
+			delete(h.failedAttempts, k)
+		}
+	}
 }
 
 func (h *authHandler) allowKeyOverviewRequest(token string, scopes ...string) bool {
@@ -296,6 +341,15 @@ func (h *authHandler) allowKeyOverviewRequest(token string, scopes ...string) bo
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	now := time.Now()
+	// 懒清理过期条目
+	if now.Sub(h.lastKeyCleanup) >= loginCleanupInterval {
+		h.lastKeyCleanup = now
+		for k, last := range h.keyOverviewRequests {
+			if now.Sub(last) > loginCleanupInterval {
+				delete(h.keyOverviewRequests, k)
+			}
+		}
+	}
 	if last, ok := h.keyOverviewRequests[key]; ok && now.Sub(last) < time.Second {
 		return false
 	}

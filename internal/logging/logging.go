@@ -152,7 +152,7 @@ func newDailyFileWriter(dir string, retentionDays int, now func() time.Time) (*d
 		retentionDays: retentionDays,
 		now:           now,
 	}
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("create log dir: %w", err)
 	}
 	if err := writer.rotateLocked(); err != nil {
@@ -203,7 +203,7 @@ func (w *dailyFileWriter) rotateLocked() error {
 		}
 	}
 	filePath := filepath.Join(w.dir, logFilePrefix+date+".log")
-	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		return fmt.Errorf("open log file: %w", err)
 	}
