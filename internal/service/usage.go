@@ -446,6 +446,10 @@ func (s *usageService) ListUsageEvents(_ context.Context, filter servicedto.Usag
 			CostUSD:             row.CostUSD,
 			CostAvailable:       row.CostAvailable,
 			PricingStyle:        row.PricingStyle,
+			FailureStatusCode:   row.FailureStatusCode,
+			FailureCode:         row.FailureCode,
+			FailureMessage:      row.FailureMessage,
+			FailureBody:         row.FailureBody,
 		})
 	}
 	return &servicedto.UsageEventsPage{Events: result, Models: page.Models, TotalCount: page.TotalCount, Page: page.Page, PageSize: page.PageSize, TotalPages: page.TotalPages}, nil

@@ -125,7 +125,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		TLSSkipVerify: cfg.TLSSkipVerify,
 	})
 	// usage 通道可能混入 metadata 控制消息，落 inbox 前先过滤并转交 metadata runner。
-	redisInboxWriter := poller.NewControlAwareRedisInboxWriter(poller.NewRedisInboxWriter(db, cfg.RedisQueueKey), metadataSyncRunner)
+	redisInboxWriter := poller.NewControlAwareRedisInboxWriter(poller.NewRedisInboxWriter(db), metadataSyncRunner)
 	// redisIngestRunner 继续负责三种 usage 拉取方式的选择和降级。
 	redisIngestRunner := poller.NewRedisIngestRunner(redisSubscribeSource, redisPullSource, httpPullSource, redisInboxWriter, poller.RedisIngestRunnerConfig{
 		IdleInterval:       cfg.RedisQueueIdleInterval,

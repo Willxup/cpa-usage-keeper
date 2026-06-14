@@ -105,7 +105,7 @@ func NewRouter(
 	adminProtected.Use(authHandler.adminMiddleware())
 	registerStatusRoutes(adminProtected, statusProvider, statusConfig)
 	registerUpdateRoutes(adminProtected, nil)
-	registerUsageOverviewRoute(adminProtected, usageProvider)
+	registerUsageOverviewRoute(adminProtected, usageProvider, cpaAPIKeyProvider)
 	registerUsageAnalysisRoute(adminProtected, usageProvider, cpaAPIKeyProvider)
 	registerUsageEventsRoute(adminProtected, usageProvider, usageIdentityProvider, cpaAPIKeyProvider)
 	registerUsageIdentityRoutes(adminProtected, usageIdentityProvider, db)

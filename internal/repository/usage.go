@@ -16,7 +16,7 @@ import (
 )
 
 // usageEventProjectionColumns 限制 usage_events 查询列，避免 Overview 和列表页把 RawJSON 等大字段读入内存。
-const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, model, reasoning_effort, executor_type, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, model, reasoning_effort, executor_type, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, failure_status_code, failure_code, failure_message, failure_body"
 const analysisLatencyMaxDisplayPoints = 2500
 
 // usageOverviewRawEventProjectionColumns 是 Overview 边界补偿和 realtime DB 兜底的最小事件投影。
@@ -45,6 +45,10 @@ type usageEventProjection struct {
 	CacheReadTokens     int64
 	CacheCreationTokens int64
 	TotalTokens         int64
+	FailureStatusCode   *int   `gorm:"column:failure_status_code"`
+	FailureCode         string `gorm:"column:failure_code"`
+	FailureMessage      string `gorm:"column:failure_message"`
+	FailureBody         string `gorm:"column:failure_body"`
 }
 
 // Request Event Log Tab：先按列表条件统计总数，再加载当前页和筛选项。
@@ -167,6 +171,10 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 		CacheReadTokens:     event.CacheReadTokens,
 		CacheCreationTokens: event.CacheCreationTokens,
 		TotalTokens:         event.TotalTokens,
+		FailureStatusCode:   event.FailureStatusCode,
+		FailureCode:         strings.TrimSpace(event.FailureCode),
+		FailureMessage:      strings.TrimSpace(event.FailureMessage),
+		FailureBody:         strings.TrimSpace(event.FailureBody),
 	}
 }
 
@@ -210,6 +218,10 @@ func usageEventProjectionToEntity(event usageEventProjection) entities.UsageEven
 		CacheReadTokens:     event.CacheReadTokens,
 		CacheCreationTokens: event.CacheCreationTokens,
 		TotalTokens:         event.TotalTokens,
+		FailureStatusCode:   event.FailureStatusCode,
+		FailureCode:         event.FailureCode,
+		FailureMessage:      event.FailureMessage,
+		FailureBody:         event.FailureBody,
 	}
 }
 

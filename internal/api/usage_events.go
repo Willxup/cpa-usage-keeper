@@ -35,26 +35,30 @@ type usageEventFilterOptionsResponse struct {
 }
 
 type usageEventPayload struct {
-	ID              string                 `json:"id,omitempty"`
-	Timestamp       string                 `json:"timestamp"`
-	APIKey          string                 `json:"api_key,omitempty"`
-	Model           string                 `json:"model"`
-	ReasoningEffort string                 `json:"reasoning_effort,omitempty"`
-	ExecutorType    string                 `json:"executor_type,omitempty"`
-	Endpoint        string                 `json:"endpoint,omitempty"`
-	Source          string                 `json:"source"`
-	SourceRaw       string                 `json:"source_raw,omitempty"`
-	SourceType      string                 `json:"source_type,omitempty"`
-	AuthIndex       string                 `json:"auth_index,omitempty"`
-	IsDelete        bool                   `json:"isDelete,omitempty"`
-	Failed          bool                   `json:"failed"`
-	LatencyMS       int64                  `json:"latency_ms"`
-	TTFTMS          *int64                 `json:"ttft_ms,omitempty"`
-	SpeedTPS        *float64               `json:"speed_tps,omitempty"`
-	Tokens          usageEventTokenPayload `json:"tokens"`
-	CostUSD         float64                `json:"cost_usd"`
-	CostAvailable   bool                   `json:"cost_available"`
-	PricingStyle    string                 `json:"pricing_style,omitempty"`
+	ID                string                 `json:"id,omitempty"`
+	Timestamp         string                 `json:"timestamp"`
+	APIKey            string                 `json:"api_key,omitempty"`
+	Model             string                 `json:"model"`
+	ReasoningEffort   string                 `json:"reasoning_effort,omitempty"`
+	ExecutorType      string                 `json:"executor_type,omitempty"`
+	Endpoint          string                 `json:"endpoint,omitempty"`
+	Source            string                 `json:"source"`
+	SourceRaw         string                 `json:"source_raw,omitempty"`
+	SourceType        string                 `json:"source_type,omitempty"`
+	AuthIndex         string                 `json:"auth_index,omitempty"`
+	IsDelete          bool                   `json:"isDelete,omitempty"`
+	Failed            bool                   `json:"failed"`
+	LatencyMS         int64                  `json:"latency_ms"`
+	TTFTMS            *int64                 `json:"ttft_ms,omitempty"`
+	SpeedTPS          *float64               `json:"speed_tps,omitempty"`
+	Tokens            usageEventTokenPayload `json:"tokens"`
+	CostUSD           float64                `json:"cost_usd"`
+	CostAvailable     bool                   `json:"cost_available"`
+	PricingStyle      string                 `json:"pricing_style,omitempty"`
+	FailureStatusCode *int                   `json:"failure_status_code,omitempty"`
+	FailureCode       string                 `json:"failure_code,omitempty"`
+	FailureMessage    string                 `json:"failure_message,omitempty"`
+	FailureBody       string                 `json:"failure_body,omitempty"`
 }
 
 type usageEventTokenPayload struct {
@@ -160,7 +164,7 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 		if row.ID != 0 {
 			id = strconv.FormatInt(row.ID, 10)
 		}
-		payload = append(payload, usageEventPayload{
+		item := usageEventPayload{
 			ID:              id,
 			Timestamp:       timeutil.FormatStorageTime(row.Timestamp),
 			APIKey:          usageEventAPIKeyLabel(row.APIGroupKey, apiKeyInfos),
@@ -188,7 +192,14 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 				CacheCreationTokens: row.CacheCreationTokens,
 				TotalTokens:         row.TotalTokens,
 			},
-		})
+		}
+		if row.Failed {
+			item.FailureStatusCode = row.FailureStatusCode
+			item.FailureCode = strings.TrimSpace(row.FailureCode)
+			item.FailureMessage = strings.TrimSpace(row.FailureMessage)
+			item.FailureBody = strings.TrimSpace(row.FailureBody)
+		}
+		payload = append(payload, item)
 	}
 	return payload
 }

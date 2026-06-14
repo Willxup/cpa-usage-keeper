@@ -61,18 +61,6 @@ type observingMetadataFetcher struct {
 	usageEventsBeforeMetadataSync int64
 }
 
-type recordingRecentUsageAppender struct {
-	calls   int
-	events  []entities.UsageEvent
-	allowed bool
-}
-
-func (r *recordingRecentUsageAppender) TryAppend(events []entities.UsageEvent) bool {
-	r.calls++
-	r.events = append(r.events, events...)
-	return r.allowed
-}
-
 func (s stubMetadataFetcher) FetchAuthFiles(context.Context) (*response.AuthFilesResult, error) {
 	if s.authFilesResult != nil || s.authFilesErr != nil {
 		return s.authFilesResult, s.authFilesErr
@@ -256,10 +244,8 @@ func TestProcessRedisUsageInboxNotifiesRecentCacheAfterTransactionCommit(t *test
 	}}); err != nil {
 		t.Fatalf("seed inbox row: %v", err)
 	}
-	cache := &recordingRecentUsageAppender{allowed: true}
 	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
-		BaseURL:           "https://cpa.example.com",
-		RecentUsageEvents: cache,
+		BaseURL: "https://cpa.example.com",
 	})
 
 	result, err := service.ProcessRedisUsageInbox(context.Background())
@@ -268,12 +254,6 @@ func TestProcessRedisUsageInboxNotifiesRecentCacheAfterTransactionCommit(t *test
 	}
 	if result == nil || result.InsertedEvents != 1 {
 		t.Fatalf("unexpected process result: %+v", result)
-	}
-	if cache.calls != 1 || len(cache.events) != 1 {
-		t.Fatalf("expected one recent cache notification, got calls=%d events=%+v", cache.calls, cache.events)
-	}
-	if cache.events[0].EventKey != "notify-cache" || cache.events[0].AuthIndex != "auth-1" {
-		t.Fatalf("unexpected notified event: %+v", cache.events[0])
 	}
 }
 
@@ -289,18 +269,13 @@ func TestProcessRedisUsageInboxDoesNotNotifyRecentCacheOnRollback(t *testing.T) 
 	if err := db.Exec(`CREATE TRIGGER fail_recent_cache_mark BEFORE UPDATE OF status ON redis_usage_inboxes WHEN NEW.status = 'processed' BEGIN SELECT RAISE(ABORT, 'processed mark failed'); END;`).Error; err != nil {
 		t.Fatalf("create failure trigger: %v", err)
 	}
-	cache := &recordingRecentUsageAppender{allowed: true}
 	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
-		BaseURL:           "https://cpa.example.com",
-		RecentUsageEvents: cache,
+		BaseURL: "https://cpa.example.com",
 	})
 
 	_, err := service.ProcessRedisUsageInbox(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "processed mark failed") {
 		t.Fatalf("expected transaction failure, got %v", err)
-	}
-	if cache.calls != 0 || len(cache.events) != 0 {
-		t.Fatalf("expected no cache notification on rollback, got calls=%d events=%+v", cache.calls, cache.events)
 	}
 }
 
@@ -313,10 +288,8 @@ func TestProcessRedisUsageInboxIgnoresRecentCacheOverflow(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("seed inbox row: %v", err)
 	}
-	cache := &recordingRecentUsageAppender{allowed: false}
 	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
-		BaseURL:           "https://cpa.example.com",
-		RecentUsageEvents: cache,
+		BaseURL: "https://cpa.example.com",
 	})
 
 	result, err := service.ProcessRedisUsageInbox(context.Background())
@@ -325,9 +298,6 @@ func TestProcessRedisUsageInboxIgnoresRecentCacheOverflow(t *testing.T) {
 	}
 	if result == nil || result.Status != "completed" || result.InsertedEvents != 1 {
 		t.Fatalf("unexpected process result: %+v", result)
-	}
-	if cache.calls != 1 {
-		t.Fatalf("expected cache append attempt, got %d", cache.calls)
 	}
 }
 

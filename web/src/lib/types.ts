@@ -132,6 +132,10 @@ export interface UsageEvent {
   cost_usd?: number
   cost_available?: boolean
   pricing_style?: PricingStyle
+  failure_status_code?: number | null
+  failure_code?: string
+  failure_message?: string
+  failure_body?: string
 }
 
 export interface UsageSourceFilterOption {
@@ -510,4 +514,83 @@ export interface UsageFilterWindow {
   startMs?: number
   endMs?: number
   windowMinutes?: number
+}
+
+export type OverviewRealtimeWindow = '15m' | '30m' | '60m'
+
+export interface RealtimeTokenVelocityPoint {
+  bucket: string
+  tokens_per_minute: number
+  tokens: number
+  cost?: number
+}
+
+export interface RealtimeResponseLevelPoint {
+  bucket: string
+  ttft_p50_ms?: number
+  ttft_p95_ms?: number
+  latency_p50_ms?: number
+  latency_p95_ms?: number
+}
+
+export interface RealtimeResponseAveragePoint {
+  bucket: string
+  avg_ms?: number | null
+}
+
+export interface RealtimeResponseParticle {
+  bucket: string
+  ms: number
+  count: number
+}
+
+export interface RealtimeResponseDistributionSeries {
+  average_line: RealtimeResponseAveragePoint[]
+  particles: RealtimeResponseParticle[]
+}
+
+export interface RealtimeResponseDistribution {
+  ttft: RealtimeResponseDistributionSeries
+  latency: RealtimeResponseDistributionSeries
+}
+
+export interface RealtimeUsageTopItem {
+  key: string
+  label: string
+  tokens: number
+  requests: number
+  cost?: number
+  share: number
+}
+
+export interface RealtimeCurrentUsage {
+  models: RealtimeUsageTopItem[]
+  api_keys: RealtimeUsageTopItem[]
+  auth_files: RealtimeUsageTopItem[]
+  ai_providers: RealtimeUsageTopItem[]
+}
+
+export interface RealtimeRequestLevelPoint {
+  bucket: string
+  requests_per_minute: number
+  requests: number
+}
+
+export interface RealtimeCacheLevelPoint {
+  bucket: string
+  cache_rate?: number | null
+  cached_tokens: number
+  input_tokens: number
+}
+
+export interface OverviewRealtimeBlock {
+  window: OverviewRealtimeWindow
+  timezone?: string
+  bucket_seconds: number
+  token_velocity: RealtimeTokenVelocityPoint[]
+  response_level: RealtimeResponseLevelPoint[]
+  response_distribution: RealtimeResponseDistribution
+  current_usage: RealtimeCurrentUsage
+  request_level: RealtimeRequestLevelPoint[]
+  cache_level: RealtimeCacheLevelPoint[]
 }

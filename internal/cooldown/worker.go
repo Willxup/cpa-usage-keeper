@@ -154,7 +154,7 @@ func (w *RestoreWorker) restoreDue(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("fetch auth files for restore: %w", err)
 	}
-	if authFilesResult == nil || authFilesResult.Payload == nil {
+	if authFilesResult == nil {
 		return fmt.Errorf("FetchAuthFiles returned nil result for restore")
 	}
 

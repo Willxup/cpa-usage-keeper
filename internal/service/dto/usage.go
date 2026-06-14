@@ -70,6 +70,10 @@ type UsageEventRecord struct {
 	CostUSD             float64
 	CostAvailable       bool
 	PricingStyle        string
+	FailureStatusCode   *int
+	FailureCode         string
+	FailureMessage      string
+	FailureBody         string
 }
 
 // UsageOverviewSummary 是 overview summary 的服务层结果。
