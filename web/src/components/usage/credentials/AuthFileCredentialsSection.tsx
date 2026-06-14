@@ -7,7 +7,7 @@ import quotaCostIcon from '@/assets/icons/quota-cost.svg'
 import quotaTokenIcon from '@/assets/icons/quota-token.svg'
 import styles from './CredentialSections.module.scss'
 import type { AuthFileCredentialRow, DisplayQuota, PlanTypeTone } from './credentialViewModels'
-import { deleteAuthFiles, setAuthFilesDisabled, type UsageIdentityPageSort } from '@/lib/api'
+import { deleteAuthFiles, setAuthFilesDisabled, cooldownDisableLimited, type UsageIdentityPageSort } from '@/lib/api'
 import type { UsageQuotaInspectionResult, UsageQuotaInspectionResultStatus, UsageQuotaInspectionStatusResponse } from '@/lib/types'
 import { CredentialProviderFilterIcon } from './CredentialProviderFilterBar'
 import { CredentialBadge, CredentialPriorityBadge, CredentialRowShell, CredentialSectionShell, CredentialsPagination, MetricPill, RequestMetric, TonePercent, cacheRateTone, capitalize, credentialToneClassName, formatCredentialNumber, successRateTone } from './CredentialSectionShell'
@@ -306,6 +306,23 @@ export function buildInvalidInspectionAccountFileNames(results: UsageQuotaInspec
   return names
 }
 
+export function buildLimitedInspectionAccountAuthIndexes(results: UsageQuotaInspectionResult[]): string[] {
+  const seen = new Set<string>()
+  const indexes: string[] = []
+  for (const result of results) {
+    if (result.status !== 'limit_reached' && result.http_status_code !== 429) {
+      continue
+    }
+    const idx = (result.auth_index ?? '').trim()
+    if (!idx || seen.has(idx)) {
+      continue
+    }
+    seen.add(idx)
+    indexes.push(idx)
+  }
+  return indexes
+}
+
 export function selectAllInvalidInspectionAccountFileNames(fileNames: string[]): string[] {
   return [...fileNames]
 }
@@ -346,6 +363,7 @@ function QuotaInspectionModal({
   const [selectedInvalidFileNames, setSelectedInvalidFileNames] = useState<string[]>([])
   const [invalidAccountSubmitting, setInvalidAccountSubmitting] = useState(false)
   const [invalidAccountError, setInvalidAccountError] = useState('')
+  const [limitedSubmitting, setLimitedSubmitting] = useState(false)
   // total 由后端 Auth Files 身份统计提供，不用页面分页总数替代。
   const total = status?.total ?? 0
   // cached 是已经能解析出最近巡检结果的账号数。
@@ -367,6 +385,7 @@ function QuotaInspectionModal({
         : t('usage_stats.credentials_inspection_start')
   const results = status?.results ?? []
   const invalidFileNames = buildInvalidInspectionAccountFileNames(results)
+  const limitedAuthIndexes = buildLimitedInspectionAccountAuthIndexes(results)
   const resultPageData = buildInspectionResultsPage(results, resultStatusFilter, resultPage, resultPageSize)
   const handleSelectResultStatus = (nextStatus: InspectionResultStatusFilter) => {
     // 切换状态筛选时回到第一页，避免沿用上一个筛选的高页码导致空页。
@@ -426,6 +445,33 @@ function QuotaInspectionModal({
     }
   }
   const inspectionCloseDisabled = invalidAccountAction !== null || invalidAccountSubmitting
+  const [limitedResult, setLimitedResult] = useState('')
+
+  const handleDisableLimited = async () => {
+    if (limitedAuthIndexes.length === 0) return
+    setLimitedSubmitting(true)
+    setLimitedResult('')
+    try {
+      const result = await cooldownDisableLimited({ auth_indexes: limitedAuthIndexes })
+      if (result.disabled > 0 || result.extended > 0 || result.skipped > 0) {
+        setLimitedResult(t('usage_stats.credentials_inspection_disable_limited_result', {
+          disabled: String(result.disabled),
+          skipped: String(result.skipped),
+          failed: String(result.failed),
+        }))
+      }
+      await onRefreshStatus()
+      if (onAfterInvalidAccountAction) {
+        await onAfterInvalidAccountAction()
+      }
+    } catch {
+      setLimitedResult(t('usage_stats.credentials_inspection_disable_limited_result', {
+        disabled: '0', skipped: '0', failed: '1',
+      }))
+    } finally {
+      setLimitedSubmitting(false)
+    }
+  }
 
   return (
     <Modal open={open} title={t('usage_stats.credentials_inspection_title')} onClose={inspectionCloseDisabled ? () => undefined : onClose} width={820} className={styles.credentialInspectionModal} closeDisabled={inspectionCloseDisabled}>
@@ -468,6 +514,7 @@ function QuotaInspectionModal({
         </div>
 
         {error && <div className={styles.credentialInlineError}>{error}</div>}
+        {limitedResult && <div className={styles.credentialInlineSuccess}>{limitedResult}</div>}
         {loading && !status && <div className={styles.credentialEmptyState}>{t('common.loading')}</div>}
 
         <div className={styles.credentialInspectionStatsGrid}>
@@ -501,6 +548,16 @@ function QuotaInspectionModal({
                   >
                     <IconTrash2 size={13} />
                     <span>{t('usage_stats.credentials_inspection_delete_invalid')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.credentialInspectionInvalidActionButton}
+                    onClick={() => void handleDisableLimited()}
+                    disabled={limitedAuthIndexes.length === 0 || limitedSubmitting}
+                    title={limitedAuthIndexes.length === 0 ? t('usage_stats.credentials_inspection_disable_limited_disabled_tooltip') : ''}
+                  >
+                    {limitedSubmitting ? <LoadingSpinner size={13} /> : <IconShield size={13} />}
+                    <span>{t('usage_stats.credentials_inspection_disable_limited')}</span>
                   </button>
                 </div>
               </div>
@@ -758,8 +815,43 @@ function QuotaUsageModeSwitch({ label, mode, onChange }: { label: string; mode: 
   )
 }
 
+// buildCooldownQuotaPanel 展示 cooldown 状态的紧凑简报。
+function buildCooldownQuotaPanel(cd: import('@/lib/types').CooldownStatusDTO, t: Translate): React.ReactNode {
+  const msg = cd.upstream_message || t('usage_stats.credentials_quota_limit_reached', 'Codex 用量已达限制')
+  let statusText = ''
+  if (cd.state === 'active') {
+    if (cd.recover_in_seconds && cd.recover_in_seconds > 0) {
+      const minutes = Math.ceil(cd.recover_in_seconds / 60)
+      statusText = t('usage_stats.credentials_cooldown_active', { minutes: String(minutes), defaultValue: `已临时禁用，约 ${minutes} 分钟后恢复` })
+    } else {
+      statusText = t('usage_stats.credentials_cooldown_active_no_recover', '已临时禁用')
+    }
+  } else if (cd.state === 'restore_failed') {
+    statusText = t('usage_stats.credentials_cooldown_restore_failed', '自动恢复失败，下轮重试')
+  } else if (cd.state === 'disable_failed') {
+    statusText = t('usage_stats.credentials_cooldown_disable_failed', '临时禁用失败')
+  } else if (cd.state === 'skipped_manual') {
+    statusText = t('usage_stats.credentials_cooldown_skipped_manual', '已手动禁用，不自动恢复')
+  } else {
+    return null
+  }
+  return (
+    <div className={styles.credentialQuotaErrorSummary} title={`[${cd.upstream_status_code || 429}] ${msg} · ${statusText}`}>
+      <span className={styles.credentialQuotaErrorCode}>[{cd.upstream_status_code || 429}]</span>
+      <span className={styles.credentialQuotaErrorMessage} style={{ display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+        {msg} · {statusText}
+      </span>
+    </div>
+  )
+}
+
 export function AuthFileQuotaPanel({ row, quotaUsageMode }: { row: AuthFileCredentialRow; quotaUsageMode: QuotaUsageMode }) {
   const { t } = useTranslation()
+
+  // cooldown 状态优先级高于普通 quota / error 展示
+  if (row.cooldown) {
+    return buildCooldownQuotaPanel(row.cooldown, t)
+  }
 
   // 限额区域按加载、错误、刷新中、无缓存、可展示数据的顺序降级。
   if (row.quotaLoading) {

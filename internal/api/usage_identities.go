@@ -3,12 +3,15 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/helper"
+	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type usageIdentitiesResponse struct {
@@ -63,9 +66,10 @@ type usageIdentityResponse struct {
 	CreatedAt                  time.Time                      `json:"created_at"`
 	UpdatedAt                  time.Time                      `json:"updated_at"`
 	DeletedAt                  *time.Time                     `json:"deleted_at,omitempty"`
+	Cooldown                   *CooldownStatusDTO             `json:"cooldown,omitempty"`
 }
 
-func registerUsageIdentityRoutes(router gin.IRoutes, usageIdentityProvider service.UsageIdentityProvider) {
+func registerUsageIdentityRoutes(router gin.IRoutes, usageIdentityProvider service.UsageIdentityProvider, db *gorm.DB) {
 	router.GET("/usage/identities/page", func(c *gin.Context) {
 		if usageIdentityProvider == nil {
 			c.JSON(http.StatusOK, usageIdentitiesPageResponse{Identities: []usageIdentityResponse{}, Page: 1, PageSize: 10, TypeCounts: []usageIdentityTypeCount{}})
@@ -84,9 +88,28 @@ func registerUsageIdentityRoutes(router gin.IRoutes, usageIdentityProvider servi
 		}
 
 		// 复用统一响应映射，保证分页接口和旧列表接口的字段/脱敏规则一致。
+		// 查询当前页 auth indexes 的 cooldown 状态
+		cdAuthIndexes := make([]string, 0, len(result.Items))
+		for _, item := range result.Items {
+			if strings.TrimSpace(item.Identity) != "" {
+				cdAuthIndexes = append(cdAuthIndexes, strings.TrimSpace(item.Identity))
+			}
+		}
+		now := time.Now()
+		var cooldownMap map[string]*entities.AuthFileCooldown
+		if db != nil && len(cdAuthIndexes) > 0 {
+			cooldownMap, _ = repository.ListActiveCooldownsByAuthIndexes(db, cdAuthIndexes, 100)
+		}
+
 		response := make([]usageIdentityResponse, 0, len(result.Items))
 		for _, item := range result.Items {
-			response = append(response, mapUsageIdentityResponse(item))
+			resp := mapUsageIdentityResponse(item)
+			if cooldownMap != nil {
+				if cd, ok := cooldownMap[strings.TrimSpace(item.Identity)]; ok && cd != nil {
+					resp.Cooldown = BuildCooldownStatusDTO(cd, now)
+				}
+			}
+			response = append(response, resp)
 		}
 		typeCounts := make([]usageIdentityTypeCount, 0, len(result.TypeCounts))
 		for _, item := range result.TypeCounts {
@@ -114,9 +137,28 @@ func registerUsageIdentityRoutes(router gin.IRoutes, usageIdentityProvider servi
 			return
 		}
 
+		// 查询 cooldown 状态
+		cdAuthIndexes := make([]string, 0, len(items))
+		for _, item := range items {
+			if strings.TrimSpace(item.Identity) != "" {
+				cdAuthIndexes = append(cdAuthIndexes, strings.TrimSpace(item.Identity))
+			}
+		}
+		now := time.Now()
+		var cooldownMap map[string]*entities.AuthFileCooldown
+		if db != nil && len(cdAuthIndexes) > 0 {
+			cooldownMap, _ = repository.ListActiveCooldownsByAuthIndexes(db, cdAuthIndexes, 200)
+		}
+
 		response := make([]usageIdentityResponse, 0, len(items))
 		for _, item := range items {
-			response = append(response, mapUsageIdentityResponse(item))
+			resp := mapUsageIdentityResponse(item)
+			if cooldownMap != nil {
+				if cd, ok := cooldownMap[strings.TrimSpace(item.Identity)]; ok && cd != nil {
+					resp.Cooldown = BuildCooldownStatusDTO(cd, now)
+				}
+			}
+			response = append(response, resp)
 		}
 		c.JSON(http.StatusOK, usageIdentitiesResponse{Identities: response})
 	})

@@ -16,6 +16,7 @@ import (
 
 const (
 	DefaultTimeZone                 = "Asia/Shanghai"
+	RedisQueueKeyDefault            = cpa.ManagementUsageQueueKey
 	RedisQueueBatchSizeDefault      = 10000
 	MetadataSyncIntervalDefault     = 30 * time.Second
 	QuotaAutoRefreshIntervalDefault = 5 * time.Minute
@@ -55,6 +56,8 @@ type Config struct {
 	RedisQueueAddr string
 	// RedisQueueTLS 控制是否使用 TLS 连接 Redis 队列。
 	RedisQueueTLS bool
+	// RedisQueueKey 是 CPA usage 队列名。
+	RedisQueueKey string
 	// RedisQueueBatchSize 是单次 Redis LPOP 最多拉取的消息数。
 	RedisQueueBatchSize int
 	// RedisQueueIdleInterval 是 Redis 队列为空时的下一次检查间隔。
@@ -97,6 +100,21 @@ type Config struct {
 	LoginPassword string
 	// AuthSessionTTL 是登录 session 有效时长。
 	AuthSessionTTL time.Duration
+
+	// CooldownEnabled 控制是否启用 429 cooldown 机制。
+	CooldownEnabled bool
+	// CooldownDryRun 控制是否只记录不实际调用 CPA API。
+	CooldownDryRun bool
+	// CooldownRestoreEnabled 控制是否启动恢复 worker。
+	CooldownRestoreEnabled bool
+	// CooldownRestoreScanInterval 是恢复 worker 的扫描间隔。
+	CooldownRestoreScanInterval time.Duration
+	// CooldownRestoreBatchSize 是单次扫描最大处理数。
+	CooldownRestoreBatchSize int
+	// CooldownRestoreWorkerLimit 是恢复并发数限制。
+	CooldownRestoreWorkerLimit int
+	// CooldownRestoreMaxAttempts 是最大恢复尝试次数，0 为无限。
+	CooldownRestoreMaxAttempts int
 }
 
 type LoadOptions struct {
@@ -222,6 +240,41 @@ func Load(options LoadOptions) (*Config, error) {
 		return nil, err
 	}
 
+	cooldownEnabled, err := getBool("COOLDOWN_ENABLED", true)
+	if err != nil {
+		return nil, err
+	}
+	cooldownDryRun, err := getBool("COOLDOWN_DRY_RUN", false)
+	if err != nil {
+		return nil, err
+	}
+	cooldownRestoreEnabled, err := getBool("COOLDOWN_RESTORE_ENABLED", true)
+	if err != nil {
+		return nil, err
+	}
+	cooldownRestoreScanInterval, err := getDuration("COOLDOWN_RESTORE_SCAN_INTERVAL", 3*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+	cooldownRestoreBatchSize, err := getInt("COOLDOWN_RESTORE_BATCH_SIZE", 10)
+	if err != nil {
+		return nil, err
+	}
+	cooldownRestoreWorkerLimit, err := getInt("COOLDOWN_RESTORE_WORKER_LIMIT", 1)
+	if err != nil {
+		return nil, err
+	}
+	cooldownRestoreMaxAttempts, err := getInt("COOLDOWN_RESTORE_MAX_ATTEMPTS", 0)
+	if err != nil {
+		return nil, err
+	}
+	if cooldownRestoreBatchSize < 1 {
+		return nil, fmt.Errorf("COOLDOWN_RESTORE_BATCH_SIZE must be positive")
+	}
+	if cooldownRestoreWorkerLimit < 1 {
+		return nil, fmt.Errorf("COOLDOWN_RESTORE_WORKER_LIMIT must be positive")
+	}
+
 	tlsSkipVerify, err := getBool("TLS_SKIP_VERIFY", false)
 	if err != nil {
 		return nil, err
@@ -250,6 +303,7 @@ func Load(options LoadOptions) (*Config, error) {
 		CPAManagementKey:         strings.TrimSpace(os.Getenv("CPA_MANAGEMENT_KEY")),
 		RedisQueueAddr:           strings.TrimSpace(os.Getenv("REDIS_QUEUE_ADDR")),
 		RedisQueueTLS:            redisQueueTLS,
+		RedisQueueKey:            RedisQueueKeyDefault,
 		RedisQueueBatchSize:      redisQueueBatchSize,
 		RedisQueueIdleInterval:   redisQueueIdleInterval,
 		MetadataSyncInterval:     MetadataSyncIntervalDefault,
@@ -271,6 +325,14 @@ func Load(options LoadOptions) (*Config, error) {
 		AuthEnabled:              authEnabled,
 		LoginPassword:            strings.TrimSpace(os.Getenv("LOGIN_PASSWORD")),
 		AuthSessionTTL:           authSessionTTL,
+
+		CooldownEnabled:              cooldownEnabled,
+		CooldownDryRun:               cooldownDryRun,
+		CooldownRestoreEnabled:       cooldownRestoreEnabled,
+		CooldownRestoreScanInterval:  cooldownRestoreScanInterval,
+		CooldownRestoreBatchSize:     cooldownRestoreBatchSize,
+		CooldownRestoreWorkerLimit:   cooldownRestoreWorkerLimit,
+		CooldownRestoreMaxAttempts:   cooldownRestoreMaxAttempts,
 	}
 	if cfg.CPABaseURL == "" {
 		return nil, fmt.Errorf("CPA_BASE_URL is required")
