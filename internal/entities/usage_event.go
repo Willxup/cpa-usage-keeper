@@ -29,5 +29,9 @@ type UsageEvent struct {
 	CacheReadTokens     int64 `gorm:"not null;default:0"`
 	CacheCreationTokens int64 `gorm:"not null;default:0"`
 	TotalTokens         int64
+	FailureStatusCode  *int   `gorm:"column:failure_status_code"`
+	FailureCode        string `gorm:"column:failure_code;not null;default:''"`
+	FailureMessage     string `gorm:"column:failure_message;not null;default:''"`
+	FailureBody        string `gorm:"column:failure_body;not null;default:''"`
 	CreatedAt           time.Time `gorm:"serializer:storageTime"`
 }
