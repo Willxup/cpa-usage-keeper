@@ -704,7 +704,7 @@ export function RequestEventsDetailsCard({
                 onClick={() => setFailureDetailRow(row)}
                 title={t('usage_stats.request_events_open_failure_details')}
               >
-                {formatFailureResultLabel(row)}
+                {t('usage_stats.failure')}
               </span>
             ) : (
               <span className={styles.requestEventsResultSuccess}>
@@ -978,28 +978,34 @@ function formatFailureResultLabel(row: RequestEventRow): string {
 
 function FailureDetailModal({ row, onClose }: { row: RequestEventRow; onClose: () => void }) {
   const { t } = useTranslation()
+  const statusLabel = formatFailureResultLabel(row)
   return createPortal(
     <div className={styles.failureDetailOverlay} onClick={onClose}>
       <div className={styles.failureDetailModal} onClick={(e) => e.stopPropagation()}>
-        <h3>{t('usage_stats.request_events_failure_details_title')}</h3>
+        <div className={styles.failureDetailHeader}>
+          <h3>{t('usage_stats.request_events_failure_details_title')}</h3>
+          {row.failureStatusCode != null && (
+            <span className={styles.failureDetailStatusBadge}>{statusLabel}</span>
+          )}
+        </div>
         <div className={styles.failureDetailField}>
           <span className={styles.failureDetailLabel}>{t('usage_stats.request_events_failure_status_code')}</span>
-          <span>{row.failureStatusCode ?? '-'}</span>
+          <span className={styles.failureDetailValue}>{row.failureStatusCode ?? '-'}</span>
         </div>
         <div className={styles.failureDetailField}>
           <span className={styles.failureDetailLabel}>{t('usage_stats.request_events_failure_code')}</span>
-          <span>{row.failureCode || '-'}</span>
+          <span className={styles.failureDetailValue}>{row.failureCode || '-'}</span>
         </div>
         <div className={styles.failureDetailField}>
           <span className={styles.failureDetailLabel}>{t('usage_stats.request_events_failure_message')}</span>
-          <span>{row.failureMessage || '-'}</span>
+          <span className={styles.failureDetailValue}>{row.failureMessage || '-'}</span>
         </div>
         <div className={styles.failureDetailField}>
           <span className={styles.failureDetailLabel}>{t('usage_stats.request_events_failure_body')}</span>
           <pre className={styles.failureDetailBody}>{row.failureBody || '-'}</pre>
         </div>
         <button type="button" className={styles.failureDetailClose} onClick={onClose}>
-          {t('usage_stats.close')}
+          {t('common.close')}
         </button>
       </div>
     </div>,

@@ -448,7 +448,10 @@ function QuotaInspectionModal({
   const [limitedResult, setLimitedResult] = useState('')
 
   const handleDisableLimited = async () => {
-    if (limitedAuthIndexes.length === 0) return
+    if (limitedAuthIndexes.length === 0) {
+      setLimitedResult('目前没有达到限额的账号')
+      return
+    }
     setLimitedSubmitting(true)
     setLimitedResult('')
     try {
@@ -547,8 +550,7 @@ function QuotaInspectionModal({
                     type="button"
                     className={styles.credentialInspectionInvalidActionButton}
                     onClick={() => void handleDisableLimited()}
-                    disabled={limitedAuthIndexes.length === 0 || limitedSubmitting}
-                    title={limitedAuthIndexes.length === 0 ? t('usage_stats.credentials_inspection_disable_limited_disabled_tooltip') : ''}
+                    disabled={limitedSubmitting}
                   >
                     {limitedSubmitting ? <LoadingSpinner size={13} /> : <IconShield size={13} />}
                     <span>{t('usage_stats.credentials_inspection_disable_limited')}</span>
