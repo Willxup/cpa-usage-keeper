@@ -32,10 +32,10 @@ const authFileCooldownBatchSize = 50
 // 返回写入结果（created/extended/unchanged），调用方据此判断是否需要执行禁用操作。
 func UpsertOrExtendActiveCooldown(db *gorm.DB, cooldown *entities.AuthFileCooldown) (CooldownUpsertResult, error) {
 	if db == nil {
-		return false, fmt.Errorf("database is nil")
+		return "", fmt.Errorf("database is nil")
 	}
 	if cooldown == nil {
-		return false, fmt.Errorf("cooldown is nil")
+		return "", fmt.Errorf("cooldown is nil")
 	}
 
 	var existing entities.AuthFileCooldown
