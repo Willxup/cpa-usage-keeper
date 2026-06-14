@@ -420,14 +420,18 @@ export async function deleteAuthFiles(names: string[]): Promise<AuthFilesManagem
   return response.json()
 }
 
+export interface CooldownDisableLimitedRequestItem {
+  auth_index: string
+  recover_at?: string
+  resets_at?: string
+  resets_in_seconds?: number
+  upstream_message?: string
+  request_id?: string
+}
+
 export interface CooldownDisableLimitedRequest {
-  auth_indexes: string[]
-  items?: Array<{
-    auth_index: string
-    recover_at?: string
-    resets_in_seconds?: number
-    upstream_message?: string
-  }>
+  auth_indexes?: string[]
+  items?: CooldownDisableLimitedRequestItem[]
   dry_run?: boolean
 }
 

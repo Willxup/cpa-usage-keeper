@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Modal } from '@/components/ui/Modal'
@@ -8,6 +8,7 @@ import quotaTokenIcon from '@/assets/icons/quota-token.svg'
 import styles from './CredentialSections.module.scss'
 import type { AuthFileCredentialRow, DisplayQuota, PlanTypeTone } from './credentialViewModels'
 import { deleteAuthFiles, setAuthFilesDisabled, cooldownDisableLimited, type UsageIdentityPageSort } from '@/lib/api'
+import { type InspectionAccountAction, type InspectionAccountItem, buildInvalidInspectionAccountItems, buildLimitedInspectionAccountItems, toDisableLimitedRequestItems } from './inspectionItems'
 import type { UsageQuotaInspectionResult, UsageQuotaInspectionResultStatus, UsageQuotaInspectionStatusResponse } from '@/lib/types'
 import { CredentialProviderFilterIcon } from './CredentialProviderFilterBar'
 import { CredentialBadge, CredentialPriorityBadge, CredentialRowShell, CredentialSectionShell, CredentialsPagination, MetricPill, RequestMetric, TonePercent, cacheRateTone, capitalize, credentialToneClassName, formatCredentialNumber, successRateTone } from './CredentialSectionShell'
@@ -18,7 +19,7 @@ type InspectionResultStatusFilter = 'normal' | 'limit_reached' | 'unauthorized_4
 type InspectionResultStatusFilterState = InspectionResultStatusFilter | null
 type InspectionStatTone = 'normal' | 'limitReached' | 'unauthorized' | 'failed' | 'unknown'
 type QuotaUsageMode = 'current' | 'estimated'
-type InvalidInspectionAccountAction = 'disable' | 'delete'
+
 type QuotaErrorDisplay = {
   code?: string
   message: string
@@ -359,11 +360,11 @@ function QuotaInspectionModal({
   const [resultStatusFilter, setResultStatusFilter] = useState<InspectionResultStatusFilterState>(null)
   const [resultPage, setResultPage] = useState(1)
   const [resultPageSize, setResultPageSize] = useState<number>(DEFAULT_INSPECTION_RESULT_PAGE_SIZE)
-  const [invalidAccountAction, setInvalidAccountAction] = useState<InvalidInspectionAccountAction | null>(null)
-  const [selectedInvalidFileNames, setSelectedInvalidFileNames] = useState<string[]>([])
-  const [invalidAccountSubmitting, setInvalidAccountSubmitting] = useState(false)
-  const [invalidAccountError, setInvalidAccountError] = useState('')
-  const [limitedSubmitting, setLimitedSubmitting] = useState(false)
+  const [accountAction, setAccountAction] = useState<InspectionAccountAction | null>(null)
+  const [accountItems, setAccountItems] = useState<InspectionAccountItem[]>([])
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([])
+  const [accountSubmitting, setAccountSubmitting] = useState(false)
+  const [accountError, setAccountError] = useState('')
   // total 由后端 Auth Files 身份统计提供，不用页面分页总数替代。
   const total = status?.total ?? 0
   // cached 是已经能解析出最近巡检结果的账号数。
@@ -384,8 +385,8 @@ function QuotaInspectionModal({
         ? t('usage_stats.credentials_inspection_running')
         : t('usage_stats.credentials_inspection_start')
   const results = status?.results ?? []
-  const invalidFileNames = buildInvalidInspectionAccountFileNames(results)
-  const limitedAuthIndexes = buildLimitedInspectionAccountAuthIndexes(results)
+  const invalidItems = buildInvalidInspectionAccountItems(results)
+  const limitedItems = buildLimitedInspectionAccountItems(results)
   const resultPageData = buildInspectionResultsPage(results, resultStatusFilter, resultPage, resultPageSize)
   const handleSelectResultStatus = (nextStatus: InspectionResultStatusFilter) => {
     // 切换状态筛选时回到第一页，避免沿用上一个筛选的高页码导致空页。
@@ -396,101 +397,57 @@ function QuotaInspectionModal({
     setResultPageSize(nextPageSize)
     setResultPage(1)
   }
-  const openInvalidAccountAction = (action: InvalidInspectionAccountAction) => {
-    setInvalidAccountAction(action)
-    setSelectedInvalidFileNames(invalidFileNames)
-    setInvalidAccountError('')
+  const openAccountAction = (action: InspectionAccountAction) => {
+    const items = action === 'disable_limited' ? limitedItems : invalidItems
+    setAccountAction(action)
+    setAccountItems(items)
+    setSelectedKeys(items.map((item) => item.key))
+    setAccountError('')
   }
-  const selectAllInvalidFileNames = () => {
-    setSelectedInvalidFileNames(selectAllInvalidInspectionAccountFileNames(invalidFileNames))
+  const closeAccountAction = () => {
+    if (accountSubmitting) return
+    setAccountAction(null)
+    setAccountItems([])
+    setSelectedKeys([])
+    setAccountError('')
   }
-  const invertInvalidFileNames = () => {
-    setSelectedInvalidFileNames((current) => invertInvalidInspectionAccountFileNames(invalidFileNames, current))
-  }
-  const closeInvalidAccountAction = () => {
-    if (invalidAccountSubmitting) {
-      return
-    }
-    setInvalidAccountAction(null)
-    setSelectedInvalidFileNames([])
-    setInvalidAccountError('')
-  }
-  const toggleInvalidFileName = (fileName: string, checked: boolean) => {
-    setSelectedInvalidFileNames((current) => {
-      if (checked) {
-        return current.includes(fileName) ? current : [...current, fileName]
-      }
-      return current.filter((name) => name !== fileName)
+  const toggleAccountKey = (key: string, checked: boolean) => {
+    setSelectedKeys((current) => {
+      if (checked) return current.includes(key) ? current : [...current, key]
+      return current.filter((k) => k !== key)
     })
   }
-  const handleConfirmInvalidAccountAction = async () => {
-    if (!invalidAccountAction || selectedInvalidFileNames.length === 0) {
-      return
-    }
-    setInvalidAccountSubmitting(true)
-    setInvalidAccountError('')
+  const selectAllKeys = () => setSelectedKeys(accountItems.map((item) => item.key))
+  const invertKeys = () => {
+    setSelectedKeys((current) => {
+      const selected = new Set(current)
+      return accountItems.map((item) => item.key).filter((key) => !selected.has(key))
+    })
+  }
+  const handleConfirmAccountAction = async () => {
+    if (!accountAction || selectedKeys.length === 0) return
+    setAccountSubmitting(true)
+    setAccountError('')
     try {
-      if (invalidAccountAction === 'disable') {
-        await setAuthFilesDisabled(selectedInvalidFileNames, true)
-      } else {
-        await deleteAuthFiles(selectedInvalidFileNames)
+      if (accountAction === 'disable_invalid') {
+        const fileNames = accountItems.filter((item) => selectedKeys.includes(item.key)).map((item) => item.fileName!).filter(Boolean)
+        await setAuthFilesDisabled(fileNames, true)
+      } else if (accountAction === 'delete_invalid') {
+        const fileNames = accountItems.filter((item) => selectedKeys.includes(item.key)).map((item) => item.fileName!).filter(Boolean)
+        await deleteAuthFiles(fileNames)
+      } else if (accountAction === 'disable_limited') {
+        const selectedItems = accountItems.filter((item) => selectedKeys.includes(item.key))
+        await cooldownDisableLimited({ items: toDisableLimitedRequestItems(selectedItems) })
       }
       await Promise.all([onRefreshStatus(), onAfterInvalidAccountAction?.()])
-      setInvalidAccountAction(null)
-      setSelectedInvalidFileNames([])
+      closeAccountAction()
     } catch (nextError) {
-      setInvalidAccountError(nextError instanceof Error ? nextError.message : t('usage_stats.credentials_inspection_invalid_accounts_failed'))
+      setAccountError(nextError instanceof Error ? nextError.message : t('usage_stats.credentials_inspection_invalid_accounts_failed'))
     } finally {
-      setInvalidAccountSubmitting(false)
+      setAccountSubmitting(false)
     }
   }
-  const inspectionCloseDisabled = invalidAccountAction !== null || invalidAccountSubmitting
-  const [limitedResult, setLimitedResult] = useState('')
-  const noLimitedNoticeTimerRef = useRef<number | null>(null)
-
-  const clearNoLimitedNoticeTimer = () => {
-    if (noLimitedNoticeTimerRef.current !== null) {
-      window.clearTimeout(noLimitedNoticeTimerRef.current)
-      noLimitedNoticeTimerRef.current = null
-    }
-  }
-
-  const showNoLimitedNotice = (message: string) => {
-    clearNoLimitedNoticeTimer()
-    setLimitedResult(message)
-    noLimitedNoticeTimerRef.current = window.setTimeout(() => {
-      setLimitedResult('')
-      noLimitedNoticeTimerRef.current = null
-    }, 4000)
-  }
-
-  useEffect(() => {
-    return () => clearNoLimitedNoticeTimer()
-  }, [])
-
-  const handleDisableLimited = async () => {
-    clearNoLimitedNoticeTimer()
-    setLimitedResult('')
-    if (limitedAuthIndexes.length === 0) {
-      showNoLimitedNotice('目前没有达到限额的账号')
-      return
-    }
-    setLimitedSubmitting(true)
-    try {
-      const result = await cooldownDisableLimited({ auth_indexes: limitedAuthIndexes })
-      if (result.disabled > 0 || result.extended > 0 || result.skipped > 0 || result.failed > 0) {
-        setLimitedResult(formatDisableLimitedResult(result.disabled, result.skipped, result.failed))
-      }
-      await onRefreshStatus()
-      if (onAfterInvalidAccountAction) {
-        await onAfterInvalidAccountAction()
-      }
-    } catch {
-      setLimitedResult(formatDisableLimitedResult(0, 0, 1))
-    } finally {
-      setLimitedSubmitting(false)
-    }
-  }
+  const inspectionCloseDisabled = accountAction !== null || accountSubmitting
 
   return (
     <Modal open={open} title={t('usage_stats.credentials_inspection_title')} onClose={inspectionCloseDisabled ? () => undefined : onClose} width={820} className={styles.credentialInspectionModal} closeDisabled={inspectionCloseDisabled}>
@@ -533,7 +490,7 @@ function QuotaInspectionModal({
         </div>
 
         {error && <div className={styles.credentialInlineError}>{error}</div>}
-        {limitedResult && <div className={styles.credentialInlineSuccess}>{limitedResult}</div>}
+
         {loading && !status && <div className={styles.credentialEmptyState}>{t('common.loading')}</div>}
 
         <div className={styles.credentialInspectionStatsGrid}>
@@ -553,8 +510,8 @@ function QuotaInspectionModal({
                   <button
                     type="button"
                     className={styles.credentialInspectionInvalidActionButton}
-                    onClick={() => openInvalidAccountAction('disable')}
-                    disabled={invalidFileNames.length === 0 || invalidAccountSubmitting}
+                    onClick={() => openAccountAction('disable_invalid')}
+                    disabled={invalidItems.length === 0 || accountSubmitting}
                   >
                     <IconShield size={13} />
                     <span>{t('usage_stats.credentials_inspection_disable_invalid')}</span>
@@ -562,8 +519,8 @@ function QuotaInspectionModal({
                   <button
                     type="button"
                     className={`${styles.credentialInspectionInvalidActionButton} ${styles.credentialInspectionInvalidActionButtonDanger}`.trim()}
-                    onClick={() => openInvalidAccountAction('delete')}
-                    disabled={invalidFileNames.length === 0 || invalidAccountSubmitting}
+                    onClick={() => openAccountAction('delete_invalid')}
+                    disabled={invalidItems.length === 0 || accountSubmitting}
                   >
                     <IconTrash2 size={13} />
                     <span>{t('usage_stats.credentials_inspection_delete_invalid')}</span>
@@ -571,10 +528,10 @@ function QuotaInspectionModal({
                   <button
                     type="button"
                     className={styles.credentialInspectionInvalidActionButton}
-                    onClick={() => void handleDisableLimited()}
-                    disabled={limitedSubmitting}
+                    onClick={() => openAccountAction('disable_limited')}
+                    disabled={accountSubmitting}
                   >
-                    {limitedSubmitting ? <LoadingSpinner size={13} /> : <IconShield size={13} />}
+                    {accountSubmitting ? <LoadingSpinner size={13} /> : <IconShield size={13} />}
                     <span>{t('usage_stats.credentials_inspection_disable_limited')}</span>
                   </button>
                 </div>
@@ -605,50 +562,63 @@ function QuotaInspectionModal({
           )}
         </div>
       </div>
-      <InvalidInspectionAccountModal
-        open={invalidAccountAction !== null}
-        action={invalidAccountAction}
-        fileNames={invalidFileNames}
-        selectedFileNames={selectedInvalidFileNames}
-        submitting={invalidAccountSubmitting}
-        error={invalidAccountError}
-        onToggleFileName={toggleInvalidFileName}
-        onSelectAll={selectAllInvalidFileNames}
-        onInvertSelection={invertInvalidFileNames}
-        onCancel={closeInvalidAccountAction}
-        onConfirm={handleConfirmInvalidAccountAction}
+      <InspectionAccountActionModal
+        open={accountAction !== null}
+        action={accountAction}
+        items={accountItems}
+        selectedKeys={selectedKeys}
+        submitting={accountSubmitting}
+        error={accountError}
+        onToggleKey={toggleAccountKey}
+        onSelectAll={selectAllKeys}
+        onInvertSelection={invertKeys}
+        onCancel={closeAccountAction}
+        onConfirm={handleConfirmAccountAction}
       />
     </Modal>
   )
 }
 
-function InvalidInspectionAccountModal({
+function getActionLabel(action: InspectionAccountAction | null, t: Translate): string {
+  if (action === 'delete_invalid') return t('usage_stats.credentials_inspection_delete_action')
+  if (action === 'disable_limited') return t('usage_stats.credentials_inspection_disable_limited')
+  return t('usage_stats.credentials_inspection_disable_action')
+}
+
+function getConfirmMessage(action: InspectionAccountAction | null, t: Translate): string {
+  if (action === 'delete_invalid') return t('usage_stats.credentials_inspection_delete_invalid_confirm')
+  if (action === 'disable_limited') return t('usage_stats.credentials_inspection_disable_limited_confirm')
+  return t('usage_stats.credentials_inspection_disable_invalid_confirm')
+}
+
+function InspectionAccountActionModal({
   open,
   action,
-  fileNames,
-  selectedFileNames,
+  items,
+  selectedKeys,
   submitting,
   error,
-  onToggleFileName,
+  onToggleKey,
   onSelectAll,
   onInvertSelection,
   onCancel,
   onConfirm,
 }: {
   open: boolean
-  action: InvalidInspectionAccountAction | null
-  fileNames: string[]
-  selectedFileNames: string[]
+  action: InspectionAccountAction | null
+  items: InspectionAccountItem[]
+  selectedKeys: string[]
   submitting: boolean
   error: string
-  onToggleFileName: (fileName: string, checked: boolean) => void
+  onToggleKey: (key: string, checked: boolean) => void
   onSelectAll: () => void
   onInvertSelection: () => void
   onCancel: () => void
   onConfirm: () => void
 }) {
   const { t } = useTranslation()
-  const actionLabel = action === 'delete' ? t('usage_stats.credentials_inspection_delete_action') : t('usage_stats.credentials_inspection_disable_action')
+  const actionLabel = getActionLabel(action, t)
+  const isDanger = action === 'delete_invalid'
   return (
     <Modal
       open={open}
@@ -664,9 +634,9 @@ function InvalidInspectionAccountModal({
           </button>
           <button
             type="button"
-            className={`${styles.credentialInvalidAccountConfirmButton} ${action === 'delete' ? styles.credentialInvalidAccountConfirmButtonDanger : ''}`.trim()}
+            className={`${styles.credentialInvalidAccountConfirmButton} ${isDanger ? styles.credentialInvalidAccountConfirmButtonDanger : ''}`.trim()}
             onClick={onConfirm}
-            disabled={submitting || selectedFileNames.length === 0}
+            disabled={submitting || selectedKeys.length === 0}
             aria-busy={submitting}
           >
             {submitting && <LoadingSpinner size={13} />}
@@ -676,30 +646,30 @@ function InvalidInspectionAccountModal({
       )}
     >
       <div className={styles.credentialInvalidAccountPanel}>
-        <p>{t(action === 'delete' ? 'usage_stats.credentials_inspection_delete_invalid_confirm' : 'usage_stats.credentials_inspection_disable_invalid_confirm')}</p>
+        <p>{getConfirmMessage(action, t)}</p>
         <div className={styles.credentialInvalidAccountTip}>{t('usage_stats.credentials_inspection_invalid_accounts_sync_tip')}</div>
         {error && <div className={styles.credentialInlineError}>{error}</div>}
         <div className={styles.credentialInvalidAccountToolbar}>
-          <span>{selectedFileNames.length} / {fileNames.length}</span>
+          <span>{selectedKeys.length} / {items.length}</span>
           <div className={styles.credentialInvalidAccountToolbarActions}>
-            <button type="button" onClick={onSelectAll} disabled={submitting || fileNames.length === 0}>
+            <button type="button" onClick={onSelectAll} disabled={submitting || items.length === 0}>
               {t('usage_stats.credentials_inspection_invalid_accounts_select_all')}
             </button>
-            <button type="button" onClick={onInvertSelection} disabled={submitting || fileNames.length === 0}>
+            <button type="button" onClick={onInvertSelection} disabled={submitting || items.length === 0}>
               {t('usage_stats.credentials_inspection_invalid_accounts_invert_selection')}
             </button>
           </div>
         </div>
         <div className={styles.credentialInvalidAccountList}>
-          {fileNames.map((fileName) => (
-            <label key={fileName} className={styles.credentialInvalidAccountItem}>
+          {items.map((item) => (
+            <label key={item.key} className={styles.credentialInvalidAccountItem}>
               <input
                 type="checkbox"
-                checked={selectedFileNames.includes(fileName)}
-                onChange={(event) => onToggleFileName(fileName, event.target.checked)}
+                checked={selectedKeys.includes(item.key)}
+                onChange={(event) => onToggleKey(item.key, event.target.checked)}
                 disabled={submitting}
               />
-              <span>{fileName}</span>
+              <span>{item.label}</span>
             </label>
           ))}
         </div>
@@ -831,10 +801,6 @@ function QuotaUsageModeSwitch({ label, mode, onChange }: { label: string; mode: 
       </div>
     </div>
   )
-}
-
-function formatDisableLimitedResult(disabled: number, skipped: number, failed: number): string {
-  return `已临时禁用 ${disabled} 个，跳过 ${skipped} 个，失败 ${failed} 个`
 }
 
 function formatCooldownStatusText(cd: import('@/lib/types').CooldownStatusDTO): string {

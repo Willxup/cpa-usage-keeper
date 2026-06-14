@@ -8,8 +8,8 @@ import React, {
   type CSSProperties,
   type ReactNode,
 } from 'react';
-import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { FailureDetailsModal, type FailureDetailsData } from '@/components/usage/request-events/FailureDetailsModal';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -569,7 +569,7 @@ export function RequestEventsDetailsCard({
     });
   }, [events]);
 
-  const [failureDetailRow, setFailureDetailRow] = useState<RequestEventRow | null>(null);
+  const [failureDetailData, setFailureDetailData] = useState<FailureDetailsData | null>(null);
 
   const [internalVisibleColumnIds, setInternalVisibleColumnIds] = useState<RequestEventColumnId[]>(() => (
     normalizeRequestEventVisibleColumnIds(initialVisibleColumnIds ?? visibleColumnIds ?? REQUEST_EVENT_COLUMN_IDS)
@@ -701,7 +701,15 @@ export function RequestEventsDetailsCard({
               <span
                 className={styles.requestEventsResultFailed}
                 style={{ cursor: 'pointer' }}
-                onClick={() => setFailureDetailRow(row)}
+                onClick={() => setFailureDetailData({
+                  requestId: row.id,
+                  failureStatusCode: row.failureStatusCode,
+                  failureCode: row.failureCode,
+                  failureMessage: row.failureMessage,
+                  failureBody: row.failureBody,
+                  source: row.sourceRaw,
+                  authIndex: row.authIndex,
+                })}
                 title={t('usage_stats.request_events_open_failure_details')}
               >
                 {t('usage_stats.failure')}
@@ -953,92 +961,10 @@ export function RequestEventsDetailsCard({
         </>
       )}
     </Card>
-    {failureDetailRow && (
-      <FailureDetailModal row={failureDetailRow} onClose={() => setFailureDetailRow(null)} />
+    {failureDetailData && (
+      <FailureDetailsModal data={failureDetailData} onClose={() => setFailureDetailData(null)} />
     )}
   </>
   );
 }
 
-function formatFailureResultLabel(row: RequestEventRow): string {
-  if (row.failureStatusCode && row.failureCode) {
-    return `[${row.failureStatusCode}] ${row.failureCode}`
-  }
-  if (row.failureStatusCode && row.failureMessage) {
-    return `[${row.failureStatusCode}] ${row.failureMessage.slice(0, 30)}`
-  }
-  if (row.failureCode) {
-    return `Failure · ${row.failureCode}`
-  }
-  if (row.failureMessage) {
-    return `Failure · ${row.failureMessage.slice(0, 30)}`
-  }
-  return 'Failure'
-}
-
-function FailureDetailModal({ row, onClose }: { row: RequestEventRow; onClose: () => void }) {
-  const { t } = useTranslation()
-  return createPortal(
-    <div
-      className={styles.requestEventsFailureOverlay}
-      role="presentation"
-      onClick={onClose}
-    >
-      <section
-        className={styles.requestEventsFailureDialog}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="request-events-failure-title"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header className={styles.requestEventsFailureHeader}>
-          <h2 id="request-events-failure-title" className={styles.requestEventsFailureTitle}>
-            {t('usage_stats.request_events_failure_details_title')}
-          </h2>
-          <button
-            type="button"
-            className={styles.requestEventsFailureClose}
-            onClick={onClose}
-          >
-            {t('common.close')}
-          </button>
-        </header>
-        <div className={styles.requestEventsFailureContent}>
-          <div className={styles.requestEventsFailureField}>
-            <div className={styles.requestEventsFailureLabel}>
-              {t('usage_stats.request_events_failure_status_code')}
-            </div>
-            <div className={styles.requestEventsFailureValue}>
-              {row.failureStatusCode ?? '-'}
-            </div>
-          </div>
-          <div className={styles.requestEventsFailureField}>
-            <div className={styles.requestEventsFailureLabel}>
-              {t('usage_stats.request_events_failure_code')}
-            </div>
-            <div className={styles.requestEventsFailureValue}>
-              {row.failureCode || '-'}
-            </div>
-          </div>
-          <div className={styles.requestEventsFailureField}>
-            <div className={styles.requestEventsFailureLabel}>
-              {t('usage_stats.request_events_failure_message')}
-            </div>
-            <div className={styles.requestEventsFailureValue}>
-              {row.failureMessage || '-'}
-            </div>
-          </div>
-          <div className={styles.requestEventsFailureField}>
-            <div className={styles.requestEventsFailureLabel}>
-              {t('usage_stats.request_events_failure_body')}
-            </div>
-            <pre className={styles.requestEventsFailureBodyBox}>
-              {row.failureBody || '-'}
-            </pre>
-          </div>
-        </div>
-      </section>
-    </div>,
-    document.body
-  )
-}
