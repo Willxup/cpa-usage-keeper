@@ -63,10 +63,22 @@ func ParseRecoverAtFromFields(now time.Time, raw map[string]any) (time.Time, err
 	return time.Time{}, fmt.Errorf("no valid recover_at field in payload")
 }
 
-// ParseRecoverAtFromRequest 从 disable-limited 请求项中解析 recover_at。
-// 支持 resets_at / recover_at / reset_at / reset_time (RFC3339) 和 resets_in_seconds / reset_after_seconds / retry_after (秒数)。
-func ParseRecoverAtFromRequest(now time.Time, resetsAt, recoverAt, resetAt, resetTime string, resetsInSeconds, resetAfterSeconds, retryAfter *int64) (time.Time, error) {
-	for _, s := range []string{resetsAt, recoverAt, resetAt, resetTime} {
+// RecoverAtInput 汇总 disable-limited 请求项里所有可能携带恢复时间的字段，
+// 供 ResolveRecoverAtFromInput 统一解析，避免长参数列表。
+type RecoverAtInput struct {
+	ResetsAt        string // RFC3339
+	RecoverAt       string // RFC3339（与 ResetsAt 语义相同，兼容字段名）
+	ResetAt         string // RFC3339
+	ResetTime       string // RFC3339
+	ResetsInSeconds *int64
+	ResetAfterSec   *int64
+	RetryAfter      *int64
+}
+
+// ResolveRecoverAtFromInput 从 disable-limited 请求项解析 recover_at。
+// 按优先级尝试所有 RFC3339 时间字段，再尝试秒数字段，最终交给 ResolveRecoverAt 校验（必须晚于 now）。
+func ResolveRecoverAtFromInput(now time.Time, in RecoverAtInput) (time.Time, error) {
+	for _, s := range []string{in.ResetsAt, in.RecoverAt, in.ResetAt, in.ResetTime} {
 		if s == "" {
 			continue
 		}
@@ -75,7 +87,7 @@ func ParseRecoverAtFromRequest(now time.Time, resetsAt, recoverAt, resetAt, rese
 			return ResolveRecoverAt(now, &t, nil)
 		}
 	}
-	for _, sec := range []*int64{resetsInSeconds, resetAfterSeconds, retryAfter} {
+	for _, sec := range []*int64{in.ResetsInSeconds, in.ResetAfterSec, in.RetryAfter} {
 		if sec != nil && *sec > 0 {
 			return ResolveRecoverAt(now, nil, sec)
 		}

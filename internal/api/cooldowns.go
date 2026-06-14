@@ -183,7 +183,7 @@ func registerCooldownRoutes(router gin.IRoutes, db *gorm.DB, cooldownService *co
 			Extended: result.Extended,
 			Skipped:  result.Skipped,
 			Failed:   result.Failed,
-			DryRun:   result.DryRun,
+			DryRun:   result.DryRunCount,
 			Items:    make([]disableLimitedAPIResponseItem, 0, len(result.Items)),
 		}
 		for _, item := range result.Items {
