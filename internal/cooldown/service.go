@@ -116,6 +116,17 @@ func (s *CooldownService) HandleUsageLimit429(ctx context.Context, tel *service.
 		return fmt.Errorf("fetch auth files for cooldown: %w", err)
 	}
 
+	if authFilesResult == nil || authFilesResult.Payload == nil {
+		logrus.WithField("auth_index", tel.AuthIndex).
+			Error("FetchAuthFiles returned nil result or nil payload")
+		cooldown := s.buildCooldown(tel, *recoverAt, "", "", false, false)
+		cooldown.LastError = "FetchAuthFiles returned nil result"
+		if _, upsertErr := repository.UpsertCooldownExtendOnly(s.db, cooldown); upsertErr != nil {
+			logrus.WithError(upsertErr).Error("failed to upsert cooldown after nil result")
+		}
+		return fmt.Errorf("FetchAuthFiles returned nil result for cooldown")
+	}
+
 	for _, file := range authFilesResult.Payload.Files {
 		if strings.TrimSpace(file.Provider) == "codex" && strings.TrimSpace(file.AuthIndex) == tel.AuthIndex {
 			authFileName = strings.TrimSpace(file.Name)
@@ -158,22 +169,14 @@ func (s *CooldownService) HandleUsageLimit429(ctx context.Context, tel *service.
 		return nil
 	}
 
-	// 加载已写入的 cooldown ID
-	var saved entities.AuthFileCooldown
-	if findErr := s.db.Where("provider = ? AND auth_index = ? AND owner = ? AND state = ?",
-		"codex", tel.AuthIndex, entities.AuthFileCooldownOwnerUsage429, entities.AuthFileCooldownActive).
-		Order("id DESC").First(&saved).Error; findErr != nil {
-		logrus.WithError(findErr).Warn("failed to load saved cooldown record")
-	}
-
 	// 6. 如果用户已手动禁用，不调用 CPA API
 	if !disabledByKeeper {
 		logrus.WithFields(logrus.Fields{
 			"auth_file":  authFileName,
 			"auth_index": tel.AuthIndex,
 		}).Info("auth file already disabled, keeper will not auto-restore")
-		if saved.ID > 0 {
-			_ = repository.MarkSkippedManual(s.db, saved.ID)
+		if cooldown.ID > 0 {
+			_ = repository.MarkSkippedManual(s.db, cooldown.ID)
 		}
 		return nil
 	}
@@ -184,7 +187,10 @@ func (s *CooldownService) HandleUsageLimit429(ctx context.Context, tel *service.
 			"auth_index": tel.AuthIndex,
 		}).Info("cooldown: disabling auth file due to usage limit")
 
-		if err := s.DisableAuthFile(ctx, saved.ID, authFileName, tel.AuthIndex); err != nil {
+		if cooldown.ID == 0 {
+			return fmt.Errorf("cooldown ID is 0 after upsert, cannot disable auth file")
+		}
+		if err := s.DisableAuthFile(ctx, cooldown.ID, authFileName, tel.AuthIndex); err != nil {
 			return err
 		}
 	}
@@ -194,21 +200,21 @@ func (s *CooldownService) HandleUsageLimit429(ctx context.Context, tel *service.
 
 func (s *CooldownService) buildCooldown(tel *service.Codex429Telemetry, recoverAt time.Time, authFileName, authFilePath string, previousDisabled bool, disabledByKeeper bool) *entities.AuthFileCooldown {
 	return &entities.AuthFileCooldown{
-		Provider:         "codex",
-		AuthIndex:        tel.AuthIndex,
-		AuthFileName:     authFileName,
-		AuthFilePath:     authFilePath,
-		RecoverAt:        recoverAt,
-		Reason:           entities.AuthFileCooldownReasonCodex429,
-		Owner:            entities.AuthFileCooldownOwnerUsage429,
-		State:            entities.AuthFileCooldownActive,
-		DisabledByKeeper: disabledByKeeper,
-		PreviousDisabled: previousDisabled,
-		Source:           entities.AuthFileCooldownSourceRequestEvent,
+		Provider:           "codex",
+		AuthIndex:          tel.AuthIndex,
+		AuthFileName:       authFileName,
+		AuthFilePath:       authFilePath,
+		RecoverAt:          recoverAt,
+		Reason:             entities.AuthFileCooldownReasonCodex429,
+		Owner:              entities.AuthFileCooldownOwnerUsage429,
+		State:              entities.AuthFileCooldownActive,
+		DisabledByKeeper:   disabledByKeeper,
+		PreviousDisabled:   previousDisabled,
+		Source:             entities.AuthFileCooldownSourceRequestEvent,
 		UpstreamStatusCode: 429,
 		UpstreamMessage:    "usage_limit_reached",
-		SourceEventKey:   tel.RequestID,
-		SourceRequestID:  tel.RequestID,
+		SourceEventKey:     tel.RequestID,
+		SourceRequestID:    tel.RequestID,
 	}
 }
 
@@ -236,9 +242,9 @@ func (s *CooldownService) BuildInspectionCooldown(authIndex, authFileName, authF
 func (s *CooldownService) DisableAuthFile(ctx context.Context, cooldownID int64, authFileName, authIndex string) error {
 	if s.dryRun {
 		logrus.WithFields(logrus.Fields{
-			"auth_file":  authFileName,
-			"auth_index": authIndex,
-			"dry_run":    true,
+			"auth_file":   authFileName,
+			"auth_index":  authIndex,
+			"dry_run":     true,
 			"cooldown_id": cooldownID,
 		}).Info("DRY RUN: would disable auth file")
 		return nil

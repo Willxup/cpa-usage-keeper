@@ -273,16 +273,21 @@ function formatQuotaWindowCost(cost: number): string {
   }).format(cost || 0).replace(/^US\$/, '$')
 }
 
+const FIVE_HOUR_WINDOW_SECONDS = 18000
+const WEEKLY_WINDOW_SECONDS = 604800
+const THIRTY_DAY_WINDOW_SECONDS = 2592000
+const AVERAGE_MONTH_WINDOW_SECONDS = 2628000
+
 function quotaLabel(row: UsageQuotaRow, windowSeconds?: number): string | undefined {
   // 对已知窗口按秒数纠正标签；未知窗口不展示 Window 占位，避免误导用户。
   const label = row.label || row.metric || row.scope || row.key
-  if (windowSeconds === 18000) {
+  if (windowSeconds === FIVE_HOUR_WINDOW_SECONDS) {
     return knownWindowLabel(label, '5h')
   }
-  if (windowSeconds === 604800) {
+  if (windowSeconds === WEEKLY_WINDOW_SECONDS) {
     return knownWindowLabel(label, 'Weekly')
   }
-  if (windowSeconds === 2592000) {
+  if (windowSeconds === THIRTY_DAY_WINDOW_SECONDS || windowSeconds === AVERAGE_MONTH_WINDOW_SECONDS) {
     return knownWindowLabel(label, 'Monthly')
   }
   if (windowSeconds !== undefined) {

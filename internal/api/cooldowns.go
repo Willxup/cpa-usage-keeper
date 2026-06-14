@@ -30,27 +30,27 @@ type cooldownListResponse struct {
 }
 
 type cooldownItemResponse struct {
-	ID                int64              `json:"id"`
-	Provider          string             `json:"provider"`
-	AuthIndex         string             `json:"auth_index"`
-	AuthFileName      string             `json:"auth_file_name"`
-	AuthFilePath      string             `json:"auth_file_path"`
-	State             string             `json:"state"`
-	Source            string             `json:"source,omitempty"`
-	RecoverAt         *string            `json:"recover_at,omitempty"`
-	RecoverInSeconds  *int64             `json:"recover_in_seconds,omitempty"`
-	Reason            string             `json:"reason"`
-	Owner             string             `json:"owner"`
-	DisabledByKeeper  bool               `json:"disabled_by_keeper"`
-	PreviousDisabled  bool               `json:"previous_disabled"`
-	UpstreamStatusCode int               `json:"upstream_status_code,omitempty"`
-	UpstreamMessage   string             `json:"upstream_message,omitempty"`
-	LastError         string             `json:"last_error,omitempty"`
-	RestoreAttempts   int                `json:"restore_attempts"`
-	CreatedAt         string             `json:"created_at"`
-	UpdatedAt         string             `json:"updated_at"`
-	DisabledAt        *string            `json:"disabled_at,omitempty"`
-	RecoveredAt       *string            `json:"recovered_at,omitempty"`
+	ID                 int64   `json:"id"`
+	Provider           string  `json:"provider"`
+	AuthIndex          string  `json:"auth_index"`
+	AuthFileName       string  `json:"auth_file_name"`
+	AuthFilePath       string  `json:"auth_file_path"`
+	State              string  `json:"state"`
+	Source             string  `json:"source,omitempty"`
+	RecoverAt          *string `json:"recover_at,omitempty"`
+	RecoverInSeconds   *int64  `json:"recover_in_seconds,omitempty"`
+	Reason             string  `json:"reason"`
+	Owner              string  `json:"owner"`
+	DisabledByKeeper   bool    `json:"disabled_by_keeper"`
+	PreviousDisabled   bool    `json:"previous_disabled"`
+	UpstreamStatusCode int     `json:"upstream_status_code,omitempty"`
+	UpstreamMessage    string  `json:"upstream_message,omitempty"`
+	LastError          string  `json:"last_error,omitempty"`
+	RestoreAttempts    int     `json:"restore_attempts"`
+	CreatedAt          string  `json:"created_at"`
+	UpdatedAt          string  `json:"updated_at"`
+	DisabledAt         *string `json:"disabled_at,omitempty"`
+	RecoveredAt        *string `json:"recovered_at,omitempty"`
 }
 
 // CooldownStatusDTO 是嵌入到 Auth File / identity 响应中的精简 cooldown 状态。
@@ -70,9 +70,9 @@ type CooldownStatusDTO struct {
 
 // disableLimitedRequest 是巡检临时禁用接口的请求体。
 type disableLimitedRequest struct {
-	AuthIndexes []string                     `json:"auth_indexes"`
-	Items       []disableLimitedRequestItem  `json:"items,omitempty"`
-	DryRun      *bool                        `json:"dry_run,omitempty"`
+	AuthIndexes []string                    `json:"auth_indexes"`
+	Items       []disableLimitedRequestItem `json:"items,omitempty"`
+	DryRun      *bool                       `json:"dry_run,omitempty"`
 }
 
 type disableLimitedRequestItem struct {
@@ -93,11 +93,11 @@ type disableLimitedResponse struct {
 }
 
 type disableLimitedResponseItem struct {
-	AuthIndex     string `json:"auth_index"`
-	AuthFileName  string `json:"auth_file_name,omitempty"`
-	Status        string `json:"status"`
-	RecoverAt     string `json:"recover_at,omitempty"`
-	Message       string `json:"message,omitempty"`
+	AuthIndex    string `json:"auth_index"`
+	AuthFileName string `json:"auth_file_name,omitempty"`
+	Status       string `json:"status"`
+	RecoverAt    string `json:"recover_at,omitempty"`
+	Message      string `json:"message,omitempty"`
 }
 
 func registerCooldownRoutes(router gin.IRoutes, db *gorm.DB, disabler CooldownDisabler) {
@@ -310,11 +310,6 @@ func registerCooldownRoutes(router gin.IRoutes, db *gorm.DB, disabler CooldownDi
 				continue
 			}
 
-			// 获取刚 upsert 的 cooldown ID
-			var saved entities.AuthFileCooldown
-			_ = db.Where("auth_index = ? AND state = ?", authIndex, entities.AuthFileCooldownActive).
-				Order("id DESC").First(&saved).Error
-
 			item.RecoverAt = timeutil.FormatStorageTime(*recoverAt)
 
 			if !upserted {
@@ -326,7 +321,14 @@ func registerCooldownRoutes(router gin.IRoutes, db *gorm.DB, disabler CooldownDi
 			}
 
 			// 调用 CPA API 禁用
-			if err := disabler.DisableAuthFile(c.Request.Context(), saved.ID, afi.Name, authIndex); err != nil {
+			if cooldown.ID == 0 {
+				item.Status = "failed"
+				item.Message = "cooldown ID is 0 after upsert"
+				result.Failed++
+				result.Items = append(result.Items, item)
+				continue
+			}
+			if err := disabler.DisableAuthFile(c.Request.Context(), cooldown.ID, afi.Name, authIndex); err != nil {
 				item.Status = "failed"
 				item.Message = "disable failed: " + err.Error()
 				result.Failed++
