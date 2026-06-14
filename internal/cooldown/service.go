@@ -142,7 +142,7 @@ func (s *CooldownService) HandleUsageLimit429(ctx context.Context, tel *service.
 		s.recordCooldownError(tel, recoverAt, fmt.Sprintf("fetch auth files: %v", err))
 		return fmt.Errorf("fetch auth files for cooldown: %w", err)
 	}
-	if authFilesResult == nil || authFilesResult.Payload == nil {
+	if authFilesResult == nil {
 		logrus.WithField("auth_index", tel.AuthIndex).
 			Error("FetchAuthFiles returned nil result or payload")
 		s.recordCooldownError(tel, recoverAt, "FetchAuthFiles returned nil result or payload")
