@@ -41,7 +41,7 @@ type DisableLimitedResult struct {
 	Extended int
 	Skipped  int
 	Failed   int
-	DryRun   int
+	DryRunCount int
 	Items    []DisableLimitedResultItem
 }
 
@@ -55,7 +55,7 @@ type DisableLimitedResultItem struct {
 }
 
 // authFileInfo 是 usage_identities 表中 auth file 的精简信息。
-type authFileInfo struct {
+type cooldownAuthFileInfo struct {
 	Name     string
 	Path     string
 	Disabled bool
@@ -139,11 +139,15 @@ func (s *CooldownService) DisableLimitedInspectionAccounts(ctx context.Context, 
 		var recoverAt time.Time
 		var resolveErr error
 		if reqItem != nil {
-			recoverAt, resolveErr = ParseRecoverAtFromRequest(
-				now,
-				reqItem.ResetsAt, reqItem.RecoverAt, reqItem.ResetAt, reqItem.ResetTime,
-				reqItem.ResetsInSeconds, reqItem.ResetAfterSeconds, reqItem.RetryAfter,
-			)
+			recoverAt, resolveErr = ResolveRecoverAtFromInput(now, RecoverAtInput{
+				ResetsAt:        reqItem.ResetsAt,
+				RecoverAt:       reqItem.RecoverAt,
+				ResetAt:         reqItem.ResetAt,
+				ResetTime:       reqItem.ResetTime,
+				ResetsInSeconds: reqItem.ResetsInSeconds,
+				ResetAfterSec:   reqItem.ResetAfterSeconds,
+				RetryAfter:      reqItem.RetryAfter,
+			})
 		} else {
 			resolveErr = fmt.Errorf("no request item")
 		}
@@ -173,8 +177,13 @@ func (s *CooldownService) DisableLimitedInspectionAccounts(ctx context.Context, 
 			continue
 		}
 
-		// 5. 构建 cooldown 并 upsert
-		upstreamMessage := reqItem.UpstreamMessage
+		// 5. 构建 cooldown 并 upsert（reqItem 可能为 nil，安全访问）
+		upstreamMessage := ""
+		sourceRequestID := ""
+		if reqItem != nil {
+			upstreamMessage = reqItem.UpstreamMessage
+			sourceRequestID = reqItem.SourceRequestID
+		}
 		if upstreamMessage == "" {
 			upstreamMessage = "usage_limit_reached (inspection)"
 		}
@@ -193,8 +202,25 @@ func (s *CooldownService) DisableLimitedInspectionAccounts(ctx context.Context, 
 			DisabledByKeeper: disabledByKeeper,
 			UpstreamCode:     429,
 			UpstreamMessage:  upstreamMessage,
-			SourceRequestID:  reqItem.SourceRequestID,
+			SourceRequestID:  sourceRequestID,
 		})
+
+		// dry_run 时只 log，不写入 active cooldown，避免 restore worker 把 dry-run 记录
+		// 当成真实 cooldown 来处理（到期后尝试恢复一个从未真正禁用的账号）。
+		if dryRun {
+			logrus.WithFields(logrus.Fields{
+				"auth_file":  afi.Name,
+				"auth_index": authIndex,
+				"dry_run":    true,
+				"recover_at": recoverAt,
+			}).Info("DRY RUN: would upsert cooldown and disable auth file (inspection)")
+			item.Status = "dry_run"
+			item.Message = "dry run, no cooldown written, auth file not disabled"
+			item.RecoverAt = timeutil.FormatStorageTime(recoverAt)
+			result.DryRunCount++
+			result.Items = append(result.Items, item)
+			continue
+		}
 
 		upsertResult, err := repository.UpsertOrExtendActiveCooldown(s.db, cd)
 		if err != nil {
@@ -232,20 +258,6 @@ func (s *CooldownService) DisableLimitedInspectionAccounts(ctx context.Context, 
 			continue
 		}
 
-		if dryRun {
-			logrus.WithFields(logrus.Fields{
-				"auth_file":   afi.Name,
-				"auth_index":  authIndex,
-				"dry_run":     true,
-				"cooldown_id": cd.ID,
-			}).Info("DRY RUN: would disable auth file (inspection)")
-			item.Status = "dry_run"
-			item.Message = "dry run, auth file not actually disabled"
-			result.DryRun++
-			result.Items = append(result.Items, item)
-			continue
-		}
-
 		if err := s.DisableAuthFile(ctx, cd.ID, afi.Name, authIndex); err != nil {
 			item.Status = "failed"
 			item.Message = "disable failed: " + err.Error()
@@ -263,8 +275,8 @@ func (s *CooldownService) DisableLimitedInspectionAccounts(ctx context.Context, 
 
 // queryAuthFileMap 从 usage_identities 表查询 auth file 信息。
 // 查询失败时返回 error，避免调用方把所有账号误判为 not_found。
-func (s *CooldownService) queryAuthFileMap(authIndexes []string) (map[string]authFileInfo, error) {
-	fileMap := make(map[string]authFileInfo)
+func (s *CooldownService) queryAuthFileMap(authIndexes []string) (map[string]cooldownAuthFileInfo, error) {
+	fileMap := make(map[string]cooldownAuthFileInfo)
 	if len(authIndexes) == 0 {
 		return fileMap, nil
 	}
@@ -288,7 +300,7 @@ func (s *CooldownService) queryAuthFileMap(authIndexes []string) (map[string]aut
 		if id.FilePath != nil {
 			path = *id.FilePath
 		}
-		fileMap[idx] = authFileInfo{
+		fileMap[idx] = cooldownAuthFileInfo{
 			Name:     name,
 			Path:     path,
 			Disabled: disabled,

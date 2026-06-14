@@ -67,24 +67,17 @@ func findCodexAuthFileByAuthIndex(files []authfiles.AuthFile, authIndex string) 
 	return codexAuthFileInfo{}
 }
 
-// recordCooldownError 构建一条带 lastError 的 cooldown 并写入，用于容错场景。
+// recordCooldownError 只记录错误日志，不写入 active cooldown。
+// 原因：FetchAuthFiles 失败或 auth file not found 是临时状态，写入 active cooldown 会阻止
+// 后续 429 事件重新尝试 FetchAuthFiles/DisableAuthFile（UpsertOrExtendActiveCooldown 会
+// 把它当成已处理的 cooldown）。所以这里只 log，让下次 429 事件能正常重试完整流程。
 func (s *CooldownService) recordCooldownError(tel *service.Codex429Telemetry, recoverAt time.Time, lastError string) {
-	cd := buildAuthFileCooldown(authFileCooldownBuildOptions{
-		AuthIndex:       tel.AuthIndex,
-		RecoverAt:       recoverAt,
-		Reason:          entities.AuthFileCooldownReasonCodex429,
-		Owner:           entities.AuthFileCooldownOwnerUsage429,
-		Source:          entities.AuthFileCooldownSourceRequestEvent,
-		UpstreamCode:    429,
-		UpstreamMessage: "usage_limit_reached",
-		SourceEventKey:  tel.RequestID,
-		SourceRequestID: tel.RequestID,
-		LastError:       lastError,
-	})
-	if _, err := repository.UpsertOrExtendActiveCooldown(s.db, cd); err != nil {
-		logrus.WithError(err).WithField("auth_index", tel.AuthIndex).
-			Error("failed to upsert cooldown when recording error")
-	}
+	logrus.WithFields(logrus.Fields{
+		"auth_index": tel.AuthIndex,
+		"request_id": tel.RequestID,
+		"recover_at": recoverAt,
+		"last_error": lastError,
+	}).Warn("cooldown error recorded (not persisted, will retry on next 429 event)")
 }
 
 // HandleUsageLimit429 处理单条 Codex 429 usage_limit_reached 事件。
