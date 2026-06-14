@@ -54,7 +54,7 @@ type DisableLimitedResultItem struct {
 	Message      string
 }
 
-// authFileInfo 是 usage_identities 表中 auth file 的精简信息。
+// cooldownAuthFileInfo 是 usage_identities 表中 auth file 的精简信息。
 type cooldownAuthFileInfo struct {
 	Name     string
 	Path     string
