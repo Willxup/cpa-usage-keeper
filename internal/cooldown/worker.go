@@ -20,10 +20,10 @@ type AuthFileRestoreInfo struct {
 }
 
 const (
-	defaultScanInterval   = 3 * time.Minute
-	defaultBatchSize      = 10
-	defaultWorkerLimit    = 1
-	defaultMaxAttempts    = 0 // 0 = 无限重试
+	defaultScanInterval = 3 * time.Minute
+	defaultBatchSize    = 10
+	defaultWorkerLimit  = 1
+	defaultMaxAttempts  = 0 // 0 = 无限重试
 )
 
 // RestoreWorkerConfig 是恢复 worker 的配置。
@@ -58,11 +58,11 @@ func DefaultRestoreWorkerConfig() RestoreWorkerConfig {
 }
 
 // RestoreWorker 是后台 cooldown 恢复 worker。
-// 定期扫描 cooldown 表，自动恢复到期的 auth file。 
+// 定期扫描 cooldown 表，自动恢复到期的 auth file。
 type RestoreWorker struct {
-	db      *gorm.DB
-	client  CooldownClient
-	config  RestoreWorkerConfig
+	db     *gorm.DB
+	client CooldownClient
+	config RestoreWorkerConfig
 }
 
 // NewRestoreWorker 创建恢复 worker。
@@ -153,6 +153,9 @@ func (w *RestoreWorker) restoreDue(ctx context.Context) error {
 	authFilesResult, err := w.client.FetchAuthFiles(ctx)
 	if err != nil {
 		return fmt.Errorf("fetch auth files for restore: %w", err)
+	}
+	if authFilesResult == nil || authFilesResult.Payload == nil {
+		return fmt.Errorf("FetchAuthFiles returned nil result for restore")
 	}
 
 	// 构建 auth_index -> auth file 的映射

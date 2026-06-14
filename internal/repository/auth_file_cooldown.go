@@ -65,7 +65,11 @@ func UpsertCooldownExtendOnly(db *gorm.DB, cooldown *entities.AuthFileCooldown) 
 		if cooldown.SourceRequestID != "" {
 			existing.SourceRequestID = cooldown.SourceRequestID
 		}
-		return true, db.Save(&existing).Error
+		if err := db.Save(&existing).Error; err != nil {
+			return true, err
+		}
+		cooldown.ID = existing.ID
+		return true, nil
 	}
 
 	if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -155,10 +159,10 @@ func MarkDisableFailed(db *gorm.DB, id int64, lastError string, lastErrorBody st
 func MarkRecovered(db *gorm.DB, id int64) error {
 	now := timeutil.NormalizeStorageTime(time.Now())
 	return updateAuthFileCooldown(db, id, map[string]any{
-		"state":         entities.AuthFileCooldownRecovered,
-		"recovered_at":  timeutil.FormatStorageTime(now),
-		"updated_at":    timeutil.FormatStorageTime(now),
-		"last_error":    "",
+		"state":        entities.AuthFileCooldownRecovered,
+		"recovered_at": timeutil.FormatStorageTime(now),
+		"updated_at":   timeutil.FormatStorageTime(now),
+		"last_error":   "",
 	})
 }
 
@@ -166,20 +170,20 @@ func MarkRecovered(db *gorm.DB, id int64) error {
 func MarkRecoveredExternal(db *gorm.DB, id int64) error {
 	now := timeutil.NormalizeStorageTime(time.Now())
 	return updateAuthFileCooldown(db, id, map[string]any{
-		"state":         entities.AuthFileCooldownRecoveredExt,
-		"recovered_at":  timeutil.FormatStorageTime(now),
-		"updated_at":    timeutil.FormatStorageTime(now),
-		"last_error":    "",
+		"state":        entities.AuthFileCooldownRecoveredExt,
+		"recovered_at": timeutil.FormatStorageTime(now),
+		"updated_at":   timeutil.FormatStorageTime(now),
+		"last_error":   "",
 	})
 }
 
 // MarkRestoreFailed 标记 cooldown 恢复失败（增加尝试次数）。
 func MarkRestoreFailed(db *gorm.DB, id int64, lastError string) error {
 	return updateAuthFileCooldown(db, id, map[string]any{
-		"state":           entities.AuthFileCooldownRestoreFailed,
+		"state":            entities.AuthFileCooldownRestoreFailed,
 		"restore_attempts": gorm.Expr("restore_attempts + ?", 1),
-		"last_error":      lastError,
-		"updated_at":      timeutil.FormatStorageTime(time.Now()),
+		"last_error":       lastError,
+		"updated_at":       timeutil.FormatStorageTime(time.Now()),
 	})
 }
 

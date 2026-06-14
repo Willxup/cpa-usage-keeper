@@ -453,21 +453,15 @@ function QuotaInspectionModal({
     setLimitedResult('')
     try {
       const result = await cooldownDisableLimited({ auth_indexes: limitedAuthIndexes })
-      if (result.disabled > 0 || result.extended > 0 || result.skipped > 0) {
-        setLimitedResult(t('usage_stats.credentials_inspection_disable_limited_result', {
-          disabled: String(result.disabled),
-          skipped: String(result.skipped),
-          failed: String(result.failed),
-        }))
+      if (result.disabled > 0 || result.extended > 0 || result.skipped > 0 || result.failed > 0) {
+        setLimitedResult(formatDisableLimitedResult(result.disabled, result.skipped, result.failed))
       }
       await onRefreshStatus()
       if (onAfterInvalidAccountAction) {
         await onAfterInvalidAccountAction()
       }
     } catch {
-      setLimitedResult(t('usage_stats.credentials_inspection_disable_limited_result', {
-        disabled: '0', skipped: '0', failed: '1',
-      }))
+      setLimitedResult(formatDisableLimitedResult(0, 0, 1))
     } finally {
       setLimitedSubmitting(false)
     }
@@ -815,24 +809,29 @@ function QuotaUsageModeSwitch({ label, mode, onChange }: { label: string; mode: 
   )
 }
 
-// buildCooldownQuotaPanel 展示 cooldown 状态的紧凑简报。
-function buildCooldownQuotaPanel(cd: import('@/lib/types').CooldownStatusDTO, t: Translate): React.ReactNode {
-  const msg = cd.upstream_message || t('usage_stats.credentials_quota_limit_reached', 'Codex 用量已达限制')
-  let statusText = ''
+function formatDisableLimitedResult(disabled: number, skipped: number, failed: number): string {
+  return `已临时禁用 ${disabled} 个，跳过 ${skipped} 个，失败 ${failed} 个`
+}
+
+function formatCooldownStatusText(cd: import('@/lib/types').CooldownStatusDTO): string {
   if (cd.state === 'active') {
     if (cd.recover_in_seconds && cd.recover_in_seconds > 0) {
       const minutes = Math.ceil(cd.recover_in_seconds / 60)
-      statusText = t('usage_stats.credentials_cooldown_active', { minutes: String(minutes), defaultValue: `已临时禁用，约 ${minutes} 分钟后恢复` })
-    } else {
-      statusText = t('usage_stats.credentials_cooldown_active_no_recover', '已临时禁用')
+      return `已临时禁用，约 ${minutes} 分钟后恢复`
     }
-  } else if (cd.state === 'restore_failed') {
-    statusText = t('usage_stats.credentials_cooldown_restore_failed', '自动恢复失败，下轮重试')
-  } else if (cd.state === 'disable_failed') {
-    statusText = t('usage_stats.credentials_cooldown_disable_failed', '临时禁用失败')
-  } else if (cd.state === 'skipped_manual') {
-    statusText = t('usage_stats.credentials_cooldown_skipped_manual', '已手动禁用，不自动恢复')
-  } else {
+    return '已临时禁用'
+  }
+  if (cd.state === 'restore_failed') return '自动恢复失败，下轮重试'
+  if (cd.state === 'disable_failed') return '临时禁用失败'
+  if (cd.state === 'skipped_manual') return '已手动禁用，不自动恢复'
+  return ''
+}
+
+// buildCooldownQuotaPanel 展示 cooldown 状态的紧凑简报。
+function buildCooldownQuotaPanel(cd: import('@/lib/types').CooldownStatusDTO, _t: Translate): React.ReactNode {
+  const msg = cd.upstream_message || 'Codex 用量已达限制'
+  const statusText = formatCooldownStatusText(cd)
+  if (!statusText) {
     return null
   }
   return (
