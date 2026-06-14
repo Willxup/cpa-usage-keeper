@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/timeutil"
 
 	"github.com/sirupsen/logrus"
@@ -22,6 +23,7 @@ type authFileRefreshRoundSummary struct {
 	skippedCachedError int
 	skippedRunning     int
 	skippedUnsupported int
+	skippedCooldown    int
 	queuedAuthIndexes  []string
 	roundAuthIndexes   []string
 }
@@ -98,9 +100,30 @@ func (s *Service) queueAuthFileRefreshRound(ctx context.Context, now time.Time, 
 		queuedAuthIndexes: make([]string, 0, len(identities)),
 		roundAuthIndexes:  make([]string, 0, len(identities)),
 	}
+
+	// 批量查询 active cooldown，跳过已在 cooldown 的账号
+	allAuthIndexes := make([]string, 0, len(identities))
+	for _, identity := range identities {
+		authIndex := strings.TrimSpace(identity.Identity)
+		if authIndex != "" {
+			allAuthIndexes = append(allAuthIndexes, authIndex)
+		}
+	}
+	activeCooldowns := s.loadActiveCooldownIndexes(ctx, allAuthIndexes)
+	cooldownSet := make(map[string]bool, len(activeCooldowns))
+	for _, idx := range activeCooldowns {
+		cooldownSet[idx] = true
+	}
+
 	for _, identity := range identities {
 		authIndex := strings.TrimSpace(identity.Identity)
 		if authIndex == "" {
+			continue
+		}
+		// 跳过 active cooldown 的账号
+		if cooldownSet[authIndex] {
+			summary.skippedCooldown++
+			summary.roundAuthIndexes = append(summary.roundAuthIndexes, authIndex)
 			continue
 		}
 		if _, _, ok := s.resolveQuotaHandlerForIdentity(identity); !ok {
@@ -311,4 +334,23 @@ func (s *Service) shouldSkipAutoRefreshForCachedHTTPError(authIndex string, now 
 	}
 	// 只有未过期的 401/402 等配置错误会拦截自动刷新；过期后下一轮可以重新尝试并覆盖旧错误。
 	return task.ExpiresAt.IsZero() || now.Before(task.ExpiresAt)
+}
+
+// loadActiveCooldownIndexes 查询有 active/restore_failed cooldown 的 auth_index 列表。
+func (s *Service) loadActiveCooldownIndexes(ctx context.Context, authIndexes []string) []string {
+	if s.db == nil || len(authIndexes) == 0 {
+		return nil
+	}
+	cds, err := repository.ListActiveCooldownsByAuthIndexes(s.db, authIndexes, 200)
+	if err != nil {
+		logrus.WithError(err).Warn("failed to load active cooldowns for refresh skip")
+		return nil
+	}
+	result := make([]string, 0, len(cds))
+	for idx, cd := range cds {
+		if cd.State == entities.AuthFileCooldownActive || cd.State == entities.AuthFileCooldownRestoreFailed {
+			result = append(result, idx)
+		}
+	}
+	return result
 }

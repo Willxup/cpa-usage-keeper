@@ -2,10 +2,6 @@ import type { UsageIdentity, UsageQuotaRow } from '@/lib/types'
 import { calculateCacheRate, formatCompactTokenValue } from '@/utils/usage'
 
 export const CREDENTIALS_PAGE_SIZE = 10
-const FIVE_HOUR_WINDOW_SECONDS = 5 * 60 * 60
-const WEEKLY_WINDOW_SECONDS = 7 * 24 * 60 * 60
-const THIRTY_DAY_WINDOW_SECONDS = 30 * 24 * 60 * 60
-const AVERAGE_MONTH_WINDOW_SECONDS = 365 * 24 * 60 * 60 / 12
 
 type QuotaStatus = 'ok' | 'warning' | 'danger' | 'unknown'
 export type PlanTypeTone = 'free' | 'team' | 'plus' | 'pro' | 'neutral'
@@ -60,6 +56,7 @@ export interface AuthFileCredentialRow {
   quotaError?: string
   refreshStatus?: 'queued' | 'running' | 'completed' | 'failed'
   displayQuotas: DisplayQuota[]
+  cooldown?: import('@/lib/types').CooldownStatusDTO
 }
 
 export interface AiProviderCredentialRow {
@@ -159,6 +156,7 @@ export function buildAuthFileCredentialRows(
       quotaError: state?.quotaError,
       refreshStatus: state?.refreshStatus,
       displayQuotas,
+      cooldown: identity.cooldown,
     }
   })
 }
@@ -278,13 +276,13 @@ function formatQuotaWindowCost(cost: number): string {
 function quotaLabel(row: UsageQuotaRow, windowSeconds?: number): string | undefined {
   // 对已知窗口按秒数纠正标签；未知窗口不展示 Window 占位，避免误导用户。
   const label = row.label || row.metric || row.scope || row.key
-  if (windowSeconds === FIVE_HOUR_WINDOW_SECONDS) {
+  if (windowSeconds === 18000) {
     return knownWindowLabel(label, '5h')
   }
-  if (windowSeconds === WEEKLY_WINDOW_SECONDS) {
+  if (windowSeconds === 604800) {
     return knownWindowLabel(label, 'Weekly')
   }
-  if (windowSeconds === THIRTY_DAY_WINDOW_SECONDS || windowSeconds === AVERAGE_MONTH_WINDOW_SECONDS) {
+  if (windowSeconds === 2592000) {
     return knownWindowLabel(label, 'Monthly')
   }
   if (windowSeconds !== undefined) {

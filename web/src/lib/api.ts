@@ -1,4 +1,4 @@
-import { type AnalysisResponse, type AuthFilesManagementResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type KeyOverviewTimeRange, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse } from './types'
+import { type AnalysisResponse, type AuthFilesManagementResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type KeyOverviewTimeRange, type PricingEntry, type PricingResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -23,58 +23,6 @@ function normalizeBasePath(basePath: string | undefined): string {
     return ''
   }
   return basePath.endsWith('/') ? basePath.slice(0, -1) : basePath
-}
-
-function realtimeBucketSecondsForWindow(window: OverviewRealtimeWindow): number {
-  if (window === '60m') return 120
-  if (window === '30m') return 60
-  return 30
-}
-
-function normalizeOverviewRealtimeBlock(
-  block: Partial<OverviewRealtimeBlock> & {
-    current_usage?: Partial<OverviewRealtimeBlock['current_usage']>;
-    response_distribution?: Partial<OverviewRealtimeBlock['response_distribution']>;
-  },
-  fallbackWindow?: OverviewRealtimeWindow,
-): OverviewRealtimeBlock {
-  const currentUsage: Partial<OverviewRealtimeBlock['current_usage']> = block.current_usage ?? {}
-  const responseDistribution: Partial<OverviewRealtimeBlock['response_distribution']> = block.response_distribution ?? {}
-  const resolvedWindow = block.window ?? fallbackWindow ?? '15m'
-  return {
-    window: resolvedWindow,
-    timezone: block.timezone,
-    bucket_seconds: block.bucket_seconds ?? realtimeBucketSecondsForWindow(resolvedWindow),
-    token_velocity: block.token_velocity ?? [],
-    response_level: block.response_level ?? [],
-    response_distribution: {
-      ttft: {
-        average_line: responseDistribution.ttft?.average_line ?? [],
-        particles: responseDistribution.ttft?.particles ?? [],
-      },
-      latency: {
-        average_line: responseDistribution.latency?.average_line ?? [],
-        particles: responseDistribution.latency?.particles ?? [],
-      },
-    },
-    current_usage: {
-      models: currentUsage.models ?? [],
-      api_keys: currentUsage.api_keys ?? [],
-      auth_files: currentUsage.auth_files ?? [],
-      ai_providers: currentUsage.ai_providers ?? [],
-    },
-    request_level: block.request_level ?? [],
-    cache_level: block.cache_level ?? [],
-  }
-}
-
-export interface FetchKeyOverviewRealtimeOptions {
-  window?: OverviewRealtimeWindow
-  signal?: AbortSignal
-}
-
-export interface FetchUsageOverviewRealtimeOptions extends FetchKeyOverviewRealtimeOptions {
-  apiKeyId?: string
 }
 
 export function appPath(path: string): string {
@@ -160,23 +108,6 @@ export async function fetchKeyOverview(range: KeyOverviewTimeRange, signal?: Abo
   return response.json()
 }
 
-export async function fetchKeyOverviewRealtime(options: FetchKeyOverviewRealtimeOptions = {}): Promise<OverviewRealtimeBlock> {
-  const { window, signal } = options
-  const params = new URLSearchParams()
-  if (window) {
-    params.set('window', window)
-  }
-  const query = params.toString()
-  const response = await apiFetch(`${apiPath('/key-overview/realtime')}${query ? `?${query}` : ''}`, { signal })
-  if (!response.ok) {
-    await parseApiError(response, `Failed to load key overview realtime: ${response.status}`)
-  }
-  const payload = await response.json() as Partial<OverviewRealtimeBlock> & {
-    current_usage?: Partial<OverviewRealtimeBlock['current_usage']>;
-  }
-  return normalizeOverviewRealtimeBlock(payload, window)
-}
-
 export async function fetchUsageOverview(range: string, start?: string, end?: string, signal?: AbortSignal, apiKeyId?: string): Promise<UsageOverviewResponse> {
   const params = new URLSearchParams()
   params.set('range', range)
@@ -198,32 +129,10 @@ export async function fetchUsageOverview(range: string, start?: string, end?: st
   return response.json()
 }
 
-export async function fetchUsageOverviewRealtime(options: FetchUsageOverviewRealtimeOptions = {}): Promise<OverviewRealtimeBlock> {
-  const { signal, apiKeyId, window } = options
-  const params = new URLSearchParams()
-  const selectedAPIKeyId = apiKeyId?.trim()
-  if (selectedAPIKeyId) {
-    params.set('api_key_id', selectedAPIKeyId)
-  }
-  if (window) {
-    params.set('window', window)
-  }
-  const query = params.toString()
-  const response = await apiFetch(`${apiPath('/usage/overview/realtime')}${query ? `?${query}` : ''}`, { signal })
-  if (!response.ok) {
-    await parseApiError(response, `Failed to load usage overview realtime: ${response.status}`)
-  }
-  const payload = await response.json() as Partial<OverviewRealtimeBlock> & {
-    current_usage?: Partial<OverviewRealtimeBlock['current_usage']>;
-  }
-  return normalizeOverviewRealtimeBlock(payload, window)
-}
-
 export interface FetchUsageEventsOptions {
   page?: number
   pageSize?: number
   model?: string
-  // Request Events 页面沿用 Source 命名；这里传的是 usage identity，后端会转换为 auth_index 查询。
   source?: string
   result?: string
   apiKeyId?: string
@@ -266,7 +175,6 @@ export async function fetchUsageEvents(range: string, start?: string, end?: stri
   }
   const source = options?.source?.trim()
   if (source) {
-    // Source 下拉的 value 不是 usage_events.source 原始字段，而是后端用于 auth_index 查询的 identity。
     params.set('source', source)
   }
   const result = options?.result?.trim()
@@ -418,6 +326,48 @@ export async function deleteAuthFiles(names: string[]): Promise<AuthFilesManagem
   })
   if (!response.ok) {
     await parseApiError(response, `Failed to delete auth files: ${response.status}`)
+  }
+  return response.json()
+}
+
+export interface CooldownDisableLimitedRequest {
+  auth_indexes: string[]
+  items?: Array<{
+    auth_index: string
+    recover_at?: string
+    resets_in_seconds?: number
+    upstream_message?: string
+  }>
+  dry_run?: boolean
+}
+
+export interface CooldownDisableLimitedItem {
+  auth_index: string
+  auth_file_name?: string
+  status: string
+  recover_at?: string
+  message?: string
+}
+
+export interface CooldownDisableLimitedResponse {
+  total: number
+  disabled: number
+  extended: number
+  skipped: number
+  failed: number
+  items: CooldownDisableLimitedItem[]
+}
+
+export async function cooldownDisableLimited(request: CooldownDisableLimitedRequest): Promise<CooldownDisableLimitedResponse> {
+  const response = await apiFetch(apiPath('/cooldowns/inspection/disable-limited'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to disable limited accounts: ${response.status}`)
   }
   return response.json()
 }

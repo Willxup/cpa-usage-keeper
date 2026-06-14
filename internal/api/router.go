@@ -18,6 +18,7 @@ import (
 	"cpa-usage-keeper/internal/updatecheck"
 	"cpa-usage-keeper/internal/version"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 const appBasePathPlaceholder = "__APP_BASE_PATH__"
@@ -50,6 +51,8 @@ type OptionalProviders struct {
 	CPAAPIKeys    service.CPAAPIKeyProvider
 	AuthFiles     service.AuthFilesManagementProvider
 	Status        StatusRouteConfig
+	DB            *gorm.DB
+	CooldownDisabler CooldownDisabler
 }
 
 func NewRouter(
@@ -85,12 +88,16 @@ func NewRouter(
 	var cpaAPIKeyProvider service.CPAAPIKeyProvider
 	var authFilesProvider service.AuthFilesManagementProvider
 	var statusConfig StatusRouteConfig
+	var db *gorm.DB
+	var cooldownDisabler CooldownDisabler
 	if len(optionalProviders) > 0 {
 		usageIdentityProvider = optionalProviders[0].UsageIdentity
 		quotaProvider = optionalProviders[0].Quota
 		cpaAPIKeyProvider = optionalProviders[0].CPAAPIKeys
 		authFilesProvider = optionalProviders[0].AuthFiles
 		statusConfig = optionalProviders[0].Status
+		db = optionalProviders[0].DB
+		cooldownDisabler = optionalProviders[0].CooldownDisabler
 	}
 	authHandler.setCPAAPIKeyProvider(cpaAPIKeyProvider)
 
@@ -98,14 +105,16 @@ func NewRouter(
 	adminProtected.Use(authHandler.adminMiddleware())
 	registerStatusRoutes(adminProtected, statusProvider, statusConfig)
 	registerUpdateRoutes(adminProtected, nil)
-	registerUsageOverviewRoute(adminProtected, usageProvider, cpaAPIKeyProvider)
+	registerUsageOverviewRoute(adminProtected, usageProvider)
 	registerUsageAnalysisRoute(adminProtected, usageProvider, cpaAPIKeyProvider)
 	registerUsageEventsRoute(adminProtected, usageProvider, usageIdentityProvider, cpaAPIKeyProvider)
-	registerUsageIdentityRoutes(adminProtected, usageIdentityProvider)
+	registerUsageIdentityRoutes(adminProtected, usageIdentityProvider, db)
 	registerAuthFileManagementRoutes(adminProtected, authFilesProvider)
 	registerCPAAPIKeyRoutes(adminProtected, cpaAPIKeyProvider)
 	registerPricingRoutes(adminProtected, pricingProvider)
 	registerQuotaRoutes(adminProtected, quotaProvider)
+
+	registerCooldownRoutes(adminProtected, db, cooldownDisabler)
 
 	keyViewerProtected := apiV1.Group("")
 	keyViewerProtected.Use(authHandler.apiKeyViewerMiddleware())
