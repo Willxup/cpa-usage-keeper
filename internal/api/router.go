@@ -46,12 +46,12 @@ type StatusRouteConfig struct {
 }
 
 type OptionalProviders struct {
-	UsageIdentity service.UsageIdentityProvider
-	Quota         QuotaProvider
-	CPAAPIKeys    service.CPAAPIKeyProvider
-	AuthFiles     service.AuthFilesManagementProvider
-	Status        StatusRouteConfig
-	DB            *gorm.DB
+	UsageIdentity    service.UsageIdentityProvider
+	Quota            QuotaProvider
+	CPAAPIKeys       service.CPAAPIKeyProvider
+	AuthFiles        service.AuthFilesManagementProvider
+	Status           StatusRouteConfig
+	DB               *gorm.DB
 	CooldownDisabler CooldownDisabler
 }
 
@@ -68,6 +68,7 @@ func NewRouter(
 	router := gin.New()
 	_ = router.SetTrustedProxies(nil)
 	router.Use(gin.Recovery())
+	router.Use(securityHeaders())
 
 	appGroup := router.Group(basePath)
 	registerHealthRoutes(appGroup)
@@ -274,6 +275,16 @@ func registerStatusRoutes(router gin.IRoutes, statusProvider StatusProvider, con
 		}
 		c.Status(http.StatusNoContent)
 	})
+}
+
+func securityHeaders() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "DENY")
+		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		c.Next()
+	}
 }
 
 func buildStatusResponse(status poller.Status, config StatusRouteConfig) statusResponse {

@@ -3,6 +3,11 @@ import { calculateCacheRate, formatCompactTokenValue } from '@/utils/usage'
 
 export const CREDENTIALS_PAGE_SIZE = 10
 
+const FIVE_HOUR_WINDOW_SECONDS = 5 * 60 * 60
+const WEEKLY_WINDOW_SECONDS = 7 * 24 * 60 * 60
+const THIRTY_DAY_WINDOW_SECONDS = 30 * 24 * 60 * 60
+const AVERAGE_MONTH_WINDOW_SECONDS = 365 * 24 * 60 * 60 / 12
+
 type QuotaStatus = 'ok' | 'warning' | 'danger' | 'unknown'
 export type PlanTypeTone = 'free' | 'team' | 'plus' | 'pro' | 'neutral'
 
@@ -272,11 +277,6 @@ function formatQuotaWindowCost(cost: number): string {
     maximumFractionDigits: 2,
   }).format(cost || 0).replace(/^US\$/, '$')
 }
-
-const FIVE_HOUR_WINDOW_SECONDS = 18000
-const WEEKLY_WINDOW_SECONDS = 604800
-const THIRTY_DAY_WINDOW_SECONDS = 2592000
-const AVERAGE_MONTH_WINDOW_SECONDS = 2628000
 
 function quotaLabel(row: UsageQuotaRow, windowSeconds?: number): string | undefined {
   // 对已知窗口按秒数纠正标签；未知窗口不展示 Window 占位，避免误导用户。

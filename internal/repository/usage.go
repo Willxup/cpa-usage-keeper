@@ -18,6 +18,7 @@ import (
 // usageEventProjectionColumns 限制 usage_events 查询列，避免 Overview 和列表页把 RawJSON 等大字段读入内存。
 const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, model, reasoning_effort, executor_type, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, failure_status_code, failure_code, failure_message, failure_body"
 const analysisLatencyMaxDisplayPoints = 2500
+const analysisLatencyMaxSampleLimit = 100000
 
 // usageOverviewRawEventProjectionColumns 是 Overview 边界补偿和 realtime DB 兜底的最小事件投影。
 const usageOverviewRawEventProjectionColumns = "api_group_key, provider, auth_type, model, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
@@ -412,7 +413,12 @@ func buildAnalysisLatencyDiagnosticsWithFilter(db *gorm.DB, filter dto.UsageQuer
 
 	ttftValues := []int64{}
 	latencyValues := []int64{}
+	sampleCount := 0
 	for rows.Next() {
+		sampleCount++
+		if sampleCount > analysisLatencyMaxSampleLimit {
+			break
+		}
 		var latencyMS int64
 		var ttftMS sql.NullInt64
 		if err := rows.Scan(&latencyMS, &ttftMS); err != nil {

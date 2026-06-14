@@ -176,43 +176,22 @@ func (s *redisUsageSubscription) Receive(ctx context.Context) (string, error) {
 	// 循环是为了跳过 subscribe ack、空消息或非 usage channel 消息。
 	for {
 		if err := ctx.Err(); err != nil {
-			// 调用方取消时立即返回，不再阻塞网络读。
 			return "", err
 		}
-		// cancelWatchDone 用于停止取消监听 goroutine。
-		cancelWatchDone := make(chan struct{})
+		// 用 read deadline 代替 per-message goroutine：1s 轮询检查 context 取消。
 		if ctxDeadline, ok := ctx.Deadline(); ok {
-			// 有 deadline 的场景通常是 1s batch window，直接映射为 socket read deadline。
 			_ = s.conn.SetReadDeadline(ctxDeadline)
 		} else {
-			// 无 deadline 的订阅首条消息读取应无限阻塞，避免 1s 轮询消耗 CPU。
-			_ = s.conn.SetReadDeadline(time.Time{})
+			_ = s.conn.SetReadDeadline(time.Now().Add(time.Second))
 		}
-		go func() {
-			select {
-			case <-ctx.Done():
-				if errors.Is(ctx.Err(), context.Canceled) {
-					// 即使 context 有较晚 deadline，提前取消也要关闭连接唤醒阻塞读。
-					_ = s.conn.Close()
-				}
-			case <-cancelWatchDone:
-				// 正常读到消息后退出 goroutine，避免泄漏。
-			}
-		}()
-		// 从 Redis 连接读取一个完整 RESP value。
 		value, err := readRedisIngestRESPValue(s.reader)
-		// 本次 read 已结束，通知取消监听 goroutine 退出。
-		close(cancelWatchDone)
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
-				// 如果错误由 context 取消触发，优先返回 context 错误给 runner。
 				return "", ctxErr
 			}
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				// read deadline 超时但 context 还没标记完成时，继续循环再检查一次。
 				continue
 			}
-			// 其他网络/协议错误代表订阅断开。
 			return "", err
 		}
 		if value.err != "" {
