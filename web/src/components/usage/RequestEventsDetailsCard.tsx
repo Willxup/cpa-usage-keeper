@@ -8,6 +8,7 @@ import React, {
   type CSSProperties,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { FailureDetailsModal, type FailureDetailsData } from '@/components/usage/request-events/FailureDetailsModal';
 import {

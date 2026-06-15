@@ -176,7 +176,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	var cooldownRestore *cooldown.RestoreWorker
 	var cooldownService *cooldown.CooldownService
 	if cfg.CooldownEnabled {
-		cooldownService = cooldown.NewCooldownService(db, cpaClient, cfg.CooldownDryRun)
+		cooldownService = cooldown.NewCooldownService(db, cpaClient, cfg.CooldownDryRun, cfg.CooldownInspectionDefaultDuration)
 		syncService.SetCooldownHandler(cooldownService)
 
 		if cfg.CooldownRestoreEnabled {

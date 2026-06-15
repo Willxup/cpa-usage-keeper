@@ -113,6 +113,8 @@ type Config struct {
 	CooldownRestoreBatchSize int
 	// CooldownRestoreMaxAttempts 是最大恢复尝试次数，0 为无限。
 	CooldownRestoreMaxAttempts int
+	// CooldownInspectionDefaultDuration 是巡检禁用缺少恢复时间时的默认持续时长。
+	CooldownInspectionDefaultDuration time.Duration
 }
 
 type LoadOptions struct {
@@ -265,6 +267,11 @@ func Load(options LoadOptions) (*Config, error) {
 	if cooldownRestoreBatchSize < 1 {
 		return nil, fmt.Errorf("COOLDOWN_RESTORE_BATCH_SIZE must be positive")
 	}
+	cooldownInspectionDefaultDurationMin, err := getInt("COOLDOWN_INSPECTION_DEFAULT_DURATION_MINUTES", 60)
+	if err != nil {
+		return nil, err
+	}
+	cooldownInspectionDefaultDuration := time.Duration(cooldownInspectionDefaultDurationMin) * time.Minute
 
 	tlsSkipVerify, err := getBool("TLS_SKIP_VERIFY", false)
 	if err != nil {
@@ -317,12 +324,13 @@ func Load(options LoadOptions) (*Config, error) {
 		LoginPassword:            strings.TrimSpace(os.Getenv("LOGIN_PASSWORD")),
 		AuthSessionTTL:           authSessionTTL,
 
-		CooldownEnabled:             cooldownEnabled,
-		CooldownDryRun:              cooldownDryRun,
-		CooldownRestoreEnabled:      cooldownRestoreEnabled,
-		CooldownRestoreScanInterval: cooldownRestoreScanInterval,
-		CooldownRestoreBatchSize:    cooldownRestoreBatchSize,
-		CooldownRestoreMaxAttempts:  cooldownRestoreMaxAttempts,
+		CooldownEnabled:                   cooldownEnabled,
+		CooldownDryRun:                    cooldownDryRun,
+		CooldownRestoreEnabled:            cooldownRestoreEnabled,
+		CooldownRestoreScanInterval:       cooldownRestoreScanInterval,
+		CooldownRestoreBatchSize:          cooldownRestoreBatchSize,
+		CooldownRestoreMaxAttempts:        cooldownRestoreMaxAttempts,
+		CooldownInspectionDefaultDuration: cooldownInspectionDefaultDuration,
 	}
 	if cfg.CPABaseURL == "" {
 		return nil, fmt.Errorf("CPA_BASE_URL is required")

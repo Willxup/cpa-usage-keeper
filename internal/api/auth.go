@@ -24,8 +24,9 @@ const (
 )
 
 type loginAttemptRecord struct {
-	count    int
-	lockedAt time.Time
+	count         int
+	lockedAt      time.Time
+	lastAttemptAt time.Time
 }
 
 type AuthConfig struct {
@@ -302,6 +303,7 @@ func (h *authHandler) recordFailedAttempt(key string) {
 		h.failedAttempts[key] = rec
 	}
 	rec.count++
+	rec.lastAttemptAt = time.Now()
 	if rec.count >= maxFailedLoginAttempts {
 		rec.lockedAt = time.Now()
 	}
@@ -320,8 +322,15 @@ func (h *authHandler) cleanExpiredLoginAttemptsLocked() {
 	}
 	h.lastLoginCleanup = now
 	for k, rec := range h.failedAttempts {
+		// 已锁定且锁定时间过期
 		if !rec.lockedAt.IsZero() && now.Sub(rec.lockedAt) >= loginLockDuration {
 			delete(h.failedAttempts, k)
+			continue
+		}
+		// 未锁定但最后一次失败已超过锁定窗口，清理避免内存泄漏
+		if rec.lockedAt.IsZero() && !rec.lastAttemptAt.IsZero() && now.Sub(rec.lastAttemptAt) >= loginLockDuration {
+			delete(h.failedAttempts, k)
+			continue
 		}
 	}
 }

@@ -24,19 +24,24 @@ type CooldownClient interface {
 
 // CooldownService 处理 Codex 429 usage_limit_reached 事件的自动禁用逻辑。
 type CooldownService struct {
-	db     *gorm.DB
-	client CooldownClient
-	dryRun bool
-	now    func() time.Time
+	db                        *gorm.DB
+	client                    CooldownClient
+	dryRun                    bool
+	inspectionDefaultDuration time.Duration
+	now                       func() time.Time
 }
 
 // NewCooldownService 创建 CooldownService。
-func NewCooldownService(db *gorm.DB, client CooldownClient, dryRun bool) *CooldownService {
+func NewCooldownService(db *gorm.DB, client CooldownClient, dryRun bool, inspectionDefaultDuration time.Duration) *CooldownService {
+	if inspectionDefaultDuration <= 0 {
+		inspectionDefaultDuration = 60 * time.Minute
+	}
 	return &CooldownService{
-		db:     db,
-		client: client,
-		dryRun: dryRun,
-		now:    time.Now,
+		db:                        db,
+		client:                    client,
+		dryRun:                    dryRun,
+		inspectionDefaultDuration: inspectionDefaultDuration,
+		now:                       time.Now,
 	}
 }
 
@@ -155,11 +160,11 @@ func (s *CooldownService) HandleUsageLimit429(ctx context.Context, tel *service.
 		s.recordCooldownError(tel, recoverAt, fmt.Sprintf("fetch auth files: %v", err))
 		return fmt.Errorf("fetch auth files for cooldown: %w", err)
 	}
-	if authFilesResult == nil {
+	if authFilesResult == nil || authFilesResult.Payload.Files == nil {
 		logrus.WithField("auth_index", tel.AuthIndex).
-			Error("FetchAuthFiles returned nil result")
-		s.recordCooldownError(tel, recoverAt, "FetchAuthFiles returned nil result")
-		return fmt.Errorf("FetchAuthFiles returned nil result for cooldown")
+			Error("FetchAuthFiles returned nil result or payload")
+		s.recordCooldownError(tel, recoverAt, "FetchAuthFiles returned nil result or payload")
+		return fmt.Errorf("FetchAuthFiles returned nil result or payload for cooldown")
 	}
 
 	info := findCodexAuthFileByAuthIndex(authFilesResult.Payload.Files, tel.AuthIndex)

@@ -535,10 +535,25 @@ func (s *SyncService) persistRedisUsageEvents(db *gorm.DB, events []entities.Usa
 	return &servicedto.SyncResult{Status: "completed", InsertedEvents: inserted, DedupedEvents: deduped}, nil
 }
 
+// codex429RecoverAt 把 telemetry 的恢复时间统一转成绝对 time.Time，用于去重比较。
+func codex429RecoverAt(now time.Time, tel *Codex429Telemetry) time.Time {
+	if tel == nil {
+		return time.Time{}
+	}
+	if tel.ResetsAt != nil && !tel.ResetsAt.IsZero() {
+		return *tel.ResetsAt
+	}
+	if tel.ResetsInSec != nil && *tel.ResetsInSec > 0 {
+		return now.Add(time.Duration(*tel.ResetsInSec) * time.Second)
+	}
+	return time.Time{}
+}
+
 // processCooldownEvents 在 usage events 入库后处理 cooldown 逻辑。
 // 按 auth_index 去重，同一批次只保留 recover_at 最晚的事件，避免重复调用 FetchAuthFiles。
 func (s *SyncService) processCooldownEvents(ctx context.Context, inboxRows []entities.RedisUsageInbox) {
-	// 去重：同 auth_index 只保留 recover_at 最晚的 telemetry
+	now := s.now()
+	// 去重：同 auth_index 只保留统一绝对 recover_at 更晚的 telemetry
 	deduped := make(map[string]*Codex429Telemetry, len(inboxRows))
 	for _, row := range inboxRows {
 		tel := ExtractCodex429Telemetry([]byte(row.RawMessage))
@@ -547,10 +562,7 @@ func (s *SyncService) processCooldownEvents(ctx context.Context, inboxRows []ent
 		}
 		key := tel.AuthIndex
 		if existing, ok := deduped[key]; ok {
-			// 保留 recover_at 更晚的
-			if tel.ResetsAt != nil && (existing.ResetsAt == nil || tel.ResetsAt.After(*existing.ResetsAt)) {
-				deduped[key] = tel
-			} else if tel.ResetsInSec != nil && existing.ResetsInSec != nil && *tel.ResetsInSec > *existing.ResetsInSec {
+			if codex429RecoverAt(now, tel).After(codex429RecoverAt(now, existing)) {
 				deduped[key] = tel
 			}
 		} else {
