@@ -59,6 +59,7 @@ type cooldownAuthFileInfo struct {
 	Name     string
 	Path     string
 	Disabled bool
+	Found    bool
 }
 
 // DisableLimitedInspectionAccounts 处理巡检发现的限额账号临时禁用。

@@ -40,31 +40,23 @@ func NewCooldownService(db *gorm.DB, client CooldownClient, dryRun bool) *Cooldo
 	}
 }
 
-// codexAuthFileInfo 是从 CPA auth files 解析出的单条 codex 账号信息，仅供 cooldown 内部使用。
-type codexAuthFileInfo struct {
-	Name             string
-	Path             string
-	PreviousDisabled bool
-	Found            bool
-}
-
 // findCodexAuthFileByAuthIndex 在 CPA auth files 中按 auth_index 查找 codex 账号。
-func findCodexAuthFileByAuthIndex(files []authfiles.AuthFile, authIndex string) codexAuthFileInfo {
+func findCodexAuthFileByAuthIndex(files []authfiles.AuthFile, authIndex string) cooldownAuthFileInfo {
 	for _, file := range files {
 		if strings.TrimSpace(file.Provider) != "codex" || strings.TrimSpace(file.AuthIndex) != authIndex {
 			continue
 		}
-		info := codexAuthFileInfo{
+		info := cooldownAuthFileInfo{
 			Name:  strings.TrimSpace(file.Name),
 			Path:  strings.TrimSpace(file.Path),
 			Found: true,
 		}
 		if file.Disabled != nil {
-			info.PreviousDisabled = *file.Disabled
+			info.Disabled = *file.Disabled
 		}
 		return info
 	}
-	return codexAuthFileInfo{}
+	return cooldownAuthFileInfo{}
 }
 
 // recordCooldownError 只记录错误日志，不写入 active cooldown。
@@ -177,7 +169,7 @@ func (s *CooldownService) HandleUsageLimit429(ctx context.Context, tel *service.
 		return nil
 	}
 
-	disabledByKeeper := !info.PreviousDisabled
+	disabledByKeeper := !info.Disabled
 	cd := buildAuthFileCooldown(authFileCooldownBuildOptions{
 		AuthFileName:     info.Name,
 		AuthFilePath:     info.Path,
@@ -186,7 +178,7 @@ func (s *CooldownService) HandleUsageLimit429(ctx context.Context, tel *service.
 		Reason:           entities.AuthFileCooldownReasonCodex429,
 		Owner:            entities.AuthFileCooldownOwnerUsage429,
 		Source:           entities.AuthFileCooldownSourceRequestEvent,
-		PreviousDisabled: info.PreviousDisabled,
+		PreviousDisabled: info.Disabled,
 		DisabledByKeeper: disabledByKeeper,
 		UpstreamCode:     429,
 		UpstreamMessage:  "usage_limit_reached",
