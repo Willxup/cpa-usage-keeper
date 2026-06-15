@@ -147,7 +147,7 @@ func (w *RestoreWorker) Run(ctx context.Context) error {
 // restoreDue 扫描并恢复已到期的 cooldown 记录。
 func (w *RestoreWorker) restoreDue(ctx context.Context) error {
 	now := timeutil.NormalizeStorageTime(w.config.Now())
-	dueRecords, err := repository.ListDueCooldowns(w.db, now, w.config.BatchSize)
+	dueRecords, err := repository.ListDueCooldowns(w.db, now, w.config.BatchSize, w.config.MaxAttempts)
 	if err != nil {
 		return fmt.Errorf("list due cooldowns: %w", err)
 	}
@@ -163,7 +163,7 @@ func (w *RestoreWorker) restoreDue(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("fetch auth files for restore: %w", err)
 	}
-	if authFilesResult == nil {
+	if authFilesResult == nil || authFilesResult.Payload.Files == nil {
 		return fmt.Errorf("FetchAuthFiles returned nil result or payload for restore")
 	}
 

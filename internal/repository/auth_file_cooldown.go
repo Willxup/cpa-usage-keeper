@@ -107,7 +107,8 @@ func UpsertOrExtendActiveCooldown(db *gorm.DB, cooldown *entities.AuthFileCooldo
 
 // ListDueCooldowns 查询到期待恢复的 cooldown 记录。
 // state in (active, restore_failed) AND recover_at <= now。
-func ListDueCooldowns(db *gorm.DB, now time.Time, limit int) ([]entities.AuthFileCooldown, error) {
+// 当 maxAttempts > 0 时，排除 restore_failed 且 restore_attempts >= maxAttempts 的记录，避免饿死队列。
+func ListDueCooldowns(db *gorm.DB, now time.Time, limit int, maxAttempts int) ([]entities.AuthFileCooldown, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
 	}
@@ -119,11 +120,21 @@ func ListDueCooldowns(db *gorm.DB, now time.Time, limit int) ([]entities.AuthFil
 	}
 	normalizedNow := timeutil.FormatStorageTime(now)
 	var rows []entities.AuthFileCooldown
-	err := db.Where(
-		"state IN ? AND recover_at <= ?",
-		[]entities.AuthFileCooldownState{entities.AuthFileCooldownActive, entities.AuthFileCooldownRestoreFailed},
-		normalizedNow,
-	).Order("recover_at ASC").Limit(limit).Find(&rows).Error
+	query := db.Where("recover_at <= ?", normalizedNow)
+	if maxAttempts > 0 {
+		// active 状态全查；restore_failed 只查 restore_attempts < maxAttempts
+		query = query.Where(
+			"(state = ?) OR (state = ? AND restore_attempts < ?)",
+			entities.AuthFileCooldownActive,
+			entities.AuthFileCooldownRestoreFailed,
+			maxAttempts,
+		)
+	} else {
+		query = query.Where("state IN ?",
+			[]entities.AuthFileCooldownState{entities.AuthFileCooldownActive, entities.AuthFileCooldownRestoreFailed},
+		)
+	}
+	err := query.Order("recover_at ASC").Limit(limit).Find(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("list due cooldowns: %w", err)
 	}
@@ -296,7 +307,7 @@ func ListActiveCooldownsByAuthIndexes(db *gorm.DB, authIndexes []string, limit i
 			entities.AuthFileCooldownDisableFailed,
 			entities.AuthFileCooldownSkippedManual,
 		},
-	).Find(&rows).Error; err != nil {
+	).Order("auth_index ASC, updated_at ASC, id ASC").Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("list cooldowns by auth indexes: %w", err)
 	}
 	result := make(map[string]*entities.AuthFileCooldown, len(rows))

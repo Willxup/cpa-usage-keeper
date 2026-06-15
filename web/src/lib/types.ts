@@ -290,6 +290,10 @@ export interface UsageQuotaInspectionResult {
   error?: string
   http_status_code?: number
   refreshed_at?: string
+  recover_at?: string
+  resets_at?: string
+  resets_in_seconds?: number
+  request_id?: string
 }
 
 export interface UsageQuotaInspectionStatusResponse {

@@ -401,11 +401,7 @@ function QuotaInspectionModal({
     const items = action === 'disable_limited' ? limitedItems : invalidItems
     setAccountAction(action)
     setAccountItems(items)
-    // disable_limited 时跳过无恢复时间的项，不让用户选中无法提交的账号
-    const selectableKeys = action === 'disable_limited'
-      ? items.filter((item) => item.canDisableLimited !== false).map((item) => item.key)
-      : items.map((item) => item.key)
-    setSelectedKeys(selectableKeys)
+    setSelectedKeys(items.map((item) => item.key))
     setAccountError('')
   }
   const closeAccountAction = () => {
@@ -421,14 +417,12 @@ function QuotaInspectionModal({
       return current.filter((k) => k !== key)
     })
   }
-  const selectAllKeys = () => setSelectedKeys(accountItems.filter((item) => !(accountAction === 'disable_limited' && item.canDisableLimited === false)).map((item) => item.key))
+  const selectAllKeys = () => setSelectedKeys(accountItems.map((item) => item.key))
   const invertKeys = () => {
-    const eligible = accountAction === 'disable_limited'
-      ? accountItems.filter((item) => item.canDisableLimited !== false).map((item) => item.key)
-      : accountItems.map((item) => item.key)
+    const allKeys = accountItems.map((item) => item.key)
     setSelectedKeys((current) => {
       const selected = new Set(current)
-      return eligible.filter((key) => !selected.has(key))
+      return allKeys.filter((key) => !selected.has(key))
     })
   }
   const handleConfirmAccountAction = async () => {
@@ -669,21 +663,15 @@ function InspectionAccountActionModal({
         </div>
         <div className={styles.credentialInvalidAccountList}>
           {items.map((item) => {
-            const limitedBlocked = action === 'disable_limited' && item.canDisableLimited === false
             return (
               <label key={item.key} className={styles.credentialInvalidAccountItem}>
                 <input
                   type="checkbox"
                   checked={selectedKeys.includes(item.key)}
                   onChange={(event) => onToggleKey(item.key, event.target.checked)}
-                  disabled={submitting || limitedBlocked}
+                  disabled={submitting}
                 />
                 <span>{item.label}</span>
-                {limitedBlocked && (
-                  <span className={styles.credentialInlineError} style={{ marginLeft: 8, fontSize: 12 }}>
-                    {t('usage_stats.credentials_inspection_limited_no_recover_time')}
-                  </span>
-                )}
               </label>
             )
           })}

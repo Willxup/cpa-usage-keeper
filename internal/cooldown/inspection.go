@@ -135,8 +135,8 @@ func (s *CooldownService) DisableLimitedInspectionAccounts(ctx context.Context, 
 			continue
 		}
 
-		// 3. 解析 recover_at：优先用请求项里的值，没有则用 existing cooldown 兜底。
-		//    巡检结果不含 recover_at，所以大多数情况下走 existing 兜底路径。
+		// 3. 解析 recover_at：优先用请求项里的值，没有则用 existing cooldown 兜底，
+		//    最后使用默认持续时长。巡检结果不含 recover_at，所以大多数情况下走兜底路径。
 		var recoverAt time.Time
 		var resolveErr error
 		if reqItem != nil {
@@ -155,10 +155,12 @@ func (s *CooldownService) DisableLimitedInspectionAccounts(ctx context.Context, 
 		if resolveErr != nil {
 			if existingCooldown != nil {
 				// 请求没带 recover_at，但已有 active cooldown：用 existing 的 recover_at。
-				// UpsertOrExtendActiveCooldown 会判断是否需要 extend（新值不晚于旧值则 unchanged）。
 				recoverAt = existingCooldown.RecoverAt
+			} else if s.inspectionDefaultDuration > 0 {
+				// 使用默认持续时长兜底
+				recoverAt = now.Add(s.inspectionDefaultDuration)
 			} else {
-				// 既没有请求 recover_at，也没有现有 cooldown：无法创建，明确提示。
+				// 既没有请求 recover_at，也没有现有 cooldown，也没有默认时长：无法创建。
 				item.Status = "skipped_missing_recover_at"
 				item.Message = "cannot resolve recover_at (not in request, no existing cooldown): " + resolveErr.Error()
 				result.Skipped++
