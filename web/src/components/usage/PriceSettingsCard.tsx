@@ -135,6 +135,18 @@ export const markPricingSyncFailures = (
   });
 };
 
+export const notifyPricingSyncUnexpectedError = (
+  error: unknown,
+  t: (key: string) => string,
+  onNotice: PriceSettingsCardProps['onNotice'],
+) => {
+  const message = error instanceof Error ? error.message : '';
+  onNotice?.(
+    'error',
+    `${t('usage_stats.model_price_sync_failed')}${message ? `: ${message}` : ''}`,
+  );
+};
+
 const pricingStyleOptions = (t: (key: string) => string): SelectOption[] => [
   { value: 'openai', label: t('usage_stats.model_price_style_openai') },
   { value: 'claude', label: t('usage_stats.model_price_style_claude') },
@@ -361,6 +373,8 @@ export function PriceSettingsCard({
           failed: result.failures.length,
         }),
       );
+    } catch (error) {
+      notifyPricingSyncUnexpectedError(error, t, onNotice);
     } finally {
       setSyncApplying(false);
     }

@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import {
   buildPricingModelOptions,
   markPricingSyncFailures,
+  notifyPricingSyncUnexpectedError,
   PriceSettingsCard,
   type PricingSyncDraft,
 } from './PriceSettingsCard';
@@ -115,6 +116,21 @@ describe('PriceSettingsCard', () => {
     expect(source).toContain('IconCircleAlert');
     expect(source).toContain('syncDraftFailureIcon');
     expect(source).toContain('model_price_sync_apply_partial');
+  });
+
+  it('notifies when pricing sync throws an unexpected error', () => {
+    const notices: Array<{ kind: string; message: string }> = [];
+
+    notifyPricingSyncUnexpectedError(
+      new Error('connection reset'),
+      (key) => (key === 'usage_stats.model_price_sync_failed' ? 'Unable to sync model prices' : key),
+      (kind, message) => notices.push({ kind, message }),
+    );
+
+    expect(notices).toEqual([
+      { kind: 'error', message: 'Unable to sync model prices: connection reset' },
+    ]);
+    expect(source).toContain('notifyPricingSyncUnexpectedError(error, t, onNotice)');
   });
 });
 
