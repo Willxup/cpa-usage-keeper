@@ -387,3 +387,316 @@ func TestDecodeRedisUsageMessageNotFailedNoFailureFields(t *testing.T) {
 		t.Fatalf("expected empty FailureBody, got %q", event.FailureBody)
 	}
 }
+
+// --- OpenAI / Codex style ---
+
+func TestDecodeRedisUsageMessageOpenAICodexError(t *testing.T) {
+	fetchedAt := time.Date(2026, 6, 14, 10, 0, 0, 0, time.UTC)
+	event, _, err := DecodeRedisUsageMessage(`{
+		"request_id": "test-openai-1",
+		"failed": true,
+		"status_code": 429,
+		"error": {
+			"message": "The usage limit has been reached",
+			"type": "usage_limit_reached",
+			"code": "usage_limit_reached",
+			"response_body": "{\"error\":{\"message\":\"The usage limit has been reached\",\"type\":\"usage_limit_reached\",\"code\":\"usage_limit_reached\"}}"
+		},
+		"provider": "openai",
+		"endpoint": "/v1/chat/completions"
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
+	}
+	if event.FailureStatusCode == nil || *event.FailureStatusCode != 429 {
+		t.Fatalf("expected FailureStatusCode==429, got %+v", event.FailureStatusCode)
+	}
+	if event.FailureCode != "usage_limit_reached" {
+		t.Fatalf("expected FailureCode==usage_limit_reached, got %q", event.FailureCode)
+	}
+	if event.FailureMessage != "The usage limit has been reached" {
+		t.Fatalf("expected FailureMessage, got %q", event.FailureMessage)
+	}
+	if event.FailureBody == "" {
+		t.Fatal("expected FailureBody non-empty")
+	}
+}
+
+// --- Anthropic / Claude style ---
+
+func TestDecodeRedisUsageMessageAnthropicWrapperError(t *testing.T) {
+	fetchedAt := time.Date(2026, 6, 14, 10, 0, 0, 0, time.UTC)
+	event, _, err := DecodeRedisUsageMessage(`{
+		"request_id": "test-anthropic-1",
+		"failed": true,
+		"status_code": 401,
+		"error": {
+			"type": "error",
+			"error": {"type": "authentication_error", "message": "invalid x-api-key"}
+		},
+		"provider": "claude",
+		"endpoint": "/v1/messages"
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
+	}
+	if event.FailureStatusCode == nil || *event.FailureStatusCode != 401 {
+		t.Fatalf("expected FailureStatusCode==401, got %+v", event.FailureStatusCode)
+	}
+	if event.FailureCode != "authentication_error" {
+		t.Fatalf("expected FailureCode==authentication_error, got %q", event.FailureCode)
+	}
+	if event.FailureMessage != "invalid x-api-key" {
+		t.Fatalf("expected FailureMessage, got %q", event.FailureMessage)
+	}
+}
+
+// --- Gemini / Google style ---
+
+func TestDecodeRedisUsageMessageGeminiNumericCode(t *testing.T) {
+	fetchedAt := time.Date(2026, 6, 14, 10, 0, 0, 0, time.UTC)
+	event, _, err := DecodeRedisUsageMessage(`{
+		"request_id": "test-gemini-1",
+		"failed": true,
+		"status_code": 0,
+		"error": {
+			"code": 429,
+			"message": "Resource exhausted",
+			"status": "RESOURCE_EXHAUSTED",
+			"response_body": "{\"error\":{\"code\":429,\"message\":\"Resource exhausted\",\"status\":\"RESOURCE_EXHAUSTED\"}}"
+		},
+		"provider": "gemini",
+		"endpoint": "/v1beta/models/generateContent"
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
+	}
+	if event.FailureStatusCode == nil || *event.FailureStatusCode != 429 {
+		t.Fatalf("expected FailureStatusCode==429, got %+v", event.FailureStatusCode)
+	}
+	if event.FailureCode != "resource_exhausted" {
+		t.Fatalf("expected FailureCode==resource_exhausted, got %q", event.FailureCode)
+	}
+	if event.FailureMessage != "Resource exhausted" {
+		t.Fatalf("expected FailureMessage, got %q", event.FailureMessage)
+	}
+}
+
+// --- OpenRouter / gateway style ---
+
+func TestDecodeRedisUsageMessageOpenRouterNumericCode(t *testing.T) {
+	fetchedAt := time.Date(2026, 6, 14, 10, 0, 0, 0, time.UTC)
+	event, _, err := DecodeRedisUsageMessage(`{
+		"request_id": "test-or-1",
+		"failed": true,
+		"status_code": 429,
+		"error": {
+			"message": "Provider returned error",
+			"code": 429,
+			"response_body": "{\"error\":{\"message\":\"Provider returned error\",\"code\":429}}"
+		},
+		"provider": "openrouter",
+		"endpoint": "/v1/chat/completions"
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
+	}
+	if event.FailureStatusCode == nil || *event.FailureStatusCode != 429 {
+		t.Fatalf("expected FailureStatusCode==429, got %+v", event.FailureStatusCode)
+	}
+	// code=429 is numeric, should not appear as FailureCode
+	if event.FailureCode != "" {
+		t.Fatalf("expected empty FailureCode for numeric code, got %q", event.FailureCode)
+	}
+	if event.FailureMessage != "Provider returned error" {
+		t.Fatalf("expected FailureMessage, got %q", event.FailureMessage)
+	}
+}
+
+// --- CPA body / body_text / bodyText variants ---
+
+func TestDecodeRedisUsageMessageCPABodyVariants(t *testing.T) {
+	fetchedAt := time.Date(2026, 6, 14, 10, 0, 0, 0, time.UTC)
+	// Test body field
+	event, _, err := DecodeRedisUsageMessage(`{
+		"request_id": "test-cpa-body-1",
+		"failed": true,
+		"status_code": 502,
+		"error": {
+			"type": "bad_gateway",
+			"message": "upstream error",
+			"body": "{\"error\":{\"message\":\"upstream error\"}}"
+		},
+		"provider": "openai",
+		"endpoint": "/v1/chat/completions"
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
+	}
+	if event.FailureBody == "" {
+		t.Fatal("expected FailureBody non-empty from body field")
+	}
+	// Test body_text field
+	event, _, err = DecodeRedisUsageMessage(`{
+		"request_id": "test-cpa-body-2",
+		"failed": true,
+		"status_code": 503,
+		"error": {
+			"type": "service_unavailable",
+			"body_text": "Service Unavailable"
+		},
+		"provider": "openai",
+		"endpoint": "/v1/chat/completions"
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
+	}
+	if event.FailureBody == "" {
+		t.Fatal("expected FailureBody non-empty from body_text field")
+	}
+	if event.FailureMessage != "Service Unavailable" {
+		t.Fatalf("expected FailureMessage from body_text fallback, got %q", event.FailureMessage)
+	}
+}
+
+// --- Status code only, no body ---
+
+func TestDecodeRedisUsageMessageStatusCodeOnly(t *testing.T) {
+	fetchedAt := time.Date(2026, 6, 14, 10, 0, 0, 0, time.UTC)
+	event, _, err := DecodeRedisUsageMessage(`{
+		"request_id": "test-status-only",
+		"failed": true,
+		"status_code": 500,
+		"provider": "openai",
+		"endpoint": "/v1/chat/completions"
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
+	}
+	if event.FailureStatusCode == nil || *event.FailureStatusCode != 500 {
+		t.Fatalf("expected FailureStatusCode==500, got %+v", event.FailureStatusCode)
+	}
+	if event.FailureCode != "" {
+		t.Fatalf("expected empty FailureCode, got %q", event.FailureCode)
+	}
+	if event.FailureMessage != "" {
+		t.Fatalf("expected empty FailureMessage, got %q", event.FailureMessage)
+	}
+}
+
+// --- Sanitization: JSON token fields and Cookie ---
+
+func TestDecodeRedisUsageMessageSanitizeJSONTokenFields(t *testing.T) {
+	fetchedAt := time.Date(2026, 6, 14, 10, 0, 0, 0, time.UTC)
+	sensitiveBody := `{"access_token": "real_access_token_123", "refresh_token": "real_refresh_456", "api_key": "sk-proj-realkey", "token": "bearer_tok_789", "Cookie": "session=abc123", "error": "bad"}`
+	event, _, err := DecodeRedisUsageMessage(`{
+		"request_id": "test-sanitize-json",
+		"failed": true,
+		"status_code": 401,
+		"error": {
+			"type": "unauthorized",
+			"message": "bad token",
+			"response_body": "` + strings.ReplaceAll(sensitiveBody, `"`, `\"`) + `"
+		},
+		"provider": "openai",
+		"endpoint": "/v1/chat/completions"
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
+	}
+	body := event.FailureBody
+	if strings.Contains(body, "real_access_token_123") {
+		t.Fatal("body should not contain access_token value")
+	}
+	if strings.Contains(body, "real_refresh_456") {
+		t.Fatal("body should not contain refresh_token value")
+	}
+	if strings.Contains(body, "sk-proj-realkey") {
+		t.Fatal("body should not contain api_key value")
+	}
+	if strings.Contains(body, "bearer_tok_789") {
+		t.Fatal("body should not contain token value")
+	}
+	if strings.Contains(body, "session=abc123") {
+		t.Fatal("body should not contain Cookie value")
+	}
+	if !strings.Contains(body, "[redacted]") {
+		t.Fatal("body should contain [redacted] placeholder")
+	}
+}
+
+// --- Anthropic wrapper: ensure type=="error" is handled ---
+
+func TestDecodeRedisUsageMessageAnthropicTypeEwrapper(t *testing.T) {
+	fetchedAt := time.Date(2026, 6, 14, 10, 0, 0, 0, time.UTC)
+	event, _, err := DecodeRedisUsageMessage(`{
+		"request_id": "test-anthropic-2",
+		"failed": true,
+		"status_code": 403,
+		"error": {
+			"type": "error",
+			"error": {"type": "permission_denied", "message": "access blocked"}
+		},
+		"provider": "claude",
+		"endpoint": "/v1/messages"
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
+	}
+	if event.FailureCode != "permission_denied" {
+		t.Fatalf("expected FailureCode==permission_denied, got %q", event.FailureCode)
+	}
+	if event.FailureMessage != "access blocked" {
+		t.Fatalf("expected FailureMessage, got %q", event.FailureMessage)
+	}
+}
+
+// --- Gemini status code from error.code when top-level status_code is 0 ---
+
+func TestDecodeRedisUsageMessageGeminiStatusCodeFromBody(t *testing.T) {
+	fetchedAt := time.Date(2026, 6, 14, 10, 0, 0, 0, time.UTC)
+	event, _, err := DecodeRedisUsageMessage(`{
+		"request_id": "test-gemini-2",
+		"failed": true,
+		"status_code": 0,
+		"error": {
+			"code": 503,
+			"message": "Service unavailable",
+			"status": "UNAVAILABLE"
+		},
+		"provider": "gemini",
+		"endpoint": "/v1beta/models/generateContent"
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
+	}
+	if event.FailureStatusCode == nil || *event.FailureStatusCode != 503 {
+		t.Fatalf("expected FailureStatusCode==503, got %+v", event.FailureStatusCode)
+	}
+}
+
+// --- Failed with error but no response_body: body falls back to marshal ---
+
+func TestDecodeRedisUsageMessageErrorBodyFallbackMarshal(t *testing.T) {
+	fetchedAt := time.Date(2026, 6, 14, 10, 0, 0, 0, time.UTC)
+	event, _, err := DecodeRedisUsageMessage(`{
+		"request_id": "test-fallback-marshal",
+		"failed": true,
+		"status_code": 400,
+		"error": {
+			"type": "invalid_request",
+			"message": "bad request"
+		},
+		"provider": "openai",
+		"endpoint": "/v1/chat/completions"
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
+	}
+	if event.FailureBody == "" {
+		t.Fatal("expected FailureBody non-empty from marshal fallback")
+	}
+	if event.FailureCode != "invalid_request" {
+		t.Fatalf("expected FailureCode==invalid_request, got %q", event.FailureCode)
+	}
+}

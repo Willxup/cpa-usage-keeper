@@ -34,6 +34,18 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build frontend (required by go:embed)
+        run: |
+          npm --prefix ./web ci
+          npm --prefix ./web run build
+
       - name: Set up MSYS2
         if: ${{ runner.os == 'Windows' }}
         uses: msys2/setup-msys2@v2
