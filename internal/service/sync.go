@@ -181,12 +181,17 @@ func (s *SyncService) CleanupRedisUsageInbox(ctx context.Context) error {
 	return err
 }
 
-// CleanupStorage 是每日 03:00 维护任务调用的统一入口：先清 Redis inbox，最后 VACUUM 收缩 SQLite。
+// CleanupStorage 是每日 04:30 维护任务调用的统一入口：先清 Redis inbox 和过期 usage_events，最后 VACUUM 收缩 SQLite。
 func (s *SyncService) CleanupStorage(ctx context.Context) error {
 	if err := s.validate(syncMetadataOptional); err != nil {
 		return err
 	}
-	_, err := repository.CleanupStorage(s.db, s.now())
+	result, err := repository.CleanupStorage(s.db, s.now())
+	logrus.WithFields(logrus.Fields{
+		"redis_processed_deleted": result.RedisInbox.ProcessedDeleted,
+		"redis_failed_deleted":    result.RedisInbox.FailedDeleted,
+		"usage_events_deleted":    result.UsageEventsDeleted,
+	}).Debug("storage cleanup finished")
 	return err
 }
 

@@ -59,7 +59,7 @@ func TestWriterWriteDatabaseUsesLocalDateDirectory(t *testing.T) {
 		t.Fatalf("create table: %v", err)
 	}
 	writer := NewWriter(root)
-	backupAt := time.Date(2026, 4, 16, 4, 0, 0, 0, time.Local)
+	backupAt := time.Date(2026, 4, 15, 20, 0, 0, 0, time.UTC)
 
 	path, err := writer.WriteDatabase(context.Background(), source, backupAt)
 	if err != nil {
@@ -176,9 +176,16 @@ func TestCleanupUsesLocalDateBoundaries(t *testing.T) {
 	time.Local = time.FixedZone("Test/Local", 8*60*60)
 	t.Cleanup(func() { time.Local = previousLocal })
 	root := t.TempDir()
-	keepDir := filepath.Join(root, "2026-04-15")
+	oldDir := filepath.Join(root, "2026-04-15")
+	keepDir := filepath.Join(root, "2026-04-16")
+	if err := os.MkdirAll(oldDir, 0o700); err != nil {
+		t.Fatalf("create old dir: %v", err)
+	}
 	if err := os.MkdirAll(keepDir, 0o700); err != nil {
 		t.Fatalf("create keep dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(oldDir, "database_old.db"), []byte("old"), 0o600); err != nil {
+		t.Fatalf("write old backup: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(keepDir, "database_keep.db"), []byte("keep"), 0o600); err != nil {
 		t.Fatalf("write keep backup: %v", err)
@@ -188,8 +195,49 @@ func TestCleanupUsesLocalDateBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Cleanup returned error: %v", err)
 	}
-	if removed != 0 {
-		t.Fatalf("expected local-date retention to keep previous local day, removed %d", removed)
+	if removed != 1 {
+		t.Fatalf("expected local-date retention to keep only current local day, removed %d", removed)
+	}
+
+	files, err := ListFiles(root)
+	if err != nil {
+		t.Fatalf("ListFiles returned error: %v", err)
+	}
+	if len(files) != 1 || filepath.Base(filepath.Dir(files[0])) != "2026-04-16" {
+		t.Fatalf("unexpected remaining files: %+v", files)
+	}
+}
+
+func TestCleanupRemovesBackupDirectoryOutsideRetentionCount(t *testing.T) {
+	previousLocal := time.Local
+	time.Local = time.FixedZone("Test/Local", 8*60*60)
+	t.Cleanup(func() { time.Local = previousLocal })
+	root := t.TempDir()
+	expiredDir := filepath.Join(root, "2026-04-09")
+	keepDir := filepath.Join(root, "2026-04-10")
+	for _, dir := range []string{expiredDir, keepDir} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatalf("create backup dir %s: %v", dir, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "database.db"), []byte("backup"), 0o600); err != nil {
+			t.Fatalf("write backup file %s: %v", dir, err)
+		}
+	}
+
+	removed, err := Cleanup(root, 7, time.Date(2026, 4, 16, 4, 30, 0, 0, time.Local))
+	if err != nil {
+		t.Fatalf("Cleanup returned error: %v", err)
+	}
+	if removed != 1 {
+		t.Fatalf("expected one backup directory outside 7-day retention to be removed, got %d", removed)
+	}
+
+	files, err := ListFiles(root)
+	if err != nil {
+		t.Fatalf("ListFiles returned error: %v", err)
+	}
+	if len(files) != 1 || filepath.Base(filepath.Dir(files[0])) != "2026-04-10" {
+		t.Fatalf("unexpected remaining files: %+v", files)
 	}
 }
 

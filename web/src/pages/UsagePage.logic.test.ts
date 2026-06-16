@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildCustomDateRangeQuery, getBackToCPALinkURL, getCredentialSectionVisibility, getCustomDateRangeBounds, getOverviewDisplayLoading, getTimeRangeOptions, getUsageTabOptions, isCustomDateWithinBounds, isUsagePageVisible, loadRequestEventsPreferences, normalizeRequestEventsPreferences, normalizeUsageTabValue, openDateInputPicker, refreshPageData, REQUEST_EVENTS_PREFERENCES_STORAGE_KEY, sanitizeRequestEventFilters, saveRequestEventsPreferences, scheduleOverviewAutoRefresh, scheduleStatusActiveHeartbeat, shouldAutoRefreshUsageTab, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowUpdateCheckButton, STATUS_ACTIVE_HEARTBEAT_INTERVAL_MS, getUpdateCheckToastDuration } from './UsagePage';
+import { buildCustomDateRangeQuery, clampCustomDateRangeToBounds, getBackToCPALinkURL, getCredentialSectionVisibility, getCustomDateRangeBounds, getOverviewDisplayLoading, getTimeRangeOptions, getUsageTabOptions, isCustomDateWithinBounds, isUsagePageVisible, loadRequestEventsPreferences, normalizeRequestEventsPreferences, normalizeUsageTabValue, openDateInputPicker, refreshPageData, REQUEST_EVENTS_PREFERENCES_STORAGE_KEY, sanitizeRequestEventFilters, saveRequestEventsPreferences, scheduleOverviewAutoRefresh, scheduleStatusActiveHeartbeat, shouldAutoRefreshUsageTab, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowUpdateCheckButton, STATUS_ACTIVE_HEARTBEAT_INTERVAL_MS, getUpdateCheckToastDuration } from './UsagePage';
 import { REQUEST_EVENT_COLUMN_IDS } from '@/components/usage/RequestEventsDetailsCard';
 import type { StatusResponse, UsageFilterWindow } from '@/lib/types';
 
@@ -623,6 +623,15 @@ describe('UsagePage custom date input bounds', () => {
     expect(isCustomDateWithinBounds('2026-04-01', bounds)).toBe(true);
     expect(isCustomDateWithinBounds('2026-05-14', bounds)).toBe(false);
     expect(isCustomDateWithinBounds('2026-03-31', bounds)).toBe(false);
+  });
+
+  it('clamps saved Custom dates to the moving bounds', () => {
+    const bounds = { min: '2026-05-01', max: '2026-06-16' };
+
+    expect(clampCustomDateRangeToBounds({ start: '2026-04-20', end: '2026-06-20' }, bounds)).toEqual({
+      start: '2026-05-01',
+      end: '2026-06-16',
+    });
   });
 
   it('opens the native date picker when the date field is activated', () => {

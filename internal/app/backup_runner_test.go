@@ -13,11 +13,11 @@ func TestNextDailyBackupAtUsesLocal0400(t *testing.T) {
 	time.Local = time.FixedZone("Test/Local", 8*60*60)
 	t.Cleanup(func() { time.Local = previousLocal })
 
-	before := time.Date(2026, 4, 16, 3, 30, 0, 0, time.Local)
+	before := time.Date(2026, 4, 15, 19, 30, 0, 0, time.UTC)
 	if got := nextDailyBackupAt(before); !got.Equal(time.Date(2026, 4, 16, 4, 0, 0, 0, time.Local)) {
 		t.Fatalf("expected same-day 04:00 backup, got %s", got)
 	}
-	after := time.Date(2026, 4, 16, 4, 1, 0, 0, time.Local)
+	after := time.Date(2026, 4, 15, 20, 1, 0, 0, time.UTC)
 	if got := nextDailyBackupAt(after); !got.Equal(time.Date(2026, 4, 17, 4, 0, 0, 0, time.Local)) {
 		t.Fatalf("expected next-day 04:00 backup, got %s", got)
 	}

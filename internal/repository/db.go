@@ -150,22 +150,45 @@ func InsertUsageEvents(db *gorm.DB, events []entities.UsageEvent) (int, int, err
 	return inserted, 0, nil
 }
 
-// CleanupStorage 是每日维护任务的统一仓储清理入口：先清 Redis inbox，再清 Overview health 细粒度统计，最后执行 VACUUM。
+// CleanupStorage 是每日维护任务的统一仓储清理入口：先清 Redis inbox 和过期 usage_events，再清 Overview health 细粒度统计，最后执行 VACUUM。
 // VACUUM 必须在删除完成后单独执行，任何一步失败都会停止后续步骤并把已完成部分的结果返回给上层日志。
 func CleanupStorage(db *gorm.DB, now time.Time) (dto.StorageCleanupResult, error) {
 	redisResult, err := CleanupRedisUsageInbox(db, now)
 	if err != nil {
 		return dto.StorageCleanupResult{RedisInbox: redisResult}, err
 	}
+	usageEventsDeleted, err := CleanupUsageEvents(db, now)
+	if err != nil {
+		return dto.StorageCleanupResult{RedisInbox: redisResult, UsageEventsDeleted: usageEventsDeleted}, err
+	}
 	// Health stats 只服务最近窗口展示，过期数据在每日维护中清掉，避免表无限增长。
 	if err := CleanupUsageOverviewHealthStats(db, now); err != nil {
-		return dto.StorageCleanupResult{RedisInbox: redisResult}, err
+		return dto.StorageCleanupResult{RedisInbox: redisResult, UsageEventsDeleted: usageEventsDeleted}, err
 	}
 	// SQLite 删除不会立即缩小文件，维护窗口最后统一 VACUUM。
 	if err := db.Exec("VACUUM").Error; err != nil {
-		return dto.StorageCleanupResult{RedisInbox: redisResult}, err
+		return dto.StorageCleanupResult{RedisInbox: redisResult, UsageEventsDeleted: usageEventsDeleted}, err
 	}
-	return dto.StorageCleanupResult{RedisInbox: redisResult}, nil
+	return dto.StorageCleanupResult{RedisInbox: redisResult, UsageEventsDeleted: usageEventsDeleted}, nil
+}
+
+// CleanupUsageEvents 删除当前页面查询窗口外的原始 usage_events，保留从上个月 1 日本地零点开始的数据。
+func CleanupUsageEvents(db *gorm.DB, now time.Time) (int64, error) {
+	if db == nil {
+		return 0, fmt.Errorf("database is nil")
+	}
+	cutoff := usageEventsCleanupCutoff(now)
+	result := db.Where("timestamp < ?", timeutil.FormatStorageTime(cutoff)).Delete(&entities.UsageEvent{})
+	if result.Error != nil {
+		return result.RowsAffected, fmt.Errorf("cleanup usage events: %w", result.Error)
+	}
+	return result.RowsAffected, nil
+}
+
+func usageEventsCleanupCutoff(now time.Time) time.Time {
+	localNow := now.In(time.Local)
+	currentMonthStart := time.Date(localNow.Year(), localNow.Month(), 1, 0, 0, 0, 0, time.Local)
+	return currentMonthStart.AddDate(0, -1, 0)
 }
 
 // Vacuum 提供单独的 SQLite 收缩入口，供需要只做文件整理的调用方使用。

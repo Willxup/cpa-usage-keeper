@@ -19,7 +19,7 @@ func (s *maintenanceSyncStub) CleanupStorage(context.Context) error {
 	return nil
 }
 
-func TestNextDailyCleanupAtUsesLocalThreeAM(t *testing.T) {
+func TestNextDailyCleanupAtUsesLocal0430(t *testing.T) {
 	previousLocal := time.Local
 	location, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {
@@ -29,12 +29,12 @@ func TestNextDailyCleanupAtUsesLocalThreeAM(t *testing.T) {
 	t.Cleanup(func() { time.Local = previousLocal })
 
 	before := nextDailyCleanupAt(time.Date(2026, 4, 26, 18, 30, 0, 0, time.UTC))
-	if !before.Equal(time.Date(2026, 4, 26, 19, 0, 0, 0, time.UTC)) {
-		t.Fatalf("expected same local day 03:00 cleanup, got %s", before)
+	if !before.Equal(time.Date(2026, 4, 26, 20, 30, 0, 0, time.UTC)) {
+		t.Fatalf("expected same local day 04:30 cleanup, got %s", before)
 	}
 	after := nextDailyCleanupAt(time.Date(2026, 4, 26, 20, 30, 0, 0, time.UTC))
-	if !after.Equal(time.Date(2026, 4, 27, 19, 0, 0, 0, time.UTC)) {
-		t.Fatalf("expected next local day 03:00 cleanup, got %s", after)
+	if !after.Equal(time.Date(2026, 4, 27, 20, 30, 0, 0, time.UTC)) {
+		t.Fatalf("expected next local day 04:30 cleanup, got %s", after)
 	}
 }
 
@@ -71,8 +71,8 @@ func TestStorageCleanupRunnerRunsAtScheduledTime(t *testing.T) {
 	runner.sleep = func(_ context.Context, d time.Duration) bool {
 		calls++
 		if calls == 1 {
-			if d != 30*time.Minute {
-				t.Fatalf("expected cleanup sleep until local 03:00, got %s", d)
+			if d != 2*time.Hour {
+				t.Fatalf("expected cleanup sleep until local 04:30, got %s", d)
 			}
 			return true
 		}

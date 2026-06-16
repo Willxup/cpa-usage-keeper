@@ -241,7 +241,13 @@ func TestUsageOverviewResponseIncludesResolvedRangeAndTimezone(t *testing.T) {
 
 	provider := &usageFilterStub{overview: &servicedto.UsageOverviewSnapshot{}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview?range=custom&start=2026-04-20&end=2026-04-21", nil)
+	retentionStart, ok := usageFilterRetentionStart(time.Now())
+	if !ok {
+		t.Fatal("expected current time to provide a retention start")
+	}
+	startDate := retentionStart.Format(time.DateOnly)
+	endDate := retentionStart.AddDate(0, 0, 1).Format(time.DateOnly)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview?range=custom&start="+startDate+"&end="+endDate, nil)
 	resp := httptest.NewRecorder()
 
 	router.ServeHTTP(resp, req)
@@ -249,8 +255,8 @@ func TestUsageOverviewResponseIncludesResolvedRangeAndTimezone(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
-	expectedStart := time.Date(2026, 4, 20, 0, 0, 0, 0, location).Format(time.RFC3339Nano)
-	expectedEnd := time.Date(2026, 4, 22, 0, 0, 0, 0, location).Add(-time.Nanosecond).Format(time.RFC3339Nano)
+	expectedStart := retentionStart.Format(time.RFC3339Nano)
+	expectedEnd := retentionStart.AddDate(0, 0, 2).Add(-time.Nanosecond).Format(time.RFC3339Nano)
 	body := resp.Body.String()
 	if !contains(body, `"timezone":"Asia/Shanghai"`) || !contains(body, `"range_start":"`+expectedStart+`"`) || !contains(body, `"range_end":"`+expectedEnd+`"`) {
 		t.Fatalf("expected overview response to include resolved range and timezone, got %s", body)

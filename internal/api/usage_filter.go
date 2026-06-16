@@ -145,6 +145,9 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (servicedto.Usag
 		if startTime.After(endTime) {
 			return servicedto.UsageFilter{}, fmt.Errorf("custom range start must be before end")
 		}
+		if retentionStart, ok := usageFilterRetentionStart(anchor); ok && startTime.Before(retentionStart) {
+			return servicedto.UsageFilter{}, fmt.Errorf("custom range start must be on or after %s", retentionStart.Format(time.DateOnly))
+		}
 		filter.StartTime = &startTime
 		filter.EndTime = &endTime
 		return filter, nil
@@ -159,6 +162,15 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (servicedto.Usag
 		filter.EndTime = &endTime
 		return filter, nil
 	}
+}
+
+func usageFilterRetentionStart(anchor time.Time) (time.Time, bool) {
+	if anchor.IsZero() {
+		return time.Time{}, false
+	}
+	localAnchor := timeutil.NormalizeStorageTime(anchor)
+	currentMonthStart := time.Date(localAnchor.Year(), localAnchor.Month(), 1, 0, 0, 0, 0, time.Local)
+	return currentMonthStart.AddDate(0, -1, 0), true
 }
 
 func parseUsageRealtimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {

@@ -540,6 +540,21 @@ export const isCustomDateWithinBounds = (value: string, bounds: { min: string; m
   value === '' || (value >= bounds.min && value <= bounds.max)
 );
 
+const clampCustomDateValueToBounds = (value: string, bounds: { min: string; max: string }) => {
+  if (value === '') return value;
+  if (value < bounds.min) return bounds.min;
+  if (value > bounds.max) return bounds.max;
+  return value;
+};
+
+export const clampCustomDateRangeToBounds = (
+  range: { start: string; end: string },
+  bounds: { min: string; max: string },
+) => ({
+  start: clampCustomDateValueToBounds(range.start, bounds),
+  end: clampCustomDateValueToBounds(range.end, bounds),
+});
+
 export const openDateInputPicker = (input: HTMLInputElement) => {
   try {
     input.showPicker?.();
@@ -682,8 +697,14 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [customTimeRange, setCustomTimeRange] = useState<{ start: string; end: string }>(loadCustomTimeRange);
   const [selectedApiKeyId, setSelectedApiKeyId] = useState('');
   const [apiKeyOptions, setApiKeyOptions] = useState<CpaApiKeyOption[]>([]);
+  const [status, setStatus] = useState<StatusResponse | null>(null);
   const apiKeyOptionsRequestControllerRef = useRef<AbortController | null>(null);
   const credentialSectionVisibility = getCredentialSectionVisibility(activeTab);
+  const customDateRangeBounds = useMemo(() => getCustomDateRangeBounds(Date.now(), status?.timezone), [status?.timezone]);
+  const effectiveCustomTimeRange = useMemo(
+    () => clampCustomDateRangeToBounds(customTimeRange, customDateRangeBounds),
+    [customDateRangeBounds.max, customDateRangeBounds.min, customTimeRange.end, customTimeRange.start],
+  );
 
   const {
     usage,
@@ -694,8 +715,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   } = useUsageData({
     onAuthRequired,
     range: timeRange,
-    customStart: customTimeRange.start,
-    customEnd: customTimeRange.end,
+    customStart: effectiveCustomTimeRange.start,
+    customEnd: effectiveCustomTimeRange.end,
     enabled: activeTab === 'overview',
     apiKeyId: selectedApiKeyId,
   });
@@ -728,7 +749,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [apiKeySettingsError, setApiKeySettingsError] = useState('');
   const [apiKeySettingsSavingId, setApiKeySettingsSavingId] = useState<string | null>(null);
   const apiKeySettingsRequestControllerRef = useRef<AbortController | null>(null);
-  const [status, setStatus] = useState<StatusResponse | null>(null);
   const [statusError, setStatusError] = useState('');
   const [updateCheckLoading, setUpdateCheckLoading] = useState(false);
   const [topNotice, setTopNotice] = useState<{ kind: TopNoticeKind; message: string } | null>(null);
@@ -915,7 +935,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [onAuthRequired, showTopNotice, t]);
 
   const loadAnalysis = useCallback(async () => {
-    const queryWindow = buildUsageRangeQuery({ range: timeRange, customStart: customTimeRange.start, customEnd: customTimeRange.end });
+    const queryWindow = buildUsageRangeQuery({
+      range: timeRange,
+      customStart: effectiveCustomTimeRange.start,
+      customEnd: effectiveCustomTimeRange.end,
+    });
     if (!queryWindow.valid) {
       analysisRequestControllerRef.current?.abort();
       analysisRequestControllerRef.current = null;
@@ -957,9 +981,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         analysisRequestControllerRef.current = null;
       }
     }
-  }, [customTimeRange.end, customTimeRange.start, onAuthRequired, selectedApiKeyId, timeRange]);
+  }, [effectiveCustomTimeRange.end, effectiveCustomTimeRange.start, onAuthRequired, selectedApiKeyId, timeRange]);
   const isCustomRange = timeRange === 'custom';
-  const customDateRangeBounds = useMemo(() => getCustomDateRangeBounds(Date.now(), status?.timezone), [status?.timezone]);
   const handleCustomDateInputKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Tab') return;
     event.preventDefault();
@@ -968,6 +991,14 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const handleCustomDateInputActivate = useCallback((event: SyntheticEvent<HTMLInputElement>) => {
     openDateInputPicker(event.currentTarget);
   }, []);
+
+  useEffect(() => {
+    setCustomTimeRange((current) => {
+      const next = clampCustomDateRangeToBounds(current, customDateRangeBounds);
+      if (next.start === current.start && next.end === current.end) return current;
+      return next;
+    });
+  }, [customDateRangeBounds.max, customDateRangeBounds.min]);
 
   useEffect(() => {
     try {
@@ -1089,9 +1120,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, []);
 
   const getEventQueryWindow = useCallback(() => {
-    const query = buildUsageRangeQuery({ range: timeRange, customStart: customTimeRange.start, customEnd: customTimeRange.end });
+    const query = buildUsageRangeQuery({
+      range: timeRange,
+      customStart: effectiveCustomTimeRange.start,
+      customEnd: effectiveCustomTimeRange.end,
+    });
     return { valid: query.valid, start: query.start, end: query.end };
-  }, [customTimeRange.end, customTimeRange.start, timeRange]);
+  }, [effectiveCustomTimeRange.end, effectiveCustomTimeRange.start, timeRange]);
 
   const loadEventFilterOptions = useCallback(async () => {
     eventsFilterOptionsRequestControllerRef.current?.abort();

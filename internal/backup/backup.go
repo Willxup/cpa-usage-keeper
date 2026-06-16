@@ -141,7 +141,8 @@ func Cleanup(dir string, retentionDays int, now time.Time) (int, error) {
 	}
 
 	localNow := now.In(time.Local)
-	cutoff := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, time.Local).AddDate(0, 0, -retentionDays)
+	localDayStart := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, time.Local)
+	keepStart := localDayStart.AddDate(0, 0, -(retentionDays - 1))
 	removed := 0
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -152,7 +153,7 @@ func Cleanup(dir string, retentionDays int, now time.Time) (int, error) {
 		if err != nil {
 			continue
 		}
-		if backupDay.Before(cutoff.Truncate(24 * time.Hour)) {
+		if backupDay.Before(keepStart) {
 			if err := os.RemoveAll(filepath.Join(dir, entry.Name())); err != nil {
 				return removed, fmt.Errorf("remove expired backup directory %s: %w", entry.Name(), err)
 			}
