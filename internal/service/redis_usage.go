@@ -21,7 +21,7 @@ var (
 	reTokenValue    = regexp.MustCompile(`(?i)((?:access_token|refresh_token)\s*[=:]\s*)"?[A-Za-z0-9._\-]+"?`)
 	reURL           = regexp.MustCompile(`https?://[^\s"',}\]]+`)
 	reMultiSpace    = regexp.MustCompile(`\s{2,}`)
-	reJSONTokenField = regexp.MustCompile(`(?i)"(?:access_token|refresh_token|api_key|authorization|token)"\s*:\s*"[^"]*"`)
+	reJSONTokenField = regexp.MustCompile(`(?i)"(?:access_token|refresh_token|api_key|authorization|token|cookie|set-cookie)"\s*:\s*"[^"]*"`)
 )
 
 type RedisQueue interface {
@@ -307,6 +307,13 @@ func resolveFailureCodeInfo(errBody *errorTelemetryBody) (string, bool, *nestedE
 			initialCode = s
 		}
 	}
+	// Gemini error.status 是非数字 code（如 RESOURCE_EXHAUSTED），
+	// 当 initialCode 为纯数字时用作回退，避免 code 被清空。
+	if !isWrapper && isNumericString(initialCode) {
+		if s := rawMessageToString(errBody.Status); s != "" && !isNumericString(s) {
+			initialCode = s
+		}
+	}
 	return initialCode, isWrapper, nested
 }
 
@@ -339,7 +346,7 @@ func normalizeFailureCode(code string) string {
 	if isNumericString(code) {
 		return ""
 	}
-	return code
+	return strings.ToLower(code)
 }
 
 // normalizeFailureMessage 从 error 结构中提取消息。
