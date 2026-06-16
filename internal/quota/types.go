@@ -2,6 +2,7 @@ package quota
 
 import (
 	"context"
+	"time"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
 	"cpa-usage-keeper/internal/entities"
@@ -27,23 +28,27 @@ type QuotaWindow struct {
 }
 
 type QuotaRow struct {
-	Key               string       `json:"key"`
-	Label             string       `json:"label,omitempty"`
-	Scope             string       `json:"scope,omitempty"`
-	Metric            string       `json:"metric,omitempty"`
-	PlanType          string       `json:"planType,omitempty"`
-	Used              *float64     `json:"used,omitempty"`
-	Limit             *float64     `json:"limit,omitempty"`
-	Remaining         *float64     `json:"remaining,omitempty"`
-	UsedPercent       *float64     `json:"usedPercent,omitempty"`
-	RemainingFraction *float64     `json:"remainingFraction,omitempty"`
-	Allowed           *bool        `json:"allowed,omitempty"`
-	LimitReached      *bool        `json:"limitReached,omitempty"`
-	Window            *QuotaWindow `json:"window,omitempty"`
-	ResetAt           string       `json:"resetAt,omitempty"`
-	ResetAfterSeconds *int64       `json:"resetAfterSeconds,omitempty"`
-	WindowUsageTokens *int64       `json:"window_usage_tokens,omitempty"`
-	WindowUsageCost   *float64     `json:"window_usage_cost,omitempty"`
+	Key                      string       `json:"key"`
+	Label                    string       `json:"label,omitempty"`
+	Scope                    string       `json:"scope,omitempty"`
+	Metric                   string       `json:"metric,omitempty"`
+	PlanType                 string       `json:"planType,omitempty"`
+	Used                     *float64     `json:"used,omitempty"`
+	Limit                    *float64     `json:"limit,omitempty"`
+	Remaining                *float64     `json:"remaining,omitempty"`
+	UsedPercent              *float64     `json:"usedPercent,omitempty"`
+	RemainingFraction        *float64     `json:"remainingFraction,omitempty"`
+	Allowed                  *bool        `json:"allowed,omitempty"`
+	LimitReached             *bool        `json:"limitReached,omitempty"`
+	Window                   *QuotaWindow `json:"window,omitempty"`
+	ResetAt                  string       `json:"resetAt,omitempty"`
+	ResetAfterSeconds        *int64       `json:"resetAfterSeconds,omitempty"`
+	WindowUsageTokens        *int64       `json:"window_usage_tokens,omitempty"`
+	WindowUsageCost          *float64     `json:"window_usage_cost,omitempty"`
+	WindowUsageSource        string       `json:"window_usage_source,omitempty"`
+	WindowUsageCostAvailable *bool        `json:"window_usage_cost_available,omitempty"`
+	WindowUsageMissingPrices []string     `json:"window_usage_missing_prices,omitempty"`
+	WindowUsageCalculatedAt  *time.Time   `json:"window_usage_calculated_at,omitempty"`
 }
 
 type AntigravityQuotaInfo struct {

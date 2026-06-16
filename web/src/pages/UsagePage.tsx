@@ -793,10 +793,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     modelPrices,
     loading: pricingLoading,
     error: pricingError,
+    pricingSyncing,
+    pricingSyncStatus,
     loadPricing,
     setModelPrices,
     syncModelPrices,
     previewPricingSync,
+    syncPricing,
   } = usePricingData({
     onAuthRequired,
     enabled: activeTab === 'settings',
@@ -1928,6 +1931,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   onSyncPricesChange={syncModelPrices}
                   onSyncPreview={previewPricingSync}
                   onNotice={showTopNotice}
+                  onSyncPrices={syncPricing}
+                  pricingSyncing={pricingSyncing}
+                  pricingSyncStatus={pricingSyncStatus}
                   loading={pricingLoading}
                 />
               </div>

@@ -16,6 +16,8 @@ type pricingStub struct {
 	pricing    []entities.ModelPriceSetting
 	preview    servicedto.PricingSyncPreview
 	updated    *entities.ModelPriceSetting
+	syncResult servicedto.PricingSyncResult
+	syncStatus servicedto.PricingSyncStatus
 	lastUpdate *servicedto.UpdatePricingInput
 	deleted    string
 	err        error
@@ -41,6 +43,17 @@ func (s *pricingStub) UpdatePricing(_ context.Context, input servicedto.UpdatePr
 func (s *pricingStub) DeletePricing(_ context.Context, model string) error {
 	s.deleted = model
 	return s.err
+}
+
+func (s *pricingStub) SyncPricing(_ context.Context, input servicedto.SyncPricingInput) (servicedto.PricingSyncResult, error) {
+	if input.OverwriteManual {
+		s.syncResult.SkippedManualModels = []string{}
+	}
+	return s.syncResult, s.err
+}
+
+func (s *pricingStub) GetPricingSyncStatus(context.Context) servicedto.PricingSyncStatus {
+	return s.syncStatus
 }
 
 func TestPricingRoutesReturnEmptyResponsesWithoutProvider(t *testing.T) {
@@ -185,5 +198,29 @@ func TestDeletePricingRoute(t *testing.T) {
 	}
 	if provider.deleted != "openai/gpt-4.1" {
 		t.Fatalf("expected model to be deleted, got %q", provider.deleted)
+	}
+}
+
+func TestSyncPricingRoute(t *testing.T) {
+	provider := &pricingStub{
+		syncResult: servicedto.PricingSyncResult{
+			Source:              "litellm",
+			SourceURL:           "https://example.test/prices.json",
+			ModelsChecked:       2,
+			CreatedModels:       []string{"gpt-5.4"},
+			UpdatedModels:       []string{"gpt-5.5"},
+			MissingModels:       []string{"missing-model"},
+			SkippedManualModels: []string{"manual-model"},
+		},
+	}
+	router := NewRouter(nil, nil, nil, provider, AuthConfig{}, nil, "")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pricing/sync", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK || !contains(resp.Body.String(), `"source":"litellm"`) || !contains(resp.Body.String(), `"created_models":["gpt-5.4"]`) {
+		t.Fatalf("unexpected sync response: %d %s", resp.Code, resp.Body.String())
 	}
 }

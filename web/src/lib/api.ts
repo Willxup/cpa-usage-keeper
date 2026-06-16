@@ -1,4 +1,4 @@
-import { type AnalysisResponse, type AuthFilesManagementResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type KeyOverviewTimeRange, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingSyncPreviewResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse } from './types'
+import { type AnalysisResponse, type AuthFilesManagementResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type KeyOverviewTimeRange, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingSyncPreviewResponse, type PricingSyncResponse, type PricingSyncStatusResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -525,6 +525,28 @@ export async function fetchPricingSyncPreview(signal?: AbortSignal): Promise<Pri
   const response = await apiFetch(apiPath('/pricing/sync/preview'), { signal, cache: 'no-store' })
   if (!response.ok) {
     await parseApiError(response, `Failed to preview pricing sync: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchPricingSyncStatus(signal?: AbortSignal): Promise<PricingSyncStatusResponse> {
+  const response = await apiFetch(apiPath('/pricing/sync'), { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load pricing sync status: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function syncPricingFromLiteLLM(overwriteManual = false): Promise<PricingSyncResponse> {
+  const response = await apiFetch(apiPath('/pricing/sync'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ overwrite_manual: overwriteManual }),
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to sync pricing: ${response.status}`)
   }
   return response.json()
 }

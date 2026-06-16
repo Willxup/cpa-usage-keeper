@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -16,8 +17,10 @@ import (
 const quotaWindowRawOnlyThreshold = 5 * time.Hour
 
 type UsageWindowStats struct {
-	Tokens int64
-	Cost   float64
+	Tokens        int64
+	Cost          float64
+	CostAvailable bool
+	MissingPrices []string
 }
 
 type usageWindowTokenStats struct {
@@ -251,21 +254,39 @@ func usageWindowTokenStatsValues(merged map[string]usageWindowTokenStats) []usag
 
 func usageWindowStatsFromTokenStats(rows []usageWindowTokenStats, pricingByModel map[string]entities.ModelPriceSetting) UsageWindowStats {
 	// 初始化最终返回的 token/cost 汇总。
-	stats := UsageWindowStats{}
+	stats := UsageWindowStats{CostAvailable: true}
+	missingPrices := make(map[string]struct{})
 	// 遍历每个 model 的聚合 token。
 	for _, row := range rows {
 		// total_tokens 直接累计到前端展示的窗口 token。
 		stats.Tokens += row.TotalTokens
 		// model 名称按 trim 后查价格，保持和其它 Overview/Usage cost 逻辑一致。
-		pricing := pricingByModel[strings.TrimSpace(row.Model)]
-		// 使用统一 helper 按当前价格表计算该 model 的 cost。
-		stats.Cost += helper.CalculateUsageTokenCost(helper.UsageTokenCostInput{
+		model := strings.TrimSpace(row.Model)
+		pricing, ok := pricingByModel[model]
+		costInput := helper.UsageTokenCostInput{
 			InputTokens:         row.InputTokens,
 			OutputTokens:        row.OutputTokens,
 			CachedTokens:        row.CachedTokens,
 			CacheReadTokens:     row.CacheReadTokens,
 			CacheCreationTokens: row.CacheCreationTokens,
-		}, pricing)
+		}
+		if !ok && helper.UsageTokenInputRequiresPricing(costInput) {
+			stats.CostAvailable = false
+			if model == "" {
+				model = "unknown"
+			}
+			missingPrices[model] = struct{}{}
+			continue
+		}
+		// 使用统一 helper 按当前价格表计算该 model 的 cost。
+		stats.Cost += helper.CalculateUsageTokenCost(costInput, pricing)
+	}
+	if len(missingPrices) > 0 {
+		stats.MissingPrices = make([]string, 0, len(missingPrices))
+		for model := range missingPrices {
+			stats.MissingPrices = append(stats.MissingPrices, model)
+		}
+		sort.Strings(stats.MissingPrices)
 	}
 	// 返回最终窗口统计。
 	return stats

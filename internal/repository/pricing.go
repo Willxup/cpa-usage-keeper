@@ -7,8 +7,11 @@ import (
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository/dto"
+	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
 )
+
+const ModelPriceSourceManual = "manual"
 
 var modelPriceSettingColumns = []string{
 	"id",
@@ -18,6 +21,9 @@ var modelPriceSettingColumns = []string{
 	"completion_price_per1_m",
 	"cache_price_per1_m",
 	"cache_creation_price_per1_m",
+	"source",
+	"source_url",
+	"synced_at",
 	"created_at",
 	"updated_at",
 }
@@ -94,6 +100,16 @@ func UpsertModelPriceSetting(db *gorm.DB, input dto.ModelPriceSettingInput) (*en
 	setting.CompletionPricePer1M = input.CompletionPricePer1M
 	setting.CachePricePer1M = input.CachePricePer1M
 	setting.CacheCreationPricePer1M = input.CacheCreationPricePer1M
+	setting.Source = strings.TrimSpace(input.Source)
+	if setting.Source == "" {
+		setting.Source = ModelPriceSourceManual
+	}
+	setting.SourceURL = strings.TrimSpace(input.SourceURL)
+	setting.SyncedAt = nil
+	if input.SyncedAt != nil {
+		syncedAt := timeutil.NormalizeStorageTime(*input.SyncedAt)
+		setting.SyncedAt = &syncedAt
+	}
 
 	if err := db.Save(setting).Error; err != nil {
 		return nil, fmt.Errorf("save pricing setting: %w", err)

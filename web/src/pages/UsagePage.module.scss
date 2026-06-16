@@ -1705,6 +1705,40 @@
   font-weight: 700;
 }
 
+.pricingSyncSummary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 86%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+}
+
+.pricingSyncMeta,
+.pricingSyncCounts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.pricingSyncMeta span,
+.pricingSyncCounts span {
+  min-width: 0;
+}
+
+.pricingSyncError {
+  color: var(--danger-color);
+  font-size: 10px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
 .priceForm {
   padding: 12px;
   background: color-mix(in srgb, var(--bg-secondary) 68%, transparent);

@@ -150,6 +150,9 @@ func TestAttachWindowUsageStatsOnlyBackfillsMissingKnownWindowScopeRows(t *testi
 	if providerWindow.WindowUsageCost == nil || math.Abs(*providerWindow.WindowUsageCost-0.42) > 0.000000001 {
 		t.Fatalf("expected provider window_usage_cost to be preserved, got %#v", providerWindow.WindowUsageCost)
 	}
+	if providerWindow.WindowUsageSource != quotaWindowUsageSourceProvider || providerWindow.WindowUsageCostAvailable == nil || !*providerWindow.WindowUsageCostAvailable {
+		t.Fatalf("expected provider window usage metadata, got source=%q cost_available=%#v", providerWindow.WindowUsageSource, providerWindow.WindowUsageCostAvailable)
+	}
 
 	additional := findQuotaUsageStatsRow(t, response.Quota, "additional_rate_limits.GPT-5.3-Codex-Spark.primary_window")
 	if additional.WindowUsageTokens != nil || additional.WindowUsageCost != nil {
@@ -162,6 +165,9 @@ func TestAttachWindowUsageStatsOnlyBackfillsMissingKnownWindowScopeRows(t *testi
 	}
 	if weeklyWindow.WindowUsageCost == nil || *weeklyWindow.WindowUsageCost != 0 {
 		t.Fatalf("expected missing weekly window cost to be backfilled from usage_events, got %#v", weeklyWindow.WindowUsageCost)
+	}
+	if weeklyWindow.WindowUsageSource != quotaWindowUsageSourceLocal || weeklyWindow.WindowUsageCostAvailable == nil || !*weeklyWindow.WindowUsageCostAvailable || weeklyWindow.WindowUsageCalculatedAt == nil {
+		t.Fatalf("expected local weekly metadata, got source=%q cost_available=%#v calculated_at=%#v", weeklyWindow.WindowUsageSource, weeklyWindow.WindowUsageCostAvailable, weeklyWindow.WindowUsageCalculatedAt)
 	}
 	monthlyWindow := findQuotaUsageStatsRow(t, response.Quota, "rate_limit.monthly_window")
 	if monthlyWindow.WindowUsageTokens == nil || *monthlyWindow.WindowUsageTokens != 222 {
@@ -235,6 +241,44 @@ func TestAttachWindowUsageStatsBackfillsBothFieldsWhenProviderWindowUsageIncompl
 	}
 	if costOnly.WindowUsageCost == nil || *costOnly.WindowUsageCost != 0 {
 		t.Fatalf("expected incomplete provider cost to be replaced by local usage, got %#v", costOnly.WindowUsageCost)
+	}
+}
+
+func TestAttachWindowUsageStatsSurfacesMissingPricesWithoutZeroCost(t *testing.T) {
+	db := openQuotaUsageStatsTestDB(t)
+	service := &Service{db: db}
+	windowSeconds := int64(5 * 60 * 60)
+	resetAt := time.Date(2026, 6, 2, 5, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 6, 2, 3, 0, 0, 0, time.UTC)
+
+	if err := db.Create(&entities.UsageEvent{
+		AuthIndex:   "auth-missing-price",
+		Model:       "unpriced-model",
+		Timestamp:   now.Add(-time.Hour),
+		InputTokens: 500_000,
+		TotalTokens: 500_000,
+	}).Error; err != nil {
+		t.Fatalf("seed usage event: %v", err)
+	}
+
+	response := service.attachWindowUsageStats(context.Background(), "auth-missing-price", CheckResponse{ID: "auth-missing-price", Quota: []QuotaRow{{
+		Key:         "rate_limit.primary_window",
+		Label:       "5h",
+		Scope:       "window",
+		UsedPercent: floatPtr(25),
+		Window:      &QuotaWindow{Seconds: &windowSeconds},
+		ResetAt:     timeutil.FormatStorageTime(resetAt),
+	}}}, now)
+
+	row := findQuotaUsageStatsRow(t, response.Quota, "rate_limit.primary_window")
+	if row.WindowUsageTokens == nil || *row.WindowUsageTokens != 500_000 {
+		t.Fatalf("expected local tokens to be present, got %#v", row.WindowUsageTokens)
+	}
+	if row.WindowUsageCost != nil {
+		t.Fatalf("expected missing price not to expose zero cost, got %#v", row.WindowUsageCost)
+	}
+	if row.WindowUsageCostAvailable == nil || *row.WindowUsageCostAvailable || len(row.WindowUsageMissingPrices) != 1 || row.WindowUsageMissingPrices[0] != "unpriced-model" {
+		t.Fatalf("expected missing price metadata, got cost_available=%#v missing=%#v", row.WindowUsageCostAvailable, row.WindowUsageMissingPrices)
 	}
 }
 

@@ -187,7 +187,7 @@ describe('credentialViewModels', () => {
 
     const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
 
-    expect(rows[0].displayQuotas[0].windowUsage).toEqual({ tokens: '0', cost: '$0.00' })
+    expect(rows[0].displayQuotas[0].windowUsage).toMatchObject({ tokens: '0', cost: '$0.00', costAvailable: true })
   })
 
   it('formats provider quota window usage with fixed compact units and US dollar decimals', () => {
@@ -200,7 +200,7 @@ describe('credentialViewModels', () => {
 
     const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
 
-    expect(rows[0].displayQuotas.map((quota) => quota.windowUsage)).toEqual([
+    expect(rows[0].displayQuotas.map((quota) => displayWindowUsage(quota.windowUsage))).toEqual([
       { tokens: '11.37M', cost: '$14.83' },
       { tokens: '393.31K', cost: '$0.46' },
     ])
@@ -240,13 +240,13 @@ describe('credentialViewModels', () => {
 
     const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
 
-    expect(rows[0].displayQuotas.map((quota) => quota.windowUsageEstimate)).toEqual([
+    expect(rows[0].displayQuotas.map((quota) => displayWindowUsage(quota.windowUsageEstimate))).toEqual([
       { tokens: '4.00M', cost: '$10.00' },
       { tokens: '2.00M', cost: '$4.00' },
     ])
   })
 
-  it('keeps current quota window usage when the used percent or current cost cannot be estimated', () => {
+  it('keeps current quota window usage when the used percent cannot be estimated', () => {
     const quotas = new Map<string, UsageQuotaRow[]>([
       ['auth-1', [
         { key: 'rate_limit.zero_window', label: 'Zero', usedPercent: 0, window_usage_tokens: 393_311, window_usage_cost: 0.458464 },
@@ -258,18 +258,54 @@ describe('credentialViewModels', () => {
 
     const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
 
-    expect(rows[0].displayQuotas.map((quota) => quota.windowUsage)).toEqual([
+    expect(rows[0].displayQuotas.map((quota) => displayWindowUsage(quota.windowUsage))).toEqual([
       { tokens: '393.31K', cost: '$0.46' },
       { tokens: '1.00K', cost: '$1.00' },
       { tokens: '1.00K', cost: '$0.00' },
       { tokens: '0', cost: '$1.00' },
     ])
-    expect(rows[0].displayQuotas.map((quota) => quota.windowUsageEstimate)).toEqual([
+    expect(rows[0].displayQuotas.map((quota) => displayWindowUsage(quota.windowUsageEstimate))).toEqual([
       undefined,
       undefined,
-      undefined,
+      { tokens: '2.00K', cost: '$0.00' },
       undefined,
     ])
+  })
+
+  it('surfaces missing window usage prices without displaying USD as zero', () => {
+    const quotas = new Map<string, UsageQuotaRow[]>([
+      ['auth-1', [
+        {
+          key: 'rate_limit.primary_window',
+          label: '5h',
+          usedPercent: 25,
+          window_usage_tokens: 1_000_000,
+          window_usage_cost_available: false,
+          window_usage_missing_prices: ['unpriced-model'],
+          window_usage_source: 'local',
+          window_usage_calculated_at: '2026-06-17T10:00:00Z',
+        },
+      ]],
+    ])
+
+    const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
+    const usage = rows[0].displayQuotas[0].windowUsage
+    const estimate = rows[0].displayQuotas[0].windowUsageEstimate
+
+    expect(usage).toMatchObject({
+      tokens: '1.00M',
+      cost: undefined,
+      costAvailable: false,
+      missingPrices: ['unpriced-model'],
+      source: 'local',
+      calculatedAt: '2026-06-17T10:00:00Z',
+    })
+    expect(estimate).toMatchObject({
+      tokens: '4.00M',
+      cost: undefined,
+      costAvailable: false,
+      missingPrices: ['unpriced-model'],
+    })
   })
 
   it('uses an explicit US locale for quota window cost formatting', () => {
@@ -427,3 +463,10 @@ describe('credentialViewModels', () => {
     expect('displayQuotas' in rows[0]).toBe(false)
   })
 })
+
+function displayWindowUsage(usage: { tokens: string; cost?: string } | undefined): { tokens: string; cost?: string } | undefined {
+  if (!usage) {
+    return undefined
+  }
+  return { tokens: usage.tokens, cost: usage.cost }
+}

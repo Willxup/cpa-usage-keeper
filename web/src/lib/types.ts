@@ -326,6 +326,10 @@ export interface UsageQuotaRow {
   resetAfterSeconds?: number
   window_usage_tokens?: number
   window_usage_cost?: number
+  window_usage_source?: 'provider' | 'local' | string
+  window_usage_cost_available?: boolean
+  window_usage_missing_prices?: string[]
+  window_usage_calculated_at?: string
 }
 
 export interface UsageQuotaCheckResponse {
@@ -578,6 +582,9 @@ export interface PricingEntry {
   completion_price_per_1m: number
   cache_price_per_1m: number
   cache_creation_price_per_1m: number
+  source?: string
+  source_url?: string
+  synced_at?: string
 }
 
 export interface UsedModelsResponse {
@@ -607,6 +614,24 @@ export interface PricingSyncPreviewResponse {
   metadata_models: number
   matches: PricingSyncMatch[]
   unmatched_models: string[]
+}
+
+export interface PricingSyncResponse {
+  source: string
+  source_url: string
+  synced_at: string
+  models_checked: number
+  created_models: string[]
+  updated_models: string[]
+  missing_models: string[]
+  skipped_manual_models: string[]
+}
+
+export interface PricingSyncStatusResponse {
+  running: boolean
+  last_synced_at?: string
+  last_error?: string
+  last_result?: PricingSyncResponse
 }
 
 export type KeyOverviewTimeRange = '4h' | '8h' | '12h' | '24h' | 'today' | 'yesterday' | '7d' | '30d'

@@ -220,7 +220,7 @@ describe('AuthFileCredentialsSection quota window usage accessibility', () => {
   it('labels token and cost metrics for assistive technology', () => {
     const t = (key: string, options?: Record<string, string>) => `${key}:${options?.tokens}:${options?.cost}`
 
-    expect(formatQuotaWindowUsageAriaLabel(t, { tokens: '1.2M', cost: '$0.42' })).toBe('usage_stats.credentials_quota_window_usage_aria:1.2M:$0.42')
+    expect(formatQuotaWindowUsageAriaLabel(t, { tokens: '1.2M', cost: '$0.42', costAvailable: true, missingPrices: [], rawTokens: 1_200_000, rawCost: 0.42 })).toBe('usage_stats.credentials_quota_window_usage_aria:1.2M:$0.42')
   })
 })
 
@@ -231,8 +231,8 @@ describe('AuthFileCredentialsSection quota usage mode rendering', () => {
     percent: 25,
     barPercent: 75,
     percentKind: 'used',
-    windowUsage: { tokens: '1.00M', cost: '$2.50' },
-    windowUsageEstimate: { tokens: '4.00M', cost: '$10.00' },
+    windowUsage: { tokens: '1.00M', cost: '$2.50', costAvailable: true, missingPrices: [], rawTokens: 1_000_000, rawCost: 2.5 },
+    windowUsageEstimate: { tokens: '4.00M', cost: '$10.00', costAvailable: true, missingPrices: [], rawTokens: 4_000_000, rawCost: 10 },
     status: 'ok',
   }
   const row = {

@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Select, type SelectOption } from '@/components/ui/Select';
 import { IconCheck, IconCircleAlert, IconRefreshCw } from '@/components/ui/icons';
-import type { ModelPrice, PricingSaveResult, PricingStyle, PricingSyncMatch, PricingSyncPreviewResponse } from '@/lib/types';
+import type { ModelPrice, PricingSaveResult, PricingStyle, PricingSyncMatch, PricingSyncPreviewResponse, PricingSyncStatusResponse } from '@/lib/types';
 import styles from '@/pages/UsagePage.module.scss';
 
 const formatDisplayName = (value: string): string => {
@@ -22,6 +22,9 @@ export interface PriceSettingsCardProps {
   onSyncPricesChange?: (prices: Record<string, ModelPrice>) => Promise<PricingSaveResult>;
   onSyncPreview?: () => Promise<PricingSyncPreviewResponse>;
   onNotice?: (kind: 'success' | 'info' | 'error', message: string) => void;
+  onSyncPrices?: () => Promise<void>;
+  pricingSyncing?: boolean;
+  pricingSyncStatus?: PricingSyncStatusResponse | null;
   loading?: boolean;
 }
 
@@ -184,6 +187,9 @@ export function PriceSettingsCard({
   onSyncPricesChange,
   onSyncPreview,
   onNotice,
+  onSyncPrices,
+  pricingSyncing = false,
+  pricingSyncStatus = null,
   loading = false
 }: PriceSettingsCardProps) {
   const { t } = useTranslation();
@@ -407,15 +413,14 @@ export function PriceSettingsCard({
         className={`${styles.detailsFixedCard} ${styles.pricingFixedCard}`}
       >
         <div className={styles.pricingSection}>
-          {loading && modelNames.length === 0 && Object.keys(modelPrices).length === 0 ? (
-            <div className={styles.hint}>{t('common.loading')}</div>
-          ) : (
-            <>
-              {onSyncPreview && (
-                <div className={styles.pricingToolbar}>
-                  <div className={styles.pricingToolbarMeta}>
-                    <span>{t('usage_stats.model_price_sync_source')}: Models.dev</span>
-                  </div>
+          {(onSyncPreview || onSyncPrices) && (
+            <div className={styles.pricingToolbar}>
+              <div className={styles.pricingToolbarMeta}>
+                {onSyncPreview && <span>{t('usage_stats.model_price_sync_source')}: Models.dev</span>}
+                {onSyncPrices && <span>{t('usage_stats.model_price_sync_source')}: LiteLLM</span>}
+              </div>
+              <div className={styles.priceActions}>
+                {onSyncPreview && (
                   <Button
                     variant="secondary"
                     className={styles.usagePillAction}
@@ -425,8 +430,26 @@ export function PriceSettingsCard({
                     <IconRefreshCw size={14} />
                     {t('usage_stats.model_price_sync')}
                   </Button>
-                </div>
-              )}
+                )}
+                {onSyncPrices && (
+                  <Button
+                    variant="secondary"
+                    className={styles.usagePillAction}
+                    onClick={() => void onSyncPrices()}
+                    loading={pricingSyncing}
+                  >
+                    <IconRefreshCw size={14} />
+                    {pricingSyncing ? t('usage_stats.model_price_syncing') : t('usage_stats.model_price_sync_litellm')}
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+          <PricingSyncSummary status={pricingSyncStatus} />
+          {loading && modelNames.length === 0 && Object.keys(modelPrices).length === 0 ? (
+            <div className={styles.hint}>{t('common.loading')}</div>
+          ) : (
+            <>
               <div className={styles.priceForm}>
                 <div className={styles.formRow}>
                   <div className={styles.formField}>
@@ -822,5 +845,38 @@ export function PriceSettingsCard({
         </div>
       </Modal>
     </>
+  );
+}
+
+function PricingSyncSummary({ status }: { status?: PricingSyncStatusResponse | null }) {
+  const { t } = useTranslation();
+  if (!status?.last_result && !status?.last_error && !status?.last_synced_at) {
+    return null;
+  }
+  const result = status.last_result;
+  const syncedAt = status.last_synced_at || result?.synced_at;
+  const syncedAtLabel = syncedAt ? new Date(syncedAt).toLocaleString() : '';
+  const createdCount = result?.created_models?.length ?? 0;
+  const updatedCount = result?.updated_models?.length ?? 0;
+  const missingCount = result?.missing_models?.length ?? 0;
+  const skippedManualCount = result?.skipped_manual_models?.length ?? 0;
+
+  return (
+    <div className={styles.pricingSyncSummary}>
+      <div className={styles.pricingSyncMeta}>
+        <span>{t('usage_stats.model_price_sync_source')}: {result?.source || 'LiteLLM'}</span>
+        {syncedAtLabel && <span>{t('usage_stats.model_price_sync_last')}: {syncedAtLabel}</span>}
+      </div>
+      {result && (
+        <div className={styles.pricingSyncCounts}>
+          <span>{t('usage_stats.model_price_sync_checked', { count: result.models_checked })}</span>
+          <span>{t('usage_stats.model_price_sync_created', { count: createdCount })}</span>
+          <span>{t('usage_stats.model_price_sync_updated', { count: updatedCount })}</span>
+          {skippedManualCount > 0 && <span>{t('usage_stats.model_price_sync_skipped_manual', { count: skippedManualCount })}</span>}
+          {missingCount > 0 && <span title={result.missing_models.join(', ')}>{t('usage_stats.model_price_sync_missing', { count: missingCount })}</span>}
+        </div>
+      )}
+      {status.last_error && <div className={styles.pricingSyncError}>{status.last_error}</div>}
+    </div>
   );
 }

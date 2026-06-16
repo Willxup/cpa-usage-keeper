@@ -25,6 +25,7 @@ type ServiceOptions struct {
 type Service struct {
 	db       *gorm.DB
 	registry ProviderRegistry
+	now      func() time.Time
 
 	refreshMu    sync.Mutex
 	refreshTasks map[string]*RefreshTaskRecord
@@ -98,6 +99,7 @@ func NewServiceWithRegistryAndOptions(db *gorm.DB, registry ProviderRegistry, op
 	return &Service{
 		db:                   db,
 		registry:             registry,
+		now:                  time.Now,
 		refreshTasks:         make(map[string]*RefreshTaskRecord),
 		refreshWorkerTokens:  make(chan struct{}, workerLimit),
 		refreshTaskTTL:       RefreshTransientTaskTTL,

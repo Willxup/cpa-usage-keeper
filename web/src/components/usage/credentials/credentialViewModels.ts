@@ -12,7 +12,13 @@ export type PlanTypeTone = 'free' | 'team' | 'plus' | 'pro' | 'neutral'
 
 export interface QuotaWindowUsageDisplay {
   tokens: string
-  cost: string
+  cost?: string
+  source?: string
+  costAvailable: boolean
+  missingPrices: string[]
+  calculatedAt?: string
+  rawTokens: number
+  rawCost?: number
 }
 
 export interface QuotaBillingUsageDisplay {
@@ -242,12 +248,19 @@ function formatUSDCents(cents: number): string {
 function quotaWindowUsage(row: UsageQuotaRow): QuotaWindowUsageDisplay | undefined {
   const tokens = finiteNumber(row.window_usage_tokens)
   const cost = finiteNumber(row.window_usage_cost)
-  if (tokens === undefined || cost === undefined) {
+  if (tokens === undefined) {
     return undefined
   }
+  const costAvailable = row.window_usage_cost_available ?? cost !== undefined
   return {
     tokens: formatCompactTokenValue(tokens),
-    cost: formatQuotaWindowCost(cost),
+    cost: cost === undefined ? undefined : formatQuotaWindowCost(cost),
+    source: row.window_usage_source,
+    costAvailable,
+    missingPrices: row.window_usage_missing_prices ?? [],
+    calculatedAt: row.window_usage_calculated_at,
+    rawTokens: tokens,
+    rawCost: cost,
   }
 }
 
@@ -255,17 +268,25 @@ function quotaWindowUsageEstimate(row: UsageQuotaRow, percentDisplay: { percent:
   // 估算只在已用百分比可外推时生效；0%、满额或免费窗口都继续展示当前值。
   const tokens = finiteNumber(row.window_usage_tokens)
   const cost = finiteNumber(row.window_usage_cost)
+  const costAvailable = row.window_usage_cost_available ?? cost !== undefined
   const usedPercent = quotaUsedPercent(percentDisplay)
-  if (tokens === undefined || cost === undefined || usedPercent === undefined) {
+  if (tokens === undefined || usedPercent === undefined) {
     return undefined
   }
-  if (tokens <= 0 || cost <= 0 || usedPercent <= 0 || usedPercent >= 100) {
+  if (tokens <= 0 || usedPercent <= 0 || usedPercent >= 100) {
     return undefined
   }
   const ratio = usedPercent / 100
+  const estimatedCost = cost !== undefined && costAvailable ? cost / ratio : undefined
   return {
     tokens: formatCompactTokenValue(tokens / ratio),
-    cost: formatQuotaWindowCost(cost / ratio),
+    cost: estimatedCost === undefined ? undefined : formatQuotaWindowCost(estimatedCost),
+    source: row.window_usage_source,
+    costAvailable,
+    missingPrices: row.window_usage_missing_prices ?? [],
+    calculatedAt: row.window_usage_calculated_at,
+    rawTokens: tokens / ratio,
+    rawCost: estimatedCost,
   }
 }
 
