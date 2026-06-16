@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ var (
 	reTokenValue    = regexp.MustCompile(`(?i)((?:access_token|refresh_token)\s*[=:]\s*)"?[A-Za-z0-9._\-]+"?`)
 	reURL           = regexp.MustCompile(`https?://[^\s"',}\]]+`)
 	reMultiSpace    = regexp.MustCompile(`\s{2,}`)
+	reJSONTokenField = regexp.MustCompile(`(?i)"(?:access_token|refresh_token|api_key|authorization|token)"\s*:\s*"[^"]*"`)
 )
 
 type RedisQueue interface {
@@ -65,11 +67,24 @@ type queuedUsageDetail struct {
 // errorTelemetryBody 是 CPA usage 消息中 error 字段的 flexible DTO，支持多种嵌套路径。
 type errorTelemetryBody struct {
 	Type            string          `json:"type"`
-	Error           json.RawMessage `json:"error"` // 嵌套 error，例如 error.error.type
-	ResetsAt        *time.Time      `json:"resets_at"`
-	ResetsInSeconds *int64          `json:"resets_in_seconds"`
+	Code            json.RawMessage `json:"code"`
+	Error           json.RawMessage `json:"error"`
+	Status          json.RawMessage `json:"status"`
 	Message         string          `json:"message"`
 	RawBody         *string         `json:"response_body,omitempty"`
+	Body            *string         `json:"body,omitempty"`
+	BodyText        *string         `json:"body_text,omitempty"`
+	BodyTextCamel   *string         `json:"bodyText,omitempty"`
+	ResetsAt        *time.Time      `json:"resets_at"`
+	ResetsInSeconds *int64          `json:"resets_in_seconds"`
+}
+
+// usageFailureTelemetry 是从 usage 消息中提取的归一化失败遥测数据。
+type usageFailureTelemetry struct {
+	StatusCode *int
+	Code       string
+	Message    string
+	Body       string
 }
 
 // Codex429Telemetry 是从 usage 消息中提取的 codex 429 错误遥测数据，供 cooldown 处理使用。
@@ -85,7 +100,7 @@ type Codex429Telemetry struct {
 }
 
 // ExtractCodex429Telemetry 从解码后的 raw message 中提取 codex 429 usage_limit_reached 遥测。
-// 支持多种嵌套 error 结构：error.type、error.error.type、response.error.type。
+// 复用 extractUsageFailureTelemetry 底层解析，确保与通用失败详情保持一致。
 // 不触发 cooldown 的场景（非 codex、非 429、非 usage_limit_reached）返回 nil。
 func ExtractCodex429Telemetry(rawMsg json.RawMessage) *Codex429Telemetry {
 	if len(rawMsg) == 0 {
@@ -95,45 +110,27 @@ func ExtractCodex429Telemetry(rawMsg json.RawMessage) *Codex429Telemetry {
 	if err := json.Unmarshal(rawMsg, &detail); err != nil {
 		return nil
 	}
-	// 只有 codex provider 才检查 429
 	if strings.ToLower(strings.TrimSpace(detail.Provider)) != "codex" {
 		return nil
 	}
-	if detail.StatusCode != 429 {
+	if detail.StatusCode != 429 || !detail.Failed || detail.Error == nil {
 		return nil
 	}
-	if !detail.Failed {
+	failureTel := extractUsageFailureTelemetry(detail.Failed, detail.StatusCode, detail.Error)
+	if failureTel.Code != "usage_limit_reached" {
 		return nil
 	}
-	if detail.Error == nil {
-		return nil
+	tel := &Codex429Telemetry{
+		StatusCode:   detail.StatusCode,
+		ErrorType:    failureTel.Code,
+		RequestID:    strings.TrimSpace(detail.RequestID),
+		AuthIndex:    strings.TrimSpace(detail.AuthIndex),
+		Provider:     strings.TrimSpace(detail.Provider),
+		ResetsAt:     detail.Error.ResetsAt,
+		ResetsInSec:  detail.Error.ResetsInSeconds,
+		RawErrorBody: resolveFailureRawBody(detail.Error),
 	}
-	errorType := detail.Error.Type
-	// 尝试查找嵌套 error 路径：error.error.type / response.error.type
-	if errorType == "" && len(detail.Error.Error) > 0 {
-		var nested struct {
-			Type string `json:"type"`
-		}
-		if err := json.Unmarshal(detail.Error.Error, &nested); err == nil && nested.Type != "" {
-			errorType = nested.Type
-		}
-	}
-	if errorType != "usage_limit_reached" {
-		return nil
-	}
-	telemetry := &Codex429Telemetry{
-		StatusCode:  detail.StatusCode,
-		ErrorType:   errorType,
-		RequestID:   strings.TrimSpace(detail.RequestID),
-		AuthIndex:   strings.TrimSpace(detail.AuthIndex),
-		Provider:    strings.TrimSpace(detail.Provider),
-		ResetsAt:    detail.Error.ResetsAt,
-		ResetsInSec: detail.Error.ResetsInSeconds,
-	}
-	if detail.Error.RawBody != nil {
-		telemetry.RawErrorBody = *detail.Error.RawBody
-	}
-	return telemetry
+	return tel
 }
 
 // RawErrorBodyTruncated 返回截断后的原始错误 body（最长 1024 字节），避免暴露敏感数据。
@@ -177,7 +174,7 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 	source := strings.TrimSpace(d.Source)
 	authIndex := strings.TrimSpace(d.AuthIndex)
 	eventKey := strings.TrimSpace(d.RequestID)
-	statusCode, failCode, failMsg, failBody := extractFailureFields(d.Failed, d.StatusCode, d.Error)
+	ftel := extractUsageFailureTelemetry(d.Failed, d.StatusCode, d.Error)
 	return entities.UsageEvent{
 		EventKey:            eventKey,
 		APIGroupKey:         apiGroupKey,
@@ -203,41 +200,262 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 		CacheReadTokens:     d.Tokens.CacheReadTokens,
 		CacheCreationTokens: d.Tokens.CacheCreationTokens,
 		TotalTokens:         d.Tokens.TotalTokens,
-		FailureStatusCode:   statusCode,
-		FailureCode:         failCode,
-		FailureMessage:      failMsg,
-		FailureBody:         failBody,
+		FailureStatusCode:   ftel.StatusCode,
+		FailureCode:         ftel.Code,
+		FailureMessage:      ftel.Message,
+		FailureBody:         ftel.Body,
 	}
 }
 
-// extractFailureFields 从 Redis usage payload 中提取失败详情字段。
-// failed==false 时返回空值。
-func extractFailureFields(failed bool, statusCode int, errBody *errorTelemetryBody) (sc *int, code string, message string, body string) {
+// extractUsageFailureTelemetry 从 usage payload 中提取归一化的失败遥测数据。
+// 兼容 OpenAI/Codex、Anthropic、Gemini/Google、OpenRouter 和 CPA 包装结构。
+func extractUsageFailureTelemetry(failed bool, statusCode int, errBody *errorTelemetryBody) usageFailureTelemetry {
 	if !failed {
-		return nil, "", "", ""
+		return usageFailureTelemetry{}
 	}
+	tel := usageFailureTelemetry{}
 	if statusCode > 0 {
-		sc = &statusCode
+		tel.StatusCode = &statusCode
 	}
 	if errBody == nil {
-		return sc, "", "", ""
+		return tel
 	}
-	// 构建 raw body 用于脱敏和存储
-	rawBody := ""
-	if errBody.RawBody != nil {
-		rawBody = *errBody.RawBody
-	} else {
-		// 尝试序列化 error 结构体作为 body
-		if b, err := json.Marshal(errBody); err == nil {
-			rawBody = string(b)
+	// 解析 error code/type，同时检测 Anthropic wrapper 和嵌套 error 路径
+	code, isWrapper, nested := resolveFailureCodeInfo(errBody)
+	// Anthropic wrapper: type=="error"，实际错误在嵌套 error 里
+	if isWrapper && nested != nil {
+		if nested.Type != "" {
+			code = strings.TrimSpace(nested.Type)
+		}
+		if nested.Message != "" && tel.Message == "" {
+			tel.Message = strings.TrimSpace(nested.Message)
 		}
 	}
-	body = sanitizeFailureBody(rawBody)
-	code, message = extractFailureCodeAndMessage(body, errBody)
-	if message == "" && len(body) > 0 {
-		message = truncateFailureText(body, 300)
+	tel.Code = normalizeFailureCode(code)
+	// Status 回退
+	if tel.StatusCode == nil {
+		if sc := normalizeFailureStatusCode(errBody, nested); sc != nil {
+			tel.StatusCode = sc
+		}
 	}
-	return sc, code, message, body
+	// Message 回退
+	if tel.Message == "" {
+		tel.Message = normalizeFailureMessage(errBody, nested)
+	}
+	// 构建并脱敏 body
+	body := sanitizeFailureBody(resolveFailureRawBody(errBody))
+	if body == "" {
+		body = sanitizeFailureBody(marshalErrorObject(errBody))
+	}
+	tel.Body = body
+	// 从 body JSON 补全缺失字段
+	if tel.Code == "" || tel.Message == "" {
+		fillFromSanitizedBody(body, &tel)
+	}
+	if tel.Code == "" {
+		tel.Code = tryExtractCodeFromText(body)
+	}
+	if tel.Message == "" && len(body) > 0 {
+		tel.Message = truncateFailureText(body, 300)
+	}
+	return tel
+}
+
+// nestedErrorInfo 携带嵌套 error 解析结果和 Anthropic wrapper 标记。
+type nestedErrorInfo struct {
+	Code    string
+	Type    string
+	Message string
+	Status  json.RawMessage
+}
+
+// resolveFailureCodeInfo 从 errorTelemetryBody 提取初始 code，并解析嵌套 error 路径。
+// 返回初始 code、是否为 Anthropic wrapper、嵌套 error 信息。
+func resolveFailureCodeInfo(errBody *errorTelemetryBody) (string, bool, *nestedErrorInfo) {
+	initialCode := strings.TrimSpace(errBody.Type)
+	isWrapper := initialCode == "error"
+	var nested *nestedErrorInfo
+	if len(errBody.Error) > 0 {
+		var n struct {
+			Code    json.RawMessage `json:"code"`
+			Type    string          `json:"type"`
+			Message string          `json:"message"`
+			Status  json.RawMessage `json:"status"`
+		}
+		if err := json.Unmarshal(errBody.Error, &n); err == nil {
+			nested = &nestedErrorInfo{
+				Type:    n.Type,
+				Message: n.Message,
+				Status:  n.Status,
+			}
+			if s := rawMessageToString(n.Code); s != "" {
+				nested.Code = s
+			}
+			// 非 wrapper 时，嵌套 code/type 可补全初始 code
+			if !isWrapper && initialCode == "" {
+				if nested.Code != "" {
+					initialCode = nested.Code
+				} else if nested.Type != "" {
+					initialCode = nested.Type
+				}
+			}
+		}
+	}
+	// error.code / error.status 作为初始 code 候选
+	if !isWrapper && initialCode == "" {
+		if s := rawMessageToString(errBody.Code); s != "" {
+			initialCode = s
+		}
+	}
+	return initialCode, isWrapper, nested
+}
+
+// normalizeFailureStatusCode 从 error 字段推断 HTTP status code。
+// Gemini error.code 如果是数字则作为 status code。
+func normalizeFailureStatusCode(errBody *errorTelemetryBody, nested *nestedErrorInfo) *int {
+	if errBody == nil {
+		return nil
+	}
+	if sc := parseNumericStatusCode(errBody.Code); sc != nil {
+		return sc
+	}
+	if sc := parseNumericStatusCode(errBody.Status); sc != nil {
+		return sc
+	}
+	if nested != nil {
+		if sc := parseNumericStatusCode(nested.Status); sc != nil {
+			return sc
+		}
+	}
+	return nil
+}
+
+// normalizeFailureCode 清洗错误码，纯数字不适合作为 code。
+func normalizeFailureCode(code string) string {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return ""
+	}
+	if isNumericString(code) {
+		return ""
+	}
+	return code
+}
+
+// normalizeFailureMessage 从 error 结构中提取消息。
+func normalizeFailureMessage(errBody *errorTelemetryBody, nested *nestedErrorInfo) string {
+	if msg := strings.TrimSpace(errBody.Message); msg != "" {
+		return msg
+	}
+	if nested != nil {
+		if msg := strings.TrimSpace(nested.Message); msg != "" {
+			return msg
+		}
+	}
+	return ""
+}
+
+// resolveFailureRawBody 从 error 结构中选取原始 body 字段。
+func resolveFailureRawBody(errBody *errorTelemetryBody) string {
+	switch {
+	case errBody.RawBody != nil:
+		return *errBody.RawBody
+	case errBody.Body != nil:
+		return *errBody.Body
+	case errBody.BodyText != nil:
+		return *errBody.BodyText
+	case errBody.BodyTextCamel != nil:
+		return *errBody.BodyTextCamel
+	}
+	return ""
+}
+
+// marshalErrorObject 将 error 结构体序列化为 JSON 字符串作为 body 兜底。
+func marshalErrorObject(errBody *errorTelemetryBody) string {
+	if b, err := json.Marshal(errBody); err == nil {
+		return string(b)
+	}
+	return ""
+}
+
+// fillFromSanitizedBody 从脱敏后的 body JSON 中补全缺失的 code 和 message。
+func fillFromSanitizedBody(body string, tel *usageFailureTelemetry) {
+	var parsed struct {
+		Error struct {
+			Code    json.RawMessage `json:"code"`
+			Type    string          `json:"type"`
+			Message string          `json:"message"`
+			Status  string          `json:"status"`
+		} `json:"error"`
+		Code    json.RawMessage `json:"code"`
+		Message string          `json:"message"`
+		Type    string          `json:"type"`
+		Status  json.RawMessage `json:"status"`
+	}
+	if json.Unmarshal([]byte(body), &parsed) != nil {
+		return
+	}
+	if tel.Message == "" {
+		if parsed.Error.Message != "" {
+			tel.Message = strings.TrimSpace(parsed.Error.Message)
+		} else if parsed.Message != "" {
+			tel.Message = strings.TrimSpace(parsed.Message)
+		}
+	}
+	if tel.Code == "" {
+		candidates := []string{
+			rawMessageToString(parsed.Error.Code),
+			parsed.Error.Type,
+			parsed.Error.Status,
+			rawMessageToString(parsed.Code),
+			parsed.Type,
+			rawMessageToString(parsed.Status),
+		}
+		for _, c := range candidates {
+			if nc := normalizeFailureCode(c); nc != "" {
+				tel.Code = nc
+				break
+			}
+		}
+	}
+	if tel.StatusCode == nil {
+		if sc := parseNumericStatusCode(parsed.Error.Code); sc != nil {
+			tel.StatusCode = sc
+		} else if sc := parseNumericStatusCode(parsed.Status); sc != nil {
+			tel.StatusCode = sc
+		}
+	}
+}
+
+// parseNumericStatusCode 将 json.RawMessage 解析为数字 status code。
+func parseNumericStatusCode(raw json.RawMessage) *int {
+	if len(raw) == 0 {
+		return nil
+	}
+	var n float64
+	if err := json.Unmarshal(raw, &n); err == nil && n >= 100 && n <= 599 {
+		v := int(n)
+		return &v
+	}
+	if s := rawMessageToString(raw); s != "" {
+		if v, err := strconv.Atoi(s); err == nil && v >= 100 && v <= 599 {
+			return &v
+		}
+	}
+	return nil
+}
+
+// isNumericString 判断字符串是否为纯数字。
+func isNumericString(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // rawMessageToString 将 json.RawMessage 解析为字符串，解析失败返回空串。
@@ -250,68 +468,6 @@ func rawMessageToString(raw json.RawMessage) string {
 		return s
 	}
 	return ""
-}
-
-// extractFailureCodeAndMessage 从脱敏后的 body 和结构化 error 中提取 code 和 message。
-func extractFailureCodeAndMessage(body string, errBody *errorTelemetryBody) (code string, message string) {
-	if errBody == nil {
-		return tryExtractCodeFromText(body), ""
-	}
-	// 先尝试从结构化字段获取
-	message = strings.TrimSpace(errBody.Message)
-	code = strings.TrimSpace(errBody.Type)
-	// 尝试从嵌套 error 获取
-	if len(errBody.Error) > 0 {
-		var nested struct {
-			Code    json.RawMessage `json:"code"`
-			Type    string          `json:"type"`
-			Message string          `json:"message"`
-		}
-		if err := json.Unmarshal(errBody.Error, &nested); err == nil {
-			if nested.Message != "" && message == "" {
-				message = strings.TrimSpace(nested.Message)
-			}
-			if c := rawMessageToString(nested.Code); c != "" && code == "" {
-				code = c
-			}
-			if nested.Type != "" && code == "" {
-				code = strings.TrimSpace(nested.Type)
-			}
-		}
-	}
-	// 尝试从 body JSON 解析
-	if code == "" || message == "" {
-		var parsed struct {
-			Error struct {
-				Code    json.RawMessage `json:"code"`
-				Type    string          `json:"type"`
-				Message string          `json:"message"`
-			} `json:"error"`
-			Code    json.RawMessage `json:"code"`
-			Message string          `json:"message"`
-		}
-		if json.Unmarshal([]byte(body), &parsed) == nil {
-			if parsed.Error.Message != "" && message == "" {
-				message = strings.TrimSpace(parsed.Error.Message)
-			}
-			if c := rawMessageToString(parsed.Error.Code); c != "" && code == "" {
-				code = c
-			}
-			if parsed.Error.Type != "" && code == "" {
-				code = strings.TrimSpace(parsed.Error.Type)
-			}
-			if parsed.Message != "" && message == "" {
-				message = strings.TrimSpace(parsed.Message)
-			}
-			if c := rawMessageToString(parsed.Code); c != "" && code == "" {
-				code = c
-			}
-		}
-	}
-	if code == "" {
-		code = tryExtractCodeFromText(body)
-	}
-	return code, message
 }
 
 // tryExtractCodeFromText 从非 JSON 文本中尝试提取 snake_case 错误码。
@@ -332,11 +488,15 @@ var knownErrorCodes = []string{
 	"usage_limit_reached",
 	"rate_limit_exceeded",
 	"auth_unavailable",
+	"authentication_error",
 	"invalid_request",
+	"invalid_request_error",
+	"insufficient_quota",
+	"resource_exhausted",
+	"permission_denied",
+	"model_not_found",
 	"not_implemented",
 	"unsupported_parameter",
-	"model_not_found",
-	"insufficient_quota",
 }
 
 // sanitizeFailureBody 脱敏并截断 failure body。
@@ -350,8 +510,16 @@ func sanitizeFailureBody(body string) string {
 	body = reAuthorization.ReplaceAllString(body, "[redacted_authorization]")
 	// 替换 Cookie / Set-Cookie
 	body = reCookie.ReplaceAllString(body, "[redacted_cookie]")
-	// 替换 access_token / refresh_token 值
+	// 替换 access_token / refresh_token 值（非 JSON 上下文）
 	body = reTokenValue.ReplaceAllString(body, "${1}[redacted_token]")
+	// 替换 JSON 敏感字段值："access_token": "xxx" 等
+	body = reJSONTokenField.ReplaceAllStringFunc(body, func(match string) string {
+		colonIdx := strings.Index(match, ":")
+		if colonIdx < 0 {
+			return match
+		}
+		return match[:colonIdx+1] + ` "[redacted]"`
+	})
 	// 替换 URL
 	body = reURL.ReplaceAllString(body, "[redacted_url]")
 	// 合并连续空白
