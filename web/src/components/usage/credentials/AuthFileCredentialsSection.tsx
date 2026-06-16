@@ -100,8 +100,11 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
         titleExtra={(
           <div className={styles.credentialAuthFileTitleControls}>
             <label className={styles.credentialActiveOnlySwitch}>
+              <span className={styles.credentialActiveOnlyLabel}>{t('usage_stats.credentials_auth_files_active_only')}</span>
               <input type="checkbox" checked={activeOnly} onChange={(event) => onActiveOnlyChange(event.target.checked)} />
-              <span>{t('usage_stats.credentials_auth_files_active_only')}</span>
+              <span className={styles.credentialActiveOnlyTrack} aria-hidden="true">
+                <span className={styles.credentialActiveOnlyThumb} />
+              </span>
             </label>
             <AuthFileDisplayModeSwitch mode={displayMode} onChange={setDisplayMode} />
           </div>
