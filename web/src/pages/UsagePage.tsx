@@ -760,7 +760,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const customDateRangeBounds = useMemo(() => getCustomDateRangeBounds(customDateRangeAnchorMs, status?.timezone), [customDateRangeAnchorMs, status?.timezone]);
   const effectiveCustomTimeRange = useMemo(
     () => clampCustomDateRangeToBounds(customTimeRange, customDateRangeBounds),
-    [customDateRangeBounds.max, customDateRangeBounds.min, customTimeRange.end, customTimeRange.start],
+    [customDateRangeBounds, customTimeRange],
   );
 
   const {
@@ -1055,7 +1055,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       if (next.start === current.start && next.end === current.end) return current;
       return next;
     });
-  }, [customDateRangeBounds.max, customDateRangeBounds.min]);
+  }, [customDateRangeBounds]);
 
   useEffect(() => {
     try {
