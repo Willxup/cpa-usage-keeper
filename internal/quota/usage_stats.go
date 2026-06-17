@@ -14,6 +14,11 @@ type quotaUsageWindowKey struct {
 	end   time.Time
 }
 
+const (
+	quotaWindowUsageSourceProvider = "provider"
+	quotaWindowUsageSourceLocal    = "local"
+)
+
 func (s *Service) attachWindowUsageStats(ctx context.Context, authIndex string, response CheckResponse, now time.Time) CheckResponse {
 	// quota 为空时没有可补充的窗口用量，直接返回原响应。
 	if len(response.Quota) == 0 {
@@ -24,6 +29,13 @@ func (s *Service) attachWindowUsageStats(ctx context.Context, authIndex string, 
 	statsByWindow := make(map[quotaUsageWindowKey]repository.UsageWindowStats)
 	// 遍历每一条 quota row，只对没有完整 provider 用量的普通窗口补 token/cost。
 	for index := range response.Quota {
+		if hasProviderWindowUsageStats(response.Quota[index]) {
+			// provider 已给完整窗口用量时只补充来源元数据，不覆盖原始 token/USD。
+			response.Quota[index].WindowUsageSource = quotaWindowUsageSourceProvider
+			available := true
+			response.Quota[index].WindowUsageCostAvailable = &available
+			continue
+		}
 		// Pro 等上游可能已经返回窗口 token/cost；非 window scope 不用本地 auth 级统计兜底。
 		if !shouldBackfillWindowUsageStats(response.Quota[index]) {
 			// 保留 provider 原始字段，避免覆盖 additional/code_review 等专项限额。
@@ -32,6 +44,10 @@ func (s *Service) attachWindowUsageStats(ctx context.Context, authIndex string, 
 		// provider pair 不完整时先丢弃单边字段，避免 fallback 失败后输出不同口径的半套数据。
 		response.Quota[index].WindowUsageTokens = nil
 		response.Quota[index].WindowUsageCost = nil
+		response.Quota[index].WindowUsageSource = ""
+		response.Quota[index].WindowUsageCostAvailable = nil
+		response.Quota[index].WindowUsageMissingPrices = nil
+		response.Quota[index].WindowUsageCalculatedAt = nil
 		// 根据 reset_at 和 window.seconds 计算该 row 对应的统计窗口。
 		windowStart, windowEnd, ok := quotaRowUsageWindow(response.Quota[index], now)
 		// 没有明确窗口或 reset_at 无法解析时跳过该 row。
@@ -59,18 +75,32 @@ func (s *Service) attachWindowUsageStats(ctx context.Context, authIndex string, 
 		}
 		// 复制 tokens/cost 值，确保指针指向当前 row 独立变量。
 		tokens := stats.Tokens
-		cost := stats.Cost
 		// token 和 cost 必须来自同一统计口径；provider pair 不完整时整对使用本地统计。
 		response.Quota[index].WindowUsageTokens = &tokens
-		response.Quota[index].WindowUsageCost = &cost
+		response.Quota[index].WindowUsageSource = quotaWindowUsageSourceLocal
+		available := stats.CostAvailable
+		response.Quota[index].WindowUsageCostAvailable = &available
+		response.Quota[index].WindowUsageMissingPrices = append([]string(nil), stats.MissingPrices...)
+		calculatedAt := timeutil.NormalizeStorageTime(now)
+		response.Quota[index].WindowUsageCalculatedAt = &calculatedAt
+		if stats.CostAvailable {
+			cost := stats.Cost
+			response.Quota[index].WindowUsageCost = &cost
+		}
 	}
 	// 返回已经补充窗口用量的 quota 响应。
 	return response
 }
 
+func hasProviderWindowUsageStats(row QuotaRow) bool {
+	return row.WindowUsageTokens != nil &&
+		row.WindowUsageCost != nil &&
+		!strings.EqualFold(strings.TrimSpace(row.WindowUsageSource), quotaWindowUsageSourceLocal)
+}
+
 func shouldBackfillWindowUsageStats(row QuotaRow) bool {
 	// provider 已给完整窗口用量时直接信任上游，不再用 usage_events 覆盖。
-	if row.WindowUsageTokens != nil && row.WindowUsageCost != nil {
+	if hasProviderWindowUsageStats(row) {
 		return false
 	}
 	// 本地 usage_events 兜底只适用于普通 5h/Weekly/Monthly window scope。

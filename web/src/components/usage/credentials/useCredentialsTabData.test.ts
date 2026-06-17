@@ -106,6 +106,19 @@ describe('buildQuotaRefreshSubmissionUpdate', () => {
 })
 
 describe('buildQuotaRefreshTaskErrorUpdate', () => {
+  it('clears stale task polling state when the backend task cache was reset', () => {
+    const update = buildQuotaRefreshTaskErrorUpdate('auth-1', new ApiError('quota refresh task not found', 404))
+
+    expect(update).toEqual({
+      authIndex: 'auth-1',
+      settled: true,
+      stateUpdate: {
+        refreshStatus: undefined,
+        error: undefined,
+      },
+    })
+  })
+
   it('settles 401 polling failures and asks the page to re-authenticate', () => {
     let authRequiredCalls = 0
 

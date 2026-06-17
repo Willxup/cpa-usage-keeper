@@ -102,15 +102,14 @@ type RefreshTaskRecord struct {
 }
 
 func (s *Service) GetCachedQuota(ctx context.Context, request CacheRequest) (CacheResponse, error) {
-	_ = ctx
 	// 缓存读取只返回已完成任务的结果，不触发新的 provider 请求。
 	if len(request.AuthIndexes) == 0 {
 		return CacheResponse{}, fmt.Errorf("%w: auth_indexes are required", ErrValidation)
 	}
 	response := CacheResponse{Items: make([]CachedQuotaItem, 0, len(request.AuthIndexes))}
-	s.cleanupExpiredRefreshTasks(time.Now())
+	now := time.Now()
+	s.cleanupExpiredRefreshTasks(now)
 	s.refreshMu.Lock()
-	defer s.refreshMu.Unlock()
 	// 按请求顺序去重并读取每个 auth_index 最近一次完成的任务缓存。
 	seen := make(map[string]struct{}, len(request.AuthIndexes))
 	for _, rawAuthIndex := range request.AuthIndexes {
@@ -131,6 +130,7 @@ func (s *Service) GetCachedQuota(ctx context.Context, request CacheRequest) (Cac
 		switch {
 		case task.Status == RefreshTaskStatusCompleted && task.Quota != nil:
 			quota := *task.Quota
+			quota.Quota = append([]QuotaRow(nil), task.Quota.Quota...)
 			refreshedAt := task.RefreshedAt
 			response.Items = append(response.Items, CachedQuotaItem{AuthIndex: authIndex, FileName: task.FileName, Status: RefreshTaskStatusCompleted, Quota: &quota, RefreshedAt: &refreshedAt})
 		case task.Status == RefreshTaskStatusFailed && task.HTTPStatusCode != nil && isRefreshCacheableHTTPStatus(*task.HTTPStatusCode):
@@ -138,6 +138,14 @@ func (s *Service) GetCachedQuota(ctx context.Context, request CacheRequest) (Cac
 			refreshedAt := task.RefreshedAt
 			response.Items = append(response.Items, CachedQuotaItem{AuthIndex: authIndex, FileName: task.FileName, Status: RefreshTaskStatusFailed, Error: task.Error, HTTPStatusCode: task.HTTPStatusCode, ExpiresAt: &expiresAt, RefreshedAt: &refreshedAt})
 		}
+	}
+	s.refreshMu.Unlock()
+	for index := range response.Items {
+		if response.Items[index].Quota == nil {
+			continue
+		}
+		quota := s.attachWindowUsageStats(ctx, response.Items[index].AuthIndex, *response.Items[index].Quota, now)
+		response.Items[index].Quota = &quota
 	}
 	return response, nil
 }
@@ -251,19 +259,25 @@ func (s *Service) hasActiveRefreshTaskByAuthIndex(authIndex string) bool {
 }
 
 func (s *Service) GetRefreshTaskByAuthIndex(ctx context.Context, authIndex string) (RefreshTaskResponse, error) {
-	_ = ctx
 	authIndex = strings.TrimSpace(authIndex)
 	if authIndex == "" {
 		return RefreshTaskResponse{}, fmt.Errorf("%w: auth_index is required", ErrValidation)
 	}
-	s.cleanupExpiredRefreshTasks(time.Now())
+	now := time.Now()
+	s.cleanupExpiredRefreshTasks(now)
 	s.refreshMu.Lock()
-	defer s.refreshMu.Unlock()
 	task, ok := s.refreshTasks[authIndex]
 	if !ok {
+		s.refreshMu.Unlock()
 		return RefreshTaskResponse{}, ErrTaskNotFound
 	}
-	return task.response(), nil
+	response := task.response()
+	s.refreshMu.Unlock()
+	if response.Quota != nil {
+		quota := s.attachWindowUsageStats(ctx, response.AuthIndex, *response.Quota, now)
+		response.Quota = &quota
+	}
+	return response, nil
 }
 
 func (s *Service) validateRefreshAuthIndex(ctx context.Context, authIndex string) (entities.UsageIdentity, string, error) {
@@ -551,6 +565,7 @@ func (t *RefreshTaskRecord) response() RefreshTaskResponse {
 	}
 	if t.Quota != nil {
 		quota := *t.Quota
+		quota.Quota = append([]QuotaRow(nil), t.Quota.Quota...)
 		response.Quota = &quota
 	}
 	if !t.RefreshedAt.IsZero() {

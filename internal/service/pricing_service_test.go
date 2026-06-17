@@ -14,6 +14,7 @@ import (
 	"cpa-usage-keeper/internal/cpa/dto/response"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
+	repodto "cpa-usage-keeper/internal/repository/dto"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -470,6 +471,123 @@ func TestBuildPricingSyncPreviewMatchesMetadataModels(t *testing.T) {
 	}
 }
 
+func TestParseLiteLLMPricingCatalogConvertsPerTokenPricesToPerMillion(t *testing.T) {
+	catalog, err := parseLiteLLMPricingCatalog([]byte(`{
+		"sample_spec": {"input_cost_per_token": 0, "output_cost_per_token": 0},
+		"gpt-5.4": {
+			"input_cost_per_token": 0.0000025,
+			"output_cost_per_token": 0.000015,
+			"cache_read_input_token_cost": 0.00000025
+		},
+		"image-only": {"output_cost_per_image": 0.04}
+	}`))
+	if err != nil {
+		t.Fatalf("parse LiteLLM catalog: %v", err)
+	}
+	price, ok := catalog["gpt-5.4"]
+	if !ok {
+		t.Fatalf("expected gpt-5.4 price in catalog: %#v", catalog)
+	}
+	if price.PromptPricePer1M != 2.5 || price.CompletionPricePer1M != 15 || price.CachePricePer1M != 0.25 {
+		t.Fatalf("unexpected converted price: %#v", price)
+	}
+	if _, ok := catalog["sample_spec"]; ok {
+		t.Fatal("expected sample_spec to be skipped")
+	}
+	if _, ok := catalog["image-only"]; ok {
+		t.Fatal("expected non-token pricing to be skipped")
+	}
+}
+
+func TestPricingServiceSyncsLiteLLMPricesForUsedModelsWithoutOverwritingManual(t *testing.T) {
+	db := openPricingServiceTestDatabase(t)
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+		{EventKey: "evt-gpt-54", Model: "gpt-5.4", Timestamp: time.Unix(1, 0), APIGroupKey: "provider-a"},
+		{EventKey: "evt-manual", Model: "manual-model", Timestamp: time.Unix(2, 0), APIGroupKey: "provider-a"},
+		{EventKey: "evt-models-dev", Model: "models-dev-model", Timestamp: time.Unix(3, 0), APIGroupKey: "provider-a"},
+		{EventKey: "evt-missing", Model: "missing-model", Timestamp: time.Unix(3, 0), APIGroupKey: "provider-a"},
+	}); err != nil {
+		t.Fatalf("insert usage events: %v", err)
+	}
+	if _, err := repository.UpsertModelPriceSetting(db, repodto.ModelPriceSettingInput{
+		Model:                "manual-model",
+		PromptPricePer1M:     1,
+		CompletionPricePer1M: 2,
+		CachePricePer1M:      0.5,
+		Source:               repository.ModelPriceSourceManual,
+	}); err != nil {
+		t.Fatalf("seed manual pricing: %v", err)
+	}
+	if _, err := repository.UpsertModelPriceSetting(db, repodto.ModelPriceSettingInput{
+		Model:                "models-dev-model",
+		PromptPricePer1M:     1.5,
+		CompletionPricePer1M: 2.5,
+		CachePricePer1M:      0.75,
+		Source:               "Models.dev",
+	}); err != nil {
+		t.Fatalf("seed manually applied sync pricing: %v", err)
+	}
+	if _, err := repository.UpsertModelPriceSetting(db, repodto.ModelPriceSettingInput{
+		Model:                "old-litellm-model",
+		PromptPricePer1M:     0.1,
+		CompletionPricePer1M: 0.2,
+		CachePricePer1M:      0.03,
+		Source:               modelPriceSourceLiteLLM,
+	}); err != nil {
+		t.Fatalf("seed LiteLLM pricing: %v", err)
+	}
+
+	service := &pricingService{
+		db: db,
+		catalogFetcher: stubPricingCatalogFetcher{
+			sourceURL: "https://example.test/litellm.json",
+			entries: map[string]liteLLMPricingCatalogPrice{
+				"gpt-5.4":           {PromptPricePer1M: 2.5, CompletionPricePer1M: 15, CachePricePer1M: 0.25},
+				"manual-model":      {PromptPricePer1M: 9, CompletionPricePer1M: 9, CachePricePer1M: 9},
+				"models-dev-model":  {PromptPricePer1M: 8, CompletionPricePer1M: 8, CachePricePer1M: 8},
+				"old-litellm-model": {PromptPricePer1M: 3, CompletionPricePer1M: 4, CachePricePer1M: 0.4},
+			},
+		},
+	}
+	result, err := service.SyncPricing(context.Background(), servicedto.SyncPricingInput{OverwriteManual: true})
+	if err != nil {
+		t.Fatalf("sync pricing: %v", err)
+	}
+	if strings.Join(result.CreatedModels, ",") != "gpt-5.4" {
+		t.Fatalf("expected gpt-5.4 to be created, got %#v", result.CreatedModels)
+	}
+	if strings.Join(result.UpdatedModels, ",") != "old-litellm-model" {
+		t.Fatalf("expected old-litellm-model to be updated, got %#v", result.UpdatedModels)
+	}
+	if strings.Join(result.SkippedManualModels, ",") != "manual-model,models-dev-model" {
+		t.Fatalf("expected manual and manually applied sync models to be skipped, got %#v", result.SkippedManualModels)
+	}
+	if strings.Join(result.MissingModels, ",") != "missing-model" {
+		t.Fatalf("expected missing-model to be reported missing, got %#v", result.MissingModels)
+	}
+
+	settings, err := repository.ListModelPriceSettings(db)
+	if err != nil {
+		t.Fatalf("list pricing: %v", err)
+	}
+	byModel := make(map[string]entities.ModelPriceSetting, len(settings))
+	for _, setting := range settings {
+		byModel[setting.Model] = setting
+	}
+	if byModel["gpt-5.4"].Source != modelPriceSourceLiteLLM || byModel["gpt-5.4"].SourceURL != "https://example.test/litellm.json" || byModel["gpt-5.4"].SyncedAt == nil {
+		t.Fatalf("expected synced LiteLLM metadata, got %#v", byModel["gpt-5.4"])
+	}
+	if byModel["manual-model"].PromptPricePer1M != 1 || byModel["manual-model"].Source != repository.ModelPriceSourceManual {
+		t.Fatalf("expected manual pricing to be preserved, got %#v", byModel["manual-model"])
+	}
+	if byModel["models-dev-model"].PromptPricePer1M != 1.5 || byModel["models-dev-model"].Source != "Models.dev" {
+		t.Fatalf("expected manually applied sync pricing to be preserved, got %#v", byModel["models-dev-model"])
+	}
+	if byModel["old-litellm-model"].PromptPricePer1M != 3 || byModel["old-litellm-model"].Source != modelPriceSourceLiteLLM {
+		t.Fatalf("expected LiteLLM pricing to be updated, got %#v", byModel["old-litellm-model"])
+	}
+}
+
 type stubModelsFetcher struct {
 	result *response.ModelsResult
 	err    error
@@ -477,6 +595,24 @@ type stubModelsFetcher struct {
 
 func (s stubModelsFetcher) FetchModels(context.Context) (*response.ModelsResult, error) {
 	return s.result, s.err
+}
+
+type stubPricingCatalogFetcher struct {
+	sourceURL string
+	entries   map[string]liteLLMPricingCatalogPrice
+	err       error
+}
+
+func (s stubPricingCatalogFetcher) FetchPricingCatalog(context.Context) (map[string]liteLLMPricingCatalogPrice, error) {
+	return s.entries, s.err
+}
+
+func (s stubPricingCatalogFetcher) SourceURL() string {
+	return s.sourceURL
+}
+
+func (s stubPricingCatalogFetcher) SourceName() string {
+	return modelPriceSourceLiteLLM
 }
 
 func captureDebugLogs(t *testing.T) *bytes.Buffer {

@@ -845,6 +845,8 @@ function isAuthFileDisplayMode(value: string | null | undefined): value is AuthF
 
 export function AuthFileQuotaPanel({ row, quotaUsageMode }: { row: AuthFileCredentialRow; quotaUsageMode: QuotaUsageMode }) {
   const { t } = useTranslation()
+  const [selectedQuota, setSelectedQuota] = useState<DisplayQuota | null>(null)
+  const hasQuota = row.displayQuotas.length > 0
 
   // 限额区域按加载、错误、刷新中、无缓存、可展示数据的顺序降级。
   if (row.quotaLoading) {
@@ -864,7 +866,7 @@ export function AuthFileQuotaPanel({ row, quotaUsageMode }: { row: AuthFileCrede
   if (row.refreshStatus === 'queued' || row.refreshStatus === 'running') {
     return <div className={styles.credentialQuotaStateSlot}><div className={styles.credentialQuotaRefreshStatus}>{t(`usage_stats.credentials_refresh_status_${row.refreshStatus}`)}</div></div>
   }
-  if (row.displayQuotas.length === 0) {
+  if (!hasQuota) {
     return <div className={styles.credentialQuotaStateSlot}><div className={styles.credentialQuotaState}>{t('usage_stats.credentials_quota_unavailable')}</div></div>
   }
 
@@ -872,8 +874,9 @@ export function AuthFileQuotaPanel({ row, quotaUsageMode }: { row: AuthFileCrede
     <div className={styles.credentialQuotaPanel}>
       <div className={styles.credentialQuotaBars}>
         {/* 每个可计算进度的 quota 都独占一个稳定块；不可进度化 quota 在 view model 中已过滤。 */}
-        {row.displayQuotas.map((quota) => <QuotaBar key={quota.key} quota={quota} quotaUsageMode={quotaUsageMode} />)}
+        {row.displayQuotas.map((quota) => <QuotaBar key={quota.key} quota={quota} quotaUsageMode={quotaUsageMode} onSelect={setSelectedQuota} />)}
       </div>
+      <QuotaDetailsModal quota={selectedQuota} onClose={() => setSelectedQuota(null)} />
     </div>
   )
 }
@@ -1076,7 +1079,7 @@ export function formatQuotaResetDuration(resetAt: string): string {
 export function formatQuotaWindowUsageAriaLabel(t: Translate, windowUsage: NonNullable<DisplayQuota['windowUsage']>): string {
   return t('usage_stats.credentials_quota_window_usage_aria', {
     tokens: windowUsage.tokens,
-    cost: windowUsage.cost,
+    cost: windowUsage.cost ?? '-',
   })
 }
 
@@ -1088,7 +1091,7 @@ export function formatQuotaBillingUsageAriaLabel(t: Translate, billingUsage: Non
   })
 }
 
-function QuotaBar({ quota, quotaUsageMode }: { quota: DisplayQuota; quotaUsageMode: QuotaUsageMode }) {
+function QuotaBar({ quota, quotaUsageMode, onSelect }: { quota: DisplayQuota; quotaUsageMode: QuotaUsageMode; onSelect: (quota: DisplayQuota) => void }) {
   const { t } = useTranslation()
   // 条宽使用剩余额度百分比，颜色跟随剩余风险状态从绿到黄到红。
   const percent = quota.barPercent ?? 0
@@ -1100,7 +1103,7 @@ function QuotaBar({ quota, quotaUsageMode }: { quota: DisplayQuota; quotaUsageMo
   const windowUsage = billingUsage ? undefined : quotaWindowUsageForMode(quota, quotaUsageMode)
 
   return (
-    <div className={styles.credentialQuotaBarBlock}>
+    <button type="button" className={styles.credentialQuotaBarBlock} onClick={() => onSelect(quota)} aria-label={t('usage_stats.credentials_quota_details_open', { label: quota.label })}>
       <div className={styles.credentialQuotaBarHeader}>
         <span className={styles.credentialQuotaLabelGroup}>
           <span>{quota.label}</span>
@@ -1130,15 +1133,17 @@ function QuotaBar({ quota, quotaUsageMode }: { quota: DisplayQuota; quotaUsageMo
               <img src={quotaTokenIcon} alt="" aria-hidden="true" />
               <span>{windowUsage.tokens}</span>
             </span>
-            <span className={styles.credentialQuotaUsageMetric}>
-              <img src={quotaCostIcon} alt="" aria-hidden="true" />
-              <span>{windowUsage.cost}</span>
-            </span>
+            {windowUsage.cost && (
+              <span className={styles.credentialQuotaUsageMetric}>
+                <img src={quotaCostIcon} alt="" aria-hidden="true" />
+                <span>{windowUsage.cost}</span>
+              </span>
+            )}
           </strong>
         )}
         {resetLabel && <span>{resetLabel}</span>}
       </div>
-    </div>
+    </button>
   )
 }
 
@@ -1154,4 +1159,83 @@ function quotaWindowUsageForMode(quota: DisplayQuota, mode: QuotaUsageMode): Dis
     return quota.windowUsageEstimate
   }
   return quota.windowUsage
+}
+
+function QuotaDetailsModal({ quota, onClose }: { quota: DisplayQuota | null; onClose: () => void }) {
+  const { t } = useTranslation()
+  const currentUsage = quota?.windowUsage
+  const estimatedUsage = quota?.windowUsageEstimate
+  const missingPrices = currentUsage?.missingPrices ?? estimatedUsage?.missingPrices ?? []
+  const calculatedAt = currentUsage?.calculatedAt ?? estimatedUsage?.calculatedAt
+  const source = currentUsage?.source ?? estimatedUsage?.source
+
+  return (
+    <Modal open={Boolean(quota)} title={t('usage_stats.credentials_quota_details_title', { label: quota?.label ?? '' })} onClose={onClose} width={520} className={styles.credentialQuotaDetailsModal}>
+      <div className={styles.credentialQuotaDetailsPanel}>
+        <div className={styles.credentialQuotaDetailsGrid}>
+          <QuotaDetailMetric label={t('usage_stats.credentials_quota_details_used_tokens')} value={currentUsage?.tokens ?? t('usage_stats.credentials_quota_details_no_value')} />
+          <QuotaDetailMetric label={t('usage_stats.credentials_quota_details_estimated_tokens')} value={estimatedUsage?.tokens ?? t('usage_stats.credentials_quota_details_no_value')} />
+          <QuotaDetailMetric label={t('usage_stats.credentials_quota_details_used_usd')} value={quotaUsageCostText(t, currentUsage)} />
+          <QuotaDetailMetric label={t('usage_stats.credentials_quota_details_estimated_usd')} value={estimatedUsage ? quotaUsageCostText(t, estimatedUsage) : t('usage_stats.credentials_quota_details_no_value')} />
+        </div>
+        <div className={styles.credentialQuotaDetailsMeta}>
+          <QuotaDetailLine label={t('usage_stats.credentials_quota_details_source')} value={formatQuotaUsageSource(t, source)} />
+          <QuotaDetailLine label={t('usage_stats.credentials_quota_details_calculated_at')} value={formatQuotaDetailsDate(calculatedAt) || t('usage_stats.credentials_quota_details_no_value')} />
+          {missingPrices.length > 0 && <QuotaDetailLine label={t('usage_stats.credentials_quota_details_missing_prices')} value={missingPrices.join(', ')} />}
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function QuotaDetailMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <span className={styles.credentialQuotaDetailsMetric}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </span>
+  )
+}
+
+function QuotaDetailLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className={styles.credentialQuotaDetailsLine}>
+      <span>{label}</span>
+      <strong title={value}>{value}</strong>
+    </div>
+  )
+}
+
+function quotaUsageCostText(t: Translate, usage: DisplayQuota['windowUsage']): string {
+  if (!usage) {
+    return t('usage_stats.credentials_quota_details_no_value')
+  }
+  if (usage.cost) {
+    return usage.cost
+  }
+  if (!usage.costAvailable) {
+    return t('usage_stats.credentials_quota_details_cost_missing')
+  }
+  return t('usage_stats.credentials_quota_details_no_value')
+}
+
+function formatQuotaUsageSource(t: Translate, source: string | undefined): string {
+  if (source === 'provider') {
+    return t('usage_stats.credentials_quota_details_source_provider')
+  }
+  if (source === 'local') {
+    return t('usage_stats.credentials_quota_details_source_local')
+  }
+  return t('usage_stats.credentials_quota_details_source_unknown')
+}
+
+function formatQuotaDetailsDate(value: string | undefined): string {
+  if (!value) {
+    return ''
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+  return date.toLocaleString()
 }

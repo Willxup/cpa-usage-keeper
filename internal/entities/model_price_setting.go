@@ -15,7 +15,10 @@ type ModelPriceSetting struct {
 	PromptPricePer1M        float64
 	CompletionPricePer1M    float64
 	CachePricePer1M         float64
-	CacheCreationPricePer1M float64   `gorm:"not null;default:0"`
-	CreatedAt               time.Time `gorm:"serializer:storageTime"`
-	UpdatedAt               time.Time `gorm:"serializer:storageTime"`
+	CacheCreationPricePer1M float64 `gorm:"not null;default:0"`
+	Source                  string  `gorm:"not null;default:manual"`
+	SourceURL               string
+	SyncedAt                *time.Time `gorm:"serializer:storageTime"`
+	CreatedAt               time.Time  `gorm:"serializer:storageTime"`
+	UpdatedAt               time.Time  `gorm:"serializer:storageTime"`
 }

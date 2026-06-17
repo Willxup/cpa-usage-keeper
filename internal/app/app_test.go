@@ -158,6 +158,9 @@ func TestNewWithConfigBuildsRedisIngestAndRouter(t *testing.T) {
 	if app.MetadataSync == nil {
 		t.Fatal("expected metadata sync runner to be initialized")
 	}
+	if app.PricingSync == nil {
+		t.Fatal("expected pricing sync runner to be initialized")
+	}
 }
 
 func TestNewWithConfigWiresMetadataRefreshControl(t *testing.T) {

@@ -183,7 +183,7 @@ func TestSumUsageWindowStatsByAuthIndexIgnoresZeroWindowTimes(t *testing.T) {
 	}
 }
 
-func TestSumUsageWindowStatsByAuthIndexTreatsMissingPriceAsZeroCost(t *testing.T) {
+func TestSumUsageWindowStatsByAuthIndexSurfacesMissingModelPrices(t *testing.T) {
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-window-stats-missing-price.db")})
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
@@ -197,7 +197,7 @@ func TestSumUsageWindowStatsByAuthIndexTreatsMissingPriceAsZeroCost(t *testing.T
 	if err != nil {
 		t.Fatalf("SumUsageWindowStatsByAuthIndex returned error: %v", err)
 	}
-	if stats.Tokens != 1_000_000 || stats.Cost != 0 {
-		t.Fatalf("expected tokens with zero missing-price cost, got %+v", stats)
+	if stats.Tokens != 1_000_000 || stats.CostAvailable || len(stats.MissingPrices) != 1 || stats.MissingPrices[0] != "missing" {
+		t.Fatalf("expected tokens with missing-price metadata, got %+v", stats)
 	}
 }

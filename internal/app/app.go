@@ -56,6 +56,7 @@ type App struct {
 	MetadataSync      *MetadataSyncRunner
 	QuotaService      QuotaRunner
 	QuotaAutoRefresh  QuotaRunner
+	PricingSync       *PricingSyncRunner
 	BackupMaintenance *DatabaseBackupRunner
 	RecentUsageCache  *repository.UsageRecentEventCache
 	LogCloser         io.Closer
@@ -196,6 +197,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		MetadataSync:      metadataSyncRunner,
 		QuotaService:      quotaService,
 		QuotaAutoRefresh:  quotaAutoRefreshService(cfg, quotaService),
+		PricingSync:       NewPricingSyncRunner(pricingService),
 		BackupMaintenance: backupMaintenance,
 		RecentUsageCache:  recentUsageCache,
 		LogCloser:         logCloser,
@@ -317,6 +319,13 @@ func (a *App) Run() error {
 			// quota 自动刷新和手动刷新共用队列，但作为独立后台任务跟随 App 生命周期启动和停止。
 			if err := a.QuotaAutoRefresh.StartAutoRefresh(ctx); err != nil {
 				logrus.Errorf("quota auto refresh stopped: %v", err)
+			}
+		})
+	}
+	if a.PricingSync != nil {
+		a.startBackgroundTask(func() {
+			if err := a.PricingSync.Run(ctx); err != nil {
+				logrus.Errorf("pricing sync stopped: %v", err)
 			}
 		})
 	}

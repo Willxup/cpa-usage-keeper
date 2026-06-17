@@ -35,6 +35,7 @@ describe('PriceSettingsCard', () => {
         modelNames={[]}
         modelPrices={{}}
         onPricesChange={() => undefined}
+        onSyncPrices={async () => undefined}
         loading={false}
       />,
     );

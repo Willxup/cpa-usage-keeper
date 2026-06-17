@@ -107,7 +107,7 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, qu
   )
   const refreshCredentialPages = credentialPages.refresh
   const refresh = useCallback(async () => {
-    // 右上角手动刷新需要同时更新身份分页和当前页 quota cache，避免用户看到列表已刷新但限额仍是旧缓存。
+    // 右上角手动刷新需要同时更新身份分页和当前页 quota cache。
     await Promise.all([refreshCredentialPages(), refreshQuotaCache()])
   }, [refreshCredentialPages, refreshQuotaCache])
 

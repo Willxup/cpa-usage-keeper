@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError, deletePricing, fetchPricing, fetchPricingSyncPreview, fetchUsedModels, updatePricing } from '@/lib/api';
-import type { ModelPrice, PricingEntry, PricingSaveResult, PricingStyle, PricingSyncPreviewResponse } from '@/lib/types';
+import { ApiError, deletePricing, fetchPricing, fetchPricingSyncPreview, fetchPricingSyncStatus, fetchUsedModels, syncPricingFromLiteLLM, updatePricing } from '@/lib/api';
+import type { ModelPrice, PricingEntry, PricingSaveResult, PricingStyle, PricingSyncPreviewResponse, PricingSyncStatusResponse } from '@/lib/types';
 import { useNotificationStore } from '@/stores';
 
 export interface UsePricingDataOptions {
@@ -14,11 +14,14 @@ export interface UsePricingDataReturn {
   modelPrices: Record<string, ModelPrice>;
   loading: boolean;
   error: string;
+  pricingSyncing: boolean;
+  pricingSyncStatus: PricingSyncStatusResponse | null;
   lastRefreshedAt: Date | null;
   loadPricing: () => Promise<void>;
   setModelPrices: (prices: Record<string, ModelPrice>) => Promise<void>;
   syncModelPrices: (prices: Record<string, ModelPrice>) => Promise<PricingSaveResult>;
   previewPricingSync: () => Promise<PricingSyncPreviewResponse>;
+  syncPricing: () => Promise<void>;
 }
 
 const normalizePricingStyle = (style: PricingStyle | string | undefined): PricingStyle =>
@@ -84,6 +87,8 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
   const [modelPrices, setModelPricesState] = useState<Record<string, ModelPrice>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [pricingSyncing, setPricingSyncing] = useState(false);
+  const [pricingSyncStatus, setPricingSyncStatus] = useState<PricingSyncStatusResponse | null>(null);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
   const onAuthRequiredRef = useRef(onAuthRequired);
@@ -109,15 +114,18 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
     setError('');
 
     try {
-      const [pricingResponse, usedModelsResponse] = await Promise.all([
+      const [pricingResponse, usedModelsResponse, pricingSyncStatusResponse] = await Promise.all([
         fetchPricing(controller.signal),
         fetchUsedModels(controller.signal),
+        fetchPricingSyncStatus(controller.signal),
       ]);
       if (requestControllerRef.current !== controller) {
         return;
       }
       applyPricingResponse(pricingResponse);
       setModelNames(usedModelsResponse.models);
+      setPricingSyncStatus(pricingSyncStatusResponse);
+      setLastRefreshedAt(new Date());
     } catch (error) {
       if (controller.signal.aborted) {
         return;
@@ -208,15 +216,39 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
     }
   }, []);
 
+  const syncPricing = useCallback(async () => {
+    setPricingSyncing(true);
+    setError('');
+    try {
+      const result = await syncPricingFromLiteLLM(false);
+      setPricingSyncStatus({ running: false, last_synced_at: result.synced_at, last_result: result });
+      await loadPricing();
+      showNotification(t('usage_stats.model_price_sync_success'), 'success');
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Failed to sync pricing';
+      setPricingSyncStatus((current) => ({ ...(current ?? { running: false }), running: false, last_error: message }));
+      showNotification(`${t('usage_stats.model_price_sync_failed')}: ${message}`, 'error');
+    } finally {
+      setPricingSyncing(false);
+    }
+  }, [loadPricing, onAuthRequired, showNotification, t]);
+
   return {
     modelNames,
     modelPrices,
     loading,
     error,
+    pricingSyncing,
+    pricingSyncStatus,
     lastRefreshedAt,
     loadPricing,
     setModelPrices,
     syncModelPrices,
     previewPricingSync,
+    syncPricing,
   };
 }

@@ -1,5 +1,7 @@
 package dto
 
+import "time"
+
 // UpdatePricingInput 是更新定价的服务层输入。
 type UpdatePricingInput struct {
 	Model                   string
@@ -31,4 +33,29 @@ type PricingSyncMatch struct {
 	CompletionPricePer1M    float64 `json:"completion_price_per_1m"`
 	CachePricePer1M         float64 `json:"cache_price_per_1m"`
 	CacheCreationPricePer1M float64 `json:"cache_creation_price_per_1m"`
+}
+
+// SyncPricingInput controls one external pricing catalog sync.
+type SyncPricingInput struct {
+	OverwriteManual bool
+}
+
+// PricingSyncResult summarizes a completed external pricing catalog sync.
+type PricingSyncResult struct {
+	Source              string
+	SourceURL           string
+	SyncedAt            time.Time
+	ModelsChecked       int
+	CreatedModels       []string
+	UpdatedModels       []string
+	MissingModels       []string
+	SkippedManualModels []string
+}
+
+// PricingSyncStatus is in-memory status for the last sync attempt.
+type PricingSyncStatus struct {
+	Running      bool
+	LastSyncedAt *time.Time
+	LastError    string
+	LastResult   *PricingSyncResult
 }

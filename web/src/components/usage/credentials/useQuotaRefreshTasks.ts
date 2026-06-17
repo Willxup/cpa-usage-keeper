@@ -19,6 +19,7 @@ interface UseQuotaRefreshTasksOptions {
   currentAuthIndexes: string[]
   setQuotaByAuthIndex: Dispatch<SetStateAction<Record<string, UsageQuotaRow[]>>>
   onAuthRequired?: () => void
+  onQuotaUpdated?: (authIndexes: string[]) => void | Promise<void>
 }
 
 export interface QuotaRefreshTasksState {
@@ -29,7 +30,7 @@ export interface QuotaRefreshTasksState {
   refreshQuotaForAuthIndex: (authIndex: string) => Promise<void>
 }
 
-export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaByAuthIndex, onAuthRequired }: UseQuotaRefreshTasksOptions): QuotaRefreshTasksState {
+export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaByAuthIndex, onAuthRequired, onQuotaUpdated }: UseQuotaRefreshTasksOptions): QuotaRefreshTasksState {
   const [quotaStateByAuthIndex, setQuotaStateByAuthIndex] = useState<Record<string, QuotaState>>({})
   const [pendingRefreshTasks, setPendingRefreshTasks] = useState<PendingRefreshTask[]>([])
   const [batchRefreshSubmitting, setBatchRefreshSubmitting] = useState(false)
@@ -87,6 +88,7 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaByAu
       if (Object.keys(quotaUpdates).length > 0) {
         // 已完成任务的 quota 直接写入缓存，行视图会自动用最新缓存重算。
         setQuotaByAuthIndex((current) => ({ ...current, ...quotaUpdates }))
+        void onQuotaUpdated?.(Object.keys(quotaUpdates))
       }
       if (Object.keys(stateUpdates).length > 0) {
         setQuotaStateByAuthIndex((current) => mergeQuotaStates(current, stateUpdates))
@@ -109,7 +111,7 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaByAu
         window.clearTimeout(timer)
       }
     }
-  }, [enabled, onAuthRequired, pendingRefreshTasks, setQuotaByAuthIndex])
+  }, [enabled, onAuthRequired, onQuotaUpdated, pendingRefreshTasks, setQuotaByAuthIndex])
 
   const startQuotaRefresh = useCallback(async (authIndexes: string[], source: PendingRefreshTask['source']) => {
     if (authIndexes.length === 0) {
@@ -199,6 +201,18 @@ export function buildQuotaRefreshSubmissionUpdate(response: UsageQuotaRefreshRes
 }
 
 export function buildQuotaRefreshTaskErrorUpdate(authIndex: string, error: unknown, onAuthRequired?: () => void): { authIndex: string; settled: boolean; stateUpdate: QuotaState } {
+  if (error instanceof ApiError && error.status === 404) {
+    // 刷新任务只存在后端内存里；服务重启或任务过期后，前端仍在轮询旧任务时会看到 404。
+    // 这不是凭证限额失败，清掉行状态即可回到缓存/未缓存展示。
+    return {
+      authIndex,
+      settled: true,
+      stateUpdate: {
+        refreshStatus: undefined,
+        error: undefined,
+      },
+    }
+  }
   if (error instanceof ApiError && error.status === 401) {
     // 认证失效时结束当前行轮询，避免页面停留在 queued/running 假状态。
     onAuthRequired?.()

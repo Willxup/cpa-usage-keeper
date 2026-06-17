@@ -1,5 +1,7 @@
 package dto
 
+import "time"
+
 // ModelPriceSettingInput 是价格设置写入参数。
 type ModelPriceSettingInput struct {
 	Model                   string
@@ -8,4 +10,7 @@ type ModelPriceSettingInput struct {
 	CompletionPricePer1M    float64
 	CachePricePer1M         float64
 	CacheCreationPricePer1M float64
+	Source                  string
+	SourceURL               string
+	SyncedAt                *time.Time
 }

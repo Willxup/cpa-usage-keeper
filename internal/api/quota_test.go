@@ -292,3 +292,7 @@ func TestQuotaDoesNotExposeProviderSpecificEndpoints(t *testing.T) {
 		}
 	}
 }
+
+func floatPtr(value float64) *float64 {
+	return &value
+}

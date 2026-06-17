@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"cpa-usage-keeper/internal/cpa/dto/response"
 	"cpa-usage-keeper/internal/entities"
@@ -21,6 +23,8 @@ type PricingProvider interface {
 	PreviewPricingSync(context.Context) (servicedto.PricingSyncPreview, error)
 	UpdatePricing(context.Context, servicedto.UpdatePricingInput) (*entities.ModelPriceSetting, error)
 	DeletePricing(context.Context, string) error
+	SyncPricing(context.Context, servicedto.SyncPricingInput) (servicedto.PricingSyncResult, error)
+	GetPricingSyncStatus(context.Context) servicedto.PricingSyncStatus
 }
 
 type ModelsFetcher interface {
@@ -28,8 +32,13 @@ type ModelsFetcher interface {
 }
 
 type pricingService struct {
-	db            *gorm.DB
-	modelsFetcher ModelsFetcher
+	db             *gorm.DB
+	modelsFetcher  ModelsFetcher
+	catalogFetcher PricingCatalogFetcher
+
+	syncMu      sync.Mutex
+	syncStatus  servicedto.PricingSyncStatus
+	syncStatusM sync.Mutex
 }
 
 func NewPricingService(db *gorm.DB, modelsFetcher ...ModelsFetcher) PricingProvider {
@@ -71,11 +80,157 @@ func (s *pricingService) UpdatePricing(ctx context.Context, input servicedto.Upd
 		CompletionPricePer1M:    input.CompletionPricePer1M,
 		CachePricePer1M:         input.CachePricePer1M,
 		CacheCreationPricePer1M: input.CacheCreationPricePer1M,
+		Source:                  repository.ModelPriceSourceManual,
 	})
 }
 
 func (s *pricingService) DeletePricing(_ context.Context, model string) error {
 	return repository.DeleteModelPriceSetting(s.db, model)
+}
+
+func (s *pricingService) SyncPricing(ctx context.Context, input servicedto.SyncPricingInput) (servicedto.PricingSyncResult, error) {
+	if s == nil || s.db == nil {
+		return servicedto.PricingSyncResult{}, fmt.Errorf("pricing service is not configured")
+	}
+	s.syncMu.Lock()
+	defer s.syncMu.Unlock()
+	s.setPricingSyncRunning(true)
+	defer s.setPricingSyncRunning(false)
+
+	result, err := s.syncPricing(ctx, input)
+	s.recordPricingSyncResult(result, err)
+	return result, err
+}
+
+func (s *pricingService) GetPricingSyncStatus(context.Context) servicedto.PricingSyncStatus {
+	s.syncStatusM.Lock()
+	defer s.syncStatusM.Unlock()
+	status := s.syncStatus
+	if status.LastResult != nil {
+		copied := *status.LastResult
+		status.LastResult = &copied
+	}
+	return status
+}
+
+func (s *pricingService) syncPricing(ctx context.Context, _ servicedto.SyncPricingInput) (servicedto.PricingSyncResult, error) {
+	fetcher := s.catalogFetcher
+	if fetcher == nil {
+		fetcher = newDefaultLiteLLMPricingCatalogFetcher()
+	}
+	now := time.Now()
+	result := servicedto.PricingSyncResult{
+		Source:              fetcher.SourceName(),
+		SourceURL:           fetcher.SourceURL(),
+		SyncedAt:            now,
+		CreatedModels:       []string{},
+		UpdatedModels:       []string{},
+		MissingModels:       []string{},
+		SkippedManualModels: []string{},
+	}
+
+	models, err := repository.ListUsedModels(s.db)
+	if err != nil {
+		return result, err
+	}
+	settings, err := repository.ListModelPriceSettings(s.db)
+	if err != nil {
+		return result, err
+	}
+	existingByModel := make(map[string]entities.ModelPriceSetting, len(settings))
+	for _, setting := range settings {
+		model := strings.TrimSpace(setting.Model)
+		if model == "" {
+			continue
+		}
+		existingByModel[model] = setting
+		if strings.TrimSpace(setting.Source) == modelPriceSourceLiteLLM {
+			models = append(models, model)
+		}
+	}
+	models = normalizePricingSyncModels(models)
+	result.ModelsChecked = len(models)
+
+	catalog, err := fetcher.FetchPricingCatalog(ctx)
+	if err != nil {
+		return result, err
+	}
+
+	for _, model := range models {
+		pricing, ok := catalog[model]
+		if !ok {
+			result.MissingModels = append(result.MissingModels, model)
+			continue
+		}
+		existing, exists := existingByModel[model]
+		source := strings.TrimSpace(existing.Source)
+		if exists && source != modelPriceSourceLiteLLM {
+			result.SkippedManualModels = append(result.SkippedManualModels, model)
+			continue
+		}
+		syncedAt := now
+		if _, err := repository.UpsertModelPriceSetting(s.db, repodto.ModelPriceSettingInput{
+			Model:                   model,
+			PricingStyle:            entities.ModelPricingStyleOpenAI,
+			PromptPricePer1M:        pricing.PromptPricePer1M,
+			CompletionPricePer1M:    pricing.CompletionPricePer1M,
+			CachePricePer1M:         pricing.CachePricePer1M,
+			CacheCreationPricePer1M: 0,
+			Source:                  fetcher.SourceName(),
+			SourceURL:               fetcher.SourceURL(),
+			SyncedAt:                &syncedAt,
+		}); err != nil {
+			return result, err
+		}
+		if exists {
+			result.UpdatedModels = append(result.UpdatedModels, model)
+		} else {
+			result.CreatedModels = append(result.CreatedModels, model)
+		}
+	}
+	sort.Strings(result.CreatedModels)
+	sort.Strings(result.UpdatedModels)
+	sort.Strings(result.MissingModels)
+	sort.Strings(result.SkippedManualModels)
+	return result, nil
+}
+
+func normalizePricingSyncModels(models []string) []string {
+	seen := make(map[string]struct{}, len(models))
+	result := make([]string, 0, len(models))
+	for _, model := range models {
+		trimmed := strings.TrimSpace(model)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func (s *pricingService) setPricingSyncRunning(running bool) {
+	s.syncStatusM.Lock()
+	defer s.syncStatusM.Unlock()
+	s.syncStatus.Running = running
+}
+
+func (s *pricingService) recordPricingSyncResult(result servicedto.PricingSyncResult, err error) {
+	s.syncStatusM.Lock()
+	defer s.syncStatusM.Unlock()
+	if err != nil {
+		s.syncStatus.LastError = err.Error()
+		return
+	}
+	s.syncStatus.LastError = ""
+	syncedAt := result.SyncedAt
+	s.syncStatus.LastSyncedAt = &syncedAt
+	copied := result
+	s.syncStatus.LastResult = &copied
 }
 
 func (s *pricingService) effectiveModels(ctx context.Context) ([]string, error) {
