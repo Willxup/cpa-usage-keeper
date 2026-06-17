@@ -808,3 +808,76 @@ func TestBuildFallbackUsageEventKeyStable(t *testing.T) {
 		t.Fatalf("expected 'failed:' prefix, got %q", key1)
 	}
 }
+
+// --- fail + error 同时存在时的优先级 ---
+
+func TestDecodeRedisUsageMessageCPAFailAndErrorBothPresent(t *testing.T) {
+	fetchedAt := time.Date(2026, 6, 14, 10, 0, 0, 0, time.UTC)
+	event, _, err := DecodeRedisUsageMessage(`{
+		"request_id": "req-both-1",
+		"failed": true,
+		"status_code": 0,
+		"fail": {
+			"status_code": 502,
+			"body": "{\"error\":{\"message\":\"upstream error from fail\"}}"
+		},
+		"error": {
+			"type": "bad_gateway",
+			"message": "error from error field",
+			"response_body": "{\"error\":{\"message\":\"upstream error from error\"}}"
+		},
+		"provider": "openai",
+		"endpoint": "/v1/chat/completions"
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
+	}
+	// fail.status_code 优先于顶层 status_code
+	if event.FailureStatusCode == nil || *event.FailureStatusCode != 502 {
+		t.Fatalf("expected FailureStatusCode==502 from fail.status_code, got %+v", event.FailureStatusCode)
+	}
+	// error.response_body 优先于 fail.body
+	if !strings.Contains(event.FailureBody, "error from error") {
+		t.Fatalf("expected FailureBody from error.response_body, got %q", event.FailureBody)
+	}
+	// error.message 优先
+	if event.FailureMessage != "error from error field" {
+		t.Fatalf("expected FailureMessage from error.message, got %q", event.FailureMessage)
+	}
+}
+
+// --- Codex 429 使用 fail.status_code ---
+
+func TestExtractCodex429TelemetryFromFailStatusCode(t *testing.T) {
+	raw := json.RawMessage(`{
+		"request_id": "req-codex-fail-429",
+		"failed": true,
+		"status_code": 0,
+		"fail": {
+			"status_code": 429,
+			"body": "{\"error\":{\"type\":\"usage_limit_reached\",\"message\":\"The usage limit has been reached\"}}"
+		},
+		"error": {
+			"type": "usage_limit_reached",
+			"message": "The usage limit has been reached",
+			"resets_at": "2026-07-15T00:00:00Z",
+			"resets_in_seconds": 2592000
+		},
+		"provider": "codex",
+		"auth_index": "test-auth",
+		"endpoint": "/v1/responses"
+	}`)
+	tel := ExtractCodex429Telemetry(raw)
+	if tel == nil {
+		t.Fatal("expected non-nil Codex429Telemetry for fail.status_code=429")
+	}
+	if tel.StatusCode != 429 {
+		t.Fatalf("expected StatusCode==429, got %d", tel.StatusCode)
+	}
+	if tel.ErrorType != "usage_limit_reached" {
+		t.Fatalf("expected ErrorType==usage_limit_reached, got %q", tel.ErrorType)
+	}
+	if tel.RequestID != "req-codex-fail-429" {
+		t.Fatalf("expected RequestID==req-codex-fail-429, got %q", tel.RequestID)
+	}
+}

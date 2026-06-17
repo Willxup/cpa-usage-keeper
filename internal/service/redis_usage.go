@@ -17,7 +17,7 @@ import (
 
 var (
 	reSKKey         = regexp.MustCompile(`sk-[A-Za-z0-9_-]{10,}`)
-	reAuthorization = regexp.MustCompile(`(?i)(?:Authorization|authorization)\s*:\s*Bearer\s+\S+`)
+	reAuthorization = regexp.MustCompile(`(?i)Authorization\s*:\s*Bearer\s+\S+`)
 	reCookie        = regexp.MustCompile(`(?i)(?:Set-Cookie|Cookie)\s*:\s*[^\r\n]+`)
 	reTokenValue    = regexp.MustCompile(`(?i)((?:access_token|refresh_token)\s*[=:]\s*)"?[A-Za-z0-9._\-]+"?`)
 	reURL           = regexp.MustCompile(`https?://[^\s"',}\]]+`)
@@ -51,7 +51,7 @@ func DecodeRedisUsageMessage(message string, fetchedAt time.Time) (entities.Usag
 }
 
 // buildFallbackUsageEventKey 为缺 request_id 的 failed 事件生成稳定 EventKey。
-// 使用 sha256(raw_message) 前 16 字节十六进制，确保同一消息不会重复入库。
+// 使用 sha256(raw_message) 前 8 字节（16 位十六进制），确保同一消息不会重复入库。
 func buildFallbackUsageEventKey(raw json.RawMessage) string {
 	h := sha256.Sum256(raw)
 	return fmt.Sprintf("failed:%x", h[:8])
@@ -137,7 +137,11 @@ func ExtractCodex429Telemetry(rawMsg json.RawMessage) *Codex429Telemetry {
 	if strings.ToLower(strings.TrimSpace(detail.Provider)) != "codex" {
 		return nil
 	}
-	if detail.StatusCode != 429 || !detail.Failed || detail.Error == nil {
+	effectiveStatusCode := detail.StatusCode
+	if effectiveStatusCode == 0 && detail.Fail.StatusCode > 0 {
+		effectiveStatusCode = detail.Fail.StatusCode
+	}
+	if effectiveStatusCode != 429 || !detail.Failed || detail.Error == nil {
 		return nil
 	}
 	failureTel := extractUsageFailureTelemetry(detail.Failed, detail.StatusCode, detail.Error, &detail.Fail)
@@ -145,7 +149,7 @@ func ExtractCodex429Telemetry(rawMsg json.RawMessage) *Codex429Telemetry {
 		return nil
 	}
 	tel := &Codex429Telemetry{
-		StatusCode:   detail.StatusCode,
+		StatusCode:   effectiveStatusCode,
 		ErrorType:    failureTel.Code,
 		RequestID:    strings.TrimSpace(detail.RequestID),
 		AuthIndex:    strings.TrimSpace(detail.AuthIndex),
