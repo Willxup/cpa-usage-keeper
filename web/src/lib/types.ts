@@ -52,6 +52,7 @@ export interface UsageOverviewSummary {
   tpm: number
   total_cost: number
   cost_available: boolean
+  input_tokens: number
   cached_tokens: number
   reasoning_tokens: number
 }
@@ -62,6 +63,7 @@ export interface UsageOverviewSeries {
   rpm: Record<string, number>
   tpm: Record<string, number>
   cost: Record<string, number>
+  cache_rate: Record<string, number | null>
   input_tokens: Record<string, number>
   output_tokens: Record<string, number>
   cached_tokens: Record<string, number>
