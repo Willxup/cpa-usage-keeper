@@ -155,4 +155,4 @@ CPAstats/
 |------|------|
 | 2026-06-11 | 从外部项目迁移至 `D:\AI_Workspace\Project\CPAstats` 并加入项目索引管理 |
 | 2026-06-15 | 部署 main 分支最新代码（`ad5c6a7`）到 sivan-api 生产环境；修正 compose 镜像名（ghcr → 本地构建）；清理临时文件、回滚镜像和 1.6GB 构建缓存；移除不兼容的 keeper 自动更新服务（timer+service+脚本），后续改用手动源码构建部署 |
-| 2026-06-16 | 部署 `fix-failure-details-and-ci` 分支（`d177f20`）到 sivan-api；归一化失败详情解析 + CI embed 修复 + i18n 对齐；Go 编译 181s 通过，健康检查 ok；回滚镜像 `rollback-20260616` |
+| 2026-06-16 | 部署 `fix-failure-details-and-ci` 分支到 sivan-api；归一化失败详情解析 + CI embed 修复 + i18n 对齐；修复 Gemini status 回退 + Cookie JSON 脱敏 + error code 小写化；健康检查 ok；回滚镜像 `rollback-20260616b` |

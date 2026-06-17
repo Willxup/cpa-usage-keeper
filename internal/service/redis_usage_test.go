@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -698,5 +699,112 @@ func TestDecodeRedisUsageMessageErrorBodyFallbackMarshal(t *testing.T) {
 	}
 	if event.FailureCode != "invalid_request" {
 		t.Fatalf("expected FailureCode==invalid_request, got %q", event.FailureCode)
+	}
+}
+
+// --- CPA fail 字段（CPA 实际发送的结构） ---
+
+func TestDecodeRedisUsageMessageCPAFailField(t *testing.T) {
+	fetchedAt := time.Date(2026, 6, 14, 10, 0, 0, 0, time.UTC)
+	event, _, err := DecodeRedisUsageMessage(`{
+		"request_id": "req-cpa-fail-1",
+		"failed": true,
+		"fail": {
+			"status_code": 502,
+			"body": "{\"error\":{\"message\":\"unknown provider for model gpt-5.4\",\"type\":\"bad_gateway\"}}"
+		},
+		"provider": "ai中转流量联盟",
+		"model": "gpt-5.4",
+		"endpoint": "/v1/responses"
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
+	}
+	if event.FailureStatusCode == nil || *event.FailureStatusCode != 502 {
+		t.Fatalf("expected FailureStatusCode==502, got %+v", event.FailureStatusCode)
+	}
+	if event.FailureBody == "" {
+		t.Fatal("expected FailureBody non-empty from fail.body")
+	}
+	if !strings.Contains(event.FailureBody, "unknown provider") {
+		t.Fatalf("expected FailureBody to contain upstream error message, got %q", event.FailureBody)
+	}
+	if event.FailureMessage == "" {
+		t.Fatal("expected FailureMessage extracted from fail.body")
+	}
+}
+
+func TestDecodeRedisUsageMessageCPAFailStatusCodeOnly(t *testing.T) {
+	fetchedAt := time.Date(2026, 6, 14, 10, 0, 0, 0, time.UTC)
+	event, _, err := DecodeRedisUsageMessage(`{
+		"request_id": "req-cpa-fail-2",
+		"failed": true,
+		"fail": {
+			"status_code": 429
+		},
+		"provider": "openai",
+		"model": "gpt-4o",
+		"endpoint": "/v1/chat/completions"
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
+	}
+	if event.FailureStatusCode == nil || *event.FailureStatusCode != 429 {
+		t.Fatalf("expected FailureStatusCode==429, got %+v", event.FailureStatusCode)
+	}
+}
+
+// --- F 类：request_id 缺失 fallback ---
+
+func TestDecodeRedisUsageMessageFailedWithoutRequestID(t *testing.T) {
+	fetchedAt := time.Date(2026, 6, 14, 10, 0, 0, 0, time.UTC)
+	event, _, err := DecodeRedisUsageMessage(`{
+		"failed": true,
+		"fail": {
+			"status_code": 502,
+			"body": "bad gateway"
+		},
+		"provider": "some-provider",
+		"model": "some-model",
+		"endpoint": "/v1/chat/completions"
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("expected failed event to be decoded with fallback key, got error: %v", err)
+	}
+	if !strings.HasPrefix(event.EventKey, "failed:") {
+		t.Fatalf("expected EventKey with 'failed:' prefix, got %q", event.EventKey)
+	}
+	if event.FailureStatusCode == nil || *event.FailureStatusCode != 502 {
+		t.Fatalf("expected FailureStatusCode==502, got %+v", event.FailureStatusCode)
+	}
+	if !event.Failed {
+		t.Fatal("expected Failed=true")
+	}
+}
+
+func TestDecodeRedisUsageMessageSuccessWithoutRequestIDRejected(t *testing.T) {
+	fetchedAt := time.Date(2026, 6, 14, 10, 0, 0, 0, time.UTC)
+	_, _, err := DecodeRedisUsageMessage(`{
+		"failed": false,
+		"provider": "openai",
+		"model": "gpt-4o"
+	}`, fetchedAt)
+	if err == nil {
+		t.Fatal("expected error for success event without request_id")
+	}
+	if !strings.Contains(err.Error(), "request_id is required") {
+		t.Fatalf("expected 'request_id is required' error, got: %v", err)
+	}
+}
+
+func TestBuildFallbackUsageEventKeyStable(t *testing.T) {
+	raw := json.RawMessage(`{"failed":true,"provider":"test"}`)
+	key1 := buildFallbackUsageEventKey(raw)
+	key2 := buildFallbackUsageEventKey(raw)
+	if key1 != key2 {
+		t.Fatalf("expected stable fallback key, got %q and %q", key1, key2)
+	}
+	if !strings.HasPrefix(key1, "failed:") {
+		t.Fatalf("expected 'failed:' prefix, got %q", key1)
 	}
 }
