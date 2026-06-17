@@ -78,10 +78,14 @@ CPAstats/
 - Dashboard 查看请求量、Token、成本、缓存、成功率和请求性能
 - 按时间范围、模型、API Key、来源和请求结果筛选用量明细
 - Request Events 请求级明细查看、筛选、分页、导出和自定义显示
+- 失败事件详情归一化解析：支持 CPA `fail` 字段、OpenAI/Codex、Anthropic、Gemini、OpenRouter 多种上游错误结构
+- 失败事件 `request_id` 缺失时自动生成 fallback EventKey，避免事件丢失
+- 失败详情脱敏：自动清除 Authorization、Cookie、sk-key、token、URL 等敏感信息
 - 分析页面：用量趋势、成本分析、模型/API Key/AI Provider 构成、时段热力图
 - API Key 独立查询页
 - 凭证页面：Auth File 与 AI Provider 使用情况，支持限额查询、刷新、巡检和排序
 - 多 Provider quota 窗口用量与限额展示
+- Codex 429 cooldown 自动处理（支持 `fail.status_code` 回退）
 - 模型价格维护（成本估算和统计展示）
 - 自动同步 CPA Auth Files、API Keys、AI Providers 等 metadata
 - 可选密码登录保护、SQLite 备份
@@ -155,4 +159,5 @@ CPAstats/
 |------|------|
 | 2026-06-11 | 从外部项目迁移至 `D:\AI_Workspace\Project\CPAstats` 并加入项目索引管理 |
 | 2026-06-15 | 部署 main 分支最新代码（`ad5c6a7`）到 sivan-api 生产环境；修正 compose 镜像名（ghcr → 本地构建）；清理临时文件、回滚镜像和 1.6GB 构建缓存；移除不兼容的 keeper 自动更新服务（timer+service+脚本），后续改用手动源码构建部署 |
-| 2026-06-16 | 部署 `fix-failure-details-and-ci` 分支到 sivan-api；归一化失败详情解析 + CI embed 修复 + i18n 对齐；修复 Gemini status 回退 + Cookie JSON 脱敏 + error code 小写化；健康检查 ok；回滚镜像 `rollback-20260616b` |
+| 2026-06-16 | 部署 `fix-failure-details-and-ci` 分支到生产环境；归一化失败详情解析 + CI embed 修复 + i18n 对齐；修复 Gemini status 回退 + Cookie JSON 脱敏 + error code 小写化；回滚镜像 `rollback-20260616b` |
+| 2026-06-17 | 合并 PR #16（CPA `fail` 字段解析 + `request_id` 缺失兜底 + TS 类型对齐）和 PR #17（`ExtractCodex429Telemetry` cooldown 回退修复 + 优先级测试 + gitignore 临时文件模式）；部署最新 main 到生产环境 |
