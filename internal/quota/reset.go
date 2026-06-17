@@ -33,7 +33,7 @@ func (s *Service) Reset(ctx context.Context, request ResetRequest) (ResetRespons
 		return ResetResponse{}, fmt.Errorf("%w: %s", ErrResetInProgress, authIndex)
 	}
 	defer s.finishReset(authIndex)
-	// reset 会消费官方次数，只允许命中当前启用的 Auth File，避免对历史或已删除凭证误操作。
+	// reset 会消费官方次数，只要求命中当前未删除的 Auth File；disabled 仅限制自动刷新，不限制用户手动 reset。
 	identity, err := repository.GetActiveAuthFileUsageIdentityByAuthIndex(ctx, s.db, authIndex)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
