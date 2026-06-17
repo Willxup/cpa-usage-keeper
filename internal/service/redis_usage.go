@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -29,6 +30,7 @@ type RedisQueue interface {
 }
 
 // DecodeRedisUsageMessage 将 redis_inboxes.raw_message 原样解码为 usage_events 入库实体。
+// request_id 缺失时：failed=true 的事件使用 fallback key 入库，failed=false 仍 decode_failed。
 func DecodeRedisUsageMessage(message string, fetchedAt time.Time) (entities.UsageEvent, json.RawMessage, error) {
 	raw := json.RawMessage(message)
 	var payload queuedUsageDetail
@@ -36,9 +38,30 @@ func DecodeRedisUsageMessage(message string, fetchedAt time.Time) (entities.Usag
 		return entities.UsageEvent{}, nil, fmt.Errorf("decode redis usage message: %w", err)
 	}
 	if strings.TrimSpace(payload.RequestID) == "" {
-		return entities.UsageEvent{}, raw, fmt.Errorf("decode redis usage message: request_id is required")
+		if !payload.Failed {
+			return entities.UsageEvent{}, raw, fmt.Errorf("decode redis usage message: request_id is required")
+		}
+		// F 类兜底：failed=true 但缺 request_id，生成稳定 fallback EventKey 允许入库。
+		payload.RequestID = ""
+		event := payload.toUsageEvent(fetchedAt)
+		event.EventKey = buildFallbackUsageEventKey(raw)
+		return event, raw, nil
 	}
 	return payload.toUsageEvent(fetchedAt), raw, nil
+}
+
+// buildFallbackUsageEventKey 为缺 request_id 的 failed 事件生成稳定 EventKey。
+// 使用 sha256(raw_message) 前 16 字节十六进制，确保同一消息不会重复入库。
+func buildFallbackUsageEventKey(raw json.RawMessage) string {
+	h := sha256.Sum256(raw)
+	return fmt.Sprintf("failed:%x", h[:8])
+}
+
+// failPayload 对应 CPA usage 消息中 fail 字段（CPA 实际使用的错误结构）。
+// CPA plugin.go resolveFail() 始终填充 status_code，body 携带上游响应原文。
+type failPayload struct {
+	StatusCode int    `json:"status_code"`
+	Body       string `json:"body"`
 }
 
 // queuedUsageDetail 对应 CPA Redis 队列中的单条 usage JSON payload。
@@ -50,6 +73,7 @@ type queuedUsageDetail struct {
 	AuthIndex       string              `json:"auth_index"`
 	Tokens          dto.TokenStats      `json:"tokens"`
 	Failed          bool                `json:"failed"`
+	Fail            failPayload         `json:"fail"`
 	Provider        string              `json:"provider"`
 	Model           string              `json:"model"`
 	Alias           *string             `json:"alias"`
@@ -116,7 +140,7 @@ func ExtractCodex429Telemetry(rawMsg json.RawMessage) *Codex429Telemetry {
 	if detail.StatusCode != 429 || !detail.Failed || detail.Error == nil {
 		return nil
 	}
-	failureTel := extractUsageFailureTelemetry(detail.Failed, detail.StatusCode, detail.Error)
+	failureTel := extractUsageFailureTelemetry(detail.Failed, detail.StatusCode, detail.Error, &detail.Fail)
 	if failureTel.Code != "usage_limit_reached" {
 		return nil
 	}
@@ -174,7 +198,7 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 	source := strings.TrimSpace(d.Source)
 	authIndex := strings.TrimSpace(d.AuthIndex)
 	eventKey := strings.TrimSpace(d.RequestID)
-	ftel := extractUsageFailureTelemetry(d.Failed, d.StatusCode, d.Error)
+	ftel := extractUsageFailureTelemetry(d.Failed, d.StatusCode, d.Error, &d.Fail)
 	return entities.UsageEvent{
 		EventKey:            eventKey,
 		APIGroupKey:         apiGroupKey,
@@ -208,55 +232,73 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 }
 
 // extractUsageFailureTelemetry 从 usage payload 中提取归一化的失败遥测数据。
-// 兼容 OpenAI/Codex、Anthropic、Gemini/Google、OpenRouter 和 CPA 包装结构。
-func extractUsageFailureTelemetry(failed bool, statusCode int, errBody *errorTelemetryBody) usageFailureTelemetry {
+// 优先使用 CPA 实际发送的 fail 字段（fail.status_code / fail.body），
+// 同时兼容 error 字段（OpenAI/Codex、Anthropic、Gemini/Google、OpenRouter 包装结构）。
+func extractUsageFailureTelemetry(failed bool, statusCode int, errBody *errorTelemetryBody, fail *failPayload) usageFailureTelemetry {
 	if !failed {
 		return usageFailureTelemetry{}
 	}
 	tel := usageFailureTelemetry{}
-	if statusCode > 0 {
+	// 优先从 CPA fail.status_code 获取 HTTP 状态码
+	if fail != nil && fail.StatusCode > 0 {
+		sc := fail.StatusCode
+		tel.StatusCode = &sc
+	} else if statusCode > 0 {
 		tel.StatusCode = &statusCode
 	}
-	if errBody == nil {
-		return tel
+	// 优先从 CPA fail.body 获取上游响应 body
+	failBody := ""
+	if fail != nil {
+		failBody = strings.TrimSpace(fail.Body)
 	}
-	// 解析 error code/type，同时检测 Anthropic wrapper 和嵌套 error 路径
-	code, isWrapper, nested := resolveFailureCodeInfo(errBody)
-	// Anthropic wrapper: type=="error"，实际错误在嵌套 error 里
-	if isWrapper && nested != nil {
-		if nested.Type != "" {
-			code = strings.TrimSpace(nested.Type)
+	// error 字段解析（兼容多种上游包装结构）
+	if errBody != nil {
+		code, isWrapper, nested := resolveFailureCodeInfo(errBody)
+		if isWrapper && nested != nil {
+			if nested.Type != "" {
+				code = strings.TrimSpace(nested.Type)
+			}
+			if nested.Message != "" && tel.Message == "" {
+				tel.Message = strings.TrimSpace(nested.Message)
+			}
 		}
-		if nested.Message != "" && tel.Message == "" {
-			tel.Message = strings.TrimSpace(nested.Message)
+		tel.Code = normalizeFailureCode(code)
+		if tel.StatusCode == nil {
+			if sc := normalizeFailureStatusCode(errBody, nested); sc != nil {
+				tel.StatusCode = sc
+			}
+		}
+		if tel.Message == "" {
+			tel.Message = normalizeFailureMessage(errBody, nested)
+		}
+		body := sanitizeFailureBody(resolveFailureRawBody(errBody))
+		if body == "" {
+			body = sanitizeFailureBody(marshalErrorObject(errBody))
+		}
+		tel.Body = body
+		if tel.Code == "" || tel.Message == "" {
+			fillFromSanitizedBody(body, &tel)
+		}
+		if tel.Code == "" {
+			tel.Code = tryExtractCodeFromText(body)
+		}
+		if tel.Message == "" && len(body) > 0 {
+			tel.Message = truncateFailureText(body, 300)
 		}
 	}
-	tel.Code = normalizeFailureCode(code)
-	// Status 回退
-	if tel.StatusCode == nil {
-		if sc := normalizeFailureStatusCode(errBody, nested); sc != nil {
-			tel.StatusCode = sc
+	// fail.body 作为 body 的优先来源（CPA 直接传递的上游响应）
+	if tel.Body == "" && failBody != "" {
+		tel.Body = sanitizeFailureBody(failBody)
+		// 从 fail.body 中尝试补全缺失的 code 和 message
+		if tel.Code == "" || tel.Message == "" {
+			fillFromSanitizedBody(tel.Body, &tel)
 		}
-	}
-	// Message 回退
-	if tel.Message == "" {
-		tel.Message = normalizeFailureMessage(errBody, nested)
-	}
-	// 构建并脱敏 body
-	body := sanitizeFailureBody(resolveFailureRawBody(errBody))
-	if body == "" {
-		body = sanitizeFailureBody(marshalErrorObject(errBody))
-	}
-	tel.Body = body
-	// 从 body JSON 补全缺失字段
-	if tel.Code == "" || tel.Message == "" {
-		fillFromSanitizedBody(body, &tel)
-	}
-	if tel.Code == "" {
-		tel.Code = tryExtractCodeFromText(body)
-	}
-	if tel.Message == "" && len(body) > 0 {
-		tel.Message = truncateFailureText(body, 300)
+		if tel.Code == "" {
+			tel.Code = tryExtractCodeFromText(tel.Body)
+		}
+		if tel.Message == "" && len(tel.Body) > 0 {
+			tel.Message = truncateFailureText(tel.Body, 300)
+		}
 	}
 	return tel
 }
@@ -504,6 +546,9 @@ var knownErrorCodes = []string{
 	"model_not_found",
 	"not_implemented",
 	"unsupported_parameter",
+	"unknown_provider",
+	"bad_gateway",
+	"service_unavailable",
 }
 
 // sanitizeFailureBody 脱敏并截断 failure body。
