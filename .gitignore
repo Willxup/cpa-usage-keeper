@@ -6,6 +6,11 @@
 plans/
 AGENTS.md
 
+# temp debug files
+_tmp_*
+*-before.patch
+*-before-status.txt
+
 # local environment files
 .env
 .env.*
