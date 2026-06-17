@@ -36,6 +36,7 @@ type QuotaProvider interface {
 	GetRefreshTaskByAuthIndex(context.Context, string) (quota.RefreshTaskResponse, error)
 	GetInspectionStatus(context.Context) (quota.InspectionStatus, error)
 	StartInspection(context.Context) (quota.InspectionStatus, error)
+	Reset(context.Context, quota.ResetRequest) (quota.ResetResponse, error)
 }
 
 type StatusRouteConfig struct {

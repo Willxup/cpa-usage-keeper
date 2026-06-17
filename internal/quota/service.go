@@ -28,6 +28,9 @@ type Service struct {
 
 	refreshMu    sync.Mutex
 	refreshTasks map[string]*RefreshTaskRecord
+	// resetInFlight 按 auth_index 记录正在消费的 reset credit，避免并发重复扣减官方次数。
+	resetMu       sync.Mutex
+	resetInFlight map[string]struct{}
 	// inspectionCompletedAt 只记录用户手动启动巡检后，该巡检轮次完成的时间。
 	inspectionCompletedAt       time.Time
 	inspectionRoundActive       bool
@@ -66,8 +69,9 @@ type CheckRequest struct {
 }
 
 type CheckResponse struct {
-	ID    string     `json:"id"`
-	Quota []QuotaRow `json:"quota"`
+	ID                                  string     `json:"id"`
+	Quota                               []QuotaRow `json:"quota"`
+	RateLimitResetCreditsAvailableCount *int       `json:"rateLimitResetCreditsAvailableCount,omitempty"`
 }
 
 func NewService(db *gorm.DB, caller ManagementAPICaller) *Service {
@@ -99,6 +103,7 @@ func NewServiceWithRegistryAndOptions(db *gorm.DB, registry ProviderRegistry, op
 		db:                   db,
 		registry:             registry,
 		refreshTasks:         make(map[string]*RefreshTaskRecord),
+		resetInFlight:        make(map[string]struct{}),
 		refreshWorkerTokens:  make(chan struct{}, workerLimit),
 		refreshTaskTTL:       RefreshTransientTaskTTL,
 		refreshCooldown:      time.Sleep,
@@ -251,10 +256,15 @@ func (s *Service) Check(ctx context.Context, request CheckRequest) (CheckRespons
 	if err != nil {
 		return CheckResponse{}, err
 	}
-	return CheckResponse{
+	response := CheckResponse{
 		ID:    authIndex,
 		Quota: NormalizeQuotaRows(providerOutput),
-	}, nil
+	}
+	// reset 次数跟随官方刷新结果写入同一份限额缓存，前端只展示缓存里的官方值。
+	if count, ok := rateLimitResetCreditsAvailableCount(providerOutput); ok {
+		response.RateLimitResetCreditsAvailableCount = count
+	}
+	return response, nil
 }
 
 func (s *Service) resolveQuotaHandler(provider string, identityType string) (string, ProviderHandler, bool) {
@@ -280,4 +290,22 @@ func resolveQuotaIdentityTypes(provider string, identityType string) []string {
 		candidates = append(candidates, normalized)
 	}
 	return candidates
+}
+
+func rateLimitResetCreditsAvailableCount(output ProviderOutput) (*int, bool) {
+	// 目前只有 Codex 返回 reset credit；其它 provider 保持字段缺省，避免误显示 reset 按钮。
+	switch result := output.Result.(type) {
+	case CodexResult:
+		if result.Usage == nil || result.Usage.RateLimitResetCredits == nil || result.Usage.RateLimitResetCredits.AvailableCount == nil {
+			return nil, false
+		}
+		return result.Usage.RateLimitResetCredits.AvailableCount, true
+	case *CodexResult:
+		if result == nil || result.Usage == nil || result.Usage.RateLimitResetCredits == nil || result.Usage.RateLimitResetCredits.AvailableCount == nil {
+			return nil, false
+		}
+		return result.Usage.RateLimitResetCredits.AvailableCount, true
+	default:
+		return nil, false
+	}
 }

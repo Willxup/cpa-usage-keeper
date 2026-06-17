@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '@/lib/api'
-import { buildCredentialQuotaStateMap, quotaRefreshDisplayError } from './useCredentialsTabData'
+import { buildCredentialQuotaStateMap, quotaRefreshDisplayError, quotaResetDisplayError, runQuotaResetForAuthIndex } from './useCredentialsTabData'
 import { CREDENTIAL_PAGES_REFRESH_INTERVAL_MS } from './useCredentialPages'
 import { buildQuotaCacheAuthIndexesKey, QUOTA_CACHE_REFRESH_INTERVAL_MS } from './useQuotaCache'
 import { buildQuotaRefreshSubmissionUpdate, buildQuotaRefreshTaskErrorUpdate } from './useQuotaRefreshTasks'
@@ -59,13 +59,46 @@ describe('Credentials quota inspection cache refresh', () => {
     const states = buildCredentialQuotaStateMap(
       {},
       { 'auth-1': { refreshStatus: 'failed', error: 'HTTP 401: stale failure' } },
-      { 'auth-1': [{ key: 'rate_limit.primary_window', label: '5h' }] },
+      { 'auth-1': { id: 'auth-1', quota: [{ key: 'rate_limit.primary_window', label: '5h' }] } },
     )
 
     expect(states.get('auth-1')).toEqual({
       quotaLoading: false,
       quotaError: undefined,
       refreshStatus: undefined,
+      quotaResetting: false,
+    })
+  })
+
+  it('keeps reset loading separate from quota panel errors', () => {
+    const states = buildCredentialQuotaStateMap(
+      {},
+      { 'auth-1': { error: 'refresh failed' } },
+      {},
+      { 'auth-1': { quotaResetting: true } },
+    )
+
+    expect(states.get('auth-1')).toEqual({
+      quotaLoading: false,
+      quotaError: 'refresh failed',
+      refreshStatus: undefined,
+      quotaResetting: true,
+    })
+  })
+
+  it('keeps reset loading separate from quota panel loading', () => {
+    const states = buildCredentialQuotaStateMap(
+      {},
+      {},
+      {},
+      { 'auth-1': { quotaResetting: true } },
+    )
+
+    expect(states.get('auth-1')).toEqual({
+      quotaLoading: false,
+      quotaError: undefined,
+      refreshStatus: undefined,
+      quotaResetting: true,
     })
   })
 })
@@ -122,5 +155,98 @@ describe('buildQuotaRefreshTaskErrorUpdate', () => {
         error: 'Please sign in again to refresh quota.',
       },
     })
+  })
+})
+
+describe('quotaResetDisplayError', () => {
+  it('always returns the generic localized reset failure message', () => {
+    expect(quotaResetDisplayError()).toBe('Quota reset failed. Please try again later.')
+  })
+})
+
+describe('runQuotaResetForAuthIndex', () => {
+  it('refreshes quota only after reset succeeds', async () => {
+    const calls: string[] = []
+    const outcome = await runQuotaResetForAuthIndex('auth-1', {
+      resetUsageQuota: async () => {
+        calls.push('reset')
+      },
+      refreshQuotaForAuthIndex: async () => {
+        calls.push('refresh')
+      },
+    })
+
+    expect(outcome).toEqual({ kind: 'success' })
+    expect(calls).toEqual(['reset', 'refresh'])
+  })
+
+  it('keeps reset successful when the follow-up quota refresh fails', async () => {
+    const calls: string[] = []
+    const outcome = await runQuotaResetForAuthIndex('auth-1', {
+      resetUsageQuota: async () => {
+        calls.push('reset')
+      },
+      refreshQuotaForAuthIndex: async () => {
+        calls.push('refresh')
+        throw new Error('refresh failed')
+      },
+    })
+
+    expect(outcome).toEqual({ kind: 'success' })
+    expect(calls).toEqual(['reset', 'refresh'])
+  })
+
+  it('does not refresh quota when reset fails', async () => {
+    const refreshCalls: string[] = []
+    const outcome = await runQuotaResetForAuthIndex('auth-1', {
+      resetUsageQuota: async () => {
+        throw new ApiError('quota_reset_failed', 429)
+      },
+      refreshQuotaForAuthIndex: async () => {
+        refreshCalls.push('refresh')
+      },
+    })
+
+    expect(outcome).toEqual({ kind: 'error', message: 'Quota reset failed. Please try again later.' })
+    expect(refreshCalls).toEqual([])
+  })
+
+  it('treats provider 401 mapped to 502 as a reset failure instead of dashboard auth logout', async () => {
+    const refreshCalls: string[] = []
+    const outcome = await runQuotaResetForAuthIndex('auth-1', {
+      resetUsageQuota: async () => {
+        throw new ApiError('quota_reset_failed', 502)
+      },
+      refreshQuotaForAuthIndex: async () => {
+        refreshCalls.push('refresh')
+      },
+    })
+
+    expect(outcome).toEqual({ kind: 'error', message: 'Quota reset failed. Please try again later.' })
+    expect(refreshCalls).toEqual([])
+  })
+
+  it('treats dashboard session expiry as a reset failure notice in this action', async () => {
+    const outcome = await runQuotaResetForAuthIndex('auth-1', {
+      resetUsageQuota: async () => {
+        throw new ApiError('unauthorized', 401)
+      },
+      refreshQuotaForAuthIndex: async () => undefined,
+    })
+
+    expect(outcome).toEqual({ kind: 'error', message: 'Quota reset failed. Please try again later.' })
+  })
+})
+
+describe('useCredentialsTabData quota response contract', () => {
+  it('narrows reset callback dependencies to refreshQuotaForAuthIndex and notice handler', () => {
+    expect(credentialsTabDataSource).toMatch(/}, \[onNotice, refreshQuotaForAuthIndex\]\)/)
+  })
+
+  it('routes reset outcomes through the shared helper and top notice', () => {
+    expect(credentialsTabDataSource).toContain('runQuotaResetForAuthIndex(authIndex, {')
+    expect(credentialsTabDataSource).toContain("onNotice?.('error', outcome.message)")
+    expect(credentialsTabDataSource).not.toContain("onAuthRequired?.()")
+    expect(credentialsTabDataSource).not.toContain('quotaResetError')
   })
 })

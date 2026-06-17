@@ -12,6 +12,8 @@ var (
 	ErrUnsupportedType = errors.New("quota identity type is unsupported")
 	ErrProviderInput   = errors.New("quota provider input is invalid")
 	ErrTaskNotFound    = errors.New("quota refresh task not found")
+
+	ErrResetInProgress = errors.New("quota reset already in progress")
 )
 
 type ProviderHTTPError struct {

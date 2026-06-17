@@ -221,9 +221,38 @@ describe('Credential section styles', () => {
     expect(credentialStyles).toMatch(/\.credentialInspectionResultsFooter\s*\{[\s\S]*?justify-content:\s*flex-end;/)
   })
 
+
+  it('stacks Auth Files quota reset and refresh actions on the right side', () => {
+    expect(authFileSectionSource).toContain('credentialQuotaActionStack')
+    expect(authFileSectionSource).toContain('credentialRowResetButton')
+    expect(credentialStyles).toMatch(/\.credentialQuotaSideWithAction\s*\{[\s\S]*?grid-template-columns:\s*minmax\(350px, 1fr\) 30px;/)
+    expect(credentialStyles).toMatch(/\.credentialQuotaActionStack\s*\{[\s\S]*?flex-direction:\s*column;/)
+    expect(credentialStyles).toMatch(/\.credentialQuotaActionStack\s*\{[\s\S]*?justify-content:\s*center;/)
+    expect(credentialStyles).toMatch(/\.credentialRowResetButton\s*\{[\s\S]*?background:\s*var\(--bg-secondary\);/)
+    expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialQuotaSideWithAction\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\) auto;/)
+    expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialQuotaSideWithAction\s*\{[\s\S]*?align-items:\s*center;/)
+  })
+
+  it('keeps Auth Files quota reset popovers visible outside the section card', () => {
+    expect(authFileSectionSource).toContain('credentialQuotaResetPopover')
+    expect(credentialStyles).toMatch(/\.credentialSectionCard\s*\{[\s\S]*?overflow:\s*hidden;/)
+    expect(credentialStyles).toMatch(/\.credentialQuotaResetAction\s*\{[\s\S]*?position:\s*relative;/)
+    expect(credentialStyles).toMatch(/\.credentialQuotaResetPopover\s*\{[\s\S]*?position:\s*fixed;/)
+    expect(credentialStyles).toMatch(/\.credentialQuotaResetTooltip\s*\{[\s\S]*?position:\s*absolute;/)
+    expect(credentialStyles).toMatch(/\.credentialQuotaResetTooltip\s*\{[\s\S]*?right:\s*calc\(100% \+ 8px\);/)
+    expect(credentialStyles).toMatch(/\.credentialQuotaResetAction:hover \.credentialQuotaResetTooltip[\s\S]*?opacity:\s*1;/)
+    expect(credentialStyles).not.toContain('.credentialQuotaResetAction:focus-within .credentialQuotaResetTooltip')
+    expect(credentialStyles).toMatch(/\.credentialQuotaResetCount\s*\{[\s\S]*?color:\s*var\(--primary-active\);/)
+    expect(credentialStyles).toMatch(/\.credentialQuotaResetCount\s*\{[\s\S]*?font-weight:\s*700;/)
+    expect(credentialStyles).toMatch(/\.credentialQuotaResetConfirmButton\s*\{[\s\S]*?background:\s*var\(--primary-color\);/)
+    expect(credentialStyles).toMatch(/\.credentialQuotaResetConfirmButton\s*\{[\s\S]*?color:\s*var\(--primary-contrast, #fff\);/)
+    expect(credentialStyles).toMatch(/\.credentialQuotaResetConfirmButton\s*\{[\s\S]*?&:hover:not\(:disabled\)\s*\{[\s\S]*?background:\s*var\(--primary-hover\);/)
+    expect(cssBlock('.credentialSectionCard')).not.toContain('overflow: visible;')
+  })
+
   it('places the Auth Files quota usage mode switch in the pagination toolbar before sorting', () => {
-    expect(authFileSectionSource).not.toContain('credentialQuotaActionStack')
-    expect(credentialStyles).not.toContain('credentialQuotaActionStack')
+    expect(authFileSectionSource).toContain('credentialQuotaActionStack')
+    expect(credentialStyles).toContain('credentialQuotaActionStack')
     expect(authFileSectionSource).toContain('leadingControls={showHealthMode ? undefined : <QuotaUsageModeSwitch')
     expect(authFileSectionSource).toContain('credentials_quota_usage_mode_label')
     expect(authFileSectionSource).toContain('credentialQuotaModeSwitcher')

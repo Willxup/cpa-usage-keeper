@@ -833,11 +833,22 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const eventsFilterOptionsRequestControllerRef = useRef<AbortController | null>(null);
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
   const [pageVisible, setPageVisible] = useState(isUsagePageVisible);
+  const showTopNotice = useCallback((kind: TopNoticeKind, message: string) => {
+    if (topNoticeTimerRef.current !== null) {
+      window.clearTimeout(topNoticeTimerRef.current);
+    }
+    setTopNotice({ kind, message });
+    topNoticeTimerRef.current = window.setTimeout(() => {
+      setTopNotice(null);
+      topNoticeTimerRef.current = null;
+    }, getUpdateCheckToastDuration(kind));
+  }, []);
   const credentialsData = useCredentialsTabData({
     enabledAuthFiles: credentialSectionVisibility.showAuthFiles && pageVisible,
     enabledAiProviders: credentialSectionVisibility.showAiProvider && pageVisible,
     quotaAutoRefreshEnabled: status?.quotaAutoRefreshEnabled === true,
     onAuthRequired,
+    onNotice: showTopNotice,
   });
   const refreshCredentials = credentialsData.refresh;
   const [analysisLoading, setAnalysisLoading] = useState(false);
@@ -877,17 +888,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     return styles.updateCheckToastInfo;
   })() : '';
   const cpaManagementURL = useMemo(() => getBackToCPALinkURL(status), [status]);
-
-  const showTopNotice = useCallback((kind: TopNoticeKind, message: string) => {
-    if (topNoticeTimerRef.current !== null) {
-      window.clearTimeout(topNoticeTimerRef.current);
-    }
-    setTopNotice({ kind, message });
-    topNoticeTimerRef.current = window.setTimeout(() => {
-      setTopNotice(null);
-      topNoticeTimerRef.current = null;
-    }, getUpdateCheckToastDuration(kind));
-  }, []);
 
   useEffect(() => {
     if (timeRange !== 'custom') {
@@ -1889,6 +1889,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       onSortChange={credentialsData.setAuthFileSort}
                       onRefreshQuota={credentialsData.refreshQuotaForCurrentAuthFilePage}
                       onRefreshQuotaForAuthIndex={credentialsData.refreshQuotaForAuthIndex}
+                      onResetQuotaForAuthIndex={credentialsData.resetQuotaForAuthIndex}
                       onRefreshInspectionStatus={credentialsData.refreshQuotaInspectionStatus}
                       onStartInspection={credentialsData.startQuotaInspection}
                       onAfterInvalidAccountAction={credentialsData.refresh}

@@ -227,6 +227,34 @@ describe('i18n resources', () => {
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_inspection_limit_reached')).toBe('達到限額');
   });
 
+
+  it('keeps Auth Files quota reset copy available in every language', () => {
+    expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_quota_reset_title')).toBe('Reset Codex quota')
+    expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_quota_reset_button')).toBe('Reset quota, {{count}} available')
+    expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_quota_reset_tooltip_suffix')).toBe('reset credits available')
+    expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_quota_reset_message')).toBe('{{count}} reset credits are available. Consume 1 credit to reset now?')
+    expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_quota_reset_message_suffix')).toBe('reset credits are available.')
+    expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_quota_reset_message_prompt')).toBe('Consume 1 credit to reset now?')
+    expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_quota_reset_confirm')).toBe('Reset')
+    expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_quota_reset_failed')).toBe('Quota reset failed. Please try again later.')
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_quota_reset_title')).toBe('重置 Codex 限额')
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_quota_reset_button')).toBe('重置限额，可用 {{count}} 次')
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_quota_reset_tooltip_suffix')).toBe('次重置机会')
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_quota_reset_message')).toBe('当前有 {{count}} 次可用重置次数。是否消耗 1 次立即重置？')
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_quota_reset_message_suffix')).toBe('次可用重置次数。')
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_quota_reset_message_prompt')).toBe('是否消耗 1 次立即重置？')
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_quota_reset_confirm')).toBe('确认重置')
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_quota_reset_failed')).toBe('重置限额失败，请稍后重试。')
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_quota_reset_title')).toBe('重置 Codex 限額')
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_quota_reset_button')).toBe('重置限額，可用 {{count}} 次')
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_quota_reset_tooltip_suffix')).toBe('次重置機會')
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_quota_reset_message')).toBe('目前有 {{count}} 次可用重置次數。是否消耗 1 次立即重置？')
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_quota_reset_message_suffix')).toBe('次可用重置次數。')
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_quota_reset_message_prompt')).toBe('是否消耗 1 次立即重置？')
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_quota_reset_confirm')).toBe('確認重置')
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_quota_reset_failed')).toBe('重置限額失敗，請稍後重試。')
+  })
+
   it('keeps the login product title aligned across languages', () => {
     expect(i18n.getResourceBundle('en', 'translation').auth.login_title).toBe('CPA Usage Statistics Dashboard');
     expect(i18n.getResourceBundle('zh', 'translation').auth.login_title).toBe('CPA 用量统计仪表盘');

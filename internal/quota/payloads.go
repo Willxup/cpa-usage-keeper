@@ -48,9 +48,10 @@ func parseCodexUsagePayload(response *apicall.Response) (*CodexUsagePayload, err
 		return nil, err
 	}
 	payload := &CodexUsagePayload{
-		PlanType:            stringField(object, "plan_type", "planType"),
-		RateLimit:           parseCodexRateLimitInfo(objectField(object, "rate_limit", "rateLimit")),
-		CodeReviewRateLimit: parseCodexRateLimitInfo(objectField(object, "code_review_rate_limit", "codeReviewRateLimit")),
+		PlanType:              stringField(object, "plan_type", "planType"),
+		RateLimit:             parseCodexRateLimitInfo(objectField(object, "rate_limit", "rateLimit")),
+		CodeReviewRateLimit:   parseCodexRateLimitInfo(objectField(object, "code_review_rate_limit", "codeReviewRateLimit")),
+		RateLimitResetCredits: parseCodexRateLimitResetCredits(objectField(object, "rate_limit_reset_credits", "rateLimitResetCredits")),
 	}
 	for _, raw := range arrayField(object, "additional_rate_limits", "additionalRateLimits") {
 		limitObject := rawObject(raw)
@@ -64,6 +65,19 @@ func parseCodexUsagePayload(response *apicall.Response) (*CodexUsagePayload, err
 		})
 	}
 	return payload, nil
+}
+
+func parseCodexRateLimitResetCredits(object map[string]json.RawMessage) *CodexRateLimitResetCredits {
+	if object == nil {
+		return nil
+	}
+	// 官方刷新结果可能省略 reset credit 字段；只有明确返回 available_count 时才暴露给前端。
+	availableCount := intPtrField(object, "available_count", "availableCount")
+	if availableCount == nil {
+		return nil
+	}
+	count := int(*availableCount)
+	return &CodexRateLimitResetCredits{AvailableCount: &count}
 }
 
 func parseCodexRateLimitInfo(object map[string]json.RawMessage) *CodexRateLimitInfo {
@@ -351,6 +365,26 @@ func parseKimiLimitWindow(object map[string]json.RawMessage) *KimiLimitWindow {
 		Duration: intField(object, "duration"),
 		TimeUnit: stringField(object, "timeUnit", "time_unit"),
 	}
+}
+
+func parseCodexResetCreditResponse(response *apicall.Response) (ProviderResetOutput, error) {
+	object, err := parseResponseObject(response)
+	if err != nil {
+		return ProviderResetOutput{}, err
+	}
+	// consume 成功必须返回 code=reset 和 windows_reset，避免把未知成功体当成已重置。
+	code := stringField(object, "code")
+	if code != "reset" {
+		return ProviderResetOutput{}, fmt.Errorf("unexpected reset credit response code: %s", code)
+	}
+	windowsReset := intPtrField(object, "windows_reset", "windowsReset")
+	if windowsReset == nil {
+		return ProviderResetOutput{}, fmt.Errorf("invalid reset credit response")
+	}
+	return ProviderResetOutput{
+		Code:         code,
+		WindowsReset: int(*windowsReset),
+	}, nil
 }
 
 func parseResponseObject(response *apicall.Response) (map[string]json.RawMessage, error) {

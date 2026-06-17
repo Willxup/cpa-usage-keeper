@@ -20,6 +20,15 @@ type ProviderOutput struct {
 	Result   any
 }
 
+type ProviderResetOutput struct {
+	Code         string `json:"code,omitempty"`
+	WindowsReset int    `json:"windowsReset,omitempty"`
+}
+
+type ProviderResetter interface {
+	Reset(context.Context, ProviderInput) (ProviderResetOutput, error)
+}
+
 type QuotaWindow struct {
 	Duration *float64 `json:"duration,omitempty"`
 	Unit     string   `json:"unit,omitempty"`
@@ -83,11 +92,16 @@ type CodexAdditionalRateLimit struct {
 	RateLimit      *CodexRateLimitInfo `json:"rateLimit,omitempty"`
 }
 
+type CodexRateLimitResetCredits struct {
+	AvailableCount *int `json:"availableCount,omitempty"`
+}
+
 type CodexUsagePayload struct {
-	PlanType             string                     `json:"planType,omitempty"`
-	RateLimit            *CodexRateLimitInfo        `json:"rateLimit,omitempty"`
-	CodeReviewRateLimit  *CodexRateLimitInfo        `json:"codeReviewRateLimit,omitempty"`
-	AdditionalRateLimits []CodexAdditionalRateLimit `json:"additionalRateLimits,omitempty"`
+	PlanType              string                      `json:"planType,omitempty"`
+	RateLimit             *CodexRateLimitInfo         `json:"rateLimit,omitempty"`
+	CodeReviewRateLimit   *CodexRateLimitInfo         `json:"codeReviewRateLimit,omitempty"`
+	AdditionalRateLimits  []CodexAdditionalRateLimit  `json:"additionalRateLimits,omitempty"`
+	RateLimitResetCredits *CodexRateLimitResetCredits `json:"rateLimitResetCredits,omitempty"`
 }
 
 type GeminiCliQuotaBucket struct {

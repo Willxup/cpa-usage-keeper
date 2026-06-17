@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { ApiError, fetchUsageQuotaRefreshTask, refreshUsageQuotas } from '@/lib/api'
 import i18n from '@/i18n'
-import type { UsageQuotaRefreshResponse, UsageQuotaRow } from '@/lib/types'
+import type { UsageQuotaCheckResponse, UsageQuotaRefreshResponse } from '@/lib/types'
 
 export interface QuotaState {
   loading?: boolean
@@ -17,7 +17,7 @@ export interface PendingRefreshTask {
 interface UseQuotaRefreshTasksOptions {
   enabled: boolean
   currentAuthIndexes: string[]
-  setQuotaByAuthIndex: Dispatch<SetStateAction<Record<string, UsageQuotaRow[]>>>
+  setQuotaResponseByAuthIndex: Dispatch<SetStateAction<Record<string, UsageQuotaCheckResponse>>>
   onAuthRequired?: () => void
 }
 
@@ -29,7 +29,7 @@ export interface QuotaRefreshTasksState {
   refreshQuotaForAuthIndex: (authIndex: string) => Promise<void>
 }
 
-export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaByAuthIndex, onAuthRequired }: UseQuotaRefreshTasksOptions): QuotaRefreshTasksState {
+export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaResponseByAuthIndex, onAuthRequired }: UseQuotaRefreshTasksOptions): QuotaRefreshTasksState {
   const [quotaStateByAuthIndex, setQuotaStateByAuthIndex] = useState<Record<string, QuotaState>>({})
   const [pendingRefreshTasks, setPendingRefreshTasks] = useState<PendingRefreshTask[]>([])
   const [batchRefreshSubmitting, setBatchRefreshSubmitting] = useState(false)
@@ -51,7 +51,7 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaByAu
       // 一轮轮询内同时查询所有未完成 task，再统一合并状态和 quota 缓存。
       const settledAuthIndexes = new Set<string>()
       const stateUpdates: Record<string, QuotaState> = {}
-      const quotaUpdates: Record<string, UsageQuotaRow[]> = {}
+      const quotaResponseUpdates: Record<string, UsageQuotaCheckResponse> = {}
 
       await Promise.all(pendingRefreshTasks.map(async (task) => {
         try {
@@ -67,7 +67,7 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaByAu
             settledAuthIndexes.add(task.authIndex)
           }
           if (response.status === 'completed' && response.quota) {
-            quotaUpdates[task.authIndex] = response.quota.quota ?? []
+            quotaResponseUpdates[task.authIndex] = response.quota
           }
         } catch (nextError) {
           if (cancelled || controller.signal.aborted) {
@@ -84,9 +84,9 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaByAu
       if (cancelled) {
         return
       }
-      if (Object.keys(quotaUpdates).length > 0) {
+      if (Object.keys(quotaResponseUpdates).length > 0) {
         // 已完成任务的 quota 直接写入缓存，行视图会自动用最新缓存重算。
-        setQuotaByAuthIndex((current) => ({ ...current, ...quotaUpdates }))
+        setQuotaResponseByAuthIndex((current) => ({ ...current, ...quotaResponseUpdates }))
       }
       if (Object.keys(stateUpdates).length > 0) {
         setQuotaStateByAuthIndex((current) => mergeQuotaStates(current, stateUpdates))
@@ -109,7 +109,7 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaByAu
         window.clearTimeout(timer)
       }
     }
-  }, [enabled, onAuthRequired, pendingRefreshTasks, setQuotaByAuthIndex])
+  }, [enabled, onAuthRequired, pendingRefreshTasks, setQuotaResponseByAuthIndex])
 
   const startQuotaRefresh = useCallback(async (authIndexes: string[], source: PendingRefreshTask['source']) => {
     if (authIndexes.length === 0) {

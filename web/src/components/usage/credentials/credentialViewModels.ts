@@ -1,4 +1,4 @@
-import type { UsageCredentialHealth, UsageIdentity, UsageQuotaRow } from '@/lib/types'
+import type { UsageCredentialHealth, UsageIdentity, UsageQuotaCheckResponse, UsageQuotaRow } from '@/lib/types'
 import { calculateCacheRate, formatCompactTokenValue } from '@/utils/usage'
 
 export const CREDENTIALS_PAGE_SIZE = 10
@@ -56,9 +56,11 @@ export interface AuthFileCredentialRow {
   totalTokens: number
   cacheRate: number | null
   quota: UsageQuotaRow[]
+  quotaResetCreditsAvailableCount?: number | null
   quotaLoading: boolean
   quotaError?: string
   refreshStatus?: 'queued' | 'running' | 'completed' | 'failed'
+  quotaResetting?: boolean
   displayQuotas: DisplayQuota[]
   credentialHealth?: UsageCredentialHealth
 }
@@ -130,11 +132,12 @@ export function paginateCredentials<T>(items: T[], page: number, pageSize = CRED
 export function buildAuthFileCredentialRows(
   // Auth Files 行合并 usage identity、缓存 quota 和刷新任务状态，组件不再重复拼装字段。
   identities: UsageIdentity[],
-  quotas: Map<string, UsageQuotaRow[]> = new Map(),
-  quotaStates: Map<string, Pick<AuthFileCredentialRow, 'quotaLoading' | 'quotaError' | 'refreshStatus'>> = new Map(),
+  quotas: Map<string, UsageQuotaCheckResponse> = new Map(),
+  quotaStates: Map<string, Pick<AuthFileCredentialRow, 'quotaLoading' | 'quotaError' | 'refreshStatus' | 'quotaResetting'>> = new Map(),
 ): AuthFileCredentialRow[] {
   return identities.map((identity) => {
-    const quota = quotas.get(identity.identity) ?? []
+    const quotaResponse = quotas.get(identity.identity)
+    const quota = quotaResponse?.quota ?? []
     const state = quotaStates.get(identity.identity)
     const displayQuotas = quota.map(toDisplayQuota).filter(isDisplayableQuota)
     const planType = firstNonEmpty(...quota.map((row) => row.planType), identity.plan_type)
@@ -157,9 +160,11 @@ export function buildAuthFileCredentialRows(
       totalTokens: safeNumber(identity.total_tokens),
       cacheRate: cacheRate(identity),
       quota,
+      quotaResetCreditsAvailableCount: quotaResponse?.rateLimitResetCreditsAvailableCount,
       quotaLoading: state?.quotaLoading ?? false,
       quotaError: state?.quotaError,
       refreshStatus: state?.refreshStatus,
+      quotaResetting: state?.quotaResetting ?? false,
       displayQuotas,
       credentialHealth: identity.credential_health,
     }

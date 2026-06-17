@@ -1,7 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildCustomDateRangeQuery, clampCustomDateRangeToBounds, CUSTOM_DATE_RANGE_BOUNDS_REFRESH_INTERVAL_MS, getBackToCPALinkURL, getCredentialSectionVisibility, getCustomDateRangeBounds, getOverviewDisplayLoading, getTimeRangeOptions, getUsageTabOptions, isCustomDateWithinBounds, isUsagePageVisible, loadRequestEventsPreferences, normalizeRequestEventsPreferences, normalizeUsageTabValue, openDateInputPicker, refreshPageData, REQUEST_EVENTS_PREFERENCES_STORAGE_KEY, sanitizeRequestEventFilters, saveRequestEventsPreferences, scheduleCustomDateRangeBoundsRefresh, scheduleOverviewAutoRefresh, scheduleStatusActiveHeartbeat, shouldAutoRefreshUsageTab, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowUpdateCheckButton, STATUS_ACTIVE_HEARTBEAT_INTERVAL_MS, getUpdateCheckToastDuration } from './UsagePage';
 import { REQUEST_EVENT_COLUMN_IDS } from '@/components/usage/RequestEventsDetailsCard';
 import type { StatusResponse, UsageFilterWindow } from '@/lib/types';
+
+const usagePageSource = readFileSync(new URL('./UsagePage.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 
 const createAutoRefreshTestDocument = (visibilityState: DocumentVisibilityState = 'visible') => {
   const target = new EventTarget();
@@ -105,6 +108,13 @@ describe('UsagePage update check controls', () => {
     expect(getUpdateCheckToastDuration('info')).toBe(4_000);
     expect(getUpdateCheckToastDuration('error')).toBe(6_000);
   });
+});
+
+describe('UsagePage credential reset notice wiring', () => {
+  it('passes the top notice handler into the credentials hook', () => {
+    expect(usagePageSource).toContain('onNotice: showTopNotice')
+    expect(usagePageSource).toMatch(/const showTopNotice = useCallback\([\s\S]*const credentialsData = useCredentialsTabData/)
+  })
 });
 
 describe('UsagePage Overview auto-refresh', () => {

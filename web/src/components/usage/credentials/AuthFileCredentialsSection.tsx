@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Modal } from '@/components/ui/Modal'
-import { IconChartLine, IconRefreshCw, IconSearch, IconShield, IconTrash2 } from '@/components/ui/icons'
+import { IconChartLine, IconGaugeReset, IconRefreshCw, IconSearch, IconShield, IconTrash2 } from '@/components/ui/icons'
 import quotaCostIcon from '@/assets/icons/quota-cost.svg'
 import quotaTokenIcon from '@/assets/icons/quota-token.svg'
 import styles from './CredentialSections.module.scss'
@@ -29,6 +29,10 @@ type QuotaErrorDisplay = {
 type QuotaErrorDetails = {
   code?: string
   message?: string
+}
+type QuotaResetPopoverPosition = {
+  top: number
+  right: number
 }
 
 const QUOTA_ERROR_MESSAGE_MAX_LENGTH = 96
@@ -69,12 +73,13 @@ interface AuthFileCredentialsSectionProps {
   onSortChange: (sort: UsageIdentityPageSort) => void
   onRefreshQuota: () => Promise<void>
   onRefreshQuotaForAuthIndex: (authIndex: string) => Promise<void>
+  onResetQuotaForAuthIndex: (authIndex: string) => Promise<void>
   onRefreshInspectionStatus: () => Promise<void>
   onStartInspection: () => Promise<void>
   onAfterInvalidAccountAction?: () => Promise<void>
 }
 
-export function AuthFileCredentialsSection({ rows, total, page, totalPages, pageSize, activeOnly, sort, loading, quotaRefreshing, quotaRefreshError, quotaAutoRefreshEnabled, quotaInspectionStatus, quotaInspectionLoading, quotaInspectionStarting, quotaInspectionError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex, onRefreshInspectionStatus, onStartInspection, onAfterInvalidAccountAction }: AuthFileCredentialsSectionProps) {
+export function AuthFileCredentialsSection({ rows, total, page, totalPages, pageSize, activeOnly, sort, loading, quotaRefreshing, quotaRefreshError, quotaAutoRefreshEnabled, quotaInspectionStatus, quotaInspectionLoading, quotaInspectionStarting, quotaInspectionError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex, onResetQuotaForAuthIndex, onRefreshInspectionStatus, onStartInspection, onAfterInvalidAccountAction }: AuthFileCredentialsSectionProps) {
   const { t } = useTranslation()
   const [inspectionOpen, setInspectionOpen] = useState(false)
   const [quotaUsageMode, setQuotaUsageMode] = useState<QuotaUsageMode>('current')
@@ -159,6 +164,8 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
       )}
       {rows.map((row) => {
         const rowRefreshing = isRowRefreshing(row)
+        const resetCredits = row.quotaResetCreditsAvailableCount ?? 0
+        const canResetQuota = resetCredits > 0 && !row.identity.is_deleted && !rowRefreshing && !row.quotaResetting
         return (
           <CredentialRowShell
             key={row.identity.id || row.identity.identity}
@@ -186,16 +193,27 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
             ) : (
               <div className={styles.credentialQuotaSideWithAction}>
                 <AuthFileQuotaPanel row={row} quotaUsageMode={quotaUsageMode} />
-                <button
-                  type="button"
-                  className={`${styles.credentialRowRefreshButton} ${rowRefreshing ? styles.credentialRowRefreshButtonLoading : ''}`.trim()}
-                  onClick={() => void onRefreshQuotaForAuthIndex(row.identity.identity)}
-                  disabled={row.identity.is_deleted || rowRefreshing}
-                  aria-label={t('usage_stats.credentials_refresh_single', { name: row.displayName })}
-                  aria-busy={rowRefreshing}
-                >
-                  {rowRefreshing ? <LoadingSpinner size={13} /> : <IconRefreshCw size={13} />}
-                </button>
+                <div className={styles.credentialQuotaActionStack}>
+                  {/* reset 按钮只在官方缓存给出可用次数时展示；refresh 始终保留在右侧列居中位置。 */}
+                  {resetCredits > 0 && (
+                    <QuotaResetAction
+                      resetCredits={resetCredits}
+                      disabled={!canResetQuota}
+                      loading={row.quotaResetting === true}
+                      onConfirm={() => onResetQuotaForAuthIndex(row.identity.identity)}
+                    />
+                  )}
+                  <button
+                    type="button"
+                    className={`${styles.credentialRowRefreshButton} ${rowRefreshing ? styles.credentialRowRefreshButtonLoading : ''}`.trim()}
+                    onClick={() => void onRefreshQuotaForAuthIndex(row.identity.identity)}
+                    disabled={row.identity.is_deleted || rowRefreshing}
+                    aria-label={t('usage_stats.credentials_refresh_single', { name: row.displayName })}
+                    aria-busy={rowRefreshing}
+                  >
+                    {rowRefreshing ? <LoadingSpinner size={13} /> : <IconRefreshCw size={13} />}
+                  </button>
+                </div>
               </div>
             )}
           />
@@ -236,6 +254,147 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
         onAfterInvalidAccountAction={onAfterInvalidAccountAction}
       />
     </>
+  )
+}
+
+
+function QuotaResetAction({
+  resetCredits,
+  disabled,
+  loading,
+  onConfirm,
+}: {
+  resetCredits: number
+  disabled: boolean
+  loading: boolean
+  onConfirm: () => Promise<void>
+}) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const [popoverPosition, setPopoverPosition] = useState<QuotaResetPopoverPosition | null>(null)
+  const tooltipId = useId()
+  const actionRef = useRef<HTMLDivElement | null>(null)
+  const buttonRef = useRef<HTMLButtonElement | null>(null)
+
+  const updatePopoverPosition = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    const button = buttonRef.current
+    if (!button) {
+      return
+    }
+    const rect = button.getBoundingClientRect()
+    // popover 使用 fixed，避免被卡片 overflow 裁切，同时跟随右侧按钮重新定位。
+    setPopoverPosition({
+      top: Math.round(rect.bottom + 8),
+      right: Math.max(12, Math.round(window.innerWidth - rect.right)),
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    updatePopoverPosition()
+    const refreshPopoverPosition = () => updatePopoverPosition()
+    window.addEventListener('resize', refreshPopoverPosition)
+    window.addEventListener('scroll', refreshPopoverPosition, true)
+    return () => {
+      window.removeEventListener('resize', refreshPopoverPosition)
+      window.removeEventListener('scroll', refreshPopoverPosition, true)
+    }
+  }, [open, updatePopoverPosition])
+
+  useEffect(() => {
+    if (!open || typeof document === 'undefined') {
+      return
+    }
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) {
+        return
+      }
+      if (actionRef.current?.contains(target)) {
+        return
+      }
+      setOpen(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open])
+
+  const handleConfirm = async () => {
+    await onConfirm()
+    setOpen(false)
+  }
+
+  const handleToggleOpen = () => {
+    if (open) {
+      setOpen(false)
+      return
+    }
+    updatePopoverPosition()
+    setOpen(true)
+  }
+
+  return (
+    <div ref={actionRef} className={styles.credentialQuotaResetAction}>
+      <button
+        ref={buttonRef}
+        type="button"
+        className={`${styles.credentialRowResetButton} ${loading ? styles.credentialRowRefreshButtonLoading : ''}`.trim()}
+        onClick={handleToggleOpen}
+        disabled={disabled}
+        aria-label={t('usage_stats.credentials_quota_reset_button', { count: String(resetCredits) })}
+        aria-describedby={open ? undefined : tooltipId}
+        aria-busy={loading}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+      >
+        {loading ? <LoadingSpinner size={13} /> : <IconGaugeReset size={13} />}
+      </button>
+      {!open && (
+        <span id={tooltipId} className={styles.credentialQuotaResetTooltip} role="tooltip">
+          <span className={styles.credentialQuotaResetCount}>{resetCredits}</span>
+          <span>{t('usage_stats.credentials_quota_reset_tooltip_suffix')}</span>
+        </span>
+      )}
+      {open && (
+        <div
+          className={styles.credentialQuotaResetPopover}
+          role="dialog"
+          aria-label={t('usage_stats.credentials_quota_reset_title')}
+          style={popoverPosition ? { top: popoverPosition.top, right: popoverPosition.right } : undefined}
+        >
+          <p className={styles.credentialQuotaResetTitle}>{t('usage_stats.credentials_quota_reset_title')}</p>
+          <p className={styles.credentialQuotaResetMessage}>
+            <span className={styles.credentialQuotaResetCountLine}>
+              <span className={styles.credentialQuotaResetCount}>{resetCredits}</span>
+              <span>{t('usage_stats.credentials_quota_reset_message_suffix')}</span>
+            </span>
+            <span>{t('usage_stats.credentials_quota_reset_message_prompt')}</span>
+          </p>
+          <div className={styles.credentialQuotaResetActions}>
+            <button type="button" className={styles.credentialQuotaResetCancelButton} onClick={() => setOpen(false)} disabled={loading}>
+              {t('common.cancel')}
+            </button>
+            <button type="button" className={styles.credentialQuotaResetConfirmButton} onClick={() => void handleConfirm()} disabled={loading} aria-busy={loading}>
+              {loading ? <LoadingSpinner size={12} /> : t('usage_stats.credentials_quota_reset_confirm')}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 

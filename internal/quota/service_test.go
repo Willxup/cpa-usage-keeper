@@ -45,6 +45,239 @@ func (s *refreshHandlerStub) callCount() int {
 	return len(s.calls)
 }
 
+type resetHandlerStub struct {
+	refreshHandlerStub
+	resetOutput ProviderResetOutput
+	resetErr    error
+	resetInputs []entities.UsageIdentity
+	entered     chan string
+}
+
+func (s *resetHandlerStub) Reset(ctx context.Context, input ProviderInput) (ProviderResetOutput, error) {
+	if s.entered != nil {
+		s.entered <- input.Identity.Identity
+	}
+	if s.block != nil {
+		select {
+		case <-ctx.Done():
+			return ProviderResetOutput{}, ctx.Err()
+		case <-s.block:
+		}
+	}
+	s.mu.Lock()
+	s.resetInputs = append(s.resetInputs, input.Identity)
+	s.mu.Unlock()
+	if s.resetErr != nil {
+		return ProviderResetOutput{}, s.resetErr
+	}
+	return s.resetOutput, nil
+}
+
+func TestResetConsumesCodexCredit(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	handler := &resetHandlerStub{resetOutput: ProviderResetOutput{Code: "reset", WindowsReset: 2}}
+	service := NewServiceWithRegistry(db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
+
+	response, err := service.Reset(context.Background(), ResetRequest{AuthIndex: " codex-auth "})
+	if err != nil {
+		t.Fatalf("Reset returned error: %v", err)
+	}
+	if response.AuthIndex != "codex-auth" || response.Code != "reset" || response.WindowsReset != 2 {
+		t.Fatalf("unexpected reset response: %+v", response)
+	}
+	if len(handler.resetInputs) != 1 || handler.resetInputs[0].Identity != "codex-auth" {
+		t.Fatalf("expected reset input identity codex-auth, got %+v", handler.resetInputs)
+	}
+}
+
+func TestResetRejectsUnsupportedProvider(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	handler := &resetHandlerStub{resetOutput: ProviderResetOutput{Code: "reset", WindowsReset: 1}}
+	service := NewServiceWithRegistry(db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
+
+	_, err := service.Reset(context.Background(), ResetRequest{AuthIndex: "claude-auth"})
+	if !errors.Is(err, ErrUnsupportedType) {
+		t.Fatalf("expected unsupported type error, got %v", err)
+	}
+}
+
+func TestResetRejectsEmptyAuthIndex(t *testing.T) {
+	service := NewServiceWithRegistry(openQuotaTestDatabase(t), NewProviderRegistry(nil))
+
+	_, err := service.Reset(context.Background(), ResetRequest{AuthIndex: "   "})
+	if !errors.Is(err, ErrValidation) {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+}
+
+func TestResetRejectsNilServiceWithoutInProgressError(t *testing.T) {
+	var service *Service
+
+	_, err := service.Reset(context.Background(), ResetRequest{AuthIndex: "codex-auth"})
+	if err == nil {
+		t.Fatal("expected nil service error")
+	}
+	if errors.Is(err, ErrResetInProgress) {
+		t.Fatalf("expected nil service error to avoid in-progress semantics, got %v", err)
+	}
+	if err.Error() != "quota service is nil" {
+		t.Fatalf("expected quota service nil error, got %v", err)
+	}
+}
+
+func TestResetReturnsNotFoundForMissingAuthIndex(t *testing.T) {
+	service := NewServiceWithRegistry(openQuotaTestDatabase(t), NewProviderRegistry(nil))
+
+	_, err := service.Reset(context.Background(), ResetRequest{AuthIndex: "missing-auth"})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected not found error, got %v", err)
+	}
+}
+
+func TestResetRejectsConcurrentRequestsForSameAuthIndex(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	block := make(chan struct{})
+	handler := &resetHandlerStub{refreshHandlerStub: refreshHandlerStub{block: block}, resetOutput: ProviderResetOutput{Code: "reset", WindowsReset: 2}}
+	service := NewServiceWithRegistry(db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
+
+	var wg sync.WaitGroup
+	results := make(chan error, 2)
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := service.Reset(context.Background(), ResetRequest{AuthIndex: "codex-auth"})
+			results <- err
+		}()
+	}
+
+	select {
+	case err := <-results:
+		if !errors.Is(err, ErrResetInProgress) {
+			t.Fatalf("expected duplicate concurrent reset to be rejected as in progress, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for duplicate concurrent reset")
+	}
+
+	close(block)
+
+	select {
+	case err := <-results:
+		if err != nil {
+			t.Fatalf("expected blocked concurrent reset to succeed after release, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for blocked concurrent reset")
+	}
+
+	wg.Wait()
+	if len(handler.resetInputs) != 1 || handler.resetInputs[0].Identity != "codex-auth" {
+		t.Fatalf("expected only one provider reset call, got %+v", handler.resetInputs)
+	}
+}
+
+func TestResetAllowsConcurrentRequestsForDifferentAuthIndexes(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth-1", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth-2", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	block := make(chan struct{})
+	entered := make(chan string, 2)
+	handler := &resetHandlerStub{
+		refreshHandlerStub: refreshHandlerStub{block: block},
+		resetOutput:        ProviderResetOutput{Code: "reset", WindowsReset: 1},
+		entered:            entered,
+	}
+	service := NewServiceWithRegistry(db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
+
+	var wg sync.WaitGroup
+	results := make(chan error, 2)
+	for _, authIndex := range []string{"codex-auth-1", "codex-auth-2"} {
+		wg.Add(1)
+		go func(authIndex string) {
+			defer wg.Done()
+			_, err := service.Reset(context.Background(), ResetRequest{AuthIndex: authIndex})
+			results <- err
+		}(authIndex)
+	}
+
+	enteredAuthIndexes := map[string]bool{}
+	for range 2 {
+		select {
+		case authIndex := <-entered:
+			enteredAuthIndexes[authIndex] = true
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for both reset calls to enter provider")
+		}
+	}
+	if !enteredAuthIndexes["codex-auth-1"] || !enteredAuthIndexes["codex-auth-2"] {
+		t.Fatalf("expected both auth indexes to enter provider concurrently, got %+v", enteredAuthIndexes)
+	}
+
+	close(block)
+	for range 2 {
+		select {
+		case err := <-results:
+			if err != nil {
+				t.Fatalf("expected concurrent reset for different auth indexes to succeed, got %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for concurrent reset across auth indexes")
+		}
+	}
+
+	wg.Wait()
+	if len(handler.resetInputs) != 2 {
+		t.Fatalf("expected two provider reset calls, got %+v", handler.resetInputs)
+	}
+}
+
+func TestCheckExposesCodexRateLimitResetCredits(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	handler := &refreshHandlerStub{output: ProviderOutput{Provider: "codex", Result: CodexResult{Usage: &CodexUsagePayload{RateLimitResetCredits: &CodexRateLimitResetCredits{AvailableCount: quotaIntPtr(2)}}}}}
+	service := NewServiceWithRegistry(db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
+
+	response, err := service.Check(context.Background(), CheckRequest{AuthIndex: "codex-auth"})
+	if err != nil {
+		t.Fatalf("Check returned error: %v", err)
+	}
+	if response.RateLimitResetCreditsAvailableCount == nil || *response.RateLimitResetCreditsAvailableCount != 2 {
+		t.Fatalf("expected reset credits available count 2, got %#v", response.RateLimitResetCreditsAvailableCount)
+	}
+}
+
+func TestRefreshCachesCodexRateLimitResetCredits(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile, FileName: quotaStringPtr("codex-user.json")})
+	handler := &refreshHandlerStub{output: ProviderOutput{Provider: "codex", Result: CodexResult{Usage: &CodexUsagePayload{RateLimitResetCredits: &CodexRateLimitResetCredits{AvailableCount: quotaIntPtr(0)}}}}}
+	service := NewServiceWithRegistry(db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
+
+	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"codex-auth"}, Source: RefreshSourceManual})
+	if err != nil {
+		t.Fatalf("Refresh returned error: %v", err)
+	}
+	if response.Accepted != 1 || response.Skipped != 0 || len(response.Tasks) != 1 {
+		t.Fatalf("unexpected refresh response: %+v", response)
+	}
+
+	task := waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusCompleted)
+	if task.Quota == nil || task.Quota.RateLimitResetCreditsAvailableCount == nil || *task.Quota.RateLimitResetCreditsAvailableCount != 0 {
+		t.Fatalf("expected completed task quota to expose zero reset credits, got %+v", task.Quota)
+	}
+
+	cache, err := service.GetCachedQuota(context.Background(), CacheRequest{AuthIndexes: []string{"codex-auth"}})
+	if err != nil {
+		t.Fatalf("GetCachedQuota returned error: %v", err)
+	}
+	if len(cache.Items) != 1 || cache.Items[0].Quota == nil || cache.Items[0].Quota.RateLimitResetCreditsAvailableCount == nil || *cache.Items[0].Quota.RateLimitResetCreditsAvailableCount != 0 {
+		t.Fatalf("expected cached quota to expose zero reset credits, got %+v", cache)
+	}
+}
+
 func TestRefreshCreatesTaskPerAuthIndexAndCachesCompletedQuota(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile, FileName: quotaStringPtr("claude-user.json")})
@@ -1053,5 +1286,9 @@ func hasRefreshRejection(rejections []RefreshRejectedAuthIndex, authIndex string
 }
 
 func quotaStringPtr(value string) *string {
+	return &value
+}
+
+func quotaIntPtr(value int) *int {
 	return &value
 }

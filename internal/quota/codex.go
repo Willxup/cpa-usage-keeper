@@ -46,3 +46,27 @@ func optionalAccountID(value *string) string {
 	}
 	return strings.TrimSpace(*value)
 }
+
+func (p codexProvider) Reset(ctx context.Context, input ProviderInput) (ProviderResetOutput, error) {
+	headers := copyHeaders(p.config.Headers)
+	if accountID := optionalAccountID(input.Identity.AccountID); accountID != "" {
+		headers = mergeHeaders(headers, map[string]string{"Chatgpt-Account-Id": accountID})
+	}
+	// reset 与普通限额刷新共用同一份 auth header，但调用官方 consume 端点消费一次 reset credit。
+	redeemRequestID, err := newRedeemRequestID()
+	if err != nil {
+		return ProviderResetOutput{}, err
+	}
+	request := apicall.Request{
+		AuthIndex: input.Identity.Identity,
+		Method:    "POST",
+		URL:       CodexRateLimitResetCreditsConsumeURL,
+		Header:    headers,
+		Data:      map[string]string{"redeem_request_id": redeemRequestID},
+	}
+	response, err := p.caller.CallManagementAPI(ctx, request)
+	if err != nil {
+		return ProviderResetOutput{}, err
+	}
+	return parseCodexResetCreditResponse(response)
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"math"
+	"regexp"
 	"testing"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
@@ -12,7 +13,7 @@ import (
 )
 
 func TestCodexProviderUsesAccountIDForUsageRequest(t *testing.T) {
-	codexUsageJSON := `{"user_id":"user-k7itHYqWm38P92JR13zywJOr","account_id":"user-k7itHYqWm38P92JR13zywJOr","email":"gykrcvk0839e@hotmail.com","plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":64,"limit_window_seconds":18000,"reset_after_seconds":11676,"reset_at":1778509871},"secondary_window":{"used_percent":10,"limit_window_seconds":604800,"reset_after_seconds":598476,"reset_at":1779096671}},"code_review_rate_limit":null,"additional_rate_limits":null,"credits":{"has_credits":false,"unlimited":false,"overage_limit_reached":false,"balance":"0","approx_local_messages":[0,0],"approx_cloud_messages":[0,0]},"spend_control":{"reached":false,"individual_limit":null},"rate_limit_reached_type":null,"promo":null,"referral_beacon":null}`
+	codexUsageJSON := `{"user_id":"user-k7itHYqWm38P92JR13zywJOr","account_id":"user-k7itHYqWm38P92JR13zywJOr","email":"gykrcvk0839e@hotmail.com","plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":64,"limit_window_seconds":18000,"reset_after_seconds":11676,"reset_at":1778509871},"secondary_window":{"used_percent":10,"limit_window_seconds":604800,"reset_after_seconds":598476,"reset_at":1779096671}},"code_review_rate_limit":null,"additional_rate_limits":null,"rate_limit_reset_credits":{"available_count":1},"credits":{"has_credits":false,"unlimited":false,"overage_limit_reached":false,"balance":"0","approx_local_messages":[0,0],"approx_cloud_messages":[0,0]},"spend_control":{"reached":false,"individual_limit":null},"rate_limit_reached_type":null,"promo":null,"referral_beacon":null}`
 	caller := &recordingManagementCaller{responses: []*apicall.Response{{
 		StatusCode: 200,
 		BodyText:   codexUsageJSON,
@@ -49,6 +50,9 @@ func TestCodexProviderUsesAccountIDForUsageRequest(t *testing.T) {
 	if result.Usage.AdditionalRateLimits != nil {
 		t.Fatalf("expected nil additional rate limit payload, got %#v", result.Usage.AdditionalRateLimits)
 	}
+	if result.Usage.RateLimitResetCredits == nil || result.Usage.RateLimitResetCredits.AvailableCount == nil || *result.Usage.RateLimitResetCredits.AvailableCount != 1 {
+		t.Fatalf("expected parsed reset credits payload, got %#v", result.Usage.RateLimitResetCredits)
+	}
 	rows := quota.NormalizeQuotaRows(output)
 	if len(rows) != 2 || rows[0].PlanType != "plus" || rows[1].PlanType != "plus" {
 		t.Fatalf("expected normalized Codex rows to carry planType plus, got %#v", rows)
@@ -73,6 +77,53 @@ func TestCodexProviderUsesAccountIDForUsageRequest(t *testing.T) {
 	}
 	if request.Data != nil {
 		t.Fatalf("expected no data body, got %#v", request.Data)
+	}
+}
+
+func TestCodexProviderParsesZeroRateLimitResetCredits(t *testing.T) {
+	codexUsageJSON := `{"plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false},"rate_limit_reset_credits":{"available_count":0}}`
+	caller := &recordingManagementCaller{responses: []*apicall.Response{{
+		StatusCode: 200,
+		BodyText:   codexUsageJSON,
+		Body:       json.RawMessage(codexUsageJSON),
+	}}}
+	provider := quota.NewCodexProvider(caller, quota.DefaultProviderConfigs().Codex)
+
+	output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "codex-auth"}})
+	if err != nil {
+		t.Fatalf("Check returned error: %v", err)
+	}
+	result, ok := output.Result.(quota.CodexResult)
+	if !ok {
+		t.Fatalf("expected codex result type, got %T", output.Result)
+	}
+	if result.Usage == nil || result.Usage.RateLimitResetCredits == nil || result.Usage.RateLimitResetCredits.AvailableCount == nil {
+		t.Fatalf("expected parsed zero reset credits payload, got %#v", result.Usage)
+	}
+	if *result.Usage.RateLimitResetCredits.AvailableCount != 0 {
+		t.Fatalf("expected zero reset credits available count, got %#v", result.Usage.RateLimitResetCredits.AvailableCount)
+	}
+}
+
+func TestCodexProviderOmitsRateLimitResetCreditsWhenAvailableCountMissing(t *testing.T) {
+	codexUsageJSON := `{"plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false},"rate_limit_reset_credits":{}}`
+	caller := &recordingManagementCaller{responses: []*apicall.Response{{
+		StatusCode: 200,
+		BodyText:   codexUsageJSON,
+		Body:       json.RawMessage(codexUsageJSON),
+	}}}
+	provider := quota.NewCodexProvider(caller, quota.DefaultProviderConfigs().Codex)
+
+	output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "codex-auth"}})
+	if err != nil {
+		t.Fatalf("Check returned error: %v", err)
+	}
+	result, ok := output.Result.(quota.CodexResult)
+	if !ok {
+		t.Fatalf("expected codex result type, got %T", output.Result)
+	}
+	if result.Usage == nil || result.Usage.RateLimitResetCredits != nil {
+		t.Fatalf("expected missing available_count to omit reset credits payload, got %#v", result.Usage)
 	}
 }
 
@@ -164,6 +215,97 @@ func TestCodexProviderRejectsNonSuccessUsageResponse(t *testing.T) {
 	}})
 	if err == nil || err.Error() != "HTTP 429: rate limited" {
 		t.Fatalf("expected target HTTP message, got %v", err)
+	}
+}
+
+func TestCodexProviderConsumesRateLimitResetCredit(t *testing.T) {
+	resetJSON := `{"code":"reset","windows_reset":2}`
+	caller := &recordingManagementCaller{responses: []*apicall.Response{{
+		StatusCode: 200,
+		BodyText:   resetJSON,
+		Body:       json.RawMessage(resetJSON),
+	}}}
+	provider := quota.NewCodexProvider(caller, quota.DefaultProviderConfigs().Codex)
+	resetter, ok := provider.(quota.ProviderResetter)
+	if !ok {
+		t.Fatalf("expected codex provider to implement ProviderResetter")
+	}
+
+	output, err := resetter.Reset(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{
+		Identity:  "codex-auth",
+		AccountID: stringPtr("acct_123"),
+	}})
+	if err != nil {
+		t.Fatalf("Reset returned error: %v", err)
+	}
+	if output.Code != "reset" || output.WindowsReset != 2 {
+		t.Fatalf("unexpected reset output: %+v", output)
+	}
+	if len(caller.requests) != 1 {
+		t.Fatalf("expected one api-call request, got %d", len(caller.requests))
+	}
+	request := caller.requests[0]
+	if request.AuthIndex != "codex-auth" || request.Method != "POST" || request.URL != quota.CodexRateLimitResetCreditsConsumeURL {
+		t.Fatalf("unexpected api-call request: %+v", request)
+	}
+	if request.Header["Chatgpt-Account-Id"] != "acct_123" {
+		t.Fatalf("unexpected api-call headers: %+v", request.Header)
+	}
+	dataMap, ok := request.Data.(map[string]string)
+	if !ok || dataMap["redeem_request_id"] == "" {
+		t.Fatalf("expected redeem_request_id in data map, got %#v", request.Data)
+	}
+	uuidV4Pattern := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	if !uuidV4Pattern.MatchString(dataMap["redeem_request_id"]) {
+		t.Fatalf("expected redeem_request_id to be UUID v4, got %q", dataMap["redeem_request_id"])
+	}
+}
+
+func TestCodexProviderRejectsNonSuccessResetResponse(t *testing.T) {
+	caller := &recordingManagementCaller{responses: []*apicall.Response{{
+		StatusCode: 429,
+		BodyText:   `{"error":{"message":"rate limited"}}`,
+		Body:       json.RawMessage(`{"error":{"message":"rate limited"}}`),
+	}}}
+	provider := quota.NewCodexProvider(caller, quota.DefaultProviderConfigs().Codex)
+	resetter, ok := provider.(quota.ProviderResetter)
+	if !ok {
+		t.Fatalf("expected codex provider to implement ProviderResetter")
+	}
+
+	_, err := resetter.Reset(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "codex-auth"}})
+	if err == nil || err.Error() != "HTTP 429: rate limited" {
+		t.Fatalf("expected target HTTP message, got %v", err)
+	}
+}
+
+func TestCodexProviderRejectsMalformedResetResponse(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{name: "empty object", body: `{}`},
+		{name: "non reset code", body: `{"code":"noop","windows_reset":2}`},
+		{name: "missing windows reset", body: `{"code":"reset"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			caller := &recordingManagementCaller{responses: []*apicall.Response{{
+				StatusCode: 200,
+				BodyText:   tc.body,
+				Body:       json.RawMessage(tc.body),
+			}}}
+			provider := quota.NewCodexProvider(caller, quota.DefaultProviderConfigs().Codex)
+			resetter, ok := provider.(quota.ProviderResetter)
+			if !ok {
+				t.Fatalf("expected codex provider to implement ProviderResetter")
+			}
+
+			_, err := resetter.Reset(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "codex-auth"}})
+			if err == nil {
+				t.Fatalf("expected malformed reset response to return error")
+			}
+		})
 	}
 }
 

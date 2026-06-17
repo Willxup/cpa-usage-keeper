@@ -6,6 +6,35 @@ import { AuthFileCredentialsSection, AuthFileQuotaPanel, INSPECTION_RESULT_PAGE_
 import type { AuthFileCredentialRow, DisplayQuota } from './credentialViewModels'
 import type { UsageQuotaInspectionResult, UsageQuotaInspectionResultStatus } from '@/lib/types'
 
+
+const createAuthFileSectionProps = (overrides: Partial<Parameters<typeof AuthFileCredentialsSection>[0]> = {}) => ({
+  rows: [],
+  total: 0,
+  page: 1,
+  totalPages: 1,
+  pageSize: 10,
+  activeOnly: false,
+  sort: 'priority' as const,
+  loading: false,
+  quotaRefreshing: false,
+  quotaRefreshError: '',
+  quotaAutoRefreshEnabled: false,
+  quotaInspectionStatus: null,
+  quotaInspectionLoading: false,
+  quotaInspectionStarting: false,
+  quotaInspectionError: '',
+  onPageChange: () => undefined,
+  onPageSizeChange: () => undefined,
+  onActiveOnlyChange: () => undefined,
+  onSortChange: () => undefined,
+  onRefreshQuota: async () => undefined,
+  onRefreshQuotaForAuthIndex: async () => undefined,
+  onResetQuotaForAuthIndex: async () => undefined,
+  onRefreshInspectionStatus: async () => undefined,
+  onStartInspection: async () => undefined,
+  ...overrides,
+})
+
 const authFileSectionSource = readFileSync(new URL('./AuthFileCredentialsSection.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 
 vi.mock('react-i18next', () => ({
@@ -50,31 +79,7 @@ describe('AuthFileCredentialsSection quota reset formatting', () => {
 
 describe('AuthFileCredentialsSection title', () => {
   it('renders the Auth Files title without the Credentials eyebrow', () => {
-    const html = renderToStaticMarkup(createElement(AuthFileCredentialsSection, {
-      rows: [],
-      total: 0,
-      page: 1,
-      totalPages: 1,
-      pageSize: 10,
-      activeOnly: false,
-      sort: 'priority',
-      loading: false,
-      quotaRefreshing: false,
-      quotaRefreshError: '',
-      quotaAutoRefreshEnabled: false,
-      quotaInspectionStatus: null,
-      quotaInspectionLoading: false,
-      quotaInspectionStarting: false,
-      quotaInspectionError: '',
-      onPageChange: () => undefined,
-      onPageSizeChange: () => undefined,
-      onActiveOnlyChange: () => undefined,
-      onSortChange: () => undefined,
-      onRefreshQuota: async () => undefined,
-      onRefreshQuotaForAuthIndex: async () => undefined,
-      onRefreshInspectionStatus: async () => undefined,
-      onStartInspection: async () => undefined,
-    }))
+    const html = renderToStaticMarkup(createElement(AuthFileCredentialsSection, createAuthFileSectionProps()))
 
     expect(html).toContain('usage_stats.credentials_auth_files_title')
     expect(html).not.toContain('usage_stats.credentials_auth_files_eyebrow')
@@ -100,31 +105,7 @@ describe('AuthFileCredentialsSection title', () => {
       displayQuotas: [],
     } as AuthFileCredentialRow
 
-    const html = renderToStaticMarkup(createElement(AuthFileCredentialsSection, {
-      rows: [row],
-      total: 1,
-      page: 1,
-      totalPages: 1,
-      pageSize: 10,
-      activeOnly: false,
-      sort: 'priority',
-      loading: false,
-      quotaRefreshing: false,
-      quotaRefreshError: '',
-      quotaAutoRefreshEnabled: false,
-      quotaInspectionStatus: null,
-      quotaInspectionLoading: false,
-      quotaInspectionStarting: false,
-      quotaInspectionError: '',
-      onPageChange: () => undefined,
-      onPageSizeChange: () => undefined,
-      onActiveOnlyChange: () => undefined,
-      onSortChange: () => undefined,
-      onRefreshQuota: async () => undefined,
-      onRefreshQuotaForAuthIndex: async () => undefined,
-      onRefreshInspectionStatus: async () => undefined,
-      onStartInspection: async () => undefined,
-    }))
+    const html = renderToStaticMarkup(createElement(AuthFileCredentialsSection, createAuthFileSectionProps({ rows: [row], total: 1 })))
 
     expect(html.match(/usage_stats\.total_requests/g)).toHaveLength(1)
     expect(html.match(/usage_stats\.success_rate/g)).toHaveLength(1)
@@ -155,37 +136,113 @@ describe('AuthFileCredentialsSection title', () => {
       displayQuotas: [],
     } as AuthFileCredentialRow
 
-    const html = renderToStaticMarkup(createElement(AuthFileCredentialsSection, {
-      rows: [row],
-      total: 1,
-      page: 1,
-      totalPages: 1,
-      pageSize: 10,
-      activeOnly: false,
-      sort: 'priority',
-      loading: false,
-      quotaRefreshing: false,
-      quotaRefreshError: '',
-      quotaAutoRefreshEnabled: false,
-      quotaInspectionStatus: null,
-      quotaInspectionLoading: false,
-      quotaInspectionStarting: false,
-      quotaInspectionError: '',
-      onPageChange: () => undefined,
-      onPageSizeChange: () => undefined,
-      onActiveOnlyChange: () => undefined,
-      onSortChange: () => undefined,
-      onRefreshQuota: async () => undefined,
-      onRefreshQuotaForAuthIndex: async () => undefined,
-      onRefreshInspectionStatus: async () => undefined,
-      onStartInspection: async () => undefined,
-    }))
+    const html = renderToStaticMarkup(createElement(AuthFileCredentialsSection, createAuthFileSectionProps({ rows: [row], total: 1 })))
 
     expect(html.match(/credentialMetricValueCell/g)).toHaveLength(4)
     expect(html).toContain('usage_stats.total_requests')
     expect(html).toContain('usage_stats.success_rate')
     expect(html).toContain('usage_stats.total_tokens')
     expect(html).toContain('usage_stats.cache_rate')
+  })
+})
+
+describe('AuthFileCredentialsSection quota reset action', () => {
+  const baseRow = {
+    identity: { id: '1', identity: 'auth-1', is_deleted: false },
+    displayName: 'Codex Account',
+    maskedIdentity: 'auth-1',
+    providerLabel: 'Codex',
+    typeLabel: 'codex',
+    authTypeLabel: 'oauth',
+    totalRequests: 12,
+    successCount: 12,
+    failureCount: 0,
+    successRate: 100,
+    totalTokens: 1200,
+    cacheRate: 0,
+    quota: [],
+    quotaLoading: false,
+    displayQuotas: [],
+  } as AuthFileCredentialRow
+
+  it('renders the quota reset action when reset credits are available', () => {
+    const row = {
+      ...baseRow,
+      quotaResetCreditsAvailableCount: 2,
+    } as AuthFileCredentialRow
+
+    const html = renderToStaticMarkup(createElement(AuthFileCredentialsSection, createAuthFileSectionProps({ rows: [row], total: 1 })))
+
+    expect(html).toContain('credentialQuotaActionStack')
+    expect(html).toContain('credentialRowResetButton')
+    expect(html).toContain('usage_stats.credentials_quota_reset_button')
+  })
+
+  it('renders quota reset tooltip copy with an emphasized reset credit count', () => {
+    const row = {
+      ...baseRow,
+      quotaResetCreditsAvailableCount: 3,
+    } as AuthFileCredentialRow
+
+    const html = renderToStaticMarkup(createElement(AuthFileCredentialsSection, createAuthFileSectionProps({ rows: [row], total: 1 })))
+
+    expect(html).toContain('role="tooltip"')
+    expect(html).toContain('credentialQuotaResetTooltip')
+    expect(html).toContain('credentialQuotaResetCount')
+    expect(html).toContain('>3</span>')
+    expect(html).toContain('usage_stats.credentials_quota_reset_tooltip_suffix')
+  })
+
+  it('hides the quota reset action when no reset credits are available', () => {
+    const row = {
+      ...baseRow,
+      quotaResetCreditsAvailableCount: 0,
+    } as AuthFileCredentialRow
+
+    const html = renderToStaticMarkup(createElement(AuthFileCredentialsSection, createAuthFileSectionProps({ rows: [row], total: 1 })))
+
+    expect(html).not.toContain('credentialRowResetButton')
+    expect(html).not.toContain('usage_stats.credentials_quota_reset_button')
+  })
+
+  it('shows reset loading state without replacing the refresh action', () => {
+    const row = {
+      ...baseRow,
+      quotaResetCreditsAvailableCount: 2,
+      quotaResetting: true,
+    } as AuthFileCredentialRow
+
+    const html = renderToStaticMarkup(createElement(AuthFileCredentialsSection, createAuthFileSectionProps({ rows: [row], total: 1 })))
+
+    expect(html).toContain('credentialRowResetButton')
+    expect(html).toContain('aria-busy="true"')
+    expect(html).toContain('disabled=""')
+    expect(html).toContain('credentialRowRefreshButton')
+  })
+
+  it('keeps reset confirmation wired to the auth index and closes the popover after confirm', () => {
+    expect(authFileSectionSource).toContain('onConfirm={() => onResetQuotaForAuthIndex(row.identity.identity)}')
+    expect(authFileSectionSource).toContain('await onConfirm()')
+    expect(authFileSectionSource).toContain('setOpen(false)')
+    expect(authFileSectionSource).not.toContain('setLocalError')
+    expect(authFileSectionSource).not.toContain('visibleError')
+    expect(authFileSectionSource).not.toContain('quotaResetError')
+    expect(authFileSectionSource).not.toContain('name: displayName')
+  })
+
+  it('closes the reset confirmation when clicking outside or pressing Escape', () => {
+    expect(authFileSectionSource).toContain('actionRef')
+    expect(authFileSectionSource).toContain("document.addEventListener('pointerdown'")
+    expect(authFileSectionSource).toContain("document.addEventListener('keydown'")
+    expect(authFileSectionSource).toContain("event.key === 'Escape'")
+    expect(authFileSectionSource).toContain('actionRef.current?.contains(target)')
+  })
+
+  it('disables reset for deleted or refreshing rows', () => {
+    expect(authFileSectionSource).toContain('!row.identity.is_deleted')
+    expect(authFileSectionSource).toContain('!rowRefreshing')
+    expect(authFileSectionSource).toContain('!row.quotaResetting')
+    expect(authFileSectionSource).toContain('disabled={!canResetQuota}')
   })
 })
 

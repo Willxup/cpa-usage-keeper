@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { ApiError, fetchUsageQuotaCache } from '@/lib/api'
-import type { UsageQuotaRow } from '@/lib/types'
+import type { UsageQuotaCheckResponse } from '@/lib/types'
 import { quotaRefreshDisplayError, type QuotaState } from './useQuotaRefreshTasks'
 
 export const QUOTA_CACHE_REFRESH_INTERVAL_MS = 60 * 1000
@@ -14,14 +14,14 @@ interface UseQuotaCacheOptions {
 }
 
 export interface QuotaCacheState {
-  quotaByAuthIndex: Record<string, UsageQuotaRow[]>
+  quotaResponseByAuthIndex: Record<string, UsageQuotaCheckResponse>
   cachedQuotaStateByAuthIndex: Record<string, QuotaState>
-  setQuotaByAuthIndex: Dispatch<SetStateAction<Record<string, UsageQuotaRow[]>>>
+  setQuotaResponseByAuthIndex: Dispatch<SetStateAction<Record<string, UsageQuotaCheckResponse>>>
   refreshQuotaCache: () => Promise<void>
 }
 
 export function useQuotaCache({ enabled, authIndexes, onAuthRequired }: UseQuotaCacheOptions): QuotaCacheState {
-  const [quotaByAuthIndex, setQuotaByAuthIndex] = useState<Record<string, UsageQuotaRow[]>>({})
+  const [quotaResponseByAuthIndex, setQuotaResponseByAuthIndex] = useState<Record<string, UsageQuotaCheckResponse>>({})
   const [cachedQuotaStateByAuthIndex, setCachedQuotaStateByAuthIndex] = useState<Record<string, QuotaState>>({})
   const requestControllerRef = useRef<AbortController | null>(null)
 
@@ -50,7 +50,7 @@ export function useQuotaCache({ enabled, authIndexes, onAuthRequired }: UseQuota
         return
       }
       const returnedAuthIndexes = new Set(response.items.map((item) => item.auth_index))
-      setQuotaByAuthIndex((current) => {
+      setQuotaResponseByAuthIndex((current) => {
         let changed = false
         const next = { ...current }
         // cache 接口现在同时返回成功 quota 和可恢复错误；只有 completed 才写入 quota 数据。
@@ -58,8 +58,8 @@ export function useQuotaCache({ enabled, authIndexes, onAuthRequired }: UseQuota
           if (item.status !== 'completed' || !item.quota) {
             continue
           }
-          if (next[item.auth_index] !== item.quota.quota) {
-            next[item.auth_index] = item.quota.quota ?? []
+          if (next[item.auth_index] !== item.quota) {
+            next[item.auth_index] = item.quota
             changed = true
           }
         }
@@ -114,5 +114,5 @@ export function useQuotaCache({ enabled, authIndexes, onAuthRequired }: UseQuota
     }
   }, [enabled, refreshQuotaCache])
 
-  return { quotaByAuthIndex, cachedQuotaStateByAuthIndex, setQuotaByAuthIndex, refreshQuotaCache }
+  return { quotaResponseByAuthIndex, cachedQuotaStateByAuthIndex, setQuotaResponseByAuthIndex, refreshQuotaCache }
 }

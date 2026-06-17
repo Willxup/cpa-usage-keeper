@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { UsageIdentity, UsageQuotaRow } from '@/lib/types'
+import type { UsageIdentity, UsageQuotaCheckResponse, UsageQuotaRow } from '@/lib/types'
 import {
   CREDENTIALS_PAGE_SIZE,
   buildAiProviderCredentialRows,
@@ -8,6 +8,15 @@ import {
   selectQuotaEligibleAuthIndexes,
   splitCredentialIdentities,
 } from './credentialViewModels'
+
+
+function quotaResponse(authIndex: string, quota: UsageQuotaRow[], rateLimitResetCreditsAvailableCount?: number | null): UsageQuotaCheckResponse {
+  return {
+    id: authIndex,
+    quota,
+    rateLimitResetCreditsAvailableCount,
+  }
+}
 
 function identity(overrides: Partial<UsageIdentity>): UsageIdentity {
   return {
@@ -72,10 +81,10 @@ describe('credentialViewModels', () => {
   })
 
   it('prefers refreshed quota plan type over usage identity plan type', () => {
-    const quotas = new Map<string, UsageQuotaRow[]>([
-      ['auth-1', [
+    const quotas = new Map<string, UsageQuotaCheckResponse>([
+      ['auth-1', quotaResponse('auth-1', [
         { key: 'rate_limit.primary_window', planType: 'pro' },
-      ]],
+      ])],
     ])
 
     const rows = buildAuthFileCredentialRows([
@@ -87,10 +96,10 @@ describe('credentialViewModels', () => {
   })
 
   it('formats unknown refreshed quota plan types in the frontend', () => {
-    const quotas = new Map<string, UsageQuotaRow[]>([
-      ['auth-1', [
+    const quotas = new Map<string, UsageQuotaCheckResponse>([
+      ['auth-1', quotaResponse('auth-1', [
         { key: 'rate_limit.primary_window', planType: ' enterprise ' },
-      ]],
+      ])],
     ])
 
     const rows = buildAuthFileCredentialRows([
@@ -139,13 +148,13 @@ describe('credentialViewModels', () => {
   })
 
   it('builds auth file rows with displayable quota bars and ignores quota without progress', () => {
-    const quotas = new Map<string, UsageQuotaRow[]>([
-      ['auth-1', [
+    const quotas = new Map<string, UsageQuotaCheckResponse>([
+      ['auth-1', quotaResponse('auth-1', [
         { key: 'rate_limit.primary_window', label: '5h', remainingFraction: 0.72, remaining: 72, resetAt: '2026-05-09T12:00:00Z', window_usage_tokens: 1_500_000, window_usage_cost: 12.34 },
         { key: 'rate_limit.secondary_window', label: 'Weekly', used: 40, limit: 100 },
         { key: 'rate_limit.gpt_codex_spark_5h', label: 'GPT-5.3-Codex-Spark 5h', usedPercent: 83 },
         { key: 'code_assist.current_tier.GOOGLE_ONE_AI', label: 'Code Assist Credit', remaining: 10 },
-      ]],
+      ])],
     ])
 
     const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1', displayName: 'Claude Auth', total_requests: 10, success_count: 9, input_tokens: 1000, cached_tokens: 250, total_tokens: 1500 })], quotas)
@@ -179,10 +188,10 @@ describe('credentialViewModels', () => {
   })
 
   it('formats zero quota window cost with two decimals', () => {
-    const quotas = new Map<string, UsageQuotaRow[]>([
-      ['auth-1', [
+    const quotas = new Map<string, UsageQuotaCheckResponse>([
+      ['auth-1', quotaResponse('auth-1', [
         { key: 'rate_limit.primary_window', label: '5h', remainingFraction: 0.72, window_usage_tokens: 0, window_usage_cost: 0 },
-      ]],
+      ])],
     ])
 
     const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
@@ -191,11 +200,11 @@ describe('credentialViewModels', () => {
   })
 
   it('formats provider quota window usage with fixed compact units and US dollar decimals', () => {
-    const quotas = new Map<string, UsageQuotaRow[]>([
-      ['auth-1', [
+    const quotas = new Map<string, UsageQuotaCheckResponse>([
+      ['auth-1', quotaResponse('auth-1', [
         { key: 'rate_limit.primary_window', label: '5h', usedPercent: 3, window_usage_tokens: 11_368_055, window_usage_cost: 14.83442025 },
         { key: 'additional_rate_limits.GPT-5.3-Codex-Spark.primary_window', label: 'GPT-5.3-Codex-Spark 5h', usedPercent: 0, window_usage_tokens: 393_311, window_usage_cost: 0.458464 },
-      ]],
+      ])],
     ])
 
     const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
@@ -207,10 +216,10 @@ describe('credentialViewModels', () => {
   })
 
   it('formats xai billing quota cents as dollar spend without token window usage', () => {
-    const quotas = new Map<string, UsageQuotaRow[]>([
-      ['xai-auth', [
+    const quotas = new Map<string, UsageQuotaCheckResponse>([
+      ['xai-auth', quotaResponse('xai-auth', [
         { key: 'billing.monthly', label: 'Monthly Spend', scope: 'billing', metric: 'usd_cents', used: 167, limit: 20000, remaining: 19833, usedPercent: 0.835, window: { seconds: 2592000 }, resetAt: '2026-07-01T00:00:00+00:00' },
-      ]],
+      ])],
     ])
 
     const rows = buildAuthFileCredentialRows([identity({ identity: 'xai-auth', type: 'xai', provider: 'xAI' })], quotas)
@@ -231,11 +240,11 @@ describe('credentialViewModels', () => {
   })
 
   it('estimates quota window usage only from positive current usage and a partial used percent', () => {
-    const quotas = new Map<string, UsageQuotaRow[]>([
-      ['auth-1', [
+    const quotas = new Map<string, UsageQuotaCheckResponse>([
+      ['auth-1', quotaResponse('auth-1', [
         { key: 'rate_limit.primary_window', label: '5h', usedPercent: 25, window_usage_tokens: 1_000_000, window_usage_cost: 2.5 },
         { key: 'rate_limit.secondary_window', label: 'Weekly', remainingFraction: 0.75, window_usage_tokens: 500_000, window_usage_cost: 1 },
-      ]],
+      ])],
     ])
 
     const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
@@ -247,13 +256,13 @@ describe('credentialViewModels', () => {
   })
 
   it('keeps current quota window usage when the used percent or current cost cannot be estimated', () => {
-    const quotas = new Map<string, UsageQuotaRow[]>([
-      ['auth-1', [
+    const quotas = new Map<string, UsageQuotaCheckResponse>([
+      ['auth-1', quotaResponse('auth-1', [
         { key: 'rate_limit.zero_window', label: 'Zero', usedPercent: 0, window_usage_tokens: 393_311, window_usage_cost: 0.458464 },
         { key: 'rate_limit.full_window', label: 'Full', usedPercent: 100, window_usage_tokens: 1_000, window_usage_cost: 1 },
         { key: 'rate_limit.free_window', label: 'Free', usedPercent: 50, window_usage_tokens: 1_000, window_usage_cost: 0 },
         { key: 'rate_limit.empty_window', label: 'Empty', usedPercent: 50, window_usage_tokens: 0, window_usage_cost: 1 },
-      ]],
+      ])],
     ])
 
     const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
@@ -275,10 +284,10 @@ describe('credentialViewModels', () => {
   it('uses an explicit US locale for quota window cost formatting', () => {
     const numberFormatSpy = vi.spyOn(Intl, 'NumberFormat')
     try {
-      const quotas = new Map<string, UsageQuotaRow[]>([
-        ['auth-1', [
+      const quotas = new Map<string, UsageQuotaCheckResponse>([
+        ['auth-1', quotaResponse('auth-1', [
           { key: 'rate_limit.primary_window', label: '5h', usedPercent: 3, window_usage_tokens: 11_368_055, window_usage_cost: 14.83442025 },
-        ]],
+        ])],
       ])
 
       buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
@@ -303,10 +312,10 @@ describe('credentialViewModels', () => {
   })
 
   it('classifies quota bar colors at 50 and 20 percent remaining thresholds', () => {
-    const quotas = new Map<string, UsageQuotaRow[]>([
-      ['green-auth', [{ key: 'rate_limit.primary_window', label: '5h', remainingFraction: 0.5 }]],
-      ['yellow-auth', [{ key: 'rate_limit.primary_window', label: '5h', remainingFraction: 0.49 }]],
-      ['red-auth', [{ key: 'rate_limit.primary_window', label: '5h', remainingFraction: 0.19 }]],
+    const quotas = new Map<string, UsageQuotaCheckResponse>([
+      ['green-auth', quotaResponse('green-auth', [{ key: 'rate_limit.primary_window', label: '5h', remainingFraction: 0.5 }])],
+      ['yellow-auth', quotaResponse('yellow-auth', [{ key: 'rate_limit.primary_window', label: '5h', remainingFraction: 0.49 }])],
+      ['red-auth', quotaResponse('red-auth', [{ key: 'rate_limit.primary_window', label: '5h', remainingFraction: 0.19 }])],
     ])
 
     const rows = buildAuthFileCredentialRows([
@@ -319,10 +328,10 @@ describe('credentialViewModels', () => {
   })
 
   it('uses quota window duration instead of raw key when classifying Codex windows', () => {
-    const quotas = new Map<string, UsageQuotaRow[]>([
-      ['auth-1', [
+    const quotas = new Map<string, UsageQuotaCheckResponse>([
+      ['auth-1', quotaResponse('auth-1', [
         { key: 'rate_limit.primary_window', label: '5h', usedPercent: 10, window: { seconds: 604800 } },
-      ]],
+      ])],
     ])
 
     const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
@@ -332,12 +341,12 @@ describe('credentialViewModels', () => {
   })
 
   it('uses monthly quota labels for monthly Codex windows', () => {
-    const quotas = new Map<string, UsageQuotaRow[]>([
-      ['auth-1', [
+    const quotas = new Map<string, UsageQuotaCheckResponse>([
+      ['auth-1', quotaResponse('auth-1', [
         { key: 'rate_limit.primary_window', label: '5h', usedPercent: 20, window: { seconds: 2628000 } },
         { key: 'code_review_rate_limit.primary_window', label: 'Code Review Weekly', usedPercent: 40, window: { seconds: 2592000 } },
         { key: 'additional_rate_limits.GPT-5.3-Codex-Spark.primary_window', label: 'GPT-5.3-Codex-Spark 5h', usedPercent: 60, window: { seconds: 2628000 } },
-      ]],
+      ])],
     ])
 
     const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
@@ -347,11 +356,11 @@ describe('credentialViewModels', () => {
   })
 
   it('keeps unknown Codex windows displayable without showing a generic Window quota', () => {
-    const quotas = new Map<string, UsageQuotaRow[]>([
-      ['auth-1', [
+    const quotas = new Map<string, UsageQuotaCheckResponse>([
+      ['auth-1', quotaResponse('auth-1', [
         { key: 'rate_limit.primary_window', label: 'Window', usedPercent: 10, window: { seconds: 3600 } },
         { key: 'additional_rate_limits.GPT-5.3-Codex-Spark.primary_window', label: 'GPT-5.3-Codex-Spark 5h', usedPercent: 83, window: { seconds: 3600 } },
-      ]],
+      ])],
     ])
 
     const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
@@ -361,17 +370,33 @@ describe('credentialViewModels', () => {
   })
 
   it('maps legacy generic Window quota labels by Codex window role even without seconds', () => {
-    const quotas = new Map<string, UsageQuotaRow[]>([
-      ['auth-1', [
+    const quotas = new Map<string, UsageQuotaCheckResponse>([
+      ['auth-1', quotaResponse('auth-1', [
         { key: 'rate_limit.primary_window', label: 'Window', usedPercent: 10 },
         { key: 'code_review_rate_limit.secondary_window', label: 'Code Review Window', usedPercent: 30 },
-      ]],
+      ])],
     ])
 
     const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
 
     expect(rows[0].displayQuotas.map((quota) => quota.label)).toEqual(['Primary', 'Code Review Secondary'])
     expect(rows[0].displayQuotas.map((quota) => quota.barPercent)).toEqual([90, 70])
+  })
+
+
+  it('derives auth file quota rows and reset credits from full quota responses', () => {
+    const quotas = new Map<string, UsageQuotaCheckResponse>([
+      ['auth-1', quotaResponse('auth-1', [{ key: 'rate_limit.primary_window', label: '5h', usedPercent: 20 }], 2)],
+      ['auth-2', quotaResponse('auth-2', [{ key: 'rate_limit.primary_window', label: '5h', usedPercent: 20 }], 0)],
+    ])
+
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'auth-1' }),
+      identity({ identity: 'auth-2' }),
+    ], quotas)
+
+    expect(rows.map((row) => row.quotaResetCreditsAvailableCount)).toEqual([2, 0])
+    expect(rows[0].quota).toEqual(quotas.get('auth-1')?.quota)
   })
 
   it('builds compact priority labels for auth files and AI providers', () => {
