@@ -28,7 +28,7 @@ func withRepositoryTestLocation(t *testing.T, name string) {
 	time.Local = location
 }
 
-func buildUsageOverviewFromEventsForTest(events []entities.UsageEvent, filter dto.UsageQueryFilter, pricingByModel map[string]entities.ModelPriceSetting) *dto.UsageOverviewRecord {
+func buildUsageOverviewFromEventsForTest(events []entities.UsageEvent, filter dto.UsageQueryFilter, pricingByModel modelPriceLookup) *dto.UsageOverviewRecord {
 	windowMinutes := computeWindowMinutes(filter)
 	bucketByDay := shouldBucketUsageOverviewByDay(filter, windowMinutes)
 	overview := newUsageOverviewRecord(filter, windowMinutes)
@@ -746,14 +746,13 @@ func TestBuildUsageOverviewFromEventsBuildsSnapshotAndOverviewInOnePass(t *testi
 	filterStart := time.Date(2026, 4, 16, 0, 0, 0, 0, time.UTC)
 	filterEnd := time.Date(2026, 4, 16, 23, 59, 59, 999000000, time.UTC)
 	filter := dto.UsageQueryFilter{Range: "24h", StartTime: &filterStart, EndTime: &filterEnd}
-	pricingByModel := map[string]entities.ModelPriceSetting{
-		"claude-sonnet": {
-			Model:                "claude-sonnet",
-			PromptPricePer1M:     3,
-			CompletionPricePer1M: 15,
-			CachePricePer1M:      0.3,
-		},
-	}
+	pricingByModel := newModelPriceLookup([]entities.ModelPriceSetting{{
+		Model:                "claude-sonnet",
+		PromptPricePer1M:     3,
+		CompletionPricePer1M: 15,
+		CachePricePer1M:      0.3,
+	},
+	})
 
 	overview := buildUsageOverviewFromEventsForTest(events, filter, pricingByModel)
 
@@ -885,15 +884,15 @@ func TestBuildUsageOverviewCalculatesClaudeCacheReadAndCreationCost(t *testing.T
 		CacheCreationTokens: 100_000,
 		TotalTokens:         1_800_000,
 	}
-	overview := buildUsageOverviewFromEventsForTest([]entities.UsageEvent{event}, filter, map[string]entities.ModelPriceSetting{
-		"claude-sonnet": {
-			PricingStyle:            entities.ModelPricingStyleClaude,
-			PromptPricePer1M:        10,
-			CompletionPricePer1M:    20,
-			CachePricePer1M:         1,
-			CacheCreationPricePer1M: 12.5,
-		},
-	})
+	overview := buildUsageOverviewFromEventsForTest([]entities.UsageEvent{event}, filter, newModelPriceLookup([]entities.ModelPriceSetting{{
+		Model:                   "claude-sonnet",
+		PricingStyle:            entities.ModelPricingStyleClaude,
+		PromptPricePer1M:        10,
+		CompletionPricePer1M:    20,
+		CachePricePer1M:         1,
+		CacheCreationPricePer1M: 12.5,
+	},
+	}))
 
 	wantCost := 1.0*10 + 0.5*20 + 0.2*1 + 0.1*12.5
 	if math.Abs(overview.Summary.TotalCost-wantCost) > 0.000000001 {

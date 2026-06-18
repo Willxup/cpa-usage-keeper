@@ -3,6 +3,7 @@ package dto
 // UpdatePricingInput 是更新定价的服务层输入。
 type UpdatePricingInput struct {
 	Model                   string
+	ServiceTier             string
 	PricingStyle            string
 	PromptPricePer1M        float64
 	CompletionPricePer1M    float64
@@ -12,6 +13,7 @@ type UpdatePricingInput struct {
 
 // PricingSyncPreview 是外部价格元数据同步前的预览结果。
 type PricingSyncPreview struct {
+	SourceID        string             `json:"source_id"`
 	Source          string             `json:"source"`
 	SourceURL       string             `json:"source_url"`
 	MetadataModels  int                `json:"metadata_models"`
@@ -22,6 +24,7 @@ type PricingSyncPreview struct {
 // PricingSyncMatch 表示一个本地模型与外部元数据模型的匹配关系。
 type PricingSyncMatch struct {
 	Model                   string  `json:"model"`
+	ServiceTier             string  `json:"service_tier"`
 	MatchedModel            string  `json:"matched_model"`
 	MatchType               string  `json:"match_type"`
 	SourceProviderID        string  `json:"source_provider_id"`

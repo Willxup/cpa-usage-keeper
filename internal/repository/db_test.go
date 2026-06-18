@@ -53,8 +53,8 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 	if err := db.Table("schema_migrations").Count(&count).Error; err != nil {
 		t.Fatalf("count schema migrations: %v", err)
 	}
-	if count != 38 {
-		t.Fatalf("expected fresh database to mark 38 migrations applied, got %d", count)
+	if count != 40 {
+		t.Fatalf("expected fresh database to mark 40 migrations applied, got %d", count)
 	}
 	if strings.Contains(logs.String(), "schema migration started") {
 		t.Fatalf("expected fresh database creation not to run version migrations, got logs:\n%s", logs.String())
@@ -65,18 +65,28 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 	if db.Migrator().HasColumn(&entities.RedisUsageInbox{}, "queue_key") {
 		t.Fatal("expected redis_usage_inboxes.queue_key column not to exist")
 	}
+	if !db.Migrator().HasColumn(&entities.ModelPriceSetting{}, "service_tier") {
+		t.Fatal("expected model_price_settings.service_tier column to exist")
+	}
+	if !db.Migrator().HasColumn(&entities.UsageOverviewHourlyStat{}, "service_tier") {
+		t.Fatal("expected usage_overview_hourly_stats.service_tier column to exist")
+	}
+	if !db.Migrator().HasColumn(&entities.UsageOverviewDailyStat{}, "service_tier") {
+		t.Fatal("expected usage_overview_daily_stats.service_tier column to exist")
+	}
 	for _, indexName := range []string{
 		"idx_usage_events_api_group_key",
 		"idx_usage_events_auth_index",
 		"idx_usage_events_model",
 		"idx_usage_events_auth_type_auth_index_id",
 		"idx_usage_events_auth_index_timestamp_id",
-		"uniq_usage_overview_hourly_stats_bucket_api_model_auth_alias",
+		"uniq_model_price_settings_model_tier",
+		"uniq_usage_overview_hourly_stats_bucket_api_model_tier_auth_alias",
 		"idx_usage_overview_hourly_stats_api_bucket",
 		"idx_usage_overview_hourly_stats_api_model_bucket",
 		"idx_usage_overview_hourly_stats_auth_bucket",
 		"idx_usage_overview_hourly_stats_model_alias_bucket",
-		"uniq_usage_overview_daily_stats_bucket_api_model_auth_alias",
+		"uniq_usage_overview_daily_stats_bucket_api_model_tier_auth_alias",
 		"idx_usage_overview_daily_stats_api_bucket",
 		"idx_usage_overview_daily_stats_api_model_bucket",
 		"idx_usage_overview_daily_stats_auth_bucket",
@@ -94,6 +104,8 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 		"idx_usage_events_provider",
 		"idx_usage_events_auth_type",
 		"idx_usage_events_auth_type_source_id",
+		"uniq_usage_overview_hourly_stats_bucket_api_model_auth_alias",
+		"uniq_usage_overview_daily_stats_bucket_api_model_auth_alias",
 	} {
 		if repositorySQLiteIndexExists(t, db, indexName) {
 			t.Fatalf("expected sqlite index %s not to exist", indexName)

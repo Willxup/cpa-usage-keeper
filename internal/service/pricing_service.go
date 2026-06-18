@@ -18,9 +18,9 @@ import (
 type PricingProvider interface {
 	ListUsedModels(context.Context) ([]string, error)
 	ListPricing(context.Context) ([]entities.ModelPriceSetting, error)
-	PreviewPricingSync(context.Context) (servicedto.PricingSyncPreview, error)
+	PreviewPricingSync(context.Context, string) (servicedto.PricingSyncPreview, error)
 	UpdatePricing(context.Context, servicedto.UpdatePricingInput) (*entities.ModelPriceSetting, error)
-	DeletePricing(context.Context, string) error
+	DeletePricing(context.Context, string, *string) error
 }
 
 type ModelsFetcher interface {
@@ -66,6 +66,7 @@ func (s *pricingService) UpdatePricing(ctx context.Context, input servicedto.Upd
 
 	return repository.UpsertModelPriceSetting(s.db, repodto.ModelPriceSettingInput{
 		Model:                   modelName,
+		ServiceTier:             input.ServiceTier,
 		PricingStyle:            pricingStyle,
 		PromptPricePer1M:        input.PromptPricePer1M,
 		CompletionPricePer1M:    input.CompletionPricePer1M,
@@ -74,8 +75,8 @@ func (s *pricingService) UpdatePricing(ctx context.Context, input servicedto.Upd
 	})
 }
 
-func (s *pricingService) DeletePricing(_ context.Context, model string) error {
-	return repository.DeleteModelPriceSetting(s.db, model)
+func (s *pricingService) DeletePricing(_ context.Context, model string, serviceTier *string) error {
+	return repository.DeleteModelPriceSetting(s.db, model, serviceTier)
 }
 
 func (s *pricingService) effectiveModels(ctx context.Context) ([]string, error) {

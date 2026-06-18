@@ -149,7 +149,7 @@ func TestSumLongUsageWindowTokenStatsDoesNotDoubleCountWhenBoundaryClips(t *test
 	if err != nil {
 		t.Fatalf("sumLongUsageWindowTokenStats returned error: %v", err)
 	}
-	stats := usageWindowStatsFromTokenStats(rows, nil)
+	stats := usageWindowStatsFromTokenStats(rows, modelPriceLookup{})
 	if stats.Tokens != 1_000_000 {
 		t.Fatalf("expected clipped boundaries to count event once, got %d", stats.Tokens)
 	}

@@ -5,11 +5,12 @@ import "time"
 // UsageOverviewDailyStat 是 Overview 页面按天预聚合的 usage 统计。
 type UsageOverviewDailyStat struct {
 	ID                  int64     `gorm:"primaryKey"`
-	BucketStart         time.Time `gorm:"serializer:storageTime;not null;uniqueIndex:uniq_usage_overview_daily_stats_bucket_api_model_auth_alias,priority:1;index:idx_usage_overview_daily_stats_bucket_start;index:idx_usage_overview_daily_stats_api_bucket,priority:2;index:idx_usage_overview_daily_stats_api_model_bucket,priority:3;index:idx_usage_overview_daily_stats_auth_bucket,priority:2;index:idx_usage_overview_daily_stats_model_alias_bucket,priority:2"`
-	APIGroupKey         string    `gorm:"not null;uniqueIndex:uniq_usage_overview_daily_stats_bucket_api_model_auth_alias,priority:2;index:idx_usage_overview_daily_stats_api_bucket,priority:1;index:idx_usage_overview_daily_stats_api_model_bucket,priority:1"`
-	Model               string    `gorm:"not null;uniqueIndex:uniq_usage_overview_daily_stats_bucket_api_model_auth_alias,priority:3;index:idx_usage_overview_daily_stats_api_model_bucket,priority:2"`
-	AuthIndex           string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_daily_stats_bucket_api_model_auth_alias,priority:4;index:idx_usage_overview_daily_stats_auth_bucket,priority:1"`
-	ModelAlias          string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_daily_stats_bucket_api_model_auth_alias,priority:5;index:idx_usage_overview_daily_stats_model_alias_bucket,priority:1"`
+	BucketStart         time.Time `gorm:"serializer:storageTime;not null;uniqueIndex:uniq_usage_overview_daily_stats_bucket_api_model_tier_auth_alias,priority:1;index:idx_usage_overview_daily_stats_bucket_start;index:idx_usage_overview_daily_stats_api_bucket,priority:2;index:idx_usage_overview_daily_stats_api_model_bucket,priority:3;index:idx_usage_overview_daily_stats_auth_bucket,priority:2;index:idx_usage_overview_daily_stats_model_alias_bucket,priority:2"`
+	APIGroupKey         string    `gorm:"not null;uniqueIndex:uniq_usage_overview_daily_stats_bucket_api_model_tier_auth_alias,priority:2;index:idx_usage_overview_daily_stats_api_bucket,priority:1;index:idx_usage_overview_daily_stats_api_model_bucket,priority:1"`
+	Model               string    `gorm:"not null;uniqueIndex:uniq_usage_overview_daily_stats_bucket_api_model_tier_auth_alias,priority:3;index:idx_usage_overview_daily_stats_api_model_bucket,priority:2"`
+	ServiceTier         string    `gorm:"not null;default:'default';uniqueIndex:uniq_usage_overview_daily_stats_bucket_api_model_tier_auth_alias,priority:4"`
+	AuthIndex           string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_daily_stats_bucket_api_model_tier_auth_alias,priority:5;index:idx_usage_overview_daily_stats_auth_bucket,priority:1"`
+	ModelAlias          string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_daily_stats_bucket_api_model_tier_auth_alias,priority:6;index:idx_usage_overview_daily_stats_model_alias_bucket,priority:1"`
 	RequestCount        int64     `gorm:"not null;default:0"`
 	SuccessCount        int64     `gorm:"not null;default:0"`
 	FailureCount        int64     `gorm:"not null;default:0"`

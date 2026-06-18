@@ -16,8 +16,12 @@ import (
 )
 
 const (
-	pricingSyncMetadataSource = "Models.dev"
-	pricingSyncAPIURL         = "https://models.dev/api.json"
+	pricingSyncSourceModelsDevID       = "models_dev"
+	pricingSyncSourceOpenAIOfficialID  = "openai_official"
+	pricingSyncMetadataSource          = "Models.dev"
+	pricingSyncOpenAIOfficialSource    = "OpenAI Official"
+	pricingSyncAPIURL                  = "https://models.dev/api.json"
+	pricingSyncOpenAIOfficialSourceURL = "https://developers.openai.com/api/docs/pricing"
 )
 
 var pricingSyncHTTPClient = &http.Client{Timeout: 12 * time.Second}
@@ -47,6 +51,7 @@ type modelsDevCost struct {
 type pricingCatalogEntry struct {
 	providerID   string
 	providerName string
+	serviceTier  string
 	model        modelsDevModel
 }
 
@@ -61,16 +66,25 @@ type pricingSyncCandidate struct {
 	score     int
 }
 
-func (s *pricingService) PreviewPricingSync(ctx context.Context) (servicedto.PricingSyncPreview, error) {
+func (s *pricingService) PreviewPricingSync(ctx context.Context, source string) (servicedto.PricingSyncPreview, error) {
 	models, err := s.effectiveModels(ctx)
 	if err != nil {
 		return servicedto.PricingSyncPreview{}, err
 	}
-	catalog, err := fetchModelsDevCatalog(ctx, pricingSyncAPIURL)
-	if err != nil {
-		return servicedto.PricingSyncPreview{}, err
+	switch normalizePricingSyncSource(source) {
+	case pricingSyncSourceOpenAIOfficialID:
+		entries, err := fetchOpenAIOfficialCatalog(ctx, pricingSyncOpenAIOfficialSourceURL)
+		if err != nil {
+			return servicedto.PricingSyncPreview{}, err
+		}
+		return buildPricingSyncPreviewFromEntries(models, entries, pricingSyncSourceOpenAIOfficialID, pricingSyncOpenAIOfficialSource, pricingSyncOpenAIOfficialSourceURL), nil
+	default:
+		catalog, err := fetchModelsDevCatalog(ctx, pricingSyncAPIURL)
+		if err != nil {
+			return servicedto.PricingSyncPreview{}, err
+		}
+		return buildPricingSyncPreviewFromCatalog(models, catalog, pricingSyncAPIURL)
 	}
-	return buildPricingSyncPreviewFromCatalog(models, catalog, pricingSyncAPIURL)
 }
 
 func fetchModelsDevCatalog(ctx context.Context, catalogURL string) (map[string]modelsDevProvider, error) {
@@ -107,6 +121,16 @@ func buildPricingSyncPreviewFromCatalog(
 	sourceURL string,
 ) (servicedto.PricingSyncPreview, error) {
 	entries := flattenModelsDevCatalog(catalog)
+	return buildPricingSyncPreviewFromEntries(models, entries, pricingSyncSourceModelsDevID, pricingSyncMetadataSource, sourceURL), nil
+}
+
+func buildPricingSyncPreviewFromEntries(
+	models []string,
+	entries []pricingCatalogEntry,
+	sourceID string,
+	sourceName string,
+	sourceURL string,
+) servicedto.PricingSyncPreview {
 	index := buildPricingCatalogIndex(entries)
 	matches := make([]servicedto.PricingSyncMatch, 0, len(models))
 	unmatched := make([]string, 0)
@@ -142,12 +166,13 @@ func buildPricingSyncPreviewFromCatalog(
 	sort.Strings(unmatched)
 
 	return servicedto.PricingSyncPreview{
-		Source:          pricingSyncMetadataSource,
+		SourceID:        sourceID,
+		Source:          sourceName,
 		SourceURL:       sourceURL,
 		MetadataModels:  len(entries),
 		Matches:         matches,
 		UnmatchedModels: unmatched,
-	}, nil
+	}
 }
 
 func flattenModelsDevCatalog(catalog map[string]modelsDevProvider) []pricingCatalogEntry {
@@ -189,6 +214,7 @@ func flattenModelsDevCatalog(catalog map[string]modelsDevProvider) []pricingCata
 			entries = append(entries, pricingCatalogEntry{
 				providerID:   providerID,
 				providerName: providerName,
+				serviceTier:  "",
 				model:        model,
 			})
 		}
@@ -202,6 +228,7 @@ func buildPricingSyncMatchFromCandidates(model string, candidates []pricingSyncC
 		match, ok := buildPricingSyncMatch(
 			model,
 			candidate.entry.model,
+			candidate.entry.serviceTier,
 			candidate.matchType,
 			candidate.entry.providerID,
 			candidate.entry.providerName,
@@ -478,7 +505,7 @@ func normalizePricingModelKey(value string) string {
 	return builder.String()
 }
 
-func buildPricingSyncMatch(model string, metadataModel modelsDevModel, matchType string, providerID string, providerName string) (servicedto.PricingSyncMatch, bool) {
+func buildPricingSyncMatch(model string, metadataModel modelsDevModel, serviceTier string, matchType string, providerID string, providerName string) (servicedto.PricingSyncMatch, bool) {
 	if metadataModel.Cost.Input == nil || metadataModel.Cost.Output == nil {
 		return servicedto.PricingSyncMatch{}, false
 	}
@@ -513,6 +540,7 @@ func buildPricingSyncMatch(model string, metadataModel modelsDevModel, matchType
 	}
 	return servicedto.PricingSyncMatch{
 		Model:                   model,
+		ServiceTier:             serviceTier,
 		MatchedModel:            matchedModel,
 		MatchType:               matchType,
 		SourceProviderID:        strings.TrimSpace(providerID),

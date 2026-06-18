@@ -38,6 +38,8 @@ type RecentUsageEvent struct {
 	APIGroupKey string
 	// Model 用于 realtime 当前模型占比和 cost 价格表匹配。
 	Model string
+	// ServiceTier 用于同模型 default/priority 分价计算。
+	ServiceTier string
 	// AuthIndex 用于关联 usage_identities，找不到身份时才使用 fallback。
 	AuthIndex string
 	// IdentityFallbackKind 记录 fallback 应落到 Auth File 还是 AI Provider。
@@ -103,6 +105,7 @@ type recentUsageEventLoadRow struct {
 	Provider            string
 	AuthType            string
 	Model               string
+	ServiceTier         string
 	Timestamp           time.Time
 	Source              string
 	AuthIndex           string
@@ -309,6 +312,7 @@ func (c *UsageRecentEventCache) appendEvents(events []entities.UsageEvent) {
 			Provider:            event.Provider,
 			AuthType:            event.AuthType,
 			Model:               event.Model,
+			ServiceTier:         event.ServiceTier,
 			Timestamp:           event.Timestamp,
 			Source:              event.Source,
 			AuthIndex:           event.AuthIndex,
@@ -423,7 +427,7 @@ func loadUsageRecentEventCacheRows(db *gorm.DB, start time.Time) ([]recentUsageE
 	var rows []recentUsageEventLoadRow
 	// 只 select 最近缓存和 realtime 必需字段，避免大字段进入 70 分钟内存窗口。
 	if err := db.Model(&entities.UsageEvent{}).
-		Select("api_group_key, provider, auth_type, model, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens").
+		Select("api_group_key, provider, auth_type, model, service_tier, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens").
 		// 启动加载只取 retention 左边界之后的数据。
 		Where("timestamp >= ?", timeutil.FormatStorageTime(start)).
 		// 按时间排序让后续剪枝和调试输出更直观。
@@ -452,6 +456,7 @@ func (c *UsageRecentEventCache) recentEventFromRowLocked(row recentUsageEventLoa
 		// 高频重复字符串通过池化复用，降低缓存内存占用。
 		APIGroupKey:           c.pool.intern(strings.TrimSpace(row.APIGroupKey)),
 		Model:                 c.pool.intern(strings.TrimSpace(row.Model)),
+		ServiceTier:           c.pool.intern(canonicalPricingServiceTier(row.ServiceTier)),
 		AuthIndex:             c.pool.intern(strings.TrimSpace(row.AuthIndex)),
 		IdentityFallbackKind:  identityKind,
 		IdentityFallbackLabel: c.pool.intern(fallbackLabel),
@@ -494,6 +499,7 @@ func (c *UsageRecentEventCache) releaseEventStringsLocked(event RecentUsageEvent
 	// 每个池化字段都按引用计数释放，计数归零后才删除底层字符串。
 	c.pool.release(event.APIGroupKey)
 	c.pool.release(event.Model)
+	c.pool.release(event.ServiceTier)
 	c.pool.release(event.AuthIndex)
 	c.pool.release(event.IdentityFallbackLabel)
 }
@@ -583,6 +589,7 @@ func recentUsageEventToEntity(event RecentUsageEvent) entities.UsageEvent {
 	return entities.UsageEvent{
 		APIGroupKey:         event.APIGroupKey,
 		Model:               event.Model,
+		ServiceTier:         event.ServiceTier,
 		Timestamp:           event.Timestamp,
 		AuthIndex:           event.AuthIndex,
 		Failed:              event.Failed,

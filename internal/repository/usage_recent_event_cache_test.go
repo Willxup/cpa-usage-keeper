@@ -58,6 +58,7 @@ func TestUsageRecentEventCacheLoadsOnlyRecentProjectionAndDerivesFallbackLabels(
 			Provider:            "codex",
 			AuthType:            "oauth",
 			Model:               "gpt-5",
+			ServiceTier:         "priority",
 			Timestamp:           now.Add(-30 * time.Minute),
 			Source:              "auth-user@example.com",
 			AuthIndex:           "auth-1",
@@ -79,6 +80,7 @@ func TestUsageRecentEventCacheLoadsOnlyRecentProjectionAndDerivesFallbackLabels(
 			Provider:    "Claude Provider",
 			AuthType:    "apikey",
 			Model:       "claude-sonnet",
+			ServiceTier: "standard",
 			Timestamp:   now.Add(-20 * time.Minute),
 			Source:      "sk-provider",
 			AuthIndex:   "provider-1",
@@ -109,7 +111,7 @@ func TestUsageRecentEventCacheLoadsOnlyRecentProjectionAndDerivesFallbackLabels(
 	}
 
 	authFile := cached[1]
-	if authFile.APIGroupKey != "provider-a" || authFile.Model != "gpt-5" || authFile.AuthIndex != "auth-1" {
+	if authFile.APIGroupKey != "provider-a" || authFile.Model != "gpt-5" || authFile.ServiceTier != "priority" || authFile.AuthIndex != "auth-1" {
 		t.Fatalf("unexpected auth file event dimensions: %+v", authFile)
 	}
 	if authFile.IdentityFallbackKind != RecentUsageIdentityAuthFile || authFile.IdentityFallbackLabel != "auth-user@example.com" {
@@ -126,6 +128,9 @@ func TestUsageRecentEventCacheLoadsOnlyRecentProjectionAndDerivesFallbackLabels(
 	provider := cached[2]
 	if provider.IdentityFallbackKind != RecentUsageIdentityAIProvider || provider.IdentityFallbackLabel != "Claude Provider" {
 		t.Fatalf("expected ai provider fallback to use provider, got %+v", provider)
+	}
+	if provider.ServiceTier != "default" {
+		t.Fatalf("expected standard tier to normalize to default, got %+v", provider)
 	}
 }
 

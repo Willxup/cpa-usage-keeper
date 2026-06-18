@@ -13,6 +13,7 @@ import (
 var modelPriceSettingColumns = []string{
 	"id",
 	"model",
+	"service_tier",
 	"pricing_style",
 	"prompt_price_per1_m",
 	"completion_price_per1_m",
@@ -59,8 +60,12 @@ func ListModelPriceSettings(db *gorm.DB) ([]entities.ModelPriceSetting, error) {
 	}
 
 	var settings []entities.ModelPriceSetting
-	if err := db.Select(modelPriceSettingColumns).Order("model asc").Find(&settings).Error; err != nil {
+	if err := db.Select(modelPriceSettingColumns).Order("model asc, service_tier asc").Find(&settings).Error; err != nil {
 		return nil, fmt.Errorf("list pricing settings: %w", err)
+	}
+	for index := range settings {
+		settings[index].Model = strings.TrimSpace(settings[index].Model)
+		settings[index].ServiceTier = canonicalPricingServiceTier(settings[index].ServiceTier)
 	}
 	return settings, nil
 }
@@ -74,21 +79,26 @@ func UpsertModelPriceSetting(db *gorm.DB, input dto.ModelPriceSettingInput) (*en
 	if modelName == "" {
 		return nil, fmt.Errorf("model is required")
 	}
+	serviceTier, err := normalizeModelPriceSettingServiceTierInput(input.ServiceTier)
+	if err != nil {
+		return nil, err
+	}
 	pricingStyle, err := normalizeModelPricingStyle(input.PricingStyle)
 	if err != nil {
 		return nil, err
 	}
 
 	setting := &entities.ModelPriceSetting{}
-	if err := db.Select(modelPriceSettingColumns).Where("model = ?", modelName).First(setting).Error; err != nil {
+	if err := db.Select(modelPriceSettingColumns).Where("model = ? AND service_tier = ?", modelName, serviceTier).First(setting).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			setting = &entities.ModelPriceSetting{Model: modelName}
+			setting = &entities.ModelPriceSetting{Model: modelName, ServiceTier: serviceTier}
 		} else {
 			return nil, fmt.Errorf("load pricing setting: %w", err)
 		}
 	}
 
 	setting.Model = modelName
+	setting.ServiceTier = serviceTier
 	setting.PricingStyle = pricingStyle
 	setting.PromptPricePer1M = input.PromptPricePer1M
 	setting.CompletionPricePer1M = input.CompletionPricePer1M
@@ -115,7 +125,7 @@ func normalizeModelPricingStyle(style string) (string, error) {
 	}
 }
 
-func DeleteModelPriceSetting(db *gorm.DB, model string) error {
+func DeleteModelPriceSetting(db *gorm.DB, model string, serviceTier *string) error {
 	if db == nil {
 		return fmt.Errorf("database is nil")
 	}
@@ -123,7 +133,15 @@ func DeleteModelPriceSetting(db *gorm.DB, model string) error {
 	if modelName == "" {
 		return fmt.Errorf("model is required")
 	}
-	if err := db.Where("model = ?", modelName).Delete(&entities.ModelPriceSetting{}).Error; err != nil {
+	query := db.Where("model = ?", modelName)
+	if serviceTier != nil {
+		normalized, err := normalizeModelPriceSettingServiceTierInput(*serviceTier)
+		if err != nil {
+			return err
+		}
+		query = query.Where("service_tier = ?", normalized)
+	}
+	if err := query.Delete(&entities.ModelPriceSetting{}).Error; err != nil {
 		return fmt.Errorf("delete pricing setting: %w", err)
 	}
 	return nil

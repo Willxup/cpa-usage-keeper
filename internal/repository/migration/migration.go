@@ -48,6 +48,8 @@ const (
 	migrationRemoveUsageEventWriteHeavyIndexes      = "20260610_remove_usage_event_write_heavy_indexes"
 	migrationRemoveUsageEventLowValueIndexes        = "20260611_remove_usage_event_low_value_indexes"
 	migrationReplaceRedisInboxQueueKeyWithSource    = "20260612_replace_redis_inbox_queue_key_with_source"
+	migrationModelPriceServiceTier                  = "20260618_model_price_service_tier"
+	migrationUsageOverviewServiceTier               = "20260618_usage_overview_service_tier"
 )
 
 type schemaMigration struct {
@@ -140,6 +142,8 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationRemoveUsageEventWriteHeavyIndexes, run: removeUsageEventWriteHeavyIndexesMigration},
 		{version: migrationRemoveUsageEventLowValueIndexes, run: removeUsageEventLowValueIndexesMigration},
 		{version: migrationReplaceRedisInboxQueueKeyWithSource, run: replaceRedisInboxQueueKeyWithSourceMigration},
+		{version: migrationModelPriceServiceTier, run: modelPriceServiceTierMigration},
+		{version: migrationUsageOverviewServiceTier, run: usageOverviewServiceTierMigration, disableTransaction: true},
 	}
 }
 

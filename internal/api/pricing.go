@@ -15,6 +15,7 @@ type usedModelsResponse struct {
 
 type pricingEntryResponse struct {
 	Model                   string  `json:"model"`
+	ServiceTier             string  `json:"service_tier"`
 	PricingStyle            string  `json:"pricing_style"`
 	PromptPricePer1M        float64 `json:"prompt_price_per_1m"`
 	CompletionPricePer1M    float64 `json:"completion_price_per_1m"`
@@ -28,6 +29,7 @@ type pricingListResponse struct {
 
 type updatePricingRequest struct {
 	Model                   string  `json:"model"`
+	ServiceTier             string  `json:"service_tier"`
 	PricingStyle            string  `json:"pricing_style"`
 	PromptPricePer1M        float64 `json:"prompt_price_per_1m"`
 	CompletionPricePer1M    float64 `json:"completion_price_per_1m"`
@@ -67,6 +69,7 @@ func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingPr
 		for _, setting := range settings {
 			response = append(response, pricingEntryResponse{
 				Model:                   setting.Model,
+				ServiceTier:             setting.ServiceTier,
 				PricingStyle:            setting.PricingStyle,
 				PromptPricePer1M:        setting.PromptPricePer1M,
 				CompletionPricePer1M:    setting.CompletionPricePer1M,
@@ -80,6 +83,7 @@ func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingPr
 	router.GET("/pricing/sync/preview", func(c *gin.Context) {
 		if pricingProvider == nil {
 			c.JSON(http.StatusOK, servicedto.PricingSyncPreview{
+				SourceID:        "models_dev",
 				Source:          "Models.dev",
 				Matches:         []servicedto.PricingSyncMatch{},
 				UnmatchedModels: []string{},
@@ -87,7 +91,7 @@ func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingPr
 			return
 		}
 
-		preview, err := pricingProvider.PreviewPricingSync(c.Request.Context())
+		preview, err := pricingProvider.PreviewPricingSync(c.Request.Context(), c.Query("source"))
 		if err != nil {
 			writeInternalError(c, "preview pricing sync failed", err)
 			return
@@ -119,7 +123,12 @@ func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingPr
 			c.JSON(http.StatusBadRequest, gin.H{"error": "model is required"})
 			return
 		}
-		if err := pricingProvider.DeletePricing(c.Request.Context(), model); err != nil {
+		var serviceTier *string
+		if rawServiceTier, exists := c.GetQuery("service_tier"); exists {
+			value := strings.TrimSpace(rawServiceTier)
+			serviceTier = &value
+		}
+		if err := pricingProvider.DeletePricing(c.Request.Context(), model, serviceTier); err != nil {
 			if strings.Contains(err.Error(), "required") {
 				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
@@ -154,6 +163,7 @@ func updatePricing(c *gin.Context, pricingProvider service.PricingProvider, path
 
 	setting, err := pricingProvider.UpdatePricing(c.Request.Context(), servicedto.UpdatePricingInput{
 		Model:                   model,
+		ServiceTier:             request.ServiceTier,
 		PricingStyle:            request.PricingStyle,
 		PromptPricePer1M:        request.PromptPricePer1M,
 		CompletionPricePer1M:    request.CompletionPricePer1M,
@@ -171,6 +181,7 @@ func updatePricing(c *gin.Context, pricingProvider service.PricingProvider, path
 
 	c.JSON(http.StatusOK, pricingEntryResponse{
 		Model:                   setting.Model,
+		ServiceTier:             setting.ServiceTier,
 		PricingStyle:            setting.PricingStyle,
 		PromptPricePer1M:        setting.PromptPricePer1M,
 		CompletionPricePer1M:    setting.CompletionPricePer1M,

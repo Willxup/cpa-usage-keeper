@@ -57,6 +57,8 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260610_remove_usage_event_write_heavy_indexes",
 		"20260611_remove_usage_event_low_value_indexes",
 		"20260612_replace_redis_inbox_queue_key_with_source",
+		"20260618_model_price_service_tier",
+		"20260618_usage_overview_service_tier",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("expected ordered migrations %v, got %v", want, got)
@@ -91,6 +93,12 @@ func TestOpenDatabaseRunsSchemaMigrationsAndAddsUsageEventRedisFields(t *testing
 	}
 	if !db.Migrator().HasColumn(&entities.UsageIdentity{}, "lookup_key") {
 		t.Fatal("expected usage_identities.lookup_key column to exist")
+	}
+	if !db.Migrator().HasColumn(&entities.UsageOverviewHourlyStat{}, "service_tier") {
+		t.Fatal("expected usage_overview_hourly_stats.service_tier column to exist")
+	}
+	if !db.Migrator().HasColumn(&entities.UsageOverviewDailyStat{}, "service_tier") {
+		t.Fatal("expected usage_overview_daily_stats.service_tier column to exist")
 	}
 	for _, column := range []string{"file_name", "file_path"} {
 		if !db.Migrator().HasColumn(&entities.UsageIdentity{}, column) {
@@ -141,6 +149,8 @@ func TestOpenDatabaseRunsSchemaMigrationsAndAddsUsageEventRedisFields(t *testing
 		"20260610_remove_usage_event_write_heavy_indexes",
 		"20260611_remove_usage_event_low_value_indexes",
 		"20260612_replace_redis_inbox_queue_key_with_source",
+		"20260618_model_price_service_tier",
+		"20260618_usage_overview_service_tier",
 	}
 	if len(versions) != len(expected) {
 		t.Fatalf("expected migration versions %v, got %v", expected, versions)
