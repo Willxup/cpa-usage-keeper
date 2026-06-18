@@ -1,4 +1,4 @@
-import { type AnalysisResponse, type AuthFilesManagementResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type KeyOverviewTimeRange, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingSyncPreviewResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetResponse } from './types'
+import { type AnalysisResponse, type AuthFilesManagementResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type KeyOverviewTimeRange, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingSyncPreviewResponse, type PricingSyncSource, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetResponse } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -537,8 +537,13 @@ export async function fetchPricing(signal?: AbortSignal): Promise<PricingRespons
   return response.json()
 }
 
-export async function fetchPricingSyncPreview(signal?: AbortSignal): Promise<PricingSyncPreviewResponse> {
-  const response = await apiFetch(apiPath('/pricing/sync/preview'), { signal, cache: 'no-store' })
+export async function fetchPricingSyncPreview(source?: PricingSyncSource, signal?: AbortSignal): Promise<PricingSyncPreviewResponse> {
+  const params = new URLSearchParams()
+  if (source) {
+    params.set('source', source)
+  }
+  const query = params.toString()
+  const response = await apiFetch(`${apiPath('/pricing/sync/preview')}${query ? `?${query}` : ''}`, { signal, cache: 'no-store' })
   if (!response.ok) {
     await parseApiError(response, `Failed to preview pricing sync: ${response.status}`)
   }
@@ -559,8 +564,8 @@ export async function updatePricing(model: string, pricing: Omit<PricingEntry, '
   return response.json()
 }
 
-export async function deletePricing(model: string): Promise<void> {
-  const params = new URLSearchParams({ model })
+export async function deletePricing(model: string, serviceTier = ''): Promise<void> {
+  const params = new URLSearchParams({ model, service_tier: serviceTier })
   const response = await apiFetch(`${apiPath('/pricing')}?${params.toString()}`, {
     method: 'DELETE',
   })

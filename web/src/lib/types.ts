@@ -558,6 +558,27 @@ export interface CpaApiKeyOptionsResponse {
 }
 
 export type PricingStyle = 'openai' | 'claude'
+export type PricingServiceTier = '' | 'default' | 'priority'
+export type PricingSyncSource = 'models_dev' | 'openai_official'
+
+const PRICING_SERVICE_TIERS: ReadonlySet<PricingServiceTier> = new Set(['', 'default', 'priority'])
+
+export const normalizePricingServiceTier = (serviceTier: string | null | undefined): PricingServiceTier => {
+  const normalized = serviceTier?.trim().toLowerCase() ?? ''
+  if (normalized === 'standard') return 'default'
+  return PRICING_SERVICE_TIERS.has(normalized as PricingServiceTier)
+    ? normalized as PricingServiceTier
+    : ''
+}
+
+export interface PricingEntryIdentity {
+  model: string
+  service_tier?: string | null
+}
+
+export const buildPricingEntryKey = ({ model, service_tier }: PricingEntryIdentity): string => (
+  `${model}::${normalizePricingServiceTier(service_tier)}`
+)
 
 export interface ModelPrice {
   style: PricingStyle
@@ -569,17 +590,20 @@ export interface ModelPrice {
 
 export interface PricingSaveFailure {
   model: string
+  service_tier: PricingServiceTier
+  pricing_key: string
   message: string
   error?: unknown
 }
 
 export interface PricingSaveResult {
-  successModels: string[]
+  success_keys: string[]
   failures: PricingSaveFailure[]
 }
 
 export interface PricingEntry {
   model: string
+  service_tier: PricingServiceTier
   pricing_style: PricingStyle
   prompt_price_per_1m: number
   completion_price_per_1m: number
@@ -597,6 +621,7 @@ export interface PricingResponse {
 
 export interface PricingSyncMatch {
   model: string
+  service_tier: PricingServiceTier
   matched_model: string
   match_type: string
   source_provider_id: string
@@ -609,6 +634,7 @@ export interface PricingSyncMatch {
 }
 
 export interface PricingSyncPreviewResponse {
+  source_id: PricingSyncSource
   source: string
   source_url: string
   metadata_models: number

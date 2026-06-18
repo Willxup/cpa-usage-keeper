@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appPath, deleteAuthFiles, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyOverview, fetchKeyOverviewRealtime, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, loginWithCPAAPIKey, logout, markStatusActive, refreshUsageQuotas, resetUsageQuota, setAuthFilesDisabled, startUsageQuotaInspection, updateCpaApiKeyAlias } from './api';
+import { appPath, deleteAuthFiles, deletePricing, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyOverview, fetchKeyOverviewRealtime, fetchPricingSyncPreview, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, loginWithCPAAPIKey, logout, markStatusActive, refreshUsageQuotas, resetUsageQuota, setAuthFilesDisabled, startUsageQuotaInspection, updateCpaApiKeyAlias, updatePricing } from './api';
 
 describe('fetchUsageEvents', () => {
   afterEach(() => {
@@ -135,6 +135,70 @@ describe('fetchUsageEvents', () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(new URL(String(url), 'http://localhost').pathname).toBe('/api/v1/auth/logout');
     expect(init).toMatchObject({ credentials: 'include', method: 'POST' });
+  });
+
+  it('passes the selected pricing sync source to the preview endpoint', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ source_id: 'openai_official', source: 'OpenAI Official', source_url: 'https://developers.openai.com/api/docs/pricing', metadata_models: 2, matches: [], unmatched_models: [] }),
+    } as Response);
+    const signal = new AbortController().signal;
+
+    await fetchPricingSyncPreview('openai_official', signal);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(url), 'http://localhost');
+    expect(parsed.pathname).toBe('/api/v1/pricing/sync/preview');
+    expect(parsed.searchParams.get('source')).toBe('openai_official');
+    expect(init).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
+  });
+
+  it('includes service tier when updating pricing entries', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ model: 'gpt-4o', service_tier: 'priority' }),
+    } as Response);
+
+    await updatePricing('gpt-4o', {
+      service_tier: 'priority',
+      pricing_style: 'openai',
+      prompt_price_per_1m: 4.25,
+      completion_price_per_1m: 17,
+      cache_price_per_1m: 2.125,
+      cache_creation_price_per_1m: 0,
+    });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(new URL(String(url), 'http://localhost').pathname).toBe('/api/v1/pricing');
+    expect(init).toMatchObject({ credentials: 'include', method: 'PUT' });
+    expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(init?.body).toBe(JSON.stringify({
+      model: 'gpt-4o',
+      service_tier: 'priority',
+      pricing_style: 'openai',
+      prompt_price_per_1m: 4.25,
+      completion_price_per_1m: 17,
+      cache_price_per_1m: 2.125,
+      cache_creation_price_per_1m: 0,
+    }));
+  });
+
+  it('includes service tier when deleting pricing entries', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+    } as Response);
+
+    await deletePricing('gpt-4o', 'priority');
+
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(url), 'http://localhost');
+    expect(parsed.pathname).toBe('/api/v1/pricing');
+    expect(parsed.searchParams.get('model')).toBe('gpt-4o');
+    expect(parsed.searchParams.get('service_tier')).toBe('priority');
+    expect(init).toMatchObject({ credentials: 'include', method: 'DELETE' });
   });
 
   it('marks backend page activity with the status active endpoint', async () => {

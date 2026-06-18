@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -6,49 +6,18 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Select, type SelectOption } from '@/components/ui/Select';
 import { IconCheck, IconCircleAlert, IconRefreshCw } from '@/components/ui/icons';
-import type { ModelPrice, PricingSaveResult, PricingStyle, PricingSyncMatch, PricingSyncPreviewResponse } from '@/lib/types';
+import { buildPricingEntryKey, normalizePricingServiceTier, type PricingEntry, type PricingSaveResult, type PricingServiceTier, type PricingStyle, type PricingSyncMatch, type PricingSyncPreviewResponse, type PricingSyncSource } from '@/lib/types';
 import styles from '@/pages/UsagePage.module.scss';
+
+const DEFAULT_PRICING_STYLE: PricingStyle = 'openai';
+const DEFAULT_PRICING_SERVICE_TIER: PricingServiceTier = 'default';
+const DEFAULT_PRICING_SYNC_SOURCE: PricingSyncSource = 'openai_official';
 
 const formatDisplayName = (value: string): string => {
   const normalized = value.trim();
   if (!normalized) return '-';
   return normalized;
 };
-
-export interface PriceSettingsCardProps {
-  modelNames: string[];
-  modelPrices: Record<string, ModelPrice>;
-  onPricesChange: (prices: Record<string, ModelPrice>) => void | Promise<void>;
-  onSyncPricesChange?: (prices: Record<string, ModelPrice>) => Promise<PricingSaveResult>;
-  onSyncPreview?: () => Promise<PricingSyncPreviewResponse>;
-  onNotice?: (kind: 'success' | 'info' | 'error', message: string) => void;
-  loading?: boolean;
-}
-
-export interface PricingSyncDraft {
-  model: string;
-  matchedModel: string;
-  matchType: string;
-  sourceProviderId: string;
-  sourceProviderName: string;
-  selected: boolean;
-  style: PricingStyle;
-  prompt: string;
-  completion: string;
-  cache: string;
-  cacheCreation: string;
-  saveStatus?: 'failed';
-  saveError?: string;
-}
-
-function PriceSettingsTitle({ title, subtitle }: { title: string; subtitle: string }) {
-  return (
-    <div className={styles.sectionTitleBlock}>
-      <h3 className={styles.sectionTitle}>{title}</h3>
-      <p className={styles.sectionSubtitle}>{subtitle}</p>
-    </div>
-  );
-}
 
 const parsePriceValue = (value: string): number | null => {
   const parsed = Number(value);
@@ -73,44 +42,196 @@ const normalizePricingStyle = (style: PricingStyle | string | undefined): Pricin
   style === 'claude' ? 'claude' : 'openai'
 );
 
-const syncMatchToDraft = (match: PricingSyncMatch): PricingSyncDraft => ({
-  model: match.model,
-  matchedModel: match.matched_model,
-  matchType: match.match_type,
-  sourceProviderId: match.source_provider_id,
-  sourceProviderName: match.source_provider_name,
-  selected: true,
-  style: normalizePricingStyle(match.pricing_style),
-  prompt: priceToInputValue(match.prompt_price_per_1m),
-  completion: priceToInputValue(match.completion_price_per_1m),
-  cache: priceToInputValue(match.cache_price_per_1m),
-  cacheCreation: priceToInputValue(match.cache_creation_price_per_1m),
+const pricingServiceTierOrder: Record<PricingServiceTier, number> = {
+  '': 0,
+  default: 1,
+  priority: 2,
+};
+
+const sortPricingEntries = (entries: PricingEntry[]): PricingEntry[] => (
+  [...entries].sort((left, right) => {
+    const modelOrder = left.model.localeCompare(right.model);
+    if (modelOrder !== 0) return modelOrder;
+    return pricingServiceTierOrder[left.service_tier] - pricingServiceTierOrder[right.service_tier];
+  })
+);
+
+const normalizePricingEntry = (entry: PricingEntry): PricingEntry => ({
+  model: entry.model.trim(),
+  service_tier: normalizePricingServiceTier(entry.service_tier),
+  pricing_style: normalizePricingStyle(entry.pricing_style),
+  prompt_price_per_1m: entry.prompt_price_per_1m,
+  completion_price_per_1m: entry.completion_price_per_1m,
+  cache_price_per_1m: entry.cache_price_per_1m,
+  cache_creation_price_per_1m: entry.cache_creation_price_per_1m ?? 0,
 });
 
-const syncDraftToModelPrice = (draft: PricingSyncDraft): ModelPrice | null => {
-  const prompt = parsePriceValue(draft.prompt);
-  const completion = parsePriceValue(draft.completion);
+const upsertPricingEntry = (entries: PricingEntry[], nextEntry: PricingEntry): PricingEntry[] => {
+  const normalizedEntry = normalizePricingEntry(nextEntry);
+  const nextEntries = new Map(entries.map((entry) => {
+    const normalized = normalizePricingEntry(entry);
+    return [buildPricingEntryKey(normalized), normalized] as const;
+  }));
+  nextEntries.set(buildPricingEntryKey(normalizedEntry), normalizedEntry);
+  return sortPricingEntries(Array.from(nextEntries.values()));
+};
+
+const mergePricingEntries = (entries: PricingEntry[], nextEntries: PricingEntry[]): PricingEntry[] => (
+  nextEntries.reduce((current, entry) => upsertPricingEntry(current, entry), entries)
+);
+
+const removePricingEntryByKey = (entries: PricingEntry[], pricingKey: string): PricingEntry[] => (
+  entries.filter((entry) => buildPricingEntryKey(entry) !== pricingKey)
+);
+
+const findPricingEntry = (
+  entries: PricingEntry[],
+  model: string,
+  serviceTier: PricingServiceTier,
+): PricingEntry | undefined => {
+  const pricingKey = buildPricingEntryKey({ model, service_tier: serviceTier });
+  return entries.find((entry) => buildPricingEntryKey(entry) === pricingKey);
+};
+
+function PriceSettingsTitle({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div className={styles.sectionTitleBlock}>
+      <h3 className={styles.sectionTitle}>{title}</h3>
+      <p className={styles.sectionSubtitle}>{subtitle}</p>
+    </div>
+  );
+}
+
+export interface PriceSettingsCardProps {
+  modelNames: string[];
+  pricingEntries: PricingEntry[];
+  onPricingEntriesChange: (entries: PricingEntry[]) => void | Promise<void>;
+  onSyncPricingEntriesChange?: (entries: PricingEntry[]) => Promise<PricingSaveResult>;
+  onSyncPreview?: (source: PricingSyncSource) => Promise<PricingSyncPreviewResponse>;
+  onNotice?: (kind: 'success' | 'info' | 'error', message: string) => void;
+  loading?: boolean;
+}
+
+export interface PricingSyncDraft {
+  model: string;
+  serviceTier: PricingServiceTier;
+  pricingKey: string;
+  matchedModel: string;
+  matchType: string;
+  sourceProviderId: string;
+  sourceProviderName: string;
+  selected: boolean;
+  style: PricingStyle;
+  prompt: string;
+  completion: string;
+  cache: string;
+  cacheCreation: string;
+  saveStatus?: 'failed';
+  saveError?: string;
+}
+
+const pricingStyleOptions = (t: (key: string) => string): SelectOption[] => [
+  { value: 'openai', label: t('usage_stats.model_price_style_openai') },
+  { value: 'claude', label: t('usage_stats.model_price_style_claude') },
+];
+
+const pricingServiceTierLabel = (serviceTier: PricingServiceTier, t: (key: string) => string): string => {
+  if (serviceTier === 'priority') return t('usage_stats.model_price_service_tier_priority');
+  if (serviceTier === 'default') return t('usage_stats.model_price_service_tier_default');
+  return t('usage_stats.model_price_service_tier_fallback');
+};
+
+const pricingServiceTierOptions = (t: (key: string) => string): SelectOption[] => [
+  { value: 'default', label: t('usage_stats.model_price_service_tier_default') },
+  { value: 'priority', label: t('usage_stats.model_price_service_tier_priority') },
+  { value: '', label: t('usage_stats.model_price_service_tier_fallback') },
+];
+
+const pricingSyncSourceOptions = (t: (key: string) => string): SelectOption[] => [
+  { value: 'openai_official', label: t('usage_stats.model_price_sync_source_openai_official') },
+  { value: 'models_dev', label: t('usage_stats.model_price_sync_source_models_dev') },
+];
+
+const pricingSyncSourceLabel = (
+  source: PricingSyncSource,
+  t: (key: string) => string,
+): string => (
+  source === 'models_dev'
+    ? t('usage_stats.model_price_sync_source_models_dev')
+    : t('usage_stats.model_price_sync_source_openai_official')
+);
+
+const formatPricingEntryLabel = (
+  model: string,
+  serviceTier: PricingServiceTier,
+  t: (key: string) => string,
+): string => `${formatDisplayName(model)} · ${pricingServiceTierLabel(serviceTier, t)}`;
+
+const pricingEntryFromForm = (
+  model: string,
+  serviceTier: PricingServiceTier,
+  style: PricingStyle,
+  promptValue: string,
+  completionValue: string,
+  cacheValue: string,
+  cacheCreationValue: string,
+): PricingEntry | null => {
+  const prompt = parsePriceValue(promptValue);
+  const completion = parsePriceValue(completionValue);
   if (prompt === null || completion === null) return null;
-  const cache = parseCachePriceValue(draft.cache, draft.style, prompt);
-  const cacheCreation = parseCacheCreationPriceValue(draft.cacheCreation, draft.style);
+  const cache = parseCachePriceValue(cacheValue, style, prompt);
+  const cacheCreation = parseCacheCreationPriceValue(cacheCreationValue, style);
   if (cache === null || cacheCreation === null) return null;
   return {
-    style: draft.style,
-    prompt,
-    completion,
-    cache,
-    cacheCreation,
+    model,
+    service_tier: serviceTier,
+    pricing_style: style,
+    prompt_price_per_1m: prompt,
+    completion_price_per_1m: completion,
+    cache_price_per_1m: cache,
+    cache_creation_price_per_1m: cacheCreation,
   };
 };
+
+const syncMatchToDraft = (match: PricingSyncMatch): PricingSyncDraft => {
+  const serviceTier = normalizePricingServiceTier(match.service_tier);
+  return {
+    model: match.model,
+    serviceTier,
+    pricingKey: buildPricingEntryKey({ model: match.model, service_tier: serviceTier }),
+    matchedModel: match.matched_model,
+    matchType: match.match_type,
+    sourceProviderId: match.source_provider_id,
+    sourceProviderName: match.source_provider_name,
+    selected: true,
+    style: normalizePricingStyle(match.pricing_style),
+    prompt: priceToInputValue(match.prompt_price_per_1m),
+    completion: priceToInputValue(match.completion_price_per_1m),
+    cache: priceToInputValue(match.cache_price_per_1m),
+    cacheCreation: priceToInputValue(match.cache_creation_price_per_1m),
+  };
+};
+
+const syncDraftToPricingEntry = (draft: PricingSyncDraft): PricingEntry | null => (
+  pricingEntryFromForm(
+    draft.model,
+    draft.serviceTier,
+    draft.style,
+    draft.prompt,
+    draft.completion,
+    draft.cache,
+    draft.cacheCreation,
+  )
+);
 
 export const markPricingSyncFailures = (
   drafts: PricingSyncDraft[],
   result: PricingSaveResult,
 ): PricingSyncDraft[] => {
-  const failedByModel = new Map(result.failures.map((failure) => [failure.model, failure.message]));
-  const successModels = new Set(result.successModels);
+  const failedByKey = new Map(result.failures.map((failure) => [failure.pricing_key, failure.message]));
+  const successKeys = new Set(result.success_keys);
   return drafts.map((draft) => {
-    const failureMessage = failedByModel.get(draft.model);
+    const failureMessage = failedByKey.get(draft.pricingKey);
     if (failureMessage !== undefined) {
       return {
         ...draft,
@@ -119,7 +240,7 @@ export const markPricingSyncFailures = (
         saveError: failureMessage,
       };
     }
-    if (successModels.has(draft.model)) {
+    if (successKeys.has(draft.pricingKey)) {
       return {
         ...draft,
         selected: false,
@@ -147,29 +268,24 @@ export const notifyPricingSyncUnexpectedError = (
   );
 };
 
-const pricingStyleOptions = (t: (key: string) => string): SelectOption[] => [
-  { value: 'openai', label: t('usage_stats.model_price_style_openai') },
-  { value: 'claude', label: t('usage_stats.model_price_style_claude') },
-];
-
 export const buildPricingModelOptions = (
   modelNames: string[],
-  modelPrices: Record<string, ModelPrice>,
+  pricingEntries: PricingEntry[],
+  serviceTier: PricingServiceTier,
   placeholder: string,
   configuredLabel = 'Configured',
 ): SelectOption[] => {
-  const configuredModels = new Set(Object.keys(modelPrices));
+  const configuredKeys = new Set(pricingEntries.map((entry) => buildPricingEntryKey(entry)));
   const sortedModelNames = [...modelNames]
     .sort((left, right) => formatDisplayName(left).localeCompare(formatDisplayName(right)));
 
   return [
     { value: '', label: placeholder },
     ...sortedModelNames.map((name) => {
-      const configured = configuredModels.has(name);
+      const configured = configuredKeys.has(buildPricingEntryKey({ model: name, service_tier: serviceTier }));
       return {
         value: name,
         label: formatDisplayName(name),
-        disabled: configured || undefined,
         suffix: configured ? <IconCheck size={12} /> : undefined,
         suffixAriaLabel: configured ? configuredLabel : undefined,
       };
@@ -177,125 +293,174 @@ export const buildPricingModelOptions = (
   ];
 };
 
+const applyDraftValues = (
+  entry: PricingEntry | undefined,
+  setStyle: (value: PricingStyle) => void,
+  setPrompt: (value: string) => void,
+  setCompletion: (value: string) => void,
+  setCache: (value: string) => void,
+  setCacheCreation: (value: string) => void,
+) => {
+  if (!entry) {
+    setStyle(DEFAULT_PRICING_STYLE);
+    setPrompt('');
+    setCompletion('');
+    setCache('');
+    setCacheCreation('');
+    return;
+  }
+  setStyle(normalizePricingStyle(entry.pricing_style));
+  setPrompt(priceToInputValue(entry.prompt_price_per_1m));
+  setCompletion(priceToInputValue(entry.completion_price_per_1m));
+  setCache(priceToInputValue(entry.cache_price_per_1m));
+  setCacheCreation(priceToInputValue(entry.cache_creation_price_per_1m));
+};
+
 export function PriceSettingsCard({
   modelNames,
-  modelPrices,
-  onPricesChange,
-  onSyncPricesChange,
+  pricingEntries,
+  onPricingEntriesChange,
+  onSyncPricingEntriesChange,
   onSyncPreview,
   onNotice,
   loading = false
 }: PriceSettingsCardProps) {
   const { t } = useTranslation();
 
-  // 新增价格表单先暂存输入值，保存成功后再一次性同步到父级配置。
   const [selectedModel, setSelectedModel] = useState('');
-  const [pricingStyle, setPricingStyle] = useState<PricingStyle>('openai');
+  const [selectedServiceTier, setSelectedServiceTier] = useState<PricingServiceTier>(DEFAULT_PRICING_SERVICE_TIER);
+  const [pricingStyle, setPricingStyle] = useState<PricingStyle>(DEFAULT_PRICING_STYLE);
   const [promptPrice, setPromptPrice] = useState('');
   const [completionPrice, setCompletionPrice] = useState('');
   const [cachePrice, setCachePrice] = useState('');
   const [cacheCreationPrice, setCacheCreationPrice] = useState('');
 
-  // 编辑弹窗独立保存草稿值，避免用户取消时污染已保存价格。
+  const [editPricingKey, setEditPricingKey] = useState<string | null>(null);
   const [editModel, setEditModel] = useState<string | null>(null);
-  const [editStyle, setEditStyle] = useState<PricingStyle>('openai');
+  const [editServiceTier, setEditServiceTier] = useState<PricingServiceTier>(DEFAULT_PRICING_SERVICE_TIER);
+  const [editStyle, setEditStyle] = useState<PricingStyle>(DEFAULT_PRICING_STYLE);
   const [editPrompt, setEditPrompt] = useState('');
   const [editCompletion, setEditCompletion] = useState('');
   const [editCache, setEditCache] = useState('');
   const [editCacheCreation, setEditCacheCreation] = useState('');
 
+  const [syncSource, setSyncSource] = useState<PricingSyncSource>(DEFAULT_PRICING_SYNC_SOURCE);
   const [syncOpen, setSyncOpen] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncApplying, setSyncApplying] = useState(false);
   const [syncPreview, setSyncPreview] = useState<PricingSyncPreviewResponse | null>(null);
   const [syncDrafts, setSyncDrafts] = useState<PricingSyncDraft[]>([]);
 
-  const handleSavePrice = () => {
+  useEffect(() => {
+    if (!selectedModel) {
+      applyDraftValues(undefined, setPricingStyle, setPromptPrice, setCompletionPrice, setCachePrice, setCacheCreationPrice);
+      return;
+    }
+    applyDraftValues(
+      findPricingEntry(pricingEntries, selectedModel, selectedServiceTier),
+      setPricingStyle,
+      setPromptPrice,
+      setCompletionPrice,
+      setCachePrice,
+      setCacheCreationPrice,
+    );
+  }, [pricingEntries, selectedModel, selectedServiceTier]);
+
+  const options = useMemo(
+    () => buildPricingModelOptions(
+      modelNames,
+      pricingEntries,
+      selectedServiceTier,
+      t('usage_stats.model_price_select_placeholder'),
+      t('usage_stats.model_price_configured'),
+    ),
+    [modelNames, pricingEntries, selectedServiceTier, t]
+  );
+  const styleOptions = useMemo(() => pricingStyleOptions(t), [t]);
+  const serviceTierOptions = useMemo(() => pricingServiceTierOptions(t), [t]);
+  const syncSourceOptions = useMemo(() => pricingSyncSourceOptions(t), [t]);
+  const selectedSyncCount = useMemo(
+    () => syncDrafts.filter((draft) => draft.selected).length,
+    [syncDrafts]
+  );
+  const syncSourceName = useMemo(
+    () => pricingSyncSourceLabel(syncSource, t),
+    [syncSource, t]
+  );
+  const sortedPricingEntries = useMemo(
+    () => sortPricingEntries(pricingEntries.map(normalizePricingEntry)),
+    [pricingEntries]
+  );
+
+  const handleSavePrice = async () => {
     if (!selectedModel) return;
-    const prompt = parsePriceValue(promptPrice);
-    const completion = parsePriceValue(completionPrice);
-    if (prompt === null || completion === null) {
+    const nextEntry = pricingEntryFromForm(
+      selectedModel,
+      selectedServiceTier,
+      pricingStyle,
+      promptPrice,
+      completionPrice,
+      cachePrice,
+      cacheCreationPrice,
+    );
+    if (!nextEntry) {
       onNotice?.('error', t('usage_stats.model_price_save_failed'));
       return;
     }
-    const cache = parseCachePriceValue(cachePrice, pricingStyle, prompt);
-    const cacheCreation = parseCacheCreationPriceValue(cacheCreationPrice, pricingStyle);
-    if (cache === null || cacheCreation === null) {
-      onNotice?.('error', t('usage_stats.model_price_save_failed'));
-      return;
-    }
-    const newPrices = { ...modelPrices, [selectedModel]: { style: pricingStyle, prompt, completion, cache, cacheCreation } };
-    onPricesChange(newPrices);
+    await Promise.resolve(onPricingEntriesChange(upsertPricingEntry(pricingEntries, nextEntry)));
     onNotice?.('success', t('usage_stats.model_price_save_success'));
     setSelectedModel('');
-    setPricingStyle('openai');
-    setPromptPrice('');
-    setCompletionPrice('');
-    setCachePrice('');
-    setCacheCreationPrice('');
+    applyDraftValues(undefined, setPricingStyle, setPromptPrice, setCompletionPrice, setCachePrice, setCacheCreationPrice);
   };
 
-  const handleDeletePrice = (model: string) => {
-    const newPrices = { ...modelPrices };
-    delete newPrices[model];
-    onPricesChange(newPrices);
+  const handleDeletePrice = async (entry: PricingEntry) => {
+    await Promise.resolve(onPricingEntriesChange(removePricingEntryByKey(pricingEntries, buildPricingEntryKey(entry))));
     onNotice?.('success', t('usage_stats.model_price_delete_success'));
   };
 
-  const handleOpenEdit = (model: string) => {
-    const price = modelPrices[model];
-    setEditModel(model);
-    setEditStyle(price?.style ?? 'openai');
-    setEditPrompt(price?.prompt?.toString() || '');
-    setEditCompletion(price?.completion?.toString() || '');
-    setEditCache(price?.cache?.toString() || '');
-    setEditCacheCreation(price?.cacheCreation?.toString() || '');
-    onNotice?.('info', t('usage_stats.model_price_edit_notice', { model: formatDisplayName(model) }));
+  const handleOpenEdit = (entry: PricingEntry) => {
+    const normalized = normalizePricingEntry(entry);
+    setEditPricingKey(buildPricingEntryKey(normalized));
+    setEditModel(normalized.model);
+    setEditServiceTier(normalized.service_tier);
+    setEditStyle(normalizePricingStyle(normalized.pricing_style));
+    setEditPrompt(priceToInputValue(normalized.prompt_price_per_1m));
+    setEditCompletion(priceToInputValue(normalized.completion_price_per_1m));
+    setEditCache(priceToInputValue(normalized.cache_price_per_1m));
+    setEditCacheCreation(priceToInputValue(normalized.cache_creation_price_per_1m));
+    onNotice?.('info', t('usage_stats.model_price_edit_notice', { model: formatPricingEntryLabel(normalized.model, normalized.service_tier, t) }));
   };
 
-  const handleSaveEdit = () => {
-    if (!editModel) return;
-    const prompt = parsePriceValue(editPrompt);
-    const completion = parsePriceValue(editCompletion);
-    if (prompt === null || completion === null) {
+  const handleSaveEdit = async () => {
+    if (!editModel || !editPricingKey) return;
+    const updatedEntry = pricingEntryFromForm(
+      editModel,
+      editServiceTier,
+      editStyle,
+      editPrompt,
+      editCompletion,
+      editCache,
+      editCacheCreation,
+    );
+    if (!updatedEntry) {
       onNotice?.('error', t('usage_stats.model_price_edit_failed'));
       return;
     }
-    const cache = parseCachePriceValue(editCache, editStyle, prompt);
-    const cacheCreation = parseCacheCreationPriceValue(editCacheCreation, editStyle);
-    if (cache === null || cacheCreation === null) {
-      onNotice?.('error', t('usage_stats.model_price_edit_failed'));
-      return;
-    }
-    const newPrices = { ...modelPrices, [editModel]: { style: editStyle, prompt, completion, cache, cacheCreation } };
-    onPricesChange(newPrices);
+    const nextEntries = upsertPricingEntry(
+      removePricingEntryByKey(pricingEntries, editPricingKey),
+      updatedEntry,
+    );
+    await Promise.resolve(onPricingEntriesChange(nextEntries));
     onNotice?.('success', t('usage_stats.model_price_edit_success'));
+    setEditPricingKey(null);
     setEditModel(null);
-  };
-
-  const handleModelSelect = (value: string) => {
-    setSelectedModel(value);
-    const price = modelPrices[value];
-    if (price) {
-      setPricingStyle(price.style);
-      setPromptPrice(price.prompt.toString());
-      setCompletionPrice(price.completion.toString());
-      setCachePrice(price.cache.toString());
-      setCacheCreationPrice(price.cacheCreation.toString());
-    } else {
-      setPricingStyle('openai');
-      setPromptPrice('');
-      setCompletionPrice('');
-      setCachePrice('');
-      setCacheCreationPrice('');
-    }
   };
 
   const handleOpenSyncPreview = async () => {
     if (!onSyncPreview || syncLoading) return;
     setSyncLoading(true);
     try {
-      const preview = await onSyncPreview();
+      const preview = await onSyncPreview(syncSource);
       const drafts = (preview.matches ?? []).map(syncMatchToDraft);
       setSyncPreview({
         ...preview,
@@ -317,15 +482,21 @@ export function PriceSettingsCard({
 
   const handleUpdateSyncDraft = (index: number, patch: Partial<PricingSyncDraft>) => {
     const clearsFailure = Object.keys(patch).some((key) => key !== 'selected');
-    setSyncDrafts((current) => current.map((draft, draftIndex) => (
-      draftIndex === index
-        ? {
-          ...draft,
-          ...patch,
-          ...(clearsFailure ? { saveStatus: undefined, saveError: undefined } : {}),
-        }
-        : draft
-    )));
+    setSyncDrafts((current) => current.map((draft, draftIndex) => {
+      if (draftIndex !== index) return draft;
+      const nextDraft = { ...draft, ...patch };
+      if (patch.serviceTier !== undefined) {
+        nextDraft.serviceTier = normalizePricingServiceTier(patch.serviceTier);
+      }
+      nextDraft.pricingKey = buildPricingEntryKey({
+        model: nextDraft.model,
+        service_tier: nextDraft.serviceTier,
+      });
+      return {
+        ...nextDraft,
+        ...(clearsFailure ? { saveStatus: undefined, saveError: undefined } : {}),
+      };
+    }));
   };
 
   const handleSetAllSyncDrafts = (selected: boolean) => {
@@ -339,37 +510,37 @@ export function PriceSettingsCard({
       return;
     }
 
-    const syncPrices: Record<string, ModelPrice> = {};
+    const syncEntries: PricingEntry[] = [];
     for (const draft of selectedDrafts) {
-      const price = syncDraftToModelPrice(draft);
-      if (!price) {
-        onNotice?.('error', t('usage_stats.model_price_sync_invalid', { model: formatDisplayName(draft.model) }));
+      const entry = syncDraftToPricingEntry(draft);
+      if (!entry) {
+        onNotice?.('error', t('usage_stats.model_price_sync_invalid', { model: formatPricingEntryLabel(draft.model, draft.serviceTier, t) }));
         return;
       }
-      syncPrices[draft.model] = price;
+      syncEntries.push(entry);
     }
 
     setSyncApplying(true);
     try {
-      if (!onSyncPricesChange) {
-        await Promise.resolve(onPricesChange({ ...modelPrices, ...syncPrices }));
+      if (!onSyncPricingEntriesChange) {
+        await Promise.resolve(onPricingEntriesChange(mergePricingEntries(pricingEntries, syncEntries)));
         onNotice?.('success', t('usage_stats.model_price_sync_apply_success', { count: selectedDrafts.length }));
         setSyncOpen(false);
         return;
       }
 
-      const result = await onSyncPricesChange(syncPrices);
+      const result = await onSyncPricingEntriesChange(syncEntries);
       setSyncDrafts((current) => markPricingSyncFailures(current, result));
       if (result.failures.length === 0) {
-        onNotice?.('success', t('usage_stats.model_price_sync_apply_success', { count: result.successModels.length }));
+        onNotice?.('success', t('usage_stats.model_price_sync_apply_success', { count: result.success_keys.length }));
         setSyncOpen(false);
         return;
       }
 
       onNotice?.(
-        result.successModels.length > 0 ? 'info' : 'error',
+        result.success_keys.length > 0 ? 'info' : 'error',
         t('usage_stats.model_price_sync_apply_partial', {
-          success: result.successModels.length,
+          success: result.success_keys.length,
           failed: result.failures.length,
         }),
       );
@@ -379,21 +550,6 @@ export function PriceSettingsCard({
       setSyncApplying(false);
     }
   };
-
-  const options = useMemo(
-    () => buildPricingModelOptions(
-      modelNames,
-      modelPrices,
-      t('usage_stats.model_price_select_placeholder'),
-      t('usage_stats.model_price_configured'),
-    ),
-    [modelNames, modelPrices, t]
-  );
-  const styleOptions = useMemo(() => pricingStyleOptions(t), [t]);
-  const selectedSyncCount = useMemo(
-    () => syncDrafts.filter((draft) => draft.selected).length,
-    [syncDrafts]
-  );
 
   return (
     <>
@@ -407,14 +563,20 @@ export function PriceSettingsCard({
         className={`${styles.detailsFixedCard} ${styles.pricingFixedCard}`}
       >
         <div className={styles.pricingSection}>
-          {loading && modelNames.length === 0 && Object.keys(modelPrices).length === 0 ? (
+          {loading && modelNames.length === 0 && pricingEntries.length === 0 ? (
             <div className={styles.hint}>{t('common.loading')}</div>
           ) : (
             <>
               {onSyncPreview && (
                 <div className={styles.pricingToolbar}>
                   <div className={styles.pricingToolbarMeta}>
-                    <span>{t('usage_stats.model_price_sync_source')}: Models.dev</span>
+                    <span>{t('usage_stats.model_price_sync_source')}</span>
+                    <Select
+                      value={syncSource}
+                      options={syncSourceOptions}
+                      onChange={(value) => setSyncSource(value === 'models_dev' ? 'models_dev' : 'openai_official')}
+                      className={styles.usagePillControl}
+                    />
                   </div>
                   <Button
                     variant="secondary"
@@ -434,8 +596,17 @@ export function PriceSettingsCard({
                     <Select
                       value={selectedModel}
                       options={options}
-                      onChange={handleModelSelect}
+                      onChange={setSelectedModel}
                       placeholder={t('usage_stats.model_price_select_placeholder')}
+                      className={styles.usagePillControl}
+                    />
+                  </div>
+                  <div className={styles.formField}>
+                    <label>{t('usage_stats.model_price_service_tier')}</label>
+                    <Select
+                      value={selectedServiceTier}
+                      options={serviceTierOptions}
+                      onChange={(value) => setSelectedServiceTier(normalizePricingServiceTier(value))}
                       className={styles.usagePillControl}
                     />
                   </div>
@@ -494,7 +665,7 @@ export function PriceSettingsCard({
                       />
                     </div>
                   )}
-                  <Button variant="primary" className={styles.usagePillAction} onClick={handleSavePrice} disabled={!selectedModel}>
+                  <Button variant="primary" className={styles.usagePillAction} onClick={() => void handleSavePrice()} disabled={!selectedModel}>
                     {t('common.save')}
                   </Button>
                 </div>
@@ -502,37 +673,40 @@ export function PriceSettingsCard({
 
               <div className={styles.pricesList}>
                 <h4 className={styles.pricesTitle}>{t('usage_stats.saved_prices')}</h4>
-                {Object.keys(modelPrices).length > 0 ? (
+                {sortedPricingEntries.length > 0 ? (
                   <div className={styles.pricesGrid}>
-                    {Object.entries(modelPrices).map(([model, price]) => (
-                      <div key={model} className={styles.priceItem}>
+                    {sortedPricingEntries.map((entry) => (
+                      <div key={buildPricingEntryKey(entry)} className={styles.priceItem}>
                         <div className={styles.priceInfo}>
-                          <span className={styles.priceModel}>{formatDisplayName(model)}</span>
+                          <span className={styles.priceModel}>{formatDisplayName(entry.model)}</span>
                           <div className={styles.priceMeta}>
                             <span>
-                              {t('usage_stats.model_price_style')}: {t(price.style === 'claude' ? 'usage_stats.model_price_style_claude' : 'usage_stats.model_price_style_openai')}
+                              {t('usage_stats.model_price_service_tier')}: {pricingServiceTierLabel(entry.service_tier, t)}
                             </span>
                             <span>
-                              {t('usage_stats.model_price_prompt')}: ${price.prompt.toFixed(4)}/1M
+                              {t('usage_stats.model_price_style')}: {t(entry.pricing_style === 'claude' ? 'usage_stats.model_price_style_claude' : 'usage_stats.model_price_style_openai')}
                             </span>
                             <span>
-                              {t('usage_stats.model_price_completion')}: ${price.completion.toFixed(4)}/1M
+                              {t('usage_stats.model_price_prompt')}: ${entry.prompt_price_per_1m.toFixed(4)}/1M
                             </span>
                             <span>
-                              {t(price.style === 'claude' ? 'usage_stats.model_price_cache_read' : 'usage_stats.model_price_cache')}: ${price.cache.toFixed(4)}/1M
+                              {t('usage_stats.model_price_completion')}: ${entry.completion_price_per_1m.toFixed(4)}/1M
                             </span>
-                            {price.style === 'claude' && (
+                            <span>
+                              {t(entry.pricing_style === 'claude' ? 'usage_stats.model_price_cache_read' : 'usage_stats.model_price_cache')}: ${entry.cache_price_per_1m.toFixed(4)}/1M
+                            </span>
+                            {entry.pricing_style === 'claude' && (
                               <span>
-                                {t('usage_stats.model_price_cache_write')}: ${price.cacheCreation.toFixed(4)}/1M
+                                {t('usage_stats.model_price_cache_write')}: ${entry.cache_creation_price_per_1m.toFixed(4)}/1M
                               </span>
                             )}
                           </div>
                         </div>
                         <div className={styles.priceActions}>
-                          <Button variant="secondary" size="sm" className={styles.usagePillAction} onClick={() => handleOpenEdit(model)}>
+                          <Button variant="secondary" size="sm" className={styles.usagePillAction} onClick={() => handleOpenEdit(entry)}>
                             {t('common.edit')}
                           </Button>
-                          <Button variant="danger" size="sm" className={`${styles.usagePillAction} ${styles.usagePillActionDanger}`} onClick={() => handleDeletePrice(model)}>
+                          <Button variant="danger" size="sm" className={`${styles.usagePillAction} ${styles.usagePillActionDanger}`} onClick={() => void handleDeletePrice(entry)}>
                             {t('common.delete')}
                           </Button>
                         </div>
@@ -548,17 +722,22 @@ export function PriceSettingsCard({
         </div>
       </Card>
 
-      {/* 编辑弹窗不作为价格卡片内容参与布局，只负责编辑当前模型价格。 */}
       <Modal
         open={editModel !== null}
-        title={formatDisplayName(editModel ?? '')}
-        onClose={() => setEditModel(null)}
+        title={editModel ? formatPricingEntryLabel(editModel, editServiceTier, t) : ''}
+        onClose={() => {
+          setEditPricingKey(null);
+          setEditModel(null);
+        }}
         footer={
           <div className={styles.priceActions}>
-            <Button variant="secondary" className={styles.usagePillAction} onClick={() => setEditModel(null)}>
+            <Button variant="secondary" className={styles.usagePillAction} onClick={() => {
+              setEditPricingKey(null);
+              setEditModel(null);
+            }}>
               {t('common.cancel')}
             </Button>
-            <Button variant="primary" className={styles.usagePillAction} onClick={handleSaveEdit}>
+            <Button variant="primary" className={styles.usagePillAction} onClick={() => void handleSaveEdit()}>
               {t('common.save')}
             </Button>
           </div>
@@ -566,6 +745,15 @@ export function PriceSettingsCard({
         width={420}
       >
         <div className={styles.editModalBody}>
+          <div className={styles.formField}>
+            <label>{t('usage_stats.model_price_service_tier')}</label>
+            <Select
+              value={editServiceTier}
+              options={serviceTierOptions}
+              onChange={(value) => setEditServiceTier(normalizePricingServiceTier(value))}
+              className={styles.usagePillControl}
+            />
+          </div>
           <div className={styles.formField}>
             <label>{t('usage_stats.model_price_style')}</label>
             <Select
@@ -659,7 +847,7 @@ export function PriceSettingsCard({
         <div className={styles.syncModalBody}>
           <div className={styles.syncSummaryRow}>
             <span>
-              {t('usage_stats.model_price_sync_source')}: {syncPreview?.source || 'Models.dev'}
+              {t('usage_stats.model_price_sync_source')}: {syncPreview?.source || syncSourceName}
             </span>
             <span>
               {t('usage_stats.model_price_sync_matched')}: {syncDrafts.length}
@@ -694,12 +882,14 @@ export function PriceSettingsCard({
 
               <div className={styles.syncDraftList}>
                 {syncDrafts.map((draft, index) => {
-                  const existing = Boolean(modelPrices[draft.model]);
+                  const existing = pricingEntries.some((entry) => buildPricingEntryKey(entry) === draft.pricingKey);
                   const failed = draft.saveStatus === 'failed';
-                  const failureLabel = t('usage_stats.model_price_sync_failed_label', { model: formatDisplayName(draft.model) });
+                  const failureLabel = t('usage_stats.model_price_sync_failed_label', {
+                    model: formatPricingEntryLabel(draft.model, draft.serviceTier, t),
+                  });
                   return (
                     <div
-                      key={`${draft.model}-${draft.matchedModel}`}
+                      key={`${draft.pricingKey}-${draft.matchedModel}`}
                       className={`${styles.syncDraftItem} ${failed ? styles.syncDraftItemFailed : ''}`}
                     >
                       <label className={styles.syncDraftCheck}>
@@ -708,13 +898,16 @@ export function PriceSettingsCard({
                           checked={draft.selected}
                           disabled={syncApplying}
                           onChange={(event) => handleUpdateSyncDraft(index, { selected: event.target.checked })}
-                          aria-label={t('usage_stats.model_price_sync_toggle', { model: formatDisplayName(draft.model) })}
+                          aria-label={t('usage_stats.model_price_sync_toggle', { model: formatPricingEntryLabel(draft.model, draft.serviceTier, t) })}
                         />
                       </label>
                       <div className={styles.syncDraftContent}>
                         <div className={styles.syncDraftHeader}>
                           <div className={styles.syncDraftModelBlock}>
                             <span className={styles.priceModel}>{formatDisplayName(draft.model)}</span>
+                            <span className={styles.syncDraftMatched}>
+                              {t('usage_stats.model_price_service_tier')}: {pricingServiceTierLabel(draft.serviceTier, t)}
+                            </span>
                             <span className={styles.syncDraftMatched}>
                               {t('usage_stats.model_price_sync_matched_model', { model: formatDisplayName(draft.matchedModel) })}
                             </span>
@@ -741,6 +934,15 @@ export function PriceSettingsCard({
                           </div>
                         </div>
                         <div className={styles.syncDraftGrid}>
+                          <div className={styles.formField}>
+                            <label>{t('usage_stats.model_price_service_tier')}</label>
+                            <Select
+                              value={draft.serviceTier}
+                              options={serviceTierOptions}
+                              onChange={(value) => handleUpdateSyncDraft(index, { serviceTier: normalizePricingServiceTier(value) })}
+                              className={styles.usagePillControl}
+                            />
+                          </div>
                           <div className={styles.formField}>
                             <label>{t('usage_stats.model_price_style')}</label>
                             <Select

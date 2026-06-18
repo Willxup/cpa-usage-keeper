@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, deletePricing, fetchPricing, fetchPricingSyncPreview, fetchUsedModels, updatePricing } from '@/lib/api';
-import type { ModelPrice, PricingEntry, PricingSaveResult, PricingStyle, PricingSyncPreviewResponse } from '@/lib/types';
+import { buildPricingEntryKey, normalizePricingServiceTier, type PricingEntry, type PricingSaveResult, type PricingServiceTier, type PricingStyle, type PricingSyncPreviewResponse, type PricingSyncSource } from '@/lib/types';
 import { useNotificationStore } from '@/stores';
 
 export interface UsePricingDataOptions {
@@ -11,33 +11,60 @@ export interface UsePricingDataOptions {
 
 export interface UsePricingDataReturn {
   modelNames: string[];
-  modelPrices: Record<string, ModelPrice>;
+  pricingEntries: PricingEntry[];
   loading: boolean;
   error: string;
   lastRefreshedAt: Date | null;
   loadPricing: () => Promise<void>;
-  setModelPrices: (prices: Record<string, ModelPrice>) => Promise<void>;
-  syncModelPrices: (prices: Record<string, ModelPrice>) => Promise<PricingSaveResult>;
-  previewPricingSync: () => Promise<PricingSyncPreviewResponse>;
+  setPricingEntries: (entries: PricingEntry[]) => Promise<void>;
+  syncPricingEntries: (entries: PricingEntry[]) => Promise<PricingSaveResult>;
+  previewPricingSync: (source: PricingSyncSource) => Promise<PricingSyncPreviewResponse>;
 }
+
+const pricingServiceTierOrder: Record<PricingServiceTier, number> = {
+  '': 0,
+  default: 1,
+  priority: 2,
+};
 
 const normalizePricingStyle = (style: PricingStyle | string | undefined): PricingStyle =>
   style === 'claude' ? 'claude' : 'openai';
 
-const pricingToModelPrice = (entry: PricingEntry): ModelPrice => ({
-  style: normalizePricingStyle(entry.pricing_style),
-  prompt: entry.prompt_price_per_1m,
-  completion: entry.completion_price_per_1m,
-  cache: entry.cache_price_per_1m,
-  cacheCreation: entry.cache_creation_price_per_1m ?? 0,
+const normalizePricingEntry = (entry: PricingEntry): PricingEntry => ({
+  model: entry.model.trim(),
+  service_tier: normalizePricingServiceTier(entry.service_tier),
+  pricing_style: normalizePricingStyle(entry.pricing_style),
+  prompt_price_per_1m: entry.prompt_price_per_1m,
+  completion_price_per_1m: entry.completion_price_per_1m,
+  cache_price_per_1m: entry.cache_price_per_1m,
+  cache_creation_price_per_1m: entry.cache_creation_price_per_1m ?? 0,
 });
 
-const modelPriceToPricingEntry = (pricing: ModelPrice): Omit<PricingEntry, 'model'> => ({
-  prompt_price_per_1m: pricing.prompt,
-  completion_price_per_1m: pricing.completion,
-  cache_price_per_1m: pricing.cache,
-  cache_creation_price_per_1m: pricing.cacheCreation,
-  pricing_style: pricing.style,
+const sortPricingEntries = (entries: PricingEntry[]): PricingEntry[] => (
+  [...entries].sort((left, right) => {
+    const modelOrder = left.model.localeCompare(right.model);
+    if (modelOrder !== 0) return modelOrder;
+    return pricingServiceTierOrder[left.service_tier] - pricingServiceTierOrder[right.service_tier];
+  })
+);
+
+const normalizePricingEntries = (entries: PricingEntry[]): PricingEntry[] => {
+  const deduped = new Map<string, PricingEntry>();
+  for (const entry of entries) {
+    const normalized = normalizePricingEntry(entry);
+    if (!normalized.model) continue;
+    deduped.set(buildPricingEntryKey(normalized), normalized);
+  }
+  return sortPricingEntries(Array.from(deduped.values()));
+};
+
+const pricingEntryPayload = (entry: PricingEntry): Omit<PricingEntry, 'model'> => ({
+  service_tier: entry.service_tier,
+  pricing_style: entry.pricing_style,
+  prompt_price_per_1m: entry.prompt_price_per_1m,
+  completion_price_per_1m: entry.completion_price_per_1m,
+  cache_price_per_1m: entry.cache_price_per_1m,
+  cache_creation_price_per_1m: entry.cache_creation_price_per_1m,
 });
 
 interface PricingPersistence {
@@ -48,17 +75,25 @@ const defaultPricingPersistence: PricingPersistence = {
   updatePricingEntry: updatePricing,
 };
 
-export async function persistModelPriceEntries(
-  prices: Record<string, ModelPrice>,
+export async function persistPricingEntries(
+  entries: PricingEntry[],
   persistence: PricingPersistence = defaultPricingPersistence,
 ): Promise<PricingSaveResult> {
-  const settled = await Promise.all(Object.entries(prices).map(async ([model, pricing]) => {
+  const settled = await Promise.all(normalizePricingEntries(entries).map(async (entry) => {
+    const pricingKey = buildPricingEntryKey(entry);
     try {
-      await persistence.updatePricingEntry(model, modelPriceToPricingEntry(pricing));
-      return { model, ok: true as const };
+      await persistence.updatePricingEntry(entry.model, pricingEntryPayload(entry));
+      return {
+        pricingKey,
+        model: entry.model,
+        serviceTier: entry.service_tier,
+        ok: true as const,
+      };
     } catch (error) {
       return {
-        model,
+        pricingKey,
+        model: entry.model,
+        serviceTier: entry.service_tier,
         ok: false as const,
         message: error instanceof Error ? error.message : String(error),
         error,
@@ -68,12 +103,18 @@ export async function persistModelPriceEntries(
 
   return settled.reduce<PricingSaveResult>((result, item) => {
     if (item.ok) {
-      result.successModels.push(item.model);
+      result.success_keys.push(item.pricingKey);
     } else {
-      result.failures.push({ model: item.model, message: item.message, error: item.error });
+      result.failures.push({
+        model: item.model,
+        service_tier: item.serviceTier,
+        pricing_key: item.pricingKey,
+        message: item.message,
+        error: item.error,
+      });
     }
     return result;
-  }, { successModels: [], failures: [] });
+  }, { success_keys: [], failures: [] });
 }
 
 export function usePricingData(options: UsePricingDataOptions = {}): UsePricingDataReturn {
@@ -81,7 +122,7 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
   const { t } = useTranslation();
   const { showNotification } = useNotificationStore();
   const [modelNames, setModelNames] = useState<string[]>([]);
-  const [modelPrices, setModelPricesState] = useState<Record<string, ModelPrice>>({});
+  const [pricingEntries, setPricingEntriesState] = useState<PricingEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
@@ -93,10 +134,7 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
   }, [onAuthRequired]);
 
   const applyPricingResponse = useCallback((pricingResponse: Awaited<ReturnType<typeof fetchPricing>>) => {
-    const prices = Object.fromEntries(
-      pricingResponse.pricing.map((entry) => [entry.model, pricingToModelPrice(entry)])
-    );
-    setModelPricesState(prices);
+    setPricingEntriesState(normalizePricingEntries(pricingResponse.pricing ?? []));
     setLastRefreshedAt(new Date());
   }, []);
 
@@ -149,24 +187,22 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
     };
   }, [enabled, loadPricing]);
 
-  const setModelPrices = useCallback(async (prices: Record<string, ModelPrice>) => {
-    const previousPrices = modelPrices;
-    setModelPricesState(prices);
+  const setPricingEntries = useCallback(async (entries: PricingEntry[]) => {
+    const previousEntries = pricingEntries;
+    const nextEntries = normalizePricingEntries(entries);
+    setPricingEntriesState(nextEntries);
 
     try {
-      const previousModels = new Set(Object.keys(previousPrices));
-      const nextModels = new Set(Object.keys(prices));
+      const nextKeys = new Set(nextEntries.map((entry) => buildPricingEntryKey(entry)));
       await Promise.all([
-        ...Object.entries(prices).map(([model, pricing]) =>
-          updatePricing(model, modelPriceToPricingEntry(pricing))
-        ),
-        ...Array.from(previousModels)
-          .filter((model) => !nextModels.has(model))
-          .map((model) => deletePricing(model)),
+        ...nextEntries.map((entry) => updatePricing(entry.model, pricingEntryPayload(entry))),
+        ...previousEntries
+          .filter((entry) => !nextKeys.has(buildPricingEntryKey(entry)))
+          .map((entry) => deletePricing(entry.model, entry.service_tier)),
       ]);
       setLastRefreshedAt(new Date());
     } catch (error) {
-      setModelPricesState(previousPrices);
+      setPricingEntriesState(previousEntries);
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequiredRef.current?.();
         return;
@@ -177,17 +213,22 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
         'error'
       );
     }
-  }, [modelPrices, showNotification, t]);
+  }, [pricingEntries, showNotification, t]);
 
-  const syncModelPrices = useCallback(async (prices: Record<string, ModelPrice>) => {
-    const result = await persistModelPriceEntries(prices);
-    if (result.successModels.length > 0) {
-      setModelPricesState((current) => {
-        const nextPrices = { ...current };
-        for (const model of result.successModels) {
-          nextPrices[model] = prices[model];
+  const syncPricingEntries = useCallback(async (entries: PricingEntry[]) => {
+    const normalizedEntries = normalizePricingEntries(entries);
+    const result = await persistPricingEntries(normalizedEntries);
+    if (result.success_keys.length > 0) {
+      setPricingEntriesState((current) => {
+        const nextEntries = new Map(current.map((entry) => [buildPricingEntryKey(entry), entry]));
+        const successKeys = new Set(result.success_keys);
+        for (const entry of normalizedEntries) {
+          const entryKey = buildPricingEntryKey(entry);
+          if (successKeys.has(entryKey)) {
+            nextEntries.set(entryKey, entry);
+          }
         }
-        return nextPrices;
+        return sortPricingEntries(Array.from(nextEntries.values()));
       });
       setLastRefreshedAt(new Date());
     }
@@ -197,9 +238,9 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
     return result;
   }, []);
 
-  const previewPricingSync = useCallback(async () => {
+  const previewPricingSync = useCallback(async (source: PricingSyncSource) => {
     try {
-      return await fetchPricingSyncPreview();
+      return await fetchPricingSyncPreview(source);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequiredRef.current?.();
@@ -210,13 +251,13 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
 
   return {
     modelNames,
-    modelPrices,
+    pricingEntries,
     loading,
     error,
     lastRefreshedAt,
     loadPricing,
-    setModelPrices,
-    syncModelPrices,
+    setPricingEntries,
+    syncPricingEntries,
     previewPricingSync,
   };
 }

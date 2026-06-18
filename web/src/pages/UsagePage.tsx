@@ -790,12 +790,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   });
   const {
     modelNames,
-    modelPrices,
+    pricingEntries,
     loading: pricingLoading,
     error: pricingError,
     loadPricing,
-    setModelPrices,
-    syncModelPrices,
+    setPricingEntries,
+    syncPricingEntries,
     previewPricingSync,
   } = usePricingData({
     onAuthRequired,
@@ -1924,9 +1924,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 />
                 <PriceSettingsCard
                   modelNames={modelNames}
-                  modelPrices={modelPrices}
-                  onPricesChange={setModelPrices}
-                  onSyncPricesChange={syncModelPrices}
+                  pricingEntries={pricingEntries}
+                  onPricingEntriesChange={setPricingEntries}
+                  onSyncPricingEntriesChange={syncPricingEntries}
                   onSyncPreview={previewPricingSync}
                   onNotice={showTopNotice}
                   loading={pricingLoading}
