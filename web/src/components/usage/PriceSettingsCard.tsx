@@ -570,7 +570,7 @@ export function PriceSettingsCard({
               {onSyncPreview && (
                 <div className={styles.pricingToolbar}>
                   <div className={styles.pricingToolbarMeta}>
-                    <span>{t('usage_stats.model_price_sync_source')}</span>
+                    <span className={styles.pricingToolbarLabel}>{t('usage_stats.model_price_sync_source')}</span>
                     <Select
                       value={syncSource}
                       options={syncSourceOptions}

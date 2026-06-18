@@ -1705,6 +1705,11 @@
   font-weight: 700;
 }
 
+.pricingToolbarLabel {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .priceForm {
   padding: 12px;
   background: color-mix(in srgb, var(--bg-secondary) 68%, transparent);

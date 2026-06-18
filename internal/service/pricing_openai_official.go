@@ -22,12 +22,12 @@ var (
 
 func normalizePricingSyncSource(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "models.dev", "models_dev", "modelsdev":
-		return pricingSyncSourceModelsDevID
-	case "openai official", "openai_official", "openai-official":
+	case "", "openai official", "openai_official", "openai-official":
 		return pricingSyncSourceOpenAIOfficialID
-	default:
+	case "models.dev", "models_dev", "modelsdev":
 		return pricingSyncSourceModelsDevID
+	default:
+		return pricingSyncSourceOpenAIOfficialID
 	}
 }
 
