@@ -37,6 +37,11 @@ func fetchOpenAIOfficialCatalog(ctx context.Context, pageURL string) ([]pricingC
 		return nil, fmt.Errorf("build openai official pricing request: %w", err)
 	}
 	request.Header.Set("Accept", "text/html")
+	request.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	request.Header.Set("Cache-Control", "no-cache")
+	request.Header.Set("Pragma", "no-cache")
+	request.Header.Set("Referer", "https://developers.openai.com/")
+	request.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
 
 	response, err := pricingSyncHTTPClient.Do(request)
 	if err != nil {

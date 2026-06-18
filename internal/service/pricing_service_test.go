@@ -470,6 +470,71 @@ func TestBuildPricingSyncPreviewMatchesMetadataModels(t *testing.T) {
 	}
 }
 
+func TestBuildPricingSyncPreviewKeepsMultipleServiceTiers(t *testing.T) {
+	defaultInput := 2.5
+	defaultOutput := 15.0
+	defaultCache := 0.25
+	priorityInput := 5.0
+	priorityOutput := 30.0
+	priorityCache := 0.5
+
+	preview := buildPricingSyncPreviewFromEntries(
+		[]string{"gpt-5.4"},
+		[]pricingCatalogEntry{
+			{
+				providerID:   "openai",
+				providerName: "OpenAI",
+				serviceTier:  "default",
+				model: modelsDevModel{
+					ID:   "gpt-5.4",
+					Name: "GPT-5.4",
+					Cost: modelsDevCost{
+						Input:     &defaultInput,
+						Output:    &defaultOutput,
+						CacheRead: &defaultCache,
+					},
+				},
+			},
+			{
+				providerID:   "openai",
+				providerName: "OpenAI",
+				serviceTier:  "priority",
+				model: modelsDevModel{
+					ID:   "gpt-5.4",
+					Name: "GPT-5.4",
+					Cost: modelsDevCost{
+						Input:     &priorityInput,
+						Output:    &priorityOutput,
+						CacheRead: &priorityCache,
+					},
+				},
+			},
+		},
+		"openai_official",
+		"OpenAI Official",
+		"https://developers.openai.com/api/docs/pricing",
+	)
+
+	if len(preview.Matches) != 2 {
+		t.Fatalf("expected two service-tier matches, got %#v", preview.Matches)
+	}
+	if preview.Matches[0].ServiceTier != "default" || preview.Matches[1].ServiceTier != "priority" {
+		t.Fatalf("expected default/priority order, got %#v", preview.Matches)
+	}
+
+	matchesByTier := make(map[string]servicedto.PricingSyncMatch, len(preview.Matches))
+	for _, match := range preview.Matches {
+		matchesByTier[match.ServiceTier] = match
+	}
+
+	if match := matchesByTier["default"]; match.PromptPricePer1M != 2.5 || match.CompletionPricePer1M != 15 || match.CachePricePer1M != 0.25 {
+		t.Fatalf("unexpected default tier match: %#v", match)
+	}
+	if match := matchesByTier["priority"]; match.PromptPricePer1M != 5 || match.CompletionPricePer1M != 30 || match.CachePricePer1M != 0.5 {
+		t.Fatalf("unexpected priority tier match: %#v", match)
+	}
+}
+
 type stubModelsFetcher struct {
 	result *response.ModelsResult
 	err    error

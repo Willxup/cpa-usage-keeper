@@ -152,16 +152,24 @@ func buildPricingSyncPreviewFromEntries(
 			continue
 		}
 
-		match, ok := buildPricingSyncMatchFromCandidates(model, candidates)
-		if !ok {
+		modelMatches := buildPricingSyncMatchesFromCandidates(model, candidates)
+		if len(modelMatches) == 0 {
 			unmatched = append(unmatched, model)
 			continue
 		}
-		matches = append(matches, match)
+		matches = append(matches, modelMatches...)
 	}
 
 	sort.Slice(matches, func(left, right int) bool {
-		return matches[left].Model < matches[right].Model
+		if matches[left].Model != matches[right].Model {
+			return matches[left].Model < matches[right].Model
+		}
+		leftOrder := pricingSyncServiceTierOrder(matches[left].ServiceTier)
+		rightOrder := pricingSyncServiceTierOrder(matches[right].ServiceTier)
+		if leftOrder != rightOrder {
+			return leftOrder < rightOrder
+		}
+		return matches[left].MatchedModel < matches[right].MatchedModel
 	})
 	sort.Strings(unmatched)
 
@@ -223,7 +231,9 @@ func flattenModelsDevCatalog(catalog map[string]modelsDevProvider) []pricingCata
 	return entries
 }
 
-func buildPricingSyncMatchFromCandidates(model string, candidates []pricingSyncCandidate) (servicedto.PricingSyncMatch, bool) {
+func buildPricingSyncMatchesFromCandidates(model string, candidates []pricingSyncCandidate) []servicedto.PricingSyncMatch {
+	matches := make([]servicedto.PricingSyncMatch, 0, len(candidates))
+	seenTiers := make(map[string]struct{}, len(candidates))
 	for _, candidate := range candidates {
 		match, ok := buildPricingSyncMatch(
 			model,
@@ -233,11 +243,17 @@ func buildPricingSyncMatchFromCandidates(model string, candidates []pricingSyncC
 			candidate.entry.providerID,
 			candidate.entry.providerName,
 		)
-		if ok {
-			return match, true
+		if !ok {
+			continue
 		}
+		tierKey := strings.ToLower(strings.TrimSpace(match.ServiceTier))
+		if _, exists := seenTiers[tierKey]; exists {
+			continue
+		}
+		seenTiers[tierKey] = struct{}{}
+		matches = append(matches, match)
 	}
-	return servicedto.PricingSyncMatch{}, false
+	return matches
 }
 
 func buildPricingCatalogIndex(entries []pricingCatalogEntry) pricingCatalogIndex {
@@ -308,7 +324,9 @@ func sortedUniquePricingCandidates(model string, candidates []pricingSyncCandida
 	unique := make([]pricingSyncCandidate, 0, len(candidates))
 	bestByKey := make(map[string]pricingSyncCandidate, len(candidates))
 	for _, candidate := range candidates {
-		key := strings.TrimSpace(candidate.entry.providerID) + "\x00" + strings.TrimSpace(candidate.entry.model.ID)
+		key := strings.TrimSpace(candidate.entry.providerID) +
+			"\x00" + strings.TrimSpace(candidate.entry.model.ID) +
+			"\x00" + strings.ToLower(strings.TrimSpace(candidate.entry.serviceTier))
 		if key == "\x00" {
 			continue
 		}
@@ -323,6 +341,19 @@ func sortedUniquePricingCandidates(model string, candidates []pricingSyncCandida
 		return pricingCandidateLess(model, unique[left], unique[right])
 	})
 	return unique
+}
+
+func pricingSyncServiceTierOrder(serviceTier string) int {
+	switch strings.ToLower(strings.TrimSpace(serviceTier)) {
+	case "default":
+		return 0
+	case "priority":
+		return 1
+	case "":
+		return 2
+	default:
+		return 3
+	}
 }
 
 func pricingCandidateLess(model string, left, right pricingSyncCandidate) bool {
