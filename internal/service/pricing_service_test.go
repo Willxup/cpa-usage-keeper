@@ -423,7 +423,7 @@ func TestBuildPricingSyncPreviewMatchesMetadataModels(t *testing.T) {
 		"GLM-4.7-Flash",
 		"minimax-m3",
 		"missing-model",
-	}, catalog, "https://models.dev/api.json")
+	}, catalog, "https://models.dev/api.json", nil)
 	if err != nil {
 		t.Fatalf("build pricing sync preview: %v", err)
 	}
@@ -513,6 +513,7 @@ func TestBuildPricingSyncPreviewKeepsMultipleServiceTiers(t *testing.T) {
 		"openai_official",
 		"OpenAI Official",
 		"https://developers.openai.com/api/docs/pricing",
+		nil,
 	)
 
 	if len(preview.Matches) != 2 {
@@ -532,6 +533,109 @@ func TestBuildPricingSyncPreviewKeepsMultipleServiceTiers(t *testing.T) {
 	}
 	if match := matchesByTier["priority"]; match.PromptPricePer1M != 5 || match.CompletionPricePer1M != 30 || match.CachePricePer1M != 0.5 {
 		t.Fatalf("unexpected priority tier match: %#v", match)
+	}
+}
+
+func TestBuildPricingSyncPreviewSupportsKeeperModelAliases(t *testing.T) {
+	defaultCodexInput := 1.75
+	defaultCodexOutput := 14.0
+	defaultCodexCache := 0.175
+	priorityCodexInput := 3.5
+	priorityCodexOutput := 28.0
+	priorityCodexCache := 0.35
+	defaultMiniInput := 0.75
+	defaultMiniOutput := 4.5
+	defaultMiniCache := 0.075
+	priorityMiniInput := 1.5
+	priorityMiniOutput := 9.0
+	priorityMiniCache := 0.15
+
+	preview := buildPricingSyncPreviewFromEntries(
+		[]string{"codex-auto-review", "gpt-5.3-codex-spark"},
+		[]pricingCatalogEntry{
+			{
+				providerID:   "openai",
+				providerName: "OpenAI",
+				serviceTier:  "default",
+				model: modelsDevModel{
+					ID:   "gpt-5.3-codex",
+					Name: "gpt-5.3-codex",
+					Cost: modelsDevCost{
+						Input:     &defaultCodexInput,
+						Output:    &defaultCodexOutput,
+						CacheRead: &defaultCodexCache,
+					},
+				},
+			},
+			{
+				providerID:   "openai",
+				providerName: "OpenAI",
+				serviceTier:  "priority",
+				model: modelsDevModel{
+					ID:   "gpt-5.3-codex",
+					Name: "gpt-5.3-codex",
+					Cost: modelsDevCost{
+						Input:     &priorityCodexInput,
+						Output:    &priorityCodexOutput,
+						CacheRead: &priorityCodexCache,
+					},
+				},
+			},
+			{
+				providerID:   "openai",
+				providerName: "OpenAI",
+				serviceTier:  "default",
+				model: modelsDevModel{
+					ID:   "gpt-5.4-mini",
+					Name: "gpt-5.4-mini",
+					Cost: modelsDevCost{
+						Input:     &defaultMiniInput,
+						Output:    &defaultMiniOutput,
+						CacheRead: &defaultMiniCache,
+					},
+				},
+			},
+			{
+				providerID:   "openai",
+				providerName: "OpenAI",
+				serviceTier:  "priority",
+				model: modelsDevModel{
+					ID:   "gpt-5.4-mini",
+					Name: "gpt-5.4-mini",
+					Cost: modelsDevCost{
+						Input:     &priorityMiniInput,
+						Output:    &priorityMiniOutput,
+						CacheRead: &priorityMiniCache,
+					},
+				},
+			},
+		},
+		"openai_official",
+		"OpenAI Official",
+		"https://developers.openai.com/api/docs/pricing",
+		nil,
+	)
+
+	if len(preview.Matches) != 4 {
+		t.Fatalf("expected alias preview to keep four matches, got %#v", preview.Matches)
+	}
+
+	matchesByModelTier := make(map[string]servicedto.PricingSyncMatch, len(preview.Matches))
+	for _, match := range preview.Matches {
+		matchesByModelTier[match.Model+"::"+match.ServiceTier] = match
+	}
+
+	if match := matchesByModelTier["codex-auto-review::default"]; match.MatchedModel != "gpt-5.3-codex" || match.PromptPricePer1M != 1.75 {
+		t.Fatalf("unexpected codex auto review default alias match: %#v", match)
+	}
+	if match := matchesByModelTier["codex-auto-review::priority"]; match.MatchedModel != "gpt-5.3-codex" || match.CompletionPricePer1M != 28 {
+		t.Fatalf("unexpected codex auto review priority alias match: %#v", match)
+	}
+	if match := matchesByModelTier["gpt-5.3-codex-spark::default"]; match.MatchedModel != "gpt-5.4-mini" || match.CachePricePer1M != 0.075 {
+		t.Fatalf("unexpected codex spark default alias match: %#v", match)
+	}
+	if match := matchesByModelTier["gpt-5.3-codex-spark::priority"]; match.MatchedModel != "gpt-5.4-mini" || match.PromptPricePer1M != 1.5 {
+		t.Fatalf("unexpected codex spark priority alias match: %#v", match)
 	}
 }
 

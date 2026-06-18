@@ -175,7 +175,25 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	if cfg.TLSSkipVerify {
 		logrus.WithField("cpa_base_url", cfg.CPABaseURL).Warn("TLS certificate verification is disabled for CPA and Redis queue connections")
 	}
-	pricingService := service.NewPricingService(db, cpaClient)
+	pricingSyncModelAliases, err := service.LoadPricingSyncModelAliases(cfg.PricingSyncModelAliasesFile)
+	if err != nil {
+		if recentUsageCache != nil {
+			recentUsageCache.Close()
+		}
+		_ = closeGormDB(db)
+		_ = logCloser.Close()
+		return nil, err
+	}
+	if cfg.PricingSyncModelAliasesFile != "" {
+		logrus.WithFields(logrus.Fields{
+			"alias_file":   cfg.PricingSyncModelAliasesFile,
+			"alias_models": len(pricingSyncModelAliases),
+		}).Info("loaded pricing sync model aliases")
+	}
+	pricingService := service.NewPricingServiceWithOptions(db, service.PricingServiceOptions{
+		ModelsFetcher:           cpaClient,
+		PricingSyncModelAliases: pricingSyncModelAliases,
+	})
 	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{RefreshWorkerLimit: cfg.QuotaRefreshWorkerLimit, AutoRefreshInterval: cfg.QuotaAutoRefreshInterval})
 	sessionManager := auth.NewSessionManager(cfg.AuthSessionTTL)
 	authHandler := api.NewAuthHandler(api.AuthConfig{

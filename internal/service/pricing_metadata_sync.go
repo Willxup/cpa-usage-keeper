@@ -77,13 +77,13 @@ func (s *pricingService) PreviewPricingSync(ctx context.Context, source string) 
 		if err != nil {
 			return servicedto.PricingSyncPreview{}, err
 		}
-		return buildPricingSyncPreviewFromEntries(models, entries, pricingSyncSourceOpenAIOfficialID, pricingSyncOpenAIOfficialSource, pricingSyncOpenAIOfficialSourceURL), nil
+		return buildPricingSyncPreviewFromEntries(models, entries, pricingSyncSourceOpenAIOfficialID, pricingSyncOpenAIOfficialSource, pricingSyncOpenAIOfficialSourceURL, s.pricingSyncModelAliases), nil
 	default:
 		catalog, err := fetchModelsDevCatalog(ctx, pricingSyncAPIURL)
 		if err != nil {
 			return servicedto.PricingSyncPreview{}, err
 		}
-		return buildPricingSyncPreviewFromCatalog(models, catalog, pricingSyncAPIURL)
+		return buildPricingSyncPreviewFromCatalog(models, catalog, pricingSyncAPIURL, s.pricingSyncModelAliases)
 	}
 }
 
@@ -119,9 +119,10 @@ func buildPricingSyncPreviewFromCatalog(
 	models []string,
 	catalog map[string]modelsDevProvider,
 	sourceURL string,
+	aliases map[string][]string,
 ) (servicedto.PricingSyncPreview, error) {
 	entries := flattenModelsDevCatalog(catalog)
-	return buildPricingSyncPreviewFromEntries(models, entries, pricingSyncSourceModelsDevID, pricingSyncMetadataSource, sourceURL), nil
+	return buildPricingSyncPreviewFromEntries(models, entries, pricingSyncSourceModelsDevID, pricingSyncMetadataSource, sourceURL, aliases), nil
 }
 
 func buildPricingSyncPreviewFromEntries(
@@ -130,6 +131,7 @@ func buildPricingSyncPreviewFromEntries(
 	sourceID string,
 	sourceName string,
 	sourceURL string,
+	aliases map[string][]string,
 ) servicedto.PricingSyncPreview {
 	index := buildPricingCatalogIndex(entries)
 	matches := make([]servicedto.PricingSyncMatch, 0, len(models))
@@ -146,7 +148,7 @@ func buildPricingSyncPreviewFromEntries(
 		}
 		seenModels[model] = struct{}{}
 
-		candidates := matchPricingCatalogCandidates(model, index)
+		candidates := matchPricingCatalogCandidates(model, index, aliases)
 		if len(candidates) == 0 {
 			unmatched = append(unmatched, model)
 			continue
@@ -286,7 +288,7 @@ func registerPricingCatalogIndexValue(target map[string][]pricingCatalogEntry, v
 	target[key] = append(target[key], entry)
 }
 
-func matchPricingCatalogCandidates(model string, index pricingCatalogIndex) []pricingSyncCandidate {
+func matchPricingCatalogCandidates(model string, index pricingCatalogIndex, aliases map[string][]string) []pricingSyncCandidate {
 	model = strings.TrimSpace(model)
 	if model == "" {
 		return nil
@@ -315,6 +317,23 @@ func matchPricingCatalogCandidates(model string, index pricingCatalogIndex) []pr
 	add(index.normalized[normalizedKey], "index_normalized", 92)
 	if suffix != model {
 		add(index.normalized[normalizePricingModelKey(suffix)], "index_normalized_suffix", 90)
+	}
+	for _, alias := range pricingSyncModelAliasesForModel(model, aliases) {
+		alias = strings.TrimSpace(alias)
+		if alias == "" {
+			continue
+		}
+		aliasExactKey := strings.ToLower(alias)
+		add(index.exact[aliasExactKey], "alias_exact", 88)
+		aliasSuffix := stripPricingModelPrefix(alias)
+		if aliasSuffix != alias {
+			add(index.exact[strings.ToLower(aliasSuffix)], "alias_suffix", 86)
+		}
+		aliasNormalizedKey := normalizePricingModelKey(alias)
+		add(index.normalized[aliasNormalizedKey], "alias_normalized", 84)
+		if aliasSuffix != alias {
+			add(index.normalized[normalizePricingModelKey(aliasSuffix)], "alias_normalized_suffix", 82)
+		}
 	}
 
 	return sortedUniquePricingCandidates(model, candidates)

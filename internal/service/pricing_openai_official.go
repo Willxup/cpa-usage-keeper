@@ -90,6 +90,7 @@ func visitOpenAIOfficialPricingNodes(node *html.Node, currentPane string, entrie
 				props, err := decodeAstroProps(attrs["props"])
 				if err == nil {
 					*entries = append(*entries, extractOpenAIOfficialGroupedEntries(props, nextPane)...)
+					*entries = append(*entries, extractOpenAIOfficialImageGenerationEntries(props, nextPane)...)
 				}
 			}
 		}
@@ -224,6 +225,110 @@ func extractOpenAIOfficialGroupedEntries(props map[string]any, currentPane strin
 	return entries
 }
 
+func extractOpenAIOfficialImageGenerationEntries(props map[string]any, currentPane string) []pricingCatalogEntry {
+	if !strings.EqualFold(strings.TrimSpace(currentPane), "standard") || !matchesOpenAIOfficialImageHeadings(props["headings"]) {
+		return nil
+	}
+	groups, ok := props["groups"].([]any)
+	if !ok {
+		return nil
+	}
+	entries := make([]pricingCatalogEntry, 0, len(groups))
+	for _, groupValue := range groups {
+		group, ok := groupValue.(map[string]any)
+		if !ok {
+			continue
+		}
+		entry, ok := openAIOfficialImageGenerationEntryFromGroup(group)
+		if ok {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
+}
+
+func openAIOfficialImageGenerationEntryFromGroup(group map[string]any) (pricingCatalogEntry, bool) {
+	modelName := normalizeOpenAIOfficialModelName(openAIOfficialPlainText(group["model"]))
+	if modelName == "" {
+		return pricingCatalogEntry{}, false
+	}
+	rows, ok := group["rows"].([]any)
+	if !ok || len(rows) == 0 {
+		return pricingCatalogEntry{}, false
+	}
+
+	var textInput, textCache, imageInput, imageCache, textOutput, imageOutput *float64
+	for _, rowValue := range rows {
+		row, ok := rowValue.([]any)
+		if !ok || len(row) < 4 {
+			continue
+		}
+		modality := strings.ToLower(strings.TrimSpace(openAIOfficialPlainText(row[0])))
+		inputValue, hasInput := openAIOfficialPriceValue(row[1])
+		cacheValue, hasCache := openAIOfficialPriceValue(row[2])
+		outputValue, hasOutput := openAIOfficialPriceValue(row[3])
+		switch modality {
+		case "text":
+			if hasInput {
+				textInput = float64Ptr(inputValue)
+			}
+			if hasCache {
+				textCache = float64Ptr(cacheValue)
+			}
+			if hasOutput {
+				textOutput = float64Ptr(outputValue)
+			}
+		case "image":
+			if hasInput {
+				imageInput = float64Ptr(inputValue)
+			}
+			if hasCache {
+				imageCache = float64Ptr(cacheValue)
+			}
+			if hasOutput {
+				imageOutput = float64Ptr(outputValue)
+			}
+		}
+	}
+
+	input := textInput
+	if input == nil {
+		input = imageInput
+	}
+	if input == nil {
+		return pricingCatalogEntry{}, false
+	}
+
+	cache := textCache
+	if cache == nil {
+		cache = imageCache
+	}
+
+	output := imageOutput
+	if output == nil {
+		output = textOutput
+	}
+	if output == nil {
+		return pricingCatalogEntry{}, false
+	}
+
+	return pricingCatalogEntry{
+		providerID:   "openai",
+		providerName: "OpenAI",
+		serviceTier:  "",
+		model: modelsDevModel{
+			ID:     modelName,
+			Name:   modelName,
+			Family: "openai",
+			Cost: modelsDevCost{
+				Input:     input,
+				Output:    output,
+				CacheRead: cache,
+			},
+		},
+	}, true
+}
+
 func matchesOpenAIOfficialTokenGroupHeadings(value any) bool {
 	headings, ok := value.([]any)
 	if !ok || len(headings) < 5 {
@@ -234,6 +339,18 @@ func matchesOpenAIOfficialTokenGroupHeadings(value any) bool {
 		strings.EqualFold(openAIOfficialPlainText(headings[2]), "Input") &&
 		strings.EqualFold(openAIOfficialPlainText(headings[3]), "Cached input") &&
 		strings.HasPrefix(strings.ToLower(openAIOfficialPlainText(headings[4])), "output")
+}
+
+func matchesOpenAIOfficialImageHeadings(value any) bool {
+	headings, ok := value.([]any)
+	if !ok || len(headings) < 5 {
+		return false
+	}
+	return strings.EqualFold(openAIOfficialPlainText(headings[0]), "Model") &&
+		strings.EqualFold(openAIOfficialPlainText(headings[1]), "Modality") &&
+		strings.EqualFold(openAIOfficialPlainText(headings[2]), "Input") &&
+		strings.EqualFold(openAIOfficialPlainText(headings[3]), "Cached input") &&
+		strings.EqualFold(openAIOfficialPlainText(headings[4]), "Output")
 }
 
 func openAIOfficialServiceTier(value any) (string, bool) {
@@ -292,6 +409,9 @@ func openAIOfficialPlainText(value any) string {
 	case map[string]any:
 		if htmlText, ok := typed["__pricingHtml"].(string); ok {
 			return normalizeOpenAIOfficialWhitespace(stripOpenAIOfficialHTML(htmlText))
+		}
+		if tooltip, ok := typed["__pricingTooltipHeading"].(map[string]any); ok {
+			return openAIOfficialPlainText(tooltip["label"])
 		}
 		return ""
 	default:

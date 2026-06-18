@@ -27,17 +27,37 @@ type ModelsFetcher interface {
 	FetchModels(context.Context) (*response.ModelsResult, error)
 }
 
+type PricingServiceOptions struct {
+	ModelsFetcher           ModelsFetcher
+	PricingSyncModelAliases map[string][]string
+}
+
 type pricingService struct {
-	db            *gorm.DB
-	modelsFetcher ModelsFetcher
+	db                      *gorm.DB
+	modelsFetcher           ModelsFetcher
+	pricingSyncModelAliases map[string][]string
 }
 
 func NewPricingService(db *gorm.DB, modelsFetcher ...ModelsFetcher) PricingProvider {
-	service := &pricingService{db: db}
+	options := PricingServiceOptions{}
 	if len(modelsFetcher) > 0 {
-		service.modelsFetcher = modelsFetcher[0]
+		options.ModelsFetcher = modelsFetcher[0]
 	}
-	return service
+	return NewPricingServiceWithOptions(db, options)
+}
+
+func NewPricingServiceWithOptions(db *gorm.DB, options PricingServiceOptions) PricingProvider {
+	aliases := options.PricingSyncModelAliases
+	if aliases == nil {
+		aliases = clonePricingSyncModelAliases(defaultPricingSyncModelAliases)
+	} else {
+		aliases = clonePricingSyncModelAliases(aliases)
+	}
+	return &pricingService{
+		db:                      db,
+		modelsFetcher:           options.ModelsFetcher,
+		pricingSyncModelAliases: aliases,
+	}
 }
 
 func (s *pricingService) ListUsedModels(ctx context.Context) ([]string, error) {
