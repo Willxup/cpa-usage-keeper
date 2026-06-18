@@ -177,7 +177,7 @@ vim "$(brew --prefix)/etc/cpa-usage-keeper.env"
 brew services start cpa-usage-keeper
 ```
 
-Homebrew 会把 Keeper 数据放在 `$(brew --prefix)/var/cpa-usage-keeper`，服务日志放在 `$(brew --prefix)/var/log`。
+Homebrew 会把 Keeper 数据放在 `$(brew --prefix)/var/cpa-usage-keeper`，stdout 日志放在 `$(brew --prefix)/var/log/cpa-usage-keeper.log`，stderr 日志放在 `$(brew --prefix)/var/log/cpa-usage-keeper.err.log`。
 
 常用命令：
 

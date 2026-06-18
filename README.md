@@ -177,7 +177,7 @@ Start the background service:
 brew services start cpa-usage-keeper
 ```
 
-Homebrew stores Keeper data under `$(brew --prefix)/var/cpa-usage-keeper` and service logs under `$(brew --prefix)/var/log`.
+Homebrew stores Keeper data under `$(brew --prefix)/var/cpa-usage-keeper`, stdout logs at `$(brew --prefix)/var/log/cpa-usage-keeper.log`, and stderr logs at `$(brew --prefix)/var/log/cpa-usage-keeper.err.log`.
 
 Useful commands:
 
