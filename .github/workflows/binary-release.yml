@@ -250,3 +250,142 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
             dist/checksums.txt
+
+  update-homebrew-tap:
+    runs-on: ubuntu-24.04
+    needs: publish-release
+    steps:
+      - name: Download binary package artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate Homebrew formula values
+        id: formula
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+
+          cd dist
+          sha256sum *.tar.gz *.zip > checksums.txt
+
+          arm_file="cpa-usage-keeper_${tag}_darwin_arm64.tar.gz"
+          amd_file="cpa-usage-keeper_${tag}_darwin_amd64.tar.gz"
+          arm_sha="$(awk -v f="${arm_file}" '$2 == f {print $1}' checksums.txt)"
+          amd_sha="$(awk -v f="${amd_file}" '$2 == f {print $1}' checksums.txt)"
+
+          test -n "${arm_sha}"
+          test -n "${amd_sha}"
+
+          {
+            echo "tag=${tag}"
+            echo "version=${version}"
+            echo "arm_file=${arm_file}"
+            echo "amd_file=${amd_file}"
+            echo "arm_sha=${arm_sha}"
+            echo "amd_sha=${amd_sha}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v6
+        with:
+          repository: Willxup/homebrew-cpa-usage-keeper
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update formula
+        shell: bash
+        env:
+          TAG: ${{ steps.formula.outputs.tag }}
+          VERSION: ${{ steps.formula.outputs.version }}
+          ARM_FILE: ${{ steps.formula.outputs.arm_file }}
+          AMD_FILE: ${{ steps.formula.outputs.amd_file }}
+          ARM_SHA: ${{ steps.formula.outputs.arm_sha }}
+          AMD_SHA: ${{ steps.formula.outputs.amd_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p homebrew-tap/Formula
+
+          cat > homebrew-tap/Formula/cpa-usage-keeper.rb <<EOF
+          class CpaUsageKeeper < Formula
+            desc "Standalone CPA usage persistence and dashboard service"
+            homepage "https://github.com/Willxup/cpa-usage-keeper"
+            license "MIT"
+            version "${VERSION}"
+
+            depends_on :macos
+
+            on_macos do
+              on_arm do
+                url "https://github.com/Willxup/cpa-usage-keeper/releases/download/${TAG}/${ARM_FILE}"
+                sha256 "${ARM_SHA}"
+              end
+
+              on_intel do
+                url "https://github.com/Willxup/cpa-usage-keeper/releases/download/${TAG}/${AMD_FILE}"
+                sha256 "${AMD_SHA}"
+              end
+            end
+
+            def install
+              inreplace ".env.example", "WORK_DIR=./data", "WORK_DIR=#{var}/cpa-usage-keeper"
+
+              bin.install "cpa-usage-keeper"
+              etc.install ".env.example" => "cpa-usage-keeper.env.example"
+              pkgshare.install "README.md", "README.zh.md", "LICENSE"
+            end
+
+            def post_install
+              (var/"cpa-usage-keeper").mkpath
+
+              env_file = etc/"cpa-usage-keeper.env"
+              cp etc/"cpa-usage-keeper.env.example", env_file unless env_file.exist?
+            end
+
+            service do
+              run [opt_bin/"cpa-usage-keeper", "--env", etc/"cpa-usage-keeper.env"]
+              working_dir var/"cpa-usage-keeper"
+              keep_alive true
+              log_path var/"log/cpa-usage-keeper.log"
+              error_log_path var/"log/cpa-usage-keeper.err.log"
+            end
+
+            def caveats
+              <<~EOS
+                Edit the configuration before starting the service:
+
+                  #{etc}/cpa-usage-keeper.env
+
+                Required values include CPA_BASE_URL and CPA_MANAGEMENT_KEY.
+
+                Start the service with:
+
+                  brew services start cpa-usage-keeper
+              EOS
+            end
+
+            test do
+              assert_match "Usage of", shell_output("#{bin}/cpa-usage-keeper --help 2>&1")
+            end
+          end
+          EOF
+
+      - name: Commit and push tap update
+        shell: bash
+        working-directory: homebrew-tap
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add Formula/cpa-usage-keeper.rb
+          if git diff --cached --quiet; then
+            echo "Homebrew formula already up to date"
+            exit 0
+          fi
+
+          git commit -m "Update cpa-usage-keeper to ${GITHUB_REF_NAME}"
+          git push

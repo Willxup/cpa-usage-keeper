@@ -37,7 +37,8 @@
 
 - 第一次部署 CPA + Keeper：优先使用 [Docker Compose](#docker-compose推荐)。
 - CPA 已在宿主机运行：使用 [Docker](#dockercpa-已在宿主机运行)。
-- 不使用容器：使用 [Linux 二进制](#linux-二进制)。
+- macOS：使用 [Homebrew](#macos-homebrew)。
+- Linux 不使用容器：使用 [Linux 二进制](#linux-二进制)。
 
 公网部署建议启用 `AUTH_ENABLED=true`，并配置 `LOGIN_PASSWORD` 保护数据。
 
@@ -151,6 +152,40 @@ docker run -d \
   -v "$(pwd)/keeper:/data" \
   --env-file .env \
   ghcr.io/willxup/cpa-usage-keeper:latest
+```
+
+### macOS Homebrew
+
+Homebrew 是 macOS 推荐的二进制安装方式。它会从 CPA Usage Keeper 的 tap 安装 macOS 包，后续新版本也可以用标准 Homebrew 命令升级。
+
+安装：
+
+```bash
+brew tap Willxup/cpa-usage-keeper
+brew install cpa-usage-keeper
+```
+
+编辑自动生成的配置文件，至少设置 `CPA_BASE_URL` 和 `CPA_MANAGEMENT_KEY`。公网部署建议同时设置 `AUTH_ENABLED=true` 和 `LOGIN_PASSWORD`：
+
+```bash
+vim "$(brew --prefix)/etc/cpa-usage-keeper.env"
+```
+
+启动后台服务：
+
+```bash
+brew services start cpa-usage-keeper
+```
+
+Homebrew 会把 Keeper 数据放在 `$(brew --prefix)/var/cpa-usage-keeper`，stdout 日志放在 `$(brew --prefix)/var/log/cpa-usage-keeper.log`，stderr 日志放在 `$(brew --prefix)/var/log/cpa-usage-keeper.err.log`。
+
+常用命令：
+
+```bash
+brew services list
+brew services restart cpa-usage-keeper
+brew update
+brew upgrade cpa-usage-keeper
 ```
 
 ### Linux 二进制

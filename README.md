@@ -37,7 +37,8 @@ Recommended deployment path:
 
 - First-time CPA + Keeper deployment: use [Docker Compose](#docker-compose-recommended).
 - CPA already runs on the host: use [Docker](#docker-cpa-already-runs-on-the-host).
-- No containers: use the [Linux binary](#linux-binary).
+- macOS: use [Homebrew](#macos-homebrew).
+- Linux without containers: use the [Linux binary](#linux-binary).
 
 For public deployments, enable `AUTH_ENABLED=true` and configure `LOGIN_PASSWORD` to protect your data.
 
@@ -151,6 +152,40 @@ docker run -d \
   -v "$(pwd)/keeper:/data" \
   --env-file .env \
   ghcr.io/willxup/cpa-usage-keeper:latest
+```
+
+### macOS Homebrew
+
+Homebrew is the recommended binary install path for macOS. It installs the macOS package from the CPA Usage Keeper tap, and future releases can be upgraded with normal Homebrew commands.
+
+Install:
+
+```bash
+brew tap Willxup/cpa-usage-keeper
+brew install cpa-usage-keeper
+```
+
+Edit the generated config file. At minimum, set `CPA_BASE_URL` and `CPA_MANAGEMENT_KEY`. For public deployments, also set `AUTH_ENABLED=true` and `LOGIN_PASSWORD`:
+
+```bash
+vim "$(brew --prefix)/etc/cpa-usage-keeper.env"
+```
+
+Start the background service:
+
+```bash
+brew services start cpa-usage-keeper
+```
+
+Homebrew stores Keeper data under `$(brew --prefix)/var/cpa-usage-keeper`, stdout logs at `$(brew --prefix)/var/log/cpa-usage-keeper.log`, and stderr logs at `$(brew --prefix)/var/log/cpa-usage-keeper.err.log`.
+
+Useful commands:
+
+```bash
+brew services list
+brew services restart cpa-usage-keeper
+brew update
+brew upgrade cpa-usage-keeper
 ```
 
 ### Linux Binary
