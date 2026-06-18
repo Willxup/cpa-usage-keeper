@@ -187,4 +187,48 @@ describe('buildPricingModelOptions', () => {
     expect(options.find((option) => option.value === 'priced-zeta')?.suffix).toBeUndefined();
     expect(options.find((option) => option.value === 'unpriced-alpha')?.suffix).toBeUndefined();
   });
+
+  it('treats fallback pricing as configured for default, priority, and fallback selections', () => {
+    const pricingEntries = [{
+      model: 'gpt-image-2',
+      service_tier: '',
+      pricing_style: 'openai' as const,
+      prompt_price_per_1m: 5,
+      completion_price_per_1m: 30,
+      cache_price_per_1m: 1.25,
+      cache_creation_price_per_1m: 0,
+    }];
+
+    const defaultOptions = buildPricingModelOptions(
+      ['gpt-image-2'],
+      pricingEntries,
+      'default',
+      'Select model',
+      'Configured',
+    );
+    const priorityOptions = buildPricingModelOptions(
+      ['gpt-image-2'],
+      pricingEntries,
+      'priority',
+      'Select model',
+      'Configured',
+    );
+    const fallbackOptions = buildPricingModelOptions(
+      ['gpt-image-2'],
+      pricingEntries,
+      '',
+      'Select model',
+      'Configured',
+    );
+
+    expect(defaultOptions.find((option) => option.value === 'gpt-image-2')).toMatchObject({
+      suffixAriaLabel: 'Configured',
+    });
+    expect(priorityOptions.find((option) => option.value === 'gpt-image-2')).toMatchObject({
+      suffixAriaLabel: 'Configured',
+    });
+    expect(fallbackOptions.find((option) => option.value === 'gpt-image-2')).toMatchObject({
+      suffixAriaLabel: 'Configured',
+    });
+  });
 });

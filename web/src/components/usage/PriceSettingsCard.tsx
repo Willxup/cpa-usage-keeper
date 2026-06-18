@@ -93,6 +93,26 @@ const findPricingEntry = (
   return entries.find((entry) => buildPricingEntryKey(entry) === pricingKey);
 };
 
+const pricingLookupServiceTierCandidates = (serviceTier: PricingServiceTier): PricingServiceTier[] => {
+  const normalized = normalizePricingServiceTier(serviceTier);
+  if (normalized === 'priority') return ['priority', ''];
+  if (normalized === 'default') return ['default', ''];
+  return [''];
+};
+
+// Mirror backend lookup so UI readiness matches actual pricing resolution.
+const findEffectivePricingEntry = (
+  entries: PricingEntry[],
+  model: string,
+  serviceTier: PricingServiceTier,
+): PricingEntry | undefined => {
+  for (const candidateTier of pricingLookupServiceTierCandidates(serviceTier)) {
+    const entry = findPricingEntry(entries, model, candidateTier);
+    if (entry) return entry;
+  }
+  return undefined;
+};
+
 function PriceSettingsTitle({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div className={styles.sectionTitleBlock}>
@@ -275,14 +295,13 @@ export const buildPricingModelOptions = (
   placeholder: string,
   configuredLabel = 'Configured',
 ): SelectOption[] => {
-  const configuredKeys = new Set(pricingEntries.map((entry) => buildPricingEntryKey(entry)));
   const sortedModelNames = [...modelNames]
     .sort((left, right) => formatDisplayName(left).localeCompare(formatDisplayName(right)));
 
   return [
     { value: '', label: placeholder },
     ...sortedModelNames.map((name) => {
-      const configured = configuredKeys.has(buildPricingEntryKey({ model: name, service_tier: serviceTier }));
+      const configured = findEffectivePricingEntry(pricingEntries, name, serviceTier) !== undefined;
       return {
         value: name,
         label: formatDisplayName(name),
@@ -357,7 +376,7 @@ export function PriceSettingsCard({
       return;
     }
     applyDraftValues(
-      findPricingEntry(pricingEntries, selectedModel, selectedServiceTier),
+      findEffectivePricingEntry(pricingEntries, selectedModel, selectedServiceTier),
       setPricingStyle,
       setPromptPrice,
       setCompletionPrice,
