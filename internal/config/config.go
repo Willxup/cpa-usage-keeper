@@ -35,6 +35,8 @@ var (
 )
 
 type Config struct {
+	// EnvFilePath 是本次成功加载的 .env 文件绝对路径；未通过文件加载时为空。
+	EnvFilePath string
 	// AppPort 是 Web 服务监听端口。
 	AppPort string
 	// AppBasePath 是 Web 服务部署子路径，空值表示根路径。
@@ -59,8 +61,10 @@ type Config struct {
 	RedisQueueBatchSize int
 	// RedisQueueIdleInterval 是 Redis 队列为空时的下一次检查间隔。
 	RedisQueueIdleInterval time.Duration
-	// PricingSyncModelAliasesFile 是模型价格同步别名配置文件路径。
-	PricingSyncModelAliasesFile string
+	// PricingSyncModelAliasesJSON 是模型价格同步别名的 JSON 字符串配置。
+	PricingSyncModelAliasesJSON string
+	// PricingSyncOpenAIOfficialUserAgent 是 OpenAI 官方价格页抓取时使用的 UA。
+	PricingSyncOpenAIOfficialUserAgent string
 	// MetadataSyncInterval 是 auth files 和 provider metadata 的固定刷新间隔。
 	MetadataSyncInterval time.Duration
 	// QuotaAutoRefreshEnabled 控制是否启动 Auth Files 限额自动刷新后台任务。
@@ -119,6 +123,10 @@ func LoadFromEnv() (*Config, error) {
 
 func Load(options LoadOptions) (*Config, error) {
 	envBaseDir, err := loadDotEnv(options)
+	if err != nil {
+		return nil, err
+	}
+	envFilePath, err := resolveLoadedEnvFilePath(options, envBaseDir)
 	if err != nil {
 		return nil, err
 	}
@@ -242,38 +250,40 @@ func Load(options LoadOptions) (*Config, error) {
 	workDir := getString("WORK_DIR", DefaultWorkDir)
 
 	cfg := &Config{
-		AppPort:                     getString("APP_PORT", "8080"),
-		AppBasePath:                 appBasePath,
-		CPAPublicURL:                strings.TrimSpace(os.Getenv("CPA_PUBLIC_URL")),
-		TLSEnabled:                  tlsEnabled,
-		TLSCertFile:                 strings.TrimSpace(os.Getenv("TLS_CERT_FILE")),
-		TLSKeyFile:                  strings.TrimSpace(os.Getenv("TLS_KEY_FILE")),
-		CPABaseURL:                  strings.TrimSpace(os.Getenv("CPA_BASE_URL")),
-		CPAManagementKey:            strings.TrimSpace(os.Getenv("CPA_MANAGEMENT_KEY")),
-		RedisQueueAddr:              strings.TrimSpace(os.Getenv("REDIS_QUEUE_ADDR")),
-		RedisQueueTLS:               redisQueueTLS,
-		RedisQueueBatchSize:         redisQueueBatchSize,
-		RedisQueueIdleInterval:      redisQueueIdleInterval,
-		PricingSyncModelAliasesFile: strings.TrimSpace(os.Getenv("PRICING_SYNC_MODEL_ALIASES_FILE")),
-		MetadataSyncInterval:        MetadataSyncIntervalDefault,
-		QuotaAutoRefreshEnabled:     quotaAutoRefreshEnabled,
-		QuotaAutoRefreshInterval:    quotaAutoRefreshInterval,
-		QuotaRefreshWorkerLimit:     quotaRefreshWorkerLimit,
-		WorkDir:                     workDir,
-		SQLitePath:                  filepath.Join(workDir, workDirDatabaseName),
-		BackupEnabled:               backupEnabled,
-		BackupDir:                   filepath.Join(workDir, workDirBackupsName),
-		BackupInterval:              backupInterval,
-		BackupRetentionDays:         backupRetentionDays,
-		RequestTimeout:              requestTimeout,
-		TLSSkipVerify:               tlsSkipVerify,
-		LogLevel:                    getString("LOG_LEVEL", "info"),
-		LogFileEnabled:              logFileEnabled,
-		LogDir:                      filepath.Join(workDir, workDirLogsName),
-		LogRetentionDays:            logRetentionDays,
-		AuthEnabled:                 authEnabled,
-		LoginPassword:               strings.TrimSpace(os.Getenv("LOGIN_PASSWORD")),
-		AuthSessionTTL:              authSessionTTL,
+		EnvFilePath:                        envFilePath,
+		AppPort:                            getString("APP_PORT", "8080"),
+		AppBasePath:                        appBasePath,
+		CPAPublicURL:                       strings.TrimSpace(os.Getenv("CPA_PUBLIC_URL")),
+		TLSEnabled:                         tlsEnabled,
+		TLSCertFile:                        strings.TrimSpace(os.Getenv("TLS_CERT_FILE")),
+		TLSKeyFile:                         strings.TrimSpace(os.Getenv("TLS_KEY_FILE")),
+		CPABaseURL:                         strings.TrimSpace(os.Getenv("CPA_BASE_URL")),
+		CPAManagementKey:                   strings.TrimSpace(os.Getenv("CPA_MANAGEMENT_KEY")),
+		RedisQueueAddr:                     strings.TrimSpace(os.Getenv("REDIS_QUEUE_ADDR")),
+		RedisQueueTLS:                      redisQueueTLS,
+		RedisQueueBatchSize:                redisQueueBatchSize,
+		RedisQueueIdleInterval:             redisQueueIdleInterval,
+		PricingSyncModelAliasesJSON:        strings.TrimSpace(os.Getenv("PRICING_SYNC_MODEL_ALIASES_JSON")),
+		PricingSyncOpenAIOfficialUserAgent: strings.TrimSpace(os.Getenv("PRICING_SYNC_OPENAI_OFFICIAL_USER_AGENT")),
+		MetadataSyncInterval:               MetadataSyncIntervalDefault,
+		QuotaAutoRefreshEnabled:            quotaAutoRefreshEnabled,
+		QuotaAutoRefreshInterval:           quotaAutoRefreshInterval,
+		QuotaRefreshWorkerLimit:            quotaRefreshWorkerLimit,
+		WorkDir:                            workDir,
+		SQLitePath:                         filepath.Join(workDir, workDirDatabaseName),
+		BackupEnabled:                      backupEnabled,
+		BackupDir:                          filepath.Join(workDir, workDirBackupsName),
+		BackupInterval:                     backupInterval,
+		BackupRetentionDays:                backupRetentionDays,
+		RequestTimeout:                     requestTimeout,
+		TLSSkipVerify:                      tlsSkipVerify,
+		LogLevel:                           getString("LOG_LEVEL", "info"),
+		LogFileEnabled:                     logFileEnabled,
+		LogDir:                             filepath.Join(workDir, workDirLogsName),
+		LogRetentionDays:                   logRetentionDays,
+		AuthEnabled:                        authEnabled,
+		LoginPassword:                      strings.TrimSpace(os.Getenv("LOGIN_PASSWORD")),
+		AuthSessionTTL:                     authSessionTTL,
 	}
 	if cfg.CPABaseURL == "" {
 		return nil, fmt.Errorf("CPA_BASE_URL is required")
@@ -370,6 +380,20 @@ func loadDotEnvFile(path string, required bool) (string, error) {
 	return filepath.Dir(absolutePath), nil
 }
 
+func resolveLoadedEnvFilePath(options LoadOptions, envBaseDir string) (string, error) {
+	if strings.TrimSpace(options.EnvFile) != "" {
+		absolutePath, err := filepath.Abs(options.EnvFile)
+		if err != nil {
+			return "", fmt.Errorf("resolve env file path: %w", err)
+		}
+		return absolutePath, nil
+	}
+	if envBaseDir == "" {
+		return "", nil
+	}
+	return filepath.Join(envBaseDir, ".env"), nil
+}
+
 func (cfg *Config) resolveRelativePaths(baseDir string) {
 	if baseDir == "" {
 		return
@@ -380,7 +404,6 @@ func (cfg *Config) resolveRelativePaths(baseDir string) {
 	cfg.BackupDir = resolveRelativePath(baseDir, cfg.BackupDir)
 	cfg.TLSCertFile = resolveRelativePath(baseDir, cfg.TLSCertFile)
 	cfg.TLSKeyFile = resolveRelativePath(baseDir, cfg.TLSKeyFile)
-	cfg.PricingSyncModelAliasesFile = resolveRelativePath(baseDir, cfg.PricingSyncModelAliasesFile)
 }
 
 func resolveRelativePath(baseDir, value string) string {

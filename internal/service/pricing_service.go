@@ -28,14 +28,15 @@ type ModelsFetcher interface {
 }
 
 type PricingServiceOptions struct {
-	ModelsFetcher           ModelsFetcher
-	PricingSyncModelAliases map[string][]string
+	ModelsFetcher                    ModelsFetcher
+	PricingSyncRuntimeConfigProvider PricingSyncRuntimeConfigProvider
+	PricingSyncModelAliases          map[string][]string
 }
 
 type pricingService struct {
-	db                      *gorm.DB
-	modelsFetcher           ModelsFetcher
-	pricingSyncModelAliases map[string][]string
+	db                               *gorm.DB
+	modelsFetcher                    ModelsFetcher
+	pricingSyncRuntimeConfigProvider PricingSyncRuntimeConfigProvider
 }
 
 func NewPricingService(db *gorm.DB, modelsFetcher ...ModelsFetcher) PricingProvider {
@@ -47,16 +48,18 @@ func NewPricingService(db *gorm.DB, modelsFetcher ...ModelsFetcher) PricingProvi
 }
 
 func NewPricingServiceWithOptions(db *gorm.DB, options PricingServiceOptions) PricingProvider {
-	aliases := options.PricingSyncModelAliases
-	if aliases == nil {
-		aliases = clonePricingSyncModelAliases(defaultPricingSyncModelAliases)
-	} else {
-		aliases = clonePricingSyncModelAliases(aliases)
+	runtimeConfigProvider := options.PricingSyncRuntimeConfigProvider
+	if runtimeConfigProvider == nil {
+		runtimeConfigProvider = staticPricingSyncRuntimeConfigProvider{
+			config: normalizePricingSyncRuntimeConfig(PricingSyncRuntimeConfig{
+				ModelAliases: options.PricingSyncModelAliases,
+			}),
+		}
 	}
 	return &pricingService{
-		db:                      db,
-		modelsFetcher:           options.ModelsFetcher,
-		pricingSyncModelAliases: aliases,
+		db:                               db,
+		modelsFetcher:                    options.ModelsFetcher,
+		pricingSyncRuntimeConfigProvider: runtimeConfigProvider,
 	}
 }
 
@@ -133,4 +136,11 @@ func normalizeCPAModels(result *response.ModelsResult) []string {
 	}
 	sort.Strings(models)
 	return models
+}
+
+func (s *pricingService) pricingSyncRuntimeConfig() PricingSyncRuntimeConfig {
+	if s.pricingSyncRuntimeConfigProvider == nil {
+		return defaultPricingSyncRuntimeConfig()
+	}
+	return s.pricingSyncRuntimeConfigProvider.Current()
 }

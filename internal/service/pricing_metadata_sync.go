@@ -71,19 +71,20 @@ func (s *pricingService) PreviewPricingSync(ctx context.Context, source string) 
 	if err != nil {
 		return servicedto.PricingSyncPreview{}, err
 	}
+	runtimeConfig := s.pricingSyncRuntimeConfig()
 	switch normalizePricingSyncSource(source) {
 	case pricingSyncSourceOpenAIOfficialID:
-		entries, err := fetchOpenAIOfficialCatalog(ctx, pricingSyncOpenAIOfficialSourceURL)
+		entries, err := fetchOpenAIOfficialCatalog(ctx, pricingSyncOpenAIOfficialSourceURL, runtimeConfig.OpenAIOfficial.UserAgent)
 		if err != nil {
 			return servicedto.PricingSyncPreview{}, err
 		}
-		return buildPricingSyncPreviewFromEntries(models, entries, pricingSyncSourceOpenAIOfficialID, pricingSyncOpenAIOfficialSource, pricingSyncOpenAIOfficialSourceURL, s.pricingSyncModelAliases), nil
+		return buildPricingSyncPreviewFromEntries(models, entries, pricingSyncSourceOpenAIOfficialID, pricingSyncOpenAIOfficialSource, pricingSyncOpenAIOfficialSourceURL, runtimeConfig.ModelAliases), nil
 	default:
 		catalog, err := fetchModelsDevCatalog(ctx, pricingSyncAPIURL)
 		if err != nil {
 			return servicedto.PricingSyncPreview{}, err
 		}
-		return buildPricingSyncPreviewFromCatalog(models, catalog, pricingSyncAPIURL, s.pricingSyncModelAliases)
+		return buildPricingSyncPreviewFromCatalog(models, catalog, pricingSyncAPIURL, runtimeConfig.ModelAliases)
 	}
 }
 

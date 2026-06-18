@@ -1,6 +1,9 @@
 package service
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestNormalizePricingSyncSourceDefaultsToOpenAIOfficial(t *testing.T) {
 	tests := []struct {
@@ -67,5 +70,25 @@ func TestExtractOpenAIOfficialImageGenerationEntriesUsesTextInputAndImageOutput(
 	}
 	if entry.model.Cost.Output == nil || *entry.model.Cost.Output != 30 {
 		t.Fatalf("expected image output price 30, got %#v", entry.model.Cost.Output)
+	}
+}
+
+func TestNewOpenAIOfficialPricingRequestUsesConfiguredUserAgent(t *testing.T) {
+	request, err := newOpenAIOfficialPricingRequest(context.Background(), "https://developers.openai.com/api/docs/pricing", "custom-agent/1.0")
+	if err != nil {
+		t.Fatalf("newOpenAIOfficialPricingRequest returned error: %v", err)
+	}
+	if got := request.Header.Get("User-Agent"); got != "custom-agent/1.0" {
+		t.Fatalf("expected custom user agent, got %q", got)
+	}
+}
+
+func TestNewOpenAIOfficialPricingRequestFallsBackToDefaultUserAgent(t *testing.T) {
+	request, err := newOpenAIOfficialPricingRequest(context.Background(), "https://developers.openai.com/api/docs/pricing", "")
+	if err != nil {
+		t.Fatalf("newOpenAIOfficialPricingRequest returned error: %v", err)
+	}
+	if got := request.Header.Get("User-Agent"); got != defaultPricingSyncOpenAIOfficialUserAgent {
+		t.Fatalf("expected default user agent %q, got %q", defaultPricingSyncOpenAIOfficialUserAgent, got)
 	}
 }

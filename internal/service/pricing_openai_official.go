@@ -31,17 +31,11 @@ func normalizePricingSyncSource(value string) string {
 	}
 }
 
-func fetchOpenAIOfficialCatalog(ctx context.Context, pageURL string) ([]pricingCatalogEntry, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
+func fetchOpenAIOfficialCatalog(ctx context.Context, pageURL string, userAgent string) ([]pricingCatalogEntry, error) {
+	request, err := newOpenAIOfficialPricingRequest(ctx, pageURL, userAgent)
 	if err != nil {
-		return nil, fmt.Errorf("build openai official pricing request: %w", err)
+		return nil, err
 	}
-	request.Header.Set("Accept", "text/html")
-	request.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	request.Header.Set("Cache-Control", "no-cache")
-	request.Header.Set("Pragma", "no-cache")
-	request.Header.Set("Referer", "https://developers.openai.com/")
-	request.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
 
 	response, err := pricingSyncHTTPClient.Do(request)
 	if err != nil {
@@ -67,6 +61,28 @@ func fetchOpenAIOfficialCatalog(ctx context.Context, pageURL string) ([]pricingC
 		return entries[i].model.ID < entries[j].model.ID
 	})
 	return entries, nil
+}
+
+func newOpenAIOfficialPricingRequest(ctx context.Context, pageURL string, userAgent string) (*http.Request, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build openai official pricing request: %w", err)
+	}
+	request.Header.Set("Accept", "text/html")
+	request.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	request.Header.Set("Cache-Control", "no-cache")
+	request.Header.Set("Pragma", "no-cache")
+	request.Header.Set("Referer", "https://developers.openai.com/")
+	request.Header.Set("User-Agent", openAIOfficialPricingUserAgent(userAgent))
+	return request, nil
+}
+
+func openAIOfficialPricingUserAgent(userAgent string) string {
+	trimmed := strings.TrimSpace(userAgent)
+	if trimmed == "" {
+		return defaultPricingSyncOpenAIOfficialUserAgent
+	}
+	return trimmed
 }
 
 func visitOpenAIOfficialPricingNodes(node *html.Node, currentPane string, entries *[]pricingCatalogEntry) {

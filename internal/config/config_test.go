@@ -17,7 +17,7 @@ var configEnvKeys = []string{
 	"USAGE_SYNC_MODE", "REDIS_QUEUE_ADDR", "REDIS_QUEUE_TLS", "REDIS_QUEUE_BATCH_SIZE", "REDIS_QUEUE_IDLE_INTERVAL",
 	"SQLITE_PATH", "BACKUP_ENABLED", "BACKUP_DIR", "BACKUP_INTERVAL", "BACKUP_RETENTION_DAYS",
 	"REQUEST_TIMEOUT", "LOG_LEVEL", "LOG_FILE_ENABLED", "LOG_DIR", "LOG_RETENTION_DAYS",
-	"PRICING_SYNC_MODEL_ALIASES_FILE",
+	"PRICING_SYNC_MODEL_ALIASES_JSON", "PRICING_SYNC_OPENAI_OFFICIAL_USER_AGENT",
 	"AUTH_ENABLED", "LOGIN_PASSWORD", "AUTH_SESSION_TTL", "TZ", "TLS_SKIP_VERIFY", "QUOTA_REFRESH_WORKER_LIMIT", "QUOTA_AUTO_REFRESH_ENABLED", "QUOTA_AUTO_REFRESH_INTERVAL",
 }
 
@@ -174,7 +174,7 @@ func TestLoadReadsSpecifiedEnvFile(t *testing.T) {
 	withIsolatedEnvFiles(t)
 	envDir := t.TempDir()
 	envPath := filepath.Join(envDir, "custom.env")
-	if err := os.WriteFile(envPath, []byte("CPA_BASE_URL=https://from-file.example.com\nCPA_MANAGEMENT_KEY=from-file\nAPP_PORT=9091\nWORK_DIR=./custom-data\nPRICING_SYNC_MODEL_ALIASES_FILE=./pricing-sync-model-aliases.json\n"), 0o600); err != nil {
+	if err := os.WriteFile(envPath, []byte("CPA_BASE_URL=https://from-file.example.com\nCPA_MANAGEMENT_KEY=from-file\nAPP_PORT=9091\nWORK_DIR=./custom-data\nPRICING_SYNC_MODEL_ALIASES_JSON={\"custom-review\":\"gpt-5.4-mini\"}\nPRICING_SYNC_OPENAI_OFFICIAL_USER_AGENT=custom-agent/1.0\n"), 0o600); err != nil {
 		t.Fatalf("write env file: %v", err)
 	}
 
@@ -183,7 +183,7 @@ func TestLoadReadsSpecifiedEnvFile(t *testing.T) {
 		t.Fatalf("Load returned error: %v", err)
 	}
 
-	if cfg.CPABaseURL != "https://from-file.example.com" || cfg.CPAManagementKey != "from-file" || cfg.AppPort != "9091" || cfg.WorkDir != filepath.Join(envDir, "custom-data") || cfg.SQLitePath != filepath.Join(envDir, "custom-data", "app.db") || cfg.LogDir != filepath.Join(envDir, "custom-data", "logs") || cfg.BackupDir != filepath.Join(envDir, "custom-data", "backups") || cfg.PricingSyncModelAliasesFile != filepath.Join(envDir, "pricing-sync-model-aliases.json") {
+	if cfg.CPABaseURL != "https://from-file.example.com" || cfg.CPAManagementKey != "from-file" || cfg.AppPort != "9091" || cfg.WorkDir != filepath.Join(envDir, "custom-data") || cfg.SQLitePath != filepath.Join(envDir, "custom-data", "app.db") || cfg.LogDir != filepath.Join(envDir, "custom-data", "logs") || cfg.BackupDir != filepath.Join(envDir, "custom-data", "backups") || cfg.PricingSyncModelAliasesJSON != "{\"custom-review\":\"gpt-5.4-mini\"}" || cfg.PricingSyncOpenAIOfficialUserAgent != "custom-agent/1.0" || cfg.EnvFilePath != envPath {
 		t.Fatalf("expected config values from specified env file, got %+v", cfg)
 	}
 }

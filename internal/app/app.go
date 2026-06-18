@@ -175,7 +175,11 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	if cfg.TLSSkipVerify {
 		logrus.WithField("cpa_base_url", cfg.CPABaseURL).Warn("TLS certificate verification is disabled for CPA and Redis queue connections")
 	}
-	pricingSyncModelAliases, err := service.LoadPricingSyncModelAliases(cfg.PricingSyncModelAliasesFile)
+	pricingSyncRuntimeConfigProvider, err := service.NewPricingSyncRuntimeConfigProvider(service.PricingSyncRuntimeConfigSource{
+		EnvFilePath:             cfg.EnvFilePath,
+		ModelAliasesJSON:        cfg.PricingSyncModelAliasesJSON,
+		OpenAIOfficialUserAgent: cfg.PricingSyncOpenAIOfficialUserAgent,
+	})
 	if err != nil {
 		if recentUsageCache != nil {
 			recentUsageCache.Close()
@@ -184,15 +188,14 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		_ = logCloser.Close()
 		return nil, err
 	}
-	if cfg.PricingSyncModelAliasesFile != "" {
+	if cfg.EnvFilePath != "" && (cfg.PricingSyncModelAliasesJSON != "" || cfg.PricingSyncOpenAIOfficialUserAgent != "") {
 		logrus.WithFields(logrus.Fields{
-			"alias_file":   cfg.PricingSyncModelAliasesFile,
-			"alias_models": len(pricingSyncModelAliases),
-		}).Info("loaded pricing sync model aliases")
+			"env_file": cfg.EnvFilePath,
+		}).Info("loaded pricing sync runtime config from env file")
 	}
 	pricingService := service.NewPricingServiceWithOptions(db, service.PricingServiceOptions{
-		ModelsFetcher:           cpaClient,
-		PricingSyncModelAliases: pricingSyncModelAliases,
+		ModelsFetcher:                    cpaClient,
+		PricingSyncRuntimeConfigProvider: pricingSyncRuntimeConfigProvider,
 	})
 	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{RefreshWorkerLimit: cfg.QuotaRefreshWorkerLimit, AutoRefreshInterval: cfg.QuotaAutoRefreshInterval})
 	sessionManager := auth.NewSessionManager(cfg.AuthSessionTTL)

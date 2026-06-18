@@ -513,7 +513,10 @@ func TestBuildPricingSyncPreviewKeepsMultipleServiceTiers(t *testing.T) {
 		"openai_official",
 		"OpenAI Official",
 		"https://developers.openai.com/api/docs/pricing",
-		nil,
+		map[string][]string{
+			normalizePricingSyncAliasKey("codex-auto-review"):   {"gpt-5.3-codex"},
+			normalizePricingSyncAliasKey("gpt-5.3-codex-spark"): {"gpt-5.4-mini"},
+		},
 	)
 
 	if len(preview.Matches) != 2 {
@@ -613,7 +616,10 @@ func TestBuildPricingSyncPreviewSupportsKeeperModelAliases(t *testing.T) {
 		"openai_official",
 		"OpenAI Official",
 		"https://developers.openai.com/api/docs/pricing",
-		nil,
+		normalizePricingSyncModelAliases(map[string][]string{
+			"codex-auto-review":   {"gpt-5.3-codex"},
+			"gpt-5.3-codex-spark": {"gpt-5.4-mini"},
+		}),
 	)
 
 	if len(preview.Matches) != 4 {

@@ -7,15 +7,9 @@ import (
 	"strings"
 )
 
-var defaultPricingSyncModelAliases = map[string][]string{
-	normalizePricingSyncAliasKey("codex-auto-review"):   {"gpt-5.3-codex"},
-	normalizePricingSyncAliasKey("gpt-5.3-codex-spark"): {"gpt-5.4-mini"},
-}
-
 func LoadPricingSyncModelAliases(path string) (map[string][]string, error) {
-	aliases := clonePricingSyncModelAliases(defaultPricingSyncModelAliases)
 	if strings.TrimSpace(path) == "" {
-		return aliases, nil
+		return map[string][]string{}, nil
 	}
 
 	content, err := os.ReadFile(path)
@@ -23,16 +17,16 @@ func LoadPricingSyncModelAliases(path string) (map[string][]string, error) {
 		return nil, fmt.Errorf("read pricing sync model aliases file: %w", err)
 	}
 
-	overrides, err := decodePricingSyncModelAliases(content)
+	aliases, err := decodePricingSyncModelAliases(content)
 	if err != nil {
 		return nil, fmt.Errorf("decode pricing sync model aliases file: %w", err)
 	}
-	return mergePricingSyncModelAliases(aliases, overrides), nil
+	return normalizePricingSyncModelAliases(aliases), nil
 }
 
 func pricingSyncModelAliasesForModel(model string, aliases map[string][]string) []string {
 	if aliases == nil {
-		aliases = defaultPricingSyncModelAliases
+		return nil
 	}
 	return aliases[normalizePricingSyncAliasKey(model)]
 }
@@ -60,6 +54,22 @@ func decodePricingSyncModelAliases(content []byte) (map[string][]string, error) 
 		decoded[key] = normalizePricingSyncAliasValues(values)
 	}
 	return decoded, nil
+}
+
+func normalizePricingSyncModelAliases(source map[string][]string) map[string][]string {
+	if len(source) == 0 {
+		return map[string][]string{}
+	}
+
+	normalized := make(map[string][]string, len(source))
+	for rawKey, values := range source {
+		key := normalizePricingSyncAliasKey(rawKey)
+		if key == "" {
+			continue
+		}
+		normalized[key] = normalizePricingSyncAliasValues(values)
+	}
+	return normalized
 }
 
 func decodePricingSyncModelAliasValues(rawValue json.RawMessage) ([]string, error) {
@@ -100,6 +110,9 @@ func normalizePricingSyncAliasValues(values []string) []string {
 }
 
 func clonePricingSyncModelAliases(source map[string][]string) map[string][]string {
+	if len(source) == 0 {
+		return map[string][]string{}
+	}
 	cloned := make(map[string][]string, len(source))
 	for key, values := range source {
 		cloned[key] = append([]string(nil), values...)
