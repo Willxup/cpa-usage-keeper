@@ -1,11 +1,53 @@
 package service
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestDecodePricingSyncModelAliasValuesTreatsNullLikeEmpty(t *testing.T) {
+	testCases := []struct {
+		name  string
+		input json.RawMessage
+	}{
+		{name: "nil", input: nil},
+		{name: "empty", input: json.RawMessage{}},
+		{name: "null", input: json.RawMessage("null")},
+		{name: "null with whitespace", input: json.RawMessage(" \n null\t ")},
+		{name: "whitespace only", input: json.RawMessage(" \n\t ")},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			values, err := decodePricingSyncModelAliasValues(tc.input)
+			if err != nil {
+				t.Fatalf("decodePricingSyncModelAliasValues returned error: %v", err)
+			}
+			if values != nil {
+				t.Fatalf("expected nil values, got %#v", values)
+			}
+		})
+	}
+}
+
+func TestDecodePricingSyncModelAliasValuesNullPathDoesNotAllocate(t *testing.T) {
+	rawValue := json.RawMessage(" \n null\t ")
+	allocs := testing.AllocsPerRun(1000, func() {
+		values, err := decodePricingSyncModelAliasValues(rawValue)
+		if err != nil {
+			t.Fatalf("decodePricingSyncModelAliasValues returned error: %v", err)
+		}
+		if values != nil {
+			t.Fatalf("expected nil values, got %#v", values)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("expected zero allocations on null fast path, got %v", allocs)
+	}
+}
 
 func TestLoadPricingSyncRuntimeConfigUsesDefaultsWithoutEnvFile(t *testing.T) {
 	config, err := loadPricingSyncRuntimeConfigFromSource(PricingSyncRuntimeConfigSource{})

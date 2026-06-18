@@ -73,8 +73,7 @@ func normalizePricingSyncModelAliases(source map[string][]string) map[string][]s
 }
 
 func decodePricingSyncModelAliasValues(rawValue json.RawMessage) ([]string, error) {
-	trimmed := strings.TrimSpace(string(rawValue))
-	if trimmed == "" || trimmed == "null" {
+	if pricingSyncAliasRawValueIsEmptyOrNull(rawValue) {
 		return nil, nil
 	}
 
@@ -89,6 +88,34 @@ func decodePricingSyncModelAliasValues(rawValue json.RawMessage) ([]string, erro
 	}
 
 	return nil, fmt.Errorf("must be a string, string array, or null")
+}
+
+func pricingSyncAliasRawValueIsEmptyOrNull(rawValue json.RawMessage) bool {
+	start := 0
+	end := len(rawValue)
+	for start < end && isJSONWhitespace(rawValue[start]) {
+		start++
+	}
+	for start < end && isJSONWhitespace(rawValue[end-1]) {
+		end--
+	}
+	if start == end {
+		return true
+	}
+	return end-start == 4 &&
+		rawValue[start] == 'n' &&
+		rawValue[start+1] == 'u' &&
+		rawValue[start+2] == 'l' &&
+		rawValue[start+3] == 'l'
+}
+
+func isJSONWhitespace(value byte) bool {
+	switch value {
+	case ' ', '\n', '\r', '\t':
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizePricingSyncAliasValues(values []string) []string {
