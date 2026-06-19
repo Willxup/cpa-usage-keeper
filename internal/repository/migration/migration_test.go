@@ -57,6 +57,7 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260610_remove_usage_event_write_heavy_indexes",
 		"20260611_remove_usage_event_low_value_indexes",
 		"20260612_replace_redis_inbox_queue_key_with_source",
+		"20260620_create_auth_sessions",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("expected ordered migrations %v, got %v", want, got)
@@ -85,6 +86,18 @@ func TestOpenDatabaseRunsSchemaMigrationsAndAddsUsageEventRedisFields(t *testing
 	}
 	if !db.Migrator().HasColumn(&entities.RedisUsageInbox{}, "source") {
 		t.Fatal("expected redis_usage_inboxes.source column to exist")
+	}
+	if !db.Migrator().HasTable(&entities.AuthSession{}) {
+		t.Fatal("expected auth_sessions table to exist")
+	}
+	if !db.Migrator().HasColumn(&entities.AuthSession{}, "token_hash") {
+		t.Fatal("expected auth_sessions.token_hash column to exist")
+	}
+	if db.Migrator().HasColumn(&entities.AuthSession{}, "token") {
+		t.Fatal("expected auth_sessions.token column not to exist")
+	}
+	if !db.Migrator().HasColumn(&entities.AuthSession{}, "expires_at") {
+		t.Fatal("expected auth_sessions.expires_at column to exist")
 	}
 	if db.Migrator().HasColumn(&entities.RedisUsageInbox{}, "queue_key") {
 		t.Fatal("expected redis_usage_inboxes.queue_key column not to exist")
@@ -141,6 +154,7 @@ func TestOpenDatabaseRunsSchemaMigrationsAndAddsUsageEventRedisFields(t *testing
 		"20260610_remove_usage_event_write_heavy_indexes",
 		"20260611_remove_usage_event_low_value_indexes",
 		"20260612_replace_redis_inbox_queue_key_with_source",
+		"20260620_create_auth_sessions",
 	}
 	if len(versions) != len(expected) {
 		t.Fatalf("expected migration versions %v, got %v", expected, versions)

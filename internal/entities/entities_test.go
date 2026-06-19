@@ -17,6 +17,7 @@ func TestAllIncludesCoreModels(t *testing.T) {
 		&UsageOverviewDailyStat{},
 		&UsageOverviewHealthStat{},
 		&UsageOverviewAggregationCheckpoint{},
+		&AuthSession{},
 	}
 	if len(items) != len(expected) {
 		t.Fatalf("expected %d registered models, got %d", len(expected), len(items))

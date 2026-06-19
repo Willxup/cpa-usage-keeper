@@ -37,6 +37,9 @@ func TestOpenDatabaseAutoMigratesCoreTables(t *testing.T) {
 	if !db.Migrator().HasTable("redis_usage_inboxes") {
 		t.Fatal("expected redis_usage_inboxes table to exist")
 	}
+	if !db.Migrator().HasTable("auth_sessions") {
+		t.Fatal("expected auth_sessions table to exist")
+	}
 }
 
 func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigrations(t *testing.T) {
@@ -53,8 +56,8 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 	if err := db.Table("schema_migrations").Count(&count).Error; err != nil {
 		t.Fatalf("count schema migrations: %v", err)
 	}
-	if count != 38 {
-		t.Fatalf("expected fresh database to mark 38 migrations applied, got %d", count)
+	if count != 39 {
+		t.Fatalf("expected fresh database to mark 39 migrations applied, got %d", count)
 	}
 	if strings.Contains(logs.String(), "schema migration started") {
 		t.Fatalf("expected fresh database creation not to run version migrations, got logs:\n%s", logs.String())
@@ -64,6 +67,15 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 	}
 	if db.Migrator().HasColumn(&entities.RedisUsageInbox{}, "queue_key") {
 		t.Fatal("expected redis_usage_inboxes.queue_key column not to exist")
+	}
+	if !db.Migrator().HasTable(&entities.AuthSession{}) {
+		t.Fatal("expected auth_sessions table to exist")
+	}
+	if !db.Migrator().HasColumn(&entities.AuthSession{}, "token_hash") {
+		t.Fatal("expected auth_sessions.token_hash column to exist")
+	}
+	if db.Migrator().HasColumn(&entities.AuthSession{}, "token") {
+		t.Fatal("expected auth_sessions.token column not to exist")
 	}
 	for _, indexName := range []string{
 		"idx_usage_events_api_group_key",

@@ -178,6 +178,9 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	pricingService := service.NewPricingService(db, cpaClient)
 	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{RefreshWorkerLimit: cfg.QuotaRefreshWorkerLimit, AutoRefreshInterval: cfg.QuotaAutoRefreshInterval})
 	sessionManager := auth.NewSessionManager(cfg.AuthSessionTTL)
+	if cfg.AuthEnabled {
+		sessionManager = auth.NewPersistentSessionManager(cfg.AuthSessionTTL, auth.NewGormSessionStore(db))
+	}
 	authHandler := api.NewAuthHandler(api.AuthConfig{
 		Enabled:       cfg.AuthEnabled,
 		LoginPassword: cfg.LoginPassword,

@@ -325,7 +325,7 @@ Security and data notes:
 - SQLite database backups store original data from the application database, and backup files are not encrypted.
 - Browser-facing APIs redact key-like source/lookup fields or map them to stable public identifiers, but raw database values are unchanged.
 - For public deployments, enable `AUTH_ENABLED=true` and terminate HTTPS at your reverse proxy.
-- Login sessions are stored in process memory and become invalid after restart.
+- Login session hashes are stored in SQLite and remain valid across service restarts until logout or `AUTH_SESSION_TTL` expiry.
 - Redis inbox raw messages are cleaned up automatically: successful rows are kept until the end of the current day, and failed rows are kept for 7 days.
 
 ## Nginx reverse proxy
@@ -355,7 +355,7 @@ CPA_PUBLIC_URL=https://cpa.example.com
 cmd/server/              Application entrypoint
 internal/api/            HTTP routes and handlers
 internal/app/            App wiring and startup
-internal/auth/           In-memory session auth
+internal/auth/           Session auth and persistence
 internal/backup/         SQLite database backup management
 internal/benchmark/      Aggregation benchmark helpers
 internal/config/         Environment config loading
