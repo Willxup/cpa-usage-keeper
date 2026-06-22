@@ -71,6 +71,100 @@ func TestDecodeRedisUsageMessageRequiresRequestID(t *testing.T) {
 	}
 }
 
+func TestDecodeRedisUsageMessageWithHeadersExtractsQuotaSnapshot(t *testing.T) {
+	fetchedAt := time.Date(2026, 6, 22, 11, 10, 43, 0, time.Local)
+	event, _, snapshot, err := DecodeRedisUsageMessageWithHeaders(`{
+		"timestamp":"2026-06-22T11:10:43+08:00",
+		"auth_type":"oauth",
+		"auth_index":"codex-auth",
+		"provider":"codex",
+		"request_id":"req-header",
+		"response_headers":{
+			"X-Codex-Plan-Type":["pro"],
+			"X-Codex-Primary-Used-Percent":["4"],
+			"X-Codex-Primary-Window-Minutes":["300"],
+			"X-Codex-Primary-Reset-After-Seconds":["60"]
+		}
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("DecodeRedisUsageMessageWithHeaders returned error: %v", err)
+	}
+	if event.AuthType != "oauth" || event.AuthIndex != "codex-auth" {
+		t.Fatalf("unexpected event identity: %+v", event)
+	}
+	if snapshot == nil {
+		t.Fatal("expected quota header snapshot")
+	}
+	if snapshot.AuthType != "oauth" || snapshot.AuthIndex != "codex-auth" || snapshot.Provider != "codex" {
+		t.Fatalf("unexpected snapshot identity: %+v", snapshot)
+	}
+	if snapshot.Headers.Get("X-Codex-Plan-Type") != "pro" {
+		t.Fatalf("expected codex plan header, got %#v", snapshot.Headers)
+	}
+	if snapshot.ObservedAt.IsZero() {
+		t.Fatalf("expected observed timestamp")
+	}
+}
+
+func TestDecodeRedisUsageMessageWithHeadersSkipsMalformedHeadersWithoutBlockingEvent(t *testing.T) {
+	fetchedAt := time.Date(2026, 6, 22, 11, 10, 43, 0, time.Local)
+	event, _, snapshot, err := DecodeRedisUsageMessageWithHeaders(`{
+		"timestamp":"2026-06-22T11:10:43+08:00",
+		"auth_type":"oauth",
+		"auth_index":"codex-auth",
+		"provider":"codex",
+		"request_id":"req-header-malformed",
+		"response_headers":"not-a-header-map"
+	}`, fetchedAt)
+	if err != nil {
+		t.Fatalf("DecodeRedisUsageMessageWithHeaders returned error: %v", err)
+	}
+	if event.RequestID != "req-header-malformed" || event.AuthIndex != "codex-auth" {
+		t.Fatalf("expected usage event to decode despite malformed headers, got %+v", event)
+	}
+	if snapshot != nil {
+		t.Fatalf("expected malformed headers to skip quota snapshot, got %+v", snapshot)
+	}
+}
+
+func TestDecodeRedisUsageMessageWithHeadersSkipsHeadersWithoutCompleteCodexQuota(t *testing.T) {
+	tests := []struct {
+		name    string
+		headers string
+	}{
+		{
+			name:    "ordinary response headers",
+			headers: `"Date":["Mon, 22 Jun 2026 03:10:44 GMT"]`,
+		},
+		{
+			name:    "codex quota without reset boundary",
+			headers: `"X-Codex-Primary-Used-Percent":["4"],"X-Codex-Primary-Window-Minutes":["300"]`,
+		},
+		{
+			name:    "codex quota without window minutes",
+			headers: `"X-Codex-Primary-Used-Percent":["4"],"X-Codex-Primary-Reset-After-Seconds":["60"]`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, snapshot, err := DecodeRedisUsageMessageWithHeaders(`{
+				"timestamp":"2026-06-22T11:10:43+08:00",
+				"auth_type":"oauth",
+				"auth_index":"codex-auth",
+				"provider":"codex",
+				"request_id":"req-header-ignored",
+				"response_headers":{`+tt.headers+`}
+			}`, time.Date(2026, 6, 22, 11, 10, 43, 0, time.Local))
+			if err != nil {
+				t.Fatalf("DecodeRedisUsageMessageWithHeaders returned error: %v", err)
+			}
+			if snapshot != nil {
+				t.Fatalf("expected incomplete/non-codex headers to skip quota snapshot, got %+v", snapshot)
+			}
+		})
+	}
+}
+
 func TestDecodeRedisUsageMessageFallsBackToProviderWhenAPIKeyIsBlank(t *testing.T) {
 	event, _, err := DecodeRedisUsageMessage(`{"api_key":"   ","provider":"claude","endpoint":"/v1/messages","request_id":"req-blank-key"}`, time.Date(2026, 4, 27, 8, 0, 0, 0, time.UTC))
 	if err != nil {

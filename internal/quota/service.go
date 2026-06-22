@@ -18,9 +18,12 @@ import (
 )
 
 type ServiceOptions struct {
-	RefreshWorkerLimit  int
-	AutoRefreshInterval time.Duration
+	RefreshWorkerLimit               int
+	AutoRefreshInterval              time.Duration
+	UsageHeaderSnapshotFlushInterval time.Duration
 }
+
+const usageHeaderSnapshotQueueSize = 100
 
 type Service struct {
 	db       *gorm.DB
@@ -62,6 +65,15 @@ type Service struct {
 	refreshClosing bool
 	// refreshWG 跟踪 service 派生的 dispatcher/worker/heartbeat goroutine，App 关闭 DB 前会等待它们退出。
 	refreshWG sync.WaitGroup
+
+	usageHeaderCh            chan []UsageHeaderSnapshot
+	usageHeaderSlots         chan struct{}
+	usageHeaderStopCh        chan struct{}
+	usageHeaderDoneCh        chan struct{}
+	usageHeaderFlushInterval time.Duration
+	usageHeaderMu            sync.Mutex
+	usageHeaderClosing       bool
+	usageHeaderCloseOnce     sync.Once
 }
 
 type CheckRequest struct {
@@ -98,20 +110,34 @@ func NewServiceWithRegistryAndOptions(db *gorm.DB, registry ProviderRegistry, op
 	if autoRefreshInterval <= 0 {
 		autoRefreshInterval = AutoRefreshInterval
 	}
-	refreshContext, refreshCancel := context.WithCancel(context.Background())
-	return &Service{
-		db:                   db,
-		registry:             registry,
-		refreshTasks:         make(map[string]*RefreshTaskRecord),
-		resetInFlight:        make(map[string]struct{}),
-		refreshWorkerTokens:  make(chan struct{}, workerLimit),
-		refreshTaskTTL:       RefreshTransientTaskTTL,
-		refreshCooldown:      time.Sleep,
-		refreshContext:       refreshContext,
-		refreshCancel:        refreshCancel,
-		autoRefreshInterval:  autoRefreshInterval,
-		autoRefreshActiveTTL: AutoRefreshActiveTTL,
+	usageHeaderFlushInterval := options.UsageHeaderSnapshotFlushInterval
+	if usageHeaderFlushInterval <= 0 {
+		usageHeaderFlushInterval = usageHeaderSnapshotFlushInterval
 	}
+	refreshContext, refreshCancel := context.WithCancel(context.Background())
+	service := &Service{
+		db:                       db,
+		registry:                 registry,
+		refreshTasks:             make(map[string]*RefreshTaskRecord),
+		resetInFlight:            make(map[string]struct{}),
+		refreshWorkerTokens:      make(chan struct{}, workerLimit),
+		refreshTaskTTL:           RefreshTransientTaskTTL,
+		refreshCooldown:          time.Sleep,
+		refreshContext:           refreshContext,
+		refreshCancel:            refreshCancel,
+		autoRefreshInterval:      autoRefreshInterval,
+		autoRefreshActiveTTL:     AutoRefreshActiveTTL,
+		usageHeaderCh:            make(chan []UsageHeaderSnapshot, usageHeaderSnapshotQueueSize),
+		usageHeaderSlots:         make(chan struct{}, usageHeaderSnapshotQueueSize),
+		usageHeaderStopCh:        make(chan struct{}),
+		usageHeaderDoneCh:        make(chan struct{}),
+		usageHeaderFlushInterval: usageHeaderFlushInterval,
+	}
+	for i := 0; i < usageHeaderSnapshotQueueSize; i++ {
+		service.usageHeaderSlots <- struct{}{}
+	}
+	go service.runUsageHeaderSnapshotWorker()
+	return service
 }
 
 func (s *Service) SetRefreshContext(ctx context.Context) {
@@ -212,6 +238,7 @@ func (s *Service) StopRefreshTasks() {
 	if cancel != nil {
 		cancel()
 	}
+	s.stopUsageHeaderSnapshotWorker()
 	s.refreshWG.Wait()
 }
 

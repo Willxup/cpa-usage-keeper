@@ -97,6 +97,8 @@ const usageIdentityReadColumns = "id, name, auth_type, auth_type_name, identity,
 
 const usageIdentityAggregationColumns = "id, auth_type, identity, total_requests, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, total_tokens, last_aggregated_usage_event_id, first_used_at, last_used_at"
 
+const activeAuthFileUsageIdentityLookupBatchSize = 500
+
 func ListUsageIdentities(ctx context.Context, db *gorm.DB) ([]entities.UsageIdentity, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
@@ -232,6 +234,50 @@ func GetActiveAuthFileUsageIdentityByAuthIndex(ctx context.Context, db *gorm.DB,
 		return identity, fmt.Errorf("get active auth file usage identity by auth index: %w", err)
 	}
 	return identity, nil
+}
+
+func ListActiveAuthFileUsageIdentitiesByAuthIndexes(ctx context.Context, db *gorm.DB, authIndexes []string) ([]entities.UsageIdentity, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database is nil")
+	}
+	authIndexes = normalizeUniqueAuthIndexes(authIndexes)
+	if len(authIndexes) == 0 {
+		return nil, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	identities := make([]entities.UsageIdentity, 0, len(authIndexes))
+	queryDB := db.WithContext(ctx)
+	for start := 0; start < len(authIndexes); start += activeAuthFileUsageIdentityLookupBatchSize {
+		end := min(start+activeAuthFileUsageIdentityLookupBatchSize, len(authIndexes))
+		var batch []entities.UsageIdentity
+		if err := queryDB.
+			Select(usageIdentityReadColumns).
+			Where("auth_type = ? AND identity IN ? AND is_deleted = ?", entities.UsageIdentityAuthTypeAuthFile, authIndexes[start:end], false).
+			Find(&batch).Error; err != nil {
+			return nil, fmt.Errorf("list active auth file usage identities by auth indexes: %w", err)
+		}
+		identities = append(identities, batch...)
+	}
+	return identities, nil
+}
+
+func normalizeUniqueAuthIndexes(authIndexes []string) []string {
+	normalized := make([]string, 0, len(authIndexes))
+	seen := make(map[string]struct{}, len(authIndexes))
+	for _, authIndex := range authIndexes {
+		authIndex = strings.TrimSpace(authIndex)
+		if authIndex == "" {
+			continue
+		}
+		if _, ok := seen[authIndex]; ok {
+			continue
+		}
+		seen[authIndex] = struct{}{}
+		normalized = append(normalized, authIndex)
+	}
+	return normalized
 }
 
 func AggregateUsageIdentityStats(ctx context.Context, db *gorm.DB, now time.Time) error {

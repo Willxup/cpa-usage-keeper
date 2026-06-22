@@ -14,9 +14,21 @@ type quotaUsageWindowKey struct {
 	end   time.Time
 }
 
+type usageWindowStatsProvider interface {
+	SumByAuthIndex(context.Context, string, time.Time, *time.Time) (repository.UsageWindowStats, error)
+}
+
 func (s *Service) attachWindowUsageStats(ctx context.Context, authIndex string, response CheckResponse, now time.Time) CheckResponse {
+	calculator, err := repository.NewUsageWindowStatsCalculator(ctx, s.db)
+	if err != nil {
+		return response
+	}
+	return s.attachWindowUsageStatsWithProvider(ctx, authIndex, response, now, calculator)
+}
+
+func (s *Service) attachWindowUsageStatsWithProvider(ctx context.Context, authIndex string, response CheckResponse, now time.Time, statsProvider usageWindowStatsProvider) CheckResponse {
 	// quota 为空时没有可补充的窗口用量，直接返回原响应。
-	if len(response.Quota) == 0 {
+	if len(response.Quota) == 0 || statsProvider == nil {
 		// 返回原响应，避免后续 map 和数据库查询开销。
 		return response
 	}
@@ -48,7 +60,7 @@ func (s *Service) attachWindowUsageStats(ctx context.Context, authIndex string, 
 			// repository 内部会按窗口长度选择 raw group by 或 hourly rollup。
 			var err error
 			// 调用窗口统计查询，end 使用半开区间避免重复累计边界事件。
-			stats, err = repository.SumUsageWindowStatsByAuthIndex(ctx, s.db, authIndex, windowStart, &windowEnd)
+			stats, err = statsProvider.SumByAuthIndex(ctx, authIndex, windowStart, &windowEnd)
 			// 统计失败不影响 quota 主结果，只跳过当前窗口用量展示。
 			if err != nil {
 				// 当前 row 不写 token/cost，继续处理其它 row。

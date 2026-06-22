@@ -20,6 +20,11 @@ type UsageWindowStats struct {
 	Cost   float64
 }
 
+type UsageWindowStatsCalculator struct {
+	db             *gorm.DB
+	pricingByModel map[string]entities.ModelPriceSetting
+}
+
 type usageWindowTokenStats struct {
 	Model               string `gorm:"column:model"`
 	TotalTokens         int64  `gorm:"column:total_tokens"`
@@ -28,6 +33,39 @@ type usageWindowTokenStats struct {
 	CachedTokens        int64  `gorm:"column:cached_tokens"`
 	CacheReadTokens     int64  `gorm:"column:cache_read_tokens"`
 	CacheCreationTokens int64  `gorm:"column:cache_creation_tokens"`
+}
+
+func NewUsageWindowStatsCalculator(ctx context.Context, db *gorm.DB) (*UsageWindowStatsCalculator, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	queryDB := db.WithContext(ctx)
+	pricingByModel, err := loadPriceSettingsByModel(queryDB)
+	if err != nil {
+		return nil, err
+	}
+	return &UsageWindowStatsCalculator{db: db, pricingByModel: pricingByModel}, nil
+}
+
+func (c *UsageWindowStatsCalculator) SumByAuthIndex(ctx context.Context, authIndex string, start time.Time, end *time.Time) (UsageWindowStats, error) {
+	if c == nil || c.db == nil {
+		return UsageWindowStats{}, fmt.Errorf("usage window stats calculator is nil")
+	}
+	authIndex = strings.TrimSpace(authIndex)
+	if authIndex == "" {
+		return UsageWindowStats{}, fmt.Errorf("auth_index is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	rows, err := loadUsageWindowTokenStats(c.db.WithContext(ctx), authIndex, start, end)
+	if err != nil {
+		return UsageWindowStats{}, err
+	}
+	return usageWindowStatsFromTokenStats(rows, c.pricingByModel), nil
 }
 
 func SumUsageWindowStatsByAuthIndex(ctx context.Context, db *gorm.DB, authIndex string, start time.Time, end *time.Time) (UsageWindowStats, error) {
