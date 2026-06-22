@@ -1341,6 +1341,9 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 	if realtime.Window != "15m" || realtime.BucketSeconds != 30 {
 		t.Fatalf("unexpected realtime metadata: %+v", realtime)
 	}
+	if !realtime.WindowStart.Equal(now.Add(-15*time.Minute)) || !realtime.WindowEnd.Equal(now) {
+		t.Fatalf("expected realtime window bounds to match the selected range, got start=%s end=%s", realtime.WindowStart, realtime.WindowEnd)
+	}
 	if len(realtime.TokenVelocity) != 30 || len(realtime.ResponseLevel) != 30 || len(realtime.RequestLevel) != 30 || len(realtime.CacheLevel) != 30 {
 		t.Fatalf("expected 30 realtime buckets, got token=%d response=%d request=%d cache=%d", len(realtime.TokenVelocity), len(realtime.ResponseLevel), len(realtime.RequestLevel), len(realtime.CacheLevel))
 	}
@@ -1380,23 +1383,26 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 		realtime.ResponseDistribution.Latency.AverageLine[26].AvgMS == nil || math.Abs(*realtime.ResponseDistribution.Latency.AverageLine[26].AvgMS-900) > 0.000000001 {
 		t.Fatalf("expected failed request latency distribution without ttft after sliding carry, got ttft=%+v latency=%+v", realtime.ResponseDistribution.TTFT.AverageLine[26], realtime.ResponseDistribution.Latency.AverageLine[26])
 	}
-	expectedTTFTParticles := []dto.RealtimeResponseParticleRecord{
-		{Bucket: "2026-06-09T11:55:00Z", MS: 100, Count: 1},
-		{Bucket: "2026-06-09T11:55:00Z", MS: 200, Count: 1},
-	}
-	if !reflect.DeepEqual(realtime.ResponseDistribution.TTFT.Particles, expectedTTFTParticles) {
+	if len(realtime.ResponseDistribution.TTFT.Particles) != 2 {
 		t.Fatalf("expected response distribution TTFT particles to map one usage event to one point, got %+v", realtime.ResponseDistribution.TTFT.Particles)
 	}
-	expectedLatencyParticles := []dto.RealtimeResponseParticleRecord{
-		{Bucket: "2026-06-09T11:55:00Z", MS: 500, Count: 1},
-		{Bucket: "2026-06-09T11:55:00Z", MS: 700, Count: 1},
-		{Bucket: "2026-06-09T11:55:00Z", MS: 650, Count: 1},
-		{Bucket: "2026-06-09T11:55:30Z", MS: 900, Count: 1},
-		{Bucket: "2026-06-09T11:59:30Z", MS: 300, Count: 1},
-	}
-	if !reflect.DeepEqual(realtime.ResponseDistribution.Latency.Particles, expectedLatencyParticles) {
+	assertRealtimeParticleCore(t, realtime.ResponseDistribution.TTFT.Particles[0], "2026-06-09T11:55:00Z", 100, 1)
+	assertRealtimeParticleCore(t, realtime.ResponseDistribution.TTFT.Particles[1], "2026-06-09T11:55:00Z", 200, 1)
+	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.TTFT.Particles[0], "2026-06-09T11:55:10Z")
+	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.TTFT.Particles[1], "2026-06-09T11:55:15Z")
+	if len(realtime.ResponseDistribution.Latency.Particles) != 5 {
 		t.Fatalf("expected response distribution latency particles to map one usage event to one point, got %+v", realtime.ResponseDistribution.Latency.Particles)
 	}
+	assertRealtimeParticleCore(t, realtime.ResponseDistribution.Latency.Particles[0], "2026-06-09T11:55:00Z", 500, 1)
+	assertRealtimeParticleCore(t, realtime.ResponseDistribution.Latency.Particles[1], "2026-06-09T11:55:00Z", 700, 1)
+	assertRealtimeParticleCore(t, realtime.ResponseDistribution.Latency.Particles[2], "2026-06-09T11:55:00Z", 650, 1)
+	assertRealtimeParticleCore(t, realtime.ResponseDistribution.Latency.Particles[3], "2026-06-09T11:55:30Z", 900, 1)
+	assertRealtimeParticleCore(t, realtime.ResponseDistribution.Latency.Particles[4], "2026-06-09T11:59:30Z", 300, 1)
+	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.Latency.Particles[0], "2026-06-09T11:55:10Z")
+	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.Latency.Particles[1], "2026-06-09T11:55:15Z")
+	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.Latency.Particles[2], "2026-06-09T11:55:20Z")
+	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.Latency.Particles[3], "2026-06-09T11:55:30Z")
+	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.Latency.Particles[4], "2026-06-09T11:59:40Z")
 	if realtime.RequestLevel[21].Requests != 4 || math.Abs(realtime.RequestLevel[21].RequestsPerMinute-(4.0/3.0)) > 0.000000001 {
 		t.Fatalf("expected request level to use the 3m sliding window, got %+v", realtime.RequestLevel[21])
 	}
@@ -1436,6 +1442,134 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 		realtime.CurrentUsage.AIProviders[0].Label != "OpenAI Provider" ||
 		realtime.CurrentUsage.AIProviders[0].Tokens != 50 {
 		t.Fatalf("unexpected realtime ai provider usage: %+v", realtime.CurrentUsage.AIProviders)
+	}
+}
+
+func TestBuildUsageOverviewRealtimeWithFilterCapsResponseDistributionParticles(t *testing.T) {
+	withRepositoryTestLocation(t, "UTC")
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-realtime-particle-cap.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	windowStart := now.Add(-60 * time.Minute)
+	const sampleCount = 1205
+	events := make([]entities.UsageEvent, 0, sampleCount)
+	for index := 0; index < sampleCount; index++ {
+		ttft := int64(80 + index%40)
+		events = append(events, entities.UsageEvent{
+			APIGroupKey: "provider-a",
+			Model:       "gpt-5",
+			Timestamp:   windowStart.Add(time.Duration(index) * 2 * time.Second),
+			LatencyMS:   int64(300 + index%200),
+			TTFTMS:      &ttft,
+		})
+	}
+	cache := newEmptyUsageRecentEventCache(UsageRecentEventCacheOptions{Now: func() time.Time { return now }})
+	t.Cleanup(cache.Close)
+	cache.appendEvents(events)
+	if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
+		t.Fatalf("drop usage_events returned error: %v", err)
+	}
+
+	realtime, err := BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, dto.UsageQueryFilter{
+		APIGroupKey:     "provider-a",
+		RealtimeWindow:  "60m",
+		RealtimeEndTime: &now,
+	}, cache)
+	if err != nil {
+		t.Fatalf("BuildUsageOverviewRealtimeWithFilterAndRecentCache returned error: %v", err)
+	}
+
+	assertRealtimeDistributionParticleCap(t, realtime.ResponseDistribution.TTFT, sampleCount)
+	assertRealtimeDistributionParticleCap(t, realtime.ResponseDistribution.Latency, sampleCount)
+}
+
+func assertRealtimeDistributionParticleCap(t *testing.T, series dto.RealtimeResponseDistributionSeriesRecord, totalSamples int64) {
+	t.Helper()
+	if len(series.Particles) > 1000 {
+		t.Fatalf("expected response distribution particles to be capped at 1000, got %d", len(series.Particles))
+	}
+	if got := sumRealtimeParticleCounts(series.Particles); got != totalSamples {
+		t.Fatalf("expected sampled particle counts to preserve %d real samples, got %d", totalSamples, got)
+	}
+	var merged bool
+	for _, particle := range series.Particles {
+		if particle.Count > 1 {
+			merged = true
+			break
+		}
+	}
+	if !merged {
+		t.Fatalf("expected capped response distribution to merge at least one particle, got %+v", series.Particles)
+	}
+	assertRealtimeDistributionSamplingMetadata(t, series, totalSamples, true, 1000)
+}
+
+func sumRealtimeParticleCounts(particles []dto.RealtimeResponseParticleRecord) int64 {
+	var total int64
+	for _, particle := range particles {
+		total += particle.Count
+	}
+	return total
+}
+
+func assertRealtimeDistributionSamplingMetadata(t *testing.T, series dto.RealtimeResponseDistributionSeriesRecord, totalParticles int64, sampled bool, maxParticles int64) {
+	t.Helper()
+	value := reflect.ValueOf(series)
+	assertRealtimeDistributionIntField(t, value, "TotalParticles", totalParticles)
+	assertRealtimeDistributionBoolField(t, value, "Sampled", sampled)
+	assertRealtimeDistributionIntField(t, value, "MaxParticles", maxParticles)
+}
+
+func assertRealtimeDistributionIntField(t *testing.T, value reflect.Value, name string, expected int64) {
+	t.Helper()
+	field := value.FieldByName(name)
+	if !field.IsValid() {
+		t.Fatalf("expected response distribution series to carry %s metadata", name)
+	}
+	if field.Kind() != reflect.Int && field.Kind() != reflect.Int64 {
+		t.Fatalf("expected %s metadata to be integer, got %s", name, field.Kind())
+	}
+	if got := field.Int(); got != expected {
+		t.Fatalf("expected %s metadata %d, got %d", name, expected, got)
+	}
+}
+
+func assertRealtimeDistributionBoolField(t *testing.T, value reflect.Value, name string, expected bool) {
+	t.Helper()
+	field := value.FieldByName(name)
+	if !field.IsValid() {
+		t.Fatalf("expected response distribution series to carry %s metadata", name)
+	}
+	if field.Kind() != reflect.Bool {
+		t.Fatalf("expected %s metadata to be bool, got %s", name, field.Kind())
+	}
+	if got := field.Bool(); got != expected {
+		t.Fatalf("expected %s metadata %t, got %t", name, expected, got)
+	}
+}
+
+func assertRealtimeParticleCore(t *testing.T, particle dto.RealtimeResponseParticleRecord, bucket string, ms, count int64) {
+	t.Helper()
+	if particle.Bucket != bucket || particle.MS != ms || particle.Count != count {
+		t.Fatalf("unexpected response distribution particle core fields: got %+v want bucket=%s ms=%d count=%d", particle, bucket, ms, count)
+	}
+}
+
+func assertRealtimeParticleTimestamp(t *testing.T, particle dto.RealtimeResponseParticleRecord, expected string) {
+	t.Helper()
+	field := reflect.ValueOf(particle).FieldByName("Timestamp")
+	if !field.IsValid() {
+		t.Fatalf("expected response distribution particle to carry the usage event timestamp, got %+v", particle)
+	}
+	if field.Kind() != reflect.String {
+		t.Fatalf("expected response distribution particle timestamp to be string, got %s", field.Kind())
+	}
+	if got := field.String(); got != expected {
+		t.Fatalf("expected response distribution particle timestamp %s, got %s", expected, got)
 	}
 }
 

@@ -128,6 +128,7 @@ export interface RealtimeResponseAveragePoint {
 
 export interface RealtimeResponseParticle {
   bucket: string
+  timestamp?: string
   ms: number
   count: number
 }
@@ -135,6 +136,9 @@ export interface RealtimeResponseParticle {
 export interface RealtimeResponseDistributionSeries {
   average_line: RealtimeResponseAveragePoint[]
   particles: RealtimeResponseParticle[]
+  total_particles?: number
+  sampled?: boolean
+  max_particles?: number
 }
 
 export interface RealtimeResponseDistribution {
@@ -175,6 +179,8 @@ export interface OverviewRealtimeBlock {
   window: OverviewRealtimeWindow
   timezone?: string
   bucket_seconds: number
+  window_start?: string
+  window_end?: string
   token_velocity: RealtimeTokenVelocityPoint[]
   response_level: RealtimeResponseLevelPoint[]
   response_distribution: RealtimeResponseDistribution

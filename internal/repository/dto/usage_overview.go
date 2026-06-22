@@ -79,15 +79,19 @@ type RealtimeResponseAveragePointRecord struct {
 
 // RealtimeResponseParticleRecord 是响应分布图的一个聚合粒子点。
 type RealtimeResponseParticleRecord struct {
-	Bucket string
-	MS     int64
-	Count  int64
+	Bucket    string
+	Timestamp string
+	MS        int64
+	Count     int64
 }
 
 // RealtimeResponseDistributionSeriesRecord 是单个响应指标的平均线和粒子分布。
 type RealtimeResponseDistributionSeriesRecord struct {
-	AverageLine []RealtimeResponseAveragePointRecord
-	Particles   []RealtimeResponseParticleRecord
+	AverageLine    []RealtimeResponseAveragePointRecord
+	Particles      []RealtimeResponseParticleRecord
+	TotalParticles int64
+	Sampled        bool
+	MaxParticles   int
 }
 
 // RealtimeResponseDistributionRecord 是 TTFT 和 Latency 的实时响应分布。
@@ -118,6 +122,8 @@ type RealtimeCurrentUsageRecord struct {
 type UsageOverviewRealtimeRecord struct {
 	Window               string
 	BucketSeconds        int64
+	WindowStart          time.Time
+	WindowEnd            time.Time
 	TokenVelocity        []RealtimeTokenVelocityPointRecord
 	ResponseLevel        []RealtimeResponseLevelPointRecord
 	ResponseDistribution RealtimeResponseDistributionRecord

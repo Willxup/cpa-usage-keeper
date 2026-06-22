@@ -83,6 +83,8 @@ type usageOverviewRealtime struct {
 	Window               string                            `json:"window"`
 	Timezone             string                            `json:"timezone"`
 	BucketSeconds        int64                             `json:"bucket_seconds"`
+	WindowStart          *time.Time                        `json:"window_start,omitempty"`
+	WindowEnd            *time.Time                        `json:"window_end,omitempty"`
 	TokenVelocity        []usageOverviewTokenVelocityPoint `json:"token_velocity"`
 	ResponseLevel        []usageOverviewResponseLevelPoint `json:"response_level"`
 	ResponseDistribution usageOverviewResponseDistribution `json:"response_distribution"`
@@ -95,6 +97,8 @@ type keyUsageOverviewRealtime struct {
 	Window               string                               `json:"window"`
 	Timezone             string                               `json:"timezone"`
 	BucketSeconds        int64                                `json:"bucket_seconds"`
+	WindowStart          *time.Time                           `json:"window_start,omitempty"`
+	WindowEnd            *time.Time                           `json:"window_end,omitempty"`
 	TokenVelocity        []usageOverviewTokenVelocityPoint    `json:"token_velocity"`
 	ResponseLevel        []usageOverviewResponseLevelPoint    `json:"response_level"`
 	ResponseDistribution usageOverviewResponseDistribution    `json:"response_distribution"`
@@ -124,14 +128,18 @@ type usageOverviewResponseAveragePoint struct {
 }
 
 type usageOverviewResponseParticle struct {
-	Bucket string `json:"bucket"`
-	MS     int64  `json:"ms"`
-	Count  int64  `json:"count"`
+	Bucket    string `json:"bucket"`
+	Timestamp string `json:"timestamp,omitempty"`
+	MS        int64  `json:"ms"`
+	Count     int64  `json:"count"`
 }
 
 type usageOverviewResponseDistributionSeries struct {
-	AverageLine []usageOverviewResponseAveragePoint `json:"average_line"`
-	Particles   []usageOverviewResponseParticle     `json:"particles"`
+	AverageLine    []usageOverviewResponseAveragePoint `json:"average_line"`
+	Particles      []usageOverviewResponseParticle     `json:"particles"`
+	TotalParticles int64                               `json:"total_particles"`
+	Sampled        bool                                `json:"sampled"`
+	MaxParticles   int                                 `json:"max_particles"`
 }
 
 type usageOverviewResponseDistribution struct {
@@ -154,6 +162,8 @@ type usageOverviewRealtimeBase struct {
 	Window               string
 	Timezone             string
 	BucketSeconds        int64
+	WindowStart          *time.Time
+	WindowEnd            *time.Time
 	TokenVelocity        []usageOverviewTokenVelocityPoint
 	ResponseLevel        []usageOverviewResponseLevelPoint
 	ResponseDistribution usageOverviewResponseDistribution
@@ -465,6 +475,8 @@ func emptyUsageOverviewRealtime(window string) usageOverviewRealtime {
 		Window:               base.Window,
 		Timezone:             base.Timezone,
 		BucketSeconds:        base.BucketSeconds,
+		WindowStart:          base.WindowStart,
+		WindowEnd:            base.WindowEnd,
 		TokenVelocity:        base.TokenVelocity,
 		ResponseLevel:        base.ResponseLevel,
 		ResponseDistribution: base.ResponseDistribution,
@@ -485,6 +497,8 @@ func emptyKeyUsageOverviewRealtime(window string) keyUsageOverviewRealtime {
 		Window:               base.Window,
 		Timezone:             base.Timezone,
 		BucketSeconds:        base.BucketSeconds,
+		WindowStart:          base.WindowStart,
+		WindowEnd:            base.WindowEnd,
 		TokenVelocity:        base.TokenVelocity,
 		ResponseLevel:        base.ResponseLevel,
 		ResponseDistribution: base.ResponseDistribution,
@@ -533,6 +547,14 @@ func realtimeBucketSeconds(window string) int64 {
 	}
 }
 
+func usageOverviewOptionalTime(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	normalized := timeutil.NormalizeStorageTime(value)
+	return &normalized
+}
+
 func buildUsageOverviewRealtime(realtime *servicedto.UsageOverviewRealtime, window string, apiKeyInfos map[string]analysisAPIKeyInfo) usageOverviewRealtime {
 	if realtime == nil {
 		return emptyUsageOverviewRealtime(window)
@@ -541,6 +563,8 @@ func buildUsageOverviewRealtime(realtime *servicedto.UsageOverviewRealtime, wind
 		Window:               realtime.Window,
 		Timezone:             time.Local.String(),
 		BucketSeconds:        realtime.BucketSeconds,
+		WindowStart:          usageOverviewOptionalTime(realtime.WindowStart),
+		WindowEnd:            usageOverviewOptionalTime(realtime.WindowEnd),
 		TokenVelocity:        make([]usageOverviewTokenVelocityPoint, 0, len(realtime.TokenVelocity)),
 		ResponseLevel:        make([]usageOverviewResponseLevelPoint, 0, len(realtime.ResponseLevel)),
 		ResponseDistribution: mapUsageOverviewResponseDistribution(realtime.ResponseDistribution),
@@ -602,6 +626,8 @@ func buildKeyUsageOverviewRealtime(realtime *servicedto.UsageOverviewRealtime, w
 		Window:               realtime.Window,
 		Timezone:             time.Local.String(),
 		BucketSeconds:        realtime.BucketSeconds,
+		WindowStart:          usageOverviewOptionalTime(realtime.WindowStart),
+		WindowEnd:            usageOverviewOptionalTime(realtime.WindowEnd),
 		TokenVelocity:        make([]usageOverviewTokenVelocityPoint, 0, len(realtime.TokenVelocity)),
 		ResponseLevel:        make([]usageOverviewResponseLevelPoint, 0, len(realtime.ResponseLevel)),
 		ResponseDistribution: mapUsageOverviewResponseDistribution(realtime.ResponseDistribution),
@@ -661,8 +687,11 @@ func mapUsageOverviewResponseDistribution(distribution servicedto.RealtimeRespon
 
 func mapUsageOverviewResponseDistributionSeries(series servicedto.RealtimeResponseDistributionSeries) usageOverviewResponseDistributionSeries {
 	return usageOverviewResponseDistributionSeries{
-		AverageLine: mapUsageOverviewResponseAveragePoints(series.AverageLine),
-		Particles:   mapUsageOverviewResponseParticles(series.Particles),
+		AverageLine:    mapUsageOverviewResponseAveragePoints(series.AverageLine),
+		Particles:      mapUsageOverviewResponseParticles(series.Particles),
+		TotalParticles: series.TotalParticles,
+		Sampled:        series.Sampled,
+		MaxParticles:   series.MaxParticles,
 	}
 }
 
@@ -681,9 +710,10 @@ func mapUsageOverviewResponseParticles(points []servicedto.RealtimeResponseParti
 	result := make([]usageOverviewResponseParticle, 0, len(points))
 	for _, point := range points {
 		result = append(result, usageOverviewResponseParticle{
-			Bucket: point.Bucket,
-			MS:     point.MS,
-			Count:  point.Count,
+			Bucket:    point.Bucket,
+			Timestamp: point.Timestamp,
+			MS:        point.MS,
+			Count:     point.Count,
 		})
 	}
 	return result

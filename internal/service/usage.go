@@ -133,6 +133,8 @@ func mapUsageOverviewRealtime(realtime repodto.UsageOverviewRealtimeRecord) serv
 	return servicedto.UsageOverviewRealtime{
 		Window:               realtime.Window,
 		BucketSeconds:        realtime.BucketSeconds,
+		WindowStart:          realtime.WindowStart,
+		WindowEnd:            realtime.WindowEnd,
 		TokenVelocity:        mapRealtimeTokenVelocity(realtime.TokenVelocity),
 		ResponseLevel:        mapRealtimeResponseLevel(realtime.ResponseLevel),
 		ResponseDistribution: mapRealtimeResponseDistribution(realtime.ResponseDistribution),
@@ -178,8 +180,11 @@ func mapRealtimeResponseDistribution(distribution repodto.RealtimeResponseDistri
 
 func mapRealtimeResponseDistributionSeries(series repodto.RealtimeResponseDistributionSeriesRecord) servicedto.RealtimeResponseDistributionSeries {
 	return servicedto.RealtimeResponseDistributionSeries{
-		AverageLine: mapRealtimeResponseAveragePoints(series.AverageLine),
-		Particles:   mapRealtimeResponseParticles(series.Particles),
+		AverageLine:    mapRealtimeResponseAveragePoints(series.AverageLine),
+		Particles:      mapRealtimeResponseParticles(series.Particles),
+		TotalParticles: series.TotalParticles,
+		Sampled:        series.Sampled,
+		MaxParticles:   series.MaxParticles,
 	}
 }
 
@@ -198,9 +203,10 @@ func mapRealtimeResponseParticles(points []repodto.RealtimeResponseParticleRecor
 	result := make([]servicedto.RealtimeResponseParticle, 0, len(points))
 	for _, point := range points {
 		result = append(result, servicedto.RealtimeResponseParticle{
-			Bucket: point.Bucket,
-			MS:     point.MS,
-			Count:  point.Count,
+			Bucket:    point.Bucket,
+			Timestamp: point.Timestamp,
+			MS:        point.MS,
+			Count:     point.Count,
 		})
 	}
 	return result

@@ -1522,7 +1522,11 @@ func usageOverviewHealthBlockIndex(blocks []dto.UsageOverviewHealthBlockRecord, 
 	return -1
 }
 
-const usageOverviewRealtimeBucketCount = 30
+const (
+	usageOverviewRealtimeBucketCount                     = 30
+	usageOverviewRealtimeDistributionMaxParticles        = 1000
+	usageOverviewRealtimeDistributionDefaultParticleSize = 1
+)
 
 type usageOverviewRealtimeBucket struct {
 	bucketStart    time.Time
@@ -1532,8 +1536,13 @@ type usageOverviewRealtimeBucket struct {
 	cachedTokens   int64
 	costUSD        float64
 	costAvailable  bool
-	ttftSamples    []int64
-	latencySamples []int64
+	ttftSamples    []usageOverviewRealtimeResponseSample
+	latencySamples []usageOverviewRealtimeResponseSample
+}
+
+type usageOverviewRealtimeResponseSample struct {
+	timestamp time.Time
+	ms        int64
 }
 
 type usageOverviewRealtimeTopAccumulator struct {
@@ -1613,11 +1622,11 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, pricin
 		}
 		// TTFT 缺失或非正数时不补 0，避免 log 分布和 percentile 被无效样本拉低。
 		if event.TTFTMS != nil && *event.TTFTMS > 0 {
-			bucket.ttftSamples = append(bucket.ttftSamples, *event.TTFTMS)
+			bucket.ttftSamples = append(bucket.ttftSamples, usageOverviewRealtimeResponseSample{timestamp: timestamp, ms: *event.TTFTMS})
 		}
 		// Latency 只有正数才作为样本。
 		if event.LatencyMS > 0 {
-			bucket.latencySamples = append(bucket.latencySamples, event.LatencyMS)
+			bucket.latencySamples = append(bucket.latencySamples, usageOverviewRealtimeResponseSample{timestamp: timestamp, ms: event.LatencyMS})
 		}
 		// 失败或无 token 的请求不参与 token velocity/cache/current token share。
 		if event.Failed || event.TotalTokens <= 0 {
@@ -1643,7 +1652,7 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, pricin
 	}
 
 	// 最后统一把 bucket、percentile 和 Top5 accumulator 映射成 API DTO。
-	return finalizeUsageOverviewRealtime(window, span, buckets, warmupBucketCount, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage), nil
+	return finalizeUsageOverviewRealtime(window, span, start, end, buckets, warmupBucketCount, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage), nil
 }
 
 func usageOverviewRealtimeWindow(value string) (time.Duration, time.Duration) {
@@ -1937,7 +1946,7 @@ func aggregateUsageOverviewRealtimeBucket(buckets []usageOverviewRealtimeBucket,
 	return aggregated
 }
 
-func finalizeUsageOverviewRealtime(window, span time.Duration, buckets []usageOverviewRealtimeBucket, visibleStartIndex int, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage map[string]*usageOverviewRealtimeTopAccumulator) dto.UsageOverviewRealtimeRecord {
+func finalizeUsageOverviewRealtime(window, span time.Duration, windowStart, windowEnd time.Time, buckets []usageOverviewRealtimeBucket, visibleStartIndex int, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage map[string]*usageOverviewRealtimeTopAccumulator) dto.UsageOverviewRealtimeRecord {
 	visibleBucketCount := len(buckets) - visibleStartIndex
 	tokenVelocity := make([]dto.RealtimeTokenVelocityPointRecord, 0, visibleBucketCount)
 	responseLevel := make([]dto.RealtimeResponseLevelPointRecord, 0, visibleBucketCount)
@@ -1997,9 +2006,13 @@ func finalizeUsageOverviewRealtime(window, span time.Duration, buckets []usageOv
 			InputTokens:  rollingBucket.inputTokens,
 		})
 	}
+	responseDistribution.TTFT = finalizeUsageOverviewRealtimeDistributionSeries(responseDistribution.TTFT)
+	responseDistribution.Latency = finalizeUsageOverviewRealtimeDistributionSeries(responseDistribution.Latency)
 	return dto.UsageOverviewRealtimeRecord{
 		Window:               usageOverviewRealtimeWindowLabel(window),
 		BucketSeconds:        int64(span / time.Second),
+		WindowStart:          windowStart,
+		WindowEnd:            windowEnd,
 		TokenVelocity:        tokenVelocity,
 		ResponseLevel:        responseLevel,
 		ResponseDistribution: responseDistribution,
@@ -2014,24 +2027,88 @@ func finalizeUsageOverviewRealtime(window, span time.Duration, buckets []usageOv
 	}
 }
 
-func usageOverviewRealtimeAverage(samples []int64) *float64 {
+func finalizeUsageOverviewRealtimeDistributionSeries(series dto.RealtimeResponseDistributionSeriesRecord) dto.RealtimeResponseDistributionSeriesRecord {
+	series.TotalParticles = usageOverviewRealtimeParticleCountTotal(series.Particles)
+	series.MaxParticles = usageOverviewRealtimeDistributionMaxParticles
+	if len(series.Particles) <= usageOverviewRealtimeDistributionMaxParticles {
+		return series
+	}
+	series.Sampled = true
+	series.Particles = sampleUsageOverviewRealtimeDistributionParticles(series.Particles, usageOverviewRealtimeDistributionMaxParticles)
+	return series
+}
+
+func sampleUsageOverviewRealtimeDistributionParticles(particles []dto.RealtimeResponseParticleRecord, maxParticles int) []dto.RealtimeResponseParticleRecord {
+	if len(particles) <= maxParticles || maxParticles <= 0 {
+		return particles
+	}
+	sortedParticles := append([]dto.RealtimeResponseParticleRecord(nil), particles...)
+	sort.SliceStable(sortedParticles, func(i, j int) bool {
+		leftTime := usageOverviewRealtimeParticleTimeKey(sortedParticles[i])
+		rightTime := usageOverviewRealtimeParticleTimeKey(sortedParticles[j])
+		if leftTime != rightTime {
+			return leftTime < rightTime
+		}
+		if sortedParticles[i].MS != sortedParticles[j].MS {
+			return sortedParticles[i].MS < sortedParticles[j].MS
+		}
+		return sortedParticles[i].Count < sortedParticles[j].Count
+	})
+
+	sampled := make([]dto.RealtimeResponseParticleRecord, 0, maxParticles)
+	for index := 0; index < maxParticles; index++ {
+		start := index * len(sortedParticles) / maxParticles
+		end := (index + 1) * len(sortedParticles) / maxParticles
+		if end <= start {
+			end = start + 1
+		}
+		group := sortedParticles[start:end]
+		// 代表点保持为真实事件坐标，只把该组真实样本数汇总到 count。
+		representative := group[len(group)/2]
+		representative.Count = usageOverviewRealtimeParticleCountTotal(group)
+		sampled = append(sampled, representative)
+	}
+	return sampled
+}
+
+func usageOverviewRealtimeParticleTimeKey(particle dto.RealtimeResponseParticleRecord) string {
+	if particle.Timestamp != "" {
+		return particle.Timestamp
+	}
+	return particle.Bucket
+}
+
+func usageOverviewRealtimeParticleCountTotal(particles []dto.RealtimeResponseParticleRecord) int64 {
+	var total int64
+	for _, particle := range particles {
+		count := particle.Count
+		if count <= 0 {
+			count = usageOverviewRealtimeDistributionDefaultParticleSize
+		}
+		total += count
+	}
+	return total
+}
+
+func usageOverviewRealtimeAverage(samples []usageOverviewRealtimeResponseSample) *float64 {
 	if len(samples) == 0 {
 		return nil
 	}
 	var sum int64
 	for _, sample := range samples {
-		sum += sample
+		sum += sample.ms
 	}
 	value := float64(sum) / float64(len(samples))
 	return &value
 }
 
-func appendUsageOverviewRealtimeDistributionParticles(dst []dto.RealtimeResponseParticleRecord, bucket string, samples []int64) []dto.RealtimeResponseParticleRecord {
+func appendUsageOverviewRealtimeDistributionParticles(dst []dto.RealtimeResponseParticleRecord, bucket string, samples []usageOverviewRealtimeResponseSample) []dto.RealtimeResponseParticleRecord {
 	for _, sample := range samples {
 		dst = append(dst, dto.RealtimeResponseParticleRecord{
-			Bucket: bucket,
-			MS:     sample,
-			Count:  1,
+			Bucket:    bucket,
+			Timestamp: timeutil.FormatStorageTime(sample.timestamp),
+			MS:        sample.ms,
+			Count:     1,
 		})
 	}
 	return dst
@@ -2053,11 +2130,14 @@ func usageOverviewRealtimeCacheRate(cachedTokens, inputTokens int64) *float64 {
 	return &value
 }
 
-func usageOverviewRealtimePercentilePair(samples []int64, first, second float64) (*int64, *int64) {
+func usageOverviewRealtimePercentilePair(samples []usageOverviewRealtimeResponseSample, first, second float64) (*int64, *int64) {
 	if len(samples) == 0 {
 		return nil, nil
 	}
-	sorted := append([]int64(nil), samples...)
+	sorted := make([]int64, 0, len(samples))
+	for _, sample := range samples {
+		sorted = append(sorted, sample.ms)
+	}
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
 	return usageOverviewRealtimeSortedPercentile(sorted, first), usageOverviewRealtimeSortedPercentile(sorted, second)
 }
