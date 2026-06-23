@@ -383,7 +383,7 @@ web/                     React + TypeScript frontend
 
 ### Prerequisites
 
-- Go 1.22+
+- Go 1.26+
 - Node.js 22+
 - npm
 - A running [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) instance
