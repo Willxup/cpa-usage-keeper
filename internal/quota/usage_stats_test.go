@@ -68,6 +68,20 @@ func TestQuotaRowUsageWindowRejectsNegativeResetAfterSeconds(t *testing.T) {
 	}
 }
 
+func TestAttachWindowUsageStatsNilServiceReturnsOriginalResponse(t *testing.T) {
+	var service *Service
+	response := CheckResponse{ID: "auth-nil", Quota: []QuotaRow{{
+		Key:   "rate_limit.primary_window",
+		Label: "5h",
+	}}}
+
+	got := service.attachWindowUsageStats(context.Background(), "auth-nil", response, time.Now())
+
+	if got.ID != response.ID || len(got.Quota) != 1 || got.Quota[0].Key != response.Quota[0].Key {
+		t.Fatalf("expected nil service to return original response, got %#v", got)
+	}
+}
+
 func TestAttachWindowUsageStatsOnlyBackfillsMissingKnownWindowScopeRows(t *testing.T) {
 	db := openQuotaUsageStatsTestDB(t)
 	service := &Service{db: db}

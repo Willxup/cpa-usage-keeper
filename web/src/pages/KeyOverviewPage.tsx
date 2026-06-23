@@ -9,6 +9,7 @@ import { IconRefreshCw } from '@/components/ui/icons';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useThemeStore } from '@/stores';
 import {
+  DailyAveragePanel,
   OverviewRealtimePanel,
   ServiceHealthCard,
   StatCards,
@@ -16,7 +17,7 @@ import {
 } from '@/components/usage';
 import type { UsageOverviewPayload } from '@/components/usage/hooks/useUsageData';
 import { BrandLink } from '@/components/BrandLink';
-import { getOverviewDisplayLoading } from '@/utils/usage/overview';
+import { getCurrentOverviewUsage, getDailyAveragePanelUsage, getOverviewDisplayLoading, isDailyAverageRange } from '@/utils/usage/overview';
 import type { Theme } from '@/types';
 import styles from './KeyOverviewPage.module.scss';
 
@@ -171,6 +172,7 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
   const [timeRange, setTimeRange] = useState<KeyOverviewTimeRange>(loadTimeRange);
   const [realtimeWindow, setRealtimeWindow] = useState<OverviewRealtimeWindow>(loadRealtimeWindow);
   const [usage, setUsage] = useState<UsageOverviewPayload | null>(null);
+  const [loadedUsageRange, setLoadedUsageRange] = useState<KeyOverviewTimeRange | null>(null);
   const [realtime, setRealtime] = useState<OverviewRealtimeBlock | null>(null);
   const [loading, setLoading] = useState(false);
   const [realtimeLoading, setRealtimeLoading] = useState(false);
@@ -201,12 +203,14 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
     });
     if (skipped || !controller) return;
     overviewRequestControllerRef.current = controller;
+    const requestRange = timeRange;
     setLoading(true);
     setError('');
     try {
-      const overview = await fetchKeyOverview(timeRange, controller.signal);
+      const overview = await fetchKeyOverview(requestRange, controller.signal);
       if (overviewRequestControllerRef.current !== controller) return;
       setUsage(overview as UsageOverviewResponse as UsageOverviewPayload);
+      setLoadedUsageRange(requestRange);
       setLastRefreshedAt(new Date());
     } catch (nextError) {
       if (controller.signal.aborted) return;
@@ -324,6 +328,9 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
   }, [realtimeWindow]);
 
   const overviewDisplayLoading = getOverviewDisplayLoading({ loading, hasUsage: Boolean(usage) });
+  const currentOverviewUsage = getCurrentOverviewUsage(usage, timeRange, loadedUsageRange);
+  const reserveDailyAveragePanel = isDailyAverageRange({ range: timeRange });
+  const dailyAveragePanelUsage = getDailyAveragePanelUsage(currentOverviewUsage, usage, reserveDailyAveragePanel, loading);
   const {
     requestsSparkline,
     tokensSparkline,
@@ -488,6 +495,8 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
             </div>
 
             {displayError && <div className={styles.errorBox}>{displayError}</div>}
+
+            <DailyAveragePanel usage={dailyAveragePanelUsage} loading={overviewDisplayLoading} reserveVisible={reserveDailyAveragePanel} />
 
             <StatCards
               usage={usage}

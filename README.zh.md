@@ -29,6 +29,11 @@
 - 自动同步 CPA Auth Files、API Keys、AI Providers 等 metadata 变化
 - 可选密码登录保护、SQLite 备份、Docker/Docker Compose 和 systemd 部署
 
+## 赞助与特别感谢
+
+- 感谢 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI) 提供本项目所依赖的上游 CPA 基础与数据来源。
+- 感谢 [@YouShouldBetOnMe](https://github.com/YouShouldBetOnMe) 对 CPA Usage Keeper 的支持。
+
 ## 快速开始
 
 > 使用前请确认 CPA 配置已开启 usage 统计：`usage-statistics-enabled: true`。
@@ -325,7 +330,7 @@ cp .env.example .env
 - SQLite 数据库备份会保存应用数据库中的原始数据，备份文件不做加密。
 - 面向浏览器的 API 会对 key-like source/lookup 字段做脱敏或稳定公开标识映射，但不会修改数据库原始值。
 - 公开部署建议开启 `AUTH_ENABLED=true`，并在反向代理层配置 HTTPS。
-- 登录 session 存在服务进程内存中，服务重启后已登录 session 会失效。
+- 登录 session hash 存在 SQLite 中，服务重启后仍会保持有效，直到用户退出登录或超过 `AUTH_SESSION_TTL`。
 - Redis inbox 原始消息会自动清理：成功数据保留到当天结束后清理，失败数据保留 7 天。
 
 ## Nginx反代
@@ -355,7 +360,7 @@ CPA_PUBLIC_URL=https://cpa.example.com
 cmd/server/              应用入口
 internal/api/            HTTP 路由与处理器
 internal/app/            应用装配与启动
-internal/auth/           内存 session 鉴权
+internal/auth/           session 鉴权与持久化
 internal/backup/         SQLite 数据库备份管理
 internal/benchmark/      聚合性能基准测试辅助
 internal/config/         环境配置加载

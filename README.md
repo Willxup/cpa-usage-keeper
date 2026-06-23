@@ -29,6 +29,11 @@ It relies on [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) a
 - Automatically sync CPA Auth Files, API Keys, AI Providers, and other metadata changes
 - Optional password login protection, SQLite backups, Docker/Docker Compose, and systemd deployment
 
+## Sponsors and Special Thanks
+
+- Thanks to [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) for providing the upstream CPA foundation and data source this project builds on.
+- Thanks to [@YouShouldBetOnMe](https://github.com/YouShouldBetOnMe) for supporting CPA Usage Keeper.
+
 ## Quick Start
 
 > Before using CPA Usage Keeper, make sure CPA usage statistics are enabled: `usage-statistics-enabled: true`.
@@ -325,7 +330,7 @@ Security and data notes:
 - SQLite database backups store original data from the application database, and backup files are not encrypted.
 - Browser-facing APIs redact key-like source/lookup fields or map them to stable public identifiers, but raw database values are unchanged.
 - For public deployments, enable `AUTH_ENABLED=true` and terminate HTTPS at your reverse proxy.
-- Login sessions are stored in process memory and become invalid after restart.
+- Login session hashes are stored in SQLite and remain valid across service restarts until logout or `AUTH_SESSION_TTL` expiry.
 - Redis inbox raw messages are cleaned up automatically: successful rows are kept until the end of the current day, and failed rows are kept for 7 days.
 
 ## Nginx reverse proxy
@@ -355,7 +360,7 @@ CPA_PUBLIC_URL=https://cpa.example.com
 cmd/server/              Application entrypoint
 internal/api/            HTTP routes and handlers
 internal/app/            App wiring and startup
-internal/auth/           In-memory session auth
+internal/auth/           Session auth and persistence
 internal/backup/         SQLite database backup management
 internal/benchmark/      Aggregation benchmark helpers
 internal/config/         Environment config loading

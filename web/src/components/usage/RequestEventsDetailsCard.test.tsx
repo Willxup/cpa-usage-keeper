@@ -17,6 +17,7 @@ const events: UsageEvent[] = [
     api_key: 'Production Key',
     model: 'claude-sonnet',
     reasoning_effort: 'medium',
+    service_tier: 'priority',
     endpoint: 'POST /v1/messages',
     source: 'Provider A',
     source_raw: 'source-a',
@@ -86,6 +87,8 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html.indexOf('>API Key</th>')).toBeLessThan(html.indexOf('>Source</th>'));
     expect(html.indexOf('>Source</th>')).toBeLessThan(html.indexOf('>Model</th>'));
     expect(html.indexOf('>Model</th>')).toBeLessThan(html.indexOf('title="Reasoning Effort">Effort</th>'));
+    expect(html.indexOf('title="Reasoning Effort">Effort</th>')).toBeLessThan(html.indexOf('>Speed Mode</th>'));
+    expect(html.indexOf('>Speed Mode</th>')).toBeLessThan(html.indexOf('>Result</th>'));
     expect(html.indexOf('>Result</th>')).toBeLessThan(html.indexOf('>Type</th>'));
     expect(html.indexOf('>Type</th>')).toBeLessThan(html.indexOf('>Endpoint</th>'));
     expect(html.indexOf('>Endpoint</th>')).toBeLessThan(html.indexOf('title="Time to First Token">TTFT</th>'));
@@ -95,6 +98,7 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('class="_requestEventsAPIKeyCell_');
     expect(html).toContain('title="Production Key">Production Key</td>');
     expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">medium<\/td>/);
+    expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">Fast<\/td>/);
     expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">SSE<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*" title="\/messages">\/messages<\/td>/);
     expect(html.indexOf('>45ms</td>')).toBeLessThan(html.indexOf('>120ms</td>'));
     expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">30\.0 t\/s<\/td>/);
@@ -107,6 +111,23 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('Previous');
     expect(html).toContain('Next');
     expect(html).toContain('disabled');
+  });
+
+  it('maps request speed mode values and falls back for missing values', () => {
+    const html = renderCard({
+      events: [
+        { ...events[0], id: 'default', service_tier: 'default' },
+        { ...events[0], id: 'priority', service_tier: 'priority' },
+        { ...events[0], id: 'fast', service_tier: 'fast' },
+        { ...events[0], id: 'empty', service_tier: '' },
+        { ...events[0], id: 'unknown', service_tier: 'batch' },
+      ],
+    });
+
+    expect(html).toContain('Standard');
+    expect(countOccurrences(html, '>Fast</td>')).toBe(2);
+    expect(html).toMatch(/medium<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">-<\/td><td class="[^"]*requestEventsNoWrapCell/);
+    expect(html).toMatch(/medium<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">batch<\/td><td class="[^"]*requestEventsNoWrapCell/);
   });
 
   it('formats timestamps with compact numeric date and time', () => {

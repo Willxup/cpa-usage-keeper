@@ -11,6 +11,24 @@ export interface AuthSessionResponse {
   api_key?: AuthSessionAPIKeySummary
 }
 
+export type AuthManagedSessionKind = 'admin' | 'api_key'
+
+export interface AuthManagedSessionItem {
+  id: string
+  kind: AuthManagedSessionKind
+  role: AuthRole
+  current?: boolean
+  loginAt?: string
+  expiresAt?: string
+  apiKeyId?: string
+  label?: string
+  displayKey?: string
+}
+
+export interface AuthManagedSessionsResponse {
+  items: AuthManagedSessionItem[]
+}
+
 export interface StatusResponse {
   running: boolean
   sync_running: boolean
@@ -51,6 +69,10 @@ export interface UsageOverviewSummary {
   input_tokens: number
   cached_tokens: number
   reasoning_tokens: number
+  daily_average_requests?: number
+  daily_average_tokens?: number
+  daily_average_cost?: number
+  daily_average_range_days?: number
 }
 
 export interface UsageOverviewSeries {
@@ -106,6 +128,7 @@ export interface RealtimeResponseAveragePoint {
 
 export interface RealtimeResponseParticle {
   bucket: string
+  timestamp?: string
   ms: number
   count: number
 }
@@ -113,6 +136,9 @@ export interface RealtimeResponseParticle {
 export interface RealtimeResponseDistributionSeries {
   average_line: RealtimeResponseAveragePoint[]
   particles: RealtimeResponseParticle[]
+  total_particles?: number
+  sampled?: boolean
+  max_particles?: number
 }
 
 export interface RealtimeResponseDistribution {
@@ -153,6 +179,8 @@ export interface OverviewRealtimeBlock {
   window: OverviewRealtimeWindow
   timezone?: string
   bucket_seconds: number
+  window_start?: string
+  window_end?: string
   token_velocity: RealtimeTokenVelocityPoint[]
   response_level: RealtimeResponseLevelPoint[]
   response_distribution: RealtimeResponseDistribution
@@ -187,6 +215,7 @@ export interface UsageEvent {
   api_key?: string
   model: string
   reasoning_effort?: string
+  service_tier?: string
   executor_type?: string
   endpoint?: string
   source: string

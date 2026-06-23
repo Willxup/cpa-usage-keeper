@@ -1,4 +1,4 @@
-import { type AnalysisResponse, type AuthFilesManagementResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type KeyOverviewTimeRange, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingSyncPreviewResponse, type PricingSyncSource, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetResponse } from './types'
+import { type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type KeyOverviewTimeRange, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingSyncPreviewResponse, type PricingSyncSource, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetResponse } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -31,6 +31,10 @@ function realtimeBucketSecondsForWindow(window: OverviewRealtimeWindow): number 
   return 30
 }
 
+function realtimeResponseParticleTotal(particles: OverviewRealtimeBlock['response_distribution']['ttft']['particles']): number {
+  return particles.reduce((total, particle) => total + Math.max(1, Number(particle.count) || 0), 0)
+}
+
 function normalizeOverviewRealtimeBlock(
   block: Partial<OverviewRealtimeBlock> & {
     current_usage?: Partial<OverviewRealtimeBlock['current_usage']>;
@@ -40,21 +44,31 @@ function normalizeOverviewRealtimeBlock(
 ): OverviewRealtimeBlock {
   const currentUsage: Partial<OverviewRealtimeBlock['current_usage']> = block.current_usage ?? {}
   const responseDistribution: Partial<OverviewRealtimeBlock['response_distribution']> = block.response_distribution ?? {}
+  const ttftParticles = responseDistribution.ttft?.particles ?? []
+  const latencyParticles = responseDistribution.latency?.particles ?? []
   const resolvedWindow = block.window ?? fallbackWindow ?? '15m'
   return {
     window: resolvedWindow,
     timezone: block.timezone,
     bucket_seconds: block.bucket_seconds ?? realtimeBucketSecondsForWindow(resolvedWindow),
+    window_start: block.window_start,
+    window_end: block.window_end,
     token_velocity: block.token_velocity ?? [],
     response_level: block.response_level ?? [],
     response_distribution: {
       ttft: {
         average_line: responseDistribution.ttft?.average_line ?? [],
-        particles: responseDistribution.ttft?.particles ?? [],
+        particles: ttftParticles,
+        total_particles: responseDistribution.ttft?.total_particles ?? realtimeResponseParticleTotal(ttftParticles),
+        sampled: responseDistribution.ttft?.sampled ?? false,
+        max_particles: responseDistribution.ttft?.max_particles ?? 1000,
       },
       latency: {
         average_line: responseDistribution.latency?.average_line ?? [],
-        particles: responseDistribution.latency?.particles ?? [],
+        particles: latencyParticles,
+        total_particles: responseDistribution.latency?.total_particles ?? realtimeResponseParticleTotal(latencyParticles),
+        sampled: responseDistribution.latency?.sampled ?? false,
+        max_particles: responseDistribution.latency?.max_particles ?? 1000,
       },
     },
     current_usage: {
@@ -147,6 +161,23 @@ export async function logout(): Promise<void> {
   })
   if (!response.ok) {
     await parseApiError(response, `Failed to logout: ${response.status}`)
+  }
+}
+
+export async function fetchAuthSessions(signal?: AbortSignal): Promise<AuthManagedSessionsResponse> {
+  const response = await apiFetch(apiPath('/auth/sessions'), { signal, cache: 'no-store' })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load auth sessions: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function revokeAuthSession(id: string): Promise<void> {
+  const response = await apiFetch(apiPath(`/auth/sessions/${encodeURIComponent(id)}`), {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to revoke auth session: ${response.status}`)
   }
 }
 

@@ -308,6 +308,8 @@ func TestUsageOverviewRealtimeAcceptsWindowAndReturnsRealtimeBlock(t *testing.T)
 	provider := &usageFilterStub{realtime: &servicedto.UsageOverviewRealtime{
 		Window:        "30m",
 		BucketSeconds: 60,
+		WindowStart:   time.Date(2026, 4, 22, 11, 0, 0, 0, location),
+		WindowEnd:     time.Date(2026, 4, 22, 11, 30, 0, 0, location),
 		TokenVelocity: []servicedto.RealtimeTokenVelocityPoint{{
 			Bucket:          "2026-04-22T11:00:00Z",
 			TokensPerMinute: 120,
@@ -319,6 +321,21 @@ func TestUsageOverviewRealtimeAcceptsWindowAndReturnsRealtimeBlock(t *testing.T)
 			TTFTP95MS:    int64Ptr(210),
 			LatencyP95MS: int64Ptr(820),
 		}},
+		ResponseDistribution: servicedto.RealtimeResponseDistribution{
+			TTFT: servicedto.RealtimeResponseDistributionSeries{
+				Particles: []servicedto.RealtimeResponseParticle{{
+					Bucket:    "2026-04-22T11:00:00Z",
+					Timestamp: "2026-04-22T11:00:15Z",
+					MS:        120,
+					Count:     1,
+				}},
+				TotalParticles: 1,
+				MaxParticles:   1000,
+			},
+			Latency: servicedto.RealtimeResponseDistributionSeries{
+				MaxParticles: 1000,
+			},
+		},
 		CurrentUsage: servicedto.RealtimeCurrentUsage{
 			Models: []servicedto.RealtimeUsageTopItem{{
 				Key:      "gpt-5",
@@ -362,10 +379,10 @@ func TestUsageOverviewRealtimeAcceptsWindowAndReturnsRealtimeBlock(t *testing.T)
 		t.Fatalf("expected realtime window and anchor to be passed through, got %+v", provider.lastRealtime)
 	}
 	for _, expected := range []string{
-		`"window":"30m","timezone":"Asia/Shanghai","bucket_seconds":60`,
+		`"window":"30m","timezone":"Asia/Shanghai","bucket_seconds":60,"window_start":"2026-04-22T11:00:00+08:00","window_end":"2026-04-22T11:30:00+08:00"`,
 		`"token_velocity":[{"bucket":"2026-04-22T11:00:00Z","tokens_per_minute":120,"tokens":20,"cost":0.123}]`,
 		`"response_level":[{"bucket":"2026-04-22T11:00:00Z","ttft_p95_ms":210,"latency_p95_ms":820}]`,
-		`"response_distribution":{"ttft":{"average_line":[],"particles":[]},"latency":{"average_line":[],"particles":[]}}`,
+		`"response_distribution":{"ttft":{"average_line":[],"particles":[{"bucket":"2026-04-22T11:00:00Z","timestamp":"2026-04-22T11:00:15Z","ms":120,"count":1}],"total_particles":1,"sampled":false,"max_particles":1000},"latency":{"average_line":[],"particles":[],"total_particles":0,"sampled":false,"max_particles":1000}}`,
 		`"current_usage":{"models":[{"key":"gpt-5","label":"gpt-5","tokens":20,"requests":1,"cost":0.123,"share":100}],"api_keys":[{"key":"sk-*********123456","label":"sk-*********123456","tokens":20,"requests":1,"share":100}]`,
 		`"request_level":[{"bucket":"2026-04-22T11:00:00Z","requests_per_minute":6,"requests":1}]`,
 		`"cache_level":[{"bucket":"2026-04-22T11:00:00Z","cache_rate":25,"cached_tokens":5,"input_tokens":20}]`,
@@ -595,6 +612,47 @@ func TestUsageOverviewReturnsFilteredSnapshot(t *testing.T) {
 	}
 }
 
+func TestUsageOverviewReturnsDailyAverageSummaryFields(t *testing.T) {
+	provider := &usageFilterStub{overview: &servicedto.UsageOverviewSnapshot{
+		Usage: &dto.StatisticsSnapshot{
+			TotalRequests: 14,
+			SuccessCount:  14,
+			TotalTokens:   7000000,
+		},
+		Summary: servicedto.UsageOverviewSummary{
+			RequestCount:          14,
+			TokenCount:            7000000,
+			WindowMinutes:         10080,
+			RPM:                   14.0 / 10080.0,
+			TPM:                   7000000.0 / 10080.0,
+			TotalCost:             56.49,
+			CostAvailable:         false,
+			InputTokens:           7000000,
+			DailyAverageRequests:  float64Ptr(2),
+			DailyAverageTokens:    float64Ptr(1000000),
+			DailyAverageCost:      float64Ptr(8.07),
+			DailyAverageRangeDays: float64Ptr(7),
+		},
+	}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview?range=7d", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	body := resp.Body.String()
+	if !contains(body, `"daily_average_requests":2`) ||
+		!contains(body, `"daily_average_tokens":1000000`) ||
+		!contains(body, `"daily_average_cost":8.07`) ||
+		!contains(body, `"daily_average_range_days":7`) {
+		t.Fatalf("expected daily average summary fields in response body: %s", body)
+	}
+	assertUsageOverviewResponseShape(t, body)
+}
+
 func TestUsageOverviewNilProviderReturnsPrunedShape(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview", nil)
@@ -628,6 +686,16 @@ func assertUsageOverviewResponseShape(t *testing.T, body string) {
 		t.Fatalf("expected usage object in response, got %s", body)
 	}
 	assertAllowedJSONKeys(t, usage, "overview usage", body, "total_requests", "success_count", "failure_count", "total_tokens")
+
+	summary, ok := decoded["summary"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected summary object in response, got %s", body)
+	}
+	assertAllowedJSONKeys(t, summary, "overview summary", body,
+		"request_count", "token_count", "window_minutes", "rpm", "tpm", "total_cost", "cost_available",
+		"input_tokens", "cached_tokens", "reasoning_tokens",
+		"daily_average_requests", "daily_average_tokens", "daily_average_cost", "daily_average_range_days",
+	)
 
 	series, ok := decoded["series"].(map[string]any)
 	if !ok {

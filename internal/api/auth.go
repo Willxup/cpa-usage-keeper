@@ -310,6 +310,19 @@ func (h *authHandler) deleteSession(token string) {
 	if h.sessions != nil {
 		h.sessions.Delete(token)
 	}
+	h.clearSessionState(token)
+}
+
+func (h *authHandler) clearSessionStateForTokens(tokens []string) {
+	for _, token := range tokens {
+		h.clearSessionState(token)
+	}
+}
+
+func (h *authHandler) clearSessionState(token string) {
+	if h == nil || token == "" {
+		return
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.keyOverviewRequests, token)

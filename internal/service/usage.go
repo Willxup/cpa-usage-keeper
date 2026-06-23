@@ -59,16 +59,20 @@ func (s *usageService) GetUsageOverview(_ context.Context, filter servicedto.Usa
 	return &servicedto.UsageOverviewSnapshot{
 		Usage: overview.Usage,
 		Summary: servicedto.UsageOverviewSummary{
-			RequestCount:    overview.Summary.RequestCount,
-			TokenCount:      overview.Summary.TokenCount,
-			WindowMinutes:   overview.Summary.WindowMinutes,
-			RPM:             overview.Summary.RPM,
-			TPM:             overview.Summary.TPM,
-			TotalCost:       overview.Summary.TotalCost,
-			CostAvailable:   overview.Summary.CostAvailable,
-			InputTokens:     overview.Summary.InputTokens,
-			CachedTokens:    overview.Summary.CachedTokens,
-			ReasoningTokens: overview.Summary.ReasoningTokens,
+			RequestCount:          overview.Summary.RequestCount,
+			TokenCount:            overview.Summary.TokenCount,
+			WindowMinutes:         overview.Summary.WindowMinutes,
+			RPM:                   overview.Summary.RPM,
+			TPM:                   overview.Summary.TPM,
+			TotalCost:             overview.Summary.TotalCost,
+			CostAvailable:         overview.Summary.CostAvailable,
+			InputTokens:           overview.Summary.InputTokens,
+			CachedTokens:          overview.Summary.CachedTokens,
+			ReasoningTokens:       overview.Summary.ReasoningTokens,
+			DailyAverageRequests:  overview.Summary.DailyAverageRequests,
+			DailyAverageTokens:    overview.Summary.DailyAverageTokens,
+			DailyAverageCost:      overview.Summary.DailyAverageCost,
+			DailyAverageRangeDays: overview.Summary.DailyAverageRangeDays,
 		},
 		Series: mapUsageOverviewSeries(overview.Series),
 		Health: servicedto.UsageOverviewHealth{
@@ -129,6 +133,8 @@ func mapUsageOverviewRealtime(realtime repodto.UsageOverviewRealtimeRecord) serv
 	return servicedto.UsageOverviewRealtime{
 		Window:               realtime.Window,
 		BucketSeconds:        realtime.BucketSeconds,
+		WindowStart:          realtime.WindowStart,
+		WindowEnd:            realtime.WindowEnd,
 		TokenVelocity:        mapRealtimeTokenVelocity(realtime.TokenVelocity),
 		ResponseLevel:        mapRealtimeResponseLevel(realtime.ResponseLevel),
 		ResponseDistribution: mapRealtimeResponseDistribution(realtime.ResponseDistribution),
@@ -174,8 +180,11 @@ func mapRealtimeResponseDistribution(distribution repodto.RealtimeResponseDistri
 
 func mapRealtimeResponseDistributionSeries(series repodto.RealtimeResponseDistributionSeriesRecord) servicedto.RealtimeResponseDistributionSeries {
 	return servicedto.RealtimeResponseDistributionSeries{
-		AverageLine: mapRealtimeResponseAveragePoints(series.AverageLine),
-		Particles:   mapRealtimeResponseParticles(series.Particles),
+		AverageLine:    mapRealtimeResponseAveragePoints(series.AverageLine),
+		Particles:      mapRealtimeResponseParticles(series.Particles),
+		TotalParticles: series.TotalParticles,
+		Sampled:        series.Sampled,
+		MaxParticles:   series.MaxParticles,
 	}
 }
 
@@ -194,9 +203,10 @@ func mapRealtimeResponseParticles(points []repodto.RealtimeResponseParticleRecor
 	result := make([]servicedto.RealtimeResponseParticle, 0, len(points))
 	for _, point := range points {
 		result = append(result, servicedto.RealtimeResponseParticle{
-			Bucket: point.Bucket,
-			MS:     point.MS,
-			Count:  point.Count,
+			Bucket:    point.Bucket,
+			Timestamp: point.Timestamp,
+			MS:        point.MS,
+			Count:     point.Count,
 		})
 	}
 	return result

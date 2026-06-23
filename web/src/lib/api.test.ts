@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appPath, deleteAuthFiles, deletePricing, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyOverview, fetchKeyOverviewRealtime, fetchPricingSyncPreview, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, loginWithCPAAPIKey, logout, markStatusActive, refreshUsageQuotas, resetUsageQuota, setAuthFilesDisabled, startUsageQuotaInspection, updateCpaApiKeyAlias, updatePricing } from './api';
+import { appPath, deleteAuthFiles, deletePricing, fetchAnalysis, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyOverview, fetchKeyOverviewRealtime, fetchPricingSyncPreview, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, loginWithCPAAPIKey, logout, markStatusActive, refreshUsageQuotas, resetUsageQuota, revokeAuthSession, setAuthFilesDisabled, startUsageQuotaInspection, updateCpaApiKeyAlias, updatePricing } from './api';
 
 describe('fetchUsageEvents', () => {
   afterEach(() => {
@@ -135,6 +135,26 @@ describe('fetchUsageEvents', () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(new URL(String(url), 'http://localhost').pathname).toBe('/api/v1/auth/logout');
     expect(init).toMatchObject({ credentials: 'include', method: 'POST' });
+  });
+
+  it('manages auth sessions through the dedicated admin endpoints', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [] }),
+    } as Response);
+    const signal = new AbortController().signal;
+
+    await fetchAuthSessions(signal);
+    await revokeAuthSession('hash/with special');
+
+    const listUrl = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
+    expect(listUrl.pathname).toBe('/api/v1/auth/sessions');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
+
+    const revokeUrl = new URL(String(fetchMock.mock.calls[1][0]), 'http://localhost');
+    expect(revokeUrl.pathname).toBe('/api/v1/auth/sessions/hash%2Fwith%20special');
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ credentials: 'include', method: 'DELETE' });
   });
 
   it('passes the selected pricing sync source to the preview endpoint', async () => {

@@ -18,6 +18,7 @@ import (
 	"cpa-usage-keeper/internal/cpa/dto/providerconfig"
 	"cpa-usage-keeper/internal/cpa/dto/response"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/repository/dto"
 	servicedto "cpa-usage-keeper/internal/service/dto"
@@ -67,10 +68,37 @@ type recordingRecentUsageAppender struct {
 	allowed bool
 }
 
+type recordingUsageHeaderQuotaAppender struct {
+	calls     int
+	snapshots []quota.UsageHeaderSnapshot
+	allowed   bool
+}
+
+type aggregationAwareUsageHeaderQuotaAppender struct {
+	db                  *gorm.DB
+	calls               int
+	snapshots           []quota.UsageHeaderSnapshot
+	hourlyStatsAtAppend int64
+	countErr            error
+}
+
 func (r *recordingRecentUsageAppender) TryAppend(events []entities.UsageEvent) bool {
 	r.calls++
 	r.events = append(r.events, events...)
 	return r.allowed
+}
+
+func (r *recordingUsageHeaderQuotaAppender) TryAppendUsageHeaderSnapshots(snapshots []quota.UsageHeaderSnapshot) bool {
+	r.calls++
+	r.snapshots = append(r.snapshots, snapshots...)
+	return r.allowed
+}
+
+func (r *aggregationAwareUsageHeaderQuotaAppender) TryAppendUsageHeaderSnapshots(snapshots []quota.UsageHeaderSnapshot) bool {
+	r.calls++
+	r.snapshots = append(r.snapshots, snapshots...)
+	r.countErr = r.db.Model(&entities.UsageOverviewHourlyStat{}).Where("auth_index = ?", "codex-auth").Count(&r.hourlyStatsAtAppend).Error
+	return true
 }
 
 func (s stubMetadataFetcher) FetchAuthFiles(context.Context) (*response.AuthFilesResult, error) {
@@ -328,6 +356,358 @@ func TestProcessRedisUsageInboxIgnoresRecentCacheOverflow(t *testing.T) {
 	}
 	if cache.calls != 1 {
 		t.Fatalf("expected cache append attempt, got %d", cache.calls)
+	}
+}
+
+func TestProcessRedisUsageInboxNotifiesUsageHeaderQuotaAfterTransactionCommit(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	if _, err := repository.InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{{
+		Source: redisUsageInboxTestSource,
+		RawMessage: `{
+			"timestamp":"2026-06-22T11:10:43+08:00",
+			"provider":"codex",
+			"auth_type":"oauth",
+			"auth_index":"codex-auth",
+			"model":"gpt-5.5",
+			"request_id":"header-quota-commit",
+			"tokens":{"input_tokens":1,"output_tokens":2},
+			"response_headers":{
+				"X-Codex-Plan-Type":["pro"],
+				"X-Codex-Primary-Used-Percent":["4"],
+				"X-Codex-Primary-Window-Minutes":["300"],
+				"X-Codex-Primary-Reset-After-Seconds":["60"]
+			}
+		}`,
+		PoppedAt: time.Date(2026, 6, 22, 11, 10, 43, 0, time.Local),
+	}}); err != nil {
+		t.Fatalf("seed inbox row: %v", err)
+	}
+	appender := &recordingUsageHeaderQuotaAppender{allowed: true}
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
+		BaseURL:          "https://cpa.example.com",
+		UsageHeaderQuota: appender,
+	})
+
+	result, err := service.ProcessRedisUsageInbox(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
+	}
+	if result == nil || result.InsertedEvents != 1 {
+		t.Fatalf("unexpected process result: %+v", result)
+	}
+	if appender.calls != 1 || len(appender.snapshots) != 1 {
+		t.Fatalf("expected one usage header quota notification, got calls=%d snapshots=%+v", appender.calls, appender.snapshots)
+	}
+	snapshot := appender.snapshots[0]
+	if snapshot.AuthType != "oauth" || snapshot.AuthIndex != "codex-auth" || snapshot.Provider != "codex" {
+		t.Fatalf("unexpected snapshot identity: %+v", snapshot)
+	}
+	if snapshot.Headers.Get("X-Codex-Plan-Type") != "pro" {
+		t.Fatalf("expected codex header snapshot, got %#v", snapshot.Headers)
+	}
+}
+
+func TestProcessRedisUsageInboxNotifiesUsageHeaderQuotaAfterOverviewAggregation(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	if _, err := repository.InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{{
+		Source: redisUsageInboxTestSource,
+		RawMessage: `{
+			"timestamp":"2026-06-22T11:10:43+08:00",
+			"provider":"codex",
+			"auth_type":"oauth",
+			"auth_index":"codex-auth",
+			"model":"gpt-5.5",
+			"request_id":"header-quota-after-aggregation",
+			"tokens":{"input_tokens":10,"output_tokens":20,"total_tokens":30},
+			"response_headers":{
+				"X-Codex-Primary-Used-Percent":["4"],
+				"X-Codex-Primary-Window-Minutes":["300"],
+				"X-Codex-Primary-Reset-After-Seconds":["60"]
+			}
+		}`,
+		PoppedAt: time.Date(2026, 6, 22, 11, 10, 43, 0, time.Local),
+	}}); err != nil {
+		t.Fatalf("seed inbox row: %v", err)
+	}
+	appender := &aggregationAwareUsageHeaderQuotaAppender{db: db}
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
+		BaseURL:          "https://cpa.example.com",
+		UsageHeaderQuota: appender,
+		Now:              func() time.Time { return time.Date(2026, 6, 22, 11, 15, 0, 0, time.Local) },
+	})
+
+	result, err := service.ProcessRedisUsageInbox(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
+	}
+	if result == nil || result.InsertedEvents != 1 {
+		t.Fatalf("unexpected process result: %+v", result)
+	}
+	if appender.calls != 1 || len(appender.snapshots) != 1 {
+		t.Fatalf("expected one usage header quota notification, got calls=%d snapshots=%+v", appender.calls, appender.snapshots)
+	}
+	if appender.countErr != nil {
+		t.Fatalf("count hourly stats during header notification: %v", appender.countErr)
+	}
+	if appender.hourlyStatsAtAppend == 0 {
+		t.Fatal("expected usage overview hourly stats to be aggregated before header quota notification")
+	}
+}
+
+func TestProcessRedisUsageInboxCoalescesUsageHeaderQuotaSnapshotsByAuthIndex(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	if _, err := repository.InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{
+		{
+			Source: redisUsageInboxTestSource,
+			RawMessage: `{
+				"timestamp":"2026-06-22T11:00:00+08:00",
+				"provider":"codex",
+				"auth_type":"oauth",
+				"auth_index":"codex-auth",
+				"model":"gpt-5.5",
+				"request_id":"header-quota-old",
+				"tokens":{"input_tokens":1,"output_tokens":2},
+				"response_headers":{
+					"X-Codex-Primary-Used-Percent":["4"],
+					"X-Codex-Primary-Window-Minutes":["300"],
+					"X-Codex-Primary-Reset-After-Seconds":["60"]
+				}
+			}`,
+			PoppedAt: time.Date(2026, 6, 22, 11, 0, 0, 0, time.Local),
+		},
+		{
+			Source: redisUsageInboxTestSource,
+			RawMessage: `{
+				"timestamp":"2026-06-22T11:02:00+08:00",
+				"provider":"codex",
+				"auth_type":"oauth",
+				"auth_index":"codex-auth",
+				"model":"gpt-5.5",
+				"request_id":"header-quota-new",
+				"tokens":{"input_tokens":1,"output_tokens":2},
+				"response_headers":{
+					"X-Codex-Primary-Used-Percent":["8"],
+					"X-Codex-Primary-Window-Minutes":["300"],
+					"X-Codex-Primary-Reset-After-Seconds":["60"]
+				}
+			}`,
+			PoppedAt: time.Date(2026, 6, 22, 11, 2, 0, 0, time.Local),
+		},
+		{
+			Source: redisUsageInboxTestSource,
+			RawMessage: `{
+				"timestamp":"2026-06-22T11:01:00+08:00",
+				"provider":"codex",
+				"auth_type":"oauth",
+				"auth_index":"other-codex-auth",
+				"model":"gpt-5.5",
+				"request_id":"header-quota-other",
+				"tokens":{"input_tokens":1,"output_tokens":2},
+				"response_headers":{
+					"X-Codex-Primary-Used-Percent":["20"],
+					"X-Codex-Primary-Window-Minutes":["300"],
+					"X-Codex-Primary-Reset-After-Seconds":["60"]
+				}
+			}`,
+			PoppedAt: time.Date(2026, 6, 22, 11, 1, 0, 0, time.Local),
+		},
+	}); err != nil {
+		t.Fatalf("seed inbox rows: %v", err)
+	}
+	appender := &recordingUsageHeaderQuotaAppender{allowed: true}
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
+		BaseURL:          "https://cpa.example.com",
+		UsageHeaderQuota: appender,
+	})
+
+	result, err := service.ProcessRedisUsageInbox(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
+	}
+	if result == nil || result.InsertedEvents != 3 {
+		t.Fatalf("unexpected process result: %+v", result)
+	}
+	if appender.calls != 1 || len(appender.snapshots) != 2 {
+		t.Fatalf("expected latest snapshot per auth_index, got calls=%d snapshots=%+v", appender.calls, appender.snapshots)
+	}
+	snapshotsByAuthIndex := map[string]quota.UsageHeaderSnapshot{}
+	for _, snapshot := range appender.snapshots {
+		snapshotsByAuthIndex[snapshot.AuthIndex] = snapshot
+	}
+	if snapshotsByAuthIndex["codex-auth"].Headers.Get("X-Codex-Primary-Used-Percent") != "8" {
+		t.Fatalf("expected latest codex-auth header snapshot, got %+v", snapshotsByAuthIndex["codex-auth"])
+	}
+	if snapshotsByAuthIndex["other-codex-auth"].Headers.Get("X-Codex-Primary-Used-Percent") != "20" {
+		t.Fatalf("expected other auth header snapshot, got %+v", snapshotsByAuthIndex["other-codex-auth"])
+	}
+}
+
+func TestProcessRedisUsageInboxIgnoresIncompleteUsageHeaderQuotaSnapshotDuringCoalesce(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	if _, err := repository.InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{
+		{
+			Source: redisUsageInboxTestSource,
+			RawMessage: `{
+				"timestamp":"2026-06-22T11:00:00+08:00",
+				"provider":"codex",
+				"auth_type":"oauth",
+				"auth_index":"codex-auth",
+				"model":"gpt-5.5",
+				"request_id":"header-quota-valid-earlier",
+				"tokens":{"input_tokens":1,"output_tokens":2},
+				"response_headers":{
+					"X-Codex-Primary-Used-Percent":["4"],
+					"X-Codex-Primary-Window-Minutes":["300"],
+					"X-Codex-Primary-Reset-After-Seconds":["60"]
+				}
+			}`,
+			PoppedAt: time.Date(2026, 6, 22, 11, 0, 0, 0, time.Local),
+		},
+		{
+			Source: redisUsageInboxTestSource,
+			RawMessage: `{
+				"timestamp":"2026-06-22T11:02:00+08:00",
+				"provider":"codex",
+				"auth_type":"oauth",
+				"auth_index":"codex-auth",
+				"model":"gpt-5.5",
+				"request_id":"header-quota-incomplete-later",
+				"tokens":{"input_tokens":1,"output_tokens":2},
+				"response_headers":{
+					"X-Codex-Primary-Used-Percent":["8"],
+					"X-Codex-Primary-Window-Minutes":["300"]
+				}
+			}`,
+			PoppedAt: time.Date(2026, 6, 22, 11, 2, 0, 0, time.Local),
+		},
+	}); err != nil {
+		t.Fatalf("seed inbox rows: %v", err)
+	}
+	appender := &recordingUsageHeaderQuotaAppender{allowed: true}
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
+		BaseURL:          "https://cpa.example.com",
+		UsageHeaderQuota: appender,
+	})
+
+	result, err := service.ProcessRedisUsageInbox(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
+	}
+	if result == nil || result.InsertedEvents != 2 {
+		t.Fatalf("unexpected process result: %+v", result)
+	}
+	if appender.calls != 1 || len(appender.snapshots) != 1 {
+		t.Fatalf("expected only one complete usage header snapshot, got calls=%d snapshots=%+v", appender.calls, appender.snapshots)
+	}
+	if appender.snapshots[0].Headers.Get("X-Codex-Primary-Used-Percent") != "4" {
+		t.Fatalf("expected incomplete later header to be filtered before coalesce, got %+v", appender.snapshots[0])
+	}
+}
+
+func TestProcessRedisUsageInboxDoesNotNotifyUsageHeaderQuotaOnRollback(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	if _, err := repository.InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{{
+		Source: redisUsageInboxTestSource,
+		RawMessage: `{
+			"timestamp":"2026-06-22T11:10:43+08:00",
+			"provider":"codex",
+			"auth_type":"oauth",
+			"auth_index":"codex-auth",
+			"model":"gpt-5.5",
+			"request_id":"header-quota-rollback",
+			"tokens":{"input_tokens":1,"output_tokens":2},
+			"response_headers":{
+				"X-Codex-Primary-Used-Percent":["4"],
+				"X-Codex-Primary-Window-Minutes":["300"],
+				"X-Codex-Primary-Reset-After-Seconds":["60"]
+			}
+		}`,
+		PoppedAt: time.Date(2026, 6, 22, 11, 10, 43, 0, time.Local),
+	}}); err != nil {
+		t.Fatalf("seed inbox row: %v", err)
+	}
+	if err := db.Exec(`CREATE TRIGGER fail_header_quota_mark BEFORE UPDATE OF status ON redis_usage_inboxes WHEN NEW.status = 'processed' BEGIN SELECT RAISE(ABORT, 'processed mark failed'); END;`).Error; err != nil {
+		t.Fatalf("create failure trigger: %v", err)
+	}
+	appender := &recordingUsageHeaderQuotaAppender{allowed: true}
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
+		BaseURL:          "https://cpa.example.com",
+		UsageHeaderQuota: appender,
+	})
+
+	_, err := service.ProcessRedisUsageInbox(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "processed mark failed") {
+		t.Fatalf("expected transaction failure, got %v", err)
+	}
+	if appender.calls != 0 || len(appender.snapshots) != 0 {
+		t.Fatalf("expected no usage header quota notification on rollback, got calls=%d snapshots=%+v", appender.calls, appender.snapshots)
+	}
+}
+
+func TestProcessRedisUsageInboxIgnoresUsageHeaderQuotaOverflow(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	if _, err := repository.InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{{
+		Source: redisUsageInboxTestSource,
+		RawMessage: `{
+			"timestamp":"2026-06-22T11:10:43+08:00",
+			"provider":"codex",
+			"auth_type":"oauth",
+			"auth_index":"codex-auth",
+			"model":"gpt-5.5",
+			"request_id":"header-quota-overflow",
+			"tokens":{"input_tokens":1,"output_tokens":2},
+			"response_headers":{
+				"X-Codex-Primary-Used-Percent":["4"],
+				"X-Codex-Primary-Window-Minutes":["300"],
+				"X-Codex-Primary-Reset-After-Seconds":["60"]
+			}
+		}`,
+		PoppedAt: time.Date(2026, 6, 22, 11, 10, 43, 0, time.Local),
+	}}); err != nil {
+		t.Fatalf("seed inbox row: %v", err)
+	}
+	appender := &recordingUsageHeaderQuotaAppender{allowed: false}
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
+		BaseURL:          "https://cpa.example.com",
+		UsageHeaderQuota: appender,
+	})
+
+	result, err := service.ProcessRedisUsageInbox(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessRedisUsageInbox should ignore usage header quota overflow, got %v", err)
+	}
+	if result == nil || result.Status != "completed" || result.InsertedEvents != 1 {
+		t.Fatalf("unexpected process result: %+v", result)
+	}
+	if appender.calls != 1 {
+		t.Fatalf("expected overflow appender to be attempted once, got %d", appender.calls)
+	}
+}
+
+func TestProcessRedisUsageInboxSkipsRowsWithoutUsageHeaderQuotaSnapshot(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	if _, err := repository.InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{{
+		Source:     redisUsageInboxTestSource,
+		RawMessage: `{"timestamp":"2026-06-22T11:10:43+08:00","provider":"codex","auth_type":"oauth","auth_index":"codex-auth","model":"gpt-5.5","request_id":"header-quota-missing","tokens":{"input_tokens":1,"output_tokens":2}}`,
+		PoppedAt:   time.Date(2026, 6, 22, 11, 10, 43, 0, time.Local),
+	}}); err != nil {
+		t.Fatalf("seed inbox row: %v", err)
+	}
+	appender := &recordingUsageHeaderQuotaAppender{allowed: true}
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
+		BaseURL:          "https://cpa.example.com",
+		UsageHeaderQuota: appender,
+	})
+
+	result, err := service.ProcessRedisUsageInbox(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
+	}
+	if result == nil || result.InsertedEvents != 1 {
+		t.Fatalf("unexpected process result: %+v", result)
+	}
+	if appender.calls != 0 || len(appender.snapshots) != 0 {
+		t.Fatalf("expected rows without response_headers to skip quota notification, got calls=%d snapshots=%+v", appender.calls, appender.snapshots)
 	}
 }
 

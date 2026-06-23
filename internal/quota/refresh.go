@@ -22,6 +22,7 @@ const (
 	RefreshSourceInspection    RefreshSource = "inspection"
 	RefreshSourceScheduled     RefreshSource = "scheduled"
 	RefreshSourceCacheBackfill RefreshSource = "cache_backfill"
+	RefreshSourceUsageHeader   RefreshSource = "usage_header"
 )
 
 type RefreshTaskStatus string

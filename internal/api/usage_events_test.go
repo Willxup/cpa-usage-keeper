@@ -66,6 +66,7 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 		Timestamp:           time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
 		Model:               "claude-sonnet",
 		ReasoningEffort:     "medium",
+		ServiceTier:         "priority",
 		ExecutorType:        "responses",
 		Endpoint:            "POST /v1/responses",
 		AuthType:            "apikey",
@@ -122,6 +123,9 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	}
 	if !contains(body, `"reasoning_effort":"medium"`) {
 		t.Fatalf("expected reasoning effort in response body: %s", body)
+	}
+	if !contains(body, `"service_tier":"priority"`) {
+		t.Fatalf("expected service_tier in response body: %s", body)
 	}
 	if !contains(body, `"endpoint":"POST /v1/responses"`) {
 		t.Fatalf("expected endpoint in response body: %s", body)

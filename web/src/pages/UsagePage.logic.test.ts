@@ -544,7 +544,7 @@ describe('UsagePage request event preferences', () => {
     });
 
     expect(preferences).toEqual({
-      version: 1,
+      version: 2,
       pageSize: 500,
       filters: {
         model: 'claude-opus',
@@ -589,12 +589,23 @@ describe('UsagePage request event preferences', () => {
     expect(preferences.visibleColumnIds).not.toContain('speed');
   });
 
+  it('adds Speed Mode to legacy full-column request event preferences', () => {
+    const legacyFullColumnIds = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'service_tier');
+    const preferences = normalizeRequestEventsPreferences({
+      version: 1,
+      pageSize: 100,
+      visibleColumnIds: legacyFullColumnIds,
+    });
+
+    expect(preferences.visibleColumnIds).toEqual(REQUEST_EVENT_COLUMN_IDS);
+  });
+
   it('preserves a saved preference that intentionally hides Speed', () => {
     const storage = createMemoryStorage();
     const hiddenSpeedColumnIds = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'speed');
 
     saveRequestEventsPreferences({
-      version: 1,
+      version: 2,
       pageSize: 100,
       filters: {
         model: '__all__',
@@ -606,7 +617,7 @@ describe('UsagePage request event preferences', () => {
 
     const stored = JSON.parse(storage.value(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY) ?? '');
     expect(stored).toEqual({
-      version: 1,
+      version: 2,
       pageSize: 100,
       filters: {
         model: '__all__',
@@ -618,6 +629,24 @@ describe('UsagePage request event preferences', () => {
     expect(loadRequestEventsPreferences(storage).visibleColumnIds).toEqual(hiddenSpeedColumnIds);
   });
 
+  it('preserves a v2 saved preference that intentionally hides Speed Mode', () => {
+    const storage = createMemoryStorage();
+    const hiddenSpeedModeColumnIds = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'service_tier');
+
+    saveRequestEventsPreferences({
+      version: 2,
+      pageSize: 100,
+      filters: {
+        model: '__all__',
+        source: '__all__',
+        result: '__all__',
+      },
+      visibleColumnIds: hiddenSpeedModeColumnIds,
+    }, storage);
+
+    expect(loadRequestEventsPreferences(storage).visibleColumnIds).toEqual(hiddenSpeedModeColumnIds);
+  });
+
   it('loads defaults from invalid JSON and persists normalized request event preferences', () => {
     const storage = createMemoryStorage({
       [REQUEST_EVENTS_PREFERENCES_STORAGE_KEY]: '{bad json',
@@ -626,7 +655,7 @@ describe('UsagePage request event preferences', () => {
     expect(loadRequestEventsPreferences(storage).pageSize).toBe(100);
 
     saveRequestEventsPreferences({
-      version: 1,
+      version: 2,
       pageSize: 50,
       filters: {
         model: 'gpt-4.1',
@@ -638,7 +667,7 @@ describe('UsagePage request event preferences', () => {
 
     expect(storage.setItem).toHaveBeenCalledTimes(1);
     expect(JSON.parse(storage.value(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY) ?? '')).toEqual({
-      version: 1,
+      version: 2,
       pageSize: 50,
       filters: {
         model: 'gpt-4.1',

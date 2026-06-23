@@ -280,6 +280,11 @@
   }
 }
 
+.settingsCompactAction {
+  min-height: 32px;
+  padding: 7px 12px;
+}
+
 .usagePillActionDanger {
   color: #b91c1c;
 
@@ -963,8 +968,14 @@
 @media (prefers-reduced-motion: reduce) {
   .usageFilterBar,
   .timeRangeGroup,
-  .customRangeInline {
+  .customRangeInline,
+  .dailyAveragePanel {
     transition: none;
+  }
+
+  .dailyAveragePanelEntering,
+  .dailyAveragePanelVisible {
+    transform: none;
   }
 }
 
@@ -1141,6 +1152,162 @@
 }
 
 // Stats Grid
+.dailyAveragePanel {
+  display: grid;
+  grid-template-columns: minmax(176px, 0.72fr) minmax(0, 2.28fr);
+  align-items: stretch;
+  gap: 12px;
+  max-height: 0;
+  padding: 0 14px;
+  opacity: 0;
+  overflow: hidden;
+  transform: translateY(-6px);
+  border: 1px solid transparent;
+  border-radius: $radius-md;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 92%, transparent), color-mix(in srgb, var(--bg-secondary) 90%, transparent)),
+    var(--bg-primary);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.07);
+  transition:
+    opacity 220ms ease,
+    transform 220ms ease,
+    max-height 220ms ease,
+    padding 220ms ease,
+    border-color 220ms ease;
+
+  @include mobile {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+}
+
+.dailyAveragePanelEntering {
+  transform: translateY(-6px);
+}
+
+.dailyAveragePanelVisible {
+  max-height: 320px;
+  padding: 14px;
+  opacity: 1;
+  transform: translateY(0);
+  border-color: color-mix(in srgb, var(--border-color) 82%, transparent);
+}
+
+.dailyAverageIdentity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  padding: 4px 2px;
+}
+
+.dailyAverageTitle {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: 0;
+}
+
+.dailyAverageRangePill {
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px 9px;
+  border-radius: $radius-full;
+  border: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+  background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.dailyAverageMetrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.dailyAverageMetric {
+  --metric-accent: var(--primary-color);
+
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 64px;
+  padding: 11px 12px;
+  border-radius: $radius-md;
+  border: 1px solid color-mix(in srgb, var(--metric-accent) 22%, var(--border-color));
+  background:
+    radial-gradient(120% 120% at 10% 0%, color-mix(in srgb, var(--metric-accent) 12%, transparent), transparent 62%),
+    color-mix(in srgb, var(--bg-primary) 78%, var(--bg-secondary));
+}
+
+.dailyAverageMetricIcon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  place-items: center;
+  border-radius: $radius-md;
+  background: color-mix(in srgb, var(--metric-accent) 12%, var(--bg-primary));
+  color: var(--metric-accent);
+}
+
+.dailyAverageMetricText {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dailyAverageMetricLabel {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.dailyAverageMetricValue {
+  color: var(--text-primary);
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+@include mobile {
+  .dailyAverageMetrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.dailyAverageMetricCost {
+  @include mobile {
+    grid-column: 1 / -1;
+  }
+}
+
+.dailyAverageCostHint {
+  grid-column: 2;
+  margin-top: -4px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.3;
+
+  @include mobile {
+    grid-column: 1;
+    margin-top: 0;
+  }
+}
+
 .statsGrid {
   display: grid;
   gap: 14px;
@@ -1881,16 +2048,147 @@
 .apiKeySettingsCopyButton,
 .apiKeySettingsSaveButton {
   min-width: 68px;
-  min-height: 40px;
   justify-content: center;
-  padding-right: 11px;
-  padding-left: 11px;
+}
+
+.sessionSettingsCard:global(.card) {
+  height: auto;
+  min-height: auto;
+  overflow: visible;
+}
+
+.sessionSettingsBody {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 12px;
+  max-height: var(--settings-list-scroll-height);
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sessionSettingsList {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.sessionSettingsItem {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.8fr) minmax(220px, 1.2fr) minmax(92px, auto);
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 86%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 76%, transparent);
+}
+
+.sessionSettingsSummary,
+.sessionSettingsDetails {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sessionSettingsSummary {
+  gap: 5px;
+}
+
+.sessionSettingsBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.sessionSettingsDetails {
+  gap: 4px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.45;
+
+  > span {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.sessionSettingsType {
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.sessionSettingsCurrent {
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent-color) 44%, var(--border-color));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-color) 10%, transparent);
+  color: var(--accent-color);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.sessionSettingsName {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sessionSettingsActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.sessionSettingsLogoutButton {
+  min-width: 92px;
+  justify-content: center;
+}
+
+.sessionSettingsConfirmText {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
 }
 
 @include tablet {
   .apiKeySettingsItem {
     grid-template-columns: minmax(0, 1fr);
     align-items: stretch;
+  }
+
+  .sessionSettingsItem {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .sessionSettingsActions {
+    justify-content: stretch;
+  }
+
+  .sessionSettingsLogoutButton {
+    width: 100%;
   }
 }
 
@@ -1948,6 +2246,30 @@
 
   .apiKeySettingsActions,
   .apiKeySettingsSaveButton {
+    width: 100%;
+  }
+
+  .sessionSettingsCard:global(.card) {
+    height: auto;
+    overflow: visible;
+  }
+
+  .sessionSettingsBody {
+    max-height: var(--settings-list-scroll-height);
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .sessionSettingsItem {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .sessionSettingsLogoutButton {
     width: 100%;
   }
 }

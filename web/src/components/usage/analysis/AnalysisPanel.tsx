@@ -33,6 +33,7 @@ type ChartTheme = {
   textSecondary: string;
   grid: string;
   axis: string;
+  averageLine: string;
   tooltipBg: string;
   tooltipBorder: string;
   tooltipBody: string;
@@ -52,6 +53,15 @@ type TokenTooltipDataset = ChartData<'bar', number[], string>['datasets'][number
   tooltipData?: number[];
 };
 type MixedTokenChartData = ChartData<'bar', Array<number | null>, string>;
+type TokenAverageLinePluginOptions = {
+  value: number;
+  color: string;
+};
+type TokenChartOptions = ChartOptions<'bar'> & {
+  plugins?: ChartOptions<'bar'>['plugins'] & {
+    analysisTokenAverageLine?: TokenAverageLinePluginOptions;
+  };
+};
 type FloatingTooltipState = {
   lines: string[];
   x: number;
@@ -171,6 +181,7 @@ type TokenLabels = {
   cached: string;
   reasoning: string;
   total: string;
+  average: string;
   requests: string;
   cost: string;
 };
@@ -187,11 +198,42 @@ const drawRequestsLineOnTopPlugin: Plugin<'bar'> = {
   },
 };
 
+const getTokenAverageLinePluginOptions = (chart: Chart<'bar'>): TokenAverageLinePluginOptions | undefined => {
+  const plugins = chart.options.plugins as (ChartOptions<'bar'>['plugins'] & { analysisTokenAverageLine?: TokenAverageLinePluginOptions }) | undefined;
+  return plugins?.analysisTokenAverageLine;
+};
+
+const drawTokenAverageLinePlugin: Plugin<'bar'> = {
+  id: 'analysis-token-average-line',
+  afterDatasetsDraw: (chart) => {
+    const options = getTokenAverageLinePluginOptions(chart);
+    if (!options || !Number.isFinite(options.value)) return;
+    const yScale = chart.scales.tokens;
+    if (!yScale) return;
+    const { ctx, chartArea } = chart;
+    if (!chartArea) return;
+    const y = yScale.getPixelForValue(options.value);
+    if (!Number.isFinite(y) || y < chartArea.top || y > chartArea.bottom) return;
+
+    ctx.save();
+    // 平均线是参考基准，覆盖在数据层上方但使用弱色，避免被误读为新的业务趋势。
+    ctx.strokeStyle = options.color;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(chartArea.left, y);
+    ctx.lineTo(chartArea.right, y);
+    ctx.stroke();
+    ctx.restore();
+  },
+};
+
 const getChartTheme = (isDark: boolean): ChartTheme => ({
   textPrimary: isDark ? '#f5f1e8' : '#111827',
   textSecondary: isDark ? 'rgba(255, 255, 255, 0.72)' : 'rgba(17, 24, 39, 0.72)',
   grid: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(17, 24, 39, 0.06)',
   axis: isDark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(17, 24, 39, 0.10)',
+  averageLine: isDark ? 'rgba(203, 213, 225, 0.62)' : 'rgba(71, 85, 105, 0.62)',
   tooltipBg: isDark ? 'rgba(17, 24, 39, 0.94)' : 'rgba(255, 255, 255, 0.98)',
   tooltipBorder: isDark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(17, 24, 39, 0.10)',
   tooltipBody: isDark ? 'rgba(255, 255, 255, 0.86)' : '#374151',
@@ -528,6 +570,11 @@ function buildTokenUsageRows(buckets: AnalysisTokenUsageBucket[], granularity: A
   }));
 }
 
+function calculateAverageTotalTokens(rows: ChartRow[]): number {
+  if (rows.length === 0) return 0;
+  return rows.reduce((sum, row) => sum + row.total, 0) / rows.length;
+}
+
 function takeMajorComposition(items: AnalysisCompositionItem[], othersLabel: string, limit = 5): AnalysisCompositionItem[] {
   if (items.length <= limit) return items;
   const major = items.slice(0, limit);
@@ -563,7 +610,7 @@ function takeMajorComposition(items: AnalysisCompositionItem[], othersLabel: str
   ];
 }
 
-function buildTokenLegendItems(labels: TokenLabels): LegendItem[] {
+function buildTokenLegendItems(labels: TokenLabels, averageTokenTotal: number, averageLineColor: string): LegendItem[] {
   return [
     { label: labels.input, color: TOKEN_COLORS.input.base },
     { label: labels.output, color: TOKEN_COLORS.output.base },
@@ -571,10 +618,11 @@ function buildTokenLegendItems(labels: TokenLabels): LegendItem[] {
     { label: labels.reasoning, color: TOKEN_COLORS.reasoning.base },
     { label: labels.requests, color: TOKEN_COLORS.requests },
     { label: labels.cost, color: TOKEN_COLORS.cost },
+    { label: `${labels.average}: ${formatCompactNumber(averageTokenTotal)}`, color: averageLineColor },
   ];
 }
 
-function buildAnalysisTokenChartOptions({ chartTheme, isMobile, totalTokens, totalLabel }: { chartTheme: ChartTheme; isMobile: boolean; totalTokens: number[]; totalLabel: string }): ChartOptions<'bar'> {
+function buildAnalysisTokenChartOptions({ chartTheme, isMobile, totalTokens, totalLabel, averageTokenTotal }: { chartTheme: ChartTheme; isMobile: boolean; totalTokens: number[]; totalLabel: string; averageTokenTotal: number }): TokenChartOptions {
   return {
     responsive: true,
     maintainAspectRatio: false,
@@ -585,6 +633,7 @@ function buildAnalysisTokenChartOptions({ chartTheme, isMobile, totalTokens, tot
         backgroundColor: chartTheme.tooltipBg,
         titleColor: chartTheme.textPrimary,
         bodyColor: chartTheme.tooltipBody,
+        footerColor: chartTheme.tooltipBody,
         borderColor: chartTheme.tooltipBorder,
         borderWidth: 1,
         padding: 10,
@@ -605,6 +654,10 @@ function buildAnalysisTokenChartOptions({ chartTheme, isMobile, totalTokens, tot
             return `${totalLabel}: ${formatCompactNumber(Number(totalTokens[dataIndex] ?? 0))}`;
           },
         },
+      },
+      analysisTokenAverageLine: {
+        value: averageTokenTotal,
+        color: chartTheme.averageLine,
       },
     },
     scales: {
@@ -743,18 +796,21 @@ function TokenUsageChart({ rows, loading, isDark, isMobile }: { rows: ChartRow[]
     cached: t('usage_stats.cached_tokens'),
     reasoning: t('usage_stats.reasoning_tokens'),
     total: t('usage_stats.total_tokens'),
+    average: t('usage_stats.analysis_token_average'),
     requests: t('usage_stats.requests_count'),
     cost: t('usage_stats.total_cost'),
   }), [t]);
   const chartTheme = useMemo(() => getChartTheme(isDark), [isDark]);
+  const averageTokenTotal = useMemo(() => calculateAverageTotalTokens(rows), [rows]);
   const chartData = useMemo(() => buildAnalysisTokenChartData(rows, tokenLabels), [rows, tokenLabels]);
   const chartOptions = useMemo(() => buildAnalysisTokenChartOptions({
     chartTheme,
     isMobile,
     totalTokens: rows.map((row) => row.total),
     totalLabel: tokenLabels.total,
-  }), [chartTheme, isMobile, rows, tokenLabels.total]);
-  const legendItems = useMemo(() => buildTokenLegendItems(tokenLabels), [tokenLabels]);
+    averageTokenTotal,
+  }), [averageTokenTotal, chartTheme, isMobile, rows, tokenLabels.total]);
+  const legendItems = useMemo(() => buildTokenLegendItems(tokenLabels, averageTokenTotal, chartTheme.averageLine), [averageTokenTotal, chartTheme.averageLine, tokenLabels]);
   const hasUnavailableCost = rows.some((row) => !row.costAvailable);
   return (
     <section className={`${styles.analysisCard} ${styles.tokenUsageCard}`}>
@@ -779,7 +835,7 @@ function TokenUsageChart({ rows, loading, isDark, isMobile }: { rows: ChartRow[]
             ))}
           </div>
           <div className={styles.tokenChartFrame}>
-            <Bar data={chartData} options={chartOptions} plugins={[drawRequestsLineOnTopPlugin]} />
+            <Bar data={chartData} options={chartOptions} plugins={[drawRequestsLineOnTopPlugin, drawTokenAverageLinePlugin]} />
           </div>
         </div>
       )}

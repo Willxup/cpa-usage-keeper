@@ -844,6 +844,70 @@ func TestBuildUsageOverviewWithFilterBuilds24hHealthGridFor24hRange(t *testing.T
 	}
 }
 
+func TestBuildUsageOverviewWithFilterKeepsCalendarDayHealthWindow(t *testing.T) {
+	withRepositoryTestLocation(t, "Asia/Shanghai")
+
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-health-calendar-day.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	location := time.Local
+	queryNow := time.Date(2026, 6, 22, 15, 30, 0, 0, location)
+	todayStart := time.Date(2026, 6, 22, 0, 0, 0, 0, location)
+	todayEnd := todayStart.AddDate(0, 0, 1).Add(-time.Nanosecond)
+	yesterdayStart := todayStart.AddDate(0, 0, -1)
+	yesterdayEnd := todayStart.Add(-time.Nanosecond)
+
+	for _, tc := range []struct {
+		name        string
+		rangeName   string
+		start       time.Time
+		end         time.Time
+		wantStart   time.Time
+		wantEnd     time.Time
+		wantMinutes int64
+	}{
+		{
+			name:        "today keeps midnight to next midnight after future end clamp",
+			rangeName:   "today",
+			start:       todayStart,
+			end:         todayEnd,
+			wantStart:   todayStart,
+			wantEnd:     todayStart.AddDate(0, 0, 1),
+			wantMinutes: int64(queryNow.Sub(todayStart) / time.Minute),
+		},
+		{
+			name:        "yesterday keeps previous midnight to current midnight",
+			rangeName:   "yesterday",
+			start:       yesterdayStart,
+			end:         yesterdayEnd,
+			wantStart:   yesterdayStart,
+			wantEnd:     todayStart,
+			wantMinutes: 24 * 60,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			overview, err := BuildUsageOverviewWithFilterAndRecentCache(db, dto.UsageQueryFilter{
+				Range:     tc.rangeName,
+				StartTime: &tc.start,
+				EndTime:   &tc.end,
+				QueryNow:  &queryNow,
+			}, nil)
+			if err != nil {
+				t.Fatalf("BuildUsageOverviewWithFilterAndRecentCache returned error: %v", err)
+			}
+			if !overview.Health.WindowStart.Equal(tc.wantStart) || !overview.Health.WindowEnd.Equal(tc.wantEnd) {
+				t.Fatalf("expected %s health window %s - %s, got %s - %s", tc.rangeName, tc.wantStart, tc.wantEnd, overview.Health.WindowStart, overview.Health.WindowEnd)
+			}
+			if overview.Summary.WindowMinutes != tc.wantMinutes {
+				t.Fatalf("expected %s query window minutes %d, got %+v", tc.rangeName, tc.wantMinutes, overview.Summary)
+			}
+		})
+	}
+}
+
 func TestCalculateUsageEventCostDoesNotDoubleChargeReasoningTokens(t *testing.T) {
 	event := entities.UsageEvent{
 		InputTokens:     1_000_000,
@@ -1098,6 +1162,17 @@ func TestBuildUsageOverviewWithFilterUsesExactPresetWindowMinutes(t *testing.T) 
 			if overview.Summary.WindowMinutes != tc.expectMinutes {
 				t.Fatalf("expected %d minute window, got %+v", tc.expectMinutes, overview.Summary)
 			}
+			if tc.rangeName == "24h" {
+				if overview.Summary.DailyAverageRequests != nil || overview.Summary.DailyAverageTokens != nil || overview.Summary.DailyAverageCost != nil || overview.Summary.DailyAverageRangeDays != nil {
+					t.Fatalf("expected 24h overview not to expose daily averages, got %+v", overview.Summary)
+				}
+			}
+			if tc.rangeName == "7d" {
+				assertFloat64PtrClose(t, overview.Summary.DailyAverageRequests, 1.0/7.0)
+				assertFloat64PtrClose(t, overview.Summary.DailyAverageTokens, 25.0/7.0)
+				assertFloat64PtrClose(t, overview.Summary.DailyAverageCost, overview.Summary.TotalCost/7.0)
+				assertFloat64PtrClose(t, overview.Summary.DailyAverageRangeDays, 7.0)
+			}
 			if len(overview.Series.Requests) != 1 || overview.Series.Requests[tc.expectBucketKey] != 1 {
 				t.Fatalf("unexpected request series for %s: %+v", tc.rangeName, overview.Series.Requests)
 			}
@@ -1107,6 +1182,69 @@ func TestBuildUsageOverviewWithFilterUsesExactPresetWindowMinutes(t *testing.T) 
 				t.Fatalf("DELETE %s returned error: %v", table, err)
 			}
 		}
+	}
+}
+
+func TestFinalizeUsageOverviewDailyAverageCustomWindowBoundaries(t *testing.T) {
+	start := time.Date(2026, 4, 16, 0, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name          string
+		end           time.Time
+		expectAverage bool
+		expectDays    float64
+	}{
+		{
+			name:          "custom one day hides daily averages",
+			end:           start.Add(24 * time.Hour),
+			expectAverage: false,
+		},
+		{
+			name:          "custom two days exposes daily averages",
+			end:           start.Add(48 * time.Hour),
+			expectAverage: true,
+			expectDays:    2,
+		},
+		{
+			name:          "custom slightly over one day exposes daily averages",
+			end:           start.Add(24*time.Hour + time.Minute),
+			expectAverage: true,
+			expectDays:    1441.0 / 1440.0,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			overview := buildUsageOverviewFromEventsForTest([]entities.UsageEvent{{
+				EventKey:    "event-" + strings.ReplaceAll(tc.name, " ", "-"),
+				APIGroupKey: "provider-a",
+				Model:       "claude-sonnet",
+				Timestamp:   tc.end,
+				TotalTokens: 1440,
+				InputTokens: 1440,
+			}}, dto.UsageQueryFilter{Range: "custom", StartTime: &start, EndTime: &tc.end}, modelPriceLookup{})
+
+			if !tc.expectAverage {
+				if overview.Summary.DailyAverageRequests != nil || overview.Summary.DailyAverageTokens != nil || overview.Summary.DailyAverageCost != nil || overview.Summary.DailyAverageRangeDays != nil {
+					t.Fatalf("expected custom one-day overview not to expose daily averages, got %+v", overview.Summary)
+				}
+				return
+			}
+
+			assertFloat64PtrClose(t, overview.Summary.DailyAverageRangeDays, tc.expectDays)
+			assertFloat64PtrClose(t, overview.Summary.DailyAverageRequests, 1.0/tc.expectDays)
+			assertFloat64PtrClose(t, overview.Summary.DailyAverageTokens, 1440.0/tc.expectDays)
+			assertFloat64PtrClose(t, overview.Summary.DailyAverageCost, 0)
+		})
+	}
+}
+
+func assertFloat64PtrClose(t *testing.T, actual *float64, expected float64) {
+	t.Helper()
+	if actual == nil {
+		t.Fatalf("expected %.8f, got nil", expected)
+	}
+	if diff := math.Abs(*actual - expected); diff > 0.0000001 {
+		t.Fatalf("expected %.8f, got %.8f", expected, *actual)
 	}
 }
 
@@ -1168,12 +1306,14 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 	ttft100 := int64(100)
 	ttft200 := int64(200)
+	ttftZero := int64(0)
 	cache := newEmptyUsageRecentEventCache(UsageRecentEventCacheOptions{Now: func() time.Time { return now }})
 	t.Cleanup(cache.Close)
 	cache.appendEvents([]entities.UsageEvent{
 		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-16 * time.Minute), InputTokens: 900, TotalTokens: 900},
 		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 50*time.Second), InputTokens: 100, OutputTokens: 60, CachedTokens: 20, TotalTokens: 120, LatencyMS: 500, TTFTMS: &ttft100},
 		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 45*time.Second), InputTokens: 50, OutputTokens: 40, CachedTokens: 5, TotalTokens: 80, LatencyMS: 700, TTFTMS: &ttft200},
+		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 40*time.Second), InputTokens: 10, OutputTokens: 10, TotalTokens: 20, LatencyMS: 650, TTFTMS: &ttftZero},
 		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 30*time.Second), Failed: true, InputTokens: 1000, TotalTokens: 1000, LatencyMS: 900},
 		{APIGroupKey: "provider-a", Model: "claude-sonnet", AuthType: "apikey", Provider: "OpenAI Provider", AuthIndex: "provider-1", Timestamp: now.Add(-20 * time.Second), InputTokens: 100, OutputTokens: 25, TotalTokens: 50, LatencyMS: 300},
 		{APIGroupKey: "provider-b", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-2", Timestamp: now.Add(-10 * time.Second), InputTokens: 700, TotalTokens: 700, LatencyMS: 100},
@@ -1200,16 +1340,19 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 	if realtime.Window != "15m" || realtime.BucketSeconds != 30 {
 		t.Fatalf("unexpected realtime metadata: %+v", realtime)
 	}
+	if !realtime.WindowStart.Equal(now.Add(-15*time.Minute)) || !realtime.WindowEnd.Equal(now) {
+		t.Fatalf("expected realtime window bounds to match the selected range, got start=%s end=%s", realtime.WindowStart, realtime.WindowEnd)
+	}
 	if len(realtime.TokenVelocity) != 30 || len(realtime.ResponseLevel) != 30 || len(realtime.RequestLevel) != 30 || len(realtime.CacheLevel) != 30 {
 		t.Fatalf("expected 30 realtime buckets, got token=%d response=%d request=%d cache=%d", len(realtime.TokenVelocity), len(realtime.ResponseLevel), len(realtime.RequestLevel), len(realtime.CacheLevel))
 	}
 
 	firstUsageBucket := realtime.TokenVelocity[20]
-	if firstUsageBucket.Bucket != "2026-06-09T11:55:00Z" || firstUsageBucket.Tokens != 200 || math.Abs(firstUsageBucket.TokensPerMinute-(200.0/3.0)) > 0.000000001 {
+	if firstUsageBucket.Bucket != "2026-06-09T11:55:00Z" || firstUsageBucket.Tokens != 220 || math.Abs(firstUsageBucket.TokensPerMinute-(220.0/3.0)) > 0.000000001 {
 		t.Fatalf("unexpected first token velocity bucket: %+v", firstUsageBucket)
 	}
 	carriedUsageBucket := realtime.TokenVelocity[25]
-	if carriedUsageBucket.Tokens != 200 || math.Abs(carriedUsageBucket.TokensPerMinute-(200.0/3.0)) > 0.000000001 {
+	if carriedUsageBucket.Tokens != 220 || math.Abs(carriedUsageBucket.TokensPerMinute-(220.0/3.0)) > 0.000000001 {
 		t.Fatalf("expected token velocity to carry over the 3m sliding window, got %+v", carriedUsageBucket)
 	}
 	expiredUsageBucket := realtime.TokenVelocity[26]
@@ -1232,28 +1375,45 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 	if realtime.ResponseDistribution.TTFT.AverageLine[21].AvgMS == nil || math.Abs(*realtime.ResponseDistribution.TTFT.AverageLine[21].AvgMS-150) > 0.000000001 {
 		t.Fatalf("expected ttft average line to use sliding samples, got %+v", realtime.ResponseDistribution.TTFT.AverageLine[21])
 	}
-	if realtime.ResponseDistribution.Latency.AverageLine[21].AvgMS == nil || math.Abs(*realtime.ResponseDistribution.Latency.AverageLine[21].AvgMS-700) > 0.000000001 {
+	if realtime.ResponseDistribution.Latency.AverageLine[21].AvgMS == nil || math.Abs(*realtime.ResponseDistribution.Latency.AverageLine[21].AvgMS-687.5) > 0.000000001 {
 		t.Fatalf("expected latency average line to include failed request latency, got %+v", realtime.ResponseDistribution.Latency.AverageLine[21])
 	}
 	if realtime.ResponseDistribution.TTFT.AverageLine[26].AvgMS != nil ||
 		realtime.ResponseDistribution.Latency.AverageLine[26].AvgMS == nil || math.Abs(*realtime.ResponseDistribution.Latency.AverageLine[26].AvgMS-900) > 0.000000001 {
 		t.Fatalf("expected failed request latency distribution without ttft after sliding carry, got ttft=%+v latency=%+v", realtime.ResponseDistribution.TTFT.AverageLine[26], realtime.ResponseDistribution.Latency.AverageLine[26])
 	}
-	if len(realtime.ResponseDistribution.TTFT.Particles) == 0 || len(realtime.ResponseDistribution.Latency.Particles) == 0 {
-		t.Fatalf("expected response distribution particles to be populated, got ttft=%+v latency=%+v", realtime.ResponseDistribution.TTFT.Particles, realtime.ResponseDistribution.Latency.Particles)
+	if len(realtime.ResponseDistribution.TTFT.Particles) != 2 {
+		t.Fatalf("expected response distribution TTFT particles to map one usage event to one point, got %+v", realtime.ResponseDistribution.TTFT.Particles)
 	}
-	if realtime.RequestLevel[21].Requests != 3 || realtime.RequestLevel[21].RequestsPerMinute != 1 {
+	assertRealtimeParticleCore(t, realtime.ResponseDistribution.TTFT.Particles[0], "2026-06-09T11:55:00Z", 100, 1)
+	assertRealtimeParticleCore(t, realtime.ResponseDistribution.TTFT.Particles[1], "2026-06-09T11:55:00Z", 200, 1)
+	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.TTFT.Particles[0], "2026-06-09T11:55:10Z")
+	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.TTFT.Particles[1], "2026-06-09T11:55:15Z")
+	if len(realtime.ResponseDistribution.Latency.Particles) != 5 {
+		t.Fatalf("expected response distribution latency particles to map one usage event to one point, got %+v", realtime.ResponseDistribution.Latency.Particles)
+	}
+	assertRealtimeParticleCore(t, realtime.ResponseDistribution.Latency.Particles[0], "2026-06-09T11:55:00Z", 500, 1)
+	assertRealtimeParticleCore(t, realtime.ResponseDistribution.Latency.Particles[1], "2026-06-09T11:55:00Z", 700, 1)
+	assertRealtimeParticleCore(t, realtime.ResponseDistribution.Latency.Particles[2], "2026-06-09T11:55:00Z", 650, 1)
+	assertRealtimeParticleCore(t, realtime.ResponseDistribution.Latency.Particles[3], "2026-06-09T11:55:30Z", 900, 1)
+	assertRealtimeParticleCore(t, realtime.ResponseDistribution.Latency.Particles[4], "2026-06-09T11:59:30Z", 300, 1)
+	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.Latency.Particles[0], "2026-06-09T11:55:10Z")
+	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.Latency.Particles[1], "2026-06-09T11:55:15Z")
+	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.Latency.Particles[2], "2026-06-09T11:55:20Z")
+	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.Latency.Particles[3], "2026-06-09T11:55:30Z")
+	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.Latency.Particles[4], "2026-06-09T11:59:40Z")
+	if realtime.RequestLevel[21].Requests != 4 || math.Abs(realtime.RequestLevel[21].RequestsPerMinute-(4.0/3.0)) > 0.000000001 {
 		t.Fatalf("expected request level to use the 3m sliding window, got %+v", realtime.RequestLevel[21])
 	}
 	if realtime.RequestLevel[26].Requests != 1 || math.Abs(realtime.RequestLevel[26].RequestsPerMinute-(1.0/3.0)) > 0.000000001 {
 		t.Fatalf("expected failed request to remain visible inside the sliding window, got %+v", realtime.RequestLevel[26])
 	}
-	if realtime.CacheLevel[20].InputTokens != 150 || realtime.CacheLevel[20].CachedTokens != 25 ||
-		realtime.CacheLevel[20].CacheRate == nil || math.Abs(*realtime.CacheLevel[20].CacheRate-(25.0/150.0)*100) > 0.000000001 {
+	if realtime.CacheLevel[20].InputTokens != 160 || realtime.CacheLevel[20].CachedTokens != 25 ||
+		realtime.CacheLevel[20].CacheRate == nil || math.Abs(*realtime.CacheLevel[20].CacheRate-(25.0/160.0)*100) > 0.000000001 {
 		t.Fatalf("unexpected cache level bucket: %+v", realtime.CacheLevel[20])
 	}
-	if realtime.CacheLevel[25].InputTokens != 150 || realtime.CacheLevel[25].CachedTokens != 25 ||
-		realtime.CacheLevel[25].CacheRate == nil || math.Abs(*realtime.CacheLevel[25].CacheRate-(25.0/150.0)*100) > 0.000000001 {
+	if realtime.CacheLevel[25].InputTokens != 160 || realtime.CacheLevel[25].CachedTokens != 25 ||
+		realtime.CacheLevel[25].CacheRate == nil || math.Abs(*realtime.CacheLevel[25].CacheRate-(25.0/160.0)*100) > 0.000000001 {
 		t.Fatalf("expected cache level to carry over the sliding window, got %+v", realtime.CacheLevel[25])
 	}
 	if realtime.CacheLevel[26].CacheRate != nil || realtime.CacheLevel[26].InputTokens != 0 || realtime.CacheLevel[26].CachedTokens != 0 {
@@ -1262,25 +1422,160 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 
 	if len(realtime.CurrentUsage.Models) != 2 ||
 		realtime.CurrentUsage.Models[0].Key != "gpt-5" ||
-		realtime.CurrentUsage.Models[0].Tokens != 200 ||
-		math.Abs(realtime.CurrentUsage.Models[0].Share-80) > 0.000000001 {
+		realtime.CurrentUsage.Models[0].Tokens != 220 ||
+		math.Abs(realtime.CurrentUsage.Models[0].Share-(220.0/270.0)*100) > 0.000000001 {
 		t.Fatalf("unexpected realtime model usage: %+v", realtime.CurrentUsage.Models)
 	}
 	if len(realtime.CurrentUsage.APIKeys) != 1 ||
 		realtime.CurrentUsage.APIKeys[0].Key != "provider-a" ||
-		realtime.CurrentUsage.APIKeys[0].Requests != 4 ||
-		realtime.CurrentUsage.APIKeys[0].Tokens != 250 {
+		realtime.CurrentUsage.APIKeys[0].Requests != 5 ||
+		realtime.CurrentUsage.APIKeys[0].Tokens != 270 {
 		t.Fatalf("unexpected realtime api key usage: %+v", realtime.CurrentUsage.APIKeys)
 	}
 	if len(realtime.CurrentUsage.AuthFiles) != 1 ||
 		realtime.CurrentUsage.AuthFiles[0].Label != "Claude Account" ||
-		realtime.CurrentUsage.AuthFiles[0].Tokens != 200 {
+		realtime.CurrentUsage.AuthFiles[0].Tokens != 220 {
 		t.Fatalf("unexpected realtime auth file usage: %+v", realtime.CurrentUsage.AuthFiles)
 	}
 	if len(realtime.CurrentUsage.AIProviders) != 1 ||
 		realtime.CurrentUsage.AIProviders[0].Label != "OpenAI Provider" ||
 		realtime.CurrentUsage.AIProviders[0].Tokens != 50 {
 		t.Fatalf("unexpected realtime ai provider usage: %+v", realtime.CurrentUsage.AIProviders)
+	}
+}
+
+func TestBuildUsageOverviewRealtimeWithFilterCapsResponseDistributionParticles(t *testing.T) {
+	withRepositoryTestLocation(t, "UTC")
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-realtime-particle-cap.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	windowStart := now.Add(-60 * time.Minute)
+	const sampleCount = 1205
+	events := make([]entities.UsageEvent, 0, sampleCount)
+	for index := 0; index < sampleCount; index++ {
+		ttft := int64(80 + index%40)
+		events = append(events, entities.UsageEvent{
+			APIGroupKey: "provider-a",
+			Model:       "gpt-5",
+			Timestamp:   windowStart.Add(time.Duration(index) * 2 * time.Second),
+			LatencyMS:   int64(300 + index%200),
+			TTFTMS:      &ttft,
+		})
+	}
+	cache := newEmptyUsageRecentEventCache(UsageRecentEventCacheOptions{Now: func() time.Time { return now }})
+	t.Cleanup(cache.Close)
+	cache.appendEvents(events)
+	if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
+		t.Fatalf("drop usage_events returned error: %v", err)
+	}
+
+	realtime, err := BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, dto.UsageQueryFilter{
+		APIGroupKey:     "provider-a",
+		RealtimeWindow:  "60m",
+		RealtimeEndTime: &now,
+	}, cache)
+	if err != nil {
+		t.Fatalf("BuildUsageOverviewRealtimeWithFilterAndRecentCache returned error: %v", err)
+	}
+
+	assertRealtimeDistributionParticleCap(t, realtime.ResponseDistribution.TTFT, sampleCount)
+	assertRealtimeDistributionParticleCap(t, realtime.ResponseDistribution.Latency, sampleCount)
+}
+
+func TestUsageOverviewRealtimeDistributionParticleRangeUsesWideArithmetic(t *testing.T) {
+	start, end := usageOverviewRealtimeDistributionParticleRange(999, 2_200_000, 1000)
+	if start != 2_197_800 || end != 2_200_000 {
+		t.Fatalf("expected wide particle range arithmetic, got start=%d end=%d", start, end)
+	}
+}
+
+func assertRealtimeDistributionParticleCap(t *testing.T, series dto.RealtimeResponseDistributionSeriesRecord, totalSamples int64) {
+	t.Helper()
+	if len(series.Particles) > 1000 {
+		t.Fatalf("expected response distribution particles to be capped at 1000, got %d", len(series.Particles))
+	}
+	if got := sumRealtimeParticleCounts(series.Particles); got != totalSamples {
+		t.Fatalf("expected sampled particle counts to preserve %d real samples, got %d", totalSamples, got)
+	}
+	var merged bool
+	for _, particle := range series.Particles {
+		if particle.Count > 1 {
+			merged = true
+			break
+		}
+	}
+	if !merged {
+		t.Fatalf("expected capped response distribution to merge at least one particle, got %+v", series.Particles)
+	}
+	assertRealtimeDistributionSamplingMetadata(t, series, totalSamples, true, 1000)
+}
+
+func sumRealtimeParticleCounts(particles []dto.RealtimeResponseParticleRecord) int64 {
+	var total int64
+	for _, particle := range particles {
+		total += particle.Count
+	}
+	return total
+}
+
+func assertRealtimeDistributionSamplingMetadata(t *testing.T, series dto.RealtimeResponseDistributionSeriesRecord, totalParticles int64, sampled bool, maxParticles int64) {
+	t.Helper()
+	value := reflect.ValueOf(series)
+	assertRealtimeDistributionIntField(t, value, "TotalParticles", totalParticles)
+	assertRealtimeDistributionBoolField(t, value, "Sampled", sampled)
+	assertRealtimeDistributionIntField(t, value, "MaxParticles", maxParticles)
+}
+
+func assertRealtimeDistributionIntField(t *testing.T, value reflect.Value, name string, expected int64) {
+	t.Helper()
+	field := value.FieldByName(name)
+	if !field.IsValid() {
+		t.Fatalf("expected response distribution series to carry %s metadata", name)
+	}
+	if field.Kind() != reflect.Int && field.Kind() != reflect.Int64 {
+		t.Fatalf("expected %s metadata to be integer, got %s", name, field.Kind())
+	}
+	if got := field.Int(); got != expected {
+		t.Fatalf("expected %s metadata %d, got %d", name, expected, got)
+	}
+}
+
+func assertRealtimeDistributionBoolField(t *testing.T, value reflect.Value, name string, expected bool) {
+	t.Helper()
+	field := value.FieldByName(name)
+	if !field.IsValid() {
+		t.Fatalf("expected response distribution series to carry %s metadata", name)
+	}
+	if field.Kind() != reflect.Bool {
+		t.Fatalf("expected %s metadata to be bool, got %s", name, field.Kind())
+	}
+	if got := field.Bool(); got != expected {
+		t.Fatalf("expected %s metadata %t, got %t", name, expected, got)
+	}
+}
+
+func assertRealtimeParticleCore(t *testing.T, particle dto.RealtimeResponseParticleRecord, bucket string, ms, count int64) {
+	t.Helper()
+	if particle.Bucket != bucket || particle.MS != ms || particle.Count != count {
+		t.Fatalf("unexpected response distribution particle core fields: got %+v want bucket=%s ms=%d count=%d", particle, bucket, ms, count)
+	}
+}
+
+func assertRealtimeParticleTimestamp(t *testing.T, particle dto.RealtimeResponseParticleRecord, expected string) {
+	t.Helper()
+	field := reflect.ValueOf(particle).FieldByName("Timestamp")
+	if !field.IsValid() {
+		t.Fatalf("expected response distribution particle to carry the usage event timestamp, got %+v", particle)
+	}
+	if field.Kind() != reflect.String {
+		t.Fatalf("expected response distribution particle timestamp to be string, got %s", field.Kind())
+	}
+	if got := field.String(); got != expected {
+		t.Fatalf("expected response distribution particle timestamp %s, got %s", expected, got)
 	}
 }
 

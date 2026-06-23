@@ -37,6 +37,9 @@ func TestOpenDatabaseAutoMigratesCoreTables(t *testing.T) {
 	if !db.Migrator().HasTable("redis_usage_inboxes") {
 		t.Fatal("expected redis_usage_inboxes table to exist")
 	}
+	if !db.Migrator().HasTable("auth_sessions") {
+		t.Fatal("expected auth_sessions table to exist")
+	}
 }
 
 func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigrations(t *testing.T) {
@@ -53,8 +56,17 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 	if err := db.Table("schema_migrations").Count(&count).Error; err != nil {
 		t.Fatalf("count schema migrations: %v", err)
 	}
-	if count != 40 {
-		t.Fatalf("expected fresh database to mark 40 migrations applied, got %d", count)
+	if count != 41 {
+		t.Fatalf("expected fresh database to mark 41 migrations applied, got %d", count)
+	}
+	if !db.Migrator().HasTable(&entities.AuthSession{}) {
+		t.Fatal("expected auth_sessions table to exist")
+	}
+	if !db.Migrator().HasColumn(&entities.AuthSession{}, "token_hash") {
+		t.Fatal("expected auth_sessions.token_hash column to exist")
+	}
+	if db.Migrator().HasColumn(&entities.AuthSession{}, "token") {
+		t.Fatal("expected auth_sessions.token column not to exist")
 	}
 	if strings.Contains(logs.String(), "schema migration started") {
 		t.Fatalf("expected fresh database creation not to run version migrations, got logs:\n%s", logs.String())

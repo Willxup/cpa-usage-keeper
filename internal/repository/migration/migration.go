@@ -50,6 +50,7 @@ const (
 	migrationReplaceRedisInboxQueueKeyWithSource    = "20260612_replace_redis_inbox_queue_key_with_source"
 	migrationModelPriceServiceTier                  = "20260618_model_price_service_tier"
 	migrationUsageOverviewServiceTier               = "20260618_usage_overview_service_tier"
+	migrationCreateAuthSessions                     = "20260620_create_auth_sessions"
 )
 
 type schemaMigration struct {
@@ -144,6 +145,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationReplaceRedisInboxQueueKeyWithSource, run: replaceRedisInboxQueueKeyWithSourceMigration},
 		{version: migrationModelPriceServiceTier, run: modelPriceServiceTierMigration},
 		{version: migrationUsageOverviewServiceTier, run: usageOverviewServiceTierMigration, disableTransaction: true},
+		{version: migrationCreateAuthSessions, run: createAuthSessionsMigration},
 	}
 }
 

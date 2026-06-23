@@ -34,7 +34,9 @@ interface RealtimeMetric {
   tone?: 'up' | 'down' | 'flat';
 }
 
-type ResponseDistributionDatum = number | null | { x: string; y: number; count: number };
+type ResponseDistributionDatum = { x: number; y: number | null };
+type ResponseDistributionParticleDatum = { x: number; y: number; count: number };
+type ResponseDistributionXBounds = { min: number; max: number };
 
 interface OverviewRealtimePanelProps {
   realtime?: OverviewRealtimeBlock;
@@ -281,30 +283,73 @@ function buildSingleLineData(labels: string[], label: string, values: Array<numb
 }
 
 function responseDistributionAveragePoints(
-  points: RealtimeResponseAveragePoint[],
+  points: RealtimeResponseAveragePoint[] | null | undefined,
   fallbackPoints: Array<{ bucket: string; value?: number | null }>,
 ): RealtimeResponseAveragePoint[] {
-  if (points.length > 0) return points;
+  if (points && points.length > 0) return points;
   return fallbackPoints.map((point) => ({
     bucket: point.bucket,
     avg_ms: point.value ?? null,
   }));
 }
 
-function responseDistributionLabels(points: RealtimeResponseAveragePoint[], timezone?: string): string[] {
-  return points.map((point) => formatBucketLabel(point.bucket, timezone));
+function responseDistributionValues(points: RealtimeResponseAveragePoint[] | null | undefined): Array<number | null> {
+  return (points ?? []).filter(Boolean).map((point) => {
+    if (point.avg_ms == null) return null;
+    const value = safeNumber(point.avg_ms);
+    return value > 0 ? value : null;
+  });
 }
 
-function responseDistributionValues(points: RealtimeResponseAveragePoint[]): Array<number | null> {
-  return points.map((point) => point.avg_ms == null ? null : safeNumber(point.avg_ms));
+function parseResponseDistributionTime(value: string | null | undefined): number | null {
+  const parsed = Date.parse(value ?? '');
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
-function responseDistributionParticleData(particles: RealtimeResponseParticle[], timezone?: string): Array<{ x: string; y: number; count: number }> {
-  return particles.map((point) => ({
-    x: formatBucketLabel(point.bucket, timezone),
-    y: safeNumber(point.ms),
-    count: Math.max(1, safeNumber(point.count)),
-  }));
+function responseDistributionAverageData(points: RealtimeResponseAveragePoint[] | null | undefined): ResponseDistributionDatum[] {
+  return (points ?? []).filter(Boolean).map((point) => {
+    const x = parseResponseDistributionTime(point.bucket);
+    if (x == null) return null;
+    if (point.avg_ms == null) return { x, y: null };
+    const value = safeNumber(point.avg_ms);
+    return { x, y: value > 0 ? value : null };
+  }).filter((point): point is ResponseDistributionDatum => point !== null);
+}
+
+function responseDistributionParticleData(particles: RealtimeResponseParticle[] | null | undefined): ResponseDistributionParticleDatum[] {
+  return (particles ?? []).filter(Boolean).map((point) => {
+    const x = parseResponseDistributionTime(point.timestamp ?? point.bucket);
+    if (x == null) return null;
+    return {
+      x,
+      y: safeNumber(point.ms),
+      count: Math.max(1, safeNumber(point.count)),
+    };
+  }).filter((point): point is ResponseDistributionParticleDatum => Boolean(point && point.y > 0));
+}
+
+function responseDistributionXBounds(data: OverviewRealtimeBlock): ResponseDistributionXBounds | undefined {
+  const min = parseResponseDistributionTime(data.window_start);
+  const max = parseResponseDistributionTime(data.window_end);
+  if (min != null && max != null && max > min) {
+    return { min, max };
+  }
+
+  const bucketSeconds = safeNumber(data.bucket_seconds);
+  if (bucketSeconds <= 0) return undefined;
+  const bucketStarts = [
+    ...data.token_velocity,
+    ...data.response_level,
+    ...data.request_level,
+    ...data.cache_level,
+    ...data.response_distribution.ttft.average_line,
+    ...data.response_distribution.latency.average_line,
+  ].map((point) => parseResponseDistributionTime(point.bucket))
+    .filter((value): value is number => value != null);
+  if (bucketStarts.length === 0) return undefined;
+  const minBucket = Math.min(...bucketStarts);
+  const maxBucket = Math.max(...bucketStarts) + bucketSeconds * 1000;
+  return maxBucket > minBucket ? { min: minBucket, max: maxBucket } : undefined;
 }
 
 function responseParticleRadius(count: number, isMobile: boolean): number {
@@ -314,21 +359,19 @@ function responseParticleRadius(count: number, isMobile: boolean): number {
 }
 
 function buildResponseDistributionData(
-  labels: string[],
   averageLabel: string,
   particleLabel: string,
-  averageValues: Array<number | null>,
-  particles: Array<{ x: string; y: number; count: number }>,
+  averageData: ResponseDistributionDatum[],
+  particles: ResponseDistributionParticleDatum[],
   color: string,
   isMobile: boolean,
-): ChartData<'line', ResponseDistributionDatum[], string> {
+): ChartData<'line', ResponseDistributionDatum[], number> {
   return {
-    labels,
     datasets: [
       {
         type: 'line',
         label: averageLabel,
-        data: averageValues,
+        data: averageData,
         borderColor: color,
         backgroundColor: `${color}12`,
         borderWidth: isMobile ? 1.8 : 2.2,
@@ -363,16 +406,50 @@ function buildResponseDistributionData(
 function buildResponseDistributionOptions(
   isDark: boolean,
   isMobile: boolean,
+  averageData: ResponseDistributionDatum[],
+  particles: RealtimeResponseParticle[] | null | undefined,
+  xBounds: ResponseDistributionXBounds | undefined,
+  timezone?: string,
 ): ChartOptions<'line'> {
   const options = buildRealtimeLineOptions(isDark, isMobile, formatRealtimeDuration, { yMaxTicksLimit: 5 });
+  const yBounds = responseDistributionLogAxisBounds(averageData, particles);
+  const baseXScale = options.scales?.x;
+  const baseYScale = options.scales?.y;
+  const responseScales = {
+    ...options.scales,
+    x: {
+      type: 'linear' as const,
+      min: xBounds?.min,
+      max: xBounds?.max,
+      grid: baseXScale?.grid,
+      border: baseXScale?.border,
+      ticks: {
+        ...baseXScale?.ticks,
+        callback: (value) => formatResponseDistributionTick(Number(value), timezone),
+      },
+    },
+    y: {
+      type: 'logarithmic' as const,
+      min: yBounds.min,
+      max: yBounds.max,
+      grid: baseYScale?.grid,
+      border: baseYScale?.border,
+      ticks: baseYScale?.ticks,
+    },
+  } as ChartOptions<'line'>['scales'];
   return {
     ...options,
+    animation: false,
     interaction: { mode: 'nearest', intersect: false },
     plugins: {
       ...options.plugins,
       tooltip: {
         ...options.plugins?.tooltip,
         callbacks: {
+          title: (items) => {
+            const x = Number(items[0]?.parsed.x ?? 0);
+            return Number.isFinite(x) ? formatResponseDistributionTick(x, timezone) : '';
+          },
           label: (context) => {
             const raw = context.raw as { count?: number } | undefined;
             const label = context.dataset.label ? `${context.dataset.label}: ` : '';
@@ -385,6 +462,37 @@ function buildResponseDistributionOptions(
         },
       },
     },
+    scales: responseScales,
+  };
+}
+
+function formatResponseDistributionTick(value: number, timezone?: string): string {
+  if (!Number.isFinite(value)) return '';
+  return formatBucketLabel(new Date(value).toISOString(), timezone);
+}
+
+function responseDistributionLogAxisBounds(averageData: ResponseDistributionDatum[] | null | undefined, particles: RealtimeResponseParticle[] | null | undefined): { min: number; max: number } {
+  let minValue = Number.POSITIVE_INFINITY;
+  let maxValue = 0;
+  for (const point of averageData ?? []) {
+    const value = point.y;
+    if (value == null || !Number.isFinite(value) || value <= 0) continue;
+    minValue = Math.min(minValue, value);
+    maxValue = Math.max(maxValue, value);
+  }
+  for (const particle of particles ?? []) {
+    if (!particle) continue;
+    const value = safeNumber(particle.ms);
+    if (!Number.isFinite(value) || value <= 0) continue;
+    minValue = Math.min(minValue, value);
+    maxValue = Math.max(maxValue, value);
+  }
+  if (!Number.isFinite(minValue) || maxValue <= 0) {
+    return { min: 1, max: 10 };
+  }
+  return {
+    min: Math.max(1, Math.floor(minValue / 1.35)),
+    max: Math.max(10, Math.ceil(maxValue * 1.18)),
   };
 }
 
@@ -480,12 +588,13 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
     data.response_distribution.latency.average_line,
     data.response_level.map((point) => ({ bucket: point.bucket, value: point.latency_p95_ms })),
   ), [data.response_distribution.latency.average_line, data.response_level]);
-  const ttftDistributionLabels = useMemo(() => responseDistributionLabels(ttftAveragePoints, responseTimezone), [responseTimezone, ttftAveragePoints]);
-  const latencyDistributionLabels = useMemo(() => responseDistributionLabels(latencyAveragePoints, responseTimezone), [latencyAveragePoints, responseTimezone]);
   const ttftAverageValues = useMemo(() => responseDistributionValues(ttftAveragePoints), [ttftAveragePoints]);
   const latencyAverageValues = useMemo(() => responseDistributionValues(latencyAveragePoints), [latencyAveragePoints]);
-  const ttftParticleValues = useMemo(() => responseDistributionParticleData(data.response_distribution.ttft.particles, responseTimezone), [data.response_distribution.ttft.particles, responseTimezone]);
-  const latencyParticleValues = useMemo(() => responseDistributionParticleData(data.response_distribution.latency.particles, responseTimezone), [data.response_distribution.latency.particles, responseTimezone]);
+  const ttftAverageChartData = useMemo(() => responseDistributionAverageData(ttftAveragePoints), [ttftAveragePoints]);
+  const latencyAverageChartData = useMemo(() => responseDistributionAverageData(latencyAveragePoints), [latencyAveragePoints]);
+  const ttftParticleValues = useMemo(() => responseDistributionParticleData(data.response_distribution.ttft.particles), [data.response_distribution.ttft.particles]);
+  const latencyParticleValues = useMemo(() => responseDistributionParticleData(data.response_distribution.latency.particles), [data.response_distribution.latency.particles]);
+  const distributionXBounds = useMemo(() => responseDistributionXBounds(data), [data]);
   const tokenEmptyLabel = data.token_velocity.length === 0 ? t('usage_stats.overview_realtime_token_empty') : undefined;
   const requestEmptyLabel = data.request_level.length === 0 ? t('usage_stats.overview_realtime_request_empty') : undefined;
   const ttftEmptyLabel = !hasFiniteNumber(ttftAverageValues) && ttftParticleValues.length === 0 ? t('usage_stats.overview_realtime_ttft_empty') : undefined;
@@ -494,7 +603,22 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
 
   const lineOptions = useMemo(() => buildRealtimeLineOptions(isDark, isMobile, formatCompactNumber), [isDark, isMobile]);
   const percentLineOptions = useMemo(() => buildRealtimeLineOptions(isDark, isMobile, (value) => `${formatFixedTwoDecimals(value)}%`, { yMaxTicksLimit: 5 }), [isDark, isMobile]);
-  const responseDistributionOptions = useMemo(() => buildResponseDistributionOptions(isDark, isMobile), [isDark, isMobile]);
+  const ttftDistributionOptions = useMemo(() => buildResponseDistributionOptions(
+    isDark,
+    isMobile,
+    ttftAverageChartData,
+    data.response_distribution.ttft.particles,
+    distributionXBounds,
+    responseTimezone,
+  ), [data.response_distribution.ttft.particles, distributionXBounds, isDark, isMobile, responseTimezone, ttftAverageChartData]);
+  const latencyDistributionOptions = useMemo(() => buildResponseDistributionOptions(
+    isDark,
+    isMobile,
+    latencyAverageChartData,
+    data.response_distribution.latency.particles,
+    distributionXBounds,
+    responseTimezone,
+  ), [data.response_distribution.latency.particles, distributionXBounds, isDark, isMobile, latencyAverageChartData, responseTimezone]);
   const latestLabel = t('usage_stats.overview_realtime_latest');
   const averageLabel = t('usage_stats.overview_realtime_average');
   const trendLabel = t('usage_stats.overview_realtime_trend');
@@ -504,23 +628,21 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
   const requestChartData = useMemo(() => buildSingleLineData(labels, t('usage_stats.overview_realtime_rpm'), requestValues, CHART_COLORS.request), [labels, requestValues, t]);
   const cacheChartData = useMemo(() => buildSingleLineData(labels, t('usage_stats.overview_realtime_cache_rate'), cacheValues, CHART_COLORS.cache), [cacheValues, labels, t]);
   const ttftDistributionChartData = useMemo(() => buildResponseDistributionData(
-    ttftDistributionLabels,
     t('usage_stats.overview_realtime_ttft_average'),
     t('usage_stats.overview_realtime_ttft_distribution'),
-    ttftAverageValues,
+    ttftAverageChartData,
     ttftParticleValues,
     CHART_COLORS.ttft,
     isMobile,
-  ), [isMobile, t, ttftAverageValues, ttftDistributionLabels, ttftParticleValues]);
+  ), [isMobile, t, ttftAverageChartData, ttftParticleValues]);
   const latencyDistributionChartData = useMemo(() => buildResponseDistributionData(
-    latencyDistributionLabels,
     t('usage_stats.overview_realtime_latency_average'),
     t('usage_stats.overview_realtime_latency_distribution'),
-    latencyAverageValues,
+    latencyAverageChartData,
     latencyParticleValues,
     CHART_COLORS.latency,
     isMobile,
-  ), [isMobile, latencyAverageValues, latencyDistributionLabels, latencyParticleValues, t]);
+  ), [isMobile, latencyAverageChartData, latencyParticleValues, t]);
   const ttftMetrics = useMemo(() => metricChips(ttftAverageValues, formatRealtimeDuration, averageLabel, latestLabel, trendLabel, {
       invertTone: true,
     }), [averageLabel, latestLabel, trendLabel, ttftAverageValues]);
@@ -592,7 +714,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
                 compact
               >
                 <RealtimeChartFrame loading={loading} emptyLabel={ttftEmptyLabel}>
-                  <Chart type="line" data={ttftDistributionChartData} options={responseDistributionOptions} />
+                  <Chart type="line" data={ttftDistributionChartData} options={ttftDistributionOptions} />
                 </RealtimeChartFrame>
               </RealtimeCard>
 
@@ -603,7 +725,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
                 compact
               >
                 <RealtimeChartFrame loading={loading} emptyLabel={latencyEmptyLabel}>
-                  <Chart type="line" data={latencyDistributionChartData} options={responseDistributionOptions} />
+                  <Chart type="line" data={latencyDistributionChartData} options={latencyDistributionOptions} />
                 </RealtimeChartFrame>
               </RealtimeCard>
             </div>

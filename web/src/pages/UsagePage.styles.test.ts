@@ -13,10 +13,13 @@ const selectSource = readSource(new URL('../components/ui/Select.tsx', import.me
 const apiIndexSource = readSource(new URL('../components/usage/index.ts', import.meta.url))
 const apiClientSource = readSource(new URL('../lib/api.ts', import.meta.url))
 const i18nSource = readSource(new URL('../i18n/index.ts', import.meta.url))
+const apiKeySettingsSource = readSource(new URL('../components/usage/ApiKeySettingsCard.tsx', import.meta.url))
+const sessionSettingsSource = readSource(new URL('../components/usage/SessionSettingsCard.tsx', import.meta.url))
 const analysisPanelSource = readSource(new URL('../components/usage/analysis/AnalysisPanel.tsx', import.meta.url))
 const analysisPanelStyles = readSource(new URL('../components/usage/analysis/AnalysisPanel.module.scss', import.meta.url))
 const overviewRealtimePanelSource = readSource(new URL('../components/usage/OverviewRealtimePanel.tsx', import.meta.url))
 const statCardsSource = readSource(new URL('../components/usage/StatCards.tsx', import.meta.url))
+const dailyAveragePanelSource = readSource(new URL('../components/usage/DailyAveragePanel.tsx', import.meta.url))
 
 const requestEventColumnDefinitionBlock = (columnId: string) => {
   const start = requestEventsSource.indexOf(`id: '${columnId}',`)
@@ -41,6 +44,24 @@ describe('UsagePage toolbar styles', () => {
     expect(statCardsSource).toContain("key: 'cache-rate'")
     expect(statCardsSource).toContain("accent: '#14b8a6'")
     expect(statCardsSource.match(/accent:\s*'#[0-9a-f]{6}'/g)).toHaveLength(new Set(statCardsSource.match(/accent:\s*'#[0-9a-f]{6}'/g)).size)
+  })
+
+  it('places the Daily Average panel above stat cards with animated responsive styling', () => {
+    const usageDailyAverageIndex = usagePageSource.indexOf('<DailyAveragePanel usage={dailyAveragePanelUsage} loading={overviewDisplayLoading} reserveVisible={reserveDailyAveragePanel} />')
+    const keyDailyAverageIndex = keyOverviewPageSource.indexOf('<DailyAveragePanel usage={dailyAveragePanelUsage} loading={overviewDisplayLoading} reserveVisible={reserveDailyAveragePanel} />')
+    expect(usageDailyAverageIndex).toBeGreaterThanOrEqual(0)
+    expect(keyDailyAverageIndex).toBeGreaterThanOrEqual(0)
+    expect(usageDailyAverageIndex).toBeLessThan(usagePageSource.indexOf('<StatCards'))
+    expect(keyDailyAverageIndex).toBeLessThan(keyOverviewPageSource.indexOf('<StatCards'))
+    expect(dailyAveragePanelSource).toContain('buildDailyAverageMetrics')
+    expect(dailyAveragePanelSource).not.toContain('dailyAverageIdentityIcon')
+    expect(usagePageStyles).toMatch(/\.dailyAveragePanel\s*\{[\s\S]*?transition:[\s\S]*?opacity/)
+    expect(usagePageStyles).toMatch(/\.dailyAveragePanelEntering\s*\{[\s\S]*?transform:\s*translateY\(-6px\);/)
+    expect(usagePageStyles).toMatch(/\.dailyAveragePanelVisible\s*\{[\s\S]*?opacity:\s*1;/)
+    expect(usagePageStyles).toMatch(/\.dailyAverageMetrics\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/)
+    expect(usagePageStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.dailyAverageMetrics\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/)
+    expect(usagePageStyles).toMatch(/\.dailyAverageMetricCost\s*\{[\s\S]*?grid-column:\s*1 \/ -1;/)
+    expect(usagePageStyles).toContain('@media (prefers-reduced-motion: reduce)')
   })
 
   it('renders the realtime overview panel below Request Health Timeline with the planned responsive grid', () => {
@@ -115,7 +136,8 @@ describe('UsagePage toolbar styles', () => {
   })
 
   it('keeps Sign out as the rightmost header action after Check Updates', () => {
-    expect(usagePageSource).toContain("import { ApiError, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, logout, markStatusActive, updateCpaApiKeyAlias } from '@/lib/api';")
+    expect(usagePageSource).toContain('logout')
+    expect(usagePageSource).toContain('fetchUpdateCheck')
     expect(usagePageSource.indexOf("t('usage_stats.check_updates')")).toBeLessThan(usagePageSource.indexOf("t('common.logout')"))
     expect(usagePageStyles).toContain('.signOutSwitcher')
     expect(usagePageStyles).toContain('.signOutPill')
@@ -153,6 +175,53 @@ describe('UsagePage toolbar styles', () => {
     expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasField\s*\{[\s\S]*?:global\(\.form-group\)\s*\{[\s\S]*?min-width:\s*0;/)
     expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasField\s*\{[\s\S]*?:global\(\.form-group\)\s*\{[\s\S]*?margin-bottom:\s*0;/)
     expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasInput\s*\{[\s\S]*?max-width:\s*100%;/)
+  })
+
+  it('lets Session Management content shrink until it needs to scroll', () => {
+    const sessionSettingsBodyBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.sessionSettingsBody {'),
+      usagePageStyles.indexOf('.sessionSettingsList')
+    )
+    const sessionSettingsMobileBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('@include mobile {\n  .apiKeySettingsCard:global(.card)'),
+      usagePageStyles.indexOf('.pricesList')
+    )
+    const sessionSettingsMobileBodyBlock = sessionSettingsMobileBlock.slice(
+      sessionSettingsMobileBlock.indexOf('  .sessionSettingsBody {'),
+      sessionSettingsMobileBlock.indexOf('  .sessionSettingsItem {')
+    )
+
+    expect(usagePageStyles).toMatch(/\.sessionSettingsCard:global\(\.card\)\s*\{[\s\S]*?min-height:\s*auto;/)
+    expect(usagePageStyles).toMatch(/\.sessionSettingsBody\s*\{[\s\S]*?flex:\s*0 0 auto;/)
+    expect(sessionSettingsBodyBlock).toMatch(/\n\s{2}max-height:\s*var\(--settings-list-scroll-height\);/)
+    expect(sessionSettingsBodyBlock).not.toMatch(/\n\s{2}height:\s*var\(--settings-list-scroll-height\);/)
+    expect(usagePageStyles).toMatch(/\.sessionSettingsBody\s*\{[\s\S]*?overflow-y:\s*auto;/)
+    expect(usagePageStyles).toMatch(/\.sessionSettingsBody\s*\{[\s\S]*?overflow-x:\s*hidden;/)
+    expect(sessionSettingsMobileBodyBlock).toMatch(/\n\s{4}max-height:\s*var\(--settings-list-scroll-height\);/)
+    expect(sessionSettingsMobileBodyBlock).not.toMatch(/\n\s{4}height:\s*var\(--settings-list-scroll-height\);/)
+  })
+
+  it('reserves the Session Management action column so current rows keep timestamps aligned', () => {
+    expect(usagePageStyles).toMatch(/\.sessionSettingsItem\s*\{[\s\S]*?grid-template-columns:\s*minmax\(160px, 0\.8fr\) minmax\(220px, 1\.2fr\) minmax\(92px, auto\);/)
+    expect(usagePageStyles).toMatch(/\.sessionSettingsLogoutButton\s*\{[\s\S]*?min-width:\s*92px;/)
+  })
+
+  it('keeps Session and API Key Settings row actions compact like Model Pricing actions', () => {
+    const apiKeyButtonsBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.apiKeySettingsCopyButton,'),
+      usagePageStyles.indexOf('.sessionSettingsCard:global(.card)')
+    )
+    const sessionButtonBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.sessionSettingsLogoutButton {'),
+      usagePageStyles.indexOf('.sessionSettingsConfirmText')
+    )
+
+    expect(usagePageStyles).toMatch(/\.settingsCompactAction\s*\{[\s\S]*?min-height:\s*32px;/)
+    expect(usagePageStyles).toMatch(/\.settingsCompactAction\s*\{[\s\S]*?padding:\s*7px 12px;/)
+    expect(apiKeyButtonsBlock).not.toContain('min-height: 40px;')
+    expect(sessionButtonBlock).not.toContain('min-height: 40px;')
+    expect(apiKeySettingsSource).toContain('styles.settingsCompactAction')
+    expect(sessionSettingsSource).toContain('styles.settingsCompactAction')
   })
 
   it('keeps Model Pricing Settings list viewport aligned with API Key Settings without shrinking it behind the form', () => {
@@ -203,7 +272,8 @@ describe('UsagePage toolbar styles', () => {
     expect(analysisPanelSource).toContain("import { Bar, Doughnut, Scatter } from 'react-chartjs-2'")
     expect(usagePageSource).not.toContain('ChartJS.register(')
     expect(usagePageSource).not.toContain("from 'chart.js'")
-    expect(analysisPanelSource).toContain('<Bar data={chartData} options={chartOptions} plugins={[drawRequestsLineOnTopPlugin]} />')
+    expect(analysisPanelSource).toContain('<Bar data={chartData} options={chartOptions} plugins={[drawRequestsLineOnTopPlugin, drawTokenAverageLinePlugin]} />')
+    expect(analysisPanelSource).toContain("id: 'analysis-token-average-line'")
     expect(analysisPanelSource).toContain("const activeContentKey = `${activeTab?.id ?? 'empty'}:${items.map((item) => item.key).join('|')}`")
     expect(analysisPanelSource).toContain('<Doughnut key={`chart-${activeContentKey}`} data={chartData} options={chartOptions} />')
     expect(analysisPanelSource).toContain('<Scatter data={chartData} options={chartOptions} />')
@@ -433,6 +503,7 @@ describe('UsagePage toolbar styles', () => {
     const adaptiveColumnIds = [
       'timestamp',
       'reasoning_effort',
+      'service_tier',
       'result',
       'request_type',
       'endpoint',

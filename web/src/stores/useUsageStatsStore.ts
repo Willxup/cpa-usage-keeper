@@ -44,7 +44,7 @@ let activeRealtimeRequest: Promise<void> | null = null;
 let activeRealtimeRequestKey: string | null = null;
 let activeRealtimeRequestController: AbortController | null = null;
 
-const buildQueryKey = (range: UsageTimeRange, start?: string, end?: string, apiKeyId?: string): string =>
+export const buildUsageStatsQueryKey = (range: UsageTimeRange, start?: string, end?: string, apiKeyId?: string): string =>
   `${range}:${start ?? ''}:${end ?? ''}:${apiKeyId ?? ''}`;
 
 const buildRealtimeQueryKey = (apiKeyId?: string, realtimeWindow?: OverviewRealtimeWindow): string =>
@@ -73,7 +73,7 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
     } = options;
     const { lastRefreshedAt, loading, usage, lastQueryKey } = get();
     const now = Date.now();
-    const queryKey = buildQueryKey(range, start, end, apiKeyId);
+    const queryKey = buildUsageStatsQueryKey(range, start, end, apiKeyId);
     const overviewFresh = Boolean(!force && usage && lastRefreshedAt && lastQueryKey === queryKey && now - lastRefreshedAt < staleTimeMs);
 
     if (overviewFresh) {

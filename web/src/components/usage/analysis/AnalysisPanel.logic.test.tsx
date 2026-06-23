@@ -4,9 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChartData, ChartOptions, Plugin } from 'chart.js';
 import type { AnalysisResponse } from '@/lib/types';
 
+type TokenAverageLinePluginOptions = {
+  value: number;
+  color: string;
+};
+
 const chartCapture = vi.hoisted(() => ({
   barData: null as ChartData<'bar', Array<number | null>, string> | null,
   barOptions: null as ChartOptions<'bar'> | null,
+  barPlugins: undefined as Plugin<'bar'>[] | undefined,
   doughnutData: null as ChartData<'doughnut', number[], string> | null,
   doughnutCount: 0,
   scatterData: [] as ChartData<'scatter'>[],
@@ -15,9 +21,10 @@ const chartCapture = vi.hoisted(() => ({
 }));
 
 vi.mock('react-chartjs-2', () => ({
-  Bar: (props: { data: ChartData<'bar', Array<number | null>, string>; options: ChartOptions<'bar'> }) => {
+  Bar: (props: { data: ChartData<'bar', Array<number | null>, string>; options: ChartOptions<'bar'>; plugins?: Plugin<'bar'>[] }) => {
     chartCapture.barData = props.data;
     chartCapture.barOptions = props.options;
+    chartCapture.barPlugins = props.plugins;
     return React.createElement('div');
   },
   Doughnut: (props: { data: ChartData<'doughnut', number[], string> }) => {
@@ -142,6 +149,7 @@ describe('AnalysisPanel token chart data', () => {
   beforeEach(() => {
     chartCapture.barData = null;
     chartCapture.barOptions = null;
+    chartCapture.barPlugins = undefined;
     chartCapture.doughnutData = null;
     chartCapture.doughnutCount = 0;
     chartCapture.scatterData = [];
@@ -201,6 +209,62 @@ describe('AnalysisPanel token chart data', () => {
     const tooltipFooter = chartCapture.barOptions?.plugins?.tooltip?.callbacks?.footer;
     expect(typeof tooltipFooter).toBe('function');
     expect(tooltipFooter?.([{ dataIndex: 0 }] as never)).toBe('usage_stats.total_tokens: 1.15K');
+    expect(chartCapture.barOptions?.plugins?.tooltip?.footerColor).toBe('#374151');
+  });
+
+  it('shows the average total token value as a legend chip while keeping the chart reference line label-free', () => {
+    const analysis: AnalysisResponse = {
+      ...emptyAnalysis,
+      token_usage: [
+        {
+          bucket: '2026-05-28T01:00:00Z',
+          input_tokens: 100,
+          output_tokens: 0,
+          cached_tokens: 0,
+          reasoning_tokens: 0,
+          total_tokens: 100,
+          requests: 1,
+          cost_usd: 0,
+          cost_available: true,
+        },
+        {
+          bucket: '2026-05-28T02:00:00Z',
+          input_tokens: 0,
+          output_tokens: 0,
+          cached_tokens: 0,
+          reasoning_tokens: 0,
+          total_tokens: 0,
+          requests: 0,
+          cost_usd: 0,
+          cost_available: true,
+        },
+        {
+          bucket: '2026-05-28T03:00:00Z',
+          input_tokens: 400,
+          output_tokens: 100,
+          cached_tokens: 0,
+          reasoning_tokens: 0,
+          total_tokens: 500,
+          requests: 2,
+          cost_usd: 0,
+          cost_available: true,
+        },
+      ],
+    };
+
+    const markup = renderToStaticMarkup(<AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} />);
+    const plugins = chartCapture.barOptions?.plugins as (ChartOptions<'bar'>['plugins'] & {
+      analysisTokenAverageLine?: TokenAverageLinePluginOptions;
+    }) | undefined;
+
+    expect(chartCapture.barPlugins?.map((plugin) => plugin.id)).toContain('analysis-token-average-line');
+    expect(plugins?.analysisTokenAverageLine).toMatchObject({
+      value: 200,
+      color: 'rgba(71, 85, 105, 0.62)',
+    });
+    expect(plugins?.analysisTokenAverageLine).not.toHaveProperty('label');
+    expect(plugins?.analysisTokenAverageLine).not.toHaveProperty('labelBackgroundColor');
+    expect(markup).toContain('usage_stats.analysis_token_average: 200');
   });
 
   it('replaces the four composition cards with one tabbed composition table', () => {
