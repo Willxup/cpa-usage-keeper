@@ -318,29 +318,12 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 	}
 	record.LatencyDiagnostics = latencyDiagnostics
 
-	// 把分析结果中的 model 原名替换成 alias 展示名。
-	aliasMap := loadModelAliasMap(db)
-	for i, item := range record.ModelComposition {
-		if alias, ok := aliasMap[item.Key]; ok {
-			record.ModelComposition[i].Label = alias
-		}
-	}
-	for i, item := range record.ModelEfficiency {
-		if alias, ok := aliasMap[item.Model]; ok {
-			record.ModelEfficiency[i].Model = alias
-		}
-	}
-	for i, cell := range record.Heatmap {
-		if alias, ok := aliasMap[cell.Model]; ok {
-			record.Heatmap[i].Model = alias
-		}
-	}
-
 	fullStart, fullEnd := usageOverviewFullHourWindow(*filter.StartTime, *filter.EndTime)
 	fullEnd = analysisHourlyStatsEnd(filter, fullEnd)
 	if !fullEnd.After(fullStart) {
 		return record, nil
 	}
+	aliasMap := loadModelAliasMap(db)
 	if bucketByDay {
 		fullDayStart, fullDayEnd := usageOverviewFullDayWindow(fullStart, fullEnd)
 		var dailyRows []entities.UsageOverviewDailyStat
@@ -364,6 +347,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 			return nil, err
 		}
 		applyAnalysisDailyAndBoundaryHourlyRows(record, dailyRows, dailyIdentityLookup, hourlyRows, hourlyIdentityLookup, pricingByModel)
+		applyAnalysisModelAliases(record, aliasMap)
 		return record, nil
 	}
 	rows, err := loadAnalysisOverviewHourlyStatsWithFilter(db, filter, fullStart, fullEnd)
@@ -376,6 +360,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 	}
 	applyAnalysisHourlyRows(record, rows, identityLookup, pricingByModel)
 	fillAnalysisFullDayHourlyBuckets(record, filter)
+	applyAnalysisModelAliases(record, aliasMap)
 	return record, nil
 }
 
@@ -2410,6 +2395,28 @@ func loadPriceSettingsByModel(db *gorm.DB) (map[string]entities.ModelPriceSettin
 		result[strings.TrimSpace(setting.Model)] = setting
 	}
 	return result, nil
+}
+
+// applyAnalysisModelAliases 把分析结果中 model 原名替换成 alias 展示名，必须在数据填充之后调用。
+func applyAnalysisModelAliases(record *dto.AnalysisRecord, aliasMap map[string]string) {
+	if record == nil || len(aliasMap) == 0 {
+		return
+	}
+	for i, item := range record.ModelComposition {
+		if alias, ok := aliasMap[item.Key]; ok {
+			record.ModelComposition[i].Label = alias
+		}
+	}
+	for i, item := range record.ModelEfficiency {
+		if alias, ok := aliasMap[item.Model]; ok {
+			record.ModelEfficiency[i].Model = alias
+		}
+	}
+	for i, cell := range record.Heatmap {
+		if alias, ok := aliasMap[cell.Model]; ok {
+			record.Heatmap[i].Model = alias
+		}
+	}
 }
 
 // usageOverviewModelAliasPtr 把 stats 行的 ModelAlias string 转成 *string，便于传递给 lookupPricingByModelOrAlias。
