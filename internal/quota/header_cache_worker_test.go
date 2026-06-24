@@ -272,6 +272,23 @@ func TestApplyUsageHeaderSnapshotsSkipsBatchWhenWindowStatsProviderUnavailable(t
 	}
 }
 
+func TestApplyUsageHeaderSnapshotsAllowsNilService(t *testing.T) {
+	// nil service 模拟防御性调用路径，确保批量 apply 和其它 Service 方法一样安全 no-op。
+	var service *Service
+	// recover 捕获 panic，把 nil receiver 崩溃转成明确的测试失败。
+	defer func() {
+		// 非 nil recovered 说明当前实现仍然解引用了 nil service。
+		if recovered := recover(); recovered != nil {
+			t.Fatalf("expected nil service batch apply to no-op, got panic: %v", recovered)
+		}
+	}()
+
+	// 非空 snapshot 批次会越过 len(snapshots)==0 分支，真实覆盖 review 指出的 nil receiver 路径。
+	service.applyUsageHeaderSnapshots(context.Background(), []UsageHeaderSnapshot{
+		codexUsageHeaderSnapshot("codex-auth", time.Date(2026, 6, 22, 11, 0, 0, 0, time.Local), "4"),
+	})
+}
+
 func TestApplyUsageHeaderSnapshotWarnsOnIdentityDatabaseError(t *testing.T) {
 	hook := logrustest.NewGlobal()
 	defer hook.Reset()
@@ -569,6 +586,18 @@ func TestStopRefreshTasksStopsUsageHeaderWorker(t *testing.T) {
 
 	if service.TryAppendUsageHeaderSnapshots([]UsageHeaderSnapshot{codexUsageHeaderSnapshot("codex-auth", time.Now(), "4")}) {
 		t.Fatal("expected stopped usage header worker to reject new snapshots")
+	}
+}
+
+func TestNewServiceUsesOneMinuteUsageHeaderSnapshotFlushInterval(t *testing.T) {
+	// 默认构造 service，用生产默认值初始化 usage header snapshot worker。
+	service := NewServiceWithRegistry(openQuotaTestDatabase(t), NewProviderRegistry(nil))
+	// 测试结束时关闭 worker，避免后台 goroutine 泄漏到后续测试。
+	defer service.StopRefreshTasks()
+
+	// 默认 flush 间隔必须保持 1 分钟，防止高频 header 写 cache 又退回 30s。
+	if service.usageHeaderFlushInterval != time.Minute {
+		t.Fatalf("expected default usage header snapshot flush interval 1m, got %s", service.usageHeaderFlushInterval)
 	}
 }
 

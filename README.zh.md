@@ -383,7 +383,7 @@ web/                     React + TypeScript 前端
 
 ### 前置依赖
 
-- Go 1.22+
+- Go 1.26+
 - Node.js 22+
 - npm
 - 已运行的 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI)

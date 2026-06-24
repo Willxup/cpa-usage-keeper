@@ -12,8 +12,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// redisInboxProcessInterval 控制本地 inbox 解码处理频率；远端 ingest 负责写 inbox，本 runner 只处理本地积压。
-const redisInboxProcessInterval = 3 * time.Second
+// redisInboxProcessInterval 控制本地 inbox 空闲或非满批时的检查频率；满批积压会立即继续处理。
+const redisInboxProcessInterval = time.Second
 
 // RedisProcessSyncer 抽象已有 service.ProcessRedisUsageInbox，避免 process runner 依赖完整 SyncService 类型。
 type RedisProcessSyncer interface {
@@ -77,11 +77,36 @@ func (r *RedisProcessRunner) Run(ctx context.Context) error {
 				r.logBatchFailure(result, err)
 			}
 		}
-		// 固定间隔等待下一轮处理，关停时可被 context 打断。
+		// 满批成功或满批 warning 说明本地 inbox 大概率仍有积压，立即进入下一轮 drain。
+		if shouldContinueRedisProcessImmediately(result, err) {
+			// 跳过 sleep 可以避免持续 backlog 被固定等待时间限制吞吐。
+			continue
+		}
+		// 空批、非满批或真正失败时等待下一轮处理，关停时可被 context 打断。
 		if !r.sleep(ctx, redisInboxProcessInterval) {
 			return nil
 		}
 	}
+}
+
+func shouldContinueRedisProcessImmediately(result *servicedto.RedisBatchSyncResult, err error) bool {
+	// 没有结果时无法确认 backlog，runner 保守进入 sleep。
+	if result == nil {
+		// nil result 多见于依赖错误或事务异常，不应忙循环。
+		return false
+	}
+	// 非满批说明本轮已经接近追平，runner 按 1 秒间隔低占用轮询。
+	if !result.BatchFull {
+		// 只在 service 明确报告满批时才跳过 sleep。
+		return false
+	}
+	// 真正失败时立即重试容易形成 busy loop，必须保留 sleep/backoff 空间。
+	if err != nil && !errors.Is(err, ErrSyncCompletedWithWarnings) {
+		// completed_with_warnings 代表部分成功，仍允许满批 drain 继续。
+		return false
+	}
+	// 满批且非真正失败时立即处理下一批，提升持续 backlog 吞吐。
+	return true
 }
 
 func (r *RedisProcessRunner) ProcessOnce(ctx context.Context) (*servicedto.RedisBatchSyncResult, error) {
@@ -171,7 +196,7 @@ func (r *RedisProcessRunner) recordProcessResult(result *servicedto.RedisBatchSy
 
 func (r *RedisProcessRunner) logBatchFailure(result *servicedto.RedisBatchSyncResult, err error) {
 	// 失败日志只包含聚合统计字段，避免输出原始 usage 消息。
-	fields := logrus.Fields{"status": "", "empty": false, "inserted_events": 0, "deduped_events": 0}
+	fields := logrus.Fields{"status": "", "empty": false, "inserted_events": 0, "deduped_events": 0, "processed_rows": 0, "batch_full": false}
 	if result != nil {
 		// result 存在时补充批次状态。
 		fields["status"] = result.Status
@@ -181,6 +206,10 @@ func (r *RedisProcessRunner) logBatchFailure(result *servicedto.RedisBatchSyncRe
 		fields["inserted_events"] = result.InsertedEvents
 		// deduped_events 方便判断是否大部分数据已去重。
 		fields["deduped_events"] = result.DedupedEvents
+		// processed_rows 方便判断本轮失败是否发生在满批处理场景。
+		fields["processed_rows"] = result.ProcessedRows
+		// batch_full 方便判断失败轮次是否本来应该进入连续 drain。
+		fields["batch_full"] = result.BatchFull
 	}
 	// 本地处理失败使用 error 日志级别。
 	logrus.WithError(err).WithFields(fields).Error("redis process batch failed")
