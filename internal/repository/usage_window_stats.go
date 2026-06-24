@@ -26,13 +26,14 @@ type UsageWindowStatsCalculator struct {
 }
 
 type usageWindowTokenStats struct {
-	Model               string `gorm:"column:model"`
-	TotalTokens         int64  `gorm:"column:total_tokens"`
-	InputTokens         int64  `gorm:"column:input_tokens"`
-	OutputTokens        int64  `gorm:"column:output_tokens"`
-	CachedTokens        int64  `gorm:"column:cached_tokens"`
-	CacheReadTokens     int64  `gorm:"column:cache_read_tokens"`
-	CacheCreationTokens int64  `gorm:"column:cache_creation_tokens"`
+	Model               string  `gorm:"column:model"`
+	ModelAlias          *string `gorm:"column:model_alias"`
+	TotalTokens         int64   `gorm:"column:total_tokens"`
+	InputTokens         int64   `gorm:"column:input_tokens"`
+	OutputTokens        int64   `gorm:"column:output_tokens"`
+	CachedTokens        int64   `gorm:"column:cached_tokens"`
+	CacheReadTokens     int64   `gorm:"column:cache_read_tokens"`
+	CacheCreationTokens int64   `gorm:"column:cache_creation_tokens"`
 }
 
 func NewUsageWindowStatsCalculator(ctx context.Context, db *gorm.DB) (*UsageWindowStatsCalculator, error) {
@@ -208,11 +209,11 @@ func sumRawUsageWindowTokenStats(db *gorm.DB, authIndex string, start time.Time,
 	// raw 查询只取 model 级汇总字段，避免把大量 usage_events 行读进 Go 内存。
 	query := db.Model(&entities.UsageEvent{}).
 		// SELECT 中只聚合 token/cost 需要的字段，不读取 raw_json 等大字段。
-		Select("model, COALESCE(SUM(total_tokens), 0) AS total_tokens, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(cached_tokens), 0) AS cached_tokens, COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens, COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens").
+		Select("model, model_alias, COALESCE(SUM(total_tokens), 0) AS total_tokens, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(cached_tokens), 0) AS cached_tokens, COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens, COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens").
 		// auth_index 已经是唯一身份维度，这里不再额外按 auth_type 过滤。
 		Where("auth_index = ? AND timestamp >= ?", authIndex, timeutil.FormatStorageTime(start)).
-		// 按 model 分组，后续按 model 价格表计算 cost。
-		Group("model")
+		// 按 model + model_alias 分组，后续按 model/alias 价格表计算 cost。
+		Group("model, model_alias")
 	// 如果调用方传入结束时间，就用半开区间避免边界重复累计。
 	if end != nil {
 		// end 统一格式化为 storage time，确保 SQLite 文本比较稳定。
@@ -233,11 +234,11 @@ func sumHourlyUsageWindowTokenStats(db *gorm.DB, authIndex string, start time.Ti
 	// hourly 查询直接读取 overview 已经维护好的小时增量表。
 	query := db.Model(&entities.UsageOverviewHourlyStat{}).
 		// SELECT 中聚合 token/cost 需要的字段，保持和 raw 查询返回结构一致。
-		Select("model, COALESCE(SUM(total_tokens), 0) AS total_tokens, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(cached_tokens), 0) AS cached_tokens, COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens, COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens").
+		Select("model, model_alias, COALESCE(SUM(total_tokens), 0) AS total_tokens, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(cached_tokens), 0) AS cached_tokens, COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens, COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens").
 		// auth_index + bucket_start 范围可以使用现有 hourly auth_bucket 索引。
 		Where("auth_index = ? AND bucket_start >= ? AND bucket_start < ?", authIndex, timeutil.FormatStorageTime(start), timeutil.FormatStorageTime(end)).
-		// 按 model 分组，后续按 model 价格表计算 cost。
-		Group("model")
+		// 按 model + model_alias 分组，后续按 model/alias 价格表计算 cost。
+		Group("model, model_alias")
 	// rows 只承接聚合后的少量 model 行。
 	var rows []usageWindowTokenStats
 	// 执行 hourly 聚合查询。
@@ -295,7 +296,7 @@ func usageWindowStatsFromTokenStats(rows []usageWindowTokenStats, pricingByModel
 		// total_tokens 直接累计到前端展示的窗口 token。
 		stats.Tokens += row.TotalTokens
 		// model 名称按 trim 后查价格，保持和其它 Overview/Usage cost 逻辑一致。
-		pricing := pricingByModel[strings.TrimSpace(row.Model)]
+		pricing, _ := lookupPricingByModelOrAlias(pricingByModel, row.Model, row.ModelAlias)
 		// 使用统一 helper 按当前价格表计算该 model 的 cost。
 		stats.Cost += helper.CalculateUsageTokenCost(helper.UsageTokenCostInput{
 			InputTokens:         row.InputTokens,

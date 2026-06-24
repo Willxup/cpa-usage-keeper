@@ -50,7 +50,7 @@ export function AiProviderCredentialsSection({ rows, total, page, totalPages, pa
               {row.priorityLabel && <CredentialPriorityBadge>{row.priorityLabel}</CredentialPriorityBadge>}
             </span>
           )}
-          badges={null}
+          badges={<CredentialBadge tone="neutral">{row.maskedIdentity}</CredentialBadge>}
           metrics={(
             <>
               <MetricPill value={<RequestMetric total={row.totalRequests} success={row.successCount} failure={row.failureCount} />} />

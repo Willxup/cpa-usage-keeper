@@ -41,7 +41,8 @@ type UsageEventsPage struct {
 
 // UsageEventFilterOptions 是 usage events 筛选项的服务层结果。
 type UsageEventFilterOptions struct {
-	Models []string
+	Models      []string
+	ModelLabels map[string]string
 }
 
 // UsageEventRecord 是单条 usage event 的服务层结果。
@@ -50,6 +51,7 @@ type UsageEventRecord struct {
 	Timestamp           time.Time
 	APIGroupKey         string
 	Model               string
+	ModelAlias          *string
 	ReasoningEffort     string
 	ServiceTier         string
 	ExecutorType        string

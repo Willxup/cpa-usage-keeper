@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef, type KeyboardEvent, type SyntheticEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, fetchAnalysis, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, logout, markStatusActive, revokeAuthSession, updateCpaApiKeyAlias } from '@/lib/api';
-import type { AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
+import type { AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, ModelFilterOption, OverviewRealtimeWindow, StatusResponse, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { Select } from '@/components/ui/Select';
@@ -175,7 +175,7 @@ type RequestEventFilterState = {
 };
 
 type RequestEventFilterOptionsState = {
-  models: string[];
+  models: ModelFilterOption[];
   sources: UsageSourceFilterOption[];
 };
 
@@ -556,7 +556,7 @@ export const sanitizeRequestEventFilters = (
     };
   }
 
-  const model = filters.model === ALL_REQUEST_EVENTS_FILTER || options.models.includes(filters.model)
+  const model = filters.model === ALL_REQUEST_EVENTS_FILTER || options.models.some((m) => m.value === filters.model)
     ? filters.model
     : ALL_REQUEST_EVENTS_FILTER;
   const source = filters.source === ALL_REQUEST_EVENTS_FILTER || options.sources.some((option) => option.value === filters.source)
@@ -849,7 +849,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [eventsPageSize, setEventsPageSize] = useState<number>(initialRequestEventsPreferences.pageSize);
   const [eventsTotalCount, setEventsTotalCount] = useState(0);
   const [eventsTotalPages, setEventsTotalPages] = useState(0);
-  const [eventsModelOptions, setEventsModelOptions] = useState<string[]>([]);
+  const [eventsModelOptions, setEventsModelOptions] = useState<ModelFilterOption[]>([]);
   const [eventsSourceOptions, setEventsSourceOptions] = useState<UsageSourceFilterOption[]>([]);
   const [eventsModelFilter, setEventsModelFilter] = useState(initialRequestEventsPreferences.filters.model);
   const [eventsSourceFilter, setEventsSourceFilter] = useState(initialRequestEventsPreferences.filters.source);

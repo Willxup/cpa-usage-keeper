@@ -471,18 +471,18 @@ const getHeatmapCellColor = (intensity: number, isDark: boolean) => {
   const stops: Array<{ at: number; color: [number, number, number] }> = [
     ...(isDark
       ? [
-        { at: 0, color: [26, 17, 24] },
-        { at: 0.24, color: [74, 31, 35] },
-        { at: 0.48, color: [154, 52, 18] },
-        { at: 0.74, color: [249, 115, 22] },
-        { at: 1, color: [253, 230, 138] },
+        { at: 0, color: [26, 24, 23] },
+        { at: 0.25, color: [55, 50, 47] },
+        { at: 0.5, color: [90, 83, 76] },
+        { at: 0.75, color: [130, 120, 112] },
+        { at: 1, color: [178, 170, 163] },
       ] satisfies Array<{ at: number; color: [number, number, number] }>
       : [
-        { at: 0, color: [255, 247, 237] },
-        { at: 0.22, color: [254, 215, 170] },
-        { at: 0.48, color: [251, 146, 60] },
-        { at: 0.72, color: [239, 68, 68] },
-        { at: 1, color: [124, 45, 18] },
+        { at: 0, color: [240, 238, 232] },
+        { at: 0.2, color: [206, 200, 192] },
+        { at: 0.45, color: [173, 165, 156] },
+        { at: 0.7, color: [139, 131, 124] },
+        { at: 1, color: [92, 82, 74] },
       ] satisfies Array<{ at: number; color: [number, number, number] }>),
   ];
   const upperIndex = stops.findIndex((stop) => clampedIntensity <= stop.at);
@@ -496,9 +496,9 @@ const getHeatmapCellColor = (intensity: number, isDark: boolean) => {
 const getHeatmapCellTextColor = (intensity: number, isDark: boolean) => {
   const clampedIntensity = Math.max(0, Math.min(1, intensity));
   if (!isDark) {
-    return clampedIntensity > 0.58 ? '#fff7ed' : '#431407';
+    return clampedIntensity > 0.58 ? '#f5f3ef' : '#3a3530';
   }
-  return clampedIntensity > 0.86 ? '#1c1208' : '#fff7ed';
+  return clampedIntensity > 0.75 ? '#1a1817' : '#f0eee8';
 };
 
 const getHeatmapVisualIntensity = (value: number, maxValue: number) => {

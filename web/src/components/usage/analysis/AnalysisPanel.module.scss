@@ -748,8 +748,8 @@
   border-radius: 5px;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.20),
-    inset 0 -10px 18px rgba(127, 29, 29, 0.18),
-    0 1px 3px rgba(67, 20, 7, 0.10);
+    inset 0 -10px 18px rgba(80, 70, 60, 0.12),
+    0 1px 3px rgba(60, 50, 40, 0.08);
   font-variant-numeric: tabular-nums;
   outline: none;
 }
@@ -759,16 +759,16 @@
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at 50% 115%, rgba(255, 247, 237, 0.82), rgba(249, 115, 22, 0.36) 34%, rgba(127, 29, 29, 0) 72%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0) 38%);
+    radial-gradient(circle at 50% 115%, rgba(245, 240, 235, 0.60), rgba(180, 170, 160, 0.20) 34%, rgba(120, 110, 100, 0) 72%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 38%);
   opacity: var(--heatmap-flame-alpha, 0.35);
   pointer-events: none;
 }
 
 .heatmapCardDark .heatmapCell::before {
   background:
-    radial-gradient(circle at 50% 115%, rgba(254, 243, 199, 0.92), rgba(249, 115, 22, 0.48) 36%, rgba(127, 29, 29, 0) 74%),
-    linear-gradient(180deg, rgba(255, 247, 237, 0.10), rgba(255, 247, 237, 0) 42%);
+    radial-gradient(circle at 50% 115%, rgba(220, 215, 210, 0.50), rgba(160, 152, 144, 0.22) 36%, rgba(100, 90, 80, 0) 74%),
+    linear-gradient(180deg, rgba(240, 238, 232, 0.08), rgba(240, 238, 232, 0) 42%);
 }
 
 .heatmapCell:focus-visible {
@@ -803,12 +803,12 @@
   width: 120px;
   height: 10px;
   border-radius: 8px;
-  background: linear-gradient(90deg, #fff7ed, #fed7aa, #fb923c, #ef4444, #7c2d12);
+  background: linear-gradient(90deg, #f0eee8, #cec8c0, #ada59c, #8b8378, #5c524a);
   box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .heatmapCardDark .heatmapLegendRamp {
-  background: linear-gradient(90deg, #1a1118, #4a1f23, #9a3412, #f97316, #fde68a);
+  background: linear-gradient(90deg, #1a1815, #37322e, #5a534c, #82786e, #b2aaa3);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.10);
 }
 

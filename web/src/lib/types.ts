@@ -214,6 +214,7 @@ export interface UsageEvent {
   timestamp: string
   api_key?: string
   model: string
+  model_alias?: string
   reasoning_effort?: string
   service_tier?: string
   executor_type?: string
@@ -247,8 +248,13 @@ export interface UsageEventsResponse {
   total_pages: number
 }
 
+export interface ModelFilterOption {
+  value: string
+  label: string
+}
+
 export interface UsageEventModelFilterOptionsResponse {
-  models: string[]
+  models: ModelFilterOption[]
 }
 
 export interface UsageEventSourceFilterOptionsResponse {

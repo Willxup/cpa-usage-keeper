@@ -29,6 +29,11 @@ type usageSourceFilterOption struct {
 	DisplayName string `json:"displayName"`
 }
 
+type modelFilterOption struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
 type usageEventFilterOptionsResponse struct {
 	Models  []string                  `json:"models"`
 	Sources []usageSourceFilterOption `json:"sources"`
@@ -39,6 +44,7 @@ type usageEventPayload struct {
 	Timestamp       string                 `json:"timestamp"`
 	APIKey          string                 `json:"api_key,omitempty"`
 	Model           string                 `json:"model"`
+	ModelAlias      *string                `json:"model_alias,omitempty"`
 	ReasoningEffort string                 `json:"reasoning_effort,omitempty"`
 	ServiceTier     string                 `json:"service_tier,omitempty"`
 	ExecutorType    string                 `json:"executor_type,omitempty"`
@@ -75,12 +81,20 @@ func registerUsageEventsRoute(
 	cpaAPIKeyProvider service.CPAAPIKeyProvider,
 ) {
 	router.GET("/usage/events/filters/models", func(c *gin.Context) {
-		models, err := loadUsageEventModelFilterOptions(c, usageProvider)
+		models, labels, err := loadUsageEventModelFilterOptions(c, usageProvider)
 		if err != nil {
 			writeInternalError(c, "list usage event model filter options failed", err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"models": models})
+		options := make([]modelFilterOption, 0, len(models))
+		for _, model := range models {
+			label := model
+			if alias, ok := labels[model]; ok {
+				label = alias
+			}
+			options = append(options, modelFilterOption{Value: model, Label: label})
+		}
+		c.JSON(http.StatusOK, gin.H{"models": options})
 	})
 
 	router.GET("/usage/events/filters/sources", func(c *gin.Context) {
@@ -165,6 +179,7 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 			ID:              id,
 			Timestamp:       timeutil.FormatStorageTime(row.Timestamp),
 			APIKey:          usageEventAPIKeyLabel(row.APIGroupKey, apiKeyInfos),
+			ModelAlias:      row.ModelAlias,
 			Model:           row.Model,
 			ReasoningEffort: strings.TrimSpace(row.ReasoningEffort),
 			ServiceTier:     strings.TrimSpace(row.ServiceTier),
@@ -200,7 +215,8 @@ func usageEventSpeedTPS(row servicedto.UsageEventRecord) *float64 {
 	if visibleOutputTokens < 0 {
 		visibleOutputTokens = 0
 	}
-	if row.TTFTMS == nil || *row.TTFTMS <= 0 || row.LatencyMS <= *row.TTFTMS || visibleOutputTokens <= 1 {
+	// 生成时间过短（<10ms）时，毫秒级精度无法支撑可信的 TPS 计算。
+	if row.TTFTMS == nil || *row.TTFTMS <= 0 || row.LatencyMS-*row.TTFTMS < 10 || visibleOutputTokens <= 1 {
 		return nil
 	}
 	// Speed 只衡量首字后可见输出 token 的平均生成速度，避免把等待首字的时间重复计入。
@@ -231,15 +247,15 @@ func usageEventPublicSource(row servicedto.UsageEventRecord, identity resolvedUs
 	}
 }
 
-func loadUsageEventModelFilterOptions(c *gin.Context, usageProvider service.UsageProvider) ([]string, error) {
+func loadUsageEventModelFilterOptions(c *gin.Context, usageProvider service.UsageProvider) ([]string, map[string]string, error) {
 	if usageProvider == nil {
-		return []string{}, nil
+		return []string{}, nil, nil
 	}
 	options, err := usageProvider.ListUsageEventFilterOptions(c.Request.Context(), servicedto.UsageFilter{})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return options.Models, nil
+	return options.Models, options.ModelLabels, nil
 }
 
 func loadUsageEventSourceFilterOptions(c *gin.Context, usageIdentityProvider service.UsageIdentityProvider) ([]usageSourceFilterOption, error) {

@@ -15,7 +15,7 @@ import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Select } from '@/components/ui/Select';
 import { IconCheck, IconChevronDown } from '@/components/ui/icons';
-import type { UsageEvent, UsageSourceFilterOption } from '@/lib/types';
+import type { ModelFilterOption, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
 import {
   calculateCacheRate,
   formatDurationMs,
@@ -148,7 +148,7 @@ export interface RequestEventsDetailsCardProps {
   pageSizeOptions: readonly number[];
   totalCount: number;
   totalPages: number;
-  modelOptions: string[];
+  modelOptions: ModelFilterOption[];
   sourceOptions: UsageSourceFilterOption[];
   modelFilter: string;
   sourceFilter: string;
@@ -531,7 +531,8 @@ export function RequestEventsDetailsCard({
       const source = String(event.source ?? '').trim() || '-';
       const sourceType = String(event.source_type ?? '').trim();
       const apiKey = String(event.api_key ?? '').trim() || '-';
-      const model = String(event.model ?? '').trim() || '-';
+      const modelAlias = String(event.model_alias ?? '').trim();
+      const model = modelAlias || String(event.model ?? '').trim() || '-';
       const reasoningEffort = String(event.reasoning_effort ?? '').trim() || '-';
       const serviceTier = formatRequestSpeedMode(event.service_tier, t);
       const endpointFields = parseRequestEndpoint(event.endpoint);
@@ -606,7 +607,7 @@ export function RequestEventsDetailsCard({
   const modelOptions = useMemo(() => {
     const options = [
       { value: ALL_FILTER, label: t('usage_stats.filter_all') },
-      ...backendModelOptions.map((model) => ({ value: model, label: model })),
+      ...backendModelOptions,
     ];
     return appendSelectedOption(options, modelFilter);
   }, [backendModelOptions, modelFilter, t]);

@@ -436,6 +436,7 @@ func (s *usageService) ListUsageEvents(_ context.Context, filter servicedto.Usag
 			Timestamp:           row.Timestamp,
 			APIGroupKey:         row.APIGroupKey,
 			Model:               row.Model,
+				ModelAlias:          row.ModelAlias,
 			ReasoningEffort:     row.ReasoningEffort,
 			ServiceTier:         row.ServiceTier,
 			ExecutorType:        row.ExecutorType,
@@ -471,5 +472,5 @@ func (s *usageService) ListUsageEventFilterOptions(_ context.Context, filter ser
 	if err != nil {
 		return nil, err
 	}
-	return &servicedto.UsageEventFilterOptions{Models: options.Models}, nil
+	return &servicedto.UsageEventFilterOptions{Models: options.Models, ModelLabels: options.ModelLabels}, nil
 }

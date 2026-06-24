@@ -497,7 +497,7 @@ describe('UsagePage request event filters', () => {
         result: 'failed',
       },
       {
-        models: ['claude-sonnet'],
+        models: [{ value: 'claude-sonnet', label: 'claude-sonnet' }],
         sources: [{ value: 'authidx-source-a', label: 'authidx-source-a' }],
       },
     );
@@ -517,7 +517,7 @@ describe('UsagePage request event filters', () => {
         result: 'success',
       },
       {
-        models: ['claude-sonnet'],
+        models: [{ value: 'claude-sonnet', label: 'claude-sonnet' }],
         sources: [{ value: 'authidx-source-a', label: 'authidx-source-a' }],
       },
     );
