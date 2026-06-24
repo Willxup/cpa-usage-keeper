@@ -27,18 +27,15 @@ export function AppFooter({ version: fixedVersion, loadVersion = true }: { versi
     if (fixedVersion !== undefined) return;
     if (!loadVersion) return;
 
-    let cancelled = false;
     const requestController = new AbortController();
     void loadFooterVersion(fetchVersion, requestController.signal)
       .then((nextVersion) => {
-        if (!cancelled) setVersion(nextVersion);
-      })
-      .catch(() => {
-        if (!cancelled) setVersion('');
+        if (!requestController.signal.aborted) {
+          setVersion(nextVersion);
+        }
       });
 
     return () => {
-      cancelled = true;
       requestController.abort();
     };
   }, [fixedVersion, loadVersion]);
