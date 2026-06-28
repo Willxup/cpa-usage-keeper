@@ -44,6 +44,9 @@ jobs:
           path-type: inherit
           install: mingw-w64-ucrt-x86_64-gcc
 
+      - name: Create dummy dist for go:embed
+        run: mkdir -p web/dist && touch web/dist/.gitkeep
+
       - name: Run backend tests
         if: ${{ runner.os != 'Windows' }}
         run: go test ./cmd/... ./internal/...
