@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/helper"
@@ -302,7 +304,7 @@ func mapUsageIdentityResponseWithHealth(item entities.UsageIdentity, health *ser
 }
 
 func validateUsageIdentityAlias(value string) error {
-	if len([]rune(value)) > maxUsageIdentityAliasLength {
+	if utf8.RuneCountInString(value) > maxUsageIdentityAliasLength {
 		return errors.New("alias is too long")
 	}
 	for _, r := range value {
@@ -324,7 +326,7 @@ func parseUpdateUsageIdentityAliasRequest(c *gin.Context) (string, bool) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "alias is required"})
 		return "", false
 	}
-	if strings.TrimSpace(string(rawAlias)) == "null" {
+	if bytes.Equal(bytes.TrimSpace(rawAlias), []byte("null")) {
 		return "", true
 	}
 	var alias string
