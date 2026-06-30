@@ -1016,6 +1016,12 @@ function isAuthFileDisplayMode(value: string | null | undefined): value is AuthF
 
 export function AuthFileQuotaPanel({ row, quotaUsageMode }: { row: AuthFileCredentialRow; quotaUsageMode: QuotaUsageMode }) {
   const { t } = useTranslation()
+  const [selectedQuota, setSelectedQuota] = useState<DisplayQuota | null>(null)
+  const [quotaDetailsOpen, setQuotaDetailsOpen] = useState(false)
+  const openQuotaDetails = (quota: DisplayQuota) => {
+    setSelectedQuota(quota)
+    setQuotaDetailsOpen(true)
+  }
 
   // 限额区域按加载、错误、刷新中、无缓存、可展示数据的顺序降级。
   if (row.quotaLoading) {
@@ -1043,8 +1049,9 @@ export function AuthFileQuotaPanel({ row, quotaUsageMode }: { row: AuthFileCrede
     <div className={styles.credentialQuotaPanel}>
       <div className={styles.credentialQuotaBars}>
         {/* 每个可计算进度的 quota 都独占一个稳定块；不可进度化 quota 在 view model 中已过滤。 */}
-        {row.displayQuotas.map((quota) => <QuotaBar key={quota.key} quota={quota} quotaUsageMode={quotaUsageMode} />)}
+        {row.displayQuotas.map((quota) => <QuotaBar key={quota.key} quota={quota} quotaUsageMode={quotaUsageMode} onSelect={openQuotaDetails} />)}
       </div>
+      <QuotaDetailsModal quota={selectedQuota} open={quotaDetailsOpen} onClose={() => setQuotaDetailsOpen(false)} />
     </div>
   )
 }
@@ -1259,7 +1266,7 @@ export function formatQuotaBillingUsageAriaLabel(t: Translate, billingUsage: Non
   })
 }
 
-function QuotaBar({ quota, quotaUsageMode }: { quota: DisplayQuota; quotaUsageMode: QuotaUsageMode }) {
+function QuotaBar({ quota, quotaUsageMode, onSelect }: { quota: DisplayQuota; quotaUsageMode: QuotaUsageMode; onSelect: (quota: DisplayQuota) => void }) {
   const { t } = useTranslation()
   // 条宽使用剩余额度百分比，颜色跟随剩余风险状态从绿到黄到红。
   const percent = quota.barPercent ?? 0
@@ -1271,7 +1278,7 @@ function QuotaBar({ quota, quotaUsageMode }: { quota: DisplayQuota; quotaUsageMo
   const windowUsage = billingUsage ? undefined : quotaWindowUsageForMode(quota, quotaUsageMode)
 
   return (
-    <div className={styles.credentialQuotaBarBlock}>
+    <button type="button" className={styles.credentialQuotaBarBlock} onClick={() => onSelect(quota)} aria-label={t('usage_stats.credentials_quota_details_open', { label: quota.label })}>
       <div className={styles.credentialQuotaBarHeader}>
         <span className={styles.credentialQuotaLabelGroup}>
           <span>{quota.label}</span>
@@ -1309,7 +1316,7 @@ function QuotaBar({ quota, quotaUsageMode }: { quota: DisplayQuota; quotaUsageMo
         )}
         {resetLabel && <span>{resetLabel}</span>}
       </div>
-    </div>
+    </button>
   )
 }
 
@@ -1325,4 +1332,56 @@ function quotaWindowUsageForMode(quota: DisplayQuota, mode: QuotaUsageMode): Dis
     return quota.windowUsageEstimate
   }
   return quota.windowUsage
+}
+
+function QuotaDetailsModal({ quota, open, onClose }: { quota: DisplayQuota | null; open: boolean; onClose: () => void }) {
+  const { t } = useTranslation()
+  const currentUsage = quota?.windowUsage
+  const estimatedUsage = quota?.windowUsageEstimate
+  const billingUsage = quota?.billingUsage
+  const percentLabel = quota?.barPercent === null || quota?.barPercent === undefined ? '' : `${Math.round(quota.barPercent)}%`
+  const resetLabel = quota?.resetText ? formatQuotaResetLabel(quota.resetText) : ''
+
+  return (
+    <Modal open={open} title={t('usage_stats.credentials_quota_details_title', { label: quota?.label ?? '' })} onClose={onClose} width={520} className={styles.credentialQuotaDetailsModal}>
+      <div className={styles.credentialQuotaDetailsPanel}>
+        {billingUsage ? (
+          <div className={styles.credentialQuotaDetailsGrid}>
+            <QuotaDetailMetric label={t('usage_stats.credentials_quota_details_billing_used')} value={billingUsage.used ?? t('usage_stats.credentials_quota_details_no_value')} />
+            <QuotaDetailMetric label={t('usage_stats.credentials_quota_details_billing_limit')} value={billingUsage.limit ?? t('usage_stats.credentials_quota_details_no_value')} />
+            <QuotaDetailMetric label={t('usage_stats.credentials_quota_details_billing_remaining')} value={billingUsage.remaining ?? t('usage_stats.credentials_quota_details_no_value')} />
+          </div>
+        ) : (
+          <div className={styles.credentialQuotaDetailsGrid}>
+            <QuotaDetailMetric label={t('usage_stats.credentials_quota_details_current_tokens')} value={currentUsage?.tokens ?? t('usage_stats.credentials_quota_details_no_value')} />
+            <QuotaDetailMetric label={t('usage_stats.credentials_quota_details_estimated_tokens')} value={estimatedUsage?.tokens ?? t('usage_stats.credentials_quota_details_no_value')} />
+            <QuotaDetailMetric label={t('usage_stats.credentials_quota_details_current_cost')} value={currentUsage?.cost ?? t('usage_stats.credentials_quota_details_no_value')} />
+            <QuotaDetailMetric label={t('usage_stats.credentials_quota_details_estimated_cost')} value={estimatedUsage?.cost ?? t('usage_stats.credentials_quota_details_no_value')} />
+          </div>
+        )}
+        <div className={styles.credentialQuotaDetailsMeta}>
+          {percentLabel && <QuotaDetailLine label={t('usage_stats.credentials_quota_details_remaining')} value={percentLabel} />}
+          {resetLabel && <QuotaDetailLine label={t('usage_stats.credentials_quota_details_reset')} value={resetLabel} />}
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function QuotaDetailMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <span className={styles.credentialQuotaDetailsMetric}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </span>
+  )
+}
+
+function QuotaDetailLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className={styles.credentialQuotaDetailsLine}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  )
 }

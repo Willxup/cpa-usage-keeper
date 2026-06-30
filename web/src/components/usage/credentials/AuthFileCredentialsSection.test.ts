@@ -303,6 +303,8 @@ describe('AuthFileCredentialsSection quota usage mode rendering', () => {
     const currentHtml = renderToStaticMarkup(createElement(AuthFileQuotaPanel, { row, quotaUsageMode: 'current' }))
     const estimatedHtml = renderToStaticMarkup(createElement(AuthFileQuotaPanel, { row, quotaUsageMode: 'estimated' }))
 
+    expect(currentHtml).toContain('<button')
+    expect(currentHtml).toContain('usage_stats.credentials_quota_details_open')
     expect(currentHtml).toContain('1.00M')
     expect(currentHtml).toContain('$2.50')
     expect(currentHtml).not.toContain('4.00M')
@@ -344,6 +346,14 @@ describe('AuthFileCredentialsSection quota usage mode rendering', () => {
     expect(html.match(/<img/g)).toHaveLength(1)
     expect(html.indexOf('<img')).toBeLessThan(html.indexOf('$1.67'))
     expect(html).not.toContain('1.00M')
+  })
+
+  it('keeps quota estimate details in the click modal instead of expanding each row', () => {
+    expect(authFileSectionSource).toContain('QuotaDetailsModal')
+    expect(authFileSectionSource).toContain('credentials_quota_details_current_tokens')
+    expect(authFileSectionSource).toContain('credentials_quota_details_estimated_tokens')
+    expect(authFileSectionSource).toContain('credentials_quota_details_current_cost')
+    expect(authFileSectionSource).toContain('credentials_quota_details_estimated_cost')
   })
 })
 
