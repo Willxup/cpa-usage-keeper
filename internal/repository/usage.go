@@ -16,11 +16,11 @@ import (
 )
 
 // usageEventProjectionColumns 限制 usage_events 查询列，避免 Overview 和列表页把 RawJSON 等大字段读入内存。
-const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, model, reasoning_effort, service_tier, executor_type, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, model, model_alias, reasoning_effort, service_tier, executor_type, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
 const analysisLatencyMaxDisplayPoints = 2500
 
 // usageOverviewRawEventProjectionColumns 是 Overview 边界补偿和 realtime DB 兜底的最小事件投影。
-const usageOverviewRawEventProjectionColumns = "api_group_key, provider, auth_type, model, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+const usageOverviewRawEventProjectionColumns = "api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
 
 // usageEventProjection 是 usage_events 轻量投影，专门承接 select columns 的查询结果。
 type usageEventProjection struct {
@@ -29,6 +29,7 @@ type usageEventProjection struct {
 	Provider            string
 	AuthType            string
 	Model               string
+	ModelAlias          *string `gorm:"column:model_alias"`
 	ReasoningEffort     string
 	ServiceTier         string
 	ExecutorType        string
@@ -165,7 +166,7 @@ func loadUsageEventRecordsForQuery(db *gorm.DB, query *gorm.DB) ([]dto.UsageEven
 	if err := query.Find(&events).Error; err != nil {
 		return nil, fmt.Errorf("load usage events: %w", err)
 	}
-	pricingByModel, err := loadPriceSettingsByModel(db)
+	costResolver, err := newUsageCostResolverForDB(db)
 	if err != nil {
 		return nil, fmt.Errorf("load usage event pricing settings: %w", err)
 	}
@@ -174,7 +175,7 @@ func loadUsageEventRecordsForQuery(db *gorm.DB, query *gorm.DB) ([]dto.UsageEven
 	for _, event := range events {
 		record := usageEventProjectionToRecord(event)
 		// Request Events cost 只在响应阶段按当前价格配置计算，不回写 usage_events。
-		record.CostUSD, record.CostAvailable, record.PricingStyle = usageEventRecordCost(record, pricingByModel)
+		record.CostUSD, record.CostAvailable, record.PricingStyle = usageEventRecordCost(record, costResolver)
 		rows = append(rows, record)
 	}
 	return rows, nil
@@ -184,7 +185,7 @@ func streamUsageEventRecordsForQuery(db *gorm.DB, query *gorm.DB, emit func(dto.
 	if emit == nil {
 		return fmt.Errorf("usage event stream callback is nil")
 	}
-	pricingByModel, err := loadPriceSettingsByModel(db)
+	costResolver, err := newUsageCostResolverForDB(db)
 	if err != nil {
 		return fmt.Errorf("load usage event pricing settings: %w", err)
 	}
@@ -201,7 +202,7 @@ func streamUsageEventRecordsForQuery(db *gorm.DB, query *gorm.DB, emit func(dto.
 		}
 		record := usageEventProjectionToRecord(event)
 		// Request Events cost 只在响应阶段按当前价格配置计算，不回写 usage_events。
-		record.CostUSD, record.CostAvailable, record.PricingStyle = usageEventRecordCost(record, pricingByModel)
+		record.CostUSD, record.CostAvailable, record.PricingStyle = usageEventRecordCost(record, costResolver)
 		if err := emit(record); err != nil {
 			return err
 		}
@@ -216,10 +217,16 @@ func streamUsageEventRecordsForQuery(db *gorm.DB, query *gorm.DB, emit func(dto.
 func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventRecord {
 	// 对前端展示字段统一 trim，避免历史脏数据影响筛选和展示一致性。
 	return dto.UsageEventRecord{
-		ID:                  event.ID,
-		Timestamp:           timeutil.NormalizeStorageTime(event.Timestamp),
-		APIGroupKey:         strings.TrimSpace(event.APIGroupKey),
-		Model:               strings.TrimSpace(event.Model),
+		ID:          event.ID,
+		Timestamp:   timeutil.NormalizeStorageTime(event.Timestamp),
+		APIGroupKey: strings.TrimSpace(event.APIGroupKey),
+		Model:       strings.TrimSpace(event.Model),
+		ModelAlias: func() string {
+			if event.ModelAlias == nil {
+				return ""
+			}
+			return strings.TrimSpace(*event.ModelAlias)
+		}(),
 		ReasoningEffort:     strings.TrimSpace(event.ReasoningEffort),
 		ServiceTier:         strings.TrimSpace(event.ServiceTier),
 		ExecutorType:        strings.TrimSpace(event.ExecutorType),
@@ -241,19 +248,21 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 	}
 }
 
-func usageEventRecordCost(record dto.UsageEventRecord, pricingByModel map[string]entities.ModelPriceSetting) (float64, bool, string) {
-	pricing, ok := pricingByModel[strings.TrimSpace(record.Model)]
-	input := helper.UsageTokenCostInput{
-		InputTokens:         record.InputTokens,
-		OutputTokens:        record.OutputTokens,
-		CachedTokens:        record.CachedTokens,
-		CacheReadTokens:     record.CacheReadTokens,
-		CacheCreationTokens: record.CacheCreationTokens,
-	}
-	if !ok {
-		return 0, !helper.UsageTokenInputRequiresPricing(input), ""
-	}
-	return helper.CalculateUsageTokenCost(input, pricing), true, pricing.PricingStyle
+func usageEventRecordCost(record dto.UsageEventRecord, costResolver *UsageCostResolver) (float64, bool, string) {
+	result := costResolver.Calculate(UsageCostSubject{
+		Model:        record.Model,
+		ModelAlias:   record.ModelAlias,
+		ServiceTier:  record.ServiceTier,
+		ExecutorType: record.ExecutorType,
+		Tokens: helper.UsageTokenCostInput{
+			InputTokens:         record.InputTokens,
+			OutputTokens:        record.OutputTokens,
+			CachedTokens:        record.CachedTokens,
+			CacheReadTokens:     record.CacheReadTokens,
+			CacheCreationTokens: record.CacheCreationTokens,
+		},
+	})
+	return result.Cost.TotalCostUSD, result.Available, result.PricingStyle
 }
 
 // usageEventProjectionToEntity 把轻量投影转回实体，供内存聚合复用原有事件处理逻辑。
@@ -265,6 +274,7 @@ func usageEventProjectionToEntity(event usageEventProjection) entities.UsageEven
 		Provider:            event.Provider,
 		AuthType:            event.AuthType,
 		Model:               event.Model,
+		ModelAlias:          event.ModelAlias,
 		ReasoningEffort:     event.ReasoningEffort,
 		ServiceTier:         event.ServiceTier,
 		ExecutorType:        event.ExecutorType,
@@ -349,7 +359,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 	if filter.StartTime == nil || filter.EndTime == nil {
 		return nil, fmt.Errorf("analysis requires start_time and end_time")
 	}
-	pricingByModel, err := loadPriceSettingsByModel(db)
+	costResolver, err := newUsageCostResolverForDB(db)
 	if err != nil {
 		return nil, err
 	}
@@ -401,7 +411,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 		if err != nil {
 			return nil, err
 		}
-		applyAnalysisDailyAndBoundaryHourlyRows(record, dailyRows, dailyIdentityLookup, hourlyRows, hourlyIdentityLookup, pricingByModel)
+		applyAnalysisDailyAndBoundaryHourlyRows(record, dailyRows, dailyIdentityLookup, hourlyRows, hourlyIdentityLookup, costResolver)
 		return record, nil
 	}
 	rows, err := loadAnalysisOverviewHourlyStatsWithFilter(db, filter, fullStart, fullEnd)
@@ -412,7 +422,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 	if err != nil {
 		return nil, err
 	}
-	applyAnalysisHourlyRows(record, rows, identityLookup, pricingByModel)
+	applyAnalysisHourlyRows(record, rows, identityLookup, costResolver)
 	fillAnalysisFullDayHourlyBuckets(record, filter)
 	return record, nil
 }
@@ -613,7 +623,7 @@ func loadAnalysisIdentityLookup(db *gorm.DB, authIndexes []string) (analysisIden
 	return lookup, nil
 }
 
-func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []entities.UsageOverviewHourlyStat, identityLookup analysisIdentityLookup, pricingByModel map[string]entities.ModelPriceSetting) {
+func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []entities.UsageOverviewHourlyStat, identityLookup analysisIdentityLookup, costResolver *UsageCostResolver) {
 	bucketTotals := map[time.Time]*dto.AnalysisTokenUsageBucketRecord{}
 	apiTotals := map[string]*dto.AnalysisCompositionRecord{}
 	modelTotals := map[string]*dto.AnalysisCompositionRecord{}
@@ -622,14 +632,14 @@ func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []entities.UsageOv
 	heatmapTotals := map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord{}
 	for _, row := range rows {
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart).Truncate(time.Hour)
-		cost, costAvailable := analysisRowCost(row.Model, row.InputTokens, row.OutputTokens, row.CachedTokens, row.CacheReadTokens, row.CacheCreationTokens, pricingByModel)
+		cost, costAvailable := analysisRowCost(row.Model, row.ModelAlias, row.InputTokens, row.OutputTokens, row.CachedTokens, row.CacheReadTokens, row.CacheCreationTokens, costResolver)
 		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 		applyAnalysisIdentityComposition(identityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
 	finalizeAnalysisRecord(record, bucketTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 }
 
-func applyAnalysisDailyAndBoundaryHourlyRows(record *dto.AnalysisRecord, dailyRows []entities.UsageOverviewDailyStat, dailyIdentityLookup analysisIdentityLookup, hourlyRows []entities.UsageOverviewHourlyStat, hourlyIdentityLookup analysisIdentityLookup, pricingByModel map[string]entities.ModelPriceSetting) {
+func applyAnalysisDailyAndBoundaryHourlyRows(record *dto.AnalysisRecord, dailyRows []entities.UsageOverviewDailyStat, dailyIdentityLookup analysisIdentityLookup, hourlyRows []entities.UsageOverviewHourlyStat, hourlyIdentityLookup analysisIdentityLookup, costResolver *UsageCostResolver) {
 	bucketTotals := map[time.Time]*dto.AnalysisTokenUsageBucketRecord{}
 	apiTotals := map[string]*dto.AnalysisCompositionRecord{}
 	modelTotals := map[string]*dto.AnalysisCompositionRecord{}
@@ -638,33 +648,33 @@ func applyAnalysisDailyAndBoundaryHourlyRows(record *dto.AnalysisRecord, dailyRo
 	heatmapTotals := map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord{}
 	for _, row := range dailyRows {
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart)
-		cost, costAvailable := analysisRowCost(row.Model, row.InputTokens, row.OutputTokens, row.CachedTokens, row.CacheReadTokens, row.CacheCreationTokens, pricingByModel)
+		cost, costAvailable := analysisRowCost(row.Model, row.ModelAlias, row.InputTokens, row.OutputTokens, row.CachedTokens, row.CacheReadTokens, row.CacheCreationTokens, costResolver)
 		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 		applyAnalysisIdentityComposition(dailyIdentityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
 	for _, row := range hourlyRows {
 		bucketStart := timeutil.NormalizeStorageTime(row.BucketStart)
 		bucket := time.Date(bucketStart.Year(), bucketStart.Month(), bucketStart.Day(), 0, 0, 0, 0, bucketStart.Location())
-		cost, costAvailable := analysisRowCost(row.Model, row.InputTokens, row.OutputTokens, row.CachedTokens, row.CacheReadTokens, row.CacheCreationTokens, pricingByModel)
+		cost, costAvailable := analysisRowCost(row.Model, row.ModelAlias, row.InputTokens, row.OutputTokens, row.CachedTokens, row.CacheReadTokens, row.CacheCreationTokens, costResolver)
 		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 		applyAnalysisIdentityComposition(hourlyIdentityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
 	finalizeAnalysisRecord(record, bucketTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 }
 
-func analysisRowCost(model string, inputTokens, outputTokens, cachedTokens, cacheReadTokens, cacheCreationTokens int64, pricingByModel map[string]entities.ModelPriceSetting) (helper.UsageTokenCostBreakdown, bool) {
-	costInput := helper.UsageTokenCostInput{
-		InputTokens:         inputTokens,
-		OutputTokens:        outputTokens,
-		CachedTokens:        cachedTokens,
-		CacheReadTokens:     cacheReadTokens,
-		CacheCreationTokens: cacheCreationTokens,
-	}
-	pricing, ok := pricingByModel[strings.TrimSpace(model)]
-	if !ok {
-		return helper.UsageTokenCostBreakdown{}, !helper.UsageTokenInputRequiresPricing(costInput)
-	}
-	return helper.CalculateUsageTokenCostBreakdown(costInput, pricing), true
+func analysisRowCost(model string, modelAlias string, inputTokens, outputTokens, cachedTokens, cacheReadTokens, cacheCreationTokens int64, costResolver *UsageCostResolver) (helper.UsageTokenCostBreakdown, bool) {
+	result := costResolver.Calculate(UsageCostSubject{
+		Model:      model,
+		ModelAlias: modelAlias,
+		Tokens: helper.UsageTokenCostInput{
+			InputTokens:         inputTokens,
+			OutputTokens:        outputTokens,
+			CachedTokens:        cachedTokens,
+			CacheReadTokens:     cacheReadTokens,
+			CacheCreationTokens: cacheCreationTokens,
+		},
+	})
+	return result.Cost, result.Available
 }
 
 func applyAnalysisRow(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, apiTotals, modelTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord, bucket time.Time, apiGroupKey, model string, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens int64, cost helper.UsageTokenCostBreakdown, costAvailable bool) {
@@ -881,13 +891,13 @@ func BuildUsageOverviewWithFilterAndRecentCache(db *gorm.DB, filter dto.UsageQue
 		return nil, fmt.Errorf("usage overview requires start_time and end_time")
 	}
 
-	// stats 表不保存价格，所有 cost 都按当前 model_price_settings 在查询阶段动态计算。
-	pricingByModel, err := loadPriceSettingsByModel(db)
+	// stats 表不保存价格，所有 cost 都按本次请求的 resolver 在查询阶段动态计算。
+	costResolver, err := newUsageCostResolverForDB(db)
 	if err != nil {
 		return nil, err
 	}
 
-	overview, err := buildUsageOverviewFromStats(db, filter, pricingByModel, recentCache)
+	overview, err := buildUsageOverviewFromStats(db, filter, costResolver, recentCache)
 	if err != nil {
 		return nil, err
 	}
@@ -903,11 +913,11 @@ func BuildUsageOverviewRealtimeWithFilterAndRecentCache(db *gorm.DB, filter dto.
 	if db == nil {
 		return dto.UsageOverviewRealtimeRecord{}, fmt.Errorf("database is nil")
 	}
-	pricingByModel, err := loadPriceSettingsByModel(db)
+	costResolver, err := newUsageCostResolverForDB(db)
 	if err != nil {
 		return dto.UsageOverviewRealtimeRecord{}, err
 	}
-	return buildUsageOverviewRealtime(db, filter, pricingByModel, recentCache)
+	return buildUsageOverviewRealtime(db, filter, costResolver, recentCache)
 }
 
 // newUsageOverviewRecord 初始化 Overview 返回结构中的 map，避免后续聚合写入 nil map。
@@ -924,7 +934,7 @@ func newUsageOverviewRecord(filter dto.UsageQueryFilter, windowMinutes int64) *d
 }
 
 // buildUsageOverviewFromStats 用预聚合表覆盖完整 bucket，用原始事件补偿窗口边界。
-func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, pricingByModel map[string]entities.ModelPriceSetting, recentCache *UsageRecentEventCache) (*dto.UsageOverviewRecord, error) {
+func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, costResolver *UsageCostResolver, recentCache *UsageRecentEventCache) (*dto.UsageOverviewRecord, error) {
 	// queryNow 固定本次仓储查询的“当前时刻”，避免不同步骤各自 time.Now() 造成边界漂移。
 	queryNow := usageOverviewQueryNow(filter)
 	// currentRight 只描述范围语义：滚动范围和今天类范围要读取最新缓存，不用 end 截断。
@@ -952,7 +962,7 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, prici
 			continue
 		}
 		applyUsageEventToOverviewSnapshot(overview.Usage, event)
-		applyUsageEventToOverview(overview, event, bucketByDay, pricingByModel)
+		applyUsageEventToOverview(overview, event, bucketByDay, costResolver)
 	}
 
 	if fullEnd.After(fullStart) {
@@ -964,7 +974,7 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, prici
 				return nil, err
 			}
 			for _, row := range hourlyRows {
-				applyUsageOverviewHourlyStatToOverview(overview, row, bucketByDay, pricingByModel)
+				applyUsageOverviewHourlyStatToOverview(overview, row, bucketByDay, costResolver)
 			}
 		} else {
 			// 长窗口中间的完整本地天用 daily stats，减少大量小时 row 累加。
@@ -973,7 +983,7 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, prici
 				return nil, err
 			}
 			for _, row := range dailyRows {
-				applyUsageOverviewDailyStatToOverview(overview, row, bucketByDay, pricingByModel)
+				applyUsageOverviewDailyStatToOverview(overview, row, bucketByDay, costResolver)
 			}
 
 			// 完整天两侧剩余的完整小时仍走 hourly stats，避免回退到大范围事件扫描。
@@ -986,7 +996,7 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, prici
 					return nil, err
 				}
 				for _, row := range hourlyRows {
-					applyUsageOverviewHourlyStatToOverview(overview, row, bucketByDay, pricingByModel)
+					applyUsageOverviewHourlyStatToOverview(overview, row, bucketByDay, costResolver)
 				}
 			}
 		}
@@ -1418,15 +1428,25 @@ func loadUsageOverviewHealthTotalsWithFilter(db *gorm.DB, filter dto.UsageQueryF
 }
 
 // applyUsageOverviewHourlyStatToOverview 把小时 stats 同步写入 summary、snapshot 和主序列。
-func applyUsageOverviewHourlyStatToOverview(overview *dto.UsageOverviewRecord, row entities.UsageOverviewHourlyStat, bucketByDay bool, pricingByModel map[string]entities.ModelPriceSetting) {
+func applyUsageOverviewHourlyStatToOverview(overview *dto.UsageOverviewRecord, row entities.UsageOverviewHourlyStat, bucketByDay bool, costResolver *UsageCostResolver) {
 	// 小时 stats 是完整小时事实，可直接累计到 snapshot totals。
 	applyUsageOverviewHourlyStatToSnapshot(overview.Usage, row)
 	// cost 不入 stats 表，必须在读取时按当前价格表重新计算。
-	costInput := helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens, CacheReadTokens: row.CacheReadTokens, CacheCreationTokens: row.CacheCreationTokens}
-	rowCost := helper.CalculateUsageTokenCost(costInput, pricingByModel[strings.TrimSpace(row.Model)])
-	if _, ok := pricingByModel[strings.TrimSpace(row.Model)]; !ok && helper.UsageTokenInputRequiresPricing(costInput) {
+	result := costResolver.Calculate(UsageCostSubject{
+		Model:      row.Model,
+		ModelAlias: row.ModelAlias,
+		Tokens: helper.UsageTokenCostInput{
+			InputTokens:         row.InputTokens,
+			OutputTokens:        row.OutputTokens,
+			CachedTokens:        row.CachedTokens,
+			CacheReadTokens:     row.CacheReadTokens,
+			CacheCreationTokens: row.CacheCreationTokens,
+		},
+	})
+	if !result.Available {
 		overview.Summary.CostAvailable = false
 	}
+	rowCost := result.Cost.TotalCostUSD
 	applyUsageOverviewStatToSummary(overview, row.RequestCount, row.InputTokens, row.CachedTokens, row.ReasoningTokens, rowCost)
 
 	// 主序列按当前窗口选择小时或天粒度。
@@ -1435,14 +1455,24 @@ func applyUsageOverviewHourlyStatToOverview(overview *dto.UsageOverviewRecord, r
 }
 
 // applyUsageOverviewDailyStatToOverview 把完整天 stats 写入长窗口 summary、snapshot 和主序列。
-func applyUsageOverviewDailyStatToOverview(overview *dto.UsageOverviewRecord, row entities.UsageOverviewDailyStat, bucketByDay bool, pricingByModel map[string]entities.ModelPriceSetting) {
+func applyUsageOverviewDailyStatToOverview(overview *dto.UsageOverviewRecord, row entities.UsageOverviewDailyStat, bucketByDay bool, costResolver *UsageCostResolver) {
 	// 天 stats 只覆盖完整本地天，不能用于非整天边界。
 	applyUsageOverviewDailyStatToSnapshot(overview.Usage, row)
-	costInput := helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens, CacheReadTokens: row.CacheReadTokens, CacheCreationTokens: row.CacheCreationTokens}
-	rowCost := helper.CalculateUsageTokenCost(costInput, pricingByModel[strings.TrimSpace(row.Model)])
-	if _, ok := pricingByModel[strings.TrimSpace(row.Model)]; !ok && helper.UsageTokenInputRequiresPricing(costInput) {
+	result := costResolver.Calculate(UsageCostSubject{
+		Model:      row.Model,
+		ModelAlias: row.ModelAlias,
+		Tokens: helper.UsageTokenCostInput{
+			InputTokens:         row.InputTokens,
+			OutputTokens:        row.OutputTokens,
+			CachedTokens:        row.CachedTokens,
+			CacheReadTokens:     row.CacheReadTokens,
+			CacheCreationTokens: row.CacheCreationTokens,
+		},
+	})
+	if !result.Available {
 		overview.Summary.CostAvailable = false
 	}
+	rowCost := result.Cost.TotalCostUSD
 	applyUsageOverviewStatToSummary(overview, row.RequestCount, row.InputTokens, row.CachedTokens, row.ReasoningTokens, rowCost)
 
 	bucketKey, bucketMinutes := usageOverviewBucket(timeutil.NormalizeStorageTime(row.BucketStart), bucketByDay)
@@ -1630,7 +1660,7 @@ type usageOverviewRealtimeEvent struct {
 }
 
 // buildUsageOverviewRealtime 从最近事件缓存聚合 Overview 下方实时图表；缓存对象不可用时回退到 usage_events 窄窗查询。
-func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, pricingByModel map[string]entities.ModelPriceSetting, recentCache *UsageRecentEventCache) (dto.UsageOverviewRealtimeRecord, error) {
+func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, costResolver *UsageCostResolver, recentCache *UsageRecentEventCache) (dto.UsageOverviewRealtimeRecord, error) {
 	// window/span 由 15m/30m/60m 统一映射，前端所有 realtime 图共享同一窗口。
 	window, span := usageOverviewRealtimeWindow(filter.RealtimeWindow)
 	// 滑动聚合需要窗口左侧的少量预热 bucket，避免切换窗口时曲线从左边界重新爬坡。
@@ -1702,21 +1732,20 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, pricin
 			continue
 		}
 
-		// cost 仍按当前价格表动态计算，保持 Overview 和 Analysis 的价格口径一致。
-		pricing, ok := pricingByModel[strings.TrimSpace(event.Model)]
-		costAvailable := ok || !helper.UsageEventRequiresPricing(event)
-		cost := helper.CalculateUsageEventCost(event, pricing)
+		// cost 仍按本次请求的 resolver 动态计算，保持 Overview 和 Analysis 的价格口径一致。
+		costResult := costResolver.CalculateEvent(event)
+		cost := costResult.Cost.TotalCostUSD
 		// token velocity/cache level 都从同一个 bucket accumulator 派生。
 		bucket.tokens += event.TotalTokens
 		bucket.inputTokens += event.InputTokens
 		bucket.cachedTokens += event.CachedTokens
 		bucket.costUSD += cost
-		if !costAvailable {
+		if !costResult.Available {
 			bucket.costAvailable = false
 		}
 		if visibleEvent {
 			// current usage 的 token 占比只统计有 token 的成功请求。
-			applyUsageOverviewRealtimeTokenUsage(realtimeEvent, cost, costAvailable, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage, identityLookup)
+			applyUsageOverviewRealtimeTokenUsage(realtimeEvent, cost, costResult.Available, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage, identityLookup)
 		}
 	}
 
@@ -2308,7 +2337,7 @@ func applyUsageEventToOverviewSeries(series *dto.UsageOverviewSeriesRecord, even
 }
 
 // applyUsageEventToOverview 把边界 raw event 合并进 Overview，语义必须和 stats row 合并保持一致。
-func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities.UsageEvent, bucketByDay bool, pricingByModel map[string]entities.ModelPriceSetting) {
+func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities.UsageEvent, bucketByDay bool, costResolver *UsageCostResolver) {
 	overview.Summary.InputTokens += event.InputTokens
 	overview.Summary.CachedTokens += event.CachedTokens
 	overview.Summary.ReasoningTokens += event.ReasoningTokens
@@ -2318,11 +2347,11 @@ func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities
 		overview.Health.TotalSuccess++
 	}
 	// 边界事件也按当前价格表计算 cost；缺价格且有计费 token 时标记 cost 不完整。
-	pricing, ok := pricingByModel[strings.TrimSpace(event.Model)]
-	if !ok && helper.UsageEventRequiresPricing(event) {
+	result := costResolver.CalculateEvent(event)
+	if !result.Available {
 		overview.Summary.CostAvailable = false
 	}
-	cost := helper.CalculateUsageEventCost(event, pricing)
+	cost := result.Cost.TotalCostUSD
 	overview.Summary.TotalCost += cost
 
 	// 主序列使用页面当前粒度，缓存率同桶累计后即时刷新。
@@ -2374,19 +2403,6 @@ func normalizeUsageOverviewDimension(value string) string {
 		return "unknown"
 	}
 	return trimmed
-}
-
-// loadPriceSettingsByModel 把当前价格配置转成按 model 查找的 map。
-func loadPriceSettingsByModel(db *gorm.DB) (map[string]entities.ModelPriceSetting, error) {
-	settings, err := ListModelPriceSettings(db)
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[string]entities.ModelPriceSetting, len(settings))
-	for _, setting := range settings {
-		result[strings.TrimSpace(setting.Model)] = setting
-	}
-	return result, nil
 }
 
 const (

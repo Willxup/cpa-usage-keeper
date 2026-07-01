@@ -24,7 +24,15 @@ func NewUsageServiceWithRecentCache(db *gorm.DB, recentUsage *repository.UsageRe
 	return &usageService{db: db, recentUsage: recentUsage}
 }
 
-func (s *usageService) resolveAPIGroupKey(apiKeyID string) (string, error) {
+func usageServiceContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
+
+func (s *usageService) resolveAPIGroupKey(ctx context.Context, apiKeyID string) (string, error) {
+	ctx = usageServiceContext(ctx)
 	apiKeyID = strings.TrimSpace(apiKeyID)
 	if apiKeyID == "" {
 		return "", nil
@@ -33,7 +41,7 @@ func (s *usageService) resolveAPIGroupKey(apiKeyID string) (string, error) {
 	if err != nil || parsedID <= 0 {
 		return "", ErrInvalidID
 	}
-	apiKey, err := repository.FindActiveCPAAPIKeyByID(s.db, parsedID)
+	apiKey, err := repository.FindActiveCPAAPIKeyByID(s.db.WithContext(ctx), parsedID)
 	if err != nil {
 		return "", err
 	}
@@ -41,12 +49,13 @@ func (s *usageService) resolveAPIGroupKey(apiKeyID string) (string, error) {
 }
 
 // Usage 页面里的 Overview tab 下传时间窗口和全局 API-Key，仓储层负责构建 overview 聚合。
-func (s *usageService) GetUsageOverview(_ context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
-	apiGroupKey, err := s.resolveAPIGroupKey(filter.APIKeyID)
+func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
+	ctx = usageServiceContext(ctx)
+	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
 	if err != nil {
 		return nil, err
 	}
-	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(s.db, repodto.UsageQueryFilter{
+	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
 		Range:       filter.Range,
 		StartTime:   filter.StartTime,
 		EndTime:     filter.EndTime,
@@ -101,12 +110,13 @@ func (s *usageService) GetUsageOverview(_ context.Context, filter servicedto.Usa
 	}, nil
 }
 
-func (s *usageService) GetUsageOverviewRealtime(_ context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewRealtime, error) {
-	apiGroupKey, err := s.resolveAPIGroupKey(filter.APIKeyID)
+func (s *usageService) GetUsageOverviewRealtime(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewRealtime, error) {
+	ctx = usageServiceContext(ctx)
+	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
 	if err != nil {
 		return nil, err
 	}
-	realtime, err := repository.BuildUsageOverviewRealtimeWithFilterAndRecentCache(s.db, repodto.UsageQueryFilter{
+	realtime, err := repository.BuildUsageOverviewRealtimeWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
 		RealtimeWindow:  filter.RealtimeWindow,
 		RealtimeEndTime: filter.RealtimeEndTime,
 		APIGroupKey:     apiGroupKey,
@@ -261,12 +271,13 @@ func mapRealtimeCacheLevel(points []repodto.RealtimeCacheLevelPointRecord) []ser
 	return result
 }
 
-func (s *usageService) GetAnalysis(_ context.Context, filter servicedto.UsageFilter) (*servicedto.AnalysisSnapshot, error) {
-	apiGroupKey, err := s.resolveAPIGroupKey(filter.APIKeyID)
+func (s *usageService) GetAnalysis(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.AnalysisSnapshot, error) {
+	ctx = usageServiceContext(ctx)
+	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
 	if err != nil {
 		return nil, err
 	}
-	record, err := repository.BuildAnalysisWithFilter(s.db, repodto.UsageQueryFilter{
+	record, err := repository.BuildAnalysisWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
 		Range:       filter.Range,
 		StartTime:   filter.StartTime,
 		EndTime:     filter.EndTime,
@@ -409,12 +420,13 @@ func mapAnalysisCompositionRecord(item repodto.AnalysisCompositionRecord) servic
 }
 
 // Usage 页面里的 Request Event Log tab 下传分页、列表筛选条件和全局 API-Key。
-func (s *usageService) ListUsageEvents(_ context.Context, filter servicedto.UsageFilter) (*servicedto.UsageEventsPage, error) {
-	apiGroupKey, err := s.resolveAPIGroupKey(filter.APIKeyID)
+func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageEventsPage, error) {
+	ctx = usageServiceContext(ctx)
+	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
 	if err != nil {
 		return nil, err
 	}
-	page, err := repository.ListUsageEventsWithFilter(s.db, repodto.UsageQueryFilter{
+	page, err := repository.ListUsageEventsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
 		StartTime:   filter.StartTime,
 		EndTime:     filter.EndTime,
 		Limit:       filter.Limit,
@@ -464,7 +476,8 @@ func (s *usageService) ListUsageEvents(_ context.Context, filter servicedto.Usag
 
 // StreamUsageEvents 使用 Request Event Log 相同筛选条件逐行导出，不应用分页。
 func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.UsageFilter, emit func(servicedto.UsageEventRecord) error) error {
-	apiGroupKey, err := s.resolveAPIGroupKey(filter.APIKeyID)
+	ctx = usageServiceContext(ctx)
+	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
 	if err != nil {
 		return err
 	}
@@ -507,8 +520,9 @@ func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.
 }
 
 // Request Event Log 的 model 筛选项只应用调用方传入的时间窗口；独立筛选项接口当前传空 filter。
-func (s *usageService) ListUsageEventFilterOptions(_ context.Context, filter servicedto.UsageFilter) (*servicedto.UsageEventFilterOptions, error) {
-	options, err := repository.ListUsageEventFilterOptionsWithFilter(s.db, repodto.UsageQueryFilter{
+func (s *usageService) ListUsageEventFilterOptions(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageEventFilterOptions, error) {
+	ctx = usageServiceContext(ctx)
+	options, err := repository.ListUsageEventFilterOptionsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
 		StartTime: filter.StartTime,
 		EndTime:   filter.EndTime,
 	})

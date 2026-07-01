@@ -38,6 +38,8 @@ type RecentUsageEvent struct {
 	APIGroupKey string
 	// Model 用于 realtime 当前模型占比和 cost 价格表匹配。
 	Model string
+	// ModelAlias 用于当前价格配置按 alias 优先匹配。
+	ModelAlias string
 	// AuthIndex 用于关联 usage_identities，找不到身份时才使用 fallback。
 	AuthIndex string
 	// IdentityFallbackKind 记录 fallback 应落到 Auth File 还是 AI Provider。
@@ -103,6 +105,7 @@ type recentUsageEventLoadRow struct {
 	Provider            string
 	AuthType            string
 	Model               string
+	ModelAlias          string `gorm:"column:model_alias"`
 	Timestamp           time.Time
 	Source              string
 	AuthIndex           string
@@ -305,10 +308,16 @@ func (c *UsageRecentEventCache) appendEvents(events []entities.UsageEvent) {
 	for _, event := range events {
 		// 这里刻意不带 event_key/request_id，它们不参与 Overview/realtime 计算。
 		rows = append(rows, recentUsageEventLoadRow{
-			APIGroupKey:         event.APIGroupKey,
-			Provider:            event.Provider,
-			AuthType:            event.AuthType,
-			Model:               event.Model,
+			APIGroupKey: event.APIGroupKey,
+			Provider:    event.Provider,
+			AuthType:    event.AuthType,
+			Model:       event.Model,
+			ModelAlias: func() string {
+				if event.ModelAlias == nil {
+					return ""
+				}
+				return *event.ModelAlias
+			}(),
 			Timestamp:           event.Timestamp,
 			Source:              event.Source,
 			AuthIndex:           event.AuthIndex,
@@ -423,7 +432,7 @@ func loadUsageRecentEventCacheRows(db *gorm.DB, start time.Time) ([]recentUsageE
 	var rows []recentUsageEventLoadRow
 	// 只 select 最近缓存和 realtime 必需字段，避免大字段进入 70 分钟内存窗口。
 	if err := db.Model(&entities.UsageEvent{}).
-		Select("api_group_key, provider, auth_type, model, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens").
+		Select("api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens").
 		// 启动加载只取 retention 左边界之后的数据。
 		Where("timestamp >= ?", timeutil.FormatStorageTime(start)).
 		// 按时间排序让后续剪枝和调试输出更直观。
@@ -452,6 +461,7 @@ func (c *UsageRecentEventCache) recentEventFromRowLocked(row recentUsageEventLoa
 		// 高频重复字符串通过池化复用，降低缓存内存占用。
 		APIGroupKey:           c.pool.intern(strings.TrimSpace(row.APIGroupKey)),
 		Model:                 c.pool.intern(strings.TrimSpace(row.Model)),
+		ModelAlias:            c.pool.intern(strings.TrimSpace(row.ModelAlias)),
 		AuthIndex:             c.pool.intern(strings.TrimSpace(row.AuthIndex)),
 		IdentityFallbackKind:  identityKind,
 		IdentityFallbackLabel: c.pool.intern(fallbackLabel),
@@ -494,6 +504,7 @@ func (c *UsageRecentEventCache) releaseEventStringsLocked(event RecentUsageEvent
 	// 每个池化字段都按引用计数释放，计数归零后才删除底层字符串。
 	c.pool.release(event.APIGroupKey)
 	c.pool.release(event.Model)
+	c.pool.release(event.ModelAlias)
 	c.pool.release(event.AuthIndex)
 	c.pool.release(event.IdentityFallbackLabel)
 }
@@ -566,7 +577,8 @@ func cloneUsageEventsForRecentCache(events []entities.UsageEvent) []entities.Usa
 	for index := range events {
 		// 结构体浅拷贝覆盖大多数字段。
 		result[index] = events[index]
-		// TTFTMS 是指针字段，需要深拷贝避免跨 goroutine 共享。
+		// 指针字段需要深拷贝避免跨 goroutine 共享。
+		result[index].ModelAlias = cloneStringPtr(events[index].ModelAlias)
 		result[index].TTFTMS = cloneInt64Ptr(events[index].TTFTMS)
 	}
 	return result
@@ -580,7 +592,7 @@ func cloneRecentUsageEvent(event RecentUsageEvent) RecentUsageEvent {
 
 func recentUsageEventToEntity(event RecentUsageEvent) entities.UsageEvent {
 	// Overview 聚合已有实体处理函数，这里把缓存投影还原成最小 UsageEvent。
-	return entities.UsageEvent{
+	result := entities.UsageEvent{
 		APIGroupKey:         event.APIGroupKey,
 		Model:               event.Model,
 		Timestamp:           event.Timestamp,
@@ -596,6 +608,10 @@ func recentUsageEventToEntity(event RecentUsageEvent) entities.UsageEvent {
 		CacheCreationTokens: event.CacheCreationTokens,
 		TotalTokens:         event.TotalTokens,
 	}
+	if modelAlias := strings.TrimSpace(event.ModelAlias); modelAlias != "" {
+		result.ModelAlias = &modelAlias
+	}
+	return result
 }
 
 func cloneInt64Ptr(value *int64) *int64 {
@@ -604,6 +620,15 @@ func cloneInt64Ptr(value *int64) *int64 {
 		return nil
 	}
 	// 非 nil 时复制数值，避免调用方通过指针修改缓存内容。
+	cloned := *value
+	return &cloned
+}
+
+func cloneStringPtr(value *string) *string {
+	// nil 表示原始事件没有该可选字段，必须原样保留。
+	if value == nil {
+		return nil
+	}
 	cloned := *value
 	return &cloned
 }
