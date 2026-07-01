@@ -36,6 +36,7 @@ export const REQUEST_EVENT_COLUMN_IDS = [
   'api_key',
   'source',
   'model',
+  'model_alias',
   'reasoning_effort',
   'service_tier',
   'result',
@@ -117,6 +118,7 @@ type RequestEventRow = {
   timestampLabel: string;
   apiKey: string;
   model: string;
+  modelAlias: string;
   reasoningEffort: string;
   serviceTier: string;
   requestType: string;
@@ -622,6 +624,7 @@ export function RequestEventsDetailsCard({
       const sourceType = String(event.source_type ?? '').trim();
       const apiKey = String(event.api_key ?? '').trim() || '-';
       const model = String(event.model ?? '').trim() || '-';
+      const modelAlias = String(event.model_alias ?? '').trim() || '-';
       const reasoningEffort = String(event.reasoning_effort ?? '').trim() || '-';
       const serviceTier = formatRequestSpeedMode(event.service_tier, t);
       const endpointFields = parseRequestEndpoint(event.endpoint);
@@ -644,6 +647,7 @@ export function RequestEventsDetailsCard({
         timestampLabel: formatRequestEventTimestamp(timestamp),
         apiKey,
         model,
+        modelAlias,
         reasoningEffort,
         serviceTier,
         requestType: endpointFields.requestType,
@@ -782,6 +786,12 @@ export function RequestEventsDetailsCard({
         label: t('usage_stats.model_name'),
         header: <th>{t('usage_stats.model_name')}</th>,
         renderCell: (row) => <td className={styles.modelCell}>{row.model}</td>,
+      },
+      {
+        id: 'model_alias',
+        label: t('usage_stats.model_alias'),
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.model_alias')}</th>,
+        renderCell: (row) => <td className={styles.modelCell} title={row.modelAlias}>{row.modelAlias}</td>,
       },
       {
         id: 'reasoning_effort',

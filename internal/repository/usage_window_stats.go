@@ -21,18 +21,24 @@ type UsageWindowStats struct {
 }
 
 type UsageWindowStatsCalculator struct {
-	db             *gorm.DB
-	pricingByModel map[string]entities.ModelPriceSetting
+	db           *gorm.DB
+	costResolver *UsageCostResolver
 }
 
 type usageWindowTokenStats struct {
 	Model               string `gorm:"column:model"`
+	ModelAlias          string `gorm:"column:model_alias"`
 	TotalTokens         int64  `gorm:"column:total_tokens"`
 	InputTokens         int64  `gorm:"column:input_tokens"`
 	OutputTokens        int64  `gorm:"column:output_tokens"`
 	CachedTokens        int64  `gorm:"column:cached_tokens"`
 	CacheReadTokens     int64  `gorm:"column:cache_read_tokens"`
 	CacheCreationTokens int64  `gorm:"column:cache_creation_tokens"`
+}
+
+type usageWindowTokenStatsKey struct {
+	model      string
+	modelAlias string
 }
 
 func NewUsageWindowStatsCalculator(ctx context.Context, db *gorm.DB) (*UsageWindowStatsCalculator, error) {
@@ -42,12 +48,11 @@ func NewUsageWindowStatsCalculator(ctx context.Context, db *gorm.DB) (*UsageWind
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	queryDB := db.WithContext(ctx)
-	pricingByModel, err := loadPriceSettingsByModel(queryDB)
+	costResolver, err := NewUsageCostResolver(ctx, db)
 	if err != nil {
 		return nil, err
 	}
-	return &UsageWindowStatsCalculator{db: db, pricingByModel: pricingByModel}, nil
+	return &UsageWindowStatsCalculator{db: db, costResolver: costResolver}, nil
 }
 
 func (c *UsageWindowStatsCalculator) SumByAuthIndex(ctx context.Context, authIndex string, start time.Time, end *time.Time) (UsageWindowStats, error) {
@@ -65,7 +70,7 @@ func (c *UsageWindowStatsCalculator) SumByAuthIndex(ctx context.Context, authInd
 	if err != nil {
 		return UsageWindowStats{}, err
 	}
-	return usageWindowStatsFromTokenStats(rows, c.pricingByModel), nil
+	return usageWindowStatsFromTokenStats(rows, c.costResolver), nil
 }
 
 func SumUsageWindowStatsByAuthIndex(ctx context.Context, db *gorm.DB, authIndex string, start time.Time, end *time.Time) (UsageWindowStats, error) {
@@ -81,13 +86,12 @@ func SumUsageWindowStatsByAuthIndex(ctx context.Context, db *gorm.DB, authIndex 
 		// 返回明确错误，避免误查全表。
 		return UsageWindowStats{}, fmt.Errorf("auth_index is required")
 	}
-	// 价格表按 model 预加载一次，后续 raw/hourly 聚合结果都复用这份价格表。
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	queryDB := db.WithContext(ctx)
-	pricingByModel, err := loadPriceSettingsByModel(queryDB)
-	// 价格表读取失败时无法计算 cost，直接把错误返回给调用方。
+	// 价格表按本次调用预加载一次，后续 raw/hourly 聚合结果都复用同一个 resolver。
+	costResolver, err := NewUsageCostResolver(ctx, db)
 	if err != nil {
 		// 保留底层错误，方便定位数据库或迁移问题。
 		return UsageWindowStats{}, err
@@ -99,8 +103,8 @@ func SumUsageWindowStatsByAuthIndex(ctx context.Context, db *gorm.DB, authIndex 
 		// 给错误包上业务上下文，方便日志识别失败位置。
 		return UsageWindowStats{}, err
 	}
-	// 把 model 级 token 聚合结果换算成最终 token/cost 汇总。
-	return usageWindowStatsFromTokenStats(rows, pricingByModel), nil
+	// 把 model_alias/model 级 token 聚合结果换算成最终 token/cost 汇总。
+	return usageWindowStatsFromTokenStats(rows, costResolver), nil
 }
 
 func loadUsageWindowTokenStats(db *gorm.DB, authIndex string, start time.Time, end *time.Time) ([]usageWindowTokenStats, error) {
@@ -162,8 +166,8 @@ func sumLongUsageWindowTokenStats(db *gorm.DB, authIndex string, start time.Time
 	hourlyStart := leftEnd
 	// 完整小时结束于保守后的右边界起点。
 	hourlyEnd := rightStart
-	// 用 map 按 model 合并 left raw、hourly、right raw 的结果。
-	merged := make(map[string]usageWindowTokenStats)
+	// 用 map 按 model_alias/model 合并 left raw、hourly、right raw 的结果。
+	merged := make(map[usageWindowTokenStatsKey]usageWindowTokenStats)
 	// 左边界存在时读取 usage_events 边界段。
 	if start.Before(leftEnd) {
 		// 查询左边界 raw 聚合，最多覆盖不足一小时的数据。
@@ -205,14 +209,14 @@ func sumLongUsageWindowTokenStats(db *gorm.DB, authIndex string, start time.Time
 }
 
 func sumRawUsageWindowTokenStats(db *gorm.DB, authIndex string, start time.Time, end *time.Time) ([]usageWindowTokenStats, error) {
-	// raw 查询只取 model 级汇总字段，避免把大量 usage_events 行读进 Go 内存。
+	// raw 查询只取 model_alias/model 级汇总字段，避免把大量 usage_events 行读进 Go 内存。
 	query := db.Model(&entities.UsageEvent{}).
 		// SELECT 中只聚合 token/cost 需要的字段，不读取 raw_json 等大字段。
-		Select("model, COALESCE(SUM(total_tokens), 0) AS total_tokens, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(cached_tokens), 0) AS cached_tokens, COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens, COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens").
+		Select("model, COALESCE(model_alias, '') AS model_alias, COALESCE(SUM(total_tokens), 0) AS total_tokens, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(cached_tokens), 0) AS cached_tokens, COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens, COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens").
 		// auth_index 已经是唯一身份维度，这里不再额外按 auth_type 过滤。
 		Where("auth_index = ? AND timestamp >= ?", authIndex, timeutil.FormatStorageTime(start)).
-		// 按 model 分组，后续按 model 价格表计算 cost。
-		Group("model")
+		// 按 model_alias/model 分组，后续按 alias 优先价格表计算 cost。
+		Group("model_alias, model")
 	// 如果调用方传入结束时间，就用半开区间避免边界重复累计。
 	if end != nil {
 		// end 统一格式化为 storage time，确保 SQLite 文本比较稳定。
@@ -225,7 +229,7 @@ func sumRawUsageWindowTokenStats(db *gorm.DB, authIndex string, start time.Time,
 		// 包装 raw 查询错误，保留调用上下文。
 		return nil, fmt.Errorf("sum raw usage window stats: %w", err)
 	}
-	// 返回 model 级 token 汇总。
+	// 返回 model_alias/model 级 token 汇总。
 	return rows, nil
 }
 
@@ -233,11 +237,11 @@ func sumHourlyUsageWindowTokenStats(db *gorm.DB, authIndex string, start time.Ti
 	// hourly 查询直接读取 overview 已经维护好的小时增量表。
 	query := db.Model(&entities.UsageOverviewHourlyStat{}).
 		// SELECT 中聚合 token/cost 需要的字段，保持和 raw 查询返回结构一致。
-		Select("model, COALESCE(SUM(total_tokens), 0) AS total_tokens, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(cached_tokens), 0) AS cached_tokens, COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens, COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens").
+		Select("model, model_alias, COALESCE(SUM(total_tokens), 0) AS total_tokens, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(cached_tokens), 0) AS cached_tokens, COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens, COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens").
 		// auth_index + bucket_start 范围可以使用现有 hourly auth_bucket 索引。
 		Where("auth_index = ? AND bucket_start >= ? AND bucket_start < ?", authIndex, timeutil.FormatStorageTime(start), timeutil.FormatStorageTime(end)).
-		// 按 model 分组，后续按 model 价格表计算 cost。
-		Group("model")
+		// 按 model_alias/model 分组，后续按 alias 优先价格表计算 cost。
+		Group("model_alias, model")
 	// rows 只承接聚合后的少量 model 行。
 	var rows []usageWindowTokenStats
 	// 执行 hourly 聚合查询。
@@ -245,19 +249,22 @@ func sumHourlyUsageWindowTokenStats(db *gorm.DB, authIndex string, start time.Ti
 		// 包装 hourly 查询错误，保留调用上下文。
 		return nil, fmt.Errorf("sum hourly usage window stats: %w", err)
 	}
-	// 返回 model 级 token 汇总。
+	// 返回 model_alias/model 级 token 汇总。
 	return rows, nil
 }
 
-func mergeUsageWindowTokenStats(merged map[string]usageWindowTokenStats, rows []usageWindowTokenStats) {
-	// 遍历每个来源返回的 model 汇总行。
+func mergeUsageWindowTokenStats(merged map[usageWindowTokenStatsKey]usageWindowTokenStats, rows []usageWindowTokenStats) {
+	// 遍历每个来源返回的 model_alias/model 汇总行。
 	for _, row := range rows {
-		// model 先 trim，避免同一模型因为空白产生两个聚合桶。
+		// 维度先 trim，避免同一模型因为空白产生两个聚合桶。
 		model := strings.TrimSpace(row.Model)
-		// 从已有 map 中取出当前 model 的累计值。
-		current := merged[model]
-		// 写回规范化后的 model 名，后续价格表也按 trim 后的 model 查找。
+		modelAlias := strings.TrimSpace(row.ModelAlias)
+		key := usageWindowTokenStatsKey{model: model, modelAlias: modelAlias}
+		// 从已有 map 中取出当前 model_alias/model 的累计值。
+		current := merged[key]
+		// 写回规范化后的维度，后续 resolver 也按 trim 后的值查找。
 		current.Model = model
+		current.ModelAlias = modelAlias
 		// 累加 total_tokens，用于前端 token 展示。
 		current.TotalTokens += row.TotalTokens
 		// 累加 input_tokens，用于 prompt/cached 成本拆分。
@@ -270,12 +277,12 @@ func mergeUsageWindowTokenStats(merged map[string]usageWindowTokenStats, rows []
 		current.CacheReadTokens += row.CacheReadTokens
 		// 累加 Claude cache creation/write 明细，用于 Claude 风格价格计算。
 		current.CacheCreationTokens += row.CacheCreationTokens
-		// 把合并后的 model 统计写回 map。
-		merged[model] = current
+		// 把合并后的 model_alias/model 统计写回 map。
+		merged[key] = current
 	}
 }
 
-func usageWindowTokenStatsValues(merged map[string]usageWindowTokenStats) []usageWindowTokenStats {
+func usageWindowTokenStatsValues(merged map[usageWindowTokenStatsKey]usageWindowTokenStats) []usageWindowTokenStats {
 	// 预分配 slice 容量，避免 model 数较多时反复扩容。
 	rows := make([]usageWindowTokenStats, 0, len(merged))
 	// 遍历 map 中已经合并好的 model 统计。
@@ -287,23 +294,26 @@ func usageWindowTokenStatsValues(merged map[string]usageWindowTokenStats) []usag
 	return rows
 }
 
-func usageWindowStatsFromTokenStats(rows []usageWindowTokenStats, pricingByModel map[string]entities.ModelPriceSetting) UsageWindowStats {
+func usageWindowStatsFromTokenStats(rows []usageWindowTokenStats, costResolver *UsageCostResolver) UsageWindowStats {
 	// 初始化最终返回的 token/cost 汇总。
 	stats := UsageWindowStats{}
-	// 遍历每个 model 的聚合 token。
+	// 遍历每个 model_alias/model 的聚合 token。
 	for _, row := range rows {
 		// total_tokens 直接累计到前端展示的窗口 token。
 		stats.Tokens += row.TotalTokens
-		// model 名称按 trim 后查价格，保持和其它 Overview/Usage cost 逻辑一致。
-		pricing := pricingByModel[strings.TrimSpace(row.Model)]
-		// 使用统一 helper 按当前价格表计算该 model 的 cost。
-		stats.Cost += helper.CalculateUsageTokenCost(helper.UsageTokenCostInput{
-			InputTokens:         row.InputTokens,
-			OutputTokens:        row.OutputTokens,
-			CachedTokens:        row.CachedTokens,
-			CacheReadTokens:     row.CacheReadTokens,
-			CacheCreationTokens: row.CacheCreationTokens,
-		}, pricing)
+		// 使用统一 resolver 按 alias 优先规则计算该维度的 cost。
+		result := costResolver.Calculate(UsageCostSubject{
+			Model:      row.Model,
+			ModelAlias: row.ModelAlias,
+			Tokens: helper.UsageTokenCostInput{
+				InputTokens:         row.InputTokens,
+				OutputTokens:        row.OutputTokens,
+				CachedTokens:        row.CachedTokens,
+				CacheReadTokens:     row.CacheReadTokens,
+				CacheCreationTokens: row.CacheCreationTokens,
+			},
+		})
+		stats.Cost += result.Cost.TotalCostUSD
 	}
 	// 返回最终窗口统计。
 	return stats

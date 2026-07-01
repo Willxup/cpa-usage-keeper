@@ -217,6 +217,7 @@ export interface UsageEvent {
   timestamp: string
   api_key?: string
   model: string
+  model_alias?: string
   reasoning_effort?: string
   service_tier?: string
   executor_type?: string

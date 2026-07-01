@@ -83,7 +83,7 @@ const DEFAULT_USAGE_TAB: UsageTab = 'overview';
 const USAGE_TAB_STORAGE_KEY = 'cli-proxy-usage-tab-v1';
 const REQUEST_EVENTS_PAGE_SIZES = [20, 50, 100, 500, 1000] as const;
 const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 100;
-const REQUEST_EVENTS_PREFERENCES_VERSION = 2;
+const REQUEST_EVENTS_PREFERENCES_VERSION = 3;
 const ALL_REQUEST_EVENTS_FILTER = '__all__';
 const OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
 export const CUSTOM_DATE_RANGE_BOUNDS_REFRESH_INTERVAL_MS = 60_000;
@@ -202,7 +202,9 @@ const buildDefaultRequestEventsPreferences = (): RequestEventsPreferences => ({
   visibleColumnIds: [...REQUEST_EVENT_COLUMN_IDS],
 });
 
+const LEGACY_REQUEST_EVENT_COLUMN_IDS_WITHOUT_MODEL_ALIAS = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'model_alias');
 const LEGACY_REQUEST_EVENT_COLUMN_IDS_WITHOUT_SPEED_MODE = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'service_tier');
+const LEGACY_REQUEST_EVENT_COLUMN_IDS_WITHOUT_SPEED_MODE_AND_MODEL_ALIAS = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'service_tier' && columnId !== 'model_alias');
 
 const isRecord = (value: unknown): value is Record<string, unknown> => (
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -245,7 +247,17 @@ const normalizeRequestEventPreferenceColumnIds = (value: unknown, version: unkno
   const normalized = normalizeRequestEventVisibleColumnIds(value.filter(isRequestEventColumnId));
   if (
     version !== REQUEST_EVENTS_PREFERENCES_VERSION &&
-    hasSameRequestEventColumnOrder(normalized, LEGACY_REQUEST_EVENT_COLUMN_IDS_WITHOUT_SPEED_MODE)
+    hasSameRequestEventColumnOrder(normalized, LEGACY_REQUEST_EVENT_COLUMN_IDS_WITHOUT_MODEL_ALIAS)
+  ) {
+    return [...REQUEST_EVENT_COLUMN_IDS];
+  }
+  if (
+    typeof version === 'number' &&
+    version < 2 &&
+    (
+      hasSameRequestEventColumnOrder(normalized, LEGACY_REQUEST_EVENT_COLUMN_IDS_WITHOUT_SPEED_MODE) ||
+      hasSameRequestEventColumnOrder(normalized, LEGACY_REQUEST_EVENT_COLUMN_IDS_WITHOUT_SPEED_MODE_AND_MODEL_ALIAS)
+    )
   ) {
     return [...REQUEST_EVENT_COLUMN_IDS];
   }

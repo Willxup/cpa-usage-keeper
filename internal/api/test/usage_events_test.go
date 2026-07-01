@@ -132,6 +132,7 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 		ID:                  42,
 		Timestamp:           time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
 		Model:               "claude-sonnet",
+		ModelAlias:          "sonnet-business",
 		ReasoningEffort:     "medium",
 		ServiceTier:         "priority",
 		ExecutorType:        "responses",
@@ -166,6 +167,9 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	body := resp.Body.String()
 	if !contains(body, `"events":[`) || !contains(body, `"model":"claude-sonnet"`) {
 		t.Fatalf("unexpected response body: %s", body)
+	}
+	if !contains(body, `"model_alias":"sonnet-business"`) {
+		t.Fatalf("expected model alias in response body: %s", body)
 	}
 	if !contains(body, `"id":"42"`) || !contains(body, `"total_count":1`) || !contains(body, `"page":1`) || !contains(body, `"page_size":100`) || !contains(body, `"total_pages":1`) {
 		t.Fatalf("expected pagination metadata and event id in response body: %s", body)
@@ -229,6 +233,7 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 		Timestamp:           time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
 		APIGroupKey:         "sk-export123456",
 		Model:               "claude-sonnet",
+		ModelAlias:          "sonnet-export",
 		ReasoningEffort:     "medium",
 		ServiceTier:         "priority",
 		ExecutorType:        "responses",
@@ -291,8 +296,11 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 	if !regexp.MustCompile(`filename="usage-events-\d{8}-\d{6}\.csv"`).MatchString(resp.Header().Get("Content-Disposition")) {
 		t.Fatalf("expected timestamped csv filename, got %q", resp.Header().Get("Content-Disposition"))
 	}
-	if !contains(body, "cpa_api_key_id") || !contains(body, "auth_index") || !contains(body, "executor_type") || !contains(body, "is_identity_deleted") {
-		t.Fatalf("expected cpa_api_key_id, auth_index, executor_type, and is_identity_deleted columns, got %s", body)
+	if !contains(body, "cpa_api_key_id") || !contains(body, "auth_index") || !contains(body, "model_alias") || !contains(body, "executor_type") || !contains(body, "is_identity_deleted") {
+		t.Fatalf("expected cpa_api_key_id, auth_index, model_alias, executor_type, and is_identity_deleted columns, got %s", body)
+	}
+	if !regexp.MustCompile(`(?m)^id,timestamp,api_key,cpa_api_key_id,source,source_type,auth_index,is_identity_deleted,model,model_alias,reasoning_effort,`).MatchString(body) {
+		t.Fatalf("expected model_alias to follow model in csv header, got %s", body)
 	}
 	if contains(body, "is_deleted") {
 		t.Fatalf("expected export to use is_identity_deleted instead of is_deleted, got %s", body)
@@ -300,7 +308,7 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 	if contains(body, "cost_available") || contains(body, "pricing_style") {
 		t.Fatalf("expected csv export to omit cost availability metadata, got %s", body)
 	}
-	if !contains(body, "Export Key") || !contains(body, ",7,") || !contains(body, "authidx-export-main") || !contains(body, "responses") || !contains(body, "failed") {
+	if !contains(body, "Export Key") || !contains(body, ",7,") || !contains(body, "authidx-export-main") || !contains(body, "sonnet-export") || !contains(body, "responses") || !contains(body, "failed") {
 		t.Fatalf("expected exported row values, got %s", body)
 	}
 }
@@ -311,6 +319,7 @@ func TestUsageEventsExportJSONIncludesAllExportFields(t *testing.T) {
 		Timestamp:     time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
 		APIGroupKey:   "sk-json-export",
 		Model:         "gpt-5",
+		ModelAlias:    "gpt-json-alias",
 		ServiceTier:   "default",
 		ExecutorType:  "chat_completions",
 		Endpoint:      "GET /v1/responses",
@@ -350,7 +359,7 @@ func TestUsageEventsExportJSONIncludesAllExportFields(t *testing.T) {
 	if !contains(body, `"total_count":1`) || contains(body, `"page"`) || contains(body, `"page_size"`) {
 		t.Fatalf("expected export metadata without pagination, got %s", body)
 	}
-	if !contains(body, `"auth_index":"auth-file-export"`) || !contains(body, `"executor_type":"chat_completions"`) || !contains(body, `"endpoint":"GET /v1/responses"`) || !contains(body, `"is_identity_deleted":true`) {
+	if !contains(body, `"auth_index":"auth-file-export"`) || !contains(body, `"model_alias":"gpt-json-alias"`) || !contains(body, `"executor_type":"chat_completions"`) || !contains(body, `"endpoint":"GET /v1/responses"`) || !contains(body, `"is_identity_deleted":true`) {
 		t.Fatalf("expected raw export fields in json body, got %s", body)
 	}
 	if !contains(body, `"api_key":"Team <Ops> & Co"`) || contains(body, `\u003c`) || contains(body, `\u0026`) || contains(body, `\u003e`) {

@@ -18,40 +18,13 @@ type UsageTokenCostBreakdown struct {
 	TotalCostUSD  float64
 }
 
-// UsageEventRequiresPricing 判断事件是否包含需要价格表解释的计费 token。
-func UsageEventRequiresPricing(event entities.UsageEvent) bool {
-	return UsageTokenInputRequiresPricing(UsageTokenCostInput{
-		InputTokens:         event.InputTokens,
-		OutputTokens:        event.OutputTokens,
-		CachedTokens:        event.CachedTokens,
-		CacheReadTokens:     event.CacheReadTokens,
-		CacheCreationTokens: event.CacheCreationTokens,
-	})
-}
-
 // UsageTokenInputRequiresPricing 判断聚合 token 输入是否需要价格表才能给出完整 cost。
 func UsageTokenInputRequiresPricing(input UsageTokenCostInput) bool {
 	return input.InputTokens > 0 || input.OutputTokens > 0 || input.CachedTokens > 0 || input.CacheReadTokens > 0 || input.CacheCreationTokens > 0
 }
 
-// CalculateUsageEventCost 复用通用 token 公式计算单条 usage_event 的费用。
-func CalculateUsageEventCost(event entities.UsageEvent, pricing entities.ModelPriceSetting) float64 {
-	return CalculateUsageTokenCost(UsageTokenCostInput{
-		InputTokens:         event.InputTokens,
-		OutputTokens:        event.OutputTokens,
-		CachedTokens:        event.CachedTokens,
-		CacheReadTokens:     event.CacheReadTokens,
-		CacheCreationTokens: event.CacheCreationTokens,
-	}, pricing)
-}
-
-// CalculateUsageTokenCost 按当前价格风格计算费用。
-// OpenAI 风格把 cached_tokens 视为 input_tokens 的子集；Claude 风格把 cache read/write 从已归一化的总 input 中拆回单独价格。
-func CalculateUsageTokenCost(input UsageTokenCostInput, pricing entities.ModelPriceSetting) float64 {
-	return CalculateUsageTokenCostBreakdown(input, pricing).TotalCostUSD
-}
-
 // CalculateUsageTokenCostBreakdown 把总费用拆成 input/output/cached 三段，供 Analysis 页面复用同一计价口径。
+// OpenAI 风格把 cached_tokens 视为 input_tokens 的子集；Claude 风格把 cache read/write 从已归一化的总 input 中拆回单独价格。
 func CalculateUsageTokenCostBreakdown(input UsageTokenCostInput, pricing entities.ModelPriceSetting) UsageTokenCostBreakdown {
 	input = clampUsageTokenCostInput(input)
 	switch pricing.PricingStyle {

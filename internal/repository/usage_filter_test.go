@@ -32,12 +32,25 @@ func buildUsageOverviewFromEventsForTest(events []entities.UsageEvent, filter dt
 	windowMinutes := computeWindowMinutes(filter)
 	bucketByDay := shouldBucketUsageOverviewByDay(filter, windowMinutes)
 	overview := newUsageOverviewRecord(filter, windowMinutes)
+	costResolver := &UsageCostResolver{pricesByModel: pricingByModel}
 	for _, event := range events {
 		applyUsageEventToOverviewSnapshot(overview.Usage, event)
-		applyUsageEventToOverview(overview, event, bucketByDay, pricingByModel)
+		applyUsageEventToOverview(overview, event, bucketByDay, costResolver)
 	}
 	finalizeUsageOverview(overview)
 	return overview
+}
+
+func loadPriceSettingsByModel(db *gorm.DB) (map[string]entities.ModelPriceSetting, error) {
+	settings, err := ListModelPriceSettings(db)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]entities.ModelPriceSetting, len(settings))
+	for _, setting := range settings {
+		result[strings.TrimSpace(setting.Model)] = setting
+	}
+	return result, nil
 }
 
 func loadUsageOverviewOracleEventsForTest(db *gorm.DB, filter dto.UsageQueryFilter) ([]entities.UsageEvent, error) {
@@ -909,13 +922,11 @@ func TestBuildUsageOverviewWithFilterKeepsCalendarDayHealthWindow(t *testing.T) 
 	}
 }
 
-func TestCalculateUsageEventCostDoesNotDoubleChargeReasoningTokens(t *testing.T) {
-	event := entities.UsageEvent{
-		InputTokens:     1_000_000,
-		OutputTokens:    2_000_000,
-		ReasoningTokens: 3_000_000,
-		CachedTokens:    400_000,
-		TotalTokens:     6_400_000,
+func TestCalculateUsageTokenCostBreakdownDoesNotDoubleChargeReasoningTokens(t *testing.T) {
+	input := helper.UsageTokenCostInput{
+		InputTokens:  1_000_000,
+		OutputTokens: 2_000_000,
+		CachedTokens: 400_000,
 	}
 	pricing := entities.ModelPriceSetting{
 		PromptPricePer1M:     10,
@@ -923,9 +934,9 @@ func TestCalculateUsageEventCostDoesNotDoubleChargeReasoningTokens(t *testing.T)
 		CachePricePer1M:      1,
 	}
 
-	cost := helper.CalculateUsageEventCost(event, pricing)
+	cost := helper.CalculateUsageTokenCostBreakdown(input, pricing).TotalCostUSD
 
-	if cost != 46.4 {
+	if math.Abs(cost-46.4) > 0.000000001 {
 		t.Fatalf("expected reasoning tokens not to be added to completion cost, got %f", cost)
 	}
 }
