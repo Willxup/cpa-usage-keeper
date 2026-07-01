@@ -216,7 +216,7 @@ func sumRawUsageWindowTokenStats(db *gorm.DB, authIndex string, start time.Time,
 		// auth_index 已经是唯一身份维度，这里不再额外按 auth_type 过滤。
 		Where("auth_index = ? AND timestamp >= ?", authIndex, timeutil.FormatStorageTime(start)).
 		// 按 model_alias/model 分组，后续按 alias 优先价格表计算 cost。
-		Group("COALESCE(model_alias, ''), model")
+		Group("model_alias, model")
 	// 如果调用方传入结束时间，就用半开区间避免边界重复累计。
 	if end != nil {
 		// end 统一格式化为 storage time，确保 SQLite 文本比较稳定。
