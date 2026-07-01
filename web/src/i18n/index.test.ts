@@ -164,6 +164,12 @@ describe('i18n resources', () => {
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.overview_realtime_load_failed')).toBe('即時概覽載入失敗');
   });
 
+  it('labels the realtime overview section as metrics', () => {
+    expect(i18n.getResource('en', 'translation', 'usage_stats.overview_realtime_section_title')).toBe('Realtime Metrics');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.overview_realtime_section_title')).toBe('实时指标');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.overview_realtime_section_title')).toBe('即時指標');
+  });
+
   it('localizes realtime overview sample and rolling hints', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.overview_realtime_ttft_empty')).toBe('No TTFT samples');
     expect(i18n.getResource('en', 'translation', 'usage_stats.overview_realtime_latency_empty')).toBe('No latency samples');
