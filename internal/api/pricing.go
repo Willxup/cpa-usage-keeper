@@ -55,6 +55,13 @@ func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingPr
 			return
 		}
 
+		if models == nil {
+			models = []string{}
+		}
+		if upstreamModels == nil {
+			upstreamModels = []string{}
+		}
+
 		c.JSON(http.StatusOK, usedModelsResponse{Models: models, UpstreamModels: upstreamModels})
 	})
 

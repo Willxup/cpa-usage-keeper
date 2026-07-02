@@ -101,6 +101,19 @@ func TestPricingRoutesReturnConfiguredData(t *testing.T) {
 	}
 }
 
+func TestPricingRoutesNormalizeNilUsedModelSlices(t *testing.T) {
+	router := NewRouter(nil, nil, nil, &pricingStub{}, AuthConfig{}, nil, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/models/used", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK || !contains(body, `"models":[]`) || !contains(body, `"upstream_models":[]`) || contains(body, `null`) {
+		t.Fatalf("unexpected used models response: %d %s", resp.Code, body)
+	}
+}
+
 func TestPricingSyncPreviewRoute(t *testing.T) {
 	router := NewRouter(nil, nil, nil, &pricingStub{
 		preview: servicedto.PricingSyncPreview{
