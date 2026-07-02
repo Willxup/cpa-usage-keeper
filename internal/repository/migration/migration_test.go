@@ -1,7 +1,6 @@
-package test
+package migration
 
 import (
-	"bytes"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -9,33 +8,18 @@ import (
 	"testing"
 	"time"
 
-	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/repository/migration"
 	"github.com/sirupsen/logrus"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
 func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(testSQLiteDSN(filepath.Join(t.TempDir(), "migration-order.db"))), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open database: %v", err)
+	got := make([]string, 0, len(orderedMigrations()))
+	for _, migration := range orderedMigrations() {
+		got = append(got, migration.version)
 	}
-	defer closeOpenedDatabase(t, db)
-
-	if err := migration.MarkAllAsApplied(db); err != nil {
-		t.Fatalf("MarkAllAsApplied returned error: %v", err)
-	}
-	var got []string
-	if err := db.Raw("SELECT version FROM schema_migrations ORDER BY rowid ASC").Scan(&got).Error; err != nil {
-		t.Fatalf("load migration versions by insertion order: %v", err)
-	}
-	assertStringSlicesEqual(t, expectedMigrationVersions(), got)
-}
-
-func expectedMigrationVersions() []string {
-	return []string{
+	want := []string{
 		"20260503_add_usage_event_redis_fields",
 		"20260503_backfill_usage_event_redis_fields",
 		"20260503_drop_snapshot_runs",
@@ -79,6 +63,7 @@ func expectedMigrationVersions() []string {
 		"20260701_add_auth_session_source",
 		"20260702_model_price_multiplier",
 	}
+	assertStringSlicesEqual(t, want, got)
 }
 
 func TestOpenDatabaseRunsSchemaMigrationsAndAddsUsageEventRedisFields(t *testing.T) {
@@ -129,7 +114,7 @@ func TestOpenDatabaseRunsSchemaMigrationsAndAddsUsageEventRedisFields(t *testing
 	if err := db.Table("schema_migrations").Order("version asc").Pluck("version", &versions).Error; err != nil {
 		t.Fatalf("load schema migrations: %v", err)
 	}
-	assertStringSlicesEqual(t, sortedExpectedMigrationVersions(), versions)
+	assertStringSlicesEqual(t, sortedOrderedMigrationVersions(), versions)
 }
 
 func TestRunNormalizesLegacyStorageTimesToProjectTimezone(t *testing.T) {
@@ -161,12 +146,12 @@ func TestRunNormalizesLegacyStorageTimesToProjectTimezone(t *testing.T) {
 	if err := db.Exec("CREATE TABLE model_price_settings (id INTEGER PRIMARY KEY AUTOINCREMENT, model TEXT, created_at DATETIME, updated_at DATETIME)").Error; err != nil {
 		t.Fatalf("create model_price_settings: %v", err)
 	}
-	for _, version := range expectedMigrationVersions() {
-		if version == "20260512_normalize_storage_times_to_project_tz" {
+	for _, migration := range orderedMigrations() {
+		if migration.version == migrationNormalizeStorageTimesToProjectTZ {
 			continue
 		}
-		if err := db.Exec("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)", version, "2026-05-12 13:47:39.744240399+00:00").Error; err != nil {
-			t.Fatalf("seed schema_migrations %s: %v", version, err)
+		if err := db.Exec("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)", migration.version, "2026-05-12 13:47:39.744240399+00:00").Error; err != nil {
+			t.Fatalf("seed schema_migrations %s: %v", migration.version, err)
 		}
 	}
 	if err := db.Exec("INSERT INTO usage_events (event_key, model, timestamp, created_at) VALUES (?, ?, ?, ?)", "event-1", "claude-sonnet", "2026-05-12 13:47:39.744240399+00:00", "2026-05-12T13:47:39.744240399Z").Error; err != nil {
@@ -182,7 +167,7 @@ func TestRunNormalizesLegacyStorageTimesToProjectTimezone(t *testing.T) {
 		t.Fatalf("seed model_price_settings: %v", err)
 	}
 
-	if err := migration.Run(db); err != nil {
+	if err := Run(db); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
@@ -211,7 +196,7 @@ func TestOpenDatabaseMigrationsAreIdempotent(t *testing.T) {
 	if err := db.Table("schema_migrations").Count(&count).Error; err != nil {
 		t.Fatalf("count schema migrations: %v", err)
 	}
-	expectedCount := int64(len(expectedMigrationVersions()))
+	expectedCount := int64(len(orderedMigrations()))
 	if count != expectedCount {
 		t.Fatalf("expected %d applied migrations after reopening database, got %d", expectedCount, count)
 	}
@@ -268,7 +253,7 @@ func TestRunKeepsDefaultMigrationsTransactionalWhenRecordingFails(t *testing.T) 
 	db := openDatabaseWithFailingMigrationRecord(t, "20260620_create_auth_sessions")
 	defer closeOpenedDatabase(t, db)
 
-	err := migration.Run(db)
+	err := Run(db)
 	if err == nil {
 		t.Fatal("expected migration error")
 	}
@@ -282,7 +267,7 @@ func TestRunLogsSchemaMigrationErrors(t *testing.T) {
 	db := openDatabaseWithFailingMigrationRecord(t, "20260620_create_auth_sessions")
 	defer closeOpenedDatabase(t, db)
 
-	err := migration.Run(db)
+	err := Run(db)
 	if err == nil {
 		t.Fatal("expected migration error")
 	}
@@ -299,6 +284,129 @@ func TestRunLogsSchemaMigrationErrors(t *testing.T) {
 		if !strings.Contains(content, want) {
 			t.Fatalf("expected migration error logs to contain %q, got:\n%s", want, content)
 		}
+	}
+}
+
+func TestRunAddsSourceToExistingAuthSessions(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(testSQLiteDSN(filepath.Join(t.TempDir(), "auth-session-source.db"))), &gorm.Config{NowFunc: func() time.Time {
+		return time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	}})
+	if err != nil {
+		t.Fatalf("open sqlite database: %v", err)
+	}
+	defer closeOpenedDatabase(t, db)
+
+	if err := MarkAllAsApplied(db); err != nil {
+		t.Fatalf("mark all migrations applied: %v", err)
+	}
+	if err := db.Exec("DELETE FROM schema_migrations WHERE version = ?", migrationAddAuthSessionSource).Error; err != nil {
+		t.Fatalf("mark target migration pending %s: %v", migrationAddAuthSessionSource, err)
+	}
+	if err := db.Exec(`CREATE TABLE auth_sessions (
+		token_hash TEXT PRIMARY KEY,
+		role TEXT NOT NULL,
+		cpa_api_key_id INTEGER,
+		expires_at DATETIME NOT NULL,
+		created_at DATETIME,
+		updated_at DATETIME
+	)`).Error; err != nil {
+		t.Fatalf("create legacy auth_sessions: %v", err)
+	}
+	if err := db.Exec(
+		"INSERT INTO auth_sessions (token_hash, role, cpa_api_key_id, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		"legacy-token-hash",
+		"admin",
+		0,
+		"2026-07-02T00:00:00Z",
+		"2026-07-01T00:00:00Z",
+		"2026-07-01T00:00:00Z",
+	).Error; err != nil {
+		t.Fatalf("seed legacy auth session: %v", err)
+	}
+
+	if err := Run(db); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if !db.Migrator().HasColumn(&entities.AuthSession{}, "Source") {
+		t.Fatal("expected auth_sessions.source column to exist after migration")
+	}
+	var source string
+	if err := db.Table("auth_sessions").Select("source").Where("token_hash = ?", "legacy-token-hash").Scan(&source).Error; err != nil {
+		t.Fatalf("load migrated source: %v", err)
+	}
+	if source != "standard" {
+		t.Fatalf("expected legacy session source to backfill to standard, got %q", source)
+	}
+	var count int64
+	if err := db.Table("schema_migrations").Where("version = ?", migrationAddAuthSessionSource).Count(&count).Error; err != nil {
+		t.Fatalf("count auth session source migration: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected migration %s to be recorded once, got %d", migrationAddAuthSessionSource, count)
+	}
+}
+
+func TestRunAddsModelPriceMultiplierDefaultToExistingPricing(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(testSQLiteDSN(filepath.Join(t.TempDir(), "model-price-multiplier.db"))), &gorm.Config{NowFunc: func() time.Time {
+		return time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)
+	}})
+	if err != nil {
+		t.Fatalf("open sqlite database: %v", err)
+	}
+	defer closeOpenedDatabase(t, db)
+
+	if err := MarkAllAsApplied(db); err != nil {
+		t.Fatalf("mark all migrations applied: %v", err)
+	}
+	if err := db.Exec("DELETE FROM schema_migrations WHERE version = ?", migrationModelPriceMultiplier).Error; err != nil {
+		t.Fatalf("mark target migration pending %s: %v", migrationModelPriceMultiplier, err)
+	}
+	if err := db.Exec(`CREATE TABLE model_price_settings (
+		id integer PRIMARY KEY,
+		model text,
+		pricing_style text NOT NULL DEFAULT 'openai',
+		prompt_price_per1_m real,
+		completion_price_per1_m real,
+		cache_price_per1_m real,
+		cache_creation_price_per1_m real NOT NULL DEFAULT 0,
+		created_at datetime,
+		updated_at datetime
+	)`).Error; err != nil {
+		t.Fatalf("create legacy model_price_settings table: %v", err)
+	}
+	if err := db.Exec(`INSERT INTO model_price_settings (
+		id,
+		model,
+		pricing_style,
+		prompt_price_per1_m,
+		completion_price_per1_m,
+		cache_price_per1_m,
+		cache_creation_price_per1_m
+	) VALUES (?, ?, ?, ?, ?, ?, ?)`, int64(1), "claude-sonnet", "claude", 3.0, 15.0, 0.3, 3.75).Error; err != nil {
+		t.Fatalf("seed legacy model price setting: %v", err)
+	}
+
+	if err := Run(db); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if !db.Migrator().HasColumn("model_price_settings", "price_multiplier") {
+		t.Fatal("expected model_price_settings.price_multiplier column to exist after migration")
+	}
+	var multiplier float64
+	if err := db.Table("model_price_settings").Select("price_multiplier").Where("model = ?", "claude-sonnet").Scan(&multiplier).Error; err != nil {
+		t.Fatalf("load migrated price multiplier: %v", err)
+	}
+	if multiplier != 1 {
+		t.Fatalf("expected legacy price multiplier to default to 1, got %v", multiplier)
+	}
+	var count int64
+	if err := db.Table("schema_migrations").Where("version = ?", migrationModelPriceMultiplier).Count(&count).Error; err != nil {
+		t.Fatalf("count model price multiplier migration: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected migration %s to be recorded once, got %d", migrationModelPriceMultiplier, count)
 	}
 }
 
@@ -328,27 +436,22 @@ func openDatabaseWithFailingMigrationRecord(t *testing.T, version string) *gorm.
 
 func seedSchemaMigrationsBefore(t *testing.T, db *gorm.DB, targetVersion string, appliedAt string) {
 	t.Helper()
-	for _, version := range migrationVersionsBefore(t, targetVersion) {
-		if err := db.Exec("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)", version, appliedAt).Error; err != nil {
-			t.Fatalf("seed schema_migrations %s: %v", version, err)
+	for _, migration := range orderedMigrations() {
+		if migration.version == targetVersion {
+			return
 		}
-	}
-}
-
-func migrationVersionsBefore(t *testing.T, targetVersion string) []string {
-	t.Helper()
-	versions := expectedMigrationVersions()
-	for index, version := range versions {
-		if version == targetVersion {
-			return append([]string(nil), versions[:index]...)
+		if err := db.Exec("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)", migration.version, appliedAt).Error; err != nil {
+			t.Fatalf("seed schema_migrations %s: %v", migration.version, err)
 		}
 	}
 	t.Fatalf("missing migration version %s in expected migration list", targetVersion)
-	return nil
 }
 
-func sortedExpectedMigrationVersions() []string {
-	versions := append([]string(nil), expectedMigrationVersions()...)
+func sortedOrderedMigrationVersions() []string {
+	versions := make([]string, 0, len(orderedMigrations()))
+	for _, migration := range orderedMigrations() {
+		versions = append(versions, migration.version)
+	}
 	sort.Strings(versions)
 	return versions
 }
@@ -361,141 +464,6 @@ func assertStringSlicesEqual(t *testing.T, want []string, got []string) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("expected versions %v, got %v", want, got)
-		}
-	}
-}
-
-func openMigratedDatabase(t *testing.T, dbPath string) *gorm.DB {
-	t.Helper()
-	db, err := gorm.Open(sqlite.Open(testSQLiteDSN(dbPath)), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open migrated database: %v", err)
-	}
-	if err := migration.Run(db); err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-	return db
-}
-
-func captureMigrationLogs(t *testing.T, level logrus.Level) *bytes.Buffer {
-	t.Helper()
-	var logs bytes.Buffer
-	previousOutput := logrus.StandardLogger().Out
-	previousFormatter := logrus.StandardLogger().Formatter
-	previousLevel := logrus.GetLevel()
-	logrus.SetOutput(&logs)
-	logrus.SetFormatter(&logrus.TextFormatter{DisableTimestamp: true})
-	logrus.SetLevel(level)
-	t.Cleanup(func() {
-		logrus.SetOutput(previousOutput)
-		logrus.SetFormatter(previousFormatter)
-		logrus.SetLevel(previousLevel)
-	})
-	return &logs
-}
-
-func closeOpenedDatabase(t *testing.T, db *gorm.DB) {
-	t.Helper()
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("get sql database: %v", err)
-	}
-	if err := sqlDB.Close(); err != nil {
-		t.Fatalf("close database: %v", err)
-	}
-}
-
-func testSQLiteDSN(path string) string {
-	trimmed := strings.TrimSpace(path)
-	if strings.Contains(trimmed, "?") {
-		return trimmed
-	}
-	return trimmed + "?_busy_timeout=5000&_foreign_keys=on"
-}
-
-func seedLegacyRedisUsageTables(t *testing.T, dbPath string) {
-	t.Helper()
-	db, err := gorm.Open(sqlite.Open(testSQLiteDSN(dbPath)), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open legacy database: %v", err)
-	}
-	defer closeOpenedDatabase(t, db)
-
-	statements := []string{
-		`CREATE TABLE usage_events (
-			id integer PRIMARY KEY AUTOINCREMENT,
-			event_key text,
-			snapshot_run_id integer,
-			api_group_key text,
-			model text,
-			timestamp datetime,
-			source text,
-			auth_index text,
-			failed numeric,
-			latency_ms integer,
-			input_tokens integer,
-			output_tokens integer,
-			reasoning_tokens integer,
-			cached_tokens integer,
-			total_tokens integer,
-			created_at datetime
-		)`,
-		`CREATE UNIQUE INDEX uniq_usage_events_event_key ON usage_events(event_key)`,
-		`CREATE TABLE redis_usage_inboxes (
-			id integer PRIMARY KEY AUTOINCREMENT,
-			queue_key text NOT NULL DEFAULT '',
-			message_hash text NOT NULL DEFAULT '',
-			raw_message text NOT NULL DEFAULT '',
-			status text NOT NULL DEFAULT '',
-			attempt_count integer NOT NULL DEFAULT 0,
-			last_error text,
-			snapshot_run_id integer,
-			usage_event_key text,
-			popped_at datetime NOT NULL DEFAULT '1970-01-01 00:00:00',
-			processed_at datetime,
-			created_at datetime,
-			updated_at datetime
-		)`,
-	}
-	for _, statement := range statements {
-		if err := db.Exec(statement).Error; err != nil {
-			t.Fatalf("seed legacy schema with %q: %v", statement, err)
-		}
-	}
-
-	now := time.Date(2026, 5, 3, 8, 0, 0, 0, time.UTC)
-	legacyEvents := []map[string]any{
-		{"event_key": "legacy-canonical-key", "api_group_key": "raw-key", "model": "claude-sonnet", "timestamp": now, "created_at": now},
-		{"event_key": "req-fallback", "api_group_key": "fallback", "model": "claude-opus", "timestamp": now, "created_at": now},
-		{"event_key": "req-blank-fallback", "api_group_key": "blank", "model": "claude-opus", "timestamp": now, "created_at": now},
-		{"event_key": "", "api_group_key": "empty", "model": "claude-empty", "timestamp": now, "created_at": now},
-		{"event_key": "existing-key", "api_group_key": "existing", "model": "claude-haiku", "timestamp": now, "created_at": now},
-	}
-	for _, values := range legacyEvents {
-		if err := db.Table("usage_events").Create(values).Error; err != nil {
-			t.Fatalf("seed legacy usage event: %v", err)
-		}
-	}
-
-	inboxes := []struct {
-		hash          string
-		rawMessage    string
-		status        string
-		usageEventKey string
-		processedAt   *time.Time
-	}{
-		{hash: "hash-1", rawMessage: `{"provider":" claude ","endpoint":" /v1/messages ","auth_type":" API_KEY ","request_id":" req-from-raw "}`, status: "processed", usageEventKey: "legacy-canonical-key", processedAt: &now},
-		{hash: "hash-2", rawMessage: `{"provider":" fallback-provider ","endpoint":" /fallback ","auth_type":" OAuth ","request_id":" req-fallback "}`, status: "processed", usageEventKey: "missing-key", processedAt: &now},
-		{hash: "hash-3", rawMessage: `{"provider":" overwrite-provider ","endpoint":" /overwrite ","auth_type":" api_key ","request_id":" overwrite-request "}`, status: "processed", usageEventKey: "existing-key", processedAt: &now},
-		{hash: "hash-4", rawMessage: `{"provider":" blank-provider ","endpoint":" /blank ","auth_type":" OAuth ","request_id":" req-blank-fallback "}`, status: "processed", usageEventKey: "", processedAt: &now},
-		{hash: "hash-5", rawMessage: `{"provider":"pending-provider","request_id":"pending-key"}`, status: "pending", usageEventKey: "pending-key"},
-	}
-	for _, inbox := range inboxes {
-		if err := db.Exec(
-			"INSERT INTO redis_usage_inboxes (queue_key, message_hash, raw_message, status, attempt_count, usage_event_key, popped_at, processed_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			cpa.ManagementUsageQueueKey, inbox.hash, inbox.rawMessage, inbox.status, 0, inbox.usageEventKey, now, inbox.processedAt, now, now,
-		).Error; err != nil {
-			t.Fatalf("seed legacy redis inbox: %v", err)
 		}
 	}
 }

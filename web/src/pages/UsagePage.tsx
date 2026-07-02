@@ -870,7 +870,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     loading: pricingLoading,
     error: pricingError,
     loadPricing,
-    setModelPrices,
+    saveModelPrice,
+    deleteModelPrice,
     syncModelPrices,
     previewPricingSync,
   } = usePricingData({
@@ -2135,7 +2136,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 <PriceSettingsCard
                   modelNames={modelNames}
                   modelPrices={modelPrices}
-                  onPricesChange={setModelPrices}
+                  onPriceSave={saveModelPrice}
+                  onPriceDelete={deleteModelPrice}
                   onSyncPricesChange={syncModelPrices}
                   onSyncPreview={previewPricingSync}
                   onNotice={showTopNotice}

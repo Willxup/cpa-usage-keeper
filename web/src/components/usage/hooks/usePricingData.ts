@@ -16,7 +16,8 @@ export interface UsePricingDataReturn {
   error: string;
   lastRefreshedAt: Date | null;
   loadPricing: () => Promise<void>;
-  setModelPrices: (prices: Record<string, ModelPrice>) => Promise<void>;
+  saveModelPrice: (model: string, price: ModelPrice) => Promise<void>;
+  deleteModelPrice: (model: string) => Promise<void>;
   syncModelPrices: (prices: Record<string, ModelPrice>) => Promise<PricingSaveResult>;
   previewPricingSync: () => Promise<PricingSyncPreviewResponse>;
 }
@@ -151,24 +152,15 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
     };
   }, [enabled, loadPricing]);
 
-  const setModelPrices = useCallback(async (prices: Record<string, ModelPrice>) => {
-    const previousPrices = modelPrices;
-
+  const saveModelPrice = useCallback(async (model: string, price: ModelPrice) => {
     try {
-      const previousModels = new Set(Object.keys(previousPrices));
-      const nextModels = new Set(Object.keys(prices));
-      await Promise.all([
-        ...Object.entries(prices).map(([model, pricing]) =>
-          updatePricing(model, modelPriceToPricingEntry(pricing))
-        ),
-        ...Array.from(previousModels)
-          .filter((model) => !nextModels.has(model))
-          .map((model) => deletePricing(model)),
-      ]);
-      setModelPricesState(prices);
+      await updatePricing(model, modelPriceToPricingEntry(price));
+      setModelPricesState((current) => ({
+        ...current,
+        [model]: price,
+      }));
       setLastRefreshedAt(new Date());
     } catch (error) {
-      setModelPricesState(previousPrices);
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequiredRef.current?.();
         throw error;
@@ -180,7 +172,30 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
       );
       throw error;
     }
-  }, [modelPrices, showNotification, t]);
+  }, [showNotification, t]);
+
+  const deleteModelPrice = useCallback(async (model: string) => {
+    try {
+      await deletePricing(model);
+      setModelPricesState((current) => {
+        const nextPrices = { ...current };
+        delete nextPrices[model];
+        return nextPrices;
+      });
+      setLastRefreshedAt(new Date());
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequiredRef.current?.();
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : '';
+      showNotification(
+        `${t('notification.upload_failed')}${message ? `: ${message}` : ''}`,
+        'error'
+      );
+      throw error;
+    }
+  }, [showNotification, t]);
 
   const syncModelPrices = useCallback(async (prices: Record<string, ModelPrice>) => {
     const result = await persistModelPriceEntries(prices);
@@ -218,7 +233,8 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
     error,
     lastRefreshedAt,
     loadPricing,
-    setModelPrices,
+    saveModelPrice,
+    deleteModelPrice,
     syncModelPrices,
     previewPricingSync,
   };

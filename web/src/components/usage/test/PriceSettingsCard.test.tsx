@@ -5,12 +5,14 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
   buildPricingModelOptions,
+  buildSelectedSyncPrices,
   markPricingSyncFailures,
   notifyPricingSyncUnexpectedError,
   PriceSettingsCard,
   pricingDraftToModelPrice,
   syncDraftToModelPrice,
   syncMatchToDraft,
+  saveSyncDraftsWithSingleModelCallback,
   type PricingSyncDraft,
 } from '../PriceSettingsCard';
 
@@ -38,7 +40,8 @@ describe('PriceSettingsCard', () => {
       <PriceSettingsCard
         modelNames={[]}
         modelPrices={{}}
-        onPricesChange={() => undefined}
+        onPriceSave={() => undefined}
+        onPriceDelete={() => undefined}
         loading={false}
       />,
     );
@@ -62,7 +65,8 @@ describe('PriceSettingsCard', () => {
             multiplier: 1,
           },
         }}
-        onPricesChange={() => undefined}
+        onPriceSave={() => undefined}
+        onPriceDelete={() => undefined}
         loading={false}
       />,
     );
@@ -81,7 +85,8 @@ describe('PriceSettingsCard', () => {
       <PriceSettingsCard
         modelNames={['gpt-4o']}
         modelPrices={{}}
-        onPricesChange={() => undefined}
+        onPriceSave={() => undefined}
+        onPriceDelete={() => undefined}
         onSyncPreview={async () => ({
           source: 'Models.dev',
           source_url: 'https://models.dev/api.json',
@@ -159,7 +164,7 @@ describe('PriceSettingsCard', () => {
     expect(source).toContain("t('usage_stats.model_price_delete_confirm_action')");
   });
 
-  it('waits for persistence before reporting create, edit and delete success', () => {
+  it('persists create, edit and delete through single-model callbacks before reporting success', () => {
     const saveHandlerStart = source.indexOf('const handleSavePrice = async () => {');
     const saveHandlerEnd = source.indexOf('\n  const confirmDeleteModel = async () => {', saveHandlerStart);
     const saveHandler = source.slice(saveHandlerStart, saveHandlerEnd);
@@ -170,16 +175,33 @@ describe('PriceSettingsCard', () => {
     const editHandlerEnd = source.indexOf('\n  const handleModelSelect = (value: string) => {', editHandlerStart);
     const editHandler = source.slice(editHandlerStart, editHandlerEnd);
 
-    for (const handler of [saveHandler, deleteHandler, editHandler]) {
-      expect(handler).toContain('await Promise.resolve(onPricesChange(newPrices));');
-      expect(handler.indexOf('await Promise.resolve(onPricesChange(newPrices));')).toBeLessThan(handler.indexOf("onNotice?.('success'"));
-    }
+    expect(source).toContain('onPriceSave: (model: string, price: ModelPrice) => void | Promise<void>;');
+    expect(source).toContain('onPriceDelete: (model: string) => void | Promise<void>;');
+    expect(source).not.toContain('onPricesChange');
+    expect(saveHandler).toContain('await Promise.resolve(onPriceSave(selectedModel, price));');
+    expect(saveHandler.indexOf('await Promise.resolve(onPriceSave(selectedModel, price));')).toBeLessThan(saveHandler.indexOf("onNotice?.('success'"));
+    expect(editHandler).toContain('await Promise.resolve(onPriceSave(editModel, price));');
+    expect(editHandler.indexOf('await Promise.resolve(onPriceSave(editModel, price));')).toBeLessThan(editHandler.indexOf("onNotice?.('success'"));
+    expect(deleteHandler).toContain('await Promise.resolve(onPriceDelete(deleteModel));');
+    expect(deleteHandler.indexOf('await Promise.resolve(onPriceDelete(deleteModel));')).toBeLessThan(deleteHandler.indexOf("onNotice?.('success'"));
+    expect(source).not.toContain('const newPrices = { ...modelPrices');
+    expect(source).not.toContain('delete newPrices[deleteModel]');
     expect(saveHandler).toContain('setPriceSaving(true);');
     expect(saveHandler).toContain('setPriceSaving(false);');
     expect(editHandler).toContain('setEditSaving(true);');
     expect(editHandler).toContain('setEditSaving(false);');
     expect(deleteHandler).toContain('setDeleteSaving(true);');
     expect(deleteHandler).toContain('setDeleteSaving(false);');
+  });
+
+  it('keeps the create form immutable while a price save is pending', () => {
+    const createFormStart = source.indexOf('<div className={styles.priceForm}>');
+    const createFormEnd = source.indexOf('\n              <div className={styles.pricesList}>', createFormStart);
+    const createForm = source.slice(createFormStart, createFormEnd);
+
+    expect(createFormStart).toBeGreaterThanOrEqual(0);
+    expect(countOccurrences(createForm, 'disabled={priceSaving}')).toBeGreaterThanOrEqual(6);
+    expect(createForm).toContain('disabled={!selectedModel || priceSaving}');
   });
 
   it('keeps edit and delete modals locked while persistence is pending', () => {
@@ -245,6 +267,56 @@ describe('PriceSettingsCard', () => {
       cacheCreation: 0,
       multiplier: 0,
     }).multiplier).toBe('0');
+  });
+
+  it('builds sync save payloads from selected drafts only', () => {
+    const selected = syncDraft('gpt-4o');
+    const unselected = { ...syncDraft('gpt-4o-mini'), selected: false };
+
+    const result = buildSelectedSyncPrices([selected, unselected]);
+
+    expect(result).toEqual({
+      prices: {
+        'gpt-4o': {
+          style: 'openai',
+          prompt: 2.5,
+          completion: 10,
+          cache: 1.25,
+          cacheCreation: 0,
+          multiplier: 1,
+        },
+      },
+      invalidModel: null,
+      selectedDrafts: [selected],
+    });
+    expect(result.prices).not.toHaveProperty('gpt-4o-mini');
+  });
+
+  it('sync fallback saves selected models with single-model callbacks', async () => {
+    const calls: Array<{ model: string; price: number }> = [];
+    const selectedDrafts = [
+      syncDraft('gpt-4o'),
+      syncDraft('claude-sonnet'),
+    ];
+    const prices = {
+      'gpt-4o': { ...syncDraftToModelPrice(selectedDrafts[0])!, prompt: 3 },
+      'claude-sonnet': { ...syncDraftToModelPrice(selectedDrafts[1])!, prompt: 4 },
+      'gpt-4o-mini': { ...syncDraftToModelPrice(syncDraft('gpt-4o-mini'))!, prompt: 5 },
+    };
+
+    const result = await saveSyncDraftsWithSingleModelCallback(
+      selectedDrafts,
+      prices,
+      async (model, price) => {
+        calls.push({ model, price: price.prompt });
+      },
+    );
+
+    expect(calls).toEqual([
+      { model: 'gpt-4o', price: 3 },
+      { model: 'claude-sonnet', price: 4 },
+    ]);
+    expect(result).toEqual({ successModels: ['gpt-4o', 'claude-sonnet'], failures: [] });
   });
 });
 

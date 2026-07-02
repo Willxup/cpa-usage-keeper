@@ -18,7 +18,8 @@ const formatDisplayName = (value: string): string => {
 export interface PriceSettingsCardProps {
   modelNames: string[];
   modelPrices: Record<string, ModelPrice>;
-  onPricesChange: (prices: Record<string, ModelPrice>) => void | Promise<void>;
+  onPriceSave: (model: string, price: ModelPrice) => void | Promise<void>;
+  onPriceDelete: (model: string) => void | Promise<void>;
   onSyncPricesChange?: (prices: Record<string, ModelPrice>) => Promise<PricingSaveResult>;
   onSyncPreview?: () => Promise<PricingSyncPreviewResponse>;
   onNotice?: (kind: 'success' | 'info' | 'error', message: string) => void;
@@ -170,6 +171,54 @@ export const notifyPricingSyncUnexpectedError = (
   );
 };
 
+export interface SelectedSyncPrices {
+  selectedDrafts: PricingSyncDraft[];
+  prices: Record<string, ModelPrice>;
+  invalidModel: string | null;
+}
+
+export const buildSelectedSyncPrices = (drafts: PricingSyncDraft[]): SelectedSyncPrices => {
+  const selectedDrafts = drafts.filter((draft) => draft.selected);
+  const prices: Record<string, ModelPrice> = {};
+  for (const draft of selectedDrafts) {
+    const price = syncDraftToModelPrice(draft);
+    if (!price) {
+      return { selectedDrafts, prices: {}, invalidModel: draft.model };
+    }
+    prices[draft.model] = price;
+  }
+  return { selectedDrafts, prices, invalidModel: null };
+};
+
+export const saveSyncDraftsWithSingleModelCallback = async (
+  selectedDrafts: PricingSyncDraft[],
+  prices: Record<string, ModelPrice>,
+  onPriceSave: PriceSettingsCardProps['onPriceSave'],
+): Promise<PricingSaveResult> => {
+  const settled = await Promise.all(selectedDrafts.map(async (draft) => {
+    try {
+      await Promise.resolve(onPriceSave(draft.model, prices[draft.model]));
+      return { model: draft.model, ok: true as const };
+    } catch (error) {
+      return {
+        model: draft.model,
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error),
+        error,
+      };
+    }
+  }));
+
+  return settled.reduce<PricingSaveResult>((result, item) => {
+    if (item.ok) {
+      result.successModels.push(item.model);
+    } else {
+      result.failures.push({ model: item.model, message: item.message, error: item.error });
+    }
+    return result;
+  }, { successModels: [], failures: [] });
+};
+
 const notifyPricingPersistenceError = (
   error: unknown,
   fallbackMessage: string,
@@ -212,7 +261,8 @@ export const buildPricingModelOptions = (
 export function PriceSettingsCard({
   modelNames,
   modelPrices,
-  onPricesChange,
+  onPriceSave,
+  onPriceDelete,
   onSyncPricesChange,
   onSyncPreview,
   onNotice,
@@ -220,7 +270,7 @@ export function PriceSettingsCard({
 }: PriceSettingsCardProps) {
   const { t } = useTranslation();
 
-  // 新增价格表单先暂存输入值，保存成功后再一次性同步到父级配置。
+  // 新增价格表单先暂存输入值，保存成功后再合并当前模型的价格。
   const [selectedModel, setSelectedModel] = useState('');
   const [pricingStyle, setPricingStyle] = useState<PricingStyle>('openai');
   const [promptPrice, setPromptPrice] = useState('');
@@ -274,10 +324,9 @@ export function PriceSettingsCard({
       onNotice?.('error', t('usage_stats.model_price_save_failed'));
       return;
     }
-    const newPrices = { ...modelPrices, [selectedModel]: price };
     setPriceSaving(true);
     try {
-      await Promise.resolve(onPricesChange(newPrices));
+      await Promise.resolve(onPriceSave(selectedModel, price));
       onNotice?.('success', t('usage_stats.model_price_save_success'));
       setSelectedModel('');
       setPricingStyle('openai');
@@ -295,11 +344,9 @@ export function PriceSettingsCard({
 
   const confirmDeleteModel = async () => {
     if (!deleteModel || deleteSaving) return;
-    const newPrices = { ...modelPrices };
-    delete newPrices[deleteModel];
     setDeleteSaving(true);
     try {
-      await Promise.resolve(onPricesChange(newPrices));
+      await Promise.resolve(onPriceDelete(deleteModel));
       onNotice?.('success', t('usage_stats.model_price_delete_success'));
       setDeleteModel(null);
     } catch (error) {
@@ -334,10 +381,9 @@ export function PriceSettingsCard({
       onNotice?.('error', t('usage_stats.model_price_edit_failed'));
       return;
     }
-    const newPrices = { ...modelPrices, [editModel]: price };
     setEditSaving(true);
     try {
-      await Promise.resolve(onPricesChange(newPrices));
+      await Promise.resolve(onPriceSave(editModel, price));
       onNotice?.('success', t('usage_stats.model_price_edit_success'));
       setEditModel(null);
     } catch (error) {
@@ -348,6 +394,7 @@ export function PriceSettingsCard({
   };
 
   const handleModelSelect = (value: string) => {
+    if (priceSaving) return;
     setSelectedModel(value);
     const price = modelPrices[value];
     if (price) {
@@ -409,28 +456,34 @@ export function PriceSettingsCard({
   };
 
   const handleApplySyncDrafts = async () => {
-    const selectedDrafts = syncDrafts.filter((draft) => draft.selected);
+    const { selectedDrafts, prices: syncPrices, invalidModel } = buildSelectedSyncPrices(syncDrafts);
     if (selectedDrafts.length === 0) {
       onNotice?.('error', t('usage_stats.model_price_sync_none_selected'));
       return;
     }
-
-    const syncPrices: Record<string, ModelPrice> = {};
-    for (const draft of selectedDrafts) {
-      const price = syncDraftToModelPrice(draft);
-      if (!price) {
-        onNotice?.('error', t('usage_stats.model_price_sync_invalid', { model: formatDisplayName(draft.model) }));
-        return;
-      }
-      syncPrices[draft.model] = price;
+    if (invalidModel !== null) {
+      onNotice?.('error', t('usage_stats.model_price_sync_invalid', { model: formatDisplayName(invalidModel) }));
+      return;
     }
 
     setSyncApplying(true);
     try {
       if (!onSyncPricesChange) {
-        await Promise.resolve(onPricesChange({ ...modelPrices, ...syncPrices }));
-        onNotice?.('success', t('usage_stats.model_price_sync_apply_success', { count: selectedDrafts.length }));
-        setSyncOpen(false);
+        const result = await saveSyncDraftsWithSingleModelCallback(selectedDrafts, syncPrices, onPriceSave);
+        setSyncDrafts((current) => markPricingSyncFailures(current, result));
+        if (result.failures.length === 0) {
+          onNotice?.('success', t('usage_stats.model_price_sync_apply_success', { count: result.successModels.length }));
+          setSyncOpen(false);
+          return;
+        }
+
+        onNotice?.(
+          result.successModels.length > 0 ? 'info' : 'error',
+          t('usage_stats.model_price_sync_apply_partial', {
+            success: result.successModels.length,
+            failed: result.failures.length,
+          }),
+        );
         return;
       }
 
@@ -512,6 +565,7 @@ export function PriceSettingsCard({
                       options={options}
                       onChange={handleModelSelect}
                       placeholder={t('usage_stats.model_price_select_placeholder')}
+                      disabled={priceSaving}
                       className={styles.usagePillControl}
                     />
                   </div>
@@ -521,6 +575,7 @@ export function PriceSettingsCard({
                       value={pricingStyle}
                       options={styleOptions}
                       onChange={(value) => setPricingStyle(value === 'claude' ? 'claude' : 'openai')}
+                      disabled={priceSaving}
                       className={styles.usagePillControl}
                     />
                   </div>
@@ -532,6 +587,7 @@ export function PriceSettingsCard({
                       onChange={(e) => setPromptPrice(e.target.value)}
                       placeholder="0.00"
                       step="0.0001"
+                      disabled={priceSaving}
                       className={styles.usagePillControl}
                     />
                   </div>
@@ -543,6 +599,7 @@ export function PriceSettingsCard({
                       onChange={(e) => setCompletionPrice(e.target.value)}
                       placeholder="0.00"
                       step="0.0001"
+                      disabled={priceSaving}
                       className={styles.usagePillControl}
                     />
                   </div>
@@ -554,6 +611,7 @@ export function PriceSettingsCard({
                       onChange={(e) => setCachePrice(e.target.value)}
                       placeholder="0.00"
                       step="0.0001"
+                      disabled={priceSaving}
                       className={styles.usagePillControl}
                     />
                   </div>
@@ -566,6 +624,7 @@ export function PriceSettingsCard({
                         onChange={(e) => setCacheCreationPrice(e.target.value)}
                         placeholder="0.00"
                         step="0.0001"
+                        disabled={priceSaving}
                         className={styles.usagePillControl}
                       />
                     </div>
@@ -579,10 +638,11 @@ export function PriceSettingsCard({
                       placeholder="1"
                       step="0.0001"
                       min="0"
+                      disabled={priceSaving}
                       className={styles.usagePillControl}
                     />
                   </div>
-                  <Button variant="primary" className={styles.usagePillAction} onClick={() => void handleSavePrice()} disabled={!selectedModel} loading={priceSaving}>
+                  <Button variant="primary" className={styles.usagePillAction} onClick={() => void handleSavePrice()} disabled={!selectedModel || priceSaving} loading={priceSaving}>
                     {t('common.save')}
                   </Button>
                 </div>
