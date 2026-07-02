@@ -11,6 +11,7 @@ export interface UsePricingDataOptions {
 
 export interface UsePricingDataReturn {
   modelNames: string[];
+  upstreamModels: string[];
   modelPrices: Record<string, ModelPrice>;
   loading: boolean;
   error: string;
@@ -81,6 +82,7 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
   const { t } = useTranslation();
   const { showNotification } = useNotificationStore();
   const [modelNames, setModelNames] = useState<string[]>([]);
+  const [upstreamModels, setUpstreamModels] = useState<string[]>([]);
   const [modelPrices, setModelPricesState] = useState<Record<string, ModelPrice>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -118,6 +120,7 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
       }
       applyPricingResponse(pricingResponse);
       setModelNames(usedModelsResponse.models);
+      setUpstreamModels(usedModelsResponse.upstream_models ?? []);
     } catch (error) {
       if (controller.signal.aborted) {
         return;
@@ -210,6 +213,7 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
 
   return {
     modelNames,
+    upstreamModels,
     modelPrices,
     loading,
     error,

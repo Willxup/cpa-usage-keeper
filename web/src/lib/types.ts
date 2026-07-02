@@ -625,6 +625,7 @@ export interface PricingEntry {
 
 export interface UsedModelsResponse {
   models: string[]
+  upstream_models?: string[]
 }
 
 export interface PricingResponse {

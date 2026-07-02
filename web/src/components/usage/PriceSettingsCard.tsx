@@ -17,6 +17,7 @@ const formatDisplayName = (value: string): string => {
 
 export interface PriceSettingsCardProps {
   modelNames: string[];
+  upstreamModels?: string[];
   modelPrices: Record<string, ModelPrice>;
   onPricesChange: (prices: Record<string, ModelPrice>) => void | Promise<void>;
   onSyncPricesChange?: (prices: Record<string, ModelPrice>) => Promise<PricingSaveResult>;
@@ -157,28 +158,43 @@ export const buildPricingModelOptions = (
   modelPrices: Record<string, ModelPrice>,
   placeholder: string,
   configuredLabel = 'Configured',
+  upstreamModels: string[] = [],
 ): SelectOption[] => {
   const configuredModels = new Set(Object.keys(modelPrices));
-  const sortedModelNames = [...modelNames]
-    .sort((left, right) => formatDisplayName(left).localeCompare(formatDisplayName(right)));
+
+  const toOption = (name: string): SelectOption => {
+    const configured = configuredModels.has(name);
+    return {
+      value: name,
+      label: formatDisplayName(name),
+      disabled: configured || undefined,
+      suffix: configured ? <IconCheck size={12} /> : undefined,
+      suffixAriaLabel: configured ? configuredLabel : undefined,
+    };
+  };
+
+  const sortByDisplayName = (left: string, right: string) =>
+    formatDisplayName(left).localeCompare(formatDisplayName(right));
+
+  const sortedModelNames = [...modelNames].sort(sortByDisplayName);
+
+  // 上游模型排在最前：给上游设一次价即可兜底覆盖同源全部未单独定价的别名。
+  // 只列出不在别名候选（modelNames，来自 CPA /v1/models）里的上游，避免重复项。
+  const modelNameSet = new Set(modelNames.map((name) => name.trim()));
+  const upstreamOnly = [...new Set(upstreamModels.map((name) => name.trim()))]
+    .filter((model) => model && !modelNameSet.has(model))
+    .sort(sortByDisplayName);
 
   return [
     { value: '', label: placeholder },
-    ...sortedModelNames.map((name) => {
-      const configured = configuredModels.has(name);
-      return {
-        value: name,
-        label: formatDisplayName(name),
-        disabled: configured || undefined,
-        suffix: configured ? <IconCheck size={12} /> : undefined,
-        suffixAriaLabel: configured ? configuredLabel : undefined,
-      };
-    }),
+    ...upstreamOnly.map((name) => toOption(name)),
+    ...sortedModelNames.map((name) => toOption(name)),
   ];
 };
 
 export function PriceSettingsCard({
   modelNames,
+  upstreamModels = [],
   modelPrices,
   onPricesChange,
   onSyncPricesChange,
@@ -386,8 +402,9 @@ export function PriceSettingsCard({
       modelPrices,
       t('usage_stats.model_price_select_placeholder'),
       t('usage_stats.model_price_configured'),
+      upstreamModels,
     ),
-    [modelNames, modelPrices, t]
+    [modelNames, modelPrices, t, upstreamModels]
   );
   const styleOptions = useMemo(() => pricingStyleOptions(t), [t]);
   const selectedSyncCount = useMemo(

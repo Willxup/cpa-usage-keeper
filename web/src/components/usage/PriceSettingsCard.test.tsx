@@ -161,4 +161,38 @@ describe('buildPricingModelOptions', () => {
     expect(options.find((option) => option.value === 'unpriced-alpha')?.suffix).toBeUndefined();
     expect(options.find((option) => option.value === 'unpriced-alpha')?.disabled).toBeUndefined();
   });
+
+  it('offers upstream models as options ahead of aliases', () => {
+    const options = buildPricingModelOptions(
+      ['axxx', 'bxxx', 'cxxx'],
+      {},
+      'Select model',
+      'Configured',
+      ['claude-opus-4-8', 'claude-sonnet'],
+    );
+
+    // 上游模型作为独立选项排在别名前面（占位项之后）。
+    const values = options.map((option) => option.value);
+    expect(values).toEqual([
+      '',
+      'claude-opus-4-8',
+      'claude-sonnet',
+      'axxx',
+      'bxxx',
+      'cxxx',
+    ]);
+  });
+
+  it('does not duplicate an upstream model that is also an alias candidate', () => {
+    const options = buildPricingModelOptions(
+      ['claude-opus-4-8', 'axxx'],
+      {},
+      'Select model',
+      'Configured',
+      ['claude-opus-4-8'],
+    );
+
+    const occurrences = options.filter((option) => option.value === 'claude-opus-4-8');
+    expect(occurrences).toHaveLength(1);
+  });
 });

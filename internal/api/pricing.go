@@ -10,7 +10,8 @@ import (
 )
 
 type usedModelsResponse struct {
-	Models []string `json:"models"`
+	Models         []string `json:"models"`
+	UpstreamModels []string `json:"upstream_models"`
 }
 
 type pricingEntryResponse struct {
@@ -38,7 +39,7 @@ type updatePricingRequest struct {
 func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingProvider) {
 	router.GET("/models/used", func(c *gin.Context) {
 		if pricingProvider == nil {
-			c.JSON(http.StatusOK, usedModelsResponse{Models: []string{}})
+			c.JSON(http.StatusOK, usedModelsResponse{Models: []string{}, UpstreamModels: []string{}})
 			return
 		}
 
@@ -48,7 +49,13 @@ func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingPr
 			return
 		}
 
-		c.JSON(http.StatusOK, usedModelsResponse{Models: models})
+		upstreamModels, err := pricingProvider.ListUpstreamModels(c.Request.Context())
+		if err != nil {
+			writeInternalError(c, "list upstream models failed", err)
+			return
+		}
+
+		c.JSON(http.StatusOK, usedModelsResponse{Models: models, UpstreamModels: upstreamModels})
 	})
 
 	router.GET("/pricing", func(c *gin.Context) {

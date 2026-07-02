@@ -12,17 +12,22 @@ import (
 )
 
 type pricingStub struct {
-	usedModels []string
-	pricing    []entities.ModelPriceSetting
-	preview    servicedto.PricingSyncPreview
-	updated    *entities.ModelPriceSetting
-	lastUpdate *servicedto.UpdatePricingInput
-	deleted    string
-	err        error
+	usedModels     []string
+	upstreamModels []string
+	pricing        []entities.ModelPriceSetting
+	preview        servicedto.PricingSyncPreview
+	updated        *entities.ModelPriceSetting
+	lastUpdate     *servicedto.UpdatePricingInput
+	deleted        string
+	err            error
 }
 
 func (s pricingStub) ListUsedModels(context.Context) ([]string, error) {
 	return s.usedModels, s.err
+}
+
+func (s pricingStub) ListUpstreamModels(context.Context) ([]string, error) {
+	return s.upstreamModels, s.err
 }
 
 func (s pricingStub) ListPricing(context.Context) ([]entities.ModelPriceSetting, error) {

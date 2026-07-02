@@ -17,6 +17,7 @@ import (
 
 type PricingProvider interface {
 	ListUsedModels(context.Context) ([]string, error)
+	ListUpstreamModels(context.Context) ([]string, error)
 	ListPricing(context.Context) ([]entities.ModelPriceSetting, error)
 	PreviewPricingSync(context.Context) (servicedto.PricingSyncPreview, error)
 	UpdatePricing(context.Context, servicedto.UpdatePricingInput) (*entities.ModelPriceSetting, error)
@@ -42,6 +43,12 @@ func NewPricingService(db *gorm.DB, modelsFetcher ...ModelsFetcher) PricingProvi
 
 func (s *pricingService) ListUsedModels(ctx context.Context) ([]string, error) {
 	return s.effectiveModels(ctx)
+}
+
+// ListUpstreamModels 返回历史 usage 事件里出现过的上游真实模型，供价格页把上游模型
+// 也列为可设价对象——给上游设一次价即可兜底覆盖同源全部未单独定价的别名。
+func (s *pricingService) ListUpstreamModels(ctx context.Context) ([]string, error) {
+	return repository.ListUsedModels(s.db.WithContext(ctx))
 }
 
 func (s *pricingService) ListPricing(context.Context) ([]entities.ModelPriceSetting, error) {
