@@ -34,7 +34,7 @@
 
 - 感谢 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI) 提供本项目所依赖的上游 CPA 基础与数据来源。
 - 感谢 [@YouShouldBetOnMe](https://github.com/YouShouldBetOnMe) 对 CPA Usage Keeper 的支持。
-- 感谢 CPA 讨论组（QQ群组）、[NodeSeek 论坛](https://nodeseek.com) 和 [Linux Do 论坛](https://linux.do) 的讨论与反馈。
+- 感谢 CPA 讨论组（QQ群组）和 [NodeSeek 论坛](https://nodeseek.com) 的讨论与反馈。
 
 ## 快速开始
 

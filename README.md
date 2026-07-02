@@ -34,7 +34,7 @@ It relies on [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) a
 
 - Thanks to [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) for providing the upstream CPA foundation and data source this project builds on.
 - Thanks to [@YouShouldBetOnMe](https://github.com/YouShouldBetOnMe) for supporting CPA Usage Keeper.
-- Thanks to the CPA discussion group, [NodeSeek](https://nodeseek.com), and [Linux Do](https://linux.do) communities for their discussions and feedback.
+- Thanks to the CPA discussion group, and [NodeSeek](https://nodeseek.com) communities for their discussions and feedback.
 
 ## Quick Start
 

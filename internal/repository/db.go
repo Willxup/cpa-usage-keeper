@@ -168,7 +168,7 @@ func CleanupStorage(db *gorm.DB, now time.Time, options ...CleanupStorageOptions
 	}
 	var usageEventsDeleted int64
 	if opts.CleanupUsageEvents {
-		usageEventsDeleted, err = CleanupUsageEvents(db, now)
+		usageEventsDeleted, err = cleanupUsageEvents(db, now)
 		if err != nil {
 			return dto.StorageCleanupResult{RedisInbox: redisResult, UsageEventsDeleted: usageEventsDeleted}, err
 		}
@@ -184,8 +184,8 @@ func CleanupStorage(db *gorm.DB, now time.Time, options ...CleanupStorageOptions
 	return dto.StorageCleanupResult{RedisInbox: redisResult, UsageEventsDeleted: usageEventsDeleted}, nil
 }
 
-// CleanupUsageEvents 删除当前页面查询窗口外的原始 usage_events，保留从上个月 1 日本地零点开始的数据。
-func CleanupUsageEvents(db *gorm.DB, now time.Time) (int64, error) {
+// cleanupUsageEvents 删除当前页面查询窗口外的原始 usage_events，保留从上个月 1 日本地零点开始的数据。
+func cleanupUsageEvents(db *gorm.DB, now time.Time) (int64, error) {
 	if db == nil {
 		return 0, fmt.Errorf("database is nil")
 	}
