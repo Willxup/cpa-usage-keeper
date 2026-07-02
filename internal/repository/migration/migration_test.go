@@ -394,6 +394,7 @@ func TestRunAddsModelPriceMultiplierDefaultToExistingPricing(t *testing.T) {
 	if !db.Migrator().HasColumn("model_price_settings", "price_multiplier") {
 		t.Fatal("expected model_price_settings.price_multiplier column to exist after migration")
 	}
+	assertSQLiteColumnDefault(t, db, "model_price_settings", "price_multiplier", "1")
 	var multiplier float64
 	if err := db.Table("model_price_settings").Select("price_multiplier").Where("model = ?", "claude-sonnet").Scan(&multiplier).Error; err != nil {
 		t.Fatalf("load migrated price multiplier: %v", err)
@@ -526,6 +527,31 @@ func sortedOrderedMigrationVersions() []string {
 	}
 	sort.Strings(versions)
 	return versions
+}
+
+func assertSQLiteColumnDefault(t *testing.T, db *gorm.DB, table string, column string, wantDefault string) {
+	t.Helper()
+	type columnInfo struct {
+		Name       string
+		DefaultRaw *string `gorm:"column:dflt_value"`
+	}
+	var columns []columnInfo
+	if err := db.Raw(fmt.Sprintf("PRAGMA table_info(%s)", table)).Scan(&columns).Error; err != nil {
+		t.Fatalf("read sqlite table info for %s: %v", table, err)
+	}
+	for _, info := range columns {
+		if info.Name != column {
+			continue
+		}
+		if info.DefaultRaw == nil || *info.DefaultRaw != wantDefault {
+			if info.DefaultRaw == nil {
+				t.Fatalf("expected %s.%s default %q, got NULL", table, column, wantDefault)
+			}
+			t.Fatalf("expected %s.%s default %q, got %q", table, column, wantDefault, *info.DefaultRaw)
+		}
+		return
+	}
+	t.Fatalf("expected %s.%s column in sqlite table info, got %+v", table, column, columns)
 }
 
 func assertStringSlicesEqual(t *testing.T, want []string, got []string) {

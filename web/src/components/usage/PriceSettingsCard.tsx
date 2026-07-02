@@ -939,6 +939,7 @@ export function PriceSettingsCard({
                               value={draft.style}
                               options={styleOptions}
                               onChange={(value) => handleUpdateSyncDraft(index, { style: value === 'claude' ? 'claude' : 'openai' })}
+                              disabled={syncApplying}
                               className={styles.usagePillControl}
                             />
                           </div>
@@ -950,6 +951,7 @@ export function PriceSettingsCard({
                               onChange={(event) => handleUpdateSyncDraft(index, { prompt: event.target.value })}
                               placeholder="0.00"
                               step="0.0001"
+                              disabled={syncApplying}
                               className={styles.usagePillControl}
                             />
                           </div>
@@ -961,6 +963,7 @@ export function PriceSettingsCard({
                               onChange={(event) => handleUpdateSyncDraft(index, { completion: event.target.value })}
                               placeholder="0.00"
                               step="0.0001"
+                              disabled={syncApplying}
                               className={styles.usagePillControl}
                             />
                           </div>
@@ -972,6 +975,7 @@ export function PriceSettingsCard({
                               onChange={(event) => handleUpdateSyncDraft(index, { cache: event.target.value })}
                               placeholder="0.00"
                               step="0.0001"
+                              disabled={syncApplying}
                               className={styles.usagePillControl}
                             />
                           </div>
@@ -984,6 +988,7 @@ export function PriceSettingsCard({
                                 onChange={(event) => handleUpdateSyncDraft(index, { cacheCreation: event.target.value })}
                                 placeholder="0.00"
                                 step="0.0001"
+                                disabled={syncApplying}
                                 className={styles.usagePillControl}
                               />
                             </div>
@@ -997,6 +1002,7 @@ export function PriceSettingsCard({
                               placeholder="1"
                               step="0.0001"
                               min="0"
+                              disabled={syncApplying}
                               className={styles.usagePillControl}
                             />
                           </div>

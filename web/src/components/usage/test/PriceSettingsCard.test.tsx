@@ -204,6 +204,16 @@ describe('PriceSettingsCard', () => {
     expect(createForm).toContain('disabled={!selectedModel || priceSaving}');
   });
 
+  it('keeps sync draft pricing controls immutable while sync apply is pending', () => {
+    const syncDraftGridStart = source.indexOf('<div className={styles.syncDraftGrid}>');
+    const syncDraftGridEnd = source.indexOf('\n                      </div>\n                    </div>\n                  );', syncDraftGridStart);
+    const syncDraftGrid = source.slice(syncDraftGridStart, syncDraftGridEnd);
+
+    expect(syncDraftGridStart).toBeGreaterThanOrEqual(0);
+    expect(syncDraftGrid).toContain('<Select');
+    expect(countOccurrences(syncDraftGrid, 'disabled={syncApplying}')).toBeGreaterThanOrEqual(6);
+  });
+
   it('keeps edit and delete modals locked while persistence is pending', () => {
     const closeEditStart = source.indexOf('const closeEditModal = () => {');
     const closeEditEnd = source.indexOf('\n  const closeDeleteModal = () => {', closeEditStart);

@@ -116,6 +116,16 @@ func TestDeleteModelPriceSettingDeletesOnlyTheTargetModel(t *testing.T) {
 	if len(settings) != 1 || settings[0].Model != "openai/gpt-4.1" {
 		t.Fatalf("expected only openai/gpt-4.1 pricing to remain, got %#v", settings)
 	}
+	if err := DeleteModelPriceSetting(db, "openai/gpt-4.1"); err != nil {
+		t.Fatalf("DeleteModelPriceSetting returned error for slash model: %v", err)
+	}
+	settings, err = ListModelPriceSettings(db)
+	if err != nil {
+		t.Fatalf("ListModelPriceSettings returned error after slash delete: %v", err)
+	}
+	if len(settings) != 0 {
+		t.Fatalf("expected slash model pricing to be deleted, got %#v", settings)
+	}
 
 	if err := DeleteModelPriceSetting(db, " "); err == nil || !strings.Contains(err.Error(), "model is required") {
 		t.Fatalf("expected empty model validation error, got %v", err)
