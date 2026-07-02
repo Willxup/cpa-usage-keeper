@@ -8,11 +8,14 @@ import {
   markPricingSyncFailures,
   notifyPricingSyncUnexpectedError,
   PriceSettingsCard,
+  pricingDraftToModelPrice,
+  syncDraftToModelPrice,
+  syncMatchToDraft,
   type PricingSyncDraft,
-} from './PriceSettingsCard';
+} from '../PriceSettingsCard';
 
 const countOccurrences = (text: string, value: string) => text.split(value).length - 1;
-const source = readFileSync(new URL('./PriceSettingsCard.tsx', import.meta.url), 'utf8');
+const source = readFileSync(new URL('../PriceSettingsCard.tsx', import.meta.url), 'utf8');
 
 const syncDraft = (model: string): PricingSyncDraft => ({
   model,
@@ -26,6 +29,7 @@ const syncDraft = (model: string): PricingSyncDraft => ({
   completion: '10',
   cache: '1.25',
   cacheCreation: '0',
+  multiplier: '1',
 });
 
 describe('PriceSettingsCard', () => {
@@ -55,6 +59,7 @@ describe('PriceSettingsCard', () => {
             completion: 15,
             cache: 0.3,
             cacheCreation: 3.75,
+            multiplier: 1,
           },
         }}
         onPricesChange={() => undefined}
@@ -67,6 +72,8 @@ describe('PriceSettingsCard', () => {
     expect(html).toContain('$0.3000/1M');
     expect(html).toContain('Cache Write');
     expect(html).toContain('$3.7500/1M');
+    expect(html).toContain('Multiplier');
+    expect(html).toContain('1');
   });
 
   it('shows the sync prices action when sync preview is available', () => {
@@ -132,6 +139,61 @@ describe('PriceSettingsCard', () => {
     ]);
     expect(source).toContain('notifyPricingSyncUnexpectedError(error, t, onNotice)');
   });
+
+  it('opens edit without showing a top notice before the user saves', () => {
+    const editHandlerStart = source.indexOf('const handleOpenEdit = (model: string) => {');
+    const editHandlerEnd = source.indexOf('\n  const handleSaveEdit = () => {', editHandlerStart);
+    const editHandler = source.slice(editHandlerStart, editHandlerEnd);
+
+    expect(editHandlerStart).toBeGreaterThanOrEqual(0);
+    expect(editHandler).toContain('setEditModel(model)');
+    expect(editHandler).not.toContain('onNotice');
+    expect(source).toContain("onNotice?.('success', t('usage_stats.model_price_edit_success'))");
+  });
+
+  it('requires confirmation before deleting a saved model price', () => {
+    expect(source).toContain('const [deleteModel, setDeleteModel] = useState<string | null>(null);');
+    expect(source).toContain('const confirmDeleteModel = () => {');
+    expect(source).toContain("onClick={() => setDeleteModel(model)}");
+    expect(source).toContain("title={t('usage_stats.model_price_delete_confirm_title')}");
+    expect(source).toContain("t('usage_stats.model_price_delete_confirm_action')");
+  });
+
+  it('keeps explicit zero multipliers when converting sync drafts', () => {
+    expect(syncDraftToModelPrice({ ...syncDraft('free-model'), multiplier: '0' })?.multiplier).toBe(0);
+    expect(syncDraftToModelPrice({ ...syncDraft('bad-model'), multiplier: '-1' })).toBeNull();
+  });
+
+  it('keeps create and edit draft multipliers when converting to saved prices', () => {
+    expect(pricingDraftToModelPrice({ ...syncDraft('free-model'), multiplier: '0' })?.multiplier).toBe(0);
+    expect(pricingDraftToModelPrice({ ...syncDraft('scaled-model'), multiplier: '2.5' })?.multiplier).toBe(2.5);
+    expect(pricingDraftToModelPrice({ ...syncDraft('bad-model'), multiplier: '-1' })).toBeNull();
+  });
+
+  it('defaults new sync matches to multiplier 1 and preserves existing model multipliers', () => {
+    const match = {
+      model: 'free-model',
+      matched_model: 'free-model',
+      match_type: 'exact',
+      source_provider_id: 'openai',
+      source_provider_name: 'OpenAI',
+      pricing_style: 'openai' as const,
+      prompt_price_per_1m: 2.5,
+      completion_price_per_1m: 10,
+      cache_price_per_1m: 1.25,
+      cache_creation_price_per_1m: 0,
+    };
+
+    expect(syncMatchToDraft(match).multiplier).toBe('1');
+    expect(syncMatchToDraft(match, {
+      style: 'openai',
+      prompt: 1,
+      completion: 2,
+      cache: 0.1,
+      cacheCreation: 0,
+      multiplier: 0,
+    }).multiplier).toBe('0');
+  });
 });
 
 describe('buildPricingModelOptions', () => {
@@ -139,8 +201,8 @@ describe('buildPricingModelOptions', () => {
     const options = buildPricingModelOptions(
       ['priced-zeta', 'unpriced-beta', 'priced-alpha', 'unpriced-alpha'],
       {
-        'priced-zeta': { style: 'openai', prompt: 3, completion: 15, cache: 0.3, cacheCreation: 0 },
-        'priced-alpha': { style: 'openai', prompt: 2, completion: 8, cache: 0.2, cacheCreation: 0 },
+        'priced-zeta': { style: 'openai', prompt: 3, completion: 15, cache: 0.3, cacheCreation: 0, multiplier: 1 },
+        'priced-alpha': { style: 'openai', prompt: 2, completion: 8, cache: 0.2, cacheCreation: 0, multiplier: 1 },
       },
       'Select model',
       'Configured',

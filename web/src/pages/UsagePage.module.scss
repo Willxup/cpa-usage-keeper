@@ -1091,10 +1091,10 @@
 }
 
 .updateCheckToast {
-  position: absolute;
-  top: 12px;
+  position: fixed;
+  top: 20px;
   right: 20px;
-  z-index: 25;
+  z-index: $z-notification;
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -1106,6 +1106,12 @@
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.16);
+
+  @include mobile {
+    top: 12px;
+    right: 12px;
+    max-width: calc(100vw - 24px);
+  }
 }
 
 .updateCheckToastInfo {
@@ -2388,6 +2394,12 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.modelPriceDeleteConfirmText {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
 }
 
 .syncModalBody {

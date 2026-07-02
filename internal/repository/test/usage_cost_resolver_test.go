@@ -62,6 +62,40 @@ func TestUsageCostResolverCostAvailabilityForMissingPrices(t *testing.T) {
 	assertUsageCostResolverResult(t, empty, 0, true)
 }
 
+func TestUsageCostResolverTreatsZeroMultiplierAsMatchedAvailableCost(t *testing.T) {
+	db := openUsageCostResolverDatabase(t, "usage-cost-resolver-zero-multiplier.db")
+	zero := 0.0
+	upsertUsageCostResolverPriceWithMultiplier(t, db, "free-model", 10, &zero)
+
+	resolver, err := repository.NewUsageCostResolver(context.Background(), db)
+	if err != nil {
+		t.Fatalf("NewUsageCostResolver returned error: %v", err)
+	}
+	result := resolver.Calculate(repository.UsageCostSubject{
+		Model:  "free-model",
+		Tokens: helper.UsageTokenCostInput{InputTokens: 1_000_000},
+	})
+
+	assertUsageCostResolverResult(t, result, 0, true)
+}
+
+func TestUsageCostResolverDoesNotApplyMultiplierWhenPriceMissing(t *testing.T) {
+	db := openUsageCostResolverDatabase(t, "usage-cost-resolver-missing-with-multiplier.db")
+	zero := 0.0
+	upsertUsageCostResolverPriceWithMultiplier(t, db, "free-model", 10, &zero)
+
+	resolver, err := repository.NewUsageCostResolver(context.Background(), db)
+	if err != nil {
+		t.Fatalf("NewUsageCostResolver returned error: %v", err)
+	}
+	result := resolver.Calculate(repository.UsageCostSubject{
+		Model:  "missing-model",
+		Tokens: helper.UsageTokenCostInput{InputTokens: 1_000_000},
+	})
+
+	assertUsageCostResolverResult(t, result, 0, false)
+}
+
 func TestListUsageEventsWithFilterUsesModelAliasPricing(t *testing.T) {
 	db := openUsageCostResolverDatabase(t, "usage-events-alias-cost.db")
 	upsertUsageCostResolverPrice(t, db, "base-model", 10)
@@ -402,11 +436,17 @@ func openUsageCostResolverDatabase(t *testing.T, name string) *gorm.DB {
 
 func upsertUsageCostResolverPrice(t *testing.T, db *gorm.DB, model string, promptPrice float64) {
 	t.Helper()
+	upsertUsageCostResolverPriceWithMultiplier(t, db, model, promptPrice, nil)
+}
+
+func upsertUsageCostResolverPriceWithMultiplier(t *testing.T, db *gorm.DB, model string, promptPrice float64, multiplier *float64) {
+	t.Helper()
 	if _, err := repository.UpsertModelPriceSetting(db, repodto.ModelPriceSettingInput{
 		Model:                model,
 		PromptPricePer1M:     promptPrice,
 		CompletionPricePer1M: 0,
 		CachePricePer1M:      0,
+		PriceMultiplier:      multiplier,
 	}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting(%q) returned error: %v", model, err)
 	}

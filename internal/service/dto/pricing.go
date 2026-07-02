@@ -8,6 +8,7 @@ type UpdatePricingInput struct {
 	CompletionPricePer1M    float64
 	CachePricePer1M         float64
 	CacheCreationPricePer1M float64
+	PriceMultiplier         *float64
 }
 
 // PricingSyncPreview 是外部价格元数据同步前的预览结果。

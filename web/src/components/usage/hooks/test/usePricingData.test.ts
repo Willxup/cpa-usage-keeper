@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { persistModelPriceEntries } from './usePricingData';
+import { persistModelPriceEntries, pricingToModelPrice } from '../usePricingData';
 
-const source = readFileSync(new URL('./usePricingData.ts', import.meta.url), 'utf8');
+const source = readFileSync(new URL('../usePricingData.ts', import.meta.url), 'utf8');
 
 const openAIPrice = {
   style: 'openai' as const,
@@ -10,6 +10,7 @@ const openAIPrice = {
   completion: 10,
   cache: 1.25,
   cacheCreation: 0,
+  multiplier: 1,
 };
 
 describe('usePricingData auth callback stability', () => {
@@ -31,6 +32,7 @@ describe('persistModelPriceEntries', () => {
     }, {
       updatePricingEntry: async (model, pricing) => {
         calls.push(model);
+        expect(pricing.price_multiplier).toBe(1);
         if (model === 'gpt-4o-mini') {
           throw new Error('network unavailable');
         }
@@ -43,5 +45,42 @@ describe('persistModelPriceEntries', () => {
     expect(result.failures).toEqual([
       { model: 'gpt-4o-mini', message: 'network unavailable', error: expect.any(Error) },
     ]);
+  });
+
+  it('preserves an explicit zero price multiplier in update payloads', async () => {
+    const payloads: number[] = [];
+
+    const result = await persistModelPriceEntries({
+      'free-model': {
+        ...openAIPrice,
+        multiplier: 0,
+      },
+    }, {
+      updatePricingEntry: async (model, pricing) => {
+        payloads.push(pricing.price_multiplier);
+        return { model, ...pricing };
+      },
+    });
+
+    expect(payloads).toEqual([0]);
+    expect(result).toEqual({ successModels: ['free-model'], failures: [] });
+  });
+});
+
+describe('pricingToModelPrice', () => {
+  it('defaults invalid multipliers to 1 while preserving explicit zero', () => {
+    const entry = {
+      model: 'free-model',
+      pricing_style: 'openai' as const,
+      prompt_price_per_1m: 2.5,
+      completion_price_per_1m: 10,
+      cache_price_per_1m: 1.25,
+      cache_creation_price_per_1m: 0,
+      price_multiplier: 0,
+    };
+
+    expect(pricingToModelPrice(entry).multiplier).toBe(0);
+    expect(pricingToModelPrice({ ...entry, price_multiplier: -1 }).multiplier).toBe(1);
+    expect(pricingToModelPrice({ ...entry, price_multiplier: Number.NaN }).multiplier).toBe(1);
   });
 });

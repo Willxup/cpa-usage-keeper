@@ -2,6 +2,7 @@ package repository
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -18,6 +19,7 @@ var modelPriceSettingColumns = []string{
 	"completion_price_per1_m",
 	"cache_price_per1_m",
 	"cache_creation_price_per1_m",
+	"price_multiplier",
 	"created_at",
 	"updated_at",
 }
@@ -94,12 +96,28 @@ func UpsertModelPriceSetting(db *gorm.DB, input dto.ModelPriceSettingInput) (*en
 	setting.CompletionPricePer1M = input.CompletionPricePer1M
 	setting.CachePricePer1M = input.CachePricePer1M
 	setting.CacheCreationPricePer1M = input.CacheCreationPricePer1M
+	multiplier, err := modelPriceMultiplierInputValue(input.PriceMultiplier)
+	if err != nil {
+		return nil, err
+	}
+	setting.PriceMultiplier = &multiplier
 
 	if err := db.Save(setting).Error; err != nil {
 		return nil, fmt.Errorf("save pricing setting: %w", err)
 	}
 
 	return setting, nil
+}
+
+func modelPriceMultiplierInputValue(input *float64) (float64, error) {
+	if input == nil {
+		return 1, nil
+	}
+	multiplier := *input
+	if multiplier < 0 || math.IsNaN(multiplier) || math.IsInf(multiplier, 0) {
+		return 0, fmt.Errorf("price_multiplier must be non-negative")
+	}
+	return multiplier, nil
 }
 
 func normalizeModelPricingStyle(style string) (string, error) {

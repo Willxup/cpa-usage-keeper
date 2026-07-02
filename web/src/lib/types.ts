@@ -601,6 +601,7 @@ export interface ModelPrice {
   completion: number
   cache: number
   cacheCreation: number
+  multiplier: number
 }
 
 export interface PricingSaveFailure {
@@ -621,6 +622,7 @@ export interface PricingEntry {
   completion_price_per_1m: number
   cache_price_per_1m: number
   cache_creation_price_per_1m: number
+  price_multiplier: number
 }
 
 export interface UsedModelsResponse {

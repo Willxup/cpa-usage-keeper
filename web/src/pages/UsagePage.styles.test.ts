@@ -30,6 +30,14 @@ const requestEventColumnDefinitionBlock = (columnId: string) => {
 }
 
 describe('UsagePage toolbar styles', () => {
+  it('pins top notices to the viewport instead of the scrolled page body', () => {
+    const noticeBlock = usagePageStyles.match(/\.updateCheckToast\s*\{[\s\S]*?\n\}/)?.[0] ?? ''
+
+    expect(noticeBlock).toContain('position: fixed;')
+    expect(noticeBlock).toContain('z-index: $z-notification;')
+    expect(noticeBlock).not.toContain('position: absolute;')
+  })
+
   it('keeps visible range controls content-sized in narrow layouts', () => {
     expect(usagePageStyles).toMatch(/\.timeRangeGroup\s*\{[\s\S]*?width:\s*fit-content;/)
     expect(usagePageStyles).toMatch(/\.timeRangeSelectControl\s*\{[\s\S]*?flex:\s*0 0 164px;/)

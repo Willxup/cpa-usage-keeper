@@ -37,8 +37,18 @@ export interface PricingSyncDraft {
   completion: string;
   cache: string;
   cacheCreation: string;
+  multiplier: string;
   saveStatus?: 'failed';
   saveError?: string;
+}
+
+export interface PricingDraftInput {
+  style: PricingStyle;
+  prompt: string;
+  completion: string;
+  cache: string;
+  cacheCreation: string;
+  multiplier: string;
 }
 
 function PriceSettingsTitle({ title, subtitle }: { title: string; subtitle: string }) {
@@ -51,6 +61,12 @@ function PriceSettingsTitle({ title, subtitle }: { title: string; subtitle: stri
 }
 
 const parsePriceValue = (value: string): number | null => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+};
+
+const parseMultiplierValue = (value: string): number | null => {
+  if (value.trim() === '') return 1;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 };
@@ -73,7 +89,7 @@ const normalizePricingStyle = (style: PricingStyle | string | undefined): Pricin
   style === 'claude' ? 'claude' : 'openai'
 );
 
-const syncMatchToDraft = (match: PricingSyncMatch): PricingSyncDraft => ({
+export const syncMatchToDraft = (match: PricingSyncMatch, existingPrice?: ModelPrice): PricingSyncDraft => ({
   model: match.model,
   matchedModel: match.matched_model,
   matchType: match.match_type,
@@ -85,23 +101,30 @@ const syncMatchToDraft = (match: PricingSyncMatch): PricingSyncDraft => ({
   completion: priceToInputValue(match.completion_price_per_1m),
   cache: priceToInputValue(match.cache_price_per_1m),
   cacheCreation: priceToInputValue(match.cache_creation_price_per_1m),
+  multiplier: priceToInputValue(existingPrice?.multiplier ?? 1),
 });
 
-const syncDraftToModelPrice = (draft: PricingSyncDraft): ModelPrice | null => {
+export const pricingDraftToModelPrice = (draft: PricingDraftInput): ModelPrice | null => {
   const prompt = parsePriceValue(draft.prompt);
   const completion = parsePriceValue(draft.completion);
   if (prompt === null || completion === null) return null;
   const cache = parseCachePriceValue(draft.cache, draft.style, prompt);
   const cacheCreation = parseCacheCreationPriceValue(draft.cacheCreation, draft.style);
-  if (cache === null || cacheCreation === null) return null;
+  const multiplier = parseMultiplierValue(draft.multiplier);
+  if (cache === null || cacheCreation === null || multiplier === null) return null;
   return {
     style: draft.style,
     prompt,
     completion,
     cache,
     cacheCreation,
+    multiplier,
   };
 };
+
+export const syncDraftToModelPrice = (draft: PricingSyncDraft): ModelPrice | null => (
+  pricingDraftToModelPrice(draft)
+);
 
 export const markPricingSyncFailures = (
   drafts: PricingSyncDraft[],
@@ -195,6 +218,7 @@ export function PriceSettingsCard({
   const [completionPrice, setCompletionPrice] = useState('');
   const [cachePrice, setCachePrice] = useState('');
   const [cacheCreationPrice, setCacheCreationPrice] = useState('');
+  const [priceMultiplier, setPriceMultiplier] = useState('1');
 
   // 编辑弹窗独立保存草稿值，避免用户取消时污染已保存价格。
   const [editModel, setEditModel] = useState<string | null>(null);
@@ -203,6 +227,8 @@ export function PriceSettingsCard({
   const [editCompletion, setEditCompletion] = useState('');
   const [editCache, setEditCache] = useState('');
   const [editCacheCreation, setEditCacheCreation] = useState('');
+  const [editMultiplier, setEditMultiplier] = useState('1');
+  const [deleteModel, setDeleteModel] = useState<string | null>(null);
 
   const [syncOpen, setSyncOpen] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
@@ -212,19 +238,19 @@ export function PriceSettingsCard({
 
   const handleSavePrice = () => {
     if (!selectedModel) return;
-    const prompt = parsePriceValue(promptPrice);
-    const completion = parsePriceValue(completionPrice);
-    if (prompt === null || completion === null) {
+    const price = pricingDraftToModelPrice({
+      style: pricingStyle,
+      prompt: promptPrice,
+      completion: completionPrice,
+      cache: cachePrice,
+      cacheCreation: cacheCreationPrice,
+      multiplier: priceMultiplier,
+    });
+    if (!price) {
       onNotice?.('error', t('usage_stats.model_price_save_failed'));
       return;
     }
-    const cache = parseCachePriceValue(cachePrice, pricingStyle, prompt);
-    const cacheCreation = parseCacheCreationPriceValue(cacheCreationPrice, pricingStyle);
-    if (cache === null || cacheCreation === null) {
-      onNotice?.('error', t('usage_stats.model_price_save_failed'));
-      return;
-    }
-    const newPrices = { ...modelPrices, [selectedModel]: { style: pricingStyle, prompt, completion, cache, cacheCreation } };
+    const newPrices = { ...modelPrices, [selectedModel]: price };
     onPricesChange(newPrices);
     onNotice?.('success', t('usage_stats.model_price_save_success'));
     setSelectedModel('');
@@ -233,13 +259,16 @@ export function PriceSettingsCard({
     setCompletionPrice('');
     setCachePrice('');
     setCacheCreationPrice('');
+    setPriceMultiplier('1');
   };
 
-  const handleDeletePrice = (model: string) => {
+  const confirmDeleteModel = () => {
+    if (!deleteModel) return;
     const newPrices = { ...modelPrices };
-    delete newPrices[model];
+    delete newPrices[deleteModel];
     onPricesChange(newPrices);
     onNotice?.('success', t('usage_stats.model_price_delete_success'));
+    setDeleteModel(null);
   };
 
   const handleOpenEdit = (model: string) => {
@@ -250,24 +279,24 @@ export function PriceSettingsCard({
     setEditCompletion(price?.completion?.toString() || '');
     setEditCache(price?.cache?.toString() || '');
     setEditCacheCreation(price?.cacheCreation?.toString() || '');
-    onNotice?.('info', t('usage_stats.model_price_edit_notice', { model: formatDisplayName(model) }));
+    setEditMultiplier(priceToInputValue(price?.multiplier ?? 1));
   };
 
   const handleSaveEdit = () => {
     if (!editModel) return;
-    const prompt = parsePriceValue(editPrompt);
-    const completion = parsePriceValue(editCompletion);
-    if (prompt === null || completion === null) {
+    const price = pricingDraftToModelPrice({
+      style: editStyle,
+      prompt: editPrompt,
+      completion: editCompletion,
+      cache: editCache,
+      cacheCreation: editCacheCreation,
+      multiplier: editMultiplier,
+    });
+    if (!price) {
       onNotice?.('error', t('usage_stats.model_price_edit_failed'));
       return;
     }
-    const cache = parseCachePriceValue(editCache, editStyle, prompt);
-    const cacheCreation = parseCacheCreationPriceValue(editCacheCreation, editStyle);
-    if (cache === null || cacheCreation === null) {
-      onNotice?.('error', t('usage_stats.model_price_edit_failed'));
-      return;
-    }
-    const newPrices = { ...modelPrices, [editModel]: { style: editStyle, prompt, completion, cache, cacheCreation } };
+    const newPrices = { ...modelPrices, [editModel]: price };
     onPricesChange(newPrices);
     onNotice?.('success', t('usage_stats.model_price_edit_success'));
     setEditModel(null);
@@ -282,12 +311,14 @@ export function PriceSettingsCard({
       setCompletionPrice(price.completion.toString());
       setCachePrice(price.cache.toString());
       setCacheCreationPrice(price.cacheCreation.toString());
+      setPriceMultiplier(priceToInputValue(price.multiplier ?? 1));
     } else {
       setPricingStyle('openai');
       setPromptPrice('');
       setCompletionPrice('');
       setCachePrice('');
       setCacheCreationPrice('');
+      setPriceMultiplier('1');
     }
   };
 
@@ -296,7 +327,7 @@ export function PriceSettingsCard({
     setSyncLoading(true);
     try {
       const preview = await onSyncPreview();
-      const drafts = (preview.matches ?? []).map(syncMatchToDraft);
+      const drafts = (preview.matches ?? []).map((match) => syncMatchToDraft(match, modelPrices[match.model]));
       setSyncPreview({
         ...preview,
         matches: preview.matches ?? [],
@@ -494,6 +525,18 @@ export function PriceSettingsCard({
                       />
                     </div>
                   )}
+                  <div className={styles.formField}>
+                    <label>{t('usage_stats.model_price_multiplier')}</label>
+                    <Input
+                      type="number"
+                      value={priceMultiplier}
+                      onChange={(e) => setPriceMultiplier(e.target.value)}
+                      placeholder="1"
+                      step="0.0001"
+                      min="0"
+                      className={styles.usagePillControl}
+                    />
+                  </div>
                   <Button variant="primary" className={styles.usagePillAction} onClick={handleSavePrice} disabled={!selectedModel}>
                     {t('common.save')}
                   </Button>
@@ -526,13 +569,16 @@ export function PriceSettingsCard({
                                 {t('usage_stats.model_price_cache_write')}: ${price.cacheCreation.toFixed(4)}/1M
                               </span>
                             )}
+                            <span>
+                              {t('usage_stats.model_price_multiplier')}: {priceToInputValue(price.multiplier ?? 1)}
+                            </span>
                           </div>
                         </div>
                         <div className={styles.priceActions}>
                           <Button variant="secondary" size="sm" className={styles.usagePillAction} onClick={() => handleOpenEdit(model)}>
                             {t('common.edit')}
                           </Button>
-                          <Button variant="danger" size="sm" className={`${styles.usagePillAction} ${styles.usagePillActionDanger}`} onClick={() => handleDeletePrice(model)}>
+                          <Button variant="danger" size="sm" className={`${styles.usagePillAction} ${styles.usagePillActionDanger}`} onClick={() => setDeleteModel(model)}>
                             {t('common.delete')}
                           </Button>
                         </div>
@@ -621,7 +667,40 @@ export function PriceSettingsCard({
               />
             </div>
           )}
+          <div className={styles.formField}>
+            <label>{t('usage_stats.model_price_multiplier')}</label>
+            <Input
+              type="number"
+              value={editMultiplier}
+              onChange={(e) => setEditMultiplier(e.target.value)}
+              placeholder="1"
+              step="0.0001"
+              min="0"
+              className={styles.usagePillControl}
+            />
+          </div>
         </div>
+      </Modal>
+
+      <Modal
+        open={deleteModel !== null}
+        title={t('usage_stats.model_price_delete_confirm_title')}
+        onClose={() => setDeleteModel(null)}
+        footer={
+          <div className={styles.priceActions}>
+            <Button variant="secondary" className={styles.usagePillAction} onClick={() => setDeleteModel(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="danger" className={`${styles.usagePillAction} ${styles.usagePillActionDanger}`} onClick={confirmDeleteModel}>
+              {t('usage_stats.model_price_delete_confirm_action')}
+            </Button>
+          </div>
+        }
+        width={420}
+      >
+        <p className={styles.modelPriceDeleteConfirmText}>
+          {t('usage_stats.model_price_delete_confirm_body', { model: formatDisplayName(deleteModel ?? '') })}
+        </p>
       </Modal>
 
       <Modal
@@ -796,6 +875,18 @@ export function PriceSettingsCard({
                               />
                             </div>
                           )}
+                          <div className={styles.formField}>
+                            <label>{t('usage_stats.model_price_multiplier')}</label>
+                            <Input
+                              type="number"
+                              value={draft.multiplier}
+                              onChange={(event) => handleUpdateSyncDraft(index, { multiplier: event.target.value })}
+                              placeholder="1"
+                              step="0.0001"
+                              min="0"
+                              className={styles.usagePillControl}
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>

@@ -16,6 +16,7 @@ type ModelPriceSetting struct {
 	CompletionPricePer1M    float64
 	CachePricePer1M         float64
 	CacheCreationPricePer1M float64   `gorm:"not null;default:0"`
+	PriceMultiplier         *float64  `gorm:"not null;default:1"`
 	CreatedAt               time.Time `gorm:"serializer:storageTime"`
 	UpdatedAt               time.Time `gorm:"serializer:storageTime"`
 }

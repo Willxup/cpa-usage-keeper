@@ -27,12 +27,14 @@ func UsageTokenInputRequiresPricing(input UsageTokenCostInput) bool {
 // OpenAI 风格把 cached_tokens 视为 input_tokens 的子集；Claude 风格把 cache read/write 从已归一化的总 input 中拆回单独价格。
 func CalculateUsageTokenCostBreakdown(input UsageTokenCostInput, pricing entities.ModelPriceSetting) UsageTokenCostBreakdown {
 	input = clampUsageTokenCostInput(input)
+	var breakdown UsageTokenCostBreakdown
 	switch pricing.PricingStyle {
 	case entities.ModelPricingStyleClaude:
-		return calculateClaudeUsageTokenCostBreakdown(input, pricing)
+		breakdown = calculateClaudeUsageTokenCostBreakdown(input, pricing)
 	default:
-		return calculateOpenAIStyleUsageTokenCostBreakdown(input, pricing)
+		breakdown = calculateOpenAIStyleUsageTokenCostBreakdown(input, pricing)
 	}
+	return scaleUsageTokenCostBreakdown(breakdown, modelPriceMultiplier(pricing))
 }
 
 func calculateOpenAIStyleUsageTokenCostBreakdown(input UsageTokenCostInput, pricing entities.ModelPriceSetting) UsageTokenCostBreakdown {
@@ -74,6 +76,21 @@ func clampUsageTokenCostInput(input UsageTokenCostInput) UsageTokenCostInput {
 	input.CacheReadTokens = maxInt64(input.CacheReadTokens, 0)
 	input.CacheCreationTokens = maxInt64(input.CacheCreationTokens, 0)
 	return input
+}
+
+func modelPriceMultiplier(pricing entities.ModelPriceSetting) float64 {
+	if pricing.PriceMultiplier == nil {
+		return 1
+	}
+	return *pricing.PriceMultiplier
+}
+
+func scaleUsageTokenCostBreakdown(breakdown UsageTokenCostBreakdown, multiplier float64) UsageTokenCostBreakdown {
+	breakdown.InputCostUSD *= multiplier
+	breakdown.OutputCostUSD *= multiplier
+	breakdown.CachedCostUSD *= multiplier
+	breakdown.TotalCostUSD *= multiplier
+	return breakdown
 }
 
 func maxInt64(value, floor int64) int64 {

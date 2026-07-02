@@ -8,4 +8,5 @@ type ModelPriceSettingInput struct {
 	CompletionPricePer1M    float64
 	CachePricePer1M         float64
 	CacheCreationPricePer1M float64
+	PriceMultiplier         *float64
 }

@@ -20,6 +20,7 @@ type pricingEntryResponse struct {
 	CompletionPricePer1M    float64 `json:"completion_price_per_1m"`
 	CachePricePer1M         float64 `json:"cache_price_per_1m"`
 	CacheCreationPricePer1M float64 `json:"cache_creation_price_per_1m"`
+	PriceMultiplier         float64 `json:"price_multiplier"`
 }
 
 type pricingListResponse struct {
@@ -27,12 +28,13 @@ type pricingListResponse struct {
 }
 
 type updatePricingRequest struct {
-	Model                   string  `json:"model"`
-	PricingStyle            string  `json:"pricing_style"`
-	PromptPricePer1M        float64 `json:"prompt_price_per_1m"`
-	CompletionPricePer1M    float64 `json:"completion_price_per_1m"`
-	CachePricePer1M         float64 `json:"cache_price_per_1m"`
-	CacheCreationPricePer1M float64 `json:"cache_creation_price_per_1m"`
+	Model                   string   `json:"model"`
+	PricingStyle            string   `json:"pricing_style"`
+	PromptPricePer1M        float64  `json:"prompt_price_per_1m"`
+	CompletionPricePer1M    float64  `json:"completion_price_per_1m"`
+	CachePricePer1M         float64  `json:"cache_price_per_1m"`
+	CacheCreationPricePer1M float64  `json:"cache_creation_price_per_1m"`
+	PriceMultiplier         *float64 `json:"price_multiplier"`
 }
 
 func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingProvider) {
@@ -72,6 +74,7 @@ func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingPr
 				CompletionPricePer1M:    setting.CompletionPricePer1M,
 				CachePricePer1M:         setting.CachePricePer1M,
 				CacheCreationPricePer1M: setting.CacheCreationPricePer1M,
+				PriceMultiplier:         modelPriceMultiplierValue(setting.PriceMultiplier),
 			})
 		}
 		c.JSON(http.StatusOK, pricingListResponse{Pricing: response})
@@ -159,9 +162,10 @@ func updatePricing(c *gin.Context, pricingProvider service.PricingProvider, path
 		CompletionPricePer1M:    request.CompletionPricePer1M,
 		CachePricePer1M:         request.CachePricePer1M,
 		CacheCreationPricePer1M: request.CacheCreationPricePer1M,
+		PriceMultiplier:         request.PriceMultiplier,
 	})
 	if err != nil {
-		if strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "non-negative") || strings.Contains(err.Error(), "pricing_style") {
+		if strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "non-negative") || strings.Contains(err.Error(), "pricing_style") || strings.Contains(err.Error(), "price_multiplier") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -176,5 +180,13 @@ func updatePricing(c *gin.Context, pricingProvider service.PricingProvider, path
 		CompletionPricePer1M:    setting.CompletionPricePer1M,
 		CachePricePer1M:         setting.CachePricePer1M,
 		CacheCreationPricePer1M: setting.CacheCreationPricePer1M,
+		PriceMultiplier:         modelPriceMultiplierValue(setting.PriceMultiplier),
 	})
+}
+
+func modelPriceMultiplierValue(multiplier *float64) float64 {
+	if multiplier == nil {
+		return 1
+	}
+	return *multiplier
 }

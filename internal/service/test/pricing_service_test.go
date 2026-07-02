@@ -1,9 +1,12 @@
-package service
+package test
 
 import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
+	"math"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,6 +17,7 @@ import (
 	"cpa-usage-keeper/internal/cpa/dto/response"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
+	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -21,7 +25,7 @@ import (
 
 func TestPricingServiceAllowsModelWithoutUsage(t *testing.T) {
 	db := openPricingServiceTestDatabase(t)
-	service := NewPricingService(db)
+	service := service.NewPricingService(db)
 
 	setting, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
 		Model:                   "claude-sonnet",
@@ -39,6 +43,68 @@ func TestPricingServiceAllowsModelWithoutUsage(t *testing.T) {
 	}
 }
 
+func TestPricingServiceDefaultsPriceMultiplierToOne(t *testing.T) {
+	db := openPricingServiceTestDatabase(t)
+	service := service.NewPricingService(db)
+
+	setting, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
+		Model:                "default-multiplier-model",
+		PromptPricePer1M:     3,
+		CompletionPricePer1M: 15,
+		CachePricePer1M:      0.3,
+	})
+	if err != nil {
+		t.Fatalf("update pricing: %v", err)
+	}
+	if setting.PriceMultiplier == nil || *setting.PriceMultiplier != 1 {
+		t.Fatalf("expected omitted price multiplier to default to 1, got %+v", setting.PriceMultiplier)
+	}
+}
+
+func TestPricingServiceAllowsZeroPriceMultiplier(t *testing.T) {
+	db := openPricingServiceTestDatabase(t)
+	service := service.NewPricingService(db)
+	zero := 0.0
+
+	setting, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
+		Model:                "zero-multiplier-model",
+		PromptPricePer1M:     3,
+		CompletionPricePer1M: 15,
+		CachePricePer1M:      0.3,
+		PriceMultiplier:      &zero,
+	})
+	if err != nil {
+		t.Fatalf("update pricing with zero multiplier: %v", err)
+	}
+	if setting.PriceMultiplier == nil || *setting.PriceMultiplier != 0 {
+		t.Fatalf("expected zero price multiplier, got %+v", setting.PriceMultiplier)
+	}
+}
+
+func TestPricingServiceRejectsInvalidPriceMultiplier(t *testing.T) {
+	for name, value := range map[string]float64{
+		"negative": -1,
+		"nan":      math.NaN(),
+		"infinite": math.Inf(1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			db := openPricingServiceTestDatabase(t)
+			service := service.NewPricingService(db)
+
+			_, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
+				Model:                name + "-multiplier-model",
+				PromptPricePer1M:     3,
+				CompletionPricePer1M: 15,
+				CachePricePer1M:      0.3,
+				PriceMultiplier:      &value,
+			})
+			if err == nil || !strings.Contains(err.Error(), "price_multiplier") {
+				t.Fatalf("expected price_multiplier validation error, got %v", err)
+			}
+		})
+	}
+}
+
 func TestPricingServiceStoresPricingForUsedModel(t *testing.T) {
 	db := openPricingServiceTestDatabase(t)
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
@@ -50,7 +116,7 @@ func TestPricingServiceStoresPricingForUsedModel(t *testing.T) {
 		t.Fatalf("insert usage event: %v", err)
 	}
 
-	service := NewPricingService(db)
+	service := service.NewPricingService(db)
 	setting, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
 		Model:                   "claude-sonnet",
 		PricingStyle:            "claude",
@@ -85,7 +151,7 @@ func TestPricingServiceRejectsUnknownPricingStyle(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("insert usage event: %v", err)
 	}
-	service := NewPricingService(db)
+	service := service.NewPricingService(db)
 
 	_, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
 		Model:        "claude-sonnet",
@@ -108,7 +174,7 @@ func TestPricingServiceListsModelsFromCPAWhenAvailable(t *testing.T) {
 	}
 	logs := captureDebugLogs(t)
 
-	service := NewPricingService(db, stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{
+	service := service.NewPricingService(db, stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{
 		{ID: " zeta-model "},
 		{ID: "alpha-model"},
 		{ID: "zeta-model"},
@@ -140,7 +206,7 @@ func TestPricingServiceFallsBackToLocalModelsWhenCPAFetchFails(t *testing.T) {
 	}
 	logs := captureDebugLogs(t)
 
-	service := NewPricingService(db, stubModelsFetcher{err: errors.New("cpa unavailable")})
+	service := service.NewPricingService(db, stubModelsFetcher{err: errors.New("cpa unavailable")})
 	modelsList, err := service.ListUsedModels(context.Background())
 	if err != nil {
 		t.Fatalf("list models: %v", err)
@@ -171,7 +237,7 @@ func TestPricingServiceReturnsEmptyCPAListWithoutFallback(t *testing.T) {
 		t.Fatalf("insert usage event: %v", err)
 	}
 
-	service := NewPricingService(db, stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{{ID: " "}}}}})
+	service := service.NewPricingService(db, stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{{ID: " "}}}}})
 	modelsList, err := service.ListUsedModels(context.Background())
 	if err != nil {
 		t.Fatalf("list models: %v", err)
@@ -183,7 +249,7 @@ func TestPricingServiceReturnsEmptyCPAListWithoutFallback(t *testing.T) {
 
 func TestPricingServiceAllowsPricingForCPAModelWithoutUsage(t *testing.T) {
 	db := openPricingServiceTestDatabase(t)
-	service := NewPricingService(db, stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{{ID: "claude-opus"}}}}})
+	service := service.NewPricingService(db, stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{{ID: "claude-opus"}}}}})
 
 	setting, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
 		Model:                "claude-opus",
@@ -201,7 +267,7 @@ func TestPricingServiceAllowsPricingForCPAModelWithoutUsage(t *testing.T) {
 
 func TestPricingServiceAllowsModelOutsideCPAModelList(t *testing.T) {
 	db := openPricingServiceTestDatabase(t)
-	service := NewPricingService(db, stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{{ID: "cpa-model"}}}}})
+	service := service.NewPricingService(db, stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{{ID: "cpa-model"}}}}})
 
 	setting, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
 		Model:                   "local-model",
@@ -221,7 +287,7 @@ func TestPricingServiceAllowsModelOutsideCPAModelList(t *testing.T) {
 
 func TestPricingServiceSavesPricingWhenCPAFetchFails(t *testing.T) {
 	db := openPricingServiceTestDatabase(t)
-	service := NewPricingService(db, stubModelsFetcher{err: errors.New("cpa unavailable")})
+	service := service.NewPricingService(db, stubModelsFetcher{err: errors.New("cpa unavailable")})
 
 	setting, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
 		Model:                "any-model",
@@ -238,192 +304,26 @@ func TestPricingServiceSavesPricingWhenCPAFetchFails(t *testing.T) {
 }
 
 func TestBuildPricingSyncPreviewMatchesMetadataModels(t *testing.T) {
-	input := 2.5
-	output := 10.0
-	cacheRead := 1.25
-	gptCacheRead := 0.25
-	gptCacheWrite := 0.0
-	claudeInput := 3.0
-	claudeOutput := 15.0
-	cacheWrite := 3.75
-	zeroPrice := 0.0
-	catalog := map[string]modelsDevProvider{
-		"openai": {
-			ID:   "openai",
-			Name: "OpenAI",
-			Models: map[string]modelsDevModel{
-				"openai/gpt-4o": {
-					ID:          "openai/gpt-4o",
-					Name:        "GPT-4o",
-					Family:      "gpt",
-					LastUpdated: "2026-01-01",
-					Cost: modelsDevCost{
-						Input:     &input,
-						Output:    &output,
-						CacheRead: &cacheRead,
-					},
-				},
-				"openai/gpt-5.4": {
-					ID:          "openai/gpt-5.4",
-					Name:        "GPT-5.4",
-					Family:      "gpt",
-					LastUpdated: "2026-01-01",
-					Cost: modelsDevCost{
-						Input:      &input,
-						Output:     &output,
-						CacheRead:  &gptCacheRead,
-						CacheWrite: &gptCacheWrite,
-					},
-				},
-			},
-		},
-		"anthropic": {
-			ID:   "anthropic",
-			Name: "Anthropic",
-			Models: map[string]modelsDevModel{
-				"anthropic/claude-sonnet-4": {
-					ID:          "anthropic/claude-sonnet-4",
-					Name:        "Claude Sonnet 4",
-					Family:      "claude-sonnet",
-					LastUpdated: "2026-01-01",
-					Cost: modelsDevCost{
-						Input:      &claudeInput,
-						Output:     &claudeOutput,
-						CacheRead:  &cacheRead,
-						CacheWrite: &cacheWrite,
-					},
-				},
-			},
-		},
-		"deepseek": {
-			ID:   "deepseek",
-			Name: "DeepSeek",
-			Models: map[string]modelsDevModel{
-				"deepseek-chat": {
-					ID:          "deepseek-chat",
-					Name:        "DeepSeek Chat",
-					Family:      "deepseek",
-					LastUpdated: "2026-01-01",
-					Cost: modelsDevCost{
-						Input:  &input,
-						Output: &output,
-					},
-				},
-			},
-		},
-		"302ai": {
-			ID:   "302ai",
-			Name: "302.AI",
-			Models: map[string]modelsDevModel{
-				"gpt-4o": {
-					ID:          "gpt-4o",
-					Name:        "GPT-4o",
-					Family:      "gpt",
-					LastUpdated: "2027-01-01",
-					Cost: modelsDevCost{
-						Input:  &claudeInput,
-						Output: &claudeOutput,
-					},
-				},
-				"deepseek-chat": {
-					ID:          "deepseek-chat",
-					Name:        "DeepSeek Chat",
-					Family:      "deepseek",
-					LastUpdated: "2027-01-01",
-					Cost: modelsDevCost{
-						Input:  &claudeInput,
-						Output: &claudeOutput,
-					},
-				},
-			},
-		},
-		"nebius": {
-			ID:   "nebius",
-			Name: "Nebius Token Factory",
-			Models: map[string]modelsDevModel{
-				"deepseek-ai/DeepSeek-V4-Pro": {
-					ID:          "deepseek-ai/DeepSeek-V4-Pro",
-					Name:        "DeepSeek V4 Pro",
-					Family:      "deepseek",
-					LastUpdated: "2026-04-24",
-					Cost: modelsDevCost{
-						Input:  &input,
-						Output: &output,
-					},
-				},
-				"deepseek-ai/DeepSeek-V4-Flash": {
-					ID:          "deepseek-ai/DeepSeek-V4-Flash",
-					Name:        "DeepSeek V4 Flash",
-					Family:      "deepseek-flash",
-					LastUpdated: "2026-04-24",
-					Cost: modelsDevCost{
-						Input:  &input,
-						Output: &output,
-					},
-				},
-			},
-		},
-		"zai": {
-			ID:   "zai",
-			Name: "Z.ai",
-			Models: map[string]modelsDevModel{
-				"zai-org/GLM-4.7-Flash": {
-					ID:          "zai-org/GLM-4.7-Flash",
-					Name:        "GLM-4.7-Flash",
-					Family:      "glm-flash",
-					LastUpdated: "2026-01-19",
-					Cost: modelsDevCost{
-						Input:  &input,
-						Output: &output,
-					},
-				},
-			},
-		},
-		"minimax-coding-plan": {
-			ID:   "minimax-coding-plan",
-			Name: "MiniMax Coding Plan",
-			Models: map[string]modelsDevModel{
-				"MiniMax-M3": {
-					ID:          "MiniMax-M3",
-					Name:        "MiniMax-M3",
-					Family:      "minimax",
-					LastUpdated: "2026-03-01",
-					Cost: modelsDevCost{
-						Input:  &zeroPrice,
-						Output: &zeroPrice,
-					},
-				},
-			},
-		},
-		"vercel": {
-			ID:   "vercel",
-			Name: "Vercel",
-			Models: map[string]modelsDevModel{
-				"minimax/minimax-m3": {
-					ID:          "minimax/minimax-m3",
-					Name:        "MiniMax M3",
-					Family:      "minimax",
-					LastUpdated: "2026-03-01",
-					Cost: modelsDevCost{
-						Input:  &input,
-						Output: &output,
-					},
-				},
-			},
-		},
-	}
+	transport := http.DefaultTransport
+	http.DefaultTransport = pricingCatalogTransport{body: testPricingCatalogJSON}
+	t.Cleanup(func() {
+		http.DefaultTransport = transport
+	})
 
-	preview, err := buildPricingSyncPreviewFromCatalog([]string{
-		"openai/gpt-4o",
-		"Claude Sonnet 4",
-		"deepseek-chat",
-		"gpt-5.4",
-		"deepseek-v4-pro",
-		"DeepSeek V4 Flash",
-		"GLM-4.7-Flash",
-		"minimax-m3",
-		"missing-model",
-	}, catalog, "https://models.dev/api.json")
+	db := openPricingServiceTestDatabase(t)
+	service := service.NewPricingService(db, stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{
+		{ID: "openai/gpt-4o"},
+		{ID: "Claude Sonnet 4"},
+		{ID: "deepseek-chat"},
+		{ID: "gpt-5.4"},
+		{ID: "deepseek-v4-pro"},
+		{ID: "DeepSeek V4 Flash"},
+		{ID: "GLM-4.7-Flash"},
+		{ID: "minimax-m3"},
+		{ID: "missing-model"},
+	}}}})
+
+	preview, err := service.PreviewPricingSync(context.Background())
 	if err != nil {
 		t.Fatalf("build pricing sync preview: %v", err)
 	}
@@ -470,6 +370,150 @@ func TestBuildPricingSyncPreviewMatchesMetadataModels(t *testing.T) {
 	}
 }
 
+const testPricingCatalogJSON = `{
+  "openai": {
+    "id": "openai",
+    "name": "OpenAI",
+    "models": {
+      "openai/gpt-4o": {
+        "id": "openai/gpt-4o",
+        "name": "GPT-4o",
+        "family": "gpt",
+        "last_updated": "2026-01-01",
+        "cost": {"input": 2.5, "output": 10, "cache_read": 1.25}
+      },
+      "openai/gpt-5.4": {
+        "id": "openai/gpt-5.4",
+        "name": "GPT-5.4",
+        "family": "gpt",
+        "last_updated": "2026-01-01",
+        "cost": {"input": 2.5, "output": 10, "cache_read": 0.25, "cache_write": 0}
+      }
+    }
+  },
+  "anthropic": {
+    "id": "anthropic",
+    "name": "Anthropic",
+    "models": {
+      "anthropic/claude-sonnet-4": {
+        "id": "anthropic/claude-sonnet-4",
+        "name": "Claude Sonnet 4",
+        "family": "claude-sonnet",
+        "last_updated": "2026-01-01",
+        "cost": {"input": 3, "output": 15, "cache_read": 1.25, "cache_write": 3.75}
+      }
+    }
+  },
+  "deepseek": {
+    "id": "deepseek",
+    "name": "DeepSeek",
+    "models": {
+      "deepseek-chat": {
+        "id": "deepseek-chat",
+        "name": "DeepSeek Chat",
+        "family": "deepseek",
+        "last_updated": "2026-01-01",
+        "cost": {"input": 2.5, "output": 10}
+      }
+    }
+  },
+  "302ai": {
+    "id": "302ai",
+    "name": "302.AI",
+    "models": {
+      "gpt-4o": {
+        "id": "gpt-4o",
+        "name": "GPT-4o",
+        "family": "gpt",
+        "last_updated": "2027-01-01",
+        "cost": {"input": 3, "output": 15}
+      },
+      "deepseek-chat": {
+        "id": "deepseek-chat",
+        "name": "DeepSeek Chat",
+        "family": "deepseek",
+        "last_updated": "2027-01-01",
+        "cost": {"input": 3, "output": 15}
+      }
+    }
+  },
+  "nebius": {
+    "id": "nebius",
+    "name": "Nebius Token Factory",
+    "models": {
+      "deepseek-ai/DeepSeek-V4-Pro": {
+        "id": "deepseek-ai/DeepSeek-V4-Pro",
+        "name": "DeepSeek V4 Pro",
+        "family": "deepseek",
+        "last_updated": "2026-04-24",
+        "cost": {"input": 2.5, "output": 10}
+      },
+      "deepseek-ai/DeepSeek-V4-Flash": {
+        "id": "deepseek-ai/DeepSeek-V4-Flash",
+        "name": "DeepSeek V4 Flash",
+        "family": "deepseek-flash",
+        "last_updated": "2026-04-24",
+        "cost": {"input": 2.5, "output": 10}
+      }
+    }
+  },
+  "zai": {
+    "id": "zai",
+    "name": "Z.ai",
+    "models": {
+      "zai-org/GLM-4.7-Flash": {
+        "id": "zai-org/GLM-4.7-Flash",
+        "name": "GLM-4.7-Flash",
+        "family": "glm-flash",
+        "last_updated": "2026-01-19",
+        "cost": {"input": 2.5, "output": 10}
+      }
+    }
+  },
+  "minimax-coding-plan": {
+    "id": "minimax-coding-plan",
+    "name": "MiniMax Coding Plan",
+    "models": {
+      "MiniMax-M3": {
+        "id": "MiniMax-M3",
+        "name": "MiniMax-M3",
+        "family": "minimax",
+        "last_updated": "2026-03-01",
+        "cost": {"input": 0, "output": 0}
+      }
+    }
+  },
+  "vercel": {
+    "id": "vercel",
+    "name": "Vercel",
+    "models": {
+      "minimax/minimax-m3": {
+        "id": "minimax/minimax-m3",
+        "name": "MiniMax M3",
+        "family": "minimax",
+        "last_updated": "2026-03-01",
+        "cost": {"input": 2.5, "output": 10}
+      }
+    }
+  }
+}`
+
+type pricingCatalogTransport struct {
+	body string
+}
+
+func (t pricingCatalogTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.URL.String() != "https://models.dev/api.json" {
+		return nil, errors.New("unexpected pricing catalog request: " + request.URL.String())
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(t.body)),
+		Request:    request,
+	}, nil
+}
+
 type stubModelsFetcher struct {
 	result *response.ModelsResult
 	err    error
@@ -499,6 +543,14 @@ func openPricingServiceTestDatabase(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
 	}
-	closeTestDatabase(t, db)
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get sql database: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Fatalf("close database: %v", err)
+		}
+	})
 	return db
 }
