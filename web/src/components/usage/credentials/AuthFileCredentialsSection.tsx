@@ -1012,7 +1012,7 @@ export function QuotaAutoRefreshSettingsModal({
       open={open}
       title={t('usage_stats.credentials_auto_refresh_settings')}
       onClose={saving ? () => undefined : onClose}
-      width={520}
+      width={620}
       className={styles.credentialAutoRefreshSettingsModal}
       closeDisabled={saving}
     >
