@@ -162,14 +162,22 @@ func TestPricingServiceRejectsUnknownPricingStyle(t *testing.T) {
 	}
 }
 
-func TestPricingServiceListsModelsFromCPAWhenAvailable(t *testing.T) {
+func TestPricingServiceMergesCPAAndLocalModelsWhenCPAAvailable(t *testing.T) {
 	db := openPricingServiceTestDatabase(t)
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
-		EventKey:    "evt-local",
-		Model:       "local-model",
-		Timestamp:   time.Unix(1, 0),
-		APIGroupKey: "provider-a",
-	}}); err != nil {
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+		{
+			EventKey:    "evt-local",
+			Model:       "local-model",
+			Timestamp:   time.Unix(1, 0),
+			APIGroupKey: "provider-a",
+		},
+		{
+			EventKey:    "evt-overlap",
+			Model:       "alpha-model",
+			Timestamp:   time.Unix(2, 0),
+			APIGroupKey: "provider-a",
+		},
+	}); err != nil {
 		t.Fatalf("insert usage event: %v", err)
 	}
 	logs := captureDebugLogs(t)
@@ -185,9 +193,9 @@ func TestPricingServiceListsModelsFromCPAWhenAvailable(t *testing.T) {
 		t.Fatalf("list models: %v", err)
 	}
 
-	expected := []string{"alpha-model", "zeta-model"}
+	expected := []string{"alpha-model", "local-model", "zeta-model"}
 	if strings.Join(modelsList, ",") != strings.Join(expected, ",") {
-		t.Fatalf("expected CPA models %#v, got %#v", expected, modelsList)
+		t.Fatalf("expected merged CPA and local models %#v, got %#v", expected, modelsList)
 	}
 	if !strings.Contains(logs.String(), "using CPA models endpoint") {
 		t.Fatalf("expected CPA source debug log, got %q", logs.String())
@@ -226,7 +234,7 @@ func TestPricingServiceFallsBackToLocalModelsWhenCPAFetchFails(t *testing.T) {
 	}
 }
 
-func TestPricingServiceReturnsEmptyCPAListWithoutFallback(t *testing.T) {
+func TestPricingServiceKeepsLocalModelsWhenCPAListIsEmpty(t *testing.T) {
 	db := openPricingServiceTestDatabase(t)
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
 		EventKey:    "evt-local",
@@ -237,13 +245,13 @@ func TestPricingServiceReturnsEmptyCPAListWithoutFallback(t *testing.T) {
 		t.Fatalf("insert usage event: %v", err)
 	}
 
-	service := service.NewPricingService(db, stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{{ID: " "}}}}})
+	service := service.NewPricingService(db, stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{}}}})
 	modelsList, err := service.ListUsedModels(context.Background())
 	if err != nil {
 		t.Fatalf("list models: %v", err)
 	}
-	if len(modelsList) != 0 {
-		t.Fatalf("expected empty CPA model list, got %#v", modelsList)
+	if len(modelsList) != 1 || modelsList[0] != "local-model" {
+		t.Fatalf("expected local model when CPA list is empty, got %#v", modelsList)
 	}
 }
 

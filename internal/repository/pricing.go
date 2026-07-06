@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"database/sql"
 	"fmt"
 	"math"
 	"sort"
@@ -29,11 +30,9 @@ func ListUsedModels(db *gorm.DB) ([]string, error) {
 		return nil, fmt.Errorf("database is nil")
 	}
 
-	var modelsList []string
+	var modelsList []sql.NullString
 	if err := db.Model(&entities.UsageEvent{}).
 		Distinct().
-		Where("trim(model) <> ''").
-		Order("model asc").
 		Pluck("model", &modelsList).Error; err != nil {
 		return nil, fmt.Errorf("list used models: %w", err)
 	}
@@ -41,7 +40,10 @@ func ListUsedModels(db *gorm.DB) ([]string, error) {
 	cleaned := make([]string, 0, len(modelsList))
 	seen := make(map[string]struct{}, len(modelsList))
 	for _, model := range modelsList {
-		trimmed := strings.TrimSpace(model)
+		if !model.Valid {
+			continue
+		}
+		trimmed := strings.TrimSpace(model.String)
 		if trimmed == "" {
 			continue
 		}
