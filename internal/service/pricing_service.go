@@ -102,10 +102,10 @@ func (s *pricingService) effectiveModels(ctx context.Context) ([]string, error) 
 	}
 
 	logrus.Debug("pricing model listing using CPA models endpoint")
-	return mergeModelNames(localModels, normalizeCPAModels(result)), nil
+	return mergeModelNames(localModels, extractCPAModelIDs(result)), nil
 }
 
-func normalizeCPAModels(result *response.ModelsResult) []string {
+func extractCPAModelIDs(result *response.ModelsResult) []string {
 	if result == nil {
 		return []string{}
 	}
@@ -113,7 +113,7 @@ func normalizeCPAModels(result *response.ModelsResult) []string {
 	for _, model := range result.Payload.Data {
 		models = append(models, model.ID)
 	}
-	return mergeModelNames(models)
+	return models
 }
 
 func mergeModelNames(modelLists ...[]string) []string {
