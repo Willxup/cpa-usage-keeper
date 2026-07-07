@@ -163,6 +163,8 @@ const COMPOSITION_TOOLTIP_ID = 'analysis-composition-tooltip';
 const COMPOSITION_TOOLTIP_MAX_WIDTH = 260;
 const COMPOSITION_TOOLTIP_VIEWPORT_PADDING = 8;
 const COMPOSITION_TOOLTIP_CURSOR_OFFSET = 12;
+const COMPOSITION_DONUT_BORDER_RADIUS = 10;
+const COMPOSITION_DONUT_SPACING = 4;
 const HEATMAP_TOOLTIP_MAX_WIDTH = 280;
 const HEATMAP_TOOLTIP_VIEWPORT_PADDING = 8;
 const HEATMAP_TOOLTIP_CURSOR_OFFSET = 14;
@@ -180,6 +182,7 @@ const LATENCY_REFERENCE_HIT_RADIUS_PX = 8;
 const EMPTY_COMPOSITION_ITEMS: AnalysisCompositionItem[] = [];
 const compositionTooltipPointers = new WeakMap<Chart, { x: number; y: number }>();
 const latencyReferenceHoverStates = new WeakMap<Chart<'scatter'>, LatencyReferenceHover>();
+const FULL_CIRCLE = Math.PI * 2;
 type TokenLabels = {
   input: string;
   output: string;
@@ -237,13 +240,89 @@ const compositionTooltipPointerPlugin: Plugin<'doughnut'> = {
   id: 'analysis-composition-tooltip-pointer',
   beforeEvent: (chart, args) => {
     const { event } = args;
-    if (event.type === 'mouseout' || event.x == null || event.y == null) {
+    if (event.type === 'mouseout') {
       compositionTooltipPointers.delete(chart);
       return;
     }
-    if (event.type !== 'mousemove' && event.type !== 'mouseenter' && event.type !== 'click') return;
+    if (!Number.isFinite(event.x) || !Number.isFinite(event.y)) return;
     compositionTooltipPointers.set(chart, { x: event.x, y: event.y });
   },
+};
+
+type CompositionArcGeometry = {
+  x: number;
+  y: number;
+  innerRadius: number;
+  outerRadius: number;
+  startAngle: number;
+  endAngle: number;
+  circumference?: number;
+};
+
+type CompositionArcElement = Partial<CompositionArcGeometry> & {
+  getProps?: (props: Array<keyof CompositionArcGeometry>, final?: boolean) => Partial<CompositionArcGeometry>;
+};
+
+const normalizeRadians = (angle: number) => ((angle % FULL_CIRCLE) + FULL_CIRCLE) % FULL_CIRCLE;
+const radiansDistance = (from: number, to: number) => Math.abs(Math.atan2(Math.sin(from - to), Math.cos(from - to)));
+
+const getCompositionArcGeometry = (chart: Chart, dataIndex: number): CompositionArcGeometry | null => {
+  const arc = chart.getDatasetMeta(0).data[dataIndex] as CompositionArcElement | undefined;
+  if (!arc) return null;
+  const props = arc.getProps
+    ? arc.getProps(['x', 'y', 'innerRadius', 'outerRadius', 'startAngle', 'endAngle', 'circumference'], true)
+    : arc;
+  const { x, y, innerRadius, outerRadius, startAngle, endAngle, circumference } = props;
+  if (
+    !Number.isFinite(x)
+    || !Number.isFinite(y)
+    || !Number.isFinite(innerRadius)
+    || !Number.isFinite(outerRadius)
+    || !Number.isFinite(startAngle)
+    || !Number.isFinite(endAngle)
+  ) {
+    return null;
+  }
+  return {
+    x: x as number,
+    y: y as number,
+    innerRadius: innerRadius as number,
+    outerRadius: outerRadius as number,
+    startAngle: startAngle as number,
+    endAngle: endAngle as number,
+    circumference: Number.isFinite(circumference) ? circumference : undefined,
+  };
+};
+
+const isAngleWithinArc = (angle: number, startAngle: number, endAngle: number) => {
+  const normalizedAngle = normalizeRadians(angle);
+  const normalizedStart = normalizeRadians(startAngle);
+  const normalizedEnd = normalizeRadians(endAngle);
+  return normalizedStart <= normalizedEnd
+    ? normalizedAngle >= normalizedStart && normalizedAngle <= normalizedEnd
+    : normalizedAngle >= normalizedStart || normalizedAngle <= normalizedEnd;
+};
+
+const isCompositionPointerInsidePaintedArc = (chart: Chart, dataIndex: number, itemCount: number) => {
+  const pointer = compositionTooltipPointers.get(chart);
+  if (!pointer || itemCount <= 1 || COMPOSITION_DONUT_SPACING <= 0) return true;
+  const arc = getCompositionArcGeometry(chart, dataIndex);
+  if (!arc) return true;
+
+  const dx = pointer.x - arc.x;
+  const dy = pointer.y - arc.y;
+  const radius = Math.sqrt((dx * dx) + (dy * dy));
+  if (radius < arc.innerRadius || radius > arc.outerRadius) return false;
+
+  const circumference = Math.abs(arc.circumference ?? (arc.endAngle - arc.startAngle));
+  if (circumference >= FULL_CIRCLE - 0.001) return true;
+
+  const angle = Math.atan2(dy, dx);
+  if (!isAngleWithinArc(angle, arc.startAngle, arc.endAngle)) return false;
+
+  const midRadius = Math.max((arc.innerRadius + arc.outerRadius) / 2, 1);
+  const gapAngle = Math.min(circumference / 3, (COMPOSITION_DONUT_SPACING / midRadius) * 1.2);
+  return radiansDistance(angle, arc.startAngle) > gapAngle && radiansDistance(angle, arc.endAngle) > gapAngle;
 };
 
 const getChartTheme = (isDark: boolean): ChartTheme => ({
@@ -514,7 +593,7 @@ const getHeatmapCellTextColor = (intensity: number, isDark: boolean) => {
   if (!isDark) {
     return clampedIntensity > 0.58 ? '#fff7ed' : '#431407';
   }
-  return '#fff7ed';
+  return clampedIntensity > 0.86 ? '#1c1208' : '#fff7ed';
 };
 
 const getHeatmapVisualIntensity = (value: number, maxValue: number) => {
@@ -776,7 +855,7 @@ function buildCompositionChartData(items: AnalysisCompositionItem[]): ChartData<
       backgroundColor: (context) => toGradientFill(context, CHART_COLORS[context.dataIndex % CHART_COLORS.length]),
       borderColor: 'transparent',
       borderWidth: 0,
-      borderRadius: 10,
+      borderRadius: COMPOSITION_DONUT_BORDER_RADIUS,
       hoverOffset: 0,
     }],
   };
@@ -824,7 +903,7 @@ function createCompositionTooltipHandler({
 
     const dataIndex = tooltip.dataPoints?.[0]?.dataIndex;
     const item = typeof dataIndex === 'number' ? items[dataIndex] : undefined;
-    if (!item) {
+    if (!item || !isCompositionPointerInsidePaintedArc(chart, dataIndex, items.length)) {
       tooltipEl.style.opacity = '0';
       return;
     }
@@ -878,7 +957,7 @@ function buildCompositionChartOptions(chartTheme: ChartTheme, items: AnalysisCom
     hover: { mode: 'nearest', intersect: true },
     layout: { padding: 6 },
     cutout: '58%',
-    spacing: 4,
+    spacing: COMPOSITION_DONUT_SPACING,
     plugins: {
       legend: { display: false },
       tooltip: {
@@ -1224,8 +1303,12 @@ function CompositionPanel({ tabs, loading, isDark }: { tabs: CompositionTab[]; l
               </div>
             </div>
             <div key={`list-${activeContentKey}`} className={styles.compositionUsageList}>
-              {items.map((item) => {
+              {items.map((item, index) => {
                 const percent = clampPercent(toNumber(item.percent));
+                const barStyle = {
+                  width: `${percent}%`,
+                  '--composition-bar-color': CHART_COLORS[index % CHART_COLORS.length].base,
+                } as CSSProperties;
                 return (
                   <div key={`${activeTab.id}-${item.key}`} className={styles.compositionUsageItem}>
                     <div className={styles.compositionUsageTopline}>
@@ -1234,7 +1317,7 @@ function CompositionPanel({ tabs, loading, isDark }: { tabs: CompositionTab[]; l
                     </div>
                     <div className={styles.compositionUsageTrack}>
                       {percent > 0 && (
-                        <span className={styles.compositionUsageBar} style={{ width: `${percent}%` }} />
+                        <span className={styles.compositionUsageBar} style={barStyle} />
                       )}
                     </div>
                     <div className={styles.compositionUsageMeta}>

@@ -565,17 +565,27 @@
   min-height: 340px;
   min-width: 0;
   width: 100%;
+
+  @include mobile {
+    min-height: 0;
+  }
 }
 
 .donutCanvasBox {
   position: relative;
   width: min(100%, 300px);
   height: 300px;
+  aspect-ratio: 1;
   flex: 0 0 auto;
 
   :global(canvas) {
     max-width: 100%;
     max-height: 100%;
+  }
+
+  @include mobile {
+    width: min(100%, 260px);
+    height: auto;
   }
 }
 
@@ -648,7 +658,7 @@
   inset: 0 auto 0 0;
   min-width: 3px;
   border-radius: inherit;
-  background: linear-gradient(90deg, #3b82f6, #14b8a6);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--composition-bar-color) 70%, var(--bg-secondary)), var(--composition-bar-color));
 }
 
 .compositionUsageMeta {
@@ -663,7 +673,10 @@
 .compositionUsageMetaPill {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 5px;
+  max-width: 100%;
+  min-width: 0;
   min-height: 22px;
   padding: 4px 7px;
   border: 1px solid var(--border-color);
@@ -674,10 +687,14 @@
 
 .compositionUsageMetaLabel {
   color: var(--text-tertiary);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .compositionUsageMetaValue {
   color: var(--text-secondary);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .compositionFloatingTooltip {

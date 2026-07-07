@@ -273,7 +273,7 @@ describe('AnalysisPanel token chart data', () => {
     expect(markup).toContain('usage_stats.analysis_token_average: 200');
   });
 
-  it('renders usage distribution as a rounded segmented donut with token-share style rows', () => {
+  it('renders a clean circular usage distribution donut with token-share style rows', () => {
     const analysis: AnalysisResponse = {
       ...emptyAnalysis,
       api_key_composition: [{
@@ -334,7 +334,7 @@ describe('AnalysisPanel token chart data', () => {
     expect(markup).toContain('compositionUsageTrack');
     expect(markup).toContain('compositionUsageBar');
     expect(markup).toContain('compositionUsageMetaPill');
-    expect(markup).toContain('style="width:100%"');
+    expect(markup).toContain('style="width:100%;--composition-bar-color:#1d4ed8"');
     expect(markup).not.toContain('<table');
     expect(markup).not.toContain('gpt-4o');
     expect(markup).not.toContain('usage_stats.analysis_model_composition_title');
@@ -381,7 +381,7 @@ describe('AnalysisPanel token chart data', () => {
     };
 
     chartCapture.doughnutPlugins?.[0]?.beforeEvent?.(fakeChart as never, {
-      event: { type: 'mousemove', x: 140, y: 240, native: null },
+      event: { type: 'mousedown', x: 140, y: 240, native: null },
       replay: false,
       changed: false,
       cancelable: false,
@@ -406,6 +406,136 @@ describe('AnalysisPanel token chart data', () => {
       'Primary Key',
       'usage_stats.total_tokens: 1.00K',
     ]);
+  });
+
+  it('keeps two-item usage distribution donuts visually segmented', () => {
+    const analysis: AnalysisResponse = {
+      ...emptyAnalysis,
+      api_key_composition: [
+        {
+          key: '1',
+          label: 'Primary Key',
+          total_tokens: 750,
+          requests: 3,
+          percent: 75,
+          input_tokens: 500,
+          output_tokens: 200,
+          cached_tokens: 50,
+          reasoning_tokens: 0,
+          cost_usd: 0.3,
+          cost_available: true,
+        },
+        {
+          key: '2',
+          label: 'Secondary Key',
+          total_tokens: 250,
+          requests: 1,
+          percent: 25,
+          input_tokens: 200,
+          output_tokens: 50,
+          cached_tokens: 0,
+          reasoning_tokens: 0,
+          cost_usd: 0.1,
+          cost_available: true,
+        },
+      ],
+    };
+
+    const markup = renderToStaticMarkup(<AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} />);
+
+    expect(chartCapture.doughnutData?.labels).toEqual(['Primary Key', 'Secondary Key']);
+    expect(chartCapture.doughnutData?.datasets[0]).toMatchObject({
+      borderRadius: 10,
+      hoverOffset: 0,
+    });
+    expect(chartCapture.doughnutOptions?.spacing).toBe(4);
+    expect(markup).toContain('--composition-bar-color:#1d4ed8');
+    expect(markup).toContain('--composition-bar-color:#ca8a04');
+  });
+
+  it('hides the usage distribution tooltip when the pointer is in a visual segment gap', () => {
+    const analysis: AnalysisResponse = {
+      ...emptyAnalysis,
+      api_key_composition: [
+        {
+          key: '1',
+          label: 'Primary Key',
+          total_tokens: 750,
+          requests: 3,
+          percent: 75,
+          input_tokens: 500,
+          output_tokens: 200,
+          cached_tokens: 50,
+          reasoning_tokens: 0,
+          cost_usd: 0.3,
+          cost_available: true,
+        },
+        {
+          key: '2',
+          label: 'Secondary Key',
+          total_tokens: 250,
+          requests: 1,
+          percent: 25,
+          input_tokens: 200,
+          output_tokens: 50,
+          cached_tokens: 0,
+          reasoning_tokens: 0,
+          cost_usd: 0.1,
+          cost_available: true,
+        },
+      ],
+    };
+
+    renderToStaticMarkup(<AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} />);
+
+    const elements = new Map<string, FakeElement>();
+    const fakeDocument = createFakeDocument(elements);
+    vi.stubGlobal('document', fakeDocument);
+    vi.stubGlobal('window', { innerWidth: 1024, innerHeight: 768 });
+
+    const fakeChart = {
+      canvas: {
+        getBoundingClientRect: () => ({
+          left: 0,
+          top: 0,
+          right: 300,
+          bottom: 300,
+          width: 300,
+          height: 300,
+        }),
+      },
+      getDatasetMeta: () => ({
+        data: [{
+          x: 150,
+          y: 150,
+          innerRadius: 70,
+          outerRadius: 140,
+          startAngle: 0,
+          endAngle: Math.PI,
+          circumference: Math.PI,
+        }],
+      }),
+    };
+
+    chartCapture.doughnutPlugins?.[0]?.beforeEvent?.(fakeChart as never, {
+      event: { type: 'mousemove', x: 255, y: 150, native: null },
+      replay: false,
+      changed: false,
+      cancelable: false,
+      inChartArea: true,
+    } as never, undefined as never);
+    chartCapture.doughnutOptions?.plugins?.tooltip?.external?.({
+      chart: fakeChart,
+      tooltip: {
+        opacity: 1,
+        caretX: 255,
+        caretY: 150,
+        dataPoints: [{ dataIndex: 0 }],
+      },
+    } as never);
+
+    const tooltipElement = elements.get('analysis-composition-tooltip');
+    expect(tooltipElement?.style.opacity).toBe('0');
   });
 
   it('uses a distinct sixth composition color when others are collapsed', () => {
@@ -1174,6 +1304,7 @@ describe('AnalysisPanel token chart data', () => {
     expect(markup).toContain('heatmapCardDark');
     expect(markup).toContain('background:rgb(58, 36, 48)');
     expect(markup).toContain('background:rgb(239, 68, 68)');
+    expect(markup).toContain('background:rgb(239, 68, 68);color:#1c1208');
     expect(markup).not.toContain('background:rgb(26, 17, 24)');
   });
 
