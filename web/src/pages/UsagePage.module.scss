@@ -247,7 +247,10 @@
   transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
 
   &:global(.btn) {
+    min-height: 32px;
     border-radius: 999px;
+    padding: 7px 12px;
+    font-size: 12px;
   }
 
   > span:not(:global(.loading-spinner)) {
@@ -278,6 +281,12 @@
   &:hover:not(:disabled) {
     transform: translateY(-1px);
   }
+}
+
+.usagePillAction:global(.btn.btn-sm) {
+  min-height: 32px;
+  padding: 7px 12px;
+  font-size: 12px;
 }
 
 .settingsCompactAction {
@@ -2709,13 +2718,23 @@
 .requestEventsExportButton:global(.btn) {
   border: 0;
   border-radius: 999px;
-  padding: 8px 12px;
+  min-height: 32px;
+  padding: 7px 12px;
   background: var(--bg-primary);
+  background-color: var(--bg-primary);
   color: var(--text-primary);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
   font-size: 12px;
   font-weight: 600;
   transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+
+  &:global(.btn-secondary),
+  &:global(.btn-secondary):hover:not(:disabled),
+  &:global(.btn-secondary)[aria-expanded='true'] {
+    background: var(--bg-primary);
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+  }
 
   &:hover:not(:disabled) {
     color: var(--text-primary);
@@ -2735,6 +2754,12 @@
     display: inline-flex;
     align-items: center;
   }
+}
+
+.requestEventsExportButton:global(.btn.btn-sm) {
+  min-height: 32px;
+  padding: 7px 12px;
+  font-size: 12px;
 }
 
 .requestEventsExportButtonInner {
@@ -2835,6 +2860,23 @@
 
 .requestEventsResultSelect {
   min-width: 118px;
+}
+
+.requestEventsFilterActionSlot {
+  display: flex;
+  align-items: center;
+  align-self: flex-end;
+  min-height: 40px;
+}
+
+.requestEventsClearFiltersButton:global(.btn) {
+  min-height: 32px;
+}
+
+.requestEventsClearFiltersButton:global(.btn.btn-sm) {
+  min-height: 32px;
+  padding: 7px 12px;
+  font-size: 12px;
 }
 
 .requestEventsPaginationFooter {

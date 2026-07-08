@@ -1499,22 +1499,30 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
   useEffect(() => {
     if (activeTab !== 'events') {
-      eventsRequestControllerRef.current?.abort();
-      eventsRequestControllerRef.current = null;
       eventsFilterOptionsRequestControllerRef.current?.abort();
       eventsFilterOptionsRequestControllerRef.current = null;
-      setEventsLoading(false);
       return;
     }
     void loadEventFilterOptions();
+    return () => {
+      eventsFilterOptionsRequestControllerRef.current?.abort();
+      eventsFilterOptionsRequestControllerRef.current = null;
+    };
+  }, [activeTab, loadEventFilterOptions]);
+
+  useEffect(() => {
+    if (activeTab !== 'events') {
+      eventsRequestControllerRef.current?.abort();
+      eventsRequestControllerRef.current = null;
+      setEventsLoading(false);
+      return;
+    }
     void loadEvents();
     return () => {
       eventsRequestControllerRef.current?.abort();
       eventsRequestControllerRef.current = null;
-      eventsFilterOptionsRequestControllerRef.current?.abort();
-      eventsFilterOptionsRequestControllerRef.current = null;
     };
-  }, [activeTab, loadEventFilterOptions, loadEvents]);
+  }, [activeTab, loadEvents]);
 
   useEffect(() => {
     if (activeTab !== 'analysis') {

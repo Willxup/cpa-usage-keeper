@@ -949,15 +949,6 @@ export function RequestEventsDetailsCard({
       }
       extra={
         <div className={styles.requestEventsActions}>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={styles.usagePillAction}
-            onClick={handleClearFilters}
-            disabled={!hasActiveFilters}
-          >
-            {t('usage_stats.clear_filters')}
-          </Button>
           <RequestEventsExportMenu
             label={t('usage_stats.export')}
             csvLabel={t('usage_stats.export_csv')}
@@ -1009,6 +1000,17 @@ export function RequestEventsDetailsCard({
               fullWidth={false}
             />
           </label>
+          <div className={styles.requestEventsFilterActionSlot}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`${styles.usagePillAction} ${styles.requestEventsClearFiltersButton}`.trim()}
+              onClick={handleClearFilters}
+              disabled={!hasActiveFilters}
+            >
+              {t('usage_stats.clear_filters')}
+            </Button>
+          </div>
         </div>
       </div>
 

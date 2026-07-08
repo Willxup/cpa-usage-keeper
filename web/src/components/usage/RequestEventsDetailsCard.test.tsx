@@ -299,7 +299,9 @@ describe('RequestEventsDetailsCard pagination', () => {
 
     expect(html).toContain('Clear Filters');
     expect(countOccurrences(html, '>Export<')).toBe(1);
-    expect(html.indexOf('Clear Filters')).toBeLessThan(html.indexOf('>Export<'));
+    expect(html.indexOf('aria-label="Result"')).toBeLessThan(html.indexOf('Clear Filters'));
+    expect(html.indexOf('Clear Filters')).toBeLessThan(html.indexOf('aria-label="Columns"'));
+    expect(html.indexOf('>Export<')).toBeLessThan(html.indexOf('aria-label="Result"'));
     expect(html).toContain('aria-haspopup="menu"');
     expect(html).toContain('_requestEventsExportButton_');
     expect(html).toContain('_requestEventsExportButtonInner_');
