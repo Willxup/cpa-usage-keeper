@@ -39,10 +39,15 @@ func UsageIdentityDisplayName(item entities.UsageIdentity) string {
 }
 
 func maskedUsageIdentityLookupKey(value string) string {
-	if strings.TrimSpace(value) == "" {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
 		return ""
 	}
-	return RedactSensitiveValue(value)
+	masked := RedactSensitiveValue(trimmed)
+	if masked == "unknown" {
+		return ""
+	}
+	return masked
 }
 
 func displayQualifiers(values ...string) []string {

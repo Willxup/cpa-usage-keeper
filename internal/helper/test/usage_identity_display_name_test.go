@@ -101,6 +101,21 @@ func TestDisplayNameAppendsMaskedLookupKeyForOpenAICompatibility(t *testing.T) {
 	}
 }
 
+func TestDisplayNameSkipsUnknownLookupKeyForOpenAICompatibility(t *testing.T) {
+	identity := entities.UsageIdentity{
+		Name:      "Fireworks",
+		AuthType:  entities.UsageIdentityAuthTypeAIProvider,
+		Type:      "openai",
+		Provider:  "Fireworks",
+		Identity:  "fireworks-auth-index",
+		LookupKey: " unknown ",
+	}
+
+	if got := helper.UsageIdentityDisplayName(identity); got != "Fireworks" {
+		t.Fatalf("expected openai compatibility displayName to skip unknown lookup key, got %q", got)
+	}
+}
+
 func TestDisplayNameFallsBackWhenOpenAICompatibilityNameIsMissing(t *testing.T) {
 	identity := entities.UsageIdentity{
 		Prefix:   "openrouter",
