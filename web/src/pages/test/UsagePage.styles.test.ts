@@ -31,6 +31,18 @@ const requestEventColumnDefinitionBlock = (columnId: string) => {
   return requestEventsSource.slice(start, end)
 }
 
+const usagePageEffectBlock = (needle: string) => {
+  const needleIndex = usagePageSource.indexOf(needle)
+  expect(needleIndex).toBeGreaterThanOrEqual(0)
+  const start = usagePageSource.lastIndexOf('  useEffect(() => {', needleIndex)
+  expect(start).toBeGreaterThanOrEqual(0)
+  const end = usagePageSource.indexOf('\n  }, [', start)
+  expect(end).toBeGreaterThan(start)
+  const close = usagePageSource.indexOf(');', end)
+  expect(close).toBeGreaterThan(end)
+  return usagePageSource.slice(start, close + 2)
+}
+
 const styleRuleBlock = (source: string, selector: string) => {
   const start = source.indexOf(selector)
   expect(start).toBeGreaterThanOrEqual(0)
@@ -136,6 +148,18 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageSource).toContain('className={styles.usageRefreshSlot}')
     expect(usagePageSource).not.toContain('styles.usageFilterBarCollapsed')
     expect(usagePageStyles).toMatch(/\.usageRefreshSlot\s*\{[\s\S]*?flex:\s*0 0 auto;/)
+  })
+
+  it('does not reload Request Events filter options for table query changes', () => {
+    const filterOptionsEffect = usagePageEffectBlock('void loadEventFilterOptions();')
+    const eventsEffect = usagePageEffectBlock('void loadEvents();')
+
+    expect(filterOptionsEffect).toContain('void loadEventFilterOptions();')
+    expect(filterOptionsEffect).not.toContain('void loadEvents();')
+    expect(filterOptionsEffect).toContain('}, [activeTab, loadEventFilterOptions]);')
+    expect(eventsEffect).toContain('void loadEvents();')
+    expect(eventsEffect).not.toContain('loadEventFilterOptions')
+    expect(eventsEffect).toContain('}, [activeTab, loadEvents]);')
   })
 
   it('removes stale header control styles after the Overview chart cleanup', () => {
