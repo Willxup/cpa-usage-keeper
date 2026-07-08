@@ -84,6 +84,23 @@ func TestDisplayNameKeepsOpenAICompatibilityName(t *testing.T) {
 	}
 }
 
+func TestDisplayNameAppendsMaskedLookupKeyForOpenAICompatibility(t *testing.T) {
+	identity := entities.UsageIdentity{
+		Name:      "Fireworks",
+		Prefix:    "fireworks",
+		BaseURL:   "https://api.fireworks.ai/inference/v1",
+		AuthType:  entities.UsageIdentityAuthTypeAIProvider,
+		Type:      "openai",
+		Provider:  "Fireworks",
+		Identity:  "fireworks-auth-index",
+		LookupKey: "fw-abcdefghijklmnopqrstuvwxyz123456",
+	}
+
+	if got := helper.UsageIdentityDisplayName(identity); got != "Fireworks @ fw-*********123456" {
+		t.Fatalf("expected openai compatibility displayName to append masked lookup key, got %q", got)
+	}
+}
+
 func TestDisplayNameFallsBackWhenOpenAICompatibilityNameIsMissing(t *testing.T) {
 	identity := entities.UsageIdentity{
 		Prefix:   "openrouter",

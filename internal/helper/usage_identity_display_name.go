@@ -23,6 +23,9 @@ func UsageIdentityDisplayName(item entities.UsageIdentity) string {
 
 	isOpenAICompatible := strings.TrimSpace(item.Type) == "openai"
 	if isOpenAICompatible && name != "" && name != "openai" && provider == name {
+		if lookupKey := maskedUsageIdentityLookupKey(item.LookupKey); lookupKey != "" {
+			return strings.Join(displayQualifiers(name, lookupKey), " @ ")
+		}
 		return name
 	}
 
@@ -33,6 +36,13 @@ func UsageIdentityDisplayName(item entities.UsageIdentity) string {
 		return strings.Join(qualifiers, " @ ")
 	}
 	return name
+}
+
+func maskedUsageIdentityLookupKey(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return RedactSensitiveValue(value)
 }
 
 func displayQualifiers(values ...string) []string {

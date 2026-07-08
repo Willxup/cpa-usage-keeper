@@ -17,12 +17,12 @@ const cssBlock = (selector: string) => {
 
 describe('Credential section styles', () => {
   it('keeps Auth Files and AI Provider row sizing separate', () => {
-    expect(credentialStyles).toMatch(/\.authFileCredentialRow\s*\{[\s\S]*?grid-template-columns:\s*200px minmax\(0, 448px\) minmax\(250px, 1fr\);/)
-    expect(credentialStyles).toMatch(/\.authFileCredentialRow\s*\{[\s\S]*?\.credentialIdentityBlock\s*\{[\s\S]*?max-width:\s*200px;/)
+    expect(credentialStyles).toMatch(/\.authFileCredentialRow\s*\{[\s\S]*?grid-template-columns:\s*236px minmax\(0, 448px\) minmax\(250px, 1fr\);/)
+    expect(credentialStyles).toMatch(/\.authFileCredentialRow\s*\{[\s\S]*?\.credentialIdentityBlock\s*\{[\s\S]*?max-width:\s*236px;/)
     expect(credentialStyles).toMatch(/\.authFileCredentialRow\s*\{[\s\S]*?@include tablet\s*\{[\s\S]*?grid-template-columns:\s*1fr;/)
     expect(credentialStyles).toMatch(/\.authFileCredentialRow\s*\{[\s\S]*?@include mobile\s*\{[\s\S]*?grid-template-columns:\s*1fr;/)
-    expect(credentialStyles).toMatch(/\.aiProviderCredentialRow\s*\{[\s\S]*?grid-template-columns:\s*200px minmax\(0, 448px\) minmax\(250px, 1fr\);/)
-    expect(credentialStyles).toMatch(/\.aiProviderCredentialRow\s*\{[\s\S]*?\.credentialIdentityBlock\s*\{[\s\S]*?max-width:\s*200px;/)
+    expect(credentialStyles).toMatch(/\.aiProviderCredentialRow\s*\{[\s\S]*?grid-template-columns:\s*236px minmax\(0, 448px\) minmax\(250px, 1fr\);/)
+    expect(credentialStyles).toMatch(/\.aiProviderCredentialRow\s*\{[\s\S]*?\.credentialIdentityBlock\s*\{[\s\S]*?max-width:\s*236px;/)
     expect(credentialStyles).toMatch(/\.aiProviderCredentialRow\s*\{[\s\S]*?@include tablet\s*\{[\s\S]*?grid-template-columns:\s*1fr;/)
     expect(credentialStyles).toMatch(/\.aiProviderCredentialRow\s*\{[\s\S]*?@include mobile\s*\{[\s\S]*?grid-template-columns:\s*1fr;/)
     expect(credentialShellSource).toContain('rowClassName?: string')
