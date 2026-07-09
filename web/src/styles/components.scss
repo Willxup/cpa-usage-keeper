@@ -386,6 +386,10 @@ textarea {
 
   &.modal-overlay-closing {
     animation: modal-overlay-fade-out 0.35s ease-in forwards;
+
+    .modal {
+      pointer-events: none;
+    }
   }
 }
 

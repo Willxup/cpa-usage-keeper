@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const modalSource = readFileSync(new URL('./Modal.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+const componentsStyles = readFileSync(new URL('../../styles/components.scss', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 
 describe('Modal scroll lock', () => {
   it('does not mutate body layout while the modal is open', () => {
@@ -36,5 +37,9 @@ describe('Modal scroll lock', () => {
     expect(modalSource).toContain('const renderSnapshot = useClosingSnapshot');
     expect(modalSource).toContain("style={{ width: renderSnapshot.width, maxWidth: '100%' }}");
     expect(modalSource).toContain('renderSnapshot.children');
+  });
+
+  it('disables modal interactions while the close animation runs', () => {
+    expect(componentsStyles).toMatch(/\.modal-overlay-closing[\s\S]*?\.modal[\s\S]*?pointer-events:\s*none;/);
   });
 });

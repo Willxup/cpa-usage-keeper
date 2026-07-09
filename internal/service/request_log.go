@@ -51,12 +51,13 @@ type RequestLogResponse struct {
 }
 
 type RequestLogDownload struct {
-	EventID      int64
-	RequestID    string
-	Filename     string
-	ContentType  string
-	Body         io.ReadCloser
-	Downloadable bool
+	EventID       int64
+	RequestID     string
+	Filename      string
+	ContentType   string
+	ContentLength int64
+	Body          io.ReadCloser
+	Downloadable  bool
 }
 
 type RequestLogSection struct {
@@ -206,12 +207,13 @@ func (s *requestLogService) DownloadUsageEventRequestLog(ctx context.Context, ev
 		}
 		if cached.raw != "" {
 			return RequestLogDownload{
-				EventID:      eventID,
-				RequestID:    requestID,
-				Filename:     strings.TrimSpace(cached.response.Filename),
-				ContentType:  strings.TrimSpace(cached.contentType),
-				Body:         io.NopCloser(bytes.NewBufferString(cached.raw)),
-				Downloadable: true,
+				EventID:       eventID,
+				RequestID:     requestID,
+				Filename:      strings.TrimSpace(cached.response.Filename),
+				ContentType:   strings.TrimSpace(cached.contentType),
+				ContentLength: int64(len(cached.raw)),
+				Body:          io.NopCloser(bytes.NewBufferString(cached.raw)),
+				Downloadable:  true,
 			}, nil
 		}
 	}
@@ -226,12 +228,13 @@ func (s *requestLogService) DownloadUsageEventRequestLog(ctx context.Context, ev
 		return RequestLogDownload{}, fmt.Errorf("request log result is nil")
 	}
 	return RequestLogDownload{
-		EventID:      eventID,
-		RequestID:    requestID,
-		Filename:     strings.TrimSpace(result.Filename),
-		ContentType:  strings.TrimSpace(result.ContentType),
-		Body:         result.Body,
-		Downloadable: true,
+		EventID:       eventID,
+		RequestID:     requestID,
+		Filename:      strings.TrimSpace(result.Filename),
+		ContentType:   strings.TrimSpace(result.ContentType),
+		ContentLength: result.ContentLength,
+		Body:          result.Body,
+		Downloadable:  true,
 	}, nil
 }
 

@@ -1454,7 +1454,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     try {
       const downloadURL = await createUsageEventRequestLogDownloadURL(normalizedEventId);
       triggerBrowserURLDownload(downloadURL);
-      handleRequestLogClose();
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
@@ -1464,7 +1463,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     } finally {
       setRequestLogDownloading(false);
     }
-  }, [handleRequestLogClose, onAuthRequired, showTopNotice, t]);
+  }, [onAuthRequired, showTopNotice, t]);
 
   const refreshActiveTab = useCallback(async () => {
     if (activeTab === 'events') {

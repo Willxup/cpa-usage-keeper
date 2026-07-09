@@ -176,6 +176,7 @@ describe('UsagePage toolbar styles', () => {
     )
     expect(downloadHandler).not.toContain("showTopNotice('success'")
     expect(downloadHandler).toContain("showTopNotice('error'")
+    expect(downloadHandler).not.toContain('handleRequestLogClose()')
   })
 
   it('removes stale header control styles after the Overview chart cleanup', () => {

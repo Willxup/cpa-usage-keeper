@@ -356,8 +356,12 @@ func streamUsageEventRequestLogDownload(c *gin.Context, requestLogProvider servi
 		return
 	}
 	defer response.Body.Close()
+	contentLength := int64(-1)
+	if response.ContentLength > 0 {
+		contentLength = response.ContentLength
+	}
 	c.Header("Content-Disposition", requestLogAttachmentDisposition(filename))
-	c.DataFromReader(http.StatusOK, -1, contentType, response.Body, nil)
+	c.DataFromReader(http.StatusOK, contentLength, contentType, response.Body, nil)
 }
 
 // Source 下拉提交的是 usage identity；为了兼容前端命名，API 收 source，但进入仓储前只转换成 auth_index 查询。

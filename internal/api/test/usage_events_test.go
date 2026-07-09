@@ -10,12 +10,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 	_ "unsafe"
 
 	. "cpa-usage-keeper/internal/api"
+	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
@@ -363,14 +365,16 @@ func TestUsageEventRequestLogReturnsTooLargeMetadata(t *testing.T) {
 
 func TestUsageEventRequestLogDownloadStreamsAttachment(t *testing.T) {
 	provider := &usageEventsStub{}
+	body := "=== REQUEST INFO ===\nURL: /v1/responses\n"
 	closed := false
 	requestLogProvider := &requestLogProviderStub{downloadResponse: service.RequestLogDownload{
-		EventID:      42,
-		RequestID:    "req-log-42",
-		Filename:     "error-v1-responses-req-log-42.log",
-		ContentType:  "text/plain; charset=utf-8",
-		Body:         io.NopCloser(bytes.NewBufferString("=== REQUEST INFO ===\nURL: /v1/responses\n")),
-		Downloadable: true,
+		EventID:       42,
+		RequestID:     "req-log-42",
+		Filename:      "error-v1-responses-req-log-42.log",
+		ContentType:   "text/plain; charset=utf-8",
+		ContentLength: int64(len(body)),
+		Body:          io.NopCloser(bytes.NewBufferString(body)),
+		Downloadable:  true,
 	}, downloadClosed: &closed}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/42/request-log/download", nil)
@@ -387,7 +391,10 @@ func TestUsageEventRequestLogDownloadStreamsAttachment(t *testing.T) {
 	if !contains(resp.Header().Get("Content-Disposition"), `filename="error-v1-responses-req-log-42.log"`) {
 		t.Fatalf("expected request log attachment filename, got %q", resp.Header().Get("Content-Disposition"))
 	}
-	if resp.Body.String() != "=== REQUEST INFO ===\nURL: /v1/responses\n" {
+	if resp.Header().Get("Content-Length") != strconv.Itoa(len(body)) {
+		t.Fatalf("expected content length %d, got %q", len(body), resp.Header().Get("Content-Length"))
+	}
+	if resp.Body.String() != body {
 		t.Fatalf("unexpected body: %s", resp.Body.String())
 	}
 	if !closed {
@@ -448,6 +455,75 @@ func TestUsageEventRequestLogDownloadTokenStreamsAttachmentOnce(t *testing.T) {
 	}
 	if requestLogProvider.downloadCalls != 1 {
 		t.Fatalf("expected reused token not to call provider, got %d calls", requestLogProvider.downloadCalls)
+	}
+}
+
+func TestUsageEventRequestLogDownloadTokenAuthBoundary(t *testing.T) {
+	provider := &usageEventsStub{}
+	requestLogProvider := &requestLogProviderStub{downloadResponse: service.RequestLogDownload{
+		EventID:      42,
+		RequestID:    "req-log-42",
+		Filename:     "token-auth-request.log",
+		ContentType:  "text/plain; charset=utf-8",
+		Body:         io.NopCloser(bytes.NewBufferString("auth token raw log")),
+		Downloadable: true,
+	}}
+	sessions := auth.NewSessionManager(time.Hour)
+	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour, BasePath: "/cpa"}
+	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "/cpa", OptionalProviders{RequestLogs: requestLogProvider})
+
+	noSessionReq := httptest.NewRequest(http.MethodPost, "/cpa/api/v1/usage/events/42/request-log/download-token", nil)
+	noSessionReq.Header.Set("X-CPA-Usage-Keeper-Request", "fetch")
+	noSessionResp := httptest.NewRecorder()
+	router.ServeHTTP(noSessionResp, noSessionReq)
+	if noSessionResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated token issue status 401, got %d body=%s", noSessionResp.Code, noSessionResp.Body.String())
+	}
+
+	viewerToken, _, err := sessions.CreateAPIKeyViewer(7)
+	if err != nil {
+		t.Fatalf("create viewer session: %v", err)
+	}
+	viewerReq := httptest.NewRequest(http.MethodPost, "/cpa/api/v1/usage/events/42/request-log/download-token", nil)
+	viewerReq.Header.Set("X-CPA-Usage-Keeper-Request", "fetch")
+	viewerReq.AddCookie(&http.Cookie{Name: "cpa_usage_keeper_session", Value: viewerToken})
+	viewerResp := httptest.NewRecorder()
+	router.ServeHTTP(viewerResp, viewerReq)
+	if viewerResp.Code != http.StatusForbidden {
+		t.Fatalf("expected viewer token issue status 403, got %d body=%s", viewerResp.Code, viewerResp.Body.String())
+	}
+
+	adminToken, _, err := sessions.Create()
+	if err != nil {
+		t.Fatalf("create admin session: %v", err)
+	}
+	adminReq := httptest.NewRequest(http.MethodPost, "/cpa/api/v1/usage/events/42/request-log/download-token", nil)
+	adminReq.Header.Set("X-CPA-Usage-Keeper-Request", "fetch")
+	adminReq.AddCookie(&http.Cookie{Name: "cpa_usage_keeper_session", Value: adminToken})
+	adminResp := httptest.NewRecorder()
+	router.ServeHTTP(adminResp, adminReq)
+	if adminResp.Code != http.StatusOK {
+		t.Fatalf("expected admin token issue status 200, got %d body=%s", adminResp.Code, adminResp.Body.String())
+	}
+	var payload requestLogDownloadTokenPayload
+	if err := json.NewDecoder(adminResp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode admin token response: %v", err)
+	}
+	if !strings.HasPrefix(payload.DownloadURL, "/cpa/api/v1/usage/events/42/request-log/download-file?token=") {
+		t.Fatalf("expected base path download URL, got %q", payload.DownloadURL)
+	}
+
+	downloadReq := httptest.NewRequest(http.MethodGet, payload.DownloadURL, nil)
+	downloadResp := httptest.NewRecorder()
+	router.ServeHTTP(downloadResp, downloadReq)
+	if downloadResp.Code != http.StatusOK {
+		t.Fatalf("expected token-only download status 200, got %d body=%s", downloadResp.Code, downloadResp.Body.String())
+	}
+	if downloadResp.Body.String() != "auth token raw log" {
+		t.Fatalf("unexpected token-only download body %q", downloadResp.Body.String())
+	}
+	if requestLogProvider.downloadCalls != 1 {
+		t.Fatalf("expected one token-only provider download call, got %d", requestLogProvider.downloadCalls)
 	}
 }
 
