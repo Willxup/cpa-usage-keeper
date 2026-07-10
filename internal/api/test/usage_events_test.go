@@ -77,6 +77,16 @@ func (r *trackedReadCloser) Close() error {
 	return nil
 }
 
+func assertNoStoreHeaders(t *testing.T, response *httptest.ResponseRecorder) {
+	t.Helper()
+	if response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("expected Cache-Control no-store, got %q", response.Header().Get("Cache-Control"))
+	}
+	if response.Header().Get("Pragma") != "no-cache" || response.Header().Get("Expires") != "0" {
+		t.Fatalf("expected no-store companion headers, got Pragma=%q Expires=%q", response.Header().Get("Pragma"), response.Header().Get("Expires"))
+	}
+}
+
 func (s *usageEventsStub) GetUsageOverview(context.Context, servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
 	return nil, nil
 }
@@ -290,7 +300,7 @@ func TestUsageEventRequestLogReturnsStructuredLog(t *testing.T) {
 			Content: "URL: /v1/responses",
 		}},
 	}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider})
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider, Status: StatusRouteConfig{CPARequestLogAccessEnabled: true}})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/42/request-log", nil)
 	resp := httptest.NewRecorder()
 
@@ -299,6 +309,7 @@ func TestUsageEventRequestLogReturnsStructuredLog(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d body=%s", resp.Code, resp.Body.String())
 	}
+	assertNoStoreHeaders(t, resp)
 	body := resp.Body.String()
 	if !contains(body, `"event_id":"42"`) || !contains(body, `"request_id":"req-log-42"`) || !contains(body, `"filename":"error-v1-responses-req-log-42.log"`) {
 		t.Fatalf("expected request log metadata in response: %s", body)
@@ -314,10 +325,31 @@ func TestUsageEventRequestLogReturnsStructuredLog(t *testing.T) {
 	}
 }
 
+func TestUsageEventRequestLogReturnsForbiddenWhenAccessDisabled(t *testing.T) {
+	provider := &usageEventsStub{}
+	requestLogProvider := &requestLogProviderStub{response: service.RequestLogResponse{
+		EventID:   42,
+		RequestID: "req-log-42",
+		Available: true,
+	}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/42/request-log", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected status 403, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if requestLogProvider.calls != 0 {
+		t.Fatalf("expected disabled request log access not to call provider, got %d calls", requestLogProvider.calls)
+	}
+}
+
 func TestUsageEventRequestLogReturnsNotFoundWhenEventMissing(t *testing.T) {
 	provider := &usageEventsStub{}
 	requestLogProvider := &requestLogProviderStub{err: gorm.ErrRecordNotFound}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider})
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider, Status: StatusRouteConfig{CPARequestLogAccessEnabled: true}})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/404/request-log", nil)
 	resp := httptest.NewRecorder()
 
@@ -345,7 +377,7 @@ func TestUsageEventRequestLogReturnsTooLargeMetadata(t *testing.T) {
 		TooLarge:     true,
 		Downloadable: true,
 	}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider})
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider, Status: StatusRouteConfig{CPARequestLogAccessEnabled: true}})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/42/request-log", nil)
 	resp := httptest.NewRecorder()
 
@@ -363,65 +395,65 @@ func TestUsageEventRequestLogReturnsTooLargeMetadata(t *testing.T) {
 	}
 }
 
-func TestUsageEventRequestLogDownloadStreamsAttachment(t *testing.T) {
+func TestUsageEventRequestLogDownloadTokenReturnsForbiddenWhenAccessDisabled(t *testing.T) {
 	provider := &usageEventsStub{}
-	body := "=== REQUEST INFO ===\nURL: /v1/responses\n"
-	closed := false
 	requestLogProvider := &requestLogProviderStub{downloadResponse: service.RequestLogDownload{
-		EventID:       42,
-		RequestID:     "req-log-42",
-		Filename:      "error-v1-responses-req-log-42.log",
-		ContentType:   "text/plain; charset=utf-8",
-		ContentLength: int64(len(body)),
-		Body:          io.NopCloser(bytes.NewBufferString(body)),
-		Downloadable:  true,
-	}, downloadClosed: &closed}
+		EventID:      42,
+		RequestID:    "req-log-42",
+		Body:         io.NopCloser(bytes.NewBufferString("raw log")),
+		Downloadable: true,
+	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/42/request-log/download", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/usage/events/42/request-log/download-token", nil)
+	req.Header.Set("X-CPA-Usage-Keeper-Request", "fetch")
 	resp := httptest.NewRecorder()
 
 	router.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d body=%s", resp.Code, resp.Body.String())
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected status 403, got %d body=%s", resp.Code, resp.Body.String())
 	}
-	if !contains(resp.Header().Get("Content-Type"), "text/plain") {
-		t.Fatalf("expected text attachment content type, got %q", resp.Header().Get("Content-Type"))
+	if requestLogProvider.downloadCalls != 0 {
+		t.Fatalf("expected disabled request log download token not to call provider, got %d calls", requestLogProvider.downloadCalls)
 	}
-	if !contains(resp.Header().Get("Content-Disposition"), `filename="error-v1-responses-req-log-42.log"`) {
-		t.Fatalf("expected request log attachment filename, got %q", resp.Header().Get("Content-Disposition"))
+}
+
+func TestUsageEventRequestLogDownloadFileReturnsForbiddenWhenAccessDisabled(t *testing.T) {
+	provider := &usageEventsStub{}
+	requestLogProvider := &requestLogProviderStub{downloadResponse: service.RequestLogDownload{
+		EventID:      42,
+		RequestID:    "req-log-42",
+		Body:         io.NopCloser(bytes.NewBufferString("raw log")),
+		Downloadable: true,
+	}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/42/request-log/download-file?token=stale", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected status 403, got %d body=%s", resp.Code, resp.Body.String())
 	}
-	if resp.Header().Get("Content-Length") != strconv.Itoa(len(body)) {
-		t.Fatalf("expected content length %d, got %q", len(body), resp.Header().Get("Content-Length"))
-	}
-	if resp.Header().Get("Cache-Control") != "no-store" {
-		t.Fatalf("expected request log download Cache-Control no-store, got %q", resp.Header().Get("Cache-Control"))
-	}
-	if resp.Header().Get("Pragma") != "no-cache" || resp.Header().Get("Expires") != "0" {
-		t.Fatalf("expected request log download no-store companion headers, got Pragma=%q Expires=%q", resp.Header().Get("Pragma"), resp.Header().Get("Expires"))
-	}
-	if resp.Body.String() != body {
-		t.Fatalf("unexpected body: %s", resp.Body.String())
-	}
-	if !closed {
-		t.Fatalf("expected download stream to be closed")
-	}
-	if requestLogProvider.downloadCalls != 1 || requestLogProvider.downloadEventID != 42 {
-		t.Fatalf("expected download provider call with event id 42, got calls=%d eventID=%d", requestLogProvider.downloadCalls, requestLogProvider.downloadEventID)
+	if requestLogProvider.downloadCalls != 0 {
+		t.Fatalf("expected disabled request log download file not to call provider, got %d calls", requestLogProvider.downloadCalls)
 	}
 }
 
 func TestUsageEventRequestLogDownloadTokenStreamsAttachmentOnce(t *testing.T) {
 	provider := &usageEventsStub{}
+	body := "token raw log"
+	closed := false
 	requestLogProvider := &requestLogProviderStub{downloadResponse: service.RequestLogDownload{
-		EventID:      42,
-		RequestID:    "req-log-42",
-		Filename:     "token-request.log",
-		ContentType:  "text/plain; charset=utf-8",
-		Body:         io.NopCloser(bytes.NewBufferString("token raw log")),
-		Downloadable: true,
-	}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider})
+		EventID:       42,
+		RequestID:     "req-log-42",
+		Filename:      "token-request.log",
+		ContentType:   "text/plain; charset=utf-8",
+		ContentLength: int64(len(body)),
+		Body:          io.NopCloser(bytes.NewBufferString(body)),
+		Downloadable:  true,
+	}, downloadClosed: &closed}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider, Status: StatusRouteConfig{CPARequestLogAccessEnabled: true}})
 	issueReq := httptest.NewRequest(http.MethodPost, "/api/v1/usage/events/42/request-log/download-token", nil)
 	issueReq.Header.Set("X-CPA-Usage-Keeper-Request", "fetch")
 	issueResp := httptest.NewRecorder()
@@ -431,6 +463,7 @@ func TestUsageEventRequestLogDownloadTokenStreamsAttachmentOnce(t *testing.T) {
 	if issueResp.Code != http.StatusOK {
 		t.Fatalf("expected token status 200, got %d body=%s", issueResp.Code, issueResp.Body.String())
 	}
+	assertNoStoreHeaders(t, issueResp)
 	var payload requestLogDownloadTokenPayload
 	if err := json.NewDecoder(issueResp.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode token response: %v", err)
@@ -446,14 +479,29 @@ func TestUsageEventRequestLogDownloadTokenStreamsAttachmentOnce(t *testing.T) {
 	if downloadResp.Code != http.StatusOK {
 		t.Fatalf("expected download status 200, got %d body=%s", downloadResp.Code, downloadResp.Body.String())
 	}
-	if downloadResp.Body.String() != "token raw log" {
+	if !contains(downloadResp.Header().Get("Content-Type"), "text/plain") {
+		t.Fatalf("expected text attachment content type, got %q", downloadResp.Header().Get("Content-Type"))
+	}
+	if !contains(downloadResp.Header().Get("Content-Disposition"), `filename="token-request.log"`) {
+		t.Fatalf("expected request log attachment filename, got %q", downloadResp.Header().Get("Content-Disposition"))
+	}
+	if downloadResp.Header().Get("Content-Length") != strconv.Itoa(len(body)) {
+		t.Fatalf("expected content length %d, got %q", len(body), downloadResp.Header().Get("Content-Length"))
+	}
+	if downloadResp.Body.String() != body {
 		t.Fatalf("unexpected download body %q", downloadResp.Body.String())
 	}
 	if downloadResp.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("expected token request log download Cache-Control no-store, got %q", downloadResp.Header().Get("Cache-Control"))
 	}
-	if requestLogProvider.downloadCalls != 1 {
-		t.Fatalf("expected one provider download call, got %d", requestLogProvider.downloadCalls)
+	if downloadResp.Header().Get("Pragma") != "no-cache" || downloadResp.Header().Get("Expires") != "0" {
+		t.Fatalf("expected request log download no-store companion headers, got Pragma=%q Expires=%q", downloadResp.Header().Get("Pragma"), downloadResp.Header().Get("Expires"))
+	}
+	if !closed {
+		t.Fatalf("expected download stream to be closed")
+	}
+	if requestLogProvider.downloadCalls != 1 || requestLogProvider.downloadEventID != 42 {
+		t.Fatalf("expected download provider call with event id 42, got calls=%d eventID=%d", requestLogProvider.downloadCalls, requestLogProvider.downloadEventID)
 	}
 
 	reuseReq := httptest.NewRequest(http.MethodGet, payload.DownloadURL, nil)
@@ -464,6 +512,31 @@ func TestUsageEventRequestLogDownloadTokenStreamsAttachmentOnce(t *testing.T) {
 	}
 	if requestLogProvider.downloadCalls != 1 {
 		t.Fatalf("expected reused token not to call provider, got %d calls", requestLogProvider.downloadCalls)
+	}
+}
+
+func TestUsageEventRequestLogDirectDownloadRouteIsUnavailable(t *testing.T) {
+	provider := &usageEventsStub{}
+	requestLogProvider := &requestLogProviderStub{downloadResponse: service.RequestLogDownload{
+		EventID:      42,
+		RequestID:    "req-log-42",
+		Body:         io.NopCloser(bytes.NewBufferString("raw log")),
+		Downloadable: true,
+	}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{
+		RequestLogs: requestLogProvider,
+		Status:      StatusRouteConfig{CPARequestLogAccessEnabled: true},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/42/request-log/download", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected removed direct download route status 404, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if requestLogProvider.downloadCalls != 0 {
+		t.Fatalf("expected removed direct route not to call provider, got %d calls", requestLogProvider.downloadCalls)
 	}
 }
 
@@ -479,7 +552,7 @@ func TestUsageEventRequestLogDownloadTokenAuthBoundary(t *testing.T) {
 	}}
 	sessions := auth.NewSessionManager(time.Hour)
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour, BasePath: "/cpa"}
-	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "/cpa", OptionalProviders{RequestLogs: requestLogProvider})
+	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "/cpa", OptionalProviders{RequestLogs: requestLogProvider, Status: StatusRouteConfig{CPARequestLogAccessEnabled: true}})
 
 	noSessionReq := httptest.NewRequest(http.MethodPost, "/cpa/api/v1/usage/events/42/request-log/download-token", nil)
 	noSessionReq.Header.Set("X-CPA-Usage-Keeper-Request", "fetch")
@@ -547,8 +620,21 @@ func TestUsageEventRequestLogDownloadSanitizesAttachmentFilename(t *testing.T) {
 		Body:         io.NopCloser(strings.NewReader("raw")),
 		Downloadable: true,
 	}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/42/request-log/download", nil)
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider, Status: StatusRouteConfig{CPARequestLogAccessEnabled: true}})
+	issueReq := httptest.NewRequest(http.MethodPost, "/api/v1/usage/events/42/request-log/download-token", nil)
+	issueReq.Header.Set("X-CPA-Usage-Keeper-Request", "fetch")
+	issueResp := httptest.NewRecorder()
+
+	router.ServeHTTP(issueResp, issueReq)
+
+	if issueResp.Code != http.StatusOK {
+		t.Fatalf("expected token status 200, got %d body=%s", issueResp.Code, issueResp.Body.String())
+	}
+	var payload requestLogDownloadTokenPayload
+	if err := json.NewDecoder(issueResp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode token response: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, payload.DownloadURL, nil)
 	resp := httptest.NewRecorder()
 
 	router.ServeHTTP(resp, req)

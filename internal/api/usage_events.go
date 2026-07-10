@@ -79,7 +79,6 @@ type usageEventRequestLogPayload struct {
 	EventID      string                        `json:"event_id"`
 	RequestID    string                        `json:"request_id,omitempty"`
 	Filename     string                        `json:"filename,omitempty"`
-	Cached       bool                          `json:"cached"`
 	Available    bool                          `json:"available"`
 	Previewable  bool                          `json:"previewable"`
 	TooLarge     bool                          `json:"too_large,omitempty"`
@@ -135,6 +134,7 @@ func registerUsageEventsRoute(
 	cpaAPIKeyProvider service.CPAAPIKeyProvider,
 	requestLogProvider service.RequestLogProvider,
 	requestLogDownloadTokens *requestLogDownloadTokenStore,
+	requestLogAccessEnabled bool,
 ) {
 	router.GET("/usage/events/filters/models", func(c *gin.Context) {
 		models, err := loadUsageEventModelFilterOptions(c, usageProvider)
@@ -196,6 +196,10 @@ func registerUsageEventsRoute(
 	})
 
 	router.GET("/usage/events/:id/request-log", func(c *gin.Context) {
+		if !requestLogAccessEnabled {
+			writeUsageEventRequestLogAccessDisabled(c)
+			return
+		}
 		if requestLogProvider == nil {
 			writeInternalError(c, "request log provider is not configured", nil)
 			return
@@ -209,10 +213,15 @@ func registerUsageEventsRoute(
 			writeUsageEventRequestLogError(c, err)
 			return
 		}
+		setNoStoreHeaders(c)
 		c.JSON(http.StatusOK, buildUsageEventRequestLogPayload(response))
 	})
 
 	router.POST("/usage/events/:id/request-log/download-token", func(c *gin.Context) {
+		if !requestLogAccessEnabled {
+			writeUsageEventRequestLogAccessDisabled(c)
+			return
+		}
 		if requestLogProvider == nil {
 			writeInternalError(c, "request log provider is not configured", nil)
 			return
@@ -231,19 +240,8 @@ func registerUsageEventsRoute(
 			return
 		}
 		downloadURL := strings.TrimSuffix(c.Request.URL.Path, "/download-token") + "/download-file?token=" + url.QueryEscape(token)
+		setNoStoreHeaders(c)
 		c.JSON(http.StatusOK, usageEventRequestLogDownloadTokenPayload{DownloadURL: downloadURL})
-	})
-
-	router.GET("/usage/events/:id/request-log/download", func(c *gin.Context) {
-		if requestLogProvider == nil {
-			writeInternalError(c, "request log provider is not configured", nil)
-			return
-		}
-		eventID, ok := parseUsageEventRequestLogEventID(c)
-		if !ok {
-			return
-		}
-		streamUsageEventRequestLogDownload(c, requestLogProvider, eventID)
 	})
 
 	router.GET("/usage/events/export", func(c *gin.Context) {
@@ -302,8 +300,13 @@ func registerUsageEventRequestLogDownloadTokenRoutes(
 	router gin.IRoutes,
 	requestLogProvider service.RequestLogProvider,
 	requestLogDownloadTokens *requestLogDownloadTokenStore,
+	requestLogAccessEnabled bool,
 ) {
 	router.GET("/usage/events/:id/request-log/download-file", func(c *gin.Context) {
+		if !requestLogAccessEnabled {
+			writeUsageEventRequestLogAccessDisabled(c)
+			return
+		}
 		if requestLogProvider == nil {
 			writeInternalError(c, "request log provider is not configured", nil)
 			return
@@ -322,6 +325,10 @@ func registerUsageEventRequestLogDownloadTokenRoutes(
 		}
 		streamUsageEventRequestLogDownload(c, requestLogProvider, eventID)
 	})
+}
+
+func writeUsageEventRequestLogAccessDisabled(c *gin.Context) {
+	c.JSON(http.StatusForbidden, gin.H{"error": "CPA request log access is disabled"})
 }
 
 func parseUsageEventRequestLogEventID(c *gin.Context) (int64, bool) {
@@ -444,7 +451,6 @@ func buildUsageEventRequestLogPayload(response service.RequestLogResponse) usage
 		EventID:      eventID,
 		RequestID:    strings.TrimSpace(response.RequestID),
 		Filename:     strings.TrimSpace(response.Filename),
-		Cached:       response.Cached,
 		Available:    response.Available,
 		Previewable:  response.Previewable,
 		TooLarge:     response.TooLarge,

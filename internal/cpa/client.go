@@ -185,10 +185,10 @@ func requestLogStreamIdleTimeout(timeout time.Duration) time.Duration {
 }
 
 func (c *Client) FetchRequestLogByID(ctx context.Context, requestID string) (*RequestLogResult, error) {
-	return c.fetchRequestLogByID(ctx, requestID, defaultRequestLogPreviewMaxBytes)
+	return c.fetchRequestLogByID(ctx, requestID, RequestLogPreviewMaxBytes)
 }
 
-const defaultRequestLogPreviewMaxBytes int64 = 5 * 1024 * 1024
+const RequestLogPreviewMaxBytes int64 = 6 * 1024 * 1024
 
 func (c *Client) fetchRequestLogByID(ctx context.Context, requestID string, maxBodyBytes int64) (*RequestLogResult, error) {
 	result := &RequestLogResult{}

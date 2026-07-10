@@ -256,6 +256,7 @@ describe('RequestEventsDetailsCard pagination', () => {
   it('renders the Result badge as a request log trigger when request id is available', () => {
     const html = renderCard({
       events: [{ ...events[0], request_id: 'req-log-101' }],
+      requestLogAccessEnabled: true,
       onRequestLogOpen: () => undefined,
     });
 
@@ -269,6 +270,7 @@ describe('RequestEventsDetailsCard pagination', () => {
   it('renders the Result badge as a request log trigger when the event id is missing', () => {
     const html = renderCard({
       events: [{ ...events[0], id: undefined, request_id: 'req-log-missing-id' }],
+      requestLogAccessEnabled: true,
       onRequestLogOpen: () => undefined,
     });
 
@@ -279,6 +281,7 @@ describe('RequestEventsDetailsCard pagination', () => {
   it('keeps the Result badge label stable while a request log loads', () => {
     const html = renderCard({
       events: [{ ...events[0], request_id: 'req-log-101' }],
+      requestLogAccessEnabled: true,
       onRequestLogOpen: () => undefined,
       requestLogLoadingEventId: '101',
     });
@@ -295,7 +298,6 @@ describe('RequestEventsDetailsCard pagination', () => {
         event_id: '101',
         request_id: 'req-log-101',
         filename: 'preview-req-log-101.log',
-        cached: true,
         available: true,
         sections: [
           { title: 'REQUEST INFO', content: 'URL: /v1/responses' },
@@ -325,7 +327,6 @@ describe('RequestEventsDetailsCard pagination', () => {
         event_id: '101',
         request_id: 'req-log-101',
         filename: 'large-request.log',
-        cached: false,
         available: true,
         previewable: false,
         too_large: true,

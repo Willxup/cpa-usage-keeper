@@ -385,7 +385,7 @@ describe('fetchUsageEvents', () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
-      json: async () => ({ event_id: '42', request_id: 'req-log-42', cached: false, available: true, sections: [] }),
+      json: async () => ({ event_id: '42', request_id: 'req-log-42', available: true, sections: [] }),
     } as Response);
     const signal = new AbortController().signal;
 

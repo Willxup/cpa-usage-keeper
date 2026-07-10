@@ -40,7 +40,8 @@ type QuotaProvider interface {
 }
 
 type StatusRouteConfig struct {
-	CPAPublicURL string
+	CPAPublicURL               string
+	CPARequestLogAccessEnabled bool
 }
 
 type OptionalProviders struct {
@@ -98,7 +99,7 @@ func NewRouter(
 	authHandler.setCPAAPIKeyProvider(cpaAPIKeyProvider)
 	requestLogDownloadTokens := newRequestLogDownloadTokenStore()
 
-	registerUsageEventRequestLogDownloadTokenRoutes(apiV1, requestLogProvider, requestLogDownloadTokens)
+	registerUsageEventRequestLogDownloadTokenRoutes(apiV1, requestLogProvider, requestLogDownloadTokens, statusConfig.CPARequestLogAccessEnabled)
 
 	versionProtected := apiV1.Group("")
 	versionProtected.Use(authHandler.roleMiddleware(auth.RoleAdmin, auth.RoleAPIKeyViewer))
@@ -110,7 +111,7 @@ func NewRouter(
 	registerUpdateRoutes(adminProtected, nil)
 	registerUsageOverviewRoute(adminProtected, usageProvider, cpaAPIKeyProvider)
 	registerUsageAnalysisRoute(adminProtected, usageProvider, cpaAPIKeyProvider)
-	registerUsageEventsRoute(adminProtected, usageProvider, usageIdentityProvider, cpaAPIKeyProvider, requestLogProvider, requestLogDownloadTokens)
+	registerUsageEventsRoute(adminProtected, usageProvider, usageIdentityProvider, cpaAPIKeyProvider, requestLogProvider, requestLogDownloadTokens, statusConfig.CPARequestLogAccessEnabled)
 	registerUsageIdentityRoutes(adminProtected, usageIdentityProvider)
 	registerAuthFileManagementRoutes(adminProtected, authFilesProvider)
 	registerAuthSessionManagementRoutes(adminProtected, authHandler)
@@ -279,14 +280,15 @@ func stripBasePath(basePath, requestPath string) (string, bool) {
 }
 
 type statusResponse struct {
-	Running      bool       `json:"running"`
-	SyncRunning  bool       `json:"sync_running"`
-	Timezone     string     `json:"timezone"`
-	CPAPublicURL string     `json:"cpa_public_url,omitempty"`
-	LastRunAt    *time.Time `json:"last_run_at,omitempty"`
-	LastError    string     `json:"last_error,omitempty"`
-	LastWarning  string     `json:"last_warning,omitempty"`
-	LastStatus   string     `json:"last_status,omitempty"`
+	Running                    bool       `json:"running"`
+	SyncRunning                bool       `json:"sync_running"`
+	Timezone                   string     `json:"timezone"`
+	CPAPublicURL               string     `json:"cpa_public_url,omitempty"`
+	CPARequestLogAccessEnabled bool       `json:"cpa_request_log_access_enabled"`
+	LastRunAt                  *time.Time `json:"last_run_at,omitempty"`
+	LastError                  string     `json:"last_error,omitempty"`
+	LastWarning                string     `json:"last_warning,omitempty"`
+	LastStatus                 string     `json:"last_status,omitempty"`
 }
 
 type versionResponse struct {
@@ -321,13 +323,14 @@ func registerStatusRoutes(router gin.IRoutes, statusProvider StatusProvider, con
 
 func buildStatusResponse(status poller.Status, config StatusRouteConfig) statusResponse {
 	response := statusResponse{
-		Running:      status.Running,
-		SyncRunning:  status.SyncRunning,
-		Timezone:     time.Local.String(),
-		CPAPublicURL: config.CPAPublicURL,
-		LastError:    status.LastError,
-		LastWarning:  status.LastWarning,
-		LastStatus:   status.LastStatus,
+		Running:                    status.Running,
+		SyncRunning:                status.SyncRunning,
+		Timezone:                   time.Local.String(),
+		CPAPublicURL:               config.CPAPublicURL,
+		CPARequestLogAccessEnabled: config.CPARequestLogAccessEnabled,
+		LastError:                  status.LastError,
+		LastWarning:                status.LastWarning,
+		LastStatus:                 status.LastStatus,
 	}
 	if !status.LastRunAt.IsZero() {
 		lastRunAt := timeutil.NormalizeStorageTime(status.LastRunAt)

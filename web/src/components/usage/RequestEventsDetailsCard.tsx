@@ -10,13 +10,14 @@ import React, {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
-import { IconCheck, IconChevronDown, IconDownload, IconScrollText } from '@/components/ui/icons';
+import { IconCheck, IconChevronDown, IconCopy, IconDownload, IconScrollText } from '@/components/ui/icons';
 import type { UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption } from '@/lib/types';
 import {
   calculateCacheRate,
@@ -28,6 +29,15 @@ import {
 import styles from '@/pages/UsagePage.module.scss';
 
 const ALL_FILTER = '__all__';
+const REQUEST_LOG_VIRTUAL_LINE_HEIGHT = 18;
+const REQUEST_LOG_VIRTUAL_OVERSCAN = 8;
+const REQUEST_LOG_VIRTUAL_PADDING_Y = 12;
+const REQUEST_LOG_VIRTUAL_CHUNK_CHARS = 2048;
+const REQUEST_LOG_VIRTUAL_BREAK_LOOKBACK = 256;
+const REQUEST_LOG_GRAPHEME_CONTEXT_CHARS = 64;
+const REQUEST_LOG_GRAPHEME_SEGMENTER = typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'
+  ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+  : null;
 
 type SelectOption = { value: string; label: string };
 
@@ -177,6 +187,97 @@ const formatRequestLogSectionTitle = (
   return title.trim() || translate('usage_stats.request_events_log_section');
 };
 
+const isPreferredRequestLogChunkBreak = (character: string) =>
+  character === ','
+  || character === '}'
+  || character === ']'
+  || /\s/u.test(character);
+
+const findPreferredRequestLogChunkEnd = (
+  content: string,
+  start: number,
+  idealEnd: number,
+) => {
+  const minimumEnd = Math.max(
+    start + Math.floor((idealEnd - start) * 0.75),
+    idealEnd - REQUEST_LOG_VIRTUAL_BREAK_LOOKBACK,
+  );
+  for (let end = idealEnd; end > minimumEnd; end -= 1) {
+    if (isPreferredRequestLogChunkBreak(content[end - 1] ?? '')) {
+      return end;
+    }
+  }
+  return idealEnd;
+};
+
+const fallbackRequestLogCodePointBoundary = (content: string, start: number, end: number) => {
+  if (end <= start) return start;
+  const previousCodeUnit = content.charCodeAt(end - 1);
+  const nextCodeUnit = content.charCodeAt(end);
+  const splitsSurrogatePair = previousCodeUnit >= 0xD800 && previousCodeUnit <= 0xDBFF
+    && nextCodeUnit >= 0xDC00 && nextCodeUnit <= 0xDFFF;
+  return splitsSurrogatePair ? end - 1 : end;
+};
+
+const findRequestLogGraphemeBoundary = (
+  content: string,
+  start: number,
+  candidateEnd: number,
+  lineEnd: number,
+) => {
+  if (candidateEnd >= lineEnd) return lineEnd;
+  if (!REQUEST_LOG_GRAPHEME_SEGMENTER) {
+    return fallbackRequestLogCodePointBoundary(content, start, candidateEnd);
+  }
+
+  // 只分割候选点附近的小窗口，避免对多 MiB ASCII 日志逐字执行字素分析。
+  const contextStart = Math.max(start, candidateEnd - REQUEST_LOG_GRAPHEME_CONTEXT_CHARS);
+  const contextEnd = Math.min(lineEnd, candidateEnd + REQUEST_LOG_GRAPHEME_CONTEXT_CHARS);
+  let safeEnd = contextStart;
+  for (const segment of REQUEST_LOG_GRAPHEME_SEGMENTER.segment(content.slice(contextStart, contextEnd))) {
+    const boundary = contextStart + segment.index;
+    if (boundary > candidateEnd) break;
+    if (boundary > start) {
+      safeEnd = boundary;
+    }
+  }
+  if (safeEnd > start) return safeEnd;
+  return fallbackRequestLogCodePointBoundary(content, start, candidateEnd);
+};
+
+export const splitRequestLogVirtualChunks = (
+  content: string,
+  maxChunkChars = REQUEST_LOG_VIRTUAL_CHUNK_CHARS,
+): string[] => {
+  if (content === '') return [''];
+  const chunkSize = Math.max(2, Math.floor(maxChunkChars));
+  const chunks: string[] = [];
+  let lineStart = 0;
+
+  while (lineStart <= content.length) {
+    const newlineIndex = content.indexOf('\n', lineStart);
+    const lineEnd = newlineIndex === -1 ? content.length : newlineIndex;
+    if (lineStart === lineEnd) {
+      chunks.push('');
+    } else {
+      let offset = lineStart;
+      while (offset < lineEnd) {
+        const idealEnd = Math.min(offset + chunkSize, lineEnd);
+        const preferredEnd = idealEnd < lineEnd
+          ? findPreferredRequestLogChunkEnd(content, offset, idealEnd)
+          : lineEnd;
+        const end = findRequestLogGraphemeBoundary(content, offset, preferredEnd, lineEnd);
+        chunks.push(content.slice(offset, end));
+        offset = end;
+      }
+    }
+    if (newlineIndex === -1) break;
+    lineStart = newlineIndex + 1;
+  }
+
+  return chunks;
+};
+
 export interface RequestEventsDetailsCardProps {
   events: UsageEvent[];
   loading: boolean;
@@ -200,6 +301,7 @@ export interface RequestEventsDetailsCardProps {
   onResultFilterChange: (result: string) => void;
   onExport?: (format: RequestEventExportFormat) => void;
   onVisibleColumnIdsChange?: (columnIds: RequestEventColumnId[]) => void;
+  requestLogAccessEnabled?: boolean;
   onRequestLogOpen?: (event: UsageEvent) => void;
   requestLogLoadingEventId?: string | null;
   requestLogResponse?: UsageEventRequestLogResponse | null;
@@ -534,6 +636,41 @@ function RequestEventsTitle({ title, subtitle, totalLabel }: { title: string; su
   );
 }
 
+const copyRequestLogSectionContent = async (content: string) => {
+  const clipboard = globalThis.navigator?.clipboard;
+  if (clipboard) {
+    try {
+      await clipboard.writeText(content);
+      return;
+    } catch {
+      // HTTP LAN pages may block the Clipboard API; fall through to textarea copy.
+    }
+  }
+
+  if (typeof document === 'undefined' || typeof document.execCommand !== 'function') {
+    throw new Error('clipboard is not available');
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = content;
+  textarea.readOnly = true;
+  textarea.setAttribute('aria-hidden', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  textarea.style.top = '0';
+  textarea.style.left = '0';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  try {
+    if (!document.execCommand('copy')) {
+      throw new Error('copy command failed');
+    }
+  } finally {
+    textarea.remove();
+  }
+};
+
 function RequestLogSectionDisclosure({
   title,
   content,
@@ -543,32 +680,112 @@ function RequestLogSectionDisclosure({
   content: string;
   defaultOpen: boolean;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(defaultOpen);
+  const [hasOpened, setHasOpened] = useState(defaultOpen);
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const panelId = useId();
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chunks = useMemo(
+    () => hasOpened ? splitRequestLogVirtualChunks(content) : [],
+    [content, hasOpened],
+  );
+  // TanStack Virtual 依赖内部可变测量状态，不参与 React Compiler 自动记忆化。
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const rowVirtualizer = useVirtualizer({
+    count: hasOpened ? chunks.length : 0,
+    getScrollElement: () => scrollerRef.current,
+    estimateSize: () => REQUEST_LOG_VIRTUAL_LINE_HEIGHT,
+    overscan: REQUEST_LOG_VIRTUAL_OVERSCAN,
+    paddingStart: REQUEST_LOG_VIRTUAL_PADDING_Y,
+    paddingEnd: REQUEST_LOG_VIRTUAL_PADDING_Y,
+    initialRect: { width: 0, height: 360 },
+  });
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const handleToggle = useCallback(() => {
+    const nextOpen = !open;
+    if (nextOpen) {
+      setHasOpened(true);
+    }
+    setOpen(nextOpen);
+  }, [open]);
+  const handleCopy = useCallback(async () => {
+    try {
+      await copyRequestLogSectionContent(content);
+      setCopyState('copied');
+    } catch {
+      setCopyState('failed');
+    }
+    if (copyResetTimerRef.current) {
+      clearTimeout(copyResetTimerRef.current);
+    }
+    copyResetTimerRef.current = setTimeout(() => setCopyState('idle'), 1600);
+  }, [content]);
+
+  useEffect(() => () => {
+    if (copyResetTimerRef.current) {
+      clearTimeout(copyResetTimerRef.current);
+    }
+  }, []);
+
+  const copyLabel = copyState === 'copied'
+    ? t('usage_stats.request_events_log_copied_section', { section: title })
+    : copyState === 'failed'
+      ? t('usage_stats.request_events_log_copy_failed_section', { section: title })
+      : t('usage_stats.request_events_log_copy_section', { section: title });
 
   return (
     <section
       className={`${styles.requestEventsLogSection} ${open ? styles.requestEventsLogSectionOpen : ''}`.trim()}
     >
-      <button
-        type="button"
-        className={styles.requestEventsLogSectionTrigger}
-        aria-expanded={open}
-        aria-controls={panelId}
-        onClick={() => setOpen((currentOpen) => !currentOpen)}
-      >
-        <span className={styles.requestEventsLogSectionTitle}>{title}</span>
-        <span className={styles.requestEventsLogSectionChevron} aria-hidden="true">
-          <IconChevronDown size={14} />
-        </span>
-      </button>
+      <div className={styles.requestEventsLogSectionHeader}>
+        <button
+          type="button"
+          className={styles.requestEventsLogSectionTrigger}
+          aria-expanded={open}
+          aria-controls={panelId}
+          onClick={handleToggle}
+        >
+          <span className={styles.requestEventsLogSectionTitle}>{title}</span>
+          <span className={styles.requestEventsLogSectionChevron} aria-hidden="true">
+            <IconChevronDown size={14} />
+          </span>
+        </button>
+        <button
+          type="button"
+          className={`${styles.requestEventsLogSectionCopyButton} ${copyState === 'copied' ? styles.requestEventsLogSectionCopyButtonCopied : ''} ${copyState === 'failed' ? styles.requestEventsLogSectionCopyButtonFailed : ''}`.trim()}
+          onClick={() => void handleCopy()}
+          aria-label={copyLabel}
+          title={copyLabel}
+        >
+          {copyState === 'copied' ? <IconCheck size={14} /> : <IconCopy size={14} />}
+        </button>
+      </div>
       <div
         id={panelId}
         className={styles.requestEventsLogSectionPanel}
         aria-hidden={!open}
       >
-        <div className={styles.requestEventsLogSectionPanelInner}>
-          <pre>{content}</pre>
+        <div className={styles.requestEventsLogSectionPanelInner} ref={scrollerRef}>
+          {hasOpened ? (
+            <div
+              className={styles.requestEventsLogVirtualSpacer}
+              style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+            >
+              {virtualItems.map((virtualItem) => (
+                <pre
+                  key={virtualItem.key}
+                  ref={rowVirtualizer.measureElement}
+                  data-index={virtualItem.index}
+                  className={styles.requestEventsLogVirtualLine}
+                  style={{ transform: `translateY(${virtualItem.start}px)` }}
+                >
+                  {chunks[virtualItem.index] || ' '}
+                </pre>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
     </section>
@@ -677,6 +894,7 @@ export function RequestEventsDetailsCard({
   onResultFilterChange,
   onExport,
   onVisibleColumnIdsChange,
+  requestLogAccessEnabled = false,
   onRequestLogOpen,
   requestLogLoadingEventId = null,
   requestLogResponse = null,
@@ -912,7 +1130,7 @@ export function RequestEventsDetailsCard({
           const resultLabel = row.failed ? t('usage_stats.failure') : t('usage_stats.success');
           const loading = requestLogLoadingEventId === row.id;
           const resultClassName = row.failed ? styles.requestEventsResultFailed : styles.requestEventsResultSuccess;
-          const canOpenLog = Boolean(row.requestId && onRequestLogOpen);
+          const canOpenLog = Boolean(requestLogAccessEnabled && row.requestId && onRequestLogOpen);
           return (
             <td className={styles.requestEventsNoWrapCell}>
               {canOpenLog ? (
@@ -1019,7 +1237,7 @@ export function RequestEventsDetailsCard({
     ];
 
     return definitions;
-  }, [latencyHint, onRequestLogOpen, requestLogLoadingEventId, resultLocale, speedHint, t, ttftHint]);
+  }, [latencyHint, onRequestLogOpen, requestLogAccessEnabled, requestLogLoadingEventId, resultLocale, speedHint, t, ttftHint]);
 
   const visibleColumns = useMemo(
     () => columnDefinitions.filter((definition) => effectiveVisibleColumnIdSet.has(definition.id)),

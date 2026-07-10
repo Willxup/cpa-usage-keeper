@@ -229,7 +229,10 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 				CPAAPIKeys:    cpaAPIKeyService,
 				AuthFiles:     authFilesManagementService,
 				RequestLogs:   requestLogService,
-				Status:        api.StatusRouteConfig{CPAPublicURL: cfg.CPAPublicURL},
+				Status: api.StatusRouteConfig{
+					CPAPublicURL:               cfg.CPAPublicURL,
+					CPARequestLogAccessEnabled: cfg.CPARequestLogAccessEnabled,
+				},
 			},
 		),
 	}, nil

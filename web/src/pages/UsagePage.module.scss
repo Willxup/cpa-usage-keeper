@@ -3282,20 +3282,6 @@
   &:hover {
     border-color: color-mix(in srgb, var(--accent-color) 35%, var(--border-color));
   }
-
-  pre {
-    margin: 0;
-    padding: 12px;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    font-family:
-      ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
-      monospace;
-    font-size: 11px;
-    line-height: 1.55;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
 }
 
 .requestEventsLogSectionOpen {
@@ -3303,12 +3289,18 @@
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.06);
 }
 
+.requestEventsLogSectionHeader {
+  display: flex;
+  align-items: stretch;
+}
+
 .requestEventsLogSectionTrigger {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 24px;
   align-items: center;
   gap: 10px;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   min-height: 40px;
   border: 0;
   padding: 9px 10px 9px 12px;
@@ -3330,6 +3322,40 @@
     outline: 2px solid color-mix(in srgb, var(--primary-color) 54%, transparent);
     outline-offset: -2px;
   }
+}
+
+.requestEventsLogSectionCopyButton {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin: 5px 7px 5px 0;
+  border: 0;
+  border-radius: $radius-sm;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.18s ease, color 0.18s ease;
+
+  &:hover {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--primary-color) 54%, transparent);
+    outline-offset: -2px;
+  }
+}
+
+.requestEventsLogSectionCopyButtonCopied {
+  color: var(--success-color);
+}
+
+.requestEventsLogSectionCopyButtonFailed {
+  color: var(--danger-color);
 }
 
 .requestEventsLogSectionTitle {
@@ -3379,11 +3405,36 @@
 
 .requestEventsLogSectionPanelInner {
   min-height: 0;
-  overflow: hidden;
+  max-height: min(58vh, 520px);
+  overflow: auto;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  scrollbar-gutter: stable;
+}
 
-  pre {
-    border-top: 1px solid var(--border-color);
-  }
+.requestEventsLogVirtualSpacer {
+  position: relative;
+  min-height: 100%;
+}
+
+.requestEventsLogVirtualLine {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  min-height: 18px;
+  margin: 0;
+  padding: 0 12px;
+  color: var(--text-primary);
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  will-change: transform;
 }
 
 // Overview Realtime

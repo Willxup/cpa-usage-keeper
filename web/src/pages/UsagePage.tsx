@@ -856,6 +856,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [requestLogError, setRequestLogError] = useState('');
   const [requestLogLoadingEventId, setRequestLogLoadingEventId] = useState<string | null>(null);
   const [requestLogDownloading, setRequestLogDownloading] = useState(false);
+  const requestLogAccessEnabled = status?.cpa_request_log_access_enabled === true;
   const requestLogDownloadGenerationRef = useRef(0);
   const eventsRequestControllerRef = useRef<AbortController | null>(null);
   const eventsFilterOptionsRequestControllerRef = useRef<AbortController | null>(null);
@@ -1442,6 +1443,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [eventsModelFilter, eventsResultFilter, eventsSourceFilter, getEventQueryWindow, onAuthRequired, selectedApiKeyId, showTopNotice, t, timeRange]);
 
   const handleRequestLogOpen = useCallback(async (event: UsageEvent) => {
+    if (!requestLogAccessEnabled) return;
     const eventId = String(event.id ?? '').trim();
     if (!eventId) {
       setRequestLogResponse(null);
@@ -1476,7 +1478,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         setRequestLogLoadingEventId(null);
       }
     }
-  }, [onAuthRequired, t]);
+  }, [onAuthRequired, requestLogAccessEnabled, t]);
 
   const handleRequestLogClose = useCallback(() => {
     requestLogDownloadGenerationRef.current += 1;
@@ -1489,20 +1491,21 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, []);
 
   const handleRequestLogDownload = useCallback(async (eventId: string) => {
+    if (!requestLogAccessEnabled) return;
     requestLogDownloadGenerationRef.current += 1;
     await runUsageEventRequestLogDownload({
       eventId,
       generationRef: requestLogDownloadGenerationRef,
       setDownloading: setRequestLogDownloading,
       showDownloadError: (error) => {
-      if (error instanceof ApiError && error.status === 401) {
-        onAuthRequired?.();
-        return;
-      }
-      showTopNotice('error', t('notification.download_failed'));
+        if (error instanceof ApiError && error.status === 401) {
+          onAuthRequired?.();
+          return;
+        }
+        showTopNotice('error', t('notification.download_failed'));
       },
     });
-  }, [onAuthRequired, showTopNotice, t]);
+  }, [onAuthRequired, requestLogAccessEnabled, showTopNotice, t]);
 
   const refreshActiveTab = useCallback(async () => {
     if (activeTab === 'events') {
@@ -2081,6 +2084,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   onResultFilterChange={handleEventsResultFilterChange}
                   onExport={handleEventsExport}
                   onVisibleColumnIdsChange={setEventsVisibleColumnIds}
+                  requestLogAccessEnabled={requestLogAccessEnabled}
                   onRequestLogOpen={handleRequestLogOpen}
                   requestLogLoadingEventId={requestLogLoadingEventId}
                   requestLogResponse={requestLogResponse}

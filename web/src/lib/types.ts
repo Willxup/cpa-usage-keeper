@@ -36,6 +36,7 @@ export interface StatusResponse {
   sync_running: boolean
   timezone: string
   cpa_public_url?: string
+  cpa_request_log_access_enabled?: boolean
   last_run_at?: string
   last_error?: string
   last_warning?: string
@@ -274,7 +275,6 @@ export interface UsageEventRequestLogResponse {
   event_id: string
   request_id?: string
   filename?: string
-  cached: boolean
   available: boolean
   previewable?: boolean
   too_large?: boolean
