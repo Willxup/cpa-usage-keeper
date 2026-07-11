@@ -373,7 +373,7 @@ func TestBuildPricingSyncPreviewMatchesMetadataModels(t *testing.T) {
 	if match := matchesByModel["Claude Sonnet 4"]; match.PricingStyle != "claude" || match.CacheWritePricePer1M != 3.75 {
 		t.Fatalf("unexpected claude match: %#v", match)
 	}
-	if match := matchesByModel["openai/gpt-4o"]; match.MatchedModel != "openai/gpt-4o" || match.MatchType != "index_exact" || match.SourceProviderID != "openai" {
+	if match := matchesByModel["openai/gpt-4o"]; match.MatchedModel != "openai/gpt-4o" || match.MatchType != "index_suffix" || match.SourceProviderID != "openai" {
 		t.Fatalf("unexpected gpt match: %#v", match)
 	}
 	if match := matchesByModel["deepseek-chat"]; match.SourceProviderID != "deepseek" {
@@ -405,7 +405,7 @@ func TestBuildPricingSyncPreviewMatchesMetadataModels(t *testing.T) {
 	}
 }
 
-func TestBuildPricingSyncPreviewUsesModelsDevProviderPrefixAsHint(t *testing.T) {
+func TestBuildPricingSyncPreviewStripsCPAPrefixBeforeMatchingModelsDev(t *testing.T) {
 	transport := http.DefaultTransport
 	http.DefaultTransport = pricingCatalogTransport{body: `{
 		"openai": {
@@ -448,7 +448,101 @@ func TestBuildPricingSyncPreviewUsesModelsDevProviderPrefixAsHint(t *testing.T) 
 	}
 	match := preview.Matches[0]
 	if match.SourceProviderID != "openai" || match.MatchedModel != "gpt-5.6-terra" || match.CacheReadPricePer1M != 0.25 || match.CacheWritePricePer1M != 3.125 {
-		t.Fatalf("expected provider prefix to constrain matching to OpenAI, got %#v", match)
+		t.Fatalf("expected stripped model ID to select OpenAI pricing, got %#v", match)
+	}
+}
+
+func TestBuildPricingSyncPreviewIgnoresCustomCPAPrefixForProviderSelection(t *testing.T) {
+	transport := http.DefaultTransport
+	http.DefaultTransport = pricingCatalogTransport{body: `{
+		"mimo": {
+			"id": "mimo",
+			"name": "Custom MIMO Gateway",
+			"models": {
+				"mimo-v2.5-pro": {
+					"id": "mimo-v2.5-pro",
+					"name": "MiMo V2.5 Pro",
+					"family": "mimo",
+					"cost": {"input": 9, "output": 18}
+				}
+			}
+		},
+		"xiaomi": {
+			"id": "xiaomi",
+			"name": "Xiaomi",
+			"models": {
+				"mimo-v2.5-pro": {
+					"id": "mimo-v2.5-pro",
+					"name": "MiMo V2.5 Pro",
+					"family": "mimo",
+					"cost": {"input": 0.435, "output": 0.87}
+				}
+			}
+		}
+	}`}
+	t.Cleanup(func() {
+		http.DefaultTransport = transport
+	})
+
+	db := openPricingServiceTestDatabase(t)
+	pricingService := service.NewPricingService(db, stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{{ID: "MIMO/mimo-v2.5-pro"}}}}})
+	preview, err := pricingService.PreviewPricingSync(context.Background())
+	if err != nil {
+		t.Fatalf("build pricing sync preview: %v", err)
+	}
+	if len(preview.Matches) != 1 {
+		t.Fatalf("expected one custom-prefix match, got %#v", preview)
+	}
+	match := preview.Matches[0]
+	if match.SourceProviderID != "xiaomi" || match.MatchedModel != "mimo-v2.5-pro" || match.PromptPricePer1M != 0.435 || match.CompletionPricePer1M != 0.87 {
+		t.Fatalf("expected custom CPA prefix not to affect provider ranking, got %#v", match)
+	}
+}
+
+func TestBuildPricingSyncPreviewKeepsCandidatesWhenPrefixProviderLacksModel(t *testing.T) {
+	transport := http.DefaultTransport
+	http.DefaultTransport = pricingCatalogTransport{body: `{
+		"deepseek": {
+			"id": "deepseek",
+			"name": "DeepSeek",
+			"models": {
+				"deepseek-chat": {
+					"id": "deepseek-chat",
+					"name": "DeepSeek Chat",
+					"family": "deepseek",
+					"cost": {"input": 0.14, "output": 0.28}
+				}
+			}
+		},
+		"openrouter": {
+			"id": "openrouter",
+			"name": "OpenRouter",
+			"models": {
+				"deepseek/deepseek-v3.2": {
+					"id": "deepseek/deepseek-v3.2",
+					"name": "DeepSeek V3.2",
+					"family": "deepseek",
+					"cost": {"input": 0.2145, "output": 0.32175}
+				}
+			}
+		}
+	}`}
+	t.Cleanup(func() {
+		http.DefaultTransport = transport
+	})
+
+	db := openPricingServiceTestDatabase(t)
+	pricingService := service.NewPricingService(db, stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{{ID: "deepseek/deepseek-v3.2"}}}}})
+	preview, err := pricingService.PreviewPricingSync(context.Background())
+	if err != nil {
+		t.Fatalf("build pricing sync preview: %v", err)
+	}
+	if len(preview.Matches) != 1 {
+		t.Fatalf("expected namespace-prefixed model to keep fallback candidates, got %#v", preview)
+	}
+	match := preview.Matches[0]
+	if match.SourceProviderID != "openrouter" || match.MatchedModel != "deepseek/deepseek-v3.2" {
+		t.Fatalf("expected OpenRouter fallback candidate, got %#v", match)
 	}
 }
 

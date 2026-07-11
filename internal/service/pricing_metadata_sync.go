@@ -53,7 +53,6 @@ type pricingCatalogEntry struct {
 type pricingCatalogIndex struct {
 	exact      map[string][]pricingCatalogEntry
 	normalized map[string][]pricingCatalogEntry
-	providers  map[string]struct{}
 }
 
 type pricingSyncCandidate struct {
@@ -218,13 +217,8 @@ func buildPricingCatalogIndex(entries []pricingCatalogEntry) pricingCatalogIndex
 	index := pricingCatalogIndex{
 		exact:      make(map[string][]pricingCatalogEntry, len(entries)*3),
 		normalized: make(map[string][]pricingCatalogEntry, len(entries)*3),
-		providers:  make(map[string]struct{}),
 	}
 	for _, entry := range entries {
-		providerID := strings.ToLower(strings.TrimSpace(entry.providerID))
-		if providerID != "" {
-			index.providers[providerID] = struct{}{}
-		}
 		model := entry.model
 		if strings.TrimSpace(model.ID) == "" && strings.TrimSpace(model.Name) == "" {
 			continue
@@ -266,46 +260,20 @@ func matchPricingCatalogCandidates(model string, index pricingCatalogIndex) []pr
 		}
 	}
 
-	exactKey := strings.ToLower(model)
-	add(index.exact[exactKey], "index_exact", 100)
-
 	suffix := stripPricingModelPrefix(model)
 	if suffix != model {
-		add(index.exact[strings.ToLower(suffix)], "index_suffix", 96)
-	}
-
-	normalizedKey := normalizePricingModelKey(model)
-	add(index.normalized[normalizedKey], "index_normalized", 92)
-	if suffix != model {
-		add(index.normalized[normalizePricingModelKey(suffix)], "index_normalized_suffix", 90)
-	}
-
-	// 只有前缀确实是 Models.dev provider ID 时才把它当作供应商提示；
-	// 这样 openai/... 不会被 Vercel/OpenRouter 的完整模型 ID 抢走，模型命名空间前缀则仍走原有排序。
-	if providerHint := pricingCatalogProviderHint(model, index); providerHint != "" {
-		filtered := candidates[:0]
-		for _, candidate := range candidates {
-			if strings.EqualFold(strings.TrimSpace(candidate.entry.providerID), providerHint) {
-				filtered = append(filtered, candidate)
-			}
-		}
-		candidates = filtered
+		// CPA 前缀可由用户自由配置，价格匹配先使用去前缀后的真实模型 ID；
+		// 完整 ID 仅作为低优先级兜底，不能用于推断 Models.dev 供应商。
+		add(index.exact[strings.ToLower(suffix)], "index_suffix", 100)
+		add(index.normalized[normalizePricingModelKey(suffix)], "index_normalized_suffix", 96)
+		add(index.exact[strings.ToLower(model)], "index_exact", 92)
+		add(index.normalized[normalizePricingModelKey(model)], "index_normalized", 90)
+	} else {
+		add(index.exact[strings.ToLower(model)], "index_exact", 100)
+		add(index.normalized[normalizePricingModelKey(model)], "index_normalized", 92)
 	}
 
 	return sortedUniquePricingCandidates(model, candidates)
-}
-
-func pricingCatalogProviderHint(model string, index pricingCatalogIndex) string {
-	trimmed := strings.TrimSpace(model)
-	separator := strings.IndexAny(trimmed, "/:")
-	if separator <= 0 {
-		return ""
-	}
-	prefix := strings.ToLower(strings.TrimSpace(trimmed[:separator]))
-	if _, ok := index.providers[prefix]; !ok {
-		return ""
-	}
-	return prefix
 }
 
 func sortedUniquePricingCandidates(model string, candidates []pricingSyncCandidate) []pricingSyncCandidate {
