@@ -63,6 +63,7 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260701_add_auth_session_source",
 		"20260702_model_price_multiplier",
 		"20260702_create_app_settings",
+		"20260710_backfill_cache_read_tokens",
 		"custom_20260710_create_api_key_auth_file_scopes",
 	}
 	assertStringSlicesEqual(t, want, got)

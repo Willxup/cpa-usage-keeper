@@ -138,7 +138,8 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 			TotalCost:             overview.Summary.TotalCost,
 			CostAvailable:         overview.Summary.CostAvailable,
 			InputTokens:           overview.Summary.InputTokens,
-			CachedTokens:          overview.Summary.CachedTokens,
+			CacheReadTokens:       overview.Summary.CacheReadTokens,
+			CacheCreationTokens:   overview.Summary.CacheCreationTokens,
 			ReasoningTokens:       overview.Summary.ReasoningTokens,
 			DailyAverageRequests:  overview.Summary.DailyAverageRequests,
 			DailyAverageTokens:    overview.Summary.DailyAverageTokens,
@@ -188,12 +189,12 @@ func (s *usageService) GetUsageOverviewRealtime(ctx context.Context, filter serv
 
 func mapUsageOverviewSeries(series repodto.UsageOverviewSeriesRecord) servicedto.UsageOverviewSeries {
 	return servicedto.UsageOverviewSeries{
-		Requests:  series.Requests,
-		Tokens:    series.Tokens,
-		RPM:       series.RPM,
-		TPM:       series.TPM,
-		Cost:      series.Cost,
-		CacheRate: series.CacheRate,
+		Requests:      series.Requests,
+		Tokens:        series.Tokens,
+		RPM:           series.RPM,
+		TPM:           series.TPM,
+		Cost:          series.Cost,
+		CacheReadRate: series.CacheReadRate,
 	}
 }
 
@@ -320,10 +321,11 @@ func mapRealtimeCacheLevel(points []repodto.RealtimeCacheLevelPointRecord) []ser
 	result := make([]servicedto.RealtimeCacheLevelPoint, 0, len(points))
 	for _, point := range points {
 		result = append(result, servicedto.RealtimeCacheLevelPoint{
-			Bucket:       point.Bucket,
-			CacheRate:    point.CacheRate,
-			CachedTokens: point.CachedTokens,
-			InputTokens:  point.InputTokens,
+			Bucket:              point.Bucket,
+			CacheReadRate:       point.CacheReadRate,
+			CacheReadTokens:     point.CacheReadTokens,
+			CacheCreationTokens: point.CacheCreationTokens,
+			InputTokens:         point.InputTokens,
 		})
 	}
 	return result
@@ -349,15 +351,16 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 	tokenUsage := make([]servicedto.AnalysisTokenUsageBucket, 0, len(record.TokenUsage))
 	for _, bucket := range record.TokenUsage {
 		tokenUsage = append(tokenUsage, servicedto.AnalysisTokenUsageBucket{
-			Bucket:          bucket.Bucket,
-			InputTokens:     bucket.InputTokens,
-			OutputTokens:    bucket.OutputTokens,
-			CachedTokens:    bucket.CachedTokens,
-			ReasoningTokens: bucket.ReasoningTokens,
-			TotalTokens:     bucket.TotalTokens,
-			Requests:        bucket.Requests,
-			CostUSD:         bucket.CostUSD,
-			CostAvailable:   bucket.CostAvailable,
+			Bucket:              bucket.Bucket,
+			InputTokens:         bucket.InputTokens,
+			OutputTokens:        bucket.OutputTokens,
+			CacheReadTokens:     bucket.CacheReadTokens,
+			CacheCreationTokens: bucket.CacheCreationTokens,
+			ReasoningTokens:     bucket.ReasoningTokens,
+			TotalTokens:         bucket.TotalTokens,
+			Requests:            bucket.Requests,
+			CostUSD:             bucket.CostUSD,
+			CostAvailable:       bucket.CostAvailable,
 		})
 	}
 	apiKeys := make([]servicedto.AnalysisCompositionItem, 0, len(record.APIKeyComposition))
@@ -379,16 +382,17 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 	heatmap := make([]servicedto.AnalysisHeatmapCell, 0, len(record.Heatmap))
 	for _, cell := range record.Heatmap {
 		heatmap = append(heatmap, servicedto.AnalysisHeatmapCell{
-			APIKey:          cell.APIKey,
-			Model:           cell.Model,
-			InputTokens:     cell.InputTokens,
-			OutputTokens:    cell.OutputTokens,
-			CachedTokens:    cell.CachedTokens,
-			ReasoningTokens: cell.ReasoningTokens,
-			TotalTokens:     cell.TotalTokens,
-			Requests:        cell.Requests,
-			CostUSD:         cell.CostUSD,
-			CostAvailable:   cell.CostAvailable,
+			APIKey:              cell.APIKey,
+			Model:               cell.Model,
+			InputTokens:         cell.InputTokens,
+			OutputTokens:        cell.OutputTokens,
+			CacheReadTokens:     cell.CacheReadTokens,
+			CacheCreationTokens: cell.CacheCreationTokens,
+			ReasoningTokens:     cell.ReasoningTokens,
+			TotalTokens:         cell.TotalTokens,
+			Requests:            cell.Requests,
+			CostUSD:             cell.CostUSD,
+			CostAvailable:       cell.CostAvailable,
 		})
 	}
 	modelEfficiency := make([]servicedto.AnalysisModelEfficiencyItem, 0, len(record.ModelEfficiency))
@@ -398,14 +402,15 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 			Requests:               item.Requests,
 			InputTokens:            item.InputTokens,
 			OutputTokens:           item.OutputTokens,
-			CachedTokens:           item.CachedTokens,
+			CacheReadTokens:        item.CacheReadTokens,
+			CacheCreationTokens:    item.CacheCreationTokens,
 			ReasoningTokens:        item.ReasoningTokens,
 			TotalTokens:            item.TotalTokens,
 			CostUSD:                item.CostUSD,
 			CostAvailable:          item.CostAvailable,
 			CostPerRequestUSD:      item.CostPerRequestUSD,
 			OutputTokensPerRequest: item.OutputTokensPerRequest,
-			CacheRate:              item.CacheRate,
+			CacheReadRate:          item.CacheReadRate,
 		})
 	}
 	latencyPoints := make([]servicedto.AnalysisLatencyPoint, 0, len(record.LatencyDiagnostics.Points))
@@ -437,11 +442,12 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 		AIProviderComposition: aiProviders,
 		Heatmap:               heatmap,
 		CostBreakdown: servicedto.AnalysisCostBreakdown{
-			InputCostUSD:  record.CostBreakdown.InputCostUSD,
-			OutputCostUSD: record.CostBreakdown.OutputCostUSD,
-			CachedCostUSD: record.CostBreakdown.CachedCostUSD,
-			TotalCostUSD:  record.CostBreakdown.TotalCostUSD,
-			CostAvailable: record.CostBreakdown.CostAvailable,
+			UncachedInputCostUSD: record.CostBreakdown.UncachedInputCostUSD,
+			CacheReadCostUSD:     record.CostBreakdown.CacheReadCostUSD,
+			CacheWriteCostUSD:    record.CostBreakdown.CacheWriteCostUSD,
+			OutputCostUSD:        record.CostBreakdown.OutputCostUSD,
+			TotalCostUSD:         record.CostBreakdown.TotalCostUSD,
+			CostAvailable:        record.CostBreakdown.CostAvailable,
 		},
 		ModelEfficiency: modelEfficiency,
 		LatencyDiagnostics: servicedto.AnalysisLatencyDiagnostics{
@@ -459,16 +465,17 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 
 func mapAnalysisCompositionRecord(item repodto.AnalysisCompositionRecord) servicedto.AnalysisCompositionItem {
 	return servicedto.AnalysisCompositionItem{
-		Key:             item.Key,
-		Label:           item.Label,
-		TotalTokens:     item.TotalTokens,
-		Requests:        item.Requests,
-		InputTokens:     item.InputTokens,
-		OutputTokens:    item.OutputTokens,
-		CachedTokens:    item.CachedTokens,
-		ReasoningTokens: item.ReasoningTokens,
-		CostUSD:         item.CostUSD,
-		CostAvailable:   item.CostAvailable,
+		Key:                 item.Key,
+		Label:               item.Label,
+		TotalTokens:         item.TotalTokens,
+		Requests:            item.Requests,
+		InputTokens:         item.InputTokens,
+		OutputTokens:        item.OutputTokens,
+		CacheReadTokens:     item.CacheReadTokens,
+		CacheCreationTokens: item.CacheCreationTokens,
+		ReasoningTokens:     item.ReasoningTokens,
+		CostUSD:             item.CostUSD,
+		CostAvailable:       item.CostAvailable,
 	}
 }
 
@@ -506,7 +513,6 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 			InputTokens:         row.InputTokens,
 			OutputTokens:        row.OutputTokens,
 			ReasoningTokens:     row.ReasoningTokens,
-			CachedTokens:        row.CachedTokens,
 			CacheReadTokens:     row.CacheReadTokens,
 			CacheCreationTokens: row.CacheCreationTokens,
 			TotalTokens:         row.TotalTokens,
@@ -547,7 +553,6 @@ func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.
 			InputTokens:         row.InputTokens,
 			OutputTokens:        row.OutputTokens,
 			ReasoningTokens:     row.ReasoningTokens,
-			CachedTokens:        row.CachedTokens,
 			CacheReadTokens:     row.CacheReadTokens,
 			CacheCreationTokens: row.CacheCreationTokens,
 			TotalTokens:         row.TotalTokens,

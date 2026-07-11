@@ -66,7 +66,6 @@ type UsageEventRecord struct {
 	InputTokens         int64
 	OutputTokens        int64
 	ReasoningTokens     int64
-	CachedTokens        int64
 	CacheReadTokens     int64
 	CacheCreationTokens int64
 	TotalTokens         int64
@@ -85,7 +84,8 @@ type UsageOverviewSummary struct {
 	TotalCost             float64
 	CostAvailable         bool
 	InputTokens           int64
-	CachedTokens          int64
+	CacheReadTokens       int64
+	CacheCreationTokens   int64
 	ReasoningTokens       int64
 	DailyAverageRequests  *float64
 	DailyAverageTokens    *float64
@@ -95,12 +95,12 @@ type UsageOverviewSummary struct {
 
 // UsageOverviewSeries 是 overview series 的服务层结果。
 type UsageOverviewSeries struct {
-	Requests  map[string]int64
-	Tokens    map[string]int64
-	RPM       map[string]float64
-	TPM       map[string]float64
-	Cost      map[string]float64
-	CacheRate map[string]*float64
+	Requests      map[string]int64
+	Tokens        map[string]int64
+	RPM           map[string]float64
+	TPM           map[string]float64
+	Cost          map[string]float64
+	CacheReadRate map[string]*float64
 }
 
 // UsageOverviewHealthBlock 是 overview health 的单个时间块。
@@ -198,10 +198,11 @@ type RealtimeRequestLevelPoint struct {
 
 // RealtimeCacheLevelPoint 是 Overview 缓存水平图的单个短窗口桶。
 type RealtimeCacheLevelPoint struct {
-	Bucket       string
-	CacheRate    *float64
-	CachedTokens int64
-	InputTokens  int64
+	Bucket              string
+	CacheReadRate       *float64
+	CacheReadTokens     int64
+	CacheCreationTokens int64
+	InputTokens         int64
 }
 
 // UsageOverviewRealtime 是 Overview 页面实时图表区使用的数据块。

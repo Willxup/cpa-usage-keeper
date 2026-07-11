@@ -43,8 +43,21 @@ const toNumber = (value: unknown): number => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-export function calculateDisplayInputTokens({ inputTokens, cachedTokens }: { inputTokens: unknown; cachedTokens: unknown }): number {
-  return Math.max(Math.max(toNumber(inputTokens), 0) - Math.max(toNumber(cachedTokens), 0), 0);
+export function calculateDisplayInputTokens({
+  inputTokens,
+  cacheReadTokens,
+  cacheCreationTokens,
+}: {
+  inputTokens: unknown;
+  cacheReadTokens: unknown;
+  cacheCreationTokens: unknown;
+}): number {
+  return Math.max(
+    Math.max(toNumber(inputTokens), 0)
+      - Math.max(toNumber(cacheReadTokens), 0)
+      - Math.max(toNumber(cacheCreationTokens), 0),
+    0,
+  );
 }
 
 export function calculateDisplayOutputTokens({ outputTokens, reasoningTokens }: { outputTokens: unknown; reasoningTokens: unknown }): number {
@@ -160,21 +173,21 @@ export function resolveUsageFilterWindow(
   };
 }
 
-export function calculateCacheRate({
+export function calculateCacheReadRate({
   inputTokens,
-  cachedTokens,
+  cacheReadTokens,
 }: {
   inputTokens: unknown;
-  cachedTokens: unknown;
+  cacheReadTokens: unknown;
 }): number | null {
   const input = Math.max(toNumber(inputTokens), 0);
-  const cached = Math.max(toNumber(cachedTokens), 0);
+  const cacheRead = Math.max(toNumber(cacheReadTokens), 0);
   // token 已在后端按 provider type 归一化，前端只按统一字段展示缓存占比。
   const denominator = input;
   if (denominator <= 0) {
     return null;
   }
-  return (cached / denominator) * 100;
+  return (cacheRead / denominator) * 100;
 }
 
 export function buildCandidateUsageSourceIds({ apiKey, prefix }: { apiKey?: string; prefix?: string }): string[] {

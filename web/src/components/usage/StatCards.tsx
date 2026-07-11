@@ -10,7 +10,7 @@ import {
   IconTrendingUp,
 } from '@/components/ui/icons';
 import {
-  calculateCacheRate,
+  calculateCacheReadRate,
   formatCompactNumber,
   formatFixedTwoDecimals,
   formatPerMinuteValue,
@@ -41,16 +41,16 @@ export interface StatCardsProps {
     tokens: SparklineBundle | null;
     rpm: SparklineBundle | null;
     tpm: SparklineBundle | null;
-    cachedRate: SparklineBundle | null;
+    cacheReadRate: SparklineBundle | null;
     cost: SparklineBundle | null;
   };
 }
 
 interface StatCardMetrics {
   requestStats: { successRate: number | null };
-  tokenBreakdown: { cachedTokens: number; reasoningTokens: number };
+  tokenBreakdown: { cacheReadTokens: number; cacheCreationTokens: number; reasoningTokens: number };
   rateStats: { rpm: number; tpm: number; windowMinutes: number; requestCount: number; tokenCount: number };
-  cacheRateStats: { cachedRate: number | null; cachedTokens: number; inputTokens: number };
+  cacheReadRateStats: { cacheReadRate: number | null; cacheReadTokens: number; inputTokens: number };
   totalCost: number;
   costAvailable: boolean;
 }
@@ -76,21 +76,23 @@ export function buildStatCardMetrics({ usage }: { usage: UsageOverviewPayload | 
   if (!usage?.summary) {
     return {
       requestStats,
-      tokenBreakdown: { cachedTokens: 0, reasoningTokens: 0 },
+      tokenBreakdown: { cacheReadTokens: 0, cacheCreationTokens: 0, reasoningTokens: 0 },
       rateStats: { rpm: 0, tpm: 0, windowMinutes: 1, requestCount: 0, tokenCount: 0 },
-      cacheRateStats: { cachedRate: null, cachedTokens: 0, inputTokens: 0 },
+      cacheReadRateStats: { cacheReadRate: null, cacheReadTokens: 0, inputTokens: 0 },
       totalCost: 0,
       costAvailable: false,
     };
   }
 
-  const cachedTokens = Math.max(safeNumber(usage.summary.cached_tokens), 0);
+  const cacheReadTokens = Math.max(safeNumber(usage.summary.cache_read_tokens), 0);
+  const cacheCreationTokens = Math.max(safeNumber(usage.summary.cache_creation_tokens), 0);
   const inputTokens = Math.max(safeNumber(usage.summary.input_tokens), 0);
 
   return {
     requestStats,
     tokenBreakdown: {
-      cachedTokens,
+      cacheReadTokens,
+      cacheCreationTokens,
       reasoningTokens: usage.summary.reasoning_tokens ?? 0,
     },
     rateStats: {
@@ -100,9 +102,9 @@ export function buildStatCardMetrics({ usage }: { usage: UsageOverviewPayload | 
       requestCount: usage.summary.request_count ?? 0,
       tokenCount: usage.summary.token_count ?? 0,
     },
-    cacheRateStats: {
-      cachedRate: calculateCacheRate({ inputTokens, cachedTokens }),
-      cachedTokens,
+    cacheReadRateStats: {
+      cacheReadRate: calculateCacheReadRate({ inputTokens, cacheReadTokens }),
+      cacheReadTokens,
       inputTokens,
     },
     totalCost: usage.summary.total_cost ?? 0,
@@ -113,7 +115,7 @@ export function buildStatCardMetrics({ usage }: { usage: UsageOverviewPayload | 
 export function StatCards({ usage, loading, sparklines }: StatCardsProps) {
   const { t } = useTranslation();
   const usageSnapshot = usage?.usage ?? null;
-  const { requestStats, tokenBreakdown, rateStats, cacheRateStats, totalCost, costAvailable } = useMemo(
+  const { requestStats, tokenBreakdown, rateStats, cacheReadRateStats, totalCost, costAvailable } = useMemo(
     () => buildStatCardMetrics({ usage }),
     [usage]
   );
@@ -156,8 +158,12 @@ export function StatCards({ usage, loading, sparklines }: StatCardsProps) {
       meta: (
         <>
           <span className={styles.statMetaItem}>
-            {t('usage_stats.cached_tokens')}:{' '}
-            {loading ? '-' : formatCompactNumber(tokenBreakdown.cachedTokens)}
+            {t('usage_stats.cache_read_tokens')}:{' '}
+            {loading ? '-' : formatCompactNumber(tokenBreakdown.cacheReadTokens)}
+          </span>
+          <span className={styles.statMetaItem}>
+            {t('usage_stats.cache_creation_tokens')}:{' '}
+            {loading ? '-' : formatCompactNumber(tokenBreakdown.cacheCreationTokens)}
           </span>
           <span className={styles.statMetaItem}>
             {t('usage_stats.reasoning_tokens')}:{' '}
@@ -200,26 +206,26 @@ export function StatCards({ usage, loading, sparklines }: StatCardsProps) {
       trend: sparklines.tpm,
     },
     {
-      key: 'cache-rate',
+      key: 'cache-read-rate',
       label: t('usage_stats.cache_rate'),
       icon: <IconPercent size={16} />,
       accent: '#14b8a6',
       accentSoft: 'rgba(20, 184, 166, 0.18)',
       accentBorder: 'rgba(20, 184, 166, 0.34)',
-      value: loading || cacheRateStats.cachedRate === null ? '-' : `${formatFixedTwoDecimals(cacheRateStats.cachedRate)}%`,
+      value: loading || cacheReadRateStats.cacheReadRate === null ? '-' : `${formatFixedTwoDecimals(cacheReadRateStats.cacheReadRate)}%`,
       meta: (
         <>
           <span className={styles.statMetaItem}>
-            {t('usage_stats.cached_tokens')}:{' '}
-            {loading ? '-' : formatCompactNumber(cacheRateStats.cachedTokens)}
+            {t('usage_stats.cache_read_tokens')}:{' '}
+            {loading ? '-' : formatCompactNumber(cacheReadRateStats.cacheReadTokens)}
           </span>
           <span className={styles.statMetaItem}>
             {t('usage_stats.input_tokens')}:{' '}
-            {loading ? '-' : formatCompactNumber(cacheRateStats.inputTokens)}
+            {loading ? '-' : formatCompactNumber(cacheReadRateStats.inputTokens)}
           </span>
         </>
       ),
-      trend: sparklines.cachedRate,
+      trend: sparklines.cacheReadRate,
     },
     {
       key: 'cost',

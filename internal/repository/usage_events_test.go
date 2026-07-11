@@ -181,12 +181,12 @@ func TestListUsageEventsWithFilterAddsBackendCost(t *testing.T) {
 	}
 	closeTestDatabase(t, db)
 	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{
-		Model:                   "claude-sonnet",
-		PricingStyle:            entities.ModelPricingStyleClaude,
-		PromptPricePer1M:        10,
-		CompletionPricePer1M:    20,
-		CachePricePer1M:         1,
-		CacheCreationPricePer1M: 12.5,
+		Model:                "claude-sonnet",
+		PricingStyle:         entities.ModelPricingStyleClaude,
+		PromptPricePer1M:     10,
+		CompletionPricePer1M: 20,
+		CacheReadPricePer1M:  1,
+		CacheWritePricePer1M: 12.5,
 	}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}

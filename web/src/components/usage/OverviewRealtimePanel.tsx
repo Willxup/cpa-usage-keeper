@@ -578,7 +578,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
 
   const tokenValues = useMemo(() => data.token_velocity.map((point) => safeNumber(point.tokens_per_minute)), [data.token_velocity]);
   const requestValues = useMemo(() => data.request_level.map((point) => safeNumber(point.requests_per_minute)), [data.request_level]);
-  const cacheValues = useMemo(() => data.cache_level.map((point) => point.cache_rate == null ? null : safeNumber(point.cache_rate)), [data.cache_level]);
+  const cacheValues = useMemo(() => data.cache_level.map((point) => point.cache_read_rate == null ? null : safeNumber(point.cache_read_rate)), [data.cache_level]);
   const responseTimezone = data.timezone ?? timezone;
   const ttftAveragePoints = useMemo(() => responseDistributionAveragePoints(
     data.response_distribution.ttft.average_line,

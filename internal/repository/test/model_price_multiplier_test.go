@@ -16,7 +16,7 @@ func TestUpsertModelPriceSettingDefaultsMultiplierToOne(t *testing.T) {
 		Model:                "default-model",
 		PromptPricePer1M:     3,
 		CompletionPricePer1M: 15,
-		CachePricePer1M:      0.3,
+		CacheReadPricePer1M:  0.3,
 	})
 	if err != nil {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
@@ -42,7 +42,7 @@ func TestUpsertModelPriceSettingPreservesExplicitZeroMultiplier(t *testing.T) {
 		Model:                "free-model",
 		PromptPricePer1M:     3,
 		CompletionPricePer1M: 15,
-		CachePricePer1M:      0.3,
+		CacheReadPricePer1M:  0.3,
 		PriceMultiplier:      &zero,
 	})
 	if err != nil {
@@ -74,7 +74,7 @@ func TestUpsertModelPriceSettingRejectsInvalidMultiplier(t *testing.T) {
 				Model:                "invalid-" + name,
 				PromptPricePer1M:     3,
 				CompletionPricePer1M: 15,
-				CachePricePer1M:      0.3,
+				CacheReadPricePer1M:  0.3,
 				PriceMultiplier:      &multiplier,
 			})
 			if err == nil || !strings.Contains(err.Error(), "price_multiplier") {

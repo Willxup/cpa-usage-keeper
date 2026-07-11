@@ -73,15 +73,16 @@ func TestUsageAnalysisReturnsAggregatedRows(t *testing.T) {
 	provider := &usageAnalysisStub{analysis: &servicedto.AnalysisSnapshot{
 		Granularity: servicedto.AnalysisGranularityHourly,
 		TokenUsage: []servicedto.AnalysisTokenUsageBucket{{
-			Bucket:          bucket,
-			InputTokens:     30,
-			OutputTokens:    9,
-			CachedTokens:    1,
-			ReasoningTokens: 2,
-			TotalTokens:     42,
-			Requests:        2,
-			CostUSD:         1.23,
-			CostAvailable:   true,
+			Bucket:              bucket,
+			InputTokens:         30,
+			OutputTokens:        9,
+			CacheReadTokens:     1,
+			CacheCreationTokens: 2,
+			ReasoningTokens:     2,
+			TotalTokens:         42,
+			Requests:            2,
+			CostUSD:             1.23,
+			CostAvailable:       true,
 		}},
 		APIKeyComposition: []servicedto.AnalysisCompositionItem{{
 			Key:           "sk-provider123456",
@@ -114,37 +115,40 @@ func TestUsageAnalysisReturnsAggregatedRows(t *testing.T) {
 			CostAvailable: true,
 		}},
 		Heatmap: []servicedto.AnalysisHeatmapCell{{
-			APIKey:          "sk-provider123456",
-			Model:           "claude-sonnet",
-			InputTokens:     30,
-			OutputTokens:    9,
-			CachedTokens:    1,
-			ReasoningTokens: 2,
-			TotalTokens:     42,
-			Requests:        2,
-			CostUSD:         1.23,
-			CostAvailable:   true,
+			APIKey:              "sk-provider123456",
+			Model:               "claude-sonnet",
+			InputTokens:         30,
+			OutputTokens:        9,
+			CacheReadTokens:     1,
+			CacheCreationTokens: 2,
+			ReasoningTokens:     2,
+			TotalTokens:         42,
+			Requests:            2,
+			CostUSD:             1.23,
+			CostAvailable:       true,
 		}},
 		CostBreakdown: servicedto.AnalysisCostBreakdown{
-			InputCostUSD:  0.3,
-			OutputCostUSD: 0.8,
-			CachedCostUSD: 0.13,
-			TotalCostUSD:  1.23,
-			CostAvailable: true,
+			UncachedInputCostUSD: 0.3,
+			CacheReadCostUSD:     0.03,
+			CacheWriteCostUSD:    0.10,
+			OutputCostUSD:        0.8,
+			TotalCostUSD:         1.23,
+			CostAvailable:        true,
 		},
 		ModelEfficiency: []servicedto.AnalysisModelEfficiencyItem{{
 			Model:                  "claude-sonnet",
 			Requests:               2,
 			InputTokens:            30,
 			OutputTokens:           9,
-			CachedTokens:           1,
+			CacheReadTokens:        1,
+			CacheCreationTokens:    2,
 			ReasoningTokens:        2,
 			TotalTokens:            42,
 			CostUSD:                1.23,
 			CostAvailable:          true,
 			CostPerRequestUSD:      0.615,
 			OutputTokensPerRequest: 5.5,
-			CacheRate:              1.0 / 30.0,
+			CacheReadRate:          1.0 / 30.0,
 		}},
 		LatencyDiagnostics: servicedto.AnalysisLatencyDiagnostics{
 			TotalPoints:  2,
@@ -198,10 +202,10 @@ func TestUsageAnalysisReturnsAggregatedRows(t *testing.T) {
 	if !contains(body, `"model":"claude-sonnet"`) || !contains(body, `"intensity":1`) || !contains(body, `"input_tokens":30`) || !contains(body, `"reasoning_tokens":2`) {
 		t.Fatalf("expected heatmap cell in response body: %s", body)
 	}
-	if !contains(body, `"cost_breakdown":`) || !contains(body, `"input_cost_usd":0.3`) || !contains(body, `"total_cost_usd":1.23`) {
+	if !contains(body, `"cost_breakdown":`) || !contains(body, `"uncached_input_cost_usd":0.3`) || !contains(body, `"cache_read_cost_usd":0.03`) || !contains(body, `"cache_write_cost_usd":0.1`) || !contains(body, `"total_cost_usd":1.23`) {
 		t.Fatalf("expected cost breakdown in response body: %s", body)
 	}
-	if !contains(body, `"model_efficiency":`) || !contains(body, `"cost_per_request_usd":0.615`) || !contains(body, `"output_tokens_per_request":5.5`) || !contains(body, `"cache_rate":0.03333333333333333`) {
+	if !contains(body, `"model_efficiency":`) || !contains(body, `"cost_per_request_usd":0.615`) || !contains(body, `"output_tokens_per_request":5.5`) || !contains(body, `"cache_read_rate":0.03333333333333333`) {
 		t.Fatalf("expected model efficiency in response body: %s", body)
 	}
 	if !contains(body, `"latency_diagnostics":`) || !contains(body, `"p95_ttft_ms":240`) || !contains(body, `"p95_latency_ms":1200`) || !contains(body, `"ttft_ms":120`) || !contains(body, `"count":2`) {
@@ -354,17 +358,18 @@ func TestBuildAnalysisHeatmapPayloadKeepsDuplicateAPIKeyLabelsSeparate(t *testin
 	}
 }
 
-func TestUsageAnalysisUsesCachedTokensWithoutCacheReadCreationDetails(t *testing.T) {
+func TestUsageAnalysisReturnsCanonicalCacheReadAndCreationDetails(t *testing.T) {
 	bucket := time.Date(2026, 4, 22, 10, 0, 0, 0, time.Local)
 	provider := &usageAnalysisStub{analysis: &servicedto.AnalysisSnapshot{
 		Granularity: servicedto.AnalysisGranularityHourly,
 		TokenUsage: []servicedto.AnalysisTokenUsageBucket{{
-			Bucket:       bucket,
-			InputTokens:  130,
-			OutputTokens: 30,
-			CachedTokens: 20,
-			TotalTokens:  160,
-			Requests:     1,
+			Bucket:              bucket,
+			InputTokens:         130,
+			OutputTokens:        30,
+			CacheReadTokens:     20,
+			CacheCreationTokens: 5,
+			TotalTokens:         160,
+			Requests:            1,
 		}},
 	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
@@ -377,11 +382,8 @@ func TestUsageAnalysisUsesCachedTokensWithoutCacheReadCreationDetails(t *testing
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
 	body := resp.Body.String()
-	if !contains(body, `"cached_tokens":20`) {
-		t.Fatalf("expected cached_tokens in analysis payload, got %s", body)
-	}
-	if contains(body, "cache_read_tokens") || contains(body, "cache_creation_tokens") {
-		t.Fatalf("expected analysis payload to omit cache read/creation fields, got %s", body)
+	if contains(body, `"cached_tokens"`) || !contains(body, `"cache_read_tokens":20`) || !contains(body, `"cache_creation_tokens":5`) {
+		t.Fatalf("expected canonical cache fields in analysis payload, got %s", body)
 	}
 }
 

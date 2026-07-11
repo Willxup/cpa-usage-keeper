@@ -36,8 +36,8 @@ export interface PricingSyncDraft {
   style: PricingStyle;
   prompt: string;
   completion: string;
-  cache: string;
-  cacheCreation: string;
+  cacheRead: string;
+  cacheWrite: string;
   multiplier: string;
   saveStatus?: 'failed';
   saveError?: string;
@@ -47,8 +47,8 @@ export interface PricingDraftInput {
   style: PricingStyle;
   prompt: string;
   completion: string;
-  cache: string;
-  cacheCreation: string;
+  cacheRead: string;
+  cacheWrite: string;
   multiplier: string;
 }
 
@@ -72,15 +72,9 @@ const parseMultiplierValue = (value: string): number | null => {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 };
 
-const parseCachePriceValue = (value: string, style: PricingStyle, prompt: number): number | null => {
-  if (value.trim() !== '') return parsePriceValue(value);
-  return style === 'openai' ? prompt : 0;
-};
-
-const parseCacheCreationPriceValue = (value: string, style: PricingStyle): number | null => {
-  if (style !== 'claude') return 0;
-  return value.trim() === '' ? 0 : parsePriceValue(value);
-};
+const parseOptionalCachePriceValue = (value: string): number | null => (
+  value.trim() === '' ? 0 : parsePriceValue(value)
+);
 
 const priceToInputValue = (value: number | undefined): string => (
   typeof value === 'number' && Number.isFinite(value) ? value.toString() : ''
@@ -100,8 +94,8 @@ export const syncMatchToDraft = (match: PricingSyncMatch, existingPrice?: ModelP
   style: normalizePricingStyle(match.pricing_style),
   prompt: priceToInputValue(match.prompt_price_per_1m),
   completion: priceToInputValue(match.completion_price_per_1m),
-  cache: priceToInputValue(match.cache_price_per_1m),
-  cacheCreation: priceToInputValue(match.cache_creation_price_per_1m),
+  cacheRead: priceToInputValue(match.cache_read_price_per_1m),
+  cacheWrite: priceToInputValue(match.cache_write_price_per_1m),
   multiplier: priceToInputValue(existingPrice?.multiplier ?? 1),
 });
 
@@ -109,16 +103,16 @@ export const pricingDraftToModelPrice = (draft: PricingDraftInput): ModelPrice |
   const prompt = parsePriceValue(draft.prompt);
   const completion = parsePriceValue(draft.completion);
   if (prompt === null || completion === null) return null;
-  const cache = parseCachePriceValue(draft.cache, draft.style, prompt);
-  const cacheCreation = parseCacheCreationPriceValue(draft.cacheCreation, draft.style);
+  const cacheRead = parseOptionalCachePriceValue(draft.cacheRead);
+  const cacheWrite = parseOptionalCachePriceValue(draft.cacheWrite);
   const multiplier = parseMultiplierValue(draft.multiplier);
-  if (cache === null || cacheCreation === null || multiplier === null) return null;
+  if (cacheRead === null || cacheWrite === null || multiplier === null) return null;
   return {
     style: draft.style,
     prompt,
     completion,
-    cache,
-    cacheCreation,
+    cacheRead,
+    cacheWrite,
     multiplier,
   };
 };
@@ -275,8 +269,8 @@ export function PriceSettingsCard({
   const [pricingStyle, setPricingStyle] = useState<PricingStyle>('openai');
   const [promptPrice, setPromptPrice] = useState('');
   const [completionPrice, setCompletionPrice] = useState('');
-  const [cachePrice, setCachePrice] = useState('');
-  const [cacheCreationPrice, setCacheCreationPrice] = useState('');
+  const [cacheReadPrice, setCacheReadPrice] = useState('');
+  const [cacheWritePrice, setCacheWritePrice] = useState('');
   const [priceMultiplier, setPriceMultiplier] = useState('1');
   const [priceSaving, setPriceSaving] = useState(false);
 
@@ -285,8 +279,8 @@ export function PriceSettingsCard({
   const [editStyle, setEditStyle] = useState<PricingStyle>('openai');
   const [editPrompt, setEditPrompt] = useState('');
   const [editCompletion, setEditCompletion] = useState('');
-  const [editCache, setEditCache] = useState('');
-  const [editCacheCreation, setEditCacheCreation] = useState('');
+  const [editCacheRead, setEditCacheRead] = useState('');
+  const [editCacheWrite, setEditCacheWrite] = useState('');
   const [editMultiplier, setEditMultiplier] = useState('1');
   const [editSaving, setEditSaving] = useState(false);
   const [deleteModel, setDeleteModel] = useState<string | null>(null);
@@ -316,8 +310,8 @@ export function PriceSettingsCard({
       style: pricingStyle,
       prompt: promptPrice,
       completion: completionPrice,
-      cache: cachePrice,
-      cacheCreation: cacheCreationPrice,
+      cacheRead: cacheReadPrice,
+      cacheWrite: cacheWritePrice,
       multiplier: priceMultiplier,
     });
     if (!price) {
@@ -332,8 +326,8 @@ export function PriceSettingsCard({
       setPricingStyle('openai');
       setPromptPrice('');
       setCompletionPrice('');
-      setCachePrice('');
-      setCacheCreationPrice('');
+      setCacheReadPrice('');
+      setCacheWritePrice('');
       setPriceMultiplier('1');
     } catch (error) {
       notifyPricingPersistenceError(error, t('usage_stats.model_price_save_failed'), onNotice);
@@ -362,8 +356,8 @@ export function PriceSettingsCard({
     setEditStyle(price?.style ?? 'openai');
     setEditPrompt(price?.prompt?.toString() || '');
     setEditCompletion(price?.completion?.toString() || '');
-    setEditCache(price?.cache?.toString() || '');
-    setEditCacheCreation(price?.cacheCreation?.toString() || '');
+    setEditCacheRead(price?.cacheRead?.toString() || '');
+    setEditCacheWrite(price?.cacheWrite?.toString() || '');
     setEditMultiplier(priceToInputValue(price?.multiplier ?? 1));
   };
 
@@ -373,8 +367,8 @@ export function PriceSettingsCard({
       style: editStyle,
       prompt: editPrompt,
       completion: editCompletion,
-      cache: editCache,
-      cacheCreation: editCacheCreation,
+      cacheRead: editCacheRead,
+      cacheWrite: editCacheWrite,
       multiplier: editMultiplier,
     });
     if (!price) {
@@ -401,15 +395,15 @@ export function PriceSettingsCard({
       setPricingStyle(price.style);
       setPromptPrice(price.prompt.toString());
       setCompletionPrice(price.completion.toString());
-      setCachePrice(price.cache.toString());
-      setCacheCreationPrice(price.cacheCreation.toString());
+      setCacheReadPrice(price.cacheRead.toString());
+      setCacheWritePrice(price.cacheWrite.toString());
       setPriceMultiplier(priceToInputValue(price.multiplier ?? 1));
     } else {
       setPricingStyle('openai');
       setPromptPrice('');
       setCompletionPrice('');
-      setCachePrice('');
-      setCacheCreationPrice('');
+      setCacheReadPrice('');
+      setCacheWritePrice('');
       setPriceMultiplier('1');
     }
   };
@@ -604,31 +598,29 @@ export function PriceSettingsCard({
                     />
                   </div>
                   <div className={styles.formField}>
-                    <label>{t(pricingStyle === 'claude' ? 'usage_stats.model_price_cache_read' : 'usage_stats.model_price_cache')} ($/1M)</label>
+                    <label>{t('usage_stats.model_price_cache_read')} ($/1M)</label>
                     <Input
                       type="number"
-                      value={cachePrice}
-                      onChange={(e) => setCachePrice(e.target.value)}
+                      value={cacheReadPrice}
+                      onChange={(e) => setCacheReadPrice(e.target.value)}
                       placeholder="0.00"
                       step="0.0001"
                       disabled={priceSaving}
                       className={styles.usagePillControl}
                     />
                   </div>
-                  {pricingStyle === 'claude' && (
-                    <div className={styles.formField}>
-                      <label>{t('usage_stats.model_price_cache_write')} ($/1M)</label>
-                      <Input
-                        type="number"
-                        value={cacheCreationPrice}
-                        onChange={(e) => setCacheCreationPrice(e.target.value)}
-                        placeholder="0.00"
-                        step="0.0001"
-                        disabled={priceSaving}
-                        className={styles.usagePillControl}
-                      />
-                    </div>
-                  )}
+                  <div className={styles.formField}>
+                    <label>{t('usage_stats.model_price_cache_write')} ($/1M)</label>
+                    <Input
+                      type="number"
+                      value={cacheWritePrice}
+                      onChange={(e) => setCacheWritePrice(e.target.value)}
+                      placeholder="0.00"
+                      step="0.0001"
+                      disabled={priceSaving}
+                      className={styles.usagePillControl}
+                    />
+                  </div>
                   <div className={styles.formField}>
                     <label>{t('usage_stats.model_price_multiplier')}</label>
                     <Input
@@ -667,13 +659,11 @@ export function PriceSettingsCard({
                               {t('usage_stats.model_price_completion')}: ${price.completion.toFixed(4)}/1M
                             </span>
                             <span>
-                              {t(price.style === 'claude' ? 'usage_stats.model_price_cache_read' : 'usage_stats.model_price_cache')}: ${price.cache.toFixed(4)}/1M
+                              {t('usage_stats.model_price_cache_read')}: ${price.cacheRead.toFixed(4)}/1M
                             </span>
-                            {price.style === 'claude' && (
-                              <span>
-                                {t('usage_stats.model_price_cache_write')}: ${price.cacheCreation.toFixed(4)}/1M
-                              </span>
-                            )}
+                            <span>
+                              {t('usage_stats.model_price_cache_write')}: ${price.cacheWrite.toFixed(4)}/1M
+                            </span>
                             <span>
                               {t('usage_stats.model_price_multiplier')}: {priceToInputValue(price.multiplier ?? 1)}
                             </span>
@@ -753,31 +743,29 @@ export function PriceSettingsCard({
             />
           </div>
           <div className={styles.formField}>
-            <label>{t(editStyle === 'claude' ? 'usage_stats.model_price_cache_read' : 'usage_stats.model_price_cache')} ($/1M)</label>
+            <label>{t('usage_stats.model_price_cache_read')} ($/1M)</label>
             <Input
               type="number"
-              value={editCache}
-              onChange={(e) => setEditCache(e.target.value)}
+              value={editCacheRead}
+              onChange={(e) => setEditCacheRead(e.target.value)}
               placeholder="0.00"
               step="0.0001"
               disabled={editSaving}
               className={styles.usagePillControl}
             />
           </div>
-          {editStyle === 'claude' && (
-            <div className={styles.formField}>
-              <label>{t('usage_stats.model_price_cache_write')} ($/1M)</label>
-              <Input
-                type="number"
-                value={editCacheCreation}
-                onChange={(e) => setEditCacheCreation(e.target.value)}
-                placeholder="0.00"
-                step="0.0001"
-                disabled={editSaving}
-                className={styles.usagePillControl}
-              />
-            </div>
-          )}
+          <div className={styles.formField}>
+            <label>{t('usage_stats.model_price_cache_write')} ($/1M)</label>
+            <Input
+              type="number"
+              value={editCacheWrite}
+              onChange={(e) => setEditCacheWrite(e.target.value)}
+              placeholder="0.00"
+              step="0.0001"
+              disabled={editSaving}
+              className={styles.usagePillControl}
+            />
+          </div>
           <div className={styles.formField}>
             <label>{t('usage_stats.model_price_multiplier')}</label>
             <Input
@@ -968,31 +956,29 @@ export function PriceSettingsCard({
                             />
                           </div>
                           <div className={styles.formField}>
-                            <label>{t(draft.style === 'claude' ? 'usage_stats.model_price_cache_read' : 'usage_stats.model_price_cache')} ($/1M)</label>
+                            <label>{t('usage_stats.model_price_cache_read')} ($/1M)</label>
                             <Input
                               type="number"
-                              value={draft.cache}
-                              onChange={(event) => handleUpdateSyncDraft(index, { cache: event.target.value })}
+                              value={draft.cacheRead}
+                              onChange={(event) => handleUpdateSyncDraft(index, { cacheRead: event.target.value })}
                               placeholder="0.00"
                               step="0.0001"
                               disabled={syncApplying}
                               className={styles.usagePillControl}
                             />
                           </div>
-                          {draft.style === 'claude' && (
-                            <div className={styles.formField}>
-                              <label>{t('usage_stats.model_price_cache_write')} ($/1M)</label>
-                              <Input
-                                type="number"
-                                value={draft.cacheCreation}
-                                onChange={(event) => handleUpdateSyncDraft(index, { cacheCreation: event.target.value })}
-                                placeholder="0.00"
-                                step="0.0001"
-                                disabled={syncApplying}
-                                className={styles.usagePillControl}
-                              />
-                            </div>
-                          )}
+                          <div className={styles.formField}>
+                            <label>{t('usage_stats.model_price_cache_write')} ($/1M)</label>
+                            <Input
+                              type="number"
+                              value={draft.cacheWrite}
+                              onChange={(event) => handleUpdateSyncDraft(index, { cacheWrite: event.target.value })}
+                              placeholder="0.00"
+                              step="0.0001"
+                              disabled={syncApplying}
+                              className={styles.usagePillControl}
+                            />
+                          </div>
                           <div className={styles.formField}>
                             <label>{t('usage_stats.model_price_multiplier')}</label>
                             <Input

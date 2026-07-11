@@ -32,7 +32,6 @@ const events: UsageEvent[] = [
       input_tokens: 100,
       output_tokens: 60,
       reasoning_tokens: 20,
-      cached_tokens: 20,
       cache_read_tokens: 20,
       cache_creation_tokens: 0,
       total_tokens: 200,
@@ -183,14 +182,15 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">-<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*" title="\/chat\/completions">\/chat\/completions<\/td>/);
   });
 
-  it('renders cache rate after cached tokens with two decimal places', () => {
+  it('renders cache rate after cache read and write with two decimal places', () => {
     const html = renderCard({
-      events: [{ ...events[0], tokens: { ...events[0].tokens, input_tokens: 100, cached_tokens: 25 } }],
+      events: [{ ...events[0], tokens: { ...events[0].tokens, input_tokens: 100, cache_read_tokens: 25 } }],
     });
 
-    expect(html.indexOf('>Cached</th>')).toBeLessThan(html.indexOf('>Cache Rate</th>'));
+    expect(html.indexOf('>Cache Read</th>')).toBeLessThan(html.indexOf('>Cache Write</th>'));
+    expect(html.indexOf('>Cache Write</th>')).toBeLessThan(html.indexOf('>Cache Rate</th>'));
     expect(html.indexOf('>Cache Rate</th>')).toBeLessThan(html.indexOf('>Total Tokens</th>'));
-    expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">25<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">25\.00%<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">200<\/td>/);
+    expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">25<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">0<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">25\.00%<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">200<\/td>/);
   });
 
   it('keeps cache rate based on normalized input for all providers', () => {
@@ -198,20 +198,20 @@ describe('RequestEventsDetailsCard pagination', () => {
       events: [{
         ...events[0],
         source_type: 'claude',
-        tokens: { ...events[0].tokens, input_tokens: 400, cached_tokens: 600, total_tokens: 500 },
+        tokens: { ...events[0].tokens, input_tokens: 400, cache_read_tokens: 600, total_tokens: 500 },
       }],
     });
 
-    expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">600<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">150\.00%<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">500<\/td>/);
+    expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">600<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">0<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">150\.00%<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">500<\/td>/);
     expect(html).not.toContain('60.00%');
   });
 
   it('shows a dash for cache rate when input tokens are zero', () => {
     const html = renderCard({
-      events: [{ ...events[0], tokens: { ...events[0].tokens, input_tokens: 0, cached_tokens: 25 } }],
+      events: [{ ...events[0], tokens: { ...events[0].tokens, input_tokens: 0, cache_read_tokens: 25 } }],
     });
 
-    expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">0<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">60<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">20<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">25<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">-<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">200<\/td>/);
+    expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">0<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">60<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">20<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">25<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">0<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">-<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">200<\/td>/);
   });
 
   it('stacks source value above source tags', () => {

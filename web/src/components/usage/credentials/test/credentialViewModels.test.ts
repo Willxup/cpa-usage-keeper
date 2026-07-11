@@ -35,7 +35,7 @@ function identity(overrides: Partial<UsageIdentity>): UsageIdentity {
     input_tokens: overrides.input_tokens ?? 0,
     output_tokens: overrides.output_tokens ?? 0,
     reasoning_tokens: overrides.reasoning_tokens ?? 0,
-    cached_tokens: overrides.cached_tokens ?? 0,
+    cache_read_tokens: overrides.cache_read_tokens ?? 0,
     total_tokens: overrides.total_tokens ?? 0,
     last_aggregated_usage_event_id: overrides.last_aggregated_usage_event_id ?? '0',
     first_used_at: overrides.first_used_at,
@@ -157,7 +157,7 @@ describe('credentialViewModels', () => {
       ])],
     ])
 
-    const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1', displayName: 'Claude Auth', total_requests: 10, success_count: 9, input_tokens: 1000, cached_tokens: 250, total_tokens: 1500 })], quotas)
+    const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1', displayName: 'Claude Auth', total_requests: 10, success_count: 9, input_tokens: 1000, cache_read_tokens: 250, total_tokens: 1500 })], quotas)
 
     expect(rows[0].displayName).toBe('Claude Auth')
     expect(rows[0].typeLabel).toBe('claude')
@@ -165,7 +165,7 @@ describe('credentialViewModels', () => {
     expect(rows[0].successCount).toBe(9)
     expect(rows[0].failureCount).toBe(0)
     expect(rows[0].totalTokens).toBe(1500)
-    expect(rows[0].cacheRate).toBe(25)
+    expect(rows[0].cacheReadRate).toBe(25)
     expect(rows[0].displayQuotas.map((quota) => quota.label)).toEqual(['5h', 'Weekly', 'GPT-5.3-Codex-Spark 5h'])
     expect(rows[0].displayQuotas[0]).toMatchObject({
       percent: 72,
@@ -315,10 +315,10 @@ describe('credentialViewModels', () => {
 
   it('uses normalized input token semantics for auth file cache rate', () => {
     const rows = buildAuthFileCredentialRows([
-      identity({ identity: 'auth-claude', type: 'claude', input_tokens: 1000, cached_tokens: 600 }),
+      identity({ identity: 'auth-claude', type: 'claude', input_tokens: 1000, cache_read_tokens: 600 }),
     ])
 
-    expect(rows[0].cacheRate).toBe(60)
+    expect(rows[0].cacheReadRate).toBe(60)
   })
 
   it('classifies quota bar colors at 50 and 20 percent remaining thresholds', () => {
@@ -458,7 +458,7 @@ describe('credentialViewModels', () => {
     expect(rows[0].failureCount).toBe(1)
     expect(rows[0].successRate).toBe(75)
     expect(rows[0].totalTokens).toBe(0)
-    expect(rows[0].cacheRate).toBeNull()
+    expect(rows[0].cacheReadRate).toBeNull()
     expect('displayQuotas' in rows[0]).toBe(false)
   })
 })

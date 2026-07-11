@@ -69,3 +69,29 @@ func TestAppSettingSchemaRequiresTimestamps(t *testing.T) {
 		}
 	}
 }
+
+func TestCacheTokenSchemaUsesExplicitReadAndWriteNames(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite memory database: %v", err)
+	}
+	if err := db.AutoMigrate(&UsageIdentity{}, &ModelPriceSetting{}); err != nil {
+		t.Fatalf("AutoMigrate cache token schema returned error: %v", err)
+	}
+
+	if !db.Migrator().HasColumn(&UsageIdentity{}, "cache_read_tokens") {
+		t.Fatal("expected usage_identities.cache_read_tokens to exist")
+	}
+	if db.Migrator().HasColumn(&UsageIdentity{}, "cache_creation_tokens") {
+		t.Fatal("did not expect usage_identities.cache_creation_tokens")
+	}
+	if !db.Migrator().HasColumn(&ModelPriceSetting{}, "cache_read_price_per1_m") {
+		t.Fatal("expected model_price_settings.cache_read_price_per1_m to exist")
+	}
+	if db.Migrator().HasColumn(&ModelPriceSetting{}, "cache_price_per1_m") {
+		t.Fatal("did not expect legacy model_price_settings.cache_price_per1_m")
+	}
+	if !db.Migrator().HasColumn(&ModelPriceSetting{}, "cache_creation_price_per1_m") {
+		t.Fatal("expected model_price_settings.cache_creation_price_per1_m to remain")
+	}
+}

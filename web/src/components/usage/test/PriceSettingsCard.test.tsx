@@ -29,8 +29,8 @@ const syncDraft = (model: string): PricingSyncDraft => ({
   style: 'openai',
   prompt: '2.5',
   completion: '10',
-  cache: '1.25',
-  cacheCreation: '0',
+  cacheRead: '1.25',
+  cacheWrite: '0',
   multiplier: '1',
 });
 
@@ -60,8 +60,8 @@ describe('PriceSettingsCard', () => {
             style: 'claude',
             prompt: 3,
             completion: 15,
-            cache: 0.3,
-            cacheCreation: 3.75,
+            cacheRead: 0.3,
+            cacheWrite: 3.75,
             multiplier: 1,
           },
         }}
@@ -79,6 +79,54 @@ describe('PriceSettingsCard', () => {
     expect(html).toContain('Multiplier');
     expect(html).toContain('1');
   });
+
+  it('renders OpenAI pricing style with cache read and write prices', () => {
+		const html = renderToStaticMarkup(
+			<PriceSettingsCard
+				modelNames={['gpt-5.6-terra']}
+				modelPrices={{
+					'gpt-5.6-terra': {
+						style: 'openai',
+						prompt: 2.5,
+						completion: 15,
+						cacheRead: 0.25,
+						cacheWrite: 3.125,
+						multiplier: 1,
+					},
+				}}
+				onPriceSave={() => undefined}
+				onPriceDelete={() => undefined}
+				loading={false}
+			/>,
+		);
+
+		expect(html).toContain('OpenAI');
+		expect(html).toContain('Cache Read');
+		expect(html).toContain('$0.2500/1M');
+		expect(html).toContain('Cache Write');
+		expect(html).toContain('$3.1250/1M');
+	});
+
+	it('shows cache read and write controls for OpenAI create, edit and sync drafts', () => {
+		const html = renderToStaticMarkup(
+			<PriceSettingsCard
+				modelNames={['gpt-5.6-terra']}
+				modelPrices={{}}
+				onPriceSave={() => undefined}
+				onPriceDelete={() => undefined}
+				loading={false}
+			/>,
+		);
+
+		expect(html).toContain('Cache Read');
+		expect(html).toContain('Cache Write');
+		expect(source).not.toContain("t(pricingStyle === 'claude' ? 'usage_stats.model_price_cache_read' : 'usage_stats.model_price_cache')");
+		expect(source).not.toContain("t(editStyle === 'claude' ? 'usage_stats.model_price_cache_read' : 'usage_stats.model_price_cache')");
+		expect(source).not.toContain("t(draft.style === 'claude' ? 'usage_stats.model_price_cache_read' : 'usage_stats.model_price_cache')");
+		expect(source).not.toContain("pricingStyle === 'claude' && (");
+		expect(source).not.toContain("editStyle === 'claude' && (");
+		expect(source).not.toContain("draft.style === 'claude' && (");
+	});
 
   it('shows the sync prices action when sync preview is available', () => {
     const html = renderToStaticMarkup(
@@ -254,6 +302,28 @@ describe('PriceSettingsCard', () => {
     expect(pricingDraftToModelPrice({ ...syncDraft('bad-model'), multiplier: '-1' })).toBeNull();
   });
 
+	it('parses OpenAI cache write prices without inferring missing values', () => {
+		expect(pricingDraftToModelPrice({
+			style: 'openai',
+			prompt: '2.5',
+			completion: '15',
+			cacheRead: '0.25',
+			cacheWrite: '3.125',
+			multiplier: '1',
+		})).toEqual({
+			style: 'openai',
+			prompt: 2.5,
+			completion: 15,
+			cacheRead: 0.25,
+			cacheWrite: 3.125,
+			multiplier: 1,
+		});
+		expect(pricingDraftToModelPrice({ ...syncDraft('blank-read'), cacheRead: '' })?.cacheRead).toBe(0);
+		expect(pricingDraftToModelPrice({ ...syncDraft('blank-write'), cacheWrite: '' })?.cacheWrite).toBe(0);
+		expect(pricingDraftToModelPrice({ ...syncDraft('negative-write'), cacheWrite: '-1' })).toBeNull();
+		expect(pricingDraftToModelPrice({ ...syncDraft('claude-write'), style: 'claude', cacheWrite: '3.75' })?.cacheWrite).toBe(3.75);
+	});
+
   it('defaults new sync matches to multiplier 1 and preserves existing model multipliers', () => {
     const match = {
       model: 'free-model',
@@ -264,8 +334,8 @@ describe('PriceSettingsCard', () => {
       pricing_style: 'openai' as const,
       prompt_price_per_1m: 2.5,
       completion_price_per_1m: 10,
-      cache_price_per_1m: 1.25,
-      cache_creation_price_per_1m: 0,
+      cache_read_price_per_1m: 1.25,
+      cache_write_price_per_1m: 0,
     };
 
     expect(syncMatchToDraft(match).multiplier).toBe('1');
@@ -273,8 +343,8 @@ describe('PriceSettingsCard', () => {
       style: 'openai',
       prompt: 1,
       completion: 2,
-      cache: 0.1,
-      cacheCreation: 0,
+      cacheRead: 0.1,
+      cacheWrite: 0,
       multiplier: 0,
     }).multiplier).toBe('0');
   });
@@ -291,8 +361,8 @@ describe('PriceSettingsCard', () => {
           style: 'openai',
           prompt: 2.5,
           completion: 10,
-          cache: 1.25,
-          cacheCreation: 0,
+          cacheRead: 1.25,
+          cacheWrite: 0,
           multiplier: 1,
         },
       },
@@ -301,6 +371,32 @@ describe('PriceSettingsCard', () => {
     });
     expect(result.prices).not.toHaveProperty('gpt-4o-mini');
   });
+
+	it('keeps Models.dev OpenAI cache write through draft and selected-price conversion', () => {
+		const match = {
+			model: 'gpt-5.6-terra',
+			matched_model: 'gpt-5.6-terra',
+			match_type: 'index_exact',
+			source_provider_id: 'openai',
+			source_provider_name: 'OpenAI',
+			pricing_style: 'openai' as const,
+			prompt_price_per_1m: 2.5,
+			completion_price_per_1m: 15,
+			cache_read_price_per_1m: 0.25,
+			cache_write_price_per_1m: 3.125,
+		};
+
+		const draft = syncMatchToDraft(match);
+		const result = buildSelectedSyncPrices([draft]);
+
+		expect(draft.cacheWrite).toBe('3.125');
+		expect(result.invalidModel).toBeNull();
+		expect(result.prices['gpt-5.6-terra']).toMatchObject({
+			style: 'openai',
+			cacheRead: 0.25,
+			cacheWrite: 3.125,
+		});
+	});
 
   it('sync fallback saves selected models with single-model callbacks', async () => {
     const calls: Array<{ model: string; price: number }> = [];
@@ -335,8 +431,8 @@ describe('buildPricingModelOptions', () => {
     const options = buildPricingModelOptions(
       ['priced-zeta', 'unpriced-beta', 'priced-alpha', 'unpriced-alpha'],
       {
-        'priced-zeta': { style: 'openai', prompt: 3, completion: 15, cache: 0.3, cacheCreation: 0, multiplier: 1 },
-        'priced-alpha': { style: 'openai', prompt: 2, completion: 8, cache: 0.2, cacheCreation: 0, multiplier: 1 },
+        'priced-zeta': { style: 'openai', prompt: 3, completion: 15, cacheRead: 0.3, cacheWrite: 0, multiplier: 1 },
+        'priced-alpha': { style: 'openai', prompt: 2, completion: 8, cacheRead: 0.2, cacheWrite: 0, multiplier: 1 },
       },
       'Select model',
       'Configured',

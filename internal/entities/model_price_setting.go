@@ -9,14 +9,14 @@ const (
 
 // ModelPriceSetting 是模型价格配置实体，用于按模型计算成本。
 type ModelPriceSetting struct {
-	ID                      int64  `gorm:"primaryKey"`
-	Model                   string `gorm:"uniqueIndex:uniq_model_price_settings_model"`
-	PricingStyle            string `gorm:"not null;default:openai"`
-	PromptPricePer1M        float64
-	CompletionPricePer1M    float64
-	CachePricePer1M         float64
-	CacheCreationPricePer1M float64   `gorm:"not null;default:0"`
-	PriceMultiplier         *float64  `gorm:"not null;default:1"`
-	CreatedAt               time.Time `gorm:"serializer:storageTime"`
-	UpdatedAt               time.Time `gorm:"serializer:storageTime"`
+	ID                   int64  `gorm:"primaryKey"`
+	Model                string `gorm:"uniqueIndex:uniq_model_price_settings_model"`
+	PricingStyle         string `gorm:"not null;default:openai"`
+	PromptPricePer1M     float64
+	CompletionPricePer1M float64
+	CacheReadPricePer1M  float64
+	CacheWritePricePer1M float64   `gorm:"column:cache_creation_price_per1_m;not null;default:0"`
+	PriceMultiplier      *float64  `gorm:"not null;default:1"`
+	CreatedAt            time.Time `gorm:"serializer:storageTime"`
+	UpdatedAt            time.Time `gorm:"serializer:storageTime"`
 }

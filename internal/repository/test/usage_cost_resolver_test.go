@@ -112,6 +112,43 @@ func TestUsageCostResolverDoesNotApplyMultiplierWhenPriceMissing(t *testing.T) {
 	assertUsageCostResolverResult(t, result, 0, false)
 }
 
+func TestUsageCostResolverChargesOpenAICacheReadAndWritePrices(t *testing.T) {
+	db := openUsageCostResolverDatabase(t, "usage-cost-resolver-openai-cache.db")
+	if _, err := repository.UpsertModelPriceSetting(db, repodto.ModelPriceSettingInput{
+		Model:                "gpt-5.6-terra",
+		PricingStyle:         entities.ModelPricingStyleOpenAI,
+		PromptPricePer1M:     3,
+		CompletionPricePer1M: 15,
+		CacheReadPricePer1M:  0.3,
+		CacheWritePricePer1M: 3.75,
+	}); err != nil {
+		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
+	}
+
+	resolver, err := repository.NewUsageCostResolver(context.Background(), db)
+	if err != nil {
+		t.Fatalf("NewUsageCostResolver returned error: %v", err)
+	}
+	result := resolver.Calculate(repository.UsageCostSubject{
+		Model: "gpt-5.6-terra",
+		Tokens: helper.UsageTokenCostInput{
+			InputTokens:         1_000_000,
+			OutputTokens:        500_000,
+			CacheReadTokens:     200_000,
+			CacheCreationTokens: 100_000,
+		},
+	})
+
+	if !result.Available || result.PricingStyle != entities.ModelPricingStyleOpenAI {
+		t.Fatalf("expected available OpenAI pricing result, got %+v", result)
+	}
+	assertUsageCostClose(t, result.Cost.UncachedInputCostUSD, 0.7*3)
+	assertUsageCostClose(t, result.Cost.CacheReadCostUSD, 0.2*0.3)
+	assertUsageCostClose(t, result.Cost.CacheWriteCostUSD, 0.1*3.75)
+	assertUsageCostClose(t, result.Cost.OutputCostUSD, 0.5*15)
+	assertUsageCostClose(t, result.Cost.TotalCostUSD, 0.7*3+0.5*15+0.2*0.3+0.1*3.75)
+}
+
 func TestListUsageEventsWithFilterUsesModelPricingWhenAliasDiffers(t *testing.T) {
 	db := openUsageCostResolverDatabase(t, "usage-events-model-cost.db")
 	upsertUsageCostResolverPrice(t, db, "base-model", 10)
@@ -757,7 +794,7 @@ func upsertUsageCostResolverPriceWithMultiplier(t *testing.T, db *gorm.DB, model
 		Model:                model,
 		PromptPricePer1M:     promptPrice,
 		CompletionPricePer1M: 0,
-		CachePricePer1M:      0,
+		CacheReadPricePer1M:  0,
 		PriceMultiplier:      multiplier,
 	}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting(%q) returned error: %v", model, err)

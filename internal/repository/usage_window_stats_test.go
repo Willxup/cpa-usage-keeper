@@ -18,13 +18,13 @@ func TestSumUsageWindowStatsByAuthIndexUsesAuthIndexAndWindow(t *testing.T) {
 		t.Fatalf("OpenDatabase returned error: %v", err)
 	}
 	closeTestDatabase(t, db)
-	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "priced", PromptPricePer1M: 10, CompletionPricePer1M: 20, CachePricePer1M: 1}); err != nil {
+	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "priced", PromptPricePer1M: 10, CompletionPricePer1M: 20, CacheReadPricePer1M: 1}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}
 	start := time.Date(2026, 5, 25, 10, 0, 0, 0, time.UTC)
 	end := start.Add(time.Hour)
 	events := []entities.UsageEvent{
-		{AuthType: "oauth", AuthIndex: "auth-1", Model: "priced", Timestamp: start.Add(10 * time.Minute), InputTokens: 1_000_000, OutputTokens: 500_000, CachedTokens: 200_000, TotalTokens: 1_500_000},
+		{AuthType: "oauth", AuthIndex: "auth-1", Model: "priced", Timestamp: start.Add(10 * time.Minute), InputTokens: 1_000_000, OutputTokens: 500_000, CachedTokens: 200_000, CacheReadTokens: 200_000, TotalTokens: 1_500_000},
 		{AuthType: "apikey", AuthIndex: "auth-1", Model: "priced", Timestamp: start.Add(15 * time.Minute), InputTokens: 700_000, TotalTokens: 700_000},
 		{AuthType: "oauth", AuthIndex: "auth-2", Model: "priced", Timestamp: start.Add(20 * time.Minute), TotalTokens: 9_000_000},
 		{AuthType: "oauth", AuthIndex: "auth-1", Model: "priced", Timestamp: end.Add(time.Minute), TotalTokens: 8_000_000},
@@ -53,12 +53,12 @@ func TestSumUsageWindowStatsByAuthIndexCalculatesClaudeCacheReadAndCreationCost(
 	}
 	closeTestDatabase(t, db)
 	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{
-		Model:                   "claude-sonnet",
-		PricingStyle:            entities.ModelPricingStyleClaude,
-		PromptPricePer1M:        10,
-		CompletionPricePer1M:    20,
-		CachePricePer1M:         1,
-		CacheCreationPricePer1M: 12.5,
+		Model:                "claude-sonnet",
+		PricingStyle:         entities.ModelPricingStyleClaude,
+		PromptPricePer1M:     10,
+		CompletionPricePer1M: 20,
+		CacheReadPricePer1M:  1,
+		CacheWritePricePer1M: 12.5,
 	}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestSumUsageWindowStatsByAuthIndexUsesHourlyStatsForLongWindow(t *testing.T
 		t.Fatalf("OpenDatabase returned error: %v", err)
 	}
 	closeTestDatabase(t, db)
-	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "priced", PromptPricePer1M: 10, CompletionPricePer1M: 20, CachePricePer1M: 1}); err != nil {
+	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "priced", PromptPricePer1M: 10, CompletionPricePer1M: 20, CacheReadPricePer1M: 1}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}
 	start := time.Date(2026, 5, 18, 14, 30, 0, 0, time.UTC)
@@ -109,7 +109,7 @@ func TestSumUsageWindowStatsByAuthIndexUsesHourlyStatsForLongWindow(t *testing.T
 	if err := db.Create(&events).Error; err != nil {
 		t.Fatalf("seed usage events: %v", err)
 	}
-	hourly := entities.UsageOverviewHourlyStat{BucketStart: time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC), AuthIndex: "auth-1", Model: "priced", InputTokens: 2_000_000, CachedTokens: 300_000, TotalTokens: 2_000_000, CreatedAt: now, UpdatedAt: now}
+	hourly := entities.UsageOverviewHourlyStat{BucketStart: time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC), AuthIndex: "auth-1", Model: "priced", InputTokens: 2_000_000, CachedTokens: 300_000, CacheReadTokens: 300_000, TotalTokens: 2_000_000, CreatedAt: now, UpdatedAt: now}
 	if err := db.Create(&hourly).Error; err != nil {
 		t.Fatalf("seed hourly stat: %v", err)
 	}

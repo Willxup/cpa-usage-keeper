@@ -222,17 +222,17 @@ func TestBuildAnalysisWithFilterCalculatesCostInsightsFromOverviewStats(t *testi
 		Model:                "gpt-4o",
 		PromptPricePer1M:     3,
 		CompletionPricePer1M: 15,
-		CachePricePer1M:      0.3,
+		CacheReadPricePer1M:  0.3,
 	}); err != nil {
 		t.Fatalf("upsert gpt price: %v", err)
 	}
 	if _, err := UpsertModelPriceSetting(db, repodto.ModelPriceSettingInput{
-		Model:                   "claude-sonnet",
-		PricingStyle:            entities.ModelPricingStyleClaude,
-		PromptPricePer1M:        10,
-		CompletionPricePer1M:    20,
-		CachePricePer1M:         1,
-		CacheCreationPricePer1M: 12.5,
+		Model:                "claude-sonnet",
+		PricingStyle:         entities.ModelPricingStyleClaude,
+		PromptPricePer1M:     10,
+		CompletionPricePer1M: 20,
+		CacheReadPricePer1M:  1,
+		CacheWritePricePer1M: 12.5,
 	}); err != nil {
 		t.Fatalf("upsert claude price: %v", err)
 	}
@@ -246,6 +246,7 @@ func TestBuildAnalysisWithFilterCalculatesCostInsightsFromOverviewStats(t *testi
 			OutputTokens:    500_000,
 			ReasoningTokens: 50_000,
 			CachedTokens:    200_000,
+			CacheReadTokens: 200_000,
 			TotalTokens:     1_750_000,
 		},
 		{
@@ -282,9 +283,10 @@ func TestBuildAnalysisWithFilterCalculatesCostInsightsFromOverviewStats(t *testi
 	if !analysis.TokenUsage[0].CostAvailable || !analysis.TokenUsage[1].CostAvailable {
 		t.Fatalf("expected bucket cost to be available, got %+v", analysis.TokenUsage)
 	}
-	assertAnalysisCostClose(t, analysis.CostBreakdown.InputCostUSD, 12.4)
+	assertAnalysisCostClose(t, analysis.CostBreakdown.UncachedInputCostUSD, 12.4)
+	assertAnalysisCostClose(t, analysis.CostBreakdown.CacheReadCostUSD, 0.26)
+	assertAnalysisCostClose(t, analysis.CostBreakdown.CacheWriteCostUSD, 1.25)
 	assertAnalysisCostClose(t, analysis.CostBreakdown.OutputCostUSD, 17.5)
-	assertAnalysisCostClose(t, analysis.CostBreakdown.CachedCostUSD, 1.51)
 	assertAnalysisCostClose(t, analysis.CostBreakdown.TotalCostUSD, 31.41)
 	if !analysis.CostBreakdown.CostAvailable {
 		t.Fatalf("expected aggregate cost to be available, got %+v", analysis.CostBreakdown)
@@ -299,7 +301,7 @@ func TestBuildAnalysisWithFilterCalculatesCostInsightsFromOverviewStats(t *testi
 	if len(analysis.Heatmap) != 2 {
 		t.Fatalf("expected two heatmap cells, got %+v", analysis.Heatmap)
 	}
-	if analysis.Heatmap[0].Model != "claude-sonnet" || analysis.Heatmap[0].InputTokens != 1_300_000 || analysis.Heatmap[0].OutputTokens != 500_000 || analysis.Heatmap[0].CachedTokens != 200_000 {
+	if analysis.Heatmap[0].Model != "claude-sonnet" || analysis.Heatmap[0].InputTokens != 1_300_000 || analysis.Heatmap[0].OutputTokens != 500_000 || analysis.Heatmap[0].CacheReadTokens != 200_000 || analysis.Heatmap[0].CacheCreationTokens != 100_000 {
 		t.Fatalf("expected heatmap token detail for claude, got %+v", analysis.Heatmap[0])
 	}
 	assertAnalysisCostClose(t, analysis.Heatmap[0].CostUSD, 21.45)
@@ -311,12 +313,12 @@ func TestBuildAnalysisWithFilterCalculatesCostInsightsFromOverviewStats(t *testi
 	}
 	assertAnalysisCostClose(t, analysis.ModelEfficiency[0].CostPerRequestUSD, 21.45)
 	assertAnalysisCostClose(t, analysis.ModelEfficiency[0].OutputTokensPerRequest, 500_000)
-	assertAnalysisCostClose(t, analysis.ModelEfficiency[0].CacheRate, 200_000.0/1_300_000.0)
+	assertAnalysisCostClose(t, analysis.ModelEfficiency[0].CacheReadRate, 200_000.0/1_300_000.0)
 	if analysis.ModelEfficiency[1].Model != "gpt-4o" {
 		t.Fatalf("expected second model efficiency row for gpt-4o, got %+v", analysis.ModelEfficiency)
 	}
 	assertAnalysisCostClose(t, analysis.ModelEfficiency[1].OutputTokensPerRequest, 250_000)
-	if analysis.ModelEfficiency[0].OutputTokensPerRequest == 0 || analysis.ModelEfficiency[0].CacheRate == 0 {
+	if analysis.ModelEfficiency[0].OutputTokensPerRequest == 0 || analysis.ModelEfficiency[0].CacheReadRate == 0 {
 		t.Fatalf("unexpected model efficiency metrics: %+v", analysis.ModelEfficiency[0])
 	}
 }

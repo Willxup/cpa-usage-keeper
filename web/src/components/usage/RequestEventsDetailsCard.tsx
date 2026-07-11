@@ -20,7 +20,7 @@ import { Select } from '@/components/ui/Select';
 import { IconCheck, IconChevronDown, IconCopy, IconDownload, IconScrollText } from '@/components/ui/icons';
 import type { UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption } from '@/lib/types';
 import {
-  calculateCacheRate,
+  calculateCacheReadRate,
   formatDurationMs,
   formatUsd,
   LATENCY_SOURCE_FIELD,
@@ -60,8 +60,9 @@ export const REQUEST_EVENT_COLUMN_IDS = [
   'input_tokens',
   'output_tokens',
   'reasoning_tokens',
-  'cached_tokens',
-  'cache_rate',
+  'cache_read_tokens',
+  'cache_creation_tokens',
+  'cache_read_rate',
   'total_tokens',
   'total_cost',
 ] as const;
@@ -149,9 +150,10 @@ type RequestEventRow = {
   inputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
-  cachedTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
   totalTokens: number;
-  cacheRate: string;
+  cacheReadRate: string;
   cost: number | null;
   costAvailable: boolean;
 };
@@ -323,8 +325,8 @@ const formatRequestEventTimestamp = (timestamp: string): string => {
   return `${match[1]}/${match[2]}/${match[3]} ${match[4]}:${match[5]}:${match[6]}`;
 };
 
-const formatCacheRate = (cachedTokens: number, inputTokens: number): string => {
-  const rate = calculateCacheRate({ inputTokens, cachedTokens });
+const formatCacheReadRate = (cacheReadTokens: number, inputTokens: number): string => {
+  const rate = calculateCacheReadRate({ inputTokens, cacheReadTokens });
   return rate === null ? '-' : `${rate.toFixed(2)}%`;
 };
 
@@ -941,7 +943,8 @@ export function RequestEventsDetailsCard({
       const inputTokens = Math.max(toNumber(event.tokens?.input_tokens), 0);
       const outputTokens = Math.max(toNumber(event.tokens?.output_tokens), 0);
       const reasoningTokens = Math.max(toNumber(event.tokens?.reasoning_tokens), 0);
-      const cachedTokens = Math.max(toNumber(event.tokens?.cached_tokens), 0);
+      const cacheReadTokens = Math.max(toNumber(event.tokens?.cache_read_tokens), 0);
+      const cacheCreationTokens = Math.max(toNumber(event.tokens?.cache_creation_tokens), 0);
       const totalTokens = Math.max(toNumber(event.tokens?.total_tokens), 0);
       const latencyMs = Number.isFinite(event.latency_ms) ? event.latency_ms : null;
       const ttftMs = Number.isFinite(event.ttft_ms) ? event.ttft_ms as number : null;
@@ -976,9 +979,10 @@ export function RequestEventsDetailsCard({
         inputTokens,
         outputTokens,
         reasoningTokens,
-        cachedTokens,
+        cacheReadTokens,
+        cacheCreationTokens,
         totalTokens,
-        cacheRate: formatCacheRate(cachedTokens, inputTokens),
+        cacheReadRate: formatCacheReadRate(cacheReadTokens, inputTokens),
         cost,
         costAvailable,
       };
@@ -1213,16 +1217,22 @@ export function RequestEventsDetailsCard({
         renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.reasoningTokens.toLocaleString()}</td>,
       },
       {
-        id: 'cached_tokens',
-        label: t('usage_stats.cached_tokens'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.cached_tokens')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.cachedTokens.toLocaleString()}</td>,
+        id: 'cache_read_tokens',
+        label: t('usage_stats.cache_read_tokens'),
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.cache_read_tokens')}</th>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.cacheReadTokens.toLocaleString()}</td>,
       },
       {
-        id: 'cache_rate',
+        id: 'cache_creation_tokens',
+        label: t('usage_stats.cache_creation_tokens'),
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.cache_creation_tokens')}</th>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.cacheCreationTokens.toLocaleString()}</td>,
+      },
+      {
+        id: 'cache_read_rate',
         label: t('usage_stats.cache_rate'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.cache_rate')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.cacheRate}</td>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.cacheReadRate}</td>,
       },
       {
         id: 'total_tokens',

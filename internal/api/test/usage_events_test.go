@@ -205,7 +205,6 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 		InputTokens:         10,
 		OutputTokens:        61,
 		ReasoningTokens:     2,
-		CachedTokens:        1,
 		CacheReadTokens:     3,
 		CacheCreationTokens: 4,
 		TotalTokens:         18,
@@ -250,7 +249,7 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	if !contains(body, `"timestamp":"2026-04-22T19:00:00+08:00"`) {
 		t.Fatalf("expected project timezone timestamp in response body: %s", body)
 	}
-	if !contains(body, `"cache_read_tokens":3`) || !contains(body, `"cache_creation_tokens":4`) {
+	if contains(body, `"cached_tokens"`) || !contains(body, `"cache_read_tokens":3`) || !contains(body, `"cache_creation_tokens":4`) {
 		t.Fatalf("expected cache token fields in response body: %s", body)
 	}
 	if !contains(body, `"reasoning_effort":"medium"`) {
@@ -681,7 +680,6 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 		InputTokens:         10,
 		OutputTokens:        61,
 		ReasoningTokens:     2,
-		CachedTokens:        1,
 		CacheReadTokens:     3,
 		CacheCreationTokens: 4,
 		TotalTokens:         18,
@@ -733,6 +731,9 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 	if !contains(body, "cpa_api_key_id") || !contains(body, "auth_index") || !contains(body, "model_alias") || !contains(body, "executor_type") || !contains(body, "is_identity_deleted") {
 		t.Fatalf("expected cpa_api_key_id, auth_index, model_alias, executor_type, and is_identity_deleted columns, got %s", body)
 	}
+	if !contains(body, "cache_read_tokens,cache_creation_tokens,cache_read_rate") || !contains(body, ",3,4,30,") || contains(body, "cached_tokens") {
+		t.Fatalf("expected canonical cache token fields in csv export, got %s", body)
+	}
 	if !regexp.MustCompile(`(?m)^id,timestamp,api_key,cpa_api_key_id,source,source_type,auth_index,is_identity_deleted,model,model_alias,reasoning_effort,`).MatchString(body) {
 		t.Fatalf("expected model_alias to follow model in csv header, got %s", body)
 	}
@@ -749,24 +750,26 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 
 func TestUsageEventsExportJSONIncludesAllExportFields(t *testing.T) {
 	provider := &usageEventsStub{events: []servicedto.UsageEventRecord{{
-		ID:            53,
-		Timestamp:     time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
-		APIGroupKey:   "sk-json-export",
-		Model:         "gpt-5",
-		ModelAlias:    "gpt-json-alias",
-		ServiceTier:   "default",
-		ExecutorType:  "chat_completions",
-		Endpoint:      "GET /v1/responses",
-		AuthType:      "oauth",
-		Source:        "claude-code",
-		AuthIndex:     "auth-file-export",
-		Failed:        false,
-		LatencyMS:     300,
-		InputTokens:   9,
-		OutputTokens:  5,
-		TotalTokens:   14,
-		CostAvailable: true,
-		PricingStyle:  "openai",
+		ID:                  53,
+		Timestamp:           time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
+		APIGroupKey:         "sk-json-export",
+		Model:               "gpt-5",
+		ModelAlias:          "gpt-json-alias",
+		ServiceTier:         "default",
+		ExecutorType:        "chat_completions",
+		Endpoint:            "GET /v1/responses",
+		AuthType:            "oauth",
+		Source:              "claude-code",
+		AuthIndex:           "auth-file-export",
+		Failed:              false,
+		LatencyMS:           300,
+		InputTokens:         9,
+		OutputTokens:        5,
+		CacheReadTokens:     3,
+		CacheCreationTokens: 4,
+		TotalTokens:         14,
+		CostAvailable:       true,
+		PricingStyle:        "openai",
 	}}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{
 		CPAAPIKeys: &authCPAAPIKeyStub{row: entities.CPAAPIKey{
@@ -801,6 +804,9 @@ func TestUsageEventsExportJSONIncludesAllExportFields(t *testing.T) {
 	}
 	if !contains(body, `"cpa_api_key_id":"9"`) || !contains(body, `"source_type":""`) || !contains(body, `"reasoning_effort":""`) || !contains(body, `"ttft_ms":null`) || !contains(body, `"speed_tps":null`) {
 		t.Fatalf("expected json export to keep a stable field set, got %s", body)
+	}
+	if contains(body, `"cached_tokens"`) || !contains(body, `"cache_read_tokens":3`) || !contains(body, `"cache_creation_tokens":4`) || !contains(body, `"cache_read_rate":33.33333333333333`) {
+		t.Fatalf("expected canonical cache token fields in json export, got %s", body)
 	}
 	if contains(body, `"is_deleted"`) {
 		t.Fatalf("expected json export to use is_identity_deleted instead of is_deleted, got %s", body)

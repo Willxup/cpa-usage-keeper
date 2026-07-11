@@ -36,12 +36,12 @@ func TestUsageServiceGetUsageOverviewDelegatesToFilteredOverview(t *testing.T) {
 		Model:                "claude-sonnet",
 		PromptPricePer1M:     3,
 		CompletionPricePer1M: 15,
-		CachePricePer1M:      0.3,
+		CacheReadPricePer1M:  0.3,
 	}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
-		{EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), InputTokens: 1000, OutputTokens: 500, CachedTokens: 100, ReasoningTokens: 50, TotalTokens: 1650},
+		{EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), InputTokens: 1000, OutputTokens: 500, CachedTokens: 100, CacheReadTokens: 100, ReasoningTokens: 50, TotalTokens: 1650},
 		{EventKey: "event-2", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), InputTokens: 500, OutputTokens: 250, CachedTokens: 0, ReasoningTokens: 25, TotalTokens: 775},
 	}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
@@ -314,7 +314,7 @@ func TestUsageServiceViewerScopeForcesAPIKeyAndAuthFileFilters(t *testing.T) {
 		t.Fatalf("create colliding usage identities: %v", err)
 	}
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
-		{EventKey: "viewer-allowed", APIGroupKey: "viewer-key", AuthType: "oauth", AuthIndex: "auth-allowed", Model: "allowed-model", Timestamp: start.Add(30 * time.Minute), TotalTokens: 10},
+		{EventKey: "viewer-allowed", APIGroupKey: "viewer-key", AuthType: "oauth", AuthIndex: "auth-allowed", Model: "allowed-model", Timestamp: start.Add(30 * time.Minute), CacheReadTokens: 7, CacheCreationTokens: 8, TotalTokens: 10},
 		// CPA 的 OAuth/Auth Provider 可以复用 auth_index；Viewer 不能因索引相同而读到 Provider API Key 流量。
 		{EventKey: "viewer-provider-collision", APIGroupKey: "viewer-key", AuthType: "apikey", AuthIndex: "auth-allowed", Model: "provider-collision-model", Timestamp: start.Add(32 * time.Minute), TotalTokens: 500},
 		{EventKey: "viewer-denied-auth", APIGroupKey: "viewer-key", AuthType: "oauth", AuthIndex: "auth-denied", Model: "denied-model", Timestamp: start.Add(35 * time.Minute), TotalTokens: 100},
@@ -344,7 +344,7 @@ func TestUsageServiceViewerScopeForcesAPIKeyAndAuthFileFilters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetAnalysis returned error: %v", err)
 	}
-	if len(analysis.ModelComposition) != 1 || analysis.ModelComposition[0].Key != "allowed-model" || analysis.ModelComposition[0].TotalTokens != 10 {
+	if len(analysis.ModelComposition) != 1 || analysis.ModelComposition[0].Key != "allowed-model" || analysis.ModelComposition[0].TotalTokens != 10 || analysis.ModelComposition[0].CacheReadTokens != 7 || analysis.ModelComposition[0].CacheCreationTokens != 8 {
 		t.Fatalf("expected analysis to expose only allowed model data, got %+v", analysis.ModelComposition)
 	}
 	if len(analysis.AuthFilesComposition) != 1 || analysis.AuthFilesComposition[0].Key != "auth-allowed" || len(analysis.AIProviderComposition) != 0 {

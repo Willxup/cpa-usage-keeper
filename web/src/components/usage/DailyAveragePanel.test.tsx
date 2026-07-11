@@ -20,7 +20,8 @@ const usageWithDailyAverages: UsageOverviewPayload = {
     total_cost: 56.47,
     cost_available: false,
     input_tokens: 52340000,
-    cached_tokens: 46850000,
+    cache_read_tokens: 46850000,
+    cache_creation_tokens: 0,
     reasoning_tokens: 97390,
     daily_average_requests: 65.9,
     daily_average_tokens: 7512857,
@@ -33,7 +34,7 @@ const usageWithDailyAverages: UsageOverviewPayload = {
     rpm: {},
     tpm: {},
     cost: {},
-    cache_rate: {},
+    cache_read_rate: {},
   },
 };
 

@@ -29,16 +29,16 @@ export const pricingToModelPrice = (entry: PricingEntry): ModelPrice => ({
   style: normalizePricingStyle(entry.pricing_style),
   prompt: entry.prompt_price_per_1m,
   completion: entry.completion_price_per_1m,
-  cache: entry.cache_price_per_1m,
-  cacheCreation: entry.cache_creation_price_per_1m ?? 0,
+  cacheRead: entry.cache_read_price_per_1m,
+  cacheWrite: entry.cache_write_price_per_1m,
   multiplier: Number.isFinite(entry.price_multiplier) && entry.price_multiplier >= 0 ? entry.price_multiplier : 1,
 });
 
 const modelPriceToPricingEntry = (pricing: ModelPrice): Omit<PricingEntry, 'model'> => ({
   prompt_price_per_1m: pricing.prompt,
   completion_price_per_1m: pricing.completion,
-  cache_price_per_1m: pricing.cache,
-  cache_creation_price_per_1m: pricing.cacheCreation,
+  cache_read_price_per_1m: pricing.cacheRead,
+  cache_write_price_per_1m: pricing.cacheWrite,
   price_multiplier: pricing.multiplier,
   pricing_style: pricing.style,
 });

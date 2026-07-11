@@ -1,5 +1,5 @@
 import type { UsageCredentialHealth, UsageIdentity, UsageQuotaCheckResponse, UsageQuotaRow } from '@/lib/types'
-import { calculateCacheRate, formatCompactTokenValue } from '@/utils/usage'
+import { calculateCacheReadRate, formatCompactTokenValue } from '@/utils/usage'
 
 export const CREDENTIALS_PAGE_SIZE = 10
 const FIVE_HOUR_WINDOW_SECONDS = 5 * 60 * 60
@@ -54,7 +54,7 @@ export interface AuthFileCredentialRow {
   failureCount: number
   successRate: number | null
   totalTokens: number
-  cacheRate: number | null
+  cacheReadRate: number | null
   quota: UsageQuotaRow[]
   quotaResetCreditsAvailableCount?: number | null
   quotaLoading: boolean
@@ -78,7 +78,7 @@ export interface AiProviderCredentialRow {
   failureCount: number
   successRate: number | null
   totalTokens: number
-  cacheRate: number | null
+  cacheReadRate: number | null
   lastUsedText?: string
   statsUpdatedText?: string
   credentialHealth?: UsageCredentialHealth
@@ -158,7 +158,7 @@ export function buildAuthFileCredentialRows(
       failureCount: safeNumber(identity.failure_count),
       successRate: successRate(identity),
       totalTokens: safeNumber(identity.total_tokens),
-      cacheRate: cacheRate(identity),
+      cacheReadRate: cacheReadRate(identity),
       quota,
       quotaResetCreditsAvailableCount: quotaResponse?.rateLimitResetCreditsAvailableCount,
       quotaLoading: state?.quotaLoading ?? false,
@@ -185,7 +185,7 @@ export function buildAiProviderCredentialRows(identities: UsageIdentity[]): AiPr
     failureCount: safeNumber(identity.failure_count),
     successRate: successRate(identity),
     totalTokens: safeNumber(identity.total_tokens),
-    cacheRate: cacheRate(identity),
+    cacheReadRate: cacheReadRate(identity),
     lastUsedText: identity.last_used_at,
     statsUpdatedText: identity.stats_updated_at,
     credentialHealth: identity.credential_health,
@@ -500,10 +500,10 @@ function successRate(identity: UsageIdentity): number | null {
   return (safeNumber(identity.success_count) / total) * 100
 }
 
-function cacheRate(identity: UsageIdentity): number | null {
-  return calculateCacheRate({
+function cacheReadRate(identity: UsageIdentity): number | null {
+  return calculateCacheReadRate({
     inputTokens: identity.input_tokens,
-    cachedTokens: identity.cached_tokens,
+    cacheReadTokens: identity.cache_read_tokens,
   })
 }
 

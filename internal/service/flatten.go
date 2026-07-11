@@ -8,10 +8,10 @@ import (
 )
 
 // NormalizeUsageEventTokens 是 Redis usage 入库前的唯一 token 口径归一化入口。
-// Keeper 统一按 Codex/OpenAI Responses 格式存储 token：input_tokens 包含 cached_tokens，
-// output_tokens 包含 reasoning_tokens；cached_tokens 和 reasoning_tokens 只是各自的明细子项。
-// 后续统计、成本和前端可见 token 展示都依赖这个统一口径：visible input = input - cached，
-// visible output = output - reasoning。
+// Keeper 统一按 Codex/OpenAI Responses 格式存储 token：input_tokens 包含缓存读取和写入，
+// output_tokens 包含 reasoning_tokens；cache_read_tokens 表示缓存读取，cached_tokens 保留 CPA 原值，
+// cache_creation_tokens 表示缓存写入。后续成本按 input-read-write 拆出普通输入，输出展示按
+// output-reasoning 拆出普通输出。
 func NormalizeUsageEventTokens(event entities.UsageEvent, usageType string) entities.UsageEvent {
 	tokens := normalizeUsageTokensByType(usageEventTokenStats(event), usageType)
 	event.InputTokens = tokens.InputTokens
@@ -37,25 +37,43 @@ func usageEventTokenStats(event entities.UsageEvent) dto.TokenStats {
 }
 
 func normalizeUsageTokensByType(tokens dto.TokenStats, usageType string) dto.TokenStats {
-	switch strings.ToLower(strings.TrimSpace(usageType)) {
+	normalizedType := strings.ToLower(strings.TrimSpace(usageType))
+	var normalized dto.TokenStats
+
+	switch normalizedType {
 	case "claude", "anthropic":
 		return normalizeClaudeTokens(tokens)
-	case "gemini", "vertex", "gemini-cli", "gemini-cli-code-assist", "aistudio", "ai-studio":
-		return normalizeGeminiTokens(tokens)
+	case "gemini", "vertex", "gemini-cli", "gemini-cli-code-assist", "gemini-interactions", "aistudio", "ai-studio":
+		normalized = normalizeGeminiTokens(tokens)
 	case "antigravity":
-		return normalizeAntigravityTokens(tokens)
+		normalized = normalizeAntigravityTokens(tokens)
 	case "kimi", "moonshot":
-		return normalizeKimiTokens(tokens)
+		normalized = normalizeKimiTokens(tokens)
 	case "xai":
-		return normalizeXAIStyleTokens(tokens)
+		normalized = normalizeXAIStyleTokens(tokens)
 	case "codex":
-		return normalizeCodexTokens(tokens)
+		normalized = normalizeCodexTokens(tokens)
 	// CPA OpenAI Compatibility metadata 当前会落成 type=openai，因此 openai 也走兼容口径。
-	case "openai", "openai-compatible", "openai_compatibility":
-		return normalizeOpenAICompatibilityTokens(tokens)
+	case "openai", "openai-compatible", "openai_compatibility", "openai-compatibility":
+		normalized = normalizeOpenAICompatibilityTokens(tokens)
 	default:
-		return normalizeDefaultTokens(tokens)
+		if strings.HasPrefix(normalizedType, "openai-compatible-") {
+			normalized = normalizeOpenAICompatibilityTokens(tokens)
+		} else {
+			normalized = normalizeDefaultTokens(tokens)
+		}
 	}
+	return normalizeCacheReadTokenAliases(normalized)
+}
+
+func normalizeCacheReadTokenAliases(tokens dto.TokenStats) dto.TokenStats {
+	tokens = clampTokenStats(tokens)
+	cacheReadTokens := tokens.CacheReadTokens
+	if cacheReadTokens == 0 {
+		cacheReadTokens = tokens.CachedTokens
+	}
+	tokens.CacheReadTokens = cacheReadTokens
+	return fillCodexStyleTotalTokens(tokens)
 }
 
 func normalizeClaudeTokens(tokens dto.TokenStats) dto.TokenStats {
@@ -138,7 +156,7 @@ func fillCodexStyleTotalTokens(tokens dto.TokenStats) dto.TokenStats {
 		tokens.TotalTokens = tokens.InputTokens + tokens.OutputTokens
 	}
 	if tokens.TotalTokens == 0 {
-		tokens.TotalTokens = tokens.CachedTokens
+		tokens.TotalTokens = tokens.CacheReadTokens
 	}
 	return tokens
 }

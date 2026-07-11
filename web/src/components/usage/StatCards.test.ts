@@ -18,7 +18,8 @@ const usageWithBackendSummary: UsageOverviewPayload = {
     total_cost: 1.234,
     cost_available: true,
     input_tokens: 220,
-    cached_tokens: 22,
+    cache_read_tokens: 22,
+    cache_creation_tokens: 11,
     reasoning_tokens: 33,
   },
   series: {
@@ -27,7 +28,7 @@ const usageWithBackendSummary: UsageOverviewPayload = {
     rpm: {},
     tpm: {},
     cost: {},
-    cache_rate: {},
+    cache_read_rate: {},
   },
 };
 
@@ -43,10 +44,11 @@ describe('buildStatCardMetrics', () => {
     expect(metrics.rateStats.rpm).toBe(0.025);
     expect(metrics.rateStats.tpm).toBe(6.475);
     expect(metrics.requestStats.successRate).toBeCloseTo(88.8888888889);
-    expect(metrics.tokenBreakdown.cachedTokens).toBe(22);
+    expect(metrics.tokenBreakdown.cacheReadTokens).toBe(22);
+    expect(metrics.tokenBreakdown.cacheCreationTokens).toBe(11);
     expect(metrics.tokenBreakdown.reasoningTokens).toBe(33);
-    expect(metrics.cacheRateStats.cachedRate).toBe(10);
-    expect(metrics.cacheRateStats.inputTokens).toBe(220);
+    expect(metrics.cacheReadRateStats.cacheReadRate).toBe(10);
+    expect(metrics.cacheReadRateStats.inputTokens).toBe(220);
     expect(metrics.totalCost).toBe(1.234);
   });
 
@@ -61,8 +63,8 @@ describe('buildStatCardMetrics', () => {
       },
     });
 
-    expect(metrics.cacheRateStats.cachedRate).toBeNull();
-    expect(metrics.cacheRateStats.inputTokens).toBe(0);
+    expect(metrics.cacheReadRateStats.cacheReadRate).toBeNull();
+    expect(metrics.cacheReadRateStats.inputTokens).toBe(0);
   });
 
   it('keeps success rate empty when total requests are missing', () => {

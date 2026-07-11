@@ -31,7 +31,6 @@ type usageWindowTokenStats struct {
 	TotalTokens         int64  `gorm:"column:total_tokens"`
 	InputTokens         int64  `gorm:"column:input_tokens"`
 	OutputTokens        int64  `gorm:"column:output_tokens"`
-	CachedTokens        int64  `gorm:"column:cached_tokens"`
 	CacheReadTokens     int64  `gorm:"column:cache_read_tokens"`
 	CacheCreationTokens int64  `gorm:"column:cache_creation_tokens"`
 }
@@ -212,7 +211,7 @@ func sumRawUsageWindowTokenStats(db *gorm.DB, authIndex string, start time.Time,
 	// raw 查询只取 model_alias/model 级汇总字段，避免把大量 usage_events 行读进 Go 内存。
 	query := db.Model(&entities.UsageEvent{}).
 		// SELECT 中只聚合 token/cost 需要的字段，不读取 raw_json 等大字段。
-		Select("model, COALESCE(model_alias, '') AS model_alias, COALESCE(SUM(total_tokens), 0) AS total_tokens, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(cached_tokens), 0) AS cached_tokens, COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens, COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens").
+		Select("model, COALESCE(model_alias, '') AS model_alias, COALESCE(SUM(total_tokens), 0) AS total_tokens, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens, COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens").
 		// auth_index 已经是唯一身份维度，这里不再额外按 auth_type 过滤。
 		Where("auth_index = ? AND timestamp >= ?", authIndex, timeutil.FormatStorageTime(start)).
 		// 按 model_alias/model 分组保留现有聚合边界，后续 cost 先按真实 model、再按 alias 回退。
@@ -237,7 +236,7 @@ func sumHourlyUsageWindowTokenStats(db *gorm.DB, authIndex string, start time.Ti
 	// hourly 查询直接读取 overview 已经维护好的小时增量表。
 	query := db.Model(&entities.UsageOverviewHourlyStat{}).
 		// SELECT 中聚合 token/cost 需要的字段，保持和 raw 查询返回结构一致。
-		Select("model, model_alias, COALESCE(SUM(total_tokens), 0) AS total_tokens, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(cached_tokens), 0) AS cached_tokens, COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens, COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens").
+		Select("model, model_alias, COALESCE(SUM(total_tokens), 0) AS total_tokens, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens, COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens").
 		// auth_index + bucket_start 范围可以使用现有 hourly auth_bucket 索引。
 		Where("auth_index = ? AND bucket_start >= ? AND bucket_start < ?", authIndex, timeutil.FormatStorageTime(start), timeutil.FormatStorageTime(end)).
 		// 按 model_alias/model 分组保留现有聚合边界，后续 cost 先按真实 model、再按 alias 回退。
@@ -267,15 +266,13 @@ func mergeUsageWindowTokenStats(merged map[usageWindowTokenStatsKey]usageWindowT
 		current.ModelAlias = modelAlias
 		// 累加 total_tokens，用于前端 token 展示。
 		current.TotalTokens += row.TotalTokens
-		// 累加 input_tokens，用于 prompt/cached 成本拆分。
+		// 累加 input_tokens，用于普通输入、缓存读取和缓存写入成本拆分。
 		current.InputTokens += row.InputTokens
 		// 累加 output_tokens，用于 completion 成本计算。
 		current.OutputTokens += row.OutputTokens
-		// 累加 cached_tokens，用于 cache 成本计算并从 prompt 中扣除。
-		current.CachedTokens += row.CachedTokens
-		// 累加 Claude cache read 明细，用于 Claude 风格价格计算。
+		// 累加 cache read 明细，所有价格风格都按统一四段 token 事实计价。
 		current.CacheReadTokens += row.CacheReadTokens
-		// 累加 Claude cache creation/write 明细，用于 Claude 风格价格计算。
+		// 累加 cache creation/write 明细，缺失时自然保持为 0。
 		current.CacheCreationTokens += row.CacheCreationTokens
 		// 把合并后的 model_alias/model 统计写回 map。
 		merged[key] = current
@@ -308,7 +305,6 @@ func usageWindowStatsFromTokenStats(rows []usageWindowTokenStats, costResolver *
 			Tokens: helper.UsageTokenCostInput{
 				InputTokens:         row.InputTokens,
 				OutputTokens:        row.OutputTokens,
-				CachedTokens:        row.CachedTokens,
 				CacheReadTokens:     row.CacheReadTokens,
 				CacheCreationTokens: row.CacheCreationTokens,
 			},

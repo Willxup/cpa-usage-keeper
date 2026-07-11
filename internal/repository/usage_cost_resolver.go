@@ -79,7 +79,6 @@ func (r *UsageCostResolver) CalculateEvent(event entities.UsageEvent) UsageCostR
 		Tokens: helper.UsageTokenCostInput{
 			InputTokens:         event.InputTokens,
 			OutputTokens:        event.OutputTokens,
-			CachedTokens:        event.CachedTokens,
 			CacheReadTokens:     event.CacheReadTokens,
 			CacheCreationTokens: event.CacheCreationTokens,
 		},

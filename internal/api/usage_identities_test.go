@@ -79,6 +79,7 @@ func TestUsageIdentitiesRouteReturnsMetadataStatsAndActiveRows(t *testing.T) {
 		OutputTokens:               200,
 		ReasoningTokens:            30,
 		CachedTokens:               40,
+		CacheReadTokens:            45,
 		TotalTokens:                370,
 		LastAggregatedUsageEventID: 99,
 		FirstUsedAt:                &firstUsedAt,
@@ -135,7 +136,7 @@ func TestUsageIdentitiesRouteReturnsMetadataStatsAndActiveRows(t *testing.T) {
 		`"input_tokens":100`,
 		`"output_tokens":200`,
 		`"reasoning_tokens":30`,
-		`"cached_tokens":40`,
+		`"cache_read_tokens":45`,
 		`"total_tokens":370`,
 		`"last_aggregated_usage_event_id":"99"`,
 		`"first_used_at":"2026-05-04T08:00:00Z"`,
@@ -146,6 +147,9 @@ func TestUsageIdentitiesRouteReturnsMetadataStatsAndActiveRows(t *testing.T) {
 		if !contains(body, expected) {
 			t.Fatalf("expected %s in response body: %s", expected, body)
 		}
+	}
+	if contains(body, `"cached_tokens"`) {
+		t.Fatalf("did not expect legacy cached_tokens in response body: %s", body)
 	}
 }
 
