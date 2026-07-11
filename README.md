@@ -22,7 +22,7 @@ It relies on [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) a
 - Filter usage details by time range, model, API Key, source, and request result
 - Request Events for per-request details, filtering, pagination, export, and customizable display
 - Analysis page for usage trends, cost analysis, model/API Key/AI Provider composition, and hourly heatmaps
-- Standalone API Key usage page for querying usage by CPA API Key
+- Read-only API Key dashboard for Overview, Analysis, Request Events, and Auth Files scoped by API Key and permitted auth files
 - Credentials page for Auth File and AI Provider usage, with quota lookup, refresh, inspection, and sorting
 - Provider quota window usage and quota display across supported providers
 - Maintain model prices for cost estimation and reporting
@@ -281,6 +281,17 @@ For CPAMC frame trust, `CPA_PUBLIC_URL` must be an explicit `http://` or `https:
 | `AUTH_ENABLED` | No | `false` | Enable login protection |
 | `LOGIN_PASSWORD` | When auth is enabled | - | Login password |
 | `AUTH_SESSION_TTL` | No | `168h` | Login session lifetime |
+
+### API Key Auth File Visibility Scope
+
+When login protection is enabled, an administrator can open **Settings → API Key Settings** in the Dashboard and set **Visible auth files** for each CPA API Key. Select one or more current auth files from the dropdown; no manual filename entry is required.
+
+- API Key viewers can access only the read-only Overview, Analysis, Request Events, and Auth Files pages.
+- Every query is forced to the logged-in API Key and OAuth events for its permitted auth files; browser parameters cannot expand the scope.
+- The Auth Files page can read cached quota data only. It cannot refresh or inspect quotas, reset quota, edit aliases, or read raw request logs.
+- Saving an empty scope immediately denies Viewer access for that API Key. If CPA deletes or renames an auth file, access is denied until an administrator updates the scope.
+
+The scope is stored in Keeper's SQLite database as auth-file names and resolved to the current `auth_index` for each request, so a CPA auth-file reload that changes an index does not require re-authorizing it.
 
 ### Timezone And Request Behavior
 

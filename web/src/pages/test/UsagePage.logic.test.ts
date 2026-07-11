@@ -693,6 +693,15 @@ describe('UsagePage tab labels', () => {
       'translated:usage_stats.tab_settings',
     ]);
   });
+
+  it('limits API Key viewers to read-only data tabs', () => {
+    expect(getUsageTabOptions((key) => key, true).map((option) => option.value)).toEqual([
+      'overview',
+      'analysis',
+      'events',
+      'auth-files',
+    ]);
+  });
 });
 
 describe('UsagePage credentials tab migration', () => {

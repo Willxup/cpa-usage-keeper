@@ -24,6 +24,7 @@ interface CredentialResetState {
 interface UseCredentialsTabDataOptions {
   enabledAuthFiles: boolean
   enabledAiProviders: boolean
+  readOnly?: boolean
   onAuthRequired?: () => void
   onNotice?: (kind: 'success' | 'info' | 'error', message: string) => void
 }
@@ -73,7 +74,7 @@ export interface CredentialsTabData {
   startQuotaInspection: () => Promise<void>
 }
 
-export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, onAuthRequired, onNotice }: UseCredentialsTabDataOptions): CredentialsTabData {
+export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, readOnly = false, onAuthRequired, onNotice }: UseCredentialsTabDataOptions): CredentialsTabData {
   const credentialPages = useCredentialPages({ enabledAuthFiles, enabledAiProviders, onAuthRequired })
   const currentAuthIndexes = useMemo(
     () => selectQuotaEligibleAuthIndexes(credentialPages.authFileIdentities),
@@ -85,7 +86,7 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
     onAuthRequired,
   })
   const quotaRefreshTasks = useQuotaRefreshTasks({
-    enabled: enabledAuthFiles,
+    enabled: enabledAuthFiles && !readOnly,
     currentAuthIndexes,
     setQuotaResponseByAuthIndex,
     onAuthRequired,
@@ -94,7 +95,7 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
   const [quotaResetStateByAuthIndex, setQuotaResetStateByAuthIndex] = useState<Record<string, CredentialResetState>>({})
   const [aliasSavingId, setAliasSavingId] = useState('')
   const quotaInspection = useQuotaInspection({
-    enabled: enabledAuthFiles,
+    enabled: enabledAuthFiles && !readOnly,
     onAuthRequired,
     onInspectionCompleted: refreshQuotaCache,
   })

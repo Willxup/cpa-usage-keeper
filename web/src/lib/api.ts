@@ -1,4 +1,4 @@
-import { type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type KeyOverviewTimeRange, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingSyncPreviewResponse, type QuotaAutoRefreshSettings, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
+import { type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CpaApiKeyAuthFileScopesResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type KeyOverviewTimeRange, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingSyncPreviewResponse, type QuotaAutoRefreshSettings, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
 import { isCPAMCEmbed } from '@/embed/cpamcEmbed'
 
 export class ApiError extends Error {
@@ -699,6 +699,28 @@ export async function updateCpaApiKeyAlias(id: string, keyAlias: string): Promis
   })
   if (!response.ok) {
     await parseApiError(response, `Failed to update CPA API key alias: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchCpaApiKeyAuthFileScopes(id: string, signal?: AbortSignal): Promise<CpaApiKeyAuthFileScopesResponse> {
+  const response = await apiFetch(apiPath(`/usage/api-keys/${encodeURIComponent(id)}/auth-file-scopes`), { signal, cache: 'no-store' })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load CPA API key auth file scopes: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function updateCpaApiKeyAuthFileScopes(id: string, authFileNames: string[]): Promise<CpaApiKeyAuthFileScopesResponse> {
+  const response = await apiFetch(apiPath(`/usage/api-keys/${encodeURIComponent(id)}/auth-file-scopes`), {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ authFileNames }),
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to update CPA API key auth file scopes: ${response.status}`)
   }
   return response.json()
 }

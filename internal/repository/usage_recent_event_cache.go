@@ -608,6 +608,14 @@ func recentUsageEventToEntity(event RecentUsageEvent) entities.UsageEvent {
 		CacheCreationTokens: event.CacheCreationTokens,
 		TotalTokens:         event.TotalTokens,
 	}
+	// 缓存未保留原始 auth_type，但 fallback kind 已在写入时按 auth_type 解析。
+	// 恢复为标准类型后，Auth File Viewer 可以对缓存事件执行和 DB 一致的安全过滤。
+	switch event.IdentityFallbackKind {
+	case RecentUsageIdentityAuthFile:
+		result.AuthType = "oauth"
+	case RecentUsageIdentityAIProvider:
+		result.AuthType = "apikey"
+	}
 	if modelAlias := strings.TrimSpace(event.ModelAlias); modelAlias != "" {
 		result.ModelAlias = &modelAlias
 	}

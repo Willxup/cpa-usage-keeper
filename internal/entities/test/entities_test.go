@@ -18,6 +18,7 @@ func TestAllIncludesCoreModels(t *testing.T) {
 		&ModelPriceSetting{},
 		&UsageIdentity{},
 		&CPAAPIKey{},
+		&APIKeyAuthFileScope{},
 		&UsageOverviewHourlyStat{},
 		&UsageOverviewDailyStat{},
 		&UsageOverviewHealthStat{},

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"cpa-usage-keeper/internal/accessscope"
 	"cpa-usage-keeper/internal/quota"
 	"github.com/gin-gonic/gin"
 )
@@ -18,6 +19,9 @@ const quotaResetErrorFailed = "quota_reset_failed"
 
 func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 	router.GET("/quota/auto-refresh/settings", func(c *gin.Context) {
+		if rejectViewerQuotaMutation(c) {
+			return
+		}
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)
 			return
@@ -38,6 +42,9 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 	})
 
 	router.PUT("/quota/auto-refresh/settings", func(c *gin.Context) {
+		if rejectViewerQuotaMutation(c) {
+			return
+		}
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)
 			return
@@ -79,6 +86,10 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_indexes are required"})
 			return
 		}
+		if !viewerScopeAllowsQuotaAuthIndexes(c, request.AuthIndexes) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
 
 		response, err := provider.GetCachedQuota(c.Request.Context(), quota.CacheRequest{AuthIndexes: request.AuthIndexes})
 		if err != nil {
@@ -95,6 +106,9 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 	})
 
 	router.GET("/quota/inspection", func(c *gin.Context) {
+		if rejectViewerQuotaMutation(c) {
+			return
+		}
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)
 			return
@@ -110,6 +124,9 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 	})
 
 	router.POST("/quota/inspection", func(c *gin.Context) {
+		if rejectViewerQuotaMutation(c) {
+			return
+		}
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)
 			return
@@ -125,6 +142,9 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 	})
 
 	router.POST("/quota/refresh", func(c *gin.Context) {
+		if rejectViewerQuotaMutation(c) {
+			return
+		}
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)
 			return
@@ -158,6 +178,9 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 	})
 
 	router.GET("/quota/refresh/:auth_index", func(c *gin.Context) {
+		if rejectViewerQuotaMutation(c) {
+			return
+		}
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)
 			return
@@ -183,6 +206,9 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 		c.JSON(http.StatusOK, response)
 	})
 	router.POST("/quota/reset", func(c *gin.Context) {
+		if rejectViewerQuotaMutation(c) {
+			return
+		}
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)
 			return
@@ -232,6 +258,42 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 		c.JSON(http.StatusOK, response)
 	})
 
+}
+
+// rejectViewerQuotaMutation 阻止 API Key Viewer 触发共享配额的刷新、巡检、自动刷新设置或 reset。
+// Viewer 可以读取已缓存的、被授予认证文件的额度，但不能改变其他会话可见的共享状态。
+func rejectViewerQuotaMutation(c *gin.Context) bool {
+	if _, ok := accessscope.ViewerScopeFromContext(c.Request.Context()); !ok {
+		return false
+	}
+	c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+	return true
+}
+
+func viewerScopeAllowsQuotaAuthIndexes(c *gin.Context, authIndexes []string) bool {
+	scope, scoped := accessscope.ViewerScopeFromContext(c.Request.Context())
+	if !scoped {
+		return true
+	}
+	allowed := make(map[string]struct{}, len(scope.AuthIndexes))
+	for _, value := range scope.AuthIndexes {
+		if authIndex := strings.TrimSpace(value); authIndex != "" {
+			allowed[authIndex] = struct{}{}
+		}
+	}
+	if len(allowed) == 0 {
+		return false
+	}
+	for _, value := range authIndexes {
+		authIndex := strings.TrimSpace(value)
+		if authIndex == "" {
+			return false
+		}
+		if _, ok := allowed[authIndex]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func writeQuotaResetError(c *gin.Context, statusCode int, err error) {

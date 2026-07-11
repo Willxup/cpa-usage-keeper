@@ -87,14 +87,15 @@ interface AuthFileCredentialsSectionProps {
   onRefreshInspectionStatus: () => Promise<void>
   onStartInspection: () => Promise<void>
   onAfterInvalidAccountAction?: () => Promise<void>
+  readOnly?: boolean
 }
 
-export function AuthFileCredentialsSection({ rows, total, page, totalPages, pageSize, activeOnly, sort, loading, quotaRefreshing, quotaRefreshError, quotaInspectionStatus, quotaInspectionLoading, quotaInspectionStarting, quotaInspectionError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex, onResetQuotaForAuthIndex, aliasSavingId, onSaveAlias, onRefreshInspectionStatus, onStartInspection, onAfterInvalidAccountAction }: AuthFileCredentialsSectionProps) {
+export function AuthFileCredentialsSection({ rows, total, page, totalPages, pageSize, activeOnly, sort, loading, quotaRefreshing, quotaRefreshError, quotaInspectionStatus, quotaInspectionLoading, quotaInspectionStarting, quotaInspectionError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex, onResetQuotaForAuthIndex, aliasSavingId, onSaveAlias, onRefreshInspectionStatus, onStartInspection, onAfterInvalidAccountAction, readOnly = false }: AuthFileCredentialsSectionProps) {
   const { t } = useTranslation()
   const [inspectionOpen, setInspectionOpen] = useState(false)
   const [quotaUsageMode, setQuotaUsageMode] = useState<QuotaUsageMode>('current')
   const [displayMode, setDisplayModeState] = useState<AuthFileDisplayMode>(() => readStoredAuthFileDisplayMode())
-  const showHealthMode = displayMode === 'health'
+  const showHealthMode = !readOnly && displayMode === 'health'
   const canRefresh = rows.some((row) => !isRowRefreshing(row) && !row.identity.is_deleted) && !quotaRefreshing
   const inspectionTone = inspectionIndicatorTone(quotaInspectionStatus)
   const openInspection = () => {
@@ -121,10 +122,10 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
                 <span className={styles.credentialActiveOnlyThumb} />
               </span>
             </label>
-            <AuthFileDisplayModeSwitch mode={displayMode} onChange={setDisplayMode} />
+            {!readOnly && <AuthFileDisplayModeSwitch mode={displayMode} onChange={setDisplayMode} />}
           </div>
         )}
-        actions={(
+        actions={readOnly ? undefined : (
           <div className={styles.credentialSectionActionButtons}>
             <div className={`${styles.credentialRefreshSwitcher} ${styles.credentialInspectionSwitcher}`.trim()}>
               <button
@@ -175,7 +176,7 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
       {rows.map((row) => {
         const rowRefreshing = isRowRefreshing(row)
         const resetCredits = row.quotaResetCreditsAvailableCount ?? 0
-        const canResetQuota = resetCredits > 0 && !row.identity.is_deleted && !rowRefreshing && !row.quotaResetting
+        const canResetQuota = !readOnly && resetCredits > 0 && !row.identity.is_deleted && !rowRefreshing && !row.quotaResetting
         return (
           <CredentialRowShell
             key={row.identity.id || row.identity.identity}
@@ -212,34 +213,36 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
             ) : (
               <div className={styles.credentialQuotaSideWithAction}>
                 <AuthFileQuotaPanel row={row} quotaUsageMode={quotaUsageMode} />
-                <div className={styles.credentialQuotaActionStack}>
-                  {/* reset 按钮只在官方缓存给出可用次数时展示；refresh 始终保留在右侧列居中位置。 */}
-                  {resetCredits > 0 && (
-                    <QuotaResetAction
-                      resetCredits={resetCredits}
-                      disabled={!canResetQuota}
-                      loading={row.quotaResetting === true}
-                      onConfirm={() => onResetQuotaForAuthIndex(row.identity.identity)}
-                    />
-                  )}
-                  <button
-                    type="button"
-                    className={`${styles.credentialRowRefreshButton} ${rowRefreshing ? styles.credentialRowRefreshButtonLoading : ''}`.trim()}
-                    onClick={() => void onRefreshQuotaForAuthIndex(row.identity.identity)}
-                    disabled={row.identity.is_deleted || rowRefreshing}
-                    aria-label={t('usage_stats.credentials_refresh_single', { name: row.displayName })}
-                    aria-busy={rowRefreshing}
-                  >
-                    {rowRefreshing ? <LoadingSpinner size={13} /> : <IconRefreshCw size={13} />}
-                  </button>
-                </div>
+                {!readOnly && (
+                  <div className={styles.credentialQuotaActionStack}>
+                    {/* reset 按钮只在官方缓存给出可用次数时展示；refresh 始终保留在右侧列居中位置。 */}
+                    {resetCredits > 0 && (
+                      <QuotaResetAction
+                        resetCredits={resetCredits}
+                        disabled={!canResetQuota}
+                        loading={row.quotaResetting === true}
+                        onConfirm={() => onResetQuotaForAuthIndex(row.identity.identity)}
+                      />
+                    )}
+                    <button
+                      type="button"
+                      className={`${styles.credentialRowRefreshButton} ${rowRefreshing ? styles.credentialRowRefreshButtonLoading : ''}`.trim()}
+                      onClick={() => void onRefreshQuotaForAuthIndex(row.identity.identity)}
+                      disabled={row.identity.is_deleted || rowRefreshing}
+                      aria-label={t('usage_stats.credentials_refresh_single', { name: row.displayName })}
+                      aria-busy={rowRefreshing}
+                    >
+                      {rowRefreshing ? <LoadingSpinner size={13} /> : <IconRefreshCw size={13} />}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           />
         )
       })}
       <CredentialsPagination
-        leadingControls={showHealthMode ? undefined : <QuotaUsageModeSwitch label={t('usage_stats.credentials_quota_usage_mode_label')} mode={quotaUsageMode} onChange={setQuotaUsageMode} />}
+        leadingControls={showHealthMode || readOnly ? undefined : <QuotaUsageModeSwitch label={t('usage_stats.credentials_quota_usage_mode_label')} mode={quotaUsageMode} onChange={setQuotaUsageMode} />}
         page={page}
         total={total}
         totalPages={totalPages}
@@ -260,7 +263,7 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
         onSortChange={(nextSort) => onSortChange(nextSort as UsageIdentityPageSort)}
       />
       </CredentialSectionShell>
-      <QuotaInspectionModal
+      {!readOnly && <QuotaInspectionModal
         open={inspectionOpen}
         status={quotaInspectionStatus}
         loading={quotaInspectionLoading}
@@ -270,7 +273,7 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
         onStart={onStartInspection}
         onRefreshStatus={onRefreshInspectionStatus}
         onAfterInvalidAccountAction={onAfterInvalidAccountAction}
-      />
+      />}
     </>
   )
 }

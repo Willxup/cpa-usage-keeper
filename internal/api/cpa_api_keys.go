@@ -56,7 +56,19 @@ type updateCPAAPIKeyAliasRequest struct {
 	KeyAlias string `json:"keyAlias"`
 }
 
-func registerCPAAPIKeyRoutes(router gin.IRoutes, provider service.CPAAPIKeyProvider) {
+type apiKeyAuthFileScopesResponse struct {
+	AuthFileNames []string `json:"authFileNames"`
+}
+
+type updateAPIKeyAuthFileScopesRequest struct {
+	AuthFileNames []string `json:"authFileNames"`
+}
+
+func registerCPAAPIKeyRoutes(router gin.IRoutes, provider service.CPAAPIKeyProvider, scopeProviders ...service.APIKeyAuthFileScopeProvider) {
+	var scopeProvider service.APIKeyAuthFileScopeProvider
+	if len(scopeProviders) > 0 {
+		scopeProvider = scopeProviders[0]
+	}
 	router.GET("/usage/api-keys", func(c *gin.Context) {
 		rows, err := listCPAAPIKeyRows(c, provider)
 		if err != nil {
@@ -116,6 +128,65 @@ func registerCPAAPIKeyRoutes(router gin.IRoutes, provider service.CPAAPIKeyProvi
 		}
 		c.JSON(http.StatusOK, toCPAAPIKeyResponse(row))
 	})
+
+	router.GET("/usage/api-keys/:id/auth-file-scopes", func(c *gin.Context) {
+		if scopeProvider == nil {
+			c.JSON(http.StatusNotImplemented, gin.H{"error": "api key auth file scope provider is not configured"})
+			return
+		}
+		id, ok := parseCPAAPIKeyID(c)
+		if !ok {
+			return
+		}
+		names, err := scopeProvider.ListAPIKeyAuthFileScopes(c.Request.Context(), id)
+		if err != nil {
+			writeAPIKeyAuthFileScopeError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, apiKeyAuthFileScopesResponse{AuthFileNames: names})
+	})
+
+	router.PUT("/usage/api-keys/:id/auth-file-scopes", func(c *gin.Context) {
+		if scopeProvider == nil {
+			c.JSON(http.StatusNotImplemented, gin.H{"error": "api key auth file scope provider is not configured"})
+			return
+		}
+		id, ok := parseCPAAPIKeyID(c)
+		if !ok {
+			return
+		}
+		var request updateAPIKeyAuthFileScopesRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		names, err := scopeProvider.ReplaceAPIKeyAuthFileScopes(c.Request.Context(), id, request.AuthFileNames)
+		if err != nil {
+			writeAPIKeyAuthFileScopeError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, apiKeyAuthFileScopesResponse{AuthFileNames: names})
+	})
+}
+
+func parseCPAAPIKeyID(c *gin.Context) (int64, bool) {
+	id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid api key id"})
+		return 0, false
+	}
+	return id, true
+}
+
+func writeAPIKeyAuthFileScopeError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, service.ErrAPIKeyAuthFileScopeInvalid), errors.Is(err, service.ErrAPIKeyAuthFileScopeUnresolved):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "api key not found"})
+	default:
+		writeInternalError(c, "api key auth file scope request failed", err)
+	}
 }
 
 func listCPAAPIKeyRows(c *gin.Context, provider service.CPAAPIKeyProvider) ([]cpaAPIKeyResponse, error) {

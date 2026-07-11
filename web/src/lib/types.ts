@@ -622,6 +622,10 @@ export interface CpaApiKeyOptionsResponse {
   options: CpaApiKeyOption[]
 }
 
+export interface CpaApiKeyAuthFileScopesResponse {
+  authFileNames: string[]
+}
+
 export type PricingStyle = 'openai' | 'claude'
 
 export interface ModelPrice {
