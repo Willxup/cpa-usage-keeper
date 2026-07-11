@@ -93,9 +93,9 @@ const (
 	UsageIdentityPageSortLastUsedAt    = "last_used_at"
 )
 
-const usageIdentityReadColumns = "id, name, alias, auth_type, auth_type_name, identity, type, provider, lookup_key, prefix, base_url, file_name, file_path, priority, disabled, note, account_id, project_id, active_start, active_until, plan_type, total_requests, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, total_tokens, last_aggregated_usage_event_id, first_used_at, last_used_at, stats_updated_at, is_deleted, created_at, updated_at, deleted_at"
+const usageIdentityReadColumns = "id, name, alias, auth_type, auth_type_name, identity, type, provider, lookup_key, prefix, base_url, file_name, file_path, priority, disabled, note, account_id, project_id, active_start, active_until, plan_type, total_requests, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, total_tokens, last_aggregated_usage_event_id, first_used_at, last_used_at, stats_updated_at, is_deleted, created_at, updated_at, deleted_at"
 
-const usageIdentityAggregationColumns = "id, auth_type, identity, total_requests, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, total_tokens, last_aggregated_usage_event_id, first_used_at, last_used_at"
+const usageIdentityAggregationColumns = "id, auth_type, identity, total_requests, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, total_tokens, last_aggregated_usage_event_id, first_used_at, last_used_at"
 
 const activeAuthFileUsageIdentityLookupBatchSize = 500
 
@@ -459,6 +459,7 @@ func AggregateUsageIdentityStats(ctx context.Context, db *gorm.DB, now time.Time
 				"output_tokens":                  identity.OutputTokens + delta.OutputTokens,
 				"reasoning_tokens":               identity.ReasoningTokens + delta.ReasoningTokens,
 				"cached_tokens":                  identity.CachedTokens + delta.CachedTokens,
+				"cache_read_tokens":              identity.CacheReadTokens + delta.CacheReadTokens,
 				"total_tokens":                   identity.TotalTokens + delta.TotalTokens,
 				"first_used_at":                  formatStorageTimePtr(firstUsedAt),
 				"last_used_at":                   formatStorageTimePtr(lastUsedAt),
@@ -491,6 +492,7 @@ func aggregateUsageIdentityDelta(tx *gorm.DB, identity entities.UsageIdentity) (
 			COALESCE(SUM(output_tokens), 0) AS output_tokens,
 			COALESCE(SUM(reasoning_tokens), 0) AS reasoning_tokens,
 			COALESCE(SUM(cached_tokens), 0) AS cached_tokens,
+			COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
 			COALESCE(SUM(total_tokens), 0) AS total_tokens,
 			COALESCE(MAX(id), 0) AS max_usage_event_id`).
 		Where("id > ?", identity.LastAggregatedUsageEventID).

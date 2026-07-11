@@ -2,13 +2,13 @@ package dto
 
 // UpdatePricingInput 是更新定价的服务层输入。
 type UpdatePricingInput struct {
-	Model                   string
-	PricingStyle            string
-	PromptPricePer1M        float64
-	CompletionPricePer1M    float64
-	CachePricePer1M         float64
-	CacheCreationPricePer1M float64
-	PriceMultiplier         *float64
+	Model                string
+	PricingStyle         string
+	PromptPricePer1M     float64
+	CompletionPricePer1M float64
+	CacheReadPricePer1M  float64
+	CacheWritePricePer1M float64
+	PriceMultiplier      *float64
 }
 
 // PricingSyncPreview 是外部价格元数据同步前的预览结果。
@@ -22,14 +22,14 @@ type PricingSyncPreview struct {
 
 // PricingSyncMatch 表示一个本地模型与外部元数据模型的匹配关系。
 type PricingSyncMatch struct {
-	Model                   string  `json:"model"`
-	MatchedModel            string  `json:"matched_model"`
-	MatchType               string  `json:"match_type"`
-	SourceProviderID        string  `json:"source_provider_id"`
-	SourceProviderName      string  `json:"source_provider_name"`
-	PricingStyle            string  `json:"pricing_style"`
-	PromptPricePer1M        float64 `json:"prompt_price_per_1m"`
-	CompletionPricePer1M    float64 `json:"completion_price_per_1m"`
-	CachePricePer1M         float64 `json:"cache_price_per_1m"`
-	CacheCreationPricePer1M float64 `json:"cache_creation_price_per_1m"`
+	Model                string  `json:"model"`
+	MatchedModel         string  `json:"matched_model"`
+	MatchType            string  `json:"match_type"`
+	SourceProviderID     string  `json:"source_provider_id"`
+	SourceProviderName   string  `json:"source_provider_name"`
+	PricingStyle         string  `json:"pricing_style"`
+	PromptPricePer1M     float64 `json:"prompt_price_per_1m"`
+	CompletionPricePer1M float64 `json:"completion_price_per_1m"`
+	CacheReadPricePer1M  float64 `json:"cache_read_price_per_1m"`
+	CacheWritePricePer1M float64 `json:"cache_write_price_per_1m"`
 }

@@ -18,8 +18,8 @@ describe('pricing API client', () => {
         pricing_style: 'openai',
         prompt_price_per_1m: 3,
         completion_price_per_1m: 15,
-        cache_price_per_1m: 0.3,
-        cache_creation_price_per_1m: 0,
+        cache_read_price_per_1m: 0.3,
+        cache_write_price_per_1m: 0,
         price_multiplier: 1,
       }),
     } as Response);
@@ -28,8 +28,8 @@ describe('pricing API client', () => {
       pricing_style: 'openai',
       prompt_price_per_1m: 3,
       completion_price_per_1m: 15,
-      cache_price_per_1m: 0.3,
-      cache_creation_price_per_1m: 0,
+      cache_read_price_per_1m: 0.3,
+      cache_write_price_per_1m: 0,
       price_multiplier: 1,
     });
 
@@ -45,8 +45,8 @@ describe('pricing API client', () => {
       pricing_style: 'openai',
       prompt_price_per_1m: 3,
       completion_price_per_1m: 15,
-      cache_price_per_1m: 0.3,
-      cache_creation_price_per_1m: 0,
+      cache_read_price_per_1m: 0.3,
+      cache_write_price_per_1m: 0,
       price_multiplier: 1,
     });
     expect(body).not.toHaveProperty('pricing');

@@ -16,11 +16,11 @@ import (
 )
 
 // usageEventProjectionColumns 限制 usage_events 查询列，避免 Overview 和列表页把 RawJSON 等大字段读入内存。
-const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, request_id, model, model_alias, reasoning_effort, service_tier, executor_type, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, request_id, model, model_alias, reasoning_effort, service_tier, executor_type, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
 const analysisLatencyMaxDisplayPoints = 2500
 
 // usageOverviewRawEventProjectionColumns 是 Overview 边界补偿和 realtime DB 兜底的最小事件投影。
-const usageOverviewRawEventProjectionColumns = "api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+const usageOverviewRawEventProjectionColumns = "api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
 
 // usageEventProjection 是 usage_events 轻量投影，专门承接 select columns 的查询结果。
 type usageEventProjection struct {
@@ -44,7 +44,6 @@ type usageEventProjection struct {
 	InputTokens         int64
 	OutputTokens        int64
 	ReasoningTokens     int64
-	CachedTokens        int64
 	CacheReadTokens     int64
 	CacheCreationTokens int64
 	TotalTokens         int64
@@ -257,7 +256,6 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 		InputTokens:         event.InputTokens,
 		OutputTokens:        event.OutputTokens,
 		ReasoningTokens:     event.ReasoningTokens,
-		CachedTokens:        event.CachedTokens,
 		CacheReadTokens:     event.CacheReadTokens,
 		CacheCreationTokens: event.CacheCreationTokens,
 		TotalTokens:         event.TotalTokens,
@@ -273,7 +271,6 @@ func usageEventRecordCost(record dto.UsageEventRecord, costResolver *UsageCostRe
 		Tokens: helper.UsageTokenCostInput{
 			InputTokens:         record.InputTokens,
 			OutputTokens:        record.OutputTokens,
-			CachedTokens:        record.CachedTokens,
 			CacheReadTokens:     record.CacheReadTokens,
 			CacheCreationTokens: record.CacheCreationTokens,
 		},
@@ -304,7 +301,6 @@ func usageEventProjectionToEntity(event usageEventProjection) entities.UsageEven
 		InputTokens:         event.InputTokens,
 		OutputTokens:        event.OutputTokens,
 		ReasoningTokens:     event.ReasoningTokens,
-		CachedTokens:        event.CachedTokens,
 		CacheReadTokens:     event.CacheReadTokens,
 		CacheCreationTokens: event.CacheCreationTokens,
 		TotalTokens:         event.TotalTokens,
@@ -560,11 +556,11 @@ func buildViewerScopedAnalysisFromRawEvents(db *gorm.DB, filter dto.UsageQueryFi
 		if event.ModelAlias != nil {
 			modelAlias = strings.TrimSpace(*event.ModelAlias)
 		}
-		cost, costAvailable := analysisRowCost(event.Model, modelAlias, event.InputTokens, event.OutputTokens, event.CachedTokens, event.CacheReadTokens, event.CacheCreationTokens, costResolver)
-		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, event.APIGroupKey, event.Model, 1, event.InputTokens, event.OutputTokens, event.CachedTokens, event.ReasoningTokens, event.TotalTokens, cost, costAvailable)
+		cost, costAvailable := analysisRowCost(event.Model, modelAlias, event.InputTokens, event.OutputTokens, event.CacheReadTokens, event.CacheCreationTokens, costResolver)
+		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, event.APIGroupKey, event.Model, 1, event.InputTokens, event.OutputTokens, event.CacheReadTokens, event.CacheCreationTokens, event.ReasoningTokens, event.TotalTokens, cost, costAvailable)
 		// Viewer 仅有 Auth File 授权；即使相同 auth_index 同时存在 AI Provider 身份也不可归并展示。
 		if identity, ok := identityLookup.find(entities.UsageIdentityAuthTypeAuthFile, strings.TrimSpace(event.AuthIndex)); ok {
-			applyAnalysisIdentityCompositionTotal(authFileTotals, identity, 1, event.InputTokens, event.OutputTokens, event.CachedTokens, event.ReasoningTokens, event.TotalTokens, cost.TotalCostUSD, costAvailable)
+			applyAnalysisIdentityCompositionTotal(authFileTotals, identity, 1, event.InputTokens, event.OutputTokens, event.CacheReadTokens, event.CacheCreationTokens, event.ReasoningTokens, event.TotalTokens, cost.TotalCostUSD, costAvailable)
 		}
 	}
 	finalizeAnalysisRecord(record, bucketTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
@@ -778,9 +774,9 @@ func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []entities.UsageOv
 	heatmapTotals := map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord{}
 	for _, row := range rows {
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart).Truncate(time.Hour)
-		cost, costAvailable := analysisRowCost(row.Model, row.ModelAlias, row.InputTokens, row.OutputTokens, row.CachedTokens, row.CacheReadTokens, row.CacheCreationTokens, costResolver)
-		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
-		applyAnalysisIdentityComposition(identityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
+		cost, costAvailable := analysisRowCost(row.Model, row.ModelAlias, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, costResolver)
+		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
+		applyAnalysisIdentityComposition(identityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
 	finalizeAnalysisRecord(record, bucketTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 }
@@ -794,28 +790,27 @@ func applyAnalysisDailyAndBoundaryHourlyRows(record *dto.AnalysisRecord, dailyRo
 	heatmapTotals := map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord{}
 	for _, row := range dailyRows {
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart)
-		cost, costAvailable := analysisRowCost(row.Model, row.ModelAlias, row.InputTokens, row.OutputTokens, row.CachedTokens, row.CacheReadTokens, row.CacheCreationTokens, costResolver)
-		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
-		applyAnalysisIdentityComposition(dailyIdentityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
+		cost, costAvailable := analysisRowCost(row.Model, row.ModelAlias, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, costResolver)
+		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
+		applyAnalysisIdentityComposition(dailyIdentityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
 	for _, row := range hourlyRows {
 		bucketStart := timeutil.NormalizeStorageTime(row.BucketStart)
 		bucket := time.Date(bucketStart.Year(), bucketStart.Month(), bucketStart.Day(), 0, 0, 0, 0, bucketStart.Location())
-		cost, costAvailable := analysisRowCost(row.Model, row.ModelAlias, row.InputTokens, row.OutputTokens, row.CachedTokens, row.CacheReadTokens, row.CacheCreationTokens, costResolver)
-		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
-		applyAnalysisIdentityComposition(hourlyIdentityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
+		cost, costAvailable := analysisRowCost(row.Model, row.ModelAlias, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, costResolver)
+		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
+		applyAnalysisIdentityComposition(hourlyIdentityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
 	finalizeAnalysisRecord(record, bucketTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 }
 
-func analysisRowCost(model string, modelAlias string, inputTokens, outputTokens, cachedTokens, cacheReadTokens, cacheCreationTokens int64, costResolver *UsageCostResolver) (helper.UsageTokenCostBreakdown, bool) {
+func analysisRowCost(model string, modelAlias string, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int64, costResolver *UsageCostResolver) (helper.UsageTokenCostBreakdown, bool) {
 	result := costResolver.Calculate(UsageCostSubject{
 		Model:      model,
 		ModelAlias: modelAlias,
 		Tokens: helper.UsageTokenCostInput{
 			InputTokens:         inputTokens,
 			OutputTokens:        outputTokens,
-			CachedTokens:        cachedTokens,
 			CacheReadTokens:     cacheReadTokens,
 			CacheCreationTokens: cacheCreationTokens,
 		},
@@ -823,7 +818,7 @@ func analysisRowCost(model string, modelAlias string, inputTokens, outputTokens,
 	return result.Cost, result.Available
 }
 
-func applyAnalysisRow(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, apiTotals, modelTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord, bucket time.Time, apiGroupKey, model string, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens int64, cost helper.UsageTokenCostBreakdown, costAvailable bool) {
+func applyAnalysisRow(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, apiTotals, modelTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord, bucket time.Time, apiGroupKey, model string, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens int64, cost helper.UsageTokenCostBreakdown, costAvailable bool) {
 	apiKey := normalizeUsageOverviewDimension(apiGroupKey)
 	modelName := normalizeUsageOverviewDimension(model)
 	bucketTotal := bucketTotals[bucket]
@@ -834,7 +829,8 @@ func applyAnalysisRow(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dt
 	bucketTotal.Requests += requests
 	bucketTotal.InputTokens += inputTokens
 	bucketTotal.OutputTokens += outputTokens
-	bucketTotal.CachedTokens += cachedTokens
+	bucketTotal.CacheReadTokens += cacheReadTokens
+	bucketTotal.CacheCreationTokens += cacheCreationTokens
 	bucketTotal.ReasoningTokens += reasoningTokens
 	bucketTotal.TotalTokens += totalTokens
 	bucketTotal.CostUSD += cost.TotalCostUSD
@@ -847,14 +843,14 @@ func applyAnalysisRow(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dt
 		apiTotal = &dto.AnalysisCompositionRecord{Key: apiKey, CostAvailable: true}
 		apiTotals[apiKey] = apiTotal
 	}
-	applyAnalysisCompositionTotals(apiTotal, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
+	applyAnalysisCompositionTotals(apiTotal, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
 
 	modelTotal := modelTotals[modelName]
 	if modelTotal == nil {
 		modelTotal = &dto.AnalysisCompositionRecord{Key: modelName, CostAvailable: true}
 		modelTotals[modelName] = modelTotal
 	}
-	applyAnalysisCompositionTotals(modelTotal, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
+	applyAnalysisCompositionTotals(modelTotal, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
 
 	heatmapKey := analysisHeatmapKey{apiKey: apiKey, model: modelName}
 	heatmapTotal := heatmapTotals[heatmapKey]
@@ -865,7 +861,8 @@ func applyAnalysisRow(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dt
 	heatmapTotal.Requests += requests
 	heatmapTotal.InputTokens += inputTokens
 	heatmapTotal.OutputTokens += outputTokens
-	heatmapTotal.CachedTokens += cachedTokens
+	heatmapTotal.CacheReadTokens += cacheReadTokens
+	heatmapTotal.CacheCreationTokens += cacheCreationTokens
 	heatmapTotal.ReasoningTokens += reasoningTokens
 	heatmapTotal.TotalTokens += totalTokens
 	heatmapTotal.CostUSD += cost.TotalCostUSD
@@ -873,20 +870,22 @@ func applyAnalysisRow(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dt
 		heatmapTotal.CostAvailable = false
 	}
 
-	record.CostBreakdown.InputCostUSD += cost.InputCostUSD
+	record.CostBreakdown.UncachedInputCostUSD += cost.UncachedInputCostUSD
+	record.CostBreakdown.CacheReadCostUSD += cost.CacheReadCostUSD
+	record.CostBreakdown.CacheWriteCostUSD += cost.CacheWriteCostUSD
 	record.CostBreakdown.OutputCostUSD += cost.OutputCostUSD
-	record.CostBreakdown.CachedCostUSD += cost.CachedCostUSD
 	record.CostBreakdown.TotalCostUSD += cost.TotalCostUSD
 	if !costAvailable {
 		record.CostBreakdown.CostAvailable = false
 	}
 }
 
-func applyAnalysisCompositionTotals(item *dto.AnalysisCompositionRecord, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens int64, costUSD float64, costAvailable bool) {
+func applyAnalysisCompositionTotals(item *dto.AnalysisCompositionRecord, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens int64, costUSD float64, costAvailable bool) {
 	item.Requests += requests
 	item.InputTokens += inputTokens
 	item.OutputTokens += outputTokens
-	item.CachedTokens += cachedTokens
+	item.CacheReadTokens += cacheReadTokens
+	item.CacheCreationTokens += cacheCreationTokens
 	item.ReasoningTokens += reasoningTokens
 	item.TotalTokens += totalTokens
 	item.CostUSD += costUSD
@@ -895,26 +894,26 @@ func applyAnalysisCompositionTotals(item *dto.AnalysisCompositionRecord, request
 	}
 }
 
-func applyAnalysisIdentityComposition(identityLookup analysisIdentityLookup, authFileTotals, aiProviderTotals map[string]*dto.AnalysisCompositionRecord, authIndex string, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens int64, cost helper.UsageTokenCostBreakdown, costAvailable bool) {
+func applyAnalysisIdentityComposition(identityLookup analysisIdentityLookup, authFileTotals, aiProviderTotals map[string]*dto.AnalysisCompositionRecord, authIndex string, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens int64, cost helper.UsageTokenCostBreakdown, costAvailable bool) {
 	authIndex = strings.TrimSpace(authIndex)
 	if authIndex == "" {
 		return
 	}
 	if identity, ok := identityLookup.find(entities.UsageIdentityAuthTypeAuthFile, authIndex); ok {
-		applyAnalysisIdentityCompositionTotal(authFileTotals, identity, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
+		applyAnalysisIdentityCompositionTotal(authFileTotals, identity, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
 	}
 	if identity, ok := identityLookup.find(entities.UsageIdentityAuthTypeAIProvider, authIndex); ok {
-		applyAnalysisIdentityCompositionTotal(aiProviderTotals, identity, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
+		applyAnalysisIdentityCompositionTotal(aiProviderTotals, identity, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
 	}
 }
 
-func applyAnalysisIdentityCompositionTotal(totals map[string]*dto.AnalysisCompositionRecord, identity analysisIdentityInfo, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens int64, costUSD float64, costAvailable bool) {
+func applyAnalysisIdentityCompositionTotal(totals map[string]*dto.AnalysisCompositionRecord, identity analysisIdentityInfo, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens int64, costUSD float64, costAvailable bool) {
 	item := totals[identity.identity]
 	if item == nil {
 		item = &dto.AnalysisCompositionRecord{Key: identity.identity, Label: identity.label, CostAvailable: true}
 		totals[identity.identity] = item
 	}
-	applyAnalysisCompositionTotals(item, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens, costUSD, costAvailable)
+	applyAnalysisCompositionTotals(item, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens, costUSD, costAvailable)
 }
 
 func (lookup analysisIdentityLookup) find(authType entities.UsageIdentityAuthType, identity string) (analysisIdentityInfo, bool) {
@@ -993,22 +992,23 @@ func finalizeAnalysisRecord(record *dto.AnalysisRecord, bucketTotals map[time.Ti
 
 func buildAnalysisModelEfficiencyRecord(item dto.AnalysisCompositionRecord) dto.AnalysisModelEfficiencyRecord {
 	result := dto.AnalysisModelEfficiencyRecord{
-		Model:           item.Key,
-		Requests:        item.Requests,
-		InputTokens:     item.InputTokens,
-		OutputTokens:    item.OutputTokens,
-		CachedTokens:    item.CachedTokens,
-		ReasoningTokens: item.ReasoningTokens,
-		TotalTokens:     item.TotalTokens,
-		CostUSD:         item.CostUSD,
-		CostAvailable:   item.CostAvailable,
+		Model:               item.Key,
+		Requests:            item.Requests,
+		InputTokens:         item.InputTokens,
+		OutputTokens:        item.OutputTokens,
+		CacheReadTokens:     item.CacheReadTokens,
+		CacheCreationTokens: item.CacheCreationTokens,
+		ReasoningTokens:     item.ReasoningTokens,
+		TotalTokens:         item.TotalTokens,
+		CostUSD:             item.CostUSD,
+		CostAvailable:       item.CostAvailable,
 	}
 	if item.Requests > 0 {
 		result.CostPerRequestUSD = item.CostUSD / float64(item.Requests)
 		result.OutputTokensPerRequest = float64(item.OutputTokens) / float64(item.Requests)
 	}
 	if item.InputTokens > 0 {
-		result.CacheRate = float64(item.CachedTokens) / float64(item.InputTokens)
+		result.CacheReadRate = float64(item.CacheReadTokens) / float64(item.InputTokens)
 	}
 	return result
 }
@@ -1641,7 +1641,6 @@ func applyUsageOverviewHourlyStatToOverview(overview *dto.UsageOverviewRecord, r
 		Tokens: helper.UsageTokenCostInput{
 			InputTokens:         row.InputTokens,
 			OutputTokens:        row.OutputTokens,
-			CachedTokens:        row.CachedTokens,
 			CacheReadTokens:     row.CacheReadTokens,
 			CacheCreationTokens: row.CacheCreationTokens,
 		},
@@ -1650,11 +1649,11 @@ func applyUsageOverviewHourlyStatToOverview(overview *dto.UsageOverviewRecord, r
 		overview.Summary.CostAvailable = false
 	}
 	rowCost := result.Cost.TotalCostUSD
-	applyUsageOverviewStatToSummary(overview, row.RequestCount, row.InputTokens, row.CachedTokens, row.ReasoningTokens, rowCost)
+	applyUsageOverviewStatToSummary(overview, row.RequestCount, row.InputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, rowCost)
 
 	// 主序列按当前窗口选择小时或天粒度。
 	bucketKey, bucketMinutes := usageOverviewBucket(timeutil.NormalizeStorageTime(row.BucketStart), bucketByDay)
-	applyUsageOverviewStatToSeries(&overview.Series, row.RequestCount, row.InputTokens, row.CachedTokens, row.TotalTokens, rowCost, bucketKey, bucketMinutes)
+	applyUsageOverviewStatToSeries(&overview.Series, row.RequestCount, row.InputTokens, row.CacheReadTokens, row.TotalTokens, rowCost, bucketKey, bucketMinutes)
 }
 
 // applyUsageOverviewDailyStatToOverview 把完整天 stats 写入长窗口 summary、snapshot 和主序列。
@@ -1667,7 +1666,6 @@ func applyUsageOverviewDailyStatToOverview(overview *dto.UsageOverviewRecord, ro
 		Tokens: helper.UsageTokenCostInput{
 			InputTokens:         row.InputTokens,
 			OutputTokens:        row.OutputTokens,
-			CachedTokens:        row.CachedTokens,
 			CacheReadTokens:     row.CacheReadTokens,
 			CacheCreationTokens: row.CacheCreationTokens,
 		},
@@ -1676,16 +1674,17 @@ func applyUsageOverviewDailyStatToOverview(overview *dto.UsageOverviewRecord, ro
 		overview.Summary.CostAvailable = false
 	}
 	rowCost := result.Cost.TotalCostUSD
-	applyUsageOverviewStatToSummary(overview, row.RequestCount, row.InputTokens, row.CachedTokens, row.ReasoningTokens, rowCost)
+	applyUsageOverviewStatToSummary(overview, row.RequestCount, row.InputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, rowCost)
 
 	bucketKey, bucketMinutes := usageOverviewBucket(timeutil.NormalizeStorageTime(row.BucketStart), bucketByDay)
-	applyUsageOverviewStatToSeries(&overview.Series, row.RequestCount, row.InputTokens, row.CachedTokens, row.TotalTokens, rowCost, bucketKey, bucketMinutes)
+	applyUsageOverviewStatToSeries(&overview.Series, row.RequestCount, row.InputTokens, row.CacheReadTokens, row.TotalTokens, rowCost, bucketKey, bucketMinutes)
 }
 
 // applyUsageOverviewStatToSummary 写入 summary 中不在 StatisticsSnapshot 里的 token/cost 字段。
-func applyUsageOverviewStatToSummary(overview *dto.UsageOverviewRecord, requestCount, inputTokens, cachedTokens, reasoningTokens int64, cost float64) {
+func applyUsageOverviewStatToSummary(overview *dto.UsageOverviewRecord, requestCount, inputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens int64, cost float64) {
 	overview.Summary.InputTokens += inputTokens
-	overview.Summary.CachedTokens += cachedTokens
+	overview.Summary.CacheReadTokens += cacheReadTokens
+	overview.Summary.CacheCreationTokens += cacheCreationTokens
 	overview.Summary.ReasoningTokens += reasoningTokens
 	overview.Summary.TotalCost += cost
 }
@@ -1709,13 +1708,13 @@ func applyUsageOverviewStatToSnapshotTotals(snapshot *dto.StatisticsSnapshot, re
 }
 
 // applyUsageOverviewStatToSeries 维护主序列，并即时刷新 RPM/TPM/cache rate。
-func applyUsageOverviewStatToSeries(series *dto.UsageOverviewSeriesRecord, requestCount, inputTokens, cachedTokens, totalTokens int64, cost float64, bucketKey string, bucketMinutes int64) {
+func applyUsageOverviewStatToSeries(series *dto.UsageOverviewSeriesRecord, requestCount, inputTokens, cacheReadTokens, totalTokens int64, cost float64, bucketKey string, bucketMinutes int64) {
 	series.Requests[bucketKey] += requestCount
 	series.Tokens[bucketKey] += totalTokens
 	series.Cost[bucketKey] += cost
 	series.RPM[bucketKey] = float64(series.Requests[bucketKey]) / float64(bucketMinutes)
 	series.TPM[bucketKey] = float64(series.Tokens[bucketKey]) / float64(bucketMinutes)
-	updateUsageOverviewSeriesCacheRate(series, bucketKey, inputTokens, cachedTokens)
+	updateUsageOverviewSeriesCacheReadRate(series, bucketKey, inputTokens, cacheReadTokens)
 }
 
 // applyUsageOverviewHealthStatsToOverview 用完整 health bucket 读 stats，边界 bucket 复用主查询已加载的事件。
@@ -1843,15 +1842,16 @@ const (
 )
 
 type usageOverviewRealtimeBucket struct {
-	bucketStart    time.Time
-	requests       int64
-	tokens         int64
-	inputTokens    int64
-	cachedTokens   int64
-	costUSD        float64
-	costAvailable  bool
-	ttftSamples    []usageOverviewRealtimeResponseSample
-	latencySamples []usageOverviewRealtimeResponseSample
+	bucketStart         time.Time
+	requests            int64
+	tokens              int64
+	inputTokens         int64
+	cacheReadTokens     int64
+	cacheCreationTokens int64
+	costUSD             float64
+	costAvailable       bool
+	ttftSamples         []usageOverviewRealtimeResponseSample
+	latencySamples      []usageOverviewRealtimeResponseSample
 }
 
 type usageOverviewRealtimeResponseSample struct {
@@ -1955,7 +1955,8 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, costRe
 		// token velocity/cache level 都从同一个 bucket accumulator 派生。
 		bucket.tokens += event.TotalTokens
 		bucket.inputTokens += event.InputTokens
-		bucket.cachedTokens += event.CachedTokens
+		bucket.cacheReadTokens += event.CacheReadTokens
+		bucket.cacheCreationTokens += event.CacheCreationTokens
 		bucket.costUSD += cost
 		if !costResult.Available {
 			bucket.costAvailable = false
@@ -2266,7 +2267,8 @@ func aggregateUsageOverviewRealtimeBucket(buckets []usageOverviewRealtimeBucket,
 		aggregated.requests += bucket.requests
 		aggregated.tokens += bucket.tokens
 		aggregated.inputTokens += bucket.inputTokens
-		aggregated.cachedTokens += bucket.cachedTokens
+		aggregated.cacheReadTokens += bucket.cacheReadTokens
+		aggregated.cacheCreationTokens += bucket.cacheCreationTokens
 		aggregated.costUSD += bucket.costUSD
 		if !bucket.costAvailable {
 			aggregated.costAvailable = false
@@ -2331,10 +2333,11 @@ func finalizeUsageOverviewRealtime(window, span time.Duration, windowStart, wind
 			Requests:          rollingBucket.requests,
 		})
 		cacheLevel = append(cacheLevel, dto.RealtimeCacheLevelPointRecord{
-			Bucket:       bucketKey,
-			CacheRate:    usageOverviewRealtimeCacheRate(rollingBucket.cachedTokens, rollingBucket.inputTokens),
-			CachedTokens: rollingBucket.cachedTokens,
-			InputTokens:  rollingBucket.inputTokens,
+			Bucket:              bucketKey,
+			CacheReadRate:       usageOverviewRealtimeCacheReadRate(rollingBucket.cacheReadTokens, rollingBucket.inputTokens),
+			CacheReadTokens:     rollingBucket.cacheReadTokens,
+			CacheCreationTokens: rollingBucket.cacheCreationTokens,
+			InputTokens:         rollingBucket.inputTokens,
 		})
 	}
 	responseDistribution.TTFT = finalizeUsageOverviewRealtimeDistributionSeries(responseDistribution.TTFT)
@@ -2461,11 +2464,11 @@ func usageOverviewRealtimeCostPtr(cost float64, available bool) *float64 {
 	return &value
 }
 
-func usageOverviewRealtimeCacheRate(cachedTokens, inputTokens int64) *float64 {
+func usageOverviewRealtimeCacheReadRate(cacheReadTokens, inputTokens int64) *float64 {
 	if inputTokens <= 0 {
 		return nil
 	}
-	value := (float64(cachedTokens) / float64(inputTokens)) * 100
+	value := (float64(cacheReadTokens) / float64(inputTokens)) * 100
 	return &value
 }
 
@@ -2547,14 +2550,14 @@ func applyUsageEventToOverviewSnapshot(snapshot *dto.StatisticsSnapshot, event e
 // newUsageOverviewSeriesRecord 初始化 Overview 趋势序列中的所有指标 map。
 func newUsageOverviewSeriesRecord() dto.UsageOverviewSeriesRecord {
 	return dto.UsageOverviewSeriesRecord{
-		Requests:              map[string]int64{},
-		Tokens:                map[string]int64{},
-		RPM:                   map[string]float64{},
-		TPM:                   map[string]float64{},
-		Cost:                  map[string]float64{},
-		CacheRate:             map[string]*float64{},
-		CacheRateInputTokens:  map[string]int64{},
-		CacheRateCachedTokens: map[string]int64{},
+		Requests:                 map[string]int64{},
+		Tokens:                   map[string]int64{},
+		RPM:                      map[string]float64{},
+		TPM:                      map[string]float64{},
+		Cost:                     map[string]float64{},
+		CacheReadRate:            map[string]*float64{},
+		CacheReadRateInputTokens: map[string]int64{},
+		CacheReadRateReadTokens:  map[string]int64{},
 	}
 }
 
@@ -2566,13 +2569,14 @@ func applyUsageEventToOverviewSeries(series *dto.UsageOverviewSeriesRecord, even
 	series.Cost[bucketKey] += cost
 	series.RPM[bucketKey] = float64(series.Requests[bucketKey]) / float64(bucketMinutes)
 	series.TPM[bucketKey] = float64(series.Tokens[bucketKey]) / float64(bucketMinutes)
-	updateUsageOverviewSeriesCacheRate(series, bucketKey, event.InputTokens, event.CachedTokens)
+	updateUsageOverviewSeriesCacheReadRate(series, bucketKey, event.InputTokens, event.CacheReadTokens)
 }
 
 // applyUsageEventToOverview 把边界 raw event 合并进 Overview，语义必须和 stats row 合并保持一致。
 func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities.UsageEvent, bucketByDay bool, costResolver *UsageCostResolver) {
 	overview.Summary.InputTokens += event.InputTokens
-	overview.Summary.CachedTokens += event.CachedTokens
+	overview.Summary.CacheReadTokens += event.CacheReadTokens
+	overview.Summary.CacheCreationTokens += event.CacheCreationTokens
 	overview.Summary.ReasoningTokens += event.ReasoningTokens
 	if event.Failed {
 		overview.Health.TotalFailure++
@@ -2593,16 +2597,16 @@ func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities
 	updateUsageOverviewHealthBlock(overview.Health.BlockDetails, event)
 }
 
-func updateUsageOverviewSeriesCacheRate(series *dto.UsageOverviewSeriesRecord, bucketKey string, inputTokens, cachedTokens int64) {
-	series.CacheRateInputTokens[bucketKey] += inputTokens
-	series.CacheRateCachedTokens[bucketKey] += cachedTokens
-	input := series.CacheRateInputTokens[bucketKey]
+func updateUsageOverviewSeriesCacheReadRate(series *dto.UsageOverviewSeriesRecord, bucketKey string, inputTokens, cacheReadTokens int64) {
+	series.CacheReadRateInputTokens[bucketKey] += inputTokens
+	series.CacheReadRateReadTokens[bucketKey] += cacheReadTokens
+	input := series.CacheReadRateInputTokens[bucketKey]
 	if input <= 0 {
-		series.CacheRate[bucketKey] = nil
+		series.CacheReadRate[bucketKey] = nil
 		return
 	}
-	value := (float64(series.CacheRateCachedTokens[bucketKey]) / float64(input)) * 100
-	series.CacheRate[bucketKey] = &value
+	value := (float64(series.CacheReadRateReadTokens[bucketKey]) / float64(input)) * 100
+	series.CacheReadRate[bucketKey] = &value
 }
 
 // finalizeUsageOverview 从累计后的 usage/health 数据反推 summary 派生指标。

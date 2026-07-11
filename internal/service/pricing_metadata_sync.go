@@ -260,18 +260,17 @@ func matchPricingCatalogCandidates(model string, index pricingCatalogIndex) []pr
 		}
 	}
 
-	exactKey := strings.ToLower(model)
-	add(index.exact[exactKey], "index_exact", 100)
-
 	suffix := stripPricingModelPrefix(model)
 	if suffix != model {
-		add(index.exact[strings.ToLower(suffix)], "index_suffix", 96)
-	}
-
-	normalizedKey := normalizePricingModelKey(model)
-	add(index.normalized[normalizedKey], "index_normalized", 92)
-	if suffix != model {
-		add(index.normalized[normalizePricingModelKey(suffix)], "index_normalized_suffix", 90)
+		// CPA 前缀可由用户自由配置，价格匹配先使用去前缀后的真实模型 ID；
+		// 完整 ID 仅作为低优先级兜底，不能用于推断 Models.dev 供应商。
+		add(index.exact[strings.ToLower(suffix)], "index_suffix", 100)
+		add(index.normalized[normalizePricingModelKey(suffix)], "index_normalized_suffix", 96)
+		add(index.exact[strings.ToLower(model)], "index_exact", 92)
+		add(index.normalized[normalizePricingModelKey(model)], "index_normalized", 90)
+	} else {
+		add(index.exact[strings.ToLower(model)], "index_exact", 100)
+		add(index.normalized[normalizePricingModelKey(model)], "index_normalized", 92)
 	}
 
 	return sortedUniquePricingCandidates(model, candidates)
@@ -492,11 +491,10 @@ func buildPricingSyncMatch(model string, metadataModel modelsDevModel, matchType
 	cacheRead := 0.0
 	if metadataModel.Cost.CacheRead != nil {
 		cacheRead = *metadataModel.Cost.CacheRead
-	} else if pricingStyle == entities.ModelPricingStyleOpenAI {
-		cacheRead = input
 	}
 	cacheWrite := 0.0
-	if pricingStyle == entities.ModelPricingStyleClaude && metadataModel.Cost.CacheWrite != nil {
+	// Keeper 当前保存单组基础价格；这里只映射 Models.dev 顶层 cache_write，长上下文 tiers 留待独立价格模型支持。
+	if metadataModel.Cost.CacheWrite != nil {
 		cacheWrite = *metadataModel.Cost.CacheWrite
 	}
 	if cacheRead < 0 || cacheWrite < 0 {
@@ -512,16 +510,16 @@ func buildPricingSyncMatch(model string, metadataModel modelsDevModel, matchType
 		providerName = strings.TrimSpace(providerID)
 	}
 	return servicedto.PricingSyncMatch{
-		Model:                   model,
-		MatchedModel:            matchedModel,
-		MatchType:               matchType,
-		SourceProviderID:        strings.TrimSpace(providerID),
-		SourceProviderName:      providerName,
-		PricingStyle:            pricingStyle,
-		PromptPricePer1M:        input,
-		CompletionPricePer1M:    output,
-		CachePricePer1M:         cacheRead,
-		CacheCreationPricePer1M: cacheWrite,
+		Model:                model,
+		MatchedModel:         matchedModel,
+		MatchType:            matchType,
+		SourceProviderID:     strings.TrimSpace(providerID),
+		SourceProviderName:   providerName,
+		PricingStyle:         pricingStyle,
+		PromptPricePer1M:     input,
+		CompletionPricePer1M: output,
+		CacheReadPricePer1M:  cacheRead,
+		CacheWritePricePer1M: cacheWrite,
 	}, true
 }
 

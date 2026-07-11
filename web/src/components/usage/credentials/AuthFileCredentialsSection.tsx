@@ -12,7 +12,7 @@ import type { QuotaAutoRefreshScheduleUnit, QuotaAutoRefreshSettings, UsageQuota
 import { CredentialAliasEditor, isCredentialAliasEditorDisabled } from './CredentialAliasEditor'
 import { CredentialHealthPanel } from './CredentialHealthPanel'
 import { CredentialProviderFilterIcon } from './CredentialProviderFilterBar'
-import { CredentialBadge, CredentialPriorityBadge, CredentialRowShell, CredentialSectionShell, CredentialTableHeader, CredentialsPagination, MetricPill, RequestMetric, TonePercent, cacheRateTone, capitalize, credentialToneClassName, formatCredentialNumber, successRateTone } from './CredentialSectionShell'
+import { CredentialBadge, CredentialPriorityBadge, CredentialRowShell, CredentialSectionShell, CredentialTableHeader, CredentialsPagination, MetricPill, RequestMetric, TonePercent, cacheReadRateTone, capitalize, credentialToneClassName, formatCredentialNumber, successRateTone } from './CredentialSectionShell'
 
 type Translate = (key: string, options?: Record<string, string>) => string
 type InspectionIndicatorTone = 'idle' | 'running' | 'completed'
@@ -169,7 +169,7 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
           totalRequestsLabel={t('usage_stats.total_requests')}
           successRateLabel={t('usage_stats.success_rate')}
           totalTokensLabel={t('usage_stats.total_tokens')}
-          cacheRateLabel={t('usage_stats.cache_rate')}
+          cacheReadRateLabel={t('usage_stats.cache_rate')}
           sideLabel={showHealthMode ? t('usage_stats.credentials_column_health') : t('usage_stats.credentials_column_quota')}
         />
       )}
@@ -204,7 +204,7 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
                 <MetricPill value={<RequestMetric total={row.totalRequests} success={row.successCount} failure={row.failureCount} />} />
                 <MetricPill value={<TonePercent value={row.successRate} tone={successRateTone(row.successRate)} />} />
                 <MetricPill value={formatCredentialNumber(row.totalTokens)} />
-                <MetricPill value={<TonePercent value={row.cacheRate} tone={cacheRateTone(row.cacheRate)} />} />
+                <MetricPill value={<TonePercent value={row.cacheReadRate} tone={cacheReadRateTone(row.cacheReadRate)} />} />
               </>
             )}
             rowClassName={styles.authFileCredentialRow}

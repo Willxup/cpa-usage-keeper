@@ -351,18 +351,18 @@ func TestBuildUsageOverviewWithFilterUsesStatsForFullHoursAndRawEventsForBoundar
 		Model:                "claude-sonnet",
 		PromptPricePer1M:     0,
 		CompletionPricePer1M: 0,
-		CachePricePer1M:      0,
+		CacheReadPricePer1M:  0,
 	}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}
 
 	events := []entities.UsageEvent{
 		{EventKey: "outside-before", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 10, 0, 0, time.UTC), InputTokens: 99, OutputTokens: 99, TotalTokens: 198},
-		{EventKey: "start-boundary", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 25, 0, 0, time.UTC), InputTokens: 1000, OutputTokens: 500, ReasoningTokens: 100, CachedTokens: 200, TotalTokens: 1800},
-		{EventKey: "full-hour-1", APIGroupKey: "provider-a", Model: "claude-sonnet", ModelAlias: stringPtr("sonnet-alias-a"), AuthIndex: "auth-a", Timestamp: time.Date(2026, 4, 16, 10, 10, 0, 0, time.UTC), InputTokens: 2000, OutputTokens: 1000, ReasoningTokens: 50, CachedTokens: 100, TotalTokens: 3150},
-		{EventKey: "full-hour-2", APIGroupKey: "provider-a", Model: "claude-sonnet", ModelAlias: stringPtr("sonnet-alias-b"), AuthIndex: "auth-b", Timestamp: time.Date(2026, 4, 16, 10, 50, 0, 0, time.UTC), Failed: true, InputTokens: 500, OutputTokens: 250, ReasoningTokens: 25, CachedTokens: 50, TotalTokens: 825},
-		{EventKey: "full-hour-3", APIGroupKey: "provider-b", Model: "claude-sonnet", ModelAlias: stringPtr("sonnet-alias-a"), AuthIndex: "auth-c", Timestamp: time.Date(2026, 4, 16, 11, 30, 0, 0, time.UTC), InputTokens: 700, OutputTokens: 300, ReasoningTokens: 30, CachedTokens: 70, TotalTokens: 1100},
-		{EventKey: "end-boundary", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 12, 35, 0, 0, time.UTC), InputTokens: 400, OutputTokens: 200, ReasoningTokens: 20, CachedTokens: 40, TotalTokens: 660},
+		{EventKey: "start-boundary", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 25, 0, 0, time.UTC), InputTokens: 1000, OutputTokens: 500, ReasoningTokens: 100, CachedTokens: 200, CacheReadTokens: 200, TotalTokens: 1800},
+		{EventKey: "full-hour-1", APIGroupKey: "provider-a", Model: "claude-sonnet", ModelAlias: stringPtr("sonnet-alias-a"), AuthIndex: "auth-a", Timestamp: time.Date(2026, 4, 16, 10, 10, 0, 0, time.UTC), InputTokens: 2000, OutputTokens: 1000, ReasoningTokens: 50, CachedTokens: 100, CacheReadTokens: 100, TotalTokens: 3150},
+		{EventKey: "full-hour-2", APIGroupKey: "provider-a", Model: "claude-sonnet", ModelAlias: stringPtr("sonnet-alias-b"), AuthIndex: "auth-b", Timestamp: time.Date(2026, 4, 16, 10, 50, 0, 0, time.UTC), Failed: true, InputTokens: 500, OutputTokens: 250, ReasoningTokens: 25, CachedTokens: 50, CacheReadTokens: 50, TotalTokens: 825},
+		{EventKey: "full-hour-3", APIGroupKey: "provider-b", Model: "claude-sonnet", ModelAlias: stringPtr("sonnet-alias-a"), AuthIndex: "auth-c", Timestamp: time.Date(2026, 4, 16, 11, 30, 0, 0, time.UTC), InputTokens: 700, OutputTokens: 300, ReasoningTokens: 30, CachedTokens: 70, CacheReadTokens: 70, TotalTokens: 1100},
+		{EventKey: "end-boundary", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 12, 35, 0, 0, time.UTC), InputTokens: 400, OutputTokens: 200, ReasoningTokens: 20, CachedTokens: 40, CacheReadTokens: 40, TotalTokens: 660},
 		{EventKey: "outside-after", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 12, 45, 0, 0, time.UTC), InputTokens: 88, OutputTokens: 88, TotalTokens: 176},
 	}
 	if _, _, err := InsertUsageEvents(db, events); err != nil {
@@ -556,14 +556,14 @@ func TestBuildUsageOverviewWithFilterUsesDailyStatsForCompleteDays(t *testing.T)
 		Model:                "claude-sonnet",
 		PromptPricePer1M:     0,
 		CompletionPricePer1M: 0,
-		CachePricePer1M:      0,
+		CacheReadPricePer1M:  0,
 	}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}
 
 	events := []entities.UsageEvent{
 		{EventKey: "start-boundary", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 15, 15, 40, 0, 0, time.UTC), InputTokens: 100, OutputTokens: 50, TotalTokens: 150},
-		{EventKey: "full-day-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 2, 0, 0, 0, time.UTC), InputTokens: 200, OutputTokens: 100, CachedTokens: 25, TotalTokens: 325},
+		{EventKey: "full-day-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 2, 0, 0, 0, time.UTC), InputTokens: 200, OutputTokens: 100, CachedTokens: 25, CacheReadTokens: 25, TotalTokens: 325},
 		{EventKey: "full-day-2", APIGroupKey: "provider-b", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 15, 30, 0, 0, time.UTC), Failed: true, InputTokens: 300, OutputTokens: 150, ReasoningTokens: 40, TotalTokens: 490},
 		{EventKey: "end-boundary", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 24, 16, 30, 0, 0, time.UTC), InputTokens: 400, OutputTokens: 200, TotalTokens: 600},
 	}
@@ -621,7 +621,7 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 		Model:                "claude-sonnet",
 		PromptPricePer1M:     3,
 		CompletionPricePer1M: 15,
-		CachePricePer1M:      0.3,
+		CacheReadPricePer1M:  0.3,
 	}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}
@@ -630,17 +630,17 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 		{
 			EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet",
 			Timestamp: time.Date(2026, 4, 16, 9, 15, 0, 0, time.UTC), Failed: false,
-			InputTokens: 1000, OutputTokens: 500, ReasoningTokens: 100, CachedTokens: 200, TotalTokens: 1800,
+			InputTokens: 1000, OutputTokens: 500, ReasoningTokens: 100, CachedTokens: 200, CacheReadTokens: 200, TotalTokens: 1800,
 		},
 		{
 			EventKey: "event-2", APIGroupKey: "provider-a", Model: "claude-sonnet",
 			Timestamp: time.Date(2026, 4, 16, 10, 45, 0, 0, time.UTC), Failed: true,
-			InputTokens: 2000, OutputTokens: 1000, ReasoningTokens: 50, CachedTokens: 100, TotalTokens: 3150,
+			InputTokens: 2000, OutputTokens: 1000, ReasoningTokens: 50, CachedTokens: 100, CacheReadTokens: 100, TotalTokens: 3150,
 		},
 		{
 			EventKey: "event-3", APIGroupKey: "provider-a", Model: "claude-sonnet",
 			Timestamp: time.Date(2026, 4, 17, 11, 5, 0, 0, time.UTC), Failed: false,
-			InputTokens: 500, OutputTokens: 250, ReasoningTokens: 25, CachedTokens: 50, TotalTokens: 825,
+			InputTokens: 500, OutputTokens: 250, ReasoningTokens: 25, CachedTokens: 50, CacheReadTokens: 50, TotalTokens: 825,
 		},
 	}
 	if _, _, err := InsertUsageEvents(db, events); err != nil {
@@ -660,7 +660,7 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 	if overview.Summary.RequestCount != 3 || overview.Summary.TokenCount != 5775 {
 		t.Fatalf("unexpected summary counts: %+v", overview.Summary)
 	}
-	if overview.Summary.InputTokens != 3500 || overview.Summary.CachedTokens != 350 || overview.Summary.ReasoningTokens != 175 {
+	if overview.Summary.InputTokens != 3500 || overview.Summary.CacheReadTokens != 350 || overview.Summary.CacheCreationTokens != 0 || overview.Summary.ReasoningTokens != 175 {
 		t.Fatalf("unexpected summary token breakdown: %+v", overview.Summary)
 	}
 	if overview.Summary.WindowMinutes != 2880 {
@@ -691,9 +691,9 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 	if math.Abs(overview.Series.Cost["2026-04-16"]-0.03069) > 0.000000001 || math.Abs(overview.Series.Cost["2026-04-17"]-0.005115) > 0.000000001 {
 		t.Fatalf("unexpected cost series: %+v", overview.Series.Cost)
 	}
-	if overview.Series.CacheRate["2026-04-16"] == nil || math.Abs(*overview.Series.CacheRate["2026-04-16"]-10) > 0.000000001 ||
-		overview.Series.CacheRate["2026-04-17"] == nil || math.Abs(*overview.Series.CacheRate["2026-04-17"]-10) > 0.000000001 {
-		t.Fatalf("unexpected cache-rate series: %+v", overview.Series.CacheRate)
+	if overview.Series.CacheReadRate["2026-04-16"] == nil || math.Abs(*overview.Series.CacheReadRate["2026-04-16"]-10) > 0.000000001 ||
+		overview.Series.CacheReadRate["2026-04-17"] == nil || math.Abs(*overview.Series.CacheReadRate["2026-04-17"]-10) > 0.000000001 {
+		t.Fatalf("unexpected cache-read-rate series: %+v", overview.Series.CacheReadRate)
 	}
 	if overview.Health.TotalSuccess != 2 || overview.Health.TotalFailure != 1 {
 		t.Fatalf("unexpected overview health totals: %+v", overview.Health)
@@ -746,13 +746,13 @@ func TestBuildUsageOverviewFromEventsBuildsSnapshotAndOverviewInOnePass(t *testi
 		{
 			EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet",
 			Timestamp: time.Date(2026, 4, 16, 9, 15, 0, 0, time.UTC), Failed: false,
-			InputTokens: 1000, OutputTokens: 500, ReasoningTokens: 100, CachedTokens: 200, TotalTokens: 1800,
+			InputTokens: 1000, OutputTokens: 500, ReasoningTokens: 100, CachedTokens: 200, CacheReadTokens: 200, TotalTokens: 1800,
 			Source: "source-a", AuthIndex: "1", LatencyMS: 120,
 		},
 		{
 			EventKey: "event-2", APIGroupKey: "", Model: "",
 			Timestamp: time.Date(2026, 4, 16, 10, 45, 0, 0, time.UTC), Failed: true,
-			InputTokens: 2000, OutputTokens: 1000, ReasoningTokens: 50, CachedTokens: 100, TotalTokens: 3150,
+			InputTokens: 2000, OutputTokens: 1000, ReasoningTokens: 50, CachedTokens: 100, CacheReadTokens: 100, TotalTokens: 3150,
 			Source: " source-b ", AuthIndex: " 2 ", LatencyMS: 250,
 		},
 	}
@@ -764,7 +764,7 @@ func TestBuildUsageOverviewFromEventsBuildsSnapshotAndOverviewInOnePass(t *testi
 			Model:                "claude-sonnet",
 			PromptPricePer1M:     3,
 			CompletionPricePer1M: 15,
-			CachePricePer1M:      0.3,
+			CacheReadPricePer1M:  0.3,
 		},
 	}
 
@@ -782,7 +782,7 @@ func TestBuildUsageOverviewFromEventsBuildsSnapshotAndOverviewInOnePass(t *testi
 	if overview.Summary.RequestCount != 2 || overview.Summary.TokenCount != 4950 {
 		t.Fatalf("unexpected summary totals: %+v", overview.Summary)
 	}
-	if overview.Summary.InputTokens != 3000 || overview.Summary.CachedTokens != 300 || overview.Summary.ReasoningTokens != 150 {
+	if overview.Summary.InputTokens != 3000 || overview.Summary.CacheReadTokens != 300 || overview.Summary.CacheCreationTokens != 0 || overview.Summary.ReasoningTokens != 150 {
 		t.Fatalf("unexpected summary token breakdown: %+v", overview.Summary)
 	}
 	if overview.Summary.CostAvailable {
@@ -791,9 +791,9 @@ func TestBuildUsageOverviewFromEventsBuildsSnapshotAndOverviewInOnePass(t *testi
 	if overview.Series.Requests["2026-04-16T17:00:00+08:00"] != 1 || overview.Series.Requests["2026-04-16T18:00:00+08:00"] != 1 {
 		t.Fatalf("unexpected hourly request series: %+v", overview.Series.Requests)
 	}
-	if overview.Series.CacheRate["2026-04-16T17:00:00+08:00"] == nil || math.Abs(*overview.Series.CacheRate["2026-04-16T17:00:00+08:00"]-20) > 0.000000001 ||
-		overview.Series.CacheRate["2026-04-16T18:00:00+08:00"] == nil || math.Abs(*overview.Series.CacheRate["2026-04-16T18:00:00+08:00"]-5) > 0.000000001 {
-		t.Fatalf("unexpected hourly cache-rate series: %+v", overview.Series.CacheRate)
+	if overview.Series.CacheReadRate["2026-04-16T17:00:00+08:00"] == nil || math.Abs(*overview.Series.CacheReadRate["2026-04-16T17:00:00+08:00"]-20) > 0.000000001 ||
+		overview.Series.CacheReadRate["2026-04-16T18:00:00+08:00"] == nil || math.Abs(*overview.Series.CacheReadRate["2026-04-16T18:00:00+08:00"]-5) > 0.000000001 {
+		t.Fatalf("unexpected hourly cache-read-rate series: %+v", overview.Series.CacheReadRate)
 	}
 	if overview.Health.TotalSuccess != 1 || overview.Health.TotalFailure != 1 {
 		t.Fatalf("unexpected health totals: %+v", overview.Health)
@@ -924,14 +924,14 @@ func TestBuildUsageOverviewWithFilterKeepsCalendarDayHealthWindow(t *testing.T) 
 
 func TestCalculateUsageTokenCostBreakdownDoesNotDoubleChargeReasoningTokens(t *testing.T) {
 	input := helper.UsageTokenCostInput{
-		InputTokens:  1_000_000,
-		OutputTokens: 2_000_000,
-		CachedTokens: 400_000,
+		InputTokens:     1_000_000,
+		OutputTokens:    2_000_000,
+		CacheReadTokens: 400_000,
 	}
 	pricing := entities.ModelPriceSetting{
 		PromptPricePer1M:     10,
 		CompletionPricePer1M: 20,
-		CachePricePer1M:      1,
+		CacheReadPricePer1M:  1,
 	}
 
 	cost := helper.CalculateUsageTokenCostBreakdown(input, pricing).TotalCostUSD
@@ -962,11 +962,11 @@ func TestBuildUsageOverviewCalculatesClaudeCacheReadAndCreationCost(t *testing.T
 	}
 	overview := buildUsageOverviewFromEventsForTest([]entities.UsageEvent{event}, filter, map[string]entities.ModelPriceSetting{
 		"claude-sonnet": {
-			PricingStyle:            entities.ModelPricingStyleClaude,
-			PromptPricePer1M:        10,
-			CompletionPricePer1M:    20,
-			CachePricePer1M:         1,
-			CacheCreationPricePer1M: 12.5,
+			PricingStyle:         entities.ModelPricingStyleClaude,
+			PromptPricePer1M:     10,
+			CompletionPricePer1M: 20,
+			CacheReadPricePer1M:  1,
+			CacheWritePricePer1M: 12.5,
 		},
 	})
 
@@ -990,7 +990,7 @@ func TestBuildUsageOverviewWithFilterReturnsUnavailableCostForPartialPricing(t *
 		Model:                "priced-model",
 		PromptPricePer1M:     1,
 		CompletionPricePer1M: 0,
-		CachePricePer1M:      0,
+		CacheReadPricePer1M:  0,
 	}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}
@@ -1040,7 +1040,7 @@ func TestBuildUsageOverviewWithFilterReturnsAvailableCostWhenUnpricedEventsHaveN
 		Model:                "priced-model",
 		PromptPricePer1M:     1,
 		CompletionPricePer1M: 0,
-		CachePricePer1M:      0,
+		CacheReadPricePer1M:  0,
 	}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}
@@ -1088,7 +1088,7 @@ func TestBuildUsageOverviewWithFilterReturnsUnavailableCostWithoutPricing(t *tes
 	events := []entities.UsageEvent{{
 		EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet",
 		Timestamp: time.Date(2026, 4, 16, 9, 15, 0, 0, time.UTC), TotalTokens: 1800,
-		InputTokens: 1000, OutputTokens: 500, CachedTokens: 200,
+		InputTokens: 1000, OutputTokens: 500, CachedTokens: 200, CacheReadTokens: 200,
 	}}
 	if _, _, err := InsertUsageEvents(db, events); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
@@ -1308,10 +1308,10 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 	}
 	closeTestDatabase(t, db)
 
-	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "gpt-5", PromptPricePer1M: 1, CompletionPricePer1M: 1, CachePricePer1M: 0.5}); err != nil {
+	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "gpt-5", PromptPricePer1M: 1, CompletionPricePer1M: 1, CacheReadPricePer1M: 0.5}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting gpt-5 returned error: %v", err)
 	}
-	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "claude-sonnet", PromptPricePer1M: 1, CompletionPricePer1M: 1, CachePricePer1M: 0.5}); err != nil {
+	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "claude-sonnet", PromptPricePer1M: 1, CompletionPricePer1M: 1, CacheReadPricePer1M: 0.5}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting claude returned error: %v", err)
 	}
 
@@ -1324,8 +1324,8 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 	t.Cleanup(cache.Close)
 	cache.appendEvents([]entities.UsageEvent{
 		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-16 * time.Minute), InputTokens: 900, TotalTokens: 900},
-		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 50*time.Second), InputTokens: 100, OutputTokens: 60, CachedTokens: 20, TotalTokens: 120, LatencyMS: 500, TTFTMS: &ttft100},
-		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 45*time.Second), InputTokens: 50, OutputTokens: 40, CachedTokens: 5, TotalTokens: 80, LatencyMS: 700, TTFTMS: &ttft200},
+		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 50*time.Second), InputTokens: 100, OutputTokens: 60, CachedTokens: 20, CacheReadTokens: 20, TotalTokens: 120, LatencyMS: 500, TTFTMS: &ttft100},
+		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 45*time.Second), InputTokens: 50, OutputTokens: 40, CachedTokens: 5, CacheReadTokens: 5, TotalTokens: 80, LatencyMS: 700, TTFTMS: &ttft200},
 		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 40*time.Second), InputTokens: 10, OutputTokens: 10, TotalTokens: 20, TTFTMS: &ttftZero},
 		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 30*time.Second), Failed: true, InputTokens: 1000, TotalTokens: 1000, LatencyMS: 900, TTFTMS: &ttftFailed},
 		{APIGroupKey: "provider-a", Model: "claude-sonnet", AuthType: "apikey", Provider: "OpenAI Provider", AuthIndex: "provider-1", Timestamp: now.Add(-20 * time.Second), InputTokens: 100, OutputTokens: 25, TotalTokens: 50, LatencyMS: 300},
@@ -1421,15 +1421,15 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 	if realtime.RequestLevel[26].Requests != 1 || math.Abs(realtime.RequestLevel[26].RequestsPerMinute-(1.0/3.0)) > 0.000000001 {
 		t.Fatalf("expected failed request to remain visible inside the sliding window, got %+v", realtime.RequestLevel[26])
 	}
-	if realtime.CacheLevel[20].InputTokens != 160 || realtime.CacheLevel[20].CachedTokens != 25 ||
-		realtime.CacheLevel[20].CacheRate == nil || math.Abs(*realtime.CacheLevel[20].CacheRate-(25.0/160.0)*100) > 0.000000001 {
+	if realtime.CacheLevel[20].InputTokens != 160 || realtime.CacheLevel[20].CacheReadTokens != 25 || realtime.CacheLevel[20].CacheCreationTokens != 0 ||
+		realtime.CacheLevel[20].CacheReadRate == nil || math.Abs(*realtime.CacheLevel[20].CacheReadRate-(25.0/160.0)*100) > 0.000000001 {
 		t.Fatalf("unexpected cache level bucket: %+v", realtime.CacheLevel[20])
 	}
-	if realtime.CacheLevel[25].InputTokens != 160 || realtime.CacheLevel[25].CachedTokens != 25 ||
-		realtime.CacheLevel[25].CacheRate == nil || math.Abs(*realtime.CacheLevel[25].CacheRate-(25.0/160.0)*100) > 0.000000001 {
+	if realtime.CacheLevel[25].InputTokens != 160 || realtime.CacheLevel[25].CacheReadTokens != 25 || realtime.CacheLevel[25].CacheCreationTokens != 0 ||
+		realtime.CacheLevel[25].CacheReadRate == nil || math.Abs(*realtime.CacheLevel[25].CacheReadRate-(25.0/160.0)*100) > 0.000000001 {
 		t.Fatalf("expected cache level to carry over the sliding window, got %+v", realtime.CacheLevel[25])
 	}
-	if realtime.CacheLevel[26].CacheRate != nil || realtime.CacheLevel[26].InputTokens != 0 || realtime.CacheLevel[26].CachedTokens != 0 {
+	if realtime.CacheLevel[26].CacheReadRate != nil || realtime.CacheLevel[26].InputTokens != 0 || realtime.CacheLevel[26].CacheReadTokens != 0 || realtime.CacheLevel[26].CacheCreationTokens != 0 {
 		t.Fatalf("expected cache level to expire after the sliding window, got %+v", realtime.CacheLevel[26])
 	}
 
@@ -1781,7 +1781,7 @@ func TestBuildUsageOverviewWithFilterUsesRecentCacheForCoveredBoundaryEvents(t *
 	if overview.Usage.TotalRequests != 1 || overview.Usage.SuccessCount != 1 || overview.Usage.TotalTokens != 150 {
 		t.Fatalf("expected cached boundary event in usage totals, got %+v", overview.Usage)
 	}
-	if overview.Summary.InputTokens != 100 || overview.Summary.CachedTokens != 25 || overview.Summary.ReasoningTokens != 7 {
+	if overview.Summary.InputTokens != 100 || overview.Summary.CacheReadTokens != 3 || overview.Summary.CacheCreationTokens != 4 || overview.Summary.ReasoningTokens != 7 {
 		t.Fatalf("expected cached boundary event in summary, got %+v", overview.Summary)
 	}
 	if overview.Series.Requests["2026-06-10T12:00:00Z"] != 1 || overview.Series.Tokens["2026-06-10T12:00:00Z"] != 150 {

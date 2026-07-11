@@ -28,7 +28,7 @@ interface CredentialTableHeaderProps {
   totalRequestsLabel: string
   successRateLabel: string
   totalTokensLabel: string
-  cacheRateLabel: string
+  cacheReadRateLabel: string
   sideLabel: string
   rowClassName?: string
 }
@@ -69,7 +69,7 @@ export function CredentialRowShell({ title, subtitle, badges, metrics, side, row
   )
 }
 
-export function CredentialTableHeader({ nameLabel, totalRequestsLabel, successRateLabel, totalTokensLabel, cacheRateLabel, sideLabel, rowClassName }: CredentialTableHeaderProps) {
+export function CredentialTableHeader({ nameLabel, totalRequestsLabel, successRateLabel, totalTokensLabel, cacheReadRateLabel, sideLabel, rowClassName }: CredentialTableHeaderProps) {
   return (
     <div className={`${styles.credentialTableHeader} ${rowClassName ?? ''}`.trim()}>
       <span className={styles.credentialTableHeaderName}>{nameLabel}</span>
@@ -77,7 +77,7 @@ export function CredentialTableHeader({ nameLabel, totalRequestsLabel, successRa
         <span className={styles.credentialMetricHeaderCell}>{totalRequestsLabel}</span>
         <span className={styles.credentialMetricHeaderCell}>{successRateLabel}</span>
         <span className={styles.credentialMetricHeaderCell}>{totalTokensLabel}</span>
-        <span className={styles.credentialMetricHeaderCell}>{cacheRateLabel}</span>
+        <span className={styles.credentialMetricHeaderCell}>{cacheReadRateLabel}</span>
       </div>
       <span className={styles.credentialTableHeaderSide}>{sideLabel}</span>
     </div>
@@ -126,7 +126,7 @@ export function successRateTone(value: number | null): 'success' | 'warning' | '
   return 'danger'
 }
 
-export function cacheRateTone(value: number | null): 'success' | 'warning' | 'danger' | 'neutral' {
+export function cacheReadRateTone(value: number | null): 'success' | 'warning' | 'danger' | 'neutral' {
   if (value === null) {
     return 'neutral'
   }

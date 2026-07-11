@@ -1893,21 +1893,18 @@
   border-radius: 22px;
   border: 1px solid var(--border-color);
   flex: 0 0 auto;
+  container-name: model-pricing-form;
+  container-type: inline-size;
 }
 
 .formRow {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(130px, 0.85fr) repeat(5, minmax(120px, 1fr)) auto;
   gap: 10px;
   align-items: flex-end;
-  flex-wrap: wrap;
 
   :global(.btn) {
     min-height: 40px;
-  }
-
-  @include mobile {
-    flex-direction: column;
-    align-items: stretch;
   }
 }
 
@@ -1945,6 +1942,34 @@
   > button,
   :global(.btn) {
     min-height: 40px;
+  }
+}
+
+.priceFormAction {
+  align-self: end;
+  justify-self: stretch;
+}
+
+@container model-pricing-form (max-width: 1120px) {
+  .formRow {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@container model-pricing-form (max-width: 720px) {
+  .formRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .priceFormModelField,
+  .priceFormAction {
+    grid-column: 1 / -1;
+  }
+}
+
+@container model-pricing-form (max-width: 480px) {
+  .formRow {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

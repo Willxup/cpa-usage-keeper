@@ -1,37 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   normalizeRequestEventsPreferences,
-  type RequestEventsPreferences,
 } from '../UsagePage';
-import type { RequestEventColumnId } from '@/components/usage/RequestEventsDetailsCard';
+import { REQUEST_EVENT_COLUMN_IDS } from '@/components/usage/RequestEventsDetailsCard';
 
-const LEGACY_V2_FULL_COLUMNS = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'reasoning_effort',
-  'service_tier',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cached_tokens',
-  'cache_rate',
-  'total_tokens',
-  'total_cost',
-] as unknown as RequestEventColumnId[];
-
-const LEGACY_V1_FULL_COLUMNS_WITHOUT_SPEED_MODE_AND_MODEL_ALIAS = LEGACY_V2_FULL_COLUMNS.filter(
-  (columnId) => columnId !== 'service_tier'
-);
-
-const EXPECTED_COLUMNS_WITH_MODEL_ALIAS = [
+const LEGACY_V3_FULL_COLUMNS = [
   'timestamp',
   'api_key',
   'source',
@@ -54,37 +27,84 @@ const EXPECTED_COLUMNS_WITH_MODEL_ALIAS = [
   'total_cost',
 ];
 
-describe('UsagePage request event model alias preferences', () => {
-  it('upgrades legacy v2 full-column preferences to include model alias', () => {
+const LEGACY_V2_FULL_COLUMNS = LEGACY_V3_FULL_COLUMNS.filter((columnId) => columnId !== 'model_alias');
+const LEGACY_V1_FULL_COLUMNS = LEGACY_V2_FULL_COLUMNS.filter((columnId) => columnId !== 'service_tier');
+const LEGACY_V4_FULL_COLUMNS = REQUEST_EVENT_COLUMN_IDS.map((columnId) => (
+  columnId === 'cache_read_rate' ? 'cache_rate' : columnId
+));
+
+describe('UsagePage request event cache column preferences', () => {
+  it('upgrades a v3 full selection to all v5 columns including cache write', () => {
     const preferences = normalizeRequestEventsPreferences({
-      version: 2,
+      version: 3,
       pageSize: 100,
-      visibleColumnIds: LEGACY_V2_FULL_COLUMNS,
+      visibleColumnIds: LEGACY_V3_FULL_COLUMNS,
     });
 
-    expect(preferences.version).toBe(3 as RequestEventsPreferences['version']);
-    expect(preferences.visibleColumnIds).toEqual(EXPECTED_COLUMNS_WITH_MODEL_ALIAS);
+    expect(preferences.version).toBe(5);
+    expect(preferences.visibleColumnIds).toEqual(REQUEST_EVENT_COLUMN_IDS);
+    expect(preferences.visibleColumnIds).toContain('cache_read_tokens');
+    expect(preferences.visibleColumnIds).toContain('cache_creation_tokens');
   });
 
-  it('keeps customized v2 preferences without model alias unchanged', () => {
-    const customizedColumns = LEGACY_V2_FULL_COLUMNS.filter((columnId) => columnId !== 'speed');
+  it('upgrades a v4 full selection and maps cache rate to cache read rate', () => {
+    const preferences = normalizeRequestEventsPreferences({
+      version: 4,
+      pageSize: 100,
+      visibleColumnIds: LEGACY_V4_FULL_COLUMNS,
+    });
+
+    expect(preferences.visibleColumnIds).toEqual(REQUEST_EVENT_COLUMN_IDS);
+    expect(preferences.visibleColumnIds).toContain('cache_read_rate');
+    expect(preferences.visibleColumnIds).not.toContain('cache_rate' as never);
+  });
+
+  it('maps a v3 custom cached column to cache read without adding cache write', () => {
+    const preferences = normalizeRequestEventsPreferences({
+      version: 3,
+      pageSize: 100,
+      visibleColumnIds: ['timestamp', 'cached_tokens', 'total_tokens'],
+    });
+
+    expect(preferences.visibleColumnIds).toEqual(['timestamp', 'cache_read_tokens', 'total_tokens']);
+    expect(preferences.visibleColumnIds).not.toContain('cache_creation_tokens');
+  });
+
+  it('upgrades v2 and v1 full selections to all v4 columns', () => {
+    for (const [version, visibleColumnIds] of [
+      [2, LEGACY_V2_FULL_COLUMNS],
+      [1, LEGACY_V1_FULL_COLUMNS],
+    ] as const) {
+      const preferences = normalizeRequestEventsPreferences({ version, pageSize: 100, visibleColumnIds });
+      expect(preferences.visibleColumnIds).toEqual(REQUEST_EVENT_COLUMN_IDS);
+    }
+  });
+
+  it('keeps legacy custom selections custom while mapping cached to cache read', () => {
     const preferences = normalizeRequestEventsPreferences({
       version: 2,
       pageSize: 100,
-      visibleColumnIds: customizedColumns,
+      visibleColumnIds: ['timestamp', 'cached_tokens', 'speed'],
     });
 
-    expect(preferences.visibleColumnIds).toEqual(customizedColumns);
+    expect(preferences.visibleColumnIds).toEqual(['timestamp', 'cache_read_tokens', 'speed']);
     expect(preferences.visibleColumnIds).not.toContain('model_alias');
+    expect(preferences.visibleColumnIds).not.toContain('cache_creation_tokens');
   });
 
-  it('upgrades legacy v1 full-column preferences missing speed mode and model alias', () => {
+  it('maps an existing v4 custom cache rate column while preserving order', () => {
     const preferences = normalizeRequestEventsPreferences({
-      version: 1,
+      version: 4,
       pageSize: 100,
-      visibleColumnIds: LEGACY_V1_FULL_COLUMNS_WITHOUT_SPEED_MODE_AND_MODEL_ALIAS,
+      visibleColumnIds: ['total_tokens', 'cache_rate', 'cache_creation_tokens', 'cache_read_tokens', 'timestamp'],
     });
 
-    expect(preferences.visibleColumnIds).toEqual(EXPECTED_COLUMNS_WITH_MODEL_ALIAS);
+    expect(preferences.visibleColumnIds).toEqual([
+      'total_tokens',
+      'cache_read_rate',
+      'cache_creation_tokens',
+      'cache_read_tokens',
+      'timestamp',
+    ]);
   });
 });

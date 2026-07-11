@@ -329,7 +329,7 @@ func TestAttachWindowUsageStatsPreservesProviderZeroWindowUsage(t *testing.T) {
 	windowSeconds := int64(5 * 60 * 60)
 	resetAt := time.Date(2026, 6, 2, 5, 0, 0, 0, time.UTC)
 	now := time.Date(2026, 6, 2, 3, 0, 0, 0, time.UTC)
-	if _, err := repository.UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "priced", PromptPricePer1M: 10, CompletionPricePer1M: 20, CachePricePer1M: 1}); err != nil {
+	if _, err := repository.UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "priced", PromptPricePer1M: 10, CompletionPricePer1M: 20, CacheReadPricePer1M: 1}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}
 	if err := db.Create(&entities.UsageEvent{

@@ -61,7 +61,7 @@ func (s *pricingService) UpdatePricing(ctx context.Context, input servicedto.Upd
 	if pricingStyle != entities.ModelPricingStyleOpenAI && pricingStyle != entities.ModelPricingStyleClaude {
 		return nil, fmt.Errorf("pricing_style must be openai or claude")
 	}
-	if input.PromptPricePer1M < 0 || input.CompletionPricePer1M < 0 || input.CachePricePer1M < 0 || input.CacheCreationPricePer1M < 0 {
+	if input.PromptPricePer1M < 0 || input.CompletionPricePer1M < 0 || input.CacheReadPricePer1M < 0 || input.CacheWritePricePer1M < 0 {
 		return nil, fmt.Errorf("prices must be non-negative")
 	}
 	if input.PriceMultiplier != nil {
@@ -72,13 +72,13 @@ func (s *pricingService) UpdatePricing(ctx context.Context, input servicedto.Upd
 	}
 
 	return repository.UpsertModelPriceSetting(s.db, repodto.ModelPriceSettingInput{
-		Model:                   modelName,
-		PricingStyle:            pricingStyle,
-		PromptPricePer1M:        input.PromptPricePer1M,
-		CompletionPricePer1M:    input.CompletionPricePer1M,
-		CachePricePer1M:         input.CachePricePer1M,
-		CacheCreationPricePer1M: input.CacheCreationPricePer1M,
-		PriceMultiplier:         input.PriceMultiplier,
+		Model:                modelName,
+		PricingStyle:         pricingStyle,
+		PromptPricePer1M:     input.PromptPricePer1M,
+		CompletionPricePer1M: input.CompletionPricePer1M,
+		CacheReadPricePer1M:  input.CacheReadPricePer1M,
+		CacheWritePricePer1M: input.CacheWritePricePer1M,
+		PriceMultiplier:      input.PriceMultiplier,
 	})
 }
 

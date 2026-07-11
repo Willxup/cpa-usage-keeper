@@ -79,8 +79,8 @@ const realtime: OverviewRealtimeBlock = {
     { bucket: '2026-06-09T11:55:30Z', requests_per_minute: 4, requests: 2 },
   ],
   cache_level: [
-    { bucket: '2026-06-09T11:55:00Z', cache_rate: 25, cached_tokens: 10, input_tokens: 40 },
-    { bucket: '2026-06-09T11:55:30Z', cache_rate: 50, cached_tokens: 30, input_tokens: 60 },
+    { bucket: '2026-06-09T11:55:00Z', cache_read_rate: 25, cache_read_tokens: 10, cache_creation_tokens: 2, input_tokens: 40 },
+    { bucket: '2026-06-09T11:55:30Z', cache_read_rate: 50, cache_read_tokens: 30, cache_creation_tokens: 4, input_tokens: 60 },
   ],
 } as OverviewRealtimeBlock;
 
@@ -164,8 +164,8 @@ describe('OverviewRealtimePanel', () => {
             { bucket: '2026-06-09T11:55:30Z', requests_per_minute: 0, requests: 0 },
           ],
           cache_level: [
-            { bucket: '2026-06-09T11:55:00Z', cache_rate: null, cached_tokens: 0, input_tokens: 0 },
-            { bucket: '2026-06-09T11:55:30Z', cache_rate: null, cached_tokens: 0, input_tokens: 0 },
+            { bucket: '2026-06-09T11:55:00Z', cache_read_rate: null, cache_read_tokens: 0, cache_creation_tokens: 0, input_tokens: 0 },
+            { bucket: '2026-06-09T11:55:30Z', cache_read_rate: null, cache_read_tokens: 0, cache_creation_tokens: 0, input_tokens: 0 },
           ],
         }}
         loading={false}

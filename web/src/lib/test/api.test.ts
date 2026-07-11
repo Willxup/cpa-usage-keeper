@@ -467,7 +467,7 @@ describe('fetchUsageEvents', () => {
             input_tokens: 10,
             output_tokens: 20,
             reasoning_tokens: 0,
-            cached_tokens: 0,
+            cache_read_tokens: 0,
             total_tokens: 30,
             last_aggregated_usage_event_id: '9',
             is_deleted: false,

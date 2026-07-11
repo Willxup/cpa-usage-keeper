@@ -8,8 +8,8 @@ const openAIPrice = {
   style: 'openai' as const,
   prompt: 2.5,
   completion: 10,
-  cache: 1.25,
-  cacheCreation: 0,
+  cacheRead: 1.25,
+  cacheWrite: 0,
   multiplier: 1,
 };
 
@@ -92,6 +92,29 @@ describe('persistModelPriceEntries', () => {
     expect(payloads).toEqual([0]);
     expect(result).toEqual({ successModels: ['free-model'], failures: [] });
   });
+
+	it('preserves Models.dev OpenAI cache read and write prices in update payloads', async () => {
+		const payloads: Array<{ cacheRead: number; cacheWrite: number }> = [];
+
+		const result = await persistModelPriceEntries({
+			'gpt-5.6-terra': {
+				...openAIPrice,
+				cacheRead: 0.25,
+				cacheWrite: 3.125,
+			},
+		}, {
+			updatePricingEntry: async (model, pricing) => {
+				payloads.push({
+					cacheRead: pricing.cache_read_price_per_1m,
+					cacheWrite: pricing.cache_write_price_per_1m,
+				});
+				return { model, ...pricing };
+			},
+		});
+
+		expect(payloads).toEqual([{ cacheRead: 0.25, cacheWrite: 3.125 }]);
+		expect(result).toEqual({ successModels: ['gpt-5.6-terra'], failures: [] });
+	});
 });
 
 describe('pricingToModelPrice', () => {
@@ -101,8 +124,8 @@ describe('pricingToModelPrice', () => {
       pricing_style: 'openai' as const,
       prompt_price_per_1m: 2.5,
       completion_price_per_1m: 10,
-      cache_price_per_1m: 1.25,
-      cache_creation_price_per_1m: 0,
+      cache_read_price_per_1m: 1.25,
+      cache_write_price_per_1m: 0,
       price_multiplier: 0,
     };
 

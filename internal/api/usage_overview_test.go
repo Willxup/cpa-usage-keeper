@@ -397,10 +397,11 @@ func TestUsageOverviewRealtimeAcceptsWindowAndReturnsRealtimeBlock(t *testing.T)
 			Requests:          1,
 		}},
 		CacheLevel: []servicedto.RealtimeCacheLevelPoint{{
-			Bucket:       "2026-04-22T11:00:00Z",
-			CacheRate:    float64Ptr(25),
-			CachedTokens: 5,
-			InputTokens:  20,
+			Bucket:              "2026-04-22T11:00:00Z",
+			CacheReadRate:       float64Ptr(25),
+			CacheReadTokens:     5,
+			CacheCreationTokens: 2,
+			InputTokens:         20,
 		}},
 	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
@@ -423,7 +424,7 @@ func TestUsageOverviewRealtimeAcceptsWindowAndReturnsRealtimeBlock(t *testing.T)
 		`"response_distribution":{"ttft":{"average_line":[],"particles":[{"bucket":"2026-04-22T11:00:00Z","timestamp":"2026-04-22T11:00:15Z","ms":120,"count":1}],"total_particles":1,"sampled":false,"max_particles":1000},"latency":{"average_line":[],"particles":[],"total_particles":0,"sampled":false,"max_particles":1000}}`,
 		`"current_usage":{"models":[{"key":"gpt-5","label":"gpt-5","tokens":20,"requests":1,"cost":0.123,"share":100}],"api_keys":[{"key":"sk-*********123456","label":"sk-*********123456","tokens":20,"requests":1,"share":100}]`,
 		`"request_level":[{"bucket":"2026-04-22T11:00:00Z","requests_per_minute":6,"requests":1}]`,
-		`"cache_level":[{"bucket":"2026-04-22T11:00:00Z","cache_rate":25,"cached_tokens":5,"input_tokens":20}]`,
+		`"cache_level":[{"bucket":"2026-04-22T11:00:00Z","cache_read_rate":25,"cache_read_tokens":5,"cache_creation_tokens":2,"input_tokens":20}]`,
 	} {
 		if !contains(body, expected) {
 			t.Fatalf("expected realtime response to contain %s, got %s", expected, body)
@@ -568,24 +569,25 @@ func TestUsageOverviewReturnsFilteredSnapshot(t *testing.T) {
 			TotalTokens:   20,
 		},
 		Summary: servicedto.UsageOverviewSummary{
-			RequestCount:    1,
-			TokenCount:      20,
-			WindowMinutes:   1440,
-			RPM:             1.0 / 1440.0,
-			TPM:             20.0 / 1440.0,
-			TotalCost:       0.123,
-			CostAvailable:   true,
-			InputTokens:     11,
-			CachedTokens:    2,
-			ReasoningTokens: 3,
+			RequestCount:        1,
+			TokenCount:          20,
+			WindowMinutes:       1440,
+			RPM:                 1.0 / 1440.0,
+			TPM:                 20.0 / 1440.0,
+			TotalCost:           0.123,
+			CostAvailable:       true,
+			InputTokens:         11,
+			CacheReadTokens:     2,
+			CacheCreationTokens: 1,
+			ReasoningTokens:     3,
 		},
 		Series: servicedto.UsageOverviewSeries{
-			Requests:  map[string]int64{"2026-04-22T11:00:00Z": 1},
-			Tokens:    map[string]int64{"2026-04-22T11:00:00Z": 20},
-			RPM:       map[string]float64{"2026-04-22T11:00:00Z": 1.0 / 60.0},
-			TPM:       map[string]float64{"2026-04-22T11:00:00Z": 20.0 / 60.0},
-			Cost:      map[string]float64{"2026-04-22T11:00:00Z": 0.123},
-			CacheRate: map[string]*float64{"2026-04-22T11:00:00Z": float64Ptr(18.18)},
+			Requests:      map[string]int64{"2026-04-22T11:00:00Z": 1},
+			Tokens:        map[string]int64{"2026-04-22T11:00:00Z": 20},
+			RPM:           map[string]float64{"2026-04-22T11:00:00Z": 1.0 / 60.0},
+			TPM:           map[string]float64{"2026-04-22T11:00:00Z": 20.0 / 60.0},
+			Cost:          map[string]float64{"2026-04-22T11:00:00Z": 0.123},
+			CacheReadRate: map[string]*float64{"2026-04-22T11:00:00Z": float64Ptr(18.18)},
 		},
 		Health: servicedto.UsageOverviewHealth{
 			TotalSuccess: 1,
@@ -625,7 +627,7 @@ func TestUsageOverviewReturnsFilteredSnapshot(t *testing.T) {
 	if !contains(body, `"series":{"requests":{"2026-04-22T11:00:00Z":1}`) {
 		t.Fatalf("expected backend series in response body: %s", body)
 	}
-	if !contains(body, `"cache_rate":{"2026-04-22T11:00:00Z":18.18}`) {
+	if !contains(body, `"cache_read_rate":{"2026-04-22T11:00:00Z":18.18}`) {
 		t.Fatalf("expected backend cache-rate series in response body: %s", body)
 	}
 	if !contains(body, `"service_health":{"total_success":1,"total_failure":0,"success_rate":100`) ||
@@ -705,8 +707,8 @@ func TestUsageOverviewNilProviderReturnsPrunedShape(t *testing.T) {
 	if !contains(body, `"summary":{"request_count":0`) || !contains(body, `"input_tokens":0`) {
 		t.Fatalf("expected empty overview summary to include input_tokens, got %s", body)
 	}
-	if !contains(body, `"series":{"requests":{}`) || !contains(body, `"cache_rate":{}`) {
-		t.Fatalf("expected empty overview series to include cache_rate, got %s", body)
+	if !contains(body, `"series":{"requests":{}`) || !contains(body, `"cache_read_rate":{}`) {
+		t.Fatalf("expected empty overview series to include cache_read_rate, got %s", body)
 	}
 	assertUsageOverviewResponseShape(t, body)
 }
@@ -731,7 +733,7 @@ func assertUsageOverviewResponseShape(t *testing.T, body string) {
 	}
 	assertAllowedJSONKeys(t, summary, "overview summary", body,
 		"request_count", "token_count", "window_minutes", "rpm", "tpm", "total_cost", "cost_available",
-		"input_tokens", "cached_tokens", "reasoning_tokens",
+		"input_tokens", "cache_read_tokens", "cache_creation_tokens", "reasoning_tokens",
 		"daily_average_requests", "daily_average_tokens", "daily_average_cost", "daily_average_range_days",
 	)
 
@@ -739,7 +741,7 @@ func assertUsageOverviewResponseShape(t *testing.T, body string) {
 	if !ok {
 		t.Fatalf("expected series object in response, got %s", body)
 	}
-	assertAllowedJSONKeys(t, series, "overview series", body, "requests", "tokens", "rpm", "tpm", "cost", "cache_rate")
+	assertAllowedJSONKeys(t, series, "overview series", body, "requests", "tokens", "rpm", "tpm", "cost", "cache_read_rate")
 }
 
 func assertAllowedJSONKeys(t *testing.T, values map[string]any, label, body string, allowedKeys ...string) {

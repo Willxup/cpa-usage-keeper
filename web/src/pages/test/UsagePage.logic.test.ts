@@ -441,7 +441,7 @@ describe('UsagePage request event preferences', () => {
     });
 
     expect(preferences).toEqual({
-      version: 3,
+      version: 5,
       pageSize: 500,
       filters: {
         model: 'claude-opus',
@@ -487,7 +487,26 @@ describe('UsagePage request event preferences', () => {
   });
 
   it('adds Speed Mode to legacy full-column request event preferences', () => {
-    const legacyFullColumnIds = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'service_tier');
+    const legacyFullColumnIds = [
+      'timestamp',
+      'api_key',
+      'source',
+      'model',
+      'reasoning_effort',
+      'result',
+      'request_type',
+      'endpoint',
+      'ttft',
+      'latency',
+      'speed',
+      'input_tokens',
+      'output_tokens',
+      'reasoning_tokens',
+      'cached_tokens',
+      'cache_rate',
+      'total_tokens',
+      'total_cost',
+    ];
     const preferences = normalizeRequestEventsPreferences({
       version: 1,
       pageSize: 100,
@@ -502,7 +521,7 @@ describe('UsagePage request event preferences', () => {
     const hiddenSpeedColumnIds = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'speed');
 
     saveRequestEventsPreferences({
-      version: 3,
+      version: 5,
       pageSize: 100,
       filters: {
         model: '__all__',
@@ -514,7 +533,7 @@ describe('UsagePage request event preferences', () => {
 
     const stored = JSON.parse(storage.value(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY) ?? '');
     expect(stored).toEqual({
-      version: 3,
+      version: 5,
       pageSize: 100,
       filters: {
         model: '__all__',
@@ -531,7 +550,7 @@ describe('UsagePage request event preferences', () => {
     const hiddenSpeedModeColumnIds = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'service_tier');
 
     saveRequestEventsPreferences({
-      version: 3,
+      version: 5,
       pageSize: 100,
       filters: {
         model: '__all__',
@@ -552,7 +571,7 @@ describe('UsagePage request event preferences', () => {
     expect(loadRequestEventsPreferences(storage).pageSize).toBe(100);
 
     saveRequestEventsPreferences({
-      version: 3,
+      version: 4,
       pageSize: 50,
       filters: {
         model: 'gpt-4.1',
@@ -564,7 +583,7 @@ describe('UsagePage request event preferences', () => {
 
     expect(storage.setItem).toHaveBeenCalledTimes(1);
     expect(JSON.parse(storage.value(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY) ?? '')).toEqual({
-      version: 3,
+      version: 5,
       pageSize: 50,
       filters: {
         model: 'gpt-4.1',

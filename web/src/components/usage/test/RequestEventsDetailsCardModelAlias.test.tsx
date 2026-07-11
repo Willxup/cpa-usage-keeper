@@ -23,7 +23,6 @@ const events: UsageEvent[] = [
       input_tokens: 100,
       output_tokens: 60,
       reasoning_tokens: 20,
-      cached_tokens: 20,
       cache_read_tokens: 20,
       cache_creation_tokens: 0,
       total_tokens: 200,

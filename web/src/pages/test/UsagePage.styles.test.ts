@@ -89,7 +89,7 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).toMatch(/\.statLabel\s*\{[\s\S]*?letter-spacing:\s*0;/)
     expect(statCardsSource).toContain("key: 'requests'")
     expect(statCardsSource).toContain("accent: '#3b82f6'")
-    expect(statCardsSource).toContain("key: 'cache-rate'")
+    expect(statCardsSource).toContain("key: 'cache-read-rate'")
     expect(statCardsSource).toContain("accent: '#14b8a6'")
     expect(statCardsSource.match(/accent:\s*'#[0-9a-f]{6}'/g)).toHaveLength(new Set(statCardsSource.match(/accent:\s*'#[0-9a-f]{6}'/g)).size)
   })
@@ -368,6 +368,18 @@ describe('UsagePage toolbar styles', () => {
     expect(pricingGridBlock).not.toMatch(/@include mobile\s*\{[\s\S]*?overflow:\s*visible;/)
   })
 
+  it('reflows the model pricing form from four to two to one column based on its container width', () => {
+    expect(priceSettingsSource).toContain('className={`${styles.formField} ${styles.priceFormModelField}`}')
+    expect(priceSettingsSource).toContain('className={`${styles.usagePillAction} ${styles.priceFormAction}`}')
+    expect(usagePageStyles).toMatch(/\.priceForm\s*\{[\s\S]*?container-name:\s*model-pricing-form;/)
+    expect(usagePageStyles).toMatch(/\.priceForm\s*\{[\s\S]*?container-type:\s*inline-size;/)
+    expect(usagePageStyles).toMatch(/\.formRow\s*\{[\s\S]*?display:\s*grid;/)
+    expect(usagePageStyles).toMatch(/\.formRow\s*\{[\s\S]*?grid-template-columns:\s*minmax\(180px, 1\.4fr\) minmax\(130px, 0\.85fr\) repeat\(5, minmax\(120px, 1fr\)\) auto;/)
+    expect(usagePageStyles).toMatch(/@container model-pricing-form \(max-width:\s*1120px\)\s*\{[\s\S]*?grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\);/)
+    expect(usagePageStyles).toMatch(/@container model-pricing-form \(max-width:\s*720px\)\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);[\s\S]*?\.priceFormModelField,[\s\S]*?\.priceFormAction\s*\{[\s\S]*?grid-column:\s*1 \/ -1;/)
+    expect(usagePageStyles).toMatch(/@container model-pricing-form \(max-width:\s*480px\)\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
+  })
+
   it('keeps the Analysis chart presentation aligned with the redesigned Analysis dashboard', () => {
     expect(analysisPanelSource).toContain("t('usage_stats.analysis_token_usage_title')")
     expect(analysisPanelSource).toContain("t('usage_stats.analysis_token_usage_subtitle')")
@@ -434,6 +446,10 @@ describe('UsagePage toolbar styles', () => {
     expect(analysisPanelStyles).toMatch(/\.costRateMetric \+ \.costRateMetric,\s*\.costRateSparkline\s*\{[\s\S]*?border-left:\s*1px solid var\(--border-color\);/)
     expect(analysisPanelStyles).toMatch(/\.costRateSparkline\s*\{[\s\S]*?height:\s*100%;/)
     expect(analysisPanelStyles).toMatch(/\.costRateMetric\s*\{[\s\S]*?justify-content:\s*flex-start;/)
+    const costMetricGridBlock = styleRuleBlock(analysisPanelStyles, '.costMetricGrid')
+    expect(costMetricGridBlock).toContain('grid-template-columns: repeat(4, minmax(0, 1fr));')
+    expect(costMetricGridBlock).toMatch(/@include tablet\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/)
+    expect(costMetricGridBlock).toMatch(/@include mobile\s*\{[\s\S]*?grid-template-columns:\s*1fr;/)
     expect(analysisPanelStyles).toMatch(/\.costStackSegment\s*\{[\s\S]*?background:\s*linear-gradient\(90deg, color-mix\(in srgb, var\(--cost-segment-color\) 72%, var\(--bg-secondary\)\), var\(--cost-segment-color\)\);/)
     expect(analysisPanelStyles).toMatch(/\.costStackFloatingTooltip\s*\{[\s\S]*?position:\s*fixed;/)
     expect(analysisPanelStyles).toMatch(/\.insightGrid\s*\{[\s\S]*?align-items:\s*stretch;/)
@@ -684,8 +700,9 @@ describe('UsagePage toolbar styles', () => {
       'input_tokens',
       'output_tokens',
       'reasoning_tokens',
-      'cached_tokens',
-      'cache_rate',
+      'cache_read_tokens',
+      'cache_creation_tokens',
+      'cache_read_rate',
       'total_tokens',
       'total_cost',
     ]

@@ -28,18 +28,38 @@ func TestPricingServiceAllowsModelWithoutUsage(t *testing.T) {
 	service := service.NewPricingService(db)
 
 	setting, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
-		Model:                   "claude-sonnet",
-		PricingStyle:            "claude",
-		PromptPricePer1M:        3,
-		CompletionPricePer1M:    15,
-		CachePricePer1M:         0.3,
-		CacheCreationPricePer1M: 3.75,
+		Model:                "claude-sonnet",
+		PricingStyle:         "claude",
+		PromptPricePer1M:     3,
+		CompletionPricePer1M: 15,
+		CacheReadPricePer1M:  0.3,
+		CacheWritePricePer1M: 3.75,
 	})
 	if err != nil {
 		t.Fatalf("update pricing: %v", err)
 	}
-	if setting.Model != "claude-sonnet" || setting.PricingStyle != "claude" || setting.CacheCreationPricePer1M != 3.75 {
+	if setting.Model != "claude-sonnet" || setting.PricingStyle != "claude" || setting.CacheWritePricePer1M != 3.75 {
 		t.Fatalf("unexpected setting: %#v", setting)
+	}
+}
+
+func TestPricingServicePreservesOpenAICacheReadAndWritePrices(t *testing.T) {
+	db := openPricingServiceTestDatabase(t)
+	service := service.NewPricingService(db)
+
+	setting, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
+		Model:                "gpt-5.6-terra",
+		PricingStyle:         "openai",
+		PromptPricePer1M:     2.5,
+		CompletionPricePer1M: 15,
+		CacheReadPricePer1M:  0.25,
+		CacheWritePricePer1M: 3.125,
+	})
+	if err != nil {
+		t.Fatalf("update OpenAI pricing: %v", err)
+	}
+	if setting.PricingStyle != "openai" || setting.CacheReadPricePer1M != 0.25 || setting.CacheWritePricePer1M != 3.125 {
+		t.Fatalf("unexpected OpenAI cache pricing: %#v", setting)
 	}
 }
 
@@ -51,7 +71,7 @@ func TestPricingServiceDefaultsPriceMultiplierToOne(t *testing.T) {
 		Model:                "default-multiplier-model",
 		PromptPricePer1M:     3,
 		CompletionPricePer1M: 15,
-		CachePricePer1M:      0.3,
+		CacheReadPricePer1M:  0.3,
 	})
 	if err != nil {
 		t.Fatalf("update pricing: %v", err)
@@ -70,7 +90,7 @@ func TestPricingServiceAllowsZeroPriceMultiplier(t *testing.T) {
 		Model:                "zero-multiplier-model",
 		PromptPricePer1M:     3,
 		CompletionPricePer1M: 15,
-		CachePricePer1M:      0.3,
+		CacheReadPricePer1M:  0.3,
 		PriceMultiplier:      &zero,
 	})
 	if err != nil {
@@ -95,7 +115,7 @@ func TestPricingServiceRejectsInvalidPriceMultiplier(t *testing.T) {
 				Model:                name + "-multiplier-model",
 				PromptPricePer1M:     3,
 				CompletionPricePer1M: 15,
-				CachePricePer1M:      0.3,
+				CacheReadPricePer1M:  0.3,
 				PriceMultiplier:      &value,
 			})
 			if err == nil || !strings.Contains(err.Error(), "price_multiplier") {
@@ -118,17 +138,17 @@ func TestPricingServiceStoresPricingForUsedModel(t *testing.T) {
 
 	service := service.NewPricingService(db)
 	setting, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
-		Model:                   "claude-sonnet",
-		PricingStyle:            "claude",
-		PromptPricePer1M:        3,
-		CompletionPricePer1M:    15,
-		CachePricePer1M:         0.3,
-		CacheCreationPricePer1M: 3.75,
+		Model:                "claude-sonnet",
+		PricingStyle:         "claude",
+		PromptPricePer1M:     3,
+		CompletionPricePer1M: 15,
+		CacheReadPricePer1M:  0.3,
+		CacheWritePricePer1M: 3.75,
 	})
 	if err != nil {
 		t.Fatalf("update pricing: %v", err)
 	}
-	if setting.Model != "claude-sonnet" || setting.PricingStyle != "claude" || setting.CompletionPricePer1M != 15 || setting.CacheCreationPricePer1M != 3.75 {
+	if setting.Model != "claude-sonnet" || setting.PricingStyle != "claude" || setting.CompletionPricePer1M != 15 || setting.CacheWritePricePer1M != 3.75 {
 		t.Fatalf("unexpected setting: %#v", setting)
 	}
 
@@ -263,7 +283,7 @@ func TestPricingServiceAllowsPricingForCPAModelWithoutUsage(t *testing.T) {
 		Model:                "claude-opus",
 		PromptPricePer1M:     3,
 		CompletionPricePer1M: 15,
-		CachePricePer1M:      0.3,
+		CacheReadPricePer1M:  0.3,
 	})
 	if err != nil {
 		t.Fatalf("update pricing: %v", err)
@@ -278,12 +298,12 @@ func TestPricingServiceAllowsModelOutsideCPAModelList(t *testing.T) {
 	service := service.NewPricingService(db, stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{{ID: "cpa-model"}}}}})
 
 	setting, err := service.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
-		Model:                   "local-model",
-		PricingStyle:            "claude",
-		PromptPricePer1M:        3,
-		CompletionPricePer1M:    15,
-		CachePricePer1M:         0.3,
-		CacheCreationPricePer1M: 3.75,
+		Model:                "local-model",
+		PricingStyle:         "claude",
+		PromptPricePer1M:     3,
+		CompletionPricePer1M: 15,
+		CacheReadPricePer1M:  0.3,
+		CacheWritePricePer1M: 3.75,
 	})
 	if err != nil {
 		t.Fatalf("update pricing: %v", err)
@@ -301,7 +321,7 @@ func TestPricingServiceSavesPricingWhenCPAFetchFails(t *testing.T) {
 		Model:                "any-model",
 		PromptPricePer1M:     3,
 		CompletionPricePer1M: 15,
-		CachePricePer1M:      0.3,
+		CacheReadPricePer1M:  0.3,
 	})
 	if err != nil {
 		t.Fatalf("update pricing: %v", err)
@@ -324,6 +344,7 @@ func TestBuildPricingSyncPreviewMatchesMetadataModels(t *testing.T) {
 		{ID: "Claude Sonnet 4"},
 		{ID: "deepseek-chat"},
 		{ID: "gpt-5.4"},
+		{ID: "gpt-5.6-terra"},
 		{ID: "deepseek-v4-pro"},
 		{ID: "DeepSeek V4 Flash"},
 		{ID: "GLM-4.7-Flash"},
@@ -339,27 +360,33 @@ func TestBuildPricingSyncPreviewMatchesMetadataModels(t *testing.T) {
 	if preview.Source != "Models.dev" || preview.SourceURL != "https://models.dev/api.json" {
 		t.Fatalf("unexpected preview source: %#v", preview)
 	}
-	if preview.MetadataModels != 11 {
+	if preview.MetadataModels != 13 {
 		t.Fatalf("expected metadata model count, got %d", preview.MetadataModels)
 	}
-	if len(preview.Matches) != 8 {
-		t.Fatalf("expected 8 matches, got %#v", preview.Matches)
+	if len(preview.Matches) != 9 {
+		t.Fatalf("expected 9 matches, got %#v", preview.Matches)
 	}
 	matchesByModel := make(map[string]servicedto.PricingSyncMatch, len(preview.Matches))
 	for _, match := range preview.Matches {
 		matchesByModel[match.Model] = match
 	}
-	if match := matchesByModel["Claude Sonnet 4"]; match.PricingStyle != "claude" || match.CacheCreationPricePer1M != 3.75 {
+	if match := matchesByModel["Claude Sonnet 4"]; match.PricingStyle != "claude" || match.CacheWritePricePer1M != 3.75 {
 		t.Fatalf("unexpected claude match: %#v", match)
 	}
-	if match := matchesByModel["openai/gpt-4o"]; match.MatchedModel != "openai/gpt-4o" || match.MatchType != "index_exact" || match.SourceProviderID != "openai" {
+	if match := matchesByModel["openai/gpt-4o"]; match.MatchedModel != "openai/gpt-4o" || match.MatchType != "index_suffix" || match.SourceProviderID != "openai" {
 		t.Fatalf("unexpected gpt match: %#v", match)
 	}
 	if match := matchesByModel["deepseek-chat"]; match.SourceProviderID != "deepseek" {
 		t.Fatalf("unexpected deepseek official priority match: %#v", match)
 	}
-	if match := matchesByModel["gpt-5.4"]; match.PricingStyle != "openai" || match.CachePricePer1M != 0.25 || match.CacheCreationPricePer1M != 0 {
+	if match := matchesByModel["gpt-5.4"]; match.PricingStyle != "openai" || match.CacheReadPricePer1M != 0.25 || match.CacheWritePricePer1M != 0 {
 		t.Fatalf("unexpected openai cache match: %#v", match)
+	}
+	if match := matchesByModel["gpt-5.6-terra"]; match.MatchedModel != "gpt-5.6-terra" || match.MatchType != "index_exact" || match.SourceProviderID != "openai" || match.PricingStyle != "openai" || match.CacheReadPricePer1M != 0.25 || match.CacheWritePricePer1M != 3.125 {
+		t.Fatalf("unexpected official OpenAI cache-write match: %#v", match)
+	}
+	if match := matchesByModel["openai/gpt-4o"]; match.CacheWritePricePer1M != 0 {
+		t.Fatalf("expected missing OpenAI cache_write metadata to default to zero, got %#v", match)
 	}
 	if match := matchesByModel["deepseek-v4-pro"]; match.MatchedModel != "deepseek-ai/DeepSeek-V4-Pro" || match.SourceProviderID != "nebius" {
 		t.Fatalf("unexpected deepseek index match: %#v", match)
@@ -375,6 +402,213 @@ func TestBuildPricingSyncPreviewMatchesMetadataModels(t *testing.T) {
 	}
 	if len(preview.UnmatchedModels) != 1 || preview.UnmatchedModels[0] != "missing-model" {
 		t.Fatalf("unexpected unmatched models: %#v", preview.UnmatchedModels)
+	}
+}
+
+func TestBuildPricingSyncPreviewStripsCPAPrefixBeforeMatchingModelsDev(t *testing.T) {
+	transport := http.DefaultTransport
+	http.DefaultTransport = pricingCatalogTransport{body: `{
+		"openai": {
+			"id": "openai",
+			"name": "OpenAI",
+			"models": {
+				"gpt-5.6-terra": {
+					"id": "gpt-5.6-terra",
+					"name": "GPT-5.6 Terra",
+					"family": "gpt",
+					"cost": {"input": 2.5, "output": 15, "cache_read": 0.25, "cache_write": 3.125}
+				}
+			}
+		},
+		"vercel": {
+			"id": "vercel",
+			"name": "Vercel",
+			"models": {
+				"openai/gpt-5.6-terra": {
+					"id": "openai/gpt-5.6-terra",
+					"name": "OpenAI GPT-5.6 Terra",
+					"family": "gpt",
+					"cost": {"input": 9, "output": 99, "cache_read": 0.9, "cache_write": 9.9}
+				}
+			}
+		}
+	}`}
+	t.Cleanup(func() {
+		http.DefaultTransport = transport
+	})
+
+	db := openPricingServiceTestDatabase(t)
+	pricingService := service.NewPricingService(db, stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{{ID: "openai/gpt-5.6-terra"}}}}})
+	preview, err := pricingService.PreviewPricingSync(context.Background())
+	if err != nil {
+		t.Fatalf("build pricing sync preview: %v", err)
+	}
+	if len(preview.Matches) != 1 {
+		t.Fatalf("expected one provider-hinted match, got %#v", preview)
+	}
+	match := preview.Matches[0]
+	if match.SourceProviderID != "openai" || match.MatchedModel != "gpt-5.6-terra" || match.CacheReadPricePer1M != 0.25 || match.CacheWritePricePer1M != 3.125 {
+		t.Fatalf("expected stripped model ID to select OpenAI pricing, got %#v", match)
+	}
+}
+
+func TestBuildPricingSyncPreviewIgnoresCustomCPAPrefixForProviderSelection(t *testing.T) {
+	transport := http.DefaultTransport
+	http.DefaultTransport = pricingCatalogTransport{body: `{
+		"mimo": {
+			"id": "mimo",
+			"name": "Custom MIMO Gateway",
+			"models": {
+				"mimo-v2.5-pro": {
+					"id": "mimo-v2.5-pro",
+					"name": "MiMo V2.5 Pro",
+					"family": "mimo",
+					"cost": {"input": 9, "output": 18}
+				}
+			}
+		},
+		"xiaomi": {
+			"id": "xiaomi",
+			"name": "Xiaomi",
+			"models": {
+				"mimo-v2.5-pro": {
+					"id": "mimo-v2.5-pro",
+					"name": "MiMo V2.5 Pro",
+					"family": "mimo",
+					"cost": {"input": 0.435, "output": 0.87}
+				}
+			}
+		}
+	}`}
+	t.Cleanup(func() {
+		http.DefaultTransport = transport
+	})
+
+	db := openPricingServiceTestDatabase(t)
+	pricingService := service.NewPricingService(db, stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{{ID: "MIMO/mimo-v2.5-pro"}}}}})
+	preview, err := pricingService.PreviewPricingSync(context.Background())
+	if err != nil {
+		t.Fatalf("build pricing sync preview: %v", err)
+	}
+	if len(preview.Matches) != 1 {
+		t.Fatalf("expected one custom-prefix match, got %#v", preview)
+	}
+	match := preview.Matches[0]
+	if match.SourceProviderID != "xiaomi" || match.MatchedModel != "mimo-v2.5-pro" || match.PromptPricePer1M != 0.435 || match.CompletionPricePer1M != 0.87 {
+		t.Fatalf("expected custom CPA prefix not to affect provider ranking, got %#v", match)
+	}
+}
+
+func TestBuildPricingSyncPreviewKeepsCandidatesWhenPrefixProviderLacksModel(t *testing.T) {
+	transport := http.DefaultTransport
+	http.DefaultTransport = pricingCatalogTransport{body: `{
+		"deepseek": {
+			"id": "deepseek",
+			"name": "DeepSeek",
+			"models": {
+				"deepseek-chat": {
+					"id": "deepseek-chat",
+					"name": "DeepSeek Chat",
+					"family": "deepseek",
+					"cost": {"input": 0.14, "output": 0.28}
+				}
+			}
+		},
+		"openrouter": {
+			"id": "openrouter",
+			"name": "OpenRouter",
+			"models": {
+				"deepseek/deepseek-v3.2": {
+					"id": "deepseek/deepseek-v3.2",
+					"name": "DeepSeek V3.2",
+					"family": "deepseek",
+					"cost": {"input": 0.2145, "output": 0.32175}
+				}
+			}
+		}
+	}`}
+	t.Cleanup(func() {
+		http.DefaultTransport = transport
+	})
+
+	db := openPricingServiceTestDatabase(t)
+	pricingService := service.NewPricingService(db, stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{{ID: "deepseek/deepseek-v3.2"}}}}})
+	preview, err := pricingService.PreviewPricingSync(context.Background())
+	if err != nil {
+		t.Fatalf("build pricing sync preview: %v", err)
+	}
+	if len(preview.Matches) != 1 {
+		t.Fatalf("expected namespace-prefixed model to keep fallback candidates, got %#v", preview)
+	}
+	match := preview.Matches[0]
+	if match.SourceProviderID != "openrouter" || match.MatchedModel != "deepseek/deepseek-v3.2" {
+		t.Fatalf("expected OpenRouter fallback candidate, got %#v", match)
+	}
+}
+
+func TestBuildPricingSyncPreviewDefaultsMissingCachePricesToZero(t *testing.T) {
+	transport := http.DefaultTransport
+	http.DefaultTransport = pricingCatalogTransport{body: `{
+		"openai": {
+			"id": "openai",
+			"name": "OpenAI",
+			"models": {
+				"gpt-no-cache-price": {
+					"id": "gpt-no-cache-price",
+					"name": "GPT No Cache Price",
+					"family": "gpt",
+					"cost": {"input": 2.5, "output": 10}
+				}
+			}
+		}
+	}`}
+	t.Cleanup(func() {
+		http.DefaultTransport = transport
+	})
+
+	db := openPricingServiceTestDatabase(t)
+	pricingService := service.NewPricingService(db, stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{{ID: "gpt-no-cache-price"}}}}})
+	preview, err := pricingService.PreviewPricingSync(context.Background())
+	if err != nil {
+		t.Fatalf("build pricing sync preview: %v", err)
+	}
+	if len(preview.Matches) != 1 {
+		t.Fatalf("expected one match, got %#v", preview)
+	}
+	match := preview.Matches[0]
+	if match.CacheReadPricePer1M != 0 || match.CacheWritePricePer1M != 0 {
+		t.Fatalf("expected missing cache prices to default to zero, got %#v", match)
+	}
+}
+
+func TestBuildPricingSyncPreviewRejectsNegativeOpenAICacheWrite(t *testing.T) {
+	transport := http.DefaultTransport
+	http.DefaultTransport = pricingCatalogTransport{body: `{
+		"openai": {
+			"id": "openai",
+			"name": "OpenAI",
+			"models": {
+				"gpt-negative-write": {
+					"id": "gpt-negative-write",
+					"name": "GPT Negative Write",
+					"family": "gpt",
+					"cost": {"input": 2.5, "output": 10, "cache_read": 0.25, "cache_write": -1}
+				}
+			}
+		}
+	}`}
+	t.Cleanup(func() {
+		http.DefaultTransport = transport
+	})
+
+	db := openPricingServiceTestDatabase(t)
+	service := service.NewPricingService(db, stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{{ID: "gpt-negative-write"}}}}})
+	preview, err := service.PreviewPricingSync(context.Background())
+	if err != nil {
+		t.Fatalf("build pricing sync preview: %v", err)
+	}
+	if len(preview.Matches) != 0 || len(preview.UnmatchedModels) != 1 || preview.UnmatchedModels[0] != "gpt-negative-write" {
+		t.Fatalf("expected negative cache_write candidate to be rejected, got %#v", preview)
 	}
 }
 
@@ -396,6 +630,20 @@ const testPricingCatalogJSON = `{
         "family": "gpt",
         "last_updated": "2026-01-01",
         "cost": {"input": 2.5, "output": 10, "cache_read": 0.25, "cache_write": 0}
+		},
+		"gpt-5.6-terra": {
+			"id": "gpt-5.6-terra",
+			"name": "GPT-5.6 Terra",
+			"family": "gpt-mini",
+			"last_updated": "2026-07-09",
+			"cost": {
+				"input": 2.5,
+				"output": 15,
+				"cache_read": 0.25,
+				"cache_write": 3.125,
+				"tiers": [{"input": 5, "output": 22.5, "cache_read": 0.5, "cache_write": 6.25, "tier": {"type": "context", "size": 272000}}],
+				"context_over_200k": {"input": 5, "output": 22.5, "cache_read": 0.5, "cache_write": 6.25}
+			}
       }
     }
   },
@@ -442,6 +690,13 @@ const testPricingCatalogJSON = `{
         "family": "deepseek",
         "last_updated": "2027-01-01",
         "cost": {"input": 3, "output": 15}
+		},
+		"gpt-5.6-terra": {
+			"id": "gpt-5.6-terra",
+			"name": "GPT-5.6 Terra",
+			"family": "gpt",
+			"last_updated": "2027-01-01",
+			"cost": {"input": 9, "output": 99, "cache_read": 0.9, "cache_write": 9.9}
       }
     }
   },

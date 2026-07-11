@@ -15,82 +15,73 @@ func assertCostClose(t *testing.T, got, want float64) {
 	}
 }
 
-func TestCalculateUsageTokenCostBreakdownDoesNotDoubleChargeCachedTokens(t *testing.T) {
-	pricing := entities.ModelPriceSetting{PromptPricePer1M: 3, CompletionPricePer1M: 15, CachePricePer1M: 0.3}
-	cost := helper.CalculateUsageTokenCostBreakdown(helper.UsageTokenCostInput{InputTokens: 1_000_000, OutputTokens: 500_000, CachedTokens: 200_000}, pricing).TotalCostUSD
-	want := 0.8*3 + 0.5*15 + 0.2*0.3
-	assertCostClose(t, cost, want)
-}
+func TestCalculateUsageTokenCostBreakdownChargesFourTokenSegments(t *testing.T) {
+	for _, pricingStyle := range []string{entities.ModelPricingStyleOpenAI, entities.ModelPricingStyleClaude} {
+		t.Run(pricingStyle, func(t *testing.T) {
+			pricing := entities.ModelPriceSetting{
+				PricingStyle:         pricingStyle,
+				PromptPricePer1M:     3,
+				CompletionPricePer1M: 15,
+				CacheReadPricePer1M:  0.3,
+				CacheWritePricePer1M: 3.75,
+			}
+			breakdown := helper.CalculateUsageTokenCostBreakdown(helper.UsageTokenCostInput{
+				InputTokens:         1_000_000,
+				OutputTokens:        500_000,
+				CacheReadTokens:     200_000,
+				CacheCreationTokens: 100_000,
+			}, pricing)
 
-func TestCalculateUsageTokenCostBreakdownSplitsOpenAIStyleCachedInput(t *testing.T) {
-	pricing := entities.ModelPriceSetting{PromptPricePer1M: 3, CompletionPricePer1M: 15, CachePricePer1M: 0.3}
-	breakdown := helper.CalculateUsageTokenCostBreakdown(helper.UsageTokenCostInput{InputTokens: 1_000_000, OutputTokens: 500_000, CachedTokens: 200_000}, pricing)
-
-	assertCostClose(t, breakdown.InputCostUSD, 0.8*3)
-	assertCostClose(t, breakdown.OutputCostUSD, 0.5*15)
-	assertCostClose(t, breakdown.CachedCostUSD, 0.2*0.3)
-	assertCostClose(t, breakdown.TotalCostUSD, 0.8*3+0.5*15+0.2*0.3)
-}
-
-func TestCalculateUsageTokenCostBreakdownAppliesOpenAIStyleMultiplier(t *testing.T) {
-	multiplier := 2.0
-	pricing := entities.ModelPriceSetting{PromptPricePer1M: 3, CompletionPricePer1M: 15, CachePricePer1M: 0.3, PriceMultiplier: &multiplier}
-	breakdown := helper.CalculateUsageTokenCostBreakdown(helper.UsageTokenCostInput{InputTokens: 1_000_000, OutputTokens: 500_000, CachedTokens: 200_000}, pricing)
-
-	assertCostClose(t, breakdown.InputCostUSD, 0.8*3*2)
-	assertCostClose(t, breakdown.OutputCostUSD, 0.5*15*2)
-	assertCostClose(t, breakdown.CachedCostUSD, 0.2*0.3*2)
-	assertCostClose(t, breakdown.TotalCostUSD, (0.8*3+0.5*15+0.2*0.3)*2)
-}
-
-func TestCalculateUsageTokenCostBreakdownChargesClaudeCacheReadAndCreationSeparately(t *testing.T) {
-	pricing := entities.ModelPriceSetting{
-		PricingStyle:            entities.ModelPricingStyleClaude,
-		PromptPricePer1M:        10,
-		CompletionPricePer1M:    20,
-		CachePricePer1M:         1,
-		CacheCreationPricePer1M: 12.5,
+			assertCostClose(t, breakdown.UncachedInputCostUSD, 0.7*3)
+			assertCostClose(t, breakdown.CacheReadCostUSD, 0.2*0.3)
+			assertCostClose(t, breakdown.CacheWriteCostUSD, 0.1*3.75)
+			assertCostClose(t, breakdown.OutputCostUSD, 0.5*15)
+			assertCostClose(t, breakdown.TotalCostUSD, 0.7*3+0.2*0.3+0.1*3.75+0.5*15)
+		})
 	}
-	cost := helper.CalculateUsageTokenCostBreakdown(helper.UsageTokenCostInput{
-		InputTokens:         1_300_000,
-		OutputTokens:        500_000,
-		CacheReadTokens:     200_000,
-		CacheCreationTokens: 100_000,
-	}, pricing).TotalCostUSD
-	want := 1.0*10 + 0.5*20 + 0.2*1 + 0.1*12.5
-	assertCostClose(t, cost, want)
 }
 
-func TestCalculateUsageTokenCostBreakdownGroupsClaudeCacheReadAndCreationAsCachedCost(t *testing.T) {
+func TestCalculateUsageTokenCostBreakdownKeepsZeroWriteCost(t *testing.T) {
 	pricing := entities.ModelPriceSetting{
-		PricingStyle:            entities.ModelPricingStyleClaude,
-		PromptPricePer1M:        10,
-		CompletionPricePer1M:    20,
-		CachePricePer1M:         1,
-		CacheCreationPricePer1M: 12.5,
+		PromptPricePer1M:     3,
+		CacheReadPricePer1M:  0.3,
+		CacheWritePricePer1M: 3.75,
 	}
 	breakdown := helper.CalculateUsageTokenCostBreakdown(helper.UsageTokenCostInput{
-		InputTokens:         1_300_000,
-		OutputTokens:        500_000,
-		CacheReadTokens:     200_000,
-		CacheCreationTokens: 100_000,
+		InputTokens:     1_000_000,
+		CacheReadTokens: 200_000,
 	}, pricing)
 
-	assertCostClose(t, breakdown.InputCostUSD, 1.0*10)
-	assertCostClose(t, breakdown.OutputCostUSD, 0.5*20)
-	assertCostClose(t, breakdown.CachedCostUSD, 0.2*1+0.1*12.5)
-	assertCostClose(t, breakdown.TotalCostUSD, 1.0*10+0.5*20+0.2*1+0.1*12.5)
+	assertCostClose(t, breakdown.UncachedInputCostUSD, 0.8*3)
+	assertCostClose(t, breakdown.CacheReadCostUSD, 0.2*0.3)
+	assertCostClose(t, breakdown.CacheWriteCostUSD, 0)
 }
 
-func TestCalculateUsageTokenCostBreakdownAppliesClaudeMultiplier(t *testing.T) {
+func TestCalculateUsageTokenCostBreakdownClampsNormalInputAtZero(t *testing.T) {
+	pricing := entities.ModelPriceSetting{
+		PromptPricePer1M:     3,
+		CacheReadPricePer1M:  0.3,
+		CacheWritePricePer1M: 3.75,
+	}
+	breakdown := helper.CalculateUsageTokenCostBreakdown(helper.UsageTokenCostInput{
+		InputTokens:         100_000,
+		CacheReadTokens:     80_000,
+		CacheCreationTokens: 40_000,
+	}, pricing)
+
+	assertCostClose(t, breakdown.UncachedInputCostUSD, 0)
+	assertCostClose(t, breakdown.CacheReadCostUSD, 0.08*0.3)
+	assertCostClose(t, breakdown.CacheWriteCostUSD, 0.04*3.75)
+}
+
+func TestCalculateUsageTokenCostBreakdownAppliesMultiplierToEverySegment(t *testing.T) {
 	multiplier := 1.5
 	pricing := entities.ModelPriceSetting{
-		PricingStyle:            entities.ModelPricingStyleClaude,
-		PromptPricePer1M:        10,
-		CompletionPricePer1M:    20,
-		CachePricePer1M:         1,
-		CacheCreationPricePer1M: 12.5,
-		PriceMultiplier:         &multiplier,
+		PromptPricePer1M:     10,
+		CompletionPricePer1M: 20,
+		CacheReadPricePer1M:  1,
+		CacheWritePricePer1M: 12.5,
+		PriceMultiplier:      &multiplier,
 	}
 	breakdown := helper.CalculateUsageTokenCostBreakdown(helper.UsageTokenCostInput{
 		InputTokens:         1_300_000,
@@ -99,42 +90,44 @@ func TestCalculateUsageTokenCostBreakdownAppliesClaudeMultiplier(t *testing.T) {
 		CacheCreationTokens: 100_000,
 	}, pricing)
 
-	assertCostClose(t, breakdown.InputCostUSD, 1.0*10*1.5)
+	assertCostClose(t, breakdown.UncachedInputCostUSD, 1.0*10*1.5)
+	assertCostClose(t, breakdown.CacheReadCostUSD, 0.2*1*1.5)
+	assertCostClose(t, breakdown.CacheWriteCostUSD, 0.1*12.5*1.5)
 	assertCostClose(t, breakdown.OutputCostUSD, 0.5*20*1.5)
-	assertCostClose(t, breakdown.CachedCostUSD, (0.2*1+0.1*12.5)*1.5)
-	assertCostClose(t, breakdown.TotalCostUSD, (1.0*10+0.5*20+0.2*1+0.1*12.5)*1.5)
-}
-
-func TestCalculateUsageTokenCostBreakdownPreservesExplicitZeroMultiplier(t *testing.T) {
-	zero := 0.0
-	pricing := entities.ModelPriceSetting{PromptPricePer1M: 3, CompletionPricePer1M: 15, CachePricePer1M: 0.3, PriceMultiplier: &zero}
-	breakdown := helper.CalculateUsageTokenCostBreakdown(helper.UsageTokenCostInput{InputTokens: 1_000_000, OutputTokens: 500_000, CachedTokens: 200_000}, pricing)
-
-	assertCostClose(t, breakdown.InputCostUSD, 0)
-	assertCostClose(t, breakdown.OutputCostUSD, 0)
-	assertCostClose(t, breakdown.CachedCostUSD, 0)
-	assertCostClose(t, breakdown.TotalCostUSD, 0)
+	assertCostClose(t, breakdown.TotalCostUSD, (1.0*10+0.2*1+0.1*12.5+0.5*20)*1.5)
 }
 
 func TestCalculateUsageTokenCostBreakdownClampsNegativeTokens(t *testing.T) {
-	pricing := entities.ModelPriceSetting{PromptPricePer1M: 3, CompletionPricePer1M: 15, CachePricePer1M: 0.3}
-	cost := helper.CalculateUsageTokenCostBreakdown(helper.UsageTokenCostInput{InputTokens: -1, OutputTokens: -1, CachedTokens: -1}, pricing).TotalCostUSD
-	if cost != 0 {
-		t.Fatalf("expected negative tokens to cost 0, got %.2f", cost)
+	pricing := entities.ModelPriceSetting{
+		PromptPricePer1M:     3,
+		CompletionPricePer1M: 15,
+		CacheReadPricePer1M:  0.3,
+		CacheWritePricePer1M: 3.75,
 	}
+	breakdown := helper.CalculateUsageTokenCostBreakdown(helper.UsageTokenCostInput{
+		InputTokens:         -1,
+		OutputTokens:        -1,
+		CacheReadTokens:     -1,
+		CacheCreationTokens: -1,
+	}, pricing)
+
+	assertCostClose(t, breakdown.TotalCostUSD, 0)
 }
 
-func TestUsageTokenInputRequiresPricingUsesBillableTokenFields(t *testing.T) {
+func TestUsageTokenInputRequiresPricingUsesCanonicalTokenFields(t *testing.T) {
 	if helper.UsageTokenInputRequiresPricing(helper.UsageTokenCostInput{}) {
 		t.Fatal("expected empty token input to not require pricing")
 	}
-	if !helper.UsageTokenInputRequiresPricing(helper.UsageTokenCostInput{InputTokens: 1}) {
-		t.Fatal("expected input tokens to require pricing")
-	}
-	if !helper.UsageTokenInputRequiresPricing(helper.UsageTokenCostInput{CacheReadTokens: 1}) {
-		t.Fatal("expected cache read tokens to require pricing")
-	}
-	if !helper.UsageTokenInputRequiresPricing(helper.UsageTokenCostInput{CacheCreationTokens: 1}) {
-		t.Fatal("expected cache creation tokens to require pricing")
+	for name, input := range map[string]helper.UsageTokenCostInput{
+		"input":       {InputTokens: 1},
+		"output":      {OutputTokens: 1},
+		"cache read":  {CacheReadTokens: 1},
+		"cache write": {CacheCreationTokens: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if !helper.UsageTokenInputRequiresPricing(input) {
+				t.Fatalf("expected %s tokens to require pricing", name)
+			}
+		})
 	}
 }

@@ -30,7 +30,7 @@ export interface UseSparklinesReturn {
   tokensSparkline: SparklineBundle | null;
   rpmSparkline: SparklineBundle | null;
   tpmSparkline: SparklineBundle | null;
-  cachedRateSparkline: SparklineBundle | null;
+  cacheReadRateSparkline: SparklineBundle | null;
   costSparkline: SparklineBundle | null;
 }
 
@@ -40,7 +40,7 @@ export interface UsageSparklineSeries {
   tokens: number[];
   rpm: number[];
   tpm: number[];
-  cachedRate: Array<number | null>;
+  cacheReadRate: Array<number | null>;
   cost: number[];
 }
 
@@ -49,7 +49,7 @@ export const SPARKLINE_COLORS = {
   tokens: { border: '#8b5cf6', background: 'rgba(139, 92, 246, 0.18)' },
   rpm: { border: '#22c55e', background: 'rgba(34, 197, 94, 0.18)' },
   tpm: { border: '#f97316', background: 'rgba(249, 115, 22, 0.18)' },
-  cachedRate: { border: '#14b8a6', background: 'rgba(20, 184, 166, 0.18)' },
+  cacheReadRate: { border: '#14b8a6', background: 'rgba(20, 184, 166, 0.18)' },
   cost: { border: '#f59e0b', background: 'rgba(245, 158, 11, 0.18)' },
 } as const;
 
@@ -67,12 +67,12 @@ const normalizeNullableSparklineNumber = (value: unknown): number | null => {
 
 export function buildUsageSparklineSeries({ usage }: Omit<UseSparklinesOptions, 'loading'>): UsageSparklineSeries {
   if (!usage?.series) {
-    return { labels: [], requests: [], tokens: [], rpm: [], tpm: [], cachedRate: [], cost: [] };
+    return { labels: [], requests: [], tokens: [], rpm: [], tpm: [], cacheReadRate: [], cost: [] };
   }
 
   const labels = Object.keys(usage.series.requests ?? {}).sort((a, b) => a.localeCompare(b));
   if (!labels.length) {
-    return { labels: [], requests: [], tokens: [], rpm: [], tpm: [], cachedRate: [], cost: [] };
+    return { labels: [], requests: [], tokens: [], rpm: [], tpm: [], cacheReadRate: [], cost: [] };
   }
 
   return {
@@ -81,7 +81,7 @@ export function buildUsageSparklineSeries({ usage }: Omit<UseSparklinesOptions, 
     tokens: labels.map((label) => normalizeSparklineNumber(usage.series?.tokens?.[label])),
     rpm: labels.map((label) => normalizeSparklineNumber(usage.series?.rpm?.[label])),
     tpm: labels.map((label) => normalizeSparklineNumber(usage.series?.tpm?.[label])),
-    cachedRate: labels.map((label) => normalizeNullableSparklineNumber(usage.series?.cache_rate?.[label])),
+    cacheReadRate: labels.map((label) => normalizeNullableSparklineNumber(usage.series?.cache_read_rate?.[label])),
     cost: labels.map((label) => normalizeSparklineNumber(usage.series?.cost?.[label])),
   };
 }
@@ -141,9 +141,9 @@ export function useSparklines({ usage, loading }: UseSparklinesOptions): UseSpar
     [buildSparkline, series.labels, series.tpm]
   );
 
-  const cachedRateSparkline = useMemo(
-    () => buildSparkline({ labels: series.labels, data: series.cachedRate }, SPARKLINE_COLORS.cachedRate.border, SPARKLINE_COLORS.cachedRate.background),
-    [buildSparkline, series.cachedRate, series.labels]
+  const cacheReadRateSparkline = useMemo(
+    () => buildSparkline({ labels: series.labels, data: series.cacheReadRate }, SPARKLINE_COLORS.cacheReadRate.border, SPARKLINE_COLORS.cacheReadRate.background),
+    [buildSparkline, series.cacheReadRate, series.labels]
   );
 
   const costSparkline = useMemo(
@@ -156,7 +156,7 @@ export function useSparklines({ usage, loading }: UseSparklinesOptions): UseSpar
     tokensSparkline,
     rpmSparkline,
     tpmSparkline,
-    cachedRateSparkline,
+    cacheReadRateSparkline,
     costSparkline
   };
 }

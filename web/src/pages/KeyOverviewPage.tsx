@@ -336,7 +336,7 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
     tokensSparkline,
     rpmSparkline,
     tpmSparkline,
-    cachedRateSparkline,
+    cacheReadRateSparkline,
     costSparkline,
   } = useSparklines({ usage, loading });
 
@@ -506,7 +506,7 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
                 tokens: tokensSparkline,
                 rpm: rpmSparkline,
                 tpm: tpmSparkline,
-                cachedRate: cachedRateSparkline,
+                cacheReadRate: cacheReadRateSparkline,
                 cost: costSparkline,
               }}
             />
