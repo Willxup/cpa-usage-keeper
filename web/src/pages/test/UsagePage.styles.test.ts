@@ -166,6 +166,18 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.usageFilterTransitionOpen\s*\{[\s\S]*?max-width:\s*100%;/)
   })
 
+  it('collapses the mobile filter height with the historical transition timing', () => {
+    const reducedMotionStart = usagePageStyles.indexOf('@media (prefers-reduced-motion: reduce)')
+    const mobileStart = usagePageStyles.lastIndexOf('@include mobile {', reducedMotionStart)
+    const mobileStyles = usagePageStyles.slice(mobileStart, reducedMotionStart)
+    const transitionBlock = mobileStyles.match(/\.toolbarActionsRightAnimated \.usageFilterTransition\s*\{([^}]*)\}/)?.[1] ?? ''
+    const openBlock = mobileStyles.match(/\.toolbarActionsRightAnimated \.usageFilterTransitionOpen\s*\{([^}]*)\}/)?.[1] ?? ''
+
+    expect(transitionBlock).toContain('max-height: 0;')
+    expect(transitionBlock).toContain('max-height 340ms cubic-bezier(0.22, 1, 0.36, 1)')
+    expect(openBlock).toContain('max-height: 280px;')
+  })
+
   it('keeps CPAMC range controls on the immediate toolbar layout path', () => {
     expect(usagePageSource).toContain('isEmbeddedInCPAMC ? styles.usageFilterTransitionImmediate')
     expect(usagePageStyles).toMatch(/\.usageFilterTransitionImmediate\s*\{[\s\S]*?display:\s*contents;/)
