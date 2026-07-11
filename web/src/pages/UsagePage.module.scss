@@ -1921,6 +1921,10 @@
   --settings-list-scroll-height: 480px;
 }
 
+.settingsSections > :global(.card) {
+  box-shadow: var(--shadow-lg);
+}
+
 // Pricing Section (80%比例)
 .pricingFixedCard {
   height: auto;
@@ -2746,6 +2750,7 @@
 .requestEventsCard:global(.card) {
   padding: 0;
   overflow: hidden;
+  box-shadow: var(--shadow-lg);
 
   :global(.card-header) {
     align-items: stretch;

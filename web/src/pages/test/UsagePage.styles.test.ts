@@ -172,6 +172,11 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).toMatch(/\.usageFilterTransitionImmediate\s+\.usageFilterTransitionInner\s*\{[\s\S]*?display:\s*contents;/)
   })
 
+  it('gives Request Events and Settings cards page-level elevation', () => {
+    expect(styleRuleBlock(usagePageStyles, '.requestEventsCard:global(.card)')).toContain('box-shadow: var(--shadow-lg);')
+    expect(styleRuleBlock(usagePageStyles, '.settingsSections > :global(.card)')).toContain('box-shadow: var(--shadow-lg);')
+  })
+
   it('does not reload Request Events filter options for table query changes', () => {
     const filterOptionsEffect = usagePageEffectBlock('void loadEventFilterOptions();')
     const eventsEffect = usagePageEffectBlock('void loadEvents();')
