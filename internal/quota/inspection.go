@@ -406,9 +406,15 @@ func kimiInspectionLimitReached(rows []QuotaRow) bool {
 }
 
 func xaiInspectionLimitReached(rows []QuotaRow) bool {
-	// xAI 支持显式 limit_reached，也支持 used/limit 费用类窗口。
+	// 新 xAI 行的显式 false 代表仍有其它额度（例如 PAYG）；旧缓存没有标志时才回退 used/limit。
 	for _, row := range rows {
-		if quotaRowLimitReached(row) || quotaRowUsedAtLimit(row) {
+		if row.LimitReached != nil {
+			if *row.LimitReached {
+				return true
+			}
+			continue
+		}
+		if quotaRowUsedAtLimit(row) {
 			return true
 		}
 	}

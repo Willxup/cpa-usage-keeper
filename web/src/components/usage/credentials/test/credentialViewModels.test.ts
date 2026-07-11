@@ -249,6 +249,32 @@ describe('credentialViewModels', () => {
     })
   })
 
+  it('keeps xai weekly, monthly, pay-as-you-go, and product rows in provider order', () => {
+    const quotas = new Map<string, UsageQuotaCheckResponse>([
+      ['xai-auth', quotaResponse('xai-auth', [
+        { key: 'billing.weekly', label: 'Weekly', scope: 'billing', metric: 'weekly', usedPercent: 25, window: { seconds: 604800 }, resetAt: '2026-07-13T00:00:00Z' },
+        { key: 'billing.monthly', label: 'Monthly Spend', scope: 'billing', metric: 'usd_cents', used: 500, limit: 1000, remaining: 500, usedPercent: 50, window: { seconds: 2592000 }, resetAt: '2026-08-01T00:00:00Z' },
+        { key: 'billing.on_demand', label: 'Pay-as-you-go', scope: 'billing', metric: 'usd_cents', used: 100, limit: 500, remaining: 400, usedPercent: 20, window: { seconds: 2592000 }, resetAt: '2026-08-01T00:00:00Z' },
+        { key: 'billing.weekly.product.grok+4', label: 'Grok 4 Usage', scope: 'product', metric: 'Grok 4', usedPercent: 80, window: { seconds: 604800 }, resetAt: '2026-07-13T00:00:00Z' },
+      ])],
+    ])
+
+    const rows = buildAuthFileCredentialRows([identity({ identity: 'xai-auth', type: 'xai', provider: 'xAI' })], quotas)
+
+    expect(rows[0].displayQuotas.map((quota) => quota.label)).toEqual([
+      'Weekly',
+      'Monthly Spend',
+      'Pay-as-you-go',
+      'Grok 4 Usage',
+    ])
+    expect(rows[0].displayQuotas.map((quota) => quota.billingUsage)).toEqual([
+      undefined,
+      { used: '$5.00', limit: '$10.00', remaining: '$5.00' },
+      { used: '$1.00', limit: '$5.00', remaining: '$4.00' },
+      undefined,
+    ])
+  })
+
   it('estimates quota window usage only from positive current usage and a partial used percent', () => {
     const quotas = new Map<string, UsageQuotaCheckResponse>([
       ['auth-1', quotaResponse('auth-1', [

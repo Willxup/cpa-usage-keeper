@@ -234,7 +234,18 @@ type KimiUsagePayload struct {
 }
 
 type XAIMoneyValue struct {
-	Val float64 `json:"val,omitempty"`
+	Val *float64 `json:"val,omitempty"`
+}
+
+type XAIBillingPeriod struct {
+	Type  string `json:"type,omitempty"`
+	Start string `json:"start,omitempty"`
+	End   string `json:"end,omitempty"`
+}
+
+type XAIBillingProductUsage struct {
+	Product      string   `json:"product,omitempty"`
+	UsagePercent *float64 `json:"usagePercent,omitempty"`
 }
 
 type XAIBillingCycle struct {
@@ -250,12 +261,16 @@ type XAIBillingHistoryItem struct {
 }
 
 type XAIBillingConfig struct {
-	MonthlyLimit       XAIMoneyValue           `json:"monthlyLimit,omitempty"`
-	Used               XAIMoneyValue           `json:"used,omitempty"`
-	OnDemandCap        XAIMoneyValue           `json:"onDemandCap,omitempty"`
-	BillingPeriodStart string                  `json:"billingPeriodStart,omitempty"`
-	BillingPeriodEnd   string                  `json:"billingPeriodEnd,omitempty"`
-	History            []XAIBillingHistoryItem `json:"history,omitempty"`
+	CurrentPeriod      *XAIBillingPeriod        `json:"currentPeriod,omitempty"`
+	CreditUsagePercent *float64                 `json:"creditUsagePercent,omitempty"`
+	ProductUsage       []XAIBillingProductUsage `json:"productUsage,omitempty"`
+	MonthlyLimit       XAIMoneyValue            `json:"monthlyLimit,omitempty"`
+	Used               XAIMoneyValue            `json:"used,omitempty"`
+	OnDemandCap        XAIMoneyValue            `json:"onDemandCap,omitempty"`
+	OnDemandUsed       XAIMoneyValue            `json:"onDemandUsed,omitempty"`
+	BillingPeriodStart string                   `json:"billingPeriodStart,omitempty"`
+	BillingPeriodEnd   string                   `json:"billingPeriodEnd,omitempty"`
+	History            []XAIBillingHistoryItem  `json:"history,omitempty"`
 }
 
 type XAIBillingPayload struct {
@@ -285,7 +300,8 @@ type KimiResult struct {
 }
 
 type XAIResult struct {
-	Billing *XAIBillingPayload `json:"billing"`
+	Weekly  *XAIBillingPayload `json:"weekly,omitempty"`
+	Monthly *XAIBillingPayload `json:"monthly,omitempty"`
 }
 
 type ProviderHandler interface {

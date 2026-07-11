@@ -54,6 +54,7 @@ const (
 	migrationModelPriceMultiplier                   = "20260702_model_price_multiplier"
 	migrationCreateAppSettings                      = "20260702_create_app_settings"
 	migrationBackfillCacheReadTokens                = "20260710_backfill_cache_read_tokens"
+	migrationAddUsageIdentityXAIUserID              = "20260711_add_usage_identity_xai_user_id"
 )
 
 type schemaMigration struct {
@@ -152,6 +153,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationModelPriceMultiplier, run: addModelPriceMultiplierMigration},
 		{version: migrationCreateAppSettings, run: createAppSettingsMigration},
 		{version: migrationBackfillCacheReadTokens, run: backfillCacheReadTokensMigration},
+		{version: migrationAddUsageIdentityXAIUserID, run: addUsageIdentityXAIUserIDMigration},
 	}
 }
 

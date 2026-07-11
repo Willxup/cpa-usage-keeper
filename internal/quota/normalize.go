@@ -3,6 +3,7 @@ package quota
 import (
 	"fmt"
 	"math"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -352,32 +353,178 @@ func normalizeKimiQuotaRows(result KimiResult) []QuotaRow {
 }
 
 func normalizeXAIQuotaRows(result XAIResult) []QuotaRow {
-	// xAI billing 的 val 是 USD cents；后端缓存保留 cents，前端按 metric=usd_cents 格式化成美元。
-	if result.Billing == nil || result.Billing.Config == nil {
+	// xAI 两个 billing endpoint 同级返回，输出顺序固定为 Weekly、Monthly、PAYG、产品额度。
+	weeklyConfig := xaiBillingConfig(result.Weekly)
+	monthlyConfig := xaiBillingConfig(result.Monthly)
+	rows := make([]QuotaRow, 0, 3)
+	if row, ok := xaiWeeklyQuotaRow(weeklyConfig); ok {
+		rows = append(rows, row)
+	}
+	rows = append(rows, xaiMonthlyQuotaRows(monthlyConfig)...)
+	rows = append(rows, xaiProductQuotaRows(weeklyConfig)...)
+	return rows
+}
+
+func xaiBillingConfig(payload *XAIBillingPayload) *XAIBillingConfig {
+	if payload == nil {
 		return nil
 	}
-	config := result.Billing.Config
-	limit := config.MonthlyLimit.Val
-	used := config.Used.Val
-	remaining := math.Max(0, limit-used)
-	row := QuotaRow{
-		Key:       "billing.monthly",
-		Label:     "Monthly Spend",
-		Scope:     "billing",
-		Metric:    "usd_cents",
-		Used:      floatPtr(used),
-		Limit:     floatPtr(limit),
-		Remaining: floatPtr(remaining),
-		Window:    &QuotaWindow{Seconds: intPtr(quotaWindowThirtyDaySeconds)},
-		ResetAt:   config.BillingPeriodEnd,
+	return payload.Config
+}
+
+func xaiWeeklyQuotaRow(config *XAIBillingConfig) (QuotaRow, bool) {
+	if config == nil || config.CreditUsagePercent == nil {
+		return QuotaRow{}, false
 	}
-	if limit > 0 {
-		row.UsedPercent = floatPtr(used / limit * 100)
-		limitReached := used >= limit
-		row.LimitReached = boolPtr(limitReached)
-		row.Allowed = boolPtr(!limitReached)
+	usedPercent := *config.CreditUsagePercent
+	limitReached := usedPercent >= 100
+	return QuotaRow{
+		Key:          "billing.weekly",
+		Label:        "Weekly",
+		Scope:        "billing",
+		Metric:       "weekly",
+		UsedPercent:  floatPtr(usedPercent),
+		Allowed:      boolPtr(!limitReached),
+		LimitReached: boolPtr(limitReached),
+		Window:       &QuotaWindow{Seconds: intPtr(quotaWindowSevenDaySeconds)},
+		ResetAt:      xaiWeeklyResetAt(config),
+	}, true
+}
+
+func xaiMonthlyQuotaRows(config *XAIBillingConfig) []QuotaRow {
+	if config == nil {
+		return nil
 	}
-	return []QuotaRow{row}
+	monthlyLimit, hasMonthlyLimit := xaiMoneyValue(config.MonthlyLimit)
+	totalUsed, hasTotalUsed := xaiMoneyValue(config.Used)
+	onDemandCap, hasOnDemandCap := xaiMoneyValue(config.OnDemandCap)
+	onDemandUsed, hasOnDemandUsed := xaiMoneyValue(config.OnDemandUsed)
+	if !hasOnDemandUsed && hasTotalUsed && hasMonthlyLimit {
+		onDemandUsed = math.Max(0, totalUsed-monthlyLimit)
+		hasOnDemandUsed = true
+	}
+
+	rows := make([]QuotaRow, 0, 2)
+	if hasMonthlyLimit || hasTotalUsed {
+		row := QuotaRow{
+			Key:     "billing.monthly",
+			Label:   "Monthly Spend",
+			Scope:   "billing",
+			Metric:  "usd_cents",
+			Window:  &QuotaWindow{Seconds: intPtr(quotaWindowThirtyDaySeconds)},
+			ResetAt: config.BillingPeriodEnd,
+		}
+		if hasMonthlyLimit {
+			row.Limit = floatPtr(monthlyLimit)
+		}
+		if hasTotalUsed {
+			includedUsed := totalUsed
+			if hasMonthlyLimit {
+				includedUsed = math.Min(totalUsed, math.Max(0, monthlyLimit))
+			}
+			row.Used = floatPtr(includedUsed)
+			if hasMonthlyLimit {
+				row.Remaining = floatPtr(math.Max(0, monthlyLimit-includedUsed))
+				if monthlyLimit > 0 {
+					row.UsedPercent = floatPtr(includedUsed / monthlyLimit * 100)
+					onDemandAvailable := hasOnDemandCap && onDemandCap > 0 && hasOnDemandUsed && onDemandUsed < onDemandCap
+					limitReached := includedUsed >= monthlyLimit && !onDemandAvailable
+					row.LimitReached = boolPtr(limitReached)
+					row.Allowed = boolPtr(!limitReached)
+				}
+			}
+		}
+		rows = append(rows, row)
+	}
+
+	if hasOnDemandCap && onDemandCap > 0 {
+		row := QuotaRow{
+			Key:     "billing.on_demand",
+			Label:   "Pay-as-you-go",
+			Scope:   "billing",
+			Metric:  "usd_cents",
+			Limit:   floatPtr(onDemandCap),
+			Window:  &QuotaWindow{Seconds: intPtr(quotaWindowThirtyDaySeconds)},
+			ResetAt: config.BillingPeriodEnd,
+		}
+		if hasOnDemandUsed {
+			row.Used = floatPtr(onDemandUsed)
+			row.Remaining = floatPtr(math.Max(0, onDemandCap-onDemandUsed))
+			row.UsedPercent = floatPtr(onDemandUsed / onDemandCap * 100)
+			limitReached := onDemandUsed >= onDemandCap
+			row.LimitReached = boolPtr(limitReached)
+			row.Allowed = boolPtr(!limitReached)
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+func xaiProductQuotaRows(config *XAIBillingConfig) []QuotaRow {
+	if config == nil || len(config.ProductUsage) == 0 {
+		return nil
+	}
+	type productQuota struct {
+		name           string
+		normalizedName string
+		usedPercent    float64
+	}
+	products := make(map[string]productQuota, len(config.ProductUsage))
+	for _, item := range config.ProductUsage {
+		name := strings.Join(strings.Fields(item.Product), " ")
+		normalizedName := strings.ToLower(name)
+		if normalizedName == "" || item.UsagePercent == nil {
+			continue
+		}
+		if current, ok := products[normalizedName]; ok {
+			if *item.UsagePercent > current.usedPercent {
+				current.usedPercent = *item.UsagePercent
+				products[normalizedName] = current
+			}
+			continue
+		}
+		products[normalizedName] = productQuota{name: name, normalizedName: normalizedName, usedPercent: *item.UsagePercent}
+	}
+	ordered := make([]productQuota, 0, len(products))
+	for _, product := range products {
+		ordered = append(ordered, product)
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		return ordered[i].normalizedName < ordered[j].normalizedName
+	})
+	rows := make([]QuotaRow, 0, len(ordered))
+	for _, product := range ordered {
+		limitReached := product.usedPercent >= 100
+		rows = append(rows, QuotaRow{
+			Key:          "billing.weekly.product." + url.QueryEscape(product.normalizedName),
+			Label:        product.name + " Usage",
+			Scope:        "product",
+			Metric:       product.name,
+			UsedPercent:  floatPtr(product.usedPercent),
+			Allowed:      boolPtr(!limitReached),
+			LimitReached: boolPtr(limitReached),
+			Window:       &QuotaWindow{Seconds: intPtr(quotaWindowSevenDaySeconds)},
+			ResetAt:      xaiWeeklyResetAt(config),
+		})
+	}
+	return rows
+}
+
+func xaiWeeklyResetAt(config *XAIBillingConfig) string {
+	if config == nil {
+		return ""
+	}
+	if config.CurrentPeriod != nil && strings.TrimSpace(config.CurrentPeriod.End) != "" {
+		return config.CurrentPeriod.End
+	}
+	return config.BillingPeriodEnd
+}
+
+func xaiMoneyValue(value XAIMoneyValue) (float64, bool) {
+	if value.Val == nil {
+		return 0, false
+	}
+	return *value.Val, true
 }
 
 func kimiDetailQuotaRow(key string, scope string, fallbackLabel string, detail *KimiUsageDetail) QuotaRow {

@@ -23,6 +23,9 @@ const (
 
 	// CodexRateLimitResetCreditsURL 返回当前账号每次可用 reset credit 及其过期时间。
 	CodexRateLimitResetCreditsURL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
+
+	// xaiGrokClientVersion 与 CPA 当前 Grok CLI chat-proxy 请求保持一致。
+	xaiGrokClientVersion = "0.2.93"
 )
 
 // RefreshCacheableHTTPStatusCodes 定义会写入页面恢复缓存并被自动刷新跳过的 provider HTTP 状态码。
@@ -45,7 +48,8 @@ type ProviderConfigs struct {
 	ClaudeUsage         APICallConfig
 	ClaudeProfile       APICallConfig
 	Kimi                APICallConfig
-	XAI                 APICallConfig
+	XAIWeekly           APICallConfig
+	XAIMonthly          APICallConfig
 }
 
 func DefaultProviderConfigs() ProviderConfigs {
@@ -129,18 +133,32 @@ func DefaultProviderConfigs() ProviderConfigs {
 				"Authorization": "Bearer $TOKEN$",
 			},
 		},
-		XAI: APICallConfig{
-			Method: "GET",
-			URL:    "https://cli-chat-proxy.grok.com/v1/billing",
-			Headers: map[string]string{
-				"Authorization": "Bearer $TOKEN$",
-			},
+		XAIWeekly: APICallConfig{
+			Method:  "GET",
+			URL:     "https://cli-chat-proxy.grok.com/v1/billing?format=credits",
+			Headers: xaiRequestHeaders(),
+		},
+		XAIMonthly: APICallConfig{
+			Method:  "GET",
+			URL:     "https://cli-chat-proxy.grok.com/v1/billing",
+			Headers: xaiRequestHeaders(),
 		},
 	}
 }
 
+func xaiRequestHeaders() map[string]string {
+	userAgent := "grok-pager/" + xaiGrokClientVersion + " grok-shell/" + xaiGrokClientVersion + " (macos; aarch64)"
+	return map[string]string{
+		"Authorization":         "Bearer $TOKEN$",
+		"x-xai-token-auth":      "xai-grok-cli",
+		"x-grok-client-version": xaiGrokClientVersion,
+		"Accept":                "*/*",
+		"User-Agent":            userAgent,
+	}
+}
+
 func (c ProviderConfigs) APICallTemplates() []APICallConfig {
-	templates := make([]APICallConfig, 0, len(c.Antigravity)+7)
+	templates := make([]APICallConfig, 0, len(c.Antigravity)+8)
 	templates = append(templates, c.Antigravity...)
 	templates = append(templates,
 		c.Codex,
@@ -149,7 +167,8 @@ func (c ProviderConfigs) APICallTemplates() []APICallConfig {
 		c.ClaudeUsage,
 		c.ClaudeProfile,
 		c.Kimi,
-		c.XAI,
+		c.XAIWeekly,
+		c.XAIMonthly,
 	)
 	return templates
 }

@@ -329,6 +329,24 @@ describe('AuthFileCredentialsSection quota usage mode rendering', () => {
     expect(html.indexOf('<img')).toBeLessThan(html.indexOf('$1.67'))
     expect(html).not.toContain('1.00M')
   })
+
+  it('renders xai weekly before monthly in the existing quota grid', () => {
+    const xaiRow = {
+      ...row,
+      displayQuotas: [
+        { ...quota, key: 'billing.weekly', label: 'Weekly', percent: 25, barPercent: 75 },
+        { ...quota, key: 'billing.monthly', label: 'Monthly Spend', percent: 50, barPercent: 50, billingUsage: { used: '$5.00', limit: '$10.00', remaining: '$5.00' }, windowUsage: undefined },
+        { ...quota, key: 'billing.on_demand', label: 'Pay-as-you-go', percent: 20, barPercent: 80, billingUsage: { used: '$1.00', limit: '$5.00', remaining: '$4.00' }, windowUsage: undefined },
+        { ...quota, key: 'billing.weekly.product.grok+4', label: 'Grok 4 Usage', percent: 80, barPercent: 20 },
+      ],
+    } as AuthFileCredentialRow
+
+    const html = renderToStaticMarkup(createElement(AuthFileQuotaPanel, { row: xaiRow, quotaUsageMode: 'current' }))
+
+    expect(html.indexOf('Weekly')).toBeLessThan(html.indexOf('Monthly Spend'))
+    expect(html.indexOf('Monthly Spend')).toBeLessThan(html.indexOf('Pay-as-you-go'))
+    expect(html.indexOf('Pay-as-you-go')).toBeLessThan(html.indexOf('Grok 4 Usage'))
+  })
 })
 
 describe('AuthFileCredentialsSection quota error display', () => {

@@ -64,6 +64,7 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260702_model_price_multiplier",
 		"20260702_create_app_settings",
 		"20260710_backfill_cache_read_tokens",
+		"20260711_add_usage_identity_xai_user_id",
 	}
 	assertStringSlicesEqual(t, want, got)
 }

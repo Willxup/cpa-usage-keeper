@@ -303,11 +303,24 @@ func parseXAIBillingConfig(object map[string]json.RawMessage) *XAIBillingConfig 
 		return nil
 	}
 	config := &XAIBillingConfig{
-		MonthlyLimit:       parseXAIMoneyValue(objectField(object, "monthlyLimit", "monthly_limit")),
-		Used:               parseXAIMoneyValue(objectField(object, "used")),
-		OnDemandCap:        parseXAIMoneyValue(objectField(object, "onDemandCap", "on_demand_cap")),
+		CurrentPeriod:      parseXAIBillingPeriod(objectField(object, "currentPeriod", "current_period")),
+		CreditUsagePercent: floatPtrField(object, "creditUsagePercent", "credit_usage_percent"),
+		MonthlyLimit:       parseXAIMoneyField(object, "monthlyLimit", "monthly_limit"),
+		Used:               parseXAIMoneyField(object, "used"),
+		OnDemandCap:        parseXAIMoneyField(object, "onDemandCap", "on_demand_cap"),
+		OnDemandUsed:       parseXAIMoneyField(object, "onDemandUsed", "on_demand_used"),
 		BillingPeriodStart: stringField(object, "billingPeriodStart", "billing_period_start"),
 		BillingPeriodEnd:   stringField(object, "billingPeriodEnd", "billing_period_end"),
+	}
+	for _, raw := range arrayField(object, "productUsage", "product_usage") {
+		productObject := rawObject(raw)
+		if productObject == nil {
+			continue
+		}
+		config.ProductUsage = append(config.ProductUsage, XAIBillingProductUsage{
+			Product:      stringField(productObject, "product"),
+			UsagePercent: floatPtrField(productObject, "usagePercent", "usage_percent"),
+		})
 	}
 	for _, raw := range arrayField(object, "history") {
 		historyObject := rawObject(raw)
@@ -316,9 +329,9 @@ func parseXAIBillingConfig(object map[string]json.RawMessage) *XAIBillingConfig 
 		}
 		config.History = append(config.History, XAIBillingHistoryItem{
 			BillingCycle: parseXAIBillingCycle(objectField(historyObject, "billingCycle", "billing_cycle")),
-			IncludedUsed: parseXAIMoneyValue(objectField(historyObject, "includedUsed", "included_used")),
-			OnDemandUsed: parseXAIMoneyValue(objectField(historyObject, "onDemandUsed", "on_demand_used")),
-			TotalUsed:    parseXAIMoneyValue(objectField(historyObject, "totalUsed", "total_used")),
+			IncludedUsed: parseXAIMoneyField(historyObject, "includedUsed", "included_used"),
+			OnDemandUsed: parseXAIMoneyField(historyObject, "onDemandUsed", "on_demand_used"),
+			TotalUsed:    parseXAIMoneyField(historyObject, "totalUsed", "total_used"),
 		})
 	}
 	return config
@@ -334,11 +347,29 @@ func parseXAIBillingCycle(object map[string]json.RawMessage) XAIBillingCycle {
 	}
 }
 
-func parseXAIMoneyValue(object map[string]json.RawMessage) XAIMoneyValue {
+func parseXAIBillingPeriod(object map[string]json.RawMessage) *XAIBillingPeriod {
 	if object == nil {
-		return XAIMoneyValue{}
+		return nil
 	}
-	return XAIMoneyValue{Val: floatField(object, "val")}
+	return &XAIBillingPeriod{
+		Type:  stringField(object, "type"),
+		Start: stringField(object, "start"),
+		End:   stringField(object, "end"),
+	}
+}
+
+func parseXAIMoneyField(object map[string]json.RawMessage, keys ...string) XAIMoneyValue {
+	for _, key := range keys {
+		raw, ok := object[key]
+		if !ok || rawJSONNull(raw) {
+			continue
+		}
+		if valueObject := rawObject(raw); valueObject != nil {
+			return XAIMoneyValue{Val: floatPtrField(valueObject, "val")}
+		}
+		return XAIMoneyValue{Val: floatPtrField(map[string]json.RawMessage{"value": raw}, "value")}
+	}
+	return XAIMoneyValue{}
 }
 
 func parseKimiUsageDetail(object map[string]json.RawMessage) *KimiUsageDetail {

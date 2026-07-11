@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -231,8 +232,13 @@ func TestStartAutoRefreshWakesWhenSettingsChange(t *testing.T) {
 	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 	service.SetRefreshContext(ctx)
 	setRefreshCooldown(service, func(time.Duration) {})
+	var nowMu sync.RWMutex
 	now := time.Date(2026, 5, 26, 12, 0, 0, 0, time.Local)
-	setAutoRefreshNow(service, func() time.Time { return now })
+	setAutoRefreshNow(service, func() time.Time {
+		nowMu.RLock()
+		defer nowMu.RUnlock()
+		return now
+	})
 	if _, err := service.UpdateAutoRefreshSettings(context.Background(), AutoRefreshSettings{
 		Enabled:  true,
 		Schedule: &AutoRefreshSchedule{Unit: AutoRefreshScheduleUnitHour, Value: 24},
@@ -262,7 +268,9 @@ func TestStartAutoRefreshWakesWhenSettingsChange(t *testing.T) {
 		t.Fatal("expected long day schedule not to run before settings change")
 	case <-time.After(50 * time.Millisecond):
 	}
+	nowMu.Lock()
 	now = time.Date(2026, 5, 26, 23, 59, 59, int(999*time.Millisecond), time.Local)
+	nowMu.Unlock()
 	if _, err := service.UpdateAutoRefreshSettings(context.Background(), AutoRefreshSettings{
 		Enabled:  true,
 		Schedule: &AutoRefreshSchedule{Unit: AutoRefreshScheduleUnitDay, Value: 1},

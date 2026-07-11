@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"cpa-usage-keeper/internal/cpa/dto/apicall"
 	"cpa-usage-keeper/internal/entities"
 	. "cpa-usage-keeper/internal/quota"
 
@@ -1074,6 +1075,28 @@ func TestInspectionStatusClassifiesLimitReachedByKnownAuthFileType(t *testing.T)
 			wantLimitReached: 1,
 		},
 		{
+			name:     "xai monthly included spend exhausted with payg available",
+			identity: entities.UsageIdentity{Identity: "xai-payg-auth", Name: "xAI PAYG", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeAuthFile},
+			quota: []QuotaRow{
+				{
+					Key:          "billing.monthly",
+					Label:        "Monthly Spend",
+					Used:         floatPtr(100),
+					Limit:        floatPtr(100),
+					LimitReached: boolPtr(false),
+				},
+				{
+					Key:          "billing.on_demand",
+					Label:        "Pay-as-you-go",
+					Used:         floatPtr(20),
+					Limit:        floatPtr(100),
+					LimitReached: boolPtr(false),
+				},
+			},
+			wantStatus: "normal",
+			wantNormal: 1,
+		},
+		{
 			name:     "generic type with known provider does not use provider fallback",
 			identity: entities.UsageIdentity{Identity: "generic-codex-auth", Name: "Generic Codex", Provider: "codex", Type: "generic", AuthType: entities.UsageIdentityAuthTypeAuthFile},
 			quota: []QuotaRow{{
@@ -1161,9 +1184,9 @@ func TestInspectionStatusClassifiesLimitReachedThroughRefreshPipeline(t *testing
 		{
 			name:     "xai used at billing limit from normalized billing row",
 			identity: entities.UsageIdentity{Identity: "xai-auth", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeAuthFile},
-			output: ProviderOutput{Provider: "xai", Result: XAIResult{Billing: &XAIBillingPayload{Config: &XAIBillingConfig{
-				MonthlyLimit:       XAIMoneyValue{Val: 100},
-				Used:               XAIMoneyValue{Val: 100},
+			output: ProviderOutput{Provider: "xai", Result: XAIResult{Monthly: &XAIBillingPayload{Config: &XAIBillingConfig{
+				MonthlyLimit:       XAIMoneyValue{Val: floatPtr(100)},
+				Used:               XAIMoneyValue{Val: floatPtr(100)},
 				BillingPeriodEnd:   "2026-07-01T00:00:00+00:00",
 				BillingPeriodStart: "2026-06-01T00:00:00+00:00",
 			}}}},
@@ -1380,6 +1403,69 @@ func TestRefreshTaskCachesConfiguredHTTPError(t *testing.T) {
 	}
 	if cache.Items[0].RefreshedAt == nil || cache.Items[0].RefreshedAt.IsZero() {
 		t.Fatalf("expected cached failed item to expose refreshed_at, got %+v", cache.Items[0])
+	}
+}
+
+func TestXAIRefreshCachesCompletedPartialQuota(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "xai-auth", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	monthlyJSON := `{"config":{"monthlyLimit":{"val":1000},"used":{"val":250},"onDemandCap":{"val":0},"billingPeriodEnd":"2026-08-01T00:00:00Z"}}`
+	caller := newXAIManagementCaller(
+		&apicall.Response{StatusCode: 500, BodyText: "weekly unavailable"},
+		&apicall.Response{StatusCode: 200, BodyText: monthlyJSON, Body: json.RawMessage(monthlyJSON)},
+	)
+	configs := DefaultProviderConfigs()
+	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{
+		"xai": NewXAIProvider(caller, configs.XAIWeekly, configs.XAIMonthly),
+	}))
+	setRefreshCooldown(service, func(time.Duration) {})
+
+	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"xai-auth"}, Source: RefreshSourceManual})
+	if err != nil {
+		t.Fatalf("Refresh returned error: %v", err)
+	}
+	task := waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusCompleted)
+	if task.Quota == nil || len(task.Quota.Quota) != 1 || task.Quota.Quota[0].Key != "billing.monthly" {
+		t.Fatalf("expected completed monthly-only xai quota, got %+v", task)
+	}
+
+	cache, err := service.GetCachedQuota(context.Background(), CacheRequest{AuthIndexes: []string{"xai-auth"}})
+	if err != nil {
+		t.Fatalf("GetCachedQuota returned error: %v", err)
+	}
+	if len(cache.Items) != 1 || cache.Items[0].Status != RefreshTaskStatusCompleted || cache.Items[0].Quota == nil || len(cache.Items[0].Quota.Quota) != 1 || cache.Items[0].Quota.Quota[0].Key != "billing.monthly" {
+		t.Fatalf("expected partial xai result in the existing completed cache, got %+v", cache.Items)
+	}
+}
+
+func TestXAIRefreshCachesFailureOnlyWhenBothBillingSourcesFail(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "xai-auth", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	caller := newXAIManagementCaller(
+		&apicall.Response{StatusCode: 500, BodyText: "weekly unavailable"},
+		&apicall.Response{StatusCode: 401, BodyText: "token expired"},
+	)
+	configs := DefaultProviderConfigs()
+	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{
+		"xai": NewXAIProvider(caller, configs.XAIWeekly, configs.XAIMonthly),
+	}))
+	setRefreshCooldown(service, func(time.Duration) {})
+
+	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"xai-auth"}, Source: RefreshSourceManual})
+	if err != nil {
+		t.Fatalf("Refresh returned error: %v", err)
+	}
+	task := waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusFailed)
+	if task.HTTPStatusCode == nil || *task.HTTPStatusCode != 401 || task.ExpiresAt == nil || task.RefreshedAt == nil || task.ExpiresAt.Sub(*task.RefreshedAt) != RefreshErrorCacheTTL {
+		t.Fatalf("expected xai failure to reuse cacheable HTTP error semantics, got %+v", task)
+	}
+
+	cache, err := service.GetCachedQuota(context.Background(), CacheRequest{AuthIndexes: []string{"xai-auth"}})
+	if err != nil {
+		t.Fatalf("GetCachedQuota returned error: %v", err)
+	}
+	if len(cache.Items) != 1 || cache.Items[0].Status != RefreshTaskStatusFailed || cache.Items[0].HTTPStatusCode == nil || *cache.Items[0].HTTPStatusCode != 401 {
+		t.Fatalf("expected both-failed xai result in the existing failed cache, got %+v", cache.Items)
 	}
 }
 

@@ -283,32 +283,121 @@ func TestNormalizeKimiQuotaRows(t *testing.T) {
 }
 
 func TestNormalizeXAIQuotaRows(t *testing.T) {
-	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "xai", Result: quota.XAIResult{Billing: &quota.XAIBillingPayload{
-		Config: &quota.XAIBillingConfig{
-			MonthlyLimit:       quota.XAIMoneyValue{Val: 20000},
-			Used:               quota.XAIMoneyValue{Val: 167},
-			OnDemandCap:        quota.XAIMoneyValue{Val: 0},
-			BillingPeriodStart: "2026-06-01T00:00:00+00:00",
-			BillingPeriodEnd:   "2026-07-01T00:00:00+00:00",
-			History: []quota.XAIBillingHistoryItem{{
-				BillingCycle: quota.XAIBillingCycle{Year: 2026, Month: 5},
-				TotalUsed:    quota.XAIMoneyValue{Val: 0},
-			}},
-		},
-	}}})
+	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "xai", Result: quota.XAIResult{
+		Weekly: &quota.XAIBillingPayload{Config: &quota.XAIBillingConfig{
+			CurrentPeriod:      &quota.XAIBillingPeriod{Type: "weekly", Start: "2026-07-06T00:00:00Z", End: "2026-07-13T00:00:00Z"},
+			CreditUsagePercent: floatPtr(62.5),
+		}},
+		Monthly: &quota.XAIBillingPayload{Config: &quota.XAIBillingConfig{
+			MonthlyLimit:       quota.XAIMoneyValue{Val: floatPtr(1000)},
+			Used:               quota.XAIMoneyValue{Val: floatPtr(1250)},
+			OnDemandCap:        quota.XAIMoneyValue{Val: floatPtr(500)},
+			OnDemandUsed:       quota.XAIMoneyValue{Val: floatPtr(200)},
+			BillingPeriodStart: "2026-07-01T00:00:00Z",
+			BillingPeriodEnd:   "2026-08-01T00:00:00Z",
+		}},
+	}})
 
-	if len(rows) != 1 {
-		t.Fatalf("expected 1 quota row, got %#v", rows)
+	if len(rows) != 3 {
+		t.Fatalf("expected weekly, monthly, and pay-as-you-go rows, got %#v", rows)
+	}
+	if rows[0].Key != "billing.weekly" || rows[1].Key != "billing.monthly" || rows[2].Key != "billing.on_demand" {
+		t.Fatalf("unexpected xai quota order: %#v", rows)
+	}
+	weekly := rows[0]
+	assertQuotaText(t, weekly, "Weekly", "billing", "weekly")
+	assertFloatField(t, weekly.UsedPercent, 62.5, "xai weekly usedPercent")
+	assertIntField(t, weekly.Window.Seconds, 604800, "xai weekly window seconds")
+	if weekly.ResetAt != "2026-07-13T00:00:00Z" || weekly.LimitReached == nil || *weekly.LimitReached {
+		t.Fatalf("unexpected xai weekly row: %#v", weekly)
 	}
 	monthly := findQuotaRow(t, rows, "billing.monthly")
 	assertQuotaText(t, monthly, "Monthly Spend", "billing", "usd_cents")
-	assertFloatField(t, monthly.Used, 167, "xai monthly used")
-	assertFloatField(t, monthly.Limit, 20000, "xai monthly limit")
-	assertFloatField(t, monthly.Remaining, 19833, "xai monthly remaining")
-	assertFloatField(t, monthly.UsedPercent, 0.835, "xai monthly usedPercent")
+	assertFloatField(t, monthly.Used, 1000, "xai monthly used")
+	assertFloatField(t, monthly.Limit, 1000, "xai monthly limit")
+	assertFloatField(t, monthly.Remaining, 0, "xai monthly remaining")
+	assertFloatField(t, monthly.UsedPercent, 100, "xai monthly usedPercent")
 	assertIntField(t, monthly.Window.Seconds, 2592000, "xai monthly window seconds")
-	if monthly.ResetAt != "2026-07-01T00:00:00+00:00" {
+	if monthly.ResetAt != "2026-08-01T00:00:00Z" || monthly.LimitReached == nil || *monthly.LimitReached || monthly.Allowed == nil || !*monthly.Allowed {
 		t.Fatalf("unexpected xai monthly resetAt: %#v", monthly)
+	}
+	onDemand := findQuotaRow(t, rows, "billing.on_demand")
+	assertQuotaText(t, onDemand, "Pay-as-you-go", "billing", "usd_cents")
+	assertFloatField(t, onDemand.Used, 200, "xai pay-as-you-go used")
+	assertFloatField(t, onDemand.Limit, 500, "xai pay-as-you-go limit")
+	assertFloatField(t, onDemand.Remaining, 300, "xai pay-as-you-go remaining")
+	assertFloatField(t, onDemand.UsedPercent, 40, "xai pay-as-you-go usedPercent")
+	if onDemand.LimitReached == nil || *onDemand.LimitReached {
+		t.Fatalf("unexpected xai pay-as-you-go state: %#v", onDemand)
+	}
+}
+
+func TestNormalizeXAIProductRowsUsesStableKeysDeduplicationAndSorting(t *testing.T) {
+	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "xai", Result: quota.XAIResult{
+		Weekly: &quota.XAIBillingPayload{Config: &quota.XAIBillingConfig{
+			CurrentPeriod:      &quota.XAIBillingPeriod{Type: "weekly", End: "2026-07-13T00:00:00Z"},
+			CreditUsagePercent: floatPtr(20),
+			ProductUsage: []quota.XAIBillingProductUsage{
+				{Product: "  Grok Code  ", UsagePercent: floatPtr(80)},
+				{Product: "grok 4", UsagePercent: floatPtr(100)},
+				{Product: "GROK CODE", UsagePercent: floatPtr(90)},
+				{Product: "", UsagePercent: floatPtr(50)},
+				{Product: "No Data"},
+			},
+		}},
+	}})
+
+	if len(rows) != 3 {
+		t.Fatalf("expected weekly plus two product rows, got %#v", rows)
+	}
+	if rows[0].Key != "billing.weekly" || rows[1].Key != "billing.weekly.product.grok+4" || rows[2].Key != "billing.weekly.product.grok+code" {
+		t.Fatalf("unexpected product row order or keys: %#v", rows)
+	}
+	assertQuotaText(t, rows[1], "grok 4 Usage", "product", "grok 4")
+	assertFloatField(t, rows[1].UsedPercent, 100, "grok 4 usedPercent")
+	if rows[1].LimitReached == nil || !*rows[1].LimitReached {
+		t.Fatalf("expected grok 4 product quota to be reached: %#v", rows[1])
+	}
+	assertQuotaText(t, rows[2], "Grok Code Usage", "product", "Grok Code")
+	assertFloatField(t, rows[2].UsedPercent, 90, "deduplicated grok code usedPercent")
+	assertIntField(t, rows[2].Window.Seconds, 604800, "product weekly window seconds")
+	if rows[2].ResetAt != "2026-07-13T00:00:00Z" {
+		t.Fatalf("unexpected product resetAt: %#v", rows[2])
+	}
+}
+
+func TestNormalizeXAIDerivesPayAsYouGoUsageFromTotalSpend(t *testing.T) {
+	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "xai", Result: quota.XAIResult{
+		Monthly: &quota.XAIBillingPayload{Config: &quota.XAIBillingConfig{
+			MonthlyLimit: quota.XAIMoneyValue{Val: floatPtr(1000)},
+			Used:         quota.XAIMoneyValue{Val: floatPtr(1300)},
+			OnDemandCap:  quota.XAIMoneyValue{Val: floatPtr(500)},
+		}},
+	}})
+
+	monthly := findQuotaRow(t, rows, "billing.monthly")
+	if monthly.LimitReached == nil || *monthly.LimitReached {
+		t.Fatalf("monthly included spend must remain allowed while PAYG is available: %#v", monthly)
+	}
+	onDemand := findQuotaRow(t, rows, "billing.on_demand")
+	assertFloatField(t, onDemand.Used, 300, "derived pay-as-you-go used")
+	assertFloatField(t, onDemand.Remaining, 200, "derived pay-as-you-go remaining")
+	assertFloatField(t, onDemand.UsedPercent, 60, "derived pay-as-you-go usedPercent")
+}
+
+func TestNormalizeXAIQuotaRowsMarksPayAsYouGoExhaustion(t *testing.T) {
+	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "xai", Result: quota.XAIResult{
+		Monthly: &quota.XAIBillingPayload{Config: &quota.XAIBillingConfig{
+			MonthlyLimit: quota.XAIMoneyValue{Val: floatPtr(1000)},
+			Used:         quota.XAIMoneyValue{Val: floatPtr(1500)},
+			OnDemandCap:  quota.XAIMoneyValue{Val: floatPtr(500)},
+		}},
+	}})
+
+	monthly := findQuotaRow(t, rows, "billing.monthly")
+	onDemand := findQuotaRow(t, rows, "billing.on_demand")
+	if monthly.LimitReached == nil || !*monthly.LimitReached || onDemand.LimitReached == nil || !*onDemand.LimitReached {
+		t.Fatalf("expected exhausted included and PAYG rows to be limit reached: %#v", rows)
 	}
 }
 
