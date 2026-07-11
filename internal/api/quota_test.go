@@ -34,6 +34,10 @@ type quotaProviderStub struct {
 	inspectionStartCalls     int
 }
 
+func (s *quotaProviderStub) GetResetCredits(ctx context.Context, request quota.ResetCreditsRequest) (quota.ResetCreditsResponse, error) {
+	return quota.ResetCreditsResponse{}, nil
+}
+
 func (s *quotaProviderStub) Refresh(ctx context.Context, request quota.RefreshRequest) (quota.RefreshResponse, error) {
 	s.refreshRequest = request
 	if s.refreshErr != nil {

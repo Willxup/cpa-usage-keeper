@@ -387,6 +387,42 @@ func parseCodexResetCreditResponse(response *apicall.Response) (ProviderResetOut
 	}, nil
 }
 
+func parseCodexResetCreditsResponse(response *apicall.Response) (ProviderResetCreditsOutput, error) {
+	object, err := parseResponseObject(response)
+	if err != nil {
+		return ProviderResetCreditsOutput{}, err
+	}
+	if _, hasCredits := object["credits"]; !hasCredits {
+		if _, hasCount := object["available_count"]; !hasCount {
+			if _, hasCamelCount := object["availableCount"]; !hasCamelCount {
+				return ProviderResetCreditsOutput{}, fmt.Errorf("invalid reset credits response")
+			}
+		}
+	}
+	credits := make([]CodexRateLimitResetCredit, 0)
+	for _, raw := range arrayField(object, "credits") {
+		creditObject := rawObject(raw)
+		if creditObject == nil || stringField(creditObject, "reset_type", "resetType") != "codex_rate_limits" || stringField(creditObject, "status") != "available" {
+			continue
+		}
+		expiresAt := stringField(creditObject, "expires_at", "expiresAt")
+		if expiresAt == "" {
+			continue
+		}
+		credits = append(credits, CodexRateLimitResetCredit{
+			ID:        stringField(creditObject, "id"),
+			Status:    "available",
+			GrantedAt: stringField(creditObject, "granted_at", "grantedAt"),
+			ExpiresAt: expiresAt,
+		})
+	}
+	availableCount := len(credits)
+	if count := intPtrField(object, "available_count", "availableCount"); count != nil && *count >= 0 {
+		availableCount = int(*count)
+	}
+	return ProviderResetCreditsOutput{AvailableCount: availableCount, Credits: credits}, nil
+}
+
 func parseResponseObject(response *apicall.Response) (map[string]json.RawMessage, error) {
 	if response == nil {
 		return nil, fmt.Errorf("missing quota response")

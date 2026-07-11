@@ -29,6 +29,15 @@ type ProviderResetter interface {
 	Reset(context.Context, ProviderInput) (ProviderResetOutput, error)
 }
 
+type ProviderResetCreditsOutput struct {
+	AvailableCount int                         `json:"availableCount"`
+	Credits        []CodexRateLimitResetCredit `json:"credits"`
+}
+
+type ProviderResetCreditLister interface {
+	ListResetCredits(context.Context, ProviderInput) (ProviderResetCreditsOutput, error)
+}
+
 type QuotaWindow struct {
 	Duration *float64 `json:"duration,omitempty"`
 	Unit     string   `json:"unit,omitempty"`
@@ -94,6 +103,13 @@ type CodexAdditionalRateLimit struct {
 
 type CodexRateLimitResetCredits struct {
 	AvailableCount *int `json:"availableCount,omitempty"`
+}
+
+type CodexRateLimitResetCredit struct {
+	ID        string `json:"id"`
+	Status    string `json:"status"`
+	GrantedAt string `json:"grantedAt,omitempty"`
+	ExpiresAt string `json:"expiresAt"`
 }
 
 type CodexUsagePayload struct {

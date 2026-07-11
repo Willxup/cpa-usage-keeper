@@ -22,6 +22,50 @@ type ResetResponse struct {
 	WindowsReset int    `json:"windowsReset,omitempty"`
 }
 
+type ResetCreditsRequest struct {
+	AuthIndex string `json:"auth_index"`
+}
+
+type ResetCreditsResponse struct {
+	AuthIndex      string                      `json:"authIndex"`
+	AvailableCount int                         `json:"availableCount"`
+	Credits        []CodexRateLimitResetCredit `json:"credits"`
+}
+
+func (s *Service) GetResetCredits(ctx context.Context, request ResetCreditsRequest) (ResetCreditsResponse, error) {
+	if s == nil {
+		return ResetCreditsResponse{}, errors.New("quota service is nil")
+	}
+	authIndex := strings.TrimSpace(request.AuthIndex)
+	if authIndex == "" {
+		return ResetCreditsResponse{}, fmt.Errorf("%w: auth_index is required", ErrValidation)
+	}
+	identity, err := repository.GetActiveAuthFileUsageIdentityByAuthIndex(ctx, s.db, authIndex)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ResetCreditsResponse{}, fmt.Errorf("%w: %s", ErrNotFound, authIndex)
+		}
+		return ResetCreditsResponse{}, err
+	}
+	resolvedType, handler, ok := s.resolveQuotaHandlerForIdentity(identity)
+	if !ok || resolvedType != "codex" {
+		return ResetCreditsResponse{}, fmt.Errorf("%w: %s", ErrUnsupportedType, normalizeIdentityType(identity.Provider))
+	}
+	lister, ok := handler.(ProviderResetCreditLister)
+	if !ok {
+		return ResetCreditsResponse{}, fmt.Errorf("%w: %s", ErrUnsupportedType, normalizeIdentityType(identity.Provider))
+	}
+	output, err := lister.ListResetCredits(ctx, ProviderInput{Identity: identity})
+	if err != nil {
+		return ResetCreditsResponse{}, err
+	}
+	return ResetCreditsResponse{
+		AuthIndex:      authIndex,
+		AvailableCount: output.AvailableCount,
+		Credits:        output.Credits,
+	}, nil
+}
+
 func (s *Service) Reset(ctx context.Context, request ResetRequest) (ResetResponse, error) {
 	if s == nil {
 		return ResetResponse{}, errors.New("quota service is nil")

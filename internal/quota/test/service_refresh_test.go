@@ -52,10 +52,13 @@ func (s *refreshHandlerStub) callCount() int {
 
 type resetHandlerStub struct {
 	refreshHandlerStub
-	resetOutput ProviderResetOutput
-	resetErr    error
-	resetInputs []entities.UsageIdentity
-	entered     chan string
+	resetOutput  ProviderResetOutput
+	resetErr     error
+	resetInputs  []entities.UsageIdentity
+	creditOutput ProviderResetCreditsOutput
+	creditErr    error
+	creditInputs []entities.UsageIdentity
+	entered      chan string
 }
 
 func (s *resetHandlerStub) Reset(ctx context.Context, input ProviderInput) (ProviderResetOutput, error) {
@@ -78,6 +81,16 @@ func (s *resetHandlerStub) Reset(ctx context.Context, input ProviderInput) (Prov
 	return s.resetOutput, nil
 }
 
+func (s *resetHandlerStub) ListResetCredits(ctx context.Context, input ProviderInput) (ProviderResetCreditsOutput, error) {
+	s.mu.Lock()
+	s.creditInputs = append(s.creditInputs, input.Identity)
+	s.mu.Unlock()
+	if s.creditErr != nil {
+		return ProviderResetCreditsOutput{}, s.creditErr
+	}
+	return s.creditOutput, nil
+}
+
 func TestResetConsumesCodexCredit(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
@@ -93,6 +106,46 @@ func TestResetConsumesCodexCredit(t *testing.T) {
 	}
 	if len(handler.resetInputs) != 1 || handler.resetInputs[0].Identity != "codex-auth" {
 		t.Fatalf("expected reset input identity codex-auth, got %+v", handler.resetInputs)
+	}
+}
+
+func TestGetResetCreditsListsCodexCreditsWithoutWritingQuotaCache(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	handler := &resetHandlerStub{creditOutput: ProviderResetCreditsOutput{
+		AvailableCount: 1,
+		Credits:        []CodexRateLimitResetCredit{{ID: "credit-1", Status: "available", ExpiresAt: "2026-07-20T00:00:00Z"}},
+	}}
+	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
+
+	response, err := service.GetResetCredits(context.Background(), ResetCreditsRequest{AuthIndex: " codex-auth "})
+	if err != nil {
+		t.Fatalf("GetResetCredits returned error: %v", err)
+	}
+	if response.AuthIndex != "codex-auth" || response.AvailableCount != 1 || len(response.Credits) != 1 || response.Credits[0].ID != "credit-1" {
+		t.Fatalf("unexpected reset credits response: %+v", response)
+	}
+	if len(handler.creditInputs) != 1 || handler.creditInputs[0].Identity != "codex-auth" {
+		t.Fatalf("expected reset credit input identity codex-auth, got %+v", handler.creditInputs)
+	}
+	cache, err := service.GetCachedQuota(context.Background(), CacheRequest{AuthIndexes: []string{"codex-auth"}})
+	if err != nil {
+		t.Fatalf("GetCachedQuota returned error: %v", err)
+	}
+	if len(cache.Items) != 0 {
+		t.Fatalf("expected on-demand reset credits not to write quota cache, got %+v", cache.Items)
+	}
+}
+
+func TestGetResetCreditsRejectsUnsupportedProvider(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	handler := &resetHandlerStub{}
+	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
+
+	_, err := service.GetResetCredits(context.Background(), ResetCreditsRequest{AuthIndex: "claude-auth"})
+	if !errors.Is(err, ErrUnsupportedType) {
+		t.Fatalf("expected unsupported type error, got %v", err)
 	}
 }
 

@@ -20,6 +20,9 @@ const (
 
 	// CodexRateLimitResetCreditsConsumeURL 是 Codex 官方 reset credit 消费端点，reset 操作固定调用它。
 	CodexRateLimitResetCreditsConsumeURL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume"
+
+	// CodexRateLimitResetCreditsURL 返回当前账号每次可用 reset credit 及其过期时间。
+	CodexRateLimitResetCreditsURL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
 )
 
 // RefreshCacheableHTTPStatusCodes 定义会写入页面恢复缓存并被自动刷新跳过的 provider HTTP 状态码。

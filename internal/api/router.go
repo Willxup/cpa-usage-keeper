@@ -36,6 +36,7 @@ type QuotaProvider interface {
 	StartInspection(context.Context) (quota.InspectionStatus, error)
 	GetAutoRefreshSettings(context.Context) (quota.AutoRefreshSettings, error)
 	UpdateAutoRefreshSettings(context.Context, quota.AutoRefreshSettings) (quota.AutoRefreshSettings, error)
+	GetResetCredits(context.Context, quota.ResetCreditsRequest) (quota.ResetCreditsResponse, error)
 	Reset(context.Context, quota.ResetRequest) (quota.ResetResponse, error)
 }
 

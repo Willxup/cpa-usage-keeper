@@ -15,6 +15,7 @@ type quotaRequest struct {
 }
 
 const quotaResetErrorFailed = "quota_reset_failed"
+const quotaResetCreditsErrorFailed = "quota_reset_credits_failed"
 
 func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 	router.GET("/quota/auto-refresh/settings", func(c *gin.Context) {
@@ -182,6 +183,23 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 
 		c.JSON(http.StatusOK, response)
 	})
+	router.GET("/quota/reset-credits/:auth_index", func(c *gin.Context) {
+		if provider == nil {
+			writeInternalError(c, "quota provider is not configured", nil)
+			return
+		}
+		authIndex := strings.TrimSpace(c.Param("auth_index"))
+		if authIndex == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_index is required"})
+			return
+		}
+		response, err := provider.GetResetCredits(c.Request.Context(), quota.ResetCreditsRequest{AuthIndex: authIndex})
+		if err != nil {
+			writeQuotaResetCreditsError(c, quotaProviderErrorStatus(err), err)
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	})
 	router.POST("/quota/reset", func(c *gin.Context) {
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)
@@ -232,6 +250,31 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 		c.JSON(http.StatusOK, response)
 	})
 
+}
+
+func quotaProviderErrorStatus(err error) int {
+	switch {
+	case errors.Is(err, quota.ErrValidation), errors.Is(err, quota.ErrUnsupportedType):
+		return http.StatusBadRequest
+	case errors.Is(err, quota.ErrNotFound):
+		return http.StatusNotFound
+	}
+	var httpErr quota.ProviderHTTPError
+	if errors.As(err, &httpErr) && httpErr.StatusCode >= 100 && httpErr.StatusCode <= 599 {
+		if httpErr.StatusCode == http.StatusUnauthorized {
+			return http.StatusBadGateway
+		}
+		return httpErr.StatusCode
+	}
+	return http.StatusInternalServerError
+}
+
+func writeQuotaResetCreditsError(c *gin.Context, statusCode int, err error) {
+	payload := gin.H{"error": quotaResetCreditsErrorFailed}
+	if err != nil {
+		payload["detail"] = err.Error()
+	}
+	c.JSON(statusCode, payload)
 }
 
 func writeQuotaResetError(c *gin.Context, statusCode int, err error) {
