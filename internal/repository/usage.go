@@ -1736,15 +1736,10 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, costRe
 			// current usage 的请求数同样包含成功和失败，token 后续只由成功请求累计。
 			applyUsageOverviewRealtimeRequest(realtimeEvent, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage, identityLookup)
 		}
-		if !event.Failed {
-			// TTFT 缺失或非正数时不补 0，避免 log 分布和 percentile 被无效样本拉低。
-			if event.TTFTMS != nil && *event.TTFTMS > 0 {
-				bucket.ttftSamples = append(bucket.ttftSamples, usageOverviewRealtimeResponseSample{timestamp: timestamp, ms: *event.TTFTMS})
-			}
-			// Latency 只有成功请求的正数才作为耗时样本，避免失败快速返回污染响应统计。
-			if event.LatencyMS > 0 {
-				bucket.latencySamples = append(bucket.latencySamples, usageOverviewRealtimeResponseSample{timestamp: timestamp, ms: event.LatencyMS})
-			}
+		if !event.Failed && event.TTFTMS != nil && *event.TTFTMS > 0 && event.LatencyMS > 0 {
+			// TTFT 和 Latency 共用同一有效请求样本，避免两张响应分布图的统计口径不一致。
+			bucket.ttftSamples = append(bucket.ttftSamples, usageOverviewRealtimeResponseSample{timestamp: timestamp, ms: *event.TTFTMS})
+			bucket.latencySamples = append(bucket.latencySamples, usageOverviewRealtimeResponseSample{timestamp: timestamp, ms: event.LatencyMS})
 		}
 		// 失败或无 token 的请求不参与 token velocity/cache/current token share。
 		if event.Failed || event.TotalTokens <= 0 {

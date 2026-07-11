@@ -1406,15 +1406,13 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 	assertRealtimeParticleCore(t, realtime.ResponseDistribution.TTFT.Particles[1], "2026-06-09T11:55:00Z", 200, 1)
 	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.TTFT.Particles[0], "2026-06-09T11:55:10Z")
 	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.TTFT.Particles[1], "2026-06-09T11:55:15Z")
-	if len(realtime.ResponseDistribution.Latency.Particles) != 3 {
-		t.Fatalf("expected response distribution latency particles to map one usage event to one point, got %+v", realtime.ResponseDistribution.Latency.Particles)
+	if len(realtime.ResponseDistribution.Latency.Particles) != 2 {
+		t.Fatalf("expected response distribution latency particles to include only valid TTFT/latency pairs, got %+v", realtime.ResponseDistribution.Latency.Particles)
 	}
 	assertRealtimeParticleCore(t, realtime.ResponseDistribution.Latency.Particles[0], "2026-06-09T11:55:00Z", 500, 1)
 	assertRealtimeParticleCore(t, realtime.ResponseDistribution.Latency.Particles[1], "2026-06-09T11:55:00Z", 700, 1)
-	assertRealtimeParticleCore(t, realtime.ResponseDistribution.Latency.Particles[2], "2026-06-09T11:59:30Z", 300, 1)
 	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.Latency.Particles[0], "2026-06-09T11:55:10Z")
 	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.Latency.Particles[1], "2026-06-09T11:55:15Z")
-	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.Latency.Particles[2], "2026-06-09T11:59:40Z")
 	if realtime.RequestLevel[21].Requests != 4 || math.Abs(realtime.RequestLevel[21].RequestsPerMinute-(4.0/3.0)) > 0.000000001 {
 		t.Fatalf("expected request level to use the 3m sliding window, got %+v", realtime.RequestLevel[21])
 	}
