@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"cpa-usage-keeper/internal/accessscope"
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
@@ -103,5 +105,48 @@ func TestUsageIdentityServiceRunsDisplayNameChangeCallbackAfterAliasUpdate(t *te
 	}
 	if callbackRows[0].Identity != "auth-1" || callbackRows[0].Alias == nil || *callbackRows[0].Alias != "Friendly Auth" {
 		t.Fatalf("expected callback to receive updated identity, got %+v", callbackRows[0])
+	}
+}
+
+func TestUsageIdentityServiceViewerScopeReturnsOnlyAllowedAuthFilesAndScopedStats(t *testing.T) {
+	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-identity-viewer-scope.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	now := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	allowedName := "allowed.json"
+	deniedName := "denied.json"
+	if err := db.Create(&[]entities.UsageIdentity{
+		{Name: "Allowed", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-allowed", FileName: &allowedName, Type: "codex", CreatedAt: now, UpdatedAt: now},
+		{Name: "Denied", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-denied", FileName: &deniedName, Type: "claude", CreatedAt: now, UpdatedAt: now},
+		{Name: "Provider", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "provider-auth", Type: "claude", CreatedAt: now, UpdatedAt: now},
+	}).Error; err != nil {
+		t.Fatalf("seed usage identities: %v", err)
+	}
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+		{EventKey: "allowed-own", APIGroupKey: "viewer-key", AuthType: "oauth", AuthIndex: "auth-allowed", Timestamp: now.Add(-time.Hour), InputTokens: 3, TotalTokens: 10},
+		{EventKey: "denied-own", APIGroupKey: "viewer-key", AuthType: "oauth", AuthIndex: "auth-denied", Timestamp: now.Add(-time.Hour), TotalTokens: 100},
+		{EventKey: "allowed-other-key", APIGroupKey: "other-key", AuthType: "oauth", AuthIndex: "auth-allowed", Timestamp: now.Add(-time.Hour), TotalTokens: 1000},
+	}); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+	ctx := accessscope.WithViewerScope(context.Background(), accessscope.ViewerScope{APIGroupKey: "viewer-key", AuthIndexes: []string{"auth-allowed"}})
+	provider := NewUsageIdentityService(db)
+	result, err := provider.ListActiveUsageIdentitiesPage(ctx, ListUsageIdentitiesRequest{Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatalf("ListActiveUsageIdentitiesPage returned error: %v", err)
+	}
+	if result.Total != 1 || len(result.Items) != 1 || result.Items[0].Identity != "auth-allowed" {
+		t.Fatalf("expected one allowed auth file, got %+v", result)
+	}
+	if result.Items[0].TotalRequests != 1 || result.Items[0].TotalTokens != 10 || result.Items[0].InputTokens != 3 {
+		t.Fatalf("expected API-key-scoped auth file stats, got %+v", result.Items[0])
+	}
+	if len(result.CredentialHealth) != 0 {
+		t.Fatalf("expected viewer credential health to be omitted because cache is global, got %+v", result.CredentialHealth)
+	}
+	if _, err := provider.UpdateUsageIdentityAlias(ctx, result.Items[0].ID, "not allowed"); !errors.Is(err, ErrViewerScopeReadOnly) {
+		t.Fatalf("expected viewer alias update to be forbidden, got %v", err)
 	}
 }

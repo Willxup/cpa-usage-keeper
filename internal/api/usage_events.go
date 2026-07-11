@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"cpa-usage-keeper/internal/accessscope"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/service"
@@ -200,6 +201,9 @@ func registerUsageEventsRoute(
 			writeUsageEventRequestLogAccessDisabled(c)
 			return
 		}
+		if rejectViewerRequestLogAccess(c) {
+			return
+		}
 		if requestLogProvider == nil {
 			writeInternalError(c, "request log provider is not configured", nil)
 			return
@@ -220,6 +224,9 @@ func registerUsageEventsRoute(
 	router.POST("/usage/events/:id/request-log/download-token", func(c *gin.Context) {
 		if !requestLogAccessEnabled {
 			writeUsageEventRequestLogAccessDisabled(c)
+			return
+		}
+		if rejectViewerRequestLogAccess(c) {
 			return
 		}
 		if requestLogProvider == nil {
@@ -243,7 +250,6 @@ func registerUsageEventsRoute(
 		setNoStoreHeaders(c)
 		c.JSON(http.StatusOK, usageEventRequestLogDownloadTokenPayload{DownloadURL: downloadURL})
 	})
-
 	router.GET("/usage/events/export", func(c *gin.Context) {
 		format := strings.ToLower(strings.TrimSpace(c.Query("format")))
 		if format == "" {
@@ -294,6 +300,15 @@ func registerUsageEventsRoute(
 			writeUsageEventsExportError(c, err)
 		}
 	})
+}
+
+// 请求日志可能包含原始请求体和令牌片段，Viewer 即使能查看事件列表也不应读取该敏感内容。
+func rejectViewerRequestLogAccess(c *gin.Context) bool {
+	if _, ok := accessscope.ViewerScopeFromContext(c.Request.Context()); !ok {
+		return false
+	}
+	c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+	return true
 }
 
 func registerUsageEventRequestLogDownloadTokenRoutes(

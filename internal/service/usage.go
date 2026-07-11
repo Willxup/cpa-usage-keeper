@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"cpa-usage-keeper/internal/accessscope"
 	"cpa-usage-keeper/internal/repository"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 	servicedto "cpa-usage-keeper/internal/service/dto"
@@ -14,6 +15,14 @@ import (
 type usageService struct {
 	db          *gorm.DB
 	recentUsage *repository.UsageRecentEventCache
+}
+
+// resolvedUsageScope 是一次 usage 查询的服务端强制范围。
+// 管理员只会携带可选 APIGroupKey；Viewer 同时强制绑定其登录 API Key 与认证文件 auth_index 白名单。
+type resolvedUsageScope struct {
+	APIGroupKey            string
+	AuthIndexScopeEnforced bool
+	AllowedAuthIndexes     []string
 }
 
 func NewUsageService(db *gorm.DB) UsageProvider {
@@ -48,20 +57,73 @@ func (s *usageService) resolveAPIGroupKey(ctx context.Context, apiKeyID string) 
 	return apiKey.APIKey, nil
 }
 
+func (s *usageService) resolveUsageScope(ctx context.Context, requestedAPIKeyID string) (resolvedUsageScope, error) {
+	ctx = usageServiceContext(ctx)
+	if viewerScope, ok := accessscope.ViewerScopeFromContext(ctx); ok {
+		apiGroupKey := strings.TrimSpace(viewerScope.APIGroupKey)
+		authIndexes := normalizeUsageScopeAuthIndexes(viewerScope.AuthIndexes)
+		if apiGroupKey == "" || len(authIndexes) == 0 {
+			return resolvedUsageScope{}, ErrAPIKeyAuthFileScopeNotConfigured
+		}
+		return resolvedUsageScope{
+			APIGroupKey:            apiGroupKey,
+			AuthIndexScopeEnforced: true,
+			AllowedAuthIndexes:     authIndexes,
+		}, nil
+	}
+	apiGroupKey, err := s.resolveAPIGroupKey(ctx, requestedAPIKeyID)
+	if err != nil {
+		return resolvedUsageScope{}, err
+	}
+	return resolvedUsageScope{APIGroupKey: apiGroupKey}, nil
+}
+
+func normalizeUsageScopeAuthIndexes(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	authIndexes := make([]string, 0, len(values))
+	for _, value := range values {
+		authIndex := strings.TrimSpace(value)
+		if authIndex == "" {
+			continue
+		}
+		if _, exists := seen[authIndex]; exists {
+			continue
+		}
+		seen[authIndex] = struct{}{}
+		authIndexes = append(authIndexes, authIndex)
+	}
+	return authIndexes
+}
+
+func newRepositoryUsageFilter(filter servicedto.UsageFilter, scope resolvedUsageScope) repodto.UsageQueryFilter {
+	return repodto.UsageQueryFilter{
+		Range:                  filter.Range,
+		StartTime:              filter.StartTime,
+		EndTime:                filter.EndTime,
+		QueryNow:               filter.QueryNow,
+		RealtimeWindow:         filter.RealtimeWindow,
+		RealtimeEndTime:        filter.RealtimeEndTime,
+		Limit:                  filter.Limit,
+		Page:                   filter.Page,
+		PageSize:               filter.PageSize,
+		Offset:                 filter.Offset,
+		Model:                  filter.Model,
+		AuthIndex:              filter.AuthIndex,
+		APIGroupKey:            scope.APIGroupKey,
+		Result:                 filter.Result,
+		AuthIndexScopeEnforced: scope.AuthIndexScopeEnforced,
+		AllowedAuthIndexes:     scope.AllowedAuthIndexes,
+	}
+}
+
 // Usage 页面里的 Overview tab 下传时间窗口和全局 API-Key，仓储层负责构建 overview 聚合。
 func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
 	ctx = usageServiceContext(ctx)
-	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
+	scope, err := s.resolveUsageScope(ctx, filter.APIKeyID)
 	if err != nil {
 		return nil, err
 	}
-	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		Range:       filter.Range,
-		StartTime:   filter.StartTime,
-		EndTime:     filter.EndTime,
-		QueryNow:    filter.QueryNow,
-		APIGroupKey: apiGroupKey,
-	}, s.recentUsage)
+	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(s.db.WithContext(ctx), newRepositoryUsageFilter(filter, scope), s.recentUsage)
 	if err != nil {
 		return nil, err
 	}
@@ -112,15 +174,11 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 
 func (s *usageService) GetUsageOverviewRealtime(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewRealtime, error) {
 	ctx = usageServiceContext(ctx)
-	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
+	scope, err := s.resolveUsageScope(ctx, filter.APIKeyID)
 	if err != nil {
 		return nil, err
 	}
-	realtime, err := repository.BuildUsageOverviewRealtimeWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		RealtimeWindow:  filter.RealtimeWindow,
-		RealtimeEndTime: filter.RealtimeEndTime,
-		APIGroupKey:     apiGroupKey,
-	}, s.recentUsage)
+	realtime, err := repository.BuildUsageOverviewRealtimeWithFilterAndRecentCache(s.db.WithContext(ctx), newRepositoryUsageFilter(filter, scope), s.recentUsage)
 	if err != nil {
 		return nil, err
 	}
@@ -273,16 +331,11 @@ func mapRealtimeCacheLevel(points []repodto.RealtimeCacheLevelPointRecord) []ser
 
 func (s *usageService) GetAnalysis(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.AnalysisSnapshot, error) {
 	ctx = usageServiceContext(ctx)
-	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
+	scope, err := s.resolveUsageScope(ctx, filter.APIKeyID)
 	if err != nil {
 		return nil, err
 	}
-	record, err := repository.BuildAnalysisWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		Range:       filter.Range,
-		StartTime:   filter.StartTime,
-		EndTime:     filter.EndTime,
-		APIGroupKey: apiGroupKey,
-	})
+	record, err := repository.BuildAnalysisWithFilter(s.db.WithContext(ctx), newRepositoryUsageFilter(filter, scope))
 	if err != nil {
 		return nil, err
 	}
@@ -422,22 +475,11 @@ func mapAnalysisCompositionRecord(item repodto.AnalysisCompositionRecord) servic
 // Usage 页面里的 Request Event Log tab 下传分页、列表筛选条件和全局 API-Key。
 func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageEventsPage, error) {
 	ctx = usageServiceContext(ctx)
-	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
+	scope, err := s.resolveUsageScope(ctx, filter.APIKeyID)
 	if err != nil {
 		return nil, err
 	}
-	page, err := repository.ListUsageEventsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		StartTime:   filter.StartTime,
-		EndTime:     filter.EndTime,
-		Limit:       filter.Limit,
-		Page:        filter.Page,
-		PageSize:    filter.PageSize,
-		Offset:      filter.Offset,
-		Model:       filter.Model,
-		AuthIndex:   filter.AuthIndex,
-		APIGroupKey: apiGroupKey,
-		Result:      filter.Result,
-	})
+	page, err := repository.ListUsageEventsWithFilter(s.db.WithContext(ctx), newRepositoryUsageFilter(filter, scope))
 	if err != nil {
 		return nil, err
 	}
@@ -479,18 +521,11 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 // StreamUsageEvents 使用 Request Event Log 相同筛选条件逐行导出，不应用分页。
 func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.UsageFilter, emit func(servicedto.UsageEventRecord) error) error {
 	ctx = usageServiceContext(ctx)
-	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
+	scope, err := s.resolveUsageScope(ctx, filter.APIKeyID)
 	if err != nil {
 		return err
 	}
-	return repository.StreamUsageEventsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		StartTime:   filter.StartTime,
-		EndTime:     filter.EndTime,
-		Model:       filter.Model,
-		AuthIndex:   filter.AuthIndex,
-		APIGroupKey: apiGroupKey,
-		Result:      filter.Result,
-	}, func(row repodto.UsageEventRecord) error {
+	return repository.StreamUsageEventsWithFilter(s.db.WithContext(ctx), newRepositoryUsageFilter(filter, scope), func(row repodto.UsageEventRecord) error {
 		return emit(servicedto.UsageEventRecord{
 			ID:                  row.ID,
 			Timestamp:           row.Timestamp,
@@ -526,10 +561,11 @@ func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.
 // Request Event Log 的 model 筛选项只应用调用方传入的时间窗口；独立筛选项接口当前传空 filter。
 func (s *usageService) ListUsageEventFilterOptions(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageEventFilterOptions, error) {
 	ctx = usageServiceContext(ctx)
-	options, err := repository.ListUsageEventFilterOptionsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		StartTime: filter.StartTime,
-		EndTime:   filter.EndTime,
-	})
+	scope, err := s.resolveUsageScope(ctx, filter.APIKeyID)
+	if err != nil {
+		return nil, err
+	}
+	options, err := repository.ListUsageEventFilterOptionsWithFilter(s.db.WithContext(ctx), newRepositoryUsageFilter(filter, scope))
 	if err != nil {
 		return nil, err
 	}

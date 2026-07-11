@@ -267,6 +267,27 @@ describe('UsagePage toolbar styles', () => {
     expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasInput\s*\{[\s\S]*?max-width:\s*100%;/)
   })
 
+  it('places the API key and alias side by side above the full-width auth-file scope field', () => {
+    const listBlock = styleRuleBlock(usagePageStyles, '.apiKeySettingsList')
+    const itemBlock = styleRuleBlock(usagePageStyles, '.apiKeySettingsItem')
+    const topRowBlock = styleRuleBlock(usagePageStyles, '.apiKeySettingsTopRow')
+    const topRowStart = apiKeySettingsSource.indexOf('<div className={styles.apiKeySettingsTopRow}>')
+    const summaryStart = apiKeySettingsSource.indexOf('<div className={styles.apiKeySettingsSummary}>', topRowStart)
+    const copyButtonStart = apiKeySettingsSource.indexOf('styles.apiKeySettingsCopyButton', summaryStart)
+    const aliasStart = apiKeySettingsSource.indexOf("t('usage_stats.api_key_settings_alias')", summaryStart)
+    const scopeStart = apiKeySettingsSource.indexOf('styles.apiKeySettingsScopeForm', aliasStart)
+
+    expect(listBlock).toContain('grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr));')
+    expect(itemBlock).toContain('grid-template-columns: minmax(0, 1fr);')
+    expect(topRowBlock).toContain('display: grid;')
+    expect(topRowBlock).toContain('grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);')
+    expect(topRowStart).toBeGreaterThanOrEqual(0)
+    expect(summaryStart).toBeGreaterThan(topRowStart)
+    expect(copyButtonStart).toBeGreaterThan(summaryStart)
+    expect(aliasStart).toBeGreaterThan(copyButtonStart)
+    expect(scopeStart).toBeGreaterThan(aliasStart)
+  })
+
   it('lets Session Management content shrink until it needs to scroll', () => {
     const sessionSettingsBodyBlock = usagePageStyles.slice(
       usagePageStyles.indexOf('.sessionSettingsBody {'),
@@ -519,9 +540,14 @@ describe('UsagePage toolbar styles', () => {
   })
 
   it('keeps custom date inputs selectable through the native picker without pointer interception', () => {
+    const customRangeControls = usagePageSource.slice(
+      usagePageSource.indexOf('<div className={styles.customRangeFieldGroup}'),
+      usagePageSource.indexOf('<div className={styles.usageRefreshSlot}>'),
+    )
+
     expect(usagePageStyles).toMatch(/\.customRangeInput\s*\{[\s\S]*?user-select:\s*none;/)
     expect(usagePageStyles).toMatch(/\.customRangeInput\s*\{[\s\S]*?-webkit-user-select:\s*none;/)
-    expect(usagePageSource).not.toContain('readOnly')
+    expect(customRangeControls).not.toContain('readOnly')
     expect(usagePageSource).not.toContain('onPointerDown={handleCustomDateInputPointerDown}')
     expect(usagePageSource).toContain('className={styles.customRangeInputShell}')
     expect(usagePageSource).toContain('className={styles.customRangeInputDisplay}')

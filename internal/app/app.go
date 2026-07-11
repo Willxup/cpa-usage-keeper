@@ -183,6 +183,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		OnDisplayNameChanged: quotaService.UpdateUsageIdentityDisplayNameSnapshot,
 	})
 	cpaAPIKeyService := service.NewCPAAPIKeyService(db)
+	apiKeyAuthFileScopeService := service.NewAPIKeyAuthFileScopeService(db)
 	authFilesManagementService := service.NewAuthFilesManagementService(cpaClient)
 	if cfg.TLSSkipVerify {
 		logrus.WithField("cpa_base_url", cfg.CPABaseURL).Warn("TLS certificate verification is disabled for CPA and Redis queue connections")
@@ -224,11 +225,12 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 			authHandler,
 			cfg.AppBasePath,
 			api.OptionalProviders{
-				UsageIdentity: usageIdentityService,
-				Quota:         quotaService,
-				CPAAPIKeys:    cpaAPIKeyService,
-				AuthFiles:     authFilesManagementService,
-				RequestLogs:   requestLogService,
+				UsageIdentity:        usageIdentityService,
+				Quota:                quotaService,
+				CPAAPIKeys:           cpaAPIKeyService,
+				APIKeyAuthFileScopes: apiKeyAuthFileScopeService,
+				AuthFiles:            authFilesManagementService,
+				RequestLogs:          requestLogService,
 				Status: api.StatusRouteConfig{
 					CPAPublicURL:               cfg.CPAPublicURL,
 					CPARequestLogAccessEnabled: cfg.CPARequestLogAccessEnabled,

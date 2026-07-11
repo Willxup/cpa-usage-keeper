@@ -2,7 +2,7 @@ import React from 'react';
 import '@/i18n';
 import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ApiKeySettingsCard, copyApiKeyToClipboard, getApiKeySettingsVisibleKey } from './ApiKeySettingsCard';
+import { ApiKeySettingsCard, copyApiKeyToClipboard, getActiveAuthFileScopeNames, getApiKeySettingsVisibleKey, normalizeApiKeyAuthFileScopeNames } from './ApiKeySettingsCard';
 import type { CpaApiKeySettingsItem } from '@/lib/types';
 
 const apiKeys: CpaApiKeySettingsItem[] = [
@@ -47,6 +47,37 @@ describe('ApiKeySettingsCard', () => {
   it('uses the title eye toggle state to choose masked or raw keys', () => {
     expect(getApiKeySettingsVisibleKey(apiKeys[0], false)).toBe('sk-*********123456');
     expect(getApiKeySettingsVisibleKey(apiKeys[0], true)).toBe('sk-alpha123456');
+  });
+
+  it('normalizes selected auth file scope names without splitting names that contain spaces', () => {
+    expect(normalizeApiKeyAuthFileScopeNames([' codex user.json ', 'claude.json', 'codex user.json', ''])).toEqual([
+      'codex user.json',
+      'claude.json',
+    ]);
+  });
+
+  it('lists only current Auth File names as scope options', () => {
+    expect(getActiveAuthFileScopeNames([
+      { auth_type: 1, file_name: ' codex user.json ', is_deleted: false },
+      { auth_type: 2, file_name: 'provider-secret.json', is_deleted: false },
+      { auth_type: 1, file_name: 'deleted-user.json', is_deleted: true },
+      { auth_type: 1, file_name: 'claude.json', is_deleted: false },
+      { auth_type: 1, file_name: 'codex user.json', is_deleted: false },
+      { auth_type: 1, is_deleted: false },
+    ])).toEqual(['codex user.json', 'claude.json']);
+  });
+
+  it('renders a multi-select dropdown for visible auth files', () => {
+    const html = renderCard({
+      authFileScopes: { '9007199254740993': ['codex user.json'] },
+      authFileScopeOptions: ['codex user.json', 'claude.json'],
+      onSaveAuthFileScopes: () => undefined,
+    });
+
+    expect(html).toContain('Visible auth files');
+    expect(html).toContain('1 selected');
+    expect(html).toContain('aria-haspopup="menu"');
+    expect(html).not.toContain('for example: codex-user.json, claude-user.json');
   });
 
   it('copies the raw key value', async () => {

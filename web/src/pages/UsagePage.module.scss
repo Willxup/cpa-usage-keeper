@@ -1976,9 +1976,9 @@
 
 .apiKeySettingsItem {
   display: grid;
-  grid-template-columns: minmax(140px, 0.9fr) minmax(200px, 1.1fr);
-  align-items: start;
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 16px;
   padding: 14px;
   border: 1px solid color-mix(in srgb, var(--border-color) 86%, transparent);
   border-radius: 20px;
@@ -1994,10 +1994,20 @@
   min-width: 0;
 }
 
+.apiKeySettingsKeyRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding-left: 10px;
+  flex-wrap: wrap;
+}
+
 .apiKeySettingsName {
   display: -webkit-box;
+  flex: 0 1 auto;
   min-width: 0;
-  min-height: 40px;
+  min-height: 0;
   overflow: hidden;
   color: var(--text-primary);
   font-size: 13px;
@@ -2021,9 +2031,21 @@
 .apiKeySettingsForm {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
+  align-items: start;
   gap: 10px;
   min-width: 0;
+}
+
+.apiKeySettingsTopRow {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  align-items: start;
+  gap: 16px;
+  min-width: 0;
+}
+
+.apiKeySettingsScopeForm {
+  width: 100%;
 }
 
 .apiKeyAliasField {
@@ -2046,13 +2068,167 @@
   width: 100%;
 }
 
+.apiKeyAuthFileScopeHint {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.apiKeyAuthFileScopePicker {
+  position: relative;
+  width: 100%;
+}
+
+.apiKeyAuthFileScopeTrigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+
+  &:hover:not(:disabled) {
+    border-color: var(--border-hover);
+  }
+
+  &:focus,
+  &:focus-visible,
+  &[aria-expanded='true'] {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba($primary-color, 0.14);
+    outline: none;
+  }
+
+  &:disabled {
+    color: var(--text-tertiary);
+    cursor: not-allowed;
+    opacity: 0.72;
+  }
+}
+
+.apiKeyAuthFileScopeTriggerText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apiKeyAuthFileScopeTriggerPlaceholder {
+  color: var(--text-tertiary);
+}
+
+.apiKeyAuthFileScopeTriggerIcon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  transition: transform 0.2s ease;
+
+  [aria-expanded='true'] > & {
+    transform: rotate(180deg);
+  }
+}
+
+.apiKeyAuthFileScopeDropdown {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  border: 1px solid var(--border-color);
+  border-radius: $radius-lg;
+  background: var(--bg-primary);
+  box-shadow: var(--shadow-lg);
+  scrollbar-gutter: stable;
+}
+
+.apiKeyAuthFileScopeOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: $radius-md;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+
+  &:hover,
+  &:focus-visible {
+    border-color: rgba($primary-color, 0.28);
+    background: var(--bg-secondary);
+    outline: none;
+  }
+}
+
+.apiKeyAuthFileScopeOptionSelected {
+  border-color: rgba($primary-color, 0.5);
+  background: rgba($primary-color, 0.1);
+  font-weight: 600;
+}
+
+.apiKeyAuthFileScopeOptionLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apiKeyAuthFileScopeOptionUnavailable {
+  flex: 0 0 auto;
+  color: var(--danger-color);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.apiKeyAuthFileScopeCheck,
+.apiKeyAuthFileScopeCheckPlaceholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.apiKeyAuthFileScopeCheck {
+  border-radius: 999px;
+  background: rgba($success-color, 0.12);
+  color: var(--success-color);
+}
+
+.apiKeyAuthFileScopeEmpty {
+  padding: 10px 12px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .apiKeySettingsActions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  align-self: stretch;
+  align-self: start;
   gap: 8px;
   min-width: 0;
+  padding-top: 15px;
 }
 
 .apiKeySettingsCopyButton,
@@ -2205,7 +2381,8 @@
 }
 
 @include tablet {
-  .apiKeySettingsItem {
+  .apiKeySettingsItem,
+  .apiKeySettingsTopRow {
     grid-template-columns: minmax(0, 1fr);
     align-items: stretch;
   }
@@ -2249,17 +2426,25 @@
     gap: 12px;
   }
 
+  .apiKeySettingsTopRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .apiKeySettingsForm {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .apiKeySettingsActions {
     justify-content: stretch;
+    padding-top: 0;
   }
 
-  .apiKeySettingsCopyButton,
   .apiKeySettingsSaveButton {
     flex: 1 1 0;
+  }
+
+  .apiKeySettingsCopyButton {
+    flex: 0 0 auto;
   }
 
   .apiKeyAliasField {

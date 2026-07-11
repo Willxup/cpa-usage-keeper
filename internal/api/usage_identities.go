@@ -171,6 +171,10 @@ func registerUsageIdentityRoutes(router gin.IRoutes, usageIdentityProvider servi
 		}
 		row, err := usageIdentityProvider.UpdateUsageIdentityAlias(c.Request.Context(), id, alias)
 		if err != nil {
+			if errors.Is(err, service.ErrViewerScopeReadOnly) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+				return
+			}
 			if errors.Is(err, service.ErrInvalidID) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid usage identity id"})
 				return

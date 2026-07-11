@@ -323,13 +323,86 @@ func applyUsageQueryWindow(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB
 	return query
 }
 
+// applyUsageAuthIndexScope 为 API Key Viewer 强制追加认证文件对应的 auth_index 白名单。
+// 该条件不能依赖浏览器参数；空白名单在强制模式下必须 fail closed。
+func applyUsageAuthIndexScope(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
+	if !filter.AuthIndexScopeEnforced {
+		return query
+	}
+	authIndexes := normalizeUniqueUsageAuthIndexes(filter.AllowedAuthIndexes)
+	if len(authIndexes) == 0 {
+		return query.Where("1 = 0")
+	}
+	return query.Where("auth_index IN ?", authIndexes)
+}
+
+// applyUsageViewerAuthFileScope 把 Viewer 的认证文件范围落到原始 usage_events 查询。
+// auth_index 在 CPA 的 OAuth/Auth Provider 维度间并非全局唯一，因此必须同时限定 oauth 类型。
+func applyUsageViewerAuthFileScope(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
+	query = applyUsageAuthIndexScope(query, filter)
+	if !filter.AuthIndexScopeEnforced {
+		return query
+	}
+	return query.Where("auth_type = ?", "oauth")
+}
+
+func normalizeUniqueUsageAuthIndexes(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		authIndex := strings.TrimSpace(value)
+		if authIndex == "" {
+			continue
+		}
+		if _, exists := seen[authIndex]; exists {
+			continue
+		}
+		seen[authIndex] = struct{}{}
+		result = append(result, authIndex)
+	}
+	return result
+}
+
+func usageEventAllowedByAuthIndexScope(authIndex string, filter dto.UsageQueryFilter) bool {
+	if !filter.AuthIndexScopeEnforced {
+		return true
+	}
+	trimmed := strings.TrimSpace(authIndex)
+	for _, allowed := range filter.AllowedAuthIndexes {
+		if trimmed != "" && trimmed == strings.TrimSpace(allowed) {
+			return true
+		}
+	}
+	return false
+}
+
+// usageEventAllowedByViewerAuthFileScope 为内存中的原始事件复用 Viewer 的 auth_index 与 OAuth 双重限制。
+func usageEventAllowedByViewerAuthFileScope(event entities.UsageEvent, filter dto.UsageQueryFilter) bool {
+	if !usageEventAllowedByAuthIndexScope(event.AuthIndex, filter) {
+		return false
+	}
+	if !filter.AuthIndexScopeEnforced {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(event.AuthType), "oauth")
+}
+
+// recentUsageEventAllowedByViewerAuthFileScope 为最近事件缓存应用同一份 Viewer 范围。
+// RecentUsageEvent 不保存原始 auth_type，但其 fallback kind 在入缓存时已由 auth_type 解析。
+func recentUsageEventAllowedByViewerAuthFileScope(event RecentUsageEvent, filter dto.UsageQueryFilter) bool {
+	if !usageEventAllowedByAuthIndexScope(event.AuthIndex, filter) {
+		return false
+	}
+	return !filter.AuthIndexScopeEnforced || event.IdentityFallbackKind == RecentUsageIdentityAuthFile
+}
+
 // Overview Tab 第一步：应用时间窗口和全局 API-Key 条件，后续 Overview 专属条件也从这里加。
 func applyUsageOverviewQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
 	query = applyUsageQueryWindow(query, filter)
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
 	}
-	return query
+	return applyUsageViewerAuthFileScope(query, filter)
 }
 
 // Analysis Tab 第一步：应用时间窗口和全局 API-Key 条件，避免 Request Event Log 的筛选污染聚合。
@@ -338,12 +411,16 @@ func applyUsageAnalysisTabQuery(query *gorm.DB, filter dto.UsageQueryFilter) *go
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
 	}
-	return query
+	return applyUsageViewerAuthFileScope(query, filter)
 }
 
 // Request Event Log 筛选项第一步：只应用时间窗口，不叠加当前列表筛选。
 func applyUsageEventFilterOptionsQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
-	return applyUsageQueryWindow(query, filter)
+	query = applyUsageQueryWindow(query, filter)
+	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
+		query = query.Where("api_group_key = ?", apiGroupKey)
+	}
+	return applyUsageViewerAuthFileScope(query, filter)
 }
 
 // Request Event Log 列表第一步：在时间窗口上叠加 model/auth_index/result。
@@ -352,6 +429,7 @@ func applyUsageEventListQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
 	}
+	query = applyUsageViewerAuthFileScope(query, filter)
 	if model := strings.TrimSpace(filter.Model); model != "" {
 		query = query.Where("model = ?", model)
 	}
@@ -399,6 +477,11 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 		return nil, err
 	}
 	record.LatencyDiagnostics = latencyDiagnostics
+	if filter.AuthIndexScopeEnforced {
+		// 小时/天聚合表没有 auth_type 维度，不能用于 Auth File Viewer，
+		// 否则同 auth_index 的 Provider API Key 流量可能被合并进来。
+		return buildViewerScopedAnalysisFromRawEvents(db, filter, record, costResolver, bucketByDay)
+	}
 
 	fullStart, fullEnd := usageOverviewFullHourWindow(*filter.StartTime, *filter.EndTime)
 	fullEnd = analysisHourlyStatsEnd(filter, fullEnd)
@@ -439,6 +522,52 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 		return nil, err
 	}
 	applyAnalysisHourlyRows(record, rows, identityLookup, costResolver)
+	fillAnalysisFullDayHourlyBuckets(record, filter)
+	return record, nil
+}
+
+// buildViewerScopedAnalysisFromRawEvents 为 Auth File Viewer 从原始 OAuth 事件构建分析结果。
+// 该路径刻意不复用 overview hourly/daily stats，因为旧 stats 不含 auth_type 维度。
+func buildViewerScopedAnalysisFromRawEvents(db *gorm.DB, filter dto.UsageQueryFilter, record *dto.AnalysisRecord, costResolver *UsageCostResolver, bucketByDay bool) (*dto.AnalysisRecord, error) {
+	if record == nil || filter.StartTime == nil || filter.EndTime == nil {
+		return record, nil
+	}
+	events, err := loadUsageOverviewEventRangeWithFilter(db, filter, *filter.StartTime, *filter.EndTime, true)
+	if err != nil {
+		return nil, err
+	}
+	authIndexes := collectAnalysisAuthIndexes(len(events), func(index int) string {
+		return events[index].AuthIndex
+	})
+	identityLookup, err := loadAnalysisIdentityLookup(db, authIndexes)
+	if err != nil {
+		return nil, err
+	}
+
+	bucketTotals := map[time.Time]*dto.AnalysisTokenUsageBucketRecord{}
+	apiTotals := map[string]*dto.AnalysisCompositionRecord{}
+	modelTotals := map[string]*dto.AnalysisCompositionRecord{}
+	authFileTotals := map[string]*dto.AnalysisCompositionRecord{}
+	aiProviderTotals := map[string]*dto.AnalysisCompositionRecord{}
+	heatmapTotals := map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord{}
+	for _, event := range events {
+		timestamp := timeutil.NormalizeStorageTime(event.Timestamp)
+		bucket := timestamp.Truncate(time.Hour)
+		if bucketByDay {
+			bucket = time.Date(timestamp.Year(), timestamp.Month(), timestamp.Day(), 0, 0, 0, 0, timestamp.Location())
+		}
+		modelAlias := ""
+		if event.ModelAlias != nil {
+			modelAlias = strings.TrimSpace(*event.ModelAlias)
+		}
+		cost, costAvailable := analysisRowCost(event.Model, modelAlias, event.InputTokens, event.OutputTokens, event.CachedTokens, event.CacheReadTokens, event.CacheCreationTokens, costResolver)
+		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, event.APIGroupKey, event.Model, 1, event.InputTokens, event.OutputTokens, event.CachedTokens, event.ReasoningTokens, event.TotalTokens, cost, costAvailable)
+		// Viewer 仅有 Auth File 授权；即使相同 auth_index 同时存在 AI Provider 身份也不可归并展示。
+		if identity, ok := identityLookup.find(entities.UsageIdentityAuthTypeAuthFile, strings.TrimSpace(event.AuthIndex)); ok {
+			applyAnalysisIdentityCompositionTotal(authFileTotals, identity, 1, event.InputTokens, event.OutputTokens, event.CachedTokens, event.ReasoningTokens, event.TotalTokens, cost.TotalCostUSD, costAvailable)
+		}
+	}
+	finalizeAnalysisRecord(record, bucketTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 	fillAnalysisFullDayHourlyBuckets(record, filter)
 	return record, nil
 }
@@ -913,6 +1042,10 @@ func BuildUsageOverviewWithFilterAndRecentCache(db *gorm.DB, filter dto.UsageQue
 	if err != nil {
 		return nil, err
 	}
+	if filter.AuthIndexScopeEnforced {
+		// Auth File Viewer 不能读取缺少 auth_type 维度的预聚合 stats，改用已受 OAuth 范围约束的原始事件。
+		return buildUsageOverviewFromViewerScopedRawEvents(db, filter, costResolver, recentCache)
+	}
 
 	overview, err := buildUsageOverviewFromStats(db, filter, costResolver, recentCache)
 	if err != nil {
@@ -948,6 +1081,40 @@ func newUsageOverviewRecord(filter dto.UsageQueryFilter, windowMinutes int64) *d
 		Series: newUsageOverviewSeriesRecord(),
 		Health: buildUsageOverviewHealth(filter),
 	}
+}
+
+// buildUsageOverviewFromViewerScopedRawEvents 为 Auth File Viewer 构建严格隔离的 Overview。
+// 该路径只会处理 auth_type=oauth 的白名单事件，避免同 auth_index 的 Provider API Key 统计串入。
+func buildUsageOverviewFromViewerScopedRawEvents(db *gorm.DB, filter dto.UsageQueryFilter, costResolver *UsageCostResolver, recentCache *UsageRecentEventCache) (*dto.UsageOverviewRecord, error) {
+	queryNow := usageOverviewQueryNow(filter)
+	effectiveFilter := usageOverviewEffectiveFilter(filter, queryNow)
+	if effectiveFilter.StartTime == nil || effectiveFilter.EndTime == nil {
+		return nil, fmt.Errorf("usage overview requires start_time and end_time")
+	}
+	windowMinutes := computeWindowMinutes(effectiveFilter)
+	bucketByDay := shouldBucketUsageOverviewByDay(effectiveFilter, windowMinutes)
+	overview := newUsageOverviewRecord(effectiveFilter, windowMinutes)
+
+	// 范围完全落在最近缓存窗口时可以直接读缓存；其余范围回退 DB 全量受限扫描。
+	// 长范围不再读取预聚合表，以安全性优先于该只读 Viewer 的查询优化。
+	events, err := loadUsageOverviewRawEventWindowsWithFilter(db, effectiveFilter, []usageOverviewRawEventWindow{{
+		start:        *effectiveFilter.StartTime,
+		end:          *effectiveFilter.EndTime,
+		includeEnd:   true,
+		currentRight: usageOverviewCurrentRightBoundary(filter, queryNow),
+	}}, recentCache)
+	if err != nil {
+		return nil, err
+	}
+	for _, event := range events {
+		if !usageEventAllowedByViewerAuthFileScope(event, effectiveFilter) {
+			continue
+		}
+		applyUsageEventToOverviewSnapshot(overview.Usage, event)
+		applyUsageEventToOverview(overview, event, bucketByDay, costResolver)
+	}
+	finalizeUsageOverview(overview)
+	return overview, nil
 }
 
 // buildUsageOverviewFromStats 用预聚合表覆盖完整 bucket，用原始事件补偿窗口边界。
@@ -1284,6 +1451,10 @@ func analysisDailyBoundaryHourlyWindows(fullStart, fullDayStart, fullDayEnd, ful
 }
 
 func loadUsageOverviewHourlyStats(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, activeCPAAPIKeysOnly bool) ([]entities.UsageOverviewHourlyStat, error) {
+	// 聚合表缺少 auth_type，Viewer 若误走此路径宁可返回空，也不能按 auth_index 混入 Provider API Key 数据。
+	if filter.AuthIndexScopeEnforced {
+		return []entities.UsageOverviewHourlyStat{}, nil
+	}
 	var rows []entities.UsageOverviewHourlyStat
 	query := db.Model(&entities.UsageOverviewHourlyStat{}).
 		Where("bucket_start >= ? AND bucket_start < ?", timeutil.FormatStorageTime(start), timeutil.FormatStorageTime(end)).
@@ -1294,6 +1465,7 @@ func loadUsageOverviewHourlyStats(db *gorm.DB, filter dto.UsageQueryFilter, star
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
 	}
+	query = applyUsageAuthIndexScope(query, filter)
 	if err := query.Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load usage overview hourly stats: %w", err)
 	}
@@ -1310,6 +1482,10 @@ func loadAnalysisOverviewDailyStatsWithFilter(db *gorm.DB, filter dto.UsageQuery
 }
 
 func loadUsageOverviewDailyStats(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, activeCPAAPIKeysOnly bool) ([]entities.UsageOverviewDailyStat, error) {
+	// 参见 hourly stats：认证文件 Viewer 必须从原始 OAuth 事件重建。
+	if filter.AuthIndexScopeEnforced {
+		return []entities.UsageOverviewDailyStat{}, nil
+	}
 	var rows []entities.UsageOverviewDailyStat
 	query := db.Model(&entities.UsageOverviewDailyStat{}).
 		Where("bucket_start >= ? AND bucket_start < ?", timeutil.FormatStorageTime(start), timeutil.FormatStorageTime(end)).
@@ -1320,6 +1496,7 @@ func loadUsageOverviewDailyStats(db *gorm.DB, filter dto.UsageQueryFilter, start
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
 	}
+	query = applyUsageAuthIndexScope(query, filter)
 	if err := query.Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load usage overview daily stats: %w", err)
 	}
@@ -1346,6 +1523,9 @@ func loadUsageOverviewRawEventWindowsWithFilter(db *gorm.DB, filter dto.UsageQue
 			// ok=false 只表示缓存对象不可用；缓存为空也会 ok=true 并返回空切片。
 			if ok {
 				for _, cachedEvent := range cachedEvents {
+					if !recentUsageEventAllowedByViewerAuthFileScope(cachedEvent, filter) {
+						continue
+					}
 					// 下游聚合函数使用 entities.UsageEvent，这里把缓存投影转回最小实体。
 					events = append(events, recentUsageEventToEntity(cachedEvent))
 				}
@@ -1398,6 +1578,7 @@ func loadUsageOverviewEventRangeWithFilter(db *gorm.DB, filter dto.UsageQueryFil
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
 	}
+	query = applyUsageViewerAuthFileScope(query, filter)
 	var rows []usageEventProjection
 	if err := query.Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load usage overview boundary event range: %w", err)
@@ -1411,6 +1592,10 @@ func loadUsageOverviewEventRangeWithFilter(db *gorm.DB, filter dto.UsageQueryFil
 
 // loadUsageOverviewHealthTotalsWithFilter 用完整小时 stats 和边界事件还原旧 Overview health 总计语义。
 func loadUsageOverviewHealthTotalsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, boundaryEvents []entities.UsageEvent, fullStart, fullEnd time.Time) (int64, int64, error) {
+	// health stats 同样没有 auth_type；正常 Viewer 路径不会调用这里，防御性地拒绝读取聚合值。
+	if filter.AuthIndexScopeEnforced {
+		return 0, 0, fmt.Errorf("viewer auth file scope requires raw usage events")
+	}
 	// 总计口径覆盖完整查询窗口：边界事件来自 usage_events，完整小时来自 hourly stats。
 	var successCount int64
 	var failureCount int64
@@ -1434,6 +1619,7 @@ func loadUsageOverviewHealthTotalsWithFilter(db *gorm.DB, filter dto.UsageQueryF
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		totalsQuery = totalsQuery.Where("api_group_key = ?", apiGroupKey)
 	}
+	totalsQuery = applyUsageAuthIndexScope(totalsQuery, filter)
 	var totals struct {
 		SuccessCount int64
 		FailureCount int64
@@ -1539,6 +1725,18 @@ func applyUsageOverviewHealthStatsToOverview(db *gorm.DB, overview *dto.UsageOve
 	// health grid 有自己的展示窗口，但统计不能越过用户查询窗口。
 	exactStart, exactEnd := usageOverviewHealthExactWindow(overview.Health, filter)
 	if !exactStart.Before(exactEnd) {
+		return nil
+	}
+	if filter.AuthIndexScopeEnforced {
+		// health stats 仅按 API Key 聚合，缺少 auth_index 维度。Viewer 必须从已加白名单的原始事件重建，
+		// 否则同一 API Key 其他认证文件的成功/失败数会被带出。
+		events, err := loadUsageOverviewEventRangeWithFilter(db, filter, exactStart, exactEnd, false)
+		if err != nil {
+			return err
+		}
+		for _, event := range events {
+			updateUsageOverviewHealthBlock(overview.Health.BlockDetails, event)
+		}
 		return nil
 	}
 
@@ -1845,6 +2043,9 @@ func loadUsageOverviewRealtimeEventsFromRecentCache(recentCache *UsageRecentEven
 	// 保留 fallback kind/label，后续 identity lookup 找不到时仍能展示 source/provider。
 	events := make([]usageOverviewRealtimeEvent, 0, len(cachedEvents))
 	for _, cachedEvent := range cachedEvents {
+		if !recentUsageEventAllowedByViewerAuthFileScope(cachedEvent, filter) {
+			continue
+		}
 		events = append(events, usageOverviewRealtimeEvent{
 			event:                 recentUsageEventToEntity(cachedEvent),
 			identityFallbackKind:  cachedEvent.IdentityFallbackKind,
@@ -2003,11 +2204,24 @@ func usageOverviewRealtimeIdentityTargets(realtimeEvent usageOverviewRealtimeEve
 	// 优先用 auth_index 查 usage_identities，保证展示名和凭证页面一致。
 	authIndex := strings.TrimSpace(event.AuthIndex)
 	if authIndex != "" {
-		if info, ok := identityLookup[entities.UsageIdentityAuthTypeAuthFile][authIndex]; ok {
-			return &info, nil
-		}
-		if info, ok := identityLookup[entities.UsageIdentityAuthTypeAIProvider][authIndex]; ok {
-			return nil, &info
+		switch realtimeEvent.identityFallbackKind {
+		case RecentUsageIdentityAuthFile:
+			// OAuth 与 Provider API Key 可以复用 auth_index，认证文件事件只能命中 Auth File 身份。
+			if info, ok := identityLookup[entities.UsageIdentityAuthTypeAuthFile][authIndex]; ok {
+				return &info, nil
+			}
+		case RecentUsageIdentityAIProvider:
+			if info, ok := identityLookup[entities.UsageIdentityAuthTypeAIProvider][authIndex]; ok {
+				return nil, &info
+			}
+		default:
+			// 兼容没有 auth_type 的历史事件，保留原有 Auth File 优先的展示策略。
+			if info, ok := identityLookup[entities.UsageIdentityAuthTypeAuthFile][authIndex]; ok {
+				return &info, nil
+			}
+			if info, ok := identityLookup[entities.UsageIdentityAuthTypeAIProvider][authIndex]; ok {
+				return nil, &info
+			}
 		}
 	}
 	// 身份表找不到时，使用缓存里预先保存的 source/provider fallback。

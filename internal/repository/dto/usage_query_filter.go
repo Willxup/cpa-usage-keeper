@@ -19,6 +19,10 @@ type UsageQueryFilter struct {
 	AuthIndex       string
 	APIGroupKey     string
 	Result          string
+	// AuthIndexScopeEnforced 只由服务端的 API Key Viewer 认证文件访问范围写入。
+	// Viewer 只允许读取 OAuth Auth File 事件；为 true 时即使 AllowedAuthIndexes 为空也必须拒绝全部数据，避免默认放行。
+	AuthIndexScopeEnforced bool
+	AllowedAuthIndexes     []string
 }
 
 const DefaultUsageEventsLimit = 100

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"cpa-usage-keeper/internal/accessscope"
 	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository/dto"
@@ -24,6 +25,20 @@ type usageFilterStub struct {
 	lastRealtime  servicedto.UsageFilter
 	overviewCalls int
 	realtimeCalls int
+}
+
+type viewerScopeProviderStub struct{}
+
+func (viewerScopeProviderStub) ListAPIKeyAuthFileScopes(context.Context, int64) ([]string, error) {
+	return []string{"viewer.json"}, nil
+}
+
+func (viewerScopeProviderStub) ReplaceAPIKeyAuthFileScopes(context.Context, int64, []string) ([]string, error) {
+	return []string{"viewer.json"}, nil
+}
+
+func (viewerScopeProviderStub) ResolveAPIKeyViewerScope(_ context.Context, id int64) (accessscope.ViewerScope, error) {
+	return accessscope.ViewerScope{CPAAPIKeyID: id, APIGroupKey: "viewer-api-key", AuthFileNames: []string{"viewer.json"}, AuthIndexes: []string{"auth-1"}}, nil
 }
 
 func (s *usageFilterStub) GetUsageOverview(_ context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
@@ -72,7 +87,7 @@ func TestKeyOverviewForcesViewerAPIKeyIDAndReturnsOverview(t *testing.T) {
 	provider := &usageFilterStub{overview: &servicedto.UsageOverviewSnapshot{Usage: &dto.StatisticsSnapshot{TotalRequests: 3}}}
 	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, DisplayKey: "sk-*********live"}}
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
+	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider, APIKeyAuthFileScopes: viewerScopeProviderStub{}})
 
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/key-overview?range=24h&api_key_id=999", nil)
@@ -87,6 +102,25 @@ func TestKeyOverviewForcesViewerAPIKeyIDAndReturnsOverview(t *testing.T) {
 	}
 	if !contains(resp.Body.String(), `"total_requests":3`) {
 		t.Fatalf("unexpected response body: %s", resp.Body.String())
+	}
+}
+
+func TestKeyOverviewRejectsViewerWithoutAuthFileScope(t *testing.T) {
+	sessions := auth.NewSessionManager(time.Hour)
+	token, _, err := sessions.CreateAPIKeyViewer(42)
+	if err != nil {
+		t.Fatalf("CreateAPIKeyViewer returned error: %v", err)
+	}
+	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
+	router := NewRouter(nil, nil, &usageFilterStub{}, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{
+		CPAAPIKeys: &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, APIKey: "viewer-key"}},
+	})
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/key-overview?range=24h", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected missing auth-file scope to fail closed, got %d %s", resp.Code, resp.Body.String())
 	}
 }
 
@@ -110,7 +144,7 @@ func TestKeyOverviewRealtimeForcesViewerAPIKeyIDAndAllowsParallelOverviewRequest
 	}
 	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, DisplayKey: "sk-*********live"}}
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
+	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider, APIKeyAuthFileScopes: viewerScopeProviderStub{}})
 
 	overviewResp := httptest.NewRecorder()
 	overviewReq := httptest.NewRequest(http.MethodGet, "/api/v1/key-overview?range=24h", nil)
@@ -160,7 +194,7 @@ func TestKeyOverviewRejectsCustomAndUnsupportedRanges(t *testing.T) {
 	provider := &usageFilterStub{overview: &servicedto.UsageOverviewSnapshot{}}
 	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, DisplayKey: "sk-*********live"}}
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
+	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider, APIKeyAuthFileScopes: viewerScopeProviderStub{}})
 
 	for _, path := range []string{"/api/v1/key-overview?range=custom&start=2026-04-20&end=2026-04-21", "/api/v1/key-overview?range=90d", "/api/v1/key-overview?start=2026-04-20"} {
 		resp := httptest.NewRecorder()
@@ -185,7 +219,7 @@ func TestKeyOverviewRateLimitsPerViewerSession(t *testing.T) {
 	provider := &usageFilterStub{overview: &servicedto.UsageOverviewSnapshot{}}
 	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, DisplayKey: "sk-*********live"}}
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
+	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider, APIKeyAuthFileScopes: viewerScopeProviderStub{}})
 
 	for i, expected := range []int{http.StatusOK, http.StatusTooManyRequests} {
 		resp := httptest.NewRecorder()
@@ -208,7 +242,7 @@ func TestKeyOverviewClearsInactiveViewerSession(t *testing.T) {
 	keyProvider := &authCPAAPIKeyStub{findErr: context.Canceled}
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour, BasePath: "/cpa"}
 	handler := NewAuthHandler(config, sessions)
-	router := NewRouter(nil, nil, provider, nil, config, handler, "/cpa", OptionalProviders{CPAAPIKeys: keyProvider})
+	router := NewRouter(nil, nil, provider, nil, config, handler, "/cpa", OptionalProviders{CPAAPIKeys: keyProvider, APIKeyAuthFileScopes: viewerScopeProviderStub{}})
 
 	if !handler.allowKeyOverviewRequest(token) {
 		t.Fatal("expected initial key overview request to be allowed")

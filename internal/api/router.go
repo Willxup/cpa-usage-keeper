@@ -45,12 +45,13 @@ type StatusRouteConfig struct {
 }
 
 type OptionalProviders struct {
-	UsageIdentity service.UsageIdentityProvider
-	Quota         QuotaProvider
-	CPAAPIKeys    service.CPAAPIKeyProvider
-	AuthFiles     service.AuthFilesManagementProvider
-	RequestLogs   service.RequestLogProvider
-	Status        StatusRouteConfig
+	UsageIdentity        service.UsageIdentityProvider
+	Quota                QuotaProvider
+	CPAAPIKeys           service.CPAAPIKeyProvider
+	APIKeyAuthFileScopes service.APIKeyAuthFileScopeProvider
+	AuthFiles            service.AuthFilesManagementProvider
+	RequestLogs          service.RequestLogProvider
+	Status               StatusRouteConfig
 }
 
 func NewRouter(
@@ -85,6 +86,7 @@ func NewRouter(
 	var usageIdentityProvider service.UsageIdentityProvider
 	var quotaProvider QuotaProvider
 	var cpaAPIKeyProvider service.CPAAPIKeyProvider
+	var apiKeyAuthFileScopeProvider service.APIKeyAuthFileScopeProvider
 	var authFilesProvider service.AuthFilesManagementProvider
 	var requestLogProvider service.RequestLogProvider
 	var statusConfig StatusRouteConfig
@@ -92,11 +94,13 @@ func NewRouter(
 		usageIdentityProvider = optionalProviders[0].UsageIdentity
 		quotaProvider = optionalProviders[0].Quota
 		cpaAPIKeyProvider = optionalProviders[0].CPAAPIKeys
+		apiKeyAuthFileScopeProvider = optionalProviders[0].APIKeyAuthFileScopes
 		authFilesProvider = optionalProviders[0].AuthFiles
 		requestLogProvider = optionalProviders[0].RequestLogs
 		statusConfig = optionalProviders[0].Status
 	}
 	authHandler.setCPAAPIKeyProvider(cpaAPIKeyProvider)
+	authHandler.setAPIKeyAuthFileScopeProvider(apiKeyAuthFileScopeProvider)
 	requestLogDownloadTokens := newRequestLogDownloadTokenStore()
 
 	registerUsageEventRequestLogDownloadTokenRoutes(apiV1, requestLogProvider, requestLogDownloadTokens, statusConfig.CPARequestLogAccessEnabled)
@@ -105,22 +109,27 @@ func NewRouter(
 	versionProtected.Use(authHandler.roleMiddleware(auth.RoleAdmin, auth.RoleAPIKeyViewer))
 	registerVersionRoutes(versionProtected)
 
+	dashboardProtected := apiV1.Group("")
+	dashboardProtected.Use(authHandler.roleMiddleware(auth.RoleAdmin, auth.RoleAPIKeyViewer))
+	dashboardProtected.Use(authHandler.viewerScopeMiddleware())
+	registerUsageOverviewRoute(dashboardProtected, usageProvider, cpaAPIKeyProvider)
+	registerUsageAnalysisRoute(dashboardProtected, usageProvider, cpaAPIKeyProvider)
+	registerUsageEventsRoute(dashboardProtected, usageProvider, usageIdentityProvider, cpaAPIKeyProvider, requestLogProvider, requestLogDownloadTokens, statusConfig.CPARequestLogAccessEnabled)
+	registerUsageIdentityRoutes(dashboardProtected, usageIdentityProvider)
+	registerQuotaRoutes(dashboardProtected, quotaProvider)
+
 	adminProtected := apiV1.Group("")
 	adminProtected.Use(authHandler.adminMiddleware())
 	registerStatusRoutes(adminProtected, statusProvider, statusConfig)
 	registerUpdateRoutes(adminProtected, nil)
-	registerUsageOverviewRoute(adminProtected, usageProvider, cpaAPIKeyProvider)
-	registerUsageAnalysisRoute(adminProtected, usageProvider, cpaAPIKeyProvider)
-	registerUsageEventsRoute(adminProtected, usageProvider, usageIdentityProvider, cpaAPIKeyProvider, requestLogProvider, requestLogDownloadTokens, statusConfig.CPARequestLogAccessEnabled)
-	registerUsageIdentityRoutes(adminProtected, usageIdentityProvider)
 	registerAuthFileManagementRoutes(adminProtected, authFilesProvider)
 	registerAuthSessionManagementRoutes(adminProtected, authHandler)
-	registerCPAAPIKeyRoutes(adminProtected, cpaAPIKeyProvider)
+	registerCPAAPIKeyRoutes(adminProtected, cpaAPIKeyProvider, apiKeyAuthFileScopeProvider)
 	registerPricingRoutes(adminProtected, pricingProvider)
-	registerQuotaRoutes(adminProtected, quotaProvider)
 
 	keyViewerProtected := apiV1.Group("")
 	keyViewerProtected.Use(authHandler.apiKeyViewerMiddleware())
+	keyViewerProtected.Use(authHandler.viewerScopeMiddleware())
 	registerKeyOverviewRoute(keyViewerProtected, usageProvider, cpaAPIKeyProvider, authHandler)
 
 	if staticFS != nil {

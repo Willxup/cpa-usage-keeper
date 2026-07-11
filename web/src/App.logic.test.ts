@@ -12,10 +12,10 @@ describe('App role route normalization', () => {
     expect(shouldNormalizeRolePath('admin', '/')).toBe(false);
   });
 
-  it('normalizes restored API Key viewer sessions to the key overview route', () => {
-    expect(getRoleHomePath('api_key_viewer')).toBe('/key-overview');
-    expect(shouldNormalizeRolePath('api_key_viewer', '/')).toBe(true);
-    expect(shouldNormalizeRolePath('api_key_viewer', '/key-overview')).toBe(false);
+  it('normalizes restored API Key viewer sessions to the scoped usage dashboard', () => {
+    expect(getRoleHomePath('api_key_viewer')).toBe('/');
+    expect(shouldNormalizeRolePath('api_key_viewer', '/')).toBe(false);
+    expect(shouldNormalizeRolePath('api_key_viewer', '/key-overview')).toBe(true);
   });
 
   it('clears stale overview auth errors when the session is cleared', () => {
