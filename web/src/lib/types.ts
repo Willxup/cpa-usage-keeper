@@ -406,6 +406,19 @@ export interface UsageQuotaResetResponse {
   windowsReset?: number
 }
 
+export interface UsageQuotaResetCredit {
+  id: string
+  status: string
+  grantedAt?: string
+  expiresAt: string
+}
+
+export interface UsageQuotaResetCreditsResponse {
+  authIndex: string
+  availableCount: number | null
+  credits: UsageQuotaResetCredit[]
+}
+
 export interface UsageQuotaCacheItem {
   auth_index: string
   file_name?: string

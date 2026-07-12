@@ -16,6 +16,7 @@ type quotaRequest struct {
 }
 
 const quotaResetErrorFailed = "quota_reset_failed"
+const quotaResetCreditsErrorFailed = "quota_reset_credits_failed"
 
 func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 	router.GET("/quota/auto-refresh/settings", func(c *gin.Context) {
@@ -205,6 +206,26 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 
 		c.JSON(http.StatusOK, response)
 	})
+	router.GET("/quota/reset-credits/:auth_index", func(c *gin.Context) {
+		if rejectViewerQuotaMutation(c) {
+			return
+		}
+		if provider == nil {
+			writeInternalError(c, "quota provider is not configured", nil)
+			return
+		}
+		authIndex := strings.TrimSpace(c.Param("auth_index"))
+		if authIndex == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_index is required"})
+			return
+		}
+		response, err := provider.GetResetCredits(c.Request.Context(), quota.ResetCreditsRequest{AuthIndex: authIndex})
+		if err != nil {
+			writeQuotaResetCreditsError(c, quotaProviderErrorStatus(err), err)
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	})
 	router.POST("/quota/reset", func(c *gin.Context) {
 		if rejectViewerQuotaMutation(c) {
 			return
@@ -260,8 +281,8 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 
 }
 
-// rejectViewerQuotaMutation 阻止 API Key Viewer 触发共享配额的刷新、巡检、自动刷新设置或 reset。
-// Viewer 可以读取已缓存的、被授予认证文件的额度，但不能改变其他会话可见的共享状态。
+// rejectViewerQuotaMutation 阻止 API Key Viewer 访问或触发动态配额操作。
+// Viewer 仅可读取被授予认证文件的缓存额度，不能读取重置信用额度、刷新、巡检、修改自动刷新设置或重置配额。
 func rejectViewerQuotaMutation(c *gin.Context) bool {
 	if _, ok := accessscope.ViewerScopeFromContext(c.Request.Context()); !ok {
 		return false
@@ -294,6 +315,31 @@ func viewerScopeAllowsQuotaAuthIndexes(c *gin.Context, authIndexes []string) boo
 		}
 	}
 	return true
+}
+
+func quotaProviderErrorStatus(err error) int {
+	switch {
+	case errors.Is(err, quota.ErrValidation), errors.Is(err, quota.ErrUnsupportedType):
+		return http.StatusBadRequest
+	case errors.Is(err, quota.ErrNotFound):
+		return http.StatusNotFound
+	}
+	var httpErr quota.ProviderHTTPError
+	if errors.As(err, &httpErr) && httpErr.StatusCode >= 100 && httpErr.StatusCode <= 599 {
+		if httpErr.StatusCode == http.StatusUnauthorized {
+			return http.StatusBadGateway
+		}
+		return httpErr.StatusCode
+	}
+	return http.StatusInternalServerError
+}
+
+func writeQuotaResetCreditsError(c *gin.Context, statusCode int, err error) {
+	payload := gin.H{"error": quotaResetCreditsErrorFailed}
+	if err != nil {
+		payload["detail"] = err.Error()
+	}
+	c.JSON(statusCode, payload)
 }
 
 func writeQuotaResetError(c *gin.Context, statusCode int, err error) {

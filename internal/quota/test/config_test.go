@@ -6,11 +6,11 @@ import (
 	"cpa-usage-keeper/internal/quota"
 )
 
-func TestDefaultProviderConfigsContainsSevenAPICallTemplates(t *testing.T) {
+func TestDefaultProviderConfigsContainsAPICallTemplates(t *testing.T) {
 	configs := quota.DefaultProviderConfigs()
 	templates := configs.APICallTemplates()
-	if len(templates) != 10 {
-		t.Fatalf("expected 10 api-call templates, got %d", len(templates))
+	if len(templates) != 11 {
+		t.Fatalf("expected 11 api-call templates, got %d", len(templates))
 	}
 	if len(configs.Antigravity) != 3 {
 		t.Fatalf("expected 3 antigravity api-call templates, got %d", len(configs.Antigravity))
@@ -40,8 +40,11 @@ func TestDefaultProviderConfigsContainsSevenAPICallTemplates(t *testing.T) {
 	if configs.Kimi.Method != "GET" || configs.Kimi.URL != "https://api.kimi.com/coding/v1/usages" {
 		t.Fatalf("unexpected kimi config: %+v", configs.Kimi)
 	}
-	if configs.XAI.Method != "GET" || configs.XAI.URL != "https://cli-chat-proxy.grok.com/v1/billing" {
-		t.Fatalf("unexpected xai config: %+v", configs.XAI)
+	if configs.XAIWeekly.Method != "GET" || configs.XAIWeekly.URL != "https://cli-chat-proxy.grok.com/v1/billing?format=credits" {
+		t.Fatalf("unexpected xai weekly config: %+v", configs.XAIWeekly)
+	}
+	if configs.XAIMonthly.Method != "GET" || configs.XAIMonthly.URL != "https://cli-chat-proxy.grok.com/v1/billing" {
+		t.Fatalf("unexpected xai monthly config: %+v", configs.XAIMonthly)
 	}
 
 	if configs.Antigravity[0].Headers["Authorization"] != "Bearer $TOKEN$" || configs.Antigravity[0].Headers["Content-Type"] != "application/json" || configs.Antigravity[0].Headers["User-Agent"] != "antigravity/1.11.5 windows/amd64" {
@@ -65,7 +68,16 @@ func TestDefaultProviderConfigsContainsSevenAPICallTemplates(t *testing.T) {
 	if configs.Kimi.Headers["Authorization"] != "Bearer $TOKEN$" {
 		t.Fatalf("unexpected kimi headers: %+v", configs.Kimi.Headers)
 	}
-	if configs.XAI.Headers["Authorization"] != "Bearer $TOKEN$" {
-		t.Fatalf("unexpected xai headers: %+v", configs.XAI.Headers)
+	for _, config := range []quota.APICallConfig{configs.XAIWeekly, configs.XAIMonthly} {
+		if config.Headers["Authorization"] != "Bearer $TOKEN$" ||
+			config.Headers["x-xai-token-auth"] != "xai-grok-cli" ||
+			config.Headers["x-grok-client-version"] != "0.2.93" ||
+			config.Headers["Accept"] != "*/*" ||
+			config.Headers["User-Agent"] != "grok-pager/0.2.93 grok-shell/0.2.93 (macos; aarch64)" {
+			t.Fatalf("unexpected xai headers: %+v", config.Headers)
+		}
+		if _, ok := config.Headers["x-userid"]; ok {
+			t.Fatalf("x-userid must not be fabricated without a reliable subject: %+v", config.Headers)
+		}
 	}
 }

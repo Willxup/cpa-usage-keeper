@@ -57,6 +57,10 @@ func (s *quotaAutoRefreshSettingsProviderStub) Reset(context.Context, quota.Rese
 	return quota.ResetResponse{}, nil
 }
 
+func (s *quotaAutoRefreshSettingsProviderStub) GetResetCredits(context.Context, quota.ResetCreditsRequest) (quota.ResetCreditsResponse, error) {
+	return quota.ResetCreditsResponse{}, nil
+}
+
 func TestQuotaAutoRefreshSettingsReturnsTypedSchedule(t *testing.T) {
 	provider := &quotaAutoRefreshSettingsProviderStub{settings: quota.AutoRefreshSettings{
 		Enabled: true,

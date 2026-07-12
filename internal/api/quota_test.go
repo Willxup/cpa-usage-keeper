@@ -36,6 +36,10 @@ type quotaProviderStub struct {
 	inspectionStartCalls     int
 }
 
+func (s *quotaProviderStub) GetResetCredits(ctx context.Context, request quota.ResetCreditsRequest) (quota.ResetCreditsResponse, error) {
+	return quota.ResetCreditsResponse{}, nil
+}
+
 func (s *quotaProviderStub) Refresh(ctx context.Context, request quota.RefreshRequest) (quota.RefreshResponse, error) {
 	s.refreshRequest = request
 	if s.refreshErr != nil {
@@ -160,6 +164,14 @@ func TestQuotaRoutesRestrictViewerToConfiguredAuthFileCache(t *testing.T) {
 	}
 	if len(provider.refreshRequest.AuthIndexes) != 0 {
 		t.Fatalf("expected forbidden refresh not to reach provider, got %+v", provider.refreshRequest)
+	}
+	resetCreditsResp := httptest.NewRecorder()
+	resetCreditsReq := httptest.NewRequest(http.MethodGet, "/api/v1/quota/reset-credits/auth-1", nil)
+	resetCreditsReq.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+	resetCreditsReq.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
+	router.ServeHTTP(resetCreditsResp, resetCreditsReq)
+	if resetCreditsResp.Code != http.StatusForbidden {
+		t.Fatalf("expected viewer reset-credit lookup to be forbidden, got %d %s", resetCreditsResp.Code, resetCreditsResp.Body.String())
 	}
 }
 

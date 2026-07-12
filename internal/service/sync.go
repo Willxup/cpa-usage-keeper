@@ -680,6 +680,7 @@ type authFileUsageIdentityExtension func(authfiles.AuthFile, *entities.UsageIden
 
 var authFileUsageIdentityExtensions = map[string]authFileUsageIdentityExtension{
 	"codex": extendCodexAuthFileUsageIdentity,
+	"xai":   extendXAIAuthFileUsageIdentity,
 }
 
 // auth_files 先走通用身份映射，再按 type 追加各来源特有字段，方便后续扩展新类型。
@@ -716,6 +717,11 @@ func extendCodexAuthFileUsageIdentity(file authfiles.AuthFile, identity *entitie
 	identity.ActiveStart = resolveCodexActiveStart(file)
 	identity.ActiveUntil = resolveCodexActiveUntil(file)
 	identity.PlanType = resolveCodexPlanType(file)
+}
+
+// xAI user id 仅来自 CPA auth file claims；未命中候选时保持 nil，让成功重同步清掉旧值。
+func extendXAIAuthFileUsageIdentity(file authfiles.AuthFile, identity *entities.UsageIdentity) {
+	identity.XAIUserID = resolveXAIUserID(file)
 }
 
 // fetchProviderMetadata 分别拉取各 AI provider 配置，并记录本轮实际成功返回的 provider 类型。

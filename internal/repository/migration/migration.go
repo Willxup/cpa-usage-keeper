@@ -55,6 +55,7 @@ const (
 	migrationCreateAppSettings                      = "20260702_create_app_settings"
 	migrationBackfillCacheReadTokens                = "20260710_backfill_cache_read_tokens"
 	migrationCreateAPIKeyAuthFileScopes             = "custom_20260710_create_api_key_auth_file_scopes"
+	migrationAddUsageIdentityXAIUserID              = "20260711_add_usage_identity_xai_user_id"
 )
 
 type schemaMigration struct {
@@ -154,6 +155,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationCreateAppSettings, run: createAppSettingsMigration},
 		{version: migrationBackfillCacheReadTokens, run: backfillCacheReadTokensMigration},
 		{version: migrationCreateAPIKeyAuthFileScopes, run: createAPIKeyAuthFileScopesMigration},
+		{version: migrationAddUsageIdentityXAIUserID, run: addUsageIdentityXAIUserIDMigration},
 	}
 }
 

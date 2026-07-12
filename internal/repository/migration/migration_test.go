@@ -65,6 +65,7 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260702_create_app_settings",
 		"20260710_backfill_cache_read_tokens",
 		"custom_20260710_create_api_key_auth_file_scopes",
+		"20260711_add_usage_identity_xai_user_id",
 	}
 	assertStringSlicesEqual(t, want, got)
 }

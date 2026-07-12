@@ -7,8 +7,8 @@ import quotaCostIcon from '@/assets/icons/quota-cost.svg'
 import quotaTokenIcon from '@/assets/icons/quota-token.svg'
 import styles from './CredentialSections.module.scss'
 import type { AuthFileCredentialRow, DisplayQuota, PlanTypeTone } from './credentialViewModels'
-import { deleteAuthFiles, fetchQuotaAutoRefreshSettings, setAuthFilesDisabled, updateQuotaAutoRefreshSettings, type UsageIdentityPageSort } from '@/lib/api'
-import type { QuotaAutoRefreshScheduleUnit, QuotaAutoRefreshSettings, UsageQuotaInspectionResult, UsageQuotaInspectionResultStatus, UsageQuotaInspectionStatusResponse } from '@/lib/types'
+import { deleteAuthFiles, fetchQuotaAutoRefreshSettings, fetchUsageQuotaResetCredits, setAuthFilesDisabled, updateQuotaAutoRefreshSettings, type UsageIdentityPageSort } from '@/lib/api'
+import type { QuotaAutoRefreshScheduleUnit, QuotaAutoRefreshSettings, UsageQuotaInspectionResult, UsageQuotaInspectionResultStatus, UsageQuotaInspectionStatusResponse, UsageQuotaResetCreditsResponse } from '@/lib/types'
 import { CredentialAliasEditor, isCredentialAliasEditorDisabled } from './CredentialAliasEditor'
 import { CredentialHealthPanel } from './CredentialHealthPanel'
 import { CredentialProviderFilterIcon } from './CredentialProviderFilterBar'
@@ -32,9 +32,16 @@ type QuotaErrorDetails = {
   message?: string
 }
 type QuotaResetPopoverPosition = {
-  top: number
+  top?: number
+  bottom?: number
   right: number
+  maxHeight: number
 }
+
+const RESET_CREDITS_LOOKUP_TIMEOUT_MS = 5_000
+const RESET_CREDITS_POPOVER_VIEWPORT_MARGIN = 12
+const RESET_CREDITS_POPOVER_OFFSET = 8
+const RESET_CREDITS_POPOVER_MAX_HEIGHT = 360
 
 const QUOTA_ERROR_MESSAGE_MAX_LENGTH = 96
 const QUOTA_ERROR_PARSE_MAX_DEPTH = 10
@@ -218,6 +225,7 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
                     {/* reset 按钮只在官方缓存给出可用次数时展示；refresh 始终保留在右侧列居中位置。 */}
                     {resetCredits > 0 && (
                       <QuotaResetAction
+                        authIndex={row.identity.identity}
                         resetCredits={resetCredits}
                         disabled={!canResetQuota}
                         loading={row.quotaResetting === true}
@@ -279,20 +287,27 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
 }
 
 
-function QuotaResetAction({
+export function QuotaResetAction({
+  authIndex,
   resetCredits,
   disabled,
   loading,
+  fetchResetCredits = fetchUsageQuotaResetCredits,
   onConfirm,
 }: {
+  authIndex: string
   resetCredits: number
   disabled: boolean
   loading: boolean
+  fetchResetCredits?: (authIndex: string, signal?: AbortSignal) => Promise<UsageQuotaResetCreditsResponse>
   onConfirm: () => Promise<void>
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [popoverPosition, setPopoverPosition] = useState<QuotaResetPopoverPosition | null>(null)
+  const [resetCreditsDetails, setResetCreditsDetails] = useState<UsageQuotaResetCreditsResponse | null>(null)
+  const [resetCreditsLoading, setResetCreditsLoading] = useState(false)
+  const [resetCreditsFailed, setResetCreditsFailed] = useState(false)
   const tooltipId = useId()
   const actionRef = useRef<HTMLDivElement | null>(null)
   const buttonRef = useRef<HTMLButtonElement | null>(null)
@@ -306,18 +321,25 @@ function QuotaResetAction({
       return
     }
     const rect = button.getBoundingClientRect()
-    // popover 使用 fixed，避免被卡片 overflow 裁切，同时跟随右侧按钮重新定位。
-    setPopoverPosition({
-      top: Math.round(rect.bottom + 8),
-      right: Math.max(12, Math.round(window.innerWidth - rect.right)),
-    })
+    const viewportHeight = window.innerHeight
+    const spaceBelow = Math.max(0, viewportHeight - rect.bottom - RESET_CREDITS_POPOVER_VIEWPORT_MARGIN - RESET_CREDITS_POPOVER_OFFSET)
+    const spaceAbove = Math.max(0, rect.top - RESET_CREDITS_POPOVER_VIEWPORT_MARGIN - RESET_CREDITS_POPOVER_OFFSET)
+    const openBelow = spaceBelow >= RESET_CREDITS_POPOVER_MAX_HEIGHT || spaceBelow >= spaceAbove
+    const availableHeight = openBelow ? spaceBelow : spaceAbove
+    const sharedPosition = {
+      right: Math.max(RESET_CREDITS_POPOVER_VIEWPORT_MARGIN, Math.round(window.innerWidth - rect.right)),
+      maxHeight: Math.max(0, Math.min(RESET_CREDITS_POPOVER_MAX_HEIGHT, availableHeight)),
+    }
+    // popover 使用 fixed 并选择空间更充足的一侧，避免被卡片或视口底部裁切。
+    setPopoverPosition(openBelow
+      ? { ...sharedPosition, top: Math.round(rect.bottom + RESET_CREDITS_POPOVER_OFFSET) }
+      : { ...sharedPosition, bottom: Math.round(viewportHeight - rect.top + RESET_CREDITS_POPOVER_OFFSET) })
   }, [])
 
   useEffect(() => {
     if (!open) {
       return
     }
-    updatePopoverPosition()
     const refreshPopoverPosition = () => updatePopoverPosition()
     window.addEventListener('resize', refreshPopoverPosition)
     window.addEventListener('scroll', refreshPopoverPosition, true)
@@ -326,6 +348,48 @@ function QuotaResetAction({
       window.removeEventListener('scroll', refreshPopoverPosition, true)
     }
   }, [open, updatePopoverPosition])
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    const controller = new AbortController()
+    let active = true
+    const timeoutID = window.setTimeout(() => {
+      if (!active) {
+        return
+      }
+      active = false
+      controller.abort()
+      setResetCreditsFailed(true)
+      setResetCreditsLoading(false)
+    }, RESET_CREDITS_LOOKUP_TIMEOUT_MS)
+    // 明细是确认前的软门禁：查询期间禁用确认，失败后仍允许按缓存次数继续。
+    void fetchResetCredits(authIndex, controller.signal)
+      .then((response) => {
+        if (active) {
+          setResetCreditsDetails(response)
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setResetCreditsFailed(true)
+        }
+      })
+      .finally(() => {
+        if (!active) {
+          return
+        }
+        active = false
+        window.clearTimeout(timeoutID)
+        setResetCreditsLoading(false)
+      })
+    return () => {
+      active = false
+      window.clearTimeout(timeoutID)
+      controller.abort()
+    }
+  }, [authIndex, fetchResetCredits, open])
 
   useEffect(() => {
     if (!open || typeof document === 'undefined') {
@@ -365,8 +429,25 @@ function QuotaResetAction({
       return
     }
     updatePopoverPosition()
+    setResetCreditsDetails(null)
+    setResetCreditsFailed(false)
+    setResetCreditsLoading(true)
     setOpen(true)
   }
+
+  const resetCreditsCountFromDetails = resetCreditsDetails && resetCreditsDetails.credits.length > 0
+    ? resetCreditsDetails.credits.length
+    : null
+  // 与 CPAMC 保持一致：实时次数未知时先使用有效明细数量，仍未知则回退打开前的缓存次数。
+  const displayResetCredits = resetCreditsDetails?.availableCount ?? resetCreditsCountFromDetails ?? resetCredits
+  const resetCreditsExplicitlyUnavailable = resetCreditsDetails !== null
+    && resetCreditsDetails.availableCount !== null
+    && resetCreditsDetails.availableCount <= 0
+  const resetCreditsDetailsIncomplete = resetCreditsDetails !== null && (
+    (resetCreditsDetails.availableCount === null && resetCreditsDetails.credits.length === 0)
+    || (resetCreditsDetails.availableCount !== null && resetCreditsDetails.availableCount > resetCreditsDetails.credits.length)
+  )
+  const confirmDisabled = loading || resetCreditsLoading || resetCreditsExplicitlyUnavailable
 
   return (
     <div ref={actionRef} className={styles.credentialQuotaResetAction}>
@@ -395,21 +476,48 @@ function QuotaResetAction({
           className={styles.credentialQuotaResetPopover}
           role="dialog"
           aria-label={t('usage_stats.credentials_quota_reset_title')}
-          style={popoverPosition ? { top: popoverPosition.top, right: popoverPosition.right } : undefined}
+          style={popoverPosition ?? undefined}
         >
           <p className={styles.credentialQuotaResetTitle}>{t('usage_stats.credentials_quota_reset_title')}</p>
           <p className={styles.credentialQuotaResetMessage}>
             <span className={styles.credentialQuotaResetCountLine}>
-              <span className={styles.credentialQuotaResetCount}>{resetCredits}</span>
+              <span className={styles.credentialQuotaResetCount}>{displayResetCredits}</span>
               <span>{t('usage_stats.credentials_quota_reset_message_suffix')}</span>
             </span>
             <span>{t('usage_stats.credentials_quota_reset_message_prompt')}</span>
           </p>
+          <div className={styles.credentialQuotaResetExpiry} aria-live="polite">
+            <p className={styles.credentialQuotaResetExpiryTitle}>{t('usage_stats.credentials_quota_reset_expiry_title')}</p>
+            {resetCreditsLoading && (
+              <div className={styles.credentialQuotaResetExpiryStatus}>
+                <LoadingSpinner size={12} />
+                <span>{t('usage_stats.credentials_quota_reset_expiry_loading')}</span>
+              </div>
+            )}
+            {!resetCreditsLoading && resetCreditsDetails && resetCreditsDetails.credits.length > 0 && (
+              <div className={styles.credentialQuotaResetExpiryList}>
+                {resetCreditsDetails.credits.map((credit, index) => (
+                  <div key={credit.id || `${credit.expiresAt}-${index}`} className={styles.credentialQuotaResetExpiryRow}>
+                    <span>{t('usage_stats.credentials_quota_reset_expiry_item', { index: index + 1 })}</span>
+                    <strong>{formatResetCreditExpiry(credit.expiresAt)}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
+            {!resetCreditsLoading && resetCreditsExplicitlyUnavailable && (
+              <p className={styles.credentialQuotaResetExpiryStatus}>{t('usage_stats.credentials_quota_reset_expiry_empty')}</p>
+            )}
+            {!resetCreditsLoading && (resetCreditsFailed || resetCreditsDetailsIncomplete) && (
+              <p className={`${styles.credentialQuotaResetExpiryStatus} ${styles.credentialQuotaResetExpiryWarning}`.trim()}>
+                {t('usage_stats.credentials_quota_reset_expiry_failed')}
+              </p>
+            )}
+          </div>
           <div className={styles.credentialQuotaResetActions}>
             <button type="button" className={styles.credentialQuotaResetCancelButton} onClick={() => setOpen(false)} disabled={loading}>
               {t('common.cancel')}
             </button>
-            <button type="button" className={styles.credentialQuotaResetConfirmButton} onClick={() => void handleConfirm()} disabled={loading} aria-busy={loading}>
+            <button type="button" className={styles.credentialQuotaResetConfirmButton} onClick={() => void handleConfirm()} disabled={confirmDisabled} aria-busy={loading}>
               {loading ? <LoadingSpinner size={12} /> : t('usage_stats.credentials_quota_reset_confirm')}
             </button>
           </div>
@@ -417,6 +525,25 @@ function QuotaResetAction({
       )}
     </div>
   )
+}
+
+const RESET_CREDIT_TIME_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+})
+
+export function formatResetCreditExpiry(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+  return RESET_CREDIT_TIME_FORMATTER.format(date).replace(',', '')
 }
 
 function isRowRefreshing(row: AuthFileCredentialRow): boolean {

@@ -458,6 +458,55 @@
   }
 }
 
+.toolbarActionsRightAnimated {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.usageFilterTransition {
+  width: max-content;
+  max-width: 0;
+  min-width: 0;
+  justify-self: end;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(8px);
+  transition:
+    max-width 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 260ms ease,
+    transform 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    margin-bottom 340ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.usageFilterTransitionOpen {
+  max-width: 960px;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
+.usageFilterTransitionInner {
+  width: max-content;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+// CPAMC 保留既有即时挂载布局；动画与 Grid 隔离只应用于普通 Keeper 页面。
+.usageFilterTransitionImmediate {
+  display: contents;
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+  transition: none;
+}
+
+.usageFilterTransitionImmediate .usageFilterTransitionInner {
+  display: contents;
+}
+
 .lastRefreshed {
   font-size: 11px;
   color: var(--text-tertiary);
@@ -863,6 +912,32 @@
     width: 100%;
   }
 
+  .toolbarActionsRightAnimated {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 0;
+  }
+
+  .usageFilterTransition,
+  .usageFilterTransitionInner {
+    width: 100%;
+  }
+
+  .toolbarActionsRightAnimated .usageFilterTransition {
+    max-height: 0;
+    transition:
+      max-width 340ms cubic-bezier(0.22, 1, 0.36, 1),
+      max-height 340ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 260ms ease,
+      transform 340ms cubic-bezier(0.22, 1, 0.36, 1),
+      margin-bottom 340ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .toolbarActionsRightAnimated .usageFilterTransitionOpen {
+    max-width: 100%;
+    max-height: 280px;
+    margin-bottom: 10px;
+  }
+
   .usageFilterBar {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -975,11 +1050,16 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .usageFilterTransition,
   .usageFilterBar,
   .timeRangeGroup,
   .customRangeInline,
   .dailyAveragePanel {
     transition: none;
+  }
+
+  .usageFilterTransition {
+    transform: none;
   }
 
   .dailyAveragePanelEntering,
@@ -1850,6 +1930,10 @@
 
 .settingsSections {
   --settings-list-scroll-height: 480px;
+}
+
+.settingsSections > :global(.card) {
+  box-shadow: var(--shadow-lg);
 }
 
 // Pricing Section (80%比例)
@@ -2862,6 +2946,7 @@
 .requestEventsCard:global(.card) {
   padding: 0;
   overflow: hidden;
+  box-shadow: var(--shadow-lg);
 
   :global(.card-header) {
     align-items: stretch;

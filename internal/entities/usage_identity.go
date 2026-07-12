@@ -30,6 +30,7 @@ type UsageIdentity struct {
 	Note         *string
 	AccountID    *string
 	ProjectID    *string
+	XAIUserID    *string
 
 	ActiveStart *time.Time `gorm:"serializer:storageTime"`
 	ActiveUntil *time.Time `gorm:"serializer:storageTime"`
