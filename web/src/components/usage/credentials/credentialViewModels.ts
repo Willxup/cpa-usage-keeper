@@ -24,6 +24,10 @@ export interface QuotaBillingUsageDisplay {
 export interface DisplayQuota {
   key: string
   label: string
+  scope?: string
+  groupKey?: string
+  groupLabel?: string
+  groupDescription?: string
   percent: number | null
   barPercent: number | null
   percentKind: 'used' | 'remaining' | 'unknown'
@@ -208,6 +212,10 @@ function toDisplayQuota(row: UsageQuotaRow): DisplayQuota | undefined {
   return {
     key: row.key,
     label,
+    scope: row.scope,
+    groupKey: row.groupKey,
+    groupLabel: row.groupLabel,
+    groupDescription: row.groupDescription,
     percent: percentDisplay.percent,
     barPercent: quotaBarPercent(percentDisplay.percent, percentDisplay.kind),
     percentKind: percentDisplay.kind,

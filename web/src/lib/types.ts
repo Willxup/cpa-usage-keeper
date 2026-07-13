@@ -379,6 +379,9 @@ export interface UsageQuotaRow {
   label?: string
   scope?: string
   metric?: string
+  groupKey?: string
+  groupLabel?: string
+  groupDescription?: string
   planType?: string
   used?: number
   limit?: number

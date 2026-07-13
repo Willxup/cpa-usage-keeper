@@ -15,8 +15,8 @@ import (
 func TestAntigravityProviderUsesProjectIDForQuotaRequest(t *testing.T) {
 	caller := &recordingManagementCaller{responses: []*apicall.Response{{
 		StatusCode: 200,
-		BodyText:   `{"models":{"pro":{"displayName":"Pro","quotaInfo":{"remainingFraction":0.4,"remaining":12,"resetTime":"2026-05-09T12:00:00Z"}},"flash":{"displayName":"Flash","quotaInfo":{"remainingFraction":0.9,"remaining":32,"resetTime":"2026-05-10T12:00:00Z"}}}}`,
-		Body:       json.RawMessage(`{"models":{"pro":{"displayName":"Pro","quotaInfo":{"remainingFraction":0.4,"remaining":12,"resetTime":"2026-05-09T12:00:00Z"}},"flash":{"displayName":"Flash","quotaInfo":{"remainingFraction":0.9,"remaining":32,"resetTime":"2026-05-10T12:00:00Z"}}}}`),
+		BodyText:   `{"body":{"groups":[{"displayName":"Gemini Models","description":"Models within this group: Gemini Flash, Gemini Pro","buckets":[{"bucketId":"gemini-5h","displayName":"Five Hour Limit","window":"5h","remainingFraction":0.4,"resetTime":"2026-05-09T12:00:00Z"},{"bucketId":"gemini-weekly","displayName":"Weekly Limit","window":"weekly","remainingFraction":0.9,"resetTime":"2026-05-10T12:00:00Z"}]}]}}`,
+		Body:       json.RawMessage(`{"body":{"groups":[{"displayName":"Gemini Models","description":"Models within this group: Gemini Flash, Gemini Pro","buckets":[{"bucketId":"gemini-5h","displayName":"Five Hour Limit","window":"5h","remainingFraction":0.4,"resetTime":"2026-05-09T12:00:00Z"},{"bucketId":"gemini-weekly","displayName":"Weekly Limit","window":"weekly","remainingFraction":0.9,"resetTime":"2026-05-10T12:00:00Z"}]}]}}`),
 	}}}
 	provider := quota.NewAntigravityProvider(caller, quota.DefaultProviderConfigs().Antigravity[0])
 
@@ -34,7 +34,7 @@ func TestAntigravityProviderUsesProjectIDForQuotaRequest(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected antigravity result type, got %T", output.Result)
 	}
-	if result.Quota == nil || result.Quota.Models["pro"].DisplayName != "Pro" || result.Quota.Models["pro"].QuotaInfo.RemainingFraction != 0.4 || result.Quota.Models["pro"].QuotaInfo.Remaining != 12 || result.Quota.Models["flash"].DisplayName != "Flash" {
+	if result.Quota == nil || len(result.Quota.Groups) != 1 || result.Quota.Groups[0].DisplayName != "Gemini Models" || len(result.Quota.Groups[0].Buckets) != 2 || result.Quota.Groups[0].Buckets[0].BucketID != "gemini-5h" || result.Quota.Groups[0].Buckets[0].RemainingFraction == nil || *result.Quota.Groups[0].Buckets[0].RemainingFraction != 0.4 {
 		t.Fatalf("expected parsed antigravity quota payload, got %#v", result.Quota)
 	}
 	encoded, err := json.Marshal(output.Result)
@@ -42,17 +42,17 @@ func TestAntigravityProviderUsesProjectIDForQuotaRequest(t *testing.T) {
 		t.Fatalf("marshal antigravity result: %v", err)
 	}
 	body := string(encoded)
-	if !contains(body, `"models":{`) || !contains(body, `"pro":{"displayName":"Pro"`) || !contains(body, `"flash":{"displayName":"Flash"`) || contains(body, "bodyText") || contains(body, "statusCode") {
+	if !contains(body, `"groups":[`) || !contains(body, `"displayName":"Gemini Models"`) || !contains(body, `"description":"Models within this group: Gemini Flash, Gemini Pro"`) || !contains(body, `"bucketId":"gemini-5h"`) || contains(body, `"models"`) || contains(body, "bodyText") || contains(body, "statusCode") {
 		t.Fatalf("unexpected antigravity result JSON: %s", body)
 	}
 	if len(caller.requests) != 1 {
 		t.Fatalf("expected one api-call request, got %d", len(caller.requests))
 	}
 	request := caller.requests[0]
-	if request.AuthIndex != "ag-auth" || request.Method != "POST" || request.URL != "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels" {
+	if request.AuthIndex != "ag-auth" || request.Method != "POST" || request.URL != "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary" {
 		t.Fatalf("unexpected api-call request: %+v", request)
 	}
-	if request.Header["Authorization"] != "Bearer $TOKEN$" || request.Header["Content-Type"] != "application/json" || request.Header["User-Agent"] != "antigravity/1.11.5 windows/amd64" {
+	if request.Header["Authorization"] != "Bearer $TOKEN$" || request.Header["Content-Type"] != "application/json" || request.Header["User-Agent"] != "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)" {
 		t.Fatalf("unexpected api-call headers: %+v", request.Header)
 	}
 	data, ok := request.Data.(map[string]string)

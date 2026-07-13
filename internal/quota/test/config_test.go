@@ -16,10 +16,10 @@ func TestDefaultProviderConfigsContainsAPICallTemplates(t *testing.T) {
 		t.Fatalf("expected 3 antigravity api-call templates, got %d", len(configs.Antigravity))
 	}
 
-	if configs.Antigravity[0].Method != "POST" || configs.Antigravity[0].URL != "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels" {
+	if configs.Antigravity[0].Method != "POST" || configs.Antigravity[0].URL != "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary" {
 		t.Fatalf("unexpected antigravity config: %+v", configs.Antigravity)
 	}
-	if configs.Antigravity[1].URL != "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels" || configs.Antigravity[2].URL != "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels" {
+	if configs.Antigravity[1].URL != "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary" || configs.Antigravity[2].URL != "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary" {
 		t.Fatalf("unexpected antigravity fallback configs: %+v", configs.Antigravity)
 	}
 	if configs.Codex.Method != "GET" || configs.Codex.URL != "https://chatgpt.com/backend-api/wham/usage" {
@@ -47,7 +47,7 @@ func TestDefaultProviderConfigsContainsAPICallTemplates(t *testing.T) {
 		t.Fatalf("unexpected xai monthly config: %+v", configs.XAIMonthly)
 	}
 
-	if configs.Antigravity[0].Headers["Authorization"] != "Bearer $TOKEN$" || configs.Antigravity[0].Headers["Content-Type"] != "application/json" || configs.Antigravity[0].Headers["User-Agent"] != "antigravity/1.11.5 windows/amd64" {
+	if configs.Antigravity[0].Headers["Authorization"] != "Bearer $TOKEN$" || configs.Antigravity[0].Headers["Content-Type"] != "application/json" || configs.Antigravity[0].Headers["User-Agent"] != "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)" {
 		t.Fatalf("unexpected antigravity headers: %+v", configs.Antigravity[0].Headers)
 	}
 	if configs.Codex.Headers["Authorization"] != "Bearer $TOKEN$" || configs.Codex.Headers["Content-Type"] != "application/json" || configs.Codex.Headers["User-Agent"] != "codex_cli_rs/0.76.0 (Debian 13.0.0; x86_64) WindowsTerminal" {

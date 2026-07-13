@@ -15,30 +15,44 @@ func parseAntigravityQuotaPayload(response *apicall.Response) (*AntigravityQuota
 	if err != nil {
 		return nil, err
 	}
-	if _, ok := object["models"]; !ok {
+	if _, ok := object["groups"]; !ok {
 		if nested := objectField(object, "body"); nested != nil {
 			object = nested
 		}
 	}
-	modelsObject := objectField(object, "models")
-	payload := &AntigravityQuotaPayload{Models: map[string]AntigravityQuotaModel{}}
-	for key, raw := range modelsObject {
-		modelObject := rawObject(raw)
-		if modelObject == nil {
+	payload := &AntigravityQuotaPayload{}
+	for _, rawGroup := range arrayField(object, "groups") {
+		groupObject := rawObject(rawGroup)
+		if groupObject == nil {
 			continue
 		}
-		infoObject := objectField(modelObject, "quotaInfo", "quota_info")
-		model := AntigravityQuotaModel{
-			DisplayName: stringField(modelObject, "displayName", "display_name"),
+		group := AntigravityQuotaGroup{
+			DisplayName: stringField(groupObject, "displayName", "display_name"),
+			Description: stringField(groupObject, "description"),
 		}
-		if infoObject != nil {
-			model.QuotaInfo = &AntigravityQuotaInfo{
-				RemainingFraction: floatField(infoObject, "remainingFraction", "remaining_fraction"),
-				Remaining:         floatField(infoObject, "remaining"),
-				ResetTime:         stringField(infoObject, "resetTime", "reset_time"),
+		for _, rawBucket := range arrayField(groupObject, "buckets") {
+			bucketObject := rawObject(rawBucket)
+			if bucketObject == nil {
+				continue
 			}
+			remainingFraction := floatPtrField(bucketObject, "remainingFraction", "remaining_fraction")
+			if remainingFraction == nil {
+				continue
+			}
+			group.Buckets = append(group.Buckets, AntigravityQuotaBucket{
+				BucketID:          stringField(bucketObject, "bucketId", "bucket_id"),
+				DisplayName:       stringField(bucketObject, "displayName", "display_name"),
+				Window:            stringField(bucketObject, "window"),
+				RemainingFraction: remainingFraction,
+				ResetTime:         stringField(bucketObject, "resetTime", "reset_time"),
+			})
 		}
-		payload.Models[key] = model
+		if len(group.Buckets) > 0 {
+			payload.Groups = append(payload.Groups, group)
+		}
+	}
+	if len(payload.Groups) == 0 {
+		return nil, fmt.Errorf("antigravity quota response missing groups")
 	}
 	return payload, nil
 }

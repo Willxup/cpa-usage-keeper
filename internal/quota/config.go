@@ -57,29 +57,29 @@ func DefaultProviderConfigs() ProviderConfigs {
 		Antigravity: []APICallConfig{
 			{
 				Method: "POST",
-				URL:    "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+				URL:    "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
 				Headers: map[string]string{
 					"Authorization": "Bearer $TOKEN$",
 					"Content-Type":  "application/json",
-					"User-Agent":    "antigravity/1.11.5 windows/amd64",
+					"User-Agent":    "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)",
 				},
 			},
 			{
 				Method: "POST",
-				URL:    "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels",
+				URL:    "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary",
 				Headers: map[string]string{
 					"Authorization": "Bearer $TOKEN$",
 					"Content-Type":  "application/json",
-					"User-Agent":    "antigravity/1.11.5 windows/amd64",
+					"User-Agent":    "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)",
 				},
 			},
 			{
 				Method: "POST",
-				URL:    "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+				URL:    "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
 				Headers: map[string]string{
 					"Authorization": "Bearer $TOKEN$",
 					"Content-Type":  "application/json",
-					"User-Agent":    "antigravity/1.11.5 windows/amd64",
+					"User-Agent":    "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)",
 				},
 			},
 		},

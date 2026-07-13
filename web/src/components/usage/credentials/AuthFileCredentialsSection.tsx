@@ -1732,6 +1732,7 @@ export function formatQuotaBillingUsageAriaLabel(t: Translate, billingUsage: Non
 
 function QuotaBar({ quota, quotaUsageMode }: { quota: DisplayQuota; quotaUsageMode: QuotaUsageMode }) {
   const { t } = useTranslation()
+  const groupTooltipId = useId()
   // 条宽使用剩余额度百分比，颜色跟随剩余风险状态从绿到黄到红。
   const percent = quota.barPercent ?? 0
   const width = `${Math.max(0, Math.min(100, percent))}%`
@@ -1740,6 +1741,7 @@ function QuotaBar({ quota, quotaUsageMode }: { quota: DisplayQuota; quotaUsageMo
   const resetDuration = quota.resetText ? formatQuotaResetDuration(quota.resetText) : ''
   const billingUsage = quota.billingUsage
   const windowUsage = billingUsage ? undefined : quotaWindowUsageForMode(quota, quotaUsageMode)
+  const hasGroupDescription = Boolean(quota.groupDescription?.trim())
 
   return (
     <div className={styles.credentialQuotaBarBlock}>
@@ -1758,6 +1760,20 @@ function QuotaBar({ quota, quotaUsageMode }: { quota: DisplayQuota; quotaUsageMo
         <span className={`${styles.credentialQuotaFill} ${credentialToneClassName('credentialQuotaFill', quota.status)}`.trim()} style={{ width }} />
       </div>
       <div className={styles.credentialQuotaMeta}>
+        {quota.scope === 'quota_group' && quota.groupLabel && (
+          <span
+            className={styles.credentialQuotaGroupTooltipTarget}
+            tabIndex={hasGroupDescription ? 0 : undefined}
+            aria-describedby={hasGroupDescription ? groupTooltipId : undefined}
+          >
+            <span className={styles.credentialQuotaGroupLabel}>{quota.groupLabel}</span>
+            {hasGroupDescription && (
+              <span id={groupTooltipId} className={styles.credentialQuotaGroupTooltip} role="tooltip">
+                {quota.groupDescription}
+              </span>
+            )}
+          </span>
+        )}
         {billingUsage && (
           <strong className={styles.credentialQuotaWindowUsage} aria-label={formatQuotaBillingUsageAriaLabel(t, billingUsage)}>
             <span className={styles.credentialQuotaUsageMetric}>
@@ -1778,7 +1794,7 @@ function QuotaBar({ quota, quotaUsageMode }: { quota: DisplayQuota; quotaUsageMo
             </span>
           </strong>
         )}
-        {resetLabel && <span>{resetLabel}</span>}
+        {resetLabel && <span className={styles.credentialQuotaResetTime}>{resetLabel}</span>}
       </div>
     </div>
   )

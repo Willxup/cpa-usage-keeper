@@ -187,6 +187,36 @@ describe('credentialViewModels', () => {
     })
   })
 
+  it('preserves Antigravity quota group metadata for provider-specific rendering', () => {
+    const groupedQuota = {
+      key: 'bucket.gemini-5h',
+      label: '5h',
+      scope: 'quota_group',
+      metric: '5h',
+      groupKey: 'antigravity-group-1',
+      groupLabel: 'Gemini Models',
+      groupDescription: 'Models within this group: Gemini Flash, Gemini Pro',
+      remainingFraction: 0.72,
+      window: { seconds: 18_000 },
+      resetAt: '2026-05-09T12:00:00Z',
+    } as UsageQuotaRow & { groupKey: string; groupLabel: string; groupDescription: string }
+    const quotas = new Map<string, UsageQuotaCheckResponse>([
+      ['antigravity-auth', quotaResponse('antigravity-auth', [groupedQuota])],
+    ])
+
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'antigravity-auth', type: 'antigravity', provider: 'antigravity' }),
+    ], quotas)
+
+    expect(rows[0].displayQuotas[0]).toMatchObject({
+      label: '5h',
+      scope: 'quota_group',
+      groupKey: 'antigravity-group-1',
+      groupLabel: 'Gemini Models',
+      groupDescription: 'Models within this group: Gemini Flash, Gemini Pro',
+    })
+  })
+
   it('uses backend displayName instead of raw usage identity name for credential titles', () => {
     const rows = buildAuthFileCredentialRows([
       identity({ identity: 'auth-1', name: 'Raw Upstream Name', displayName: 'Helper Display Name' }),
