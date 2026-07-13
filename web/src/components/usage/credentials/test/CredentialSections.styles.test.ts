@@ -60,6 +60,8 @@ describe('Credential section styles', () => {
     expect(credentialStyles).toMatch(/\.credentialQuotaGroupTooltipTarget \.credentialQuotaGroupTooltip\s*\{[\s\S]*?white-space:\s*normal;/)
     expect(credentialStyles).toMatch(/\.credentialQuotaGroupTooltipTarget:hover \.credentialQuotaGroupTooltip[\s\S]*?opacity:\s*1;/)
     expect(credentialStyles).toMatch(/\.credentialQuotaGroupTooltipTarget:focus-visible \.credentialQuotaGroupTooltip[\s\S]*?opacity:\s*1;/)
+    expect(credentialStyles).toMatch(/\.credentialQuotaBarBlock:nth-child\(even\) \.credentialQuotaGroupTooltip\s*\{[\s\S]*?right:\s*0;[\s\S]*?left:\s*auto;/)
+    expect(credentialStyles).toMatch(/\.credentialQuotaBarBlock:nth-child\(even\) \.credentialQuotaGroupTooltip::after\s*\{[\s\S]*?right:\s*14px;[\s\S]*?left:\s*auto;/)
     expect(credentialStyles).toMatch(/\.credentialQuotaResetTime\s*\{[\s\S]*?margin-left:\s*auto;/)
     expect(credentialStyles).toMatch(/\.credentialDisplayModeSwitcher\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/)
     expect(credentialStyles).toMatch(/\.credentialDisplayModeSwitcher\s*\{[\s\S]*?min-width:\s*162px;/)

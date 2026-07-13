@@ -20,8 +20,16 @@ func parseAntigravityQuotaPayload(response *apicall.Response) (*AntigravityQuota
 			object = nested
 		}
 	}
+	rawGroups, ok := object["groups"]
+	if !ok {
+		return nil, fmt.Errorf("antigravity quota response missing groups")
+	}
+	var groups []json.RawMessage
+	if err := json.Unmarshal(rawGroups, &groups); err != nil {
+		return nil, fmt.Errorf("antigravity quota response invalid groups: %w", err)
+	}
 	payload := &AntigravityQuotaPayload{}
-	for _, rawGroup := range arrayField(object, "groups") {
+	for _, rawGroup := range groups {
 		groupObject := rawObject(rawGroup)
 		if groupObject == nil {
 			continue
@@ -35,7 +43,7 @@ func parseAntigravityQuotaPayload(response *apicall.Response) (*AntigravityQuota
 			if bucketObject == nil {
 				continue
 			}
-			remainingFraction := floatPtrField(bucketObject, "remainingFraction", "remaining_fraction")
+			remainingFraction := quotaFractionPtrField(bucketObject, "remainingFraction", "remaining_fraction")
 			if remainingFraction == nil {
 				continue
 			}
@@ -50,9 +58,6 @@ func parseAntigravityQuotaPayload(response *apicall.Response) (*AntigravityQuota
 		if len(group.Buckets) > 0 {
 			payload.Groups = append(payload.Groups, group)
 		}
-	}
-	if len(payload.Groups) == 0 {
-		return nil, fmt.Errorf("antigravity quota response missing groups")
 	}
 	return payload, nil
 }
@@ -561,6 +566,38 @@ func floatPtrField(object map[string]json.RawMessage, keys ...string) *float64 {
 		return nil
 	}
 	return &value
+}
+
+func quotaFractionPtrField(object map[string]json.RawMessage, keys ...string) *float64 {
+	for _, key := range keys {
+		raw, ok := object[key]
+		if !ok || rawJSONNull(raw) {
+			continue
+		}
+		var number float64
+		if err := json.Unmarshal(raw, &number); err == nil {
+			if !math.IsNaN(number) && !math.IsInf(number, 0) {
+				return &number
+			}
+			continue
+		}
+		var text string
+		if err := json.Unmarshal(raw, &text); err != nil {
+			continue
+		}
+		text = strings.TrimSpace(text)
+		scale := 1.0
+		if strings.HasSuffix(text, "%") {
+			text = strings.TrimSpace(strings.TrimSuffix(text, "%"))
+			scale = 0.01
+		}
+		parsed, err := strconv.ParseFloat(text, 64)
+		parsed *= scale
+		if err == nil && !math.IsNaN(parsed) && !math.IsInf(parsed, 0) {
+			return &parsed
+		}
+	}
+	return nil
 }
 
 func floatValue(object map[string]json.RawMessage, keys ...string) (float64, bool) {

@@ -245,14 +245,14 @@ func TestNormalizeAntigravityQuotaRows(t *testing.T) {
 	if len(rows) != 3 {
 		t.Fatalf("expected 3 quota rows, got %#v", rows)
 	}
-	if rows[0].Key != "bucket.gemini-5h" || rows[1].Key != "bucket.gemini-weekly" || rows[2].Key != "bucket.3p-5h" {
+	if rows[0].Key != "bucket.antigravity-gemini-models.gemini-5h" || rows[1].Key != "bucket.antigravity-gemini-models.gemini-weekly" || rows[2].Key != "bucket.antigravity-claude-and-gpt-models.3p-5h" {
 		t.Fatalf("expected 5h before Weekly within each upstream group, got %#v", rows)
 	}
-	fiveHour := findQuotaRow(t, rows, "bucket.gemini-5h")
+	fiveHour := findQuotaRow(t, rows, "bucket.antigravity-gemini-models.gemini-5h")
 	assertQuotaText(t, fiveHour, "5h", "quota_group", "5h")
 	assertFloatField(t, fiveHour.RemainingFraction, 0.4, "five hour remainingFraction")
 	assertIntField(t, fiveHour.Window.Seconds, 18000, "five hour window seconds")
-	if fiveHour.GroupKey != "antigravity-group-1" || fiveHour.GroupLabel != "Gemini Models" {
+	if fiveHour.GroupKey != "antigravity-gemini-models" || fiveHour.GroupLabel != "Gemini Models" {
 		t.Fatalf("unexpected five hour group metadata: %#v", fiveHour)
 	}
 	encodedRows, err := json.Marshal(rows)
@@ -262,14 +262,35 @@ func TestNormalizeAntigravityQuotaRows(t *testing.T) {
 	if !contains(string(encodedRows), `"groupDescription":"Models within this group: Gemini Flash, Gemini Pro"`) {
 		t.Fatalf("expected upstream group description on normalized rows, got %s", encodedRows)
 	}
-	weekly := findQuotaRow(t, rows, "bucket.gemini-weekly")
+	weekly := findQuotaRow(t, rows, "bucket.antigravity-gemini-models.gemini-weekly")
 	assertQuotaText(t, weekly, "Weekly", "quota_group", "weekly")
 	assertFloatField(t, weekly.RemainingFraction, 0.9, "weekly remainingFraction")
 	assertIntField(t, weekly.Window.Seconds, 604800, "weekly window seconds")
-	exhausted := findQuotaRow(t, rows, "bucket.3p-5h")
+	exhausted := findQuotaRow(t, rows, "bucket.antigravity-claude-and-gpt-models.3p-5h")
 	assertFloatField(t, exhausted.RemainingFraction, 0, "exhausted remainingFraction")
-	if exhausted.GroupKey != "antigravity-group-2" || exhausted.GroupLabel != "Claude and GPT models" {
+	if exhausted.GroupKey != "antigravity-claude-and-gpt-models" || exhausted.GroupLabel != "Claude and GPT models" {
 		t.Fatalf("unexpected exhausted group metadata: %#v", exhausted)
+	}
+}
+
+func TestNormalizeAntigravityQuotaRowsScopesDuplicateBucketIDsByStableGroup(t *testing.T) {
+	remaining := 0.5
+	groups := []quota.AntigravityQuotaGroup{
+		{DisplayName: "Gemini Models", Buckets: []quota.AntigravityQuotaBucket{{BucketID: "shared-5h", Window: "5h", RemainingFraction: &remaining}}},
+		{DisplayName: "Claude and GPT models", Buckets: []quota.AntigravityQuotaBucket{{BucketID: "shared-5h", Window: "5h", RemainingFraction: &remaining}}},
+	}
+	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "antigravity", Result: quota.AntigravityResult{Quota: &quota.AntigravityQuotaPayload{Groups: groups}}})
+
+	if len(rows) != 2 || rows[0].Key == rows[1].Key {
+		t.Fatalf("expected unique cross-group row keys, got %#v", rows)
+	}
+	if rows[0].Key != "bucket.antigravity-gemini-models.shared-5h" || rows[1].Key != "bucket.antigravity-claude-and-gpt-models.shared-5h" {
+		t.Fatalf("expected stable group-scoped bucket keys, got %#v", rows)
+	}
+
+	reversed := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "antigravity", Result: quota.AntigravityResult{Quota: &quota.AntigravityQuotaPayload{Groups: []quota.AntigravityQuotaGroup{groups[1], groups[0]}}}})
+	if reversed[0].Key != rows[1].Key || reversed[1].Key != rows[0].Key {
+		t.Fatalf("expected keys to remain stable after group reorder, got %#v", reversed)
 	}
 }
 

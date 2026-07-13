@@ -289,7 +289,7 @@ func normalizeAntigravityQuotaRows(result AntigravityResult) []QuotaRow {
 	}
 	rows := make([]QuotaRow, 0)
 	for groupIndex, group := range result.Quota.Groups {
-		groupKey := fmt.Sprintf("antigravity-group-%d", groupIndex+1)
+		groupKey := antigravityQuotaGroupKey(group.DisplayName, groupIndex)
 		groupLabel := firstNonEmpty(group.DisplayName, fmt.Sprintf("Quota Group %d", groupIndex+1))
 		groupRows := make([]QuotaRow, 0, len(group.Buckets))
 		for bucketIndex, bucket := range group.Buckets {
@@ -299,7 +299,7 @@ func normalizeAntigravityQuotaRows(result AntigravityResult) []QuotaRow {
 			label, metric, window := normalizeAntigravityQuotaWindow(bucket)
 			bucketKey := firstNonEmpty(bucket.BucketID, fmt.Sprintf("group-%d-bucket-%d", groupIndex+1, bucketIndex+1))
 			groupRows = append(groupRows, QuotaRow{
-				Key:               "bucket." + bucketKey,
+				Key:               "bucket." + groupKey + "." + bucketKey,
 				Label:             label,
 				Scope:             "quota_group",
 				Metric:            metric,
@@ -317,6 +317,28 @@ func normalizeAntigravityQuotaRows(result AntigravityResult) []QuotaRow {
 		rows = append(rows, groupRows...)
 	}
 	return rows
+}
+
+func antigravityQuotaGroupKey(displayName string, groupIndex int) string {
+	var normalized strings.Builder
+	pendingSeparator := false
+	for _, value := range strings.ToLower(strings.TrimSpace(displayName)) {
+		if (value >= 'a' && value <= 'z') || (value >= '0' && value <= '9') {
+			if pendingSeparator && normalized.Len() > 0 {
+				normalized.WriteByte('-')
+			}
+			normalized.WriteRune(value)
+			pendingSeparator = false
+			continue
+		}
+		if normalized.Len() > 0 {
+			pendingSeparator = true
+		}
+	}
+	if normalized.Len() == 0 {
+		return fmt.Sprintf("antigravity-group-%d", groupIndex+1)
+	}
+	return "antigravity-" + normalized.String()
 }
 
 func normalizeAntigravityQuotaWindow(bucket AntigravityQuotaBucket) (string, string, *QuotaWindow) {
