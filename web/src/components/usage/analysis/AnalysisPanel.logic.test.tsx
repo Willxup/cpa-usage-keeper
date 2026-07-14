@@ -1032,7 +1032,7 @@ describe('AnalysisPanel token chart data', () => {
     expect(darkPluginColors).not.toHaveProperty('guideText');
   });
 
-  it('renders cost breakdown with total beside blended rate, segment percentages and sparkline', () => {
+  it('renders cost breakdown with total tokens, total cost, blended rate and segment percentages', () => {
     const analysis: AnalysisResponse = {
       ...emptyAnalysis,
       timezone: 'Asia/Shanghai',
@@ -1061,10 +1061,8 @@ describe('AnalysisPanel token chart data', () => {
     const markup = renderToStaticMarkup(<AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} />);
 
     expect(markup).not.toContain('costHeaderTotal');
-    expect(markup).toContain('costRateMetric');
     expect(markup).toContain('usage_stats.analysis_cost_per_million_tokens');
     expect(markup).toContain('usage_stats.analysis_blended_rate');
-    expect(markup.indexOf('usage_stats.total_cost')).toBeLessThan(markup.indexOf('usage_stats.analysis_cost_per_million_tokens'));
     expect(markup).toContain('--cost-segment-color:#2563eb');
     expect(markup).toContain('--cost-segment-color:#16a34a');
     expect(markup).toContain('--cost-segment-color:#d97706');
@@ -1079,14 +1077,8 @@ describe('AnalysisPanel token chart data', () => {
     expect(markup).not.toContain('title="usage_stats.input_tokens · usage_stats.analysis_cost_share');
     expect(markup).toContain('usage_stats.analysis_cost_per_million_tokens: $2.50');
     expect(markup).toContain('usage_stats.total_tokens: 400.00K');
-    expect(markup).toContain('usage_stats.analysis_cost_rate_sparkline_hint');
-    expect(markup).toContain('usage_stats.analysis_cost_per_million_tokens: $2.00');
-    expect(markup).toContain('usage_stats.total_cost: $6.00');
-    expect(markup).toContain('usage_stats.total_tokens: 3.00M');
+    expect(markup).toContain('<span>usage_stats.total_tokens</span><strong>3.00M</strong>');
     expect(chartCapture.barData?.labels).toEqual(['09:00']);
-    expect(markup).toContain('aria-label="09:00, usage_stats.analysis_cost_per_million_tokens: $2.00, usage_stats.total_cost: $6.00, usage_stats.total_tokens: 3.00M"');
-    expect(markup).toContain('class="_costRateSparkBar_');
-    expect(markup).toContain('tabindex="0"');
     expect(markup).toContain('$6.00');
     expect(markup).toContain('$2.00');
     expect(markup).toContain('16.67%');
