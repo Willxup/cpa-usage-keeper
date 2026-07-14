@@ -87,12 +87,6 @@ type CostBreakdownSegment = {
   color: string;
   tokens: number;
 };
-type CostRatePoint = {
-  label: string;
-  rate: number;
-  cost: number;
-  tokens: number;
-};
 type ModelEfficiencyColor = {
   base: string;
   light: string;
@@ -1440,15 +1434,6 @@ function CostBreakdownCard({ breakdown, rows, loading }: { breakdown: AnalysisCo
   const segmentTokens = getCostSegmentTokens(rows);
   const costAvailable = safeBreakdown.cost_available !== false;
   const blendedRate = getCostRatePerMillion(totalCost, totalTokens);
-  const ratePoints: CostRatePoint[] = rows
-    .filter((row) => row.total > 0)
-    .map((row) => ({
-      label: row.label,
-      rate: getCostRatePerMillion(row.cost, row.total),
-      cost: row.cost,
-      tokens: row.total,
-    }));
-  const rateMax = Math.max(0, ...ratePoints.map((point) => point.rate));
   const segments: CostBreakdownSegment[] = [
     { key: 'input', label: t('usage_stats.input_tokens'), value: toNumber(safeBreakdown.uncached_input_cost_usd), color: TOKEN_COLORS.input.base, tokens: segmentTokens.input },
     { key: 'cacheRead', label: t('usage_stats.cache_read_tokens'), value: toNumber(safeBreakdown.cache_read_cost_usd), color: TOKEN_COLORS.cacheRead.base, tokens: segmentTokens.cacheRead },
@@ -1463,13 +1448,6 @@ function CostBreakdownCard({ breakdown, rows, loading }: { breakdown: AnalysisCo
     `${t('usage_stats.total_tokens')}: ${formatCompactNumber(segment.tokens)}`,
     `${t('usage_stats.analysis_cost_per_million_tokens')}: ${formatUsd(getCostRatePerMillion(segment.value, segment.tokens))}`,
   ];
-  const buildRateTooltipLines = (point: CostRatePoint) => [
-    point.label,
-    `${t('usage_stats.analysis_cost_per_million_tokens')}: ${formatUsd(point.rate)}`,
-    `${t('usage_stats.total_cost')}: ${formatUsd(point.cost)}`,
-    `${t('usage_stats.total_tokens')}: ${formatCompactNumber(point.tokens)}`,
-  ];
-  const sparklineHint = t('usage_stats.analysis_cost_rate_sparkline_hint');
   const showCostTooltip = (
     lines: string[],
     event: MouseEvent<HTMLSpanElement> | FocusEvent<HTMLSpanElement>,
@@ -1544,6 +1522,10 @@ function CostBreakdownCard({ breakdown, rows, loading }: { breakdown: AnalysisCo
           ) : null}
           <div className={styles.costRatePanel}>
             <div className={styles.costRateMetric}>
+              <span>{t('usage_stats.total_tokens')}</span>
+              <strong>{formatCompactNumber(totalTokens)}</strong>
+            </div>
+            <div className={styles.costRateMetric}>
               <span>{t('usage_stats.total_cost')}</span>
               <strong>{formatUsd(totalCost)}</strong>
             </div>
@@ -1551,25 +1533,6 @@ function CostBreakdownCard({ breakdown, rows, loading }: { breakdown: AnalysisCo
               <span>{t('usage_stats.analysis_cost_per_million_tokens')}</span>
               <strong>{formatUsd(blendedRate)}</strong>
               <small>{t('usage_stats.analysis_blended_rate')}</small>
-            </div>
-            <div className={styles.costRateSparkline} aria-label={sparklineHint} title={sparklineHint}>
-              {ratePoints.length === 0 ? (
-                <span className={styles.costRateSparkEmpty} />
-              ) : ratePoints.slice(-12).map((point, index) => {
-                const tooltipLines = buildRateTooltipLines(point);
-                const tooltip = tooltipLines.join('\n');
-                const ariaLabel = tooltipLines.join(', ');
-                return (
-                  <span
-                    key={`${index}-${point.label}-${point.rate}`}
-                    className={styles.costRateSparkBar}
-                    style={{ height: `${Math.max(12, rateMax > 0 ? (point.rate / rateMax) * 100 : 0)}%` }}
-                    title={tooltip}
-                    aria-label={ariaLabel}
-                    tabIndex={0}
-                  />
-                );
-              })}
             </div>
           </div>
           <div className={styles.costMetricGrid}>
