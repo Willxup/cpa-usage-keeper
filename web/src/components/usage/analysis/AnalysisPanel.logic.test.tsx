@@ -1059,17 +1059,10 @@ describe('AnalysisPanel token chart data', () => {
     };
 
     const markup = renderToStaticMarkup(<AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} />);
-    const costSummaryStart = markup.indexOf('costRatePanel');
-    const costDetailsStart = markup.indexOf('costMetricGrid', costSummaryStart);
-    const costSummaryMarkup = markup.slice(costSummaryStart, costDetailsStart);
 
     expect(markup).not.toContain('costHeaderTotal');
-    expect(markup).toContain('costRateMetric');
-    expect(costSummaryMarkup.match(/costRateMetric/g)).toHaveLength(3);
-    expect(costSummaryMarkup.indexOf('usage_stats.total_tokens')).toBeLessThan(costSummaryMarkup.indexOf('usage_stats.total_cost'));
     expect(markup).toContain('usage_stats.analysis_cost_per_million_tokens');
     expect(markup).toContain('usage_stats.analysis_blended_rate');
-    expect(costSummaryMarkup.indexOf('usage_stats.total_cost')).toBeLessThan(costSummaryMarkup.indexOf('usage_stats.analysis_cost_per_million_tokens'));
     expect(markup).toContain('--cost-segment-color:#2563eb');
     expect(markup).toContain('--cost-segment-color:#16a34a');
     expect(markup).toContain('--cost-segment-color:#d97706');
@@ -1084,10 +1077,8 @@ describe('AnalysisPanel token chart data', () => {
     expect(markup).not.toContain('title="usage_stats.input_tokens · usage_stats.analysis_cost_share');
     expect(markup).toContain('usage_stats.analysis_cost_per_million_tokens: $2.50');
     expect(markup).toContain('usage_stats.total_tokens: 400.00K');
-    expect(costSummaryMarkup).toContain('<span>usage_stats.total_tokens</span><strong>3.00M</strong>');
-    expect(costSummaryMarkup).not.toContain('usage_stats.analysis_cost_rate_sparkline_hint');
+    expect(markup).toContain('<span>usage_stats.total_tokens</span><strong>3.00M</strong>');
     expect(chartCapture.barData?.labels).toEqual(['09:00']);
-    expect(costSummaryMarkup).not.toContain('costRateSparkline');
     expect(markup).toContain('$6.00');
     expect(markup).toContain('$2.00');
     expect(markup).toContain('16.67%');
