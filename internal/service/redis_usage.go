@@ -43,6 +43,7 @@ type queuedUsageDetail struct {
 	AuthIndex           string          `json:"auth_index"`
 	Tokens              dto.TokenStats  `json:"tokens"`
 	Failed              bool            `json:"failed"`
+	Generate            *bool           `json:"generate"`
 	Provider            string          `json:"provider"`
 	Model               string          `json:"model"`
 	Alias               *string         `json:"alias"`
@@ -76,6 +77,27 @@ func trimRedisOptionalString(value *string) *string {
 	return &trimmed
 }
 
+func normalizeRedisGenerate(value *bool, failed bool, executorType string, tokens dto.TokenStats) *bool {
+	generate := true
+	if value != nil {
+		generate = *value
+	} else if !failed && strings.TrimSpace(executorType) == "CodexWebsocketsExecutor" && redisTokenStatsAllZero(tokens) {
+		// 旧版 CPA 没有 generate；只把成功的 WebSocket 全零 token 消息兼容为预热。
+		generate = false
+	}
+	return &generate
+}
+
+func redisTokenStatsAllZero(tokens dto.TokenStats) bool {
+	return tokens.InputTokens == 0 &&
+		tokens.OutputTokens == 0 &&
+		tokens.ReasoningTokens == 0 &&
+		tokens.CachedTokens == 0 &&
+		tokens.CacheReadTokens == 0 &&
+		tokens.CacheCreationTokens == 0 &&
+		tokens.TotalTokens == 0
+}
+
 // toUsageEvent 保持 Redis payload 的 model/request_id 语义，缺失时间才用本地拉取时间兜底。
 func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent {
 	apiGroupKey := firstNonEmpty(d.APIKey, d.Provider, d.Endpoint, "unknown")
@@ -104,6 +126,7 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 		Source:              source,
 		AuthIndex:           authIndex,
 		Failed:              d.Failed,
+		Generate:            normalizeRedisGenerate(d.Generate, d.Failed, d.ExecutorType, d.Tokens),
 		LatencyMS:           max(d.LatencyMS, 0),
 		TTFTMS:              d.TTFTMS,
 		InputTokens:         d.Tokens.InputTokens,

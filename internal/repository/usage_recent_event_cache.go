@@ -48,6 +48,8 @@ type RecentUsageEvent struct {
 	IdentityFallbackLabel string
 	// Failed 保留请求成功状态，realtime 请求水平统计需要成功和失败总量。
 	Failed bool
+	// Generate 标记请求是否要求实际生成；预热事件只保留请求计数，不参与延迟分布。
+	Generate bool
 	// LatencyMS 保留响应耗时样本，用于 Response Level 滑动聚合。
 	LatencyMS int64
 	// TTFTMS 保留可空首 token 延迟样本，用指针区分缺失和 0。
@@ -110,6 +112,7 @@ type recentUsageEventLoadRow struct {
 	Source              string
 	AuthIndex           string
 	Failed              bool
+	Generate            bool
 	LatencyMS           int64
 	TTFTMS              *int64 `gorm:"column:ttft_ms"`
 	InputTokens         int64
@@ -322,6 +325,7 @@ func (c *UsageRecentEventCache) appendEvents(events []entities.UsageEvent) {
 			Source:              event.Source,
 			AuthIndex:           event.AuthIndex,
 			Failed:              event.Failed,
+			Generate:            usageEventGenerateEnabled(event.Generate),
 			LatencyMS:           event.LatencyMS,
 			TTFTMS:              cloneInt64Ptr(event.TTFTMS),
 			InputTokens:         event.InputTokens,
@@ -432,7 +436,7 @@ func loadUsageRecentEventCacheRows(db *gorm.DB, start time.Time) ([]recentUsageE
 	var rows []recentUsageEventLoadRow
 	// 只 select 最近缓存和 realtime 必需字段，避免大字段进入 70 分钟内存窗口。
 	if err := db.Model(&entities.UsageEvent{}).
-		Select("api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens").
+		Select("api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens").
 		// 启动加载只取 retention 左边界之后的数据。
 		Where("timestamp >= ?", timeutil.FormatStorageTime(start)).
 		// 按时间排序让后续剪枝和调试输出更直观。
@@ -466,6 +470,7 @@ func (c *UsageRecentEventCache) recentEventFromRowLocked(row recentUsageEventLoa
 		IdentityFallbackKind:  identityKind,
 		IdentityFallbackLabel: c.pool.intern(fallbackLabel),
 		Failed:                row.Failed,
+		Generate:              row.Generate,
 		LatencyMS:             row.LatencyMS,
 		TTFTMS:                cloneInt64Ptr(row.TTFTMS),
 		InputTokens:           row.InputTokens,
@@ -579,6 +584,7 @@ func cloneUsageEventsForRecentCache(events []entities.UsageEvent) []entities.Usa
 		result[index] = events[index]
 		// 指针字段需要深拷贝避免跨 goroutine 共享。
 		result[index].ModelAlias = cloneStringPtr(events[index].ModelAlias)
+		result[index].Generate = cloneBoolPtr(events[index].Generate)
 		result[index].TTFTMS = cloneInt64Ptr(events[index].TTFTMS)
 	}
 	return result
@@ -590,14 +596,24 @@ func cloneRecentUsageEvent(event RecentUsageEvent) RecentUsageEvent {
 	return event
 }
 
+func cloneBoolPtr(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
 func recentUsageEventToEntity(event RecentUsageEvent) entities.UsageEvent {
 	// Overview 聚合已有实体处理函数，这里把缓存投影还原成最小 UsageEvent。
+	generate := event.Generate
 	result := entities.UsageEvent{
 		APIGroupKey:         event.APIGroupKey,
 		Model:               event.Model,
 		Timestamp:           event.Timestamp,
 		AuthIndex:           event.AuthIndex,
 		Failed:              event.Failed,
+		Generate:            &generate,
 		LatencyMS:           event.LatencyMS,
 		TTFTMS:              cloneInt64Ptr(event.TTFTMS),
 		InputTokens:         event.InputTokens,

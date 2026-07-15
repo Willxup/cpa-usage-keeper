@@ -20,7 +20,7 @@ const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, req
 const analysisLatencyMaxDisplayPoints = 2500
 
 // usageOverviewRawEventProjectionColumns 是 Overview 边界补偿和 realtime DB 兜底的最小事件投影。
-const usageOverviewRawEventProjectionColumns = "api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+const usageOverviewRawEventProjectionColumns = "api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
 
 // usageEventProjection 是 usage_events 轻量投影，专门承接 select columns 的查询结果。
 type usageEventProjection struct {
@@ -40,6 +40,7 @@ type usageEventProjection struct {
 	Source              string
 	AuthIndex           string
 	Failed              bool
+	Generate            *bool
 	LatencyMS           int64
 	TTFTMS              *int64 `gorm:"column:ttft_ms"`
 	InputTokens         int64
@@ -299,6 +300,7 @@ func usageEventProjectionToEntity(event usageEventProjection) entities.UsageEven
 		Source:              event.Source,
 		AuthIndex:           event.AuthIndex,
 		Failed:              event.Failed,
+		Generate:            event.Generate,
 		LatencyMS:           event.LatencyMS,
 		TTFTMS:              event.TTFTMS,
 		InputTokens:         event.InputTokens,
@@ -481,10 +483,11 @@ type analysisIdentityLookup map[entities.UsageIdentityAuthType]map[string]analys
 
 func buildAnalysisLatencyDiagnosticsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (dto.AnalysisLatencyDiagnosticsRecord, error) {
 	empty := emptyAnalysisLatencyDiagnosticsRecord()
-	// 延迟诊断只统计成功请求；TTFT/Latency 有效性仍在内存过滤，避免依赖未索引列。
+	// 延迟诊断只统计要求实际生成的成功请求；TTFT/Latency 有效性仍在内存过滤，避免依赖未索引列。
 	query := db.Model(&entities.UsageEvent{}).
 		Select("latency_ms, ttft_ms").
-		Where("failed = ?", false)
+		Where("failed = ?", false).
+		Where("generate = ?", true)
 	query = applyUsageAnalysisTabQuery(query, filter)
 
 	rows, err := query.Rows()
@@ -1739,7 +1742,7 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, costRe
 			// current usage 的请求数同样包含成功和失败，token 后续只由成功请求累计。
 			applyUsageOverviewRealtimeRequest(realtimeEvent, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage, identityLookup)
 		}
-		if !event.Failed && event.TTFTMS != nil && *event.TTFTMS > 0 && event.LatencyMS > 0 {
+		if !event.Failed && usageEventGenerateEnabled(event.Generate) && event.TTFTMS != nil && *event.TTFTMS > 0 && event.LatencyMS > 0 {
 			// TTFT 和 Latency 共用同一有效请求样本，避免两张响应分布图的统计口径不一致。
 			bucket.ttftSamples = append(bucket.ttftSamples, usageOverviewRealtimeResponseSample{timestamp: timestamp, ms: *event.TTFTMS})
 			bucket.latencySamples = append(bucket.latencySamples, usageOverviewRealtimeResponseSample{timestamp: timestamp, ms: event.LatencyMS})
@@ -1769,6 +1772,10 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, costRe
 
 	// 最后统一把 bucket、percentile 和 Top5 accumulator 映射成 API DTO。
 	return finalizeUsageOverviewRealtime(window, span, start, end, buckets, warmupBucketCount, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage), nil
+}
+
+func usageEventGenerateEnabled(generate *bool) bool {
+	return generate == nil || *generate
 }
 
 func usageOverviewRealtimeWindow(value string) (time.Duration, time.Duration) {
