@@ -135,7 +135,7 @@ type RequestEventRow = {
   model: string;
   modelAlias: string;
   reasoningEffort: string;
-  serviceTier: string;
+  speedMode: string;
   requestType: string;
   endpoint: string;
   sourceRaw: string;
@@ -346,11 +346,13 @@ const formatSpeedTPS = (speedTPS: number | null): string => {
 
 const REQUEST_SPEED_MODE_LABEL_KEYS: Record<string, string> = {
   default: 'usage_stats.speed_mode_standard',
+  standard: 'usage_stats.speed_mode_standard',
   priority: 'usage_stats.speed_mode_fast',
   fast: 'usage_stats.speed_mode_fast',
+  flex: 'usage_stats.speed_mode_flex',
 };
 
-const formatRequestSpeedMode = (rawMode: unknown, t: (key: string) => string): string => {
+const formatResponseSpeedMode = (rawMode: unknown, t: (key: string) => string): string => {
   const value = String(rawMode ?? '').trim();
   if (!value) return '-';
 
@@ -938,7 +940,7 @@ export function RequestEventsDetailsCard({
       const modelAliasValue = String(event.model_alias ?? '').trim();
       const modelAlias = modelAliasValue && modelAliasValue !== modelValue ? modelAliasValue : '-';
       const reasoningEffort = String(event.reasoning_effort ?? '').trim() || '-';
-      const serviceTier = formatRequestSpeedMode(event.service_tier, t);
+      const speedMode = formatResponseSpeedMode(event.response_service_tier, t);
       const endpointFields = parseRequestEndpoint(event.endpoint);
       const inputTokens = Math.max(toNumber(event.tokens?.input_tokens), 0);
       const outputTokens = Math.max(toNumber(event.tokens?.output_tokens), 0);
@@ -964,7 +966,7 @@ export function RequestEventsDetailsCard({
         model,
         modelAlias,
         reasoningEffort,
-        serviceTier,
+        speedMode,
         requestType: endpointFields.requestType,
         endpoint: endpointFields.endpoint,
         sourceRaw: sourceRaw || '-',
@@ -1130,7 +1132,7 @@ export function RequestEventsDetailsCard({
         id: 'service_tier',
         label: t('usage_stats.speed_mode'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.speed_mode')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.serviceTier}</td>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.speedMode}</td>,
       },
       {
         id: 'result',

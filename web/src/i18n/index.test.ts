@@ -126,12 +126,15 @@ describe('i18n resources', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.speed_mode')).toBe('Speed Mode');
     expect(i18n.getResource('en', 'translation', 'usage_stats.speed_mode_standard')).toBe('Standard');
     expect(i18n.getResource('en', 'translation', 'usage_stats.speed_mode_fast')).toBe('Fast');
+    expect(i18n.getResource('en', 'translation', 'usage_stats.speed_mode_flex')).toBe('Flex');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_mode')).toBe('速度模式');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_mode_standard')).toBe('标准');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_mode_fast')).toBe('快速');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_mode_flex')).toBe('弹性');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_mode')).toBe('速度模式');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_mode_standard')).toBe('標準');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_mode_fast')).toBe('快速');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_mode_flex')).toBe('彈性');
   });
 
   it('keeps Analysis heatmap copy focused on hover details', () => {

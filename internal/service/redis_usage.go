@@ -36,24 +36,25 @@ func DecodeRedisUsageMessageWithHeaders(message string, fetchedAt time.Time) (en
 
 // queuedUsageDetail 对应 CPA Redis 队列中的单条 usage JSON payload。
 type queuedUsageDetail struct {
-	Timestamp       time.Time       `json:"timestamp"`
-	LatencyMS       int64           `json:"latency_ms"`
-	TTFTMS          *int64          `json:"ttft_ms"`
-	Source          string          `json:"source"`
-	AuthIndex       string          `json:"auth_index"`
-	Tokens          dto.TokenStats  `json:"tokens"`
-	Failed          bool            `json:"failed"`
-	Provider        string          `json:"provider"`
-	Model           string          `json:"model"`
-	Alias           *string         `json:"alias"`
-	ReasoningEffort string          `json:"reasoning_effort"`
-	ServiceTier     string          `json:"service_tier"`
-	ExecutorType    string          `json:"executor_type"`
-	Endpoint        string          `json:"endpoint"`
-	AuthType        string          `json:"auth_type"`
-	APIKey          string          `json:"api_key"`
-	RequestID       string          `json:"request_id"`
-	ResponseHeaders json.RawMessage `json:"response_headers"`
+	Timestamp           time.Time       `json:"timestamp"`
+	LatencyMS           int64           `json:"latency_ms"`
+	TTFTMS              *int64          `json:"ttft_ms"`
+	Source              string          `json:"source"`
+	AuthIndex           string          `json:"auth_index"`
+	Tokens              dto.TokenStats  `json:"tokens"`
+	Failed              bool            `json:"failed"`
+	Provider            string          `json:"provider"`
+	Model               string          `json:"model"`
+	Alias               *string         `json:"alias"`
+	ReasoningEffort     string          `json:"reasoning_effort"`
+	ServiceTier         string          `json:"service_tier"`
+	ResponseServiceTier string          `json:"response_service_tier"`
+	ExecutorType        string          `json:"executor_type"`
+	Endpoint            string          `json:"endpoint"`
+	AuthType            string          `json:"auth_type"`
+	APIKey              string          `json:"api_key"`
+	RequestID           string          `json:"request_id"`
+	ResponseHeaders     json.RawMessage `json:"response_headers"`
 }
 
 func normalizeRedisAuthType(value string) string {
@@ -97,6 +98,7 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 		ModelAlias:          trimRedisOptionalString(d.Alias),
 		ReasoningEffort:     strings.TrimSpace(d.ReasoningEffort),
 		ServiceTier:         strings.TrimSpace(d.ServiceTier),
+		ResponseServiceTier: strings.TrimSpace(d.ResponseServiceTier),
 		ExecutorType:        strings.TrimSpace(d.ExecutorType),
 		Timestamp:           timestamp,
 		Source:              source,

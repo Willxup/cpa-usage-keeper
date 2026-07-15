@@ -16,7 +16,7 @@ import (
 )
 
 // usageEventProjectionColumns 限制 usage_events 查询列，避免 Overview 和列表页把 RawJSON 等大字段读入内存。
-const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, request_id, model, model_alias, reasoning_effort, service_tier, executor_type, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, request_id, model, model_alias, reasoning_effort, service_tier, response_service_tier, executor_type, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
 const analysisLatencyMaxDisplayPoints = 2500
 
 // usageOverviewRawEventProjectionColumns 是 Overview 边界补偿和 realtime DB 兜底的最小事件投影。
@@ -33,6 +33,7 @@ type usageEventProjection struct {
 	ModelAlias          *string `gorm:"column:model_alias"`
 	ReasoningEffort     string
 	ServiceTier         string
+	ResponseServiceTier string
 	ExecutorType        string
 	Endpoint            string
 	Timestamp           time.Time
@@ -243,6 +244,7 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 		}(),
 		ReasoningEffort:     strings.TrimSpace(event.ReasoningEffort),
 		ServiceTier:         strings.TrimSpace(event.ServiceTier),
+		ResponseServiceTier: strings.TrimSpace(event.ResponseServiceTier),
 		ExecutorType:        strings.TrimSpace(event.ExecutorType),
 		Endpoint:            strings.TrimSpace(event.Endpoint),
 		AuthType:            strings.TrimSpace(event.AuthType),
@@ -290,6 +292,7 @@ func usageEventProjectionToEntity(event usageEventProjection) entities.UsageEven
 		ModelAlias:          event.ModelAlias,
 		ReasoningEffort:     event.ReasoningEffort,
 		ServiceTier:         event.ServiceTier,
+		ResponseServiceTier: event.ResponseServiceTier,
 		ExecutorType:        event.ExecutorType,
 		Endpoint:            event.Endpoint,
 		Timestamp:           event.Timestamp,
