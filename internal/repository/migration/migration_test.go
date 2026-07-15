@@ -65,6 +65,7 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260702_create_app_settings",
 		"20260710_backfill_cache_read_tokens",
 		"20260711_add_usage_identity_xai_user_id",
+		"20260715_add_usage_event_response_service_tier",
 	}
 	assertStringSlicesEqual(t, want, got)
 }

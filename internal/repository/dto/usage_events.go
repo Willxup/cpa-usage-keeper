@@ -26,6 +26,7 @@ type UsageEventRecord struct {
 	ModelAlias          string
 	ReasoningEffort     string
 	ServiceTier         string
+	ResponseServiceTier string
 	ExecutorType        string
 	Endpoint            string
 	AuthType            string

@@ -18,7 +18,8 @@ const events: UsageEvent[] = [
     api_key: 'Production Key',
     model: 'claude-sonnet',
     reasoning_effort: 'medium',
-    service_tier: 'priority',
+    service_tier: 'auto',
+    response_service_tier: 'priority',
     endpoint: 'POST /v1/messages',
     source: 'Provider A',
     source_raw: 'source-a',
@@ -113,19 +114,22 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('disabled');
   });
 
-  it('maps request speed mode values and falls back for missing values', () => {
+  it('maps response speed mode values without falling back to the request tier', () => {
     const html = renderCard({
       events: [
-        { ...events[0], id: 'default', service_tier: 'default' },
-        { ...events[0], id: 'priority', service_tier: 'priority' },
-        { ...events[0], id: 'fast', service_tier: 'fast' },
-        { ...events[0], id: 'empty', service_tier: '' },
-        { ...events[0], id: 'unknown', service_tier: 'batch' },
+        { ...events[0], id: 'default', service_tier: 'auto', response_service_tier: 'default' },
+        { ...events[0], id: 'standard', service_tier: 'auto', response_service_tier: 'standard' },
+        { ...events[0], id: 'priority', service_tier: 'auto', response_service_tier: 'priority' },
+        { ...events[0], id: 'fast', service_tier: 'auto', response_service_tier: 'fast' },
+        { ...events[0], id: 'flex', service_tier: 'auto', response_service_tier: 'flex' },
+        { ...events[0], id: 'empty', service_tier: 'priority', response_service_tier: '' },
+        { ...events[0], id: 'unknown', service_tier: 'auto', response_service_tier: 'batch' },
       ],
     });
 
-    expect(html).toContain('Standard');
+    expect(countOccurrences(html, '>Standard</td>')).toBe(2);
     expect(countOccurrences(html, '>Fast</td>')).toBe(2);
+    expect(html).toContain('>Flex</td>');
     expect(html).toMatch(/medium<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">-<\/td><td class="[^"]*requestEventsNoWrapCell/);
     expect(html).toMatch(/medium<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">batch<\/td><td class="[^"]*requestEventsNoWrapCell/);
   });

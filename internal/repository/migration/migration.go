@@ -55,6 +55,7 @@ const (
 	migrationCreateAppSettings                      = "20260702_create_app_settings"
 	migrationBackfillCacheReadTokens                = "20260710_backfill_cache_read_tokens"
 	migrationAddUsageIdentityXAIUserID              = "20260711_add_usage_identity_xai_user_id"
+	migrationAddUsageEventResponseServiceTier       = "20260715_add_usage_event_response_service_tier"
 )
 
 type schemaMigration struct {
@@ -154,6 +155,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationCreateAppSettings, run: createAppSettingsMigration},
 		{version: migrationBackfillCacheReadTokens, run: backfillCacheReadTokensMigration},
 		{version: migrationAddUsageIdentityXAIUserID, run: addUsageIdentityXAIUserIDMigration},
+		{version: migrationAddUsageEventResponseServiceTier, run: addUsageEventResponseServiceTierMigration},
 	}
 }
 
