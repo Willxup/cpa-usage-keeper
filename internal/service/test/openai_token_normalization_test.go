@@ -122,6 +122,88 @@ func TestProcessRedisUsageInboxBackfillsCodexCacheReadFromCachedTokens(t *testin
 	}
 }
 
+func TestProcessRedisUsageInboxPreservesCanonicalZeroCacheRead(t *testing.T) {
+	db := openOpenAITokenNormalizationTestDatabase(t)
+	_, err := repository.InsertRedisUsageInboxMessages(db, []repodto.RedisInboxInsert{{
+		Source: "usage",
+		RawMessage: `{
+			"timestamp":"2026-07-15T08:00:00Z",
+			"provider":"OpenAI Compatible",
+			"auth_type":"api_key",
+			"auth_index":"canonical-zero-auth-index",
+			"model":"gpt-5.4",
+			"request_id":"canonical-zero-cache-read",
+			"executor_type":"OpenAICompatExecutor",
+			"tokens":{
+				"input_tokens":100,
+				"output_tokens":20,
+				"cached_tokens":30,
+				"cache_read_tokens":0,
+				"cache_read_tokens_present":true,
+				"total_tokens":120
+			}
+		}`,
+		PoppedAt: time.Date(2026, 7, 15, 8, 0, 0, 0, time.UTC),
+	}})
+	if err != nil {
+		t.Fatalf("seed inbox row: %v", err)
+	}
+	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com"})
+
+	result, err := syncService.ProcessRedisUsageInbox(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
+	}
+	if result == nil || result.InsertedEvents != 1 {
+		t.Fatalf("expected one inserted event, got %+v", result)
+	}
+	event := loadOpenAITokenNormalizationEvent(t, db, "canonical-zero-cache-read")
+	if event.CachedTokens != 30 || event.CacheReadTokens != 0 {
+		t.Fatalf("expected canonical zero cache read to remain zero, got %+v", event)
+	}
+}
+
+func TestProcessRedisUsageInboxBackfillsCustomCacheReadDespiteQueuePresence(t *testing.T) {
+	db := openOpenAITokenNormalizationTestDatabase(t)
+	_, err := repository.InsertRedisUsageInboxMessages(db, []repodto.RedisInboxInsert{{
+		Source: "usage",
+		RawMessage: `{
+			"timestamp":"2026-07-15T08:00:00Z",
+			"provider":"External Provider",
+			"auth_type":"api_key",
+			"auth_index":"external-auth-index",
+			"model":"external-model",
+			"request_id":"custom-cache-read-fallback",
+			"executor_type":"ExternalExecutor",
+			"tokens":{
+				"input_tokens":100,
+				"output_tokens":20,
+				"cached_tokens":30,
+				"cache_read_tokens":0,
+				"cache_read_tokens_present":true,
+				"total_tokens":120
+			}
+		}`,
+		PoppedAt: time.Date(2026, 7, 15, 8, 0, 0, 0, time.UTC),
+	}})
+	if err != nil {
+		t.Fatalf("seed inbox row: %v", err)
+	}
+	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com"})
+
+	result, err := syncService.ProcessRedisUsageInbox(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
+	}
+	if result == nil || result.InsertedEvents != 1 {
+		t.Fatalf("expected one inserted event, got %+v", result)
+	}
+	event := loadOpenAITokenNormalizationEvent(t, db, "custom-cache-read-fallback")
+	if event.CachedTokens != 30 || event.CacheReadTokens != 30 {
+		t.Fatalf("expected custom executor cached tokens to backfill cache read despite queue presence, got %+v", event)
+	}
+}
+
 func TestProcessRedisUsageInboxUsesDefaultTokensWhenUsageIdentityMissing(t *testing.T) {
 	db := openOpenAITokenNormalizationTestDatabase(t)
 	_, err := repository.InsertRedisUsageInboxMessages(db, []repodto.RedisInboxInsert{{

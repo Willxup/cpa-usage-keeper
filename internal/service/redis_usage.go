@@ -109,6 +109,7 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 		ReasoningTokens:     d.Tokens.ReasoningTokens,
 		CachedTokens:        d.Tokens.CachedTokens,
 		CacheReadTokens:     d.Tokens.CacheReadTokens,
+		CacheReadPresent:    d.Tokens.CacheReadPresent,
 		CacheCreationTokens: d.Tokens.CacheCreationTokens,
 		TotalTokens:         d.Tokens.TotalTokens,
 	}

@@ -541,6 +541,7 @@ func tokenValuesFromUsageEvent(event entities.UsageEvent) tokenprocessor.TokenVa
 		ReasoningTokens:     event.ReasoningTokens,
 		CachedTokens:        event.CachedTokens,
 		CacheReadTokens:     event.CacheReadTokens,
+		CacheReadPresent:    event.CacheReadPresent,
 		CacheCreationTokens: event.CacheCreationTokens,
 		TotalTokens:         event.TotalTokens,
 	}

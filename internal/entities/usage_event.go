@@ -27,6 +27,7 @@ type UsageEvent struct {
 	ReasoningTokens     int64
 	CachedTokens        int64
 	CacheReadTokens     int64 `gorm:"not null;default:0"`
+	CacheReadPresent    bool  `gorm:"-" json:"-"` // 仅在 Redis 入库归一化期间区分 CPA canonical zero 与旧 payload。
 	CacheCreationTokens int64 `gorm:"not null;default:0"`
 	TotalTokens         int64
 	CreatedAt           time.Time `gorm:"serializer:storageTime"`

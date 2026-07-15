@@ -47,6 +47,7 @@ type TokenValues struct {
 	ReasoningTokens     int64
 	CachedTokens        int64
 	CacheReadTokens     int64
+	CacheReadPresent    bool
 	CacheCreationTokens int64
 	TotalTokens         int64
 }

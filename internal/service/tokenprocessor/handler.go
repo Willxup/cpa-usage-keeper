@@ -63,6 +63,10 @@ func normalizeNonClaudeCacheRead(context normalizationContext) (TokenValues, []A
 		// 损坏的显式 read 不能被 cached 覆盖，否则会把 clamp 伪装成“字段缺失”的正常 alias。
 		return tokens, nil, []Violation{{Code: ViolationAmbiguousTotalMismatch, Fields: []string{"cached_tokens", "cache_read_tokens"}, Reason: "cache read alias depends on a clamped read field"}}
 	}
+	if tokens.CacheReadPresent && context.resolution.evidenceStrength == EvidenceParserContract {
+		// 只有已登记 CPA executor 的 parser 合同能证明显式零值是 canonical；custom/unknown 仍需 legacy 兜底。
+		return tokens, nil, nil
+	}
 	// 非 Claude 只有在显式 read 缺失时才允许 legacy cached 单向回填，避免覆盖更精确的 read。
 	if tokens.CacheReadTokens != 0 || tokens.CachedTokens <= 0 {
 		return tokens, nil, nil
