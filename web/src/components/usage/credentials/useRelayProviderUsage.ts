@@ -99,9 +99,9 @@ export function useRelayProviderUsage(identityIds: string[]): UseRelayProviderUs
   // 用 join 串作依赖，避免数组引用抖动导致重复请求；usage 只对匹配中转商的凭证真正请求外部接口。
   const idsKey = identityIds.join(',')
   useEffect(() => {
-    void loadAssignments(identityIds)
-    void refreshUsage(identityIds)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const ids = idsKey ? idsKey.split(',') : []
+    void loadAssignments(ids)
+    void refreshUsage(ids)
   }, [idsKey, loadAssignments, refreshUsage])
 
   return {

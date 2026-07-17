@@ -68,11 +68,18 @@ function PlatformSwitcher({ platform, onSelect }: { platform?: string; onSelect:
   const ref = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     if (!open) return
-    const handler = (event: MouseEvent) => {
+    const handleOutsideClick = (event: MouseEvent) => {
       if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false)
     }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
   }, [open])
   const currentLabel = platform && platform !== 'none'
     ? t(`usage_stats.relay_platform_${platform}`)
@@ -116,9 +123,12 @@ function PlatformSwitcher({ platform, onSelect }: { platform?: string; onSelect:
 // 多个窗口的进度条列宽由同一个 grid 统一分配，天然对齐。
 function RelayQuotaCells({ quota }: { quota: DisplayQuota }) {
   const { t } = useTranslation()
-  const percent = quota.barPercent ?? 0
-  const width = `${Math.max(0, Math.min(100, percent))}%`
-  const percentLabel = quota.barPercent === null ? '—' : `${Math.round(quota.barPercent)}%`
+  const percent = quota.percent
+  const width = `${Math.max(0, Math.min(100, quota.barPercent ?? 0))}%`
+  const rawPercent = quota.percent !== null && quota.percent !== undefined
+    ? (quota.percentKind === 'used' ? quota.percent : 100 - quota.percent)
+    : null
+  const percentLabel = rawPercent === null ? '—' : `${Math.round(rawPercent)}%`
   const usageLabel = formatUsedLimit(quota)
   const resetLabel = quota.resetText ? formatQuotaResetDuration(quota.resetText, t) : '—'
   const fillClassName = `${styles.credentialQuotaFill} ${credentialToneClassName('credentialQuotaFill', quota.status)}`.trim()
@@ -194,10 +204,20 @@ function formatCompactQuantity(value: number): string {
   return Number.isFinite(value) ? compactQuantityFormatter.format(value) : '0'
 }
 
+const relayAmountFormatters = new Map<string, Intl.NumberFormat>()
+function getRelayAmountFormatter(currency: string): Intl.NumberFormat {
+  let formatter = relayAmountFormatters.get(currency)
+  if (!formatter) {
+    formatter = new Intl.NumberFormat('zh-CN', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    relayAmountFormatters.set(currency, formatter)
+  }
+  return formatter
+}
+
 function formatRelayAmount(value: number, currency: string): string {
   const amount = Number.isFinite(value) ? value : 0
   try {
-    return new Intl.NumberFormat('zh-CN', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)
+    return getRelayAmountFormatter(currency).format(amount)
   } catch {
     return `${amount.toFixed(2)} ${currency}`
   }

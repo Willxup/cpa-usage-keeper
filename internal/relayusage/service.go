@@ -79,9 +79,13 @@ func (s *Service) GetUsage(ctx context.Context, request UsageRequest) (UsageResp
 		wg.Add(1)
 		go func(i int, identityID string) {
 			defer wg.Done()
-			s.workerSem <- struct{}{}
-			defer func() { <-s.workerSem }()
-			items[i] = s.fetchOne(ctx, identityID, overrides)
+			select {
+			case s.workerSem <- struct{}{}:
+				defer func() { <-s.workerSem }()
+				items[i] = s.fetchOne(ctx, identityID, overrides)
+			case <-ctx.Done():
+				items[i] = UsageItem{IdentityID: identityID, Skipped: ctx.Err().Error()}
+			}
 		}(idx, id)
 	}
 	wg.Wait()
