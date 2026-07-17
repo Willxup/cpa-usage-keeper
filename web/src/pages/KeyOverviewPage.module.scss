@@ -197,23 +197,6 @@
   padding: 8px 0 0;
 }
 
-.toolbarMetaRow {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  padding: 0 2px;
-
-  @include mobile {
-    justify-content: flex-start;
-  }
-}
-
-.lastRefreshed {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  white-space: nowrap;
-}
-
 .toolbarRow {
   display: flex;
   flex-direction: column;

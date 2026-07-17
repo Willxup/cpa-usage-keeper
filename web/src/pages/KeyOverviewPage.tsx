@@ -178,7 +178,6 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
   const [realtimeLoading, setRealtimeLoading] = useState(false);
   const [error, setError] = useState('');
   const [realtimeError, setRealtimeError] = useState('');
-  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
   const [refreshThrottled, setRefreshThrottled] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -211,7 +210,6 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
       if (overviewRequestControllerRef.current !== controller) return;
       setUsage(overview as UsageOverviewResponse as UsageOverviewPayload);
       setLoadedUsageRange(requestRange);
-      setLastRefreshedAt(new Date());
     } catch (nextError) {
       if (controller.signal.aborted) return;
       if (nextError instanceof ApiError && nextError.status === 401) {
@@ -432,14 +430,6 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
                   <LoadingSpinner size={28} className={styles.loadingOverlaySpinner} />
                   <span className={styles.loadingOverlayText}>{t('common.loading')}</span>
                 </div>
-              </div>
-            )}
-
-            {lastRefreshedAt && (
-              <div className={styles.toolbarMetaRow}>
-                <span className={styles.lastRefreshed}>
-                  {t('usage_stats.last_updated')}: {lastRefreshedAt.toLocaleTimeString()}
-                </span>
               </div>
             )}
 

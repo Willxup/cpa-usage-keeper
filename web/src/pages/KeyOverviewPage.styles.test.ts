@@ -13,7 +13,7 @@ describe('KeyOverviewPage layout', () => {
     expect(source.indexOf('className={styles.tabBar}')).toBeLessThan(source.indexOf('className={styles.toolbarActionsRight}'))
     expect(source).toContain('className={styles.timeRangeGroup}')
     expect(source).toContain('className={styles.usageRefreshSlot}')
-    expect(source.indexOf('className={styles.toolbarMetaRow}')).toBeLessThan(source.indexOf('className={styles.toolbarRow}'))
+    expect(source).not.toContain('className={styles.toolbarMetaRow}')
   })
 
   it('does not reload overview data just because language changes', () => {
@@ -64,7 +64,7 @@ describe('KeyOverviewPage layout', () => {
     expect(styles).toMatch(/\.toolbarActionsRight\s*\{[\s\S]*?justify-content:\s*flex-end;/)
     expect(styles).toMatch(/\.timeRangeGroup\s*\{[\s\S]*?border-radius:\s*9999px;/)
     expect(styles).toMatch(/\.rangeSelectControl\s*\{[\s\S]*?width:\s*164px;/)
-    expect(styles).toMatch(/\.lastRefreshed\s*\{[\s\S]*?font-size:\s*11px;/)
+    expect(styles).not.toMatch(/\.(toolbarMetaRow|lastRefreshed)\s*\{/)
   })
 
   it('uses the same soft active tab shadow as the admin usage tabs', () => {

@@ -137,19 +137,10 @@ func TestRouterDoesNotTrustForwardedClientIPByDefault(t *testing.T) {
 }
 
 func TestStatusReturnsPollerState(t *testing.T) {
-	previousLocal := time.Local
-	location, err := time.LoadLocation("Asia/Shanghai")
-	if err != nil {
-		t.Fatalf("load location: %v", err)
-	}
-	t.Cleanup(func() { time.Local = previousLocal })
-	time.Local = location
-
-	lastRunAt := time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC)
 	router := NewRouter(nil, statusStub{status: poller.Status{
 		Running:     true,
 		SyncRunning: false,
-		LastRunAt:   lastRunAt,
+		LastRunAt:   time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC),
 		LastError:   "boom",
 		LastWarning: "metadata unavailable",
 		LastStatus:  "completed_with_warnings",
@@ -163,8 +154,11 @@ func TestStatusReturnsPollerState(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
 	body := resp.Body.String()
-	if !(contains(body, `"running":true`) && contains(body, `"sync_running":false`) && contains(body, `"last_error":"boom"`) && contains(body, `"last_warning":"metadata unavailable"`) && contains(body, `"last_status":"completed_with_warnings"`) && contains(body, `"last_run_at":"2026-04-16T20:00:00+08:00"`)) {
+	if !(contains(body, `"running":true`) && contains(body, `"sync_running":false`) && contains(body, `"last_error":"boom"`) && contains(body, `"last_warning":"metadata unavailable"`) && contains(body, `"last_status":"completed_with_warnings"`)) {
 		t.Fatalf("unexpected response body: %s", body)
+	}
+	if contains(body, `"last_run_at"`) {
+		t.Fatalf("status response must not expose poller last run time: %s", body)
 	}
 }
 
@@ -434,10 +428,8 @@ func TestManualSyncRouteIsNotRegistered(t *testing.T) {
 }
 
 func TestSubpathRoutesOnlyServePrefixedEndpoints(t *testing.T) {
-	lastRunAt := time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC)
 	router := NewRouter(nil, statusStub{status: poller.Status{
-		Running:   true,
-		LastRunAt: lastRunAt,
+		Running: true,
 	}}, nil, nil, AuthConfig{BasePath: "/cpa"}, nil, "/cpa")
 
 	for _, testCase := range []struct {
