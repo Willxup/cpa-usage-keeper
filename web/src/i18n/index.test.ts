@@ -124,16 +124,19 @@ describe('i18n resources', () => {
 
   it('labels the request speed mode column across languages', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.speed_mode')).toBe('Speed Mode');
+    expect(i18n.getResource('en', 'translation', 'usage_stats.response_speed_mode')).toBe('Response Speed Mode');
     expect(i18n.getResource('en', 'translation', 'usage_stats.speed_mode_auto')).toBe('Auto');
     expect(i18n.getResource('en', 'translation', 'usage_stats.speed_mode_standard')).toBe('Standard');
     expect(i18n.getResource('en', 'translation', 'usage_stats.speed_mode_fast')).toBe('Fast');
     expect(i18n.getResource('en', 'translation', 'usage_stats.speed_mode_flex')).toBe('Flex');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_mode')).toBe('速度模式');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.response_speed_mode')).toBe('响应速度模式');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_mode_auto')).toBe('自动');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_mode_standard')).toBe('标准');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_mode_fast')).toBe('快速');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_mode_flex')).toBe('弹性');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_mode')).toBe('速度模式');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.response_speed_mode')).toBe('回應速度模式');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_mode_auto')).toBe('自動');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_mode_standard')).toBe('標準');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_mode_fast')).toBe('快速');

@@ -51,6 +51,7 @@ export const REQUEST_EVENT_COLUMN_IDS = [
   'model_alias',
   'reasoning_effort',
   'service_tier',
+  'response_service_tier',
   'result',
   'request_type',
   'endpoint',
@@ -136,6 +137,7 @@ type RequestEventRow = {
   modelAlias: string;
   reasoningEffort: string;
   speedMode: string;
+  responseSpeedMode: string;
   requestType: string;
   endpoint: string;
   sourceRaw: string;
@@ -942,6 +944,7 @@ export function RequestEventsDetailsCard({
       const modelAlias = modelAliasValue && modelAliasValue !== modelValue ? modelAliasValue : '-';
       const reasoningEffort = String(event.reasoning_effort ?? '').trim() || '-';
       const speedMode = formatSpeedMode(event.service_tier, t);
+      const responseSpeedMode = formatSpeedMode(event.response_service_tier, t);
       const endpointFields = parseRequestEndpoint(event.endpoint);
       const inputTokens = Math.max(toNumber(event.tokens?.input_tokens), 0);
       const outputTokens = Math.max(toNumber(event.tokens?.output_tokens), 0);
@@ -968,6 +971,7 @@ export function RequestEventsDetailsCard({
         modelAlias,
         reasoningEffort,
         speedMode,
+        responseSpeedMode,
         requestType: endpointFields.requestType,
         endpoint: endpointFields.endpoint,
         sourceRaw: sourceRaw || '-',
@@ -1134,6 +1138,12 @@ export function RequestEventsDetailsCard({
         label: t('usage_stats.speed_mode'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.speed_mode')}</th>,
         renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.speedMode}</td>,
+      },
+      {
+        id: 'response_service_tier',
+        label: t('usage_stats.response_speed_mode'),
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.response_speed_mode')}</th>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.responseSpeedMode}</td>,
       },
       {
         id: 'result',

@@ -82,7 +82,7 @@ const DEFAULT_USAGE_TAB: UsageTab = 'overview';
 const USAGE_TAB_STORAGE_KEY = 'cli-proxy-usage-tab-v1';
 const REQUEST_EVENTS_PAGE_SIZES = [20, 50, 100, 500, 1000] as const;
 const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 100;
-const REQUEST_EVENTS_PREFERENCES_VERSION = 5;
+const REQUEST_EVENTS_PREFERENCES_VERSION = 6;
 const ALL_REQUEST_EVENTS_FILTER = '__all__';
 const OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
 export const CUSTOM_DATE_RANGE_BOUNDS_REFRESH_INTERVAL_MS = 60_000;
@@ -199,6 +199,30 @@ const buildDefaultRequestEventsPreferences = (): RequestEventsPreferences => ({
   filters: { ...DEFAULT_REQUEST_EVENT_FILTERS },
   visibleColumnIds: [...REQUEST_EVENT_COLUMN_IDS],
 });
+
+const LEGACY_REQUEST_EVENT_COLUMN_IDS_V5 = [
+  'timestamp',
+  'api_key',
+  'source',
+  'model',
+  'model_alias',
+  'reasoning_effort',
+  'service_tier',
+  'result',
+  'request_type',
+  'endpoint',
+  'ttft',
+  'latency',
+  'speed',
+  'input_tokens',
+  'output_tokens',
+  'reasoning_tokens',
+  'cache_read_tokens',
+  'cache_creation_tokens',
+  'cache_read_rate',
+  'total_tokens',
+  'total_cost',
+] as const;
 
 const LEGACY_REQUEST_EVENT_COLUMN_IDS_V3 = [
   'timestamp',
@@ -359,6 +383,7 @@ const normalizeRequestEventPreferenceColumnIds = (value: unknown, version: unkno
 
   const rawColumnIds = value.filter((columnId): columnId is string => typeof columnId === 'string');
   const legacyFullSelection = version !== REQUEST_EVENTS_PREFERENCES_VERSION && (
+    (version === 5 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V5)) ||
     (version === 4 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V4)) ||
     (version === 3 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V3)) ||
     (version === 2 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V2)) ||

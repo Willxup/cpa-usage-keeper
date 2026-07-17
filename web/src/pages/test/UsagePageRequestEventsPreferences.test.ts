@@ -31,20 +31,32 @@ const LEGACY_V2_FULL_COLUMNS = LEGACY_V3_FULL_COLUMNS.filter((columnId) => colum
 const LEGACY_V1_FULL_COLUMNS = LEGACY_V2_FULL_COLUMNS.filter((columnId) => columnId !== 'service_tier');
 const LEGACY_V4_FULL_COLUMNS = REQUEST_EVENT_COLUMN_IDS.map((columnId) => (
   columnId === 'cache_read_rate' ? 'cache_rate' : columnId
-));
+)).filter((columnId) => columnId !== 'response_service_tier');
 
 describe('UsagePage request event cache column preferences', () => {
-  it('upgrades a v3 full selection to all v5 columns including cache write', () => {
+  it('upgrades a v3 full selection to all v6 columns including cache write', () => {
     const preferences = normalizeRequestEventsPreferences({
       version: 3,
       pageSize: 100,
       visibleColumnIds: LEGACY_V3_FULL_COLUMNS,
     });
 
-    expect(preferences.version).toBe(5);
+    expect(preferences.version).toBe(6);
     expect(preferences.visibleColumnIds).toEqual(REQUEST_EVENT_COLUMN_IDS);
     expect(preferences.visibleColumnIds).toContain('cache_read_tokens');
     expect(preferences.visibleColumnIds).toContain('cache_creation_tokens');
+  });
+
+  it('adds the response speed mode to a v5 full selection', () => {
+    const legacyV5FullColumns = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'response_service_tier');
+    const preferences = normalizeRequestEventsPreferences({
+      version: 5,
+      pageSize: 100,
+      visibleColumnIds: legacyV5FullColumns,
+    });
+
+    expect(preferences.visibleColumnIds).toEqual(REQUEST_EVENT_COLUMN_IDS);
+    expect(preferences.visibleColumnIds).toContain('response_service_tier');
   });
 
   it('upgrades a v4 full selection and maps cache rate to cache read rate', () => {
