@@ -16,4 +16,16 @@ describe('range filter labels', () => {
     expect(i18n.t('usage_stats.range_value_hour', { lng: 'en', count: 5 })).toBe('Hours');
     expect(i18n.t('usage_stats.range_last_hours', { lng: 'en', count: 5 })).toBe('Last 5 hours');
   });
+
+  it('includes custom range actions and labels in every supported language', () => {
+    expect(i18n.getResource('en', 'translation', 'usage_stats.range_custom')).toBe('Custom');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.range_custom')).toBe('自定义');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.range_custom')).toBe('自訂');
+    for (const language of ['en', 'zh', 'zh-TW']) {
+      expect(i18n.getResource(language, 'translation', 'common.apply')).toBeTruthy();
+      expect(i18n.getResource(language, 'translation', 'common.back')).toBeTruthy();
+      expect(i18n.getResource(language, 'translation', 'usage_stats.range_custom_select_days')).toBeTruthy();
+      expect(i18n.getResource(language, 'translation', 'usage_stats.range_custom_select_hours')).toBeTruthy();
+    }
+  });
 });

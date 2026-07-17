@@ -287,12 +287,9 @@ func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageP
 
 func parseKeyOverviewFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
 	query := req.URL.Query()
-	if query.Get("start") != "" || query.Get("end") != "" {
-		return servicedto.UsageFilter{}, fmt.Errorf("custom ranges are not supported")
-	}
 	rangeValue := query.Get("range")
 	_, rollingRange := timeutil.ParseUsageRollingRange(rangeValue)
-	if rangeValue != "today" && rangeValue != "yesterday" && !rollingRange {
+	if rangeValue != "today" && rangeValue != "yesterday" && rangeValue != "custom" && !rollingRange {
 		return servicedto.UsageFilter{}, fmt.Errorf("unsupported key overview range %q", rangeValue)
 	}
 	return parseUsageFilterQuery(req, anchor)

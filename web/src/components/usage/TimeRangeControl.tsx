@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import type { KeyOverviewTimeRange } from '@/lib/types';
+import type { UsageCustomRange, UsageTimeRange } from '@/lib/types';
 import { Modal } from '@/components/ui/Modal';
 import { IconChevronDown, IconTimer } from '@/components/ui/icons';
+import { formatCustomRangeLabel, normalizeCustomRange } from '@/utils/usage/customRange';
 import {
   buildRollingUsageRange,
   parseSelectableUsageRange,
   type UsageTimeRangeMode,
 } from '@/utils/usage/rangeQuery';
+import { CustomRangePanel } from './CustomRangePanel';
 import styles from './TimeRangeControl.module.scss';
 
 type RollingUnit = Extract<UsageTimeRangeMode, 'hour' | 'day'>;
@@ -18,6 +20,7 @@ const MODE_OPTIONS: ReadonlyArray<{ value: UsageTimeRangeMode; labelKey: string 
   { value: 'day', labelKey: 'usage_stats.range_unit_day' },
   { value: 'today', labelKey: 'usage_stats.range_today' },
   { value: 'yesterday', labelKey: 'usage_stats.range_yesterday' },
+  { value: 'custom', labelKey: 'usage_stats.range_custom' },
 ];
 
 const DEFAULT_ROLLING_VALUES: Record<RollingUnit, number> = { hour: 8, day: 7 };
@@ -74,13 +77,36 @@ const LIQUID_PARTICLE_MOTION_CLASSES: Record<LiquidParticleMotion, string> = {
 interface RangePanelProps {
   mode: UsageTimeRangeMode;
   rollingValues: Record<RollingUnit, number>;
+  customRange: UsageCustomRange;
+  customAnchorMs: number;
+  timeZone: string;
+  customEnabled: boolean;
+  locale?: string;
   onModeChange: (mode: UsageTimeRangeMode) => void;
   onRollingValueChange: (unit: RollingUnit, value: number) => void;
   onRollingPointerStart: (unit: RollingUnit, value: number, pointerId: number) => boolean;
   onRollingValueCommit: (unit: RollingUnit, value: number, pointerId?: number) => void;
+  onCustomRangeChange: (value: UsageCustomRange) => void;
+  onCustomApply: () => void;
+  onCustomCancel: () => void;
 }
 
-function TimeRangePanel({ mode, rollingValues, onModeChange, onRollingValueChange, onRollingPointerStart, onRollingValueCommit }: RangePanelProps) {
+function TimeRangePanel({
+  mode,
+  rollingValues,
+  customRange,
+  customAnchorMs,
+  timeZone,
+  customEnabled,
+  locale,
+  onModeChange,
+  onRollingValueChange,
+  onRollingPointerStart,
+  onRollingValueCommit,
+  onCustomRangeChange,
+  onCustomApply,
+  onCustomCancel,
+}: RangePanelProps) {
   const { t } = useTranslation();
   const isRolling = mode === 'hour' || mode === 'day';
   const rollingUnit: RollingUnit = mode === 'day' ? 'day' : 'hour';
@@ -107,6 +133,7 @@ function TimeRangePanel({ mode, rollingValues, onModeChange, onRollingValueChang
             className={mode === option.value ? styles.modeButtonActive : styles.modeButton}
             data-time-range-mode={option.value}
             aria-pressed={mode === option.value}
+            disabled={option.value === 'custom' && !customEnabled}
             onClick={() => onModeChange(option.value)}
           >
             {t(option.labelKey)}
@@ -181,6 +208,16 @@ function TimeRangePanel({ mode, rollingValues, onModeChange, onRollingValueChang
             {ticks.map((tick) => <span key={tick}>{tick}</span>)}
           </div>
         </div>
+      ) : mode === 'custom' ? (
+        <CustomRangePanel
+          value={customRange}
+          timeZone={timeZone}
+          locale={locale}
+          anchorMs={customAnchorMs}
+          onChange={onCustomRangeChange}
+          onApply={onCustomApply}
+          onCancel={onCustomCancel}
+        />
       ) : (
         <div className={styles.naturalDaySummary} data-time-range-natural-summary={mode}>
           <span className={styles.naturalDayIcon} aria-hidden="true">◷</span>
@@ -195,18 +232,29 @@ function TimeRangePanel({ mode, rollingValues, onModeChange, onRollingValueChang
 }
 
 interface TimeRangeControlProps {
-  value: KeyOverviewTimeRange;
-  onChange: (value: KeyOverviewTimeRange) => void;
+  value: UsageTimeRange;
+  customRange?: UsageCustomRange;
+  onChange: (value: UsageTimeRange, customRange?: UsageCustomRange) => void;
   ariaLabel: string;
+  timeZone?: string;
 }
 
-export function TimeRangeControl({ value, onChange, ariaLabel }: TimeRangeControlProps) {
-  const { t } = useTranslation();
+export function TimeRangeControl({ value, customRange, onChange, ariaLabel, timeZone: providedTimeZone }: TimeRangeControlProps) {
+  const { t, i18n } = useTranslation();
+  const timeZone = providedTimeZone?.trim() || 'UTC';
+  const customEnabled = Boolean(providedTimeZone?.trim());
   const parsedRange = parseSelectableUsageRange(value);
-  const mode = parsedRange.mode;
+  const appliedMode: UsageTimeRangeMode = value === 'custom' ? 'custom' : parsedRange.mode;
+  const [pendingMode, setPendingMode] = useState<UsageTimeRangeMode | null>(null);
+  const panelMode = pendingMode ?? appliedMode;
+  const [customAnchorMs, setCustomAnchorMs] = useState(() => Date.now());
+  const [customDraft, setCustomDraft] = useState<UsageCustomRange>(() => normalizeCustomRange(customRange, {
+    nowMs: customAnchorMs,
+    timeZone,
+  }));
   const [rollingValues, setRollingValues] = useState<Record<RollingUnit, number>>(() => ({
     ...DEFAULT_ROLLING_VALUES,
-    ...(mode === 'hour' || mode === 'day' ? { [mode]: parsedRange.value ?? DEFAULT_ROLLING_VALUES[mode] } : {}),
+    ...(appliedMode === 'hour' || appliedMode === 'day' ? { [appliedMode]: parsedRange.value ?? DEFAULT_ROLLING_VALUES[appliedMode] } : {}),
   }));
   const [draftingUnit, setDraftingUnit] = useState<RollingUnit | null>(null);
   const [desktopOpen, setDesktopOpen] = useState(false);
@@ -214,14 +262,14 @@ export function TimeRangeControl({ value, onChange, ariaLabel }: TimeRangeContro
   const [popoverPosition, setPopoverPosition] = useState({ top: 0, left: 0 });
   const desktopTriggerRef = useRef<HTMLButtonElement | null>(null);
   const desktopPopoverRef = useRef<HTMLDivElement | null>(null);
-  const lastEmittedRangeRef = useRef<KeyOverviewTimeRange | null>(null);
+  const lastEmittedRangeRef = useRef<UsageTimeRange | null>(null);
   const latestRollingValuesRef = useRef(rollingValues);
   const activeRollingPointerRef = useRef<{ unit: RollingUnit; pointerId: number } | null>(null);
 
   const displayedRollingValues: Record<RollingUnit, number> = {
     ...rollingValues,
-    ...(mode === 'hour' || mode === 'day') && draftingUnit !== mode
-      ? { [mode]: parsedRange.value ?? DEFAULT_ROLLING_VALUES[mode] }
+    ...(appliedMode === 'hour' || appliedMode === 'day') && draftingUnit !== appliedMode
+      ? { [appliedMode]: parsedRange.value ?? DEFAULT_ROLLING_VALUES[appliedMode] }
       : {},
   };
 
@@ -232,18 +280,36 @@ export function TimeRangeControl({ value, onChange, ariaLabel }: TimeRangeContro
   }, [value]);
 
   const formatCurrentLabel = () => {
-    if (mode === 'today') return t('usage_stats.range_today');
-    if (mode === 'yesterday') return t('usage_stats.range_yesterday');
-    return t(mode === 'hour' ? 'usage_stats.range_last_hours' : 'usage_stats.range_last_days', {
-      count: displayedRollingValues[mode],
+    if (appliedMode === 'today') return t('usage_stats.range_today');
+    if (appliedMode === 'yesterday') return t('usage_stats.range_yesterday');
+    if (appliedMode === 'custom') {
+      return customRange
+        ? formatCustomRangeLabel(customRange, { locale: i18n?.language, timeZone })
+        : t('usage_stats.range_custom');
+    }
+    return t(appliedMode === 'hour' ? 'usage_stats.range_last_hours' : 'usage_stats.range_last_days', {
+      count: displayedRollingValues[appliedMode],
     });
   };
 
+  const prepareCustomDraft = useCallback(() => {
+    const anchorMs = Date.now();
+    setCustomAnchorMs(anchorMs);
+    setCustomDraft(normalizeCustomRange(customRange, { nowMs: anchorMs, timeZone }));
+  }, [customRange, timeZone]);
+
   const handleModeChange = (nextMode: UsageTimeRangeMode) => {
-    if (mode === 'hour' || mode === 'day') {
-      setRollingValues((current) => ({ ...current, [mode]: displayedRollingValues[mode] }));
+    if (appliedMode === 'hour' || appliedMode === 'day') {
+      setRollingValues((current) => ({ ...current, [appliedMode]: displayedRollingValues[appliedMode] }));
     }
     setDraftingUnit(null);
+    if (nextMode === 'custom') {
+      if (!customEnabled) return;
+      prepareCustomDraft();
+      setPendingMode('custom');
+      return;
+    }
+    setPendingMode(null);
     if (nextMode === 'today' || nextMode === 'yesterday') {
       onChange(nextMode);
       return;
@@ -303,27 +369,32 @@ export function TimeRangeControl({ value, onChange, ariaLabel }: TimeRangeContro
     setPopoverPosition({ top: rect.bottom + 8, left });
   }, []);
 
-  const discardRollingDraft = useCallback(() => {
+  const discardDraft = useCallback(() => {
     activeRollingPointerRef.current = null;
     setDraftingUnit(null);
-    if (mode !== 'hour' && mode !== 'day') return;
-    const appliedValue = parsedRange.value ?? DEFAULT_ROLLING_VALUES[mode];
-    latestRollingValuesRef.current = { ...latestRollingValuesRef.current, [mode]: appliedValue };
-    setRollingValues((current) => current[mode] === appliedValue ? current : { ...current, [mode]: appliedValue });
-  }, [mode, parsedRange.value]);
+    setPendingMode(null);
+    if (appliedMode === 'custom') {
+      setCustomDraft(normalizeCustomRange(customRange, { nowMs: customAnchorMs, timeZone }));
+      return;
+    }
+    if (appliedMode !== 'hour' && appliedMode !== 'day') return;
+    const appliedValue = parsedRange.value ?? DEFAULT_ROLLING_VALUES[appliedMode];
+    latestRollingValuesRef.current = { ...latestRollingValuesRef.current, [appliedMode]: appliedValue };
+    setRollingValues((current) => current[appliedMode] === appliedValue ? current : { ...current, [appliedMode]: appliedValue });
+  }, [appliedMode, customAnchorMs, customRange, parsedRange.value, timeZone]);
 
   const closeDesktopPopover = useCallback((restoreFocus = false) => {
-    discardRollingDraft();
+    discardDraft();
     setDesktopOpen(false);
     if (restoreFocus) {
       queueMicrotask(() => desktopTriggerRef.current?.focus());
     }
-  }, [discardRollingDraft]);
+  }, [discardDraft]);
 
   const closeMobileModal = useCallback(() => {
-    discardRollingDraft();
+    discardDraft();
     setMobileOpen(false);
-  }, [discardRollingDraft]);
+  }, [discardDraft]);
 
   const toggleDesktopPopover = useCallback(() => {
     setMobileOpen(false);
@@ -331,14 +402,16 @@ export function TimeRangeControl({ value, onChange, ariaLabel }: TimeRangeContro
       closeDesktopPopover();
       return;
     }
+    if (appliedMode === 'custom') prepareCustomDraft();
     updatePopoverPosition();
     setDesktopOpen(true);
-  }, [closeDesktopPopover, desktopOpen, updatePopoverPosition]);
+  }, [appliedMode, closeDesktopPopover, desktopOpen, prepareCustomDraft, updatePopoverPosition]);
 
   const openMobileModal = useCallback(() => {
     closeDesktopPopover();
+    if (appliedMode === 'custom') prepareCustomDraft();
     setMobileOpen(true);
-  }, [closeDesktopPopover]);
+  }, [appliedMode, closeDesktopPopover, prepareCustomDraft]);
 
   useEffect(() => {
     const handleViewportResize = () => {
@@ -411,14 +484,38 @@ export function TimeRangeControl({ value, onChange, ariaLabel }: TimeRangeContro
     };
   }, [closeDesktopPopover, desktopOpen, updatePopoverPosition]);
 
+  const handleCustomApply = () => {
+    lastEmittedRangeRef.current = 'custom';
+    setPendingMode(null);
+    setDesktopOpen(false);
+    setMobileOpen(false);
+    onChange('custom', customDraft);
+  };
+
+  const handleCustomCancel = () => {
+    if (mobileOpen) {
+      closeMobileModal();
+      return;
+    }
+    closeDesktopPopover(true);
+  };
+
   const panel = (
     <TimeRangePanel
-      mode={mode}
+      mode={panelMode}
       rollingValues={displayedRollingValues}
+      customRange={customDraft}
+      customAnchorMs={customAnchorMs}
+      timeZone={timeZone}
+      customEnabled={customEnabled}
+      locale={i18n?.language}
       onModeChange={handleModeChange}
       onRollingValueChange={handleRollingValueChange}
       onRollingPointerStart={handleRollingPointerStart}
       onRollingValueCommit={handleRollingValueCommit}
+      onCustomRangeChange={setCustomDraft}
+      onCustomApply={handleCustomApply}
+      onCustomCancel={handleCustomCancel}
     />
   );
   const currentLabel = formatCurrentLabel();

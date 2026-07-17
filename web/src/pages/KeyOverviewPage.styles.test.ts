@@ -12,16 +12,16 @@ describe('KeyOverviewPage layout', () => {
     expect(source).not.toContain('check_updates')
     expect(source.indexOf('className={styles.tabBar}')).toBeLessThan(source.indexOf('className={styles.toolbarActionsRight}'))
     expect(source).toContain('<TimeRangeControl')
-    expect(source).toContain('normalizeSelectableUsageRange')
+    expect(source).toContain('parseStoredUsageRangeState')
     expect(source).not.toContain('className={styles.timeRangeGroup}')
     expect(source).toContain('className={styles.usageRefreshSlot}')
     expect(source.indexOf('className={styles.toolbarMetaRow}')).toBeLessThan(source.indexOf('className={styles.toolbarRow}'))
   })
 
   it('does not reload overview data just because language changes', () => {
-    expect(source).not.toContain('}, [onAuthRequired, t, timeRange]);')
-    expect(source).not.toContain('}, [onAuthRequired, realtimeWindow, t, timeRange]);')
-    expect(source).toContain('}, [onAuthRequired, timeRange]);')
+    expect(source).not.toContain('}, [onAuthRequired, t, usageRangeQuery, usageRangeQueryKey]);')
+    expect(source).not.toContain('}, [onAuthRequired, realtimeWindow, t]);')
+    expect(source).toContain('}, [onAuthRequired, usageRangeQuery, usageRangeQueryKey]);')
     expect(source).toContain('}, [onAuthRequired, realtimeWindow]);')
   })
 

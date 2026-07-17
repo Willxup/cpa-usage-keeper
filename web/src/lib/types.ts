@@ -714,6 +714,21 @@ export type KeyOverviewTimeRange = UsageRollingHourTimeRange | UsageRollingDayTi
 
 export type UsageTimeRange = KeyOverviewTimeRange | 'custom'
 
+export type UsageCustomRangeUnit = 'hour' | 'day'
+
+export interface UsageCustomRange {
+	unit: UsageCustomRangeUnit
+	start: string
+	end: string
+}
+
+export interface UsageRangeRequest {
+	range: UsageTimeRange
+	unit?: UsageCustomRangeUnit
+	start?: string
+	end?: string
+}
+
 export interface UsageFilterWindow {
   startMs?: number
   endMs?: number

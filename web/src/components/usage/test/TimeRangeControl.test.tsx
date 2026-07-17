@@ -3,7 +3,7 @@
 import { act, type ComponentType } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { KeyOverviewTimeRange } from '@/lib/types';
+import type { UsageCustomRange, UsageTimeRange } from '@/lib/types';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -15,9 +15,11 @@ vi.mock('react-i18next', () => ({
 }));
 
 interface TimeRangeControlProps {
-  value: KeyOverviewTimeRange;
-  onChange: (value: KeyOverviewTimeRange) => void;
+  value: UsageTimeRange;
+  customRange?: UsageCustomRange;
+  onChange: (value: UsageTimeRange, customRange?: UsageCustomRange) => void;
   ariaLabel: string;
+  timeZone?: string;
 }
 
 const loadTimeRangeControl = async (): Promise<ComponentType<TimeRangeControlProps> | null> => {
@@ -45,15 +47,16 @@ describe('TimeRangeControl', () => {
     await act(async () => root.unmount());
     document.body.replaceChildren();
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: initialInnerWidth });
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
-  const renderControl = async (value: KeyOverviewTimeRange, onChange = vi.fn()) => {
+  const renderControl = async (value: UsageTimeRange, onChange = vi.fn(), customRange?: UsageCustomRange, timeZone: string | null = 'Asia/Shanghai') => {
     const TimeRangeControl = await loadTimeRangeControl();
     expect(TimeRangeControl).not.toBeNull();
     if (!TimeRangeControl) return { onChange };
     await act(async () => {
-      root.render(<TimeRangeControl value={value} onChange={onChange} ariaLabel="Range" />);
+      root.render(<TimeRangeControl value={value} customRange={customRange} onChange={onChange} ariaLabel="Range" timeZone={timeZone ?? undefined} />);
     });
     return { onChange };
   };
@@ -278,5 +281,165 @@ describe('TimeRangeControl', () => {
 
     expect(document.querySelector('[data-time-range-natural-summary="today"]')).not.toBeNull();
     expect(document.querySelector('[data-time-range-slider]')).toBeNull();
+  });
+
+  it('restores custom summary actions and applies the current draft directly', async () => {
+    const { onChange } = await renderControl('8h');
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
+    await act(async () => trigger?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-time-range-mode="custom"]')?.click());
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-custom-range-summary]')).not.toBeNull();
+    expect(document.querySelector('[data-custom-summary-cancel]')).not.toBeNull();
+    expect(document.querySelector('[data-custom-summary-apply]')).not.toBeNull();
+    expect(document.querySelector('input[type="date"], input[type="time"], input[type="datetime-local"]')).toBeNull();
+
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-summary-apply]')?.click());
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith('custom', expect.objectContaining({ unit: 'day' }));
+  });
+
+  it('cancels the custom summary without querying and closes the range popover', async () => {
+    const { onChange } = await renderControl('8h');
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
+    await act(async () => trigger?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-time-range-mode="custom"]')?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-summary-cancel]')?.click());
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(trigger?.getAttribute('aria-expanded')).toBe('false');
+    expect(document.querySelector('[role="dialog"][aria-label="Range"]')).toBeNull();
+  });
+
+  it('syncs the visible calendar month when switching between start and end', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-17T07:36:42.000Z'));
+    await renderControl('custom', vi.fn(), {
+      unit: 'day',
+      start: '2026-06-18',
+      end: '2026-07-17',
+    });
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
+    await act(async () => trigger?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
+
+    expect(document.querySelector('[data-custom-calendar-month]')?.getAttribute('data-custom-calendar-month')).toBe('2026-06');
+
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-picker-endpoint="end"]')?.click());
+
+    expect(document.querySelector('[data-custom-calendar-month]')?.getAttribute('data-custom-calendar-month')).toBe('2026-07');
+  });
+
+  it('keeps crossed-month ranges continuous inside a fixed six-week calendar', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-17T07:36:42.000Z'));
+    await renderControl('custom', vi.fn(), {
+      unit: 'day',
+      start: '2026-06-30',
+      end: '2026-07-10',
+    });
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
+    await act(async () => trigger?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
+
+    expect(document.querySelector('[data-custom-calendar-month]')?.getAttribute('data-custom-calendar-month')).toBe('2026-06');
+    expect(document.querySelectorAll('[data-custom-calendar-cell]')).toHaveLength(42);
+    expect(document.querySelector('[data-custom-calendar-cell="2026-05-31"]')).not.toBeNull();
+    expect(document.querySelector('[data-custom-calendar-cell="2026-07-11"]')).not.toBeNull();
+    expect(document.querySelector('[data-custom-calendar-cell="2026-07-01"]')?.hasAttribute('data-custom-outside-month')).toBe(true);
+    expect(document.querySelector('[data-custom-calendar-cell="2026-07-01"]')?.hasAttribute('data-custom-in-range')).toBe(true);
+    expect(document.querySelector('[data-custom-calendar-cell="2026-07-01"]')?.hasAttribute('data-custom-range-row-start')).toBe(false);
+    expect(document.querySelector('[data-custom-calendar-cell="2026-07-01"]')?.hasAttribute('data-custom-range-row-end')).toBe(false);
+    expect(document.querySelector('[data-custom-calendar-cell="2026-06-30"]')?.hasAttribute('data-custom-range-row-start')).toBe(true);
+    expect(document.querySelector('[data-custom-calendar-cell="2026-07-04"]')?.hasAttribute('data-custom-range-row-end')).toBe(true);
+    expect(document.querySelector('[data-custom-calendar-cell="2026-07-05"]')?.hasAttribute('data-custom-range-row-start')).toBe(true);
+    expect(document.querySelector('[data-custom-calendar-cell="2026-07-10"]')?.hasAttribute('data-custom-range-row-end')).toBe(true);
+
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-picker-endpoint="end"]')?.click());
+
+    expect(document.querySelector('[data-custom-calendar-month]')?.getAttribute('data-custom-calendar-month')).toBe('2026-07');
+    expect(document.querySelectorAll('[data-custom-calendar-cell]')).toHaveLength(42);
+    expect(document.querySelector('[data-custom-calendar-cell="2026-06-30"]')?.hasAttribute('data-custom-outside-month')).toBe(true);
+    expect(document.querySelector('[data-custom-calendar-cell="2026-06-30"]')?.hasAttribute('data-custom-in-range')).toBe(true);
+  });
+
+  it('cancels picker edits back to the summary snapshot without querying', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-17T07:36:42.000Z'));
+    const { onChange } = await renderControl('8h');
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
+    await act(async () => trigger?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-time-range-mode="custom"]')?.click());
+
+    const initialStartLabel = document.querySelector('[data-custom-endpoint="start"] strong')?.textContent;
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-day="2026-06-20"]')?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-picker-cancel]')?.click());
+
+    expect(document.querySelector('[data-custom-range-summary]')).not.toBeNull();
+    expect(document.querySelector('[data-custom-endpoint="start"] strong')?.textContent).toBe(initialStartLabel);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('disables Custom until the project timezone is available', async () => {
+    await renderControl('8h', vi.fn(), undefined, null);
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
+    await act(async () => trigger?.click());
+
+    expect(document.querySelector<HTMLButtonElement>('[data-time-range-mode="custom"]')?.disabled).toBe(true);
+  });
+
+  it('uses a Keeper-rendered calendar instead of a native date input', async () => {
+    await renderControl('8h');
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
+    await act(async () => trigger?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-time-range-mode="custom"]')?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
+
+    expect(document.querySelector('[data-custom-day-picker]')).not.toBeNull();
+    expect(document.querySelectorAll('[data-custom-day]').length).toBeGreaterThan(0);
+    expect(document.querySelector('input[type="date"], input[type="time"], input[type="datetime-local"]')).toBeNull();
+  });
+
+  it('uses two custom 24-slot hour lists and disables too-short end choices', async () => {
+    await renderControl('8h');
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
+    await act(async () => trigger?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-time-range-mode="custom"]')?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-unit="hour"]')?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
+
+    const startSlots = [...document.querySelectorAll<HTMLButtonElement>('[data-custom-hour-start]')];
+    const endSlots = [...document.querySelectorAll<HTMLButtonElement>('[data-custom-hour-end]')];
+    expect(startSlots).toHaveLength(24);
+    expect(endSlots).toHaveLength(24);
+    expect(endSlots.some((slot) => slot.disabled)).toBe(true);
+    expect(document.querySelector('input[type="date"], input[type="time"], input[type="datetime-local"]')).toBeNull();
+  });
+
+  it('centers both selected hour options when the hour picker opens', async () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockImplementation(function () {
+      return this.hasAttribute('data-custom-hour-selected') ? 320 : 0;
+    });
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function () {
+      return this.hasAttribute('data-custom-hour-selected') ? 32 : 0;
+    });
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function () {
+      return this.hasAttribute('data-custom-hour-list') ? 160 : 0;
+    });
+
+    await renderControl('8h');
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
+    await act(async () => trigger?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-time-range-mode="custom"]')?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-unit="hour"]')?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
+
+    const lists = [...document.querySelectorAll<HTMLElement>('[data-custom-hour-list]')];
+    expect(lists).toHaveLength(2);
+    expect(lists.every((list) => list.querySelector('[data-custom-hour-selected]'))).toBe(true);
+    expect(lists.map((list) => list.scrollTop)).toEqual([256, 256]);
   });
 });

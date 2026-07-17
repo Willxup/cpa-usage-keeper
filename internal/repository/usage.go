@@ -312,14 +312,18 @@ func usageEventProjectionToEntity(event usageEventProjection) entities.UsageEven
 	}
 }
 
-// applyUsageQueryWindow 给 usage 查询追加闭区间时间过滤。
+// applyUsageQueryWindow 给 usage 查询追加时间过滤；Custom 使用半开区间避免带入下一时段边界。
 func applyUsageQueryWindow(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
 	// 查询参数和落库 timestamp 使用同一格式，避免 SQLite TEXT 范围比较失真。
 	if filter.StartTime != nil {
 		query = query.Where("timestamp >= ?", timeutil.FormatStorageTime(*filter.StartTime))
 	}
 	if filter.EndTime != nil {
-		query = query.Where("timestamp <= ?", timeutil.FormatStorageTime(*filter.EndTime))
+		operator := "timestamp <= ?"
+		if filter.EndExclusive {
+			operator = "timestamp < ?"
+		}
+		query = query.Where(operator, timeutil.FormatStorageTime(*filter.EndTime))
 	}
 	return query
 }
@@ -1152,7 +1156,7 @@ func usageOverviewRawEventWindows(filter dto.UsageQueryFilter, health dto.UsageO
 	// 最多包含主查询左右边界和 health 左右边界，预分配 4 个窗口。
 	windows := make([]usageOverviewRawEventWindow, 0, 4)
 	// 主查询边界需要保留 includeEnd/currentRight 语义。
-	windows = appendUsageOverviewRawEventBoundaryWindows(windows, windowStart, windowEnd, fullHourStart, fullHourEnd, true, currentRight)
+	windows = appendUsageOverviewRawEventBoundaryWindows(windows, windowStart, windowEnd, fullHourStart, fullHourEnd, !filter.EndExclusive, currentRight)
 
 	// health grid 有自己的展示窗口，需要把无法由 health stats 覆盖的边界也补进来。
 	exactStart, exactEnd := usageOverviewHealthExactWindow(health, filter)
@@ -1199,8 +1203,8 @@ func appendUsageOverviewRawEventBoundaryWindows(windows []usageOverviewRawEventW
 		if rightStart.Before(windowStart) {
 			rightStart = windowStart
 		}
-		// includeRightEnd 允许 current 查询在整点结束时生成零宽右边界，用 EventsSince 继续读缓存。
-		if rightStart.Before(windowEnd) || (includeRightEnd && rightStart.Equal(windowEnd)) {
+		// 当前范围在整点结束时仍生成零宽右边界，用 EventsSince 承接 API 解析后的新事件。
+		if rightStart.Before(windowEnd) || (currentRightEnd && rightStart.Equal(windowEnd)) {
 			windows = append(windows, usageOverviewRawEventWindow{start: rightStart, end: windowEnd, includeEnd: includeRightEnd, currentRight: currentRightEnd})
 		}
 	}

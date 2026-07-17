@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchVersion, logout, revokeAuthSession, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
-import type { AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, KeyOverviewTimeRange, OverviewRealtimeWindow, StatusResponse, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption, VersionResponse } from '@/lib/types';
+import type { AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageCustomRange, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption, UsageTimeRange, VersionResponse } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { Select } from '@/components/ui/Select';
@@ -35,7 +35,8 @@ import {
   REQUEST_EVENT_COLUMN_IDS,
   type RequestEventColumnId,
 } from '@/components/usage/RequestEventsDetailsCard';
-import { normalizeSelectableUsageRange } from '@/utils/usage/rangeQuery';
+import { parseStoredUsageRangeState, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
+import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import { getDailyAveragePanelUsage, isDailyAverageRange } from '@/utils/usage/overview';
 import type { Theme } from '@/types';
 import { BrandLink } from '@/components/BrandLink';
@@ -45,7 +46,7 @@ import styles from './UsagePage.module.scss';
 const TIME_RANGE_STORAGE_KEY = 'cli-proxy-usage-time-range-v1';
 const OVERVIEW_REALTIME_WINDOW_STORAGE_KEY = 'cli-proxy-usage-overview-realtime-window-v1';
 export const REQUEST_EVENTS_PREFERENCES_STORAGE_KEY = 'cli-proxy-usage-request-events-preferences-v1';
-const DEFAULT_TIME_RANGE: KeyOverviewTimeRange = '8h';
+const DEFAULT_TIME_RANGE: UsageTimeRange = '8h';
 const DEFAULT_REALTIME_WINDOW: OverviewRealtimeWindow = '15m';
 const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'white', labelKey: 'usage_stats.theme_light' },
@@ -585,14 +586,14 @@ export const sanitizeRequestEventFilters = (
   return { model, source, result };
 };
 
-const loadTimeRange = (): KeyOverviewTimeRange => {
+const loadTimeRange = (): StoredUsageRangeState => {
   try {
     if (typeof localStorage === 'undefined') {
-      return DEFAULT_TIME_RANGE;
+      return { range: DEFAULT_TIME_RANGE };
     }
-    return normalizeSelectableUsageRange(localStorage.getItem(TIME_RANGE_STORAGE_KEY));
+    return parseStoredUsageRangeState(localStorage.getItem(TIME_RANGE_STORAGE_KEY), { nowMs: Date.now() });
   } catch {
-    return DEFAULT_TIME_RANGE;
+    return { range: DEFAULT_TIME_RANGE };
   }
 };
 
@@ -670,7 +671,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const setTheme = useThemeStore((state) => state.setTheme);
   const isDark = resolvedTheme === 'dark';
   const [activeTab, setActiveTab] = useState<UsageTab>(loadUsageTab);
-  const [timeRange, setTimeRange] = useState<KeyOverviewTimeRange>(loadTimeRange);
+  const [timeRangeState, setTimeRangeState] = useState<StoredUsageRangeState>(loadTimeRange);
+  const { range: timeRange, customRange } = timeRangeState;
   const [realtimeWindow, setRealtimeWindow] = useState<OverviewRealtimeWindow>(loadRealtimeWindow);
   const [selectedApiKeyId, setSelectedApiKeyId] = useState('');
   const [apiKeyOptions, setApiKeyOptions] = useState<CpaApiKeyOption[]>([]);
@@ -678,6 +680,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [versionInfo, setVersionInfo] = useState<VersionResponse | null>(null);
   const apiKeyOptionsRequestControllerRef = useRef<AbortController | null>(null);
   const credentialSectionVisibility = getCredentialSectionVisibility(activeTab);
+  const usageRangeQuery = useMemo(() => buildUsageRangeQuery({
+    range: timeRange,
+    customUnit: customRange?.unit,
+    customStart: customRange?.start,
+    customEnd: customRange?.end,
+  }), [customRange?.end, customRange?.start, customRange?.unit, timeRange]);
 
   const {
     usage,
@@ -688,9 +696,20 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   } = useUsageData({
     onAuthRequired,
     range: timeRange,
+    customUnit: customRange?.unit,
+    customStart: customRange?.start,
+    customEnd: customRange?.end,
     enabled: activeTab === 'overview',
     apiKeyId: selectedApiKeyId,
   });
+  const rangeTimeZone = status?.timezone ?? usage?.timezone ?? timeRangeState.timeZone;
+  const handleTimeRangeChange = useCallback((range: UsageTimeRange, nextCustomRange?: UsageCustomRange) => {
+    if (range === 'custom' && nextCustomRange) {
+      setTimeRangeState({ range, customRange: nextCustomRange, timeZone: rangeTimeZone });
+      return;
+    }
+    setTimeRangeState((current) => ({ ...current, range }));
+  }, [rangeTimeZone]);
   const {
     realtime: currentRealtime,
     loading: realtimeLoading,
@@ -951,6 +970,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [loadAuthSessions, onAuthRequired, showTopNotice, t]);
 
   const loadAnalysis = useCallback(async () => {
+    if (!usageRangeQuery.valid) return;
     analysisRequestControllerRef.current?.abort();
     const controller = new AbortController();
     analysisRequestControllerRef.current = controller;
@@ -959,7 +979,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setAnalysisError('');
     setAnalysisData(null);
     try {
-      const response = await fetchAnalysis(timeRange, undefined, undefined, controller.signal, selectedApiKeyId);
+      const response = await fetchAnalysis(usageRangeQuery, controller.signal, selectedApiKeyId);
       if (analysisRequestControllerRef.current !== controller) {
         return;
       }
@@ -983,18 +1003,18 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         analysisRequestControllerRef.current = null;
       }
     }
-  }, [onAuthRequired, selectedApiKeyId, timeRange]);
+  }, [onAuthRequired, selectedApiKeyId, usageRangeQuery]);
 
   useEffect(() => {
     try {
       if (typeof localStorage === 'undefined') {
         return;
       }
-      localStorage.setItem(TIME_RANGE_STORAGE_KEY, timeRange);
+      localStorage.setItem(TIME_RANGE_STORAGE_KEY, serializeUsageRangeState(timeRangeState));
     } catch {
       // Ignore storage errors.
     }
-  }, [timeRange]);
+  }, [timeRangeState]);
 
   useEffect(() => {
     try {
@@ -1033,7 +1053,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
   useEffect(() => {
     setEventsPage(1);
-  }, [selectedApiKeyId, timeRange]);
+  }, [selectedApiKeyId, usageRangeQuery]);
 
   useEffect(() => {
     // Credentials 列表、quota cache 和 task polling 都跟页面可见性绑定，隐藏页不保持刷新或轮询。
@@ -1144,6 +1164,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [onAuthRequired]);
 
   const loadEvents = useCallback(async () => {
+    if (!usageRangeQuery.valid) return;
     eventsRequestControllerRef.current?.abort();
     const controller = new AbortController();
     eventsRequestControllerRef.current = controller;
@@ -1151,7 +1172,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setEventsLoading(true);
     setEventsError('');
     try {
-      const response = await fetchUsageEvents(timeRange, undefined, undefined, controller.signal, {
+      const response = await fetchUsageEvents(usageRangeQuery, controller.signal, {
         page: eventsPage,
         pageSize: eventsPageSize,
         model: eventsModelFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsModelFilter,
@@ -1189,7 +1210,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         eventsRequestControllerRef.current = null;
       }
     }
-  }, [eventsModelFilter, eventsPage, eventsPageSize, eventsResultFilter, eventsSourceFilter, onAuthRequired, selectedApiKeyId, timeRange]);
+  }, [eventsModelFilter, eventsPage, eventsPageSize, eventsResultFilter, eventsSourceFilter, onAuthRequired, selectedApiKeyId, usageRangeQuery]);
 
   const resetEventsPage = useCallback(() => {
     setEventsPage(1);
@@ -1216,9 +1237,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [resetEventsPage]);
 
   const handleEventsExport = useCallback(async (format: UsageEventsExportFormat) => {
+    if (!usageRangeQuery.valid) return;
     setEventsExportingFormat(format);
     try {
-      const file = await exportUsageEvents(timeRange, undefined, undefined, format, {
+      const file = await exportUsageEvents(usageRangeQuery, format, {
         model: eventsModelFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsModelFilter,
         source: eventsSourceFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsSourceFilter,
         result: eventsResultFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsResultFilter,
@@ -1235,7 +1257,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     } finally {
       setEventsExportingFormat(null);
     }
-  }, [eventsModelFilter, eventsResultFilter, eventsSourceFilter, onAuthRequired, selectedApiKeyId, showTopNotice, t, timeRange]);
+  }, [eventsModelFilter, eventsResultFilter, eventsSourceFilter, onAuthRequired, selectedApiKeyId, showTopNotice, t, usageRangeQuery]);
 
   const handleRequestLogOpen = useCallback(async (event: UsageEvent) => {
     if (!requestLogAccessEnabled) return;
@@ -1536,7 +1558,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   } = useSparklines({ usage, loading });
 
   const overviewDisplayLoading = getOverviewDisplayLoading({ loading, hasUsage: Boolean(usage) });
-  const reserveDailyAveragePanel = isDailyAverageRange({ range: timeRange });
+  const reserveDailyAveragePanel = isDailyAverageRange({
+    range: timeRange,
+    customUnit: customRange?.unit,
+    customStart: customRange?.start,
+    customEnd: customRange?.end,
+  });
   const dailyAveragePanelUsage = getDailyAveragePanelUsage(currentOverviewUsage, usage, reserveDailyAveragePanel, loading);
 
   return (
@@ -1707,7 +1734,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   </div>
                     <TimeRangeControl
                       value={timeRange}
-                      onChange={setTimeRange}
+                      customRange={customRange}
+                      timeZone={rangeTimeZone}
+                      onChange={handleTimeRangeChange}
                       ariaLabel={t('usage_stats.range_filter')}
                     />
                       </div>

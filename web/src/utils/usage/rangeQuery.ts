@@ -1,17 +1,14 @@
-import type { KeyOverviewTimeRange, UsageTimeRange } from '@/lib/types';
+import type { KeyOverviewTimeRange, UsageCustomRangeUnit, UsageRangeRequest, UsageTimeRange } from '@/lib/types';
 
-export type UsageTimeRangeMode = 'hour' | 'day' | 'today' | 'yesterday';
+export type UsageTimeRangeMode = 'hour' | 'day' | 'today' | 'yesterday' | 'custom';
 
 export interface ParsedSelectableUsageRange {
   mode: UsageTimeRangeMode;
   value?: number;
 }
 
-export interface UsageRangeQuery {
+export interface UsageRangeQuery extends UsageRangeRequest {
   valid: boolean;
-  range: UsageTimeRange;
-  start?: string;
-  end?: string;
 }
 
 const parseRollingUsageRange = (value: unknown): { unit: 'hour' | 'day'; value: number } | null => {
@@ -60,7 +57,7 @@ export const buildRollingUsageRange = (unit: 'hour' | 'day', value: number): Key
   return `${amount}${unit === 'hour' ? 'h' : 'd'}`;
 };
 
-const parseCustomDateParam = (value: string | undefined, endOfDay: boolean): { value: string; timestampMs: number } | undefined => {
+const parseCustomDateParam = (value: string | undefined): { value: string; timestampMs: number } | undefined => {
   const trimmed = value?.trim();
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed ?? '');
   if (!match || !trimmed) return undefined;
@@ -68,25 +65,48 @@ const parseCustomDateParam = (value: string | undefined, endOfDay: boolean): { v
   const yearNumber = Number(year);
   const monthNumber = Number(month);
   const dayNumber = Number(day);
-  const date = endOfDay
-    ? new Date(yearNumber, monthNumber - 1, dayNumber, 23, 59, 59, 999)
-    : new Date(yearNumber, monthNumber - 1, dayNumber, 0, 0, 0, 0);
+  const date = new Date(yearNumber, monthNumber - 1, dayNumber, 0, 0, 0, 0);
   if (Number.isNaN(date.getTime())) return undefined;
   if (date.getFullYear() !== yearNumber || date.getMonth() !== monthNumber - 1 || date.getDate() !== dayNumber) return undefined;
   return { value: trimmed, timestampMs: date.getTime() };
 };
 
-export function buildUsageRangeQuery({ range, customStart, customEnd }: { range: string; customStart?: string; customEnd?: string }): UsageRangeQuery {
+const parseCustomHourParam = (value: string | undefined): { value: string; timestampMs: number } | undefined => {
+  const trimmed = value?.trim();
+  if (!trimmed || !/^\d{4}-\d{2}-\d{2}T\d{2}:00:00(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(trimmed)) return undefined;
+  const timestampMs = Date.parse(trimmed);
+  return Number.isFinite(timestampMs) ? { value: trimmed, timestampMs } : undefined;
+};
+
+export function buildUsageRangeQuery({
+  range,
+  customUnit,
+  customStart,
+  customEnd,
+}: {
+  range: string;
+  customUnit?: UsageCustomRangeUnit;
+  customStart?: string;
+  customEnd?: string;
+}): UsageRangeQuery {
   const normalizedRange = normalizeUsageRange(range);
   const requestRange = resolveUsageRequestRange(normalizedRange);
   if (requestRange !== 'custom') {
     return { valid: true, range: requestRange };
   }
 
-  const start = parseCustomDateParam(customStart, false);
-  const end = parseCustomDateParam(customEnd, true);
+  const unit = customUnit ?? 'day';
+  const parseParam = unit === 'hour' ? parseCustomHourParam : parseCustomDateParam;
+  const start = parseParam(customStart);
+  const end = parseParam(customEnd);
   if (!start || !end || start.timestampMs > end.timestampMs) {
     return { valid: false, range: normalizedRange };
   }
-  return { valid: true, range: normalizedRange, start: start.value, end: end.value };
+  if (unit === 'hour') {
+    const selectedHours = (end.timestampMs - start.timestampMs) / (60 * 60 * 1000) + 1;
+    if (!Number.isInteger(selectedHours) || selectedHours < 5 || selectedHours > 24) {
+      return { valid: false, range: normalizedRange };
+    }
+  }
+  return { valid: true, range: normalizedRange, unit, start: start.value, end: end.value };
 }

@@ -56,11 +56,13 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 		return nil, err
 	}
 	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		Range:       filter.Range,
-		StartTime:   filter.StartTime,
-		EndTime:     filter.EndTime,
-		QueryNow:    filter.QueryNow,
-		APIGroupKey: apiGroupKey,
+		Range:        filter.Range,
+		CustomUnit:   filter.CustomUnit,
+		StartTime:    filter.StartTime,
+		EndTime:      filter.EndTime,
+		EndExclusive: filter.EndExclusive,
+		QueryNow:     filter.QueryNow,
+		APIGroupKey:  apiGroupKey,
 	}, s.recentUsage)
 	if err != nil {
 		return nil, err
@@ -280,10 +282,12 @@ func (s *usageService) GetAnalysis(ctx context.Context, filter servicedto.UsageF
 		return nil, err
 	}
 	record, err := repository.BuildAnalysisWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		Range:       filter.Range,
-		StartTime:   filter.StartTime,
-		EndTime:     filter.EndTime,
-		APIGroupKey: apiGroupKey,
+		Range:        filter.Range,
+		CustomUnit:   filter.CustomUnit,
+		StartTime:    filter.StartTime,
+		EndTime:      filter.EndTime,
+		EndExclusive: filter.EndExclusive,
+		APIGroupKey:  apiGroupKey,
 	})
 	if err != nil {
 		return nil, err
@@ -434,16 +438,19 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 		return nil, err
 	}
 	page, err := repository.ListUsageEventsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		StartTime:   filter.StartTime,
-		EndTime:     filter.EndTime,
-		Limit:       filter.Limit,
-		Page:        filter.Page,
-		PageSize:    filter.PageSize,
-		Offset:      filter.Offset,
-		Model:       filter.Model,
-		AuthIndex:   filter.AuthIndex,
-		APIGroupKey: apiGroupKey,
-		Result:      filter.Result,
+		Range:        filter.Range,
+		CustomUnit:   filter.CustomUnit,
+		StartTime:    filter.StartTime,
+		EndTime:      filter.EndTime,
+		EndExclusive: filter.EndExclusive,
+		Limit:        filter.Limit,
+		Page:         filter.Page,
+		PageSize:     filter.PageSize,
+		Offset:       filter.Offset,
+		Model:        filter.Model,
+		AuthIndex:    filter.AuthIndex,
+		APIGroupKey:  apiGroupKey,
+		Result:       filter.Result,
 	})
 	if err != nil {
 		return nil, err
@@ -491,12 +498,15 @@ func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.
 		return err
 	}
 	return repository.StreamUsageEventsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		StartTime:   filter.StartTime,
-		EndTime:     filter.EndTime,
-		Model:       filter.Model,
-		AuthIndex:   filter.AuthIndex,
-		APIGroupKey: apiGroupKey,
-		Result:      filter.Result,
+		Range:        filter.Range,
+		CustomUnit:   filter.CustomUnit,
+		StartTime:    filter.StartTime,
+		EndTime:      filter.EndTime,
+		EndExclusive: filter.EndExclusive,
+		Model:        filter.Model,
+		AuthIndex:    filter.AuthIndex,
+		APIGroupKey:  apiGroupKey,
+		Result:       filter.Result,
 	}, func(row repodto.UsageEventRecord) error {
 		return emit(servicedto.UsageEventRecord{
 			ID:                  row.ID,
@@ -534,8 +544,11 @@ func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.
 func (s *usageService) ListUsageEventFilterOptions(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageEventFilterOptions, error) {
 	ctx = usageServiceContext(ctx)
 	options, err := repository.ListUsageEventFilterOptionsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		StartTime: filter.StartTime,
-		EndTime:   filter.EndTime,
+		Range:        filter.Range,
+		CustomUnit:   filter.CustomUnit,
+		StartTime:    filter.StartTime,
+		EndTime:      filter.EndTime,
+		EndExclusive: filter.EndExclusive,
 	})
 	if err != nil {
 		return nil, err

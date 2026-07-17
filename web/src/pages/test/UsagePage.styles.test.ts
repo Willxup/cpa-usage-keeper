@@ -85,10 +85,26 @@ describe('UsagePage toolbar styles', () => {
     expect(keyOverviewPageSource).toContain('<TimeRangeControl')
     expect(usagePageSource).not.toContain('TimeRangeControlPrototype')
     expect(keyOverviewPageSource).not.toContain('TimeRangeControlPrototype')
-    expect(usagePageSource).toContain('normalizeSelectableUsageRange')
-    expect(keyOverviewPageSource).toContain('normalizeSelectableUsageRange')
+    expect(usagePageSource).toContain('parseStoredUsageRangeState')
+    expect(keyOverviewPageSource).toContain('parseStoredUsageRangeState')
     expect(timeRangeControlSource).toContain('data-time-range-trigger="desktop"')
     expect(timeRangeControlSource).toContain('data-time-range-trigger="mobile"')
+  })
+
+  it('threads one applied custom range through Usage and Key Overview queries', () => {
+    expect(usagePageSource).toContain('const [timeRangeState, setTimeRangeState]')
+    expect(usagePageSource).toContain('const usageRangeQuery = useMemo(() => buildUsageRangeQuery({')
+    expect(usagePageSource).toContain('customRange={customRange}')
+    expect(usagePageSource).toContain('onChange={handleTimeRangeChange}')
+    expect(usagePageSource).toContain('fetchAnalysis(usageRangeQuery, controller.signal, selectedApiKeyId)')
+    expect(usagePageSource).toContain('fetchUsageEvents(usageRangeQuery, controller.signal, {')
+    expect(usagePageSource).toContain('exportUsageEvents(usageRangeQuery, format, {')
+
+    expect(keyOverviewPageSource).toContain('const [timeRangeState, setTimeRangeState]')
+    expect(keyOverviewPageSource).toContain('const usageRangeQuery = useMemo(() => buildUsageRangeQuery({')
+    expect(keyOverviewPageSource).toContain('customRange={customRange}')
+    expect(keyOverviewPageSource).toContain('onChange={handleTimeRangeChange}')
+    expect(keyOverviewPageSource).toContain('fetchKeyOverview(usageRangeQuery, controller.signal)')
   })
 
   it('keeps the mobile API Key group and select at full available width', () => {
@@ -161,6 +177,83 @@ describe('UsagePage toolbar styles', () => {
     expect(desktopOpen).toContain('box-shadow: var(--shadow), 0 0 0 3px rgba($primary-color, 0.18);')
     expect(timeRangeControlSource).toContain('<IconChevronDown size={14} className={styles.triggerChevron} />')
     expect(timeRangeControlStyles).toMatch(/\[aria-expanded='true'\][\s\S]*?\.triggerChevron\s*\{[\s\S]*?transform:\s*rotate\(180deg\);/)
+  })
+
+  it('keeps all five range modes fully visible with consistent content-aware spacing', () => {
+    const desktopTrigger = styleRuleBlock(timeRangeControlStyles, '.desktopTrigger {')
+    const modeSelector = styleRuleBlock(timeRangeControlStyles, '.modeSelector')
+    const modeButton = styleRuleBlock(timeRangeControlStyles, '.modeButton,')
+
+    expect(desktopTrigger).toContain('width: 192px;')
+    expect(modeSelector).toContain('grid-template-columns: repeat(5, max-content);')
+    expect(modeSelector).toContain('justify-content: space-between;')
+    expect(modeSelector).toContain('gap: 4px;')
+    expect(modeButton).toContain('min-width: max-content;')
+    expect(modeButton).toContain('width: auto;')
+    expect(modeButton).toContain('white-space: nowrap;')
+    expect(modeButton).not.toContain('text-overflow: ellipsis;')
+    expect(modeButton).not.toContain('overflow: hidden;')
+  })
+
+  it('sizes custom actions like model price row actions', () => {
+    const customAction = styleRuleBlock(timeRangeControlStyles, '.customRangeAction:global(.btn.btn-sm)')
+
+    expect(customAction).toContain('min-height: 32px;')
+    expect(customAction).toContain('padding: 7px 12px;')
+    expect(customAction).toContain('border-radius: 999px;')
+    expect(customAction).toContain('font-size: 12px;')
+    expect(customAction).not.toContain('min-width:')
+  })
+
+  it('uses Keeper theme colors for custom day and hour selections', () => {
+    const dayRange = styleRuleBlock(timeRangeControlStyles, '.customCalendarDayInRange')
+    const selectedDay = styleRuleBlock(timeRangeControlStyles, '.customCalendarDaySelected')
+    const selectedDayOverlay = styleRuleBlock(timeRangeControlStyles, '.customCalendarDaySelected::before')
+    const rangeRowStart = styleRuleBlock(timeRangeControlStyles, '.customCalendarRangeRowStart')
+    const rangeRowEnd = styleRuleBlock(timeRangeControlStyles, '.customCalendarRangeRowEnd')
+    const outsideMonth = styleRuleBlock(timeRangeControlStyles, '.customCalendarDayOutsideMonth')
+    const outsideMonthLabel = styleRuleBlock(timeRangeControlStyles, '.customCalendarDayOutsideMonth > span')
+    const selectedOutsideMonthLabel = styleRuleBlock(timeRangeControlStyles, '.customCalendarDayOutsideMonth.customCalendarDaySelected > span')
+    const rangePanel = styleRuleBlock(timeRangeControlStyles, '.rangePanel')
+    const darkRangePanel = styleRuleBlock(timeRangeControlStyles, ":global([data-theme='dark']) .rangePanel")
+    const selectedHour = [...timeRangeControlStyles.matchAll(/\.customHourOptionActive\s*\{([\s\S]*?)\n\}/g)]
+      .map((match) => match[1])
+      .find((block) => block.includes('var(--primary-color)')) ?? ''
+
+    expect(rangePanel).toContain('var(--primary-color)')
+    expect(dayRange).not.toContain('var(--range-slider-accent)')
+    expect(rangePanel).toContain('--custom-calendar-range-bg: color-mix(in srgb, var(--primary-color) 18%, transparent);')
+    expect(darkRangePanel).toContain('--custom-calendar-range-bg: color-mix(in srgb, var(--primary-color) 12%, var(--bg-primary));')
+    expect(dayRange).toContain('background: var(--custom-calendar-range-bg);')
+    expect(selectedDay).toContain('background: var(--custom-calendar-range-bg);')
+    expect(selectedDay).toContain('color: var(--primary-contrast, #fff);')
+    expect(selectedDayOverlay).toContain("content: '';")
+    expect(selectedDayOverlay).toContain('background: var(--primary-color);')
+    expect(rangeRowStart).toContain('border-radius: 9px 0 0 9px;')
+    expect(rangeRowEnd).toContain('border-radius: 0 9px 9px 0;')
+    expect(timeRangeControlStyles).toMatch(/\.customCalendarRangeRowStart\.customCalendarRangeRowEnd\s*\{[\s\S]*?border-radius:\s*9px;/)
+    expect(outsideMonth).toContain('color: var(--text-secondary);')
+    expect(outsideMonth).not.toContain('opacity:')
+    expect(outsideMonthLabel).toContain('opacity: 0.58;')
+    expect(selectedOutsideMonthLabel).toContain('opacity: 1;')
+    expect(selectedHour).toContain('var(--primary-color)')
+    expect(selectedHour).toContain('var(--bg-primary)')
+    expect(selectedHour).not.toContain('#2563eb')
+    expect(selectedHour).not.toContain('#38bdf8')
+    expect(selectedHour).not.toContain('#67e8f9')
+  })
+
+  it('contains hour-list wheel scrolling at its own boundaries', () => {
+    const hourList = styleRuleBlock(timeRangeControlStyles, '.customHourList')
+
+    expect(hourList).toContain('position: relative;')
+    expect(hourList).toContain('overscroll-behavior-y: contain;')
+  })
+
+  it('animates only custom view changes and disables that motion when requested', () => {
+    expect(styleRuleBlock(timeRangeControlStyles, '.customSummary,')).toContain('animation: customRangeViewEnter')
+    expect(timeRangeControlStyles).toContain('@keyframes customRangeViewEnter')
+    expect(timeRangeControlStyles).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.customSummary,[\s\S]*?\.customPicker\s*\{[\s\S]*?animation:\s*none;/)
   })
 
   it('centers the fixed timer icon with the mobile current-range label', () => {

@@ -86,10 +86,60 @@ describe('usage rolling time ranges', () => {
     });
   });
 
+  it('builds validated custom day and hour requests', () => {
+    expect(rangeQuery.buildUsageRangeQuery({
+      range: 'custom',
+      customUnit: 'day',
+      customStart: '2026-06-18',
+      customEnd: '2026-07-17',
+    })).toEqual({
+      valid: true,
+      range: 'custom',
+      unit: 'day',
+      start: '2026-06-18',
+      end: '2026-07-17',
+    });
+    expect(rangeQuery.buildUsageRangeQuery({
+      range: 'custom',
+      customUnit: 'hour',
+      customStart: '2026-07-17T10:00:00+08:00',
+      customEnd: '2026-07-17T14:00:00+08:00',
+    })).toEqual({
+      valid: true,
+      range: 'custom',
+      unit: 'hour',
+      start: '2026-07-17T10:00:00+08:00',
+      end: '2026-07-17T14:00:00+08:00',
+    });
+  });
+
+  it('rejects custom hour requests outside the 5-24 slot length', () => {
+    expect(rangeQuery.buildUsageRangeQuery({
+      range: 'custom',
+      customUnit: 'hour',
+      customStart: '2026-07-17T10:00:00+08:00',
+      customEnd: '2026-07-17T13:00:00+08:00',
+    }).valid).toBe(false);
+    expect(rangeQuery.buildUsageRangeQuery({
+      range: 'custom',
+      customUnit: 'hour',
+      customStart: '2026-07-16T14:00:00+08:00',
+      customEnd: '2026-07-17T14:00:00+08:00',
+    }).valid).toBe(false);
+  });
+
   it('shows daily averages only for day-unit ranges longer than 24 hours', () => {
     expect(isDailyAverageRange({ range: '1d' })).toBe(false);
     expect(isDailyAverageRange({ range: '2d' })).toBe(true);
     expect(isDailyAverageRange({ range: '17d' })).toBe(true);
     expect(isDailyAverageRange({ range: '13h' })).toBe(false);
+    expect(isDailyAverageRange({ range: 'custom', customUnit: 'day', customStart: '2026-07-16', customEnd: '2026-07-17' })).toBe(true);
+    expect(isDailyAverageRange({ range: 'custom', customUnit: 'day', customStart: '2026-07-17', customEnd: '2026-07-17' })).toBe(false);
+    expect(isDailyAverageRange({
+      range: 'custom',
+      customUnit: 'hour',
+      customStart: '2026-07-17T10:00:00+08:00',
+      customEnd: '2026-07-17T15:00:00+08:00',
+    })).toBe(false);
   });
 });

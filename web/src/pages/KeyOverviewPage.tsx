@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, fetchKeyOverview, fetchKeyOverviewRealtime, logout } from '@/lib/api';
-import type { AuthSessionAPIKeySummary, KeyOverviewTimeRange, OverviewRealtimeBlock, OverviewRealtimeWindow, UsageOverviewResponse } from '@/lib/types';
+import type { AuthSessionAPIKeySummary, OverviewRealtimeBlock, OverviewRealtimeWindow, UsageCustomRange, UsageOverviewResponse, UsageTimeRange } from '@/lib/types';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { IconRefreshCw } from '@/components/ui/icons';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
-import { useThemeStore } from '@/stores';
+import { buildUsageStatsQueryKey, useThemeStore } from '@/stores';
 import {
   DailyAveragePanel,
   OverviewRealtimePanel,
@@ -18,13 +18,14 @@ import {
 import type { UsageOverviewPayload } from '@/components/usage/hooks/useUsageData';
 import { BrandLink } from '@/components/BrandLink';
 import { getCurrentOverviewUsage, getDailyAveragePanelUsage, getOverviewDisplayLoading, isDailyAverageRange } from '@/utils/usage/overview';
-import { normalizeSelectableUsageRange } from '@/utils/usage/rangeQuery';
+import { parseStoredUsageRangeState, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
+import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import type { Theme } from '@/types';
 import styles from './KeyOverviewPage.module.scss';
 
 const KEY_OVERVIEW_RANGE_STORAGE_KEY = 'cli-proxy-key-overview-range-v1';
 const OVERVIEW_REALTIME_WINDOW_STORAGE_KEY = 'cli-proxy-usage-overview-realtime-window-v1';
-const DEFAULT_TIME_RANGE: KeyOverviewTimeRange = '8h';
+const DEFAULT_TIME_RANGE: UsageTimeRange = '8h';
 const DEFAULT_REALTIME_WINDOW: OverviewRealtimeWindow = '15m';
 const KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS = ['models'] as const;
 const REFRESH_THROTTLE_MS = 1_000;
@@ -36,12 +37,12 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'auto', labelKey: 'usage_stats.theme_auto' },
 ];
 
-const loadTimeRange = (): KeyOverviewTimeRange => {
+const loadTimeRange = (): StoredUsageRangeState => {
   try {
-    if (typeof localStorage === 'undefined') return DEFAULT_TIME_RANGE;
-    return normalizeSelectableUsageRange(localStorage.getItem(KEY_OVERVIEW_RANGE_STORAGE_KEY));
+    if (typeof localStorage === 'undefined') return { range: DEFAULT_TIME_RANGE };
+    return parseStoredUsageRangeState(localStorage.getItem(KEY_OVERVIEW_RANGE_STORAGE_KEY), { nowMs: Date.now() });
   } catch {
-    return DEFAULT_TIME_RANGE;
+    return { range: DEFAULT_TIME_RANGE };
   }
 };
 
@@ -154,10 +155,11 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const isDark = resolvedTheme === 'dark';
   const setTheme = useThemeStore((state) => state.setTheme);
-  const [timeRange, setTimeRange] = useState<KeyOverviewTimeRange>(loadTimeRange);
+  const [timeRangeState, setTimeRangeState] = useState<StoredUsageRangeState>(loadTimeRange);
+  const { range: timeRange, customRange } = timeRangeState;
   const [realtimeWindow, setRealtimeWindow] = useState<OverviewRealtimeWindow>(loadRealtimeWindow);
   const [usage, setUsage] = useState<UsageOverviewPayload | null>(null);
-  const [loadedUsageRange, setLoadedUsageRange] = useState<KeyOverviewTimeRange | null>(null);
+  const [loadedUsageRange, setLoadedUsageRange] = useState<string | null>(null);
   const [realtime, setRealtime] = useState<OverviewRealtimeBlock | null>(null);
   const [loading, setLoading] = useState(false);
   const [realtimeLoading, setRealtimeLoading] = useState(false);
@@ -170,6 +172,21 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
   const overviewRequestControllerRef = useRef<AbortController | null>(null);
   const realtimeRequestControllerRef = useRef<AbortController | null>(null);
   const refreshThrottleTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const usageRangeQuery = useMemo(() => buildUsageRangeQuery({
+    range: timeRange,
+    customUnit: customRange?.unit,
+    customStart: customRange?.start,
+    customEnd: customRange?.end,
+  }), [customRange?.end, customRange?.start, customRange?.unit, timeRange]);
+  const usageRangeQueryKey = usageRangeQuery.valid ? buildUsageStatsQueryKey(usageRangeQuery) : null;
+  const rangeTimeZone = usage?.timezone ?? timeRangeState.timeZone;
+  const handleTimeRangeChange = useCallback((range: UsageTimeRange, nextCustomRange?: UsageCustomRange) => {
+    if (range === 'custom' && nextCustomRange) {
+      setTimeRangeState({ range, customRange: nextCustomRange, timeZone: rangeTimeZone });
+      return;
+    }
+    setTimeRangeState((current) => ({ ...current, range }));
+  }, [rangeTimeZone]);
 
   const themeOptions = useMemo(
     () => THEME_OPTIONS.map((option) => ({ ...option, label: t(option.labelKey) })),
@@ -177,20 +194,20 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
   );
 
   const loadOverview = useCallback(async (options: KeyOverviewLoadOptions = {}) => {
+    if (!usageRangeQuery.valid) return;
     const { controller, skipped } = startKeyOverviewRequest({
       currentController: overviewRequestControllerRef.current,
       skipIfInFlight: options.skipIfInFlight,
     });
     if (skipped || !controller) return;
     overviewRequestControllerRef.current = controller;
-    const requestRange = timeRange;
     setLoading(true);
     setError('');
     try {
-      const overview = await fetchKeyOverview(requestRange, controller.signal);
+      const overview = await fetchKeyOverview(usageRangeQuery, controller.signal);
       if (overviewRequestControllerRef.current !== controller) return;
       setUsage(overview as UsageOverviewResponse as UsageOverviewPayload);
-      setLoadedUsageRange(requestRange);
+      setLoadedUsageRange(usageRangeQueryKey);
       setLastRefreshedAt(new Date());
     } catch (nextError) {
       if (controller.signal.aborted) return;
@@ -209,7 +226,7 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
         overviewRequestControllerRef.current = null;
       }
     }
-  }, [onAuthRequired, timeRange]);
+  }, [onAuthRequired, usageRangeQuery, usageRangeQueryKey]);
 
   const loadRealtime = useCallback(async (options: KeyOverviewLoadOptions = {}) => {
     const { controller, skipped } = startKeyOverviewRequest({
@@ -293,11 +310,11 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
 
   useEffect(() => {
     try {
-      localStorage.setItem(KEY_OVERVIEW_RANGE_STORAGE_KEY, timeRange);
+      localStorage.setItem(KEY_OVERVIEW_RANGE_STORAGE_KEY, serializeUsageRangeState(timeRangeState));
     } catch {
       // ignore storage failures
     }
-  }, [timeRange]);
+  }, [timeRangeState]);
 
   useEffect(() => {
     try {
@@ -308,8 +325,13 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
   }, [realtimeWindow]);
 
   const overviewDisplayLoading = getOverviewDisplayLoading({ loading, hasUsage: Boolean(usage) });
-  const currentOverviewUsage = getCurrentOverviewUsage(usage, timeRange, loadedUsageRange);
-  const reserveDailyAveragePanel = isDailyAverageRange({ range: timeRange });
+  const currentOverviewUsage = getCurrentOverviewUsage(usage, usageRangeQueryKey, loadedUsageRange);
+  const reserveDailyAveragePanel = isDailyAverageRange({
+    range: timeRange,
+    customUnit: customRange?.unit,
+    customStart: customRange?.start,
+    customEnd: customRange?.end,
+  });
   const dailyAveragePanelUsage = getDailyAveragePanelUsage(currentOverviewUsage, usage, reserveDailyAveragePanel, loading);
   const {
     requestsSparkline,
@@ -434,7 +456,9 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
                 <div className={styles.usageFilterBar}>
                   <TimeRangeControl
                     value={timeRange}
-                    onChange={setTimeRange}
+                    customRange={customRange}
+                    timeZone={rangeTimeZone}
+                    onChange={handleTimeRangeChange}
                     ariaLabel={t('usage_stats.range_filter')}
                   />
                 </div>

@@ -1,4 +1,4 @@
-import { type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type KeyOverviewTimeRange, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingSyncPreviewResponse, type QuotaAutoRefreshSettings, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
+import { type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingSyncPreviewResponse, type QuotaAutoRefreshSettings, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
 import { isCPAMCEmbed } from '@/embed/cpamcEmbed'
 import { resolveUsageRequestRange } from '@/utils/usage/rangeQuery'
 
@@ -286,9 +286,23 @@ export async function revokeAuthSession(id: string): Promise<void> {
   }
 }
 
-export async function fetchKeyOverview(range: KeyOverviewTimeRange, signal?: AbortSignal): Promise<UsageOverviewResponse> {
+const buildUsageRangeParams = (request: UsageRangeRequest): URLSearchParams => {
   const params = new URLSearchParams()
-  params.set('range', resolveUsageRequestRange(range))
+  params.set('range', resolveUsageRequestRange(request.range))
+  if (request.unit) {
+    params.set('unit', request.unit)
+  }
+  if (request.start) {
+    params.set('start', request.start)
+  }
+  if (request.end) {
+    params.set('end', request.end)
+  }
+  return params
+}
+
+export async function fetchKeyOverview(request: UsageRangeRequest, signal?: AbortSignal): Promise<UsageOverviewResponse> {
+  const params = buildUsageRangeParams(request)
   const response = await apiFetch(`${apiPath('/key-overview')}?${params.toString()}`, { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load key overview: ${response.status}`)
@@ -313,15 +327,8 @@ export async function fetchKeyOverviewRealtime(options: FetchKeyOverviewRealtime
   return normalizeOverviewRealtimeBlock(payload, window)
 }
 
-export async function fetchUsageOverview(range: string, start?: string, end?: string, signal?: AbortSignal, apiKeyId?: string): Promise<UsageOverviewResponse> {
-  const params = new URLSearchParams()
-  params.set('range', resolveUsageRequestRange(range))
-  if (start) {
-    params.set('start', start)
-  }
-  if (end) {
-    params.set('end', end)
-  }
+export async function fetchUsageOverview(request: UsageRangeRequest, signal?: AbortSignal, apiKeyId?: string): Promise<UsageOverviewResponse> {
+  const params = buildUsageRangeParams(request)
   const selectedAPIKeyId = apiKeyId?.trim()
   if (selectedAPIKeyId) {
     params.set('api_key_id', selectedAPIKeyId)
@@ -376,15 +383,8 @@ interface UsageEventRequestLogDownloadURLResponse {
   download_url?: string
 }
 
-function buildUsageEventsParams(range: string, start?: string, end?: string, options?: FetchUsageEventsOptions, includePagination = true): URLSearchParams {
-  const params = new URLSearchParams()
-  params.set('range', resolveUsageRequestRange(range))
-  if (start) {
-    params.set('start', start)
-  }
-  if (end) {
-    params.set('end', end)
-  }
+function buildUsageEventsParams(request: UsageRangeRequest, options?: FetchUsageEventsOptions, includePagination = true): URLSearchParams {
+  const params = buildUsageRangeParams(request)
   if (includePagination && typeof options?.page === 'number' && Number.isFinite(options.page) && options.page > 0) {
     params.set('page', String(Math.floor(options.page)))
   }
@@ -432,8 +432,8 @@ export async function fetchUsageEventSourceFilterOptions(signal?: AbortSignal): 
   return response.json()
 }
 
-export async function fetchUsageEvents(range: string, start?: string, end?: string, signal?: AbortSignal, options?: FetchUsageEventsOptions): Promise<UsageEventsResponse> {
-  const params = buildUsageEventsParams(range, start, end, options)
+export async function fetchUsageEvents(request: UsageRangeRequest, signal?: AbortSignal, options?: FetchUsageEventsOptions): Promise<UsageEventsResponse> {
+  const params = buildUsageEventsParams(request, options)
   const query = params.toString()
   const response = await apiFetch(`${apiPath('/usage/events')}${query ? `?${query}` : ''}`, { signal })
   if (!response.ok) {
@@ -463,8 +463,8 @@ export async function createUsageEventRequestLogDownloadURL(eventId: string): Pr
   return downloadURL
 }
 
-export async function exportUsageEvents(range: string, start: string | undefined, end: string | undefined, format: UsageEventsExportFormat, options?: FetchUsageEventsOptions): Promise<UsageEventsExportFile> {
-  const params = buildUsageEventsParams(range, start, end, options, false)
+export async function exportUsageEvents(request: UsageRangeRequest, format: UsageEventsExportFormat, options?: FetchUsageEventsOptions): Promise<UsageEventsExportFile> {
+  const params = buildUsageEventsParams(request, options, false)
   params.set('format', format)
   const query = params.toString()
   const response = await apiFetch(`${apiPath('/usage/events/export')}${query ? `?${query}` : ''}`)
@@ -652,15 +652,8 @@ export async function deleteAuthFiles(names: string[]): Promise<AuthFilesManagem
   return response.json()
 }
 
-export async function fetchAnalysis(range: string, start?: string, end?: string, signal?: AbortSignal, apiKeyId?: string): Promise<AnalysisResponse> {
-  const params = new URLSearchParams()
-  params.set('range', resolveUsageRequestRange(range))
-  if (start) {
-    params.set('start', start)
-  }
-  if (end) {
-    params.set('end', end)
-  }
+export async function fetchAnalysis(request: UsageRangeRequest, signal?: AbortSignal, apiKeyId?: string): Promise<AnalysisResponse> {
+  const params = buildUsageRangeParams(request)
   const selectedAPIKeyId = apiKeyId?.trim()
   if (selectedAPIKeyId) {
     params.set('api_key_id', selectedAPIKeyId)
