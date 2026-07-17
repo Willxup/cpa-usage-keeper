@@ -108,6 +108,35 @@ describe('custom usage range slots', () => {
     expect(parseStoredUsageRangeState('{"range":"custom"}', { nowMs: SHANGHAI_NOW })).toEqual({ range: '8h' });
   });
 
+  it.each([
+    {
+      unit: 'hour' as const,
+      storedStart: '2026-07-16T15:00:00+08:00',
+      storedEnd: '2026-07-17T14:00:00+08:00',
+      expectedStart: '2026-07-16T16:00:00+08:00',
+      expectedEnd: '2026-07-17T14:00:00+08:00',
+    },
+    {
+      unit: 'day' as const,
+      storedStart: '2026-06-17',
+      storedEnd: '2026-07-16',
+      expectedStart: '2026-06-18',
+      expectedEnd: '2026-07-16',
+    },
+  ])('clamps an aged persisted $unit range while preserving its end', ({ unit, storedStart, storedEnd, expectedStart, expectedEnd }) => {
+    const storedState = serializeUsageRangeState({
+      range: 'custom',
+      customRange: { unit, start: storedStart, end: storedEnd },
+      timeZone: 'Asia/Shanghai',
+    });
+
+    expect(parseStoredUsageRangeState(storedState, { nowMs: SHANGHAI_NOW })).toEqual({
+      range: 'custom',
+      customRange: { unit, start: expectedStart, end: expectedEnd },
+      timeZone: 'Asia/Shanghai',
+    });
+  });
+
   it('parses the legacy standalone Custom date range for deferred timezone migration', async () => {
     const customRangeModule = await import('../customRange') as Record<string, unknown>;
     const parseLegacyCustomRange = customRangeModule.parseLegacyCustomRange as ((raw: string | null) => unknown) | undefined;

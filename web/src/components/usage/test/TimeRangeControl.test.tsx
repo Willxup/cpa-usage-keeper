@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act, type ComponentType } from 'react';
+import { act, Profiler, type ComponentType } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UsageCustomRange, UsageTimeRange } from '@/lib/types';
@@ -183,6 +183,33 @@ describe('TimeRangeControl', () => {
     const desktopDialog = desktopSlider?.closest('[role="dialog"]');
     expect(desktopSlider).not.toBeNull();
     expect(desktopDialog?.querySelector('[data-custom-range-summary]')).toBeNull();
+  });
+
+  it('does not rerender a closed mobile control during desktop-only resizes', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
+    const TimeRangeControl = await loadTimeRangeControl();
+    expect(TimeRangeControl).not.toBeNull();
+    if (!TimeRangeControl) return;
+    let commitCount = 0;
+
+    await act(async () => {
+      root.render(
+        <Profiler id="time-range-control" onRender={() => { commitCount += 1; }}>
+          <TimeRangeControl
+            value="custom"
+            customRange={{ unit: 'day', start: '2026-07-11', end: '2026-07-17' }}
+            onChange={vi.fn()}
+            ariaLabel="Range"
+            timeZone="Asia/Shanghai"
+          />
+        </Profiler>,
+      );
+    });
+    const commitsAfterRender = commitCount;
+
+    await act(async () => window.dispatchEvent(new Event('resize')));
+
+    expect(commitCount).toBe(commitsAfterRender);
   });
 
   it('renders eighteen independently timed liquid particles for rolling ranges', async () => {

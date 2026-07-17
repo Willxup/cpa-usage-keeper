@@ -35,7 +35,7 @@ import {
   REQUEST_EVENT_COLUMN_IDS,
   type RequestEventColumnId,
 } from '@/components/usage/RequestEventsDetailsCard';
-import { clampStoredUsageRangeStateToCurrentBounds, normalizeCustomRange, parseLegacyCustomRange, parseStoredUsageRangeState, scheduleCustomRangeBoundsRefresh, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
+import { clampStoredUsageRangeStateToCurrentBounds, parseLegacyCustomRange, parseStoredUsageRangeState, scheduleCustomRangeBoundsRefresh, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import { getDailyAveragePanelUsage, isDailyAverageRange } from '@/utils/usage/overview';
 import type { Theme } from '@/types';
@@ -625,11 +625,11 @@ export const loadUsageRangeState = (
 export const migrateLegacyUsageRangeState = (
   customRange: UsageCustomRange,
   { nowMs, timeZone }: { nowMs: number; timeZone: string },
-): StoredUsageRangeState => ({
+): StoredUsageRangeState => clampStoredUsageRangeStateToCurrentBounds({
   range: 'custom',
-  customRange: normalizeCustomRange(customRange, { nowMs, timeZone }),
+  customRange,
   timeZone,
-});
+}, { nowMs, timeZone });
 
 export const persistMigratedUsageRangeState = (
   storage: UsageRangeMigrationStorage,

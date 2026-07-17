@@ -407,6 +407,7 @@ export function TimeRangeControl({ value, customRange, onChange, ariaLabel, time
   }, [discardDraft]);
 
   const toggleDesktopPopover = useCallback(() => {
+    mobileOpenRef.current = false;
     setMobileOpen(false);
     if (desktopOpen) {
       closeDesktopPopover();
@@ -430,7 +431,7 @@ export function TimeRangeControl({ value, customRange, onChange, ariaLabel, time
         closeDesktopPopover();
         return;
       }
-      if (!desktopOpen) closeMobileModal();
+      if (mobileOpenRef.current && !desktopOpen) closeMobileModal();
     };
     window.addEventListener('resize', handleViewportResize);
     return () => window.removeEventListener('resize', handleViewportResize);
@@ -497,6 +498,7 @@ export function TimeRangeControl({ value, customRange, onChange, ariaLabel, time
 
   const handleCustomApply = () => {
     lastEmittedRangeRef.current = 'custom';
+    mobileOpenRef.current = false;
     setPendingMode(null);
     setDesktopOpen(false);
     setMobileOpen(false);

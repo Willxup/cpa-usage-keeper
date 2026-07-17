@@ -316,7 +316,7 @@ export const parseStoredUsageRangeState = (
     if (!timeZone || !isCustomRange(parsed.customRange)) return { range: '8h' };
     return {
       range: 'custom',
-      customRange: normalizeCustomRange(parsed.customRange, { nowMs, timeZone }),
+      customRange: clampCustomRangeToCurrentBounds(parsed.customRange, { nowMs, timeZone }),
       timeZone,
     };
   } catch {
