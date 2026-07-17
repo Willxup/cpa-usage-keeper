@@ -21,8 +21,9 @@ const parseRollingUsageRange = (value: unknown): { unit: 'hour' | 'day'; value: 
   const amount = Number(match[1]);
   if (!Number.isInteger(amount) || String(amount) !== match[1]) return null;
   const unit = match[2] === 'h' ? 'hour' : 'day';
+  const minimum = unit === 'hour' ? 5 : 1;
   const maximum = unit === 'hour' ? 24 : 30;
-  if (amount < 1 || amount > maximum) return null;
+  if (amount < minimum || amount > maximum) return null;
   return { unit, value: amount };
 };
 
@@ -53,8 +54,9 @@ export const parseSelectableUsageRange = (value: string): ParsedSelectableUsageR
 };
 
 export const buildRollingUsageRange = (unit: 'hour' | 'day', value: number): KeyOverviewTimeRange => {
+  const minimum = unit === 'hour' ? 5 : 1;
   const maximum = unit === 'hour' ? 24 : 30;
-  const amount = Math.min(maximum, Math.max(1, Math.round(Number.isFinite(value) ? value : 1)));
+  const amount = Math.min(maximum, Math.max(minimum, Math.round(Number.isFinite(value) ? value : minimum)));
   return `${amount}${unit === 'hour' ? 'h' : 'd'}`;
 };
 

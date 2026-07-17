@@ -17,7 +17,7 @@ func TestUsageRoutesAcceptBoundedRollingRanges(t *testing.T) {
 		rangeVal string
 		duration time.Duration
 	}{
-		{name: "one hour", rangeVal: "1h", duration: time.Hour},
+		{name: "minimum hours", rangeVal: "5h", duration: 5 * time.Hour},
 		{name: "arbitrary hours", rangeVal: "13h", duration: 13 * time.Hour},
 		{name: "maximum hours", rangeVal: "24h", duration: 24 * time.Hour},
 		{name: "one day", rangeVal: "1d", duration: 24 * time.Hour},
@@ -46,7 +46,7 @@ func TestUsageRoutesAcceptBoundedRollingRanges(t *testing.T) {
 }
 
 func TestUsageRoutesRejectOutOfBoundsRollingRanges(t *testing.T) {
-	for _, rangeVal := range []string{"0h", "25h", "0d", "31d", "01h", "1w"} {
+	for _, rangeVal := range []string{"0h", "1h", "4h", "25h", "0d", "31d", "01h", "1w"} {
 		t.Run(rangeVal, func(t *testing.T) {
 			provider := &usageEventsStub{}
 			router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")

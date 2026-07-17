@@ -24,10 +24,12 @@ const DEFAULT_ROLLING_VALUES: Record<RollingUnit, number> = { hour: 8, day: 7 };
 const MOBILE_BREAKPOINT_PX = 768;
 const RANGE_DIALOG_FOCUSABLE_SELECTOR = 'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+const getRollingMinimum = (unit: RollingUnit) => unit === 'hour' ? 5 : 1;
+
 const getRollingMaximum = (unit: RollingUnit) => unit === 'hour' ? 24 : 30;
 
 const getRollingTicks = (unit: RollingUnit) => unit === 'hour'
-  ? [1, 6, 12, 18, 24]
+  ? [5, 8, 12, 18, 24]
   : [1, 7, 14, 21, 30];
 
 type LiquidParticleMotion = 'a' | 'b' | 'c';
@@ -74,7 +76,7 @@ interface RangePanelProps {
   rollingValues: Record<RollingUnit, number>;
   onModeChange: (mode: UsageTimeRangeMode) => void;
   onRollingValueChange: (unit: RollingUnit, value: number) => void;
-  onRollingPointerStart: (unit: RollingUnit, value: number, pointerId: number) => void;
+  onRollingPointerStart: (unit: RollingUnit, value: number, pointerId: number) => boolean;
   onRollingValueCommit: (unit: RollingUnit, value: number, pointerId?: number) => void;
 }
 
@@ -83,8 +85,9 @@ function TimeRangePanel({ mode, rollingValues, onModeChange, onRollingValueChang
   const isRolling = mode === 'hour' || mode === 'day';
   const rollingUnit: RollingUnit = mode === 'day' ? 'day' : 'hour';
   const rollingValue = rollingValues[rollingUnit];
+  const minimum = getRollingMinimum(rollingUnit);
   const maximum = getRollingMaximum(rollingUnit);
-  const progress = ((rollingValue - 1) / (maximum - 1)) * 100;
+  const progress = ((rollingValue - minimum) / (maximum - minimum)) * 100;
   const sliderStyle = { '--range-progress': `${progress}%` } as CSSProperties;
   const ticks = getRollingTicks(rollingUnit);
 
@@ -117,7 +120,7 @@ function TimeRangePanel({ mode, rollingValues, onModeChange, onRollingValueChang
             <span>{t('usage_stats.range_recent_window')}</span>
             <strong>
               {rollingValue}
-              <small>{t(rollingUnit === 'hour' ? 'usage_stats.range_unit_hour' : 'usage_stats.range_unit_day')}</small>
+              <small>{t(rollingUnit === 'hour' ? 'usage_stats.range_value_hour' : 'usage_stats.range_value_day', { count: rollingValue })}</small>
             </strong>
           </div>
           <div className={styles.sliderControl} style={sliderStyle}>
@@ -141,7 +144,7 @@ function TimeRangePanel({ mode, rollingValues, onModeChange, onRollingValueChang
                 ))}
               </span>
               {ticks.map((tick) => {
-                const position = ((tick - 1) / (maximum - 1)) * 100;
+                const position = ((tick - minimum) / (maximum - minimum)) * 100;
                 return (
                   <span
                     key={tick}
@@ -155,7 +158,7 @@ function TimeRangePanel({ mode, rollingValues, onModeChange, onRollingValueChang
               className={styles.rangeInput}
               data-time-range-slider
               type="range"
-              min={1}
+              min={minimum}
               max={maximum}
               step={1}
               value={rollingValue}
@@ -163,7 +166,11 @@ function TimeRangePanel({ mode, rollingValues, onModeChange, onRollingValueChang
                 rollingUnit === 'hour' ? 'usage_stats.range_last_hours' : 'usage_stats.range_last_days',
                 { count: rollingValue },
               )}
-              onPointerDown={(event) => onRollingPointerStart(rollingUnit, Number(event.currentTarget.value), event.pointerId)}
+              onPointerDown={(event) => {
+                if (!onRollingPointerStart(rollingUnit, Number(event.currentTarget.value), event.pointerId)) {
+                  event.preventDefault();
+                }
+              }}
               onInput={(event) => onRollingValueChange(rollingUnit, Number(event.currentTarget.value))}
               onPointerUp={(event) => onRollingValueCommit(rollingUnit, Number(event.currentTarget.value), event.pointerId)}
               onKeyUp={commitKeyboardValue}
@@ -251,13 +258,16 @@ export function TimeRangeControl({ value, onChange, ariaLabel }: TimeRangeContro
   };
 
   const handleRollingPointerStart = (unit: RollingUnit, currentValue: number, pointerId: number) => {
+    const activePointer = activeRollingPointerRef.current;
+    if (activePointer && activePointer.pointerId !== pointerId) return false;
     activeRollingPointerRef.current = { unit, pointerId };
     latestRollingValuesRef.current = { ...latestRollingValuesRef.current, [unit]: currentValue };
+    return true;
   };
 
   const handleRollingValueCommit = useCallback((unit: RollingUnit, committedValue: number, pointerId?: number) => {
     const activePointer = activeRollingPointerRef.current;
-    if (pointerId !== undefined && activePointer && activePointer.pointerId !== pointerId) return;
+    if (pointerId !== undefined && (!activePointer || activePointer.pointerId !== pointerId)) return;
     activeRollingPointerRef.current = null;
     setDraftingUnit((current) => current === unit ? null : current);
     const nextRange = buildRollingUsageRange(unit, committedValue);
@@ -293,12 +303,27 @@ export function TimeRangeControl({ value, onChange, ariaLabel }: TimeRangeContro
     setPopoverPosition({ top: rect.bottom + 8, left });
   }, []);
 
+  const discardRollingDraft = useCallback(() => {
+    activeRollingPointerRef.current = null;
+    setDraftingUnit(null);
+    if (mode !== 'hour' && mode !== 'day') return;
+    const appliedValue = parsedRange.value ?? DEFAULT_ROLLING_VALUES[mode];
+    latestRollingValuesRef.current = { ...latestRollingValuesRef.current, [mode]: appliedValue };
+    setRollingValues((current) => current[mode] === appliedValue ? current : { ...current, [mode]: appliedValue });
+  }, [mode, parsedRange.value]);
+
   const closeDesktopPopover = useCallback((restoreFocus = false) => {
+    discardRollingDraft();
     setDesktopOpen(false);
     if (restoreFocus) {
       queueMicrotask(() => desktopTriggerRef.current?.focus());
     }
-  }, []);
+  }, [discardRollingDraft]);
+
+  const closeMobileModal = useCallback(() => {
+    discardRollingDraft();
+    setMobileOpen(false);
+  }, [discardRollingDraft]);
 
   const toggleDesktopPopover = useCallback(() => {
     setMobileOpen(false);
@@ -407,7 +432,7 @@ export function TimeRangeControl({ value, onChange, ariaLabel }: TimeRangeContro
           type="button"
           className={styles.desktopTrigger}
           data-time-range-trigger="desktop"
-          aria-label={ariaLabel}
+          aria-label={`${ariaLabel}: ${currentLabel}`}
           aria-haspopup="dialog"
           aria-expanded={desktopOpen}
           onClick={toggleDesktopPopover}
@@ -424,7 +449,7 @@ export function TimeRangeControl({ value, onChange, ariaLabel }: TimeRangeContro
           type="button"
           className={styles.mobileTrigger}
           data-time-range-trigger="mobile"
-          aria-label={ariaLabel}
+          aria-label={`${ariaLabel}: ${currentLabel}`}
           aria-haspopup="dialog"
           aria-expanded={mobileOpen}
           onClick={openMobileModal}
@@ -455,7 +480,7 @@ export function TimeRangeControl({ value, onChange, ariaLabel }: TimeRangeContro
 
       <Modal
         open={mobileOpen}
-        onClose={() => setMobileOpen(false)}
+        onClose={closeMobileModal}
         title={ariaLabel}
         width="min(430px, calc(100% - 24px))"
         className={styles.mobileRangeModal}

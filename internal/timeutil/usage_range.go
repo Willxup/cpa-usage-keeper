@@ -27,7 +27,7 @@ func (r UsageRollingRange) Duration() time.Duration {
 	return time.Duration(r.Value) * time.Hour
 }
 
-// ParseUsageRollingRange 接受规范的 1-24h 或 1-30d，不接受 0、前导零和其他单位。
+// ParseUsageRollingRange 接受规范的 5-24h 或 1-30d，不接受越界值、前导零和其他单位。
 func ParseUsageRollingRange(value string) (UsageRollingRange, bool) {
 	if len(value) < 2 {
 		return UsageRollingRange{}, false
@@ -41,11 +41,13 @@ func ParseUsageRollingRange(value string) (UsageRollingRange, bool) {
 	if err != nil || strconv.Itoa(number) != numberText {
 		return UsageRollingRange{}, false
 	}
+	minimum := 5
 	maximum := 24
 	if unit == UsageRollingUnitDay {
+		minimum = 1
 		maximum = 30
 	}
-	if number < 1 || number > maximum {
+	if number < minimum || number > maximum {
 		return UsageRollingRange{}, false
 	}
 	return UsageRollingRange{Value: number, Unit: unit}, true

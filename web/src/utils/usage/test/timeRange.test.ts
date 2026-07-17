@@ -8,7 +8,7 @@ type ParsedRange = { mode: RangeMode; value?: number };
 
 describe('usage rolling time ranges', () => {
   it('normalizes every bounded hour and day range', () => {
-    expect(rangeQuery.normalizeUsageRange('1h')).toBe('1h');
+    expect(rangeQuery.normalizeUsageRange('5h')).toBe('5h');
     expect(rangeQuery.normalizeUsageRange('13h')).toBe('13h');
     expect(rangeQuery.normalizeUsageRange('24h')).toBe('24h');
     expect(rangeQuery.normalizeUsageRange('1d')).toBe('1d');
@@ -17,7 +17,7 @@ describe('usage rolling time ranges', () => {
   });
 
   it('rejects out-of-bounds and non-canonical rolling ranges', () => {
-    for (const value of ['0h', '25h', '0d', '31d', '01h', '1w']) {
+    for (const value of ['0h', '1h', '4h', '25h', '0d', '31d', '01h', '1w']) {
       expect(rangeQuery.normalizeUsageRange(value)).toBe('8h');
     }
   });
@@ -49,7 +49,7 @@ describe('usage rolling time ranges', () => {
     expect(typeof buildRolling).toBe('function');
     if (!buildRolling) return;
 
-    expect(buildRolling('hour', 0)).toBe('1h');
+    expect(buildRolling('hour', 0)).toBe('5h');
     expect(buildRolling('hour', 13)).toBe('13h');
     expect(buildRolling('hour', 25)).toBe('24h');
     expect(buildRolling('day', 0)).toBe('1d');

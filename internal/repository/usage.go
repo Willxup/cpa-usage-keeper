@@ -448,7 +448,7 @@ func analysisHourlyStatsEnd(filter dto.UsageQueryFilter, fullEnd time.Time) time
 	if filter.StartTime == nil || filter.EndTime == nil {
 		return fullEnd
 	}
-	if timeutil.IsUsageRollingHourRange(filter.Range) {
+	if timeutil.IsUsageRollingHourRange(filter.Range) || timeutil.IsUsageRollingDayRange(filter.Range) {
 		if timeutil.NormalizeStorageTime(*filter.EndTime).After(fullEnd) {
 			return fullEnd.Add(time.Hour)
 		}
@@ -1120,7 +1120,7 @@ func usageOverviewFullDayWindow(start, end time.Time) (time.Time, time.Time) {
 	end = timeutil.NormalizeStorageTime(end)
 	fullStart := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
 	if !start.Equal(fullStart) {
-		fullStart = fullStart.Add(24 * time.Hour)
+		fullStart = fullStart.AddDate(0, 0, 1)
 	}
 	fullEnd := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, end.Location())
 	if fullEnd.Before(fullStart) {

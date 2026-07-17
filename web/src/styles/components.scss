@@ -456,6 +456,20 @@ textarea {
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .modal-overlay-entering,
+  .modal-overlay-closing,
+  .modal-entering,
+  .modal-closing {
+    animation: none;
+  }
+
+  .modal-overlay-closing,
+  .modal-closing {
+    opacity: 0;
+  }
+}
+
 .modal-close-floating {
   position: absolute;
   top: 12px;
