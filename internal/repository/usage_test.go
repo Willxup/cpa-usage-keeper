@@ -485,7 +485,7 @@ func TestBuildAnalysisWithFilterKeepsHeatmapPairsSeparateWhenValuesContainDelimi
 func TestBuildAnalysisWithFilterIncludesCurrentHourStatsInRollingHourlyRanges(t *testing.T) {
 	withRepositoryTestLocation(t, "Asia/Shanghai")
 	db := openUsageTestDatabase(t)
-	start := time.Date(2026, 5, 21, 5, 14, 21, 0, time.Local)
+	start := time.Date(2026, 5, 21, 4, 14, 21, 0, time.Local)
 	end := time.Date(2026, 5, 21, 9, 14, 21, 0, time.Local)
 	currentHour := time.Date(2026, 5, 21, 9, 0, 0, 0, time.Local)
 	if err := db.Create(&entities.CPAAPIKey{APIKey: "sk-target-key", DisplayKey: "sk-*********target"}).Error; err != nil {
@@ -506,7 +506,7 @@ func TestBuildAnalysisWithFilterIncludesCurrentHourStatsInRollingHourlyRanges(t 
 		t.Fatalf("drop usage_events: %v", err)
 	}
 
-	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "4h", StartTime: &start, EndTime: &end})
+	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "5h", StartTime: &start, EndTime: &end})
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 	}

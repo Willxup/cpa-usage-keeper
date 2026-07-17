@@ -312,14 +312,18 @@ func usageEventProjectionToEntity(event usageEventProjection) entities.UsageEven
 	}
 }
 
-// applyUsageQueryWindow 给 usage 查询追加闭区间时间过滤。
+// applyUsageQueryWindow 给 usage 查询追加时间过滤；Custom 使用半开区间避免带入下一时段边界。
 func applyUsageQueryWindow(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
 	// 查询参数和落库 timestamp 使用同一格式，避免 SQLite TEXT 范围比较失真。
 	if filter.StartTime != nil {
 		query = query.Where("timestamp >= ?", timeutil.FormatStorageTime(*filter.StartTime))
 	}
 	if filter.EndTime != nil {
-		query = query.Where("timestamp <= ?", timeutil.FormatStorageTime(*filter.EndTime))
+		operator := "timestamp <= ?"
+		if filter.EndExclusive {
+			operator = "timestamp < ?"
+		}
+		query = query.Where(operator, timeutil.FormatStorageTime(*filter.EndTime))
 	}
 	return query
 }
@@ -448,12 +452,13 @@ func analysisHourlyStatsEnd(filter dto.UsageQueryFilter, fullEnd time.Time) time
 	if filter.StartTime == nil || filter.EndTime == nil {
 		return fullEnd
 	}
-	switch filter.Range {
-	case "4h", "8h", "12h", "24h":
+	if timeutil.IsUsageRollingHourRange(filter.Range) || timeutil.IsUsageRollingDayRange(filter.Range) {
 		if timeutil.NormalizeStorageTime(*filter.EndTime).After(fullEnd) {
 			return fullEnd.Add(time.Hour)
 		}
 		return fullEnd
+	}
+	switch filter.Range {
 	case "today", "yesterday":
 	default:
 		return fullEnd
@@ -1080,8 +1085,11 @@ func usageOverviewEffectiveFilter(filter dto.UsageQueryFilter, queryNow time.Tim
 // usageOverviewCurrentRightBoundary 判断主查询右边界是否应该从缓存读到“现在之后已进入缓存的新事件”。
 func usageOverviewCurrentRightBoundary(filter dto.UsageQueryFilter, queryNow time.Time) bool {
 	// 滚动范围天然表示“截至当前”，不能被 API 层较早解析出的 end 截断。
+	if _, ok := timeutil.ParseUsageRollingRange(strings.TrimSpace(filter.Range)); ok {
+		return true
+	}
 	switch strings.TrimSpace(filter.Range) {
-	case "4h", "8h", "12h", "24h", "7d", "30d", "today":
+	case "today":
 		return true
 	case "custom":
 		// 自定义范围只有结束时间落在 queryNow 之后时才代表当前进行中的当天查询。
@@ -1116,7 +1124,7 @@ func usageOverviewFullDayWindow(start, end time.Time) (time.Time, time.Time) {
 	end = timeutil.NormalizeStorageTime(end)
 	fullStart := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
 	if !start.Equal(fullStart) {
-		fullStart = fullStart.Add(24 * time.Hour)
+		fullStart = fullStart.AddDate(0, 0, 1)
 	}
 	fullEnd := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, end.Location())
 	if fullEnd.Before(fullStart) {
@@ -1148,7 +1156,7 @@ func usageOverviewRawEventWindows(filter dto.UsageQueryFilter, health dto.UsageO
 	// 最多包含主查询左右边界和 health 左右边界，预分配 4 个窗口。
 	windows := make([]usageOverviewRawEventWindow, 0, 4)
 	// 主查询边界需要保留 includeEnd/currentRight 语义。
-	windows = appendUsageOverviewRawEventBoundaryWindows(windows, windowStart, windowEnd, fullHourStart, fullHourEnd, true, currentRight)
+	windows = appendUsageOverviewRawEventBoundaryWindows(windows, windowStart, windowEnd, fullHourStart, fullHourEnd, !filter.EndExclusive, currentRight)
 
 	// health grid 有自己的展示窗口，需要把无法由 health stats 覆盖的边界也补进来。
 	exactStart, exactEnd := usageOverviewHealthExactWindow(health, filter)
@@ -1195,8 +1203,8 @@ func appendUsageOverviewRawEventBoundaryWindows(windows []usageOverviewRawEventW
 		if rightStart.Before(windowStart) {
 			rightStart = windowStart
 		}
-		// includeRightEnd 允许 current 查询在整点结束时生成零宽右边界，用 EventsSince 继续读缓存。
-		if rightStart.Before(windowEnd) || (includeRightEnd && rightStart.Equal(windowEnd)) {
+		// 当前范围在整点结束时仍生成零宽右边界，用 EventsSince 承接 API 解析后的新事件。
+		if rightStart.Before(windowEnd) || (currentRightEnd && rightStart.Equal(windowEnd)) {
 			windows = append(windows, usageOverviewRawEventWindow{start: rightStart, end: windowEnd, includeEnd: includeRightEnd, currentRight: currentRightEnd})
 		}
 	}
@@ -2518,8 +2526,11 @@ func usageOverviewHealthGrid(filter dto.UsageQueryFilter) (int, time.Duration) {
 
 // isUsageOverviewShortHealthRange 判断 health grid 是否使用 24h 专用细粒度窗口。
 func isUsageOverviewShortHealthRange(value string) bool {
+	if timeutil.IsUsageRollingHourRange(value) {
+		return true
+	}
 	switch value {
-	case "4h", "8h", "12h", "24h", "today", "yesterday":
+	case "today", "yesterday":
 		return true
 	default:
 		return false

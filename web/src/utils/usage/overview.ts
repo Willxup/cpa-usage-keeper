@@ -1,5 +1,5 @@
-import type { UsageTimeRange } from '@/lib/types';
-import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
+import type { UsageCustomRangeUnit, UsageTimeRange } from '@/lib/types';
+import { buildUsageRangeQuery, parseSelectableUsageRange } from '@/utils/usage/rangeQuery';
 
 export const getOverviewDisplayLoading = ({ loading, hasUsage }: { loading: boolean; hasUsage: boolean }) => loading && !hasUsage;
 
@@ -25,20 +25,19 @@ export const isDailyAverageRange = ({
   range,
   customStart,
   customEnd,
+  customUnit,
 }: {
   range: UsageTimeRange;
   customStart?: string;
   customEnd?: string;
+  customUnit?: UsageCustomRangeUnit;
 }): boolean => {
-  const rangeQuery = buildUsageRangeQuery({ range, customStart, customEnd });
+  const rangeQuery = buildUsageRangeQuery({ range, customUnit, customStart, customEnd });
   if (!rangeQuery.valid) {
     return false;
   }
-  if (rangeQuery.range === '7d' || rangeQuery.range === '30d') {
-    return true;
-  }
   if (rangeQuery.range !== 'custom') {
-    return false;
+    return parseSelectableUsageRange(rangeQuery.range).mode === 'day';
   }
-  return Boolean(rangeQuery.start && rangeQuery.end && rangeQuery.start < rangeQuery.end);
+  return rangeQuery.unit === 'day' && Boolean(rangeQuery.start && rangeQuery.end && rangeQuery.start < rangeQuery.end);
 };

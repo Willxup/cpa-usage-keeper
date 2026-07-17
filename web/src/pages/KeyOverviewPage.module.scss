@@ -284,64 +284,6 @@
   transform: translateY(0);
 }
 
-.usageFilterField {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  min-width: 0;
-}
-
-.rangeFilterField {
-  flex: 0 0 auto;
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-}
-
-.usageFilterLabel {
-  padding-left: 0;
-  font-size: 10px;
-  line-height: 1;
-  color: var(--text-secondary);
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.timeRangeGroup {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  width: fit-content;
-  min-width: 0;
-  max-width: 640px;
-  min-height: 46px;
-  padding: 5px 6px 5px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 9999px;
-  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  opacity: 1;
-  overflow: hidden;
-  transform: translateX(0);
-}
-
-.rangeSelectControl {
-  width: 164px;
-  flex: 0 0 164px;
-  min-width: 0;
-
-  :global(button) {
-    height: 34px;
-    border-radius: 9999px;
-    border-color: var(--border-color);
-    background: var(--bg-primary);
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
-    font-size: 12px;
-    font-weight: 700;
-  }
-}
-
 .usageRefreshSlot {
   display: flex;
   justify-content: flex-end;
@@ -398,15 +340,6 @@
 @include mobile {
   .tabPill {
     white-space: nowrap;
-  }
-
-  .timeRangeGroup {
-    width: 100%;
-  }
-
-  .rangeSelectControl {
-    width: 150px;
-    flex-basis: 150px;
   }
 
   .usageRefreshSlot,

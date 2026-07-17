@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildCustomDateRangeQuery, clampCustomDateRangeToBounds, CUSTOM_DATE_RANGE_BOUNDS_REFRESH_INTERVAL_MS, getBackToCPALinkURL, getCredentialSectionVisibility, getCustomDateRangeBounds, getOverviewDisplayLoading, getTimeRangeOptions, getUsageTabOptions, isCustomDateWithinBounds, isUsagePageVisible, loadRequestEventsPreferences, loadUsagePageVersionInfo, normalizeRequestEventsPreferences, normalizeUsageTabValue, openDateInputPicker, refreshPageData, REQUEST_EVENTS_PREFERENCES_STORAGE_KEY, runUsageEventRequestLogDownload, sanitizeRequestEventFilters, saveRequestEventsPreferences, scheduleCustomDateRangeBoundsRefresh, scheduleOverviewAutoRefresh, shouldAutoRefreshUsageTab, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowUpdateCheckButton, getUpdateCheckToastDuration } from '../UsagePage';
+import { getBackToCPALinkURL, getCredentialSectionVisibility, getOverviewDisplayLoading, getUsageTabOptions, isUsagePageVisible, loadRequestEventsPreferences, loadUsagePageVersionInfo, normalizeRequestEventsPreferences, normalizeUsageTabValue, refreshPageData, REQUEST_EVENTS_PREFERENCES_STORAGE_KEY, runUsageEventRequestLogDownload, sanitizeRequestEventFilters, saveRequestEventsPreferences, scheduleOverviewAutoRefresh, shouldAutoRefreshUsageTab, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowUpdateCheckButton, getUpdateCheckToastDuration } from '../UsagePage';
 import { REQUEST_EVENT_COLUMN_IDS } from '@/components/usage/RequestEventsDetailsCard';
 import { ApiError } from '@/lib/api';
 import type { UsageFilterWindow, VersionResponse } from '@/lib/types';
@@ -47,6 +47,135 @@ describe('UsagePage Overview loading display', () => {
 
   it('shows loading before Overview data has loaded', () => {
     expect(getOverviewDisplayLoading({ loading: true, hasUsage: false })).toBe(true);
+  });
+});
+
+describe('UsagePage legacy Custom range migration', () => {
+  it('keeps a valid legacy Custom range pending until the project timezone is available', async () => {
+    const usagePageModule = await import('../UsagePage') as Record<string, unknown>;
+    const loadUsageRangeState = usagePageModule.loadUsageRangeState as ((storage: ReturnType<typeof createMemoryStorage>, nowMs: number) => unknown) | undefined;
+    const storage = createMemoryStorage({
+      'cli-proxy-usage-time-range-v1': 'custom',
+      'cli-proxy-usage-custom-range-v1': '{"start":"2026-07-01","end":"2026-07-17"}',
+    });
+
+    expect(loadUsageRangeState).toBeTypeOf('function');
+    expect(loadUsageRangeState?.(storage, Date.parse('2026-07-17T07:36:42.000Z'))).toEqual({
+      state: { range: '8h' },
+      pendingLegacyCustomRange: {
+        unit: 'day',
+        start: '2026-07-01',
+        end: '2026-07-17',
+      },
+    });
+  });
+
+  it('ignores invalid legacy Custom state instead of scheduling a migration', async () => {
+    const usagePageModule = await import('../UsagePage') as Record<string, unknown>;
+    const loadUsageRangeState = usagePageModule.loadUsageRangeState as ((storage: ReturnType<typeof createMemoryStorage>, nowMs: number) => unknown) | undefined;
+    const storage = createMemoryStorage({
+      'cli-proxy-usage-time-range-v1': 'custom',
+      'cli-proxy-usage-custom-range-v1': '{"start":"bad","end":"2026-07-17"}',
+    });
+
+    expect(loadUsageRangeState?.(storage, Date.parse('2026-07-17T07:36:42.000Z'))).toEqual({
+      state: { range: '8h' },
+      pendingLegacyCustomRange: null,
+    });
+  });
+
+  it('normalizes the pending legacy dates after the project timezone arrives', async () => {
+    const usagePageModule = await import('../UsagePage') as Record<string, unknown>;
+    const migrateLegacyUsageRangeState = usagePageModule.migrateLegacyUsageRangeState as ((
+      range: { unit: 'day'; start: string; end: string },
+      options: { nowMs: number; timeZone: string },
+    ) => unknown) | undefined;
+
+    expect(migrateLegacyUsageRangeState).toBeTypeOf('function');
+    expect(migrateLegacyUsageRangeState?.({
+      unit: 'day',
+      start: '2026-07-01',
+      end: '2026-07-17',
+    }, {
+      nowMs: Date.parse('2026-07-17T07:36:42.000Z'),
+      timeZone: 'Asia/Shanghai',
+    })).toEqual({
+      range: 'custom',
+      customRange: {
+        unit: 'day',
+        start: '2026-07-01',
+        end: '2026-07-17',
+      },
+      timeZone: 'Asia/Shanghai',
+    });
+  });
+
+  it('clamps aged legacy dates while preserving the selected end', async () => {
+    const usagePageModule = await import('../UsagePage') as Record<string, unknown>;
+    const migrateLegacyUsageRangeState = usagePageModule.migrateLegacyUsageRangeState as ((
+      range: { unit: 'day'; start: string; end: string },
+      options: { nowMs: number; timeZone: string },
+    ) => unknown) | undefined;
+
+    expect(migrateLegacyUsageRangeState?.({
+      unit: 'day',
+      start: '2026-06-17',
+      end: '2026-07-16',
+    }, {
+      nowMs: Date.parse('2026-07-17T07:36:42.000Z'),
+      timeZone: 'Asia/Shanghai',
+    })).toEqual({
+      range: 'custom',
+      customRange: {
+        unit: 'day',
+        start: '2026-06-18',
+        end: '2026-07-16',
+      },
+      timeZone: 'Asia/Shanghai',
+    });
+  });
+
+  it('writes the migrated state before deleting the only legacy copy', async () => {
+    const usagePageModule = await import('../UsagePage') as Record<string, unknown>;
+    const persistMigratedUsageRangeState = usagePageModule.persistMigratedUsageRangeState as ((
+      storage: { setItem: (key: string, value: string) => void; removeItem: (key: string) => void },
+      state: { range: 'custom'; customRange: { unit: 'day'; start: string; end: string }; timeZone: string },
+    ) => boolean) | undefined;
+    const calls: string[] = [];
+    const state = {
+      range: 'custom' as const,
+      customRange: { unit: 'day' as const, start: '2026-07-01', end: '2026-07-17' },
+      timeZone: 'Asia/Shanghai',
+    };
+
+    expect(persistMigratedUsageRangeState).toBeTypeOf('function');
+    expect(persistMigratedUsageRangeState?.({
+      setItem: (key) => calls.push(`set:${key}`),
+      removeItem: (key) => calls.push(`remove:${key}`),
+    }, state)).toBe(true);
+    expect(calls).toEqual([
+      'set:cli-proxy-usage-time-range-v1',
+      'remove:cli-proxy-usage-custom-range-v1',
+    ]);
+  });
+
+  it('keeps the legacy copy when writing the migrated state fails', async () => {
+    const usagePageModule = await import('../UsagePage') as Record<string, unknown>;
+    const persistMigratedUsageRangeState = usagePageModule.persistMigratedUsageRangeState as ((
+      storage: { setItem: () => void; removeItem: () => void },
+      state: { range: 'custom'; customRange: { unit: 'day'; start: string; end: string }; timeZone: string },
+    ) => boolean) | undefined;
+    const removeItem = vi.fn();
+
+    expect(persistMigratedUsageRangeState?.({
+      setItem: () => { throw new Error('quota exceeded'); },
+      removeItem,
+    }, {
+      range: 'custom',
+      customRange: { unit: 'day', start: '2026-07-01', end: '2026-07-17' },
+      timeZone: 'Asia/Shanghai',
+    })).toBe(false);
+    expect(removeItem).not.toHaveBeenCalled();
   });
 });
 
@@ -266,83 +395,6 @@ describe('UsagePage visibility guard', () => {
   it('treats hidden documents as inactive for credentials polling', () => {
     expect(isUsagePageVisible({ visibilityState: 'visible' })).toBe(true);
     expect(isUsagePageVisible({ visibilityState: 'hidden' })).toBe(false);
-  });
-});
-
-describe('UsagePage Custom date range bounds refresh', () => {
-  it('refreshes the bounds anchor immediately and on the visible interval when Custom is active', () => {
-    let intervalHandler: (() => void) | undefined;
-    const testDocument = createAutoRefreshTestDocument();
-    const timerTarget = {
-      setInterval: vi.fn((handler: () => void, timeout: number) => {
-        intervalHandler = handler;
-        expect(timeout).toBe(CUSTOM_DATE_RANGE_BOUNDS_REFRESH_INTERVAL_MS);
-        return 11;
-      }),
-      clearInterval: vi.fn(),
-    };
-    const refreshBoundsAnchor = vi.fn();
-
-    const cleanup = scheduleCustomDateRangeBoundsRefresh({
-      enabled: true,
-      refreshBoundsAnchor,
-      documentRef: testDocument,
-      timerTarget,
-    });
-
-    expect(refreshBoundsAnchor).toHaveBeenCalledTimes(1);
-    intervalHandler?.();
-    expect(refreshBoundsAnchor).toHaveBeenCalledTimes(2);
-
-    cleanup();
-    intervalHandler?.();
-
-    expect(timerTarget.clearInterval).toHaveBeenCalledWith(11);
-    expect(refreshBoundsAnchor).toHaveBeenCalledTimes(2);
-  });
-
-  it('does not refresh while Custom is inactive', () => {
-    const timerTarget = {
-      setInterval: vi.fn(() => 12),
-      clearInterval: vi.fn(),
-    };
-    const refreshBoundsAnchor = vi.fn();
-
-    const cleanup = scheduleCustomDateRangeBoundsRefresh({
-      enabled: false,
-      refreshBoundsAnchor,
-      timerTarget,
-    });
-
-    expect(refreshBoundsAnchor).not.toHaveBeenCalled();
-    expect(timerTarget.setInterval).not.toHaveBeenCalled();
-
-    cleanup();
-  });
-
-  it('refreshes when a hidden Custom page becomes visible again', () => {
-    const testDocument = createAutoRefreshTestDocument('hidden');
-    const timerTarget = {
-      setInterval: vi.fn(() => 13),
-      clearInterval: vi.fn(),
-    };
-    const refreshBoundsAnchor = vi.fn();
-
-    const cleanup = scheduleCustomDateRangeBoundsRefresh({
-      enabled: true,
-      refreshBoundsAnchor,
-      documentRef: testDocument,
-      timerTarget,
-    });
-
-    expect(refreshBoundsAnchor).not.toHaveBeenCalled();
-
-    testDocument.setVisibilityState('visible');
-    testDocument.dispatchEvent(new Event('visibilitychange'));
-
-    expect(refreshBoundsAnchor).toHaveBeenCalledTimes(1);
-
-    cleanup();
   });
 });
 
@@ -620,84 +672,6 @@ for (const [tab, expected] of [
     expect(shouldShowApiKeyFilter(tab)).toBe(expected);
   });
 }
-
-describe('UsagePage time range options', () => {
-  it('includes rolling 24h, local Today, Yesterday, and 30d ranges', () => {
-    const options = getTimeRangeOptions((key) => `translated:${key}`);
-
-    expect(options.map((option) => option.value)).toEqual(['4h', '8h', '12h', '24h', 'today', 'yesterday', '7d', '30d', 'custom']);
-    expect(options.map((option) => option.label)).toContain('translated:usage_stats.range_24h');
-    expect(options.map((option) => option.label)).toContain('translated:usage_stats.range_today');
-    expect(options.map((option) => option.label)).toContain('translated:usage_stats.range_yesterday');
-    expect(options.map((option) => option.label)).toContain('translated:usage_stats.range_30d');
-  });
-});
-
-describe('UsagePage custom date input bounds', () => {
-  it('limits selectable Custom dates to today through the first day of the previous month', () => {
-    expect(getCustomDateRangeBounds(Date.parse('2026-05-13T12:00:00.000Z'), 'UTC')).toEqual({
-      min: '2026-04-01',
-      max: '2026-05-13',
-    });
-  });
-
-  it('uses the project timezone when deriving Custom date bounds', () => {
-    expect(getCustomDateRangeBounds(Date.parse('2026-05-13T06:30:00.000Z'), 'America/Los_Angeles')).toEqual({
-      min: '2026-04-01',
-      max: '2026-05-12',
-    });
-  });
-
-  it('rejects tomorrow and dates before the first day of the previous month', () => {
-    const bounds = { min: '2026-04-01', max: '2026-05-13' };
-
-    expect(isCustomDateWithinBounds('2026-05-13', bounds)).toBe(true);
-    expect(isCustomDateWithinBounds('2026-04-01', bounds)).toBe(true);
-    expect(isCustomDateWithinBounds('2026-05-14', bounds)).toBe(false);
-    expect(isCustomDateWithinBounds('2026-03-31', bounds)).toBe(false);
-  });
-
-  it('clamps saved Custom dates to the moving bounds', () => {
-    const bounds = { min: '2026-05-01', max: '2026-06-16' };
-
-    expect(clampCustomDateRangeToBounds({ start: '2026-04-20', end: '2026-06-20' }, bounds)).toEqual({
-      start: '2026-05-01',
-      end: '2026-06-16',
-    });
-  });
-
-  it('opens the native date picker when the date field is activated', () => {
-    const showPicker = vi.fn();
-
-    openDateInputPicker({ showPicker } as unknown as HTMLInputElement);
-
-    expect(showPicker).toHaveBeenCalledTimes(1);
-  });
-
-  it('ignores browsers that reject programmatic date picker opening', () => {
-    const input = { showPicker: vi.fn(() => { throw new Error('not allowed') }) } as unknown as HTMLInputElement;
-
-    expect(() => openDateInputPicker(input)).not.toThrow();
-  });
-});
-
-describe('UsagePage custom date query', () => {
-  it('keeps custom date query bounds as project-local dates for the backend', () => {
-    expect(buildCustomDateRangeQuery({ start: '2026-04-20', end: '2026-04-21' })).toEqual({
-      valid: true,
-      start: '2026-04-20',
-      end: '2026-04-21',
-    });
-  });
-
-  it('rejects rollover calendar dates before sending them to the backend', () => {
-    expect(buildCustomDateRangeQuery({ start: '2026-02-31', end: '2026-03-31' })).toEqual({
-      valid: false,
-      start: undefined,
-      end: undefined,
-    });
-  });
-});
 
 describe('UsagePage tab labels', () => {
   it('resolves tab labels through translation keys', () => {

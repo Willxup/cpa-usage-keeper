@@ -11,15 +11,17 @@ describe('KeyOverviewPage layout', () => {
     expect(source).toContain('className={styles.logoutSwitcher}')
     expect(source).not.toContain('check_updates')
     expect(source.indexOf('className={styles.tabBar}')).toBeLessThan(source.indexOf('className={styles.toolbarActionsRight}'))
-    expect(source).toContain('className={styles.timeRangeGroup}')
+    expect(source).toContain('<TimeRangeControl')
+    expect(source).toContain('parseStoredUsageRangeState')
+    expect(source).not.toContain('className={styles.timeRangeGroup}')
     expect(source).toContain('className={styles.usageRefreshSlot}')
     expect(source).not.toContain('className={styles.toolbarMetaRow}')
   })
 
   it('does not reload overview data just because language changes', () => {
-    expect(source).not.toContain('}, [onAuthRequired, t, timeRange]);')
-    expect(source).not.toContain('}, [onAuthRequired, realtimeWindow, t, timeRange]);')
-    expect(source).toContain('}, [onAuthRequired, timeRange]);')
+    expect(source).not.toContain('}, [onAuthRequired, t, usageRangeQuery, usageRangeQueryKey]);')
+    expect(source).not.toContain('}, [onAuthRequired, realtimeWindow, t]);')
+    expect(source).toContain('}, [onAuthRequired, usageRangeQuery, usageRangeQueryKey]);')
     expect(source).toContain('}, [onAuthRequired, realtimeWindow]);')
   })
 
@@ -62,8 +64,8 @@ describe('KeyOverviewPage layout', () => {
   it('copies the relevant admin toolbar class contracts into its own module', () => {
     expect(styles).toMatch(/\.toolbarRow\s*\{[\s\S]*?flex-direction:\s*column;/)
     expect(styles).toMatch(/\.toolbarActionsRight\s*\{[\s\S]*?justify-content:\s*flex-end;/)
-    expect(styles).toMatch(/\.timeRangeGroup\s*\{[\s\S]*?border-radius:\s*9999px;/)
-    expect(styles).toMatch(/\.rangeSelectControl\s*\{[\s\S]*?width:\s*164px;/)
+    expect(styles).not.toContain('.timeRangeGroup')
+    expect(styles).not.toContain('.rangeSelectControl')
     expect(styles).not.toMatch(/\.(toolbarMetaRow|lastRefreshed)\s*\{/)
   })
 

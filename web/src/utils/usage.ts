@@ -1,5 +1,6 @@
 import type { UsageFilterWindow, UsageTimeRange } from '@/lib/types';
 import type { UsagePayload } from '@/components/usage/hooks/useUsageData';
+import { parseSelectableUsageRange, resolveUsageRequestRange } from '@/utils/usage/rangeQuery';
 import {
   LATENCY_SOURCE_FIELD,
   LATENCY_SOURCE_UNIT,
@@ -64,15 +65,6 @@ export function calculateDisplayOutputTokens({ outputTokens, reasoningTokens }: 
   return Math.max(Math.max(toNumber(outputTokens), 0) - Math.max(toNumber(reasoningTokens), 0), 0);
 }
 
-const PRESET_WINDOW_HOURS: Record<Extract<UsageTimeRange, '4h' | '8h' | '12h' | '24h' | '7d' | '30d'>, number> = {
-  '4h': 4,
-  '8h': 8,
-  '12h': 12,
-  '24h': 24,
-  '7d': 24 * 7,
-  '30d': 24 * 30
-};
-
 const toValidTimestamp = (value: unknown): number | null => {
   const timestamp = typeof value === 'number' ? value : Date.parse(String(value ?? ''));
   return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : null;
@@ -134,8 +126,9 @@ export function resolveUsageFilterWindow(
   } = {}
 ): UsageFilterWindow {
   const fallbackNow = toValidTimestamp(options.nowMs) ?? Date.now();
+  const requestRange = resolveUsageRequestRange(range);
 
-  if (range === 'custom') {
+  if (requestRange === 'custom') {
     const startMs = toValidTimestamp(options.customStart);
     const endMs = toValidTimestamp(options.customEnd);
     if (startMs === null || endMs === null || startMs > endMs) {
@@ -148,22 +141,23 @@ export function resolveUsageFilterWindow(
     };
   }
 
-  if (range === 'today' || range === 'yesterday') {
+  if (requestRange === 'today' || requestRange === 'yesterday') {
     const start = new Date(fallbackNow);
     start.setHours(0, 0, 0, 0);
-    if (range === 'yesterday') {
+    if (requestRange === 'yesterday') {
       start.setDate(start.getDate() - 1);
     }
     const startMs = start.getTime();
-    const endMs = range === 'today' ? fallbackNow : startMs + (24 * 60 * 60 * 1000) - 1;
+    const endMs = requestRange === 'today' ? fallbackNow : startMs + (24 * 60 * 60 * 1000) - 1;
     return {
       startMs,
       endMs,
-      windowMinutes: range === 'today' ? Math.max((endMs - startMs) / 60000, 1) : 24 * 60
+      windowMinutes: requestRange === 'today' ? Math.max((endMs - startMs) / 60000, 1) : 24 * 60
     };
   }
 
-  const windowHours = PRESET_WINDOW_HOURS[range];
+  const rollingRange = parseSelectableUsageRange(requestRange);
+  const windowHours = (rollingRange.value ?? 8) * (rollingRange.mode === 'day' ? 24 : 1);
   const endMs = fallbackNow;
   const startMs = endMs - windowHours * 60 * 60 * 1000;
   return {

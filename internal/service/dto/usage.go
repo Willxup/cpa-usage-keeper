@@ -10,9 +10,11 @@ const DefaultUsageEventsLimit = 100
 
 // UsageFilter 是服务层的 usage 查询条件。
 type UsageFilter struct {
-	Range     string
-	StartTime *time.Time
-	EndTime   *time.Time
+	Range        string
+	CustomUnit   string
+	StartTime    *time.Time
+	EndTime      *time.Time
+	EndExclusive bool
 	// QueryNow 仅供内部调用固定仓储层当前时刻，API 层不需要显式传这个值。
 	QueryNow *time.Time
 	// RealtimeWindow 控制 Overview 实时图表短窗口，独立于页面主查询范围。

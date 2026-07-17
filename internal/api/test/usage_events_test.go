@@ -31,6 +31,7 @@ type usageEventsStub struct {
 	eventFilterOptions *servicedto.UsageEventFilterOptions
 	err                error
 	lastFilter         servicedto.UsageFilter
+	overviewCalls      int
 	filterCalls        int
 	filterOptionCalls  int
 	exportCalls        int
@@ -87,7 +88,9 @@ func assertNoStoreHeaders(t *testing.T, response *httptest.ResponseRecorder) {
 	}
 }
 
-func (s *usageEventsStub) GetUsageOverview(context.Context, servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
+func (s *usageEventsStub) GetUsageOverview(_ context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
+	s.lastFilter = filter
+	s.overviewCalls++
 	return nil, nil
 }
 
