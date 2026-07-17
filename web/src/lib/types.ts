@@ -733,3 +733,46 @@ export interface UsageFilterWindow {
   endMs?: number
   windowMinutes?: number
 }
+
+// === Relay provider usage（中转商用量查询）===
+// 当 claude-api-key / openai-compatibility 指向中转商（GLM/MiniMax/Kimi/DeepSeek）时，
+// 后端直连中转商用量接口返回的结果。rows 复用 UsageQuotaRow，便于前端复用 quota 渲染逻辑。
+
+export interface RelayBalance {
+  available: number
+  granted?: number
+  toppedUp?: number
+  currency?: string
+}
+
+export interface RelayUsageResult {
+  platform: string
+  balance?: RelayBalance
+  rows?: UsageQuotaRow[]
+  fetchedAt: string
+  error?: string
+}
+
+export interface RelayUsageItem {
+  identity_id: string
+  platform?: string
+  result?: RelayUsageResult
+}
+
+export interface RelayUsageResponse {
+  items: RelayUsageItem[]
+}
+
+export interface RelayPlatformAssignment {
+  identity_id: string
+  platform: string
+  source: 'override' | 'auto' | 'none'
+}
+
+export interface RelayPlatformAssignmentsResponse {
+  assignments: RelayPlatformAssignment[]
+}
+
+export interface RelayPlatformOverridesResponse {
+  overrides: Record<string, string>
+}

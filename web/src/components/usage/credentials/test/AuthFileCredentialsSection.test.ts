@@ -1,7 +1,8 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import { AuthFileCredentialsSection, AuthFileQuotaPanel, INSPECTION_RESULT_PAGE_SIZE_OPTIONS, QuotaAutoRefreshSettingsModal, QuotaInspectionModal, buildInspectionResultsPage, buildInvalidInspectionAccountFileNames, buildQuotaAutoRefreshSettings, formatInspectionCompletedAt, formatInspectionProgressPercent, formatQuotaErrorDisplay, formatQuotaResetDuration, formatQuotaResetLabel, formatQuotaWindowUsageAriaLabel, inspectionIndicatorTone, invertInvalidInspectionAccountFileNames, isAutoRefreshSettingsControlDisabled, isAutoRefreshSettingsSaveDisabled, isInspectionStartDisabled, isQuotaInspectionCloseDisabled, isSelectableInspectionStatusFilter, nextInspectionResultStatusFilter, persistAuthFileDisplayMode, readStoredAuthFileDisplayMode, resolveQuotaAutoRefreshSettingsLoadFailure, selectAllInvalidInspectionAccountFileNames } from '../AuthFileCredentialsSection'
+import { AuthFileCredentialsSection, AuthFileQuotaPanel, INSPECTION_RESULT_PAGE_SIZE_OPTIONS, QuotaAutoRefreshSettingsModal, QuotaInspectionModal, buildInspectionResultsPage, buildInvalidInspectionAccountFileNames, buildQuotaAutoRefreshSettings, formatInspectionCompletedAt, formatInspectionProgressPercent, formatQuotaErrorDisplay, formatQuotaResetLabel, formatQuotaWindowUsageAriaLabel, inspectionIndicatorTone, invertInvalidInspectionAccountFileNames, isAutoRefreshSettingsControlDisabled, isAutoRefreshSettingsSaveDisabled, isInspectionStartDisabled, isQuotaInspectionCloseDisabled, isSelectableInspectionStatusFilter, nextInspectionResultStatusFilter, persistAuthFileDisplayMode, readStoredAuthFileDisplayMode, resolveQuotaAutoRefreshSettingsLoadFailure, selectAllInvalidInspectionAccountFileNames } from '../AuthFileCredentialsSection'
+import { formatQuotaResetDuration } from '../CredentialSectionShell'
 import type { AuthFileCredentialRow, DisplayQuota } from '../credentialViewModels'
 import type { UsageQuotaInspectionResult, UsageQuotaInspectionResultStatus } from '@/lib/types'
 
@@ -49,13 +50,21 @@ const formatLocalResetTime = (resetAt: string) => {
   return `${month}/${day} ${hour}:${minute}`
 }
 
+const translateDurationShort = (key: string, params?: Record<string, unknown>): string => {
+  const value = (params?.value as string | undefined) ?? ''
+  if (key === 'usage_stats.duration_days_short') return `${value}d`
+  if (key === 'usage_stats.duration_hours_short') return `${value}h`
+  if (key === 'usage_stats.duration_minutes_short') return `${value}m`
+  return key
+}
+
 describe('AuthFileCredentialsSection quota reset formatting', () => {
   it('formats reset labels with days when remaining time exceeds 24 hours', () => {
     vi.setSystemTime(new Date('2026-05-10T10:00:00Z'))
     try {
       const resetAt = '2026-05-12T10:15:00Z'
       expect(formatQuotaResetLabel(resetAt)).toBe(formatLocalResetTime(resetAt))
-      expect(formatQuotaResetDuration(resetAt)).toBe('2d0h15m')
+      expect(formatQuotaResetDuration(resetAt, translateDurationShort)).toBe('02d15m')
     } finally {
       vi.useRealTimers()
     }
@@ -66,7 +75,7 @@ describe('AuthFileCredentialsSection quota reset formatting', () => {
     try {
       const resetAt = '2026-05-10T14:15:00Z'
       expect(formatQuotaResetLabel(resetAt)).toBe(formatLocalResetTime(resetAt))
-      expect(formatQuotaResetDuration(resetAt)).toBe('4h15m')
+      expect(formatQuotaResetDuration(resetAt, translateDurationShort)).toBe('04h15m')
     } finally {
       vi.useRealTimers()
     }

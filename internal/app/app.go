@@ -18,6 +18,7 @@ import (
 	"cpa-usage-keeper/internal/logging"
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/quota"
+	"cpa-usage-keeper/internal/relayusage"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
 	webui "cpa-usage-keeper/web"
@@ -112,6 +113,9 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 
 	cpaClient := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)
 	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{RefreshWorkerLimit: cfg.QuotaRefreshWorkerLimit})
+	// relayUsageService 直连中转商用量接口（GLM/MiniMax/Kimi/DeepSeek），与 OAuth quota 链路隔离。
+	relayHTTPClient := relayusage.NewHTTPClient(cfg.RequestTimeout, cfg.TLSSkipVerify)
+	relayUsageService := relayusage.NewService(db, relayusage.NewDefaultAdapterRegistry(relayHTTPClient), relayusage.ServiceOptions{WorkerLimit: cfg.QuotaRefreshWorkerLimit})
 	// syncService 仍然是 metadata 和 usage 处理共享的业务服务入口。
 	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
 		BaseURL:                   cfg.CPABaseURL,
@@ -226,6 +230,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 			api.OptionalProviders{
 				UsageIdentity: usageIdentityService,
 				Quota:         quotaService,
+				RelayUsage:    relayUsageService,
 				CPAAPIKeys:    cpaAPIKeyService,
 				AuthFiles:     authFilesManagementService,
 				RequestLogs:   requestLogService,

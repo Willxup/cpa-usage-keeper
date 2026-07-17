@@ -1,4 +1,4 @@
-import { type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingSyncPreviewResponse, type QuotaAutoRefreshSettings, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
+import { type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type KeyOverviewTimeRange, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingSyncPreviewResponse, type QuotaAutoRefreshSettings, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsedModelsResponse, type RelayPlatformAssignmentsResponse, type RelayPlatformOverridesResponse, type RelayUsageResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
 import { isCPAMCEmbed } from '@/embed/cpamcEmbed'
 import { resolveUsageRequestRange } from '@/utils/usage/rangeQuery'
 
@@ -106,7 +106,7 @@ export function appPath(path: string): string {
 
 export function apiPath(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
-  return `${normalizeBasePath(window.__APP_BASE_PATH__)}/api/v1${normalizedPath}`
+  return `${normalizeBasePath(window.__APP_BASE_PATH__)}api/v1${normalizedPath}`
 }
 
 async function parseApiError(response: Response, fallback: string): Promise<never> {
@@ -530,9 +530,7 @@ export async function fetchUsageIdentitiesPage(signal?: AbortSignal, options?: F
 export async function updateUsageIdentityAlias(id: string, alias: string | null): Promise<UsageIdentity> {
   const response = await apiFetch(apiPath(`/usage/identities/${encodeURIComponent(id)}`), {
     method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ alias }),
   })
   if (!response.ok) {
@@ -545,9 +543,7 @@ export async function fetchUsageQuotaCache(authIndexes: string[], signal?: Abort
   // cache 只读后端已有结果，不携带刷新 limit，避免把缓存读取误当队列提交。
   const response = await apiFetch(apiPath('/quota/cache'), {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ auth_indexes: authIndexes }),
     signal,
   })
@@ -561,9 +557,7 @@ export async function refreshUsageQuotas(authIndexes: string[], signal?: AbortSi
   // refresh 会创建后台任务，前端提交当前页所有 auth_index。
   const response = await apiFetch(apiPath('/quota/refresh'), {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ auth_indexes: authIndexes }),
     signal,
   })
@@ -582,23 +576,17 @@ export async function fetchUsageQuotaInspectionStatus(signal?: AbortSignal): Pro
 }
 
 export async function startUsageQuotaInspection(signal?: AbortSignal): Promise<UsageQuotaInspectionStatusResponse> {
-  const response = await apiFetch(apiPath('/quota/inspection'), {
-    method: 'POST',
-    signal,
-  })
+  const response = await apiFetch(apiPath('/quota/inspection'), { method: 'POST', signal })
   if (!response.ok) {
-    await parseApiError(response, `Failed to start quota inspection: ${response.status}`)
+    await parseApiError(response, `Failed to start quota inspection status: ${response.status}`)
   }
   return response.json()
 }
 
-
 export async function resetUsageQuota(authIndex: string, signal?: AbortSignal): Promise<UsageQuotaResetResponse> {
   const response = await apiFetch(apiPath('/quota/reset'), {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ auth_index: authIndex }),
     signal,
   })
@@ -627,9 +615,7 @@ export async function fetchUsageQuotaRefreshTask(authIndex: string, signal?: Abo
 export async function setAuthFilesDisabled(names: string[], disabled: boolean): Promise<AuthFilesManagementResponse> {
   const response = await apiFetch(apiPath('/auth-files/status'), {
     method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ names, disabled }),
   })
   if (!response.ok) {
@@ -641,9 +627,7 @@ export async function setAuthFilesDisabled(names: string[], disabled: boolean): 
 export async function deleteAuthFiles(names: string[]): Promise<AuthFilesManagementResponse> {
   const response = await apiFetch(apiPath('/auth-files'), {
     method: 'DELETE',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ names }),
   })
   if (!response.ok) {
@@ -665,7 +649,6 @@ export async function fetchAnalysis(request: UsageRangeRequest, signal?: AbortSi
   }
   return response.json()
 }
-
 
 export async function fetchCpaApiKeyOptions(signal?: AbortSignal): Promise<CpaApiKeyOptionsResponse> {
   const response = await apiFetch(apiPath('/usage/api-keys/options'), { signal, cache: 'no-store' })
@@ -694,9 +677,7 @@ export async function fetchCpaApiKeySettings(signal?: AbortSignal): Promise<CpaA
 export async function updateCpaApiKeyAlias(id: string, keyAlias: string): Promise<CpaApiKeyDisplayItem> {
   const response = await apiFetch(apiPath(`/usage/api-keys/${encodeURIComponent(id)}`), {
     method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ keyAlias }),
   })
   if (!response.ok) {
@@ -740,9 +721,7 @@ export async function fetchQuotaAutoRefreshSettings(signal?: AbortSignal): Promi
 export async function updateQuotaAutoRefreshSettings(settings: QuotaAutoRefreshSettings): Promise<QuotaAutoRefreshSettings> {
   const response = await apiFetch(apiPath('/quota/auto-refresh/settings'), {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(settings),
   })
   if (!response.ok) {
@@ -778,9 +757,7 @@ export async function fetchPricingSyncPreview(signal?: AbortSignal): Promise<Pri
 export async function updatePricing(model: string, pricing: Omit<PricingEntry, 'model'>): Promise<PricingEntry> {
   const response = await apiFetch(apiPath('/pricing'), {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, ...pricing }),
   })
   if (!response.ok) {
@@ -797,4 +774,53 @@ export async function deletePricing(model: string): Promise<void> {
   if (!response.ok) {
     await parseApiError(response, `Failed to delete pricing: ${response.status}`)
   }
+}
+
+// === Relay provider usage（中转商用量查询）===
+
+export async function fetchRelayProviderUsage(identityIds: string[], signal?: AbortSignal): Promise<RelayUsageResponse> {
+  const response = await apiFetch(apiPath('/usage/relay-provider/usage'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identity_ids: identityIds }),
+    signal,
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load relay provider usage: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchRelayPlatformAssignments(identityIds: string[], signal?: AbortSignal): Promise<RelayPlatformAssignmentsResponse> {
+  const response = await apiFetch(apiPath('/usage/relay-provider/assignments'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identity_ids: identityIds }),
+    signal,
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load relay platform assignments: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchRelayPlatformOverrides(signal?: AbortSignal): Promise<RelayPlatformOverridesResponse> {
+  const response = await apiFetch(apiPath('/usage/relay-provider/platform-overrides'), { signal, cache: 'no-store' })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load relay platform overrides: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function updateRelayPlatformOverrides(overrides: Record<string, string>, signal?: AbortSignal): Promise<RelayPlatformOverridesResponse> {
+  const response = await apiFetch(apiPath('/usage/relay-provider/platform-overrides'), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ overrides }),
+    signal,
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to update relay platform overrides: ${response.status}`)
+  }
+  return response.json()
 }

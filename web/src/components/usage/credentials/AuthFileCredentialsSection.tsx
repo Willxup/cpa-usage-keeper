@@ -12,7 +12,7 @@ import type { QuotaAutoRefreshScheduleUnit, QuotaAutoRefreshSettings, UsageQuota
 import { CredentialAliasEditor, isCredentialAliasEditorDisabled } from './CredentialAliasEditor'
 import { CredentialHealthPanel } from './CredentialHealthPanel'
 import { CredentialProviderFilterIcon } from './CredentialProviderFilterBar'
-import { CredentialBadge, CredentialPriorityBadge, CredentialRowShell, CredentialSectionShell, CredentialTableHeader, CredentialsPagination, MetricPill, RequestMetric, TonePercent, cacheReadRateTone, capitalize, credentialToneClassName, formatCredentialNumber, successRateTone } from './CredentialSectionShell'
+import { CredentialBadge, CredentialPriorityBadge, CredentialRowShell, CredentialSectionShell, CredentialTableHeader, CredentialsPagination, MetricPill, RequestMetric, TonePercent, cacheReadRateTone, capitalize, credentialToneClassName, formatCredentialNumber, formatQuotaResetDuration, successRateTone } from './CredentialSectionShell'
 
 type Translate = (key: string, options?: Record<string, string>) => string
 type InspectionIndicatorTone = 'idle' | 'running' | 'completed'
@@ -1703,18 +1703,6 @@ export function formatQuotaResetLabel(resetAt: string): string {
   return `${month}/${day} ${hour}:${minute}`
 }
 
-export function formatQuotaResetDuration(resetAt: string): string {
-  const resetMs = new Date(resetAt).getTime()
-  if (!Number.isFinite(resetMs)) {
-    return ''
-  }
-  const remainingMinutes = Math.max(0, Math.ceil((resetMs - Date.now()) / 60_000))
-  const days = Math.floor(remainingMinutes / 1_440)
-  const hours = Math.floor((remainingMinutes % 1_440) / 60)
-  const minutes = remainingMinutes % 60
-  return days > 0 ? `${days}d${hours}h${minutes}m` : `${hours}h${minutes}m`
-}
-
 export function formatQuotaWindowUsageAriaLabel(t: Translate, windowUsage: NonNullable<DisplayQuota['windowUsage']>): string {
   return t('usage_stats.credentials_quota_window_usage_aria', {
     tokens: windowUsage.tokens,
@@ -1738,7 +1726,7 @@ function QuotaBar({ quota, quotaUsageMode }: { quota: DisplayQuota; quotaUsageMo
   const width = `${Math.max(0, Math.min(100, percent))}%`
   const percentLabel = quota.barPercent === null ? '' : `${Math.round(quota.barPercent)}%`
   const resetLabel = quota.resetText ? formatQuotaResetLabel(quota.resetText) : ''
-  const resetDuration = quota.resetText ? formatQuotaResetDuration(quota.resetText) : ''
+  const resetDuration = quota.resetText ? formatQuotaResetDuration(quota.resetText, t) : ''
   const billingUsage = quota.billingUsage
   const windowUsage = billingUsage ? undefined : quotaWindowUsageForMode(quota, quotaUsageMode)
   const hasGroupDescription = Boolean(quota.groupDescription?.trim())
