@@ -67,7 +67,6 @@ describe('i18n resources', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_summary_quiet')).toBe('Quiet');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_no_failures_5h')).toBe('No failures in 5h');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_no_requests_5h')).toBe('No requests in 5h');
-    expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_last_failure')).toBe('Last failure {{timeRange}}');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_time_summary')).toBe('Used {{lastUsed}} · Updated {{statsUpdated}}');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_grid_aria')).toBe('{{name}} request health over the last 5 hours');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_bucket_aria')).toBe('{{timeRange}}: {{status}}, {{successCount}} successful, {{failureCount}} failed, {{rate}}');
@@ -77,7 +76,6 @@ describe('i18n resources', () => {
     expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_summary_degraded')).toBe('波动');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_summary_quiet')).toBe('安静');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_no_failures_5h')).toBe('5 小时内无失败');
-    expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_last_failure')).toBe('最近失败 {{timeRange}}');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_bucket_aria')).toBe('{{timeRange}}：{{status}}，成功 {{successCount}}，失败 {{failureCount}}，{{rate}}');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_last_5h')).toBe('最近 5 小時');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_status_empty')).toBe('無資料');
@@ -85,7 +83,6 @@ describe('i18n resources', () => {
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_summary_degraded')).toBe('波動');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_summary_quiet')).toBe('安靜');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_no_failures_5h')).toBe('5 小時內無失敗');
-    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_last_failure')).toBe('最近失敗 {{timeRange}}');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_bucket_aria')).toBe('{{timeRange}}：{{status}}，成功 {{successCount}}，失敗 {{failureCount}}，{{rate}}');
   });
 

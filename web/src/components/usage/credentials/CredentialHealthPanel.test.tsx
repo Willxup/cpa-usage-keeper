@@ -12,9 +12,6 @@ vi.mock('react-i18next', () => ({
       if (key === 'usage_stats.credentials_health_bucket_aria') {
         return `${params?.timeRange} ${params?.status} ${params?.successCount} ${params?.failureCount} ${params?.rate} ${key}`
       }
-      if (key === 'usage_stats.credentials_health_last_failure') {
-        return `last failure ${params?.timeRange}`
-      }
       if (key === 'usage_stats.credentials_health_failures_5h') {
         return `Failed requests in 5h: ${params?.count} · latest ${params?.timeRange}`
       }

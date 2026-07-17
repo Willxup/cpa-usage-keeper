@@ -17,4 +17,10 @@ describe('credential health translations', () => {
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_summary_unhealthy')).toBe('異常')
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_failures_5h')).toBe('5 小時內失敗 {{count}} 次 · 最近 {{timeRange}}')
   })
+
+  it('does not retain the superseded last-failure translation key', () => {
+    expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_last_failure')).toBeUndefined()
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_last_failure')).toBeUndefined()
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_last_failure')).toBeUndefined()
+  })
 })
