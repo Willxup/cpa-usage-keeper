@@ -7,7 +7,6 @@ export interface UseOverviewRealtimeDataReturn {
   realtime: OverviewRealtimeBlock | null;
   loading: boolean;
   error: string;
-  lastRefreshedAt: Date | null;
   loadRealtime: () => Promise<void>;
 }
 
@@ -52,7 +51,6 @@ export function useOverviewRealtimeData(options: UseOverviewRealtimeDataOptions 
   const storeError = useUsageStatsStore((state) => state.realtimeError);
   const lastRealtimeQueryKey = useUsageStatsStore((state) => state.lastRealtimeQueryKey);
   const lastRealtimeErrorQueryKey = useUsageStatsStore((state) => state.lastRealtimeErrorQueryKey);
-  const lastRefreshedAtTs = useUsageStatsStore((state) => state.lastRealtimeRefreshedAt);
   const loadUsageStatsRealtime = useUsageStatsStore((state) => state.loadUsageStatsRealtime);
   const realtimeQueryKey = `${apiKeyId ?? ''}:${realtimeWindow ?? ''}`;
   const currentRealtime = resolveDisplayRealtime({
@@ -97,7 +95,6 @@ export function useOverviewRealtimeData(options: UseOverviewRealtimeDataOptions 
     realtime: currentRealtime,
     loading,
     error: lastRealtimeErrorQueryKey === realtimeQueryKey ? storeError || '' : '',
-    lastRefreshedAt: lastRefreshedAtTs ? new Date(lastRefreshedAtTs) : null,
     loadRealtime,
   };
 }

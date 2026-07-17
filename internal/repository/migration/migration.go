@@ -182,7 +182,7 @@ func runSchemaMigrationBody(db *gorm.DB, migration databaseMigration) error {
 		return fmt.Errorf("check schema migration %s: %w", migration.version, err)
 	}
 	if count > 0 {
-		logger.Info("schema migration skipped")
+		logger.Debug("schema migration skipped")
 		return nil
 	}
 	logger.Info("schema migration started")

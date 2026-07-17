@@ -507,12 +507,6 @@
   display: contents;
 }
 
-.lastRefreshed {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  white-space: nowrap;
-}
-
 .usageFilterBar {
   display: flex;
   align-items: center;
@@ -2904,6 +2898,40 @@
 .requestEventsNoWrapCell {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+.requestEventsSpeedModeCell {
+  cursor: default;
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: -3px;
+  }
+}
+
+.requestEventsSpeedModeTooltip {
+  position: fixed;
+  z-index: 2100;
+  display: grid;
+  gap: 3px;
+  width: max-content;
+  max-width: min(280px, calc(100vw - 16px));
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
+  padding: 10px 12px;
+  pointer-events: none;
+  text-align: left;
+  font-size: 11px;
+  line-height: 1.45;
+
+  span {
+    display: block;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 
 .requestEventsSourceCell,

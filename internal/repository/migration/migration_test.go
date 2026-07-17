@@ -226,7 +226,6 @@ func TestOpenDatabaseLogsSchemaMigrations(t *testing.T) {
 		"level=info",
 		"msg=\"schema migration started\"",
 		"msg=\"schema migration applied\"",
-		"msg=\"schema migration skipped\"",
 		"version=20260503_add_usage_event_redis_fields",
 		"version=20260504_migrate_usage_identities_metadata",
 		"version=20260504_drop_legacy_metadata_tables",
@@ -234,6 +233,19 @@ func TestOpenDatabaseLogsSchemaMigrations(t *testing.T) {
 		if !strings.Contains(content, want) {
 			t.Fatalf("expected migration logs to contain %q, got:\n%s", want, content)
 		}
+	}
+	if strings.Contains(content, "msg=\"schema migration skipped\"") {
+		t.Fatalf("expected info logs to hide skipped migrations, got:\n%s", content)
+	}
+
+	logrus.SetLevel(logrus.DebugLevel)
+	db = openMigratedDatabase(t, dbPath)
+	closeOpenedDatabase(t, db)
+
+	content = logs.String()
+	want := "level=debug msg=\"schema migration skipped\" version=20260503_add_usage_event_redis_fields"
+	if !strings.Contains(content, want) {
+		t.Fatalf("expected debug migration logs to contain %q, got:\n%s", want, content)
 	}
 }
 

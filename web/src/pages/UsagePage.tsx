@@ -335,6 +335,7 @@ const hasSameRequestEventColumnOrder = (
 const migrateRequestEventColumnId = (value: unknown): RequestEventColumnId | null => {
   if (value === 'cached_tokens') return 'cache_read_tokens';
   if (value === 'cache_rate') return 'cache_read_rate';
+  if (value === 'response_service_tier') return 'service_tier';
   return isRequestEventColumnId(value) ? value : null;
 };
 
@@ -862,7 +863,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
   const [analysisData, setAnalysisData] = useState<AnalysisResponse | null>(null);
-  const [, setAnalysisLastRefreshedAt] = useState<Date | null>(null);
   const analysisRequestControllerRef = useRef<AbortController | null>(null);
 
   const tabOptions = useMemo(() => getUsageTabOptions(t), [t]);
@@ -1047,7 +1047,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         return;
       }
       setAnalysisData(response);
-      setAnalysisLastRefreshedAt(new Date());
     } catch (error) {
       if (controller.signal.aborted) {
         return;
@@ -1626,11 +1625,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [eventsFilterOptionsLoaded, eventsModelFilter, eventsModelOptions, eventsResultFilter, eventsSourceFilter, eventsSourceOptions, resetEventsPage]);
 
-  const lastSyncAt = useMemo(() => {
-    if (!status?.last_run_at) return null;
-    const parsed = new Date(status.last_run_at);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-  }, [status?.last_run_at]);
   const displayStatusError = statusError === 'REFRESH_FAILED' ? t('notification.refresh_failed') : statusError;
   const displayRealtimeError = realtimeError
     ? realtimeError === 'AUTH_REQUIRED'
@@ -1731,32 +1725,25 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </div>
             )}
 
-            {((!isEmbeddedInCPAMC && cpaManagementURL) || lastSyncAt) && (
+            {(!isEmbeddedInCPAMC && cpaManagementURL) && (
               <div className={styles.toolbarMetaRow}>
-                {lastSyncAt && (
-                  <span className={styles.lastRefreshed}>
-                    {t('usage_stats.last_updated')}: {lastSyncAt.toLocaleTimeString()}
-                  </span>
-                )}
-                {(!isEmbeddedInCPAMC && cpaManagementURL) && (
-                  <div className={styles.toolbarMetaRight}>
-                    <a
-                      className={styles.backToCpaLink}
-                      href={cpaManagementURL}
-                      target="_blank"
-                      rel="noreferrer"
-                      aria-label={t('usage_stats.back_to_cpa_aria')}
-                    >
-                      <span>{t('usage_stats.back_to_cpa')}</span>
-                      <span className={styles.backToCpaIcon} aria-hidden="true">
-                        <svg viewBox="0 0 16 16" focusable="false">
-                          <path d="M6 4h6v6" />
-                          <path d="M12 4 5 11" />
-                        </svg>
-                      </span>
-                    </a>
-                  </div>
-                )}
+                <div className={styles.toolbarMetaRight}>
+                  <a
+                    className={styles.backToCpaLink}
+                    href={cpaManagementURL}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={t('usage_stats.back_to_cpa_aria')}
+                  >
+                    <span>{t('usage_stats.back_to_cpa')}</span>
+                    <span className={styles.backToCpaIcon} aria-hidden="true">
+                      <svg viewBox="0 0 16 16" focusable="false">
+                        <path d="M6 4h6v6" />
+                        <path d="M12 4 5 11" />
+                      </svg>
+                    </span>
+                  </a>
+                </div>
               </div>
             )}
 

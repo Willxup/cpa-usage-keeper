@@ -15,6 +15,9 @@ const selectSource = readSource(new URL('../../components/ui/Select.tsx', import
 const apiIndexSource = readSource(new URL('../../components/usage/index.ts', import.meta.url))
 const apiClientSource = readSource(new URL('../../lib/api.ts', import.meta.url))
 const i18nSource = readSource(new URL('../../i18n/index.ts', import.meta.url))
+const typesSource = readSource(new URL('../../lib/types.ts', import.meta.url))
+const pricingDataSource = readSource(new URL('../../components/usage/hooks/usePricingData.ts', import.meta.url))
+const overviewRealtimeDataSource = readSource(new URL('../../components/usage/hooks/useOverviewRealtimeData.ts', import.meta.url))
 const apiKeySettingsSource = readSource(new URL('../../components/usage/ApiKeySettingsCard.tsx', import.meta.url))
 const sessionSettingsSource = readSource(new URL('../../components/usage/SessionSettingsCard.tsx', import.meta.url))
 const analysisPanelSource = readSource(new URL('../../components/usage/analysis/AnalysisPanel.tsx', import.meta.url))
@@ -56,6 +59,25 @@ const styleRuleBlock = (source: string, selector: string) => {
 }
 
 describe('UsagePage toolbar styles', () => {
+  it('removes obsolete Last Updated presentation and API plumbing', () => {
+    expect(usagePageSource).not.toContain('lastSyncAt')
+    expect(usagePageSource).not.toContain('status?.last_run_at')
+    expect(usagePageSource).not.toContain("t('usage_stats.last_updated')")
+    expect(usagePageSource).not.toContain('analysisLastRefreshedAt')
+    expect(usagePageSource).not.toContain('setAnalysisLastRefreshedAt')
+    expect(usagePageStyles).not.toMatch(/\.lastRefreshed\s*\{/)
+    expect(keyOverviewPageSource).not.toContain('lastRefreshedAt')
+    expect(keyOverviewPageSource).not.toContain('setLastRefreshedAt')
+    expect(keyOverviewPageSource).not.toContain("t('usage_stats.last_updated')")
+    expect(keyOverviewPageStyles).not.toMatch(/\.(toolbarMetaRow|lastRefreshed)\s*\{/)
+    expect(pricingDataSource).not.toContain('lastRefreshedAt')
+    expect(pricingDataSource).not.toContain('setLastRefreshedAt')
+    expect(overviewRealtimeDataSource).not.toContain('lastRefreshedAt')
+    expect(overviewRealtimeDataSource).not.toContain('lastRefreshedAtTs')
+    expect(typesSource).not.toContain('last_run_at?: string')
+    expect(i18nSource).not.toMatch(/\blast_updated:/)
+  })
+
   it('lets dashboard page frames consume the mode-specific width cap', () => {
     expect(usagePageStyles).toMatch(/\.pageFrame\s*\{[\s\S]*?width:\s*min\(var\(--keeper-page-max-width, 1245px\), 100%\);/)
     expect(keyOverviewPageStyles).toMatch(/\.pageFrame\s*\{[\s\S]*?width:\s*min\(var\(--keeper-page-max-width, 1245px\), 100%\);/)
@@ -873,6 +895,12 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).toMatch(/\.modelCell\s*\{[\s\S]*?max-width:\s*240px;/)
     expect(usagePageStyles).not.toContain('.requestEventsAuthIndex')
     expect(usagePageStyles).not.toContain('.requestEventsEndpointCell')
+  })
+
+  it('keeps the Speed Mode tooltip target on the normal arrow cursor', () => {
+    const speedModeCellBlock = styleRuleBlock(usagePageStyles, '.requestEventsSpeedModeCell')
+    expect(speedModeCellBlock).toContain('cursor: default;')
+    expect(speedModeCellBlock).not.toContain('cursor: help;')
   })
 
   it('keeps Request Event Log non-text columns adaptive and non-wrapping', () => {

@@ -37,7 +37,6 @@ export interface StatusResponse {
   timezone: string
   cpa_public_url?: string
   cpa_request_log_access_enabled?: boolean
-  last_run_at?: string
   last_error?: string
   last_warning?: string
   last_status?: string

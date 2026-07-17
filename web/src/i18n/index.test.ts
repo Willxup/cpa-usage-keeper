@@ -60,32 +60,29 @@ describe('i18n resources', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_fail')).toBe('Fail');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_status_success')).toBe('healthy');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_status_warning')).toBe('degraded');
-    expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_status_failure')).toBe('failed');
+    expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_status_failure')).toBe('unhealthy');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_status_empty')).toBe('no data');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_summary_healthy')).toBe('Healthy');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_summary_degraded')).toBe('Degraded');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_summary_quiet')).toBe('Quiet');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_no_failures_5h')).toBe('No failures in 5h');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_no_requests_5h')).toBe('No requests in 5h');
-    expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_last_failure')).toBe('Last failure {{timeRange}}');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_time_summary')).toBe('Used {{lastUsed}} · Updated {{statsUpdated}}');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_grid_aria')).toBe('{{name}} request health over the last 5 hours');
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_health_bucket_aria')).toBe('{{timeRange}}: {{status}}, {{successCount}} successful, {{failureCount}} failed, {{rate}}');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_last_5h')).toBe('最近 5 小时');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_status_warning')).toBe('部分失败');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_summary_healthy')).toBe('健康');
-    expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_summary_degraded')).toBe('异常');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_summary_degraded')).toBe('波动');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_summary_quiet')).toBe('安静');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_no_failures_5h')).toBe('5 小时内无失败');
-    expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_last_failure')).toBe('最近失败 {{timeRange}}');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_health_bucket_aria')).toBe('{{timeRange}}：{{status}}，成功 {{successCount}}，失败 {{failureCount}}，{{rate}}');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_last_5h')).toBe('最近 5 小時');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_status_empty')).toBe('無資料');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_summary_healthy')).toBe('健康');
-    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_summary_degraded')).toBe('異常');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_summary_degraded')).toBe('波動');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_summary_quiet')).toBe('安靜');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_no_failures_5h')).toBe('5 小時內無失敗');
-    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_last_failure')).toBe('最近失敗 {{timeRange}}');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_health_bucket_aria')).toBe('{{timeRange}}：{{status}}，成功 {{successCount}}，失敗 {{failureCount}}，{{rate}}');
   });
 
@@ -124,16 +121,19 @@ describe('i18n resources', () => {
 
   it('labels the request speed mode column across languages', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.speed_mode')).toBe('Speed Mode');
+    expect(i18n.getResource('en', 'translation', 'usage_stats.response_speed_mode')).toBe('Response Speed Mode');
     expect(i18n.getResource('en', 'translation', 'usage_stats.speed_mode_auto')).toBe('Auto');
     expect(i18n.getResource('en', 'translation', 'usage_stats.speed_mode_standard')).toBe('Standard');
     expect(i18n.getResource('en', 'translation', 'usage_stats.speed_mode_fast')).toBe('Fast');
     expect(i18n.getResource('en', 'translation', 'usage_stats.speed_mode_flex')).toBe('Flex');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_mode')).toBe('速度模式');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.response_speed_mode')).toBe('响应速度模式');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_mode_auto')).toBe('自动');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_mode_standard')).toBe('标准');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_mode_fast')).toBe('快速');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_mode_flex')).toBe('弹性');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_mode')).toBe('速度模式');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.response_speed_mode')).toBe('回應速度模式');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_mode_auto')).toBe('自動');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_mode_standard')).toBe('標準');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_mode_fast')).toBe('快速');

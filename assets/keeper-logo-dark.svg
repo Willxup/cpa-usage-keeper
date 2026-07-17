@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 170" role="img" aria-labelledby="keeper-logo-title">
+  <title id="keeper-logo-title">Keeper</title>
+  <g transform="translate(12 20)">
+    <rect x="12" y="52" width="52" height="60" rx="10" fill="#2563eb" fill-opacity=".9" transform="rotate(-38 38 82)" />
+    <rect x="29" y="27" width="48" height="64" rx="10" fill="#06b6d4" fill-opacity=".82" transform="rotate(-13 53 59)" />
+    <rect x="61" y="8" width="50" height="68" rx="10" fill="#10b981" fill-opacity=".78" transform="rotate(24 86 42)" />
+    <rect x="96" y="26" width="48" height="64" rx="10" fill="#fbbf24" fill-opacity=".82" transform="rotate(41 120 58)" />
+    <rect x="116" y="51" width="47" height="61" rx="10" fill="#fb5a5a" fill-opacity=".82" transform="rotate(15 139.5 81.5)" />
+    <rect x="94" y="70" width="58" height="40" rx="10" fill="#db2777" fill-opacity=".82" transform="rotate(2 123 90)" />
+  </g>
+  <text x="220" y="111" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="76" font-weight="800" letter-spacing="10">KEEPER</text>
+</svg>
