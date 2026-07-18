@@ -47,6 +47,7 @@ type StatusRouteConfig struct {
 type OptionalProviders struct {
 	UsageIdentity service.UsageIdentityProvider
 	Quota         QuotaProvider
+	RelayUsage    RelayUsageProvider
 	CPAAPIKeys    service.CPAAPIKeyProvider
 	AuthFiles     service.AuthFilesManagementProvider
 	RequestLogs   service.RequestLogProvider
@@ -84,6 +85,7 @@ func NewRouter(
 
 	var usageIdentityProvider service.UsageIdentityProvider
 	var quotaProvider QuotaProvider
+	var relayUsageProvider RelayUsageProvider
 	var cpaAPIKeyProvider service.CPAAPIKeyProvider
 	var authFilesProvider service.AuthFilesManagementProvider
 	var requestLogProvider service.RequestLogProvider
@@ -91,6 +93,7 @@ func NewRouter(
 	if len(optionalProviders) > 0 {
 		usageIdentityProvider = optionalProviders[0].UsageIdentity
 		quotaProvider = optionalProviders[0].Quota
+		relayUsageProvider = optionalProviders[0].RelayUsage
 		cpaAPIKeyProvider = optionalProviders[0].CPAAPIKeys
 		authFilesProvider = optionalProviders[0].AuthFiles
 		requestLogProvider = optionalProviders[0].RequestLogs
@@ -118,6 +121,7 @@ func NewRouter(
 	registerCPAAPIKeyRoutes(adminProtected, cpaAPIKeyProvider)
 	registerPricingRoutes(adminProtected, pricingProvider)
 	registerQuotaRoutes(adminProtected, quotaProvider)
+	registerRelayUsageRoutes(adminProtected, relayUsageProvider)
 
 	keyViewerProtected := apiV1.Group("")
 	keyViewerProtected.Use(authHandler.apiKeyViewerMiddleware())

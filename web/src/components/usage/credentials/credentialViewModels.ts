@@ -1,4 +1,4 @@
-import type { UsageCredentialHealth, UsageIdentity, UsageQuotaCheckResponse, UsageQuotaRow } from '@/lib/types'
+import type { RelayPlatformAssignment, RelayUsageItem, RelayUsageResult, UsageCredentialHealth, UsageIdentity, UsageQuotaCheckResponse, UsageQuotaRow } from '@/lib/types'
 import { calculateCacheReadRate, formatCompactTokenValue } from '@/utils/usage'
 
 export const CREDENTIALS_PAGE_SIZE = 10
@@ -24,6 +24,8 @@ export interface QuotaBillingUsageDisplay {
 export interface DisplayQuota {
   key: string
   label: string
+  /** 用于 i18n 的固定 key；后端 key 可能是动态生成的（如 window_5_MINUTE）。 */
+  translationKey?: string
   scope?: string
   groupKey?: string
   groupLabel?: string
@@ -87,6 +89,10 @@ export interface AiProviderCredentialRow {
   lastUsedText?: string
   statsUpdatedText?: string
   credentialHealth?: UsageCredentialHealth
+  // 中转商用量（claude-api-key/openai-compatibility 指向中转商时）
+  relayUsageResult?: RelayUsageItem
+  relayPlatform?: string
+  relayPlatformSource?: string
 }
 
 export interface CredentialIdentityGroups {
@@ -177,28 +183,58 @@ export function buildAuthFileCredentialRows(
   })
 }
 
-export function buildAiProviderCredentialRows(identities: UsageIdentity[]): AiProviderCredentialRow[] {
-  return identities.map((identity) => ({
-    identity,
-    displayName: credentialDisplayName(identity),
-    maskedIdentity: identity.identity,
-    providerLabel: credentialProviderLabel(identity),
-    typeLabel: credentialTypeLabel(identity),
-    authTypeLabel: credentialAuthTypeLabel(identity),
-    priorityLabel: credentialPriorityLabel(identity.priority),
-    totalRequests: safeNumber(identity.total_requests),
-    successCount: safeNumber(identity.success_count),
-    failureCount: safeNumber(identity.failure_count),
-    successRate: successRate(identity),
-    totalTokens: safeNumber(identity.total_tokens),
-    cacheReadRate: cacheReadRate(identity),
-    lastUsedText: identity.last_used_at,
-    statsUpdatedText: identity.stats_updated_at,
-    credentialHealth: identity.credential_health,
-  }))
+export function buildAiProviderCredentialRows(
+  identities: UsageIdentity[],
+  relayUsage: Map<string, RelayUsageItem> = new Map(),
+  relayAssignments: Map<string, RelayPlatformAssignment> = new Map(),
+): AiProviderCredentialRow[] {
+  return identities.map((identity) => {
+    const assignment = relayAssignments.get(identity.id)
+    const usageItem = relayUsage.get(identity.id)
+    return {
+      identity,
+      displayName: credentialDisplayName(identity),
+      maskedIdentity: identity.identity,
+      providerLabel: credentialProviderLabel(identity),
+      typeLabel: credentialTypeLabel(identity),
+      authTypeLabel: credentialAuthTypeLabel(identity),
+      priorityLabel: credentialPriorityLabel(identity.priority),
+      totalRequests: safeNumber(identity.total_requests),
+      successCount: safeNumber(identity.success_count),
+      failureCount: safeNumber(identity.failure_count),
+      successRate: successRate(identity),
+      totalTokens: safeNumber(identity.total_tokens),
+      cacheReadRate: cacheReadRate(identity),
+      lastUsedText: identity.last_used_at,
+      statsUpdatedText: identity.stats_updated_at,
+      credentialHealth: identity.credential_health,
+      relayUsageResult: usageItem,
+      relayPlatform: assignment?.platform ?? usageItem?.platform,
+      relayPlatformSource: assignment?.source,
+    }
+  })
 }
 
-function toDisplayQuota(row: UsageQuotaRow): DisplayQuota | undefined {
+// buildRelayDisplayQuotas 把中转商 rows 复用 quota 进度条渲染。
+// 这里只过滤没有 label 的项——只要后端返回了窗口就展示，进度推导不出来时空轨道 + "—"，
+// 避免 GLM 的多个窗口因 usedPercent 缺失被整体隐藏（后端 limit<=0 时 percent 为 nil）。
+export function buildRelayDisplayQuotas(result: RelayUsageResult): DisplayQuota[] {
+  return (result.rows ?? [])
+    .map(toDisplayQuota)
+    .filter((quota): quota is DisplayQuota => quota !== undefined)
+    // 进度条表达"已用比例"（条越长用得越多），与 GLM percentage 语义一致：
+    // used kind 直接取 percent；remaining kind 取 100-percent；推不出但已用为 0 时按 0%，否则留 null 显示 —。
+    .map((quota) => {
+      if (quota.percent != null) {
+        const usedPct = quota.percentKind === 'used' ? quota.percent : 100 - quota.percent
+        return { ...quota, barPercent: clampPercent(usedPct) }
+      }
+      if (quota.used === 0) return { ...quota, barPercent: 0 }
+      return quota
+    })
+}
+
+export function toDisplayQuota(row: UsageQuotaRow): DisplayQuota | undefined {
   // 后端 quota row 可能是 used、remaining 或 remainingFraction，这里统一成展示进度。
   const used = finiteNumber(row.used)
   const limit = finiteNumber(row.limit)
@@ -214,6 +250,7 @@ function toDisplayQuota(row: UsageQuotaRow): DisplayQuota | undefined {
   return {
     key: row.key,
     label,
+    translationKey: quotaTranslationKey(row, windowSeconds),
     scope: row.scope,
     groupKey: row.groupKey,
     groupLabel: row.groupLabel,
@@ -292,6 +329,38 @@ function formatQuotaWindowCost(cost: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(cost || 0).replace(/^US\$/, '$')
+}
+
+function quotaTranslationKey(row: UsageQuotaRow, windowSeconds?: number): string | undefined {
+  // 优先按后端给出的英文 label 匹配固定翻译 key，因为部分中转商（如 Kimi）的窗口 key/seconds 不稳定。
+  const label = row.label?.trim()
+  if (label) {
+    if (label === '5h Tokens') return '5hour_tokens'
+    if (label === 'Weekly Tokens') return 'weekly_tokens'
+    if (label === 'Monthly MCP') return 'monthly_mcp'
+    if (label === 'Hourly') return 'hourly_tokens'
+    if (label === 'Daily') return 'daily_tokens'
+    if (label === 'Parallel Requests') return 'parallel_requests'
+  }
+  if (row.key === 'parallel_requests') {
+    return 'parallel_requests'
+  }
+  if (windowSeconds === FIVE_HOUR_WINDOW_SECONDS) {
+    return '5hour_tokens'
+  }
+  if (windowSeconds === WEEKLY_WINDOW_SECONDS) {
+    return 'weekly_tokens'
+  }
+  if (windowSeconds === THIRTY_DAY_WINDOW_SECONDS || windowSeconds === AVERAGE_MONTH_WINDOW_SECONDS) {
+    return 'monthly_mcp'
+  }
+  if (windowSeconds === 60 * 60) {
+    return 'hourly_tokens'
+  }
+  if (windowSeconds === 24 * 60 * 60) {
+    return 'daily_tokens'
+  }
+  return undefined
 }
 
 function quotaLabel(row: UsageQuotaRow, windowSeconds?: number): string | undefined {
@@ -433,7 +502,7 @@ function quotaUsedPercent(percentDisplay: { percent: number | null; kind: Displa
   return undefined
 }
 
-function isDisplayableQuota(quota: DisplayQuota | undefined): quota is DisplayQuota {
+export function isDisplayableQuota(quota: DisplayQuota | undefined): quota is DisplayQuota {
   return quota !== undefined && quota.barPercent !== null
 }
 

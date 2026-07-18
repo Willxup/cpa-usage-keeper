@@ -860,6 +860,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     onNotice: showTopNotice,
   });
   const refreshCredentials = credentialsData.refresh;
+  const refreshRelayUsage = credentialsData.refreshRelayUsage;
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
   const [analysisData, setAnalysisData] = useState<AnalysisResponse | null>(null);
@@ -1420,7 +1421,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       return;
     }
     if (credentialSectionVisibility.enabled) {
-      await refreshCredentials();
+      // relay usage 跟随顶部全局刷新一起拉取（仅 AI Provider 可见时），不再有单行刷新按钮。
+      await Promise.all([
+        refreshCredentials(),
+        credentialSectionVisibility.showAiProvider ? refreshRelayUsage() : Promise.resolve(),
+      ]);
       return;
     }
     if (activeTab === 'analysis') {
@@ -1432,7 +1437,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       return;
     }
     await Promise.all([loadUsage(), loadRealtime()]);
-  }, [activeTab, credentialSectionVisibility.enabled, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadEventFilterOptions, loadEvents, loadPricing, loadRealtime, loadUsage, refreshCredentials]);
+  }, [activeTab, credentialSectionVisibility.enabled, credentialSectionVisibility.showAiProvider, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadEventFilterOptions, loadEvents, loadPricing, loadRealtime, loadUsage, refreshCredentials, refreshRelayUsage]);
 
   const refreshAutoRefreshTab = useCallback(async () => {
     if (activeTab === 'events') {
@@ -1985,6 +1990,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       onPageChange={credentialsData.setAiProviderPage}
                       onPageSizeChange={credentialsData.setAiProviderPageSize}
                       onSortChange={credentialsData.setAiProviderSort}
+                      onSetRelayPlatform={(id, platform) => { void credentialsData.setRelayPlatformOverride(id, platform) }}
                     />
                   )}
                 </div>

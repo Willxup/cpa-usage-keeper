@@ -9,6 +9,7 @@ import {
 import { useCredentialPages } from './useCredentialPages'
 import { useQuotaCache } from './useQuotaCache'
 import { useQuotaInspection } from './useQuotaInspection'
+import { useRelayProviderUsage } from './useRelayProviderUsage'
 import { ApiError, resetUsageQuota, updateUsageIdentityAlias, type UsageIdentityPageSort } from '@/lib/api'
 import i18n from '@/i18n'
 import type { UsageIdentityTypeCount, UsageQuotaCheckResponse, UsageQuotaInspectionStatusResponse } from '@/lib/types'
@@ -71,10 +72,19 @@ export interface CredentialsTabData {
   resetQuotaForAuthIndex: (authIndex: string) => Promise<void>
   refreshQuotaInspectionStatus: () => Promise<void>
   startQuotaInspection: () => Promise<void>
+  relayRefreshing: boolean
+  relayError?: string
+  refreshRelayUsage: (identityIds?: string[]) => Promise<void>
+  setRelayPlatformOverride: (identityId: string, platform: string) => Promise<void>
 }
 
 export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, onAuthRequired, onNotice }: UseCredentialsTabDataOptions): CredentialsTabData {
   const credentialPages = useCredentialPages({ enabledAuthFiles, enabledAiProviders, onAuthRequired })
+  const aiProviderIds = useMemo(
+    () => credentialPages.aiProviderIdentities.map((identity) => identity.id),
+    [credentialPages.aiProviderIdentities],
+  )
+  const relayUsage = useRelayProviderUsage(aiProviderIds)
   const currentAuthIndexes = useMemo(
     () => selectQuotaEligibleAuthIndexes(credentialPages.authFileIdentities),
     [credentialPages.authFileIdentities],
@@ -110,8 +120,12 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
     [credentialPages.authFileIdentities, quotaResponsesByAuthIndex, quotaStates],
   )
   const aiProviderRows = useMemo(
-    () => buildAiProviderCredentialRows(credentialPages.aiProviderIdentities),
-    [credentialPages.aiProviderIdentities],
+    () => buildAiProviderCredentialRows(
+      credentialPages.aiProviderIdentities,
+      relayUsage.usage,
+      relayUsage.assignments,
+    ),
+    [credentialPages.aiProviderIdentities, relayUsage.usage, relayUsage.assignments],
   )
   const refreshCredentialPages = credentialPages.refresh
   const refresh = useCallback(async () => {
@@ -206,6 +220,10 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
     resetQuotaForAuthIndex,
     refreshQuotaInspectionStatus: quotaInspection.refreshQuotaInspectionStatus,
     startQuotaInspection: quotaInspection.startQuotaInspection,
+    relayRefreshing: relayUsage.loadingUsage,
+    relayError: relayUsage.error,
+    refreshRelayUsage: relayUsage.refreshUsage,
+    setRelayPlatformOverride: relayUsage.setPlatformOverride,
   }
 }
 

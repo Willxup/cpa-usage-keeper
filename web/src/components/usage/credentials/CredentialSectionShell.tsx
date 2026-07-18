@@ -2,6 +2,8 @@ import type { CSSProperties, ReactNode } from 'react'
 import styles from './CredentialSections.module.scss'
 import { formatCompactNumber } from '@/utils/usage'
 
+export type Translate = (key: string, options?: Record<string, unknown>) => string
+
 type CredentialSectionStyle = CSSProperties
 
 interface CredentialSectionShellProps {
@@ -20,7 +22,9 @@ interface CredentialRowShellProps {
   badges: ReactNode
   metrics: ReactNode
   side: ReactNode
+  usage?: ReactNode
   rowClassName?: string
+  footer?: ReactNode
 }
 
 interface CredentialTableHeaderProps {
@@ -30,6 +34,7 @@ interface CredentialTableHeaderProps {
   totalTokensLabel: string
   cacheReadRateLabel: string
   sideLabel: string
+  usageLabel?: string
   rowClassName?: string
 }
 
@@ -52,8 +57,9 @@ export function CredentialSectionShell({ title, subtitle, countLabel, titleExtra
   )
 }
 
-export function CredentialRowShell({ title, subtitle, badges, metrics, side, rowClassName }: CredentialRowShellProps) {
-  // 统一三段式行结构：左侧身份信息、中间指标、右侧 quota/状态区域。
+export function CredentialRowShell({ title, subtitle, badges, metrics, side, usage, rowClassName, footer }: CredentialRowShellProps) {
+  // 统一行结构：左侧身份信息、中间指标、右侧 side（健康/quota），可选 usage 列让中继用量单独成列。
+  // footer 是可选的全宽副行（跨所有列），用于追加展开信息。
   return (
     <article className={`${styles.credentialRow} ${rowClassName ?? ''}`.trim()}>
       <div className={styles.credentialIdentityBlock}>
@@ -65,11 +71,13 @@ export function CredentialRowShell({ title, subtitle, badges, metrics, side, row
       </div>
       <div className={styles.credentialMetricGroup}>{metrics}</div>
       <div className={styles.credentialSidePanel}>{side}</div>
+      {usage !== undefined && <div className={styles.credentialUsagePanel}>{usage}</div>}
+      {footer && <div className={styles.credentialRowFooter}>{footer}</div>}
     </article>
   )
 }
 
-export function CredentialTableHeader({ nameLabel, totalRequestsLabel, successRateLabel, totalTokensLabel, cacheReadRateLabel, sideLabel, rowClassName }: CredentialTableHeaderProps) {
+export function CredentialTableHeader({ nameLabel, totalRequestsLabel, successRateLabel, totalTokensLabel, cacheReadRateLabel, sideLabel, usageLabel, rowClassName }: CredentialTableHeaderProps) {
   return (
     <div className={`${styles.credentialTableHeader} ${rowClassName ?? ''}`.trim()}>
       <span className={styles.credentialTableHeaderName}>{nameLabel}</span>
@@ -80,6 +88,7 @@ export function CredentialTableHeader({ nameLabel, totalRequestsLabel, successRa
         <span className={styles.credentialMetricHeaderCell}>{cacheReadRateLabel}</span>
       </div>
       <span className={styles.credentialTableHeaderSide}>{sideLabel}</span>
+      {usageLabel && <span className={styles.credentialTableHeaderUsage}>{usageLabel}</span>}
     </div>
   )
 }
@@ -219,4 +228,26 @@ export function credentialToneClassName(prefix: string, tone: string): string {
 
 export function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+export function formatQuotaResetDuration(resetAt: string, t: Translate): string {
+  const resetMs = new Date(resetAt).getTime()
+  if (!Number.isFinite(resetMs)) {
+    return ''
+  }
+  const remainingMinutes = Math.max(0, Math.ceil((resetMs - Date.now()) / 60_000))
+  const days = Math.floor(remainingMinutes / 1_440)
+  const hours = Math.floor((remainingMinutes % 1_440) / 60)
+  const minutes = remainingMinutes % 60
+  const segments: string[] = []
+  if (days > 0) {
+    segments.push(t('usage_stats.duration_days_short', { value: String(days).padStart(2, '0') }))
+  }
+  if (hours > 0) {
+    segments.push(t('usage_stats.duration_hours_short', { value: String(hours).padStart(2, '0') }))
+  }
+  if (minutes > 0) {
+    segments.push(t('usage_stats.duration_minutes_short', { value: String(minutes).padStart(2, '0') }))
+  }
+  return segments.slice(0, 2).join('')
 }
