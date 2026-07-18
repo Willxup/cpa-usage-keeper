@@ -19,6 +19,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
 import { IconCheck, IconChevronDown, IconCopy, IconDownload, IconScrollText } from '@/components/ui/icons';
 import type { UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption } from '@/lib/types';
+import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainment';
 import {
   calculateCacheReadRate,
   formatDurationMs,
@@ -739,6 +740,7 @@ function RequestLogSectionDisclosure({
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const panelId = useId();
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+  useScrollBoundaryContainment(scrollerRef);
   const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chunks = useMemo(
     () => hasOpened ? splitRequestLogVirtualChunks(content) : [],
@@ -960,6 +962,7 @@ export function RequestEventsDetailsCard({
   const [speedModeTooltip, setSpeedModeTooltip] = useState<RequestEventSpeedModeTooltipState | null>(null);
   const speedModeHoverTargetRef = useRef<RequestEventSpeedModeTooltipTarget | null>(null);
   const speedModeFocusTargetRef = useRef<RequestEventSpeedModeTooltipTarget | null>(null);
+  const requestEventsTableWrapperRef = useRef<HTMLDivElement | null>(null);
   const resultLocale = t('usage_stats.success') === 'Success' ? 'en' : 'zh';
   const latencyHint = t('usage_stats.latency_unit_hint', {
     field: LATENCY_SOURCE_FIELD,
@@ -1124,6 +1127,7 @@ export function RequestEventsDetailsCard({
       };
     });
   }, [events, t]);
+  useScrollBoundaryContainment(requestEventsTableWrapperRef, rows.length > 0);
 
   const [internalVisibleColumnIds, setInternalVisibleColumnIds] = useState<RequestEventColumnId[]>(() => (
     normalizeRequestEventVisibleColumnIds(initialVisibleColumnIds ?? visibleColumnIds ?? REQUEST_EVENT_COLUMN_IDS)
@@ -1537,7 +1541,7 @@ export function RequestEventsDetailsCard({
           />
         ) : (
           <>
-            <div className={styles.requestEventsTableWrapper}>
+            <div ref={requestEventsTableWrapperRef} className={styles.requestEventsTableWrapper}>
               <table className={styles.table}>
                 <thead>
                   <tr>

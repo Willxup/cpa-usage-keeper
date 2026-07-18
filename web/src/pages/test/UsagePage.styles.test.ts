@@ -599,6 +599,21 @@ describe('UsagePage toolbar styles', () => {
     expect(sessionSettingsSource).toContain('styles.settingsCompactAction')
   })
 
+  it('contains wheel scrolling at overflowing card boundaries without trapping short lists', () => {
+    expect(requestEventsSource).toContain('useScrollBoundaryContainment(requestEventsTableWrapperRef, rows.length > 0);')
+    expect(requestEventsSource).toContain('useScrollBoundaryContainment(scrollerRef);')
+    expect(apiKeySettingsSource).toContain('useScrollBoundaryContainment(apiKeySettingsBodyRef);')
+    expect(sessionSettingsSource).toContain('useScrollBoundaryContainment(sessionSettingsBodyRef);')
+    expect(priceSettingsSource).toContain('useScrollBoundaryContainment(pricesGridRef, sortedModelPrices.length > 0);')
+    expect(requestEventsSource).toContain('ref={requestEventsTableWrapperRef} className={styles.requestEventsTableWrapper}')
+    expect(requestEventsSource).toContain('className={styles.requestEventsLogSectionPanelInner} ref={scrollerRef}')
+    expect(apiKeySettingsSource).toContain('ref={apiKeySettingsBodyRef} className={styles.apiKeySettingsBody}')
+    expect(sessionSettingsSource).toContain('ref={sessionSettingsBodyRef} className={styles.sessionSettingsBody}')
+    expect(priceSettingsSource).toContain('ref={pricesGridRef} className={styles.pricesGrid}')
+    expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\[data-scroll-boundary-contained='true'\],[\s\S]*?\.requestEventsLogSectionPanelInner\[data-scroll-boundary-contained='true'\],[\s\S]*?\.apiKeySettingsBody\[data-scroll-boundary-contained='true'\],[\s\S]*?\.sessionSettingsBody\[data-scroll-boundary-contained='true'\],[\s\S]*?\.pricesGrid\[data-scroll-boundary-contained='true'\]\s*\{[\s\S]*?overscroll-behavior-y:\s*contain;/)
+    expect(credentialStyles).not.toContain('data-scroll-boundary-contained')
+  })
+
   it('keeps Model Pricing Settings list viewport aligned with API Key Settings without shrinking it behind the form', () => {
     const settingsSectionsBlock = usagePageStyles.slice(
       usagePageStyles.indexOf('.settingsSections {'),

@@ -1614,6 +1614,14 @@
   box-shadow: var(--shadow-lg);
 }
 
+.requestEventsTableWrapper[data-scroll-boundary-contained='true'],
+.requestEventsLogSectionPanelInner[data-scroll-boundary-contained='true'],
+.apiKeySettingsBody[data-scroll-boundary-contained='true'],
+.sessionSettingsBody[data-scroll-boundary-contained='true'],
+.pricesGrid[data-scroll-boundary-contained='true'] {
+  overscroll-behavior-y: contain;
+}
+
 // Pricing Section (80%比例)
 .pricingFixedCard {
   height: auto;

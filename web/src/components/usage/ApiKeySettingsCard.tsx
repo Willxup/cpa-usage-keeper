@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { IconEye, IconEyeOff } from '@/components/ui/icons';
+import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainment';
 import type { CpaApiKeySettingsItem } from '@/lib/types';
 import styles from '@/pages/UsagePage.module.scss';
 
@@ -129,6 +130,8 @@ export function ApiKeySettingsCard({ apiKeys, loading = false, savingId = null, 
   const [showFullApiKeys, setShowFullApiKeys] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const apiKeySettingsBodyRef = useRef<HTMLDivElement | null>(null);
+  useScrollBoundaryContainment(apiKeySettingsBodyRef);
   const initialAliases = useMemo(
     () => Object.fromEntries(apiKeys.map((item) => [item.id, item.keyAlias])),
     [apiKeys],
@@ -174,7 +177,7 @@ export function ApiKeySettingsCard({ apiKeys, loading = false, savingId = null, 
       }
       className={`${styles.detailsFixedCard} ${styles.apiKeySettingsCard}`}
     >
-      <div className={styles.apiKeySettingsBody}>
+      <div ref={apiKeySettingsBodyRef} className={styles.apiKeySettingsBody}>
         {loading && apiKeys.length === 0 ? (
           <div className={styles.hint}>{t('common.loading')}</div>
         ) : apiKeys.length === 0 ? (
