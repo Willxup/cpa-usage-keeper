@@ -3,8 +3,19 @@ import { describe, expect, it } from 'vitest'
 
 const loginPageStyles = readFileSync(new URL('../LoginPage.module.scss', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 const themeStyles = readFileSync(new URL('../../styles/themes.scss', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+const pageShellRules = loginPageStyles.match(/\.pageShell\s*\{[\s\S]*?\n\}/g) ?? []
+const pageShellStyles = pageShellRules[0] ?? ''
+const pageShellBackground = pageShellStyles.match(/background:\s*([\s\S]*?);/)?.[1] ?? ''
 
 describe('LoginPage layout styles', () => {
+  it('ends the login surface on the base theme background without an edge glow', () => {
+    expect(pageShellRules).toHaveLength(1)
+    expect(pageShellBackground.match(/radial-gradient\(/g)).toHaveLength(1)
+    expect(pageShellBackground).toContain('radial-gradient(900px 480px at 12% 0%')
+    expect(pageShellBackground.trim()).toMatch(/var\(--bg-secondary\)$/)
+    expect(pageShellStyles).not.toMatch(/\bbackground-image\s*:/)
+  })
+
   it('gives the desktop login columns enough room without relying on shared app zoom', () => {
     expect(loginPageStyles).toMatch(/\.frame\s*\{[\s\S]*?width:\s*min\(1180px, 100%\);/)
     expect(loginPageStyles).toMatch(/\.frame\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1\.15fr\) minmax\(360px, 440px\);/)
