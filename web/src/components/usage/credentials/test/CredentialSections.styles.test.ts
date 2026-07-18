@@ -7,6 +7,7 @@ const credentialShellSource = readFileSync(new URL('../CredentialSectionShell.ts
 const credentialHealthSource = readFileSync(new URL('../CredentialHealthPanel.tsx', import.meta.url), 'utf8')
 const aiProviderSectionSource = readFileSync(new URL('../AiProviderCredentialsSection.tsx', import.meta.url), 'utf8')
 const authFileSectionSource = readFileSync(new URL('../AuthFileCredentialsSection.tsx', import.meta.url), 'utf8')
+const expiryBadgeSource = readFileSync(new URL('../CredentialExpiryBadge.tsx', import.meta.url), 'utf8')
 
 const cssBlock = (selector: string) => {
   const start = credentialStyles.indexOf(selector)
@@ -225,6 +226,16 @@ describe('Credential section styles', () => {
     expect(authFileSectionSource).toContain('row.priorityLabel')
     expect(authFileSectionSource).toMatch(/row\.planTypeLabel[\s\S]*?row\.remainingDaysLabel[\s\S]*?row\.priorityLabel/)
     expect(aiProviderSectionSource).toContain('row.priorityLabel')
+  })
+
+  it('uses a portal-based floating tooltip for credential expiry badges', () => {
+    expect(authFileSectionSource).toContain('<CredentialExpiryBadge')
+    expect(expiryBadgeSource).toContain('createPortal')
+    expect(expiryBadgeSource).toContain('role="tooltip"')
+    expect(expiryBadgeSource).not.toContain('title=')
+    expect(credentialStyles).toMatch(/\.credentialExpiryTooltip\s*\{[\s\S]*?position:\s*fixed;/)
+    expect(credentialStyles).toMatch(/\.credentialExpiryTooltip\s*\{[\s\S]*?z-index:\s*2100;/)
+    expect(credentialStyles).toMatch(/\.credentialExpiryTooltip\s*\{[\s\S]*?pointer-events:\s*none;/)
   })
 
   it('keeps credential alias edit buttons in a fixed name-cell action slot', () => {

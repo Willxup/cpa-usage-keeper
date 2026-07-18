@@ -12,6 +12,7 @@ import type { QuotaAutoRefreshScheduleUnit, QuotaAutoRefreshSettings, UsageQuota
 import { CredentialAliasEditor, isCredentialAliasEditorDisabled } from './CredentialAliasEditor'
 import { CredentialHealthPanel } from './CredentialHealthPanel'
 import { CredentialProviderFilterIcon } from './CredentialProviderFilterBar'
+import { CredentialExpiryBadge } from './CredentialExpiryBadge'
 import { CredentialBadge, CredentialPriorityBadge, CredentialRowShell, CredentialSectionShell, CredentialTableHeader, CredentialsPagination, MetricPill, RequestMetric, TonePercent, cacheReadRateTone, capitalize, credentialToneClassName, formatCredentialNumber, successRateTone } from './CredentialSectionShell'
 
 type Translate = (key: string, options?: Record<string, string>) => string
@@ -200,7 +201,9 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
               <span className={styles.credentialIdentityBadges}>
                 <CredentialBadge>{row.typeLabel}</CredentialBadge>
                 {row.planTypeLabel && <CredentialPlanBadge tone={row.planTypeTone}>{row.planTypeLabel}</CredentialPlanBadge>}
-                {row.remainingDaysLabel && <span className={styles.credentialRemainingDaysBadge}>{row.remainingDaysLabel}</span>}
+                {row.remainingDaysLabel && row.expiresAtLabel
+                  ? <CredentialExpiryBadge remainingDaysLabel={row.remainingDaysLabel} expiresAtLabel={row.expiresAtLabel} />
+                  : row.remainingDaysLabel && <span className={styles.credentialRemainingDaysBadge}>{row.remainingDaysLabel}</span>}
                 {row.priorityLabel && <CredentialPriorityBadge>{row.priorityLabel}</CredentialPriorityBadge>}
               </span>
             )}

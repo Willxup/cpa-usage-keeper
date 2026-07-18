@@ -53,6 +53,7 @@ export interface AuthFileCredentialRow {
   planTypeLabel?: string
   planTypeTone?: PlanTypeTone
   remainingDaysLabel?: string
+  expiresAtLabel?: string
   totalRequests: number
   successCount: number
   failureCount: number
@@ -157,6 +158,7 @@ export function buildAuthFileCredentialRows(
       planTypeLabel: credentialPlanTypeLabel(planType),
       planTypeTone: credentialPlanTypeTone(planType),
       remainingDaysLabel: remainingDaysLabel(identity.active_until),
+      expiresAtLabel: formatCredentialExpiry(identity.active_until),
       totalRequests: safeNumber(identity.total_requests),
       successCount: safeNumber(identity.success_count),
       failureCount: safeNumber(identity.failure_count),
@@ -498,6 +500,23 @@ function remainingDaysLabel(activeUntil?: string): string | undefined {
   }
   const dayMs = 24 * 60 * 60 * 1000
   return `${Math.max(0, Math.ceil((untilMs - Date.now()) / dayMs))}d`
+}
+
+function formatCredentialExpiry(activeUntil?: string): string | undefined {
+  if (!activeUntil || !Number.isFinite(Date.parse(activeUntil))) {
+    return undefined
+  }
+  const match = activeUntil.trim().match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/i,
+  )
+  if (!match) {
+    return undefined
+  }
+  const [, year, month, day, hour, minute, second, rawOffset] = match
+  const offset = rawOffset.toUpperCase() === 'Z' || rawOffset === '+00:00' || rawOffset === '-00:00'
+    ? 'UTC'
+    : `UTC${rawOffset}`
+  return `${year}-${month}-${day} ${hour}:${minute}:${second} ${offset}`
 }
 
 function successRate(identity: UsageIdentity): number | null {

@@ -124,6 +124,20 @@ describe('credentialViewModels', () => {
     }
   })
 
+  it('formats active-until timestamps without converting their project timezone offset', () => {
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'offset-auth', active_until: '2026-08-01T00:00:00+08:00' }),
+      identity({ identity: 'utc-auth', active_until: '2026-07-31T16:00:00Z' }),
+      identity({ identity: 'invalid-auth', active_until: 'not-a-time' }),
+    ])
+
+    expect(rows.map((row) => row.expiresAtLabel)).toEqual([
+      '2026-08-01 00:00:00 UTC+08:00',
+      '2026-07-31 16:00:00 UTC',
+      undefined,
+    ])
+  })
+
   it('selects only active current-page auth files for quota requests', () => {
     const rows = [
       identity({ id: '1', auth_type: 1, identity: 'active-auth-file' }),
