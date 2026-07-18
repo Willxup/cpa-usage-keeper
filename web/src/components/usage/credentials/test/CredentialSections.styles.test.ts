@@ -7,7 +7,6 @@ const credentialShellSource = readFileSync(new URL('../CredentialSectionShell.ts
 const credentialHealthSource = readFileSync(new URL('../CredentialHealthPanel.tsx', import.meta.url), 'utf8')
 const aiProviderSectionSource = readFileSync(new URL('../AiProviderCredentialsSection.tsx', import.meta.url), 'utf8')
 const authFileSectionSource = readFileSync(new URL('../AuthFileCredentialsSection.tsx', import.meta.url), 'utf8')
-const expiryBadgeSource = readFileSync(new URL('../CredentialExpiryBadge.tsx', import.meta.url), 'utf8')
 
 const cssBlock = (selector: string) => {
   const start = credentialStyles.indexOf(selector)
@@ -229,13 +228,15 @@ describe('Credential section styles', () => {
   })
 
   it('uses a portal-based floating tooltip for credential expiry badges', () => {
-    expect(authFileSectionSource).toContain('<CredentialExpiryBadge')
-    expect(expiryBadgeSource).toContain('createPortal')
-    expect(expiryBadgeSource).toContain('role="tooltip"')
-    expect(expiryBadgeSource).not.toContain('title=')
+    expect(authFileSectionSource).toContain('createPortal')
+    expect(authFileSectionSource).toContain('className={styles.credentialRemainingDaysBadge}')
+    expect(authFileSectionSource).toContain('className={styles.credentialExpiryTooltip}')
+    expect(authFileSectionSource).toContain('role="tooltip"')
     expect(credentialStyles).toMatch(/\.credentialExpiryTooltip\s*\{[\s\S]*?position:\s*fixed;/)
     expect(credentialStyles).toMatch(/\.credentialExpiryTooltip\s*\{[\s\S]*?z-index:\s*2100;/)
     expect(credentialStyles).toMatch(/\.credentialExpiryTooltip\s*\{[\s\S]*?pointer-events:\s*none;/)
+    expect(credentialStyles).toMatch(/\.credentialExpiryTooltip\s*\{[\s\S]*?white-space:\s*nowrap;/)
+    expect(cssBlock('.credentialExpiryTooltip')).not.toContain('overflow-wrap:')
   })
 
   it('keeps credential alias edit buttons in a fixed name-cell action slot', () => {
