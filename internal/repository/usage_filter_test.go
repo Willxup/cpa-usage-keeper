@@ -1027,6 +1027,9 @@ func TestBuildUsageOverviewWithFilterReturnsUnavailableCostForPartialPricing(t *
 	if overview.Summary.TotalCost != 1 {
 		t.Fatalf("expected priced portion to remain in total cost, got %+v", overview.Summary)
 	}
+	if len(overview.Summary.UnpricedModels) != 1 || overview.Summary.UnpricedModels[0] != "unpriced-model" {
+		t.Fatalf("expected exact unpriced model in overview summary, got %+v", overview.Summary.UnpricedModels)
+	}
 }
 
 func TestBuildUsageOverviewWithFilterReturnsAvailableCostWhenUnpricedEventsHaveNoBillableTokens(t *testing.T) {

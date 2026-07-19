@@ -89,17 +89,43 @@ func (r *UsageCostResolver) matchPricing(model string, modelAlias string) (entit
 	if r == nil {
 		return entities.ModelPriceSetting{}, "", "", false
 	}
-	if modelName := strings.TrimSpace(model); modelName != "" {
+	modelName := strings.TrimSpace(model)
+	alias := strings.TrimSpace(modelAlias)
+	if modelName != "" {
 		if pricing, ok := r.pricesByModel[modelName]; ok {
 			return pricing, modelName, "model", true
 		}
 	}
-	if alias := strings.TrimSpace(modelAlias); alias != "" {
+	if alias != "" {
 		if pricing, ok := r.pricesByModel[alias]; ok {
 			return pricing, alias, "model_alias", true
 		}
 	}
+	// CPA may append a bracketed routing variant to the reported model or alias,
+	// for example "kimi-k3[1m]". Keep exact prices authoritative, then inherit
+	// the configured base-model price when only the routing variant differs.
+	if baseModel := pricingBaseModel(modelName); baseModel != "" {
+		if pricing, ok := r.pricesByModel[baseModel]; ok {
+			return pricing, baseModel, "model_base", true
+		}
+	}
+	if baseAlias := pricingBaseModel(alias); baseAlias != "" {
+		if pricing, ok := r.pricesByModel[baseAlias]; ok {
+			return pricing, baseAlias, "model_alias_base", true
+		}
+	}
 	return entities.ModelPriceSetting{}, "", "", false
+}
+
+func pricingBaseModel(model string) string {
+	if model == "" || !strings.HasSuffix(model, "]") {
+		return ""
+	}
+	open := strings.LastIndexByte(model, '[')
+	if open <= 0 || open == len(model)-2 {
+		return ""
+	}
+	return strings.TrimSpace(model[:open])
 }
 
 func newUsageCostResolverForDB(db *gorm.DB) (*UsageCostResolver, error) {

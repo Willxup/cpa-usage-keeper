@@ -77,6 +77,7 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 			TPM:                   overview.Summary.TPM,
 			TotalCost:             overview.Summary.TotalCost,
 			CostAvailable:         overview.Summary.CostAvailable,
+			UnpricedModels:        append([]string(nil), overview.Summary.UnpricedModels...),
 			InputTokens:           overview.Summary.InputTokens,
 			CacheReadTokens:       overview.Summary.CacheReadTokens,
 			CacheCreationTokens:   overview.Summary.CacheCreationTokens,
