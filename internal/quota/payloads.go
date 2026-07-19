@@ -15,30 +15,49 @@ func parseAntigravityQuotaPayload(response *apicall.Response) (*AntigravityQuota
 	if err != nil {
 		return nil, err
 	}
-	if _, ok := object["models"]; !ok {
+	if _, ok := object["groups"]; !ok {
 		if nested := objectField(object, "body"); nested != nil {
 			object = nested
 		}
 	}
-	modelsObject := objectField(object, "models")
-	payload := &AntigravityQuotaPayload{Models: map[string]AntigravityQuotaModel{}}
-	for key, raw := range modelsObject {
-		modelObject := rawObject(raw)
-		if modelObject == nil {
+	rawGroups, ok := object["groups"]
+	if !ok {
+		return nil, fmt.Errorf("antigravity quota response missing groups")
+	}
+	var groups []json.RawMessage
+	if err := json.Unmarshal(rawGroups, &groups); err != nil {
+		return nil, fmt.Errorf("antigravity quota response invalid groups: %w", err)
+	}
+	payload := &AntigravityQuotaPayload{}
+	for _, rawGroup := range groups {
+		groupObject := rawObject(rawGroup)
+		if groupObject == nil {
 			continue
 		}
-		infoObject := objectField(modelObject, "quotaInfo", "quota_info")
-		model := AntigravityQuotaModel{
-			DisplayName: stringField(modelObject, "displayName", "display_name"),
+		group := AntigravityQuotaGroup{
+			DisplayName: stringField(groupObject, "displayName", "display_name"),
+			Description: stringField(groupObject, "description"),
 		}
-		if infoObject != nil {
-			model.QuotaInfo = &AntigravityQuotaInfo{
-				RemainingFraction: floatField(infoObject, "remainingFraction", "remaining_fraction"),
-				Remaining:         floatField(infoObject, "remaining"),
-				ResetTime:         stringField(infoObject, "resetTime", "reset_time"),
+		for _, rawBucket := range arrayField(groupObject, "buckets") {
+			bucketObject := rawObject(rawBucket)
+			if bucketObject == nil {
+				continue
 			}
+			remainingFraction := quotaFractionPtrField(bucketObject, "remainingFraction", "remaining_fraction")
+			if remainingFraction == nil {
+				continue
+			}
+			group.Buckets = append(group.Buckets, AntigravityQuotaBucket{
+				BucketID:          stringField(bucketObject, "bucketId", "bucket_id"),
+				DisplayName:       stringField(bucketObject, "displayName", "display_name"),
+				Window:            stringField(bucketObject, "window"),
+				RemainingFraction: remainingFraction,
+				ResetTime:         stringField(bucketObject, "resetTime", "reset_time"),
+			})
 		}
-		payload.Models[key] = model
+		if len(group.Buckets) > 0 {
+			payload.Groups = append(payload.Groups, group)
+		}
 	}
 	return payload, nil
 }
@@ -547,6 +566,41 @@ func floatPtrField(object map[string]json.RawMessage, keys ...string) *float64 {
 		return nil
 	}
 	return &value
+}
+
+func quotaFractionPtrField(object map[string]json.RawMessage, keys ...string) *float64 {
+	for _, key := range keys {
+		raw, ok := object[key]
+		if !ok || rawJSONNull(raw) {
+			continue
+		}
+		var number float64
+		if err := json.Unmarshal(raw, &number); err == nil {
+			if !math.IsNaN(number) && !math.IsInf(number, 0) {
+				return &number
+			}
+			continue
+		}
+		var text string
+		if err := json.Unmarshal(raw, &text); err != nil {
+			continue
+		}
+		text = strings.TrimSpace(text)
+		scale := 1.0
+		if strings.HasSuffix(text, "%") {
+			text = strings.TrimSpace(strings.TrimSuffix(text, "%"))
+			scale = 0.01
+		}
+		parsed, err := strconv.ParseFloat(text, 64)
+		if err != nil {
+			continue
+		}
+		parsed *= scale
+		if !math.IsNaN(parsed) && !math.IsInf(parsed, 0) {
+			return &parsed
+		}
+	}
+	return nil
 }
 
 func floatValue(object map[string]json.RawMessage, keys ...string) (float64, bool) {

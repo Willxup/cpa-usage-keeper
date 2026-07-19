@@ -251,7 +251,7 @@ func mapUsageIdentityResponse(item entities.UsageIdentity) usageIdentityResponse
 }
 
 func mapUsageIdentityResponseWithHealth(item entities.UsageIdentity, health *service.UsageCredentialHealthSnapshot) usageIdentityResponse {
-	// AI provider 的 identity 是 API Key，只在返回给前端时脱敏，数据库原值不改。
+	// AI Provider identity 是稳定 auth-index；响应不直接发布原始 LookupKey，OpenAI Compatibility 仅按 Issue #281 在 displayName 中保留脱敏 Key 片段。
 	identity := item.Identity
 	if item.AuthType == entities.UsageIdentityAuthTypeAIProvider {
 		identity = helper.RedactSensitiveValue(item.Identity)

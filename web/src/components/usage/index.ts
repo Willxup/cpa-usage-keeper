@@ -8,6 +8,7 @@ export { PriceSettingsCard } from './PriceSettingsCard';
 export { AiProviderCredentialsSection, AuthFileCredentialsSection, CredentialProviderFilterBar, useCredentialsTabData } from './credentials';
 export { RequestEventsDetailsCard } from './RequestEventsDetailsCard';
 export { ServiceHealthCard } from './ServiceHealthCard';
+export { TimeRangeControl } from './TimeRangeControl';
 export { useUsageData } from './hooks/useUsageData';
 export { useOverviewRealtimeData } from './hooks/useOverviewRealtimeData';
 export { usePricingData } from './hooks/usePricingData';

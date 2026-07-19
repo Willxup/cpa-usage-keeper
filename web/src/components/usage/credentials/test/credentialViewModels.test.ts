@@ -124,6 +124,20 @@ describe('credentialViewModels', () => {
     }
   })
 
+  it('formats active-until timestamps without converting their project timezone offset', () => {
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'offset-auth', active_until: '2026-08-01T00:00:00+08:00' }),
+      identity({ identity: 'utc-auth', active_until: '2026-07-31T16:00:00Z' }),
+      identity({ identity: 'invalid-auth', active_until: 'not-a-time' }),
+    ])
+
+    expect(rows.map((row) => row.expiresAtLabel)).toEqual([
+      '2026-08-01 00:00:00 UTC+08:00',
+      '2026-07-31 16:00:00 UTC',
+      undefined,
+    ])
+  })
+
   it('selects only active current-page auth files for quota requests', () => {
     const rows = [
       identity({ id: '1', auth_type: 1, identity: 'active-auth-file' }),
@@ -184,6 +198,36 @@ describe('credentialViewModels', () => {
       percentKind: 'used',
       barPercent: 17,
       status: 'danger',
+    })
+  })
+
+  it('preserves Antigravity quota group metadata for provider-specific rendering', () => {
+    const groupedQuota = {
+      key: 'bucket.gemini-5h',
+      label: '5h',
+      scope: 'quota_group',
+      metric: '5h',
+      groupKey: 'antigravity-group-1',
+      groupLabel: 'Gemini Models',
+      groupDescription: 'Models within this group: Gemini Flash, Gemini Pro',
+      remainingFraction: 0.72,
+      window: { seconds: 18_000 },
+      resetAt: '2026-05-09T12:00:00Z',
+    } as UsageQuotaRow & { groupKey: string; groupLabel: string; groupDescription: string }
+    const quotas = new Map<string, UsageQuotaCheckResponse>([
+      ['antigravity-auth', quotaResponse('antigravity-auth', [groupedQuota])],
+    ])
+
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'antigravity-auth', type: 'antigravity', provider: 'antigravity' }),
+    ], quotas)
+
+    expect(rows[0].displayQuotas[0]).toMatchObject({
+      label: '5h',
+      scope: 'quota_group',
+      groupKey: 'antigravity-group-1',
+      groupLabel: 'Gemini Models',
+      groupDescription: 'Models within this group: Gemini Flash, Gemini Pro',
     })
   })
 

@@ -1,6 +1,6 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useMemo } from 'react';
 import { ApiError } from '@/lib/api';
-import type { UsageOverviewResponse, UsageOverviewUsageSnapshot, UsageTimeRange } from '@/lib/types';
+import type { UsageCustomRangeUnit, UsageOverviewResponse, UsageOverviewUsageSnapshot, UsageTimeRange } from '@/lib/types';
 import { buildUsageStatsQueryKey, USAGE_STATS_STALE_TIME_MS, useUsageStatsStore } from '@/stores';
 import { getCurrentOverviewUsage } from '@/utils/usage/overview';
 import { buildUsageRangeQuery, normalizeUsageRange } from '@/utils/usage/rangeQuery';
@@ -23,6 +23,7 @@ export interface UseUsageDataReturn {
 export interface UseUsageDataOptions {
   onAuthRequired?: () => void;
   range?: UsageTimeRange;
+  customUnit?: UsageCustomRangeUnit;
   customStart?: string;
   customEnd?: string;
   enabled?: boolean;
@@ -32,7 +33,7 @@ export interface UseUsageDataOptions {
 export const normalizeUsageOverviewRange = normalizeUsageRange;
 
 export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataReturn {
-  const { onAuthRequired, range = '8h', customStart, customEnd, enabled = true, apiKeyId } = options;
+  const { onAuthRequired, range = '8h', customUnit, customStart, customEnd, enabled = true, apiKeyId } = options;
   const usageSnapshot = useUsageStatsStore((state) => state.usage);
   const loading = useUsageStatsStore((state) => state.loading);
   const storeError = useUsageStatsStore((state) => state.error);
@@ -40,21 +41,21 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
   const lastQueryKey = useUsageStatsStore((state) => state.lastQueryKey);
   const loadUsageStats = useUsageStatsStore((state) => state.loadUsageStats);
 
-  const rangeQuery = buildUsageRangeQuery({ range, customStart, customEnd });
-  const resolvedRange = rangeQuery.range;
-  const requestStart = rangeQuery.start;
-  const requestEnd = rangeQuery.end;
-  const customRangeReady = rangeQuery.valid;
+  const rangeQuery = useMemo(
+    () => buildUsageRangeQuery({ range, customUnit, customStart, customEnd }),
+    [customEnd, customStart, customUnit, range],
+  );
 
   const loadUsage = useCallback(async () => {
-    if (!customRangeReady) return;
+    if (!rangeQuery.valid) return;
     try {
       await loadUsageStats({
         force: true,
         staleTimeMs: USAGE_STATS_STALE_TIME_MS,
-        range: resolvedRange,
-        start: requestStart,
-        end: requestEnd,
+        range: rangeQuery.range,
+        unit: rangeQuery.unit,
+        start: rangeQuery.start,
+        end: rangeQuery.end,
         apiKeyId,
       });
     } catch (error) {
@@ -63,26 +64,27 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
       }
       throw error;
     }
-  }, [apiKeyId, customRangeReady, loadUsageStats, onAuthRequired, requestEnd, requestStart, resolvedRange]);
+  }, [apiKeyId, loadUsageStats, onAuthRequired, rangeQuery]);
 
   useEffect(() => {
-    if (!enabled || !customRangeReady) {
+    if (!enabled || !rangeQuery.valid) {
       return;
     }
     void loadUsageStats({
       staleTimeMs: USAGE_STATS_STALE_TIME_MS,
-      range: resolvedRange,
-      start: requestStart,
-      end: requestEnd,
+      range: rangeQuery.range,
+      unit: rangeQuery.unit,
+      start: rangeQuery.start,
+      end: rangeQuery.end,
       apiKeyId,
     }).catch((error) => {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
       }
     });
-  }, [apiKeyId, customRangeReady, enabled, loadUsageStats, onAuthRequired, requestEnd, requestStart, resolvedRange]);
+  }, [apiKeyId, enabled, loadUsageStats, onAuthRequired, rangeQuery]);
 
-  const currentQueryKey = customRangeReady ? buildUsageStatsQueryKey(resolvedRange, requestStart, requestEnd, apiKeyId) : null;
+  const currentQueryKey = rangeQuery.valid ? buildUsageStatsQueryKey(rangeQuery, apiKeyId) : null;
   const usage = usageSnapshot as UsageOverviewPayload | null;
 
   return {

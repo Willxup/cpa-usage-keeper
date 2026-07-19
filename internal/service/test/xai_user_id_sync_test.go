@@ -4,16 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"path/filepath"
 	"testing"
 
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/cpa/dto/authfiles"
-	"cpa-usage-keeper/internal/cpa/dto/response"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
-
-	"gorm.io/gorm"
 )
 
 func TestSyncMetadataWritesXAIUserIDCandidatesOnlyForXAI(t *testing.T) {
@@ -52,8 +47,12 @@ func TestSyncMetadataWritesXAIUserIDCandidatesOnlyForXAI(t *testing.T) {
 	}
 	files = append(files, decodeXAIAuthFile(t, "non-xai", "claude", `{"sub":"must-not-sync"}`))
 
-	db := openXAIUserIDSyncDatabase(t)
-	fetcher := &xaiUserIDMetadataFetcher{files: files}
+	// 使用共享 metadata 数据库 helper，避免保留第二套测试装配。
+	db := openMetadataTestDatabase(t, "xai-user-id-candidates.db")
+	// 共享 fetcher 默认覆盖全部 provider endpoint。
+	fetcher := newMetadataTestFetcher()
+	// 当前测试只替换 Auth Files payload。
+	fetcher.setAuthFiles(files)
 	syncer := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
 		BaseURL:         "https://cpa.example.com",
 		MetadataFetcher: fetcher,
@@ -97,10 +96,15 @@ func TestSyncMetadataMirrorsXAINullishNestedRecordFallback(t *testing.T) {
 	for _, tt := range tests {
 		files = append(files, decodeXAIAuthFile(t, tt.authIndex, "xai", tt.claims))
 	}
-	db := openXAIUserIDSyncDatabase(t)
+	// 使用共享 metadata 数据库 helper。
+	db := openMetadataTestDatabase(t, "xai-nullish-fallback.db")
+	// 共享 fetcher 避免为 XAI 测试复制七个 provider 方法。
+	fetcher := newMetadataTestFetcher()
+	// 当前测试只替换 Auth Files payload。
+	fetcher.setAuthFiles(files)
 	syncer := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
 		BaseURL:         "https://cpa.example.com",
-		MetadataFetcher: &xaiUserIDMetadataFetcher{files: files},
+		MetadataFetcher: fetcher,
 	})
 	if err := syncer.SyncMetadata(context.Background()); err != nil {
 		t.Fatalf("SyncMetadata returned error: %v", err)
@@ -124,10 +128,14 @@ func TestSyncMetadataMirrorsXAINullishNestedRecordFallback(t *testing.T) {
 }
 
 func TestSyncMetadataClearsXAIUserIDAfterSuccessfulResponseOmitsIt(t *testing.T) {
-	db := openXAIUserIDSyncDatabase(t)
-	fetcher := &xaiUserIDMetadataFetcher{files: []authfiles.AuthFile{
+	// 使用共享 metadata 数据库 helper。
+	db := openMetadataTestDatabase(t, "xai-clear-user-id.db")
+	// 共享 fetcher 支持同一实例连续两轮替换 Auth Files。
+	fetcher := newMetadataTestFetcher()
+	// 首轮写入带 user id 的 xAI Auth File。
+	fetcher.setAuthFiles([]authfiles.AuthFile{
 		decodeXAIAuthFile(t, "xai-auth", "xai", `{"sub":"xai-user-old"}`),
-	}}
+	})
 	syncer := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
 		BaseURL:         "https://cpa.example.com",
 		MetadataFetcher: fetcher,
@@ -143,7 +151,8 @@ func TestSyncMetadataClearsXAIUserIDAfterSuccessfulResponseOmitsIt(t *testing.T)
 		t.Fatalf("expected initial xAI user id to persist, got %+v", initial.XAIUserID)
 	}
 
-	fetcher.files = []authfiles.AuthFile{{AuthIndex: "xai-auth", Type: "xai"}}
+	// 第二轮成功响应省略候选字段，必须清空旧 XAIUserID。
+	fetcher.setAuthFiles([]authfiles.AuthFile{{AuthIndex: "xai-auth", Type: "xai"}})
 	if err := syncer.SyncMetadata(context.Background()); err != nil {
 		t.Fatalf("clearing SyncMetadata returned error: %v", err)
 	}
@@ -157,10 +166,14 @@ func TestSyncMetadataClearsXAIUserIDAfterSuccessfulResponseOmitsIt(t *testing.T)
 }
 
 func TestSyncMetadataPreservesXAIUserIDWhenAuthFilesFetchFails(t *testing.T) {
-	db := openXAIUserIDSyncDatabase(t)
-	fetcher := &xaiUserIDMetadataFetcher{files: []authfiles.AuthFile{
+	// 使用共享 metadata 数据库 helper。
+	db := openMetadataTestDatabase(t, "xai-preserve-on-error.db")
+	// 共享 fetcher 先返回成功 Auth Files。
+	fetcher := newMetadataTestFetcher()
+	// 首轮建立带稳定 user id 的 identity。
+	fetcher.setAuthFiles([]authfiles.AuthFile{
 		decodeXAIAuthFile(t, "xai-auth", "xai", `{"sub":"xai-user-stable"}`),
-	}}
+	})
 	syncer := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
 		BaseURL:         "https://cpa.example.com",
 		MetadataFetcher: fetcher,
@@ -169,8 +182,10 @@ func TestSyncMetadataPreservesXAIUserIDWhenAuthFilesFetchFails(t *testing.T) {
 		t.Fatalf("initial SyncMetadata returned error: %v", err)
 	}
 
-	fetcher.files = nil
-	fetcher.authErr = errors.New("auth files unavailable")
+	// 失败轮不提供可用 Auth Files result。
+	fetcher.authFilesResult = nil
+	// 独立 fetch error 必须保留首轮 XAIUserID。
+	fetcher.authFilesErr = errors.New("auth files unavailable")
 	if err := syncer.SyncMetadata(context.Background()); err == nil {
 		t.Fatal("expected failed auth files fetch to return an error")
 	}
@@ -192,58 +207,4 @@ func decodeXAIAuthFile(t *testing.T, authIndex, authType, claims string) authfil
 	file.AuthIndex = authIndex
 	file.Type = authType
 	return file
-}
-
-type xaiUserIDMetadataFetcher struct {
-	files   []authfiles.AuthFile
-	authErr error
-}
-
-func (f *xaiUserIDMetadataFetcher) FetchAuthFiles(context.Context) (*response.AuthFilesResult, error) {
-	if f.authErr != nil {
-		return nil, f.authErr
-	}
-	return &response.AuthFilesResult{StatusCode: 200, Payload: authfiles.AuthFilesResponse{Files: f.files}}, nil
-}
-
-func (*xaiUserIDMetadataFetcher) FetchManagementAPIKeys(context.Context) (*response.ManagementAPIKeysResult, error) {
-	return &response.ManagementAPIKeysResult{StatusCode: 200}, nil
-}
-
-func (*xaiUserIDMetadataFetcher) FetchGeminiAPIKeys(context.Context) (*response.ProviderKeyConfigResult, error) {
-	return &response.ProviderKeyConfigResult{StatusCode: 200}, nil
-}
-
-func (*xaiUserIDMetadataFetcher) FetchClaudeAPIKeys(context.Context) (*response.ProviderKeyConfigResult, error) {
-	return &response.ProviderKeyConfigResult{StatusCode: 200}, nil
-}
-
-func (*xaiUserIDMetadataFetcher) FetchCodexAPIKeys(context.Context) (*response.ProviderKeyConfigResult, error) {
-	return &response.ProviderKeyConfigResult{StatusCode: 200}, nil
-}
-
-func (*xaiUserIDMetadataFetcher) FetchVertexAPIKeys(context.Context) (*response.ProviderKeyConfigResult, error) {
-	return &response.ProviderKeyConfigResult{StatusCode: 200}, nil
-}
-
-func (*xaiUserIDMetadataFetcher) FetchOpenAICompatibility(context.Context) (*response.OpenAICompatibilityResult, error) {
-	return &response.OpenAICompatibilityResult{StatusCode: 200}, nil
-}
-
-func openXAIUserIDSyncDatabase(t *testing.T) *gorm.DB {
-	t.Helper()
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "xai-user-id-sync.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("load sql database: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := sqlDB.Close(); err != nil {
-			t.Fatalf("close sql database: %v", err)
-		}
-	})
-	return db
 }

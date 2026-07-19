@@ -31,6 +31,7 @@ type usageEventsStub struct {
 	eventFilterOptions *servicedto.UsageEventFilterOptions
 	err                error
 	lastFilter         servicedto.UsageFilter
+	overviewCalls      int
 	filterCalls        int
 	filterOptionCalls  int
 	exportCalls        int
@@ -87,7 +88,9 @@ func assertNoStoreHeaders(t *testing.T, response *httptest.ResponseRecorder) {
 	}
 }
 
-func (s *usageEventsStub) GetUsageOverview(context.Context, servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
+func (s *usageEventsStub) GetUsageOverview(_ context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
+	s.lastFilter = filter
+	s.overviewCalls++
 	return nil, nil
 }
 
@@ -191,7 +194,8 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 		Model:               "claude-sonnet",
 		ModelAlias:          "sonnet-business",
 		ReasoningEffort:     "medium",
-		ServiceTier:         "priority",
+		ServiceTier:         "auto",
+		ResponseServiceTier: "default",
 		ExecutorType:        "responses",
 		Endpoint:            "POST /v1/responses",
 		AuthType:            "apikey",
@@ -255,8 +259,11 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	if !contains(body, `"reasoning_effort":"medium"`) {
 		t.Fatalf("expected reasoning effort in response body: %s", body)
 	}
-	if !contains(body, `"service_tier":"priority"`) {
+	if !contains(body, `"service_tier":"auto"`) {
 		t.Fatalf("expected service_tier in response body: %s", body)
+	}
+	if !contains(body, `"response_service_tier":"default"`) {
+		t.Fatalf("expected response_service_tier in response body: %s", body)
 	}
 	if !contains(body, `"endpoint":"POST /v1/responses"`) {
 		t.Fatalf("expected endpoint in response body: %s", body)
@@ -668,7 +675,8 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 		Model:               "claude-sonnet",
 		ModelAlias:          "sonnet-export",
 		ReasoningEffort:     "medium",
-		ServiceTier:         "priority",
+		ServiceTier:         "auto",
+		ResponseServiceTier: "default",
 		ExecutorType:        "responses",
 		Endpoint:            "POST /v1/responses",
 		AuthType:            "apikey",
@@ -728,14 +736,17 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 	if !regexp.MustCompile(`filename="usage-events-\d{8}-\d{6}\.csv"`).MatchString(resp.Header().Get("Content-Disposition")) {
 		t.Fatalf("expected timestamped csv filename, got %q", resp.Header().Get("Content-Disposition"))
 	}
-	if !contains(body, "cpa_api_key_id") || !contains(body, "auth_index") || !contains(body, "model_alias") || !contains(body, "executor_type") || !contains(body, "is_identity_deleted") {
-		t.Fatalf("expected cpa_api_key_id, auth_index, model_alias, executor_type, and is_identity_deleted columns, got %s", body)
+	if !contains(body, "cpa_api_key_id") || !contains(body, "auth_index") || !contains(body, "model_alias") || !contains(body, "response_service_tier") || !contains(body, "executor_type") || !contains(body, "is_identity_deleted") {
+		t.Fatalf("expected cpa_api_key_id, auth_index, model_alias, response_service_tier, executor_type, and is_identity_deleted columns, got %s", body)
 	}
 	if !contains(body, "cache_read_tokens,cache_creation_tokens,cache_read_rate") || !contains(body, ",3,4,30,") || contains(body, "cached_tokens") {
 		t.Fatalf("expected canonical cache token fields in csv export, got %s", body)
 	}
 	if !regexp.MustCompile(`(?m)^id,timestamp,api_key,cpa_api_key_id,source,source_type,auth_index,is_identity_deleted,model,model_alias,reasoning_effort,`).MatchString(body) {
 		t.Fatalf("expected model_alias to follow model in csv header, got %s", body)
+	}
+	if !contains(body, "service_tier,response_service_tier,executor_type") || !contains(body, ",auto,default,responses,") {
+		t.Fatalf("expected separate request and response service tiers in csv export, got %s", body)
 	}
 	if contains(body, "is_deleted") {
 		t.Fatalf("expected export to use is_identity_deleted instead of is_deleted, got %s", body)
@@ -755,7 +766,8 @@ func TestUsageEventsExportJSONIncludesAllExportFields(t *testing.T) {
 		APIGroupKey:         "sk-json-export",
 		Model:               "gpt-5",
 		ModelAlias:          "gpt-json-alias",
-		ServiceTier:         "default",
+		ServiceTier:         "auto",
+		ResponseServiceTier: "default",
 		ExecutorType:        "chat_completions",
 		Endpoint:            "GET /v1/responses",
 		AuthType:            "oauth",
@@ -804,6 +816,9 @@ func TestUsageEventsExportJSONIncludesAllExportFields(t *testing.T) {
 	}
 	if !contains(body, `"cpa_api_key_id":"9"`) || !contains(body, `"source_type":""`) || !contains(body, `"reasoning_effort":""`) || !contains(body, `"ttft_ms":null`) || !contains(body, `"speed_tps":null`) {
 		t.Fatalf("expected json export to keep a stable field set, got %s", body)
+	}
+	if !contains(body, `"service_tier":"auto"`) || !contains(body, `"response_service_tier":"default"`) {
+		t.Fatalf("expected separate request and response service tiers in json export, got %s", body)
 	}
 	if contains(body, `"cached_tokens"`) || !contains(body, `"cache_read_tokens":3`) || !contains(body, `"cache_creation_tokens":4`) || !contains(body, `"cache_read_rate":33.33333333333333`) {
 		t.Fatalf("expected canonical cache token fields in json export, got %s", body)

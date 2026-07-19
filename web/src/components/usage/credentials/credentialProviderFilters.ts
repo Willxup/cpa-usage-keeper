@@ -29,7 +29,10 @@ const AUTH_FILE_PROVIDER_FILTERS: KnownCredentialProviderFilter[] = [
 const AI_PROVIDER_FILTERS: KnownCredentialProviderFilter[] = [
   { key: 'claude', labelKey: 'usage_stats.credentials_filter_claude', types: ['claude'] },
   { key: 'codex', labelKey: 'usage_stats.credentials_filter_codex', types: ['codex'] },
-  { key: 'gemini', labelKey: 'usage_stats.credentials_filter_gemini', types: ['gemini'] },
+  // Gemini 品牌按钮同时查询普通 Gemini 与独立的 Gemini Interactions 原始类型。
+  { key: 'gemini', labelKey: 'usage_stats.credentials_filter_gemini', types: ['gemini', 'gemini-interactions'] },
+  // xAI API Key 使用已有 xAI 标签和图标，但保持独立 xai 原始类型查询。
+  { key: 'xai', labelKey: 'usage_stats.credentials_filter_xai', types: ['xai'] },
   { key: 'openai', labelKey: 'usage_stats.credentials_filter_openai', types: ['openai'] },
 ]
 
@@ -68,7 +71,7 @@ export function buildCredentialProviderFilterOptions(scope: CredentialProviderFi
 
   const options: CredentialProviderFilterOption[] = [{ key: 'all', labelKey: 'usage_stats.credentials_filter_all', count: allCount }]
 
-  // 每个 tab 只展示有专用图标的一对一 type；未知 type 只计入 All，不单独生成按钮。
+  // 每个品牌按钮可以聚合多个原始 type；未知 type 仍只计入 All，不单独生成按钮。
   for (const filter of credentialProviderFiltersForScope(scope)) {
     const count = filter.types.reduce((sum, type) => sum + (countsByType.get(type) ?? 0), 0)
     if (count <= 0) {

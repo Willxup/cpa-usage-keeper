@@ -306,6 +306,52 @@ describe('AuthFileCredentialsSection quota usage mode rendering', () => {
     expect(estimatedHtml).toContain('$2.50')
   })
 
+  it('renders Antigravity group metadata below the standard quota label', () => {
+    const groupedRow = {
+      ...row,
+      displayQuotas: [{
+        ...quota,
+        key: 'bucket.gemini-5h',
+        label: '5h',
+        scope: 'quota_group',
+        groupKey: 'antigravity-group-1',
+        groupLabel: 'Gemini Models',
+        groupDescription: 'Models within this group: Gemini Flash, Gemini Pro',
+        windowUsage: undefined,
+        windowUsageEstimate: undefined,
+        resetText: '2026-05-09T12:00:00Z',
+      }],
+    } as AuthFileCredentialRow
+
+    const html = renderToStaticMarkup(createElement(AuthFileQuotaPanel, { row: groupedRow, quotaUsageMode: 'current' }))
+
+    expect(html).toContain('>5h<')
+    expect(html).toContain('credentialQuotaGroupLabel')
+    expect(html).toContain('Gemini Models')
+    expect(html).toContain('credentialQuotaGroupTooltipTarget')
+    expect(html).toContain('role="tooltip"')
+    expect(html).toContain('aria-describedby=')
+    expect(html).toContain('Models within this group: Gemini Flash, Gemini Pro')
+    expect(html).not.toContain('title="Models within this group: Gemini Flash, Gemini Pro"')
+    expect(html.indexOf('Gemini Models')).toBeGreaterThan(html.indexOf('credentialQuotaTrack'))
+  })
+
+  it('anchors reset time on the right when Codex has no token or cost usage', () => {
+    const noUsageRow = {
+      ...row,
+      displayQuotas: [{
+        ...quota,
+        windowUsage: undefined,
+        windowUsageEstimate: undefined,
+        resetText: '2026-05-09T12:00:00Z',
+      }],
+    } as AuthFileCredentialRow
+
+    const html = renderToStaticMarkup(createElement(AuthFileQuotaPanel, { row: noUsageRow, quotaUsageMode: 'current' }))
+
+    expect(html).toContain('credentialQuotaResetTime')
+  })
+
   it('renders xai billing spend without token usage metrics', () => {
     const billingRow = {
       ...row,

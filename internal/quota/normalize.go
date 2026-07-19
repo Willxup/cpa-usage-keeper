@@ -287,29 +287,81 @@ func normalizeAntigravityQuotaRows(result AntigravityResult) []QuotaRow {
 	if result.Quota == nil {
 		return nil
 	}
-	keys := make([]string, 0, len(result.Quota.Models))
-	for key := range result.Quota.Models {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	rows := make([]QuotaRow, 0, len(keys))
-	for _, key := range keys {
-		model := result.Quota.Models[key]
-		label := model.DisplayName
-		if label == "" {
-			label = key
+	rows := make([]QuotaRow, 0)
+	for groupIndex, group := range result.Quota.Groups {
+		groupKey := antigravityQuotaGroupKey(group.DisplayName, groupIndex)
+		groupLabel := firstNonEmpty(group.DisplayName, fmt.Sprintf("Quota Group %d", groupIndex+1))
+		groupRows := make([]QuotaRow, 0, len(group.Buckets))
+		for bucketIndex, bucket := range group.Buckets {
+			if bucket.RemainingFraction == nil {
+				continue
+			}
+			label, metric, window := normalizeAntigravityQuotaWindow(bucket)
+			bucketKey := firstNonEmpty(bucket.BucketID, fmt.Sprintf("group-%d-bucket-%d", groupIndex+1, bucketIndex+1))
+			groupRows = append(groupRows, QuotaRow{
+				Key:               "bucket." + groupKey + "." + bucketKey,
+				Label:             label,
+				Scope:             "quota_group",
+				Metric:            metric,
+				GroupKey:          groupKey,
+				GroupLabel:        groupLabel,
+				GroupDescription:  group.Description,
+				RemainingFraction: bucket.RemainingFraction,
+				Window:            window,
+				ResetAt:           bucket.ResetTime,
+			})
 		}
-		row := QuotaRow{Key: "model." + key, Label: label, Scope: "model", Metric: key}
-		if model.QuotaInfo != nil {
-			// Antigravity 模型限额按 5 小时刷新，只有存在 quota info 时才让该 row 进入窗口统计。
-			row.Window = &QuotaWindow{Seconds: intPtr(quotaWindowFiveHourSeconds)}
-			row.Remaining = floatPtr(model.QuotaInfo.Remaining)
-			row.RemainingFraction = floatPtr(model.QuotaInfo.RemainingFraction)
-			row.ResetAt = model.QuotaInfo.ResetTime
-		}
-		rows = append(rows, row)
+		sort.SliceStable(groupRows, func(i, j int) bool {
+			return antigravityQuotaWindowOrder(groupRows[i].Metric) < antigravityQuotaWindowOrder(groupRows[j].Metric)
+		})
+		rows = append(rows, groupRows...)
 	}
 	return rows
+}
+
+func antigravityQuotaGroupKey(displayName string, groupIndex int) string {
+	var normalized strings.Builder
+	pendingSeparator := false
+	for _, value := range strings.ToLower(strings.TrimSpace(displayName)) {
+		if (value >= 'a' && value <= 'z') || (value >= '0' && value <= '9') {
+			if pendingSeparator && normalized.Len() > 0 {
+				normalized.WriteByte('-')
+			}
+			normalized.WriteRune(value)
+			pendingSeparator = false
+			continue
+		}
+		if normalized.Len() > 0 {
+			pendingSeparator = true
+		}
+	}
+	if normalized.Len() == 0 {
+		return fmt.Sprintf("antigravity-group-%d", groupIndex+1)
+	}
+	return "antigravity-" + normalized.String()
+}
+
+func normalizeAntigravityQuotaWindow(bucket AntigravityQuotaBucket) (string, string, *QuotaWindow) {
+	window := strings.ToLower(strings.TrimSpace(bucket.Window))
+	switch window {
+	case "5h", "five-hour", "five_hour":
+		return "5h", "5h", &QuotaWindow{Seconds: intPtr(quotaWindowFiveHourSeconds)}
+	case "weekly", "week":
+		return "Weekly", "weekly", &QuotaWindow{Seconds: intPtr(quotaWindowSevenDaySeconds)}
+	default:
+		return firstNonEmpty(bucket.DisplayName, bucket.BucketID, "Quota"), window, nil
+	}
+}
+
+func antigravityQuotaWindowOrder(metric string) int {
+	switch metric {
+	case "5h":
+		return 0
+	case "weekly":
+		return 1
+	default:
+		return 2
+	}
 }
 
 func normalizeKimiQuotaRows(result KimiResult) []QuotaRow {

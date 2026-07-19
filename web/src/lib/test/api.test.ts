@@ -40,7 +40,7 @@ describe('fetchUsageEvents', () => {
     } as Response);
     const signal = new AbortController().signal;
 
-    await fetchKeyOverview('8h', signal);
+    await fetchKeyOverview({ range: '8h' }, signal);
 
     const [url, init] = fetchMock.mock.calls[0];
     const parsed = new URL(String(url), 'http://localhost');
@@ -52,6 +52,55 @@ describe('fetchUsageEvents', () => {
     expect(init).toMatchObject({ credentials: 'include', signal });
   });
 
+  it('sends the displayed 1d range as today on every usage request surface', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({}),
+    } as Response);
+
+    await fetchKeyOverview({ range: '1d' });
+    await fetchUsageOverview({ range: '1d' });
+    await fetchUsageEvents({ range: '1d' });
+    await fetchAnalysis({ range: '1d' });
+
+    expect(fetchMock.mock.calls).toHaveLength(4);
+    for (const [url] of fetchMock.mock.calls) {
+      expect(new URL(String(url), 'http://localhost').searchParams.get('range')).toBe('today');
+    }
+  });
+
+  it('sends one custom range request shape to every usage surface', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      headers: new Headers(),
+      json: async () => ({}),
+      blob: async () => new Blob(),
+    } as Response);
+    const request = {
+      range: 'custom' as const,
+      unit: 'day' as const,
+      start: '2026-06-18',
+      end: '2026-07-17',
+    };
+
+    await fetchKeyOverview(request);
+    await fetchUsageOverview(request);
+    await fetchUsageEvents(request);
+    await exportUsageEvents(request, 'csv');
+    await fetchAnalysis(request);
+
+    expect(fetchMock.mock.calls).toHaveLength(5);
+    for (const [rawURL] of fetchMock.mock.calls) {
+      const params = new URL(String(rawURL), 'http://localhost').searchParams;
+      expect(params.get('range')).toBe('custom');
+      expect(params.get('unit')).toBe('day');
+      expect(params.get('start')).toBe('2026-06-18');
+      expect(params.get('end')).toBe('2026-07-17');
+    }
+  });
+
   it('loads realtime overview from dedicated endpoints', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
@@ -60,9 +109,9 @@ describe('fetchUsageEvents', () => {
     } as Response);
     const signal = new AbortController().signal;
 
-    await fetchUsageOverview('24h', undefined, undefined, signal, '9007199254740993');
+    await fetchUsageOverview({ range: '24h' }, signal, '9007199254740993');
     await fetchUsageOverviewRealtime({ signal, apiKeyId: '9007199254740993', window: '60m' });
-    await fetchKeyOverview('8h', signal);
+    await fetchKeyOverview({ range: '8h' }, signal);
     await fetchKeyOverviewRealtime({ window: '30m', signal });
 
     const overviewUrl = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
@@ -263,7 +312,12 @@ describe('fetchUsageEvents', () => {
     } as Response);
     const signal = new AbortController().signal;
 
-    await fetchUsageEvents('custom', '2026-04-20T00:00:00Z', '2026-04-21T00:00:00Z', signal, {
+    await fetchUsageEvents({
+      range: 'custom',
+      unit: 'hour',
+      start: '2026-04-20T00:00:00Z',
+      end: '2026-04-21T00:00:00Z',
+    }, signal, {
       page: 3,
       pageSize: 100,
       model: 'claude-sonnet',
@@ -296,7 +350,12 @@ describe('fetchUsageEvents', () => {
       blob: async () => blob,
     } as Response);
 
-    const file = await exportUsageEvents('custom', '2026-04-20T00:00:00Z', '2026-04-21T00:00:00Z', 'csv', {
+    const file = await exportUsageEvents({
+      range: 'custom',
+      unit: 'hour',
+      start: '2026-04-20T00:00:00Z',
+      end: '2026-04-21T00:00:00Z',
+    }, 'csv', {
       page: 3,
       pageSize: 100,
       model: 'claude-sonnet',
@@ -334,8 +393,8 @@ describe('fetchUsageEvents', () => {
     } as Response);
     const signal = new AbortController().signal;
 
-    await fetchUsageOverview('24h', undefined, undefined, signal, '9007199254740993');
-    await fetchUsageEvents('24h', undefined, undefined, signal, { apiKeyId: '9007199254740993' });
+    await fetchUsageOverview({ range: '24h' }, signal, '9007199254740993');
+    await fetchUsageEvents({ range: '24h' }, signal, { apiKeyId: '9007199254740993' });
 
     const overviewUrl = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
     const eventsUrl = new URL(String(fetchMock.mock.calls[1][0]), 'http://localhost');
@@ -354,8 +413,8 @@ describe('fetchUsageEvents', () => {
     } as Response);
     const signal = new AbortController().signal;
 
-    await fetchUsageOverview('24h', undefined, undefined, signal, '  ');
-    await fetchUsageEvents('24h', undefined, undefined, signal, { apiKeyId: '' });
+    await fetchUsageOverview({ range: '24h' }, signal, '  ');
+    await fetchUsageEvents({ range: '24h' }, signal, { apiKeyId: '' });
 
     for (const call of fetchMock.mock.calls) {
       expect(new URL(String(call[0]), 'http://localhost').searchParams.get('api_key_id')).toBeNull();
@@ -370,7 +429,7 @@ describe('fetchUsageEvents', () => {
     } as Response);
     const signal = new AbortController().signal;
 
-    await fetchAnalysis('custom', '2026-04-20', '2026-04-21', signal, '9007199254740993');
+    await fetchAnalysis({ range: 'custom', unit: 'day', start: '2026-04-20', end: '2026-04-21' }, signal, '9007199254740993');
 
     const analysisUrl = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
 

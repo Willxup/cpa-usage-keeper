@@ -98,8 +98,10 @@ func normalizeUsageScopeAuthIndexes(values []string) []string {
 func newRepositoryUsageFilter(filter servicedto.UsageFilter, scope resolvedUsageScope) repodto.UsageQueryFilter {
 	return repodto.UsageQueryFilter{
 		Range:                  filter.Range,
+		CustomUnit:             filter.CustomUnit,
 		StartTime:              filter.StartTime,
 		EndTime:                filter.EndTime,
+		EndExclusive:           filter.EndExclusive,
 		QueryNow:               filter.QueryNow,
 		RealtimeWindow:         filter.RealtimeWindow,
 		RealtimeEndTime:        filter.RealtimeEndTime,
@@ -500,6 +502,7 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 			ModelAlias:          row.ModelAlias,
 			ReasoningEffort:     row.ReasoningEffort,
 			ServiceTier:         row.ServiceTier,
+			ResponseServiceTier: row.ResponseServiceTier,
 			ExecutorType:        row.ExecutorType,
 			Endpoint:            row.Endpoint,
 			AuthType:            row.AuthType,
@@ -540,6 +543,7 @@ func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.
 			ModelAlias:          row.ModelAlias,
 			ReasoningEffort:     row.ReasoningEffort,
 			ServiceTier:         row.ServiceTier,
+			ResponseServiceTier: row.ResponseServiceTier,
 			ExecutorType:        row.ExecutorType,
 			Endpoint:            row.Endpoint,
 			AuthType:            row.AuthType,

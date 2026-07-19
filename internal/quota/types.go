@@ -49,6 +49,9 @@ type QuotaRow struct {
 	Label             string       `json:"label,omitempty"`
 	Scope             string       `json:"scope,omitempty"`
 	Metric            string       `json:"metric,omitempty"`
+	GroupKey          string       `json:"groupKey,omitempty"`
+	GroupLabel        string       `json:"groupLabel,omitempty"`
+	GroupDescription  string       `json:"groupDescription,omitempty"`
 	PlanType          string       `json:"planType,omitempty"`
 	Used              *float64     `json:"used,omitempty"`
 	Limit             *float64     `json:"limit,omitempty"`
@@ -64,19 +67,22 @@ type QuotaRow struct {
 	WindowUsageCost   *float64     `json:"window_usage_cost,omitempty"`
 }
 
-type AntigravityQuotaInfo struct {
-	RemainingFraction float64 `json:"remainingFraction,omitempty"`
-	Remaining         float64 `json:"remaining,omitempty"`
-	ResetTime         string  `json:"resetTime,omitempty"`
+type AntigravityQuotaBucket struct {
+	BucketID          string   `json:"bucketId,omitempty"`
+	DisplayName       string   `json:"displayName,omitempty"`
+	Window            string   `json:"window,omitempty"`
+	RemainingFraction *float64 `json:"remainingFraction,omitempty"`
+	ResetTime         string   `json:"resetTime,omitempty"`
 }
 
-type AntigravityQuotaModel struct {
-	DisplayName string                `json:"displayName,omitempty"`
-	QuotaInfo   *AntigravityQuotaInfo `json:"quotaInfo,omitempty"`
+type AntigravityQuotaGroup struct {
+	DisplayName string                   `json:"displayName,omitempty"`
+	Description string                   `json:"description,omitempty"`
+	Buckets     []AntigravityQuotaBucket `json:"buckets,omitempty"`
 }
 
 type AntigravityQuotaPayload struct {
-	Models map[string]AntigravityQuotaModel `json:"models,omitempty"`
+	Groups []AntigravityQuotaGroup `json:"groups,omitempty"`
 }
 
 type CodexUsageWindow struct {

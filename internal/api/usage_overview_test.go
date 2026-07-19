@@ -185,7 +185,7 @@ func TestKeyOverviewRealtimeForcesViewerAPIKeyIDAndAllowsParallelOverviewRequest
 	}
 }
 
-func TestKeyOverviewRejectsCustomAndUnsupportedRanges(t *testing.T) {
+func TestKeyOverviewRejectsUnsupportedRanges(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
 	token, _, err := sessions.CreateAPIKeyViewer(42)
 	if err != nil {
@@ -196,7 +196,7 @@ func TestKeyOverviewRejectsCustomAndUnsupportedRanges(t *testing.T) {
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
 	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider, APIKeyAuthFileScopes: viewerScopeProviderStub{}})
 
-	for _, path := range []string{"/api/v1/key-overview?range=custom&start=2026-04-20&end=2026-04-21", "/api/v1/key-overview?range=90d", "/api/v1/key-overview?start=2026-04-20"} {
+	for _, path := range []string{"/api/v1/key-overview?range=90d", "/api/v1/key-overview?start=2026-04-20"} {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
@@ -279,13 +279,12 @@ func TestUsageOverviewResponseIncludesResolvedRangeAndTimezone(t *testing.T) {
 
 	provider := &usageFilterStub{overview: &servicedto.UsageOverviewSnapshot{}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	retentionStart, ok := usageFilterRetentionStart(time.Now())
-	if !ok {
-		t.Fatal("expected current time to provide a retention start")
-	}
-	startDate := retentionStart.Format(time.DateOnly)
-	endDate := retentionStart.AddDate(0, 0, 1).Format(time.DateOnly)
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview?range=custom&start="+startDate+"&end="+endDate, nil)
+	now := time.Now().In(location)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
+	startDay := today.AddDate(0, 0, -6)
+	startDate := startDay.Format(time.DateOnly)
+	endDate := today.Format(time.DateOnly)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview?range=custom&unit=day&start="+startDate+"&end="+endDate, nil)
 	resp := httptest.NewRecorder()
 
 	router.ServeHTTP(resp, req)
@@ -293,8 +292,8 @@ func TestUsageOverviewResponseIncludesResolvedRangeAndTimezone(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
-	expectedStart := retentionStart.Format(time.RFC3339Nano)
-	expectedEnd := retentionStart.AddDate(0, 0, 2).Add(-time.Nanosecond).Format(time.RFC3339Nano)
+	expectedStart := startDay.Format(time.RFC3339Nano)
+	expectedEnd := today.AddDate(0, 0, 1).Format(time.RFC3339Nano)
 	body := resp.Body.String()
 	if !contains(body, `"timezone":"Asia/Shanghai"`) || !contains(body, `"range_start":"`+expectedStart+`"`) || !contains(body, `"range_end":"`+expectedEnd+`"`) {
 		t.Fatalf("expected overview response to include resolved range and timezone, got %s", body)

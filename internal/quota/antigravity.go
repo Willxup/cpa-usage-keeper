@@ -26,6 +26,7 @@ func (p antigravityProvider) Check(ctx context.Context, input ProviderInput) (Pr
 	}
 	// 多个候选 endpoint 按配置顺序尝试，直到解析到可用 quota 为止。
 	var lastErr error
+	var emptyQuota *AntigravityQuotaPayload
 	for _, config := range p.configs {
 		response, err := p.caller.CallManagementAPI(ctx, apicall.Request{
 			AuthIndex: input.Identity.Identity,
@@ -43,7 +44,15 @@ func (p antigravityProvider) Check(ctx context.Context, input ProviderInput) (Pr
 			lastErr = err
 			continue
 		}
+		if len(quota.Groups) == 0 {
+			// 空 groups 是成功响应，继续尝试 fallback；全部为空时再返回成功空结果。
+			emptyQuota = quota
+			continue
+		}
 		return ProviderOutput{Provider: "antigravity", Result: AntigravityResult{Quota: quota}}, nil
+	}
+	if emptyQuota != nil {
+		return ProviderOutput{Provider: "antigravity", Result: AntigravityResult{Quota: emptyQuota}}, nil
 	}
 	return ProviderOutput{}, lastErr
 }

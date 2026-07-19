@@ -42,4 +42,9 @@ describe('Modal scroll lock', () => {
   it('disables modal interactions while the close animation runs', () => {
     expect(componentsStyles).toMatch(/\.modal-overlay-closing[\s\S]*?\.modal[\s\S]*?pointer-events:\s*none;/);
   });
+
+  it('removes global modal motion when the user requests reduced motion', () => {
+    expect(componentsStyles).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.modal-overlay-entering,[\s\S]*?\.modal-overlay-closing,[\s\S]*?\.modal-entering,[\s\S]*?\.modal-closing[\s\S]*?animation:\s*none;/);
+    expect(componentsStyles).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.modal-overlay-closing,[\s\S]*?\.modal-closing[\s\S]*?opacity:\s*0;/);
+  });
 });

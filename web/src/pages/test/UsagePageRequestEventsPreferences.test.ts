@@ -32,6 +32,9 @@ const LEGACY_V1_FULL_COLUMNS = LEGACY_V2_FULL_COLUMNS.filter((columnId) => colum
 const LEGACY_V4_FULL_COLUMNS = REQUEST_EVENT_COLUMN_IDS.map((columnId) => (
   columnId === 'cache_read_rate' ? 'cache_rate' : columnId
 ));
+const MERGED_V6_FULL_COLUMNS = REQUEST_EVENT_COLUMN_IDS.flatMap((columnId) => (
+  columnId === 'service_tier' ? [columnId, 'response_service_tier'] : [columnId]
+));
 
 describe('UsagePage request event cache column preferences', () => {
   it('upgrades a v3 full selection to all v5 columns including cache write', () => {
@@ -45,6 +48,28 @@ describe('UsagePage request event cache column preferences', () => {
     expect(preferences.visibleColumnIds).toEqual(REQUEST_EVENT_COLUMN_IDS);
     expect(preferences.visibleColumnIds).toContain('cache_read_tokens');
     expect(preferences.visibleColumnIds).toContain('cache_creation_tokens');
+  });
+
+  it('normalizes a merged v6 full selection back to the combined v5 column', () => {
+    const preferences = normalizeRequestEventsPreferences({
+      version: 6,
+      pageSize: 100,
+      visibleColumnIds: MERGED_V6_FULL_COLUMNS,
+    });
+
+    expect(preferences.version).toBe(5);
+    expect(preferences.visibleColumnIds).toEqual(REQUEST_EVENT_COLUMN_IDS);
+    expect(preferences.visibleColumnIds).not.toContain('response_service_tier' as never);
+  });
+
+  it('maps a merged v6 response-only selection to the combined Speed Mode column', () => {
+    const preferences = normalizeRequestEventsPreferences({
+      version: 6,
+      pageSize: 100,
+      visibleColumnIds: ['timestamp', 'response_service_tier', 'total_tokens'],
+    });
+
+    expect(preferences.visibleColumnIds).toEqual(['timestamp', 'service_tier', 'total_tokens']);
   });
 
   it('upgrades a v4 full selection and maps cache rate to cache read rate', () => {

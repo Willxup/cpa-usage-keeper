@@ -5,15 +5,6 @@ import (
 	"fmt"
 )
 
-// ProviderMetadataConfig 是各 AI provider 管理接口配置的聚合视图，不是单个 CPA endpoint 的原始响应 DTO。
-type ProviderMetadataConfig struct {
-	GeminiAPIKeys       []ProviderKeyConfig         `json:"gemini-api-key"`
-	ClaudeAPIKeys       []ProviderKeyConfig         `json:"claude-api-key"`
-	CodexAPIKeys        []ProviderKeyConfig         `json:"codex-api-key"`
-	VertexAPIKeys       []ProviderKeyConfig         `json:"vertex-api-key"`
-	OpenAICompatibility []OpenAICompatibilityConfig `json:"openai-compatibility"`
-}
-
 // ProviderKeyConfig 是 gemini/claude/codex/vertex API key 配置的兼容归一化视图，支持 CPA 返回的多种 key 命名。
 type ProviderKeyConfig struct {
 	APIKey    string

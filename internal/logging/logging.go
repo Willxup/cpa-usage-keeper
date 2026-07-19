@@ -127,10 +127,10 @@ func configureGinLogging() {
 	gin.DefaultWriter = logrusWriter{level: logrus.InfoLevel}
 	gin.DefaultErrorWriter = logrusWriter{level: logrus.ErrorLevel}
 	gin.DebugPrintFunc = func(format string, values ...interface{}) {
-		logrus.Infof("[GIN-debug] "+strings.TrimRight(format, "\r\n"), values...)
+		logrus.Debugf("[GIN-debug] "+strings.TrimRight(format, "\r\n"), values...)
 	}
 	gin.DebugPrintRouteFunc = func(httpMethod, absolutePath, handlerName string, nuHandlers int) {
-		logrus.Infof("[GIN-debug] %-6s %s --> %s (%d handlers)", httpMethod, absolutePath, handlerName, nuHandlers)
+		logrus.Debugf("[GIN-debug] %-6s %s --> %s (%d handlers)", httpMethod, absolutePath, handlerName, nuHandlers)
 	}
 }
 

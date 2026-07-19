@@ -164,7 +164,7 @@ func TestParseUsageFilterQueryTodayRangeUsesLocalDSTBoundary(t *testing.T) {
 }
 
 func TestParseUsageFilterQueryCustomRange(t *testing.T) {
-	req := httptest.NewRequest("GET", "/api/v1/usage/overview?range=custom&start=2026-04-20T00:00:00Z&end=2026-04-21T23:59:59Z", nil)
+	req := httptest.NewRequest("GET", "/api/v1/usage/overview?range=custom&unit=hour&start=2026-04-20T00:00:00Z&end=2026-04-20T04:00:00Z", nil)
 
 	filter, err := parseUsageFilterQuery(req, time.Time{})
 	if err != nil {
@@ -176,8 +176,11 @@ func TestParseUsageFilterQueryCustomRange(t *testing.T) {
 	if !filter.StartTime.Equal(time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("unexpected custom start: %+v", filter)
 	}
-	if !filter.EndTime.Equal(time.Date(2026, 4, 21, 23, 59, 59, 0, time.UTC)) {
+	if !filter.EndTime.Equal(time.Date(2026, 4, 20, 5, 0, 0, 0, time.UTC)) {
 		t.Fatalf("unexpected custom end: %+v", filter)
+	}
+	if filter.CustomUnit != customUsageRangeUnitHour || !filter.EndExclusive {
+		t.Fatalf("expected exclusive custom hour range, got %+v", filter)
 	}
 }
 
@@ -200,7 +203,7 @@ func TestParseUsageFilterQueryCustomDateRangeUsesLocalDayBoundary(t *testing.T) 
 		t.Fatalf("expected custom date range bounds, got %+v", filter)
 	}
 	expectedStart := time.Date(2026, 4, 20, 0, 0, 0, 0, location)
-	expectedEnd := time.Date(2026, 4, 22, 0, 0, 0, 0, location).Add(-time.Nanosecond)
+	expectedEnd := time.Date(2026, 4, 22, 0, 0, 0, 0, location)
 	if !filter.StartTime.Equal(expectedStart) {
 		t.Fatalf("expected custom date start %s, got %s", expectedStart, *filter.StartTime)
 	}
@@ -213,6 +216,9 @@ func TestParseUsageFilterQueryCustomDateRangeUsesLocalDayBoundary(t *testing.T) 
 	if filter.EndTime.Location().String() != location.String() {
 		t.Fatalf("expected custom date end to keep project timezone, got %s", filter.EndTime.Location())
 	}
+	if filter.CustomUnit != customUsageRangeUnitDay || !filter.EndExclusive {
+		t.Fatalf("expected exclusive custom day range, got %+v", filter)
+	}
 }
 
 func TestParseUsageFilterQueryRejectsInvalidCustomRange(t *testing.T) {
@@ -224,7 +230,7 @@ func TestParseUsageFilterQueryRejectsInvalidCustomRange(t *testing.T) {
 	}
 }
 
-func TestParseUsageFilterQueryRejectsCustomRangeBeforeRetentionStart(t *testing.T) {
+func TestParseUsageFilterQueryCustomDayRangeUsesThirtyDayHorizon(t *testing.T) {
 	previousLocal := time.Local
 	location, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {
@@ -234,29 +240,30 @@ func TestParseUsageFilterQueryRejectsCustomRangeBeforeRetentionStart(t *testing.
 	time.Local = location
 	anchor := time.Date(2026, 6, 16, 9, 0, 0, 0, location)
 
+	today := time.Date(anchor.Year(), anchor.Month(), anchor.Day(), 0, 0, 0, 0, location)
+	earliest := today.AddDate(0, 0, -29)
 	for _, tc := range []struct {
 		name      string
 		path      string
 		wantError bool
 	}{
-		{name: "before retention", path: "/api/v1/usage/overview?range=custom&start=2026-04-30&end=2026-05-01", wantError: true},
-		{name: "at retention boundary", path: "/api/v1/usage/overview?range=custom&start=2026-05-01&end=2026-05-01"},
+		{name: "before horizon", path: "/api/v1/usage/overview?range=custom&unit=day&start=" + earliest.AddDate(0, 0, -1).Format(time.DateOnly) + "&end=" + today.Format(time.DateOnly), wantError: true},
+		{name: "at horizon", path: "/api/v1/usage/overview?range=custom&unit=day&start=" + earliest.Format(time.DateOnly) + "&end=" + today.Format(time.DateOnly)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest("GET", tc.path, nil)
 			filter, err := parseUsageFilterQuery(req, anchor)
 			if tc.wantError {
 				if err == nil {
-					t.Fatal("expected custom range before retention start to be rejected")
+					t.Fatal("expected custom range before 30-day horizon to be rejected")
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("expected retention boundary custom range to be accepted: %v", err)
+				t.Fatalf("expected 30-day horizon custom range to be accepted: %v", err)
 			}
-			expectedStart := time.Date(2026, 5, 1, 0, 0, 0, 0, location)
-			if filter.StartTime == nil || !filter.StartTime.Equal(expectedStart) {
-				t.Fatalf("expected boundary start %s, got %+v", expectedStart, filter)
+			if filter.StartTime == nil || !filter.StartTime.Equal(earliest) {
+				t.Fatalf("expected boundary start %s, got %+v", earliest, filter)
 			}
 		})
 	}

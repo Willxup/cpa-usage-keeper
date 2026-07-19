@@ -14,7 +14,6 @@ export interface UsePricingDataReturn {
   modelPrices: Record<string, ModelPrice>;
   loading: boolean;
   error: string;
-  lastRefreshedAt: Date | null;
   loadPricing: () => Promise<void>;
   saveModelPrice: (model: string, price: ModelPrice) => Promise<void>;
   deleteModelPrice: (model: string) => Promise<void>;
@@ -87,7 +86,6 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
   const [modelPrices, setModelPricesState] = useState<Record<string, ModelPrice>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
   const onAuthRequiredRef = useRef(onAuthRequired);
 
@@ -100,7 +98,6 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
       pricingResponse.pricing.map((entry) => [entry.model, pricingToModelPrice(entry)])
     );
     setModelPricesState(prices);
-    setLastRefreshedAt(new Date());
   }, []);
 
   const loadPricing = useCallback(async () => {
@@ -159,7 +156,6 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
         ...current,
         [model]: price,
       }));
-      setLastRefreshedAt(new Date());
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequiredRef.current?.();
@@ -182,7 +178,6 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
         delete nextPrices[model];
         return nextPrices;
       });
-      setLastRefreshedAt(new Date());
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequiredRef.current?.();
@@ -207,7 +202,6 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
         }
         return nextPrices;
       });
-      setLastRefreshedAt(new Date());
     }
     if (result.failures.some((failure) => failure.error instanceof ApiError && failure.error.status === 401)) {
       onAuthRequiredRef.current?.();
@@ -231,7 +225,6 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
     modelPrices,
     loading,
     error,
-    lastRefreshedAt,
     loadPricing,
     saveModelPrice,
     deleteModelPrice,

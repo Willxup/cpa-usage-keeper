@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
+import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainment';
 import type { AuthManagedSessionItem } from '@/lib/types';
 import styles from '@/pages/UsagePage.module.scss';
 
@@ -38,6 +39,8 @@ function getSessionDisplayName(session: AuthManagedSessionItem, t: (key: string)
 export function SessionSettingsCard({ sessions, loading = false, revokingId = null, onLogout }: SessionSettingsCardProps) {
   const { t } = useTranslation();
   const [confirmingSession, setConfirmingSession] = useState<AuthManagedSessionItem | null>(null);
+  const sessionSettingsBodyRef = useRef<HTMLDivElement | null>(null);
+  useScrollBoundaryContainment(sessionSettingsBodyRef);
   const confirmationKeys = confirmingSession ? getSessionLogoutConfirmationKeys(confirmingSession) : null;
   const confirmingLabel = confirmingSession ? getSessionDisplayName(confirmingSession, t) : '';
   const confirmingRevoking = confirmingSession ? revokingId === confirmingSession.id : false;
@@ -60,7 +63,7 @@ export function SessionSettingsCard({ sessions, loading = false, revokingId = nu
       }
       className={`${styles.detailsFixedCard} ${styles.sessionSettingsCard}`}
     >
-      <div className={styles.sessionSettingsBody}>
+      <div ref={sessionSettingsBodyRef} className={styles.sessionSettingsBody}>
         {loading && sessions.length === 0 ? (
           <div className={styles.hint}>{t('common.loading')}</div>
         ) : sessions.length === 0 ? (

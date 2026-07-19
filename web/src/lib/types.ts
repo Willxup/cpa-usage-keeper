@@ -37,7 +37,6 @@ export interface StatusResponse {
   timezone: string
   cpa_public_url?: string
   cpa_request_log_access_enabled?: boolean
-  last_run_at?: string
   last_error?: string
   last_warning?: string
   last_status?: string
@@ -236,6 +235,7 @@ export interface UsageEvent {
   model_alias?: string
   reasoning_effort?: string
   service_tier?: string
+  response_service_tier?: string
   executor_type?: string
   endpoint?: string
   source: string
@@ -379,6 +379,9 @@ export interface UsageQuotaRow {
   label?: string
   scope?: string
   metric?: string
+  groupKey?: string
+  groupLabel?: string
+  groupDescription?: string
   planType?: string
   used?: number
   limit?: number
@@ -706,9 +709,28 @@ export interface PricingSyncPreviewResponse {
   unmatched_models: string[]
 }
 
-export type KeyOverviewTimeRange = '4h' | '8h' | '12h' | '24h' | 'today' | 'yesterday' | '7d' | '30d'
+export type UsageRollingHourTimeRange = `${number}h`
+
+export type UsageRollingDayTimeRange = `${number}d`
+
+export type KeyOverviewTimeRange = UsageRollingHourTimeRange | UsageRollingDayTimeRange | 'today' | 'yesterday'
 
 export type UsageTimeRange = KeyOverviewTimeRange | 'custom'
+
+export type UsageCustomRangeUnit = 'hour' | 'day'
+
+export interface UsageCustomRange {
+	unit: UsageCustomRangeUnit
+	start: string
+	end: string
+}
+
+export interface UsageRangeRequest {
+	range: UsageTimeRange
+	unit?: UsageCustomRangeUnit
+	start?: string
+	end?: string
+}
 
 export interface UsageFilterWindow {
   startMs?: number

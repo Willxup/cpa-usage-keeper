@@ -71,8 +71,8 @@ func (r *RedisProcessRunner) Run(ctx context.Context) error {
 		// 每轮处理一次本地 inbox 批次。
 		result, err := r.ProcessOnce(ctx)
 		if err != nil && !errors.Is(err, ErrSyncCompletedWithWarnings) {
-			// 真正失败才按 error 日志输出；带 warning 的部分成功由状态保存。
-			if shouldLogSyncError(err) {
+			// 真正失败才按 error 日志输出；逐行重试或丢弃已经由 service 状态机负责，runner 不得重复告警。
+			if shouldLogRedisProcessBatchFailure(result, err) {
 				// 失败日志只输出统计字段，不输出 raw usage payload。
 				r.logBatchFailure(result, err)
 			}
@@ -89,6 +89,27 @@ func (r *RedisProcessRunner) Run(ctx context.Context) error {
 	}
 }
 
+func shouldLogRedisProcessBatchFailure(result *servicedto.RedisBatchSyncResult, err error) bool {
+	// 已有通用过滤继续排除取消、超时等不应作为批次错误输出的情况。
+	if !shouldLogSyncError(err) {
+		return false
+	}
+	// 没有批次结果时无法证明错误已由逐行状态机接管，保留原有 runner 错误日志。
+	if result == nil {
+		return true
+	}
+	// 可重试失败在前四次只保存状态，等待第五次确认丢弃后由 service 输出唯一告警。
+	if result.RetryPending {
+		return false
+	}
+	// 已确认丢弃已经逐行输出终态告警，runner 不再为同一失败追加批次错误。
+	if result.DiscardedRows > 0 {
+		return false
+	}
+	// 其它未被逐行生命周期接管的真实失败继续沿用原有批次错误日志。
+	return true
+}
+
 func shouldContinueRedisProcessImmediately(result *servicedto.RedisBatchSyncResult, err error) bool {
 	// 没有结果时无法确认 backlog，runner 保守进入 sleep。
 	if result == nil {
@@ -98,6 +119,10 @@ func shouldContinueRedisProcessImmediately(result *servicedto.RedisBatchSyncResu
 	// 非满批说明本轮已经接近追平，runner 按 1 秒间隔低占用轮询。
 	if !result.BatchFull {
 		// 只在 service 明确报告满批时才跳过 sleep。
+		return false
+	}
+	// 部分成功中仍有待重试行时必须保留轮询间隔，不能把五次机会在同一轮 backlog drain 中耗尽。
+	if result.RetryPending {
 		return false
 	}
 	// 真正失败时立即重试容易形成 busy loop，必须保留 sleep/backoff 空间。

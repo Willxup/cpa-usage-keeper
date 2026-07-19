@@ -21,6 +21,10 @@ type RedisBatchSyncResult struct {
 	ProcessedRows int
 	// BatchFull 表示本轮取到的 inbox 行数已经达到 service 批次上限。
 	BatchFull bool
+	// RetryPending 表示部分成功后仍有 process_failed 行等待下一轮重试，runner 必须保留轮询间隔。
+	RetryPending bool
+	// DiscardedRows 表示本轮已经确认进入 discarded 终态的行数，runner 不得再重复输出批次错误。
+	DiscardedRows int
 }
 
 // RedisInboxPullResult 是 Redis inbox 拉取结果。
@@ -28,17 +32,4 @@ type RedisInboxPullResult struct {
 	Empty        bool
 	Status       string
 	InsertedRows int
-}
-
-// ProviderMetadataInput 是 provider metadata 拉平后的服务层输入。
-type ProviderMetadataInput struct {
-	LookupKey    string
-	Prefix       string
-	ProviderType string
-	DisplayName  string
-	AuthIndex    string
-	BaseURL      string
-	Priority     *int
-	Disabled     *bool
-	Note         *string
 }

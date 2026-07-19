@@ -173,51 +173,68 @@ func TestConfigureRoutesStdlibLogAndSlogToFile(t *testing.T) {
 	}
 }
 
-func TestConfigureRoutesGinDebugToTimestampedLogrusOutput(t *testing.T) {
-	reset := captureGlobalLogState(t)
-	defer reset()
+func TestConfigureFiltersGinDebugByLogLevel(t *testing.T) {
+	for _, testCase := range []struct {
+		name        string
+		logLevel    string
+		wantVisible bool
+	}{
+		{name: "info hides debug output", logLevel: "info", wantVisible: false},
+		{name: "debug shows debug output", logLevel: "debug", wantVisible: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			reset := captureGlobalLogState(t)
+			defer reset()
 
-	previousStderr := os.Stderr
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("create stderr pipe: %v", err)
-	}
-	os.Stderr = writer
-	defer func() {
-		os.Stderr = previousStderr
-		_ = reader.Close()
-	}()
+			previousStderr := os.Stderr
+			reader, writer, err := os.Pipe()
+			if err != nil {
+				t.Fatalf("create stderr pipe: %v", err)
+			}
+			os.Stderr = writer
+			defer func() {
+				os.Stderr = previousStderr
+				_ = reader.Close()
+			}()
 
-	closer, err := Configure(config.Config{
-		LogLevel:         "info",
-		LogFileEnabled:   false,
-		LogRetentionDays: 7,
-	})
-	if err != nil {
-		t.Fatalf("Configure returned error: %v", err)
-	}
+			closer, err := Configure(config.Config{
+				LogLevel:         testCase.logLevel,
+				LogFileEnabled:   false,
+				LogRetentionDays: 7,
+			})
+			if err != nil {
+				t.Fatalf("Configure returned error: %v", err)
+			}
 
-	if gin.DebugPrintFunc == nil {
-		t.Fatal("expected Configure to install Gin debug print function")
-	}
-	gin.DebugPrintFunc("GET %s", "/api/v1/status")
-	if err := closer.Close(); err != nil {
-		t.Fatalf("Close returned error: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close stderr writer: %v", err)
-	}
+			if gin.DebugPrintFunc == nil || gin.DebugPrintRouteFunc == nil {
+				t.Fatal("expected Configure to install Gin debug print functions")
+			}
+			gin.DebugPrintFunc("GET %s", "/api/v1/status")
+			gin.DebugPrintRouteFunc("POST", "/api/v1/events", "handler", 3)
+			if err := closer.Close(); err != nil {
+				t.Fatalf("Close returned error: %v", err)
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatalf("close stderr writer: %v", err)
+			}
 
-	var output bytes.Buffer
-	if _, err := output.ReadFrom(reader); err != nil {
-		t.Fatalf("read stderr output: %v", err)
-	}
-	content := output.String()
-	if !strings.Contains(content, "[GIN-debug] GET /api/v1/status") {
-		t.Fatalf("expected Gin debug output to be routed through logrus, got %q", content)
-	}
-	if !logLineHasTimestamp(content) {
-		t.Fatalf("expected Gin debug output to include timestamp, got %q", content)
+			var output bytes.Buffer
+			if _, err := output.ReadFrom(reader); err != nil {
+				t.Fatalf("read stderr output: %v", err)
+			}
+			content := output.String()
+			for _, message := range []string{
+				"[GIN-debug] GET /api/v1/status",
+				"[GIN-debug] POST   /api/v1/events --> handler (3 handlers)",
+			} {
+				if visible := strings.Contains(content, message); visible != testCase.wantVisible {
+					t.Fatalf("expected Gin debug visibility %v for %q, got %q", testCase.wantVisible, message, content)
+				}
+			}
+			if testCase.wantVisible && !logLineHasTimestamp(content) {
+				t.Fatalf("expected visible Gin debug output to include timestamp, got %q", content)
+			}
+		})
 	}
 }
 

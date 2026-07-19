@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -10,15 +11,6 @@ import (
 	servicedto "cpa-usage-keeper/internal/service/dto"
 	"cpa-usage-keeper/internal/timeutil"
 )
-
-var presetUsageRangeDurations = map[string]time.Duration{
-	"4h":  4 * time.Hour,
-	"8h":  8 * time.Hour,
-	"12h": 12 * time.Hour,
-	"24h": 24 * time.Hour,
-	"7d":  7 * 24 * time.Hour,
-	"30d": 30 * 24 * time.Hour,
-}
 
 var allowedUsageEventsPageSizes = map[int]struct{}{
 	20:   {},
@@ -56,14 +48,108 @@ func parseUsageAPIKeyID(value string) (string, error) {
 	return apiKeyID, nil
 }
 
-func parseCustomUsageRangeBoundary(value string, endOfDay bool) (time.Time, error) {
-	if date, err := time.ParseInLocation(time.DateOnly, value, time.Local); err == nil {
-		if endOfDay {
-			return date.AddDate(0, 0, 1).Add(-time.Nanosecond), nil
-		}
-		return date, nil
+const (
+	customUsageRangeUnitHour = "hour"
+	customUsageRangeUnitDay  = "day"
+)
+
+func parseCustomUsageDay(value string) (time.Time, error) {
+	return time.ParseInLocation(time.DateOnly, value, time.Local)
+}
+
+func parseCustomUsageHour(value string) (time.Time, error) {
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}, err
 	}
-	return time.Parse(time.RFC3339, value)
+	parsed = timeutil.NormalizeStorageTime(parsed)
+	if parsed.Minute() != 0 || parsed.Second() != 0 || parsed.Nanosecond() != 0 {
+		return time.Time{}, fmt.Errorf("hour must align to the start of an hour")
+	}
+	return parsed, nil
+}
+
+func resolveCustomUsageRangeUnit(unitValue, startValue, endValue string) (string, error) {
+	unit := strings.TrimSpace(unitValue)
+	if unit == "" {
+		_, startDateErr := parseCustomUsageDay(startValue)
+		_, endDateErr := parseCustomUsageDay(endValue)
+		if startDateErr == nil && endDateErr == nil {
+			return customUsageRangeUnitDay, nil
+		}
+		unit = customUsageRangeUnitHour
+	}
+	if unit != customUsageRangeUnitHour && unit != customUsageRangeUnitDay {
+		return "", fmt.Errorf("unsupported custom range unit %q", unit)
+	}
+	return unit, nil
+}
+
+func parseCustomUsageRange(query url.Values, anchor time.Time) (servicedto.UsageFilter, error) {
+	startValue := strings.TrimSpace(query.Get("start"))
+	endValue := strings.TrimSpace(query.Get("end"))
+	if startValue == "" || endValue == "" {
+		return servicedto.UsageFilter{}, fmt.Errorf("custom range requires start and end")
+	}
+	unit, err := resolveCustomUsageRangeUnit(query.Get("unit"), startValue, endValue)
+	if err != nil {
+		return servicedto.UsageFilter{}, err
+	}
+
+	if unit == customUsageRangeUnitDay {
+		startTime, startErr := parseCustomUsageDay(startValue)
+		if startErr != nil {
+			return servicedto.UsageFilter{}, fmt.Errorf("invalid start: %w", startErr)
+		}
+		endDay, endErr := parseCustomUsageDay(endValue)
+		if endErr != nil {
+			return servicedto.UsageFilter{}, fmt.Errorf("invalid end: %w", endErr)
+		}
+		if startTime.After(endDay) {
+			return servicedto.UsageFilter{}, fmt.Errorf("custom range start must be before end")
+		}
+		if !anchor.IsZero() {
+			localAnchor := timeutil.NormalizeStorageTime(anchor)
+			today := time.Date(localAnchor.Year(), localAnchor.Month(), localAnchor.Day(), 0, 0, 0, 0, time.Local)
+			if startTime.Before(today.AddDate(0, 0, -29)) {
+				return servicedto.UsageFilter{}, fmt.Errorf("custom day range cannot start more than 30 calendar days ago")
+			}
+			if endDay.After(today) {
+				return servicedto.UsageFilter{}, fmt.Errorf("custom day range cannot end in the future")
+			}
+		}
+		startTime = timeutil.NormalizeStorageTime(startTime)
+		endTime := timeutil.NormalizeStorageTime(endDay.AddDate(0, 0, 1))
+		return servicedto.UsageFilter{Range: "custom", CustomUnit: unit, StartTime: &startTime, EndTime: &endTime, EndExclusive: true}, nil
+	}
+
+	startTime, err := parseCustomUsageHour(startValue)
+	if err != nil {
+		return servicedto.UsageFilter{}, fmt.Errorf("invalid start: %w", err)
+	}
+	endHour, err := parseCustomUsageHour(endValue)
+	if err != nil {
+		return servicedto.UsageFilter{}, fmt.Errorf("invalid end: %w", err)
+	}
+	if startTime.After(endHour) {
+		return servicedto.UsageFilter{}, fmt.Errorf("custom range start must be before end")
+	}
+	selectedHours := int(endHour.Sub(startTime)/time.Hour) + 1
+	if endHour.Sub(startTime)%time.Hour != 0 || selectedHours < 5 || selectedHours > 24 {
+		return servicedto.UsageFilter{}, fmt.Errorf("custom hour range must include between 5 and 24 hours")
+	}
+	if !anchor.IsZero() {
+		localAnchor := timeutil.NormalizeStorageTime(anchor)
+		currentHour := localAnchor.Add(-time.Duration(localAnchor.Minute())*time.Minute - time.Duration(localAnchor.Second())*time.Second - time.Duration(localAnchor.Nanosecond()))
+		if startTime.Before(currentHour.Add(-23 * time.Hour)) {
+			return servicedto.UsageFilter{}, fmt.Errorf("custom hour range cannot start more than 24 hours ago")
+		}
+		if endHour.After(currentHour) {
+			return servicedto.UsageFilter{}, fmt.Errorf("custom hour range cannot end in the future")
+		}
+	}
+	endTime := timeutil.NormalizeStorageTime(endHour.Add(time.Hour))
+	return servicedto.UsageFilter{Range: "custom", CustomUnit: unit, StartTime: &startTime, EndTime: &endTime, EndExclusive: true}, nil
 }
 
 func parseUsageFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
@@ -127,50 +213,26 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (servicedto.Usag
 		filter.EndTime = &endTime
 		return filter, nil
 	case "custom":
-		startValue := strings.TrimSpace(req.URL.Query().Get("start"))
-		endValue := strings.TrimSpace(req.URL.Query().Get("end"))
-		if startValue == "" || endValue == "" {
-			return servicedto.UsageFilter{}, fmt.Errorf("custom range requires start and end")
-		}
-		startTime, err := parseCustomUsageRangeBoundary(startValue, false)
+		customFilter, err := parseCustomUsageRange(query, anchor)
 		if err != nil {
-			return servicedto.UsageFilter{}, fmt.Errorf("invalid start: %w", err)
+			return servicedto.UsageFilter{}, err
 		}
-		endTime, err := parseCustomUsageRangeBoundary(endValue, true)
-		if err != nil {
-			return servicedto.UsageFilter{}, fmt.Errorf("invalid end: %w", err)
-		}
-		startTime = timeutil.NormalizeStorageTime(startTime)
-		endTime = timeutil.NormalizeStorageTime(endTime)
-		if startTime.After(endTime) {
-			return servicedto.UsageFilter{}, fmt.Errorf("custom range start must be before end")
-		}
-		if retentionStart, ok := usageFilterRetentionStart(anchor); ok && startTime.Before(retentionStart) {
-			return servicedto.UsageFilter{}, fmt.Errorf("custom range start must be on or after %s", retentionStart.Format(time.DateOnly))
-		}
-		filter.StartTime = &startTime
-		filter.EndTime = &endTime
+		filter.CustomUnit = customFilter.CustomUnit
+		filter.StartTime = customFilter.StartTime
+		filter.EndTime = customFilter.EndTime
+		filter.EndExclusive = customFilter.EndExclusive
 		return filter, nil
 	default:
-		duration, ok := presetUsageRangeDurations[rangeValue]
+		rollingRange, ok := timeutil.ParseUsageRollingRange(rangeValue)
 		if !ok {
 			return servicedto.UsageFilter{}, fmt.Errorf("unsupported usage range %q", rangeValue)
 		}
 		endTime := timeutil.NormalizeStorageTime(anchor)
-		startTime := timeutil.NormalizeStorageTime(endTime.Add(-duration))
+		startTime := timeutil.NormalizeStorageTime(endTime.Add(-rollingRange.Duration()))
 		filter.StartTime = &startTime
 		filter.EndTime = &endTime
 		return filter, nil
 	}
-}
-
-func usageFilterRetentionStart(anchor time.Time) (time.Time, bool) {
-	if anchor.IsZero() {
-		return time.Time{}, false
-	}
-	localAnchor := timeutil.NormalizeStorageTime(anchor)
-	currentMonthStart := time.Date(localAnchor.Year(), localAnchor.Month(), 1, 0, 0, 0, 0, time.Local)
-	return currentMonthStart.AddDate(0, -1, 0), true
 }
 
 func parseUsageRealtimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {

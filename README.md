@@ -1,3 +1,11 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./assets/keeper-logo-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="./assets/keeper-logo-light.svg" />
+    <img src="./assets/keeper-logo-light.svg" alt="Keeper" width="560" />
+  </picture>
+</p>
+
 # CPA Usage Keeper
 
 [中文说明](./README.zh.md)

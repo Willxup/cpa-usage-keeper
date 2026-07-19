@@ -16,7 +16,6 @@ import (
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/service"
-	"cpa-usage-keeper/internal/timeutil"
 	"cpa-usage-keeper/internal/updatecheck"
 	"cpa-usage-keeper/internal/version"
 	"github.com/gin-gonic/gin"
@@ -290,15 +289,14 @@ func stripBasePath(basePath, requestPath string) (string, bool) {
 }
 
 type statusResponse struct {
-	Running                    bool       `json:"running"`
-	SyncRunning                bool       `json:"sync_running"`
-	Timezone                   string     `json:"timezone"`
-	CPAPublicURL               string     `json:"cpa_public_url,omitempty"`
-	CPARequestLogAccessEnabled bool       `json:"cpa_request_log_access_enabled"`
-	LastRunAt                  *time.Time `json:"last_run_at,omitempty"`
-	LastError                  string     `json:"last_error,omitempty"`
-	LastWarning                string     `json:"last_warning,omitempty"`
-	LastStatus                 string     `json:"last_status,omitempty"`
+	Running                    bool   `json:"running"`
+	SyncRunning                bool   `json:"sync_running"`
+	Timezone                   string `json:"timezone"`
+	CPAPublicURL               string `json:"cpa_public_url,omitempty"`
+	CPARequestLogAccessEnabled bool   `json:"cpa_request_log_access_enabled"`
+	LastError                  string `json:"last_error,omitempty"`
+	LastWarning                string `json:"last_warning,omitempty"`
+	LastStatus                 string `json:"last_status,omitempty"`
 }
 
 type versionResponse struct {
@@ -341,10 +339,6 @@ func buildStatusResponse(status poller.Status, config StatusRouteConfig) statusR
 		LastError:                  status.LastError,
 		LastWarning:                status.LastWarning,
 		LastStatus:                 status.LastStatus,
-	}
-	if !status.LastRunAt.IsZero() {
-		lastRunAt := timeutil.NormalizeStorageTime(status.LastRunAt)
-		response.LastRunAt = &lastRunAt
 	}
 	return response
 }

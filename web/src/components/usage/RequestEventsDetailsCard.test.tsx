@@ -18,7 +18,8 @@ const events: UsageEvent[] = [
     api_key: 'Production Key',
     model: 'claude-sonnet',
     reasoning_effort: 'medium',
-    service_tier: 'priority',
+    service_tier: 'auto',
+    response_service_tier: 'priority',
     endpoint: 'POST /v1/messages',
     source: 'Provider A',
     source_raw: 'source-a',
@@ -98,7 +99,7 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('class="_requestEventsAPIKeyCell_');
     expect(html).toContain('title="Production Key">Production Key</td>');
     expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">medium<\/td>/);
-    expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">Fast<\/td>/);
+    expect(html).toContain('>Auto / Fast</td>');
     expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">SSE<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*" title="\/messages">\/messages<\/td>/);
     expect(html.indexOf('>45ms</td>')).toBeLessThan(html.indexOf('>120ms</td>'));
     expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">30\.0 t\/s<\/td>/);
@@ -113,21 +114,27 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('disabled');
   });
 
-  it('maps request speed mode values and falls back for missing values', () => {
+  it('maps request speed mode values before the independently mapped response mode', () => {
     const html = renderCard({
+      visibleColumnIds: ['reasoning_effort', 'service_tier', 'result'],
       events: [
-        { ...events[0], id: 'default', service_tier: 'default' },
-        { ...events[0], id: 'priority', service_tier: 'priority' },
-        { ...events[0], id: 'fast', service_tier: 'fast' },
-        { ...events[0], id: 'empty', service_tier: '' },
-        { ...events[0], id: 'unknown', service_tier: 'batch' },
+        { ...events[0], id: 'auto', service_tier: 'auto', response_service_tier: 'priority' },
+        { ...events[0], id: 'default', service_tier: 'default', response_service_tier: 'priority' },
+        { ...events[0], id: 'standard', service_tier: 'standard', response_service_tier: 'priority' },
+        { ...events[0], id: 'priority', service_tier: 'priority', response_service_tier: 'default' },
+        { ...events[0], id: 'fast', service_tier: 'fast', response_service_tier: 'default' },
+        { ...events[0], id: 'flex', service_tier: 'flex', response_service_tier: 'default' },
+        { ...events[0], id: 'empty', service_tier: '', response_service_tier: 'priority' },
+        { ...events[0], id: 'unknown', service_tier: 'batch', response_service_tier: 'default' },
       ],
     });
 
-    expect(html).toContain('Standard');
-    expect(countOccurrences(html, '>Fast</td>')).toBe(2);
-    expect(html).toMatch(/medium<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">-<\/td><td class="[^"]*requestEventsNoWrapCell/);
-    expect(html).toMatch(/medium<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">batch<\/td><td class="[^"]*requestEventsNoWrapCell/);
+    expect(html).toContain('>Auto / Fast</td>');
+    expect(countOccurrences(html, '>Standard / Fast</td>')).toBe(2);
+    expect(countOccurrences(html, '>Fast / Standard</td>')).toBe(2);
+    expect(html).toContain('>Flex / Standard</td>');
+    expect(html).toContain('>- / Fast</td>');
+    expect(html).toContain('>batch / Standard</td>');
   });
 
   it('formats timestamps with compact numeric date and time', () => {

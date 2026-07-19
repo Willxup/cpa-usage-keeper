@@ -5,10 +5,11 @@ import { IconRefreshCw, IconTimer } from '@/components/ui/icons'
 import styles from './CredentialSections.module.scss'
 
 type CredentialHealthBucketState = 'success' | 'warning' | 'failure' | 'empty'
-type CredentialHealthSummaryTone = 'healthy' | 'degraded' | 'quiet'
+type CredentialHealthSummaryTone = 'healthy' | 'degraded' | 'unhealthy' | 'quiet'
 
 interface CredentialHealthBucket {
   state: CredentialHealthBucketState
+  heightPx: number
   startLabel: string
   endLabel: string
   successCount: number
@@ -32,6 +33,9 @@ interface CredentialHealthPanelProps {
 const HEALTH_WINDOW_MINUTES = 5 * 60
 const HEALTH_BUCKET_MINUTES = 10
 const HEALTH_BUCKET_COUNT = HEALTH_WINDOW_MINUTES / HEALTH_BUCKET_MINUTES
+const HEALTH_EMPTY_HEIGHT_PX = 5
+const HEALTH_REQUEST_HEIGHT_MIN_PX = 10
+const HEALTH_REQUEST_HEIGHT_RANGE_PX = 12
 
 const healthCellStateClassName: Record<CredentialHealthBucketState, string> = {
   success: styles.credentialHealthCellSuccess,
@@ -43,17 +47,15 @@ const healthCellStateClassName: Record<CredentialHealthBucketState, string> = {
 const healthMetaToneClassName: Record<CredentialHealthSummaryTone, string> = {
   healthy: styles.credentialHealthMetaHealthy,
   degraded: styles.credentialHealthMetaDegraded,
+  unhealthy: styles.credentialHealthMetaUnhealthy,
   quiet: styles.credentialHealthMetaQuiet,
 }
 
 export function CredentialHealthPanel({ displayName, health, lastUsedAt, statsUpdatedAt }: CredentialHealthPanelProps) {
   const { t } = useTranslation()
   const buckets = useMemo(() => buildHealthBuckets(health), [health])
-  const availableBuckets = buckets.filter((bucket) => bucket.state !== 'empty').length
-  const greenCount = buckets.filter((bucket) => bucket.state === 'success').length
-  const yellowCount = buckets.filter((bucket) => bucket.state === 'warning').length
-  const score = resolveCredentialHealthScore(health, availableBuckets, greenCount, yellowCount)
-  const summary = resolveCredentialHealthSummary(buckets, health, score, t)
+  const score = resolveCredentialHealthScore(health, buckets)
+  const summary = resolveCredentialHealthSummary(buckets, health, t)
   const lastUsed = formatCredentialHealthDate(lastUsedAt)
   const statsUpdated = formatCredentialHealthDate(statsUpdatedAt)
 
@@ -84,6 +86,7 @@ export function CredentialHealthPanel({ displayName, health, lastUsedAt, statsUp
                   failureCount: bucket.failureCount,
                   rate: bucket.successRateLabel,
                 })}
+                style={{ height: `${bucket.heightPx}px` }}
               >
                 <span
                   className={`${styles.credentialHealthTooltip} ${
@@ -149,7 +152,7 @@ function formatHealthBucketLabel(state: CredentialHealthBucketState, t: Credenti
   }
 }
 
-function resolveCredentialHealthSummary(buckets: CredentialHealthBucket[], health: UsageCredentialHealth | undefined, score: number, t: CredentialHealthTranslate): CredentialHealthSummary {
+function resolveCredentialHealthSummary(buckets: CredentialHealthBucket[], health: UsageCredentialHealth | undefined, t: CredentialHealthTranslate): CredentialHealthSummary {
   const bucketTotals = buckets.reduce((acc, bucket) => ({
     success: acc.success + bucket.successCount,
     failure: acc.failure + bucket.failureCount,
@@ -157,27 +160,39 @@ function resolveCredentialHealthSummary(buckets: CredentialHealthBucket[], healt
   const successCount = finiteNumber(health?.total_success) ?? bucketTotals.success
   const failureCount = finiteNumber(health?.total_failure) ?? bucketTotals.failure
   const latestFailureBucket = findLatestFailureBucket(buckets)
+  const detail = latestFailureBucket
+    ? t('usage_stats.credentials_health_failures_5h', {
+      count: failureCount,
+      timeRange: `${latestFailureBucket.startLabel} - ${latestFailureBucket.endLabel}`,
+    })
+    : t('usage_stats.credentials_health_no_failures_5h')
 
-  if (successCount + failureCount === 0) {
+  const total = successCount + failureCount
+  if (total === 0) {
     return {
       tone: 'quiet',
       label: t('usage_stats.credentials_health_summary_quiet'),
       detail: t('usage_stats.credentials_health_no_requests_5h'),
     }
   }
-  if (failureCount > 0 || score < 95) {
+  if (failureCount > successCount) {
     return {
-      tone: 'degraded',
-      label: t('usage_stats.credentials_health_summary_degraded'),
-      detail: latestFailureBucket
-        ? t('usage_stats.credentials_health_last_failure', { timeRange: `${latestFailureBucket.startLabel} - ${latestFailureBucket.endLabel}` })
-        : t('usage_stats.credentials_health_no_failures_5h'),
+      tone: 'unhealthy',
+      label: t('usage_stats.credentials_health_summary_unhealthy'),
+      detail,
+    }
+  }
+  if (successCount / total >= credentialHealthGreenThreshold(total)) {
+    return {
+      tone: 'healthy',
+      label: t('usage_stats.credentials_health_summary_healthy'),
+      detail,
     }
   }
   return {
-    tone: 'healthy',
-    label: t('usage_stats.credentials_health_summary_healthy'),
-    detail: t('usage_stats.credentials_health_no_failures_5h'),
+    tone: 'degraded',
+    label: t('usage_stats.credentials_health_summary_degraded'),
+    detail,
   }
 }
 
@@ -202,6 +217,7 @@ function buildEmptyHealthBuckets(now = new Date()): CredentialHealthBucket[] {
     const endLabel = formatHealthTime(end)
     return {
       state,
+      heightPx: HEALTH_EMPTY_HEIGHT_PX,
       startLabel,
       endLabel,
       successCount,
@@ -234,7 +250,7 @@ function buildHealthBuckets(health: UsageCredentialHealth | undefined): Credenti
     const source = countsByStart.get(start.getTime())
     const offsetMinutes = Math.round(index * bucketSeconds / 60)
     const endOffsetMinutes = Math.round((index + 1) * bucketSeconds / 60)
-    return credentialHealthBucketFromCounts(start, end, source?.success ?? 0, source?.failure ?? 0, source?.rate, {
+    return credentialHealthBucketFromCounts(start, end, source?.success ?? 0, source?.failure ?? 0, {
       startLabel: source
         ? formatHealthTimeFromAPIValue(source.start_time, start)
         : formatHealthTimeFromAPIBase(health.window_start, offsetMinutes, start),
@@ -245,21 +261,27 @@ function buildHealthBuckets(health: UsageCredentialHealth | undefined): Credenti
   })
 }
 
-function resolveCredentialHealthScore(health: UsageCredentialHealth | undefined, availableBuckets: number, greenCount: number, yellowCount: number): number {
-  if (health && Number.isFinite(health.success_rate)) {
-    return health.success_rate
+function resolveCredentialHealthScore(health: UsageCredentialHealth | undefined, buckets: CredentialHealthBucket[]): number {
+  const apiScore = finiteNumber(health?.success_rate)
+  if (apiScore !== undefined) {
+    return Math.max(0, Math.min(100, apiScore))
   }
-  if (availableBuckets === 0) {
+  const totals = buckets.reduce((acc, bucket) => ({
+    success: acc.success + bucket.successCount,
+    failure: acc.failure + bucket.failureCount,
+  }), { success: 0, failure: 0 })
+  const total = totals.success + totals.failure
+  if (total === 0) {
     return 0
   }
-  return Math.round(((greenCount + yellowCount * 0.68) / availableBuckets) * 1000) / 10
+  return Math.round((totals.success / total) * 1000) / 10
 }
 
 function buildBucketsFromAPIList(buckets: UsageCredentialHealth['buckets'], bucketSeconds: number): CredentialHealthBucket[] {
   const normalized = buckets.slice(-HEALTH_BUCKET_COUNT).map((bucket) => {
     const start = parseDate(bucket.start_time) ?? new Date()
     const end = parseDate(bucket.end_time) ?? new Date(start.getTime() + bucketSeconds * 1000)
-    return credentialHealthBucketFromCounts(start, end, bucket.success, bucket.failure, bucket.rate, {
+    return credentialHealthBucketFromCounts(start, end, bucket.success, bucket.failure, {
       startLabel: formatHealthTimeFromAPIValue(bucket.start_time, start),
       endLabel: formatHealthTimeFromAPIValue(bucket.end_time, end),
     })
@@ -275,21 +297,20 @@ function credentialHealthBucketFromCounts(
   end: Date,
   success: number,
   failure: number,
-  rate: number | undefined,
   labels?: { startLabel?: string; endLabel?: string },
 ): CredentialHealthBucket {
   const successCount = safeCount(success)
   const failureCount = safeCount(failure)
   const total = successCount + failureCount
-  const bucketRate = total > 0
-    ? finiteNumber(rate) ?? successCount / total
-    : 0
-  const state = credentialHealthBucketState(successCount, failureCount)
+  const bucketRate = total > 0 ? successCount / total : 0
+  const state = credentialHealthBucketState(successCount, failureCount, bucketRate)
+  const heightPx = credentialHealthBucketHeight(total, bucketRate)
   const startLabel = labels?.startLabel ?? formatHealthTime(start)
   const endLabel = labels?.endLabel ?? formatHealthTime(end)
   const successRateLabel = `${(bucketRate * 100).toFixed(1)}%`
   return {
     state,
+    heightPx,
     startLabel,
     endLabel,
     successCount,
@@ -298,17 +319,30 @@ function credentialHealthBucketFromCounts(
   }
 }
 
-function credentialHealthBucketState(successCount: number, failureCount: number): CredentialHealthBucketState {
-  if (successCount + failureCount === 0) {
+function credentialHealthBucketState(successCount: number, failureCount: number, successRate: number): CredentialHealthBucketState {
+  const total = successCount + failureCount
+  if (total === 0) {
     return 'empty'
   }
-  if (failureCount === 0) {
-    return 'success'
-  }
-  if (successCount === 0) {
+  if (failureCount > successCount) {
     return 'failure'
   }
+  if (successRate >= credentialHealthGreenThreshold(total)) {
+    return 'success'
+  }
   return 'warning'
+}
+
+// 样本越多，对绿色状态的成功率要求越高；10 次以内以 90% 为基线，1000 次后封顶 99%。
+function credentialHealthGreenThreshold(total: number): number {
+  return Math.min(0.99, 0.9 + 0.045 * Math.max(0, Math.log10(total / 10)))
+}
+
+function credentialHealthBucketHeight(total: number, successRate: number): number {
+  if (total === 0) {
+    return HEALTH_EMPTY_HEIGHT_PX
+  }
+  return Math.round((HEALTH_REQUEST_HEIGHT_MIN_PX + successRate * HEALTH_REQUEST_HEIGHT_RANGE_PX) * 10) / 10
 }
 
 function parseDate(value: string | undefined): Date | undefined {

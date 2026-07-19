@@ -15,6 +15,7 @@ type TokenStats struct {
 	ReasoningTokens     int64 `json:"reasoning_tokens"`
 	CachedTokens        int64 `json:"cached_tokens"`
 	CacheReadTokens     int64 `json:"cache_read_tokens"`
+	CacheReadPresent    bool  `json:"cache_read_tokens_present"`
 	CacheCreationTokens int64 `json:"cache_creation_tokens"`
 	TotalTokens         int64 `json:"total_tokens"`
 }

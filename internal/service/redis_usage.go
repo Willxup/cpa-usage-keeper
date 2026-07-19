@@ -36,24 +36,26 @@ func DecodeRedisUsageMessageWithHeaders(message string, fetchedAt time.Time) (en
 
 // queuedUsageDetail 对应 CPA Redis 队列中的单条 usage JSON payload。
 type queuedUsageDetail struct {
-	Timestamp       time.Time       `json:"timestamp"`
-	LatencyMS       int64           `json:"latency_ms"`
-	TTFTMS          *int64          `json:"ttft_ms"`
-	Source          string          `json:"source"`
-	AuthIndex       string          `json:"auth_index"`
-	Tokens          dto.TokenStats  `json:"tokens"`
-	Failed          bool            `json:"failed"`
-	Provider        string          `json:"provider"`
-	Model           string          `json:"model"`
-	Alias           *string         `json:"alias"`
-	ReasoningEffort string          `json:"reasoning_effort"`
-	ServiceTier     string          `json:"service_tier"`
-	ExecutorType    string          `json:"executor_type"`
-	Endpoint        string          `json:"endpoint"`
-	AuthType        string          `json:"auth_type"`
-	APIKey          string          `json:"api_key"`
-	RequestID       string          `json:"request_id"`
-	ResponseHeaders json.RawMessage `json:"response_headers"`
+	Timestamp           time.Time       `json:"timestamp"`
+	LatencyMS           int64           `json:"latency_ms"`
+	TTFTMS              *int64          `json:"ttft_ms"`
+	Source              string          `json:"source"`
+	AuthIndex           string          `json:"auth_index"`
+	Tokens              dto.TokenStats  `json:"tokens"`
+	Failed              bool            `json:"failed"`
+	Generate            *bool           `json:"generate"`
+	Provider            string          `json:"provider"`
+	Model               string          `json:"model"`
+	Alias               *string         `json:"alias"`
+	ReasoningEffort     string          `json:"reasoning_effort"`
+	ServiceTier         string          `json:"service_tier"`
+	ResponseServiceTier string          `json:"response_service_tier"`
+	ExecutorType        string          `json:"executor_type"`
+	Endpoint            string          `json:"endpoint"`
+	AuthType            string          `json:"auth_type"`
+	APIKey              string          `json:"api_key"`
+	RequestID           string          `json:"request_id"`
+	ResponseHeaders     json.RawMessage `json:"response_headers"`
 }
 
 func normalizeRedisAuthType(value string) string {
@@ -73,6 +75,28 @@ func trimRedisOptionalString(value *string) *string {
 		return nil
 	}
 	return &trimmed
+}
+
+func normalizeRedisGenerate(value *bool, failed bool, executorType string, tokens dto.TokenStats) *bool {
+	if value != nil {
+		return value
+	}
+	generate := true
+	if !failed && strings.TrimSpace(executorType) == "CodexWebsocketsExecutor" && redisTokenStatsAllZero(tokens) {
+		// 旧版 CPA 没有 generate；只把成功的 WebSocket 全零 token 消息兼容为预热。
+		generate = false
+	}
+	return &generate
+}
+
+func redisTokenStatsAllZero(tokens dto.TokenStats) bool {
+	return tokens.InputTokens == 0 &&
+		tokens.OutputTokens == 0 &&
+		tokens.ReasoningTokens == 0 &&
+		tokens.CachedTokens == 0 &&
+		tokens.CacheReadTokens == 0 &&
+		tokens.CacheCreationTokens == 0 &&
+		tokens.TotalTokens == 0
 }
 
 // toUsageEvent 保持 Redis payload 的 model/request_id 语义，缺失时间才用本地拉取时间兜底。
@@ -97,11 +121,13 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 		ModelAlias:          trimRedisOptionalString(d.Alias),
 		ReasoningEffort:     strings.TrimSpace(d.ReasoningEffort),
 		ServiceTier:         strings.TrimSpace(d.ServiceTier),
+		ResponseServiceTier: strings.TrimSpace(d.ResponseServiceTier),
 		ExecutorType:        strings.TrimSpace(d.ExecutorType),
 		Timestamp:           timestamp,
 		Source:              source,
 		AuthIndex:           authIndex,
 		Failed:              d.Failed,
+		Generate:            normalizeRedisGenerate(d.Generate, d.Failed, d.ExecutorType, d.Tokens),
 		LatencyMS:           max(d.LatencyMS, 0),
 		TTFTMS:              d.TTFTMS,
 		InputTokens:         d.Tokens.InputTokens,
@@ -109,6 +135,7 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 		ReasoningTokens:     d.Tokens.ReasoningTokens,
 		CachedTokens:        d.Tokens.CachedTokens,
 		CacheReadTokens:     d.Tokens.CacheReadTokens,
+		CacheReadPresent:    d.Tokens.CacheReadPresent,
 		CacheCreationTokens: d.Tokens.CacheCreationTokens,
 		TotalTokens:         d.Tokens.TotalTokens,
 	}

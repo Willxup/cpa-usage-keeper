@@ -17,6 +17,13 @@ func ReplaceUsageIdentitiesForAuthType(ctx context.Context, db *gorm.DB, identit
 	if db == nil {
 		return fmt.Errorf("database is nil")
 	}
+	// 零时间无法形成可靠的 metadata 版本，必须在任何数据库读取或写入前拒绝。
+	if now.IsZero() {
+		// 明确错误阻止调用方把零值继续传播到 identity 行。
+		return fmt.Errorf("usage identity sync time is zero")
+	}
+	// 本轮所有 create、refresh、restore 与 stale 路径共用同一个项目存储时区时间。
+	normalizedNow := timeutil.NormalizeStorageTime(now)
 
 	// 先统一清洗和去重输入，后续 upsert 与 stale 判断都使用同一组 identity。
 	normalized, incomingIdentities := normalizeUsageIdentities(identities, authType)
@@ -27,12 +34,12 @@ func ReplaceUsageIdentitiesForAuthType(ctx context.Context, db *gorm.DB, identit
 			return fmt.Errorf("list usage identities for sync: %w", err)
 		}
 		// 先写入或恢复本次同步到的身份，确保 CPA 返回的 deleted row 会重新变为 active。
-		if err := syncUsageIdentities(tx, normalized, existingRows); err != nil {
+		if err := syncUsageIdentities(tx, normalized, existingRows, normalizedNow); err != nil {
 			return err
 		}
 
 		// 再按 auth_type 范围只对当前 active 身份做 stale 对比；未返回且已 deleted 的历史行不刷新 deleted_at。
-		return markStaleUsageIdentityRowsDeleted(tx, existingRows, incomingIdentities, now, "mark stale usage identities deleted")
+		return markStaleUsageIdentityRowsDeleted(tx, existingRows, incomingIdentities, normalizedNow, "mark stale usage identities deleted")
 	})
 }
 
@@ -40,6 +47,13 @@ func ReplaceUsageIdentitiesForProviderTypes(ctx context.Context, db *gorm.DB, id
 	if db == nil {
 		return fmt.Errorf("database is nil")
 	}
+	// Provider replace 同样在事务前拒绝零时间，避免部分 provider scope 被错误刷新。
+	if now.IsZero() {
+		// 与 Auth File 入口返回同一明确错误，保持调用方处理简单。
+		return fmt.Errorf("usage identity sync time is zero")
+	}
+	// provider 的所有成功类型共用一轮规范化时间，不能各自读取系统时钟。
+	normalizedNow := timeutil.NormalizeStorageTime(now)
 
 	// Provider metadata 只允许刷新 AI provider 身份，输入类型和 identity 先统一规范化。
 	normalized, incomingIdentities := normalizeUsageIdentities(identities, entities.UsageIdentityAuthTypeAIProvider)
@@ -51,7 +65,7 @@ func ReplaceUsageIdentitiesForProviderTypes(ctx context.Context, db *gorm.DB, id
 			return fmt.Errorf("list provider usage identities for sync: %w", err)
 		}
 		// 先同步本次成功拉到的 provider identity，CPA 返回的历史 deleted provider 会在这里恢复 active。
-		if err := syncUsageIdentities(tx, normalized, existingRows); err != nil {
+		if err := syncUsageIdentities(tx, normalized, existingRows, normalizedNow); err != nil {
 			return err
 		}
 		if len(types) == 0 {
@@ -68,7 +82,7 @@ func ReplaceUsageIdentitiesForProviderTypes(ctx context.Context, db *gorm.DB, id
 			if err != nil {
 				return fmt.Errorf("list stale provider usage identities: %w", err)
 			}
-			if err := markStaleUsageIdentityRowsDeleted(tx, staleRows, incomingIdentities, now, "mark stale provider usage identities deleted"); err != nil {
+			if err := markStaleUsageIdentityRowsDeleted(tx, staleRows, incomingIdentities, normalizedNow, "mark stale provider usage identities deleted"); err != nil {
 				return err
 			}
 		}
@@ -683,16 +697,18 @@ func markStaleUsageIdentityRowsDeleted(tx *gorm.DB, rows []usageIdentitySyncRow,
 	// stale ID 也按批次更新，避免 id IN 在数据量大时再次触发 SQLite 变量上限。
 	for start := 0; start < len(staleIDs); start += insertBatchSize(entities.UsageIdentity{}) {
 		end := min(start+insertBatchSize(entities.UsageIdentity{}), len(staleIDs))
+		// stale 状态与 metadata 更新时间必须使用同一个调用方 now，不能依赖 GORM 隐式时钟。
 		if err := tx.Model(&entities.UsageIdentity{}).
 			Where("id IN ?", staleIDs[start:end]).
-			Updates(map[string]any{"is_deleted": true, "deleted_at": timeutil.FormatStorageTime(now)}).Error; err != nil {
+			Updates(map[string]any{"is_deleted": true, "deleted_at": timeutil.FormatStorageTime(now), "updated_at": timeutil.FormatStorageTime(now)}).Error; err != nil {
 			return fmt.Errorf("%s: %w", context, err)
 		}
 	}
 	return nil
 }
 
-func syncUsageIdentities(tx *gorm.DB, identities []entities.UsageIdentity, existingRows []usageIdentitySyncRow) error {
+// syncUsageIdentities 使用入口规范化后的统一 now 创建、刷新或恢复 identity。
+func syncUsageIdentities(tx *gorm.DB, identities []entities.UsageIdentity, existingRows []usageIdentitySyncRow, now time.Time) error {
 	if len(identities) == 0 {
 		return nil
 	}
@@ -705,11 +721,17 @@ func syncUsageIdentities(tx *gorm.DB, identities []entities.UsageIdentity, exist
 	toCreate := make([]entities.UsageIdentity, 0)
 	for _, identity := range identities {
 		if existing, ok := existingByKey[usageIdentitySyncKey(identity.AuthType, identity.Identity)]; ok {
-			if err := tx.Model(&entities.UsageIdentity{}).Where("id = ?", existing.ID).Updates(usageIdentityMetadataUpdates(identity)).Error; err != nil {
+			// 既有 active 或 deleted 行都保留 created_at，并只用本轮 now 刷新 updated_at。
+			if err := tx.Model(&entities.UsageIdentity{}).Where("id = ?", existing.ID).Updates(usageIdentityMetadataUpdates(identity, now)).Error; err != nil {
 				return fmt.Errorf("update usage identity: %w", err)
 			}
 			continue
 		}
+		// 新行的 created_at 来自本轮统一时间，避免 GORM 为不同批次生成不同时间。
+		identity.CreatedAt = now
+		// 新行的 updated_at 与 created_at 完全一致，建立首次 metadata 版本。
+		identity.UpdatedAt = now
+		// 只有真正不存在的 identity 才进入批量创建，既有 ID 不受影响。
 		toCreate = append(toCreate, identity)
 	}
 	if len(toCreate) == 0 {
@@ -725,7 +747,8 @@ func usageIdentitySyncKey(authType entities.UsageIdentityAuthType, identity stri
 	return fmt.Sprintf("%d:%s", authType, identity)
 }
 
-func usageIdentityMetadataUpdates(identity entities.UsageIdentity) map[string]any {
+// usageIdentityMetadataUpdates 只刷新上游 metadata 与 active 状态，保留 alias、统计、游标和 created_at。
+func usageIdentityMetadataUpdates(identity entities.UsageIdentity, now time.Time) map[string]any {
 	return map[string]any{
 		"name":           identity.Name,
 		"auth_type_name": identity.AuthTypeName,
@@ -747,6 +770,7 @@ func usageIdentityMetadataUpdates(identity entities.UsageIdentity) map[string]an
 		"plan_type":      identity.PlanType,
 		"is_deleted":     false,
 		"deleted_at":     nil,
-		"updated_at":     identity.UpdatedAt,
+		// updated_at 明确使用入口统一 now，不能读取输入实体通常为空的时间字段。
+		"updated_at": timeutil.FormatStorageTime(now),
 	}
 }
