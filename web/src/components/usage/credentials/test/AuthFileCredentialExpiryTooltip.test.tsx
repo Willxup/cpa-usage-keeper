@@ -2,7 +2,7 @@
 
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import i18n from '@/i18n'
 import { AuthFileCredentialsSection } from '../AuthFileCredentialsSection'
 import type { AuthFileCredentialRow } from '../credentialViewModels'
@@ -57,65 +57,30 @@ const sectionProps = {
   onStartInspection: async () => undefined,
 }
 
-const rectAt = (left: number, top: number, width = 40, height = 20): DOMRect => ({
-  x: left,
-  y: top,
-  left,
-  top,
-  right: left + width,
-  bottom: top + height,
-  width,
-  height,
-  toJSON: () => ({}),
-})
-
 afterEach(async () => {
-  vi.unstubAllGlobals()
   document.body.innerHTML = ''
   await i18n.changeLanguage('en')
 })
 
 describe('AuthFileCredentialsSection expiry tooltip', () => {
-  it('keeps one live, single-line tooltip positioned within a mobile viewport', async () => {
-    vi.stubGlobal('innerWidth', 320)
+  it('keeps expiry metadata out of the collapsed table and exposes it after row expansion', async () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
     const container = document.createElement('div')
     document.body.appendChild(container)
     const root = createRoot(container)
-    const renderRows = async (rows: AuthFileCredentialRow[]) => {
-      await act(async () => root.render(<AuthFileCredentialsSection {...sectionProps} rows={rows} />))
-    }
-    await renderRows(defaultRows)
+    await act(async () => root.render(<AuthFileCredentialsSection {...sectionProps} rows={defaultRows} />))
+
+    expect(container.querySelector('[aria-label^="13d;"]')).toBeNull()
+    expect(container.querySelector('[aria-label^="14d;"]')).toBeNull()
+
+    const expandButtons = container.querySelectorAll<HTMLButtonElement>('button[aria-expanded="false"]')
+    expect(expandButtons).toHaveLength(2)
+    await act(async () => expandButtons[0].click())
+
     const firstBadge = container.querySelector('[aria-label^="13d;"]') as HTMLSpanElement
-    const secondBadge = container.querySelector('[aria-label^="14d;"]') as HTMLSpanElement
-    firstBadge.getBoundingClientRect = () => rectAt(290, 50, 20)
-
-    expect(firstBadge.getAttribute('title')).toBeNull()
-    await act(async () => firstBadge.focus())
-    let tooltip = document.body.querySelector('[role="tooltip"]') as HTMLDivElement
-    expect(tooltip.textContent).toBe('Expires at: 2026-08-01 00:00:00 UTC+08:00')
-    expect(tooltip.style.left).toBe('162px')
-
-    await act(async () => {
-      secondBadge.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
-    })
-    expect(document.body.querySelectorAll('[role="tooltip"]')).toHaveLength(1)
-    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain('2026-08-02')
-
-    await act(async () => {
-      secondBadge.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }))
-      await i18n.changeLanguage('zh')
-    })
-    tooltip = document.body.querySelector('[role="tooltip"]') as HTMLDivElement
-    expect(tooltip.textContent).toBe('过期时间：2026-08-01 00:00:00 UTC+08:00')
-
-    await renderRows([
-      row('auth-a', '13d', '2026-09-01 00:00:00 UTC+08:00'),
-      defaultRows[1],
-    ])
-    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(
-      '过期时间：2026-09-01 00:00:00 UTC+08:00',
-    )
+    expect(firstBadge.textContent).toBe('13d')
+    expect(firstBadge.getAttribute('aria-label')).toBe('13d; Expires at: 2026-08-01 00:00:00 UTC+08:00')
+    expect(container.querySelector('[aria-label^="14d;"]')).toBeNull()
 
     await act(async () => root.unmount())
     container.remove()

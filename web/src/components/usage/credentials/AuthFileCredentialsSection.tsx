@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { Modal, Pagination, Progress, Segmented, Select, Space, Switch, Table, Typography, type TableColumnsType } from 'antd'
+import { Modal, Pagination, Progress, Segmented, Select, Space, Switch, Table, Tooltip, Typography, type TableColumnsType } from 'antd'
 import { useTranslation } from 'react-i18next'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { IconChartLine, IconGaugeReset, IconRefreshCw, IconSearch, IconSettings, IconShield, IconTrash2 } from '@/components/ui/icons'
@@ -38,18 +37,10 @@ type QuotaResetPopoverPosition = {
   right: number
   maxHeight: number
 }
-type CredentialExpiryTooltipTarget = { rowKey: string; anchor: HTMLSpanElement }
-type CredentialExpiryTooltipState = { rowKey: string; x: number; y: number; placement: 'above' | 'below' }
-
 const RESET_CREDITS_LOOKUP_TIMEOUT_MS = 5_000
 const RESET_CREDITS_POPOVER_VIEWPORT_MARGIN = 12
 const RESET_CREDITS_POPOVER_OFFSET = 8
 const RESET_CREDITS_POPOVER_MAX_HEIGHT = 360
-const CREDENTIAL_EXPIRY_TOOLTIP_SAFE_WIDTH = 300
-const CREDENTIAL_EXPIRY_TOOLTIP_ESTIMATED_HEIGHT = 48
-const CREDENTIAL_EXPIRY_TOOLTIP_OFFSET = 10
-const CREDENTIAL_EXPIRY_TOOLTIP_VIEWPORT_PADDING = 8
-
 const QUOTA_ERROR_MESSAGE_MAX_LENGTH = 96
 const QUOTA_ERROR_PARSE_MAX_DEPTH = 10
 const AUTH_FILE_DISPLAY_MODE_STORAGE_KEY = 'cpa.credentials.authFiles.displayMode'
@@ -108,9 +99,6 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
   const [inspectionOpen, setInspectionOpen] = useState(false)
   const [quotaUsageMode, setQuotaUsageMode] = useState<QuotaUsageMode>('current')
   const [displayMode, setDisplayModeState] = useState<AuthFileDisplayMode>(() => readStoredAuthFileDisplayMode())
-  const [expiryTooltip, setExpiryTooltip] = useState<CredentialExpiryTooltipState | null>(null)
-  const expiryTooltipHoverTargetRef = useRef<CredentialExpiryTooltipTarget | null>(null)
-  const expiryTooltipFocusTargetRef = useRef<CredentialExpiryTooltipTarget | null>(null)
   const showHealthMode = displayMode === 'health'
   const canRefresh = rows.some((row) => !isRowRefreshing(row) && !row.identity.is_deleted) && !quotaRefreshing
   const inspectionTone = inspectionIndicatorTone(quotaInspectionStatus)
@@ -122,45 +110,6 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
     setDisplayModeState(mode)
     persistAuthFileDisplayMode(mode)
   }
-  const positionExpiryTooltip = useCallback((target: CredentialExpiryTooltipTarget | null) => {
-    if (!target?.anchor.isConnected) {
-      setExpiryTooltip(null)
-      return
-    }
-    const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth
-    const viewportHeight = typeof window === 'undefined' ? 768 : window.innerHeight
-    const rect = target.anchor.getBoundingClientRect()
-    const tooltipWidth = Math.min(CREDENTIAL_EXPIRY_TOOLTIP_SAFE_WIDTH, Math.max(viewportWidth - CREDENTIAL_EXPIRY_TOOLTIP_VIEWPORT_PADDING * 2, 0))
-    const halfTooltipWidth = tooltipWidth / 2
-    const minX = CREDENTIAL_EXPIRY_TOOLTIP_VIEWPORT_PADDING + halfTooltipWidth
-    const maxX = viewportWidth - CREDENTIAL_EXPIRY_TOOLTIP_VIEWPORT_PADDING - halfTooltipWidth
-    const anchorX = rect.left + rect.width / 2
-    const x = maxX >= minX ? Math.max(minX, Math.min(anchorX, maxX)) : viewportWidth / 2
-    const spaceBelow = viewportHeight - rect.bottom - CREDENTIAL_EXPIRY_TOOLTIP_OFFSET - CREDENTIAL_EXPIRY_TOOLTIP_VIEWPORT_PADDING
-    const spaceAbove = rect.top - CREDENTIAL_EXPIRY_TOOLTIP_OFFSET - CREDENTIAL_EXPIRY_TOOLTIP_VIEWPORT_PADDING
-    const placement = spaceBelow >= CREDENTIAL_EXPIRY_TOOLTIP_ESTIMATED_HEIGHT || spaceBelow >= spaceAbove ? 'below' : 'above'
-    const y = placement === 'above' ? rect.top - CREDENTIAL_EXPIRY_TOOLTIP_OFFSET : rect.bottom + CREDENTIAL_EXPIRY_TOOLTIP_OFFSET
-    setExpiryTooltip({ rowKey: target.rowKey, x, y, placement })
-  }, [])
-  const syncExpiryTooltip = useCallback(() => {
-    if (expiryTooltipHoverTargetRef.current && !expiryTooltipHoverTargetRef.current.anchor.isConnected) expiryTooltipHoverTargetRef.current = null
-    if (expiryTooltipFocusTargetRef.current && !expiryTooltipFocusTargetRef.current.anchor.isConnected) expiryTooltipFocusTargetRef.current = null
-    positionExpiryTooltip(expiryTooltipHoverTargetRef.current ?? expiryTooltipFocusTargetRef.current)
-  }, [positionExpiryTooltip])
-  useEffect(() => {
-    window.addEventListener('resize', syncExpiryTooltip)
-    window.addEventListener('scroll', syncExpiryTooltip, true)
-    return () => {
-      window.removeEventListener('resize', syncExpiryTooltip)
-      window.removeEventListener('scroll', syncExpiryTooltip, true)
-    }
-  }, [syncExpiryTooltip])
-  const activeExpiryRow = expiryTooltip
-    ? rows.find((row) => (row.identity.id || row.identity.identity) === expiryTooltip.rowKey)
-    : undefined
-  const activeExpiryTooltipText = activeExpiryRow?.expiresAtLabel
-    ? t('usage_stats.credentials_expiry_tooltip', { value: activeExpiryRow.expiresAtLabel })
-    : ''
   const nameLabel = t('usage_stats.credentials_column_name')
   const providerLabel = t('usage_stats.credentials_column_provider')
   const totalRequestsLabel = t('usage_stats.total_requests')
@@ -192,23 +141,6 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
               ) : <AccessibleEllipsis value={row.displayName} />}
             </span>
           </div>
-          {row.remainingDaysLabel && row.expiresAtLabel && (() => {
-            const rowKey = row.identity.id || row.identity.identity
-            const tooltipText = t('usage_stats.credentials_expiry_tooltip', { value: row.expiresAtLabel })
-            return (
-              <span
-                className={styles.credentialRemainingDaysBadge}
-                tabIndex={0}
-                aria-label={`${row.remainingDaysLabel}; ${tooltipText}`}
-                onMouseEnter={(event) => { expiryTooltipHoverTargetRef.current = { rowKey, anchor: event.currentTarget }; syncExpiryTooltip() }}
-                onMouseLeave={(event) => { if (expiryTooltipHoverTargetRef.current?.anchor === event.currentTarget) expiryTooltipHoverTargetRef.current = null; syncExpiryTooltip() }}
-                onFocus={(event) => { expiryTooltipFocusTargetRef.current = { rowKey, anchor: event.currentTarget }; syncExpiryTooltip() }}
-                onBlur={(event) => { if (expiryTooltipFocusTargetRef.current?.anchor === event.currentTarget) expiryTooltipFocusTargetRef.current = null; syncExpiryTooltip() }}
-              >
-                {row.remainingDaysLabel}
-              </span>
-            )
-          })()}
         </div>
       ),
     },
@@ -442,22 +374,6 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
         onPageSizeChange={onPageSizeChange}
       />
       </CredentialSectionShell>
-      {expiryTooltip && activeExpiryTooltipText && typeof document !== 'undefined'
-        ? createPortal(
-            <div
-              className={styles.credentialExpiryTooltip}
-              role="tooltip"
-              style={{
-                left: expiryTooltip.x,
-                top: expiryTooltip.y,
-                transform: expiryTooltip.placement === 'above' ? 'translate(-50%, -100%)' : 'translateX(-50%)',
-              }}
-            >
-              {activeExpiryTooltipText}
-            </div>,
-            document.body,
-          )
-        : null}
       <QuotaInspectionModal
         open={inspectionOpen}
         status={quotaInspectionStatus}
@@ -2003,7 +1919,12 @@ export function AuthFileExpandedDetails({ row, quotaUsageMode }: { row: AuthFile
       {hasIdentityDetails && (
         <div className={styles.credentialSecondaryDetails}>
           {row.planTypeLabel && <CredentialPlanBadge tone={row.planTypeTone}>{row.planTypeLabel}</CredentialPlanBadge>}
-          {row.remainingDaysLabel && <span className={styles.credentialRemainingDaysBadge}>{row.remainingDaysLabel}</span>}
+          {row.remainingDaysLabel && (
+            <CredentialExpiryBadge
+              remainingDaysLabel={row.remainingDaysLabel}
+              expiresAtLabel={row.expiresAtLabel}
+            />
+          )}
           {row.priorityLabel && <CredentialPriorityBadge>{row.priorityLabel}</CredentialPriorityBadge>}
         </div>
       )}
@@ -2024,6 +1945,28 @@ export function AuthFileExpandedDetails({ row, quotaUsageMode }: { row: AuthFile
       )}
     </div>
   )
+}
+
+function CredentialExpiryBadge({ remainingDaysLabel, expiresAtLabel }: { remainingDaysLabel: string; expiresAtLabel?: string }) {
+  const { t } = useTranslation()
+  const tooltipText = expiresAtLabel
+    ? t('usage_stats.credentials_expiry_tooltip', { value: expiresAtLabel })
+    : ''
+  const badge = (
+    <span
+      className={styles.credentialRemainingDaysBadge}
+      tabIndex={tooltipText ? 0 : undefined}
+      aria-label={tooltipText ? `${remainingDaysLabel}; ${tooltipText}` : undefined}
+    >
+      {remainingDaysLabel}
+    </span>
+  )
+
+  return tooltipText ? (
+    <Tooltip title={tooltipText} trigger={['hover', 'focus', 'click']} placement="top">
+      {badge}
+    </Tooltip>
+  ) : badge
 }
 
 function QuotaDetailRow({ quota, quotaUsageMode }: { quota: DisplayQuota; quotaUsageMode: QuotaUsageMode }) {
