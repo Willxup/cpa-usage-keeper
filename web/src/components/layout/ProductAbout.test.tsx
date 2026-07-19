@@ -9,8 +9,9 @@ describe('ProductAbout', () => {
 
     expect(html).toContain('© 2026');
     expect(html).toContain(`href="${GITHUB_REPOSITORY_URL}"`);
-    expect(html).toContain('>CPA Usage Keeper</a>');
+    expect(html).toContain('<strong>CPA Usage Keeper</strong>');
     expect(html).toContain('License');
+    expect(html).toContain('MIT License');
     expect(html).toContain('CLIProxyAPI Integration');
     expect(html).toContain(`href="${GITHUB_REPOSITORY_URL}/blob/main/LICENSE"`);
     expect(html).toContain(`href="${CLIPROXYAPI_REPOSITORY_URL}"`);
@@ -19,6 +20,7 @@ describe('ProductAbout', () => {
     expect(html).toContain('<svg');
     expect(html).toContain('Willxup');
     expect(html).toContain('Version: v1.2.3');
+    expect(html).toContain('Project resources');
   });
 
   it('does not render a version label before the version is available', () => {
