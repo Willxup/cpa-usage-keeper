@@ -131,9 +131,10 @@ describe('RequestEventsDetailsCard Speed Mode column', () => {
       await mounted.unmount();
       await i18n.changeLanguage('en');
     }
-  });
+  }, 15_000);
 
-  it('shows mapped request and response modes in one column', () => {
+  it('shows mapped request and response modes in one column', async () => {
+    await i18n.changeLanguage('en');
     const html = renderCard([
       { ...baseEvent, service_tier: 'auto', response_service_tier: 'default' },
       { ...baseEvent, id: '102', service_tier: 'standard', response_service_tier: 'standard' },

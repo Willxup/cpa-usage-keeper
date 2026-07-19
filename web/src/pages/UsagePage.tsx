@@ -1189,6 +1189,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const loadAnalysis = useCallback(async () => {
     const queryWindow = buildUsageRangeQuery({
       range: timeRange,
+      customUnit: 'day',
       customStart: effectiveCustomTimeRange.start,
       customEnd: effectiveCustomTimeRange.end,
     });
@@ -1210,7 +1211,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     // Keep the previous analysis rendered while refetching so the charts update
     // in place instead of unmounting/remounting all G2 canvases on every refresh.
     try {
-      const response = await fetchAnalysis(queryWindow.range, queryWindow.start, queryWindow.end, controller.signal, selectedApiKeyId);
+      const response = await fetchAnalysis(queryWindow, controller.signal, selectedApiKeyId);
       if (analysisRequestControllerRef.current !== controller) {
         return;
       }
@@ -1402,10 +1403,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const getEventQueryWindow = useCallback(() => {
     const query = buildUsageRangeQuery({
       range: timeRange,
+      customUnit: 'day',
       customStart: effectiveCustomTimeRange.start,
       customEnd: effectiveCustomTimeRange.end,
     });
-    return { valid: query.valid, start: query.start, end: query.end };
+    return query;
   }, [effectiveCustomTimeRange.end, effectiveCustomTimeRange.start, timeRange]);
 
   const loadEventFilterOptions = useCallback(async () => {
@@ -1464,7 +1466,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setEventsLoading(true);
     setEventsError('');
     try {
-      const response = await fetchUsageEvents(timeRange, queryWindow.start, queryWindow.end, controller.signal, {
+      const response = await fetchUsageEvents(queryWindow, controller.signal, {
         page: eventsPage,
         pageSize: eventsPageSize,
         model: eventsModelFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsModelFilter,
@@ -1502,7 +1504,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         eventsRequestControllerRef.current = null;
       }
     }
-  }, [eventsModelFilter, eventsPage, eventsPageSize, eventsResultFilter, eventsSourceFilter, getEventQueryWindow, onAuthRequired, selectedApiKeyId, timeRange]);
+  }, [eventsModelFilter, eventsPage, eventsPageSize, eventsResultFilter, eventsSourceFilter, getEventQueryWindow, onAuthRequired, selectedApiKeyId]);
 
   const resetEventsPage = useCallback(() => {
     setEventsPage(1);
@@ -1535,7 +1537,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
     setEventsExportingFormat(format);
     try {
-      const file = await exportUsageEvents(timeRange, queryWindow.start, queryWindow.end, format, {
+      const file = await exportUsageEvents(queryWindow, format, {
         model: eventsModelFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsModelFilter,
         source: eventsSourceFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsSourceFilter,
         result: eventsResultFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsResultFilter,
@@ -1552,7 +1554,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     } finally {
       setEventsExportingFormat(null);
     }
-  }, [eventsModelFilter, eventsResultFilter, eventsSourceFilter, getEventQueryWindow, onAuthRequired, selectedApiKeyId, showTopNotice, t, timeRange]);
+  }, [eventsModelFilter, eventsResultFilter, eventsSourceFilter, getEventQueryWindow, onAuthRequired, selectedApiKeyId, showTopNotice, t]);
 
   const handleRequestLogOpen = useCallback(async (event: UsageEvent) => {
     if (!requestLogAccessEnabled) return;
@@ -1998,6 +2000,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   requestLogDownloading={requestLogDownloading}
                   onRefresh={() => void handleEventsRefresh()}
                   refreshing={eventsLoading}
+                  isMobile={isMobile}
                 />
               </>
             )}

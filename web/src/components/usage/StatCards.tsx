@@ -1,6 +1,6 @@
 import { useMemo, type CSSProperties, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Col, Row, Statistic } from 'antd';
+import { Statistic } from 'antd';
 import {
   IconDiamond,
   IconDollarSign,
@@ -31,6 +31,8 @@ interface StatCardData {
   value: string;
   meta?: ReactNode;
   context?: ReactNode;
+  prominence: 'primary' | 'secondary';
+  trend?: number[];
 }
 
 export interface StatCardsProps {
@@ -47,6 +49,7 @@ interface StatCardMetrics {
   rateStats: { rpm: number; tpm: number; windowMinutes: number; requestCount: number; tokenCount: number };
   cacheReadRateStats: { cacheReadRate: number | null; cacheReadTokens: number; inputTokens: number };
   totalCost: number;
+  costAvailable: boolean;
 }
 
 const safeNumber = (value: unknown): number => {
@@ -74,6 +77,7 @@ export function buildStatCardMetrics({ usage }: { usage: UsageOverviewPayload | 
       rateStats: { rpm: 0, tpm: 0, windowMinutes: 1, requestCount: 0, tokenCount: 0 },
       cacheReadRateStats: { cacheReadRate: null, cacheReadTokens: 0, inputTokens: 0 },
       totalCost: 0,
+      costAvailable: false,
     };
   }
 
@@ -101,7 +105,33 @@ export function buildStatCardMetrics({ usage }: { usage: UsageOverviewPayload | 
       inputTokens,
     },
     totalCost: usage.summary.total_cost ?? 0,
+    costAvailable: usage.summary.cost_available === true,
   };
+}
+
+export const getSparklinePoints = (series: Record<string, number> | undefined): number[] => (
+  Object.entries(series ?? {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, value]) => Number(value))
+    .filter((value) => Number.isFinite(value))
+);
+
+function MetricSparkline({ points, label }: { points: number[]; label: string }) {
+  if (points.length < 3) return null;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const range = Math.max(max - min, 1);
+  const path = points.map((point, index) => {
+    const x = points.length === 1 ? 0 : (index / (points.length - 1)) * 100;
+    const y = 30 - ((point - min) / range) * 26;
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  }).join(' ');
+
+  return (
+    <svg className={styles.statSparkline} viewBox="0 0 100 34" role="img" aria-label={label} preserveAspectRatio="none">
+      <polyline points={path} vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
 }
 
 export function StatCards({
@@ -113,7 +143,7 @@ export function StatCards({
 }: StatCardsProps) {
   const { t } = useTranslation();
   const usageSnapshot = usage?.usage ?? null;
-  const { requestStats, tokenBreakdown, rateStats, cacheReadRateStats, totalCost } = useMemo(
+  const { requestStats, tokenBreakdown, rateStats, cacheReadRateStats, totalCost, costAvailable } = useMemo(
     () => buildStatCardMetrics({ usage }),
     [usage]
   );
@@ -136,7 +166,7 @@ export function StatCards({
   const statsCards: StatCardData[] = [
     {
       key: 'requests',
-      label: t('usage_stats.total_requests'),
+      label: t('usage_stats.request_health'),
       icon: <IconSatellite size={16} />,
       accent: accents.blue.stroke,
       accentSoft: accents.blue.fill,
@@ -162,6 +192,30 @@ export function StatCards({
         t('usage_stats.avg_requests'),
         loading || !dailyAverages ? '-' : formatDailyAverageCount(dailyAverages.requests),
       ),
+      prominence: 'primary',
+      trend: getSparklinePoints(usage?.series?.requests),
+    },
+    {
+      key: 'cost',
+      label: t('usage_stats.total_cost'),
+      icon: <IconDollarSign size={16} />,
+      accent: accents.orange.stroke,
+      accentSoft: accents.orange.fill,
+      accentBorder: accents.orange.stroke,
+      value: loading ? '-' : costAvailable ? formatUsd(totalCost) : t('usage_stats.cost_unavailable'),
+      meta: (
+        <span className={styles.statMetaItem}>
+          {costAvailable
+            ? `${t('usage_stats.total_tokens')}: ${formatCompactNumber(usageSnapshot?.total_tokens ?? 0)}`
+            : t('usage_stats.cost_need_price')}
+        </span>
+      ),
+      context: costAvailable ? dailyAverageContext(
+        t('usage_stats.avg_cost'),
+        loading || !dailyAverages ? '-' : formatUsd(dailyAverages.cost),
+      ) : null,
+      prominence: 'primary',
+      trend: costAvailable ? getSparklinePoints(usage?.series?.cost) : [],
     },
     {
       key: 'tokens',
@@ -191,6 +245,7 @@ export function StatCards({
         t('usage_stats.avg_tokens'),
         loading || !dailyAverages ? '-' : formatCompactNumber(dailyAverages.tokens),
       ),
+      prominence: 'secondary',
     },
     {
       key: 'rpm',
@@ -206,6 +261,7 @@ export function StatCards({
           {loading ? '-' : rateStats.requestCount.toLocaleString()}
         </span>
       ),
+      prominence: 'secondary',
     },
     {
       key: 'tpm',
@@ -221,6 +277,7 @@ export function StatCards({
           {loading ? '-' : formatCompactNumber(rateStats.tokenCount)}
         </span>
       ),
+      prominence: 'secondary',
     },
     {
       key: 'cache-read-rate',
@@ -242,35 +299,22 @@ export function StatCards({
           </span>
         </>
       ),
-    },
-    {
-      key: 'cost',
-      label: t('usage_stats.total_cost'),
-      icon: <IconDollarSign size={16} />,
-      accent: accents.orange.stroke,
-      accentSoft: accents.orange.fill,
-      accentBorder: accents.orange.stroke,
-      value: loading ? '-' : formatUsd(totalCost),
-      meta: (
-        <span className={styles.statMetaItem}>
-          {t('usage_stats.total_tokens')}:{' '}
-          {loading ? '-' : formatCompactNumber(usageSnapshot?.total_tokens ?? 0)}
-        </span>
-      ),
-      context: dailyAverageContext(
-        t('usage_stats.avg_cost'),
-        loading || !dailyAverages ? '-' : formatUsd(dailyAverages.cost),
-      ),
+      prominence: 'secondary',
     },
   ];
 
   return (
     <section className={styles.statsPanel} aria-label={t('usage_stats.tab_overview')}>
-      <Row className={styles.statsRow} gutter={0}>
+      <div className={styles.statsGrid}>
         {statsCards.map((card) => (
-          <Col key={card.key} xs={24} sm={12} lg={8} xxl={4} className={styles.statColumn}>
+          <article
+            key={card.key}
+            className={`${styles.statColumn} ${card.prominence === 'primary' ? styles.statColumnPrimary : styles.statColumnSecondary}`}
+            data-metric={card.key}
+            data-prominence={card.prominence}
+          >
             <div
-              className={styles.statItem}
+              className={`${styles.statItem} ${card.prominence === 'primary' ? styles.statItemPrimary : styles.statItemSecondary}`}
               style={{
                 '--accent': card.accent,
                 '--accent-soft': card.accentSoft,
@@ -291,10 +335,16 @@ export function StatCards({
               />
               {card.meta && <div className={styles.statMetaRow}>{card.meta}</div>}
               <div className={styles.statContextRow}>{card.context}</div>
+              {card.trend && (
+                <MetricSparkline
+                  points={card.trend}
+                  label={`${card.label} ${t('usage_stats.overview_realtime_trend')}`}
+                />
+              )}
             </div>
-          </Col>
+          </article>
         ))}
-      </Row>
+      </div>
     </section>
   );
 }

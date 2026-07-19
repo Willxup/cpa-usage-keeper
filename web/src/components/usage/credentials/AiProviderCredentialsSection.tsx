@@ -5,7 +5,7 @@ import type { AiProviderCredentialRow } from './credentialViewModels'
 import type { UsageIdentityPageSort } from '@/lib/api'
 import { CredentialAliasEditor, isCredentialAliasEditorDisabled } from './CredentialAliasEditor'
 import { CredentialHealthPanel } from './CredentialHealthPanel'
-import { CredentialPriorityBadge, CredentialSectionShell, CredentialsPagination, MetricPill, RequestMetric, TonePercent, cacheReadRateTone, formatCredentialNumber, successRateTone } from './CredentialSectionShell'
+import { AccessibleEllipsis, CredentialPriorityBadge, CredentialSectionShell, CredentialsPagination, MetricPill, RequestMetric, TonePercent, cacheReadRateTone, formatCredentialNumber, successRateTone } from './CredentialSectionShell'
 
 interface AiProviderCredentialsSectionProps {
   rows: AiProviderCredentialRow[]
@@ -41,7 +41,7 @@ export function AiProviderCredentialsSection({ rows, total, page, totalPages, pa
         <div className={styles.credentialIdentityBlock}>
           <span className={styles.credentialResponsiveCellLabel}>{nameLabel}</span>
           <div className={styles.credentialNameRow}>
-            <span className={styles.credentialDisplayName} title={row.displayName}>
+            <span className={styles.credentialDisplayName}>
               {onSaveAlias ? (
                 <CredentialAliasEditor
                   identityId={row.identity.id}
@@ -51,7 +51,7 @@ export function AiProviderCredentialsSection({ rows, total, page, totalPages, pa
                   disabled={isCredentialAliasEditorDisabled(row.identity.id, row.identity.is_deleted, aliasSavingId)}
                   onSaveAlias={onSaveAlias}
                 />
-              ) : row.displayName}
+              ) : <AccessibleEllipsis value={row.displayName} />}
             </span>
           </div>
           {row.priorityLabel && (
@@ -72,7 +72,7 @@ export function AiProviderCredentialsSection({ rows, total, page, totalPages, pa
       render: (_value, row) => (
         <div className={styles.credentialTableCellContent}>
           <span className={styles.credentialResponsiveCellLabel}>{providerLabel}</span>
-          <span className={styles.credentialProviderValue} title={row.providerLabel}>{row.providerLabel}</span>
+          <AccessibleEllipsis value={row.providerLabel} className={styles.credentialProviderValue} />
         </div>
       ),
     },

@@ -195,7 +195,7 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
     setLoading(true);
     setError('');
     try {
-      const overview = await fetchKeyOverview(requestRange, controller.signal);
+      const overview = await fetchKeyOverview({ range: requestRange }, controller.signal);
       if (overviewRequestControllerRef.current !== controller) return;
       setUsage(overview as UsageOverviewResponse as UsageOverviewPayload);
       setLoadedUsageRange(requestRange);

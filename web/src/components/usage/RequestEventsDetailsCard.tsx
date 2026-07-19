@@ -184,9 +184,50 @@ type RequestEventColumnDefinition = {
   title: ReactNode;
   className?: string;
   headerTitle?: string;
+  width?: number;
+  align?: 'left' | 'right' | 'center';
+  fixed?: 'left' | 'right';
   onCell?: (row: RequestEventRow) => React.TdHTMLAttributes<HTMLTableCellElement>;
   render: (row: RequestEventRow) => ReactNode;
 };
+
+const REQUEST_EVENT_COLUMN_WIDTHS: Record<RequestEventColumnId, number> = {
+  timestamp: 176,
+  api_key: 200,
+  source: 230,
+  model: 220,
+  model_alias: 180,
+  reasoning_effort: 132,
+  service_tier: 168,
+  result: 96,
+  request_type: 112,
+  endpoint: 220,
+  ttft: 104,
+  latency: 112,
+  speed: 110,
+  input_tokens: 122,
+  output_tokens: 126,
+  reasoning_tokens: 142,
+  cache_read_tokens: 142,
+  cache_creation_tokens: 152,
+  cache_read_rate: 118,
+  total_tokens: 124,
+  total_cost: 120,
+};
+
+const REQUEST_EVENT_NUMERIC_COLUMN_IDS = new Set<RequestEventColumnId>([
+  'ttft',
+  'latency',
+  'speed',
+  'input_tokens',
+  'output_tokens',
+  'reasoning_tokens',
+  'cache_read_tokens',
+  'cache_creation_tokens',
+  'cache_read_rate',
+  'total_tokens',
+  'total_cost',
+]);
 
 const REQUEST_LOG_SECTION_TITLE_KEYS: Record<string, string> = {
   'REQUEST INFO': 'usage_stats.request_events_log_section_request_info',
@@ -336,6 +377,17 @@ export interface RequestEventsDetailsCardProps {
   requestLogDownloading?: boolean;
   onRefresh?: () => void;
   refreshing?: boolean;
+  isMobile?: boolean;
+}
+
+function EllipsizedValue({ value, className }: { value: string; className?: string }) {
+  return (
+    <Tooltip title={value} trigger={['hover', 'focus', 'click']} placement="top">
+      <span className={`${styles.requestEventsEllipsizedValue} ${className ?? ''}`.trim()} tabIndex={0}>
+        {value}
+      </span>
+    </Tooltip>
+  );
 }
 
 const toNumber = (value: unknown): number => {
@@ -719,6 +771,7 @@ export function RequestEventsDetailsCard({
   requestLogDownloading = false,
   onRefresh,
   refreshing = false,
+  isMobile = false,
 }: RequestEventsDetailsCardProps) {
   const { t } = useTranslation();
   const resultLocale = t('usage_stats.success') === 'Success' ? 'en' : 'zh';
@@ -898,15 +951,13 @@ export function RequestEventsDetailsCard({
         label: t('usage_stats.api_key_filter'),
         title: t('usage_stats.api_key_filter'),
         className: styles.requestEventsAPIKeyCell,
-        onCell: (row) => ({ title: row.apiKey }),
-        render: (row) => row.apiKey,
+        render: (row) => <EllipsizedValue value={row.apiKey} />,
       },
       {
         id: 'source',
         label: t('usage_stats.request_events_source'),
         title: t('usage_stats.request_events_source'),
         className: styles.requestEventsSourceCell,
-        onCell: (row) => ({ title: row.source }),
         render: (row) => {
           const hasDistinctSourceType = Boolean(
             row.sourceType && row.sourceType.toLocaleLowerCase() !== row.source.toLocaleLowerCase(),
@@ -914,7 +965,7 @@ export function RequestEventsDetailsCard({
 
           return (
             <span className={styles.requestEventsSourceStack}>
-              <span className={styles.requestEventsSourceValue}>{row.source}</span>
+              <EllipsizedValue value={row.source} className={styles.requestEventsSourceValue} />
               {(row.isDelete || hasDistinctSourceType) && (
                 <span className={styles.requestEventsSourceTags}>
                   {hasDistinctSourceType && <Tag>{row.sourceType}</Tag>}
@@ -930,15 +981,14 @@ export function RequestEventsDetailsCard({
         label: t('usage_stats.model_name'),
         title: t('usage_stats.model_name'),
         className: styles.modelCell,
-        render: (row) => row.model,
+        render: (row) => <EllipsizedValue value={row.model} />,
       },
       {
         id: 'model_alias',
         label: t('usage_stats.model_alias'),
         title: t('usage_stats.model_alias'),
         className: `${styles.modelCell} ${styles.requestEventsNoWrapCell}`,
-        onCell: (row) => ({ title: row.modelAlias }),
-        render: (row) => row.modelAlias,
+        render: (row) => <EllipsizedValue value={row.modelAlias} />,
       },
       {
         id: 'reasoning_effort',
@@ -1126,15 +1176,22 @@ export function RequestEventsDetailsCard({
     () => visibleColumns.map((definition) => ({
       key: definition.id,
       title: definition.title,
-      className: definition.className,
+      className: `${definition.className ?? ''} ${REQUEST_EVENT_NUMERIC_COLUMN_IDS.has(definition.id) ? styles.requestEventsNumericCell : ''}`.trim(),
+      width: REQUEST_EVENT_COLUMN_WIDTHS[definition.id],
+      align: definition.align,
+      fixed: isMobile
+        ? undefined
+        : definition.id === 'timestamp'
+          ? 'left'
+          : definition.fixed,
       onHeaderCell: () => ({
-        className: definition.className,
+        className: `${definition.className ?? ''} ${REQUEST_EVENT_NUMERIC_COLUMN_IDS.has(definition.id) ? styles.requestEventsNumericCell : ''}`.trim(),
         title: definition.headerTitle,
       }),
       onCell: (row) => definition.onCell?.(row) ?? {},
       render: (_value, row) => definition.render(row),
     })),
-    [visibleColumns]
+    [isMobile, visibleColumns]
   );
   const columnOptions = useMemo(
     () => columnDefinitions.map((definition) => ({ id: definition.id, label: definition.label })),

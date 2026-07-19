@@ -3,9 +3,7 @@
 
 .modelCell {
   font-weight: 500;
-  min-width: 110px;
-  max-width: 240px;
-  word-break: break-all;
+  white-space: nowrap;
 }
 
 .errorBox {
@@ -165,6 +163,7 @@
 
   :global(.ant-table-tbody > tr > td) {
     vertical-align: middle;
+    height: 48px;
   }
 
   :global(.ant-table-thead > tr > th:first-child),
@@ -180,11 +179,23 @@
   :global(.ant-table-body) {
     scrollbar-gutter: stable;
   }
+
+  :global(.ant-table-cell-fix),
+  :global(.ant-table-cell-fix-start),
+  :global(.ant-table-cell-fix-end),
+  :global(.ant-table-cell-fix-left),
+  :global(.ant-table-cell-fix-right) {
+    background: var(--bg-primary);
+  }
 }
 
 .requestEventsNoWrapCell {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+.requestEventsNumericCell {
+  text-align: right;
 }
 
 .requestEventsSpeedModeCell {
@@ -217,17 +228,10 @@
 
 .requestEventsSourceCell,
 .requestEventsAPIKeyCell {
-  max-width: 280px;
-  word-break: break-all;
-}
-
-.requestEventsSourceCell {
-  min-width: 165px;
+  white-space: nowrap;
 }
 
 .requestEventsAPIKeyCell {
-  min-width: 135px;
-  max-width: 240px;
   font-family:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
     monospace;
@@ -237,19 +241,41 @@
 .requestEventsSourceStack,
 .requestEventsSourceTags {
   display: inline-flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
+  width: 100%;
   max-width: 100%;
+  min-width: 0;
+}
+
+.requestEventsEllipsizedValue {
+  display: inline-block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+  border-radius: var(--radius-sm);
+
+  &:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+  }
 }
 
 .requestEventsSourceValue {
+  flex: 1 1 auto;
   color: var(--text-primary);
   font-weight: 500;
   line-height: 1.5;
 }
 
 .requestEventsSourceTags {
+  flex: 0 0 auto;
+  width: auto;
   gap: 4px;
 
   :global(.ant-tag) {

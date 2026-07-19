@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react'
-import { Card, Pagination, Select, Space, Tag, Typography } from 'antd'
+import { Card, Pagination, Select, Space, Tag, Tooltip, Typography } from 'antd'
 import { SectionHeader } from '@/components/layout'
 import styles from './CredentialSections.module.scss'
 import { formatCompactNumber } from '@/utils/usage'
@@ -43,6 +43,16 @@ export function CredentialSectionShell({ title, subtitle, countLabel, titleExtra
 
 export function CredentialPriorityBadge({ children }: { children: ReactNode }) {
   return <Tag color="blue" variant="filled" className={styles.credentialPriorityBadge}>{children}</Tag>
+}
+
+export function AccessibleEllipsis({ value, className }: { value: string; className?: string }) {
+  return (
+    <Tooltip title={value} trigger={['hover', 'focus', 'click']} placement="top">
+      <span className={`${styles.credentialAccessibleEllipsis} ${className ?? ''}`.trim()} tabIndex={0}>
+        {value}
+      </span>
+    </Tooltip>
+  )
 }
 
 export function MetricPill({ value }: { value: ReactNode }) {
