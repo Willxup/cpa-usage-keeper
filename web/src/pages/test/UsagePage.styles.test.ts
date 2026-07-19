@@ -200,8 +200,9 @@ describe('UsagePage toolbar styles', () => {
     expect(statCardsSource).toContain('const accents = getChartTheme(isDark).series;')
     expect(statCardsSource).toContain('accent: accents.blue.stroke')
     expect(statCardsSource).toContain('accent: accents.teal.stroke')
-    expect(usageOverviewStyles).toMatch(/\.statItem\s*\{[\s\S]*?&::before\s*\{[\s\S]*?background:\s*var\(--accent-border\);/)
-    expect(usageOverviewStyles).toMatch(/\.statIcon\s*\{[\s\S]*?background:\s*var\(--accent-soft\);/)
+    expect(usageOverviewStyles).not.toMatch(/\.statItem\s*\{[\s\S]*?&::before\s*\{/)
+    expect(usageOverviewStyles).toMatch(/\.statIcon\s*\{[\s\S]*?border:\s*1px solid color-mix\(in srgb, var\(--accent\) 42%, transparent\);[\s\S]*?background:\s*var\(--accent-soft\);/)
+    expect(statCardsSource).not.toContain('accentBorder')
     expect(statCardsSource).not.toMatch(/accent:\s*'#[0-9a-f]{6}'/)
   })
 

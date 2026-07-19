@@ -27,7 +27,6 @@ interface StatCardData {
   icon: ReactNode;
   accent: string;
   accentSoft: string;
-  accentBorder: string;
   value: string;
   meta?: ReactNode;
   context?: ReactNode;
@@ -170,7 +169,6 @@ export function StatCards({
       icon: <IconSatellite size={16} />,
       accent: accents.blue.stroke,
       accentSoft: accents.blue.fill,
-      accentBorder: accents.blue.stroke,
       value: loading ? '-' : (usageSnapshot?.total_requests ?? 0).toLocaleString(),
       meta: (
         <>
@@ -201,7 +199,6 @@ export function StatCards({
       icon: <IconDollarSign size={16} />,
       accent: accents.orange.stroke,
       accentSoft: accents.orange.fill,
-      accentBorder: accents.orange.stroke,
       value: loading ? '-' : costAvailable ? formatUsd(totalCost) : t('usage_stats.cost_unavailable'),
       meta: (
         <span className={styles.statMetaItem}>
@@ -223,7 +220,6 @@ export function StatCards({
       icon: <IconDiamond size={16} />,
       accent: accents.violet.stroke,
       accentSoft: accents.violet.fill,
-      accentBorder: accents.violet.stroke,
       value: loading ? '-' : formatCompactNumber(usageSnapshot?.total_tokens ?? 0),
       meta: (
         <>
@@ -253,7 +249,6 @@ export function StatCards({
       icon: <IconTimer size={16} />,
       accent: accents.cyan.stroke,
       accentSoft: accents.cyan.fill,
-      accentBorder: accents.cyan.stroke,
       value: loading ? '-' : formatPerMinuteValue(rateStats.rpm),
       meta: (
         <span className={styles.statMetaItem}>
@@ -269,7 +264,6 @@ export function StatCards({
       icon: <IconTrendingUp size={16} />,
       accent: accents.indigo.stroke,
       accentSoft: accents.indigo.fill,
-      accentBorder: accents.indigo.stroke,
       value: loading ? '-' : formatPerMinuteValue(rateStats.tpm),
       meta: (
         <span className={styles.statMetaItem}>
@@ -285,7 +279,6 @@ export function StatCards({
       icon: <IconPercent size={16} />,
       accent: accents.teal.stroke,
       accentSoft: accents.teal.fill,
-      accentBorder: accents.teal.stroke,
       value: loading || cacheReadRateStats.cacheReadRate === null ? '-' : `${formatFixedTwoDecimals(cacheReadRateStats.cacheReadRate)}%`,
       meta: (
         <>
@@ -318,7 +311,6 @@ export function StatCards({
               style={{
                 '--accent': card.accent,
                 '--accent-soft': card.accentSoft,
-                '--accent-border': card.accentBorder,
               } as CSSProperties}
             >
               <Statistic

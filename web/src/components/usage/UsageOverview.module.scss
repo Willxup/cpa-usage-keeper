@@ -62,9 +62,7 @@
 .statItem {
   --accent: var(--primary-color);
   --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
-  --accent-border: var(--accent);
 
-  position: relative;
   flex: 1 1 auto;
   width: 100%;
   min-width: 0;
@@ -74,15 +72,6 @@
   flex-direction: column;
   gap: 10px;
 
-  &::before {
-    position: absolute;
-    top: 0;
-    inset-inline: var(--surface-inset-standard);
-    height: 2px;
-    border-radius: 0 0 999px 999px;
-    background: var(--accent-border);
-    content: '';
-  }
 }
 
 .statItemPrimary {
@@ -154,7 +143,7 @@
   justify-content: center;
   width: 26px;
   height: 26px;
-  border: 1px solid color-mix(in srgb, var(--accent-border) 42%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
   border-radius: 8px;
   background: var(--accent-soft);
   color: var(--accent);
