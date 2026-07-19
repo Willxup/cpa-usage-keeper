@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appPath, createUsageEventRequestLogDownloadURL, deleteAuthFiles, exportUsageEvents, fetchAnalysis, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyOverview, fetchKeyOverviewRealtime, fetchQuotaAutoRefreshSettings, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUsageQuotaResetCredits, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, fetchVersion, loginWithCPAAPIKey, logout, refreshUsageQuotas, resetUsageQuota, revokeAuthSession, setAuthFilesDisabled, startUsageQuotaInspection, updateCpaApiKeyAlias, updateQuotaAutoRefreshSettings } from '../api';
+import { appPath, createUsageEventRequestLogDownloadURL, deleteAuthFiles, exportUsageEvents, fetchAnalysis, fetchAuthSessions, fetchCpaApiKeyAuthFileScopes, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyOverview, fetchKeyOverviewRealtime, fetchQuotaAutoRefreshSettings, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUsageQuotaResetCredits, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, fetchVersion, loginWithCPAAPIKey, logout, refreshUsageQuotas, resetUsageQuota, revokeAuthSession, setAuthFilesDisabled, startUsageQuotaInspection, updateCpaApiKeyAlias, updateCpaApiKeyAuthFileScopes, updateQuotaAutoRefreshSettings } from '../api';
 
 const headerValue = (init: RequestInit | undefined, name: string): string | null => new Headers(init?.headers).get(name);
 
@@ -615,6 +615,27 @@ describe('fetchUsageEvents', () => {
     expect(new URL(String(updateUrl), 'http://localhost').pathname).toBe('/api/v1/usage/api-keys/123');
     expect(updateInit).toMatchObject({ credentials: 'include', method: 'PATCH' });
     expect(updateInit?.body).toBe(JSON.stringify({ keyAlias: '' }));
+  });
+
+  it('loads and updates the auth-file scope for an API Key', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ authFileNames: ['codex-user.json'] }) } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ authFileNames: ['codex-user.json', 'claude-user.json'] }) } as Response);
+    const signal = new AbortController().signal;
+
+    const current = await fetchCpaApiKeyAuthFileScopes('123/456', signal);
+    const updated = await updateCpaApiKeyAuthFileScopes('123/456', ['codex-user.json', 'claude-user.json']);
+
+    const [getURL, getInit] = fetchMock.mock.calls[0];
+    const [putURL, putInit] = fetchMock.mock.calls[1];
+    expect(current.authFileNames).toEqual(['codex-user.json']);
+    expect(updated.authFileNames).toEqual(['codex-user.json', 'claude-user.json']);
+    expect(new URL(String(getURL), 'http://localhost').pathname).toBe('/api/v1/usage/api-keys/123%2F456/auth-file-scopes');
+    expect(getInit).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
+    expect(new URL(String(putURL), 'http://localhost').pathname).toBe('/api/v1/usage/api-keys/123%2F456/auth-file-scopes');
+    expect(putInit).toMatchObject({ credentials: 'include', method: 'PUT' });
+    expect(putInit?.body).toBe(JSON.stringify({ authFileNames: ['codex-user.json', 'claude-user.json'] }));
   });
 
   it('loads paged usage identities for one credential auth type', async () => {

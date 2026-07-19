@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"cpa-usage-keeper/internal/accessscope"
 	"cpa-usage-keeper/internal/quota"
 	"github.com/gin-gonic/gin"
 )
@@ -19,6 +20,9 @@ const quotaResetCreditsErrorFailed = "quota_reset_credits_failed"
 
 func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 	router.GET("/quota/auto-refresh/settings", func(c *gin.Context) {
+		if rejectViewerQuotaMutation(c) {
+			return
+		}
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)
 			return
@@ -39,6 +43,9 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 	})
 
 	router.PUT("/quota/auto-refresh/settings", func(c *gin.Context) {
+		if rejectViewerQuotaMutation(c) {
+			return
+		}
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)
 			return
@@ -80,6 +87,10 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_indexes are required"})
 			return
 		}
+		if !viewerScopeAllowsQuotaAuthIndexes(c, request.AuthIndexes) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
 
 		response, err := provider.GetCachedQuota(c.Request.Context(), quota.CacheRequest{AuthIndexes: request.AuthIndexes})
 		if err != nil {
@@ -96,6 +107,9 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 	})
 
 	router.GET("/quota/inspection", func(c *gin.Context) {
+		if rejectViewerQuotaMutation(c) {
+			return
+		}
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)
 			return
@@ -111,6 +125,9 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 	})
 
 	router.POST("/quota/inspection", func(c *gin.Context) {
+		if rejectViewerQuotaMutation(c) {
+			return
+		}
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)
 			return
@@ -126,6 +143,9 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 	})
 
 	router.POST("/quota/refresh", func(c *gin.Context) {
+		if rejectViewerQuotaMutation(c) {
+			return
+		}
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)
 			return
@@ -159,6 +179,9 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 	})
 
 	router.GET("/quota/refresh/:auth_index", func(c *gin.Context) {
+		if rejectViewerQuotaMutation(c) {
+			return
+		}
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)
 			return
@@ -184,6 +207,9 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 		c.JSON(http.StatusOK, response)
 	})
 	router.GET("/quota/reset-credits/:auth_index", func(c *gin.Context) {
+		if rejectViewerQuotaMutation(c) {
+			return
+		}
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)
 			return
@@ -201,6 +227,9 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 		c.JSON(http.StatusOK, response)
 	})
 	router.POST("/quota/reset", func(c *gin.Context) {
+		if rejectViewerQuotaMutation(c) {
+			return
+		}
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)
 			return
@@ -250,6 +279,42 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 		c.JSON(http.StatusOK, response)
 	})
 
+}
+
+// rejectViewerQuotaMutation 阻止 API Key Viewer 访问或触发动态配额操作。
+// Viewer 仅可读取被授予认证文件的缓存额度，不能读取重置信用额度、刷新、巡检、修改自动刷新设置或重置配额。
+func rejectViewerQuotaMutation(c *gin.Context) bool {
+	if _, ok := accessscope.ViewerScopeFromContext(c.Request.Context()); !ok {
+		return false
+	}
+	c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+	return true
+}
+
+func viewerScopeAllowsQuotaAuthIndexes(c *gin.Context, authIndexes []string) bool {
+	scope, scoped := accessscope.ViewerScopeFromContext(c.Request.Context())
+	if !scoped {
+		return true
+	}
+	allowed := make(map[string]struct{}, len(scope.AuthIndexes))
+	for _, value := range scope.AuthIndexes {
+		if authIndex := strings.TrimSpace(value); authIndex != "" {
+			allowed[authIndex] = struct{}{}
+		}
+	}
+	if len(allowed) == 0 {
+		return false
+	}
+	for _, value := range authIndexes {
+		authIndex := strings.TrimSpace(value)
+		if authIndex == "" {
+			return false
+		}
+		if _, ok := allowed[authIndex]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func quotaProviderErrorStatus(err error) int {

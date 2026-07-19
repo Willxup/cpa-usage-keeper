@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"cpa-usage-keeper/internal/accessscope"
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
@@ -291,6 +292,123 @@ func TestUsageServiceRejectsDeletedAPIKeyID(t *testing.T) {
 	_, err = provider.GetUsageOverview(context.Background(), servicedto.UsageFilter{APIKeyID: strconv.FormatInt(activeKeys[0].ID, 10)})
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("expected deleted key to return record not found, got %v", err)
+	}
+}
+
+func TestUsageServiceViewerScopeForcesAPIKeyAndAuthFileFilters(t *testing.T) {
+	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-service-viewer-scope.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	start := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
+	end := start.Add(2 * time.Hour)
+	if err := repository.SyncCPAAPIKeys(db, []string{"viewer-key", "other-key"}, end); err != nil {
+		t.Fatalf("SyncCPAAPIKeys returned error: %v", err)
+	}
+	allowedFileName := "viewer-allowed.json"
+	if err := db.Create([]entities.UsageIdentity{
+		{Name: "Allowed auth file", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-allowed", FileName: &allowedFileName},
+		{Name: "Colliding provider", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "auth-allowed"},
+	}).Error; err != nil {
+		t.Fatalf("create colliding usage identities: %v", err)
+	}
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+		{EventKey: "viewer-allowed", APIGroupKey: "viewer-key", AuthType: "oauth", AuthIndex: "auth-allowed", Model: "allowed-model", Timestamp: start.Add(30 * time.Minute), CacheReadTokens: 7, CacheCreationTokens: 8, TotalTokens: 10},
+		// CPA 的 OAuth/Auth Provider 可以复用 auth_index；Viewer 不能因索引相同而读到 Provider API Key 流量。
+		{EventKey: "viewer-provider-collision", APIGroupKey: "viewer-key", AuthType: "apikey", AuthIndex: "auth-allowed", Model: "provider-collision-model", Timestamp: start.Add(32 * time.Minute), TotalTokens: 500},
+		{EventKey: "viewer-denied-auth", APIGroupKey: "viewer-key", AuthType: "oauth", AuthIndex: "auth-denied", Model: "denied-model", Timestamp: start.Add(35 * time.Minute), TotalTokens: 100},
+		{EventKey: "other-key", APIGroupKey: "other-key", AuthType: "oauth", AuthIndex: "auth-allowed", Model: "other-key-model", Timestamp: start.Add(40 * time.Minute), TotalTokens: 1000},
+	}); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+	if err := repository.AggregateUsageOverviewStats(context.Background(), db, end.Add(time.Hour)); err != nil {
+		t.Fatalf("AggregateUsageOverviewStats returned error: %v", err)
+	}
+	ctx := accessscope.WithViewerScope(context.Background(), accessscope.ViewerScope{
+		CPAAPIKeyID: 99,
+		APIGroupKey: "viewer-key",
+		AuthIndexes: []string{"auth-allowed"},
+	})
+	provider := NewUsageService(db)
+	filter := servicedto.UsageFilter{APIKeyID: "not-a-real-id", Range: "custom", StartTime: &start, EndTime: &end, Page: 1, PageSize: 100}
+
+	overview, err := provider.GetUsageOverview(ctx, filter)
+	if err != nil {
+		t.Fatalf("GetUsageOverview returned error: %v", err)
+	}
+	if overview.Summary.RequestCount != 1 || overview.Summary.TokenCount != 10 {
+		t.Fatalf("expected only the allowed viewer event in overview, got %+v", overview.Summary)
+	}
+	analysis, err := provider.GetAnalysis(ctx, filter)
+	if err != nil {
+		t.Fatalf("GetAnalysis returned error: %v", err)
+	}
+	if len(analysis.ModelComposition) != 1 || analysis.ModelComposition[0].Key != "allowed-model" || analysis.ModelComposition[0].TotalTokens != 10 || analysis.ModelComposition[0].CacheReadTokens != 7 || analysis.ModelComposition[0].CacheCreationTokens != 8 {
+		t.Fatalf("expected analysis to expose only allowed model data, got %+v", analysis.ModelComposition)
+	}
+	if len(analysis.AuthFilesComposition) != 1 || analysis.AuthFilesComposition[0].Key != "auth-allowed" || len(analysis.AIProviderComposition) != 0 {
+		t.Fatalf("expected analysis to expose only the allowed auth file identity, got auth_files=%+v providers=%+v", analysis.AuthFilesComposition, analysis.AIProviderComposition)
+	}
+	events, err := provider.ListUsageEvents(ctx, filter)
+	if err != nil {
+		t.Fatalf("ListUsageEvents returned error: %v", err)
+	}
+	if events.TotalCount != 1 || len(events.Events) != 1 || events.Events[0].AuthIndex != "auth-allowed" || events.Events[0].APIGroupKey != "viewer-key" {
+		t.Fatalf("expected only allowed viewer event, got %+v", events)
+	}
+	options, err := provider.ListUsageEventFilterOptions(ctx, filter)
+	if err != nil {
+		t.Fatalf("ListUsageEventFilterOptions returned error: %v", err)
+	}
+	if len(options.Models) != 1 || options.Models[0] != "allowed-model" {
+		t.Fatalf("expected scoped model options, got %+v", options.Models)
+	}
+	streamed := []servicedto.UsageEventRecord{}
+	if err := provider.StreamUsageEvents(ctx, filter, func(event servicedto.UsageEventRecord) error {
+		streamed = append(streamed, event)
+		return nil
+	}); err != nil {
+		t.Fatalf("StreamUsageEvents returned error: %v", err)
+	}
+	if len(streamed) != 1 || streamed[0].AuthIndex != "auth-allowed" {
+		t.Fatalf("expected scoped exported events, got %+v", streamed)
+	}
+}
+
+func TestUsageServiceViewerScopeFailsClosedWhenAuthFilesAreMissing(t *testing.T) {
+	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-service-empty-viewer-scope.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	provider := NewUsageService(db)
+	ctx := accessscope.WithViewerScope(context.Background(), accessscope.ViewerScope{APIGroupKey: "viewer-key"})
+	_, err = provider.ListUsageEvents(ctx, servicedto.UsageFilter{Page: 1, PageSize: 10})
+	if !errors.Is(err, ErrAPIKeyAuthFileScopeNotConfigured) {
+		t.Fatalf("expected missing viewer auth files to fail closed, got %v", err)
+	}
+}
+
+func TestUsageServiceViewerScopeExcludesProviderAuthIndexCollisionFromRecentCache(t *testing.T) {
+	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-service-viewer-cache-scope.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	now := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	cache := newServiceRecentCacheFromEvents(t, db, now, []entities.UsageEvent{
+		{EventKey: "allowed-oauth", APIGroupKey: "viewer-key", AuthType: "oauth", AuthIndex: "shared-auth", Model: "allowed-model", Timestamp: now.Add(-2 * time.Minute), TotalTokens: 10},
+		{EventKey: "provider-collision", APIGroupKey: "viewer-key", AuthType: "apikey", AuthIndex: "shared-auth", Model: "provider-model", Timestamp: now.Add(-time.Minute), TotalTokens: 500},
+	})
+	ctx := accessscope.WithViewerScope(context.Background(), accessscope.ViewerScope{APIGroupKey: "viewer-key", AuthIndexes: []string{"shared-auth"}})
+	provider := NewUsageServiceWithRecentCache(db, cache)
+	realtime, err := provider.GetUsageOverviewRealtime(ctx, servicedto.UsageFilter{RealtimeWindow: "15m", RealtimeEndTime: &now})
+	if err != nil {
+		t.Fatalf("GetUsageOverviewRealtime returned error: %v", err)
+	}
+	if len(realtime.CurrentUsage.Models) != 1 || realtime.CurrentUsage.Models[0].Key != "allowed-model" || realtime.CurrentUsage.Models[0].Tokens != 10 {
+		t.Fatalf("expected realtime cache to keep only OAuth auth file event, got %+v", realtime.CurrentUsage.Models)
 	}
 }
 

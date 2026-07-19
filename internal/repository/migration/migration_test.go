@@ -64,6 +64,7 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260702_model_price_multiplier",
 		"20260702_create_app_settings",
 		"20260710_backfill_cache_read_tokens",
+		"custom_20260710_create_api_key_auth_file_scopes",
 		"20260711_add_usage_identity_xai_user_id",
 		"20260715_add_usage_event_response_service_tier",
 		"20260715_add_usage_event_generate",
@@ -106,6 +107,9 @@ func TestOpenDatabaseRunsSchemaMigrationsAndAddsUsageEventRedisFields(t *testing
 	}
 	if !db.Migrator().HasTable(&entities.AppSetting{}) {
 		t.Fatal("expected app_settings table to exist")
+	}
+	if !db.Migrator().HasTable(&entities.APIKeyAuthFileScope{}) {
+		t.Fatal("expected api_key_auth_file_scopes table to exist")
 	}
 	if db.Migrator().HasColumn(&entities.RedisUsageInbox{}, "queue_key") {
 		t.Fatal("expected redis_usage_inboxes.queue_key column not to exist")

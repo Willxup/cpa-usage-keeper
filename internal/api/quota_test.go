@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"cpa-usage-keeper/internal/auth"
+	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/quota"
 )
 
@@ -117,6 +119,59 @@ func TestQuotaCacheReturnsCachedCurrentPageQuota(t *testing.T) {
 	body := resp.Body.String()
 	if !contains(body, `"items"`) || !contains(body, `"file_name":"claude-user.json"`) || !contains(body, `"refreshed_at":"2026-05-26T12:00:00Z"`) || contains(body, `"updated_at"`) || !contains(body, `"id":"auth-1"`) || !contains(body, `"label":"Weekly"`) || !contains(body, `"planType":"plus"`) {
 		t.Fatalf("unexpected response body: %s", body)
+	}
+}
+
+func TestQuotaRoutesRestrictViewerToConfiguredAuthFileCache(t *testing.T) {
+	sessions := auth.NewSessionManager(time.Hour)
+	token, _, err := sessions.CreateAPIKeyViewer(42)
+	if err != nil {
+		t.Fatalf("CreateAPIKeyViewer returned error: %v", err)
+	}
+	provider := &quotaProviderStub{cacheResponse: quota.CacheResponse{Items: []quota.CachedQuotaItem{{AuthIndex: "auth-1", Status: quota.RefreshTaskStatusCompleted}}}}
+	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
+	router := NewRouter(nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{
+		Quota:                provider,
+		CPAAPIKeys:           &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, APIKey: "viewer-key"}},
+		APIKeyAuthFileScopes: viewerScopeProviderStub{},
+	})
+
+	request := func(path, body string) *httptest.ResponseRecorder {
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+		req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(resp, req)
+		return resp
+	}
+
+	if resp := request("/api/v1/quota/cache", `{"auth_indexes":["auth-1"]}`); resp.Code != http.StatusOK {
+		t.Fatalf("expected allowed cache request to succeed, got %d %s", resp.Code, resp.Body.String())
+	}
+	if got := strings.Join(provider.cacheRequest.AuthIndexes, ","); got != "auth-1" {
+		t.Fatalf("expected allowed cache request to reach provider, got %q", got)
+	}
+	provider.cacheRequest = quota.CacheRequest{}
+	if resp := request("/api/v1/quota/cache", `{"auth_indexes":["auth-2"]}`); resp.Code != http.StatusForbidden {
+		t.Fatalf("expected foreign auth index to be forbidden, got %d %s", resp.Code, resp.Body.String())
+	}
+	if len(provider.cacheRequest.AuthIndexes) != 0 {
+		t.Fatalf("expected forbidden cache request not to reach provider, got %+v", provider.cacheRequest)
+	}
+	if resp := request("/api/v1/quota/refresh", `{"auth_indexes":["auth-1"]}`); resp.Code != http.StatusForbidden {
+		t.Fatalf("expected viewer refresh to be forbidden, got %d %s", resp.Code, resp.Body.String())
+	}
+	if len(provider.refreshRequest.AuthIndexes) != 0 {
+		t.Fatalf("expected forbidden refresh not to reach provider, got %+v", provider.refreshRequest)
+	}
+	resetCreditsResp := httptest.NewRecorder()
+	resetCreditsReq := httptest.NewRequest(http.MethodGet, "/api/v1/quota/reset-credits/auth-1", nil)
+	resetCreditsReq.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+	resetCreditsReq.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
+	router.ServeHTTP(resetCreditsResp, resetCreditsReq)
+	if resetCreditsResp.Code != http.StatusForbidden {
+		t.Fatalf("expected viewer reset-credit lookup to be forbidden, got %d %s", resetCreditsResp.Code, resetCreditsResp.Body.String())
 	}
 }
 

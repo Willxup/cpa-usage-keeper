@@ -2,17 +2,20 @@ package api
 
 import (
 	"crypto/subtle"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"cpa-usage-keeper/internal/accessscope"
 	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/service"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 const (
@@ -37,9 +40,10 @@ type AuthConfig struct {
 }
 
 type authHandler struct {
-	config            AuthConfig
-	sessions          *auth.SessionManager
-	cpaAPIKeyProvider service.CPAAPIKeyProvider
+	config                      AuthConfig
+	sessions                    *auth.SessionManager
+	cpaAPIKeyProvider           service.CPAAPIKeyProvider
+	apiKeyAuthFileScopeProvider service.APIKeyAuthFileScopeProvider
 
 	mu                  sync.Mutex
 	failedAttempts      map[string]int
@@ -100,6 +104,12 @@ func (h *authHandler) setCPAAPIKeyProvider(provider service.CPAAPIKeyProvider) {
 	}
 }
 
+func (h *authHandler) setAPIKeyAuthFileScopeProvider(provider service.APIKeyAuthFileScopeProvider) {
+	if h != nil {
+		h.apiKeyAuthFileScopeProvider = provider
+	}
+}
+
 func (h *authHandler) registerRoutes(router gin.IRoutes) {
 	router.GET("/session", h.getSession)
 	router.POST("/login", h.login)
@@ -117,6 +127,55 @@ func (h *authHandler) adminMiddleware() gin.HandlerFunc {
 
 func (h *authHandler) apiKeyViewerMiddleware() gin.HandlerFunc {
 	return h.roleMiddleware(auth.RoleAPIKeyViewer)
+}
+
+// viewerScopeMiddleware 为 API Key Viewer 解析本次请求可见的认证文件范围。
+// 管理员请求不写入 scope，保持上游全部管理能力不变。
+func (h *authHandler) viewerScopeMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		sessionValue, exists := c.Get("auth_session")
+		session, ok := sessionValue.(auth.Session)
+		if !exists || !ok || session.Role != auth.RoleAPIKeyViewer {
+			c.Next()
+			return
+		}
+		// 先确认登录使用的 CPA API Key 仍有效。这样失效 Key 的语义保持为 401 并立即清理会话，
+		// 不会被后续“未配置认证文件范围”的 403 掩盖。
+		if h != nil && h.cpaAPIKeyProvider != nil {
+			resolved := resolveSessionToken(c)
+			if token, tokenOK := c.Get("auth_token"); tokenOK {
+				if value, valueOK := token.(string); valueOK {
+					resolved.Token = value
+				}
+			}
+			if _, active := h.activeViewerAPIKey(c, resolved, session); !active {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+				return
+			}
+		}
+		if h == nil || h.apiKeyAuthFileScopeProvider == nil || session.CPAAPIKeyID <= 0 {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "auth file access is not configured"})
+			return
+		}
+		scope, err := h.apiKeyAuthFileScopeProvider.ResolveAPIKeyViewerScope(c.Request.Context(), session.CPAAPIKeyID)
+		if err != nil {
+			switch {
+			case isAPIKeyAuthFileScopeAccessDenied(err):
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "auth file access is not configured"})
+			default:
+				writeInternalError(c, "resolve api key auth file scope failed", err)
+			}
+			return
+		}
+		c.Request = c.Request.WithContext(accessscope.WithViewerScope(c.Request.Context(), scope))
+		c.Next()
+	}
+}
+
+func isAPIKeyAuthFileScopeAccessDenied(err error) bool {
+	return errors.Is(err, service.ErrAPIKeyAuthFileScopeNotConfigured) ||
+		errors.Is(err, service.ErrAPIKeyAuthFileScopeUnresolved) ||
+		errors.Is(err, gorm.ErrRecordNotFound)
 }
 
 func (h *authHandler) roleMiddleware(allowedRoles ...auth.Role) gin.HandlerFunc {
@@ -281,6 +340,16 @@ func (h *authHandler) apiKeyLogin(c *gin.Context) {
 		return
 	}
 	h.clearFailedAttempts(clientKey)
+	if h.apiKeyAuthFileScopeProvider != nil {
+		if _, err := h.apiKeyAuthFileScopeProvider.ResolveAPIKeyViewerScope(c.Request.Context(), row.ID); err != nil {
+			if isAPIKeyAuthFileScopeAccessDenied(err) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "auth file access is not configured"})
+				return
+			}
+			writeInternalError(c, "resolve api key auth file scope during login failed", err)
+			return
+		}
+	}
 	resolved := resolveSessionToken(c)
 	token, expiresAt, err := h.sessions.CreateAPIKeyViewerWithSource(row.ID, resolved.Source)
 	if err != nil {

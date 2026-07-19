@@ -9,8 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"cpa-usage-keeper/internal/accessscope"
 	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/service"
 )
 
 type authCPAAPIKeyStub struct {
@@ -59,6 +61,25 @@ func (s *authCPAAPIKeyStub) FindActiveCPAAPIKeyByID(_ context.Context, id int64)
 
 func (s *authCPAAPIKeyStub) UpdateCPAAPIKeyAlias(context.Context, int64, string) (entities.CPAAPIKey, error) {
 	return s.row, nil
+}
+
+type authAPIKeyAuthFileScopeStub struct {
+	scope     accessscope.ViewerScope
+	err       error
+	resolveID int64
+}
+
+func (s *authAPIKeyAuthFileScopeStub) ListAPIKeyAuthFileScopes(context.Context, int64) ([]string, error) {
+	return nil, s.err
+}
+
+func (s *authAPIKeyAuthFileScopeStub) ReplaceAPIKeyAuthFileScopes(_ context.Context, _ int64, names []string) ([]string, error) {
+	return names, s.err
+}
+
+func (s *authAPIKeyAuthFileScopeStub) ResolveAPIKeyViewerScope(_ context.Context, id int64) (accessscope.ViewerScope, error) {
+	s.resolveID = id
+	return s.scope, s.err
 }
 
 func TestAuthSessionReportsAuthenticatedWhenDisabled(t *testing.T) {
@@ -198,6 +219,33 @@ func TestAuthAPIKeyLoginFailuresAreGenericUnauthorized(t *testing.T) {
 		if resp.Code != http.StatusUnauthorized || !contains(resp.Body.String(), "invalid credentials") {
 			t.Fatalf("expected generic 401 for %s, got %d %s", body, resp.Code, resp.Body.String())
 		}
+	}
+}
+
+func TestAuthAPIKeyLoginRejectsUnconfiguredAuthFileScope(t *testing.T) {
+	sessions := auth.NewSessionManager(time.Hour)
+	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
+	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, APIKey: "sk-live"}}
+	scopeProvider := &authAPIKeyAuthFileScopeStub{err: service.ErrAPIKeyAuthFileScopeNotConfigured}
+	router := NewRouter(nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{
+		CPAAPIKeys:           keyProvider,
+		APIKeyAuthFileScopes: scopeProvider,
+	})
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/api-key-login", strings.NewReader(`{"apiKey":"sk-live"}`))
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden || !contains(resp.Body.String(), "auth file access is not configured") {
+		t.Fatalf("expected unconfigured scope to reject login with 403, got %d %s", resp.Code, resp.Body.String())
+	}
+	if scopeProvider.resolveID != 42 {
+		t.Fatalf("expected scope resolution for API key 42, got %d", scopeProvider.resolveID)
+	}
+	if len(resp.Result().Cookies()) != 0 {
+		t.Fatalf("expected rejected login not to create a session cookie, got %+v", resp.Result().Cookies())
 	}
 }
 

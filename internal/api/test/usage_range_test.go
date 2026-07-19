@@ -1,16 +1,32 @@
 package test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
 
+	"cpa-usage-keeper/internal/accessscope"
 	. "cpa-usage-keeper/internal/api"
 	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/entities"
 )
+
+type usageRangeViewerScopeProviderStub struct{}
+
+func (usageRangeViewerScopeProviderStub) ListAPIKeyAuthFileScopes(context.Context, int64) ([]string, error) {
+	return []string{"viewer.json"}, nil
+}
+
+func (usageRangeViewerScopeProviderStub) ReplaceAPIKeyAuthFileScopes(context.Context, int64, []string) ([]string, error) {
+	return []string{"viewer.json"}, nil
+}
+
+func (usageRangeViewerScopeProviderStub) ResolveAPIKeyViewerScope(_ context.Context, id int64) (accessscope.ViewerScope, error) {
+	return accessscope.ViewerScope{CPAAPIKeyID: id, APIGroupKey: "viewer-api-key", AuthFileNames: []string{"viewer.json"}, AuthIndexes: []string{"auth-1"}}, nil
+}
 
 func TestUsageRoutesAcceptBoundedRollingRanges(t *testing.T) {
 	for _, tc := range []struct {
@@ -71,7 +87,10 @@ func TestKeyOverviewAcceptsBoundedRollingRange(t *testing.T) {
 	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, APIKey: "sk-cpa-viewer", DisplayKey: "sk-...viewer"}}
 	sessions := auth.NewSessionManager(time.Hour)
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
+	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{
+		CPAAPIKeys:           keyProvider,
+		APIKeyAuthFileScopes: usageRangeViewerScopeProviderStub{},
+	})
 	token, _, err := sessions.CreateAPIKeyViewerWithSource(42, auth.SessionSourceStandard)
 	if err != nil {
 		t.Fatalf("create API key viewer session: %v", err)
@@ -195,7 +214,10 @@ func TestKeyOverviewAcceptsCustomRange(t *testing.T) {
 	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, APIKey: "sk-cpa-viewer", DisplayKey: "sk-...viewer"}}
 	sessions := auth.NewSessionManager(time.Hour)
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
+	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{
+		CPAAPIKeys:           keyProvider,
+		APIKeyAuthFileScopes: usageRangeViewerScopeProviderStub{},
+	})
 	token, _, err := sessions.CreateAPIKeyViewerWithSource(42, auth.SessionSourceStandard)
 	if err != nil {
 		t.Fatalf("create API key viewer session: %v", err)

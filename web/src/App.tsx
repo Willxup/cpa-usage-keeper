@@ -6,7 +6,6 @@ import './embed/cpamcEmbed.css';
 import { ApiError, appPath, clearEmbedSessionToken, getSession, login, loginWithCPAAPIKey } from './lib/api';
 import type { AuthRole, AuthSessionAPIKeySummary } from './lib/types';
 import { AppFooter } from './components/AppFooter';
-import { KeyOverviewPage } from './pages/KeyOverviewPage';
 import { LoginPage } from './pages/LoginPage';
 import { UsagePage } from './pages/UsagePage';
 import { cpamcEmbedSearch, isCPAMCEmbed, notifyCPAMCEmbedReady } from './embed/cpamcEmbed';
@@ -14,9 +13,7 @@ import { useUsageStatsStore } from './stores/useUsageStatsStore';
 
 type AuthState = 'checking' | 'authenticated' | 'unauthenticated';
 
-export const getRoleHomePath = (role: AuthRole): '/' | '/key-overview' => (
-  role === 'api_key_viewer' ? '/key-overview' : '/'
-);
+export const getRoleHomePath = (_role: AuthRole): '/' => '/';
 
 const stripBasePath = (pathname: string, basePath: string | undefined): string => {
   if (!basePath || basePath === '/' || basePath === '__APP_BASE_PATH__') return pathname || '/';
@@ -32,7 +29,7 @@ function App() {
   const { t } = useTranslation();
   const [authState, setAuthState] = useState<AuthState>('checking');
   const [authRole, setAuthRole] = useState<AuthRole | null>(null);
-  const [sessionAPIKey, setSessionAPIKey] = useState<AuthSessionAPIKeySummary | undefined>();
+  const [, setSessionAPIKey] = useState<AuthSessionAPIKeySummary | undefined>();
   const [adminLoginError, setAdminLoginError] = useState('');
   const [apiKeyLoginError, setAPIKeyLoginError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -115,12 +112,14 @@ function App() {
         clearSession();
         return;
       }
-      window.history.replaceState(null, '', appPath('/key-overview') + cpamcEmbedSearch());
+      window.history.replaceState(null, '', appPath('/') + cpamcEmbedSearch());
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         setAPIKeyLoginError(t('auth.invalid_api_key'));
       } else if (error instanceof ApiError && error.status === 429) {
         setAPIKeyLoginError(t('auth.login_rate_limited'));
+      } else if (error instanceof ApiError && error.status === 403) {
+        setAPIKeyLoginError(t('auth.api_key_scope_denied'));
       } else {
         setAPIKeyLoginError(t('auth.api_key_login_failed'));
       }
@@ -136,7 +135,7 @@ function App() {
   } else if (authState === 'unauthenticated') {
     page = <LoginPage loading={submitting} adminError={adminLoginError} apiKeyError={apiKeyLoginError} onPasswordSubmit={handlePasswordLogin} onAPIKeySubmit={handleAPIKeyLogin} />;
   } else if (authRole === 'api_key_viewer') {
-    page = <KeyOverviewPage apiKey={sessionAPIKey} onAuthRequired={clearSession} />;
+    page = <UsagePage viewerMode onAuthRequired={clearSession} />;
   } else {
     page = <UsagePage onAuthRequired={clearSession} />;
   }

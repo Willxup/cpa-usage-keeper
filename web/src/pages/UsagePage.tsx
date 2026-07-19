@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchVersion, logout, revokeAuthSession, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
+import { ApiError, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAuthSessions, fetchCpaApiKeyAuthFileScopes, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchVersion, logout, revokeAuthSession, updateCpaApiKeyAlias, updateCpaApiKeyAuthFileScopes, type UsageEventsExportFormat } from '@/lib/api';
 import type { AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageCustomRange, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption, UsageTimeRange, VersionResponse } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
@@ -17,6 +17,7 @@ import {
   OverviewRealtimePanel,
   AnalysisPanel,
   ApiKeySettingsCard,
+  getActiveAuthFileScopeNames,
   SessionSettingsCard,
   PriceSettingsCard,
   AuthFileCredentialsSection,
@@ -56,6 +57,7 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
 ];
 const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'auth-files', 'ai-provider', 'settings'] as const;
 type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];
+const VIEWER_USAGE_TAB_OPTIONS: readonly UsageTab[] = ['overview', 'analysis', 'events', 'auth-files'];
 type Translate = (key: string) => string;
 const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
   overview: 'usage_stats.tab_overview',
@@ -663,12 +665,13 @@ export const normalizeUsageTabValue = (value: unknown): UsageTab | null => {
   return isUsageTab(value) ? value : null;
 };
 
-export const getUsageTabOptions = (translate: Translate): Array<{ value: UsageTab; label: string }> =>
-  USAGE_TAB_OPTIONS.map((value) => ({
+export const getUsageTabOptions = (translate: Translate, viewerMode = false): Array<{ value: UsageTab; label: string }> =>
+  (viewerMode ? VIEWER_USAGE_TAB_OPTIONS : USAGE_TAB_OPTIONS).map((value) => ({
     value,
     label: translate(USAGE_TAB_LABEL_KEYS[value]),
   }));
 
+export const isViewerUsageTab = (value: UsageTab): boolean => VIEWER_USAGE_TAB_OPTIONS.includes(value);
 const loadUsageTab = (): UsageTab => {
   try {
     if (typeof localStorage === 'undefined') {
@@ -718,7 +721,12 @@ export const triggerBrowserURLDownload = (url: string) => {
   link.remove();
 };
 
-export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
+export interface UsagePageProps {
+  onAuthRequired?: () => void
+  viewerMode?: boolean
+}
+
+export function UsagePage({ onAuthRequired, viewerMode = false }: UsagePageProps) {
   const { t } = useTranslation();
   const isMobile = useMediaQuery('(max-width: 768px)');
   const isEmbeddedInCPAMC = isCPAMCEmbed();
@@ -726,7 +734,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const setTheme = useThemeStore((state) => state.setTheme);
   const isDark = resolvedTheme === 'dark';
-  const [activeTab, setActiveTab] = useState<UsageTab>(loadUsageTab);
+  const [activeTab, setActiveTab] = useState<UsageTab>(() => {
+    const initialTab = loadUsageTab();
+    return viewerMode && !isViewerUsageTab(initialTab) ? DEFAULT_USAGE_TAB : initialTab;
+  });
   const [loadedTimeRange] = useState(loadTimeRange);
   const pendingLegacyCustomRangeRef = useRef(loadedTimeRange.pendingLegacyCustomRange);
   const [timeRangeState, setTimeRangeState] = useState<StoredUsageRangeState>(loadedTimeRange.state);
@@ -803,7 +814,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [apiKeySettingsLoading, setApiKeySettingsLoading] = useState(false);
   const [apiKeySettingsError, setApiKeySettingsError] = useState('');
   const [apiKeySettingsSavingId, setApiKeySettingsSavingId] = useState<string | null>(null);
+  const [apiKeyAuthFileScopes, setApiKeyAuthFileScopes] = useState<Record<string, string[]>>({});
+  const [apiKeyAuthFileScopesLoading, setApiKeyAuthFileScopesLoading] = useState(false);
+  const [apiKeyAuthFileScopeOptions, setApiKeyAuthFileScopeOptions] = useState<string[]>([]);
+  const [apiKeyAuthFileScopeOptionsLoading, setApiKeyAuthFileScopeOptionsLoading] = useState(false);
+  const [apiKeyAuthFileScopeSavingId, setApiKeyAuthFileScopeSavingId] = useState<string | null>(null);
   const apiKeySettingsRequestControllerRef = useRef<AbortController | null>(null);
+  const apiKeyAuthFileScopeOptionsRequestControllerRef = useRef<AbortController | null>(null);
   const [authSessions, setAuthSessions] = useState<AuthManagedSessionItem[]>([]);
   const [authSessionsLoading, setAuthSessionsLoading] = useState(false);
   const [authSessionsError, setAuthSessionsError] = useState('');
@@ -856,6 +873,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const credentialsData = useCredentialsTabData({
     enabledAuthFiles: credentialSectionVisibility.showAuthFiles && pageVisible,
     enabledAiProviders: credentialSectionVisibility.showAiProvider && pageVisible,
+    readOnly: viewerMode,
     onAuthRequired,
     onNotice: showTopNotice,
   });
@@ -865,7 +883,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [analysisData, setAnalysisData] = useState<AnalysisResponse | null>(null);
   const analysisRequestControllerRef = useRef<AbortController | null>(null);
 
-  const tabOptions = useMemo(() => getUsageTabOptions(t), [t]);
+  const tabOptions = useMemo(() => getUsageTabOptions(t, viewerMode), [t, viewerMode]);
   const apiKeySelectOptions = useMemo(
     () => [
       { value: '', label: t('usage_stats.api_key_filter_all') },
@@ -896,6 +914,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   })() : '';
   const cpaManagementURL = useMemo(() => getBackToCPALinkURL(status), [status]);
 
+  useEffect(() => {
+    if (viewerMode && !isViewerUsageTab(activeTab)) {
+      setActiveTab(DEFAULT_USAGE_TAB);
+    }
+  }, [activeTab, viewerMode]);
   const loadApiKeyOptions = useCallback(async () => {
     apiKeyOptionsRequestControllerRef.current?.abort();
     const controller = new AbortController();
@@ -956,6 +979,38 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [onAuthRequired]);
 
+  const loadApiKeyAuthFileScopeOptions = useCallback(async () => {
+    apiKeyAuthFileScopeOptionsRequestControllerRef.current?.abort();
+    const controller = new AbortController();
+    apiKeyAuthFileScopeOptionsRequestControllerRef.current = controller;
+
+    setApiKeyAuthFileScopeOptionsLoading(true);
+    try {
+      const response = await fetchUsageIdentities(controller.signal);
+      if (apiKeyAuthFileScopeOptionsRequestControllerRef.current !== controller) {
+        return;
+      }
+      setApiKeyAuthFileScopeOptions(getActiveAuthFileScopeNames(response.identities ?? []));
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      if (apiKeyAuthFileScopeOptionsRequestControllerRef.current === controller) {
+        setApiKeyAuthFileScopeOptions([]);
+      }
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      setApiKeySettingsError(error instanceof Error ? error.message : 'Failed to load auth file options');
+    } finally {
+      if (apiKeyAuthFileScopeOptionsRequestControllerRef.current === controller) {
+        setApiKeyAuthFileScopeOptionsLoading(false);
+        apiKeyAuthFileScopeOptionsRequestControllerRef.current = null;
+      }
+    }
+  }, [onAuthRequired]);
+
   const loadAuthSessions = useCallback(async () => {
     authSessionsRequestControllerRef.current?.abort();
     const controller = new AbortController();
@@ -1006,6 +1061,25 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       showTopNotice('error', t('usage_stats.api_key_settings_alias_save_failed'));
     } finally {
       setApiKeySettingsSavingId(null);
+    }
+  }, [onAuthRequired, showTopNotice, t]);
+
+  const handleSaveApiKeyAuthFileScopes = useCallback(async (id: string, authFileNames: string[]) => {
+    setApiKeyAuthFileScopeSavingId(id);
+    setApiKeySettingsError('');
+    try {
+      const updated = await updateCpaApiKeyAuthFileScopes(id, authFileNames);
+      setApiKeyAuthFileScopes((current) => ({ ...current, [id]: updated.authFileNames ?? [] }));
+      showTopNotice('success', t('usage_stats.api_key_auth_file_scope_save_success'));
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      setApiKeySettingsError(error instanceof Error ? error.message : 'Failed to update API key auth file scope');
+      showTopNotice('error', t('usage_stats.api_key_auth_file_scope_save_failed'));
+    } finally {
+      setApiKeyAuthFileScopeSavingId((current) => (current === id ? null : current));
     }
   }, [onAuthRequired, showTopNotice, t]);
 
@@ -1159,6 +1233,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, []);
 
   useEffect(() => {
+    if (viewerMode) {
+      setStatus(null);
+      setStatusError('');
+      return undefined;
+    }
     const requestController = new AbortController();
     void fetchStatus(requestController.signal)
       .then((nextStatus) => {
@@ -1175,7 +1254,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     return () => {
       requestController.abort();
     };
-  }, [onAuthRequired]);
+  }, [onAuthRequired, viewerMode]);
 
   useEffect(() => {
     const requestController = new AbortController();
@@ -1191,18 +1270,60 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [onAuthRequired]);
 
   useEffect(() => {
+    if (viewerMode) {
+      setApiKeyOptions([]);
+      setSelectedApiKeyId('');
+      return undefined;
+    }
     void loadApiKeyOptions();
     return () => {
       apiKeyOptionsRequestControllerRef.current?.abort();
       apiKeyOptionsRequestControllerRef.current = null;
     };
-  }, [loadApiKeyOptions]);
+  }, [loadApiKeyOptions, viewerMode]);
 
   useEffect(() => {
     if (selectedApiKeyId && !apiKeyOptions.some((option) => option.id === selectedApiKeyId)) {
       setSelectedApiKeyId('');
     }
   }, [apiKeyOptions, selectedApiKeyId]);
+
+  useEffect(() => {
+    if (viewerMode || activeTab !== 'settings') {
+      return undefined;
+    }
+    if (apiKeySettings.length === 0) {
+      setApiKeyAuthFileScopes({});
+      setApiKeyAuthFileScopesLoading(false);
+      return undefined;
+    }
+    const controller = new AbortController();
+    setApiKeyAuthFileScopesLoading(true);
+    void Promise.all(apiKeySettings.map(async (item) => [
+      item.id,
+      await fetchCpaApiKeyAuthFileScopes(item.id, controller.signal),
+    ] as const))
+      .then((rows) => {
+        if (controller.signal.aborted) return;
+        setApiKeyAuthFileScopes(Object.fromEntries(rows.map(([id, response]) => [id, response.authFileNames ?? []])));
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        if (error instanceof ApiError && error.status === 401) {
+          onAuthRequired?.();
+          return;
+        }
+        setApiKeySettingsError(error instanceof Error ? error.message : 'Failed to load API key auth file scopes');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setApiKeyAuthFileScopesLoading(false);
+        }
+      });
+    return () => {
+      controller.abort();
+    };
+  }, [activeTab, apiKeySettings, onAuthRequired, viewerMode]);
 
   useEffect(() => {
     if (!shouldShowUpdateCheckButton(versionInfo)) {
@@ -1578,24 +1699,31 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [activeTab, loadAnalysis]);
 
   useEffect(() => {
-    if (activeTab !== 'settings') {
+    if (viewerMode || activeTab !== 'settings') {
       apiKeySettingsRequestControllerRef.current?.abort();
       apiKeySettingsRequestControllerRef.current = null;
       setApiKeySettingsLoading(false);
+      apiKeyAuthFileScopeOptionsRequestControllerRef.current?.abort();
+      apiKeyAuthFileScopeOptionsRequestControllerRef.current = null;
+      setApiKeyAuthFileScopeOptionsLoading(false);
+      setApiKeyAuthFileScopeOptions([]);
       authSessionsRequestControllerRef.current?.abort();
       authSessionsRequestControllerRef.current = null;
       setAuthSessionsLoading(false);
       return;
     }
     void loadApiKeySettings();
+    void loadApiKeyAuthFileScopeOptions();
     void loadAuthSessions();
     return () => {
       apiKeySettingsRequestControllerRef.current?.abort();
       apiKeySettingsRequestControllerRef.current = null;
+      apiKeyAuthFileScopeOptionsRequestControllerRef.current?.abort();
+      apiKeyAuthFileScopeOptionsRequestControllerRef.current = null;
       authSessionsRequestControllerRef.current?.abort();
       authSessionsRequestControllerRef.current = null;
     };
-  }, [activeTab, loadApiKeySettings, loadAuthSessions]);
+  }, [activeTab, loadApiKeyAuthFileScopeOptions, loadApiKeySettings, loadAuthSessions, viewerMode]);
 
   useEffect(() => {
     const next = sanitizeRequestEventFilters(
@@ -1677,7 +1805,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 );
               })}
             </div>
-            {shouldShowUpdateCheckButton(versionInfo) && (
+            {!viewerMode && shouldShowUpdateCheckButton(versionInfo) && (
               <div className={styles.updateCheckSwitcher} role="group" aria-label={t('usage_stats.check_updates')}>
                 <button
                   type="button"
@@ -1725,7 +1853,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </div>
             )}
 
-            {(!isEmbeddedInCPAMC && cpaManagementURL) && (
+            {!viewerMode && !isEmbeddedInCPAMC && cpaManagementURL && (
               <div className={styles.toolbarMetaRow}>
                 <div className={styles.toolbarMetaRight}>
                   <a
@@ -1796,7 +1924,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   >
                     <div className={styles.usageFilterTransitionInner}>
                       <div className={styles.usageFilterBar}>
-                    <div className={styles.apiKeyFilterGroup}>
+                        {!viewerMode && (
+                          <div className={styles.apiKeyFilterGroup}>
                     <label className={`${styles.usageFilterField} ${styles.apiKeyFilterField}`.trim()}>
                       <span className={styles.usageFilterLabel}>{t('usage_stats.api_key_filter')}</span>
                       <Select
@@ -1809,14 +1938,15 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                         dropdownMinWidth={180}
                       />
                     </label>
-                  </div>
-                    <TimeRangeControl
-                      value={timeRange}
-                      customRange={customRange}
-                      timeZone={rangeTimeZone}
-                      onChange={handleTimeRangeChange}
-                      ariaLabel={t('usage_stats.range_filter')}
-                    />
+                          </div>
+                        )}
+                        <TimeRangeControl
+                          value={timeRange}
+                          customRange={customRange}
+                          timeZone={rangeTimeZone}
+                          onChange={handleTimeRangeChange}
+                          ariaLabel={t('usage_stats.range_filter')}
+                        />
                       </div>
                     </div>
                   </div>
@@ -1919,13 +2049,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   onResultFilterChange={handleEventsResultFilterChange}
                   onExport={handleEventsExport}
                   onVisibleColumnIdsChange={setEventsVisibleColumnIds}
-                  requestLogAccessEnabled={requestLogAccessEnabled}
-                  onRequestLogOpen={handleRequestLogOpen}
+	                  requestLogAccessEnabled={!viewerMode && requestLogAccessEnabled}
+	                  onRequestLogOpen={viewerMode ? undefined : handleRequestLogOpen}
                   requestLogLoadingEventId={requestLogLoadingEventId}
                   requestLogResponse={requestLogResponse}
                   requestLogError={requestLogError}
-                  onRequestLogClose={handleRequestLogClose}
-                  onRequestLogDownload={handleRequestLogDownload}
+                  onRequestLogClose={viewerMode ? undefined : handleRequestLogClose}
+                  onRequestLogDownload={viewerMode ? undefined : handleRequestLogDownload}
                   requestLogDownloading={requestLogDownloading}
                 />
               </>
@@ -1965,10 +2095,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       onRefreshQuotaForAuthIndex={credentialsData.refreshQuotaForAuthIndex}
                       onResetQuotaForAuthIndex={credentialsData.resetQuotaForAuthIndex}
                       aliasSavingId={credentialsData.aliasSavingId}
-                      onSaveAlias={credentialsData.saveUsageIdentityAlias}
+                      onSaveAlias={viewerMode ? undefined : credentialsData.saveUsageIdentityAlias}
                       onRefreshInspectionStatus={credentialsData.refreshQuotaInspectionStatus}
                       onStartInspection={credentialsData.startQuotaInspection}
                       onAfterInvalidAccountAction={credentialsData.refresh}
+                      readOnly={viewerMode}
                     />
                   )}
                   {credentialSectionVisibility.showAiProvider && (
@@ -2004,6 +2135,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   loading={apiKeySettingsLoading}
                   savingId={apiKeySettingsSavingId}
                   onSaveAlias={handleSaveApiKeyAlias}
+                  authFileScopes={apiKeyAuthFileScopes}
+                  authFileScopesLoading={apiKeyAuthFileScopesLoading}
+                  authFileScopeOptions={apiKeyAuthFileScopeOptions}
+                  authFileScopeOptionsLoading={apiKeyAuthFileScopeOptionsLoading}
+                  authFileScopeSavingId={apiKeyAuthFileScopeSavingId}
+                  onSaveAuthFileScopes={handleSaveApiKeyAuthFileScopes}
                   onNotice={showTopNotice}
                 />
                 <PriceSettingsCard

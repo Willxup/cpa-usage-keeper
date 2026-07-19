@@ -552,6 +552,27 @@ describe('UsagePage toolbar styles', () => {
     expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasInput\s*\{[\s\S]*?max-width:\s*100%;/)
   })
 
+  it('places the API key and alias side by side above the full-width auth-file scope field', () => {
+    const listBlock = styleRuleBlock(usagePageStyles, '.apiKeySettingsList')
+    const itemBlock = styleRuleBlock(usagePageStyles, '.apiKeySettingsItem')
+    const topRowBlock = styleRuleBlock(usagePageStyles, '.apiKeySettingsTopRow')
+    const topRowStart = apiKeySettingsSource.indexOf('<div className={styles.apiKeySettingsTopRow}>')
+    const summaryStart = apiKeySettingsSource.indexOf('<div className={styles.apiKeySettingsSummary}>', topRowStart)
+    const copyButtonStart = apiKeySettingsSource.indexOf('styles.apiKeySettingsCopyButton', summaryStart)
+    const aliasStart = apiKeySettingsSource.indexOf("t('usage_stats.api_key_settings_alias')", summaryStart)
+    const scopeStart = apiKeySettingsSource.indexOf('styles.apiKeySettingsScopeForm', aliasStart)
+
+    expect(listBlock).toContain('grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr));')
+    expect(itemBlock).toContain('grid-template-columns: minmax(0, 1fr);')
+    expect(topRowBlock).toContain('display: grid;')
+    expect(topRowBlock).toContain('grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);')
+    expect(topRowStart).toBeGreaterThanOrEqual(0)
+    expect(summaryStart).toBeGreaterThan(topRowStart)
+    expect(copyButtonStart).toBeGreaterThan(summaryStart)
+    expect(aliasStart).toBeGreaterThan(copyButtonStart)
+    expect(scopeStart).toBeGreaterThan(aliasStart)
+  })
+
   it('lets Session Management content shrink until it needs to scroll', () => {
     const sessionSettingsBodyBlock = usagePageStyles.slice(
       usagePageStyles.indexOf('.sessionSettingsBody {'),

@@ -13,8 +13,12 @@ export const isSupportedLanguage = (language: string | null): language is Suppor
 
 const getInitialLanguage = (): SupportedLanguage => {
   if (typeof window === 'undefined') return DEFAULT_LANGUAGE;
-  const saved = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
-  return isSupportedLanguage(saved) ? saved : DEFAULT_LANGUAGE;
+  try {
+    const saved = window.localStorage?.getItem(LANGUAGE_STORAGE_KEY) ?? null;
+    return isSupportedLanguage(saved) ? saved : DEFAULT_LANGUAGE;
+  } catch {
+    return DEFAULT_LANGUAGE;
+  }
 };
 
 const resources = {
@@ -46,7 +50,7 @@ const resources = {
         login_subtitle: 'Preserve CPA request history, aggregate usage analytics, and inspect request health, model activity, and API statistics from a protected console.',
         console_kicker: 'Access control',
         console_title: 'Choose your console',
-        console_hint: 'Administrators manage the full dashboard. API Key viewers see analytics scoped to their own key.',
+        console_hint: 'Administrators manage the full dashboard. API Key viewers see a read-only dashboard scoped to their own key and permitted auth files.',
         capabilities_label: 'Usage console capabilities',
         capability_persistence: 'Persistent CPA usage history',
         capability_analytics: 'Aggregation analytics by range',
@@ -60,14 +64,15 @@ const resources = {
         password_hint: 'Use the configured dashboard password for full administrative access.',
         api_key_label: 'CPA API Key',
         api_key_placeholder: 'Paste your CPA API Key',
-        api_key_hint: 'API Key access opens a read-only overview for that key only.',
+        api_key_hint: 'API Key access opens a read-only dashboard limited to this key and the auth files permitted by an administrator.',
         login_submit: 'Open admin console',
-        api_key_login_submit: 'Open key overview',
+        api_key_login_submit: 'Open read-only dashboard',
         invalid_password: 'Incorrect password',
         invalid_api_key: 'API Key is incorrect',
+        api_key_scope_denied: 'This API Key has not been granted access to any active auth files.',
         login_rate_limited: 'Too many attempts. Please wait a moment and try again.',
         login_failed: 'Unable to complete login right now',
-        api_key_login_failed: 'Unable to open the API Key overview right now',
+        api_key_login_failed: 'Unable to open the API Key dashboard right now',
         session_expired: 'Your session expired. Please sign in again.'
       },
       key_overview: {
@@ -469,6 +474,16 @@ const resources = {
         api_key_settings_copy_failed: 'Unable to copy API Key. Select the key manually if needed.',
         api_key_settings_alias_save_success: 'API Key alias saved.',
         api_key_settings_alias_save_failed: 'Unable to save API Key alias.',
+        api_key_auth_file_scope_label: 'Visible auth files',
+        api_key_auth_file_scope_placeholder: 'Select auth files',
+        api_key_auth_file_scope_hint: 'Choose one or more current auth files from the list. Leaving this blank denies Viewer access for this API Key.',
+        api_key_auth_file_scope_selected: '{{count}} selected',
+        api_key_auth_file_scope_empty: 'No active auth files are available.',
+        api_key_auth_file_scope_unavailable: 'Unavailable',
+        api_key_auth_file_scope_save: 'Save scope',
+        api_key_auth_file_scope_saving: 'Saving scope',
+        api_key_auth_file_scope_save_success: 'Auth-file access scope saved.',
+        api_key_auth_file_scope_save_failed: 'Unable to save auth-file access scope.',
         session_settings_title: 'Session Management',
         session_settings_subtitle: 'Review active dashboard sessions and sign out stale access.',
         session_settings_empty: 'No active sessions.',
@@ -613,7 +628,7 @@ const resources = {
         login_subtitle: '持续保存 CPA 请求记录，聚合用量分析，并在受保护的控制台中查看请求健康、模型活动与 API 统计。',
         console_kicker: '访问控制',
         console_title: '选择访问方式',
-        console_hint: '管理员可进入完整控制台；API Key 查看者只能查看该 API Key 对应的只读概览。',
+        console_hint: '管理员可进入完整控制台；API Key 查看者只能查看该 Key 及管理员授权认证文件范围内的只读仪表盘。',
         capabilities_label: '用量控制台能力',
         capability_persistence: 'CPA 用量记录持久保存',
         capability_analytics: '按时间范围聚合分析',
@@ -627,14 +642,15 @@ const resources = {
         password_hint: '使用已配置的控制台密码进入完整管理界面。',
         api_key_label: 'CPA API Key',
         api_key_placeholder: '粘贴你的 CPA API Key',
-        api_key_hint: 'API Key 访问只会打开对应 API Key 的只读用量概览。',
+        api_key_hint: 'API Key 登录后可查看只读仪表盘，数据仅限当前 Key 和管理员授权的认证文件。',
         login_submit: '进入管理控制台',
-        api_key_login_submit: '打开 API Key 概览',
+        api_key_login_submit: '打开只读仪表盘',
         invalid_password: '密码错误',
         invalid_api_key: 'API Key 错误',
+        api_key_scope_denied: '该 API Key 尚未获授权访问任何有效认证文件。',
         login_rate_limited: '尝试次数过多，请稍后再试。',
         login_failed: '当前无法完成登录',
-        api_key_login_failed: '当前无法打开 API Key 概览',
+        api_key_login_failed: '当前无法打开 API Key 仪表盘',
         session_expired: '登录状态已失效，请重新登录。'
       },
       key_overview: {
@@ -1036,6 +1052,16 @@ const resources = {
         api_key_settings_copy_failed: '无法复制 API Key，需要时可手动选择复制。',
         api_key_settings_alias_save_success: 'API Key 别名已保存。',
         api_key_settings_alias_save_failed: '无法保存 API Key 别名。',
+        api_key_auth_file_scope_label: '可见认证文件',
+        api_key_auth_file_scope_placeholder: '选择认证文件',
+        api_key_auth_file_scope_hint: '从列表中多选当前有效的认证文件。留空会拒绝该 API Key 的 Viewer 访问。',
+        api_key_auth_file_scope_selected: '已选择 {{count}} 个',
+        api_key_auth_file_scope_empty: '暂无当前有效的认证文件。',
+        api_key_auth_file_scope_unavailable: '已不可用',
+        api_key_auth_file_scope_save: '保存范围',
+        api_key_auth_file_scope_saving: '保存范围中',
+        api_key_auth_file_scope_save_success: '认证文件可见范围已保存。',
+        api_key_auth_file_scope_save_failed: '无法保存认证文件可见范围。',
         session_settings_title: 'Session 管理',
         session_settings_subtitle: '查看当前有效的仪表盘 session，并退出不需要的访问。',
         session_settings_empty: '暂无有效 session。',
@@ -1180,7 +1206,7 @@ const resources = {
         login_subtitle: '持續保存 CPA 請求記錄，彙整用量分析，並在受保護的控制台中查看請求健康、模型活動與 API 統計。',
         console_kicker: '存取控制',
         console_title: '選擇存取方式',
-        console_hint: '管理員可進入完整控制台；API Key 檢視者只能查看該 API Key 對應的唯讀總覽。',
+        console_hint: '管理員可進入完整控制台；API Key 檢視者只能查看該 Key 與管理員授權認證檔案範圍內的唯讀儀表板。',
         capabilities_label: '用量控制台能力',
         capability_persistence: 'CPA 用量記錄持續保存',
         capability_analytics: '依時間範圍彙整分析',
@@ -1194,14 +1220,15 @@ const resources = {
         password_hint: '使用已設定的控制台密碼進入完整管理介面。',
         api_key_label: 'CPA API Key',
         api_key_placeholder: '貼上你的 CPA API Key',
-        api_key_hint: 'API Key 存取只會開啟對應 API Key 的唯讀用量總覽。',
+        api_key_hint: 'API Key 登入後可查看唯讀儀表板，資料僅限目前 Key 與管理員授權的認證檔案。',
         login_submit: '進入管理控制台',
-        api_key_login_submit: '開啟 API Key 總覽',
+        api_key_login_submit: '開啟唯讀儀表板',
         invalid_password: '密碼錯誤',
         invalid_api_key: 'API Key 錯誤',
+        api_key_scope_denied: '此 API Key 尚未獲授權存取任何有效認證檔案。',
         login_rate_limited: '嘗試次數過多，請稍後再試。',
         login_failed: '目前無法完成登入',
-        api_key_login_failed: '目前無法開啟 API Key 總覽',
+        api_key_login_failed: '目前無法開啟 API Key 儀表板',
         session_expired: '登入狀態已失效，請重新登入。'
       },
       key_overview: {
@@ -1603,6 +1630,16 @@ const resources = {
         api_key_settings_copy_failed: '無法複製 API Key，需要時可手動選取複製。',
         api_key_settings_alias_save_success: 'API Key 別名已儲存。',
         api_key_settings_alias_save_failed: '無法儲存 API Key 別名。',
+        api_key_auth_file_scope_label: '可見認證檔案',
+        api_key_auth_file_scope_placeholder: '選擇認證檔案',
+        api_key_auth_file_scope_hint: '從清單中多選目前有效的認證檔案。留白會拒絕此 API Key 的 Viewer 存取。',
+        api_key_auth_file_scope_selected: '已選擇 {{count}} 個',
+        api_key_auth_file_scope_empty: '目前沒有有效的認證檔案。',
+        api_key_auth_file_scope_unavailable: '已不可用',
+        api_key_auth_file_scope_save: '儲存範圍',
+        api_key_auth_file_scope_saving: '儲存範圍中',
+        api_key_auth_file_scope_save_success: '認證檔案可見範圍已儲存。',
+        api_key_auth_file_scope_save_failed: '無法儲存認證檔案可見範圍。',
         session_settings_title: 'Session 管理',
         session_settings_subtitle: '查看目前有效的儀表板 session，並登出不需要的存取。',
         session_settings_empty: '尚無有效 session。',
@@ -1733,7 +1770,11 @@ if (!i18n.isInitialized) {
 export const persistLanguage = (language: SupportedLanguage) => {
   if (typeof window === 'undefined') return;
   if (!isSupportedLanguage(language)) return;
-  window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+  try {
+    window.localStorage?.setItem(LANGUAGE_STORAGE_KEY, language);
+  } catch {
+    // 浏览器隐私模式或嵌入环境可能禁用 localStorage，语言仍可在当前会话生效。
+  }
 };
 
 export default i18n;

@@ -342,7 +342,7 @@ describe('Credential section styles', () => {
   it('places the Auth Files quota usage mode switch in the pagination toolbar before sorting', () => {
     expect(authFileSectionSource).toContain('credentialQuotaActionStack')
     expect(credentialStyles).toContain('credentialQuotaActionStack')
-    expect(authFileSectionSource).toContain('leadingControls={showHealthMode ? undefined : <QuotaUsageModeSwitch')
+    expect(authFileSectionSource).toContain('leadingControls={showHealthMode || readOnly ? undefined : <QuotaUsageModeSwitch')
     expect(authFileSectionSource).toContain('credentials_quota_usage_mode_label')
     expect(authFileSectionSource).toContain('credentialQuotaModeSwitcher')
     expect(credentialShellSource).toMatch(/\{leadingControls\}[\s\S]*?\{sortOptions/)

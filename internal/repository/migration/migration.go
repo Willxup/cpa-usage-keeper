@@ -54,6 +54,7 @@ const (
 	migrationModelPriceMultiplier                   = "20260702_model_price_multiplier"
 	migrationCreateAppSettings                      = "20260702_create_app_settings"
 	migrationBackfillCacheReadTokens                = "20260710_backfill_cache_read_tokens"
+	migrationCreateAPIKeyAuthFileScopes             = "custom_20260710_create_api_key_auth_file_scopes"
 	migrationAddUsageIdentityXAIUserID              = "20260711_add_usage_identity_xai_user_id"
 	migrationAddUsageEventResponseServiceTier       = "20260715_add_usage_event_response_service_tier"
 	migrationAddUsageEventGenerate                  = "20260715_add_usage_event_generate"
@@ -155,6 +156,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationModelPriceMultiplier, run: addModelPriceMultiplierMigration},
 		{version: migrationCreateAppSettings, run: createAppSettingsMigration},
 		{version: migrationBackfillCacheReadTokens, run: backfillCacheReadTokensMigration},
+		{version: migrationCreateAPIKeyAuthFileScopes, run: createAPIKeyAuthFileScopesMigration},
 		{version: migrationAddUsageIdentityXAIUserID, run: addUsageIdentityXAIUserIDMigration},
 		{version: migrationAddUsageEventResponseServiceTier, run: addUsageEventResponseServiceTierMigration},
 		{version: migrationAddUsageEventGenerate, run: addUsageEventGenerateMigration},

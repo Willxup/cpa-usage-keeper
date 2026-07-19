@@ -113,6 +113,22 @@ const usageIdentityAggregationColumns = "id, auth_type, identity, total_requests
 
 const activeAuthFileUsageIdentityLookupBatchSize = 500
 
+// ScopedUsageIdentityStats 是按一个 CPA API Key 和认证文件范围重新计算的只读统计。
+// UsageIdentity 自身保存的是全局累计值，不能直接返回给 API Key Viewer。
+type ScopedUsageIdentityStats struct {
+	AuthIndex       string
+	TotalRequests   int64
+	SuccessCount    int64
+	FailureCount    int64
+	InputTokens     int64
+	OutputTokens    int64
+	ReasoningTokens int64
+	CachedTokens    int64
+	TotalTokens     int64
+	FirstUsedAt     *time.Time
+	LastUsedAt      *time.Time
+}
+
 func ListUsageIdentities(ctx context.Context, db *gorm.DB) ([]entities.UsageIdentity, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
@@ -311,6 +327,92 @@ func ListActiveAuthFileUsageIdentitiesByAuthIndexes(ctx context.Context, db *gor
 		identities = append(identities, batch...)
 	}
 	return identities, nil
+}
+
+// ListScopedAuthFileUsageIdentityStats 按 API Key 与 auth_index 白名单重新聚合 Auth File 统计。
+// 该查询专供 API Key Viewer，避免全局 usage_identities 聚合值泄露其他租户流量。
+func ListScopedAuthFileUsageIdentityStats(ctx context.Context, db *gorm.DB, apiGroupKey string, authIndexes []string) (map[string]ScopedUsageIdentityStats, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database is nil")
+	}
+	apiGroupKey = strings.TrimSpace(apiGroupKey)
+	authIndexes = normalizeUniqueAuthIndexes(authIndexes)
+	if apiGroupKey == "" || len(authIndexes) == 0 {
+		return map[string]ScopedUsageIdentityStats{}, nil
+	}
+	type row struct {
+		AuthIndex       string  `gorm:"column:auth_index"`
+		TotalRequests   int64   `gorm:"column:total_requests"`
+		SuccessCount    int64   `gorm:"column:success_count"`
+		FailureCount    int64   `gorm:"column:failure_count"`
+		InputTokens     int64   `gorm:"column:input_tokens"`
+		OutputTokens    int64   `gorm:"column:output_tokens"`
+		ReasoningTokens int64   `gorm:"column:reasoning_tokens"`
+		CachedTokens    int64   `gorm:"column:cached_tokens"`
+		TotalTokens     int64   `gorm:"column:total_tokens"`
+		FirstUsedAt     *string `gorm:"column:first_used_at"`
+		LastUsedAt      *string `gorm:"column:last_used_at"`
+	}
+	var rows []row
+	query := db.WithContext(ctx).Model(&entities.UsageEvent{}).
+		Select(`
+			auth_index,
+			COUNT(*) AS total_requests,
+			COALESCE(SUM(CASE WHEN failed THEN 0 ELSE 1 END), 0) AS success_count,
+			COALESCE(SUM(CASE WHEN failed THEN 1 ELSE 0 END), 0) AS failure_count,
+			COALESCE(SUM(input_tokens), 0) AS input_tokens,
+			COALESCE(SUM(output_tokens), 0) AS output_tokens,
+			COALESCE(SUM(reasoning_tokens), 0) AS reasoning_tokens,
+			COALESCE(SUM(cached_tokens), 0) AS cached_tokens,
+			COALESCE(SUM(total_tokens), 0) AS total_tokens,
+			MIN(timestamp) AS first_used_at,
+			MAX(timestamp) AS last_used_at`).
+		Where("api_group_key = ? AND auth_type = ? AND auth_index IN ?", apiGroupKey, "oauth", authIndexes).
+		Group("auth_index")
+	if err := query.Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("list scoped auth file usage identity stats: %w", err)
+	}
+	stats := make(map[string]ScopedUsageIdentityStats, len(rows))
+	for _, item := range rows {
+		authIndex := strings.TrimSpace(item.AuthIndex)
+		if authIndex == "" {
+			continue
+		}
+		firstUsedAt, err := parseScopedUsageIdentityStatsTime(item.FirstUsedAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse scoped auth file first_used_at for %q: %w", authIndex, err)
+		}
+		lastUsedAt, err := parseScopedUsageIdentityStatsTime(item.LastUsedAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse scoped auth file last_used_at for %q: %w", authIndex, err)
+		}
+		stats[authIndex] = ScopedUsageIdentityStats{
+			AuthIndex:       authIndex,
+			TotalRequests:   item.TotalRequests,
+			SuccessCount:    item.SuccessCount,
+			FailureCount:    item.FailureCount,
+			InputTokens:     item.InputTokens,
+			OutputTokens:    item.OutputTokens,
+			ReasoningTokens: item.ReasoningTokens,
+			CachedTokens:    item.CachedTokens,
+			TotalTokens:     item.TotalTokens,
+			FirstUsedAt:     firstUsedAt,
+			LastUsedAt:      lastUsedAt,
+		}
+	}
+	return stats, nil
+}
+
+func parseScopedUsageIdentityStatsTime(value *string) (*time.Time, error) {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return nil, nil
+	}
+	parsed, err := timeutil.ParseStorageTime(*value)
+	if err != nil {
+		return nil, err
+	}
+	normalized := timeutil.NormalizeStorageTime(parsed)
+	return &normalized, nil
 }
 
 func normalizeUniqueAuthIndexes(authIndexes []string) []string {

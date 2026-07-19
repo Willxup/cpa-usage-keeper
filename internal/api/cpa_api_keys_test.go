@@ -241,6 +241,56 @@ func TestUpdateCPAAPIKeyAliasRejectsInvalidInputAndDeletedRows(t *testing.T) {
 	}
 }
 
+func TestCPAAPIKeyAuthFileScopeRoutesStoreNamesAndValidateCurrentAuthFiles(t *testing.T) {
+	db := openCPAAPIKeyAPITestDatabase(t)
+	now := time.Date(2026, 7, 10, 10, 0, 0, 0, time.UTC)
+	if err := repository.SyncCPAAPIKeys(db, []string{"sk-alpha123456"}, now); err != nil {
+		t.Fatalf("seed API key: %v", err)
+	}
+	fileName := "viewer-auth.json"
+	if err := db.Create(&entities.UsageIdentity{
+		Name:         "Viewer auth",
+		AuthType:     entities.UsageIdentityAuthTypeAuthFile,
+		AuthTypeName: "oauth",
+		Identity:     "auth-viewer",
+		FileName:     &fileName,
+		Type:         "codex",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("seed auth file identity: %v", err)
+	}
+	router := NewRouter(nil, statusStub{}, nil, nil, AuthConfig{}, nil, "", OptionalProviders{
+		CPAAPIKeys:           service.NewCPAAPIKeyService(db),
+		APIKeyAuthFileScopes: service.NewAPIKeyAuthFileScopeService(db),
+	})
+
+	putResp := httptest.NewRecorder()
+	putReq := httptest.NewRequest(http.MethodPut, "/api/v1/usage/api-keys/1/auth-file-scopes", bytes.NewBufferString(`{"authFileNames":[" viewer-auth.json "]}`))
+	putReq.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
+	putReq.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(putResp, putReq)
+	if putResp.Code != http.StatusOK || !strings.Contains(putResp.Body.String(), `"authFileNames":["viewer-auth.json"]`) {
+		t.Fatalf("expected scope PUT success, got %d %s", putResp.Code, putResp.Body.String())
+	}
+
+	getResp := httptest.NewRecorder()
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/usage/api-keys/1/auth-file-scopes", nil)
+	router.ServeHTTP(getResp, getReq)
+	if getResp.Code != http.StatusOK || !strings.Contains(getResp.Body.String(), `"authFileNames":["viewer-auth.json"]`) {
+		t.Fatalf("expected scope GET response, got %d %s", getResp.Code, getResp.Body.String())
+	}
+
+	invalidResp := httptest.NewRecorder()
+	invalidReq := httptest.NewRequest(http.MethodPut, "/api/v1/usage/api-keys/1/auth-file-scopes", bytes.NewBufferString(`{"authFileNames":["missing.json"]}`))
+	invalidReq.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
+	invalidReq.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(invalidResp, invalidReq)
+	if invalidResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected unresolved auth file to return 400, got %d %s", invalidResp.Code, invalidResp.Body.String())
+	}
+}
+
 func openCPAAPIKeyAPITestDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "api-keys.db")})
