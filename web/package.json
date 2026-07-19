@@ -12,11 +12,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@ant-design/charts": "^2.6.7",
+    "@ant-design/icons": "^6.3.2",
     "@tanstack/react-virtual": "^3.14.5",
-    "chart.js": "^4.5.1",
+    "antd": "^6.5.1",
+    "dayjs": "^1.11.21",
     "i18next": "^26.0.5",
     "react": "^19.2.4",
-    "react-chartjs-2": "^5.3.1",
     "react-dom": "^19.2.4",
     "react-i18next": "^17.0.4",
     "react-router-dom": "^7.9.4",

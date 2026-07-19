@@ -1,34 +1,50 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const appSource = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 const appStyles = readFileSync(new URL('../App.css', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-const embedStyles = readFileSync(new URL('../embed/cpamcEmbed.css', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-const appFrameBlock = appStyles.match(/\.app-frame\s*\{[\s\S]*?\n\}/)?.[0] ?? '';
+const embedScript = readFileSync(new URL('../embed/cpamcEmbed.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+const embedStylesPath = new URL('../embed/cpamcEmbed.css', import.meta.url);
+const pageLayoutStyles = readFileSync(new URL('../components/layout/PageLayout.module.scss', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+const shellStyles = readFileSync(new URL('../components/layout/AppShell.module.scss', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+const themeStyles = readFileSync(new URL('../styles/themes.scss', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 
 describe('App CPAMC embed shell', () => {
-  it('loads the scoped CPAMC embed stylesheet and marks the app frame', () => {
-    expect(appSource).toContain("import './embed/cpamcEmbed.css';");
-    expect(appSource).toMatch(/<div className="app-frame" data-embed=\{isEmbeddedInCPAMC \? 'cpamc' : undefined\}>/);
+  it('resolves the CPAMC embed mode into the typed embed variant instead of a chrome patch', () => {
+    expect(appSource).toContain("import { cpamcEmbedSearch, isCPAMCEmbed, notifyCPAMCEmbedReady } from './embed/cpamcEmbed';");
+    expect(appSource).toContain('const isEmbeddedInCPAMC = isCPAMCEmbed();');
+    expect(appSource).toMatch(/const shellVariant: AppShellVariant = isEmbeddedInCPAMC[\s\S]*?\?\s*'embed'/);
+    expect(appSource).toContain('data-shell-variant={shellVariant}');
+    expect(appSource).not.toContain('data-embed');
+    expect(appSource).not.toContain('cpamcEmbed.css');
+    expect(existsSync(embedStylesPath)).toBe(false);
   });
 
-  it('shares the dynamic page width cap across normal and CPAMC modes', () => {
-    expect(appStyles).toMatch(/\.app-frame\s*\{[\s\S]*?--keeper-page-max-width:\s*clamp\(1245px, 86vw, 1600px\);/);
+  it('lets the AppShell embed variant own embed chrome and density', () => {
+    expect(shellStyles).toContain(".appShell[data-variant='embed'][data-nav='none']");
+    expect(shellStyles).toContain(".appShell[data-density='compact']");
+  });
+
+  it('keeps one shared page width constraint for normal and CPAMC modes', () => {
+    expect(pageLayoutStyles).toContain('width: min(var(--page-max-width), 100%);');
+    expect(themeStyles).toContain('--page-max-width: 1440px;');
+    expect(appStyles).not.toContain('--keeper-page-max-width');
     expect(appStyles).not.toContain('.app-frame:not([data-embed])');
-    expect(embedStyles).not.toContain('--keeper-page-max-width');
   });
 
-  it('uses density variables instead of root-level zoom for normal and CPAMC layouts', () => {
-    expect(appFrameBlock).toContain('--keeper-density: 1;');
-    expect(appFrameBlock).toContain('min-height: 100svh;');
-    expect(appFrameBlock).not.toContain('--keeper-ui-zoom');
-    expect(appFrameBlock).not.toContain('zoom:');
-    expect(appFrameBlock).not.toContain('transform:');
-    expect(appFrameBlock).not.toContain('scale(');
+  it('uses native layout without legacy density or root zoom variables', () => {
+    expect(appStyles).not.toContain('--keeper-density');
+    expect(appStyles).not.toContain('--keeper-ui-zoom');
+    expect(appStyles).not.toContain('zoom:');
+    expect(appStyles).not.toContain('transform:');
+    expect(appStyles).not.toContain('scale(');
     expect(appStyles).not.toContain('calc(100svh / var(--keeper-ui-zoom))');
-    expect(embedStyles).not.toContain('--keeper-density');
-    expect(embedStyles).not.toContain('zoom:');
-    expect(embedStyles).not.toContain('scale(');
+  });
+
+  it('keeps the CPAMC embed detection, canonical query, and ready postMessage contract', () => {
+    expect(embedScript).toContain("params.getAll(name).includes(CPAMC_EMBED_QUERY_VALUE)");
+    expect(embedScript).toContain("isCPAMCEmbed(search) ? '?embed=cpamc' : ''");
+    expect(embedScript).toContain("window.parent.postMessage({ type: CPAMC_READY_MESSAGE }, '*')");
   });
 
   it('preserves the CPAMC embed query when normalizing app paths', () => {

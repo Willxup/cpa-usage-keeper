@@ -1,11 +1,9 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Card } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
-import { Modal } from '@/components/ui/Modal';
-import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainment';
+import { Button, Card, Popconfirm, Table, Tag, Typography, type TableColumnsType } from 'antd';
+import { SectionHeader } from '@/components/layout';
 import type { AuthManagedSessionItem } from '@/lib/types';
-import styles from '@/pages/UsagePage.module.scss';
+import styles from './UsageSettings.module.scss';
 
 export interface SessionSettingsCardProps {
   sessions: AuthManagedSessionItem[];
@@ -36,14 +34,18 @@ function getSessionDisplayName(session: AuthManagedSessionItem, t: (key: string)
   return session.label || session.displayKey || t('usage_stats.session_settings_unknown_api_key');
 }
 
+function getSessionRowKey(session: AuthManagedSessionItem): string {
+  let hash = 2166136261;
+  for (let index = 0; index < session.id.length; index += 1) {
+    hash ^= session.id.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `session-${(hash >>> 0).toString(36)}`;
+}
+
 export function SessionSettingsCard({ sessions, loading = false, revokingId = null, onLogout }: SessionSettingsCardProps) {
   const { t } = useTranslation();
   const [confirmingSession, setConfirmingSession] = useState<AuthManagedSessionItem | null>(null);
-  const sessionSettingsBodyRef = useRef<HTMLDivElement | null>(null);
-  useScrollBoundaryContainment(sessionSettingsBodyRef);
-  const confirmationKeys = confirmingSession ? getSessionLogoutConfirmationKeys(confirmingSession) : null;
-  const confirmingLabel = confirmingSession ? getSessionDisplayName(confirmingSession, t) : '';
-  const confirmingRevoking = confirmingSession ? revokingId === confirmingSession.id : false;
 
   const handleConfirmLogout = useCallback(async () => {
     if (!confirmingSession) {
@@ -53,91 +55,135 @@ export function SessionSettingsCard({ sessions, loading = false, revokingId = nu
     setConfirmingSession(null);
   }, [confirmingSession, onLogout]);
 
+  const columns = useMemo<TableColumnsType<AuthManagedSessionItem>>(() => [
+    {
+      key: 'session',
+      title: t('usage_stats.session_settings_session_column'),
+      width: 240,
+      render: (_value, session) => {
+        const displayName = getSessionDisplayName(session, t);
+        return (
+          <Typography.Text strong ellipsis={{ tooltip: displayName }}>
+            {displayName}
+          </Typography.Text>
+        );
+      },
+    },
+    {
+      key: 'source',
+      title: t('usage_stats.session_settings_source_column'),
+      width: 150,
+      render: (_value, session) => {
+        const sourceLabel = session.source === 'embed'
+          ? t('usage_stats.session_settings_source_embed')
+          : t('usage_stats.session_settings_source_standard');
+        return (
+          <Typography.Text type="secondary">
+            {sourceLabel}
+          </Typography.Text>
+        );
+      },
+    },
+    {
+      key: 'loginAt',
+      title: t('usage_stats.session_settings_login_column'),
+      width: 190,
+      responsive: ['md'],
+      render: (_value, session) => (
+        <Typography.Text className={styles.sessionSettingsTimestamp}>
+          {session.loginAt ?? '-'}
+        </Typography.Text>
+      ),
+    },
+    {
+      key: 'expiresAt',
+      title: t('usage_stats.session_settings_expires_column'),
+      width: 190,
+      responsive: ['lg'],
+      render: (_value, session) => (
+        <Typography.Text className={styles.sessionSettingsTimestamp}>
+          {session.expiresAt ?? '-'}
+        </Typography.Text>
+      ),
+    },
+    {
+      key: 'status',
+      title: t('usage_stats.session_settings_status_column'),
+      width: 104,
+      render: (_value, session) => session.current ? (
+        <Tag color="processing">{t('usage_stats.session_settings_current')}</Tag>
+      ) : '-',
+    },
+    {
+      key: 'actions',
+      title: t('usage_stats.session_settings_actions_column'),
+      align: 'right',
+      width: 124,
+      render: (_value, session) => {
+        if (session.current) {
+          return null;
+        }
+        const confirmationKeys = getSessionLogoutConfirmationKeys(session);
+        const displayName = getSessionDisplayName(session, t);
+        const isRevoking = revokingId === session.id;
+        const isOpen = confirmingSession?.id === session.id;
+        return (
+          <Popconfirm
+            open={isOpen}
+            title={t(confirmationKeys.titleKey)}
+            description={t(confirmationKeys.bodyKey, { label: displayName })}
+            okText={t(confirmationKeys.confirmKey)}
+            cancelText={t('common.cancel')}
+            okButtonProps={{ danger: true, loading: isRevoking }}
+            cancelButtonProps={{ disabled: isRevoking }}
+            onOpenChange={(open) => {
+              if (isRevoking) {
+                return;
+              }
+              setConfirmingSession(open ? session : null);
+            }}
+            onConfirm={() => handleConfirmLogout()}
+          >
+            <Button
+              danger
+              size="small"
+              loading={isRevoking}
+              disabled={Boolean(revokingId) && !isRevoking}
+              aria-label={t('usage_stats.session_settings_logout_one')}
+            >
+              {isRevoking ? t('usage_stats.session_settings_logging_out') : t('common.logout')}
+            </Button>
+          </Popconfirm>
+        );
+      },
+    },
+  ], [confirmingSession, handleConfirmLogout, revokingId, t]);
+
   return (
     <Card
+      variant="outlined"
       title={
-        <div className={styles.sectionTitleBlock}>
-          <h3 className={styles.sectionTitle}>{t('usage_stats.session_settings_title')}</h3>
-          <p className={styles.sectionSubtitle}>{t('usage_stats.session_settings_subtitle')}</p>
-        </div>
+        <SectionHeader
+          headingLevel={2}
+          title={t('usage_stats.session_settings_title')}
+        />
       }
-      className={`${styles.detailsFixedCard} ${styles.sessionSettingsCard}`}
+      className={styles.sessionSettingsCard}
     >
-      <div ref={sessionSettingsBodyRef} className={styles.sessionSettingsBody}>
-        {loading && sessions.length === 0 ? (
-          <div className={styles.hint}>{t('common.loading')}</div>
-        ) : sessions.length === 0 ? (
-          <div className={styles.hint}>{t('usage_stats.session_settings_empty')}</div>
-        ) : (
-          <div className={styles.sessionSettingsList}>
-            {sessions.map((session) => {
-              const isAdmin = session.kind === 'admin';
-              const displayName = getSessionDisplayName(session, t);
-              const sourceLabel = session.source === 'embed'
-                ? t('usage_stats.session_settings_source_embed')
-                : t('usage_stats.session_settings_source_standard');
-              const disabled = revokingId === session.id;
-              return (
-                <div key={session.id} className={styles.sessionSettingsItem}>
-                  <div className={styles.sessionSettingsSummary}>
-                    <div className={styles.sessionSettingsBadges}>
-                      <span className={styles.sessionSettingsType}>
-                        {isAdmin ? t('usage_stats.session_settings_type_admin') : t('usage_stats.session_settings_type_api_key')}
-                      </span>
-                      {session.current && (
-                        <span className={styles.sessionSettingsCurrent}>{t('usage_stats.session_settings_current')}</span>
-                      )}
-                    </div>
-                    <div className={styles.sessionSettingsNameRow}>
-                      <span className={styles.sessionSettingsName} title={displayName}>{displayName}</span>
-                      <span className={styles.sessionSettingsSource}>{sourceLabel}</span>
-                    </div>
-                  </div>
-                  <div className={styles.sessionSettingsDetails}>
-                    <span>{t('usage_stats.session_settings_login_at', { value: session.loginAt ?? '-' })}</span>
-                    <span>{t('usage_stats.session_settings_expires_at', { value: session.expiresAt ?? '-' })}</span>
-                  </div>
-                  <div className={styles.sessionSettingsActions}>
-                    {!session.current && (
-                      <Button
-                        type="button"
-                        variant="danger"
-                        size="sm"
-                        className={`${styles.usagePillAction} ${styles.settingsCompactAction} ${styles.usagePillActionDanger} ${styles.sessionSettingsLogoutButton}`.trim()}
-                        onClick={() => setConfirmingSession(session)}
-                        disabled={disabled}
-                        aria-label={t('usage_stats.session_settings_logout_one')}
-                      >
-                        {disabled ? t('usage_stats.session_settings_logging_out') : t('common.logout')}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-      {confirmationKeys && confirmingSession && (
-        <Modal
-          open={Boolean(confirmingSession)}
-          title={t(confirmationKeys.titleKey)}
-          onClose={() => setConfirmingSession(null)}
-          closeDisabled={confirmingRevoking}
-          footer={
-            <>
-              <Button type="button" variant="secondary" onClick={() => setConfirmingSession(null)} disabled={confirmingRevoking}>
-                {t('common.cancel')}
-              </Button>
-              <Button type="button" variant="danger" onClick={() => void handleConfirmLogout()} loading={confirmingRevoking}>
-                {confirmingRevoking ? t('usage_stats.session_settings_logging_out') : t(confirmationKeys.confirmKey)}
-              </Button>
-            </>
-          }
-        >
-          <p className={styles.sessionSettingsConfirmText}>{t(confirmationKeys.bodyKey, { label: confirmingLabel })}</p>
-        </Modal>
-      )}
+      <Table<AuthManagedSessionItem>
+        className={styles.sessionSettingsTable}
+        columns={columns}
+        dataSource={sessions}
+        rowKey={getSessionRowKey}
+        pagination={false}
+        size="small"
+        scroll={{ x: 800 }}
+        locale={{
+          emptyText: loading
+            ? t('common.loading')
+            : t('usage_stats.session_settings_empty'),
+        }}
+      />
     </Card>
   );
 }

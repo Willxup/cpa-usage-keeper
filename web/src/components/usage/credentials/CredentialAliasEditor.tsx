@@ -100,7 +100,7 @@ export function CredentialAliasEditor({ identityId, displayName, alias, saving, 
   return (
     <span className={styles.credentialAliasEditor}>
       <span className={styles.credentialAliasDisplayLayout}>
-        <span className={styles.credentialAliasNameSlot}>{displayName}</span>
+        <span className={styles.credentialAliasNameSlot} title={displayName}>{displayName}</span>
         <span className={styles.credentialAliasActionSlot}>
           {canEdit && (
             <button

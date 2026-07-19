@@ -1,6 +1,6 @@
 import { useMemo, type CSSProperties, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Line } from 'react-chartjs-2';
+import { Col, Row, Statistic } from 'antd';
 import {
   IconDiamond,
   IconDollarSign,
@@ -16,10 +16,10 @@ import {
   formatPerMinuteValue,
   formatUsd,
 } from '@/utils/usage';
-import { sparklineOptions } from '@/utils/usage/chartConfig';
+import { getChartTheme } from '@/lib/chartTheme';
 import type { UsageOverviewPayload, UsagePayload } from './hooks/useUsageData';
-import type { SparklineBundle } from './hooks/useSparklines';
-import styles from '@/pages/UsagePage.module.scss';
+import { buildDailyAverageMetrics, formatDailyAverageCount, formatDailyAverageRangeDays } from './dailyAverage';
+import styles from './UsageOverview.module.scss';
 
 interface StatCardData {
   key: string;
@@ -30,20 +30,15 @@ interface StatCardData {
   accentBorder: string;
   value: string;
   meta?: ReactNode;
-  trend: SparklineBundle | null;
+  context?: ReactNode;
 }
 
 export interface StatCardsProps {
   usage: UsageOverviewPayload | null;
   loading: boolean;
-  sparklines: {
-    requests: SparklineBundle | null;
-    tokens: SparklineBundle | null;
-    rpm: SparklineBundle | null;
-    tpm: SparklineBundle | null;
-    cacheReadRate: SparklineBundle | null;
-    cost: SparklineBundle | null;
-  };
+  isDark?: boolean;
+  dailyAverageUsage?: UsageOverviewPayload | null;
+  showDailyAverages?: boolean;
 }
 
 interface StatCardMetrics {
@@ -52,7 +47,6 @@ interface StatCardMetrics {
   rateStats: { rpm: number; tpm: number; windowMinutes: number; requestCount: number; tokenCount: number };
   cacheReadRateStats: { cacheReadRate: number | null; cacheReadTokens: number; inputTokens: number };
   totalCost: number;
-  costAvailable: boolean;
 }
 
 const safeNumber = (value: unknown): number => {
@@ -80,7 +74,6 @@ export function buildStatCardMetrics({ usage }: { usage: UsageOverviewPayload | 
       rateStats: { rpm: 0, tpm: 0, windowMinutes: 1, requestCount: 0, tokenCount: 0 },
       cacheReadRateStats: { cacheReadRate: null, cacheReadTokens: 0, inputTokens: 0 },
       totalCost: 0,
-      costAvailable: false,
     };
   }
 
@@ -108,35 +101,55 @@ export function buildStatCardMetrics({ usage }: { usage: UsageOverviewPayload | 
       inputTokens,
     },
     totalCost: usage.summary.total_cost ?? 0,
-    costAvailable: usage.summary.cost_available === true,
   };
 }
 
-export function StatCards({ usage, loading, sparklines }: StatCardsProps) {
+export function StatCards({
+  usage,
+  loading,
+  isDark = false,
+  dailyAverageUsage = null,
+  showDailyAverages = false,
+}: StatCardsProps) {
   const { t } = useTranslation();
   const usageSnapshot = usage?.usage ?? null;
-  const { requestStats, tokenBreakdown, rateStats, cacheReadRateStats, totalCost, costAvailable } = useMemo(
+  const { requestStats, tokenBreakdown, rateStats, cacheReadRateStats, totalCost } = useMemo(
     () => buildStatCardMetrics({ usage }),
     [usage]
   );
+  const dailyAverages = useMemo(() => buildDailyAverageMetrics(dailyAverageUsage), [dailyAverageUsage]);
+  const accents = getChartTheme(isDark).series;
+  const dailyAverageTitle = dailyAverages
+    ? `${t('usage_stats.daily_average')} · ${t('usage_stats.daily_average_range', {
+        days: formatDailyAverageRangeDays(dailyAverages.rangeDays),
+      })}`
+    : t('usage_stats.daily_average');
+  const dailyAverageContext = (
+    label: string,
+    value: string,
+  ) => showDailyAverages ? (
+    <span title={dailyAverageTitle}>
+      {label}: {value}
+    </span>
+  ) : null;
 
   const statsCards: StatCardData[] = [
     {
       key: 'requests',
       label: t('usage_stats.total_requests'),
       icon: <IconSatellite size={16} />,
-      accent: '#3b82f6',
-      accentSoft: 'rgba(59, 130, 246, 0.18)',
-      accentBorder: 'rgba(59, 130, 246, 0.34)',
+      accent: accents.blue.stroke,
+      accentSoft: accents.blue.fill,
+      accentBorder: accents.blue.stroke,
       value: loading ? '-' : (usageSnapshot?.total_requests ?? 0).toLocaleString(),
       meta: (
         <>
           <span className={styles.statMetaItem}>
-            <span className={styles.statMetaDot} style={{ backgroundColor: '#10b981' }} />
+            <span className={styles.statMetaDot} style={{ backgroundColor: 'var(--success-color)' }} />
             {t('usage_stats.success_requests')}: {loading ? '-' : (usageSnapshot?.success_count ?? 0)}
           </span>
           <span className={styles.statMetaItem}>
-            <span className={styles.statMetaDot} style={{ backgroundColor: '#c65746' }} />
+            <span className={styles.statMetaDot} style={{ backgroundColor: 'var(--danger-color)' }} />
             {t('usage_stats.failed_requests')}: {loading ? '-' : (usageSnapshot?.failure_count ?? 0)}
           </span>
           <span className={styles.statMetaItem}>
@@ -145,15 +158,18 @@ export function StatCards({ usage, loading, sparklines }: StatCardsProps) {
           </span>
         </>
       ),
-      trend: sparklines.requests,
+      context: dailyAverageContext(
+        t('usage_stats.avg_requests'),
+        loading || !dailyAverages ? '-' : formatDailyAverageCount(dailyAverages.requests),
+      ),
     },
     {
       key: 'tokens',
       label: t('usage_stats.total_tokens'),
       icon: <IconDiamond size={16} />,
-      accent: '#8b5cf6',
-      accentSoft: 'rgba(139, 92, 246, 0.18)',
-      accentBorder: 'rgba(139, 92, 246, 0.35)',
+      accent: accents.violet.stroke,
+      accentSoft: accents.violet.fill,
+      accentBorder: accents.violet.stroke,
       value: loading ? '-' : formatCompactNumber(usageSnapshot?.total_tokens ?? 0),
       meta: (
         <>
@@ -171,15 +187,18 @@ export function StatCards({ usage, loading, sparklines }: StatCardsProps) {
           </span>
         </>
       ),
-      trend: sparklines.tokens,
+      context: dailyAverageContext(
+        t('usage_stats.avg_tokens'),
+        loading || !dailyAverages ? '-' : formatCompactNumber(dailyAverages.tokens),
+      ),
     },
     {
       key: 'rpm',
       label: t('usage_stats.rpm'),
       icon: <IconTimer size={16} />,
-      accent: '#22c55e',
-      accentSoft: 'rgba(34, 197, 94, 0.18)',
-      accentBorder: 'rgba(34, 197, 94, 0.32)',
+      accent: accents.cyan.stroke,
+      accentSoft: accents.cyan.fill,
+      accentBorder: accents.cyan.stroke,
       value: loading ? '-' : formatPerMinuteValue(rateStats.rpm),
       meta: (
         <span className={styles.statMetaItem}>
@@ -187,15 +206,14 @@ export function StatCards({ usage, loading, sparklines }: StatCardsProps) {
           {loading ? '-' : rateStats.requestCount.toLocaleString()}
         </span>
       ),
-      trend: sparklines.rpm,
     },
     {
       key: 'tpm',
       label: t('usage_stats.tpm'),
       icon: <IconTrendingUp size={16} />,
-      accent: '#f97316',
-      accentSoft: 'rgba(249, 115, 22, 0.18)',
-      accentBorder: 'rgba(249, 115, 22, 0.32)',
+      accent: accents.indigo.stroke,
+      accentSoft: accents.indigo.fill,
+      accentBorder: accents.indigo.stroke,
       value: loading ? '-' : formatPerMinuteValue(rateStats.tpm),
       meta: (
         <span className={styles.statMetaItem}>
@@ -203,15 +221,14 @@ export function StatCards({ usage, loading, sparklines }: StatCardsProps) {
           {loading ? '-' : formatCompactNumber(rateStats.tokenCount)}
         </span>
       ),
-      trend: sparklines.tpm,
     },
     {
       key: 'cache-read-rate',
       label: t('usage_stats.cache_rate'),
       icon: <IconPercent size={16} />,
-      accent: '#14b8a6',
-      accentSoft: 'rgba(20, 184, 166, 0.18)',
-      accentBorder: 'rgba(20, 184, 166, 0.34)',
+      accent: accents.teal.stroke,
+      accentSoft: accents.teal.fill,
+      accentBorder: accents.teal.stroke,
       value: loading || cacheReadRateStats.cacheReadRate === null ? '-' : `${formatFixedTwoDecimals(cacheReadRateStats.cacheReadRate)}%`,
       meta: (
         <>
@@ -225,68 +242,59 @@ export function StatCards({ usage, loading, sparklines }: StatCardsProps) {
           </span>
         </>
       ),
-      trend: sparklines.cacheReadRate,
     },
     {
       key: 'cost',
       label: t('usage_stats.total_cost'),
       icon: <IconDollarSign size={16} />,
-      accent: '#f59e0b',
-      accentSoft: 'rgba(245, 158, 11, 0.18)',
-      accentBorder: 'rgba(245, 158, 11, 0.32)',
+      accent: accents.orange.stroke,
+      accentSoft: accents.orange.fill,
+      accentBorder: accents.orange.stroke,
       value: loading ? '-' : formatUsd(totalCost),
       meta: (
-        <>
-          <span className={styles.statMetaItem}>
-            {t('usage_stats.total_tokens')}:{' '}
-            {loading ? '-' : formatCompactNumber(usageSnapshot?.total_tokens ?? 0)}
-          </span>
-          {!costAvailable && (
-            <span className={`${styles.statMetaItem} ${styles.statSubtle}`}>
-              {t('usage_stats.cost_need_price')}
-            </span>
-          )}
-        </>
+        <span className={styles.statMetaItem}>
+          {t('usage_stats.total_tokens')}:{' '}
+          {loading ? '-' : formatCompactNumber(usageSnapshot?.total_tokens ?? 0)}
+        </span>
       ),
-      trend: sparklines.cost,
+      context: dailyAverageContext(
+        t('usage_stats.avg_cost'),
+        loading || !dailyAverages ? '-' : formatUsd(dailyAverages.cost),
+      ),
     },
   ];
 
   return (
-    <div className={styles.statsGrid}>
-      {statsCards.map((card) => (
-        <div
-          key={card.key}
-          className={styles.statCard}
-          style={
-            {
-              '--accent': card.accent,
-              '--accent-soft': card.accentSoft,
-              '--accent-border': card.accentBorder,
-            } as CSSProperties
-          }
-        >
-          <div className={styles.statCardHeader}>
-            <div className={styles.statLabelGroup}>
-              <span className={styles.statLabel}>{card.label}</span>
-            </div>
-            <span className={styles.statIconBadge}>{card.icon}</span>
-          </div>
-          <div className={styles.statValue}>{card.value}</div>
-          {card.meta && <div className={styles.statMetaRow}>{card.meta}</div>}
-          <div className={styles.statTrend}>
-            {card.trend ? (
-              <Line
-                className={styles.sparkline}
-                data={card.trend.data}
-                options={sparklineOptions}
+    <section className={styles.statsPanel} aria-label={t('usage_stats.tab_overview')}>
+      <Row className={styles.statsRow} gutter={0}>
+        {statsCards.map((card) => (
+          <Col key={card.key} xs={24} sm={12} lg={8} xxl={4} className={styles.statColumn}>
+            <div
+              className={styles.statItem}
+              style={{
+                '--accent': card.accent,
+                '--accent-soft': card.accentSoft,
+                '--accent-border': card.accentBorder,
+              } as CSSProperties}
+            >
+              <Statistic
+                className={styles.statistic}
+                loading={loading}
+                title={(
+                  <span className={styles.statTitle}>
+                    <span className={styles.statIcon}>{card.icon}</span>
+                    <span>{card.label}</span>
+                  </span>
+                )}
+                value={card.value}
+                formatter={() => card.value}
               />
-            ) : (
-              <div className={styles.statTrendPlaceholder}></div>
-            )}
-          </div>
-        </div>
-      ))}
-    </div>
+              {card.meta && <div className={styles.statMetaRow}>{card.meta}</div>}
+              <div className={styles.statContextRow}>{card.context}</div>
+            </div>
+          </Col>
+        ))}
+      </Row>
+    </section>
   );
 }

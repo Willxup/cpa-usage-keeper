@@ -1,3 +1,5 @@
+import { Spin } from 'antd';
+
 export function LoadingSpinner({
   size = 20,
   className = ''
@@ -6,11 +8,8 @@ export function LoadingSpinner({
   className?: string;
 }) {
   return (
-    <div
-      className={`loading-spinner${className ? ` ${className}` : ''}`}
-      style={{ width: size, height: size, borderWidth: size / 7 }}
-      role="status"
-      aria-live="polite"
-    />
+    <span className={className} role="status" aria-live="polite">
+      <Spin size={size <= 18 ? 'small' : size >= 32 ? 'large' : 'default'} />
+    </span>
   );
 }

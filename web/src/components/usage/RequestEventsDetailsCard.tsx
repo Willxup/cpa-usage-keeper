@@ -2,24 +2,34 @@ import React, {
   useCallback,
   useEffect,
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type ReactNode,
 } from 'react';
-import { createPortal } from 'react-dom';
+import {
+  Button as AntButton,
+  Card,
+  Checkbox,
+  Dropdown,
+  Empty,
+  Form,
+  Modal,
+  Pagination,
+  Select as AntSelect,
+  Space,
+  Table,
+  Tag,
+  Tooltip,
+  type MenuProps,
+  type TableColumnsType,
+} from 'antd';
+import { DownOutlined, DownloadOutlined, ReloadOutlined, TableOutlined } from '@ant-design/icons';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { EmptyState } from '@/components/ui/EmptyState';
-import { Modal } from '@/components/ui/Modal';
-import { Select } from '@/components/ui/Select';
-import { IconCheck, IconChevronDown, IconCopy, IconDownload, IconScrollText } from '@/components/ui/icons';
+import { SectionHeader } from '@/components/layout';
+import { IconCheck, IconChevronDown, IconCopy, IconScrollText } from '@/components/ui/icons';
 import type { UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption } from '@/lib/types';
-import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainment';
 import {
   calculateCacheReadRate,
   formatDurationMs,
@@ -27,19 +37,16 @@ import {
   LATENCY_SOURCE_FIELD,
   normalizeAuthIndex,
 } from '@/utils/usage';
-import styles from '@/pages/UsagePage.module.scss';
+import styles from './RequestEventsDetailsCard.module.scss';
 
 const ALL_FILTER = '__all__';
+const REQUEST_EVENT_ENTITY_FILTER_POPUP_WIDTH = 360;
 const REQUEST_LOG_VIRTUAL_LINE_HEIGHT = 18;
 const REQUEST_LOG_VIRTUAL_OVERSCAN = 8;
 const REQUEST_LOG_VIRTUAL_PADDING_Y = 12;
 const REQUEST_LOG_VIRTUAL_CHUNK_CHARS = 2048;
 const REQUEST_LOG_VIRTUAL_BREAK_LOOKBACK = 256;
 const REQUEST_LOG_GRAPHEME_CONTEXT_CHARS = 64;
-const REQUEST_EVENTS_SPEED_MODE_TOOLTIP_MAX_WIDTH = 280;
-const REQUEST_EVENTS_SPEED_MODE_TOOLTIP_ESTIMATED_HEIGHT = 72;
-const REQUEST_EVENTS_SPEED_MODE_TOOLTIP_OFFSET = 10;
-const REQUEST_EVENTS_SPEED_MODE_TOOLTIP_VIEWPORT_PADDING = 8;
 const REQUEST_LOG_GRAPHEME_SEGMENTER = typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'
   ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
   : null;
@@ -73,6 +80,16 @@ export const REQUEST_EVENT_COLUMN_IDS = [
 ] as const;
 
 export type RequestEventColumnId = typeof REQUEST_EVENT_COLUMN_IDS[number];
+
+export const DEFAULT_REQUEST_EVENT_VISIBLE_COLUMN_IDS: RequestEventColumnId[] = [
+  'timestamp',
+  'source',
+  'model',
+  'result',
+  'latency',
+  'total_tokens',
+  'total_cost',
+];
 
 const REQUEST_EVENT_COLUMN_ID_SET: ReadonlySet<string> = new Set(REQUEST_EVENT_COLUMN_IDS);
 
@@ -112,11 +129,6 @@ export const isRequestEventColumnSelectionControlled = (
   visibleColumnIds: readonly RequestEventColumnId[] | undefined,
   onVisibleColumnIdsChange: ((columnIds: RequestEventColumnId[]) => void) | undefined,
 ) => visibleColumnIds !== undefined && onVisibleColumnIdsChange !== undefined;
-
-export const shouldCloseMenuOnFocusLeave = (
-  container: { contains: (target: EventTarget) => boolean },
-  nextFocus: EventTarget | null
-): boolean => nextFocus === null || !container.contains(nextFocus);
 
 const appendSelectedOption = (
   options: SelectOption[],
@@ -166,23 +178,14 @@ type RequestEventRow = {
   costAvailable: boolean;
 };
 
-type RequestEventSpeedModeTooltipState = {
-  lines: string[];
-  x: number;
-  y: number;
-  placement: 'above' | 'below';
-};
-
-type RequestEventSpeedModeTooltipTarget = {
-  row: RequestEventRow;
-  anchor: HTMLTableCellElement;
-};
-
 type RequestEventColumnDefinition = {
   id: RequestEventColumnId;
   label: string;
-  header: ReactNode;
-  renderCell: (row: RequestEventRow) => ReactNode;
+  title: ReactNode;
+  className?: string;
+  headerTitle?: string;
+  onCell?: (row: RequestEventRow) => React.TdHTMLAttributes<HTMLTableCellElement>;
+  render: (row: RequestEventRow) => ReactNode;
 };
 
 const REQUEST_LOG_SECTION_TITLE_KEYS: Record<string, string> = {
@@ -331,6 +334,8 @@ export interface RequestEventsDetailsCardProps {
   onRequestLogClose?: () => void;
   onRequestLogDownload?: (eventId: string) => void;
   requestLogDownloading?: boolean;
+  onRefresh?: () => void;
+  refreshing?: boolean;
 }
 
 const toNumber = (value: unknown): number => {
@@ -423,78 +428,6 @@ type RequestEventColumnOption = {
   label: string;
 };
 
-const COLUMN_DROPDOWN_VIEWPORT_MARGIN = 8;
-const COLUMN_DROPDOWN_OFFSET = 6;
-const COLUMN_DROPDOWN_MAX_HEIGHT = 300;
-const COLUMN_DROPDOWN_MIN_WIDTH = 190;
-const COLUMN_DROPDOWN_Z_INDEX = 2010;
-
-const clampDropdownPosition = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
-
-type RequestEventColumnMenuNavigationKey = 'ArrowDown' | 'ArrowUp' | 'Home' | 'End' | 'Tab' | 'Escape';
-
-export const resolveRequestEventColumnMenuFocusIndex = (
-  currentIndex: number,
-  optionCount: number,
-  key: RequestEventColumnMenuNavigationKey,
-  shiftKey = false
-): number | null => {
-  if (optionCount <= 0 || key === 'Escape') {
-    return null;
-  }
-
-  const safeCurrentIndex = currentIndex >= 0 && currentIndex < optionCount ? currentIndex : 0;
-  if (key === 'Home') return 0;
-  if (key === 'End') return optionCount - 1;
-  if (key === 'ArrowDown') return (safeCurrentIndex + 1) % optionCount;
-  if (key === 'ArrowUp') return (safeCurrentIndex - 1 + optionCount) % optionCount;
-  if (key === 'Tab') {
-    return shiftKey
-      ? (safeCurrentIndex - 1 + optionCount) % optionCount
-      : (safeCurrentIndex + 1) % optionCount;
-  }
-
-  return null;
-};
-
-const resolveColumnDropdownStyle = (element: HTMLElement): CSSProperties => {
-  const rect = element.getBoundingClientRect();
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  const availableWidth = Math.max(0, viewportWidth - COLUMN_DROPDOWN_VIEWPORT_MARGIN * 2);
-  const width = Math.min(Math.max(rect.width, COLUMN_DROPDOWN_MIN_WIDTH), availableWidth);
-  const left = clampDropdownPosition(
-    rect.left - (width - rect.width) / 2,
-    COLUMN_DROPDOWN_VIEWPORT_MARGIN,
-    Math.max(COLUMN_DROPDOWN_VIEWPORT_MARGIN, viewportWidth - width - COLUMN_DROPDOWN_VIEWPORT_MARGIN)
-  );
-  const spaceBelow = viewportHeight - rect.bottom - COLUMN_DROPDOWN_VIEWPORT_MARGIN - COLUMN_DROPDOWN_OFFSET;
-  const spaceAbove = rect.top - COLUMN_DROPDOWN_VIEWPORT_MARGIN - COLUMN_DROPDOWN_OFFSET;
-  const direction = spaceBelow >= COLUMN_DROPDOWN_MAX_HEIGHT || spaceBelow >= spaceAbove ? 'down' : 'up';
-  const maxHeight = Math.max(
-    0,
-    Math.min(COLUMN_DROPDOWN_MAX_HEIGHT, direction === 'down' ? spaceBelow : spaceAbove)
-  );
-
-  return direction === 'down'
-    ? {
-        position: 'fixed',
-        top: rect.bottom + COLUMN_DROPDOWN_OFFSET,
-        left,
-        width,
-        maxHeight,
-        zIndex: COLUMN_DROPDOWN_Z_INDEX,
-      }
-    : {
-        position: 'fixed',
-        bottom: viewportHeight - rect.top + COLUMN_DROPDOWN_OFFSET,
-        left,
-        width,
-        maxHeight,
-        zIndex: COLUMN_DROPDOWN_Z_INDEX,
-      };
-};
-
 function RequestEventsColumnSelector({
   label,
   summary,
@@ -510,177 +443,43 @@ function RequestEventsColumnSelector({
   selectedIds: readonly RequestEventColumnId[];
   onToggle: (columnId: RequestEventColumnId) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement | null>(null);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const dropdownRef = useRef<HTMLDivElement | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const [dropdownStyle, setDropdownStyle] = useState<CSSProperties | null>(null);
   const selectedIdSet = useMemo(() => new Set<RequestEventColumnId>(selectedIds), [selectedIds]);
-
-  useEffect(() => {
-    if (!open) return;
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (wrapRef.current?.contains(target) || dropdownRef.current?.contains(target)) return;
-      setOpen(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open || !dropdownStyle) return;
-    const firstOption = dropdownRef.current?.querySelector<HTMLButtonElement>('button');
-    firstOption?.focus();
-  }, [dropdownStyle, open]);
-
-  const updateDropdownStyle = useCallback(() => {
-    if (!wrapRef.current) return;
-    setDropdownStyle(resolveColumnDropdownStyle(wrapRef.current));
-  }, []);
-
-  const scheduleDropdownStyleUpdate = useCallback(() => {
-    if (typeof window === 'undefined') return;
-    if (rafRef.current !== null) {
-      window.cancelAnimationFrame(rafRef.current);
-    }
-    rafRef.current = window.requestAnimationFrame(() => {
-      rafRef.current = null;
-      updateDropdownStyle();
-    });
-  }, [updateDropdownStyle]);
-
-  useLayoutEffect(() => {
-    if (!open) {
-      if (rafRef.current !== null && typeof window !== 'undefined') {
-        window.cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-      return;
-    }
-
-    updateDropdownStyle();
-    window.addEventListener('resize', scheduleDropdownStyleUpdate);
-    window.addEventListener('scroll', scheduleDropdownStyleUpdate, true);
-
-    return () => {
-      window.removeEventListener('resize', scheduleDropdownStyleUpdate);
-      window.removeEventListener('scroll', scheduleDropdownStyleUpdate, true);
-      if (rafRef.current !== null) {
-        window.cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-    };
-  }, [open, scheduleDropdownStyleUpdate, updateDropdownStyle]);
-
-  const handleTriggerKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key !== 'ArrowDown' && event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    setOpen(true);
-  }, []);
-
-  const handleDropdownKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      setOpen(false);
-      triggerRef.current?.focus();
-      return;
-    }
-
-    if (
-      event.key !== 'ArrowDown' &&
-      event.key !== 'ArrowUp' &&
-      event.key !== 'Home' &&
-      event.key !== 'End' &&
-      event.key !== 'Tab'
-    ) {
-      return;
-    }
-
-    const optionButtons = Array.from(dropdownRef.current?.querySelectorAll<HTMLButtonElement>('button') ?? []);
-    const currentIndex = optionButtons.findIndex((button) => button === document.activeElement);
-    const nextIndex = resolveRequestEventColumnMenuFocusIndex(
-      currentIndex,
-      optionButtons.length,
-      event.key,
-      event.shiftKey
-    );
-    if (nextIndex === null) return;
-    event.preventDefault();
-    optionButtons[nextIndex]?.focus();
-  }, []);
-
-  const dropdown = open && dropdownStyle
-    ? (
-        <div
-          ref={dropdownRef}
-          className={styles.requestEventsColumnDropdown}
-          role="menu"
-          aria-label={ariaLabel}
-          style={dropdownStyle}
-          onKeyDown={handleDropdownKeyDown}
-        >
-          {options.map((option) => {
-            const selected = selectedIdSet.has(option.id);
-            return (
-              <button
-                key={option.id}
-                type="button"
-                role="menuitemcheckbox"
-                aria-checked={selected}
-                className={`${styles.requestEventsColumnOption} ${selected ? styles.requestEventsColumnOptionSelected : ''}`.trim()}
-                onClick={() => onToggle(option.id)}
-              >
-                <span className={styles.requestEventsColumnOptionLabel}>{option.label}</span>
-                {selected ? (
-                  <span className={styles.requestEventsColumnCheck} aria-hidden="true">
-                    <IconCheck size={12} />
-                  </span>
-                ) : (
-                  <span className={styles.requestEventsColumnCheckPlaceholder} aria-hidden="true" />
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )
-    : null;
+  const menuItems = useMemo<MenuProps['items']>(() => options.map((option) => ({
+    key: option.id,
+    label: (
+      <Checkbox
+        checked={selectedIdSet.has(option.id)}
+        onChange={() => undefined}
+        onClick={(event) => event.preventDefault()}
+      >
+        {option.label}
+      </Checkbox>
+    ),
+  })), [options, selectedIdSet]);
 
   return (
-    <div className={styles.requestEventsPageSizeControl}>
-      <span>{label}</span>
-      <div className={styles.requestEventsColumnPicker} ref={wrapRef}>
-        <button
-          ref={triggerRef}
-          type="button"
-          className={styles.requestEventsColumnTrigger}
-          aria-haspopup="menu"
-          aria-expanded={open}
+    <Space size={8} className={styles.requestEventsColumnControl}>
+      <span className={styles.requestEventsControlLabel}>{label}</span>
+      <Dropdown
+        trigger={['click']}
+        menu={{
+          items: menuItems,
+          onClick: ({ key, domEvent }) => {
+            domEvent.preventDefault();
+            onToggle(key as RequestEventColumnId);
+          },
+        }}
+      >
+        <AntButton
+          size="small"
+          icon={<TableOutlined />}
           aria-label={ariaLabel}
-          onClick={() => setOpen((currentOpen) => !currentOpen)}
-          onKeyDown={handleTriggerKeyDown}
         >
-          <span>{summary}</span>
-          <span className={styles.requestEventsColumnTriggerIcon} aria-hidden="true">
-            <IconChevronDown size={14} />
-          </span>
-        </button>
-      </div>
-      {dropdown && (typeof document === 'undefined' ? dropdown : createPortal(dropdown, document.body))}
-    </div>
-  );
-}
-
-function RequestEventsTitle({ title, subtitle, totalLabel }: { title: string; subtitle: string; totalLabel: string }) {
-  return (
-    <div className={styles.sectionTitleBlock}>
-      <div className={styles.requestEventsTitleRow}>
-        <h3 className={styles.sectionTitle}>{title}</h3>
-        <span className={styles.requestEventsCountBadge}>{totalLabel}</span>
-      </div>
-      <p className={styles.sectionSubtitle}>{subtitle}</p>
-    </div>
+          {summary}
+          <DownOutlined />
+        </AntButton>
+      </Dropdown>
+    </Space>
   );
 }
 
@@ -740,7 +539,6 @@ function RequestLogSectionDisclosure({
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const panelId = useId();
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  useScrollBoundaryContainment(scrollerRef);
   const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chunks = useMemo(
     () => hasOpened ? splitRequestLogVirtualChunks(content) : [],
@@ -860,69 +658,31 @@ function RequestEventsExportMenu({
   exportingFormat: RequestEventExportFormat | null;
   onExport?: (format: RequestEventExportFormat) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const disabled = !onExport || exportingFormat !== null;
-
-  const handleSelect = (format: RequestEventExportFormat) => {
-    setOpen(false);
-    onExport?.(format);
-  };
-
-  const handleTriggerClick = () => {
-    if (disabled) return;
-    setOpen((currentOpen) => !currentOpen);
-  };
-
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Escape') {
-      setOpen(false);
-    }
-  };
-
-  const handleBlur = (event: React.FocusEvent<HTMLDivElement>) => {
-    if (shouldCloseMenuOnFocusLeave({
-      contains: (target) => target instanceof Node && event.currentTarget.contains(target),
-    }, event.relatedTarget)) {
-      setOpen(false);
-    }
-  };
+  const menuItems = useMemo<MenuProps['items']>(() => [
+    { key: 'csv', label: csvLabel },
+    { key: 'json', label: jsonLabel },
+  ], [csvLabel, jsonLabel]);
 
   return (
-    <div
-      className={styles.requestEventsExportMenu}
-      onMouseEnter={() => !disabled && setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-      onKeyDown={handleKeyDown}
-      onBlur={handleBlur}
+    <Dropdown
+      trigger={['click']}
+      disabled={disabled}
+      menu={{
+        items: menuItems,
+        onClick: ({ key }) => onExport?.(key as RequestEventExportFormat),
+      }}
     >
-      <Button
-        type="button"
-        variant="secondary"
-        size="sm"
-        className={styles.requestEventsExportButton}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        disabled={disabled}
+      <AntButton
+        size="small"
+        icon={<DownloadOutlined />}
         loading={exportingFormat !== null}
-        onClick={handleTriggerClick}
+        disabled={disabled}
       >
-        <span className={styles.requestEventsExportButtonInner}>
-          <IconDownload size={12} aria-hidden="true" />
-          <span>{label}</span>
-          <IconChevronDown size={12} aria-hidden="true" />
-        </span>
-      </Button>
-      {open && !disabled && (
-        <div className={styles.requestEventsExportDropdown} role="menu" aria-label={label}>
-          <button type="button" role="menuitem" onClick={() => handleSelect('csv')}>
-            {csvLabel}
-          </button>
-          <button type="button" role="menuitem" onClick={() => handleSelect('json')}>
-            {jsonLabel}
-          </button>
-        </div>
-      )}
-    </div>
+        {label}
+        <DownOutlined />
+      </AntButton>
+    </Dropdown>
   );
 }
 
@@ -957,12 +717,10 @@ export function RequestEventsDetailsCard({
   onRequestLogClose,
   onRequestLogDownload,
   requestLogDownloading = false,
+  onRefresh,
+  refreshing = false,
 }: RequestEventsDetailsCardProps) {
   const { t } = useTranslation();
-  const [speedModeTooltip, setSpeedModeTooltip] = useState<RequestEventSpeedModeTooltipState | null>(null);
-  const speedModeHoverTargetRef = useRef<RequestEventSpeedModeTooltipTarget | null>(null);
-  const speedModeFocusTargetRef = useRef<RequestEventSpeedModeTooltipTarget | null>(null);
-  const requestEventsTableWrapperRef = useRef<HTMLDivElement | null>(null);
   const resultLocale = t('usage_stats.success') === 'Success' ? 'en' : 'zh';
   const latencyHint = t('usage_stats.latency_unit_hint', {
     field: LATENCY_SOURCE_FIELD,
@@ -970,88 +728,6 @@ export function RequestEventsDetailsCard({
   });
   const ttftHint = t('usage_stats.ttft_hint');
   const speedHint = t('usage_stats.speed_hint');
-
-  const positionSpeedModeTooltip = useCallback((target: RequestEventSpeedModeTooltipTarget | null) => {
-    if (!target) {
-      setSpeedModeTooltip(null);
-      return;
-    }
-
-    // 浮层挂到 body 后不受表格滚动容器裁剪，并随当前 hover/focus 锚点保持在视口内。
-    const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth;
-    const viewportHeight = typeof window === 'undefined' ? 768 : window.innerHeight;
-    const rect = target.anchor.getBoundingClientRect();
-    const tooltipWidth = Math.min(
-      REQUEST_EVENTS_SPEED_MODE_TOOLTIP_MAX_WIDTH,
-      Math.max(viewportWidth - REQUEST_EVENTS_SPEED_MODE_TOOLTIP_VIEWPORT_PADDING * 2, 0),
-    );
-    const halfTooltipWidth = tooltipWidth / 2;
-    const minX = REQUEST_EVENTS_SPEED_MODE_TOOLTIP_VIEWPORT_PADDING + halfTooltipWidth;
-    const maxX = viewportWidth - REQUEST_EVENTS_SPEED_MODE_TOOLTIP_VIEWPORT_PADDING - halfTooltipWidth;
-    const anchorX = rect.left + rect.width / 2;
-    const x = maxX >= minX ? Math.max(minX, Math.min(anchorX, maxX)) : viewportWidth / 2;
-    const spaceBelow = viewportHeight
-      - rect.bottom
-      - REQUEST_EVENTS_SPEED_MODE_TOOLTIP_OFFSET
-      - REQUEST_EVENTS_SPEED_MODE_TOOLTIP_VIEWPORT_PADDING;
-    const spaceAbove = rect.top
-      - REQUEST_EVENTS_SPEED_MODE_TOOLTIP_OFFSET
-      - REQUEST_EVENTS_SPEED_MODE_TOOLTIP_VIEWPORT_PADDING;
-    const placement = spaceBelow >= REQUEST_EVENTS_SPEED_MODE_TOOLTIP_ESTIMATED_HEIGHT || spaceBelow >= spaceAbove
-      ? 'below'
-      : 'above';
-    const y = placement === 'above'
-      ? rect.top - REQUEST_EVENTS_SPEED_MODE_TOOLTIP_OFFSET
-      : rect.bottom + REQUEST_EVENTS_SPEED_MODE_TOOLTIP_OFFSET;
-    const lines = buildSpeedModeTooltipLines(target.row, t);
-
-    setSpeedModeTooltip({ lines, x, y, placement });
-  }, [t]);
-
-  const syncSpeedModeTooltip = useCallback(() => {
-    if (speedModeHoverTargetRef.current && !speedModeHoverTargetRef.current.anchor.isConnected) {
-      speedModeHoverTargetRef.current = null;
-    }
-    if (speedModeFocusTargetRef.current && !speedModeFocusTargetRef.current.anchor.isConnected) {
-      speedModeFocusTargetRef.current = null;
-    }
-    positionSpeedModeTooltip(speedModeHoverTargetRef.current ?? speedModeFocusTargetRef.current);
-  }, [positionSpeedModeTooltip]);
-
-  const handleSpeedModeMouseEnter = useCallback((row: RequestEventRow, anchor: HTMLTableCellElement) => {
-    speedModeHoverTargetRef.current = { row, anchor };
-    syncSpeedModeTooltip();
-  }, [syncSpeedModeTooltip]);
-  const handleSpeedModeMouseLeave = useCallback((anchor: HTMLTableCellElement) => {
-    if (speedModeHoverTargetRef.current?.anchor === anchor) {
-      speedModeHoverTargetRef.current = null;
-    }
-    syncSpeedModeTooltip();
-  }, [syncSpeedModeTooltip]);
-  const handleSpeedModeFocus = useCallback((row: RequestEventRow, anchor: HTMLTableCellElement) => {
-    speedModeFocusTargetRef.current = { row, anchor };
-    syncSpeedModeTooltip();
-  }, [syncSpeedModeTooltip]);
-  const handleSpeedModeBlur = useCallback((anchor: HTMLTableCellElement) => {
-    if (speedModeFocusTargetRef.current?.anchor === anchor) {
-      speedModeFocusTargetRef.current = null;
-    }
-    syncSpeedModeTooltip();
-  }, [syncSpeedModeTooltip]);
-
-  useEffect(() => {
-    const repositionSpeedModeTooltip = () => {
-      if (speedModeHoverTargetRef.current || speedModeFocusTargetRef.current) {
-        syncSpeedModeTooltip();
-      }
-    };
-    window.addEventListener('resize', repositionSpeedModeTooltip);
-    window.addEventListener('scroll', repositionSpeedModeTooltip, true);
-    return () => {
-      window.removeEventListener('resize', repositionSpeedModeTooltip);
-      window.removeEventListener('scroll', repositionSpeedModeTooltip, true);
-    };
-  }, [syncSpeedModeTooltip]);
 
   const rows = useMemo<RequestEventRow[]>(() => {
     return events.map((event, index) => {
@@ -1127,10 +803,9 @@ export function RequestEventsDetailsCard({
       };
     });
   }, [events, t]);
-  useScrollBoundaryContainment(requestEventsTableWrapperRef, rows.length > 0);
 
   const [internalVisibleColumnIds, setInternalVisibleColumnIds] = useState<RequestEventColumnId[]>(() => (
-    normalizeRequestEventVisibleColumnIds(initialVisibleColumnIds ?? visibleColumnIds ?? REQUEST_EVENT_COLUMN_IDS)
+    normalizeRequestEventVisibleColumnIds(initialVisibleColumnIds ?? visibleColumnIds ?? DEFAULT_REQUEST_EVENT_VISIBLE_COLUMN_IDS)
   ));
   const isColumnSelectionControlled = isRequestEventColumnSelectionControlled(visibleColumnIds, onVisibleColumnIdsChange);
   const selectedVisibleColumnIds = isColumnSelectionControlled && visibleColumnIds !== undefined
@@ -1152,7 +827,7 @@ export function RequestEventsDetailsCard({
     }
     onVisibleColumnIdsChange?.(nextColumnIds);
   }, [isColumnSelectionControlled, onVisibleColumnIdsChange, selectedVisibleColumnIds]);
-  const requestLogOpen = Boolean(requestLogResponse || requestLogError || requestLogLoadingEventId);
+  const requestLogOpen = typeof document !== 'undefined' && Boolean(requestLogResponse || requestLogError || requestLogLoadingEventId);
   const requestLogTooLarge = requestLogResponse?.too_large === true || (requestLogResponse?.previewable === false && requestLogResponse?.downloadable === true);
   const requestLogTitle = requestLogTooLarge ? t('usage_stats.request_events_log_too_large_title') : t('usage_stats.request_events_log_title');
   const requestLogSections = requestLogResponse?.sections ?? [];
@@ -1213,206 +888,226 @@ export function RequestEventsDetailsCard({
       {
         id: 'timestamp',
         label: t('usage_stats.request_events_timestamp'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_timestamp')}</th>,
-        renderCell: (row) => (
-          <td title={row.timestamp} className={styles.requestEventsNoWrapCell}>
-            {row.timestampLabel}
-          </td>
-        ),
+        title: t('usage_stats.request_events_timestamp'),
+        className: styles.requestEventsNoWrapCell,
+        onCell: (row) => ({ title: row.timestamp }),
+        render: (row) => row.timestampLabel,
       },
       {
         id: 'api_key',
         label: t('usage_stats.api_key_filter'),
-        header: <th>{t('usage_stats.api_key_filter')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsAPIKeyCell} title={row.apiKey}>{row.apiKey}</td>,
+        title: t('usage_stats.api_key_filter'),
+        className: styles.requestEventsAPIKeyCell,
+        onCell: (row) => ({ title: row.apiKey }),
+        render: (row) => row.apiKey,
       },
       {
         id: 'source',
         label: t('usage_stats.request_events_source'),
-        header: <th>{t('usage_stats.request_events_source')}</th>,
-        renderCell: (row) => (
-          <td className={styles.requestEventsSourceCell} title={row.source}>
+        title: t('usage_stats.request_events_source'),
+        className: styles.requestEventsSourceCell,
+        onCell: (row) => ({ title: row.source }),
+        render: (row) => {
+          const hasDistinctSourceType = Boolean(
+            row.sourceType && row.sourceType.toLocaleLowerCase() !== row.source.toLocaleLowerCase(),
+          );
+
+          return (
             <span className={styles.requestEventsSourceStack}>
               <span className={styles.requestEventsSourceValue}>{row.source}</span>
-              {(row.isDelete || row.sourceType) && (
+              {(row.isDelete || hasDistinctSourceType) && (
                 <span className={styles.requestEventsSourceTags}>
-                  {row.sourceType && (
-                    <span className={styles.credentialType}>{row.sourceType}</span>
-                  )}
-                  {row.isDelete && (
-                    <span className={styles.requestEventsDeletedTag}>{t('usage_stats.deleted')}</span>
-                  )}
+                  {hasDistinctSourceType && <Tag>{row.sourceType}</Tag>}
+                  {row.isDelete && <Tag color="error">{t('usage_stats.deleted')}</Tag>}
                 </span>
               )}
             </span>
-          </td>
-        ),
+          );
+        },
       },
       {
         id: 'model',
         label: t('usage_stats.model_name'),
-        header: <th>{t('usage_stats.model_name')}</th>,
-        renderCell: (row) => <td className={styles.modelCell}>{row.model}</td>,
+        title: t('usage_stats.model_name'),
+        className: styles.modelCell,
+        render: (row) => row.model,
       },
       {
         id: 'model_alias',
         label: t('usage_stats.model_alias'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.model_alias')}</th>,
-        renderCell: (row) => <td className={styles.modelCell} title={row.modelAlias}>{row.modelAlias}</td>,
+        title: t('usage_stats.model_alias'),
+        className: `${styles.modelCell} ${styles.requestEventsNoWrapCell}`,
+        onCell: (row) => ({ title: row.modelAlias }),
+        render: (row) => row.modelAlias,
       },
       {
         id: 'reasoning_effort',
         label: t('usage_stats.reasoning_effort'),
-        header: <th className={styles.requestEventsNoWrapCell} title={t('usage_stats.reasoning_effort_hint')}>{t('usage_stats.reasoning_effort')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.reasoningEffort}</td>,
+        title: t('usage_stats.reasoning_effort'),
+        className: styles.requestEventsNoWrapCell,
+        headerTitle: t('usage_stats.reasoning_effort_hint'),
+        render: (row) => row.reasoningEffort,
       },
       {
         id: 'service_tier',
         label: t('usage_stats.speed_mode'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.speed_mode')}</th>,
-        renderCell: (row) => {
+        title: t('usage_stats.speed_mode'),
+        className: `${styles.requestEventsNoWrapCell} ${styles.requestEventsSpeedModeCell}`,
+        render: (row) => {
           const tooltipLines = buildSpeedModeTooltipLines(row, t);
           return (
-            <td
-              className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsSpeedModeCell}`}
-              tabIndex={0}
-              aria-label={tooltipLines.join('; ')}
-              onMouseEnter={(event) => handleSpeedModeMouseEnter(row, event.currentTarget)}
-              onMouseLeave={(event) => handleSpeedModeMouseLeave(event.currentTarget)}
-              onFocus={(event) => handleSpeedModeFocus(row, event.currentTarget)}
-              onBlur={(event) => handleSpeedModeBlur(event.currentTarget)}
+            <Tooltip
+              title={(
+                <div className={styles.requestEventsSpeedModeTooltipContent}>
+                  {tooltipLines.map((line) => <span key={line}>{line}</span>)}
+                </div>
+              )}
+              trigger={['hover', 'focus', 'click']}
+              placement="top"
             >
-              {`${row.speedMode} / ${row.responseSpeedMode}`}
-            </td>
+              <span
+                className={styles.requestEventsSpeedModeValue}
+                tabIndex={0}
+              >
+                {`${row.speedMode} / ${row.responseSpeedMode}`}
+              </span>
+            </Tooltip>
           );
         },
       },
       {
         id: 'result',
         label: t('usage_stats.request_events_result'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_result')}</th>,
-        renderCell: (row) => {
+        title: t('usage_stats.request_events_result'),
+        className: styles.requestEventsNoWrapCell,
+        render: (row) => {
           const resultLabel = row.failed ? t('usage_stats.failure') : t('usage_stats.success');
           const loading = requestLogLoadingEventId === row.id;
           const resultClassName = row.failed ? styles.requestEventsResultFailed : styles.requestEventsResultSuccess;
           const canOpenLog = Boolean(requestLogAccessEnabled && row.requestId && onRequestLogOpen);
-          return (
-            <td className={styles.requestEventsNoWrapCell}>
-              {canOpenLog ? (
-                <button
-                  type="button"
-                  className={`${resultClassName} ${styles.requestEventsResultLogButton}`.trim()}
-                  data-result-locale={resultLocale}
-                  onClick={() => {
-                    onRequestLogOpen?.(row.event);
-                  }}
-                  title={t('usage_stats.request_events_log_hint')}
-                  aria-label={loading ? t('usage_stats.request_events_log_loading_aria', { result: resultLabel }) : t('usage_stats.request_events_log_open_aria', { result: resultLabel })}
-                  aria-busy={loading}
-                  disabled={loading}
-                >
-                  <span>{resultLabel}</span>
-                  <span className={styles.requestEventsResultLogIcon} aria-hidden="true">
-                    <IconScrollText size={9} />
-                  </span>
-                </button>
-              ) : (
-                <span className={resultClassName} data-result-locale={resultLocale}>{resultLabel}</span>
-              )}
-            </td>
+          return canOpenLog ? (
+            <button
+              type="button"
+              className={`${resultClassName} ${styles.requestEventsResultLogButton}`.trim()}
+              data-result-locale={resultLocale}
+              onClick={() => {
+                onRequestLogOpen?.(row.event);
+              }}
+              title={t('usage_stats.request_events_log_hint')}
+              aria-label={loading ? t('usage_stats.request_events_log_loading_aria', { result: resultLabel }) : t('usage_stats.request_events_log_open_aria', { result: resultLabel })}
+              aria-busy={loading}
+              disabled={loading}
+            >
+              <span>{resultLabel}</span>
+              <span className={styles.requestEventsResultLogIcon} aria-hidden="true">
+                <IconScrollText size={9} />
+              </span>
+            </button>
+          ) : (
+            <span className={resultClassName} data-result-locale={resultLocale}>{resultLabel}</span>
           );
         },
       },
       {
         id: 'request_type',
         label: t('usage_stats.request_type'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_type')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.requestType}</td>,
+        title: t('usage_stats.request_type'),
+        className: styles.requestEventsNoWrapCell,
+        render: (row) => row.requestType,
       },
       {
         id: 'endpoint',
         label: t('usage_stats.request_endpoint'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_endpoint')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell} title={row.endpoint}>{row.endpoint}</td>,
+        title: t('usage_stats.request_endpoint'),
+        className: styles.requestEventsNoWrapCell,
+        onCell: (row) => ({ title: row.endpoint }),
+        render: (row) => row.endpoint,
       },
       {
         id: 'ttft',
         label: t('usage_stats.ttft'),
-        header: <th className={styles.requestEventsNoWrapCell} title={ttftHint}>{t('usage_stats.ttft')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{formatTTFTMs(row.ttftMs)}</td>,
+        title: t('usage_stats.ttft'),
+        className: styles.requestEventsNoWrapCell,
+        headerTitle: ttftHint,
+        render: (row) => formatTTFTMs(row.ttftMs),
       },
       {
         id: 'latency',
         label: t('usage_stats.latency'),
-        header: <th className={styles.requestEventsNoWrapCell} title={latencyHint}>{t('usage_stats.latency')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{formatDurationMs(row.latencyMs)}</td>,
+        title: t('usage_stats.latency'),
+        className: styles.requestEventsNoWrapCell,
+        headerTitle: latencyHint,
+        render: (row) => formatDurationMs(row.latencyMs),
       },
       {
         id: 'speed',
         label: t('usage_stats.speed'),
-        header: <th className={styles.requestEventsNoWrapCell} title={speedHint}>{t('usage_stats.speed')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{formatSpeedTPS(row.speedTPS)}</td>,
+        title: t('usage_stats.speed'),
+        className: styles.requestEventsNoWrapCell,
+        headerTitle: speedHint,
+        render: (row) => formatSpeedTPS(row.speedTPS),
       },
       {
         id: 'input_tokens',
         label: t('usage_stats.input_tokens'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.input_tokens')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.inputTokens.toLocaleString()}</td>,
+        title: t('usage_stats.input_tokens'),
+        className: styles.requestEventsNoWrapCell,
+        render: (row) => row.inputTokens.toLocaleString(),
       },
       {
         id: 'output_tokens',
         label: t('usage_stats.output_tokens'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.output_tokens')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.outputTokens.toLocaleString()}</td>,
+        title: t('usage_stats.output_tokens'),
+        className: styles.requestEventsNoWrapCell,
+        render: (row) => row.outputTokens.toLocaleString(),
       },
       {
         id: 'reasoning_tokens',
         label: t('usage_stats.reasoning_tokens'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.reasoning_tokens')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.reasoningTokens.toLocaleString()}</td>,
+        title: t('usage_stats.reasoning_tokens'),
+        className: styles.requestEventsNoWrapCell,
+        render: (row) => row.reasoningTokens.toLocaleString(),
       },
       {
         id: 'cache_read_tokens',
         label: t('usage_stats.cache_read_tokens'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.cache_read_tokens')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.cacheReadTokens.toLocaleString()}</td>,
+        title: t('usage_stats.cache_read_tokens'),
+        className: styles.requestEventsNoWrapCell,
+        render: (row) => row.cacheReadTokens.toLocaleString(),
       },
       {
         id: 'cache_creation_tokens',
         label: t('usage_stats.cache_creation_tokens'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.cache_creation_tokens')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.cacheCreationTokens.toLocaleString()}</td>,
+        title: t('usage_stats.cache_creation_tokens'),
+        className: styles.requestEventsNoWrapCell,
+        render: (row) => row.cacheCreationTokens.toLocaleString(),
       },
       {
         id: 'cache_read_rate',
         label: t('usage_stats.cache_rate'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.cache_rate')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.cacheReadRate}</td>,
+        title: t('usage_stats.cache_rate'),
+        className: styles.requestEventsNoWrapCell,
+        render: (row) => row.cacheReadRate,
       },
       {
         id: 'total_tokens',
         label: t('usage_stats.total_tokens'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.total_tokens')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.totalTokens.toLocaleString()}</td>,
+        title: t('usage_stats.total_tokens'),
+        className: styles.requestEventsNoWrapCell,
+        render: (row) => row.totalTokens.toLocaleString(),
       },
       {
         id: 'total_cost',
         label: t('usage_stats.total_cost'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.total_cost')}</th>,
-        renderCell: (row) => (
-          <td className={styles.requestEventsNoWrapCell} title={row.costAvailable ? undefined : t('usage_stats.cost_need_price')}>
-            {row.costAvailable && row.cost !== null ? formatUsd(row.cost) : '-'}
-          </td>
-        ),
+        title: t('usage_stats.total_cost'),
+        className: styles.requestEventsNoWrapCell,
+        onCell: (row) => ({ title: row.costAvailable ? undefined : t('usage_stats.cost_need_price') }),
+        render: (row) => row.costAvailable && row.cost !== null ? formatUsd(row.cost) : '-',
       },
     ];
 
     return definitions;
   }, [
-    handleSpeedModeBlur,
-    handleSpeedModeFocus,
-    handleSpeedModeMouseEnter,
-    handleSpeedModeMouseLeave,
     latencyHint,
     onRequestLogOpen,
     requestLogAccessEnabled,
@@ -1426,6 +1121,20 @@ export function RequestEventsDetailsCard({
   const visibleColumns = useMemo(
     () => columnDefinitions.filter((definition) => effectiveVisibleColumnIdSet.has(definition.id)),
     [columnDefinitions, effectiveVisibleColumnIdSet]
+  );
+  const tableColumns = useMemo<TableColumnsType<RequestEventRow>>(
+    () => visibleColumns.map((definition) => ({
+      key: definition.id,
+      title: definition.title,
+      className: definition.className,
+      onHeaderCell: () => ({
+        className: definition.className,
+        title: definition.headerTitle,
+      }),
+      onCell: (row) => definition.onCell?.(row) ?? {},
+      render: (_value, row) => definition.render(row),
+    })),
+    [visibleColumns]
   );
   const columnOptions = useMemo(
     () => columnDefinitions.map((definition) => ({ id: definition.id, label: definition.label })),
@@ -1457,113 +1166,29 @@ export function RequestEventsDetailsCard({
   return (
     <>
       <Card
+        variant="outlined"
         className={styles.requestEventsCard}
         title={
-          <RequestEventsTitle
+          <SectionHeader
+            headingLevel={2}
             title={t('usage_stats.request_events_title')}
-            subtitle={t('usage_stats.request_events_subtitle')}
-            totalLabel={t('usage_stats.request_events_total_count', { count: totalCount })}
-          />
-        }
-        extra={
-          <div className={styles.requestEventsActions}>
-            <RequestEventsExportMenu
-              label={t('usage_stats.export')}
-              csvLabel={t('usage_stats.export_csv')}
-              jsonLabel={t('usage_stats.export_json')}
-              exportingFormat={exportingFormat}
-              onExport={onExport}
-            />
-          </div>
-        }
-      >
-        <div className={styles.requestEventsToolbar}>
-          <div className={styles.requestEventsFiltersGroup}>
-            <label className={styles.requestEventsFilterItem}>
-              <span className={styles.requestEventsFilterLabel}>
-                {t('usage_stats.request_events_filter_model')}
+            meta={(
+              <span className={styles.requestEventsCountBadge}>
+                {t('usage_stats.request_events_total_count', { count: totalCount })}
               </span>
-              <Select
-                value={effectiveModelFilter}
-                options={modelOptions}
-                onChange={onModelFilterChange}
-                className={`${styles.requestEventsSelect} ${styles.usagePillControl}`}
-                ariaLabel={t('usage_stats.request_events_filter_model')}
-                fullWidth={false}
-              />
-            </label>
-            <label className={styles.requestEventsFilterItem}>
-              <span className={styles.requestEventsFilterLabel}>
-                {t('usage_stats.request_events_filter_source')}
-              </span>
-              <Select
-                value={effectiveSourceFilter}
-                options={sourceOptions}
-                onChange={onSourceFilterChange}
-                className={`${styles.requestEventsSelect} ${styles.usagePillControl}`}
-                ariaLabel={t('usage_stats.request_events_filter_source')}
-                fullWidth={false}
-              />
-            </label>
-            <label className={styles.requestEventsFilterItem}>
-              <span className={styles.requestEventsFilterLabel}>
-                {t('usage_stats.request_events_filter_result')}
-              </span>
-              <Select
-                value={effectiveResultFilter}
-                options={resultOptions}
-                onChange={onResultFilterChange}
-                className={`${styles.requestEventsResultSelect} ${styles.usagePillControl}`}
-                ariaLabel={t('usage_stats.request_events_filter_result')}
-                fullWidth={false}
-              />
-            </label>
-            <div className={styles.requestEventsFilterActionSlot}>
-              <Button
-                variant="ghost"
-                size="sm"
-                className={`${styles.usagePillAction} ${styles.requestEventsClearFiltersButton}`.trim()}
-                onClick={handleClearFilters}
-                disabled={!hasActiveFilters}
-              >
-                {t('usage_stats.clear_filters')}
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        {loading && rows.length === 0 ? (
-          <div className={styles.hint}>{t('common.loading')}</div>
-        ) : rows.length === 0 ? (
-          <EmptyState
-            title={t('usage_stats.request_events_empty_title')}
-            description={t('usage_stats.request_events_empty_desc')}
-          />
-        ) : (
-          <>
-            <div ref={requestEventsTableWrapperRef} className={styles.requestEventsTableWrapper}>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    {visibleColumns.map((column) => (
-                      <React.Fragment key={column.id}>{column.header}</React.Fragment>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.id}>
-                      {visibleColumns.map((column) => (
-                        <React.Fragment key={column.id}>{column.renderCell(row)}</React.Fragment>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className={styles.requestEventsPaginationFooter}>
-              <div className={styles.requestEventsPaginationControls}>
+            )}
+            actions={(
+              <div className={styles.requestEventsActions}>
+                {onRefresh && (
+                  <AntButton
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    loading={refreshing}
+                    onClick={onRefresh}
+                  >
+                    {t('usage_stats.refresh')}
+                  </AntButton>
+                )}
                 <RequestEventsColumnSelector
                   label={t('usage_stats.request_events_columns')}
                   summary={visibleColumnSummary}
@@ -1572,63 +1197,144 @@ export function RequestEventsDetailsCard({
                   selectedIds={effectiveVisibleColumnIds}
                   onToggle={handleColumnToggle}
                 />
-                <label className={styles.requestEventsPageSizeControl}>
-                  <span>{t('usage_stats.request_events_rows_per_page')}</span>
-                  <select value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))} disabled={loading}>
-                    {pageSizeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-                  </select>
-                </label>
-                <button type="button" className={styles.requestEventsPagerButton} onClick={() => onPageChange(page - 1)} disabled={loading || safePage <= 1}>
-                  {t('usage_stats.request_events_previous_page')}
-                </button>
-                <span className={styles.requestEventsPaginationPage}>{pageLabel}</span>
-                <button type="button" className={styles.requestEventsPagerButton} onClick={() => onPageChange(page + 1)} disabled={loading || safeTotalPages === 0 || safePage >= safeTotalPages}>
-                  {t('usage_stats.request_events_next_page')}
-                </button>
+                <RequestEventsExportMenu
+                  label={t('usage_stats.export')}
+                  csvLabel={t('usage_stats.export_csv')}
+                  jsonLabel={t('usage_stats.export_json')}
+                  exportingFormat={exportingFormat}
+                  onExport={onExport}
+                />
               </div>
+            )}
+          />
+        }
+      >
+        <div className={styles.requestEventsToolbar}>
+          <Form layout="inline" className={styles.requestEventsFiltersForm}>
+            <Space wrap align="center" size={[12, 12]} className={styles.requestEventsFiltersGroup}>
+              <Form.Item label={t('usage_stats.request_events_filter_model')}>
+                <AntSelect
+                  className={styles.requestEventsEntityFilter}
+                  value={effectiveModelFilter}
+                  options={modelOptions}
+                  onChange={onModelFilterChange}
+                  aria-label={t('usage_stats.request_events_filter_model')}
+                  showSearch
+                  optionFilterProp="label"
+                  popupMatchSelectWidth={REQUEST_EVENT_ENTITY_FILTER_POPUP_WIDTH}
+                />
+              </Form.Item>
+              <Form.Item label={t('usage_stats.request_events_filter_source')}>
+                <AntSelect
+                  className={styles.requestEventsEntityFilter}
+                  value={effectiveSourceFilter}
+                  options={sourceOptions}
+                  onChange={onSourceFilterChange}
+                  aria-label={t('usage_stats.request_events_filter_source')}
+                  showSearch
+                  optionFilterProp="label"
+                  popupMatchSelectWidth={REQUEST_EVENT_ENTITY_FILTER_POPUP_WIDTH}
+                />
+              </Form.Item>
+              <Form.Item label={t('usage_stats.request_events_filter_result')}>
+                <AntSelect
+                  className={styles.requestEventsResultFilter}
+                  value={effectiveResultFilter}
+                  options={resultOptions}
+                  onChange={onResultFilterChange}
+                  aria-label={t('usage_stats.request_events_filter_result')}
+                />
+              </Form.Item>
+              <Form.Item>
+                <AntButton
+                  type="link"
+                  onClick={handleClearFilters}
+                  disabled={!hasActiveFilters}
+                >
+                  {t('usage_stats.clear_filters')}
+                </AntButton>
+              </Form.Item>
+            </Space>
+          </Form>
+        </div>
+
+        {loading && rows.length === 0 ? (
+          <div className={styles.hint}>{t('common.loading')}</div>
+        ) : rows.length === 0 ? (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={(
+              <Space orientation="vertical" size={0}>
+                <strong>{t('usage_stats.request_events_empty_title')}</strong>
+                <span>{t('usage_stats.request_events_empty_desc')}</span>
+              </Space>
+            )}
+          />
+        ) : (
+          <>
+            <div className={styles.requestEventsTableWrapper}>
+              <Table<RequestEventRow>
+                className={styles.requestEventsTable}
+                columns={tableColumns}
+                dataSource={rows}
+                rowKey="id"
+                pagination={false}
+                loading={loading}
+                size="small"
+                scroll={{ x: 'max-content', y: 'clamp(520px, 68vh, 760px)' }}
+              />
+            </div>
+
+            <div className={styles.requestEventsPaginationFooter}>
+              <Space size={[16, 12]} className={styles.requestEventsPaginationControls}>
+                <Pagination
+                  current={safePage || 1}
+                  total={Math.max(totalCount, safeTotalPages > 0 ? (safeTotalPages - 1) * pageSize + 1 : 0)}
+                  pageSize={pageSize}
+                  pageSizeOptions={pageSizeOptions.map(String)}
+                  showSizeChanger
+                  showLessItems
+                  responsive
+                  size="small"
+                  disabled={loading}
+                  showTotal={() => pageLabel}
+                  onChange={(nextPage, nextPageSize) => {
+                    if (nextPageSize !== pageSize) {
+                      onPageSizeChange(nextPageSize);
+                      return;
+                    }
+                    onPageChange(nextPage);
+                  }}
+                />
+              </Space>
             </div>
           </>
         )}
       </Card>
-      {speedModeTooltip && typeof document !== 'undefined'
-        ? createPortal(
-            <div
-              className={styles.requestEventsSpeedModeTooltip}
-              role="tooltip"
-              style={{
-                left: speedModeTooltip.x,
-                top: speedModeTooltip.y,
-                transform: speedModeTooltip.placement === 'above'
-                  ? 'translate(-50%, -100%)'
-                  : 'translateX(-50%)',
-              }}
-            >
-              {speedModeTooltip.lines.map((line) => <span key={line}>{line}</span>)}
-            </div>,
-            document.body,
-          )
-        : null}
       <Modal
         open={requestLogOpen}
         title={requestLogTitle}
-        onClose={onRequestLogClose ?? (() => undefined)}
+        onCancel={onRequestLogClose ?? (() => undefined)}
         width={requestLogTooLarge ? 360 : 920}
         className={requestLogTooLarge ? styles.requestEventsLargeLogModal : undefined}
+        destroyOnHidden
+        centered
+        focusable={{ focusTriggerAfterClose: true }}
         footer={
           requestLogTooLarge ? (
             <>
-              <Button variant="secondary" size="sm" className={styles.usagePillAction} onClick={onRequestLogClose ?? (() => undefined)}>
+              <AntButton size="small" onClick={onRequestLogClose ?? (() => undefined)}>
                 {t('common.cancel')}
-              </Button>
-              <Button variant="primary" size="sm" className={styles.usagePillAction} onClick={handleRequestLogDownloadAction} loading={requestLogDownloading} disabled={!requestLogDownloadable}>
+              </AntButton>
+              <AntButton type="primary" size="small" onClick={handleRequestLogDownloadAction} loading={requestLogDownloading} disabled={!requestLogDownloadable}>
                 {requestLogDownloading ? t('common.loading') : t('usage_stats.request_events_log_download')}
-              </Button>
+              </AntButton>
             </>
           ) : requestLogDownloadable ? (
-            <Button variant="secondary" size="sm" className={styles.usagePillAction} onClick={handleRequestLogDownloadAction} loading={requestLogDownloading}>
+            <AntButton size="small" onClick={handleRequestLogDownloadAction} loading={requestLogDownloading}>
               {requestLogDownloading ? t('common.loading') : t('usage_stats.request_events_log_download')}
-            </Button>
-          ) : undefined
+            </AntButton>
+          ) : null
         }
       >
         <div className={styles.requestEventsLogViewer}>

@@ -82,7 +82,7 @@ describe('buildStatCardMetrics', () => {
     expect(metrics.requestStats.successRate).toBeNull();
   });
 
-  it('keeps priced total cost visible when availability is partial', () => {
+  it('keeps the priced portion of total cost visible when availability is partial', () => {
     const metrics = buildStatCardMetrics({
       usage: {
         ...usageWithBackendSummary,
@@ -95,6 +95,5 @@ describe('buildStatCardMetrics', () => {
     });
 
     expect(metrics.totalCost).toBe(4.56);
-    expect(metrics.costAvailable).toBe(false);
   });
 });

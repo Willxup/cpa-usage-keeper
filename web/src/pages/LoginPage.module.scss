@@ -1,236 +1,55 @@
-@use '../styles/variables' as *;
 @use '../styles/mixins' as *;
 
-.pageShell {
+.guestShell {
+  width: min(var(--app-shell-max-width), 100%);
+  margin-inline: auto;
+
+  // Wide screens: widen side gutters and grow the header so the guest page
+  // shares the authenticated chrome rhythm. Only tokens are overridden here —
+  // shell geometry stays owned by AppShell.
+  @include wide {
+    --page-gutter: 40px;
+    --page-header-height: 88px;
+  }
+}
+
+.loginColumn {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 32px 20px;
-  background:
-    linear-gradient(115deg, rgba(17, 24, 39, 0.08) 0 1px, transparent 1px 100%) 0 0 / 28px 28px,
-    radial-gradient(900px 480px at 12% 0%, rgba($primary-color, 0.16), transparent 58%),
-    var(--bg-secondary);
-}
-
-.frame {
-  width: min(1180px, 100%);
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(360px, 440px);
-  gap: 64px;
-  align-items: center;
-
-  @include mobile {
-    grid-template-columns: 1fr;
-    gap: 18px;
-  }
-}
-
-.utilityDock {
-  grid-column: 1 / -1;
-  justify-self: end;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.themeSwitcher {
-  display: inline-flex;
-  align-items: stretch;
-  min-height: 40px;
-  padding: 4px;
-  border-radius: 999px;
-  border: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-
-.themePill {
-  border: 0;
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 7px 11px;
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
-
-  &:hover {
-    color: var(--text-primary);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--primary-color);
-    outline-offset: 2px;
-  }
-}
-
-.themePillActive {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
-}
-
-.brandBlock {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  min-width: 0;
-}
-
-.eyebrow {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  min-height: 40px;
-  padding: 0 18px;
-  border-radius: 999px;
-  border: 1px solid rgba($primary-color, 0.24);
-  background: color-mix(in srgb, var(--bg-primary) 82%, transparent);
-  color: var(--text-primary);
-  font-size: 15px;
-  font-weight: 900;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.title {
-  margin: 0;
-  font-size: clamp(38px, 5.6vw, 68px);
-  line-height: 0.92;
-  letter-spacing: -0.055em;
-  white-space: pre-line;
-  color: var(--text-primary);
-}
-
-.subtitle {
-  margin: 0;
-  max-width: 560px;
-  color: var(--text-secondary);
-  font-size: 15px;
-  line-height: 1.75;
+  padding: 24px 0;
 }
 
 .loginCard {
-  width: 100%;
-  min-height: 440px;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  padding: 28px;
-  border-radius: 28px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 96%, rgba($primary-color, 0.08)), color-mix(in srgb, var(--bg-primary) 88%, transparent)),
-    var(--bg-primary);
-  box-shadow: var(--floating-shadow);
-  border: 1px solid color-mix(in srgb, var(--border-color) 84%, rgba($primary-color, 0.28));
-
-  @include mobile {
-    min-height: 0;
-    padding: 20px;
-  }
+  width: min(440px, 100%);
+  border-color: var(--border-color);
+  box-shadow: var(--shadow-md);
 }
 
-.cardHeader {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 18px;
-}
-
-.cardKicker {
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.cardTitle {
-  margin: 0;
+.brandLink {
   color: var(--text-primary);
-  font-size: 24px;
-  line-height: 1.1;
-  letter-spacing: -0.03em;
+  font-size: 18px;
+  font-weight: 700;
+  text-decoration: none;
 }
 
-.cardHint {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.6;
+.loginTabs {
+  margin-bottom: 20px;
 }
 
-.formHint {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.5;
+.loginError {
+  margin-bottom: 16px;
 }
 
-.tabs {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px;
-  min-height: 44px;
-  padding: 4px;
-  margin-bottom: 18px;
-  border-radius: 999px;
-  border: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
-}
-
-.tab {
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 800;
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
-
-  &:hover:not(:disabled) {
-    color: var(--text-primary);
+@include mobile {
+  .loginColumn {
+    align-items: flex-start;
+    padding: 8px 0 16px;
   }
 
-  &:focus-visible {
-    outline: 2px solid var(--primary-color);
-    outline-offset: 2px;
-  }
-}
-
-.tabActive {
-  border: 1px solid color-mix(in srgb, var(--primary-color) 48%, var(--border-color));
-  background: color-mix(in srgb, var(--primary-color) 18%, var(--bg-primary));
-  color: var(--text-primary);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16), inset 0 0 0 1px color-mix(in srgb, var(--text-primary) 18%, transparent);
-}
-
-.form {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-
-  :global(.btn) {
-    margin-top: auto;
-  }
-
-  :global(.input::placeholder) {
-    font-size: 12px;
-  }
-
-  :global(.error-box) {
-    padding: 6px 10px;
-    border-radius: 8px;
-    font-size: 12px;
-    line-height: 1.45;
+  .loginCard {
+    width: 100%;
   }
 }

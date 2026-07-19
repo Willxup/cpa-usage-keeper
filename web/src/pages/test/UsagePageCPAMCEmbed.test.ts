@@ -4,9 +4,10 @@ import { describe, expect, it } from 'vitest';
 const usagePageSource = readFileSync(new URL('../UsagePage.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 
 describe('UsagePage CPAMC embed behavior', () => {
-  it('does not render the Back to CPA link in CPAMC embed mode', () => {
-    expect(usagePageSource).toContain("import { isCPAMCEmbed } from '@/embed/cpamcEmbed';");
-    expect(usagePageSource).toMatch(/const isEmbeddedInCPAMC = isCPAMCEmbed\(\);/);
-    expect(usagePageSource).toMatch(/\{\(!isEmbeddedInCPAMC && cpaManagementURL\) && \(/);
+  it('no longer uses embed-specific filter transitions now that filters are conditionally mounted', () => {
+    expect(usagePageSource).not.toContain('isCPAMCEmbed')
+    expect(usagePageSource).not.toContain('isEmbeddedInCPAMC')
+    expect(usagePageSource).not.toContain('styles.usageFilterTransitionImmediate')
+    expect(usagePageSource).not.toContain('styles.toolbarActionsRightAnimated')
   });
 });

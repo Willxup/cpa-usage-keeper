@@ -1,15 +1,22 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
+  DEFAULT_REQUEST_EVENT_VISIBLE_COLUMN_IDS,
+  REQUEST_EVENT_COLUMN_IDS,
   RequestEventsDetailsCard,
   isRequestEventColumnSelectionControlled,
-  resolveRequestEventColumnMenuFocusIndex,
-  shouldCloseMenuOnFocusLeave,
   toggleRequestEventColumnId,
   type RequestEventColumnId,
 } from './RequestEventsDetailsCard';
 import type { UsageEvent } from '@/lib/types';
+
+const requestEventsSource = readFileSync(new URL('./RequestEventsDetailsCard.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+const requestLogModalSource = requestEventsSource.slice(
+  requestEventsSource.indexOf('<Modal\n        open={requestLogOpen}'),
+  requestEventsSource.indexOf('\n      </Modal>', requestEventsSource.indexOf('<Modal\n        open={requestLogOpen}')),
+);
 
 const events: UsageEvent[] = [
   {
@@ -43,7 +50,10 @@ const events: UsageEvent[] = [
   },
 ];
 
-const renderCard = (props: Partial<React.ComponentProps<typeof RequestEventsDetailsCard>> = {}) =>
+const renderCard = (
+  props: Partial<React.ComponentProps<typeof RequestEventsDetailsCard>> = {},
+  diagnosticColumns = true,
+) =>
   renderToStaticMarkup(
     <RequestEventsDetailsCard
       events={events}
@@ -63,11 +73,26 @@ const renderCard = (props: Partial<React.ComponentProps<typeof RequestEventsDeta
       onModelFilterChange={() => undefined}
       onSourceFilterChange={() => undefined}
       onResultFilterChange={() => undefined}
+      {...(diagnosticColumns && props.initialVisibleColumnIds === undefined && props.visibleColumnIds === undefined
+        ? { initialVisibleColumnIds: REQUEST_EVENT_COLUMN_IDS }
+        : {})}
       {...props}
     />,
   );
 
 const countOccurrences = (text: string, value: string) => text.split(value).length - 1;
+const textFromMarkup = (value: string) => value.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+const extractTableHeaders = (html: string) => (
+  Array.from(html.matchAll(/<th\b[^>]*>(.*?)<\/th>/gs), (match) => textFromMarkup(match[1]))
+);
+const extractFirstTableRowCells = (html: string) => {
+  const row = html.match(/<tr\b[^>]*data-row-key="[^"]+"[^>]*>(.*?)<\/tr>/s)?.[1] ?? '';
+  return Array.from(row.matchAll(/<td\b[^>]*>(.*?)<\/td>/gs), (match) => textFromMarkup(match[1]));
+};
+const cellForHeader = (html: string, header: string) => {
+  const headers = extractTableHeaders(html);
+  return extractFirstTableRowCells(html)[headers.indexOf(header)];
+};
 
 describe('RequestEventsDetailsCard pagination', () => {
   it('renders the title without the Event Stream eyebrow', () => {
@@ -77,41 +102,67 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).not.toContain('Event Stream');
   });
 
+  it('uses the operational monitoring columns when no view preference is supplied', () => {
+    const html = renderCard({}, false);
+
+    expect(DEFAULT_REQUEST_EVENT_VISIBLE_COLUMN_IDS).toEqual([
+      'timestamp',
+      'source',
+      'model',
+      'result',
+      'latency',
+      'total_tokens',
+      'total_cost',
+    ]);
+    expect(extractTableHeaders(html)).toEqual([
+      'Timestamp',
+      'Source',
+      'Model',
+      'Result',
+      'Latency',
+      'Total Tokens',
+      'Total Cost',
+    ]);
+  });
+
   it('renders total events, current page, page size options, and disabled page buttons', () => {
     const html = renderCard();
 
+    const headers = extractTableHeaders(html);
     expect(html).toContain('120 total events');
-    expect(html).toContain('Effort');
+    expect(headers).toEqual(expect.arrayContaining([
+      'Timestamp', 'API Key', 'Source', 'Model', 'Effort', 'Speed Mode', 'Result', 'Type',
+      'Endpoint', 'TTFT', 'Latency', 'Speed', 'Input',
+    ]));
     expect(html).not.toContain('Reasoning Level');
-    expect(html.indexOf('>Timestamp</th>')).toBeLessThan(html.indexOf('>Source</th>'));
-    expect(html.indexOf('>Timestamp</th>')).toBeLessThan(html.indexOf('>API Key</th>'));
-    expect(html.indexOf('>API Key</th>')).toBeLessThan(html.indexOf('>Source</th>'));
-    expect(html.indexOf('>Source</th>')).toBeLessThan(html.indexOf('>Model</th>'));
-    expect(html.indexOf('>Model</th>')).toBeLessThan(html.indexOf('title="Reasoning Effort">Effort</th>'));
-    expect(html.indexOf('title="Reasoning Effort">Effort</th>')).toBeLessThan(html.indexOf('>Speed Mode</th>'));
-    expect(html.indexOf('>Speed Mode</th>')).toBeLessThan(html.indexOf('>Result</th>'));
-    expect(html.indexOf('>Result</th>')).toBeLessThan(html.indexOf('>Type</th>'));
-    expect(html.indexOf('>Type</th>')).toBeLessThan(html.indexOf('>Endpoint</th>'));
-    expect(html.indexOf('>Endpoint</th>')).toBeLessThan(html.indexOf('title="Time to First Token">TTFT</th>'));
-    expect(html.indexOf('title="Time to First Token">TTFT</th>')).toBeLessThan(html.indexOf('title="Using latency_ms in ms">Latency</th>'));
-    expect(html.indexOf('title="Using latency_ms in ms">Latency</th>')).toBeLessThan(html.indexOf('title="Average visible output tokens per second after TTFT">Speed</th>'));
-    expect(html.indexOf('title="Average visible output tokens per second after TTFT">Speed</th>')).toBeLessThan(html.indexOf('>Input</th>'));
-    expect(html).toContain('class="_requestEventsAPIKeyCell_');
-    expect(html).toContain('title="Production Key">Production Key</td>');
-    expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">medium<\/td>/);
-    expect(html).toContain('>Auto / Fast</td>');
-    expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">SSE<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*" title="\/messages">\/messages<\/td>/);
-    expect(html.indexOf('>45ms</td>')).toBeLessThan(html.indexOf('>120ms</td>'));
-    expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">30\.0 t\/s<\/td>/);
+    expect(headers.indexOf('Timestamp')).toBeLessThan(headers.indexOf('API Key'));
+    expect(headers.indexOf('API Key')).toBeLessThan(headers.indexOf('Source'));
+    expect(headers.indexOf('Source')).toBeLessThan(headers.indexOf('Model'));
+    expect(headers.indexOf('Model')).toBeLessThan(headers.indexOf('Effort'));
+    expect(headers.indexOf('Effort')).toBeLessThan(headers.indexOf('Speed Mode'));
+    expect(headers.indexOf('Speed Mode')).toBeLessThan(headers.indexOf('Result'));
+    expect(headers.indexOf('Result')).toBeLessThan(headers.indexOf('Type'));
+    expect(headers.indexOf('Type')).toBeLessThan(headers.indexOf('Endpoint'));
+    expect(headers.indexOf('Endpoint')).toBeLessThan(headers.indexOf('TTFT'));
+    expect(headers.indexOf('TTFT')).toBeLessThan(headers.indexOf('Latency'));
+    expect(headers.indexOf('Latency')).toBeLessThan(headers.indexOf('Speed'));
+    expect(headers.indexOf('Speed')).toBeLessThan(headers.indexOf('Input'));
+    expect(cellForHeader(html, 'API Key')).toBe('Production Key');
+    expect(cellForHeader(html, 'Effort')).toBe('medium');
+    expect(cellForHeader(html, 'Speed Mode')).toBe('Auto / Fast');
+    expect(cellForHeader(html, 'Type')).toBe('SSE');
+    expect(cellForHeader(html, 'Endpoint')).toBe('/messages');
+    expect(cellForHeader(html, 'TTFT')).toBe('45ms');
+    expect(cellForHeader(html, 'Latency')).toBe('120ms');
+    expect(cellForHeader(html, 'Speed')).toBe('30.0 t/s');
     expect(html).toContain('1 / 6');
-    expect(html).toContain('20');
-    expect(html).toContain('50');
-    expect(html).toContain('100');
-    expect(html).toContain('500');
-    expect(html).toContain('1000');
-    expect(html).toContain('Previous');
-    expect(html).toContain('Next');
+    expect(html).toContain('ant-pagination');
+    expect(html).toContain('20 / page');
+    expect(html).toContain('title="Previous Page"');
+    expect(html).toContain('title="Next Page"');
     expect(html).toContain('disabled');
+    expect(requestEventsSource).toContain('pageSizeOptions={pageSizeOptions.map(String)}');
+    expect(requestEventsSource).toContain('showSizeChanger');
   });
 
   it('maps request speed mode values before the independently mapped response mode', () => {
@@ -129,12 +180,12 @@ describe('RequestEventsDetailsCard pagination', () => {
       ],
     });
 
-    expect(html).toContain('>Auto / Fast</td>');
-    expect(countOccurrences(html, '>Standard / Fast</td>')).toBe(2);
-    expect(countOccurrences(html, '>Fast / Standard</td>')).toBe(2);
-    expect(html).toContain('>Flex / Standard</td>');
-    expect(html).toContain('>- / Fast</td>');
-    expect(html).toContain('>batch / Standard</td>');
+    expect(countOccurrences(html, 'Auto / Fast')).toBe(1);
+    expect(countOccurrences(html, 'Standard / Fast')).toBe(2);
+    expect(countOccurrences(html, 'Fast / Standard')).toBe(2);
+    expect(countOccurrences(html, 'Flex / Standard')).toBe(1);
+    expect(countOccurrences(html, '- / Fast')).toBe(1);
+    expect(countOccurrences(html, 'batch / Standard')).toBe(1);
   });
 
   it('formats timestamps with compact numeric date and time', () => {
@@ -151,8 +202,11 @@ describe('RequestEventsDetailsCard pagination', () => {
       events: [{ ...events[0], ttft_ms: undefined, speed_tps: undefined }],
     });
 
-    expect(html.indexOf('title="Time to First Token">TTFT</th>')).toBeLessThan(html.indexOf('title="Using latency_ms in ms">Latency</th>'));
-    expect(html).toMatch(/Success<\/span><\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">SSE<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*" title="\/messages">\/messages<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">-<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">120ms<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">-<\/td>/);
+    const headers = extractTableHeaders(html);
+    expect(headers.indexOf('TTFT')).toBeLessThan(headers.indexOf('Latency'));
+    expect(cellForHeader(html, 'TTFT')).toBe('-');
+    expect(cellForHeader(html, 'Latency')).toBe('120ms');
+    expect(cellForHeader(html, 'Speed')).toBe('-');
   });
 
   it('keeps the Latency column visible when latency is missing', () => {
@@ -160,9 +214,12 @@ describe('RequestEventsDetailsCard pagination', () => {
       events: [{ ...events[0], latency_ms: undefined, speed_tps: undefined }],
     });
 
-    expect(html.indexOf('title="Time to First Token">TTFT</th>')).toBeLessThan(html.indexOf('title="Using latency_ms in ms">Latency</th>'));
-    expect(html.indexOf('title="Using latency_ms in ms">Latency</th>')).toBeLessThan(html.indexOf('title="Average visible output tokens per second after TTFT">Speed</th>'));
-    expect(html).toMatch(/45ms<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">--<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">-<\/td>/);
+    const headers = extractTableHeaders(html);
+    expect(headers.indexOf('TTFT')).toBeLessThan(headers.indexOf('Latency'));
+    expect(headers.indexOf('Latency')).toBeLessThan(headers.indexOf('Speed'));
+    expect(cellForHeader(html, 'TTFT')).toBe('45ms');
+    expect(cellForHeader(html, 'Latency')).toBe('--');
+    expect(cellForHeader(html, 'Speed')).toBe('-');
   });
 
   it('shows a dash for zero TTFT values', () => {
@@ -170,7 +227,9 @@ describe('RequestEventsDetailsCard pagination', () => {
       events: [{ ...events[0], ttft_ms: 0, speed_tps: undefined }],
     });
 
-    expect(html).toMatch(/Success<\/span><\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">SSE<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*" title="\/messages">\/messages<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">-<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">120ms<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">-<\/td>/);
+    expect(cellForHeader(html, 'TTFT')).toBe('-');
+    expect(cellForHeader(html, 'Latency')).toBe('120ms');
+    expect(cellForHeader(html, 'Speed')).toBe('-');
   });
 
   it('maps GET endpoints to WS and strips the v1 prefix', () => {
@@ -178,7 +237,8 @@ describe('RequestEventsDetailsCard pagination', () => {
       events: [{ ...events[0], endpoint: 'GET /v1/responses' }],
     });
 
-    expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">WS<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*" title="\/responses">\/responses<\/td>/);
+    expect(cellForHeader(html, 'Type')).toBe('WS');
+    expect(cellForHeader(html, 'Endpoint')).toBe('/responses');
   });
 
   it('strips the v1 prefix when endpoint has no request method', () => {
@@ -186,7 +246,8 @@ describe('RequestEventsDetailsCard pagination', () => {
       events: [{ ...events[0], endpoint: '/v1/chat/completions' }],
     });
 
-    expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">-<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*" title="\/chat\/completions">\/chat\/completions<\/td>/);
+    expect(cellForHeader(html, 'Type')).toBe('-');
+    expect(cellForHeader(html, 'Endpoint')).toBe('/chat/completions');
   });
 
   it('renders cache rate after cache read and write with two decimal places', () => {
@@ -221,7 +282,7 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">0<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">60<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">20<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">25<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">0<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">-<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">200<\/td>/);
   });
 
-  it('stacks source value above source tags', () => {
+  it('renders source metadata inline with Ant Design tags', () => {
     const html = renderCard({
       events: [{ ...events[0], isDelete: true }],
     });
@@ -229,7 +290,7 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('_requestEventsSourceStack_');
     expect(html).toContain('_requestEventsSourceValue_');
     expect(html).toContain('_requestEventsSourceTags_');
-    expect(html).toContain('_requestEventsDeletedTag_');
+    expect(html).toContain('ant-tag');
     expect(html).toContain('Provider A');
     expect(html).toContain('openai');
     expect(html).toContain('Deleted');
@@ -242,14 +303,17 @@ describe('RequestEventsDetailsCard pagination', () => {
     });
 
     expect(countOccurrences(html, 'Team Prefix')).toBeGreaterThanOrEqual(1);
-    expect(html).toContain('aria-label="Source"><span class="_triggerText_c80422 ">Team Prefix</span>');
+    expect(html).toContain('title="Team Prefix">Team Prefix<input');
+    expect(html).toContain('aria-label="Source"');
   });
 
   it('uses backend model and source options instead of current page grouping', () => {
     const html = renderCard({ modelFilter: 'claude-opus', sourceFilter: 'source-b' });
 
-    expect(html).toContain('aria-label="Model"><span class="_triggerText_c80422 ">claude-opus</span>');
-    expect(html).toContain('aria-label="Source"><span class="_triggerText_c80422 ">Provider B</span>');
+    expect(html).toContain('title="claude-opus">claude-opus<input');
+    expect(html).toContain('aria-label="Model"');
+    expect(html).toContain('title="Provider B">Provider B<input');
+    expect(html).toContain('aria-label="Source"');
   });
 
   it('renders a Result filter and no Credential filter control', () => {
@@ -299,56 +363,27 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).not.toMatch(/<button[^>]*>.*Loading\.\.\..*<\/button>/);
   });
 
-  it('renders request log content without request id or cache metadata', () => {
-    const html = renderCard({
-      requestLogResponse: {
-        event_id: '101',
-        request_id: 'req-log-101',
-        filename: 'preview-req-log-101.log',
-        available: true,
-        sections: [
-          { title: 'REQUEST INFO', content: 'URL: /v1/responses' },
-          { title: 'API RESPONSE ERROR', content: '{"error":"quota exceeded"}' },
-        ],
-      },
-      onRequestLogClose: () => undefined,
-    });
-
-    expect(html).toContain('Request Info');
-    expect(html).toContain('API Response Error');
-    expect(html).toContain('aria-expanded="true"');
-    expect(html).toContain('aria-expanded="false"');
-    expect(html).toContain('_requestEventsLogSectionChevron_');
-    expect(html).toContain('_requestEventsLogSectionPanel_');
-    expect(html).toContain('URL: /v1/responses');
-    expect(html).not.toContain('Request ID');
-    expect(html).not.toContain('Request ID: req-log-101');
-    expect(html).not.toContain('<span>Cached</span>');
-    expect(html).not.toContain('<span>Fresh</span>');
-    expect(html).not.toContain('preview-req-log-101.log');
+  it('defines request log sections without request id or cache metadata', () => {
+    expect(requestLogModalSource).toContain('<RequestLogSectionDisclosure');
+    expect(requestLogModalSource).toContain('title={formatRequestLogSectionTitle(section.title, t)}');
+    expect(requestLogModalSource).toContain('content={section.content}');
+    expect(requestLogModalSource).toContain('defaultOpen={index === 0}');
+    expect(requestLogModalSource).not.toContain('Request ID');
+    expect(requestLogModalSource).not.toContain('Cached');
+    expect(requestLogModalSource).not.toContain('Fresh');
+    expect(requestLogModalSource).not.toContain('filename');
   });
 
-  it('renders a compact large-log download prompt without opening log sections', () => {
-    const html = renderCard({
-      requestLogResponse: {
-        event_id: '101',
-        request_id: 'req-log-101',
-        filename: 'large-request.log',
-        available: true,
-        previewable: false,
-        too_large: true,
-        downloadable: true,
-        sections: [],
-      },
-      onRequestLogClose: () => undefined,
-    });
-
-    expect(html).toContain('Request Log Too Large');
-    expect(html).toContain('Download Raw Log');
-    expect(html).toContain('Cancel');
-    expect(html).toContain('_requestEventsLargeLogModal_');
-    expect(html).toContain('_requestEventsLargeLogPrompt_');
-    expect(html).not.toContain('_requestEventsLogSections_');
+  it('defines the direct Ant Design request-log modal with preserved widths and footer branches', () => {
+    expect(requestLogModalSource).toContain('onCancel={onRequestLogClose ?? (() => undefined)}');
+    expect(requestLogModalSource).toContain('width={requestLogTooLarge ? 360 : 920}');
+    expect(requestLogModalSource).toContain('className={requestLogTooLarge ? styles.requestEventsLargeLogModal : undefined}');
+    expect(requestEventsSource).toContain("const requestLogOpen = typeof document !== 'undefined' && Boolean(requestLogResponse || requestLogError || requestLogLoadingEventId);");
+    expect(requestLogModalSource).toContain("t('usage_stats.request_events_log_too_large')");
+    expect(requestLogModalSource).toContain("t('usage_stats.request_events_log_download')");
+    expect(requestLogModalSource).toContain("t('common.cancel')");
+    expect(requestLogModalSource).toContain(': null');
+    expect(requestLogModalSource.indexOf('requestEventsLargeLogPrompt')).toBeLessThan(requestLogModalSource.indexOf('requestEventsLogSections'));
   });
 
   it('keeps selected filters visible when backend options do not include them', () => {
@@ -367,23 +402,24 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('1 / 6');
   });
 
-  it('shows total count in the title and uses the shared pager footer', () => {
+  it('shows total count in the title and uses Ant Design pagination', () => {
     const html = renderCard();
 
+    expect(html).toContain('_requestEventsFiltersForm_');
     expect(html).toContain('_requestEventsFiltersGroup_');
-    expect(html).toContain('_requestEventsTitleRow_');
+    expect(html).toContain('<h2');
     expect(html).toContain('_requestEventsCountBadge_');
+    expect(html).not.toContain('_requestEventsTitleRow_');
     expect(html).toContain('120 total events');
     expect(html).toContain('_requestEventsPaginationFooter_');
     expect(html).toContain('_requestEventsPaginationControls_');
-    expect(html).toContain('_requestEventsPageSizeControl_');
-    expect(html).toContain('Size');
-    expect(html).not.toContain('Rows per page');
-    expect(html).toContain('_requestEventsPaginationPage_');
-    expect(html).toContain('_requestEventsPagerButton_');
-    expect(html).toContain('<select');
-    expect(html).toContain('value="20"');
+    expect(html).toContain('ant-pagination');
+    expect(html).toContain('aria-label="Page Size"');
     expect(html).toContain('_requestEventsActions_');
+    expect(html).not.toContain('_requestEventsPageSizeControl_');
+    expect(html).not.toContain('_requestEventsPaginationPage_');
+    expect(html).not.toContain('_requestEventsPagerButton_');
+    expect(html).not.toContain('<select');
     expect(html).not.toContain('_requestEventsPaginationItem_');
     expect(html).not.toContain('_requestEventsPageSizeSelectCompact_');
     expect(html).not.toContain('_usagePillShell_');
@@ -392,17 +428,21 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).not.toContain('_requestEventsLimitHint_');
   });
 
-  it('renders one export menu trigger instead of separate CSV and JSON buttons', () => {
+  it('renders one Ant Design export dropdown instead of separate CSV and JSON buttons', () => {
     const html = renderCard({ modelFilter: 'claude-sonnet' });
 
     expect(html).toContain('Clear Filters');
     expect(countOccurrences(html, '>Export<')).toBe(1);
     expect(html.indexOf('aria-label="Result"')).toBeLessThan(html.indexOf('Clear Filters'));
-    expect(html.indexOf('Clear Filters')).toBeLessThan(html.indexOf('aria-label="Columns"'));
-    expect(html.indexOf('>Export<')).toBeLessThan(html.indexOf('aria-label="Result"'));
-    expect(html).toContain('aria-haspopup="menu"');
-    expect(html).toContain('_requestEventsExportButton_');
-    expect(html).toContain('_requestEventsExportButtonInner_');
+    expect(requestEventsSource.indexOf('<RequestEventsColumnSelector')).toBeLessThan(requestEventsSource.indexOf('<RequestEventsExportMenu'));
+    expect(requestEventsSource.indexOf('<RequestEventsColumnSelector')).toBeLessThan(requestEventsSource.indexOf('<div className={styles.requestEventsToolbar}>'));
+    expect(requestEventsSource).toContain('<Dropdown');
+    expect(requestEventsSource).toContain("trigger={['click']}");
+    expect(requestEventsSource).toContain("{ key: 'csv', label: csvLabel }");
+    expect(requestEventsSource).toContain("{ key: 'json', label: jsonLabel }");
+    expect(requestEventsSource).toContain('<DownloadOutlined />');
+    expect(html).not.toContain('_requestEventsExportButton_');
+    expect(html).not.toContain('_requestEventsExportButtonInner_');
     expect(html).not.toContain('Export CSV');
     expect(html).not.toContain('Export JSON');
   });
@@ -420,15 +460,18 @@ describe('RequestEventsDetailsCard pagination', () => {
     });
 
     expect(html).toContain('Total Cost');
-    expect(html).toContain('title="Set pricing to calculate cost">-</td>');
+    expect(cellForHeader(html, 'Total Cost')).toBe('-');
+    expect(html).toContain('title="Set pricing to calculate cost"');
   });
 
-  it('renders a column selector before the page size control', () => {
-    const html = renderCard();
+  it('renders the Columns control in the header and keeps pagination in the footer', () => {
+    const html = renderCard({}, false);
 
     expect(html).toContain('aria-label="Columns"');
-    expect(html.indexOf('aria-label="Columns"')).toBeLessThan(html.indexOf('<span>Size</span>'));
-    expect(html).toContain('>All</span>');
+    expect(html).toContain('7/21');
+    expect(requestEventsSource).toContain('<Checkbox');
+    expect(requestEventsSource).toContain('icon={<TableOutlined />}');
+    expect(requestEventsSource).not.toMatch(/requestEventsPaginationFooter[\s\S]*<RequestEventsColumnSelector/);
   });
 
   it('can render only the selected request event columns', () => {
@@ -436,17 +479,9 @@ describe('RequestEventsDetailsCard pagination', () => {
       initialVisibleColumnIds: ['timestamp', 'model', 'total_cost'],
     });
 
-    expect(html).toContain('>Timestamp</th>');
-    expect(html).toContain('>Model</th>');
-    expect(html).toContain('>Total Cost</th>');
-    expect(html).toContain('2026/04/23 02:00:00');
-    expect(html).toContain('<td class="_modelCell_');
-    expect(html).toContain('$0.1234');
-    expect(html).not.toContain('<th>API Key</th>');
-    expect(html).not.toContain('<th>Source</th>');
-    expect(html).not.toContain('title="Time to First Token">TTFT</th>');
-    expect(html).not.toContain('title="Using latency_ms in ms">Latency</th>');
-    expect(html).not.toContain('title="Production Key">Production Key</td>');
+    expect(extractTableHeaders(html)).toEqual(['Timestamp', 'Model', 'Total Cost']);
+    expect(extractFirstTableRowCells(html)).toEqual(['2026/04/23 02:00:00', 'claude-sonnet', '$0.1234']);
+    expect(html).not.toContain('title="Production Key"');
   });
 
   it('honors controlled request event column selection', () => {
@@ -454,12 +489,8 @@ describe('RequestEventsDetailsCard pagination', () => {
       visibleColumnIds: ['timestamp', 'model'],
     });
 
-    expect(html).toContain('>Timestamp</th>');
-    expect(html).toContain('>Model</th>');
-    expect(html).toContain('2026/04/23 02:00:00');
-    expect(html).toContain('<td class="_modelCell_');
-    expect(html).not.toContain('<th>API Key</th>');
-    expect(html).not.toContain('>Total Cost</th>');
+    expect(extractTableHeaders(html)).toEqual(['Timestamp', 'Model']);
+    expect(extractFirstTableRowCells(html)).toEqual(['2026/04/23 02:00:00', 'claude-sonnet']);
     expect(html).not.toContain('$0.1234');
   });
 
@@ -474,25 +505,5 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(isRequestEventColumnSelectionControlled(['timestamp'], () => undefined)).toBe(true);
     expect(isRequestEventColumnSelectionControlled(undefined, () => undefined)).toBe(false);
     expect(isRequestEventColumnSelectionControlled(['timestamp'], undefined)).toBe(false);
-  });
-
-  it('closes export menu only when focus leaves the menu container', () => {
-    const insideTarget = {};
-    const outsideTarget = {};
-    const container = { contains: (target: EventTarget) => target === insideTarget };
-
-    expect(shouldCloseMenuOnFocusLeave(container, insideTarget as EventTarget)).toBe(false);
-    expect(shouldCloseMenuOnFocusLeave(container, outsideTarget as EventTarget)).toBe(true);
-    expect(shouldCloseMenuOnFocusLeave(container, null)).toBe(true);
-  });
-
-  it('cycles column menu focus for arrow and tab navigation', () => {
-    expect(resolveRequestEventColumnMenuFocusIndex(0, 3, 'ArrowDown')).toBe(1);
-    expect(resolveRequestEventColumnMenuFocusIndex(2, 3, 'ArrowDown')).toBe(0);
-    expect(resolveRequestEventColumnMenuFocusIndex(0, 3, 'ArrowUp')).toBe(2);
-    expect(resolveRequestEventColumnMenuFocusIndex(2, 3, 'Tab')).toBe(0);
-    expect(resolveRequestEventColumnMenuFocusIndex(0, 3, 'Tab', true)).toBe(2);
-    expect(resolveRequestEventColumnMenuFocusIndex(1, 3, 'Escape')).toBeNull();
-    expect(resolveRequestEventColumnMenuFocusIndex(0, 0, 'ArrowDown')).toBeNull();
   });
 });

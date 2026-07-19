@@ -1,17 +1,20 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Modal } from 'antd';
 import { fetchVersion } from '@/lib/api';
 import type { VersionResponse } from '@/lib/types';
 import { IconGithub } from '@/components/ui/icons';
 import { CLIPROXYAPI_REPOSITORY_URL, GITHUB_PROFILE_URL, GITHUB_REPOSITORY_URL } from '@/utils/constants';
+import styles from './ProductAbout.module.scss';
 
-type FooterVersionLoader = (signal: AbortSignal) => Promise<Pick<VersionResponse, 'version'>>;
+type AboutVersionLoader = (signal: AbortSignal) => Promise<Pick<VersionResponse, 'version'>>;
 
-export function footerVersionLabel(version?: string): string | undefined {
+export function aboutVersionLabel(version?: string): string | undefined {
   const trimmed = version?.trim();
   return trimmed ? `Version: ${trimmed}` : undefined;
 }
 
-export async function loadFooterVersion(loadVersion: FooterVersionLoader, signal: AbortSignal): Promise<string> {
+export async function loadAboutVersion(loadVersion: AboutVersionLoader, signal: AbortSignal): Promise<string> {
   try {
     const versionInfo = await loadVersion(signal);
     return versionInfo.version ?? '';
@@ -20,7 +23,7 @@ export async function loadFooterVersion(loadVersion: FooterVersionLoader, signal
   }
 }
 
-export function AppFooter({ version: fixedVersion, loadVersion = true }: { version?: string; loadVersion?: boolean }) {
+export function ProductAboutContent({ version: fixedVersion, loadVersion = true }: { version?: string; loadVersion?: boolean }) {
   const [version, setVersion] = useState('');
 
   useEffect(() => {
@@ -28,7 +31,7 @@ export function AppFooter({ version: fixedVersion, loadVersion = true }: { versi
     if (!loadVersion) return;
 
     const requestController = new AbortController();
-    void loadFooterVersion(fetchVersion, requestController.signal)
+    void loadAboutVersion(fetchVersion, requestController.signal)
       .then((nextVersion) => {
         if (!requestController.signal.aborted) {
           setVersion(nextVersion);
@@ -40,11 +43,11 @@ export function AppFooter({ version: fixedVersion, loadVersion = true }: { versi
     };
   }, [fixedVersion, loadVersion]);
 
-  const versionLabel = footerVersionLabel(fixedVersion ?? (loadVersion ? version : ''));
+  const versionLabel = aboutVersionLabel(fixedVersion ?? (loadVersion ? version : ''));
 
   return (
-    <footer className="app-footer">
-      <div className="app-footer-line app-footer-meta">
+    <div className={styles.about}>
+      <div className={styles.aboutLine}>
         <span>© 2026</span>
         <a href={GITHUB_REPOSITORY_URL} target="_blank" rel="noreferrer">CPA Usage Keeper</a>
         <span>·</span>
@@ -52,7 +55,7 @@ export function AppFooter({ version: fixedVersion, loadVersion = true }: { versi
         <span>·</span>
         <a href={CLIPROXYAPI_REPOSITORY_URL} target="_blank" rel="noreferrer">CLIProxyAPI Integration</a>
       </div>
-      <div className="app-footer-line app-footer-powered">
+      <div className={styles.aboutLine}>
         <span>Powered By</span>
         <a href={GITHUB_PROFILE_URL} target="_blank" rel="noreferrer" aria-label="Willxup GitHub profile">
           <IconGithub size={16} aria-hidden="true" />
@@ -60,11 +63,32 @@ export function AppFooter({ version: fixedVersion, loadVersion = true }: { versi
         </a>
         {versionLabel ? (
           <>
-            <span className="app-footer-version-separator" aria-hidden="true">·</span>
-            <span className="app-footer-version">{versionLabel}</span>
+            <span className={styles.aboutVersionSeparator} aria-hidden="true">·</span>
+            <span className={styles.aboutVersion}>{versionLabel}</span>
           </>
         ) : null}
       </div>
-    </footer>
+    </div>
+  );
+}
+
+export interface ProductAboutProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+export function ProductAbout({ open, onClose }: ProductAboutProps) {
+  const { t } = useTranslation();
+
+  return (
+    <Modal
+      title={t('common.about_title')}
+      open={open}
+      onCancel={onClose}
+      footer={null}
+      width={420}
+    >
+      {open ? <ProductAboutContent /> : null}
+    </Modal>
   );
 }

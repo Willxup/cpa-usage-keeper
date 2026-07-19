@@ -6,6 +6,3 @@ export type { UseOverviewRealtimeDataOptions, UseOverviewRealtimeDataReturn } fr
 
 export { usePricingData } from './usePricingData';
 export type { UsePricingDataOptions, UsePricingDataReturn } from './usePricingData';
-
-export { useSparklines } from './useSparklines';
-export type { SparklineData, SparklineBundle, UseSparklinesOptions, UseSparklinesReturn } from './useSparklines';

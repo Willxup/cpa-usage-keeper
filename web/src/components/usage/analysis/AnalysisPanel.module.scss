@@ -4,19 +4,24 @@
 .analysisPanel {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: var(--section-stack);
+  width: 100%;
+  min-width: 0;
 }
 
 .analysisCard {
   border: 1px solid var(--border-color);
-  border-radius: 24px;
+  border-radius: var(--radius-lg);
   background: var(--bg-primary);
-  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.07);
-  padding: 20px;
+  box-shadow: none;
+  padding: var(--surface-inset-standard);
   min-width: 0;
 }
 
-.tokenUsageCard,
+.tokenUsageCard {
+  min-height: 650px;
+}
+
 .latencyDiagnosticsCard,
 .heatmapCard {
   min-height: 420px;
@@ -38,63 +43,14 @@
 }
 
 .cardHeader {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 16px;
-
-  h2 {
-    margin: 0;
-    font-size: 18px;
-    line-height: 1.2;
-    color: var(--text-primary);
-  }
-
-  p {
-    margin: 0;
-    color: var(--text-secondary);
-    font-size: 13px;
-    line-height: 1.45;
-  }
-}
-
-.cardTitleLine {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 14px;
-  min-width: 0;
-
-  h2 {
-    min-width: 0;
-  }
-
-  @include mobile {
-    flex-wrap: wrap;
-    row-gap: 4px;
-  }
-}
-
-.costHeaderHint {
-  flex: 0 1 180px;
-  align-self: flex-start;
-  margin-top: 2px;
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.35;
-  text-align: right;
-
-  @include mobile {
-    flex-basis: 100%;
-    max-width: 100%;
-    margin-top: 0;
-    text-align: left;
-  }
+  margin-bottom: var(--section-stack);
 }
 
 .analysisChartSurface {
-  padding: 14px;
+  width: 100%;
+  max-width: 100%;
+  padding: var(--surface-inset-compact);
+  overflow: hidden;
   background: var(--bg-secondary);
   border-radius: $radius-lg;
   border: 1px solid var(--border-color);
@@ -138,12 +94,59 @@
 }
 
 .tokenChartFrame {
-  height: 340px;
+  height: 290px;
   min-width: 0;
 
   :global(canvas) {
     touch-action: pan-x pan-y !important;
   }
+}
+
+.tokenSmallMultiples {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+
+  @include mobile {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tokenMetricChart {
+  min-width: 0;
+  padding: 12px 12px 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-primary);
+
+  h3 {
+    margin: 0 0 4px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 800;
+  }
+}
+
+.tokenMetricChartFrame {
+  height: 170px;
+  min-width: 0;
+
+  :global(canvas) {
+    touch-action: pan-x pan-y !important;
+  }
+}
+
+.chartDataTable {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .latencyDiagnosticsBody {
@@ -175,7 +178,7 @@
     display: block;
     min-width: 0;
     color: var(--text-secondary);
-    font-size: 11px;
+    font-size: var(--type-caption-size);
     line-height: 1.35;
     font-weight: 800;
     overflow-wrap: anywhere;
@@ -233,16 +236,6 @@
   min-width: 0;
 }
 
-.costWarning {
-  border: 1px solid color-mix(in srgb, #d97706 38%, transparent);
-  border-radius: 8px;
-  padding: 8px 10px;
-  background: color-mix(in srgb, #d97706 10%, transparent);
-  color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 700;
-}
-
 .costStack {
   display: flex;
   min-width: 0;
@@ -268,7 +261,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     color: #fff;
-    font-size: 11px;
+    font-size: var(--type-caption-size);
     line-height: 1;
     font-weight: 900;
     font-variant-numeric: tabular-nums;
@@ -296,7 +289,7 @@
   padding: 10px 12px;
   pointer-events: none;
   text-align: left;
-  font-size: 11px;
+  font-size: var(--type-caption-size);
   line-height: 1.45;
 
   span {
@@ -340,7 +333,7 @@
   small {
     display: block;
     color: var(--text-secondary);
-    font-size: 11px;
+    font-size: var(--type-caption-size);
     font-weight: 800;
     text-transform: uppercase;
   }
@@ -400,7 +393,7 @@
   small {
     grid-column: 1 / -1;
     color: var(--text-secondary);
-    font-size: 11px;
+    font-size: var(--type-caption-size);
     font-weight: 800;
     font-variant-numeric: tabular-nums;
   }
@@ -425,65 +418,10 @@
 .efficiencyChartFrame {
   height: 300px;
   min-width: 0;
-}
 
-.modelEfficiencyFloatingTooltip {
-  position: fixed;
-  z-index: 1000;
-  display: grid;
-  gap: 10px;
-  width: max-content;
-  max-width: min(320px, calc(100vw - 16px));
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
-  padding: 10px 12px;
-  pointer-events: none;
-  text-align: left;
-  font-size: 11px;
-  line-height: 1.45;
-  opacity: 0;
-}
-
-.modelEfficiencyTooltipGroup {
-  display: grid;
-  gap: 3px;
-}
-
-.modelEfficiencyTooltipGroup + .modelEfficiencyTooltipGroup {
-  border-top: 1px solid var(--border-color);
-  padding-top: 9px;
-}
-
-.modelEfficiencyTooltipHeader {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  color: var(--text-primary);
-
-  strong {
-    min-width: 0;
-    overflow-wrap: anywhere;
-    font-size: 12px;
-    font-weight: 900;
+  :global(canvas) {
+    touch-action: pan-x pan-y !important;
   }
-}
-
-.modelEfficiencyTooltipDot {
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
-  flex: 0 0 auto;
-  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 14%, transparent);
-}
-
-.modelEfficiencyTooltipMetric {
-  padding-left: 17px;
-  color: var(--text-secondary);
-  overflow-wrap: anywhere;
 }
 
 .compositionCard {
@@ -639,7 +577,7 @@
   justify-content: flex-start;
   flex-wrap: wrap;
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: var(--type-caption-size);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -712,7 +650,7 @@
 .heatmapRowLabel {
   padding: 10px 12px;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--type-caption-size);
   font-weight: 800;
 }
 
@@ -820,7 +758,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 1;
-  font-size: 10px;
+  font-size: var(--type-caption-size);
   font-weight: 900;
 }
 
@@ -832,7 +770,7 @@
   margin-top: auto;
   padding-top: 28px;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--type-caption-size);
   font-weight: 800;
 }
 
@@ -864,7 +802,7 @@
   padding: 10px 12px;
   pointer-events: none;
   text-align: left;
-  font-size: 11px;
+  font-size: var(--type-caption-size);
   line-height: 1.45;
 
   span {
@@ -891,4 +829,10 @@
   background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
   font-size: 13px;
   font-weight: 700;
+}
+
+@include mobile {
+  .analysisCard {
+    padding: var(--surface-inset-compact);
+  }
 }

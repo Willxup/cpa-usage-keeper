@@ -1,0 +1,35 @@
+.about {
+  display: grid;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: var(--type-caption-size);
+  line-height: 1.5;
+}
+
+.aboutLine {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.about a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: inherit;
+  text-decoration: none;
+  transition: color 160ms ease;
+}
+
+.about a:hover {
+  color: var(--primary-color);
+}
+
+.aboutVersion {
+  white-space: nowrap;
+}
+
+.aboutVersionSeparator {
+  display: inline;
+}

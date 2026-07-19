@@ -1,0 +1,57 @@
+@use '../../styles/variables' as *;
+@use '../../styles/mixins' as *;
+
+.notice {
+  position: fixed;
+  inset-inline-end: 20px;
+  bottom: 20px;
+  z-index: $z-notification;
+  width: min(440px, calc(100vw - 40px));
+  filter: drop-shadow(0 12px 28px rgb(0 0 0 / 18%));
+
+  :global(.ant-alert) {
+    align-items: flex-start;
+    border-color: color-mix(in srgb, var(--warning-color) 38%, var(--border-color));
+    background: var(--bg-primary);
+  }
+
+  :global(.ant-alert-action) {
+    margin-inline-start: 12px;
+  }
+
+  @include mobile {
+    inset-inline: 12px;
+    bottom: 12px;
+    width: auto;
+  }
+}
+
+.description {
+  min-width: 0;
+
+  p {
+    margin: 0 0 8px;
+    color: var(--text-secondary);
+  }
+}
+
+.modelList {
+  display: flex;
+  max-height: 128px;
+  flex-wrap: wrap;
+  gap: 6px;
+  overflow: auto;
+
+  code {
+    max-width: 100%;
+    padding: 2px 7px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: var(--type-caption-size);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

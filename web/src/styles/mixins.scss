@@ -4,21 +4,34 @@
 
 @use './variables.scss' as *;
 
-// 响应式断点
+// Responsive ranges: mobile <= 768, tablet 769-1024, desktop >= 1025,
+// wide >= 1280. Login uses its own 960px split point.
 @mixin mobile {
-  @media (max-width: #{$breakpoint-mobile}) {
+  @media (max-width: #{$breakpoint-mobile-max}) {
     @content;
   }
 }
 
 @mixin tablet {
-  @media (min-width: #{$breakpoint-mobile + 1}) and (max-width: #{$breakpoint-tablet}) {
+  @media (min-width: #{$breakpoint-tablet-min}) and (max-width: #{$breakpoint-tablet-max}) {
     @content;
   }
 }
 
 @mixin desktop {
-  @media (min-width: #{$breakpoint-tablet + 1}) {
+  @media (min-width: #{$breakpoint-desktop-min}) {
+    @content;
+  }
+}
+
+@mixin wide {
+  @media (min-width: #{$breakpoint-wide-min}) {
+    @content;
+  }
+}
+
+@mixin login-split {
+  @media (min-width: #{$breakpoint-login-split-min}) {
     @content;
   }
 }

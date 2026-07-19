@@ -1,0 +1,535 @@
+@use '../../styles/variables' as *;
+@use '../../styles/mixins' as *;
+
+.apiKeyVisibilityToggle:global(.ant-btn) {
+  color: var(--text-secondary);
+
+  &:hover,
+  &:focus-visible {
+    color: var(--primary-color);
+  }
+}
+
+// Fixed-height cards with internal scrolling (API details / model stats)
+.detailsFixedCard {
+  display: flex;
+  flex-direction: column;
+  height: 520px;
+  overflow: hidden;
+  overflow: clip;
+
+  @include mobile {
+    height: 420px;
+  }
+}
+
+.hint {
+  padding: var(--surface-inset-compact);
+  color: var(--text-secondary);
+  font-size: var(--type-caption-size);
+  text-align: center;
+}
+
+// Pricing Section (80%比例)
+.pricingFixedCard:global(.ant-card) {
+  height: auto;
+  min-height: 0;
+  width: 100%;
+  overflow: visible;
+  box-shadow: none;
+
+  :global(.ant-card-head) {
+    padding: 0 var(--surface-inset-standard);
+  }
+
+  :global(.ant-card-head-title) {
+    width: 100%;
+    padding: var(--surface-inset-compact) 0;
+    white-space: normal;
+  }
+
+  :global(.ant-card-body) {
+    padding: var(--surface-inset-standard);
+  }
+
+  @include mobile {
+    :global(.ant-card-head) {
+      padding: 0 var(--surface-inset-compact);
+    }
+
+    :global(.ant-card-body) {
+      padding: var(--surface-inset-compact);
+    }
+  }
+}
+
+.pricingSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--section-stack);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.pricingToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--toolbar-gap);
+  flex-wrap: wrap;
+  padding: 0;
+}
+
+
+.priceForm {
+  padding: var(--surface-inset-compact);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg-secondary) 68%, transparent);
+  flex: 0 0 auto;
+  container-name: model-pricing-form;
+  container-type: inline-size;
+}
+
+.formRow {
+  display: grid;
+  grid-template-columns: minmax(240px, 1.4fr) minmax(130px, 0.85fr) repeat(5, minmax(120px, 1fr)) auto;
+  gap: var(--toolbar-gap);
+  align-items: flex-end;
+
+  :global(.ant-form-item) {
+    min-width: 0;
+    margin-bottom: 0;
+  }
+
+  :global(.ant-select),
+  :global(.ant-input) {
+    width: 100%;
+  }
+}
+
+.priceFormAction {
+  align-self: end;
+  justify-self: stretch;
+}
+
+@container model-pricing-form (max-width: 1120px) {
+  .formRow {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@container model-pricing-form (max-width: 720px) {
+  .formRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .priceFormModelField,
+  .priceFormAction {
+    grid-column: 1 / -1;
+  }
+}
+
+@container model-pricing-form (max-width: 480px) {
+  .formRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.apiKeySettingsCard:global(.ant-card),
+.sessionSettingsCard:global(.ant-card) {
+  --settings-table-inset: var(--table-inset);
+
+  overflow: hidden;
+  box-shadow: none;
+
+  :global(.ant-card-head) {
+    padding: 0 var(--settings-table-inset);
+  }
+
+  :global(.ant-card-head-title) {
+    width: 100%;
+    padding: var(--surface-inset-compact) 0;
+    white-space: normal;
+  }
+
+  :global(.ant-card-body) {
+    padding: 0;
+  }
+
+  @include mobile {
+    --settings-table-inset: var(--table-inset-mobile);
+  }
+}
+
+.apiKeySettingsTable:global(.ant-table-wrapper) {
+  :global(.ant-table) {
+    background: transparent;
+  }
+
+  :global(.ant-table-thead > tr > th) {
+    white-space: nowrap;
+  }
+
+  :global(.ant-table-tbody > tr > td) {
+    vertical-align: middle;
+  }
+
+  :global(.ant-table-thead > tr > th:first-child),
+  :global(.ant-table-tbody > tr > td:first-child) {
+    padding-inline-start: var(--settings-table-inset);
+  }
+
+  :global(.ant-table-thead > tr > th:last-child),
+  :global(.ant-table-tbody > tr > td:last-child) {
+    padding-inline-end: var(--settings-table-inset);
+  }
+}
+
+.apiKeySettingsKey {
+  display: block;
+  max-width: 100%;
+  font-size: var(--type-caption-size);
+}
+
+.sessionSettingsTable:global(.ant-table-wrapper) {
+  :global(.ant-table) {
+    background: transparent;
+  }
+
+  :global(.ant-table-thead > tr > th) {
+    white-space: nowrap;
+  }
+
+  :global(.ant-table-tbody > tr > td) {
+    vertical-align: middle;
+  }
+
+  :global(.ant-table-thead > tr > th:first-child),
+  :global(.ant-table-tbody > tr > td:first-child) {
+    padding-inline-start: var(--settings-table-inset);
+  }
+
+  :global(.ant-table-thead > tr > th:last-child),
+  :global(.ant-table-tbody > tr > td:last-child) {
+    padding-inline-end: var(--settings-table-inset);
+  }
+}
+
+.sessionSettingsTimestamp {
+  white-space: nowrap;
+  font-size: var(--type-caption-size);
+  font-variant-numeric: tabular-nums;
+}
+
+
+.pricesList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+}
+
+.pricesTitle {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--type-subsection-title-size);
+  font-weight: var(--type-subsection-title-weight);
+  line-height: var(--type-subsection-title-line-height);
+}
+
+.pricingTable:global(.ant-table-wrapper) {
+  min-width: 0;
+
+  :global(.ant-table) {
+    background: transparent;
+  }
+
+  :global(.ant-table-thead > tr > th) {
+    white-space: nowrap;
+  }
+
+  :global(.ant-table-tbody > tr > td) {
+    white-space: nowrap;
+    font-size: var(--type-caption-size);
+    font-variant-numeric: tabular-nums;
+    vertical-align: middle;
+  }
+}
+
+.priceModel {
+  max-width: 100%;
+  color: var(--text-primary);
+  font-size: var(--type-caption-size);
+  word-break: break-all;
+}
+
+.priceActions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+
+  @include mobile {
+    width: 100%;
+
+    :global(.ant-btn) {
+      flex: 1 1 0;
+      justify-content: center;
+    }
+  }
+}
+
+.editModalBody {
+  :global(.ant-form-item) {
+    margin-bottom: 12px;
+  }
+
+  :global(.ant-form-item:last-child) {
+    margin-bottom: 0;
+  }
+
+  :global(.ant-select),
+  :global(.ant-input) {
+    width: 100%;
+  }
+}
+
+.modelPriceDeleteConfirmText {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.syncModalBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.syncSummaryRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+
+  span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+    padding: 5px 9px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+    color: var(--text-secondary);
+    font-size: var(--type-caption-size);
+    font-weight: 750;
+    line-height: 1;
+    white-space: nowrap;
+  }
+}
+
+.syncBatchActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.syncDraftList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: min(50vh, 520px);
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 3px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.syncDraftItem {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--bg-secondary) 74%, transparent);
+}
+
+.syncDraftItemFailed {
+  border-color: color-mix(in srgb, var(--danger-color) 52%, var(--border-color));
+  background: color-mix(in srgb, var(--danger-color) 7%, var(--bg-secondary));
+}
+
+.syncDraftCheck {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+}
+
+.syncDraftContent {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.syncDraftHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.syncDraftModelBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.syncDraftMatched {
+  color: var(--text-tertiary);
+  font-size: var(--type-caption-size);
+  line-height: 1.35;
+  word-break: break-all;
+}
+
+.syncDraftBadges {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+
+  span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 4px 7px;
+    border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg-primary) 82%, transparent);
+    color: var(--text-secondary);
+    font-size: var(--type-caption-size);
+    font-weight: 750;
+    line-height: 1;
+  }
+}
+
+.syncDraftBadges .syncDraftFailureIcon {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  justify-content: center;
+  padding: 0;
+  border-color: color-mix(in srgb, var(--danger-color) 62%, var(--border-color));
+  background: color-mix(in srgb, var(--danger-color) 11%, var(--bg-primary));
+  color: var(--danger-color);
+
+  svg {
+    flex: 0 0 auto;
+  }
+}
+
+.syncDraftGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 10px;
+  min-width: 0;
+
+  :global(.ant-form-item) {
+    min-width: 0;
+    margin-bottom: 0;
+  }
+
+  :global(.ant-select),
+  :global(.ant-input) {
+    width: 100%;
+  }
+}
+
+.syncUnmatched {
+  border-top: 1px solid var(--border-color);
+  padding-top: 10px;
+  color: var(--text-secondary);
+  font-size: var(--type-caption-size);
+  font-weight: 700;
+
+  summary {
+    cursor: pointer;
+  }
+}
+
+.syncUnmatchedList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+
+  span {
+    display: inline-flex;
+    max-width: 100%;
+    padding: 5px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--bg-secondary);
+    color: var(--text-tertiary);
+    font-size: var(--type-caption-size);
+    line-height: 1.2;
+    word-break: break-all;
+  }
+}
+
+@include mobile {
+  .pricingToolbar {
+    align-items: stretch;
+
+    :global(.ant-btn) {
+      width: 100%;
+    }
+  }
+
+  .syncSummaryRow,
+  .syncBatchActions {
+    align-items: stretch;
+  }
+
+  .syncSummaryRow span,
+  .syncBatchActions :global(.ant-btn) {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .syncDraftList {
+    max-height: min(52vh, 460px);
+  }
+
+  .syncDraftItem {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .syncDraftCheck {
+    justify-content: flex-start;
+    min-height: 20px;
+  }
+
+  .syncDraftHeader {
+    flex-direction: column;
+  }
+
+  .syncDraftBadges {
+    justify-content: flex-start;
+  }
+}

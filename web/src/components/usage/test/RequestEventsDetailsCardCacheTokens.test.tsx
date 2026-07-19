@@ -38,7 +38,7 @@ const extractTableHeaders = (html: string) => (
 );
 
 const extractFirstTableRowCells = (html: string) => {
-  const row = html.match(/<tbody><tr>(.*?)<\/tr><\/tbody>/s)?.[1] ?? '';
+  const row = html.match(/<tr\b[^>]*data-row-key="[^"]+"[^>]*>(.*?)<\/tr>/s)?.[1] ?? '';
   return Array.from(row.matchAll(/<td\b[^>]*>(.*?)<\/td>/gs), (match) => textFromMarkup(match[1]));
 };
 
@@ -61,6 +61,7 @@ const renderCard = () => renderToStaticMarkup(
     onModelFilterChange={() => undefined}
     onSourceFilterChange={() => undefined}
     onResultFilterChange={() => undefined}
+    initialVisibleColumnIds={['cache_read_tokens', 'cache_creation_tokens', 'cache_read_rate']}
   />,
 );
 

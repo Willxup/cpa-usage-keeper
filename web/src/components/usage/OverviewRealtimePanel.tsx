@@ -1,8 +1,6 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ComponentProps, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import '@/lib/chartjs';
-import type { ChartData, ChartOptions } from 'chart.js';
-import { Chart, Line } from 'react-chartjs-2';
+import { Base, Line, type LineConfig } from '@ant-design/charts';
 import type {
   OverviewRealtimeBlock,
   OverviewRealtimeWindow,
@@ -17,8 +15,10 @@ import {
   formatPerMinuteValue,
   formatUsd,
 } from '@/utils/usage';
+import { SectionHeader } from '@/components/layout';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import styles from '@/pages/UsagePage.module.scss';
+import { getChartTheme } from '@/lib/chartTheme';
+import styles from './UsageOverview.module.scss';
 
 type RealtimeDimensionKey = 'models' | 'api_keys' | 'auth_files' | 'ai_providers';
 
@@ -34,9 +34,11 @@ interface RealtimeMetric {
   tone?: 'up' | 'down' | 'flat';
 }
 
+type RealtimeLineDatum = { label: string; value: number | null };
 type ResponseDistributionDatum = { x: number; y: number | null };
 type ResponseDistributionParticleDatum = { x: number; y: number; count: number };
 type ResponseDistributionXBounds = { min: number; max: number };
+type ResponseDistributionConfig = ComponentProps<typeof Base>;
 
 interface OverviewRealtimePanelProps {
   realtime?: OverviewRealtimeBlock;
@@ -52,14 +54,6 @@ interface OverviewRealtimePanelProps {
 
 const REALTIME_WINDOWS: OverviewRealtimeWindow[] = ['15m', '30m', '60m'];
 const DEFAULT_VISIBLE_DIMENSIONS: readonly RealtimeDimensionKey[] = ['models', 'api_keys', 'auth_files', 'ai_providers'];
-
-const CHART_COLORS = {
-  token: '#3b82f6',
-  ttft: '#f59e0b',
-  latency: '#22c55e',
-  request: '#6366f1',
-  cache: '#14b8a6',
-} as const;
 
 const REALTIME_DURATION_UNITS = {
   d: 'd',
@@ -208,77 +202,89 @@ const metricChips = (
   ];
 };
 
-function buildRealtimeLineOptions(
+function buildRealtimeLineData(labels: string[], values: Array<number | null>): RealtimeLineDatum[] {
+  return Array.from({ length: Math.max(labels.length, values.length) }, (_, index) => ({
+    label: labels[index] ?? '',
+    value: values[index] ?? null,
+  }));
+}
+
+function buildRealtimeLineConfig(
+  data: RealtimeLineDatum[],
+  label: string,
+  color: string,
   isDark: boolean,
   isMobile: boolean,
   valueFormatter: (value: number) => string,
-  options: { yMaxTicksLimit?: number } = {},
-): ChartOptions<'line'> {
-  const gridColor = isDark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(17, 24, 39, 0.07)';
-  const tickColor = isDark ? 'rgba(255, 255, 255, 0.66)' : 'rgba(17, 24, 39, 0.66)';
-  const tooltipBg = isDark ? 'rgba(17, 24, 39, 0.94)' : 'rgba(255, 255, 255, 0.98)';
-  const tooltipText = isDark ? '#ffffff' : '#111827';
+  options: { yTickCount?: number } = {},
+): LineConfig {
+  const theme = getChartTheme(isDark);
   return {
-    responsive: true,
-    maintainAspectRatio: false,
-    interaction: { mode: 'index', intersect: false },
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        backgroundColor: tooltipBg,
-        titleColor: tooltipText,
-        bodyColor: tooltipText,
-        borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(17, 24, 39, 0.10)',
-        borderWidth: 1,
-        padding: 10,
-        displayColors: true,
-        callbacks: {
-          label: (context) => {
-            const label = context.dataset.label ? `${context.dataset.label}: ` : '';
-            return `${label}${valueFormatter(Number(context.parsed.y ?? 0))}`;
-          },
-        },
+    data,
+    xField: 'label',
+    yField: 'value',
+    shapeField: 'smooth',
+    animate: false,
+    legend: false,
+    theme: { type: isDark ? 'classicDark' : 'classic' },
+    scale: {
+      y: {
+        type: 'linear',
+        domainMin: 0,
+        nice: true,
       },
     },
-    scales: {
+    axis: {
       x: {
-        grid: { display: false },
-        border: { color: gridColor },
-        ticks: {
-          color: tickColor,
-          maxTicksLimit: isMobile ? 5 : 8,
-          font: { size: isMobile ? 10 : 11 },
-        },
+        title: false,
+        grid: false,
+        tickCount: isMobile ? 5 : 8,
+        labelFill: theme.textSecondary,
+        labelFontSize: isMobile ? 10 : 11,
+        line: true,
+        lineStroke: theme.axis,
+        tickStroke: theme.axis,
       },
       y: {
-        beginAtZero: true,
-        grid: { color: gridColor },
-        border: { color: gridColor },
-        ticks: {
-          color: tickColor,
-          font: { size: isMobile ? 10 : 11 },
-          ...(options.yMaxTicksLimit ? { maxTicksLimit: options.yMaxTicksLimit } : {}),
-          callback: (value) => valueFormatter(Number(value)),
-        },
+        title: false,
+        grid: true,
+        tickCount: options.yTickCount,
+        labelFormatter: (value: number) => valueFormatter(Number(value)),
+        labelFill: theme.textSecondary,
+        labelFontSize: isMobile ? 10 : 11,
+        gridStroke: theme.grid,
+        line: true,
+        lineStroke: theme.axis,
+        tickStroke: theme.axis,
       },
     },
-    elements: {
-      line: { tension: 0.35, borderWidth: isMobile ? 1.6 : 2 },
-      point: { radius: 0, hoverRadius: 3 },
+    style: {
+      stroke: color,
+      lineWidth: isMobile ? 1.6 : 2,
     },
-  };
-}
-
-function buildSingleLineData(labels: string[], label: string, values: Array<number | null>, color: string): ChartData<'line', Array<number | null>, string> {
-  return {
-    labels,
-    datasets: [{
-      label,
-      data: values,
-      borderColor: color,
-      backgroundColor: `${color}24`,
-      fill: true,
-    }],
+    area: {
+      style: {
+        fill: `${color}24`,
+        fillOpacity: 1,
+      },
+      tooltip: false,
+    },
+    tooltip: {
+      title: 'label',
+      items: [{
+        name: label,
+        color,
+        field: 'value',
+        valueFormatter: (value: number | null) => value == null ? '--' : valueFormatter(Number(value)),
+      }],
+    },
+    interaction: {
+      tooltip: {
+        shared: true,
+        crosshairs: true,
+        marker: true,
+      },
+    },
   };
 }
 
@@ -358,111 +364,112 @@ function responseParticleRadius(count: number, isMobile: boolean): number {
   return (isMobile ? 1.15 : 1.35) + normalized * 0.08;
 }
 
-function buildResponseDistributionData(
+function buildResponseDistributionConfig(
   averageLabel: string,
   particleLabel: string,
   averageData: ResponseDistributionDatum[],
   particles: ResponseDistributionParticleDatum[],
   color: string,
-  isMobile: boolean,
-): ChartData<'line', ResponseDistributionDatum[], number> {
-  return {
-    datasets: [
-      {
-        type: 'line',
-        label: averageLabel,
-        data: averageData,
-        borderColor: color,
-        backgroundColor: `${color}12`,
-        borderWidth: isMobile ? 1.8 : 2.2,
-        pointRadius: 0,
-        pointHoverRadius: 3,
-        tension: 0.35,
-        fill: false,
-        order: 1,
-      },
-      {
-        type: 'line',
-        label: particleLabel,
-        data: particles,
-        showLine: false,
-        borderColor: `${color}00`,
-        backgroundColor: `${color}66`,
-        pointRadius: (context) => {
-          const raw = context.raw as { count?: number } | undefined;
-          return responseParticleRadius(safeNumber(raw?.count ?? 1), isMobile);
-        },
-        pointHoverRadius: (context) => {
-          const raw = context.raw as { count?: number } | undefined;
-          return responseParticleRadius(safeNumber(raw?.count ?? 1), isMobile) + 1.1;
-        },
-        pointBorderWidth: 0,
-        order: 0,
-      },
-    ],
-  };
-}
-
-function buildResponseDistributionOptions(
   isDark: boolean,
   isMobile: boolean,
-  averageData: ResponseDistributionDatum[],
-  particles: RealtimeResponseParticle[] | null | undefined,
   xBounds: ResponseDistributionXBounds | undefined,
   timezone?: string,
-): ChartOptions<'line'> {
-  const options = buildRealtimeLineOptions(isDark, isMobile, formatRealtimeDuration, { yMaxTicksLimit: 5 });
+): ResponseDistributionConfig {
+  const theme = getChartTheme(isDark);
   const yBounds = responseDistributionLogAxisBounds(averageData, particles);
-  const baseXScale = options.scales?.x;
-  const baseYScale = options.scales?.y;
-  const responseScales = {
-    ...options.scales,
+  const axis = {
     x: {
-      type: 'linear' as const,
-      min: xBounds?.min,
-      max: xBounds?.max,
-      grid: baseXScale?.grid,
-      border: baseXScale?.border,
-      ticks: {
-        ...baseXScale?.ticks,
-        callback: (value) => formatResponseDistributionTick(Number(value), timezone),
-      },
+      title: false,
+      grid: false,
+      tickCount: isMobile ? 5 : 8,
+      labelFormatter: (value: number) => formatResponseDistributionTick(Number(value), timezone),
+      labelFill: theme.textSecondary,
+      labelFontSize: isMobile ? 10 : 11,
+      line: true,
+      lineStroke: theme.axis,
+      tickStroke: theme.axis,
     },
     y: {
-      type: 'logarithmic' as const,
-      min: yBounds.min,
-      max: yBounds.max,
-      grid: baseYScale?.grid,
-      border: baseYScale?.border,
-      ticks: baseYScale?.ticks,
+      title: false,
+      grid: true,
+      tickCount: 5,
+      labelFormatter: (value: number) => formatRealtimeDuration(Number(value)),
+      labelFill: theme.textSecondary,
+      labelFontSize: isMobile ? 10 : 11,
+      gridStroke: theme.grid,
+      line: true,
+      lineStroke: theme.axis,
+      tickStroke: theme.axis,
     },
-  } as ChartOptions<'line'>['scales'];
+  };
   return {
-    ...options,
-    animation: false,
-    interaction: { mode: 'nearest', intersect: false },
-    plugins: {
-      ...options.plugins,
-      tooltip: {
-        ...options.plugins?.tooltip,
-        callbacks: {
-          title: (items) => {
-            const x = Number(items[0]?.parsed.x ?? 0);
-            return Number.isFinite(x) ? formatResponseDistributionTick(x, timezone) : '';
-          },
-          label: (context) => {
-            const raw = context.raw as { count?: number } | undefined;
-            const label = context.dataset.label ? `${context.dataset.label}: ` : '';
-            const value = formatRealtimeDuration(Number(context.parsed.y ?? 0));
-            if (raw && typeof raw.count === 'number') {
-              return `${label}${value} (${formatCompactNumber(raw.count)})`;
-            }
-            return `${label}${value}`;
-          },
-        },
+    animate: false,
+    legend: false,
+    theme: { type: isDark ? 'classicDark' : 'classic' },
+    scale: {
+      x: {
+        type: 'linear',
+        nice: false,
+        ...(xBounds ? { domainMin: xBounds.min, domainMax: xBounds.max } : {}),
+      },
+      y: {
+        type: 'log',
+        domainMin: yBounds.min,
+        domainMax: yBounds.max,
+        nice: false,
       },
     },
-    scales: responseScales,
+    axis,
+    interaction: {
+      tooltip: {
+        shared: false,
+        crosshairs: true,
+        marker: true,
+      },
+    },
+    children: [
+      {
+        type: 'line',
+        data: averageData,
+        encode: { x: 'x', y: 'y' },
+        style: {
+          shape: 'smooth',
+          stroke: color,
+          lineWidth: isMobile ? 1.8 : 2.2,
+        },
+        tooltip: {
+          title: (datum: ResponseDistributionDatum) => formatResponseDistributionTick(datum.x, timezone),
+          items: [(datum: ResponseDistributionDatum) => ({
+            name: averageLabel,
+            color,
+            value: datum.y == null ? '--' : formatRealtimeDuration(datum.y),
+          })],
+        },
+      },
+      {
+        type: 'point',
+        data: particles,
+        encode: { x: 'x', y: 'y' },
+        style: {
+          fill: `${color}66`,
+          stroke: 'transparent',
+          r: (datum: ResponseDistributionParticleDatum) => responseParticleRadius(datum.count, isMobile),
+        },
+        state: {
+          active: {
+            r: (datum: ResponseDistributionParticleDatum) => responseParticleRadius(datum.count, isMobile) + 1.1,
+          },
+        },
+        tooltip: {
+          title: (datum: ResponseDistributionParticleDatum) => formatResponseDistributionTick(datum.x, timezone),
+          items: [(datum: ResponseDistributionParticleDatum) => ({
+            name: particleLabel,
+            color,
+            value: `${formatRealtimeDuration(datum.y)} (${formatCompactNumber(datum.count)})`,
+          })],
+        },
+      },
+    ],
   };
 }
 
@@ -471,7 +478,7 @@ function formatResponseDistributionTick(value: number, timezone?: string): strin
   return formatBucketLabel(new Date(value).toISOString(), timezone);
 }
 
-function responseDistributionLogAxisBounds(averageData: ResponseDistributionDatum[] | null | undefined, particles: RealtimeResponseParticle[] | null | undefined): { min: number; max: number } {
+function responseDistributionLogAxisBounds(averageData: ResponseDistributionDatum[] | null | undefined, particles: ResponseDistributionParticleDatum[] | null | undefined): { min: number; max: number } {
   let minValue = Number.POSITIVE_INFINITY;
   let maxValue = 0;
   for (const point of averageData ?? []) {
@@ -482,7 +489,7 @@ function responseDistributionLogAxisBounds(averageData: ResponseDistributionDatu
   }
   for (const particle of particles ?? []) {
     if (!particle) continue;
-    const value = safeNumber(particle.ms);
+    const value = particle.y;
     if (!Number.isFinite(value) || value <= 0) continue;
     minValue = Math.min(minValue, value);
     maxValue = Math.max(maxValue, value);
@@ -521,9 +528,11 @@ function RealtimeCard({
   ].filter(Boolean).join(' ');
   return (
     <section className={cardClassName}>
-      <div className={styles.overviewRealtimeCardHeader}>
-        <h3 className={styles.overviewRealtimeCardTitle}>{title}</h3>
-        {metrics && metrics.length > 0 && (
+      <SectionHeader
+        className={styles.overviewRealtimeCardHeader}
+        headingLevel={3}
+        title={title}
+        actions={metrics && metrics.length > 0 ? (
           <div className={styles.overviewRealtimeMetrics}>
             {metrics.map((metric) => (
               <span
@@ -537,8 +546,8 @@ function RealtimeCard({
               </span>
             ))}
           </div>
-        )}
-      </div>
+        ) : undefined}
+      />
       {children}
     </section>
   );
@@ -601,48 +610,71 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
   const latencyEmptyLabel = !hasFiniteNumber(latencyAverageValues) && latencyParticleValues.length === 0 ? t('usage_stats.overview_realtime_latency_empty') : undefined;
   const cacheEmptyLabel = !hasFiniteNumber(cacheValues) ? t('usage_stats.overview_realtime_cache_empty') : undefined;
 
-  const lineOptions = useMemo(() => buildRealtimeLineOptions(isDark, isMobile, formatCompactNumber), [isDark, isMobile]);
-  const percentLineOptions = useMemo(() => buildRealtimeLineOptions(isDark, isMobile, (value) => `${formatFixedTwoDecimals(value)}%`, { yMaxTicksLimit: 5 }), [isDark, isMobile]);
-  const ttftDistributionOptions = useMemo(() => buildResponseDistributionOptions(
-    isDark,
-    isMobile,
-    ttftAverageChartData,
-    data.response_distribution.ttft.particles,
-    distributionXBounds,
-    responseTimezone,
-  ), [data.response_distribution.ttft.particles, distributionXBounds, isDark, isMobile, responseTimezone, ttftAverageChartData]);
-  const latencyDistributionOptions = useMemo(() => buildResponseDistributionOptions(
-    isDark,
-    isMobile,
-    latencyAverageChartData,
-    data.response_distribution.latency.particles,
-    distributionXBounds,
-    responseTimezone,
-  ), [data.response_distribution.latency.particles, distributionXBounds, isDark, isMobile, latencyAverageChartData, responseTimezone]);
   const latestLabel = t('usage_stats.overview_realtime_latest');
   const averageLabel = t('usage_stats.overview_realtime_average');
   const trendLabel = t('usage_stats.overview_realtime_trend');
   const rollingMetricHint = t('usage_stats.overview_realtime_rolling_metric_hint');
+  const chartColors = useMemo(() => {
+    const series = getChartTheme(isDark).series;
+    return {
+      token: series.violet.stroke,
+      ttft: series.orange.stroke,
+      latency: series.cyan.stroke,
+      request: series.blue.stroke,
+      cache: series.teal.stroke,
+    } as const;
+  }, [isDark]);
 
-  const tokenChartData = useMemo(() => buildSingleLineData(labels, t('usage_stats.overview_realtime_tpm'), tokenValues, CHART_COLORS.token), [labels, t, tokenValues]);
-  const requestChartData = useMemo(() => buildSingleLineData(labels, t('usage_stats.overview_realtime_rpm'), requestValues, CHART_COLORS.request), [labels, requestValues, t]);
-  const cacheChartData = useMemo(() => buildSingleLineData(labels, t('usage_stats.overview_realtime_cache_rate'), cacheValues, CHART_COLORS.cache), [cacheValues, labels, t]);
-  const ttftDistributionChartData = useMemo(() => buildResponseDistributionData(
+  const tokenChartData = useMemo(() => buildRealtimeLineData(labels, tokenValues), [labels, tokenValues]);
+  const requestChartData = useMemo(() => buildRealtimeLineData(labels, requestValues), [labels, requestValues]);
+  const cacheChartData = useMemo(() => buildRealtimeLineData(labels, cacheValues), [cacheValues, labels]);
+  const tokenChartConfig = useMemo(() => buildRealtimeLineConfig(
+    tokenChartData,
+    t('usage_stats.overview_realtime_tpm'),
+    chartColors.token,
+    isDark,
+    isMobile,
+    formatCompactNumber,
+  ), [chartColors.token, isDark, isMobile, t, tokenChartData]);
+  const requestChartConfig = useMemo(() => buildRealtimeLineConfig(
+    requestChartData,
+    t('usage_stats.overview_realtime_rpm'),
+    chartColors.request,
+    isDark,
+    isMobile,
+    formatCompactNumber,
+  ), [chartColors.request, isDark, isMobile, requestChartData, t]);
+  const cacheChartConfig = useMemo(() => buildRealtimeLineConfig(
+    cacheChartData,
+    t('usage_stats.overview_realtime_cache_rate'),
+    chartColors.cache,
+    isDark,
+    isMobile,
+    (value) => `${formatFixedTwoDecimals(value)}%`,
+    { yTickCount: 5 },
+  ), [cacheChartData, chartColors.cache, isDark, isMobile, t]);
+  const ttftDistributionConfig = useMemo(() => buildResponseDistributionConfig(
     t('usage_stats.overview_realtime_ttft_average'),
     t('usage_stats.overview_realtime_ttft_distribution'),
     ttftAverageChartData,
     ttftParticleValues,
-    CHART_COLORS.ttft,
+    chartColors.ttft,
+    isDark,
     isMobile,
-  ), [isMobile, t, ttftAverageChartData, ttftParticleValues]);
-  const latencyDistributionChartData = useMemo(() => buildResponseDistributionData(
+    distributionXBounds,
+    responseTimezone,
+  ), [chartColors.ttft, distributionXBounds, isDark, isMobile, responseTimezone, t, ttftAverageChartData, ttftParticleValues]);
+  const latencyDistributionConfig = useMemo(() => buildResponseDistributionConfig(
     t('usage_stats.overview_realtime_latency_average'),
     t('usage_stats.overview_realtime_latency_distribution'),
     latencyAverageChartData,
     latencyParticleValues,
-    CHART_COLORS.latency,
+    chartColors.latency,
+    isDark,
     isMobile,
-  ), [isMobile, latencyAverageChartData, latencyParticleValues, t]);
+    distributionXBounds,
+    responseTimezone,
+  ), [chartColors.latency, distributionXBounds, isDark, isMobile, latencyAverageChartData, latencyParticleValues, responseTimezone, t]);
   const ttftMetrics = useMemo(() => metricChips(ttftAverageValues, formatRealtimeDuration, averageLabel, latestLabel, trendLabel, {
       invertTone: true,
     }), [averageLabel, latestLabel, trendLabel, ttftAverageValues]);
@@ -664,24 +696,25 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
 
   return (
     <div className={styles.overviewRealtimeSection}>
-      <div className={styles.overviewRealtimeToolbar}>
-        <div className={styles.overviewRealtimeHeading}>
-          <h2 className={styles.overviewRealtimeTitle}>{t('usage_stats.overview_realtime_section_title')}</h2>
-        </div>
-        <div className={styles.overviewRealtimeWindowSwitcher} role="group" aria-label={t('usage_stats.overview_realtime_window')}>
-          {REALTIME_WINDOWS.map((option) => (
-            <button
-              key={option}
-              type="button"
-              className={`${styles.overviewRealtimeWindowButton} ${window === option ? styles.overviewRealtimeWindowButtonActive : ''}`.trim()}
-              onClick={() => onWindowChange(option)}
-              aria-pressed={window === option}
-            >
-              {option}
-            </button>
-          ))}
-        </div>
-      </div>
+      <SectionHeader
+        headingLevel={2}
+        title={t('usage_stats.overview_realtime_section_title')}
+        actions={(
+          <div className={styles.overviewRealtimeWindowSwitcher} role="group" aria-label={t('usage_stats.overview_realtime_window')}>
+            {REALTIME_WINDOWS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className={`${styles.overviewRealtimeWindowButton} ${window === option ? styles.overviewRealtimeWindowButtonActive : ''}`.trim()}
+                onClick={() => onWindowChange(option)}
+                aria-pressed={window === option}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        )}
+      />
 
       {showErrorOnly ? (
         <div className={styles.errorBox}>{error}</div>
@@ -701,7 +734,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
             full
           >
             <RealtimeChartFrame loading={loading} emptyLabel={tokenEmptyLabel}>
-              <Line data={tokenChartData} options={lineOptions} />
+              <Line {...tokenChartConfig} />
             </RealtimeChartFrame>
           </RealtimeCard>
 
@@ -714,7 +747,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
                 compact
               >
                 <RealtimeChartFrame loading={loading} emptyLabel={ttftEmptyLabel}>
-                  <Chart type="line" data={ttftDistributionChartData} options={ttftDistributionOptions} />
+                  <Base {...ttftDistributionConfig} />
                 </RealtimeChartFrame>
               </RealtimeCard>
 
@@ -725,7 +758,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
                 compact
               >
                 <RealtimeChartFrame loading={loading} emptyLabel={latencyEmptyLabel}>
-                  <Chart type="line" data={latencyDistributionChartData} options={latencyDistributionOptions} />
+                  <Base {...latencyDistributionConfig} />
                 </RealtimeChartFrame>
               </RealtimeCard>
             </div>
@@ -777,7 +810,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
             metricsTooltip={rollingMetricHint}
           >
             <RealtimeChartFrame loading={loading} emptyLabel={requestEmptyLabel}>
-              <Line data={requestChartData} options={lineOptions} />
+              <Line {...requestChartConfig} />
             </RealtimeChartFrame>
           </RealtimeCard>
 
@@ -787,7 +820,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
             metricsTooltip={rollingMetricHint}
           >
             <RealtimeChartFrame loading={loading} emptyLabel={cacheEmptyLabel}>
-              <Line data={cacheChartData} options={percentLineOptions} />
+              <Line {...cacheChartConfig} />
             </RealtimeChartFrame>
           </RealtimeCard>
           </div>

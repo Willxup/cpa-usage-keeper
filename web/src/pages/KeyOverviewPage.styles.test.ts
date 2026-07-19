@@ -3,25 +3,61 @@ import { describe, expect, it } from 'vitest'
 
 const source = readFileSync(new URL('./KeyOverviewPage.tsx', import.meta.url), 'utf8')
 const styles = readFileSync(new URL('./KeyOverviewPage.module.scss', import.meta.url), 'utf8')
+const shellStyles = readFileSync(new URL('../components/layout/AppShell.module.scss', import.meta.url), 'utf8')
 
 describe('KeyOverviewPage layout', () => {
-  it('keeps the viewer page on independent styles while matching the admin overview toolbar structure', () => {
+  it('delegates the restricted viewer chrome to the shared AppShell', () => {
     expect(source).not.toContain('UsagePage.module.scss')
-    expect(source).toContain('className={styles.themeSwitcher}')
-    expect(source).toContain('className={styles.logoutSwitcher}')
+    expect(source).toContain('<AppShell')
+    expect(source).toContain("variant={embedded ? 'embed' : 'viewer'}")
+    expect(source).toContain('sticky="desktop"')
+    expect(source).toContain("nav={{ mode: 'none' }}")
+    expect(source).not.toContain('<Layout')
+    expect(source).not.toContain('<Sider')
+    expect(source).not.toContain('<PageHeader')
+    expect(source).not.toContain('<PageContent')
+    expect(source).not.toContain('<PageTitle')
+    expect(source).not.toContain('<Menu')
+    expect(source).not.toContain('<Drawer')
     expect(source).not.toContain('check_updates')
-    expect(source.indexOf('className={styles.tabBar}')).toBeLessThan(source.indexOf('className={styles.toolbarActionsRight}'))
-    expect(source).toContain('<TimeRangeControl')
-    expect(source).toContain('parseStoredUsageRangeState')
-    expect(source).not.toContain('className={styles.timeRangeGroup}')
-    expect(source).toContain('className={styles.usageRefreshSlot}')
-    expect(source).not.toContain('className={styles.toolbarMetaRow}')
+    expect(source).toContain('<PreferencesDropdown />')
+    expect(source).toContain('<LogoutOutlined />')
+    expect(source).toContain('<ReloadOutlined />')
+    expect(source).not.toContain('<Segmented')
+  })
+
+  it('declares viewer header slots with the API Key identity and utility controls', () => {
+    expect(source).toContain("headerTitle: t('usage_stats.tab_overview')")
+    expect(source).toContain("headerSubtitle: 'API Key Viewer'")
+    expect(source).toContain('headerUtility: (')
+    expect(source).toContain('className={styles.identityTag}')
+    expect(source).toContain('brand: <BrandLink className={styles.brandLink} />')
+  })
+
+  it('renders exactly one page heading through the shared shell header', () => {
+    expect(source.match(/<PageTitle/g)).toBeNull()
+    expect(source).not.toContain('role="tablist"')
+    expect(source).not.toContain('styles.tabPill')
+    expect(styles).not.toContain('.tabPill')
+    expect(source).not.toContain('contentTitle')
+    expect(source).toContain("headerTitle: t('usage_stats.tab_overview')")
+  })
+
+  it('keeps the stable overview panels in the shared content slot', () => {
+    expect(source).not.toContain('<DailyAveragePanel')
+    expect(source).toContain('<StatCards')
+    expect(source).toContain('dailyAverageUsage={dailyAverageUsage}')
+    expect(source).toContain('<ServiceHealthCard usage={usage} loading={overviewDisplayLoading} />')
+    expect(source).toContain('<OverviewRealtimePanel')
+    expect(source).toContain('KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS')
+    expect(source).toContain("visibleDimensions={KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS}")
+    expect(source).not.toContain('showEyebrow')
   })
 
   it('does not reload overview data just because language changes', () => {
-    expect(source).not.toContain('}, [onAuthRequired, t, usageRangeQuery, usageRangeQueryKey]);')
-    expect(source).not.toContain('}, [onAuthRequired, realtimeWindow, t]);')
-    expect(source).toContain('}, [onAuthRequired, usageRangeQuery, usageRangeQueryKey]);')
+    expect(source).not.toContain('}, [onAuthRequired, t, timeRange]);')
+    expect(source).not.toContain('}, [onAuthRequired, realtimeWindow, t, timeRange]);')
+    expect(source).toContain('}, [onAuthRequired, timeRange]);')
     expect(source).toContain('}, [onAuthRequired, realtimeWindow]);')
   })
 
@@ -53,31 +89,22 @@ describe('KeyOverviewPage layout', () => {
     expect(source).toContain('realtime?.window === realtimeWindow ? realtime : undefined')
   })
 
-  it('removes the Request Health Timeline label instead of toggling it off', () => {
-    expect(source).toContain('<ServiceHealthCard usage={usage} loading={overviewDisplayLoading} />')
-    expect(source).toContain('<OverviewRealtimePanel')
-    expect(source).toContain('KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS')
-    expect(source).toContain("visibleDimensions={KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS}")
-    expect(source).not.toContain('showEyebrow')
-  })
-
-  it('copies the relevant admin toolbar class contracts into its own module', () => {
-    expect(styles).toMatch(/\.toolbarRow\s*\{[\s\S]*?flex-direction:\s*column;/)
-    expect(styles).toMatch(/\.toolbarActionsRight\s*\{[\s\S]*?justify-content:\s*flex-end;/)
-    expect(styles).not.toContain('.timeRangeGroup')
-    expect(styles).not.toContain('.rangeSelectControl')
+  it('keeps the viewer toolbar and wide gutter tokens while the shell owns header geometry', () => {
+    expect(source).toContain('<PageToolbar')
+    expect(source).toContain('className={styles.keyOverviewLeading}')
+    expect(source).not.toContain("style={{ width: '100%' }}")
+    expect(styles).toMatch(/\.rangeSelectControl\s*\{[\s\S]*?flex:\s*0 0 160px;[\s\S]*?width:\s*160px;[\s\S]*?min-width:\s*160px;/)
+    expect(styles).toMatch(/@include mobile\s*\{[\s\S]*?\.rangeSelectControl\s*\{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?min-width:\s*0;/)
+    expect(styles).toMatch(/\.viewerShell\s*\{[\s\S]*?--page-gutter:\s*40px;/)
+    expect(styles).toMatch(/\.viewerShell\s*\{[\s\S]*?--page-header-height:\s*88px;/)
     expect(styles).not.toMatch(/\.(toolbarMetaRow|lastRefreshed)\s*\{/)
-  })
-
-  it('uses the same soft active tab shadow as the admin usage tabs', () => {
-    const activeTabBlock = styles.slice(
-      styles.indexOf('.tabPillActive {'),
-      styles.indexOf('.toolbarActionsRight')
-    )
-
-    expect(activeTabBlock).toMatch(/border-color:\s*rgba\(\$primary-color, 0\.45\);/)
-    expect(activeTabBlock).toContain('0 0 0 1px rgba($primary-color, 0.08) inset,')
-    expect(activeTabBlock).toContain('0 4px 12px rgba($primary-color, 0.14);')
-    expect(activeTabBlock).not.toContain('box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);')
+    expect(styles).not.toMatch(/\.pageShell\s*\{/)
+    expect(styles).not.toMatch(/\.headerLayout\s*\{/)
+    expect(styles).not.toMatch(/\.headerDivider\s*\{/)
+    expect(styles).not.toMatch(/\.viewerLabel\s*\{/)
+    expect(styles).not.toMatch(/\.headerActions\s*\{/)
+    expect(styles).not.toMatch(/\.header\s*\{/)
+    expect(shellStyles).toMatch(/\.shellHeaderStickyAlways,[\s\S]*?\.shellHeaderStickyDesktop\s*\{[\s\S]*?position:\s*sticky;/)
+    expect(shellStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.shellHeaderStickyDesktop\s*\{[\s\S]*?position:\s*static;/)
   })
 })

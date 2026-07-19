@@ -1,14 +1,25 @@
-import { useMemo, useRef, useState } from 'react';
+import { useState, useMemo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Card } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Modal } from '@/components/ui/Modal';
-import { Select, type SelectOption } from '@/components/ui/Select';
+import {
+  Button,
+  Card,
+  Checkbox,
+  Form,
+  Input,
+  Modal,
+  Select,
+  Space,
+  Table,
+  Tag,
+  Typography,
+  type TableColumnsType,
+} from 'antd';
+import { SectionHeader } from '@/components/layout';
 import { IconCheck, IconCircleAlert, IconRefreshCw } from '@/components/ui/icons';
-import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainment';
 import type { ModelPrice, PricingSaveResult, PricingStyle, PricingSyncMatch, PricingSyncPreviewResponse } from '@/lib/types';
-import styles from '@/pages/UsagePage.module.scss';
+import styles from './UsageSettings.module.scss';
+
+const MODEL_PRICE_FILTER_POPUP_WIDTH = 360;
 
 const formatDisplayName = (value: string): string => {
   const normalized = value.trim();
@@ -34,6 +45,19 @@ const compareModelNamesDescending = (left: string, right: string): number => {
   if (left === right) return 0;
   return left > right ? -1 : 1;
 };
+
+interface SelectOption {
+  value: string;
+  label: string;
+  disabled?: boolean;
+  suffix?: ReactNode;
+  suffixAriaLabel?: string;
+}
+
+interface PricingTableRow {
+  model: string;
+  price: ModelPrice;
+}
 
 export interface PriceSettingsCardProps {
   modelNames: string[];
@@ -70,15 +94,6 @@ export interface PricingDraftInput {
   cacheRead: string;
   cacheWrite: string;
   multiplier: string;
-}
-
-function PriceSettingsTitle({ title, subtitle }: { title: string; subtitle: string }) {
-  return (
-    <div className={styles.sectionTitleBlock}>
-      <h3 className={styles.sectionTitle}>{title}</h3>
-      <p className={styles.sectionSubtitle}>{subtitle}</p>
-    </div>
-  );
 }
 
 const parsePriceValue = (value: string): number | null => {
@@ -286,7 +301,6 @@ export function PriceSettingsCard({
   loading = false
 }: PriceSettingsCardProps) {
   const { t } = useTranslation();
-  const pricesGridRef = useRef<HTMLDivElement | null>(null);
 
   // 新增价格表单先暂存输入值，保存成功后再合并当前模型的价格。
   const [selectedModel, setSelectedModel] = useState('');
@@ -542,19 +556,111 @@ export function PriceSettingsCard({
       .sort(([left], [right]) => compareModelNamesDescending(left, right)),
     [modelPrices]
   );
-  useScrollBoundaryContainment(pricesGridRef, sortedModelPrices.length > 0);
   const selectedSyncCount = useMemo(
     () => syncDrafts.filter((draft) => draft.selected).length,
     [syncDrafts]
   );
+  const modelSelectOptions = useMemo(
+    () => options.map((option) => ({
+      value: option.value,
+      disabled: option.disabled,
+      label: (
+        <Space size={6}>
+          <span>{option.label}</span>
+          {option.suffix && (
+            <span aria-label={option.suffixAriaLabel}>{option.suffix}</span>
+          )}
+        </Space>
+      ),
+    })),
+    [options],
+  );
+  const pricingRows = useMemo<PricingTableRow[]>(
+    () => sortedModelPrices.map(([model, price]) => ({ model, price })),
+    [sortedModelPrices],
+  );
+  const pricingColumns: TableColumnsType<PricingTableRow> = [
+    {
+      key: 'model',
+      title: t('usage_stats.model_name'),
+      fixed: 'left',
+      width: 220,
+      render: (_value, row) => (
+        <Typography.Text strong className={styles.priceModel}>
+          {formatDisplayName(row.model)}
+        </Typography.Text>
+      ),
+    },
+    {
+      key: 'style',
+      title: t('usage_stats.model_price_style'),
+      width: 110,
+      render: (_value, row) => (
+        <Tag variant="filled">
+          {t(row.price.style === 'claude'
+            ? 'usage_stats.model_price_style_claude'
+            : 'usage_stats.model_price_style_openai')}
+        </Tag>
+      ),
+    },
+    {
+      key: 'prompt',
+      title: t('usage_stats.model_price_prompt'),
+      width: 130,
+      render: (_value, row) => `$${row.price.prompt.toFixed(4)}/1M`,
+    },
+    {
+      key: 'completion',
+      title: t('usage_stats.model_price_completion'),
+      width: 130,
+      render: (_value, row) => `$${row.price.completion.toFixed(4)}/1M`,
+    },
+    {
+      key: 'cacheRead',
+      title: t('usage_stats.model_price_cache_read'),
+      width: 130,
+      render: (_value, row) => `$${row.price.cacheRead.toFixed(4)}/1M`,
+    },
+    {
+      key: 'cacheWrite',
+      title: t('usage_stats.model_price_cache_write'),
+      width: 130,
+      render: (_value, row) => `$${row.price.cacheWrite.toFixed(4)}/1M`,
+    },
+    {
+      key: 'multiplier',
+      title: t('usage_stats.model_price_multiplier'),
+      width: 110,
+      render: (_value, row) => priceToInputValue(row.price.multiplier ?? 1),
+    },
+    {
+      key: 'actions',
+      title: t('usage_stats.model_price_actions_column'),
+      fixed: 'right',
+      align: 'right',
+      width: 150,
+      render: (_value, row) => (
+        <Space size={8}>
+          <Button size="small" onClick={() => handleOpenEdit(row.model)}>
+            {t('common.edit')}
+          </Button>
+          <Button danger size="small" onClick={() => setDeleteModel(row.model)}>
+            {t('common.delete')}
+          </Button>
+        </Space>
+      ),
+    },
+  ];
 
   return (
     <>
       <Card
+        variant="outlined"
         title={
-          <PriceSettingsTitle
+          <SectionHeader
+            headingLevel={2}
             title={t('usage_stats.model_price_settings_title')}
-            subtitle={t('usage_stats.model_price_settings_subtitle')}
+            description={t('usage_stats.model_price_settings_subtitle')}
           />
         }
         className={`${styles.detailsFixedCard} ${styles.pricingFixedCard}`}
@@ -566,154 +672,81 @@ export function PriceSettingsCard({
             <>
               {onSyncPreview && (
                 <div className={styles.pricingToolbar}>
-                  <div className={styles.pricingToolbarMeta}>
-                    <span>{t('usage_stats.model_price_sync_source')}: Models.dev</span>
-                  </div>
+                  <Typography.Text type="secondary">
+                    {t('usage_stats.model_price_sync_source')}: Models.dev
+                  </Typography.Text>
                   <Button
-                    variant="secondary"
-                    className={styles.usagePillAction}
                     onClick={() => void handleOpenSyncPreview()}
                     loading={syncLoading}
+                    icon={<IconRefreshCw size={14} />}
                   >
-                    <IconRefreshCw size={14} />
                     {t('usage_stats.model_price_sync')}
                   </Button>
                 </div>
               )}
-              <div className={styles.priceForm}>
+              <Form layout="vertical" className={styles.priceForm}>
                 <div className={styles.formRow}>
-                  <div className={`${styles.formField} ${styles.priceFormModelField}`}>
-                    <label>{t('usage_stats.model_name')}</label>
+                  <Form.Item
+                    className={styles.priceFormModelField}
+                    label={t('usage_stats.model_name')}
+                  >
                     <Select
-                      value={selectedModel}
-                      options={options}
+                      value={selectedModel || undefined}
+                      options={modelSelectOptions.filter((option) => option.value !== '')}
                       onChange={handleModelSelect}
                       placeholder={t('usage_stats.model_price_select_placeholder')}
                       disabled={priceSaving}
-                      className={styles.usagePillControl}
+                      showSearch
+                      optionFilterProp="value"
+                      popupMatchSelectWidth={MODEL_PRICE_FILTER_POPUP_WIDTH}
                     />
-                  </div>
-                  <div className={styles.formField}>
-                    <label>{t('usage_stats.model_price_style')}</label>
+                  </Form.Item>
+                  <Form.Item label={t('usage_stats.model_price_style')}>
                     <Select
                       value={pricingStyle}
                       options={styleOptions}
                       onChange={(value) => setPricingStyle(value === 'claude' ? 'claude' : 'openai')}
                       disabled={priceSaving}
-                      className={styles.usagePillControl}
                     />
-                  </div>
-                  <div className={styles.formField}>
-                    <label>{t('usage_stats.model_price_prompt')} ($/1M)</label>
-                    <Input
-                      type="number"
-                      value={promptPrice}
-                      onChange={(e) => setPromptPrice(e.target.value)}
-                      placeholder="0.00"
-                      step="0.0001"
-                      disabled={priceSaving}
-                      className={styles.usagePillControl}
-                    />
-                  </div>
-                  <div className={styles.formField}>
-                    <label>{t('usage_stats.model_price_completion')} ($/1M)</label>
-                    <Input
-                      type="number"
-                      value={completionPrice}
-                      onChange={(e) => setCompletionPrice(e.target.value)}
-                      placeholder="0.00"
-                      step="0.0001"
-                      disabled={priceSaving}
-                      className={styles.usagePillControl}
-                    />
-                  </div>
-                  <div className={styles.formField}>
-                    <label>{t('usage_stats.model_price_cache_read')} ($/1M)</label>
-                    <Input
-                      type="number"
-                      value={cacheReadPrice}
-                      onChange={(e) => setCacheReadPrice(e.target.value)}
-                      placeholder="0.00"
-                      step="0.0001"
-                      disabled={priceSaving}
-                      className={styles.usagePillControl}
-                    />
-                  </div>
-                  <div className={styles.formField}>
-                    <label>{t('usage_stats.model_price_cache_write')} ($/1M)</label>
-                    <Input
-                      type="number"
-                      value={cacheWritePrice}
-                      onChange={(e) => setCacheWritePrice(e.target.value)}
-                      placeholder="0.00"
-                      step="0.0001"
-                      disabled={priceSaving}
-                      className={styles.usagePillControl}
-                    />
-                  </div>
-                  <div className={styles.formField}>
-                    <label>{t('usage_stats.model_price_multiplier')}</label>
-                    <Input
-                      type="number"
-                      value={priceMultiplier}
-                      onChange={(e) => setPriceMultiplier(e.target.value)}
-                      placeholder="1"
-                      step="0.0001"
-                      min="0"
-                      disabled={priceSaving}
-                      className={styles.usagePillControl}
-                    />
-                  </div>
-                  <Button variant="primary" className={`${styles.usagePillAction} ${styles.priceFormAction}`} onClick={() => void handleSavePrice()} disabled={!selectedModel || priceSaving} loading={priceSaving}>
-                    {t('common.save')}
-                  </Button>
+                  </Form.Item>
+                  <Form.Item label={`${t('usage_stats.model_price_prompt')} ($/1M)`}>
+                    <Input type="number" value={promptPrice} onChange={(event) => setPromptPrice(event.target.value)} placeholder="0.00" step="0.0001" disabled={priceSaving} />
+                  </Form.Item>
+                  <Form.Item label={`${t('usage_stats.model_price_completion')} ($/1M)`}>
+                    <Input type="number" value={completionPrice} onChange={(event) => setCompletionPrice(event.target.value)} placeholder="0.00" step="0.0001" disabled={priceSaving} />
+                  </Form.Item>
+                  <Form.Item label={`${t('usage_stats.model_price_cache_read')} ($/1M)`}>
+                    <Input type="number" value={cacheReadPrice} onChange={(event) => setCacheReadPrice(event.target.value)} placeholder="0.00" step="0.0001" disabled={priceSaving} />
+                  </Form.Item>
+                  <Form.Item label={`${t('usage_stats.model_price_cache_write')} ($/1M)`}>
+                    <Input type="number" value={cacheWritePrice} onChange={(event) => setCacheWritePrice(event.target.value)} placeholder="0.00" step="0.0001" disabled={priceSaving} />
+                  </Form.Item>
+                  <Form.Item label={t('usage_stats.model_price_multiplier')}>
+                    <Input type="number" value={priceMultiplier} onChange={(event) => setPriceMultiplier(event.target.value)} placeholder="1" step="0.0001" min="0" disabled={priceSaving} />
+                  </Form.Item>
+                  <Form.Item className={styles.priceFormAction}>
+                    <Button type="primary" block onClick={() => void handleSavePrice()} disabled={!selectedModel || priceSaving} loading={priceSaving}>
+                      {t('common.save')}
+                    </Button>
+                  </Form.Item>
                 </div>
-              </div>
+              </Form>
 
-              <div className={styles.pricesList}>
-                <h4 className={styles.pricesTitle}>{t('usage_stats.saved_prices')}</h4>
-                {sortedModelPrices.length > 0 ? (
-                  <div ref={pricesGridRef} className={styles.pricesGrid}>
-                    {sortedModelPrices.map(([model, price]) => (
-                      <div key={model} className={styles.priceItem}>
-                        <div className={styles.priceInfo}>
-                          <span className={styles.priceModel}>{formatDisplayName(model)}</span>
-                          <div className={styles.priceMeta}>
-                            <span>
-                              {t('usage_stats.model_price_style')}: {t(price.style === 'claude' ? 'usage_stats.model_price_style_claude' : 'usage_stats.model_price_style_openai')}
-                            </span>
-                            <span>
-                              {t('usage_stats.model_price_prompt')}: ${price.prompt.toFixed(4)}/1M
-                            </span>
-                            <span>
-                              {t('usage_stats.model_price_completion')}: ${price.completion.toFixed(4)}/1M
-                            </span>
-                            <span>
-                              {t('usage_stats.model_price_cache_read')}: ${price.cacheRead.toFixed(4)}/1M
-                            </span>
-                            <span>
-                              {t('usage_stats.model_price_cache_write')}: ${price.cacheWrite.toFixed(4)}/1M
-                            </span>
-                            <span>
-                              {t('usage_stats.model_price_multiplier')}: {priceToInputValue(price.multiplier ?? 1)}
-                            </span>
-                          </div>
-                        </div>
-                        <div className={styles.priceActions}>
-                          <Button variant="secondary" size="sm" className={styles.usagePillAction} onClick={() => handleOpenEdit(model)}>
-                            {t('common.edit')}
-                          </Button>
-                          <Button variant="danger" size="sm" className={`${styles.usagePillAction} ${styles.usagePillActionDanger}`} onClick={() => setDeleteModel(model)}>
-                            {t('common.delete')}
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className={styles.hint}>{t('usage_stats.model_price_empty')}</div>
-                )}
-              </div>
+              <section className={styles.pricesList} aria-labelledby="saved-model-prices-title">
+                <h3 id="saved-model-prices-title" className={styles.pricesTitle}>
+                  {t('usage_stats.saved_prices')}
+                </h3>
+                <Table<PricingTableRow>
+                  className={styles.pricingTable}
+                  columns={pricingColumns}
+                  dataSource={pricingRows}
+                  rowKey="model"
+                  pagination={false}
+                  size="small"
+                  scroll={{ x: 1080, y: 480 }}
+                  locale={{ emptyText: t('usage_stats.model_price_empty') }}
+                />
+              </section>
             </>
           )}
         </div>
@@ -723,106 +756,104 @@ export function PriceSettingsCard({
       <Modal
         open={editModel !== null}
         title={formatDisplayName(editModel ?? '')}
-        onClose={closeEditModal}
-        closeDisabled={editSaving}
+        onCancel={editSaving ? undefined : closeEditModal}
+        closable={!editSaving}
+        mask={{ closable: !editSaving }}
+        keyboard={!editSaving}
+        destroyOnHidden
+        centered
+        focusable={{ focusTriggerAfterClose: true }}
         footer={
           <div className={styles.priceActions}>
-            <Button variant="secondary" className={styles.usagePillAction} onClick={closeEditModal} disabled={editSaving}>
+            <Button onClick={closeEditModal} disabled={editSaving}>
               {t('common.cancel')}
             </Button>
-            <Button variant="primary" className={styles.usagePillAction} onClick={() => void handleSaveEdit()} loading={editSaving}>
+            <Button type="primary" onClick={() => void handleSaveEdit()} loading={editSaving}>
               {t('common.save')}
             </Button>
           </div>
         }
         width={420}
       >
-        <div className={styles.editModalBody}>
-          <div className={styles.formField}>
-            <label>{t('usage_stats.model_price_style')}</label>
+        <Form layout="vertical" className={styles.editModalBody}>
+          <Form.Item label={t('usage_stats.model_price_style')}>
             <Select
               value={editStyle}
               options={styleOptions}
               onChange={(value) => setEditStyle(value === 'claude' ? 'claude' : 'openai')}
               disabled={editSaving}
-              className={styles.usagePillControl}
             />
-          </div>
-          <div className={styles.formField}>
-            <label>{t('usage_stats.model_price_prompt')} ($/1M)</label>
+          </Form.Item>
+          <Form.Item label={`${t('usage_stats.model_price_prompt')} ($/1M)`}>
             <Input
               type="number"
               value={editPrompt}
-              onChange={(e) => setEditPrompt(e.target.value)}
+              onChange={(event) => setEditPrompt(event.target.value)}
               placeholder="0.00"
               step="0.0001"
               disabled={editSaving}
-              className={styles.usagePillControl}
             />
-          </div>
-          <div className={styles.formField}>
-            <label>{t('usage_stats.model_price_completion')} ($/1M)</label>
+          </Form.Item>
+          <Form.Item label={`${t('usage_stats.model_price_completion')} ($/1M)`}>
             <Input
               type="number"
               value={editCompletion}
-              onChange={(e) => setEditCompletion(e.target.value)}
+              onChange={(event) => setEditCompletion(event.target.value)}
               placeholder="0.00"
               step="0.0001"
               disabled={editSaving}
-              className={styles.usagePillControl}
             />
-          </div>
-          <div className={styles.formField}>
-            <label>{t('usage_stats.model_price_cache_read')} ($/1M)</label>
+          </Form.Item>
+          <Form.Item label={`${t('usage_stats.model_price_cache_read')} ($/1M)`}>
             <Input
               type="number"
               value={editCacheRead}
-              onChange={(e) => setEditCacheRead(e.target.value)}
+              onChange={(event) => setEditCacheRead(event.target.value)}
               placeholder="0.00"
               step="0.0001"
               disabled={editSaving}
-              className={styles.usagePillControl}
             />
-          </div>
-          <div className={styles.formField}>
-            <label>{t('usage_stats.model_price_cache_write')} ($/1M)</label>
+          </Form.Item>
+          <Form.Item label={`${t('usage_stats.model_price_cache_write')} ($/1M)`}>
             <Input
               type="number"
               value={editCacheWrite}
-              onChange={(e) => setEditCacheWrite(e.target.value)}
+              onChange={(event) => setEditCacheWrite(event.target.value)}
               placeholder="0.00"
               step="0.0001"
               disabled={editSaving}
-              className={styles.usagePillControl}
             />
-          </div>
-          <div className={styles.formField}>
-            <label>{t('usage_stats.model_price_multiplier')}</label>
+          </Form.Item>
+          <Form.Item label={t('usage_stats.model_price_multiplier')}>
             <Input
               type="number"
               value={editMultiplier}
-              onChange={(e) => setEditMultiplier(e.target.value)}
+              onChange={(event) => setEditMultiplier(event.target.value)}
               placeholder="1"
               step="0.0001"
               min="0"
               disabled={editSaving}
-              className={styles.usagePillControl}
             />
-          </div>
-        </div>
+          </Form.Item>
+        </Form>
       </Modal>
 
       <Modal
         open={deleteModel !== null}
         title={t('usage_stats.model_price_delete_confirm_title')}
-        onClose={closeDeleteModal}
-        closeDisabled={deleteSaving}
+        onCancel={deleteSaving ? undefined : closeDeleteModal}
+        closable={!deleteSaving}
+        mask={{ closable: !deleteSaving }}
+        keyboard={!deleteSaving}
+        destroyOnHidden
+        centered
+        focusable={{ focusTriggerAfterClose: true }}
         footer={
           <div className={styles.priceActions}>
-            <Button variant="secondary" className={styles.usagePillAction} onClick={closeDeleteModal} disabled={deleteSaving}>
+            <Button onClick={closeDeleteModal} disabled={deleteSaving}>
               {t('common.cancel')}
             </Button>
-            <Button variant="danger" className={`${styles.usagePillAction} ${styles.usagePillActionDanger}`} onClick={() => void confirmDeleteModel()} loading={deleteSaving}>
+            <Button danger  onClick={() => void confirmDeleteModel()} loading={deleteSaving}>
               {t('usage_stats.model_price_delete_confirm_action')}
             </Button>
           </div>
@@ -837,26 +868,24 @@ export function PriceSettingsCard({
       <Modal
         open={syncOpen}
         title={t('usage_stats.model_price_sync_title')}
-        onClose={() => {
-          if (!syncApplying) {
-            setSyncOpen(false);
-          }
-        }}
-        closeDisabled={syncApplying}
+        onCancel={syncApplying ? undefined : () => setSyncOpen(false)}
+        closable={!syncApplying}
+        mask={{ closable: !syncApplying }}
+        keyboard={!syncApplying}
+        destroyOnHidden
+        centered
+        focusable={{ focusTriggerAfterClose: true }}
         footer={
           <div className={styles.priceActions}>
             <Button
-              variant="secondary"
-              className={styles.usagePillAction}
-              onClick={() => setSyncOpen(false)}
+                                        onClick={() => setSyncOpen(false)}
               disabled={syncApplying}
             >
               {t('common.cancel')}
             </Button>
             <Button
-              variant="primary"
-              className={styles.usagePillAction}
-              onClick={() => void handleApplySyncDrafts()}
+              type="primary"
+                           onClick={() => void handleApplySyncDrafts()}
               loading={syncApplying}
               disabled={selectedSyncCount === 0}
             >
@@ -883,19 +912,15 @@ export function PriceSettingsCard({
             <>
               <div className={styles.syncBatchActions}>
                 <Button
-                  variant="secondary"
-                  size="sm"
-                  className={styles.usagePillAction}
-                  onClick={() => handleSetAllSyncDrafts(true)}
+                                   size="small"
+                                   onClick={() => handleSetAllSyncDrafts(true)}
                   disabled={syncApplying}
                 >
                   {t('usage_stats.model_price_sync_select_all')}
                 </Button>
                 <Button
-                  variant="secondary"
-                  size="sm"
-                  className={styles.usagePillAction}
-                  onClick={() => handleSetAllSyncDrafts(false)}
+                                   size="small"
+                                   onClick={() => handleSetAllSyncDrafts(false)}
                   disabled={syncApplying}
                 >
                   {t('usage_stats.model_price_sync_select_none')}
@@ -912,15 +937,14 @@ export function PriceSettingsCard({
                       key={`${draft.model}-${draft.matchedModel}`}
                       className={`${styles.syncDraftItem} ${failed ? styles.syncDraftItemFailed : ''}`}
                     >
-                      <label className={styles.syncDraftCheck}>
-                        <input
-                          type="checkbox"
+                      <div className={styles.syncDraftCheck}>
+                        <Checkbox
                           checked={draft.selected}
                           disabled={syncApplying}
                           onChange={(event) => handleUpdateSyncDraft(index, { selected: event.target.checked })}
                           aria-label={t('usage_stats.model_price_sync_toggle', { model: formatDisplayName(draft.model) })}
                         />
-                      </label>
+                      </div>
                       <div className={styles.syncDraftContent}>
                         <div className={styles.syncDraftHeader}>
                           <div className={styles.syncDraftModelBlock}>
@@ -950,19 +974,16 @@ export function PriceSettingsCard({
                             {existing && <span>{t('usage_stats.model_price_sync_existing')}</span>}
                           </div>
                         </div>
-                        <div className={styles.syncDraftGrid}>
-                          <div className={styles.formField}>
-                            <label>{t('usage_stats.model_price_style')}</label>
+                        <Form layout="vertical" className={styles.syncDraftGrid}>
+                          <Form.Item label={t('usage_stats.model_price_style')}>
                             <Select
                               value={draft.style}
                               options={styleOptions}
                               onChange={(value) => handleUpdateSyncDraft(index, { style: value === 'claude' ? 'claude' : 'openai' })}
                               disabled={syncApplying}
-                              className={styles.usagePillControl}
                             />
-                          </div>
-                          <div className={styles.formField}>
-                            <label>{t('usage_stats.model_price_prompt')} ($/1M)</label>
+                          </Form.Item>
+                          <Form.Item label={`${t('usage_stats.model_price_prompt')} ($/1M)`}>
                             <Input
                               type="number"
                               value={draft.prompt}
@@ -970,11 +991,9 @@ export function PriceSettingsCard({
                               placeholder="0.00"
                               step="0.0001"
                               disabled={syncApplying}
-                              className={styles.usagePillControl}
                             />
-                          </div>
-                          <div className={styles.formField}>
-                            <label>{t('usage_stats.model_price_completion')} ($/1M)</label>
+                          </Form.Item>
+                          <Form.Item label={`${t('usage_stats.model_price_completion')} ($/1M)`}>
                             <Input
                               type="number"
                               value={draft.completion}
@@ -982,11 +1001,9 @@ export function PriceSettingsCard({
                               placeholder="0.00"
                               step="0.0001"
                               disabled={syncApplying}
-                              className={styles.usagePillControl}
                             />
-                          </div>
-                          <div className={styles.formField}>
-                            <label>{t('usage_stats.model_price_cache_read')} ($/1M)</label>
+                          </Form.Item>
+                          <Form.Item label={`${t('usage_stats.model_price_cache_read')} ($/1M)`}>
                             <Input
                               type="number"
                               value={draft.cacheRead}
@@ -994,11 +1011,9 @@ export function PriceSettingsCard({
                               placeholder="0.00"
                               step="0.0001"
                               disabled={syncApplying}
-                              className={styles.usagePillControl}
                             />
-                          </div>
-                          <div className={styles.formField}>
-                            <label>{t('usage_stats.model_price_cache_write')} ($/1M)</label>
+                          </Form.Item>
+                          <Form.Item label={`${t('usage_stats.model_price_cache_write')} ($/1M)`}>
                             <Input
                               type="number"
                               value={draft.cacheWrite}
@@ -1006,11 +1021,9 @@ export function PriceSettingsCard({
                               placeholder="0.00"
                               step="0.0001"
                               disabled={syncApplying}
-                              className={styles.usagePillControl}
                             />
-                          </div>
-                          <div className={styles.formField}>
-                            <label>{t('usage_stats.model_price_multiplier')}</label>
+                          </Form.Item>
+                          <Form.Item label={t('usage_stats.model_price_multiplier')}>
                             <Input
                               type="number"
                               value={draft.multiplier}
@@ -1019,10 +1032,9 @@ export function PriceSettingsCard({
                               step="0.0001"
                               min="0"
                               disabled={syncApplying}
-                              className={styles.usagePillControl}
                             />
-                          </div>
-                        </div>
+                          </Form.Item>
+                        </Form>
                       </div>
                     </div>
                   );

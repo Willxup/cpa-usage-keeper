@@ -1,25 +1,80 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ChartData, ChartOptions } from 'chart.js';
+import type { LineConfig } from '@ant-design/charts';
 import type { OverviewRealtimeBlock } from '@/lib/types';
 import i18n from '@/i18n';
 
+type RealtimeLineDatum = { label: string; value: number | null };
+type ResponseDistributionDatum = { x: number; y: number | null };
+type ResponseDistributionParticleDatum = { x: number; y: number; count: number };
+type TooltipItem = { name?: string; value?: string };
+type AxisConfig = {
+  x?: { tickCount?: number; labelFormatter?: (value: number) => string };
+  y?: { tickCount?: number; labelFormatter?: (value: number) => string };
+};
+type BaseChildConfig = {
+  type?: string;
+  data?: Array<ResponseDistributionDatum | ResponseDistributionParticleDatum>;
+  axis?: boolean | AxisConfig;
+  style?: Record<string, unknown>;
+  tooltip?: {
+    title?: (datum: ResponseDistributionDatum | ResponseDistributionParticleDatum) => string;
+    items?: Array<(datum: ResponseDistributionDatum | ResponseDistributionParticleDatum) => TooltipItem>;
+  };
+};
+type BaseConfig = {
+  scale?: {
+    x?: { type?: string; domainMin?: number; domainMax?: number; nice?: boolean };
+    y?: { type?: string; domainMin?: number; domainMax?: number; nice?: boolean };
+  };
+  axis?: AxisConfig;
+  children?: BaseChildConfig[];
+};
+
 const chartCapture = vi.hoisted(() => ({
-  lineCalls: [] as Array<{ data: ChartData<'line', Array<number | null>, string>; options: ChartOptions<'line'> }>,
-  chartCalls: [] as Array<{ type?: string; data: ChartData; options: ChartOptions }>,
+  lineCalls: [] as LineConfig[],
+  baseCalls: [] as BaseConfig[],
 }));
 
-vi.mock('react-chartjs-2', () => ({
-  Line: (props: { data: ChartData<'line', Array<number | null>, string>; options: ChartOptions<'line'> }) => {
+vi.mock('@ant-design/charts', () => ({
+  Line: (props: LineConfig) => {
     chartCapture.lineCalls.push(props);
     return React.createElement('div');
   },
-  Chart: (props: { type?: string; data: ChartData; options: ChartOptions }) => {
-    chartCapture.chartCalls.push(props);
+  Base: (props: BaseConfig) => {
+    chartCapture.baseCalls.push(props);
     return React.createElement('div');
   },
 }));
+
+const capturedLineData = (config: LineConfig) => config.data as RealtimeLineDatum[];
+
+const capturedChild = (config: BaseConfig, index: number) => {
+  const child = config.children?.[index];
+  if (!child) throw new Error(`Missing captured chart child ${index}`);
+  return child;
+};
+
+const capturedDistributionAxis = (config: BaseConfig) => {
+  const axis = config.axis;
+  if (!axis) throw new Error('Missing captured distribution axis');
+  return axis;
+};
+
+const capturedTooltipItem = (child: BaseChildConfig, index = 0) => {
+  const datum = child.data?.[index];
+  const formatter = child.tooltip?.items?.[0];
+  if (!datum || !formatter) throw new Error('Missing captured tooltip item');
+  return formatter(datum);
+};
+
+const capturedTooltipTitle = (child: BaseChildConfig, index = 0) => {
+  const datum = child.data?.[index];
+  const formatter = child.tooltip?.title;
+  if (!datum || !formatter) throw new Error('Missing captured tooltip title');
+  return formatter(datum);
+};
 
 vi.mock('react-i18next', () => ({
   initReactI18next: {
@@ -95,7 +150,7 @@ const realtimeWithProjectOffset: OverviewRealtimeBlock = {
 describe('OverviewRealtimePanel', () => {
   afterEach(async () => {
     chartCapture.lineCalls = [];
-    chartCapture.chartCalls = [];
+    chartCapture.baseCalls = [];
     await i18n.changeLanguage('en');
   });
 
@@ -125,18 +180,25 @@ describe('OverviewRealtimePanel', () => {
     expect(html).toContain('usage_stats.overview_realtime_dimension_auth_files');
     expect(html).toContain('gpt-5');
     expect(chartCapture.lineCalls).toHaveLength(3);
-    expect(chartCapture.chartCalls).toHaveLength(2);
-    expect(chartCapture.lineCalls[0].data.datasets[0].data).toEqual([120, 240]);
-    expect(chartCapture.chartCalls[0].data.datasets.map((dataset) => dataset.label)).toEqual([
+    expect(chartCapture.baseCalls).toHaveLength(2);
+    expect(capturedLineData(chartCapture.lineCalls[0]).map((point) => point.value)).toEqual([120, 240]);
+    expect(chartCapture.baseCalls[0].children?.map((child) => child.type)).toEqual(['line', 'point']);
+    expect([
+      capturedTooltipItem(capturedChild(chartCapture.baseCalls[0], 0)).name,
+      capturedTooltipItem(capturedChild(chartCapture.baseCalls[0], 1)).name,
+    ]).toEqual([
       'usage_stats.overview_realtime_ttft_average',
       'usage_stats.overview_realtime_ttft_distribution',
     ]);
-    expect(chartCapture.chartCalls[1].data.datasets.map((dataset) => dataset.label)).toEqual([
+    expect([
+      capturedTooltipItem(capturedChild(chartCapture.baseCalls[1], 0)).name,
+      capturedTooltipItem(capturedChild(chartCapture.baseCalls[1], 1)).name,
+    ]).toEqual([
       'usage_stats.overview_realtime_latency_average',
       'usage_stats.overview_realtime_latency_distribution',
     ]);
-    expect(chartCapture.lineCalls[1].data.datasets[0].data).toEqual([2, 4]);
-    expect(chartCapture.lineCalls[2].data.datasets[0].data).toEqual([25, 50]);
+    expect(capturedLineData(chartCapture.lineCalls[1]).map((point) => point.value)).toEqual([2, 4]);
+    expect(capturedLineData(chartCapture.lineCalls[2]).map((point) => point.value)).toEqual([25, 50]);
   });
 
   it('shows metric-specific empty states while keeping valid zero lines visible', () => {
@@ -183,7 +245,7 @@ describe('OverviewRealtimePanel', () => {
     expect(html).toContain('usage_stats.overview_realtime_cache_empty');
     expect(html).toContain('usage_stats.overview_realtime_usage_empty');
     expect(chartCapture.lineCalls).toHaveLength(3);
-    expect(chartCapture.chartCalls).toHaveLength(2);
+    expect(chartCapture.baseCalls).toHaveLength(2);
   });
 
   it('labels realtime metric chips as rolling values with localized tooltip text', () => {
@@ -236,30 +298,39 @@ describe('OverviewRealtimePanel', () => {
     expect(html).toContain('usage_stats.overview_realtime_ttft_distribution');
     expect(html).toContain('usage_stats.overview_realtime_latency_distribution');
     expect(html).not.toContain('usage_stats.overview_realtime_response_level</h3>');
-    expect(chartCapture.chartCalls).toHaveLength(2);
-    expect(chartCapture.chartCalls[0].data.datasets.map((dataset) => dataset.label)).toEqual([
+    expect(chartCapture.baseCalls).toHaveLength(2);
+    const ttftAverage = capturedChild(chartCapture.baseCalls[0], 0);
+    const ttftParticles = capturedChild(chartCapture.baseCalls[0], 1);
+    expect([capturedTooltipItem(ttftAverage).name, capturedTooltipItem(ttftParticles).name]).toEqual([
       'usage_stats.overview_realtime_ttft_average',
       'usage_stats.overview_realtime_ttft_distribution',
     ]);
-    expect(chartCapture.chartCalls[0].data.datasets[0].data).toEqual([
+    expect(ttftAverage.data).toEqual([
       { x: Date.parse('2026-06-09T11:55:00Z'), y: 150 },
       { x: Date.parse('2026-06-09T11:55:30Z'), y: 190 },
     ]);
-    expect(chartCapture.chartCalls[0].data.datasets[1].data).toEqual([
+    expect(ttftParticles.data).toEqual([
       { x: Date.parse('2026-06-09T11:55:10Z'), y: 120, count: 2 },
       { x: Date.parse('2026-06-09T11:55:41Z'), y: 230, count: 5 },
     ]);
-    expect(chartCapture.chartCalls[1].data.datasets.map((dataset) => dataset.label)).toEqual([
+    expect(capturedTooltipTitle(ttftAverage)).toBe('11:55');
+    expect(capturedTooltipTitle(ttftParticles)).toBe('11:55:10');
+    expect([
+      capturedTooltipItem(capturedChild(chartCapture.baseCalls[1], 0)).name,
+      capturedTooltipItem(capturedChild(chartCapture.baseCalls[1], 1)).name,
+    ]).toEqual([
       'usage_stats.overview_realtime_latency_average',
       'usage_stats.overview_realtime_latency_distribution',
     ]);
-    const ttftXAxis = chartCapture.chartCalls[0].options.scales?.x as { type?: string; min?: number; max?: number };
-    const latencyXAxis = chartCapture.chartCalls[1].options.scales?.x as { type?: string; min?: number; max?: number };
-    expect(ttftXAxis.type).toBe('linear');
-    expect(ttftXAxis.min).toBe(Date.parse('2026-06-09T11:55:00Z'));
-    expect(ttftXAxis.max).toBe(Date.parse('2026-06-09T12:10:00Z'));
-    expect(latencyXAxis.min).toBe(ttftXAxis.min);
-    expect(latencyXAxis.max).toBe(ttftXAxis.max);
+    const ttftXAxis = chartCapture.baseCalls[0].scale?.x;
+    const latencyXAxis = chartCapture.baseCalls[1].scale?.x;
+    expect(ttftXAxis?.type).toBe('linear');
+    expect(ttftXAxis?.domainMin).toBe(Date.parse('2026-06-09T11:55:00Z'));
+    expect(ttftXAxis?.domainMax).toBe(Date.parse('2026-06-09T12:10:00Z'));
+    expect(latencyXAxis?.domainMin).toBe(ttftXAxis?.domainMin);
+    expect(latencyXAxis?.domainMax).toBe(ttftXAxis?.domainMax);
+    expect(capturedDistributionAxis(chartCapture.baseCalls[0]).y).toBeDefined();
+    expect(chartCapture.baseCalls[0].children?.every((child) => child.axis === undefined)).toBe(true);
   });
 
   it('uses data-driven logarithmic response axes per distribution chart', () => {
@@ -298,17 +369,15 @@ describe('OverviewRealtimePanel', () => {
       />
     );
 
-    const ttftYAxis = chartCapture.chartCalls[0].options.scales?.y as { type?: string; beginAtZero?: boolean; min?: number; max?: number };
-    const latencyYAxis = chartCapture.chartCalls[1].options.scales?.y as { type?: string; beginAtZero?: boolean; min?: number; max?: number };
+    const ttftYAxis = chartCapture.baseCalls[0].scale?.y;
+    const latencyYAxis = chartCapture.baseCalls[1].scale?.y;
 
-    expect(ttftYAxis.type).toBe('logarithmic');
-    expect(ttftYAxis.beginAtZero).toBeUndefined();
-    expect(ttftYAxis.min).toBeGreaterThan(0);
-    expect(ttftYAxis.max).toBeGreaterThan(30_000);
-    expect(latencyYAxis.type).toBe('logarithmic');
-    expect(latencyYAxis.beginAtZero).toBeUndefined();
-    expect(latencyYAxis.min).toBeGreaterThan(0);
-    expect(latencyYAxis.max).toBeLessThan(2_000);
+    expect(ttftYAxis?.type).toBe('log');
+    expect(ttftYAxis?.domainMin).toBeGreaterThan(0);
+    expect(ttftYAxis?.domainMax).toBeGreaterThan(30_000);
+    expect(latencyYAxis?.type).toBe('log');
+    expect(latencyYAxis?.domainMin).toBeGreaterThan(0);
+    expect(latencyYAxis?.domainMax).toBeLessThan(2_000);
   });
 
   it('omits non-positive response values from logarithmic distribution charts', () => {
@@ -350,17 +419,17 @@ describe('OverviewRealtimePanel', () => {
       />
     );
 
-    expect(chartCapture.chartCalls[0].data.datasets[0].data).toEqual([
+    expect(capturedChild(chartCapture.baseCalls[0], 0).data).toEqual([
       { x: Date.parse('2026-06-09T11:55:00Z'), y: null },
       { x: Date.parse('2026-06-09T11:55:30Z'), y: null },
       { x: Date.parse('2026-06-09T11:56:00Z'), y: 120 },
     ]);
-    expect(chartCapture.chartCalls[0].data.datasets[1].data).toEqual([]);
-    expect(chartCapture.chartCalls[1].data.datasets[0].data).toEqual([
+    expect(capturedChild(chartCapture.baseCalls[0], 1).data).toEqual([]);
+    expect(capturedChild(chartCapture.baseCalls[1], 0).data).toEqual([
       { x: Date.parse('2026-06-09T11:55:00Z'), y: null },
       { x: Date.parse('2026-06-09T11:55:30Z'), y: 800 },
     ]);
-    expect(chartCapture.chartCalls[1].data.datasets[1].data).toEqual([
+    expect(capturedChild(chartCapture.baseCalls[1], 1).data).toEqual([
       { x: Date.parse('2026-06-09T11:55:42Z'), y: 900, count: 1 },
     ]);
   });
@@ -394,7 +463,7 @@ describe('OverviewRealtimePanel', () => {
       />
     );
 
-    const ttftParticleData = chartCapture.chartCalls[0].data.datasets[1].data as Array<{ y: number }>;
+    const ttftParticleData = capturedChild(chartCapture.baseCalls[0], 1).data as ResponseDistributionParticleDatum[];
 
     expect(ttftParticleData).toHaveLength(1_205);
     expect(ttftParticleData[0].y).toBe(1);
@@ -432,7 +501,7 @@ describe('OverviewRealtimePanel', () => {
 
     expect(html).toContain('Realtime failed');
     expect(chartCapture.lineCalls).toHaveLength(3);
-    expect(chartCapture.chartCalls).toHaveLength(2);
+    expect(chartCapture.baseCalls).toHaveLength(2);
   });
 
   it('shows a loading state before realtime data has loaded', () => {
@@ -499,11 +568,11 @@ describe('OverviewRealtimePanel', () => {
     expect(html).toContain('2s');
     expect(html).not.toContain('9s');
     expect(html).not.toContain('25s');
-    expect(chartCapture.chartCalls[0].data.datasets[0].data).toEqual([
+    expect(capturedChild(chartCapture.baseCalls[0], 0).data).toEqual([
       { x: Date.parse('2026-06-09T11:55:00Z'), y: 700 },
       { x: Date.parse('2026-06-09T11:55:30Z'), y: 900 },
     ]);
-    expect(chartCapture.chartCalls[1].data.datasets[0].data).toEqual([
+    expect(capturedChild(chartCapture.baseCalls[1], 0).data).toEqual([
       { x: Date.parse('2026-06-09T11:55:00Z'), y: 1500 },
       { x: Date.parse('2026-06-09T11:55:30Z'), y: 2500 },
     ]);
@@ -546,12 +615,12 @@ describe('OverviewRealtimePanel', () => {
         isMobile={false}
       />
     );
-    const responseYAxis = chartCapture.chartCalls[1].options.scales?.y as { ticks?: { callback?: (value: string | number) => string } };
+    const responseYAxis = capturedDistributionAxis(chartCapture.baseCalls[1]).y;
 
     expect(html).toContain('2.5s');
     expect(html).not.toContain('2.5秒');
-    expect(responseYAxis.ticks?.callback?.(900)).toBe('900ms');
-    expect(responseYAxis.ticks?.callback?.(2500)).toBe('2.5s');
+    expect(responseYAxis?.labelFormatter?.(900)).toBe('900ms');
+    expect(responseYAxis?.labelFormatter?.(2500)).toBe('2.5s');
   });
 
   it('shows only the Models current-usage dimension for key overview', () => {
@@ -608,7 +677,7 @@ describe('OverviewRealtimePanel', () => {
       />
     );
 
-    expect(chartCapture.lineCalls[0].data.labels).toEqual(['11:55', '11:55:30']);
+    expect(capturedLineData(chartCapture.lineCalls[0]).map((point) => point.label)).toEqual(['11:55', '11:55:30']);
   });
 
   it('keeps gap spanning disabled for realtime charts', () => {
@@ -623,11 +692,11 @@ describe('OverviewRealtimePanel', () => {
       />
     );
 
-    expect(chartCapture.lineCalls[0].options.spanGaps).toBeUndefined();
-    expect(chartCapture.lineCalls[1].options.spanGaps).toBeUndefined();
-    expect(chartCapture.lineCalls[2].options.spanGaps).toBeUndefined();
-    expect(chartCapture.chartCalls[0].options.spanGaps).toBeUndefined();
-    expect(chartCapture.chartCalls[1].options.spanGaps).toBeUndefined();
+    expect(chartCapture.lineCalls[0].connectNulls).toBeUndefined();
+    expect(chartCapture.lineCalls[1].connectNulls).toBeUndefined();
+    expect(chartCapture.lineCalls[2].connectNulls).toBeUndefined();
+    expect(capturedChild(chartCapture.baseCalls[0], 0).style?.connect).toBeUndefined();
+    expect(capturedChild(chartCapture.baseCalls[1], 0).style?.connect).toBeUndefined();
   });
 
   it('keeps response axis logarithmic and cache axis light', () => {
@@ -642,13 +711,13 @@ describe('OverviewRealtimePanel', () => {
       />
     );
 
-    const responseYAxis = chartCapture.chartCalls[0].options.scales?.y as { type?: string; beginAtZero?: boolean; min?: number; ticks?: { maxTicksLimit?: number } };
-    const cacheYAxis = chartCapture.lineCalls[2].options.scales?.y as { ticks?: { maxTicksLimit?: number } };
+    const responseYScale = chartCapture.baseCalls[0].scale?.y;
+    const responseYAxis = capturedDistributionAxis(chartCapture.baseCalls[0]).y;
+    const cacheYAxis = chartCapture.lineCalls[2].axis?.y;
 
-    expect(responseYAxis.type).toBe('logarithmic');
-    expect(responseYAxis.beginAtZero).toBeUndefined();
-    expect(responseYAxis.min).toBeGreaterThan(0);
-    expect(responseYAxis.ticks?.maxTicksLimit).toBe(5);
-    expect(cacheYAxis.ticks?.maxTicksLimit).toBe(5);
+    expect(responseYScale?.type).toBe('log');
+    expect(responseYScale?.domainMin).toBeGreaterThan(0);
+    expect(responseYAxis?.tickCount).toBe(5);
+    expect(cacheYAxis && cacheYAxis !== true ? cacheYAxis.tickCount : undefined).toBe(5);
   });
 });

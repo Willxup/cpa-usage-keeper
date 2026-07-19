@@ -43,10 +43,11 @@ describe('CredentialSectionShell formatting', () => {
 
     expect(html).not.toContain('_credentialPaginationRange_')
     expect(html).not.toContain('11–20 / 42')
-    expect(html).toContain('Size')
+    expect(html).toContain('ant-pagination')
+    expect(html).toContain('10 Size')
+    expect(html).toContain('aria-label="Page Size"')
     expect(html).not.toContain('Rows per page')
-    expect(html).toContain('<select')
-    expect(html).toContain('value="10"')
+    expect(html).not.toContain('<select')
   })
 
   it('keeps pagination controls visible for non-empty single-page sections', () => {

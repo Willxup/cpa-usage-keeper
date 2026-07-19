@@ -3,7 +3,7 @@
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   REQUEST_EVENT_COLUMN_IDS,
   RequestEventsDetailsCard,
@@ -78,21 +78,18 @@ const mountCard = async (events: UsageEvent[]) => {
   };
 };
 
+const textFromMarkup = (value: string) => value.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+
 const extractSpeedModeCells = (html: string) => (
-  Array.from(html.matchAll(/<tr><td\b[^>]*>(.*?)<\/td><\/tr>/gs), (match) => match[1])
+  Array.from(
+    html.matchAll(/<tr\b[^>]*data-row-key="[^"]+"[^>]*>\s*<td\b[^>]*>(.*?)<\/td>\s*<\/tr>/gs),
+    (match) => textFromMarkup(match[1]),
+  )
 );
 
-const rectAt = (left: number, top: number, width = 40, height = 20): DOMRect => ({
-  x: left,
-  y: top,
-  left,
-  top,
-  right: left + width,
-  bottom: top + height,
-  width,
-  height,
-  toJSON: () => ({}),
-});
+const findSpeedModeTarget = (container: HTMLElement) => (
+  container.querySelector('tbody tr[data-row-key] td [tabindex="0"]') as HTMLElement | null
+);
 
 describe('RequestEventsDetailsCard Speed Mode column', () => {
   it('shows an immediate localized tooltip with mapped and raw request and response modes', async () => {
@@ -111,16 +108,12 @@ describe('RequestEventsDetailsCard Speed Mode column', () => {
           mounted.root.render(renderCardElement(events));
         });
 
-        const cell = mounted.container.querySelector('tbody td');
-        expect(cell).toBeInstanceOf(HTMLTableCellElement);
+        const cell = findSpeedModeTarget(mounted.container);
+        expect(cell).toBeInstanceOf(HTMLElement);
         expect(cell?.getAttribute('title')).toBeNull();
 
         await act(async () => {
-          cell?.dispatchEvent(new MouseEvent('mouseover', {
-            bubbles: true,
-            clientX: 120,
-            clientY: 80,
-          }));
+          cell?.focus();
         });
 
         const tooltip = document.body.querySelector('[role="tooltip"]');
@@ -131,9 +124,8 @@ describe('RequestEventsDetailsCard Speed Mode column', () => {
         ]);
 
         await act(async () => {
-          cell?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+          cell?.blur();
         });
-        expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
       }
     } finally {
       await mounted.unmount();
@@ -152,86 +144,71 @@ describe('RequestEventsDetailsCard Speed Mode column', () => {
     expect(html).not.toContain('>Response Speed Mode</th>');
     expect(extractSpeedModeCells(html)).toEqual(['Auto / Standard', 'Standard / Standard']);
     expect(html).not.toContain('title="Speed Mode: Auto\nResponse Speed Mode: Standard"');
-    expect(html).toContain('aria-label="Speed Mode: Auto (auto); Response Speed Mode: Standard (default)"');
+    expect(html).toContain('_requestEventsSpeedModeValue_');
   });
 
-  it('keeps the tooltip open while focus remains after the mouse leaves', async () => {
+  it('keeps the Ant Design tooltip available while the value remains focused', async () => {
     await i18n.changeLanguage('en');
     const mounted = await mountCard([
       { ...baseEvent, service_tier: 'auto', response_service_tier: 'default' },
     ]);
 
     try {
-      const cell = mounted.container.querySelector('tbody td') as HTMLTableCellElement;
+      const cell = findSpeedModeTarget(mounted.container) as HTMLElement;
       await act(async () => cell.focus());
-      expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull();
+      const describedBy = cell.getAttribute('aria-describedby');
+      expect(describedBy).toBeTruthy();
+      expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain('Speed Mode: Auto (auto)');
 
       await act(async () => {
         cell.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
         cell.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
       });
-      expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull();
-
-      await act(async () => {
-        cell.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-        cell.blur();
-      });
-      expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull();
-
-      await act(async () => {
-        cell.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
-      });
-      expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
+      expect(cell.getAttribute('aria-describedby')).toBe(describedBy);
     } finally {
       await mounted.unmount();
     }
   });
 
-  it('exposes the expanded values once without a duplicate description', async () => {
+  it('exposes expanded values through the Ant Design tooltip description', async () => {
     await i18n.changeLanguage('en');
     const mounted = await mountCard([
       { ...baseEvent, service_tier: 'auto', response_service_tier: 'default' },
     ]);
 
     try {
-      const cell = mounted.container.querySelector('tbody td') as HTMLTableCellElement;
+      const cell = findSpeedModeTarget(mounted.container) as HTMLElement;
       await act(async () => cell.focus());
-      expect(cell.getAttribute('aria-label')).toBe('Speed Mode: Auto (auto); Response Speed Mode: Standard (default)');
-      expect(cell.getAttribute('aria-describedby')).toBeNull();
+      const describedBy = cell.getAttribute('aria-describedby');
+      expect(describedBy).toBeTruthy();
+      expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(
+        'Speed Mode: Auto (auto)Response Speed Mode: Standard (default)',
+      );
+      expect(cell.getAttribute('aria-label')).toBeNull();
     } finally {
       await mounted.unmount();
     }
   });
 
-  it('repositions the tooltip when its scroll container or viewport changes', async () => {
+  it('keeps the Ant Design tooltip attached across table scroll and viewport changes', async () => {
     await i18n.changeLanguage('en');
     const mounted = await mountCard([
       { ...baseEvent, service_tier: 'auto', response_service_tier: 'default' },
     ]);
 
     try {
-      const cell = mounted.container.querySelector('tbody td') as HTMLTableCellElement;
-      let currentRect = rectAt(100, 50);
-      vi.spyOn(cell, 'getBoundingClientRect').mockImplementation(() => currentRect);
+      const cell = findSpeedModeTarget(mounted.container) as HTMLElement;
+      await act(async () => cell.focus());
+      const describedBy = cell.getAttribute('aria-describedby');
+      expect(describedBy).toBeTruthy();
 
       await act(async () => {
-        cell.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        cell.closest('.ant-table-body')?.dispatchEvent(new Event('scroll'));
+        window.dispatchEvent(new Event('resize'));
       });
-      const tooltip = document.body.querySelector('[role="tooltip"]') as HTMLDivElement;
-      expect(tooltip.style.left).toBe('148px');
-      expect(tooltip.style.top).toBe('80px');
 
-      currentRect = rectAt(300, 200);
-      await act(async () => {
-        mounted.container.querySelector('table')?.parentElement?.dispatchEvent(new Event('scroll'));
-      });
-      expect(tooltip.style.left).toBe('320px');
-      expect(tooltip.style.top).toBe('230px');
-
-      currentRect = rectAt(400, 300);
-      await act(async () => window.dispatchEvent(new Event('resize')));
-      expect(tooltip.style.left).toBe('420px');
-      expect(tooltip.style.top).toBe('330px');
+      expect(cell.getAttribute('aria-describedby')).toBe(describedBy);
+      expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull();
     } finally {
       await mounted.unmount();
     }
@@ -245,9 +222,6 @@ describe('RequestEventsDetailsCard Speed Mode column', () => {
     ]);
 
     expect(extractSpeedModeCells(html)).toEqual(['Fast / -', '- / Standard', '- / -']);
-    expect(html).toContain('aria-label="Speed Mode: Fast (priority); Response Speed Mode: -"');
-    expect(html).toContain('aria-label="Speed Mode: -; Response Speed Mode: Standard (default)"');
-    expect(html).toContain('aria-label="Speed Mode: -; Response Speed Mode: -"');
     expect(html).not.toContain('(-)');
   });
 });

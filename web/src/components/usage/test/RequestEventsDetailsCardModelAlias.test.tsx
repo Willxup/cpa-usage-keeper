@@ -53,6 +53,7 @@ const renderCard = (props: Partial<React.ComponentProps<typeof RequestEventsDeta
       onModelFilterChange={() => undefined}
       onSourceFilterChange={() => undefined}
       onResultFilterChange={() => undefined}
+      initialVisibleColumnIds={['model', 'model_alias', 'reasoning_effort']}
       {...props}
     />,
   );
@@ -63,12 +64,12 @@ const extractTableHeaders = (html: string) =>
   Array.from(html.matchAll(/<th\b[^>]*>(.*?)<\/th>/gs), (match) => textFromMarkup(match[1]));
 
 const extractFirstTableRowCells = (html: string) => {
-  const row = html.match(/<tbody><tr>(.*?)<\/tr><\/tbody>/s)?.[1] ?? '';
+  const row = html.match(/<tr\b[^>]*data-row-key="[^"]+"[^>]*>(.*?)<\/tr>/s)?.[1] ?? '';
   return Array.from(row.matchAll(/<td\b[^>]*>(.*?)<\/td>/gs), (match) => textFromMarkup(match[1]));
 };
 
 describe('RequestEventsDetailsCard model alias column', () => {
-  it('shows model alias after model by default', () => {
+  it('shows model alias after model when diagnostic columns are enabled', () => {
     const html = renderCard();
     const headers = extractTableHeaders(html);
     const cells = extractFirstTableRowCells(html);

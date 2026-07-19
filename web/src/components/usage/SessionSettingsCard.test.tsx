@@ -48,27 +48,26 @@ const renderCard = (props: Partial<React.ComponentProps<typeof SessionSettingsCa
 );
 
 describe('SessionSettingsCard', () => {
-  it('renders admin and API key sessions with shared row details and current marker', () => {
+  it('renders identity and access method as separate columns', () => {
     const html = renderCard();
 
     expect(html).toContain('Session Management');
+    expect(html).toContain('Identity');
+    expect(html).toContain('Access method');
     expect(html).toContain('Admin Session');
     expect(html).toContain('Standalone');
     expect(html).toContain('CPAMC Embed');
+    expect(html).toContain('Status');
     expect(html).toContain('Current');
-    expect(html).toContain('2026/06/20 10:00:00');
-    expect(html).toContain('2026/06/20 12:00:00');
-    expect(html).toContain('2026/06/20 10:05:00');
-    expect(html).toContain('2026/06/20 12:05:00');
     expect(html).toContain('Team Key');
-    expect(html).toContain('2026/06/20 10:10:00');
-    expect(html).toContain('2026/06/27 10:10:00');
     expect(html).not.toContain('All admin sessions will be signed out together.');
     expect(html).not.toContain('sk-*********123456');
     expect(html).not.toContain('current-admin-hash');
     expect(html).not.toContain('other-admin-hash');
     expect(html).not.toContain('hashed-session-id');
     expect(html).not.toContain('api_key_viewer');
+    expect(html).not.toContain('>Admin<');
+    expect(html).not.toContain('>API Key<');
     expect((html.match(/>Sign out</g) ?? []).length).toBe(2);
   });
 

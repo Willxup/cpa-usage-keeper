@@ -1,323 +1,71 @@
-@use '../styles/variables' as *;
 @use '../styles/mixins' as *;
 
-.pageShell {
-  min-height: 100vh;
-  background:
-    radial-gradient(1200px 520px at 12% -8%, rgba($primary-color, 0.12), transparent 58%),
-    radial-gradient(880px 480px at 100% 0%, rgba(0, 0, 0, 0.06), transparent 52%),
-    var(--bg-secondary);
-  padding: var(--keeper-page-padding-top, 28px) var(--keeper-page-padding-x, 20px) var(--keeper-page-padding-bottom, 48px);
+.viewerShell {
+  width: min(var(--app-shell-max-width), 100%);
+  margin-inline: auto;
 
-  @include mobile {
-    padding: 18px 12px 32px;
+  // Wide screens: widen side gutters and grow the header so the viewer
+  // breathes like the admin dashboard. Only tokens are overridden here —
+  // shell geometry stays owned by AppShell.
+  @include wide {
+    --page-gutter: 40px;
+    --page-header-height: 88px;
   }
 }
 
-.pageFrame {
-  width: min(var(--keeper-page-max-width, 1245px), 100%);
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--keeper-page-frame-gap, 18px);
-}
-
-.topBar {
-  position: sticky;
-  top: 16px;
-  z-index: 10;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: var(--keeper-top-bar-gap, 18px);
-  padding: var(--keeper-top-bar-padding-y, 18px) var(--keeper-top-bar-padding-x, 20px);
-  border: 1px solid var(--border-color);
-  border-radius: 24px;
-  background: color-mix(in srgb, var(--bg-primary) 84%, transparent);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.08);
-
-  @include mobile {
-    position: static;
-    padding: 16px;
-    border-radius: 20px;
-    flex-direction: column;
-    align-items: stretch;
-  }
-}
-
-.brandBlock {
-  display: flex;
-  align-items: stretch;
-  min-width: 0;
-}
-
-.eyebrow {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--keeper-toolbar-control-height, 42px);
-  padding: 0 20px;
-  border-radius: 999px;
-  border: 1px solid rgba($primary-color, 0.24);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 94%, rgba($primary-color, 0.06)), color-mix(in srgb, var(--bg-secondary) 82%, transparent)),
-    var(--bg-secondary);
-  box-shadow:
-    0 8px 20px rgba(0, 0, 0, 0.08),
-    0 1px 0 rgba(255, 255, 255, 0.05) inset;
-  color: color-mix(in srgb, var(--text-primary) 88%, var(--primary-color));
-  font-size: 18px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.topBarActions {
-  display: flex;
-  align-items: stretch;
-  gap: 10px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-
-  @include mobile {
-    justify-content: space-between;
-  }
-}
-
-.identityChip,
-.themeSwitcher,
-.logoutSwitcher,
-.refreshSwitcher {
-  display: inline-flex;
-  align-items: stretch;
-  min-height: var(--keeper-toolbar-control-height, 42px);
-  padding: 4px;
-  border-radius: 999px;
-  border: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-
-.identityChip {
-  align-items: center;
-  gap: 8px;
-  padding: 7px 13px;
+.brandLink {
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 18px;
   font-weight: 700;
+  text-decoration: none;
 }
 
-.identityDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #22c55e;
-  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14);
-}
-
-.identityText {
-  max-width: 220px;
+.identityTag {
+  max-width: 260px;
+  margin-inline-end: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.themePill,
-.logoutPill,
-.refreshPill {
-  border: 0;
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 8px 12px;
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
-
-  &:hover:not(:disabled) {
-    color: var(--text-primary);
-  }
-
-  &:disabled {
-    cursor: wait;
-    opacity: 0.75;
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--primary-color);
-    outline-offset: 2px;
-  }
+.keyOverviewLeading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
 }
 
-.themePillActive,
-.logoutPillActive,
-.refreshPillActive,
-.refreshPillLoading {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
-}
-
-.logoutPill {
-  font-weight: 700;
-}
-
-.logoutPillInner,
-.refreshPillInner {
+.rangeField {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-}
-
-.refreshSpinner,
-.loadingOverlaySpinner {
-  width: 12px;
-  height: 12px;
-  border-width: 2px;
-  border-color: rgba($primary-color, 0.25);
-  border-top-color: var(--primary-color);
-}
-
-.contentColumn {
-  width: 100%;
-}
-
-.container {
-  width: 100%;
-  min-height: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  position: relative;
-  padding: 8px 0 0;
-}
-
-.toolbarRow {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 12px;
-  padding: 0 2px;
-}
-
-.tabBar {
-  display: flex;
-  align-items: center;
   gap: 8px;
-  flex-wrap: nowrap;
-  width: 100%;
-  min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-
-  &::-webkit-scrollbar {
-    display: none;
-  }
 }
 
-.tabPill {
-  appearance: none;
-  border: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--bg-primary) 82%, transparent);
+.rangeLabel {
   color: var(--text-secondary);
-  font: inherit;
-  font-family: inherit;
   font-size: 12px;
   font-weight: 600;
-  line-height: 1.2;
-  padding: 8px 12px;
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-
-  &:hover {
-    color: var(--text-primary);
-    background: var(--bg-secondary);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--primary-color);
-    outline-offset: 2px;
-  }
+  white-space: nowrap;
 }
 
-.tabPillActive {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  border-color: rgba($primary-color, 0.45);
-  box-shadow:
-    0 0 0 1px rgba($primary-color, 0.08) inset,
-    0 4px 12px rgba($primary-color, 0.14);
-}
-
-.toolbarActionsRight {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  flex-wrap: wrap;
-  width: 100%;
-  min-width: 0;
-
-  @include mobile {
-    align-items: stretch;
-    justify-content: flex-start;
-  }
-}
-
-.usageFilterBar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  flex: 1 1 auto;
-  flex-wrap: wrap;
-  min-width: 0;
-  max-height: 220px;
-  opacity: 1;
-  overflow: hidden;
-  transform: translateY(0);
-}
-
-.usageRefreshSlot {
-  display: flex;
-  justify-content: flex-end;
-  flex: 0 0 auto;
-  min-width: 0;
-}
-
-.usageFilterActions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex: 0 0 auto;
-}
-
-.errorBox {
-  padding: 12px 14px;
-  border-radius: 16px;
-  border: 1px solid rgba($error-color, 0.28);
-  background: rgba($error-color, 0.1);
-  color: var(--danger-color);
-  font-size: 13px;
-  line-height: 1.6;
+.rangeSelectControl {
+  flex: 0 0 160px;
+  width: 160px;
+  min-width: 160px;
 }
 
 .loadingOverlay {
   position: absolute;
   inset: 0;
-  z-index: 5;
-  display: grid;
-  place-items: center;
-  min-height: 280px;
-  border-radius: 24px;
-  background: color-mix(in srgb, var(--bg-secondary) 68%, transparent);
-  backdrop-filter: blur(4px);
+  z-index: 15;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 120px;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
+  backdrop-filter: blur(3px);
 }
 
 .loadingOverlayContent {
@@ -325,30 +73,34 @@
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
-  border-radius: 999px;
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
   background: var(--bg-primary);
-  box-shadow: var(--floating-shadow);
+  box-shadow: var(--shadow-md);
 }
 
 .loadingOverlayText {
   color: var(--text-secondary);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 @include mobile {
-  .tabPill {
-    white-space: nowrap;
+  .identityTag {
+    max-width: 180px;
   }
 
-  .usageRefreshSlot,
-  .usageFilterActions,
-  .refreshSwitcher {
+  .rangeField {
     width: 100%;
   }
 
-  .refreshPill {
-    width: 100%;
+  .rangeSelectControl {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+  }
+
+  .loadingOverlay {
+    padding-top: 96px;
   }
 }
