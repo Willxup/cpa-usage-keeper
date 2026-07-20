@@ -1036,6 +1036,10 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, costR
 	if err != nil {
 		return nil, err
 	}
+	// PR1 保持 main 的精确筛选 totals；完整档位 Activity 只负责热力图格子。
+	overview.Health.TotalSuccess = overview.Usage.SuccessCount
+	// 失败总数同样复用已经按 effective filter 还原的 Overview usage 快照。
+	overview.Health.TotalFailure = overview.Usage.FailureCount
 	// summary 和 health 的各自累计完成后统一计算派生率。
 	finalizeUsageOverview(overview)
 	return overview, nil
@@ -2422,12 +2426,8 @@ func buildUsageOverviewHealthFromActivity(db *gorm.DB, filter dto.UsageQueryFilt
 			Failure:   activityBlock.FailureCount,
 			Rate:      rate,
 		}
-		// header 成功数与格子使用同一批 Activity rows。
-		health.TotalSuccess += activityBlock.SuccessCount
-		// header 失败数与格子使用同一批 Activity rows。
-		health.TotalFailure += activityBlock.FailureCount
 	}
-	// SuccessRate 由 finalizeUsageOverview 统一转换为百分比。
+	// header totals 由调用方按精确筛选窗口填入，PR2 才会改为与完整 Activity 档位对齐。
 	return health, nil
 }
 

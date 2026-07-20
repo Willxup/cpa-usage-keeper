@@ -61,8 +61,8 @@ func QueryUsageActivityGrid(ctx context.Context, db *gorm.DB, grain entities.Usa
 		result.Blocks[index] = dto.UsageActivityBlockRecord{StartTime: bucket.Start, EndTime: bucket.End}
 		// 固定边界精度为秒，Unix key 与 SQLite storageTime 解析稳定对应。
 		bucketIndex[bucket.Start.Unix()] = index
-		// 查询值复用 storageTime 格式，只匹配 helper 生成的 364 个真实起点。
-		bucketStarts[index] = timeutil.FormatStorageTime(bucket.Start)
+		// 查询值复用 Activity 可排序 UTC 格式，只匹配 helper 生成的 364 个真实起点。
+		bucketStarts[index] = timeutil.FormatSortableStorageTime(bucket.Start)
 		// 兼容 bucket_seconds 取当前窗口实际块宽的最大秒数，覆盖交替宽度。
 		spanSeconds := int64(bucket.End.Sub(bucket.Start) / time.Second)
 		// 更宽块更新兼容元数据值。

@@ -408,8 +408,8 @@ func TestBuildUsageOverviewWithFilterUsesStatsForFullHoursAndRawEventsForBoundar
 	if !reflect.DeepEqual(overview.Series, oracle.Series) {
 		t.Fatalf("series mismatch after full-hour raw events were removed\ngot:  %+v\nwant: %+v", overview.Series, oracle.Series)
 	}
-	if overview.Health.TotalSuccess != 6 || overview.Health.TotalFailure != 1 || overview.Health.Rows != 7 || overview.Health.Columns != 52 {
-		t.Fatalf("unexpected Activity health after raw full-hour events were removed: %+v", overview.Health)
+	if overview.Health.TotalSuccess != oracle.Health.TotalSuccess || overview.Health.TotalFailure != oracle.Health.TotalFailure || overview.Health.SuccessRate != oracle.Health.SuccessRate || overview.Health.Rows != 7 || overview.Health.Columns != 52 {
+		t.Fatalf("Activity health totals changed the exact filter after raw full-hour events were removed: got=%+v want=%+v", overview.Health, oracle.Health)
 	}
 }
 
@@ -445,8 +445,8 @@ func TestBuildUsageOverviewWithFilterKeepsHealthWindowExactAtStatsBoundaries(t *
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 	}
 
-	if overview.Health.TotalSuccess != 2 || overview.Health.TotalFailure != 1 || overview.Health.Rows != 7 || overview.Health.Columns != 52 {
-		t.Fatalf("unexpected full-tier Activity health for non-aligned filter: %+v", overview.Health)
+	if overview.Health.TotalSuccess != 2 || overview.Health.TotalFailure != 0 || overview.Health.SuccessRate != 100 || overview.Health.Rows != 7 || overview.Health.Columns != 52 {
+		t.Fatalf("expected Activity blocks to keep exact non-aligned filter totals: %+v", overview.Health)
 	}
 }
 
@@ -496,7 +496,7 @@ func TestBuildUsageOverviewWithFilterKeepsHourlyBucketsWhenShortWindowContainsCo
 	}
 }
 
-func TestBuildUsageOverviewWithFilterUsesPR1MediumActivityForLongRange(t *testing.T) {
+func TestBuildUsageOverviewWithFilterKeepsHealthTotalsForFullQueryWindow(t *testing.T) {
 	withRepositoryTestLocation(t, "Asia/Shanghai")
 
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-health-totals.db")})
@@ -527,8 +527,8 @@ func TestBuildUsageOverviewWithFilterUsesPR1MediumActivityForLongRange(t *testin
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 	}
 
-	if overview.Health.TotalSuccess != 0 || overview.Health.TotalFailure != 1 || overview.Health.Rows != 7 || overview.Health.Columns != 52 {
-		t.Fatalf("expected PR1 long range to read recent medium Activity only, got %+v", overview.Health)
+	if overview.Health.TotalSuccess != 1 || overview.Health.TotalFailure != 1 || overview.Health.SuccessRate != 50 || overview.Health.Rows != 7 || overview.Health.Columns != 52 {
+		t.Fatalf("expected medium Activity blocks with exact long-range health totals, got %+v", overview.Health)
 	}
 }
 

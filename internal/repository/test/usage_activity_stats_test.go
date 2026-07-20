@@ -90,6 +90,79 @@ func TestAggregateUsageActivityStatsUsesIndependentCheckpointAndCanonicalTokens(
 	}
 }
 
+func TestAggregateUsageActivityStatsStoresDSTFallbackBucketByInstantOrder(t *testing.T) {
+	// 准备：切换到纽约秋季回拨时区，并从真实 short 窗口中找到墙上时钟倒退的合法桶。
+	location, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("load DST location: %v", err)
+	}
+	previousLocal := time.Local
+	time.Local = location
+	t.Cleanup(func() { time.Local = previousLocal })
+	referenceInstant, err := time.Parse(time.RFC3339, "2026-11-01T01:15:00-05:00")
+	if err != nil {
+		t.Fatalf("parse fallback reference: %v", err)
+	}
+	buckets, err := repository.UsageActivityWindowEndingAt(entities.UsageActivityGrainShort, referenceInstant.In(location))
+	if err != nil {
+		t.Fatalf("resolve fallback Activity window: %v", err)
+	}
+	var fallbackBucket repository.UsageActivityBucket
+	for _, bucket := range buckets {
+		startLocal := bucket.Start.In(location)
+		endLocal := bucket.End.In(location)
+		if startLocal.Format("2006-01-02 15:04:05") >= endLocal.Format("2006-01-02 15:04:05") {
+			fallbackBucket = bucket
+			break
+		}
+	}
+	if fallbackBucket.Start.IsZero() {
+		t.Fatal("expected one short bucket to cross the DST fallback boundary")
+	}
+	db := openTestDatabase(t)
+	events := []entities.UsageEvent{{
+		EventKey: "activity-dst-fallback", APIGroupKey: "provider-a",
+		Timestamp: fallbackBucket.Start.Add(time.Second), InputTokens: 10, TotalTokens: 10,
+	}}
+	if _, _, err := repository.InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("insert fallback usage event: %v", err)
+	}
+
+	// 执行：聚合包含墙上时钟回拨边界的事件。
+	err = repository.AggregateUsageActivityStats(context.Background(), db, fallbackBucket.End.Add(time.Hour))
+
+	// 断言：真实 instant 上 start<end 的桶必须成功写入，并推进 Activity checkpoint。
+	if err != nil {
+		t.Fatalf("AggregateUsageActivityStats returned error: %v", err)
+	}
+	var row entities.UsageActivityStat
+	if err := db.Where("grain = ? AND api_group_key = ?", entities.UsageActivityGrainShort, "provider-a").Take(&row).Error; err != nil {
+		t.Fatalf("load fallback Activity row: %v", err)
+	}
+	if !row.BucketStart.Equal(fallbackBucket.Start) || !row.BucketEnd.Equal(fallbackBucket.End) {
+		t.Fatalf("unexpected fallback Activity bounds: got=%s..%s want=%s..%s", row.BucketStart, row.BucketEnd, fallbackBucket.Start, fallbackBucket.End)
+	}
+	// 断言：底层文本必须是固定宽度 UTC，保证 CHECK、索引范围和 retention 使用同一 instant 顺序。
+	var storedBounds struct {
+		BucketStart string
+		BucketEnd   string
+	}
+	// CAST 绕过 SQLite driver 对 datetime 的 time.Time 格式化，读取数据库实际保存的 TEXT。
+	if err := db.Table("usage_activity_stats").Select("CAST(bucket_start AS TEXT) AS bucket_start, CAST(bucket_end AS TEXT) AS bucket_end").Where("id = ?", row.ID).Scan(&storedBounds).Error; err != nil {
+		t.Fatalf("load raw fallback Activity bounds: %v", err)
+	}
+	if storedBounds.BucketStart != timeutil.FormatSortableStorageTime(fallbackBucket.Start) || storedBounds.BucketEnd != timeutil.FormatSortableStorageTime(fallbackBucket.End) {
+		t.Fatalf("unexpected stored fallback bounds: got=%s..%s", storedBounds.BucketStart, storedBounds.BucketEnd)
+	}
+	var checkpoint entities.UsageActivityAggregationCheckpoint
+	if err := db.Where("name = ?", "activity").Take(&checkpoint).Error; err != nil {
+		t.Fatalf("load fallback Activity checkpoint: %v", err)
+	}
+	if checkpoint.LastAggregatedUsageEventID != 1 {
+		t.Fatalf("expected fallback Activity checkpoint 1, got %+v", checkpoint)
+	}
+}
+
 func TestCleanupUsageActivityStatsUsesPerGrainBucketEndRetention(t *testing.T) {
 	// 准备：固定 cleanup now，分别构造刚过期和仍保留的稀疏行。
 	previousLocal := time.Local
@@ -129,6 +202,61 @@ func TestCleanupUsageActivityStatsUsesPerGrainBucketEndRetention(t *testing.T) {
 		if remaining[index] != want[index] {
 			t.Fatalf("unexpected remaining activity rows: got=%v want=%v", remaining, want)
 		}
+	}
+}
+
+func TestCleanupUsageActivityStatsOrdersDSTFallbackCutoffByInstant(t *testing.T) {
+	// 准备：构造跨越纽约秋季回拨边界的 short row，数据库中边界使用可排序 UTC 文本。
+	location, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("load DST location: %v", err)
+	}
+	previousLocal := time.Local
+	time.Local = location
+	t.Cleanup(func() { time.Local = previousLocal })
+	referenceInstant, err := time.Parse(time.RFC3339, "2026-11-01T01:15:00-05:00")
+	if err != nil {
+		t.Fatalf("parse fallback reference: %v", err)
+	}
+	buckets, err := repository.UsageActivityWindowEndingAt(entities.UsageActivityGrainShort, referenceInstant.In(location))
+	if err != nil {
+		t.Fatalf("resolve fallback Activity window: %v", err)
+	}
+	var fallbackBucket repository.UsageActivityBucket
+	for _, bucket := range buckets {
+		startLocal := bucket.Start.In(location)
+		endLocal := bucket.End.In(location)
+		if startLocal.Format("2006-01-02 15:04:05") >= endLocal.Format("2006-01-02 15:04:05") {
+			fallbackBucket = bucket
+			break
+		}
+	}
+	if fallbackBucket.Start.IsZero() {
+		t.Fatal("expected one short bucket to cross the DST fallback boundary")
+	}
+	db := openTestDatabase(t)
+	row := entities.UsageActivityStat{
+		Grain: entities.UsageActivityGrainShort, BucketStart: fallbackBucket.Start, BucketEnd: fallbackBucket.End,
+		APIGroupKey: "fallback-cleanup", SuccessCount: 1,
+	}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatalf("seed fallback Activity cleanup row: %v", err)
+	}
+	// cutoff 比 bucket_end 晚一秒，因此该 short row 已经完整过期。
+	cleanupNow := fallbackBucket.End.Add(time.Second).Add(3 * 24 * time.Hour)
+
+	// 执行：使用项目本地 DST 时区运行 short retention cleanup。
+	if err := repository.CleanupUsageActivityStats(db, cleanupNow); err != nil {
+		t.Fatalf("CleanupUsageActivityStats returned error: %v", err)
+	}
+
+	// 断言：删除判断必须按 instant 顺序，而不是按回拨后的本地墙上时钟文本。
+	var remaining int64
+	if err := db.Model(&entities.UsageActivityStat{}).Where("api_group_key = ?", "fallback-cleanup").Count(&remaining).Error; err != nil {
+		t.Fatalf("count fallback Activity cleanup rows: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("expected expired fallback Activity row to be deleted, got %d", remaining)
 	}
 }
 

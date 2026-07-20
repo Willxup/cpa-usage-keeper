@@ -161,7 +161,7 @@ func CleanupUsageActivityStats(db *gorm.DB, now time.Time) error {
 		// bucket_end 早于 cutoff 的完整 bucket 已无查询价值。
 		cutoff := normalizedNow.Add(-retention)
 		// DELETE 同时带 grain 和 bucket_end，确保不会误删其它层级或 daily。
-		if err := db.Where("grain = ? AND bucket_end < ?", grain, timeutil.FormatStorageTime(cutoff)).Delete(&entities.UsageActivityStat{}).Error; err != nil {
+		if err := db.Where("grain = ? AND bucket_end < ?", grain, timeutil.FormatSortableStorageTime(cutoff)).Delete(&entities.UsageActivityStat{}).Error; err != nil {
 			return fmt.Errorf("cleanup usage activity %s stats: %w", grain, err)
 		}
 	}
