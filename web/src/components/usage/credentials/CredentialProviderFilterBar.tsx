@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from 'react'
+import { Tabs } from 'antd'
 import { useTranslation } from 'react-i18next'
 import antigravityIcon from '@/assets/icons/antigravity.svg'
 import claudeIcon from '@/assets/icons/claude.svg'
@@ -45,26 +46,16 @@ export function CredentialProviderFilterBar({ scope, typeCounts, value, onChange
   }
 
   return (
-    <div className={styles.credentialProviderFilterBar} role="toolbar" aria-label={t('usage_stats.credentials_filter_aria_label')}>
-      {visibleOptions.map((option) => {
-        const selected = value === option.key
-        return (
-          <button
-            key={option.key}
-            type="button"
-            className={`${styles.credentialProviderFilterButton} ${selected ? styles.credentialProviderFilterButtonActive : ''}`.trim()}
-            aria-pressed={selected}
-            onClick={() => onChange(option.key)}
-          >
-            <span className={styles.credentialProviderFilterIconFrame}>
-              <CredentialProviderFilterIcon provider={option.knownKey ?? option.key} />
-            </span>
-            <span className={styles.credentialProviderFilterLabel}>{t(option.labelKey)}</span>
-            <span className={styles.credentialProviderFilterCount}>{option.count}</span>
-          </button>
-        )
-      })}
-    </div>
+    <Tabs
+      className={styles.credentialProviderFilterBar}
+      activeKey={value}
+      aria-label={t('usage_stats.credentials_filter_aria_label')}
+      items={visibleOptions.map((option) => ({
+        key: option.key,
+        label: `${t(option.labelKey)} (${option.count})`,
+      }))}
+      onChange={(nextValue) => onChange(nextValue as CredentialProviderFilterKey)}
+    />
   )
 }
 

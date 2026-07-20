@@ -1,0 +1,45 @@
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.preferencesActions {
+  display: contents;
+}
+
+.utilityButton {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  padding-inline: 10px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  justify-content: flex-start;
+  text-align: start;
+  transition: color 160ms ease, background-color 160ms ease;
+}
+
+.utilityButton:hover,
+.utilityButton:focus-visible {
+  color: var(--text-primary) !important;
+  background: var(--bg-secondary) !important;
+}
+
+.utilityButton:global(.ant-btn-dangerous) {
+  color: var(--error-color);
+}
+
+.utilityButton:global(.ant-btn-dangerous:hover),
+.utilityButton:global(.ant-btn-dangerous:focus-visible) {
+  color: var(--error-color) !important;
+}
+
+.actionBadge {
+  display: block;
+  width: 100%;
+}

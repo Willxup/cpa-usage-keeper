@@ -9,20 +9,23 @@ function getApiProxyTarget() {
   return process.env.VITE_API_PROXY_TARGET?.trim() || 'http://127.0.0.1:8080'
 }
 
-export default defineConfig(({ command }) => ({
-  base: './',
-  plugins: [react()],
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, 'src'),
+export default defineConfig(({ command }) => {
+  const apiProxy = {
+    '/api': {
+      target: getApiProxyTarget(),
+      changeOrigin: true,
     },
-  },
-  server: command === 'serve' ? {
-    proxy: {
-      '/api': {
-        target: getApiProxyTarget(),
-        changeOrigin: true,
+  }
+
+  return {
+    base: './',
+    plugins: [react()],
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, 'src'),
       },
     },
-  } : undefined,
-}))
+    server: command === 'serve' ? { proxy: apiProxy } : undefined,
+    preview: { proxy: apiProxy },
+  }
+})

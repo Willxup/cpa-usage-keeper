@@ -1,40 +1,20 @@
-import React, { type ButtonHTMLAttributes, type PropsWithChildren } from 'react';
+import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
-type ButtonSize = 'md' | 'sm';
+type NativeButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'size'>;
 
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: ButtonVariant;
-  size?: ButtonSize;
-  fullWidth?: boolean;
-  loading?: boolean;
+export interface ButtonProps extends NativeButtonProps {
+  variant?: 'primary' | 'secondary';
+  size?: 'sm' | 'md';
+  children: ReactNode;
 }
 
-export function Button({
-  children,
-  variant = 'primary',
-  size = 'md',
-  fullWidth = false,
-  loading = false,
-  className = '',
-  disabled,
-  ...rest
-}: PropsWithChildren<ButtonProps>) {
-  const hasChildren = children !== null && children !== undefined && children !== false;
-  const classes = [
-    'btn',
-    `btn-${variant}`,
-    size === 'sm' ? 'btn-sm' : '',
-    fullWidth ? 'btn-full' : '',
-    className
-  ]
-    .filter(Boolean)
-    .join(' ');
-
+export function Button({ variant = 'secondary', size = 'md', className, children, ...props }: ButtonProps) {
   return (
-    <button className={classes} disabled={disabled || loading} {...rest}>
-      {loading && <span className="loading-spinner" aria-hidden="true" />}
-      {hasChildren && <span>{children}</span>}
+    <button
+      className={`btn btn-${size} btn-${variant} ${className ?? ''}`.trim()}
+      {...props}
+    >
+      {children}
     </button>
   );
 }

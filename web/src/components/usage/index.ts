@@ -1,5 +1,5 @@
 export { StatCards } from './StatCards';
-export { DailyAveragePanel } from './DailyAveragePanel';
+export { PricingCoverageNotice } from './PricingCoverageNotice';
 export { OverviewRealtimePanel } from './OverviewRealtimePanel';
 export { AnalysisPanel } from './analysis';
 export { ApiKeySettingsCard } from './ApiKeySettingsCard';
@@ -8,8 +8,7 @@ export { PriceSettingsCard } from './PriceSettingsCard';
 export { AiProviderCredentialsSection, AuthFileCredentialsSection, CredentialProviderFilterBar, useCredentialsTabData } from './credentials';
 export { RequestEventsDetailsCard } from './RequestEventsDetailsCard';
 export { ServiceHealthCard } from './ServiceHealthCard';
-export { TimeRangeControl } from './TimeRangeControl';
+export { UsageFilterBar } from './UsageFilterBar';
 export { useUsageData } from './hooks/useUsageData';
 export { useOverviewRealtimeData } from './hooks/useOverviewRealtimeData';
 export { usePricingData } from './hooks/usePricingData';
-export { useSparklines } from './hooks/useSparklines';

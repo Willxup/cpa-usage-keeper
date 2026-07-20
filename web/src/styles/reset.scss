@@ -21,9 +21,10 @@ body {
 body {
   margin: 0;
   font-family: $font-family;
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line-height);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  line-height: 1.5;
 }
 
 #root {

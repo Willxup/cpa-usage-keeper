@@ -11,6 +11,7 @@ type UsageOverviewSummaryRecord struct {
 	TPM                   float64
 	TotalCost             float64
 	CostAvailable         bool
+	UnpricedModels        []string
 	InputTokens           int64
 	CacheReadTokens       int64
 	CacheCreationTokens   int64

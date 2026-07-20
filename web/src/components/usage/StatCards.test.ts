@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildStatCardMetrics } from './StatCards';
+import { buildStatCardMetrics, getSparklinePoints } from './StatCards';
 import type { UsageOverviewPayload } from './hooks/useUsageData';
 
 const usageWithBackendSummary: UsageOverviewPayload = {
@@ -82,7 +82,7 @@ describe('buildStatCardMetrics', () => {
     expect(metrics.requestStats.successRate).toBeNull();
   });
 
-  it('keeps priced total cost visible when availability is partial', () => {
+  it('keeps the priced portion of total cost visible when availability is partial', () => {
     const metrics = buildStatCardMetrics({
       usage: {
         ...usageWithBackendSummary,
@@ -96,5 +96,15 @@ describe('buildStatCardMetrics', () => {
 
     expect(metrics.totalCost).toBe(4.56);
     expect(metrics.costAvailable).toBe(false);
+  });
+
+  it('sorts existing finite series values without fabricating trend points', () => {
+    expect(getSparklinePoints({
+      '2026-07-18T12:00:00Z': 3,
+      '2026-07-18T00:00:00Z': 1,
+      '2026-07-18T06:00:00Z': 2,
+      invalid: Number.NaN,
+    })).toEqual([1, 2, 3]);
+    expect(getSparklinePoints({ first: 1, second: 2 })).toHaveLength(2);
   });
 });

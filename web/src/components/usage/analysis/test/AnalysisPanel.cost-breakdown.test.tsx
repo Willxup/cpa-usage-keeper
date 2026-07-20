@@ -3,10 +3,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { AnalysisResponse } from '@/lib/types';
 
-vi.mock('react-chartjs-2', () => ({
-  Bar: () => React.createElement('div'),
-  Doughnut: () => React.createElement('div'),
-  Scatter: () => React.createElement('div'),
+vi.mock('@ant-design/charts', () => ({
+  Base: () => React.createElement('div'),
+  Line: () => React.createElement('div'),
+  Pie: () => React.createElement('div'),
 }));
 
 vi.mock('react-i18next', () => ({

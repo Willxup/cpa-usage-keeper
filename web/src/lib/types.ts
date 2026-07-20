@@ -80,8 +80,9 @@ export interface UsageOverviewSummary {
   window_minutes: number
   rpm: number
   tpm: number
-  total_cost: number
+	total_cost: number
 	cost_available: boolean
+	unpriced_models?: string[]
 	input_tokens: number
 	cache_read_tokens: number
 	cache_creation_tokens: number

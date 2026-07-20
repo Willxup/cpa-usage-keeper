@@ -78,6 +78,47 @@ func TestUsageCostResolverFallsBackToAliasWhenModelPriceIsMissing(t *testing.T) 
 	}
 }
 
+func TestUsageCostResolverFallsBackToBaseAliasForBracketedRoutingVariant(t *testing.T) {
+	db := openUsageCostResolverDatabase(t, "usage-cost-resolver-alias-variant.db")
+	upsertUsageCostResolverPrice(t, db, "kimi-k3", 2)
+
+	resolver, err := repository.NewUsageCostResolver(context.Background(), db)
+	if err != nil {
+		t.Fatalf("NewUsageCostResolver returned error: %v", err)
+	}
+	result := resolver.Calculate(repository.UsageCostSubject{
+		Model:      "k3",
+		ModelAlias: "kimi-k3[1m]",
+		Tokens:     helper.UsageTokenCostInput{InputTokens: 1_000_000},
+	})
+
+	assertUsageCostResolverResult(t, result, 2, true)
+	if result.MatchedModel != "kimi-k3" || result.MatchedBy != "model_alias_base" {
+		t.Fatalf("expected resolver to inherit base alias pricing, got %+v", result)
+	}
+}
+
+func TestUsageCostResolverPrefersExactVariantPricingOverBasePricing(t *testing.T) {
+	db := openUsageCostResolverDatabase(t, "usage-cost-resolver-exact-variant.db")
+	upsertUsageCostResolverPrice(t, db, "kimi-k3", 2)
+	upsertUsageCostResolverPrice(t, db, "kimi-k3[1m]", 4)
+
+	resolver, err := repository.NewUsageCostResolver(context.Background(), db)
+	if err != nil {
+		t.Fatalf("NewUsageCostResolver returned error: %v", err)
+	}
+	result := resolver.Calculate(repository.UsageCostSubject{
+		Model:      "k3",
+		ModelAlias: "kimi-k3[1m]",
+		Tokens:     helper.UsageTokenCostInput{InputTokens: 1_000_000},
+	})
+
+	assertUsageCostResolverResult(t, result, 4, true)
+	if result.MatchedModel != "kimi-k3[1m]" || result.MatchedBy != "model_alias" {
+		t.Fatalf("expected resolver to keep exact variant pricing authoritative, got %+v", result)
+	}
+}
+
 func TestUsageCostResolverTreatsZeroMultiplierAsMatchedAvailableCost(t *testing.T) {
 	db := openUsageCostResolverDatabase(t, "usage-cost-resolver-zero-multiplier.db")
 	zero := 0.0

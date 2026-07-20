@@ -22,9 +22,14 @@ backups/
 .runtime-test/
 
 # frontend dependencies and build output
+node_modules/
 web/node_modules/
 web/dist/
 web/dist-ssr/
+
+# local browser automation artifacts
+.playwright-cli/
+output/
 
 # logs
 logs/

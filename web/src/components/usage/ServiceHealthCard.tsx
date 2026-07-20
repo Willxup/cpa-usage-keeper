@@ -1,43 +1,17 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { createPortal } from 'react-dom';
+import { useMemo, type CSSProperties, type ReactNode } from 'react';
+import { Badge, Card, Empty, Skeleton, Space, Tag, Tooltip, Typography } from 'antd';
 import { useTranslation } from 'react-i18next';
+import { SectionHeader } from '@/components/layout';
 import type { ServiceHealthData, StatusBlockDetail } from '@/utils/usage';
 import type { UsageOverviewPayload } from './hooks/useUsageData';
-import styles from '@/pages/UsagePage.module.scss';
-
-const COLOR_STOPS = [
-  { r: 239, g: 68, b: 68 }, // #ef4444
-  { r: 250, g: 204, b: 21 }, // #facc15
-  { r: 34, g: 197, b: 94 }, // #22c55e
-] as const;
-
-const TOOLTIP_OFFSET = 8;
-const TOOLTIP_SAFE_WIDTH = 180;
-const TOOLTIP_SAFE_HEIGHT = 72;
-
-type TooltipHorizontalPosition = 'center' | 'left' | 'right';
-type TooltipVerticalPosition = 'above' | 'below';
-
-interface ActiveTooltipState {
-  idx: number;
-  anchorEl: HTMLDivElement;
-  horizontal: TooltipHorizontalPosition;
-  vertical: TooltipVerticalPosition;
-  left: number;
-  top: number;
-  transform: string;
-}
+import styles from './UsageOverview.module.scss';
 
 function rateToColor(rate: number): string {
   const t = Math.max(0, Math.min(1, rate));
-  const segment = t < 0.5 ? 0 : 1;
-  const localT = segment === 0 ? t * 2 : (t - 0.5) * 2;
-  const from = COLOR_STOPS[segment];
-  const to = COLOR_STOPS[segment + 1];
-  const r = Math.round(from.r + (to.r - from.r) * localT);
-  const g = Math.round(from.g + (to.g - from.g) * localT);
-  const b = Math.round(from.b + (to.b - from.b) * localT);
-  return `rgb(${r}, ${g}, ${b})`;
+  const localT = t < 0.5 ? t * 2 : (t - 0.5) * 2;
+  const from = t < 0.5 ? 'var(--status-danger)' : 'var(--status-warning)';
+  const to = t < 0.5 ? 'var(--status-warning)' : 'var(--status-success)';
+  return `color-mix(in srgb, ${from} ${((1 - localT) * 100).toFixed(1)}%, ${to})`;
 }
 
 function formatDateTime(timestamp: number): string {
@@ -60,11 +34,33 @@ export function parseTime(value?: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function ServiceHealthTitle({ title, subtitle }: { title: string; subtitle: string }) {
+function TooltipContent({
+  detail,
+  timeRange,
+  noRequestsLabel,
+  successLabel,
+  failureLabel,
+}: {
+  detail: StatusBlockDetail;
+  timeRange: string;
+  noRequestsLabel: string;
+  successLabel: string;
+  failureLabel: string;
+}) {
+  const total = detail.success + detail.failure;
+
   return (
-    <div className={styles.sectionTitleBlock}>
-      <h3 className={styles.sectionTitle}>{title}</h3>
-      <p className={styles.sectionSubtitle}>{subtitle}</p>
+    <div className={styles.healthTooltipContent}>
+      <Typography.Text className={styles.healthTooltipTime}>{timeRange}</Typography.Text>
+      {total > 0 ? (
+        <Space size={10} wrap>
+          <Badge status="success" text={`${successLabel} ${detail.success}`} />
+          <Badge status="error" text={`${failureLabel} ${detail.failure}`} />
+          <Typography.Text type="secondary">{(detail.rate * 100).toFixed(1)}%</Typography.Text>
+        </Space>
+      ) : (
+        <Typography.Text type="secondary">{noRequestsLabel}</Typography.Text>
+      )}
     </div>
   );
 }
@@ -76,8 +72,6 @@ export interface ServiceHealthCardProps {
 
 export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
   const { t } = useTranslation();
-  const [activeTooltip, setActiveTooltip] = useState<ActiveTooltipState | null>(null);
-  const gridRef = useRef<HTMLDivElement>(null);
 
   const healthData: ServiceHealthData = useMemo(() => {
     const blockDetails = (usage?.service_health?.block_details ?? []).map((block) => ({
@@ -101,163 +95,22 @@ export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
     };
   }, [usage]);
 
-  const hasData = healthData.totalSuccess + healthData.totalFailure > 0;
-
-  useEffect(() => {
-    if (activeTooltip === null) return;
-    const handler = (e: PointerEvent) => {
-      if (gridRef.current && !gridRef.current.contains(e.target as Node)) {
-        setActiveTooltip(null);
-      }
-    };
-    document.addEventListener('pointerdown', handler);
-    return () => document.removeEventListener('pointerdown', handler);
-  }, [activeTooltip]);
-
-  const buildTooltipState = useCallback(
-    (idx: number, anchorEl: HTMLDivElement | null): ActiveTooltipState | null => {
-      if (!anchorEl || !anchorEl.isConnected) {
-        return null;
-      }
-
-      const rect = anchorEl.getBoundingClientRect();
-      const centerX = rect.left + rect.width / 2;
-
-      let horizontal: TooltipHorizontalPosition = 'center';
-      let left = centerX;
-
-      if (centerX <= TOOLTIP_SAFE_WIDTH / 2) {
-        horizontal = 'left';
-        left = rect.left;
-      } else if (centerX >= window.innerWidth - TOOLTIP_SAFE_WIDTH / 2) {
-        horizontal = 'right';
-        left = rect.right;
-      }
-
-      const vertical: TooltipVerticalPosition = rect.top <= TOOLTIP_SAFE_HEIGHT ? 'below' : 'above';
-      const top = vertical === 'below' ? rect.bottom + TOOLTIP_OFFSET : rect.top - TOOLTIP_OFFSET;
-      const translateX = horizontal === 'center' ? '-50%' : horizontal === 'right' ? '-100%' : '0';
-      const translateY = vertical === 'below' ? '0' : '-100%';
-
-      return {
-        idx,
-        anchorEl,
-        horizontal,
-        vertical,
-        left: Math.round(left),
-        top: Math.round(top),
-        transform: `translate(${translateX}, ${translateY})`,
-      };
-    },
-    []
-  );
-
-  useEffect(() => {
-    if (!activeTooltip) return;
-
-    const updateTooltipPosition = () => {
-      if (!document.body.contains(activeTooltip.anchorEl)) {
-        setActiveTooltip(null);
-        return;
-      }
-      setActiveTooltip(buildTooltipState(activeTooltip.idx, activeTooltip.anchorEl));
-    };
-
-    window.addEventListener('resize', updateTooltipPosition);
-    window.addEventListener('scroll', updateTooltipPosition, true);
-    return () => {
-      window.removeEventListener('resize', updateTooltipPosition);
-      window.removeEventListener('scroll', updateTooltipPosition, true);
-    };
-  }, [activeTooltip, buildTooltipState]);
-
-  const openTooltip = useCallback(
-    (idx: number, anchorEl: HTMLDivElement) => {
-      setActiveTooltip(buildTooltipState(idx, anchorEl));
-    },
-    [buildTooltipState]
-  );
-
-  const handlePointerEnter = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>, idx: number) => {
-      if (e.pointerType === 'mouse') {
-        openTooltip(idx, e.currentTarget);
-      }
-    },
-    [openTooltip]
-  );
-
-  const handlePointerLeave = useCallback((e: React.PointerEvent) => {
-    if (e.pointerType === 'mouse') {
-      setActiveTooltip(null);
-    }
-  }, []);
-
-  const handlePointerDown = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>, idx: number) => {
-      if (e.pointerType === 'touch') {
-        e.preventDefault();
-        const anchorEl = e.currentTarget;
-        setActiveTooltip((prev) => (prev?.idx === idx ? null : buildTooltipState(idx, anchorEl)));
-      }
-    },
-    [buildTooltipState]
-  );
-
-  const renderTooltip = (detail: StatusBlockDetail, tooltipState: ActiveTooltipState) => {
-    const total = detail.success + detail.failure;
-    const posClass =
-      tooltipState.horizontal === 'left'
-        ? styles.healthTooltipLeft
-        : tooltipState.horizontal === 'right'
-          ? styles.healthTooltipRight
-          : '';
-    const vertClass = tooltipState.vertical === 'below' ? styles.healthTooltipBelow : '';
-    const timeRange = `${formatDateTime(detail.startTime)} – ${formatDateTime(detail.endTime)}`;
-    const tooltip = (
-      <div
-        className={`${styles.healthTooltip} ${posClass} ${vertClass}`}
-        style={{
-          position: 'fixed',
-          left: `${tooltipState.left}px`,
-          top: `${tooltipState.top}px`,
-          bottom: 'auto',
-          right: 'auto',
-          transform: tooltipState.transform,
-        }}
-      >
-        <span className={styles.healthTooltipTime}>{timeRange}</span>
-        {total > 0 ? (
-          <span className={styles.healthTooltipStats}>
-            <span className={styles.healthTooltipSuccess}>
-              {t('status_bar.success_short')} {detail.success}
-            </span>
-            <span className={styles.healthTooltipFailure}>
-              {t('status_bar.failure_short')} {detail.failure}
-            </span>
-            <span className={styles.healthTooltipRate}>({(detail.rate * 100).toFixed(1)}%)</span>
-          </span>
-        ) : (
-          <span className={styles.healthTooltipStats}>{t('status_bar.no_requests')}</span>
-        )}
-      </div>
-    );
-
-    return typeof document === 'undefined' ? tooltip : createPortal(tooltip, document.body);
-  };
-
-  const rateClass = !hasData
-    ? ''
-    : healthData.successRate >= 90
-      ? styles.healthRateHigh
-      : healthData.successRate >= 50
-        ? styles.healthRateMedium
-        : styles.healthRateLow;
-
+  const hasRequests = healthData.totalSuccess + healthData.totalFailure > 0;
+  const hasTimeline = healthData.blockDetails.length > 0;
   const windowLabel = healthData.windowStart > 0 && healthData.windowEnd > 0
     ? `${formatDateTime(healthData.windowStart)} – ${formatDateTime(healthData.windowEnd)}`
     : t('usage_stats.service_health_window');
-  const healthCountsLabel = `${t('status_bar.success_short')} ${healthData.totalSuccess}, ${t('status_bar.failure_short')} ${healthData.totalFailure}`;
+  const successLabel = t('status_bar.success_short');
+  const failureLabel = t('status_bar.failure_short');
+  const noRequestsLabel = t('status_bar.no_requests');
+  const healthCountsLabel = `${successLabel} ${healthData.totalSuccess}, ${failureLabel} ${healthData.totalFailure}`;
+  const rateColor = !hasRequests
+    ? 'default'
+    : healthData.successRate >= 90
+      ? 'success'
+      : healthData.successRate >= 50
+        ? 'warning'
+        : 'error';
   const gridStyle = useMemo(
     () => ({
       '--health-grid-columns': String(healthData.columns),
@@ -265,80 +118,103 @@ export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
       '--health-grid-aspect-columns': String(healthData.columns),
       '--health-grid-aspect-rows': String(healthData.rows),
       '--health-grid-width': '100%',
-    }) as React.CSSProperties,
+    }) as CSSProperties,
     [healthData.columns, healthData.rows]
   );
 
-  return (
-    <div className={styles.healthCard}>
-      <div className={styles.healthHeader}>
-        <ServiceHealthTitle
-          title={t('usage_stats.service_health_title')}
-          subtitle={t('usage_stats.service_health_subtitle')}
-        />
-        <div className={styles.healthMeta}>
-          <div className={styles.healthTopLine}>
-            <span className={styles.healthWindow}>{windowLabel}</span>
-            <span className={`${styles.healthRate} ${rateClass}`}>
-              {loading ? '--' : hasData ? `${healthData.successRate.toFixed(1)}%` : '--'}
-            </span>
-          </div>
-          <div className={styles.healthMetricPanel} aria-label={healthCountsLabel}>
-            <span className={styles.healthCountRow}>
-              <span className={`${styles.healthCountDot} ${styles.healthCountDotSuccess}`} aria-hidden="true" />
-              <span>{healthData.totalSuccess}</span>
-            </span>
-            <span className={styles.healthCountRow}>
-              <span className={`${styles.healthCountDot} ${styles.healthCountDotFailure}`} aria-hidden="true" />
-              <span>{healthData.totalFailure}</span>
-            </span>
-          </div>
-        </div>
-      </div>
+  let timelineContent: ReactNode;
+  if (loading) {
+    timelineContent = <Skeleton active title={false} paragraph={{ rows: 4 }} />;
+  } else if (!hasTimeline) {
+    timelineContent = <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={noRequestsLabel} />;
+  } else {
+    timelineContent = (
       <div className={styles.healthGridScroller}>
-        <div className={styles.healthGrid} ref={gridRef} style={gridStyle} role="list" aria-label={healthCountsLabel}>
+        <div className={styles.healthGrid} style={gridStyle} role="list" aria-label={healthCountsLabel}>
           {healthData.blockDetails.map((detail, idx) => {
             const isIdle = detail.rate === -1;
             const blockStyle = isIdle ? undefined : { backgroundColor: rateToColor(detail.rate) };
-            const isActive = activeTooltip?.idx === idx;
             const timeRange = `${formatDateTime(detail.startTime)} – ${formatDateTime(detail.endTime)}`;
             const summary = detail.success + detail.failure > 0
-              ? `${t('status_bar.success_short')} ${detail.success}, ${t('status_bar.failure_short')} ${detail.failure}`
-              : t('status_bar.no_requests');
+              ? `${successLabel} ${detail.success}, ${failureLabel} ${detail.failure}`
+              : noRequestsLabel;
 
             return (
-              <div
-                key={idx}
-                className={`${styles.healthBlockWrapper} ${isActive ? styles.healthBlockActive : ''}`}
-                role="listitem"
-                tabIndex={0}
-                aria-label={t('usage_stats.service_health_block_label', { timeRange, summary })}
-                onFocus={(e) => openTooltip(idx, e.currentTarget)}
-                onBlur={() => setActiveTooltip(null)}
-                onPointerEnter={(e) => handlePointerEnter(e, idx)}
-                onPointerLeave={handlePointerLeave}
-                onPointerDown={(e) => handlePointerDown(e, idx)}
+              <Tooltip
+                key={`${detail.startTime}-${idx}`}
+                title={(
+                  <TooltipContent
+                    detail={detail}
+                    timeRange={timeRange}
+                    noRequestsLabel={noRequestsLabel}
+                    successLabel={successLabel}
+                    failureLabel={failureLabel}
+                  />
+                )}
+                trigger={['hover', 'focus', 'click']}
+                placement="top"
               >
                 <div
-                  className={`${styles.healthBlock} ${isIdle ? styles.healthBlockIdle : ''}`}
-                  style={blockStyle}
-                />
-                {isActive && activeTooltip && renderTooltip(detail, activeTooltip)}
-              </div>
+                  className={styles.healthBlockWrapper}
+                  role="listitem"
+                  tabIndex={0}
+                  aria-label={t('usage_stats.service_health_block_label', { timeRange, summary })}
+                >
+                  <div
+                    className={`${styles.healthBlock} ${isIdle ? styles.healthBlockIdle : ''}`}
+                    style={blockStyle}
+                  />
+                </div>
+              </Tooltip>
             );
           })}
         </div>
       </div>
-      <div className={styles.healthLegend}>
-        <span className={styles.healthLegendLabel}>{t('usage_stats.service_health_oldest')}</span>
-        <div className={styles.healthLegendColors}>
-          <div className={`${styles.healthLegendBlock} ${styles.healthBlockIdle}`} />
-          <div className={styles.healthLegendBlock} style={{ backgroundColor: '#ef4444' }} />
-          <div className={styles.healthLegendBlock} style={{ backgroundColor: '#facc15' }} />
-          <div className={styles.healthLegendBlock} style={{ backgroundColor: '#22c55e' }} />
-        </div>
-        <span className={styles.healthLegendLabel}>{t('usage_stats.service_health_newest')}</span>
+    );
+  }
+
+  return (
+    <Card
+      className={styles.healthCard}
+      variant="outlined"
+      size="small"
+      title={(
+        <SectionHeader
+          headingLevel={2}
+          title={t('usage_stats.service_health_title')}
+          description={t('usage_stats.service_health_subtitle')}
+        />
+      )}
+    >
+      <div className={styles.healthSummary}>
+        <Typography.Text type="secondary" className={styles.healthWindow}>{windowLabel}</Typography.Text>
+        <Space size={[14, 8]} wrap aria-label={healthCountsLabel}>
+          <Tag color={rateColor}>
+            {loading ? '--' : hasRequests ? `${healthData.successRate.toFixed(1)}%` : '--'}
+          </Tag>
+          <Badge status="success" text={`${successLabel} ${healthData.totalSuccess}`} />
+          <Badge status="error" text={`${failureLabel} ${healthData.totalFailure}`} />
+        </Space>
       </div>
-    </div>
+
+      {timelineContent}
+
+      {hasTimeline && !loading && (
+        <div className={styles.healthLegend}>
+          <Typography.Text type="secondary" className={styles.healthLegendLabel}>
+            {t('usage_stats.service_health_oldest')}
+          </Typography.Text>
+          <div className={styles.healthLegendColors} aria-hidden="true">
+            <div className={`${styles.healthLegendBlock} ${styles.healthBlockIdle}`} />
+            <div className={`${styles.healthLegendBlock} ${styles.healthBlockDanger}`} />
+            <div className={`${styles.healthLegendBlock} ${styles.healthBlockWarning}`} />
+            <div className={`${styles.healthLegendBlock} ${styles.healthBlockSuccess}`} />
+          </div>
+          <Typography.Text type="secondary" className={styles.healthLegendLabel}>
+            {t('usage_stats.service_health_newest')}
+          </Typography.Text>
+        </div>
+      )}
+    </Card>
   );
 }

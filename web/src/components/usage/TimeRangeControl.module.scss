@@ -30,9 +30,9 @@
 
 .shellLabel {
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
-  line-height: 1;
+  line-height: 18px;
   white-space: nowrap;
 }
 
@@ -145,8 +145,9 @@
 
 .popoverHeader > span {
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
+  line-height: 18px;
 }
 
 .popoverHeader > strong {
@@ -193,8 +194,9 @@
   background: transparent;
   cursor: pointer;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
+  line-height: 18px;
   white-space: nowrap;
 }
 
@@ -250,8 +252,9 @@
   background: transparent;
   cursor: pointer;
   font: inherit;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
+  line-height: 18px;
 }
 
 .customUnitButtonActive {
@@ -304,20 +307,23 @@
 .customEndpointCard small {
   margin-bottom: 4px;
   color: var(--text-secondary);
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 800;
+  line-height: 18px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .customEndpointCard strong {
-  font-size: 10px;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .customEndpointCard span {
   margin-top: 4px;
   color: var(--text-secondary);
-  font-size: 8px;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .customEndpointArrow {
@@ -334,7 +340,8 @@
   gap: 12px;
   min-height: 18px;
   color: var(--text-secondary);
-  font-size: 9px;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .customRangeMeta strong {
@@ -358,6 +365,24 @@
   border-radius: 999px;
   font-size: 12px;
   font-weight: 700;
+  cursor: pointer;
+
+  &:global(.btn-primary) {
+    border: 1px solid var(--interactive-primary);
+    background: var(--interactive-primary);
+    color: var(--primary-contrast);
+  }
+
+  &:global(.btn-secondary) {
+    border: 1px solid var(--border-control);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+  }
 }
 
 .customPickerHeader {
@@ -382,13 +407,15 @@
 
 .customPickerHeader strong {
   color: var(--text-primary);
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .customPickerHeader small {
   margin-top: 2px;
   color: var(--text-secondary);
-  font-size: 8px;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .customBackButton,
@@ -449,14 +476,16 @@
 .customPickerEndpointActive small {
   margin-bottom: 3px;
   color: var(--text-secondary);
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 800;
+  line-height: 18px;
   text-transform: uppercase;
 }
 
 .customPickerEndpoint strong,
 .customPickerEndpointActive strong {
-  font-size: 9px;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .customCalendar {
@@ -475,7 +504,8 @@
 
 .customCalendarHeader strong {
   color: var(--text-primary);
-  font-size: 10px;
+  font-size: 12px;
+  line-height: 18px;
   text-align: center;
 }
 
@@ -499,8 +529,9 @@
   place-items: center;
   height: 21px;
   color: var(--text-secondary);
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 700;
+  line-height: 18px;
 }
 
 .customCalendarGrid > span,
@@ -517,8 +548,9 @@
   background: transparent;
   cursor: pointer;
   font: inherit;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 700;
+  line-height: 18px;
 }
 
 .customCalendarDay:hover:not(:disabled) {
@@ -600,8 +632,9 @@
   display: block;
   padding: 0 3px 7px;
   color: var(--text-secondary);
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 800;
+  line-height: 18px;
   letter-spacing: 0.07em;
   text-transform: uppercase;
 }
@@ -631,7 +664,8 @@
   background: transparent;
   cursor: pointer;
   font: inherit;
-  font-size: 8px;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .customHourOption span,
@@ -646,7 +680,8 @@
   flex: 0 0 auto;
   margin-left: 4px;
   color: var(--text-primary);
-  font-size: 9px;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .customHourOption:hover:not(:disabled) {
@@ -670,7 +705,8 @@
 .customPickerFooter > span {
   overflow: hidden;
   color: var(--text-secondary);
-  font-size: 9px;
+  font-size: 12px;
+  line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -698,7 +734,8 @@
 
 .sliderHeader > span {
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .sliderHeader > strong {
@@ -712,7 +749,8 @@
 
 .sliderHeader > strong small {
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .sliderControl {
@@ -996,7 +1034,8 @@
   justify-content: space-between;
   margin-top: 6px;
   color: var(--text-tertiary);
-  font-size: 8px;
+  font-size: 12px;
+  line-height: 18px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1036,7 +1075,8 @@
 
 .naturalDaySummary small {
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .mobileCurrentRange {
@@ -1109,13 +1149,13 @@
   .modeButtonActive {
     min-height: 42px;
     padding: 0 4px;
-    font-size: 10px;
+    font-size: 12px;
   }
 
   .customUnitButton,
   .customUnitButtonActive {
     min-height: 36px;
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .customEndpointCard {
@@ -1123,7 +1163,7 @@
   }
 
   .customEndpointCard strong {
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .customCalendarGrid > span,

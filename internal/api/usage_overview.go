@@ -41,6 +41,7 @@ type usageOverviewSummary struct {
 	TPM                   float64  `json:"tpm"`
 	TotalCost             float64  `json:"total_cost"`
 	CostAvailable         bool     `json:"cost_available"`
+	UnpricedModels        []string `json:"unpriced_models,omitempty"`
 	InputTokens           int64    `json:"input_tokens"`
 	CacheReadTokens       int64    `json:"cache_read_tokens"`
 	CacheCreationTokens   int64    `json:"cache_creation_tokens"`
@@ -399,6 +400,7 @@ func buildUsageOverviewSummary(overview *servicedto.UsageOverviewSnapshot) usage
 		TPM:                   overview.Summary.TPM,
 		TotalCost:             overview.Summary.TotalCost,
 		CostAvailable:         overview.Summary.CostAvailable,
+		UnpricedModels:        overview.Summary.UnpricedModels,
 		InputTokens:           overview.Summary.InputTokens,
 		CacheReadTokens:       overview.Summary.CacheReadTokens,
 		CacheCreationTokens:   overview.Summary.CacheCreationTokens,

@@ -1,18 +1,25 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import './index.css';
 import './App.css';
-import './embed/cpamcEmbed.css';
 import { ApiError, appPath, clearEmbedSessionToken, getSession, login, loginWithCPAAPIKey } from './lib/api';
 import type { AuthRole, AuthSessionAPIKeySummary } from './lib/types';
-import { AppFooter } from './components/AppFooter';
-import { KeyOverviewPage } from './pages/KeyOverviewPage';
+import type { AppShellVariant } from './components/layout';
 import { LoginPage } from './pages/LoginPage';
-import { UsagePage } from './pages/UsagePage';
 import { cpamcEmbedSearch, isCPAMCEmbed, notifyCPAMCEmbedReady } from './embed/cpamcEmbed';
+import { EmbedContext } from './embed/EmbedContext';
 import { useUsageStatsStore } from './stores/useUsageStatsStore';
 
 type AuthState = 'checking' | 'authenticated' | 'unauthenticated';
+
+const KeyOverviewPage = lazy(() => import('./pages/KeyOverviewPage').then((module) => ({
+  default: module.KeyOverviewPage
+})));
+const UsagePage = lazy(() => import('./pages/UsagePage').then((module) => ({
+  default: module.UsagePage
+})));
+
+const protectedPageFallback = <div className="app-checking" aria-busy="true" />;
 
 export const getRoleHomePath = (role: AuthRole): '/' | '/key-overview' => (
   role === 'api_key_viewer' ? '/key-overview' : '/'
@@ -38,6 +45,13 @@ function App() {
   const [submitting, setSubmitting] = useState(false);
   const clearUsageStats = useUsageStatsStore((state) => state.clearUsageStats);
   const isEmbeddedInCPAMC = isCPAMCEmbed();
+  const shellVariant: AppShellVariant = isEmbeddedInCPAMC
+    ? 'embed'
+    : authState === 'unauthenticated'
+      ? 'guest'
+      : authRole === 'api_key_viewer'
+        ? 'viewer'
+        : 'authenticated';
 
   const clearSession = useCallback(() => {
     clearEmbedSessionToken();
@@ -136,16 +150,25 @@ function App() {
   } else if (authState === 'unauthenticated') {
     page = <LoginPage loading={submitting} adminError={adminLoginError} apiKeyError={apiKeyLoginError} onPasswordSubmit={handlePasswordLogin} onAPIKeySubmit={handleAPIKeyLogin} />;
   } else if (authRole === 'api_key_viewer') {
-    page = <KeyOverviewPage apiKey={sessionAPIKey} onAuthRequired={clearSession} />;
+    page = (
+      <Suspense fallback={protectedPageFallback}>
+        <KeyOverviewPage apiKey={sessionAPIKey} onAuthRequired={clearSession} />
+      </Suspense>
+    );
   } else {
-    page = <UsagePage onAuthRequired={clearSession} />;
+    page = (
+      <Suspense fallback={protectedPageFallback}>
+        <UsagePage onAuthRequired={clearSession} />
+      </Suspense>
+    );
   }
 
   return (
-    <div className="app-frame" data-embed={isEmbeddedInCPAMC ? 'cpamc' : undefined}>
-      <main className="app-main">{page}</main>
-      <AppFooter loadVersion={authState === 'authenticated'} />
-    </div>
+    <EmbedContext.Provider value={isEmbeddedInCPAMC}>
+      <div className="app-shell-host" data-shell-variant={shellVariant}>
+        <main className="app-main">{page}</main>
+      </div>
+    </EmbedContext.Provider>
   );
 }
 

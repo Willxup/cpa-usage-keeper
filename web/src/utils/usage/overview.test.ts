@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getCurrentOverviewUsage, getDailyAveragePanelUsage, getOverviewDisplayLoading, isDailyAverageRange } from './overview';
+import { getCurrentOverviewUsage, getDailyAverageUsage, getOverviewDisplayLoading, isDailyAverageRange } from './overview';
 
 describe('shared usage overview helpers', () => {
   it('keeps loading visible only while the overview has no usage payload', () => {
@@ -30,13 +30,13 @@ describe('shared usage overview helpers', () => {
     expect(isDailyAverageRange({ range: 'yesterday' })).toBe(false);
   });
 
-  it('keeps the previous usage for the daily average panel while another daily-average range loads', () => {
+  it('keeps the previous daily averages while another qualifying range loads', () => {
     const currentUsage = { summary: { daily_average_requests: 30 } };
     const fallbackUsage = { summary: { daily_average_requests: 7 } };
 
-    expect(getDailyAveragePanelUsage(currentUsage, fallbackUsage, true)).toBe(currentUsage);
-    expect(getDailyAveragePanelUsage(null, fallbackUsage, true, true)).toBe(fallbackUsage);
-    expect(getDailyAveragePanelUsage(null, fallbackUsage, true, false)).toBeNull();
-    expect(getDailyAveragePanelUsage(null, fallbackUsage, false, true)).toBeNull();
+    expect(getDailyAverageUsage(currentUsage, fallbackUsage, true)).toBe(currentUsage);
+    expect(getDailyAverageUsage(null, fallbackUsage, true, true)).toBe(fallbackUsage);
+    expect(getDailyAverageUsage(null, fallbackUsage, true, false)).toBeNull();
+    expect(getDailyAverageUsage(null, fallbackUsage, false, true)).toBeNull();
   });
 });

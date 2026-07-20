@@ -1,0 +1,124 @@
+@use '../../styles/mixins' as *;
+
+.pageHeader {
+  display: flex;
+  align-items: center;
+  height: auto;
+  min-height: var(--page-header-height);
+  padding: 12px var(--page-gutter) !important;
+  line-height: normal;
+  border-bottom: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--bg-primary) 96%, transparent) !important;
+  backdrop-filter: blur(12px);
+}
+
+.stickyAlways,
+.stickyDesktop {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.pageHeaderInner {
+  display: flex;
+  align-items: stretch;
+  width: min(var(--page-max-width), 100%);
+  min-width: 0;
+  min-height: 46px;
+  margin: 0 auto;
+}
+
+.pageHeaderInner > * {
+  width: 100%;
+}
+
+.pageContent {
+  min-width: 0;
+  padding: var(--page-gutter);
+}
+
+.pageContentInner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--page-stack);
+  width: min(var(--page-max-width), 100%);
+  min-width: 0;
+  min-height: 100%;
+  margin: 0 auto;
+}
+
+.pageTitle {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--type-page-title-size);
+  font-weight: var(--type-page-title-weight);
+  line-height: var(--type-page-title-line-height);
+  letter-spacing: -0.01em;
+}
+
+.pageToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--toolbar-gap);
+  width: 100%;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.pageToolbarLeading,
+.pageToolbarActions {
+  min-width: 0;
+}
+
+.pageToolbarLeading {
+  flex: 1 1 auto;
+}
+
+.pageToolbarActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--control-gap);
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+}
+
+.actionsOnly .pageToolbarActions {
+  flex: 1 1 100%;
+  width: 100%;
+}
+
+@include mobile {
+  .pageHeader {
+    min-height: var(--page-header-height-mobile);
+    padding: 10px var(--page-gutter-mobile) !important;
+  }
+
+  .stickyDesktop {
+    position: static;
+  }
+
+  .pageHeaderInner {
+    min-height: 44px;
+  }
+
+  .pageContent {
+    padding: 16px var(--page-gutter-mobile) 28px;
+  }
+
+  .pageToolbar {
+    align-items: stretch;
+  }
+
+  .pageToolbarLeading,
+  .pageToolbarActions {
+    flex-basis: 100%;
+    width: 100%;
+  }
+
+  .pageToolbarActions {
+    justify-content: flex-start;
+  }
+}

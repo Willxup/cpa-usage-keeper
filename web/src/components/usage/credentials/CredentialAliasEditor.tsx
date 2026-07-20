@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Tooltip } from 'antd'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { IconCheck, IconPencil, IconX } from '@/components/ui/icons'
 import styles from './CredentialSections.module.scss'
@@ -100,7 +101,9 @@ export function CredentialAliasEditor({ identityId, displayName, alias, saving, 
   return (
     <span className={styles.credentialAliasEditor}>
       <span className={styles.credentialAliasDisplayLayout}>
-        <span className={styles.credentialAliasNameSlot}>{displayName}</span>
+        <Tooltip title={displayName} trigger={['hover', 'focus', 'click']} placement="top">
+          <span className={styles.credentialAliasNameSlot} tabIndex={0}>{displayName}</span>
+        </Tooltip>
         <span className={styles.credentialAliasActionSlot}>
           {canEdit && (
             <button

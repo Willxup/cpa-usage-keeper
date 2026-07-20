@@ -137,7 +137,7 @@ describe('PriceSettingsCard', () => {
       'gpt-5.6-terra',
       'gpt-5.6-sol',
       'gpt-5.5',
-    ].map((model) => html.indexOf(`>${model}</span>`));
+    ].map((model) => html.indexOf(model));
 
     expect(renderedOrder.every((index) => index >= 0)).toBe(true);
     expect(renderedOrder).toEqual([...renderedOrder].sort((left, right) => left - right));
@@ -166,7 +166,7 @@ describe('PriceSettingsCard', () => {
       />,
     );
     const renderedOrder = ['gpt-2', 'gpt-02', 'GPT-2']
-      .map((model) => html.indexOf(`>${model}</span>`));
+      .map((model) => html.indexOf(model));
 
     expect(renderedOrder.every((index) => index >= 0)).toBe(true);
     expect(renderedOrder).toEqual([...renderedOrder].sort((left, right) => left - right));
@@ -272,7 +272,7 @@ describe('PriceSettingsCard', () => {
   it('requires confirmation before deleting a saved model price', () => {
     expect(source).toContain('const [deleteModel, setDeleteModel] = useState<string | null>(null);');
     expect(source).toContain('const confirmDeleteModel = async () => {');
-    expect(source).toContain("onClick={() => setDeleteModel(model)}");
+    expect(source).toContain("onClick={() => setDeleteModel(row.model)}");
     expect(source).toContain("title={t('usage_stats.model_price_delete_confirm_title')}");
     expect(source).toContain("t('usage_stats.model_price_delete_confirm_action')");
   });
@@ -308,21 +308,25 @@ describe('PriceSettingsCard', () => {
   });
 
   it('keeps the create form immutable while a price save is pending', () => {
-    const createFormStart = source.indexOf('<div className={styles.priceForm}>');
-    const createFormEnd = source.indexOf('\n              <div className={styles.pricesList}>', createFormStart);
+    const createFormStart = source.indexOf('<Form layout="vertical" className={styles.priceForm}>');
+    const createFormEnd = source.indexOf('\n              </Form>', createFormStart);
     const createForm = source.slice(createFormStart, createFormEnd);
 
     expect(createFormStart).toBeGreaterThanOrEqual(0);
+    expect(createFormEnd).toBeGreaterThan(createFormStart);
     expect(countOccurrences(createForm, 'disabled={priceSaving}')).toBeGreaterThanOrEqual(6);
     expect(createForm).toContain('disabled={!selectedModel || priceSaving}');
+    expect(createForm).toContain('loading={priceSaving}');
   });
 
   it('keeps sync draft pricing controls immutable while sync apply is pending', () => {
-    const syncDraftGridStart = source.indexOf('<div className={styles.syncDraftGrid}>');
-    const syncDraftGridEnd = source.indexOf('\n                      </div>\n                    </div>\n                  );', syncDraftGridStart);
+    const syncDraftGridStart = source.indexOf('<Form layout="vertical" className={styles.syncDraftGrid}>');
+    const syncDraftGridEnd = source.indexOf('\n                        </Form>', syncDraftGridStart);
     const syncDraftGrid = source.slice(syncDraftGridStart, syncDraftGridEnd);
 
     expect(syncDraftGridStart).toBeGreaterThanOrEqual(0);
+    expect(syncDraftGridEnd).toBeGreaterThan(syncDraftGridStart);
+    expect(syncDraftGrid).toContain('<Form.Item');
     expect(syncDraftGrid).toContain('<Select');
     expect(countOccurrences(syncDraftGrid, 'disabled={syncApplying}')).toBeGreaterThanOrEqual(6);
   });
@@ -348,12 +352,16 @@ describe('PriceSettingsCard', () => {
     expect(closeDelete).toContain('if (!deleteSaving) {');
     expect(closeDelete).toContain('setDeleteModel(null);');
     expect(editModalStart).toBeGreaterThanOrEqual(0);
-    expect(editModal).toContain('onClose={closeEditModal}');
-    expect(editModal).toContain('closeDisabled={editSaving}');
+    expect(editModal).toContain('onCancel={editSaving ? undefined : closeEditModal}');
+    expect(editModal).toContain('closable={!editSaving}');
+    expect(editModal).toContain('mask={{ closable: !editSaving }}');
+    expect(editModal).toContain('keyboard={!editSaving}');
     expect(editModal).toContain('disabled={editSaving}');
     expect(deleteModalStart).toBeGreaterThanOrEqual(0);
-    expect(deleteModal).toContain('onClose={closeDeleteModal}');
-    expect(deleteModal).toContain('closeDisabled={deleteSaving}');
+    expect(deleteModal).toContain('onCancel={deleteSaving ? undefined : closeDeleteModal}');
+    expect(deleteModal).toContain('closable={!deleteSaving}');
+    expect(deleteModal).toContain('mask={{ closable: !deleteSaving }}');
+    expect(deleteModal).toContain('keyboard={!deleteSaving}');
   });
 
   it('keeps explicit zero multipliers when converting sync drafts', () => {

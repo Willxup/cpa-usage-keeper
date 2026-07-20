@@ -1,4 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react'
+import { Card, Pagination, Select, Space, Tag, Tooltip, Typography } from 'antd'
+import { SectionHeader } from '@/components/layout'
 import styles from './CredentialSections.module.scss'
 import { formatCompactNumber } from '@/utils/usage'
 
@@ -6,7 +8,7 @@ type CredentialSectionStyle = CSSProperties
 
 interface CredentialSectionShellProps {
   title: string
-  subtitle: string
+  subtitle?: string
   countLabel: string
   titleExtra?: ReactNode
   actions?: ReactNode
@@ -14,82 +16,43 @@ interface CredentialSectionShellProps {
   children: ReactNode
 }
 
-interface CredentialRowShellProps {
-  title: ReactNode
-  subtitle?: ReactNode
-  badges: ReactNode
-  metrics: ReactNode
-  side: ReactNode
-  rowClassName?: string
-}
-
-interface CredentialTableHeaderProps {
-  nameLabel: string
-  totalRequestsLabel: string
-  successRateLabel: string
-  totalTokensLabel: string
-  cacheReadRateLabel: string
-  sideLabel: string
-  rowClassName?: string
-}
-
 export function CredentialSectionShell({ title, subtitle, countLabel, titleExtra, actions, style, children }: CredentialSectionShellProps) {
   return (
-    <section className={styles.credentialSectionCard} style={style}>
-      <div className={styles.credentialSectionHeader}>
-        <div className={styles.credentialSectionTitleBlock}>
-          <div className={styles.credentialSectionTitleRow}>
-            <h3 className={styles.credentialSectionTitle}>{title}</h3>
-            <span className={styles.credentialCountBadge}>{countLabel}</span>
-            {titleExtra}
-          </div>
-          <p className={styles.credentialSectionSubtitle}>{subtitle}</p>
-        </div>
-        {actions && <div className={styles.credentialSectionActions}>{actions}</div>}
-      </div>
+    <Card
+      className={styles.credentialSectionCard}
+      style={style}
+      title={(
+        <SectionHeader
+          headingLevel={2}
+          title={title}
+          description={subtitle}
+          meta={(
+            <div className={styles.credentialSectionTitleMeta}>
+              <Tag variant="filled" className={styles.credentialCountBadge}>{countLabel}</Tag>
+              {titleExtra}
+            </div>
+          )}
+          actions={actions ? <div className={styles.credentialSectionActions}>{actions}</div> : undefined}
+        />
+      )}
+    >
       <div className={styles.credentialRows}>{children}</div>
-    </section>
+    </Card>
   )
-}
-
-export function CredentialRowShell({ title, subtitle, badges, metrics, side, rowClassName }: CredentialRowShellProps) {
-  // 统一三段式行结构：左侧身份信息、中间指标、右侧 quota/状态区域。
-  return (
-    <article className={`${styles.credentialRow} ${rowClassName ?? ''}`.trim()}>
-      <div className={styles.credentialIdentityBlock}>
-        <div className={styles.credentialNameRow}>
-          <span className={styles.credentialDisplayName}>{title}</span>
-          {badges && <div className={styles.credentialBadges}>{badges}</div>}
-        </div>
-        {subtitle && <span className={styles.credentialIdentityText}>{subtitle}</span>}
-      </div>
-      <div className={styles.credentialMetricGroup}>{metrics}</div>
-      <div className={styles.credentialSidePanel}>{side}</div>
-    </article>
-  )
-}
-
-export function CredentialTableHeader({ nameLabel, totalRequestsLabel, successRateLabel, totalTokensLabel, cacheReadRateLabel, sideLabel, rowClassName }: CredentialTableHeaderProps) {
-  return (
-    <div className={`${styles.credentialTableHeader} ${rowClassName ?? ''}`.trim()}>
-      <span className={styles.credentialTableHeaderName}>{nameLabel}</span>
-      <div className={styles.credentialMetricHeaderGroup}>
-        <span className={styles.credentialMetricHeaderCell}>{totalRequestsLabel}</span>
-        <span className={styles.credentialMetricHeaderCell}>{successRateLabel}</span>
-        <span className={styles.credentialMetricHeaderCell}>{totalTokensLabel}</span>
-        <span className={styles.credentialMetricHeaderCell}>{cacheReadRateLabel}</span>
-      </div>
-      <span className={styles.credentialTableHeaderSide}>{sideLabel}</span>
-    </div>
-  )
-}
-
-export function CredentialBadge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'success' | 'warning' | 'danger' }) {
-  return <span className={`${styles.credentialBadge} ${styles[`credentialBadge${capitalize(tone)}`]}`.trim()}>{children}</span>
 }
 
 export function CredentialPriorityBadge({ children }: { children: ReactNode }) {
-  return <span className={styles.credentialPriorityBadge}>{children}</span>
+  return <Tag color="blue" variant="filled" className={styles.credentialPriorityBadge}>{children}</Tag>
+}
+
+export function AccessibleEllipsis({ value, className }: { value: string; className?: string }) {
+  return (
+    <Tooltip title={value} trigger={['hover', 'focus', 'click']} placement="top">
+      <span className={`${styles.credentialAccessibleEllipsis} ${className ?? ''}`.trim()} tabIndex={0}>
+        {value}
+      </span>
+    </Tooltip>
+  )
 }
 
 export function MetricPill({ value }: { value: ReactNode }) {
@@ -176,28 +139,51 @@ export function CredentialsPagination({
     return null
   }
 
+  const safeTotalPages = Math.max(totalPages, 1)
+  const safePage = Math.min(Math.max(page, 1), safeTotalPages)
+  const paginationTotal = Math.max(total ?? 0, (safeTotalPages - 1) * pageSize + 1)
+
   return (
     <div className={styles.credentialPagination}>
-      <div className={styles.credentialPaginationControls}>
+      <Space wrap size={[16, 12]} className={styles.credentialPaginationControls}>
         {leadingControls}
         {sortOptions && sortOptions.length > 0 && sortLabel && onSortChange && (
-          <label className={styles.credentialPageSizeControl}>
-            <span>{sortLabel}</span>
-            <select value={sortValue} onChange={(event) => onSortChange(event.target.value)}>
-              {sortOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
-          </label>
+          <Space size={8} className={styles.credentialSortControl}>
+            <Typography.Text type="secondary">{sortLabel}</Typography.Text>
+            <Select
+              size="small"
+              value={sortValue}
+              options={sortOptions}
+              onChange={onSortChange}
+              aria-label={sortLabel}
+              popupMatchSelectWidth={false}
+            />
+          </Space>
         )}
-        <label className={styles.credentialPageSizeControl}>
-          <span>{rowsPerPageLabel}</span>
-          <select value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))}>
-            {CREDENTIAL_PAGE_SIZE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-          </select>
-        </label>
-        <button type="button" onClick={() => onPageChange(page - 1)} disabled={page <= 1}>{previousLabel}</button>
-        <span className={styles.credentialPaginationPage}>{page} / {totalPages}</span>
-        <button type="button" onClick={() => onPageChange(page + 1)} disabled={page >= totalPages}>{nextLabel}</button>
-      </div>
+        <Pagination
+          current={safePage}
+          total={paginationTotal}
+          pageSize={pageSize}
+          pageSizeOptions={CREDENTIAL_PAGE_SIZE_OPTIONS.map(String)}
+          showSizeChanger
+          showLessItems
+          responsive
+          size="small"
+          locale={{
+            items_per_page: rowsPerPageLabel,
+            prev_page: previousLabel,
+            next_page: nextLabel,
+          }}
+          showTotal={() => `${safePage} / ${safeTotalPages}`}
+          onChange={(nextPage, nextPageSize) => {
+            if (nextPageSize !== pageSize) {
+              onPageSizeChange(nextPageSize)
+              return
+            }
+            onPageChange(nextPage)
+          }}
+        />
+      </Space>
     </div>
   )
 }

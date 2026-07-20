@@ -632,6 +632,7 @@ func TestUsageOverviewReturnsDailyAverageSummaryFields(t *testing.T) {
 			TPM:                   7000000.0 / 10080.0,
 			TotalCost:             56.49,
 			CostAvailable:         false,
+			UnpricedModels:        []string{"unpriced-model"},
 			InputTokens:           7000000,
 			DailyAverageRequests:  float64Ptr(2),
 			DailyAverageTokens:    float64Ptr(1000000),
@@ -652,7 +653,8 @@ func TestUsageOverviewReturnsDailyAverageSummaryFields(t *testing.T) {
 	if !contains(body, `"daily_average_requests":2`) ||
 		!contains(body, `"daily_average_tokens":1000000`) ||
 		!contains(body, `"daily_average_cost":8.07`) ||
-		!contains(body, `"daily_average_range_days":7`) {
+		!contains(body, `"daily_average_range_days":7`) ||
+		!contains(body, `"unpriced_models":["unpriced-model"]`) {
 		t.Fatalf("expected daily average summary fields in response body: %s", body)
 	}
 	assertUsageOverviewResponseShape(t, body)
@@ -698,6 +700,7 @@ func assertUsageOverviewResponseShape(t *testing.T, body string) {
 	}
 	assertAllowedJSONKeys(t, summary, "overview summary", body,
 		"request_count", "token_count", "window_minutes", "rpm", "tpm", "total_cost", "cost_available",
+		"unpriced_models",
 		"input_tokens", "cache_read_tokens", "cache_creation_tokens", "reasoning_tokens",
 		"daily_average_requests", "daily_average_tokens", "daily_average_cost", "daily_average_range_days",
 	)

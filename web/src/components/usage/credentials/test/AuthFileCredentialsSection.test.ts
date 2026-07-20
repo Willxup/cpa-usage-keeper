@@ -1,10 +1,20 @@
 import { createElement } from 'react'
+import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import { AuthFileCredentialsSection, AuthFileQuotaPanel, INSPECTION_RESULT_PAGE_SIZE_OPTIONS, QuotaAutoRefreshSettingsModal, QuotaInspectionModal, buildInspectionResultsPage, buildInvalidInspectionAccountFileNames, buildQuotaAutoRefreshSettings, formatInspectionCompletedAt, formatInspectionProgressPercent, formatQuotaErrorDisplay, formatQuotaResetDuration, formatQuotaResetLabel, formatQuotaWindowUsageAriaLabel, inspectionIndicatorTone, invertInvalidInspectionAccountFileNames, isAutoRefreshSettingsControlDisabled, isAutoRefreshSettingsSaveDisabled, isInspectionStartDisabled, isQuotaInspectionCloseDisabled, isSelectableInspectionStatusFilter, nextInspectionResultStatusFilter, persistAuthFileDisplayMode, readStoredAuthFileDisplayMode, resolveQuotaAutoRefreshSettingsLoadFailure, selectAllInvalidInspectionAccountFileNames } from '../AuthFileCredentialsSection'
+import { AuthFileCredentialsSection, AuthFileExpandedDetails, AuthFileQuotaPanel, INSPECTION_RESULT_PAGE_SIZE_OPTIONS, buildInspectionResultsPage, buildInvalidInspectionAccountFileNames, buildQuotaAutoRefreshSettings, formatInspectionCompletedAt, formatInspectionProgressPercent, formatQuotaErrorDisplay, formatQuotaResetDuration, formatQuotaResetLabel, formatQuotaWindowUsageAriaLabel, inspectionIndicatorTone, invertInvalidInspectionAccountFileNames, isAutoRefreshSettingsControlDisabled, isAutoRefreshSettingsSaveDisabled, isInspectionStartDisabled, isQuotaInspectionCloseDisabled, isSelectableInspectionStatusFilter, nextInspectionResultStatusFilter, persistAuthFileDisplayMode, readStoredAuthFileDisplayMode, resolveQuotaAutoRefreshSettingsLoadFailure, selectAllInvalidInspectionAccountFileNames } from '../AuthFileCredentialsSection'
 import type { AuthFileCredentialRow, DisplayQuota } from '../credentialViewModels'
 import type { UsageQuotaInspectionResult, UsageQuotaInspectionResultStatus } from '@/lib/types'
 
+const authFileSectionSource = readFileSync(new URL('../AuthFileCredentialsSection.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+const quotaInspectionModalSource = authFileSectionSource.slice(
+  authFileSectionSource.indexOf('export function QuotaInspectionModal'),
+  authFileSectionSource.indexOf('export function QuotaAutoRefreshSettingsModal'),
+)
+const quotaAutoRefreshModalSource = authFileSectionSource.slice(
+  authFileSectionSource.indexOf('export function QuotaAutoRefreshSettingsModal'),
+  authFileSectionSource.indexOf('\nfunction InvalidInspectionAccountModal'),
+)
 
 const createAuthFileSectionProps = (overrides: Partial<Parameters<typeof AuthFileCredentialsSection>[0]> = {}) => ({
   rows: [],
@@ -81,7 +91,7 @@ describe('AuthFileCredentialsSection title', () => {
     expect(html).not.toContain('usage_stats.credentials_auth_files_eyebrow')
   })
 
-  it('renders shared metric headers without repeating labels in each row', () => {
+  it('renders shared metrics in an Ant Design table', () => {
     const row = {
       identity: { id: '1', identity: 'auth-1', is_deleted: false },
       displayName: 'Very Long Auth File Name For Wrapping',
@@ -103,12 +113,16 @@ describe('AuthFileCredentialsSection title', () => {
 
     const html = renderToStaticMarkup(createElement(AuthFileCredentialsSection, createAuthFileSectionProps({ rows: [row], total: 1 })))
 
-    expect(html.match(/usage_stats\.total_requests/g)).toHaveLength(1)
-    expect(html.match(/usage_stats\.success_rate/g)).toHaveLength(1)
-    expect(html.match(/usage_stats\.total_tokens/g)).toHaveLength(1)
-    expect(html.match(/usage_stats\.cache_rate/g)).toHaveLength(1)
+    expect(html).toContain('ant-table')
+    expect(html).toContain('usage_stats.total_requests')
+    expect(html).toContain('usage_stats.success_rate')
+    expect(html).toContain('usage_stats.total_tokens')
+    expect(html).toContain('usage_stats.cache_rate')
     expect(html).toContain('usage_stats.credentials_column_name')
+    expect(html).toContain('usage_stats.credentials_column_provider')
     expect(html).toContain('usage_stats.credentials_column_quota')
+    expect(html).toContain('Codex')
+    expect(html).not.toContain('>codex<')
     expect(html).toContain('1.23K')
     expect(html).toContain('97.24%')
   })
@@ -284,8 +298,8 @@ describe('AuthFileCredentialsSection quota usage mode rendering', () => {
   } as AuthFileCredentialRow
 
   it('renders current quota usage by default and estimated usage when requested', () => {
-    const currentHtml = renderToStaticMarkup(createElement(AuthFileQuotaPanel, { row, quotaUsageMode: 'current' }))
-    const estimatedHtml = renderToStaticMarkup(createElement(AuthFileQuotaPanel, { row, quotaUsageMode: 'estimated' }))
+    const currentHtml = renderToStaticMarkup(createElement(AuthFileExpandedDetails, { row, quotaUsageMode: 'current' }))
+    const estimatedHtml = renderToStaticMarkup(createElement(AuthFileExpandedDetails, { row, quotaUsageMode: 'estimated' }))
 
     expect(currentHtml).toContain('1.00M')
     expect(currentHtml).toContain('$2.50')
@@ -295,18 +309,29 @@ describe('AuthFileCredentialsSection quota usage mode rendering', () => {
     expect(estimatedHtml).toContain('$10.00')
   })
 
+  it('keeps the collapsed quota cell to one label and percentage per quota', () => {
+    const html = renderToStaticMarkup(createElement(AuthFileQuotaPanel, { row, quotaUsageMode: 'current' }))
+
+    expect(html).toContain(quota.label)
+    expect(html).toContain(`${quota.barPercent}%`)
+    expect(html).not.toContain('ant-progress')
+    expect(html).not.toContain('<details')
+    expect(html).not.toContain('1.00M')
+    expect(html).not.toContain('$2.50')
+  })
+
   it('falls back to current quota usage when estimated usage is unavailable', () => {
     const currentOnlyRow = {
       ...row,
       displayQuotas: [{ ...quota, windowUsageEstimate: undefined }],
     } as AuthFileCredentialRow
-    const estimatedHtml = renderToStaticMarkup(createElement(AuthFileQuotaPanel, { row: currentOnlyRow, quotaUsageMode: 'estimated' }))
+    const estimatedHtml = renderToStaticMarkup(createElement(AuthFileExpandedDetails, { row: currentOnlyRow, quotaUsageMode: 'estimated' }))
 
     expect(estimatedHtml).toContain('1.00M')
     expect(estimatedHtml).toContain('$2.50')
   })
 
-  it('renders Antigravity group metadata below the standard quota label', () => {
+  it('renders Antigravity group metadata in the aligned expanded detail table', () => {
     const groupedRow = {
       ...row,
       displayQuotas: [{
@@ -323,7 +348,7 @@ describe('AuthFileCredentialsSection quota usage mode rendering', () => {
       }],
     } as AuthFileCredentialRow
 
-    const html = renderToStaticMarkup(createElement(AuthFileQuotaPanel, { row: groupedRow, quotaUsageMode: 'current' }))
+    const html = renderToStaticMarkup(createElement(AuthFileExpandedDetails, { row: groupedRow, quotaUsageMode: 'current' }))
 
     expect(html).toContain('>5h<')
     expect(html).toContain('credentialQuotaGroupLabel')
@@ -333,7 +358,9 @@ describe('AuthFileCredentialsSection quota usage mode rendering', () => {
     expect(html).toContain('aria-describedby=')
     expect(html).toContain('Models within this group: Gemini Flash, Gemini Pro')
     expect(html).not.toContain('title="Models within this group: Gemini Flash, Gemini Pro"')
-    expect(html.indexOf('Gemini Models')).toBeGreaterThan(html.indexOf('credentialQuotaTrack'))
+    expect(html).toContain('credentialQuotaDetailTable')
+    expect(html).toContain('ant-progress')
+    expect(html).toContain('role="columnheader"')
   })
 
   it('anchors reset time on the right when Codex has no token or cost usage', () => {
@@ -347,9 +374,9 @@ describe('AuthFileCredentialsSection quota usage mode rendering', () => {
       }],
     } as AuthFileCredentialRow
 
-    const html = renderToStaticMarkup(createElement(AuthFileQuotaPanel, { row: noUsageRow, quotaUsageMode: 'current' }))
+    const html = renderToStaticMarkup(createElement(AuthFileExpandedDetails, { row: noUsageRow, quotaUsageMode: 'current' }))
 
-    expect(html).toContain('credentialQuotaResetTime')
+    expect(html).toContain('credentialQuotaDetailResetAt')
   })
 
   it('renders xai billing spend without token usage metrics', () => {
@@ -366,7 +393,7 @@ describe('AuthFileCredentialsSection quota usage mode rendering', () => {
       }],
     } as AuthFileCredentialRow
 
-    const html = renderToStaticMarkup(createElement(AuthFileQuotaPanel, { row: billingRow, quotaUsageMode: 'current' }))
+    const html = renderToStaticMarkup(createElement(AuthFileExpandedDetails, { row: billingRow, quotaUsageMode: 'current' }))
 
     expect(html).toContain('Monthly Spend')
     expect(html).toContain('$1.67')
@@ -470,19 +497,9 @@ describe('AuthFileCredentialsSection quota error display', () => {
 
 describe('AuthFileCredentialsSection inspection controls', () => {
   it('labels the auto refresh settings gear with an accessible title', () => {
-    const html = renderToStaticMarkup(createElement(QuotaInspectionModal, {
-      open: true,
-      status: null,
-      loading: false,
-      starting: false,
-      error: '',
-      onClose: () => undefined,
-      onStart: async () => undefined,
-      onRefreshStatus: async () => undefined,
-    }))
-
-    expect(html).toContain('aria-label="usage_stats.credentials_auto_refresh_settings')
-    expect(html).toContain('title="usage_stats.credentials_auto_refresh_settings')
+    expect(quotaInspectionModalSource).toContain("aria-label={t('usage_stats.credentials_auto_refresh_settings')}")
+    expect(quotaInspectionModalSource).toContain("title={t('usage_stats.credentials_auto_refresh_settings')}")
+    expect(quotaInspectionModalSource).toContain('aria-haspopup="dialog"')
   })
 
   it('calculates progress from cached quota results and inspectable auth files', () => {
@@ -534,101 +551,39 @@ describe('AuthFileCredentialsSection inspection controls', () => {
     expect(isAutoRefreshSettingsSaveDisabled({ loading: false, saving: false, loaded: fallback.loaded })).toBe(false)
   })
 
-  it('keeps auto refresh controls in a separate modal with the Auth Files switch style', () => {
-    const html = renderToStaticMarkup(createElement(QuotaAutoRefreshSettingsModal, {
-      open: true,
-      enabled: true,
-      unit: 'hour',
-      value: '6',
-      loading: false,
-      saving: false,
-      loaded: true,
-      error: '',
-      onClose: () => undefined,
-      onEnabledChange: () => undefined,
-      onUnitChange: () => undefined,
-      onValueChange: () => undefined,
-      onSave: async () => undefined,
-    }))
-
-    expect(html).toContain('usage_stats.credentials_auto_refresh_settings')
-    expect(html).toContain('credentialActiveOnlySwitch')
-    expect(html).toContain('credentialActiveOnlyTrack')
-    expect(html).toContain('credentialActiveOnlyThumb')
-    expect(html).toContain('credentialAutoRefreshScheduleAreaActive')
-    expect(html).toContain('credentialAutoRefreshIntervalField')
-    expect(html).toContain('credentialAutoRefreshIntervalLabel')
-    expect(html).toContain('credentialAutoRefreshUnitSuffix')
-    expect(html).toContain('usage_stats.credentials_auto_refresh_value')
-    expect(html).toContain('usage_stats.credentials_auto_refresh_unit_hour')
-    expect(html).toContain('usage_stats.credentials_auto_refresh_tip_hour')
-    expect(html).toContain('usage_stats.credentials_auto_refresh_save')
-    expect(html).not.toContain('credentialAutoRefreshField')
+  it('keeps auto refresh controls in a separate modal with an Ant Design switch', () => {
+    expect(quotaAutoRefreshModalSource).toContain("title={t('usage_stats.credentials_auto_refresh_settings')}")
+    expect(quotaAutoRefreshModalSource).toContain('<Switch')
+    expect(quotaAutoRefreshModalSource).toContain('checked={enabled}')
+    expect(quotaAutoRefreshModalSource).toContain('onChange={onEnabledChange}')
+    expect(quotaAutoRefreshModalSource).toContain('disabled={controlsDisabled}')
+    expect(quotaAutoRefreshModalSource).toContain('styles.credentialAutoRefreshScheduleAreaActive')
+    expect(quotaAutoRefreshModalSource).toContain('styles.credentialAutoRefreshIntervalField')
+    expect(quotaAutoRefreshModalSource).toContain('styles.credentialAutoRefreshIntervalLabel')
+    expect(quotaAutoRefreshModalSource).toContain('styles.credentialAutoRefreshUnitSuffix')
+    expect(quotaAutoRefreshModalSource).toContain("t('usage_stats.credentials_auto_refresh_value')")
+    expect(quotaAutoRefreshModalSource).toContain("t('usage_stats.credentials_auto_refresh_save')")
+    expect(quotaAutoRefreshModalSource).not.toContain('credentialAutoRefreshField')
   })
 
   it('renders frequency-specific scheduled refresh tips', () => {
-    for (const unit of ['minute', 'hour', 'day', 'week'] as const) {
-      const html = renderToStaticMarkup(createElement(QuotaAutoRefreshSettingsModal, {
-        open: true,
-        enabled: true,
-        unit,
-        value: unit === 'week' ? '1' : '6',
-        loading: false,
-        saving: false,
-        loaded: true,
-        error: '',
-        onClose: () => undefined,
-        onEnabledChange: () => undefined,
-        onUnitChange: () => undefined,
-        onValueChange: () => undefined,
-        onSave: async () => undefined,
-      }))
-
-      expect(html).toContain(`usage_stats.credentials_auto_refresh_tip_${unit}`)
-    }
+    expect(quotaAutoRefreshModalSource).toContain("t(`usage_stats.credentials_auto_refresh_tip_${unit}`)")
+    expect(quotaAutoRefreshModalSource).toContain('AUTO_REFRESH_SCHEDULE_UNITS.map')
   })
 
   it('does not repeat the weekly unit after the weekday selector', () => {
-    const html = renderToStaticMarkup(createElement(QuotaAutoRefreshSettingsModal, {
-      open: true,
-      enabled: true,
-      unit: 'week',
-      value: '1',
-      loading: false,
-      saving: false,
-      loaded: true,
-      error: '',
-      onClose: () => undefined,
-      onEnabledChange: () => undefined,
-      onUnitChange: () => undefined,
-      onValueChange: () => undefined,
-      onSave: async () => undefined,
-    }))
-
-    expect(html.match(/usage_stats\.credentials_auto_refresh_unit_week/g)).toHaveLength(1)
-    expect(html).toContain('usage_stats.credentials_auto_refresh_weekday')
+    const weeklyBranch = quotaAutoRefreshModalSource.slice(
+      quotaAutoRefreshModalSource.indexOf("{unit === 'week' ? ("),
+      quotaAutoRefreshModalSource.indexOf(') : (', quotaAutoRefreshModalSource.indexOf("{unit === 'week' ? (")),
+    )
+    expect(weeklyBranch).toContain("t('usage_stats.credentials_auto_refresh_weekday')")
+    expect(weeklyBranch).not.toContain('credentialAutoRefreshUnitSuffix')
   })
 
   it('keeps the schedule area mounted but collapsed when auto refresh is off', () => {
-    const html = renderToStaticMarkup(createElement(QuotaAutoRefreshSettingsModal, {
-      open: true,
-      enabled: false,
-      unit: 'minute',
-      value: '',
-      loading: false,
-      saving: false,
-      loaded: true,
-      error: '',
-      onClose: () => undefined,
-      onEnabledChange: () => undefined,
-      onUnitChange: () => undefined,
-      onValueChange: () => undefined,
-      onSave: async () => undefined,
-    }))
-
-    expect(html).toContain('credentialAutoRefreshScheduleArea')
-    expect(html).not.toContain('credentialAutoRefreshScheduleAreaActive')
-    expect(html).not.toContain('credentialAutoRefreshField')
+    expect(quotaAutoRefreshModalSource).toContain('const scheduleAreaClassName = `${styles.credentialAutoRefreshScheduleArea} ${enabled ? styles.credentialAutoRefreshScheduleAreaActive : \'\'}`.trim()')
+    expect(quotaAutoRefreshModalSource).toContain('<div className={scheduleAreaClassName} aria-hidden={!enabled}>')
+    expect(quotaAutoRefreshModalSource).not.toContain('credentialAutoRefreshField')
   })
 
   it('keeps the inspection modal close behavior independent from auto refresh settings saving', () => {

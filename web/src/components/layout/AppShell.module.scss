@@ -1,0 +1,220 @@
+@use '../../styles/mixins' as *;
+
+.appShell {
+  display: flex;
+  min-height: 100svh;
+  background: var(--surface-canvas);
+}
+
+// Wide screens: the authenticated shell is centered within a fixed-width
+// column (see .usageShell width). Give that column a visible application-level
+// edge so the app reads as one bounded surface instead of opening into the
+// canvas on the right. Narrow screens keep the shell flush to the viewport, so
+// the frame is only drawn once the column is actually centered and narrower
+// than the viewport.
+@include wide {
+  .appShell[data-variant='authenticated'] {
+    border-inline: 1px solid var(--border-structural);
+  }
+}
+
+.appShellMain {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 100svh;
+  background: var(--surface-content);
+}
+
+.shellNavigation {
+  position: sticky;
+  top: 0;
+  flex: 0 0 232px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--section-stack);
+  height: 100svh;
+  padding: 20px 16px;
+  background: var(--surface-nav);
+  border-inline-end: 1px solid var(--border-structural);
+}
+
+.shellNavigationBrand {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+}
+
+.shellNavigationMenu {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.shellNavigationUtility {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--control-gap);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--section-stack);
+}
+
+.shellHeader {
+  flex: 0 0 auto;
+  background: var(--surface-header);
+  border-bottom: 1px solid var(--border-structural);
+  z-index: 20;
+}
+
+.shellHeaderStickyAlways,
+.shellHeaderStickyDesktop {
+  position: sticky;
+  top: 0;
+}
+
+.shellHeaderInner {
+  display: flex;
+  align-items: center;
+  gap: var(--toolbar-gap);
+  width: min(var(--page-max-width), 100%);
+  min-width: 0;
+  min-height: var(--page-header-height);
+  margin: 0 auto;
+  padding: 12px var(--page-gutter);
+}
+
+.shellHeaderLeading {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--control-gap);
+}
+
+.shellHeaderBrand {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+
+.shellHeaderHeading {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.shellHeaderTitle {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--type-page-title-size);
+  font-weight: var(--type-page-title-weight);
+  line-height: var(--type-page-title-line-height);
+  letter-spacing: -0.01em;
+}
+
+.shellHeaderSubtitle {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line-height);
+}
+
+.shellHeaderActions {
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--control-gap);
+  min-width: 0;
+}
+
+.shellHeaderUtility {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--control-gap);
+  margin-inline-start: auto;
+}
+
+.shellHeaderActions + .shellHeaderUtility {
+  margin-inline-start: 0;
+}
+
+.shellContent {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: var(--page-gutter);
+}
+
+.shellContentInner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--page-stack);
+  width: min(var(--page-max-width), 100%);
+  min-width: 0;
+  min-height: 100%;
+  margin: 0 auto;
+}
+
+.shellContentToolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--toolbar-gap);
+  width: 100%;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.shellContentFooter {
+  margin-top: auto;
+  padding-top: var(--page-stack);
+  color: var(--text-muted);
+  font-size: var(--type-caption-size);
+}
+
+.appShell[data-density='compact'] {
+  .shellHeaderInner {
+    min-height: var(--page-header-height-mobile);
+    padding: 8px var(--page-gutter-mobile);
+  }
+
+  .shellContent {
+    padding: var(--page-gutter-mobile);
+  }
+}
+
+.appShell[data-variant='embed'][data-nav='none'] {
+  .appShellMain {
+    background: var(--surface-canvas);
+  }
+}
+
+@include mobile {
+  .shellNavigation {
+    display: none;
+  }
+
+  .shellHeaderStickyDesktop {
+    position: static;
+  }
+
+  .shellHeaderInner {
+    min-height: var(--page-header-height-mobile);
+    padding: 10px var(--page-gutter-mobile);
+    flex-wrap: wrap;
+  }
+
+  .shellHeaderUtility {
+    flex-wrap: wrap;
+  }
+
+  .shellContent {
+    padding: 16px var(--page-gutter-mobile) 28px;
+  }
+}

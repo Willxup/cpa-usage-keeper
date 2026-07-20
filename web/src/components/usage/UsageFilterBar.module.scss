@@ -1,0 +1,151 @@
+@use '../../styles/mixins' as *;
+
+.usageFilterBar {
+  --usage-filter-control-height: 36px;
+  --usage-filter-control-line-height: 22px;
+
+  width: 100%;
+  min-width: 0;
+}
+
+// Compact = header-inline usage: no text labels, bounded control widths so a
+// selected API key stays readable without shifting the page title. Space owns
+// the control gap; UsageFilterBar clears inline Form.Item's trailing margin at
+// the component boundary instead of restyling Ant Design internals here.
+.compact {
+  width: auto;
+}
+
+.apiKeyControl,
+.rangeControl,
+.autoRefreshControl {
+  box-sizing: border-box;
+  height: var(--usage-filter-control-height);
+}
+
+.apiKeyControl {
+  flex: 0 0 220px;
+  width: 220px;
+  min-width: 220px;
+}
+
+.rangeControl {
+  flex: 0 0 188px;
+  width: 188px;
+  min-width: 188px;
+}
+
+.autoRefreshControl {
+  flex: 0 0 150px;
+  width: 150px;
+  min-width: 150px;
+}
+
+.customRangeControl {
+  width: 100%;
+}
+
+.timeRangeTrigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding-block: calc((var(--usage-filter-control-height) - var(--usage-filter-control-line-height)) / 2 - 1px);
+  line-height: var(--usage-filter-control-line-height);
+  text-align: start;
+}
+
+.timeRangeTriggerLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeRangeTriggerChevron {
+  flex: 0 0 auto;
+  margin-inline-start: auto;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.timeRangePopover {
+  max-width: calc(100vw - 24px);
+}
+
+.timeRangePopoverContent {
+  display: grid;
+  gap: 14px;
+  width: min(420px, calc(100vw - 56px));
+}
+
+.timeRangeSection {
+  display: grid;
+  gap: 10px;
+
+  & + & {
+    padding-top: 14px;
+    border-top: 1px solid var(--border-subtle);
+  }
+}
+
+.timeRangeSectionTitle {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.quickRangeGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 8px;
+}
+
+.quickRangeOption {
+  justify-content: space-between;
+  width: 100%;
+  padding-inline: 8px;
+  color: var(--text-primary);
+  text-align: start;
+
+  &[aria-pressed='true'] {
+    background: var(--surface-inset);
+    color: var(--primary-color);
+    font-weight: 600;
+  }
+}
+
+.timeRangeHint,
+.timeRangeError {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.timeRangeHint {
+  color: var(--text-muted);
+}
+
+.timeRangeError {
+  color: var(--error-color);
+}
+
+.timeRangeActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.verticalControl {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+}
+
+@include mobile {
+  .usageFilterBar {
+    width: 100%;
+  }
+
+  .quickRangeGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

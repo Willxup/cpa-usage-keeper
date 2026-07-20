@@ -24,14 +24,23 @@ describe('App role route normalization', () => {
     expect(appSource).toMatch(/const clearSession = useCallback\(\(\) => \{[\s\S]*?clearUsageStats\(\);[\s\S]*?setAuthState\('unauthenticated'\);/);
   });
 
-  it('mounts the shared footer from the app shell', () => {
-    expect(appSource).toContain("import './App.css';");
-    expect(appSource).toContain("import { AppFooter } from './components/AppFooter';");
-    expect(appSource).toMatch(/<div className="app-frame"[^>]*>[\s\S]*<main className="app-main">\{page\}<\/main>[\s\S]*<AppFooter loadVersion=\{authState === 'authenticated'\} \/>[\s\S]*<\/div>/);
+  it('resolves a typed shell variant once from embed state, auth state, and role', () => {
+    expect(appSource).toMatch(/const shellVariant: AppShellVariant = isEmbeddedInCPAMC[\s\S]*?\?\s*'embed'[\s\S]*?\?\s*'guest'[\s\S]*?\?\s*'viewer'[\s\S]*?:\s*'authenticated';/);
+    expect(appSource).toContain('data-shell-variant={shellVariant}');
+    expect(appSource).not.toContain('data-embed');
+    expect(appSource).not.toContain('app-frame');
   });
 
-  it('lets app pages fill the space above the shared footer', () => {
+  it('delegates chrome to AppShell variants without mounting a shared footer', () => {
+    expect(appSource).not.toContain('AppFooter');
+    expect(appSource).not.toMatch(/<footer/);
+    expect(appStylesSource).not.toContain('.app-footer');
+  });
+
+  it('keeps the App stylesheet to the shell host and viewport reset', () => {
+    expect(appStylesSource).toMatch(/\.app-shell-host\s*\{[\s\S]*?min-height:\s*100svh;/);
     expect(appStylesSource).toMatch(/\.app-main\s*\{[\s\S]*?display:\s*flex;/);
     expect(appStylesSource).toMatch(/\.app-main\s*\{[\s\S]*?flex-direction:\s*column;/);
+    expect(appStylesSource).not.toContain('background:');
   });
 });

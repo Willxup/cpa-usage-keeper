@@ -1,0 +1,78 @@
+@use '../../styles/mixins' as *;
+
+.sectionHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--toolbar-gap);
+  width: 100%;
+  min-width: 0;
+}
+
+.copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--control-gap);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.title {
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.section .title {
+  font-size: var(--type-section-title-size);
+  font-weight: var(--type-section-title-weight);
+  line-height: var(--type-section-title-line-height);
+}
+
+.subsection .title {
+  font-size: var(--type-subsection-title-size);
+  font-weight: var(--type-subsection-title-weight);
+  line-height: var(--type-subsection-title-line-height);
+}
+
+.description,
+.meta {
+  color: var(--text-secondary);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line-height);
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--control-gap);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+@include mobile {
+  .sectionHeader {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .actions {
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
+}

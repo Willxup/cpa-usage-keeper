@@ -13,38 +13,32 @@ vi.mock('react-i18next', () => ({
   }),
 }))
 
-// 当前测试组验证新原始 type 复用既有品牌标签与图标。
+// Provider 筛选使用标准 Ant Design Tabs，仍复用既有 provider 聚合规则。
 describe('CredentialProviderFilterBar', () => {
-  // Interactions 单独存在时也应显示 Gemini 品牌按钮。
-  it('renders Gemini branding for Gemini Interactions provider rows', () => {
+  // Interactions 单独存在时也应显示 Gemini 分类 tab。
+  it('renders a Gemini tab for Gemini Interactions provider rows', () => {
     // html 使用真实组件和仅包含 Interactions 的后端计数。
     const html = renderToStaticMarkup(
       // AI Provider scope 应把 Interactions 聚合到 Gemini。
       <CredentialProviderFilterBar scope="ai-provider" typeCounts={[{ type: 'gemini-interactions', count: 3 }]} value="all" onChange={() => undefined} />,
     )
-    // Gemini 品牌标签必须可见。
-    expect(html).toContain('usage_stats.credentials_filter_gemini')
-    // Interactions 复用现有 Gemini 图片，不增加新 icon asset。
-    expect(html).toContain('<img')
+    // Gemini 分类标签和聚合计数必须可见。
+    expect(html).toContain('usage_stats.credentials_filter_gemini (3)')
+    expect(html).toContain('role="tablist"')
     // GeminiCLI 是 Auth Files 标签，不能出现在 AI Provider scope。
     expect(html).not.toContain('usage_stats.credentials_filter_gemini_cli')
-    // 聚合后的按钮展示 Interactions 三行计数。
-    expect(html).toContain('>3</span>')
   })
 
-  // xAI API Key 需要在 AI Provider scope 显示现有 xAI 品牌。
-  it('renders the existing xAI label and icon for xAI provider rows', () => {
+  // xAI API Key 需要在 AI Provider scope 显示标准分类 tab。
+  it('renders the xAI tab for xAI provider rows', () => {
     // html 使用仅包含 xAI API Key 的 AI Provider 计数。
     const html = renderToStaticMarkup(
       // xAI provider 使用独立筛选按钮。
       <CredentialProviderFilterBar scope="ai-provider" typeCounts={[{ type: 'xai', count: 2 }]} value="all" onChange={() => undefined} />,
     )
-    // 复用现有 xAI 翻译 key。
-    expect(html).toContain('usage_stats.credentials_filter_xai')
-    // 复用现有 xAI SVG 图片。
-    expect(html).toContain('<img')
-    // 按钮展示两行计数。
-    expect(html).toContain('>2</span>')
+    // 保留 xAI 翻译 key 和计数。
+    expect(html).toContain('usage_stats.credentials_filter_xai (2)')
+    expect(html).toContain('role="tab"')
   })
 
   // Auth Files xAI 行为必须保持不变。
@@ -54,10 +48,9 @@ describe('CredentialProviderFilterBar', () => {
       // Auth Files 仍使用相同 xai 原始 type。
       <CredentialProviderFilterBar scope="auth-files" typeCounts={[{ type: 'xai', count: 1 }]} value="all" onChange={() => undefined} />,
     )
-    // xAI Auth Files 标签继续显示。
-    expect(html).toContain('usage_stats.credentials_filter_xai')
-    // xAI Auth Files 继续使用现有图标。
-    expect(html).toContain('<img')
+    // xAI Auth Files 标签和计数继续显示。
+    expect(html).toContain('usage_stats.credentials_filter_xai (1)')
+    expect(html).toContain('role="tab"')
   })
 
   // 没有任何正计数时组件继续返回空 markup。

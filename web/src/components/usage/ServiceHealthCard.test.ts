@@ -23,4 +23,34 @@ describe('ServiceHealthCard title', () => {
     expect(html).toContain('Request Health Timeline');
     expect(html).not.toContain('Reliability');
   });
+
+  it('makes every timeline block keyboard focusable with a complete description', () => {
+    const html = renderToStaticMarkup(createElement(ServiceHealthCard, {
+      loading: false,
+      usage: {
+        usage: { total_requests: 3, success_count: 2, failure_count: 1, total_tokens: 10 },
+        service_health: {
+          total_success: 2,
+          total_failure: 1,
+          success_rate: 66.7,
+          rows: 1,
+          columns: 1,
+          bucket_seconds: 60,
+          window_start: '2026-07-18T00:00:00Z',
+          window_end: '2026-07-18T00:01:00Z',
+          block_details: [{
+            start_time: '2026-07-18T00:00:00Z',
+            end_time: '2026-07-18T00:01:00Z',
+            success: 2,
+            failure: 1,
+            rate: 2 / 3,
+          }],
+        },
+      },
+    }));
+
+    expect(html).toContain('role="listitem"');
+    expect(html).toContain('tabindex="0"');
+    expect(html).toContain('OK 2, Fail 1');
+  });
 });

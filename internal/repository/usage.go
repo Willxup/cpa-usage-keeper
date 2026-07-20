@@ -1428,7 +1428,7 @@ func applyUsageOverviewHourlyStatToOverview(overview *dto.UsageOverviewRecord, r
 		},
 	})
 	if !result.Available {
-		overview.Summary.CostAvailable = false
+		markUsageOverviewCostUnavailable(&overview.Summary, row.Model, row.ModelAlias)
 	}
 	rowCost := result.Cost.TotalCostUSD
 	applyUsageOverviewStatToSummary(overview, row.RequestCount, row.InputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, rowCost)
@@ -1453,7 +1453,7 @@ func applyUsageOverviewDailyStatToOverview(overview *dto.UsageOverviewRecord, ro
 		},
 	})
 	if !result.Available {
-		overview.Summary.CostAvailable = false
+		markUsageOverviewCostUnavailable(&overview.Summary, row.Model, row.ModelAlias)
 	}
 	rowCost := result.Cost.TotalCostUSD
 	applyUsageOverviewStatToSummary(overview, row.RequestCount, row.InputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, rowCost)
@@ -1469,6 +1469,27 @@ func applyUsageOverviewStatToSummary(overview *dto.UsageOverviewRecord, requestC
 	overview.Summary.CacheCreationTokens += cacheCreationTokens
 	overview.Summary.ReasoningTokens += reasoningTokens
 	overview.Summary.TotalCost += cost
+}
+
+func markUsageOverviewCostUnavailable(summary *dto.UsageOverviewSummaryRecord, model, modelAlias string) {
+	if summary == nil {
+		return
+	}
+	summary.CostAvailable = false
+	modelName := strings.TrimSpace(model)
+	if modelName == "" {
+		modelName = strings.TrimSpace(modelAlias)
+	}
+	if modelName == "" {
+		return
+	}
+	for _, existing := range summary.UnpricedModels {
+		if existing == modelName {
+			return
+		}
+	}
+	summary.UnpricedModels = append(summary.UnpricedModels, modelName)
+	sort.Strings(summary.UnpricedModels)
 }
 
 // applyUsageOverviewHourlyStatToSnapshot 把小时 stats 合入 Overview 基础 usage 统计。
@@ -2245,7 +2266,11 @@ func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities
 	// 边界事件也按当前价格表计算 cost；缺价格且有计费 token 时标记 cost 不完整。
 	result := costResolver.CalculateEvent(event)
 	if !result.Available {
-		overview.Summary.CostAvailable = false
+		modelAlias := ""
+		if event.ModelAlias != nil {
+			modelAlias = *event.ModelAlias
+		}
+		markUsageOverviewCostUnavailable(&overview.Summary, event.Model, modelAlias)
 	}
 	cost := result.Cost.TotalCostUSD
 	overview.Summary.TotalCost += cost

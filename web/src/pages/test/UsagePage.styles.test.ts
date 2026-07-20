@@ -5,13 +5,18 @@ const readSource = (url: URL) => readFileSync(url, 'utf8').replace(/\r\n/g, '\n'
 
 const globalStyles = readSource(new URL('../../styles/global.scss', import.meta.url))
 const usagePageStyles = readSource(new URL('../UsagePage.module.scss', import.meta.url))
+const usageOverviewStyles = readSource(new URL('../../components/usage/UsageOverview.module.scss', import.meta.url))
+const requestEventsStyles = readSource(new URL('../../components/usage/RequestEventsDetailsCard.module.scss', import.meta.url))
+const usageSettingsStyles = readSource(new URL('../../components/usage/UsageSettings.module.scss', import.meta.url))
 const usagePageSource = readSource(new URL('../UsagePage.tsx', import.meta.url))
+const usageFilterBarSource = readSource(new URL('../../components/usage/UsageFilterBar.tsx', import.meta.url))
+const usageFilterBarStyles = readSource(new URL('../../components/usage/UsageFilterBar.module.scss', import.meta.url))
 const keyOverviewPageStyles = readSource(new URL('../KeyOverviewPage.module.scss', import.meta.url))
 const keyOverviewPageSource = readSource(new URL('../KeyOverviewPage.tsx', import.meta.url))
+const pageLayoutStyles = readSource(new URL('../../components/layout/PageLayout.module.scss', import.meta.url))
+const themeStyles = readSource(new URL('../../styles/themes.scss', import.meta.url))
 const requestEventsSource = readSource(new URL('../../components/usage/RequestEventsDetailsCard.tsx', import.meta.url))
 const priceSettingsSource = readSource(new URL('../../components/usage/PriceSettingsCard.tsx', import.meta.url))
-const credentialStyles = readSource(new URL('../../components/usage/credentials/CredentialSections.module.scss', import.meta.url))
-const selectSource = readSource(new URL('../../components/ui/Select.tsx', import.meta.url))
 const apiIndexSource = readSource(new URL('../../components/usage/index.ts', import.meta.url))
 const apiClientSource = readSource(new URL('../../lib/api.ts', import.meta.url))
 const i18nSource = readSource(new URL('../../i18n/index.ts', import.meta.url))
@@ -24,9 +29,10 @@ const analysisPanelSource = readSource(new URL('../../components/usage/analysis/
 const analysisPanelStyles = readSource(new URL('../../components/usage/analysis/AnalysisPanel.module.scss', import.meta.url))
 const overviewRealtimePanelSource = readSource(new URL('../../components/usage/OverviewRealtimePanel.tsx', import.meta.url))
 const statCardsSource = readSource(new URL('../../components/usage/StatCards.tsx', import.meta.url))
-const dailyAveragePanelSource = readSource(new URL('../../components/usage/DailyAveragePanel.tsx', import.meta.url))
-const timeRangeControlSource = readSource(new URL('../../components/usage/TimeRangeControl.tsx', import.meta.url))
-const timeRangeControlStyles = readSource(new URL('../../components/usage/TimeRangeControl.module.scss', import.meta.url))
+const serviceHealthSource = readSource(new URL('../../components/usage/ServiceHealthCard.tsx', import.meta.url))
+const credentialSectionShellSource = readSource(new URL('../../components/usage/credentials/CredentialSectionShell.tsx', import.meta.url))
+const sidebarUtilityActionsSource = readSource(new URL('../../components/layout/SidebarUtilityActions.tsx', import.meta.url))
+const sidebarUtilityActionsStyles = readSource(new URL('../../components/layout/SidebarUtilityActions.module.scss', import.meta.url))
 
 const requestEventColumnDefinitionBlock = (columnId: string) => {
   const start = requestEventsSource.indexOf(`id: '${columnId}',`)
@@ -58,6 +64,46 @@ const styleRuleBlock = (source: string, selector: string) => {
   return source.slice(open + 1, close)
 }
 
+describe('Usage component style ownership', () => {
+  const reusableUsageComponents = [
+    ['StatCards', statCardsSource],
+    ['ServiceHealthCard', serviceHealthSource],
+    ['OverviewRealtimePanel', overviewRealtimePanelSource],
+    ['RequestEventsDetailsCard', requestEventsSource],
+    ['SessionSettingsCard', sessionSettingsSource],
+    ['ApiKeySettingsCard', apiKeySettingsSource],
+    ['PriceSettingsCard', priceSettingsSource],
+    ['UsageFilterBar', usageFilterBarSource],
+  ] as const
+
+  it.each(reusableUsageComponents)('%s owns its styles outside UsagePage', (_name, source) => {
+    expect(source).not.toContain("@/pages/UsagePage.module.scss")
+  })
+
+  it('keeps feature selectors out of the page-owned stylesheet', () => {
+    expect(usagePageStyles).not.toMatch(/\.(dailyAveragePanel|statsPanel|requestEventsCard|overviewRealtimeSection|healthCard|pricingFixedCard|apiKeySettingsCard|sessionSettingsCard)\b/)
+  })
+
+  it('uses shared semantic section headings without changing chart internals', () => {
+    ;[
+      requestEventsSource,
+      sessionSettingsSource,
+      apiKeySettingsSource,
+      priceSettingsSource,
+      serviceHealthSource,
+      overviewRealtimePanelSource,
+      credentialSectionShellSource,
+      analysisPanelSource,
+    ].forEach((source) => {
+      expect(source).toContain('SectionHeader')
+      expect(source).toContain('headingLevel={2}')
+    })
+    expect(overviewRealtimePanelSource).toContain('headingLevel={3}')
+    expect(priceSettingsSource).toContain('<h3 id="saved-model-prices-title"')
+    expect(priceSettingsSource).not.toContain('<h4 id="saved-model-prices-title"')
+  })
+})
+
 describe('UsagePage toolbar styles', () => {
   it('removes obsolete Last Updated presentation and API plumbing', () => {
     expect(usagePageSource).not.toContain('lastSyncAt')
@@ -78,297 +124,131 @@ describe('UsagePage toolbar styles', () => {
     expect(i18nSource).not.toMatch(/\blast_updated:/)
   })
 
-  it('lets dashboard page frames consume the mode-specific width cap', () => {
-    expect(usagePageStyles).toMatch(/\.pageFrame\s*\{[\s\S]*?width:\s*min\(var\(--keeper-page-max-width, 1245px\), 100%\);/)
-    expect(keyOverviewPageStyles).toMatch(/\.pageFrame\s*\{[\s\S]*?width:\s*min\(var\(--keeper-page-max-width, 1245px\), 100%\);/)
+  it('shares one professional wide content canvas across both dashboards', () => {
+    expect(usagePageSource).toContain('<AppShell')
+    expect(keyOverviewPageSource).toContain('<AppShell')
+    expect(pageLayoutStyles).toContain('width: min(var(--page-max-width), 100%);')
+    expect(themeStyles).toContain('--page-max-width: 1440px;')
+    expect(usagePageStyles).not.toMatch(/\.container\s*\{/)
+    expect(keyOverviewPageStyles).not.toMatch(/\.container\s*\{/)
   })
 
-  it('uses shell density variables for dashboard spacing without root zoom', () => {
-    expect(usagePageStyles).toMatch(/\.pageShell\s*\{[\s\S]*?padding:\s*var\(--keeper-page-padding-top, 28px\) var\(--keeper-page-padding-x, 20px\) var\(--keeper-page-padding-bottom, 48px\);/)
-    expect(keyOverviewPageStyles).toMatch(/\.pageShell\s*\{[\s\S]*?padding:\s*var\(--keeper-page-padding-top, 28px\) var\(--keeper-page-padding-x, 20px\) var\(--keeper-page-padding-bottom, 48px\);/)
-    expect(usagePageStyles).toMatch(/\.pageFrame\s*\{[\s\S]*?gap:\s*var\(--keeper-page-frame-gap, 18px\);/)
-    expect(keyOverviewPageStyles).toMatch(/\.pageFrame\s*\{[\s\S]*?gap:\s*var\(--keeper-page-frame-gap, 18px\);/)
-    expect(usagePageStyles).toMatch(/\.topBar\s*\{[\s\S]*?padding:\s*var\(--keeper-top-bar-padding-y, 18px\) var\(--keeper-top-bar-padding-x, 20px\);/)
-    expect(keyOverviewPageStyles).toMatch(/\.topBar\s*\{[\s\S]*?padding:\s*var\(--keeper-top-bar-padding-y, 18px\) var\(--keeper-top-bar-padding-x, 20px\);/)
-    expect(usagePageStyles).toMatch(/\.eyebrow\s*\{[\s\S]*?min-height:\s*var\(--keeper-toolbar-control-height, 42px\);/)
-    expect(keyOverviewPageStyles).toMatch(/\.eyebrow\s*\{[\s\S]*?min-height:\s*var\(--keeper-toolbar-control-height, 42px\);/)
+  it('delegates dashboard header geometry to the shared shell and keeps the wide gutter tokens', () => {
+    expect(usagePageSource).toContain("variant={embedded ? 'embed' : 'authenticated'}")
+    expect(keyOverviewPageSource).toContain("variant={embedded ? 'embed' : 'viewer'}")
+    expect(pageLayoutStyles).toContain('padding: 12px var(--page-gutter) !important;')
+    expect(pageLayoutStyles).toContain('padding: var(--page-gutter);')
+    expect(pageLayoutStyles).toContain('gap: var(--page-stack);')
+    expect(themeStyles).toContain('--page-gutter: 24px;')
+    expect(themeStyles).toContain('--page-gutter-mobile: 12px;')
+    expect(themeStyles).toContain('--page-stack: 20px;')
+    expect(usagePageStyles).toMatch(/\.usageShell\s*\{[\s\S]*?--page-gutter:\s*40px;/)
+    expect(usagePageStyles).toMatch(/\.usageShell\s*\{[\s\S]*?--page-header-height:\s*88px;/)
+    expect(usagePageStyles).not.toContain('.appHeader')
+    expect(keyOverviewPageStyles).not.toMatch(/\.header\s*\{/)
   })
 
-  it('pins top notices to the viewport instead of the scrolled page body', () => {
-    const noticeBlock = usagePageStyles.match(/\.updateCheckToast\s*\{[\s\S]*?\n\}/)?.[0] ?? ''
-
-    expect(noticeBlock).toContain('position: fixed;')
-    expect(noticeBlock).toContain('z-index: $z-notification;')
-    expect(noticeBlock).not.toContain('position: absolute;')
+  it('renders dismissible top notices with Ant Design Alert instead of a custom toast layer', () => {
+    expect(usagePageSource).toContain('<Alert')
+    expect(usagePageSource).toContain('className={styles.topNotice}')
+    expect(usagePageSource).toContain('showIcon')
+    expect(usagePageSource).toContain('closable')
+    expect(usagePageStyles).toMatch(/\.topNotice\s*\{[\s\S]*?width:\s*100%;/)
+    expect(usagePageStyles).not.toContain('.updateCheckToast')
   })
 
-  it('uses the shared C time-range control on both dashboard surfaces', () => {
-    expect(usagePageSource).toContain('<TimeRangeControl')
-    expect(keyOverviewPageSource).toContain('<TimeRangeControl')
-    expect(usagePageSource).not.toContain('TimeRangeControlPrototype')
-    expect(keyOverviewPageSource).not.toContain('TimeRangeControlPrototype')
-    expect(usagePageSource).toContain('parseStoredUsageRangeState')
-    expect(keyOverviewPageSource).toContain('parseStoredUsageRangeState')
-    expect(timeRangeControlSource).toContain('data-time-range-trigger="desktop"')
-    expect(timeRangeControlSource).toContain('data-time-range-trigger="mobile"')
+  it('keeps shared scope control sizing encapsulated without targeting Ant Design internals', () => {
+    expect(usageFilterBarStyles).not.toContain('.apiKeyField')
+    expect(usageFilterBarStyles).not.toContain('.rangeField')
+    expect(usageFilterBarStyles).not.toContain('.customRangeField')
+    expect(usageFilterBarStyles).not.toContain('.ant-form-item')
+    expect(usageFilterBarStyles).not.toContain('.ant-select')
+    expect(usageFilterBarStyles).not.toContain('.ant-picker')
+    expect(usageFilterBarStyles).toContain('--usage-filter-control-height: 36px;')
+    expect(usageFilterBarStyles).toMatch(/\.apiKeyControl,[\s\S]*?\.rangeControl,[\s\S]*?\.autoRefreshControl\s*\{[\s\S]*?height:\s*var\(--usage-filter-control-height\);/)
+    expect(usageFilterBarStyles).toMatch(/\.timeRangeTrigger\s*\{[\s\S]*?padding-block:\s*calc\(\(var\(--usage-filter-control-height\) - var\(--usage-filter-control-line-height\)\) \/ 2 - 1px\);/)
   })
 
-  it('threads one applied custom range through Usage and Key Overview queries', () => {
-    expect(usagePageSource).toContain('const [timeRangeState, setTimeRangeState]')
-    expect(usagePageSource).toContain('const usageRangeQuery = useMemo(() => buildUsageRangeQuery({')
-    expect(usagePageSource).toContain('customRange={customRange}')
-    expect(usagePageSource).toContain('onChange={handleTimeRangeChange}')
-    expect(usagePageSource).toContain('fetchAnalysis(usageRangeQuery, controller.signal, selectedApiKeyId)')
-    expect(usagePageSource).toContain('fetchUsageEvents(usageRangeQuery, controller.signal, {')
-    expect(usagePageSource).toContain('exportUsageEvents(usageRangeQuery, format, {')
-
-    expect(keyOverviewPageSource).toContain('const [timeRangeState, setTimeRangeState]')
-    expect(keyOverviewPageSource).toContain('const usageRangeQuery = useMemo(() => buildUsageRangeQuery({')
-    expect(keyOverviewPageSource).toContain('customRange={customRange}')
-    expect(keyOverviewPageSource).toContain('onChange={handleTimeRangeChange}')
-    expect(keyOverviewPageSource).toContain('fetchKeyOverview(usageRangeQuery, controller.signal)')
+  it('keeps every compact header control on the same 12px spacing rhythm', () => {
+    expect(usageFilterBarSource).toContain('const compactItemStyle = compact ? { marginInlineEnd: 0 } : undefined;')
+    expect(usageFilterBarSource.match(/style=\{compactItemStyle\}/g)).toHaveLength(3)
+    expect(usageFilterBarSource).toContain('size={isVertical ? 12 : [12, 12]}')
+    expect(themeStyles).toContain('--toolbar-gap: 12px;')
   })
 
-  it('refreshes applied Custom bounds on both dashboard surfaces', () => {
-    expect(usagePageSource).toContain('scheduleCustomRangeBoundsRefresh({')
-    expect(usagePageSource).toContain('clampStoredUsageRangeStateToCurrentBounds(current')
-    expect(keyOverviewPageSource).toContain('scheduleCustomRangeBoundsRefresh({')
-    expect(keyOverviewPageSource).toContain('clampStoredUsageRangeStateToCurrentBounds(current')
+  it('renders a two-tier overview hierarchy in one Ant Design statistic surface', () => {
+    expect(statCardsSource).toContain("import { Statistic } from 'antd';")
+    expect(statCardsSource).toContain('<section className={styles.statsPanel}')
+    expect(statCardsSource).toContain('<div className={styles.statsGrid}>')
+    expect(statCardsSource).toContain('<Statistic')
+    expect(statCardsSource).not.toContain('className={styles.statCard}')
+    expect(usageOverviewStyles).toMatch(/\.statsPanel\s*\{[\s\S]*?border:\s*1px solid var\(--border-structural\);/)
+    expect(usageOverviewStyles).toMatch(/\.statItem\s*\{[\s\S]*?min-height:\s*144px;/)
+    expect(usageOverviewStyles).toMatch(/\.statColumnPrimary\s*\{[\s\S]*?grid-column:\s*span 2;/)
+    expect(usageOverviewStyles).toMatch(/\.statColumnSecondary\s*\{[\s\S]*?grid-column:\s*span 1;/)
+    expect(usageOverviewStyles).toMatch(/\.statItemPrimary\s*\{[\s\S]*?min-height:\s*184px;/)
+    expect(usageOverviewStyles).toMatch(/\.statItemSecondary\s*\{[\s\S]*?min-height:\s*132px;/)
+    expect(usageOverviewStyles).not.toContain('.statCard')
+    expect(usageOverviewStyles).not.toContain('.statTrend')
+    expect(statCardsSource).not.toContain('Tiny.Line')
+    expect(statCardsSource).toContain('function MetricSparkline')
+    expect(statCardsSource).toContain('points.length < 3')
+    expect(statCardsSource).toContain("label: t('usage_stats.request_health')")
+    expect(statCardsSource).toContain("label: t('usage_stats.total_cost')")
+    expect(statCardsSource).toContain("t('usage_stats.cost_unavailable')")
+    expect(statCardsSource).toContain("import { getChartTheme } from '@/lib/chartTheme';")
+    expect(statCardsSource).toContain('const accents = getChartTheme(isDark).series;')
+    expect(statCardsSource).toContain('accent: accents.blue.stroke')
+    expect(statCardsSource).toContain('accent: accents.teal.stroke')
+    expect(usageOverviewStyles).not.toMatch(/\.statItem\s*\{[\s\S]*?&::before\s*\{/)
+    expect(usageOverviewStyles).toMatch(/\.statIcon\s*\{[\s\S]*?border:\s*1px solid color-mix\(in srgb, var\(--accent\) 42%, transparent\);[\s\S]*?background:\s*var\(--accent-soft\);/)
+    expect(statCardsSource).not.toContain('accentBorder')
+    expect(statCardsSource).not.toMatch(/accent:\s*'#[0-9a-f]{6}'/)
   })
 
-  it('keeps the mobile API Key group and select at full available width', () => {
-    const mobileToolbarStart = usagePageStyles.indexOf('@include mobile {\n  .tabPill')
-    const mobileToolbarBlock = usagePageStyles.slice(mobileToolbarStart, usagePageStyles.indexOf('@media (prefers-reduced-motion: reduce)'))
-
-    expect(mobileToolbarBlock).toMatch(/\.apiKeyFilterGroup\s*\{[\s\S]*?max-width:\s*100%;/)
-    expect(mobileToolbarBlock).toMatch(/\.apiKeySelectControl\s*\{[\s\S]*?width:\s*100%;/)
+  it('keeps daily averages inside their matching stat tiles without inserting a range-dependent panel', () => {
+    expect(usagePageSource).not.toContain('<DailyAveragePanel')
+    expect(keyOverviewPageSource).not.toContain('<DailyAveragePanel')
+    expect(apiIndexSource).not.toContain('DailyAveragePanel')
+    expect(usagePageSource).toContain('dailyAverageUsage={dailyAverageUsage}')
+    expect(usagePageSource).toContain('showDailyAverages={showDailyAverages}')
+    expect(keyOverviewPageSource).toContain('dailyAverageUsage={dailyAverageUsage}')
+    expect(keyOverviewPageSource).toContain('showDailyAverages={showDailyAverages}')
+    expect(statCardsSource).toContain("t('usage_stats.avg_requests')")
+    expect(statCardsSource).toContain("t('usage_stats.avg_tokens')")
+    expect(statCardsSource).toContain("t('usage_stats.avg_cost')")
+    expect(statCardsSource).toContain('<div className={styles.statContextRow}>{card.context}</div>')
+    expect(usageOverviewStyles).not.toContain('.dailyAveragePanel')
   })
 
-  it('centers the mobile API Key label beside its select', () => {
-    const mobileToolbarStart = usagePageStyles.indexOf('@include mobile {\n  .tabPill')
-    const mobileToolbarBlock = usagePageStyles.slice(mobileToolbarStart, usagePageStyles.indexOf('@media (prefers-reduced-motion: reduce)'))
-
-    expect(mobileToolbarBlock).toMatch(/\.apiKeyFilterField\s*\{[\s\S]*?align-items:\s*center;/)
-    expect(mobileToolbarBlock).not.toMatch(/\.apiKeyFilterField\s*\{[\s\S]*?align-items:\s*stretch;/)
+  it('opens the model-pricing settings tab from the pricing coverage notice', () => {
+    expect(usagePageSource).toContain("setSettingsTab('model-pricing')")
+    expect(usagePageSource).toContain("setActiveTab('settings')")
+    expect(usagePageSource).toContain('onConfigure={openModelPricingSettings}')
+    expect(usagePageSource).toContain('onConfigurePricing={openModelPricingSettings}')
+    expect(usagePageSource).toContain('activeKey={settingsTab}')
   })
 
-  it('uses a centered mobile modal and a Codex-style layered slider track', () => {
-    const mobileSliderStyles = timeRangeControlStyles.slice(timeRangeControlStyles.indexOf('@include mobile {'))
-
-    expect(timeRangeControlStyles).not.toContain('align-self: flex-end')
-    expect(timeRangeControlStyles).not.toContain('margin-bottom: -16px')
-    expect(timeRangeControlStyles).toMatch(/\.sliderControl\s*\{[\s\S]*?height:\s*48px;/)
-    expect(timeRangeControlStyles).toMatch(/\.sliderRail\s*\{[\s\S]*?height:\s*32px;/)
-    expect(timeRangeControlStyles).toContain('.sliderDotActive')
-    expect(styleRuleBlock(timeRangeControlStyles, '.sliderDot')).toContain('width: 7px;')
-    expect(timeRangeControlStyles).toMatch(/\.rangeInput::-webkit-slider-thumb\s*\{[\s\S]*?width:\s*42px;/)
-    expect(styleRuleBlock(timeRangeControlStyles, '.sliderFill')).toContain('linear-gradient(180deg')
-    expect(styleRuleBlock(timeRangeControlStyles, '.sliderFill')).toContain('linear-gradient(90deg, #244ccf 0%, #4056e8 22%, #8b58f0 48%, #b45df4 63%, #793feb 82%, #5c33dc 100%)')
-    expect(styleRuleBlock(timeRangeControlStyles, '.sliderFill')).toContain('inset 0 1px 0 rgba(255, 255, 255, 0.30)')
-    expect(mobileSliderStyles).toMatch(/\.sliderControl\s*\{[\s\S]*?height:\s*52px;/)
-    expect(mobileSliderStyles).toMatch(/\.sliderRail\s*\{[\s\S]*?height:\s*34px;/)
-    expect(mobileSliderStyles).toMatch(/\.rangeInput::-webkit-slider-thumb\s*\{[\s\S]*?width:\s*46px;/)
-  })
-
-  it('lets the liquid cover passed divider dots', () => {
-    const coveredDot = [...timeRangeControlStyles.matchAll(/\.sliderDotActive\s*\{([\s\S]*?)\n\}/g)]
-      .map((match) => match[1])
-      .find((block) => block.includes('opacity: 0;')) ?? ''
-
-    expect(coveredDot).toContain('opacity: 0;')
-    expect(coveredDot).not.toContain('background: rgba(205, 234, 255, 0.68);')
-  })
-
-  it('matches the API Key labeled double-pill shell before opening', () => {
-    const desktopShell = styleRuleBlock(timeRangeControlStyles, '.desktopShell')
-    const shellLabel = styleRuleBlock(timeRangeControlStyles, '.shellLabel')
-    const mobileSliderStyles = timeRangeControlStyles.slice(timeRangeControlStyles.indexOf('@include mobile {'))
-
-    expect(timeRangeControlSource).toContain('data-time-range-shell="desktop"')
-    expect(timeRangeControlSource).toContain('data-time-range-shell="mobile"')
-    expect(desktopShell).toContain('gap: 8px;')
-    expect(desktopShell).toContain('padding: 5px 6px 5px 12px;')
-    expect(shellLabel).toContain('font-size: 10px;')
-    expect(shellLabel).toContain('font-weight: 700;')
-    expect(mobileSliderStyles).toMatch(/\.mobileShell\s*\{[\s\S]*?display:\s*grid;/)
-    expect(mobileSliderStyles).toMatch(/\.mobileShell\s*\{[\s\S]*?grid-template-columns:\s*auto minmax\(0, 1fr\);/)
-  })
-
-  it('matches the API Key hover and open states on the desktop Range trigger', () => {
-    const desktopHover = styleRuleBlock(timeRangeControlStyles, '.desktopTrigger:hover')
-    const desktopOpen = styleRuleBlock(timeRangeControlStyles, ".desktopTrigger[aria-expanded='true']")
-
-    expect(desktopHover).toContain('border-color: var(--border-hover);')
-    expect(desktopHover).toContain('background: var(--bg-primary);')
-    expect(desktopHover).not.toContain('background: var(--bg-tertiary);')
-    expect(desktopOpen).toContain('border-color: var(--primary-color);')
-    expect(desktopOpen).toContain('background: var(--bg-primary);')
-    expect(desktopOpen).toContain('box-shadow: var(--shadow), 0 0 0 3px rgba($primary-color, 0.18);')
-    expect(timeRangeControlSource).toContain('<IconChevronDown size={14} className={styles.triggerChevron} />')
-    expect(timeRangeControlStyles).toMatch(/\[aria-expanded='true'\][\s\S]*?\.triggerChevron\s*\{[\s\S]*?transform:\s*rotate\(180deg\);/)
-  })
-
-  it('keeps all five range modes fully visible with consistent content-aware spacing', () => {
-    const desktopTrigger = styleRuleBlock(timeRangeControlStyles, '.desktopTrigger {')
-    const modeSelector = styleRuleBlock(timeRangeControlStyles, '.modeSelector')
-    const modeButton = styleRuleBlock(timeRangeControlStyles, '.modeButton,')
-
-    expect(desktopTrigger).toContain('width: 192px;')
-    expect(modeSelector).toContain('grid-template-columns: repeat(5, max-content);')
-    expect(modeSelector).toContain('justify-content: space-between;')
-    expect(modeSelector).toContain('gap: 4px;')
-    expect(modeButton).toContain('min-width: max-content;')
-    expect(modeButton).toContain('width: auto;')
-    expect(modeButton).toContain('white-space: nowrap;')
-    expect(modeButton).not.toContain('text-overflow: ellipsis;')
-    expect(modeButton).not.toContain('overflow: hidden;')
-  })
-
-  it('sizes custom actions like model price row actions', () => {
-    const customAction = styleRuleBlock(timeRangeControlStyles, '.customRangeAction:global(.btn.btn-sm)')
-
-    expect(customAction).toContain('min-height: 32px;')
-    expect(customAction).toContain('padding: 7px 12px;')
-    expect(customAction).toContain('border-radius: 999px;')
-    expect(customAction).toContain('font-size: 12px;')
-    expect(customAction).not.toContain('min-width:')
-  })
-
-  it('uses Keeper theme colors for custom day and hour selections', () => {
-    const dayRange = styleRuleBlock(timeRangeControlStyles, '.customCalendarDayInRange')
-    const selectedDay = styleRuleBlock(timeRangeControlStyles, '.customCalendarDaySelected')
-    const selectedDayOverlay = styleRuleBlock(timeRangeControlStyles, '.customCalendarDaySelected::before')
-    const rangeRowStart = styleRuleBlock(timeRangeControlStyles, '.customCalendarRangeRowStart')
-    const rangeRowEnd = styleRuleBlock(timeRangeControlStyles, '.customCalendarRangeRowEnd')
-    const outsideMonth = styleRuleBlock(timeRangeControlStyles, '.customCalendarDayOutsideMonth')
-    const outsideMonthLabel = styleRuleBlock(timeRangeControlStyles, '.customCalendarDayOutsideMonth > span')
-    const selectedOutsideMonthLabel = styleRuleBlock(timeRangeControlStyles, '.customCalendarDayOutsideMonth.customCalendarDaySelected > span')
-    const rangePanel = styleRuleBlock(timeRangeControlStyles, '.rangePanel')
-    const darkRangePanel = styleRuleBlock(timeRangeControlStyles, ":global([data-theme='dark']) .rangePanel")
-    const selectedHour = [...timeRangeControlStyles.matchAll(/\.customHourOptionActive\s*\{([\s\S]*?)\n\}/g)]
-      .map((match) => match[1])
-      .find((block) => block.includes('var(--primary-color)')) ?? ''
-
-    expect(rangePanel).toContain('--custom-calendar-selected-bg: var(--primary-active);')
-    expect(rangePanel).toContain('--custom-calendar-selected-text: var(--primary-contrast, #fff);')
-    expect(dayRange).not.toContain('var(--range-slider-accent)')
-    expect(rangePanel).toContain('--custom-calendar-range-bg: color-mix(in srgb, var(--primary-color) 18%, transparent);')
-    expect(darkRangePanel).toContain('--custom-calendar-range-bg: color-mix(in srgb, var(--primary-color) 12%, var(--bg-primary));')
-    expect(darkRangePanel).toContain('--custom-calendar-selected-text: var(--bg-primary);')
-    expect(dayRange).toContain('background: var(--custom-calendar-range-bg);')
-    expect(selectedDay).toContain('background: var(--custom-calendar-range-bg);')
-    expect(selectedDay).toContain('color: var(--custom-calendar-selected-text);')
-    expect(selectedDayOverlay).toContain("content: '';")
-    expect(selectedDayOverlay).toContain('background: var(--custom-calendar-selected-bg);')
-    expect(rangeRowStart).toContain('border-radius: 9px 0 0 9px;')
-    expect(rangeRowEnd).toContain('border-radius: 0 9px 9px 0;')
-    expect(timeRangeControlStyles).toMatch(/\.customCalendarRangeRowStart\.customCalendarRangeRowEnd\s*\{[\s\S]*?border-radius:\s*9px;/)
-    expect(outsideMonth).toContain('color: var(--text-secondary);')
-    expect(outsideMonth).not.toContain('opacity:')
-    expect(outsideMonthLabel).toContain('opacity: 0.58;')
-    expect(selectedOutsideMonthLabel).toContain('opacity: 1;')
-    expect(selectedHour).toContain('var(--primary-color)')
-    expect(selectedHour).toContain('var(--bg-primary)')
-    expect(selectedHour).not.toContain('#2563eb')
-    expect(selectedHour).not.toContain('#38bdf8')
-    expect(selectedHour).not.toContain('#67e8f9')
-  })
-
-  it('contains hour-list wheel scrolling at its own boundaries', () => {
-    const hourList = styleRuleBlock(timeRangeControlStyles, '.customHourList')
-
-    expect(hourList).toContain('position: relative;')
-    expect(hourList).toContain('overscroll-behavior-y: contain;')
-  })
-
-  it('animates only custom view changes and disables that motion when requested', () => {
-    expect(styleRuleBlock(timeRangeControlStyles, '.customSummary,')).toContain('animation: customRangeViewEnter')
-    expect(timeRangeControlStyles).toContain('@keyframes customRangeViewEnter')
-    expect(timeRangeControlStyles).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.customSummary,[\s\S]*?\.customPicker\s*\{[\s\S]*?animation:\s*none;/)
-  })
-
-  it('centers the fixed timer icon with the mobile current-range label', () => {
-    const triggerIcon = styleRuleBlock(timeRangeControlStyles, '.triggerIcon')
-    const triggerLabel = styleRuleBlock(timeRangeControlStyles, '.triggerLabel')
-
-    expect(timeRangeControlSource).toContain('<IconTimer size={16} className={styles.triggerIcon} />')
-    expect(triggerIcon).toContain('display: block;')
-    expect(triggerIcon).toContain('width: 16px;')
-    expect(triggerIcon).toContain('height: 16px;')
-    expect(triggerIcon).toContain('flex: 0 0 auto;')
-    expect(triggerLabel).toContain('line-height: 1;')
-  })
-
-  it('defines the blue slider accent inside the portalled range panel', () => {
-    expect(styleRuleBlock(timeRangeControlStyles, '.rangePanel')).toContain('--range-slider-accent: #3b82f6;')
-    expect(styleRuleBlock(timeRangeControlStyles, '.sliderFill')).toContain('var(--range-slider-accent)')
-  })
-
-  it('matches the reference video with flowing blue-violet light and independent particles', () => {
-    const liquidFill = styleRuleBlock(timeRangeControlStyles, '.sliderFill')
-    const particle = styleRuleBlock(timeRangeControlStyles, '.liquidParticle')
-
-    expect(liquidFill).toContain('overflow: hidden;')
-    expect(liquidFill).toContain('#244ccf 0%')
-    expect(liquidFill).toContain('#b45df4 63%')
-    expect(liquidFill).toContain('#5c33dc 100%')
-    expect(timeRangeControlStyles).toContain('animation: liquidGlowPrimary 8s ease-in-out infinite alternate;')
-    expect(timeRangeControlStyles).toContain('animation: liquidGlowSecondary 11s ease-in-out infinite alternate-reverse;')
-    expect(timeRangeControlStyles).toContain('@keyframes liquidGlowPrimary')
-    expect(timeRangeControlStyles).toContain('@keyframes liquidGlowSecondary')
-    expect(particle).toContain('animation-duration: var(--liquid-particle-duration);')
-    expect(particle).toContain('animation-delay: var(--liquid-particle-delay);')
-    expect(timeRangeControlStyles).toContain('animation-name: liquidParticleFloatA;')
-    expect(timeRangeControlStyles).toContain('animation-name: liquidParticleFloatB;')
-    expect(timeRangeControlStyles).toContain('animation-name: liquidParticleFloatC;')
-    expect(timeRangeControlStyles).not.toContain('background-size: 10px 8px, 13px 11px, 17px 14px, 23px 17px;')
-  })
-
-  it('freezes the liquid and particles for reduced-motion users', () => {
-    expect(timeRangeControlStyles).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.sliderFill::before,[\s\S]*?\.sliderFill::after,[\s\S]*?\.liquidParticle\s*\{[\s\S]*?animation:\s*none;/)
-    expect(timeRangeControlStyles).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.liquidParticle\s*\{[\s\S]*?opacity:\s*0\.72;/)
-  })
-
-  it('keeps overview stat cards in a two-plus-four desktop grid with a distinct cache-rate color', () => {
-    expect(usagePageStyles).toMatch(/\.statCard\s*\{[\s\S]*?grid-column:\s*span 3;/)
-    expect(usagePageStyles).toMatch(/\.statCard:nth-child\(-n \+ 2\)\s*\{[\s\S]*?grid-column:\s*span 6;/)
-    expect(usagePageStyles).toMatch(/\.statLabel\s*\{[\s\S]*?letter-spacing:\s*0;/)
-    expect(statCardsSource).toContain("key: 'requests'")
-    expect(statCardsSource).toContain("accent: '#3b82f6'")
-    expect(statCardsSource).toContain("key: 'cache-read-rate'")
-    expect(statCardsSource).toContain("accent: '#14b8a6'")
-    expect(statCardsSource.match(/accent:\s*'#[0-9a-f]{6}'/g)).toHaveLength(new Set(statCardsSource.match(/accent:\s*'#[0-9a-f]{6}'/g)).size)
-  })
-
-  it('places the Daily Average panel above stat cards with animated responsive styling', () => {
-    const usageDailyAverageIndex = usagePageSource.indexOf('<DailyAveragePanel usage={dailyAveragePanelUsage} loading={overviewDisplayLoading} reserveVisible={reserveDailyAveragePanel} />')
-    const keyDailyAverageIndex = keyOverviewPageSource.indexOf('<DailyAveragePanel usage={dailyAveragePanelUsage} loading={overviewDisplayLoading} reserveVisible={reserveDailyAveragePanel} />')
-    expect(usageDailyAverageIndex).toBeGreaterThanOrEqual(0)
-    expect(keyDailyAverageIndex).toBeGreaterThanOrEqual(0)
-    expect(usageDailyAverageIndex).toBeLessThan(usagePageSource.indexOf('<StatCards'))
-    expect(keyDailyAverageIndex).toBeLessThan(keyOverviewPageSource.indexOf('<StatCards'))
-    expect(dailyAveragePanelSource).toContain('buildDailyAverageMetrics')
-    expect(dailyAveragePanelSource).not.toContain('dailyAverageIdentityIcon')
-    expect(usagePageStyles).toMatch(/\.dailyAveragePanel\s*\{[\s\S]*?transition:[\s\S]*?opacity/)
-    expect(usagePageStyles).toMatch(/\.dailyAveragePanelEntering\s*\{[\s\S]*?transform:\s*translateY\(-6px\);/)
-    expect(usagePageStyles).toMatch(/\.dailyAveragePanelVisible\s*\{[\s\S]*?opacity:\s*1;/)
-    expect(usagePageStyles).toMatch(/\.dailyAverageMetrics\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/)
-    expect(usagePageStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.dailyAverageMetrics\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/)
-    expect(usagePageStyles).toMatch(/\.dailyAverageMetricCost\s*\{[\s\S]*?grid-column:\s*1 \/ -1;/)
-    expect(usagePageStyles).toContain('@media (prefers-reduced-motion: reduce)')
+  it('keeps shared metric structure while allowing primary-only sparklines', () => {
+    expect(usageOverviewStyles).toMatch(/\.statColumn\s*\{[\s\S]*?display:\s*flex;/)
+    expect(usageOverviewStyles).toMatch(/\.statItem\s*\{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?width:\s*100%;/)
+    expect(usageOverviewStyles).toMatch(/\.statMetaRow\s*\{[\s\S]*?min-height:\s*38px;/)
+    expect(usageOverviewStyles).toMatch(/\.statContextRow\s*\{[\s\S]*?min-height:\s*var\(--type-caption-line-height\);/)
+    expect(statCardsSource).toContain('card.trend &&')
+    expect(statCardsSource).toContain('<MetricSparkline')
   })
 
   it('renders the realtime overview panel below Request Health Timeline with the planned responsive grid', () => {
     expect(usagePageSource).toContain('<OverviewRealtimePanel')
     expect(keyOverviewPageSource).toContain('<OverviewRealtimePanel')
     expect(usagePageSource.indexOf('<ServiceHealthCard usage={usage} loading={overviewDisplayLoading} />')).toBeLessThan(usagePageSource.indexOf('<OverviewRealtimePanel'))
-    expect(usagePageStyles).toMatch(/\.overviewRealtimeGrid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/)
-    expect(usagePageStyles).toMatch(/\.overviewRealtimeGrid\s*\{[\s\S]*?@include mobile\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
-    expect(usagePageStyles).toMatch(/\.overviewRealtimeCardFull\s*\{[\s\S]*?grid-column:\s*1 \/ -1;/)
-    expect(usagePageStyles).toMatch(/\.overviewRealtimeWindowSwitcher\s*\{[\s\S]*?border-radius:\s*999px;/)
-    expect(usagePageStyles).toMatch(/\.overviewRealtimeSection\s*\{[\s\S]*?margin-top:\s*12px;/)
-    expect(usagePageStyles).not.toMatch(/\.overviewRealtimeSection\s*\{[\s\S]*?border-top:/)
-    expect(usagePageStyles).not.toMatch(/\.overviewRealtimeSection\s*\{[\s\S]*?padding-top:/)
+    expect(usageOverviewStyles).toMatch(/\.overviewRealtimeGrid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/)
+    expect(usageOverviewStyles).toMatch(/\.overviewRealtimeGrid\s*\{[\s\S]*?@include mobile\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
+    expect(usageOverviewStyles).toMatch(/\.overviewRealtimeCardFull\s*\{[\s\S]*?grid-column:\s*1 \/ -1;/)
+    expect(usageOverviewStyles).toMatch(/\.overviewRealtimeWindowSwitcher\s*\{[\s\S]*?border-radius:\s*999px;/)
+    expect(usageOverviewStyles).toMatch(/\.overviewRealtimeSection\s*\{[\s\S]*?gap:\s*var\(--section-stack\);[\s\S]*?margin-top:\s*0;/)
+    expect(usageOverviewStyles).not.toMatch(/\.overviewRealtimeSection\s*\{[\s\S]*?border-top:/)
+    expect(usageOverviewStyles).not.toMatch(/\.overviewRealtimeSection\s*\{[\s\S]*?padding-top:/)
     expect(usagePageSource).toContain("value === '15m' || value === '30m' || value === '60m'")
     expect(keyOverviewPageSource).toContain("value === '15m' || value === '30m' || value === '60m'")
     expect(usagePageSource).not.toContain("value === '5m'")
@@ -381,58 +261,94 @@ describe('UsagePage toolbar styles', () => {
     expect(overviewRealtimePanelSource).toContain('overview_realtime_latency_empty')
     expect(overviewRealtimePanelSource).toContain('overview_realtime_cache_empty')
     expect(overviewRealtimePanelSource).toContain('overviewRealtimeUsageMetaPill')
-    expect(usagePageStyles).toContain('.overviewRealtimeEmptyOverlay')
-    expect(usagePageStyles).toContain('.overviewRealtimeUsageMetaPill')
-    expect(usagePageStyles).not.toContain('.overviewRealtimeLegend')
+    expect(usageOverviewStyles).toContain('.overviewRealtimeEmptyOverlay')
+    expect(usageOverviewStyles).toContain('.overviewRealtimeUsageMetaPill')
+    expect(usageOverviewStyles).not.toContain('.overviewRealtimeLegend')
     expect(i18nSource).not.toContain('overview_realtime_response_level')
     expect(i18nSource).not.toContain('overview_realtime_ttft_p95')
     expect(i18nSource).not.toContain('overview_realtime_latency_p95')
   })
 
-  it('keeps normal-mode range controls mounted in a stable transition slot', () => {
-    expect(usagePageSource).toContain("${!isEmbeddedInCPAMC ? styles.toolbarActionsRightAnimated : ''}")
-    expect(usagePageSource).toContain('{(!isEmbeddedInCPAMC || showRangeControls) && (')
-    expect(usagePageSource).toContain('showRangeControls ? styles.usageFilterTransitionOpen : \'\'')
-    expect(usagePageSource).toContain('inert={!showRangeControls}')
-    expect(usagePageSource).toContain('<div className={styles.usageFilterBar}>')
-    expect(usagePageSource).not.toContain("key={showRangeControls ? 'open' : 'closed'}")
-    expect(usagePageSource).toContain('className={styles.usageRefreshSlot}')
-    expect(usagePageStyles).toMatch(/\.toolbarActionsRightAnimated\s*\{[\s\S]*?display:\s*grid;/)
-    expect(usagePageStyles).toMatch(/\.toolbarActionsRightAnimated\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\) auto;/)
-    expect(usagePageStyles).toMatch(/\.usageFilterTransition\s*\{[\s\S]*?max-width:\s*0;/)
-    expect(usagePageStyles).toMatch(/\.usageFilterTransition\s*\{[\s\S]*?transform:\s*translateX\(8px\);/)
-    expect(usagePageStyles).toMatch(/\.usageFilterTransition\s*\{[\s\S]*?max-width 340ms cubic-bezier\(0\.22, 1, 0\.36, 1\)/)
-    expect(usagePageStyles).toMatch(/\.usageFilterTransition\s*\{[\s\S]*?opacity 260ms ease/)
-    expect(usagePageStyles).toMatch(/\.usageFilterTransitionOpen\s*\{[\s\S]*?max-width:\s*960px;/)
-    expect(usagePageStyles).toMatch(/\.usageFilterTransitionOpen\s*\{[\s\S]*?transform:\s*translateX\(0\);/)
-    expect(usagePageStyles).toMatch(/\.usageFilterTransitionInner\s*\{[\s\S]*?overflow:\s*hidden;/)
-    expect(usagePageStyles).toMatch(/\.usageFilterTransitionInner\s*\{[\s\S]*?width:\s*max-content;/)
-    expect(usagePageStyles).toMatch(/\.usageRefreshSlot\s*\{[\s\S]*?flex:\s*0 0 auto;/)
-    expect(usagePageStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.usageFilterTransition,\s*\.usageFilterTransitionInner\s*\{[\s\S]*?width:\s*100%;/)
-    expect(usagePageStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.usageFilterTransitionOpen\s*\{[\s\S]*?max-width:\s*100%;/)
+  it('renders compact shared scope controls inline in the header', () => {
+    expect(usagePageSource).toContain('UsageFilterBar,')
+    expect(usagePageSource).toContain("from '@/components/usage';")
+    expect(usagePageSource).not.toContain('<Popover')
+    expect(usagePageSource).toContain('<Drawer')
+    expect(usagePageSource).toContain('scopeFiltersOpen')
+    expect(usagePageSource).toContain('scopeFilterContent')
+    expect(usagePageSource).toContain('scopeFilterControls')
+    expect(usagePageSource).not.toContain('scopeSummary')
+    expect(usagePageSource).not.toContain('<Collapse')
+    expect(usagePageSource).toContain('onClick={() => setScopeFiltersOpen(true)}')
+    expect(usagePageSource).toContain('shellHeaderUtility')
+    expect(usagePageSource).toContain('headerUtility: shellHeaderUtility')
+    expect(usagePageSource).not.toContain('type="primary"')
+    expect(usagePageStyles).not.toContain('.headerStack')
+    expect(usagePageStyles).not.toContain('.scopeFilterPopover')
+    expect(usagePageStyles).toContain('.headerScopeControls')
+    expect(usageFilterBarSource).toContain('styles.usageFilterBar')
+    expect(usageFilterBarSource).toContain('layout={layout}')
+    expect(usageFilterBarSource).toContain("label={compact ? undefined : t('usage_stats.api_key_filter')}")
+    expect(usageFilterBarSource).toContain("label={compact ? undefined : t('usage_stats.range_filter')}")
+    expect(usageFilterBarSource.indexOf("label={compact ? undefined : t('usage_stats.auto_refresh')}")).toBeLessThan(
+      usageFilterBarSource.indexOf("label={compact ? undefined : t('usage_stats.api_key_filter')}")
+    )
+    expect(usageFilterBarSource.indexOf("label={compact ? undefined : t('usage_stats.api_key_filter')}")).toBeLessThan(
+      usageFilterBarSource.indexOf("label={compact ? undefined : t('usage_stats.range_filter')}")
+    )
+    expect(usageFilterBarSource).toContain('<DatePicker.RangePicker')
+    expect(usageFilterBarSource).toContain('<Popover')
+    expect(usageFilterBarSource).toContain("t('usage_stats.range_quick_ranges')")
+    expect(usageFilterBarSource).toContain("t('usage_stats.range_absolute')")
+    expect(usageFilterBarSource).not.toContain('isCustomRange &&')
+    expect(usageFilterBarSource).not.toContain('type="date"')
+    expect(usageFilterBarStyles).not.toContain('.ant-form-item')
+    expect(usageFilterBarStyles).toMatch(/\.apiKeyControl\s*\{[\s\S]*?width:\s*220px;/)
   })
 
-  it('collapses the mobile filter height with the historical transition timing', () => {
-    const reducedMotionStart = usagePageStyles.indexOf('@media (prefers-reduced-motion: reduce)')
-    const mobileStart = usagePageStyles.lastIndexOf('@include mobile {', reducedMotionStart)
-    const mobileStyles = usagePageStyles.slice(mobileStart, reducedMotionStart)
-    const transitionBlock = mobileStyles.match(/\.toolbarActionsRightAnimated \.usageFilterTransition\s*\{([^}]*)\}/)?.[1] ?? ''
-    const openBlock = mobileStyles.match(/\.toolbarActionsRightAnimated \.usageFilterTransitionOpen\s*\{([^}]*)\}/)?.[1] ?? ''
-
-    expect(transitionBlock).toContain('max-height: 0;')
-    expect(transitionBlock).toContain('max-height 340ms cubic-bezier(0.22, 1, 0.36, 1)')
-    expect(openBlock).toContain('max-height: 280px;')
+  it('moves the overview refresh cadence into the shared scope controls and drops the manual overview refresh', () => {
+    expect(usagePageSource).not.toContain('useHeaderRefresh')
+    expect(usagePageSource).not.toContain('manualRefreshLoading')
+    expect(usagePageSource).not.toContain('<PageToolbar')
+    expect(usagePageSource).toContain('showAutoRefresh: showAutoRefreshControl')
+    expect(usagePageSource).toContain('autoRefreshOptions: overviewAutoRefreshOptions')
+    expect(usagePageSource).toContain('onRefresh={() => void handleEventsRefresh()}')
+    expect(usagePageSource).toContain('refreshing={eventsLoading}')
+    expect(requestEventsSource).toContain('onRefresh?: () => void')
+    expect(requestEventsSource).toContain('<ReloadOutlined />')
   })
 
-  it('keeps CPAMC range controls on the immediate toolbar layout path', () => {
-    expect(usagePageSource).toContain('isEmbeddedInCPAMC ? styles.usageFilterTransitionImmediate')
-    expect(usagePageStyles).toMatch(/\.usageFilterTransitionImmediate\s*\{[\s\S]*?display:\s*contents;/)
-    expect(usagePageStyles).toMatch(/\.usageFilterTransitionImmediate\s+\.usageFilterTransitionInner\s*\{[\s\S]*?display:\s*contents;/)
+  it('hoists the Analysis refresh action into the shell header for the analysis tab only', () => {
+    expect(usagePageSource).toContain("headerActions: activeTab === 'analysis' ? (")
+    expect(usagePageSource).toContain('className={styles.analysisRefreshControl}')
+    expect(usagePageSource).toContain('loading={analysisLoading}')
+    expect(usagePageSource).toContain('onClick={() => void loadAnalysis()}')
+    expect(usagePageSource).toContain("{t('usage_stats.refresh')}")
+    const analysisRefreshControl = styleRuleBlock(usagePageStyles, '.analysisRefreshControl:global(.ant-btn)')
+    expect(analysisRefreshControl).toContain('height: 36px;')
+    expect(analysisRefreshControl).toContain('padding-block: 6px;')
+    expect(analysisRefreshControl).toContain('line-height: 22px;')
+    const analysisHeaderAction = usagePageSource.slice(
+      usagePageSource.indexOf("headerActions: activeTab === 'analysis'"),
+      usagePageSource.indexOf('headerUtility: shellHeaderUtility'),
+    )
+    expect(analysisHeaderAction).not.toContain('size="small"')
+    expect(usagePageSource).not.toContain('refreshing={analysisLoading}')
+    expect(analysisPanelSource).not.toContain('onRefresh')
+    expect(analysisPanelSource).not.toContain('refreshing')
+    expect(analysisPanelSource).not.toContain("t('usage_stats.tab_analysis')")
+    expect(analysisPanelSource).not.toContain('ReloadOutlined')
+    expect(analysisPanelSource).toContain('AnalysisCardHeader')
   })
 
-  it('gives Request Events and Settings cards page-level elevation', () => {
-    expect(styleRuleBlock(usagePageStyles, '.requestEventsCard:global(.card)')).toContain('box-shadow: var(--shadow-lg);')
-    expect(styleRuleBlock(usagePageStyles, '.settingsSections > :global(.card)')).toContain('box-shadow: var(--shadow-lg);')
+  it('uses restrained Ant Design boundaries for Request Events and Settings', () => {
+    expect(styleRuleBlock(requestEventsStyles, '.requestEventsCard:global(.ant-card)')).toContain('box-shadow: none;')
+    expect(usagePageSource).toContain('<Tabs')
+    expect(usagePageSource).toContain('className={styles.settingsTabs}')
+    expect(usagePageSource).toContain('destroyOnHidden={false}')
+    expect(usagePageSource.match(/forceRender: true/g)).toHaveLength(3)
+    expect(usagePageStyles).toMatch(/\.settingsTabs\s*\{[\s\S]*?:global\(\.ant-tabs-tabpane > \.ant-card\)\s*\{[\s\S]*?box-shadow:\s*none;/)
+    expect(usagePageStyles).not.toContain('.settingsSections')
   })
 
   it('does not reload Request Events filter options for table query changes', () => {
@@ -458,7 +374,7 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageSource).not.toContain('downloadUsageEventRequestLog(normalizedEventId)')
     const downloadHandler = usagePageSource.slice(
       usagePageSource.indexOf('const handleRequestLogDownload = useCallback'),
-      usagePageSource.indexOf('const refreshActiveTab = useCallback'),
+      usagePageSource.indexOf('const handleOverviewRefresh = useCallback'),
     )
     expect(downloadHandler).not.toContain("showTopNotice('success'")
     expect(downloadHandler).toContain("showTopNotice('error'")
@@ -477,11 +393,24 @@ describe('UsagePage toolbar styles', () => {
     expect(cleanupEffect).not.toContain('setRequestLog')
   })
 
-  it('removes stale header control styles after the Overview chart cleanup', () => {
+  it('delegates the authenticated application shell to AppShell', () => {
+    expect(usagePageSource).toContain('<AppShell')
+    expect(usagePageSource).toContain("variant={embedded ? 'embed' : 'authenticated'}")
+    expect(usagePageSource).toContain('<Menu')
+    expect(usagePageSource).toContain('<Drawer')
+    expect(usagePageSource).not.toContain('<Sider')
+    expect(usagePageSource).not.toContain('<Layout')
+    expect(usagePageSource).not.toContain('<PageHeader')
+    expect(usagePageSource).not.toContain('<PageContent')
+    expect(usagePageSource).not.toContain('<PageTitle')
+    expect(usagePageStyles).toMatch(/\.usageShell\s*\{[\s\S]*?width:\s*min\(var\(--app-shell-max-width\), 100%\);[\s\S]*?margin-inline:\s*auto;/)
+    expect(usagePageStyles).not.toMatch(/\.appShell\s*\{/)
+    expect(usagePageStyles).not.toMatch(/\.appSider\s*\{/)
+    expect(usagePageStyles).not.toMatch(/\.appMain\s*\{/)
+    expect(usagePageStyles).not.toContain('margin-inline-start: 232px;')
     expect(usagePageStyles).not.toContain('.syncSwitcher')
     expect(usagePageStyles).not.toContain('.syncPill')
     expect(usagePageStyles).not.toContain('.refreshButton')
-    expect(usagePageStyles).not.toContain('.pageTitle')
   })
 
   it('keeps the API Key filter visible on the Analysis page so Analysis requests can be filtered', () => {
@@ -510,153 +439,101 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageSource).toContain("const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'auth-files', 'ai-provider', 'settings'] as const")
   })
 
-  it('keeps Sign out as the rightmost header action after Check Updates', () => {
-    expect(usagePageSource).toContain('logout')
-    expect(usagePageSource).toContain('fetchUpdateCheck')
-    expect(usagePageSource.indexOf("t('usage_stats.check_updates')")).toBeLessThan(usagePageSource.indexOf("t('common.logout')"))
-    expect(usagePageStyles).toContain('.signOutSwitcher')
-    expect(usagePageStyles).toContain('.signOutPill')
+  it('keeps utility actions in the sidebar footer instead of the page header', () => {
+    expect(usagePageSource).toContain('<SidebarUtilityActions')
+    expect(usagePageSource.match(/<SidebarUtilityActions/g)).toHaveLength(1)
+    expect(usagePageSource).toContain('sidebarUtility: sidebarUtilityActions')
+    expect(usagePageSource).toContain('styles.mobileNavigationActions')
+    expect(usagePageSource).not.toContain('<PreferencesDropdown />')
+    expect(usagePageSource).not.toContain('styles.headerActions')
+    expect(usagePageStyles).toContain('.mobileNavigationMenu')
+    expect(usagePageStyles).toContain('.mobileNavigationActions')
   })
 
-  it('keeps mobile tab labels on one line without changing desktop tab sizing', () => {
-    const desktopTabPillBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.tabPill {'),
-      usagePageStyles.indexOf('.tabPillActive')
-    )
-
-    expect(usagePageStyles).toContain('@include mobile {\n  .tabPill {\n    white-space: nowrap;\n  }\n')
-    expect(desktopTabPillBlock).not.toContain('white-space: nowrap;')
+  it('keeps the Ant Design utility action semantics in the sidebar action component', () => {
+    expect(sidebarUtilityActionsSource.indexOf("t('usage_stats.check_updates')")).toBeLessThan(sidebarUtilityActionsSource.indexOf("t('common.logout')"))
+    expect(sidebarUtilityActionsSource).toContain('icon={<LogoutOutlined />}')
+    expect(sidebarUtilityActionsSource).toContain('danger')
+    expect(sidebarUtilityActionsSource).toContain('aria-pressed={hasNewVersion}')
+    expect(sidebarUtilityActionsStyles).toContain('.utilityButton')
+    expect(sidebarUtilityActionsSource).toContain('type="text"')
+    expect(sidebarUtilityActionsStyles).toContain('.preferencesActions')
+    expect(sidebarUtilityActionsSource).toContain('section="language"')
+    expect(sidebarUtilityActionsSource).toContain('section="appearance"')
   })
 
-  it('lets API Key Settings content scroll inside the card instead of being clipped', () => {
-    expect(usagePageStyles).toMatch(/\.apiKeySettingsCard:global\(\.card\)\s*\{[\s\S]*?min-height:\s*auto;/)
-    expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?flex:\s*0 0 auto;/)
-    expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?height:\s*var\(--settings-list-scroll-height\);/)
-    expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?min-height:\s*0;/)
-    expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?overflow-y:\s*auto;/)
-    expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?padding-right:\s*4px;/)
-    const apiKeySettingsMobileBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('@include mobile {\n  .apiKeySettingsCard:global(.card)'),
-      usagePageStyles.indexOf('.pricesList')
-    )
-
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsCard:global\(\.card\)\s*\{[\s\S]*?height:\s*auto;/)
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?height:\s*var\(--settings-list-scroll-height\);/)
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsList\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsItem\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/)
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsItem\s*\{[^}]*align-items:\s*stretch;/)
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasField\s*\{[\s\S]*?width:\s*100%;/)
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasField\s*\{[\s\S]*?:global\(\.form-group\)\s*\{[\s\S]*?width:\s*100%;/)
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasField\s*\{[\s\S]*?:global\(\.form-group\)\s*\{[\s\S]*?min-width:\s*0;/)
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasField\s*\{[\s\S]*?:global\(\.form-group\)\s*\{[\s\S]*?margin-bottom:\s*0;/)
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasInput\s*\{[\s\S]*?max-width:\s*100%;/)
+  it('delegates desktop and mobile navigation labels to Ant Design Menu', () => {
+    expect(usagePageSource).toContain('<Menu')
+    expect(usagePageSource).toContain('items={navigationItems}')
+    expect(usagePageSource).toContain('mode="inline"')
+    expect(usagePageStyles).not.toContain('.tabPill')
+    expect(usagePageStyles).not.toContain('.tabPillActive')
   })
 
-  it('lets Session Management content shrink until it needs to scroll', () => {
-    const sessionSettingsBodyBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.sessionSettingsBody {'),
-      usagePageStyles.indexOf('.sessionSettingsList')
-    )
-    const sessionSettingsMobileBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('@include mobile {\n  .apiKeySettingsCard:global(.card)'),
-      usagePageStyles.indexOf('.pricesList')
-    )
-    const sessionSettingsMobileBodyBlock = sessionSettingsMobileBlock.slice(
-      sessionSettingsMobileBlock.indexOf('  .sessionSettingsBody {'),
-      sessionSettingsMobileBlock.indexOf('  .sessionSettingsItem {')
-    )
-
-    expect(usagePageStyles).toMatch(/\.sessionSettingsCard:global\(\.card\)\s*\{[\s\S]*?min-height:\s*auto;/)
-    expect(usagePageStyles).toMatch(/\.sessionSettingsBody\s*\{[\s\S]*?flex:\s*0 0 auto;/)
-    expect(sessionSettingsBodyBlock).toMatch(/\n\s{2}max-height:\s*var\(--settings-list-scroll-height\);/)
-    expect(sessionSettingsBodyBlock).not.toMatch(/\n\s{2}height:\s*var\(--settings-list-scroll-height\);/)
-    expect(usagePageStyles).toMatch(/\.sessionSettingsBody\s*\{[\s\S]*?overflow-y:\s*auto;/)
-    expect(usagePageStyles).toMatch(/\.sessionSettingsBody\s*\{[\s\S]*?overflow-x:\s*hidden;/)
-    expect(sessionSettingsMobileBodyBlock).toMatch(/\n\s{4}max-height:\s*var\(--settings-list-scroll-height\);/)
-    expect(sessionSettingsMobileBodyBlock).not.toMatch(/\n\s{4}height:\s*var\(--settings-list-scroll-height\);/)
+  it('renders API Key Settings as an Ant Design table with standard controls', () => {
+    expect(apiKeySettingsSource).toContain('Table,')
+    expect(apiKeySettingsSource).toContain('Input,')
+    expect(apiKeySettingsSource).toContain('<Table<CpaApiKeySettingsItem>')
+    expect(apiKeySettingsSource).toContain('pagination={false}')
+    expect(apiKeySettingsSource).toContain('rowKey={getApiKeySettingsRowKey}')
+    expect(apiKeySettingsSource).toContain("type=\"primary\"")
+    expect(apiKeySettingsSource).toContain('copyApiKeyToClipboard(item.apiKey)')
+    expect(usageSettingsStyles).toMatch(/\.apiKeySettingsTable:global\(\.ant-table-wrapper\)\s*\{[\s\S]*?:global\(\.ant-table-tbody > tr > td\)/)
+    expect(usageSettingsStyles).not.toContain('.apiKeySettingsItem')
+    expect(usagePageStyles).not.toContain('.apiKeyAliasInput')
   })
 
-  it('reserves the Session Management action column so current rows keep timestamps aligned', () => {
-    expect(usagePageStyles).toMatch(/\.sessionSettingsItem\s*\{[\s\S]*?grid-template-columns:\s*minmax\(160px, 0\.8fr\) minmax\(220px, 1\.2fr\) minmax\(92px, auto\);/)
-    expect(usagePageStyles).toMatch(/\.sessionSettingsLogoutButton\s*\{[\s\S]*?min-width:\s*92px;/)
+  it('renders Session Management as an Ant Design table with controlled confirmation', () => {
+    expect(sessionSettingsSource).toContain('Table,')
+    expect(sessionSettingsSource).toContain('Popconfirm,')
+    expect(sessionSettingsSource).toContain('<Table<AuthManagedSessionItem>')
+    expect(sessionSettingsSource).toContain('pagination={false}')
+    expect(sessionSettingsSource).toContain('rowKey={getSessionRowKey}')
+    expect(sessionSettingsSource).toContain('open={isOpen}')
+    expect(sessionSettingsSource).toContain('loading: isRevoking')
+    expect(sessionSettingsSource).toContain('if (session.current)')
+    expect(usageSettingsStyles).toMatch(/\.sessionSettingsTable:global\(\.ant-table-wrapper\)\s*\{[\s\S]*?:global\(\.ant-table-tbody > tr > td\)/)
+    expect(usageSettingsStyles).not.toContain('.sessionSettingsItem')
+    expect(usageSettingsStyles).not.toContain('.sessionSettingsLogoutButton')
   })
 
-  it('keeps Session and API Key Settings row actions compact like Model Pricing actions', () => {
-    const apiKeyButtonsBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.apiKeySettingsCopyButton,'),
-      usagePageStyles.indexOf('.sessionSettingsCard:global(.card)')
-    )
-    const sessionButtonBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.sessionSettingsLogoutButton {'),
-      usagePageStyles.indexOf('.sessionSettingsConfirmText')
-    )
-
-    expect(usagePageStyles).toMatch(/\.settingsCompactAction\s*\{[\s\S]*?min-height:\s*32px;/)
-    expect(usagePageStyles).toMatch(/\.settingsCompactAction\s*\{[\s\S]*?padding:\s*7px 12px;/)
-    expect(apiKeyButtonsBlock).not.toContain('min-height: 40px;')
-    expect(sessionButtonBlock).not.toContain('min-height: 40px;')
-    expect(apiKeySettingsSource).toContain('styles.settingsCompactAction')
-    expect(sessionSettingsSource).toContain('styles.settingsCompactAction')
+  it('removes legacy compact action styling from migrated Settings tables', () => {
+    expect(apiKeySettingsSource).not.toContain('styles.settingsCompactAction')
+    expect(sessionSettingsSource).not.toContain('styles.settingsCompactAction')
+    expect(usageSettingsStyles).not.toContain('.settingsCompactAction')
   })
 
-  it('contains wheel scrolling at overflowing card boundaries without trapping short lists', () => {
-    expect(requestEventsSource).toContain('useScrollBoundaryContainment(requestEventsTableWrapperRef, rows.length > 0);')
-    expect(requestEventsSource).toContain('useScrollBoundaryContainment(scrollerRef);')
-    expect(apiKeySettingsSource).toContain('useScrollBoundaryContainment(apiKeySettingsBodyRef);')
-    expect(sessionSettingsSource).toContain('useScrollBoundaryContainment(sessionSettingsBodyRef);')
-    expect(priceSettingsSource).toContain('useScrollBoundaryContainment(pricesGridRef, sortedModelPrices.length > 0);')
-    expect(requestEventsSource).toContain('ref={requestEventsTableWrapperRef} className={styles.requestEventsTableWrapper}')
-    expect(requestEventsSource).toContain('className={styles.requestEventsLogSectionPanelInner} ref={scrollerRef}')
-    expect(apiKeySettingsSource).toContain('ref={apiKeySettingsBodyRef} className={styles.apiKeySettingsBody}')
-    expect(sessionSettingsSource).toContain('ref={sessionSettingsBodyRef} className={styles.sessionSettingsBody}')
-    expect(priceSettingsSource).toContain('ref={pricesGridRef} className={styles.pricesGrid}')
-    expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\[data-scroll-boundary-contained='true'\],[\s\S]*?\.requestEventsLogSectionPanelInner\[data-scroll-boundary-contained='true'\],[\s\S]*?\.apiKeySettingsBody\[data-scroll-boundary-contained='true'\],[\s\S]*?\.sessionSettingsBody\[data-scroll-boundary-contained='true'\],[\s\S]*?\.pricesGrid\[data-scroll-boundary-contained='true'\]\s*\{[\s\S]*?overscroll-behavior-y:\s*contain;/)
-    expect(credentialStyles).not.toContain('data-scroll-boundary-contained')
+  it('delegates the Model Pricing viewport to an Ant Design table', () => {
+    const pricingBlock = usageSettingsStyles.slice(
+      usageSettingsStyles.indexOf('.pricingFixedCard:global(.ant-card) {'),
+      usageSettingsStyles.indexOf('.priceForm')
+    )
+
+    expect(pricingBlock).toMatch(/\.pricingFixedCard:global\(\.ant-card\)\s*\{[\s\S]*?height:\s*auto;/)
+    expect(priceSettingsSource).toContain('<Table<PricingTableRow>')
+    expect(priceSettingsSource).toContain('pagination={false}')
+    expect(priceSettingsSource).toContain('scroll={{ x: 1080, y: 480 }}')
+    expect(usageSettingsStyles).toMatch(/\.pricingTable:global\(\.ant-table-wrapper\)\s*\{[\s\S]*?:global\(\.ant-table-tbody > tr > td\)/)
+    expect(usageSettingsStyles).not.toContain('.pricesGrid')
+    expect(usageSettingsStyles).not.toContain('.priceItem')
+    expect(usageSettingsStyles).not.toContain('.apiKeySettingsBody')
   })
 
-  it('keeps Model Pricing Settings list viewport aligned with API Key Settings without shrinking it behind the form', () => {
-    const settingsSectionsBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.settingsSections {'),
-      usagePageStyles.indexOf('// Pricing Section')
-    )
-    const pricingBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.pricingFixedCard {'),
-      usagePageStyles.indexOf('.priceForm')
-    )
-    const apiKeyBodyBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.apiKeySettingsBody {'),
-      usagePageStyles.indexOf('.apiKeySettingsList')
-    )
-    const apiKeySettingsMobileBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('@include mobile {\n  .apiKeySettingsCard:global(.card)'),
-      usagePageStyles.indexOf('.pricesList')
-    )
-    const pricingGridBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.pricesGrid {'),
-      usagePageStyles.indexOf('.priceItem')
-    )
-
-    expect(settingsSectionsBlock).toMatch(/--settings-list-scroll-height:\s*480px;/)
-    expect(pricingBlock).toMatch(/\.pricingFixedCard\s*\{[\s\S]*?height:\s*auto;/)
-    expect(pricingBlock).not.toMatch(/\.pricingSection\s*\{[\s\S]*?height:\s*480px;/)
-    expect(apiKeyBodyBlock).toMatch(/height:\s*var\(--settings-list-scroll-height\);/)
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?height:\s*var\(--settings-list-scroll-height\);/)
-    expect(pricingGridBlock).toMatch(/height:\s*var\(--settings-list-scroll-height\);/)
-    expect(pricingGridBlock).toMatch(/\.pricesGrid\s*\{[\s\S]*?overflow-y:\s*auto;/)
-    expect(pricingGridBlock).toMatch(/\.pricesGrid\s*\{[\s\S]*?overflow-x:\s*hidden;/)
-    expect(pricingGridBlock).not.toMatch(/@include mobile\s*\{[\s\S]*?overflow:\s*visible;/)
-  })
-
-  it('reflows the model pricing form from four to two to one column based on its container width', () => {
-    expect(priceSettingsSource).toContain('className={`${styles.formField} ${styles.priceFormModelField}`}')
-    expect(priceSettingsSource).toContain('className={`${styles.usagePillAction} ${styles.priceFormAction}`}')
-    expect(usagePageStyles).toMatch(/\.priceForm\s*\{[\s\S]*?container-name:\s*model-pricing-form;/)
-    expect(usagePageStyles).toMatch(/\.priceForm\s*\{[\s\S]*?container-type:\s*inline-size;/)
-    expect(usagePageStyles).toMatch(/\.formRow\s*\{[\s\S]*?display:\s*grid;/)
-    expect(usagePageStyles).toMatch(/\.formRow\s*\{[\s\S]*?grid-template-columns:\s*minmax\(180px, 1\.4fr\) minmax\(130px, 0\.85fr\) repeat\(5, minmax\(120px, 1fr\)\) auto;/)
-    expect(usagePageStyles).toMatch(/@container model-pricing-form \(max-width:\s*1120px\)\s*\{[\s\S]*?grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\);/)
-    expect(usagePageStyles).toMatch(/@container model-pricing-form \(max-width:\s*720px\)\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);[\s\S]*?\.priceFormModelField,[\s\S]*?\.priceFormAction\s*\{[\s\S]*?grid-column:\s*1 \/ -1;/)
-    expect(usagePageStyles).toMatch(/@container model-pricing-form \(max-width:\s*480px\)\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
+  it('uses an Ant Design Form that reflows from four to two to one column', () => {
+    expect(priceSettingsSource).toContain('<Form layout="vertical" className={styles.priceForm}>')
+    expect(priceSettingsSource).toContain('<Form.Item')
+    expect(priceSettingsSource).toContain('className={styles.priceFormModelField}')
+    expect(priceSettingsSource).toContain('className={styles.priceFormAction}')
+    expect(usageSettingsStyles).toMatch(/\.priceForm\s*\{[\s\S]*?container-name:\s*model-pricing-form;/)
+    expect(usageSettingsStyles).toMatch(/\.priceForm\s*\{[\s\S]*?container-type:\s*inline-size;/)
+    expect(usageSettingsStyles).toMatch(/\.formRow\s*\{[\s\S]*?display:\s*grid;/)
+    expect(usageSettingsStyles).toMatch(/\.formRow\s*\{[\s\S]*?:global\(\.ant-form-item\)\s*\{[\s\S]*?margin-bottom:\s*0;/)
+    expect(usageSettingsStyles).toMatch(/\.formRow\s*\{[\s\S]*?grid-template-columns:\s*minmax\(240px, 1\.4fr\) minmax\(130px, 0\.85fr\) repeat\(5, minmax\(120px, 1fr\)\) auto;/)
+    expect(priceSettingsSource).toContain('const MODEL_PRICE_FILTER_POPUP_WIDTH = 360;')
+    expect(priceSettingsSource).toContain('popupMatchSelectWidth={MODEL_PRICE_FILTER_POPUP_WIDTH}')
+    expect(usageSettingsStyles).toMatch(/@container model-pricing-form \(max-width:\s*1120px\)\s*\{[\s\S]*?grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\);/)
+    expect(usageSettingsStyles).toMatch(/@container model-pricing-form \(max-width:\s*720px\)\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);[\s\S]*?\.priceFormModelField,[\s\S]*?\.priceFormAction\s*\{[\s\S]*?grid-column:\s*1 \/ -1;/)
+    expect(usageSettingsStyles).toMatch(/@container model-pricing-form \(max-width:\s*480px\)\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
   })
 
   it('keeps the Analysis chart presentation aligned with the redesigned Analysis dashboard', () => {
@@ -669,32 +546,38 @@ describe('UsagePage toolbar styles', () => {
     expect(analysisPanelSource).toContain("t('usage_stats.analysis_heatmap_title')")
     expect(analysisPanelSource).toContain("t('usage_stats.analysis_heatmap_subtitle')")
     expect(analysisPanelSource).toContain("t('usage_stats.total_cost')")
-    expect(analysisPanelSource).toContain("import '@/lib/chartjs'")
-    expect(overviewRealtimePanelSource).toContain("import '@/lib/chartjs'")
-    expect(analysisPanelSource).toContain("import { Bar, Doughnut, Scatter } from 'react-chartjs-2'")
+    expect(analysisPanelSource).not.toContain("import '@/lib/chartjs'")
+    expect(overviewRealtimePanelSource).not.toContain("import '@/lib/chartjs'")
+    expect(overviewRealtimePanelSource).toContain("import { Base, Line, type LineConfig } from '@ant-design/charts'")
+    expect(overviewRealtimePanelSource).toContain('<Line {...tokenChartConfig} />')
+    expect(overviewRealtimePanelSource).toContain('<Base {...ttftDistributionConfig} />')
+    expect(analysisPanelSource).toContain("import { Base, Line, Pie, type LineConfig } from '@ant-design/charts'")
+    expect(analysisPanelSource).not.toContain("from 'react-chartjs-2'")
+    expect(analysisPanelSource).not.toContain("from 'chart.js'")
     expect(usagePageSource).not.toContain('ChartJS.register(')
     expect(usagePageSource).not.toContain("from 'chart.js'")
-    expect(analysisPanelSource).toContain('<Bar data={chartData} options={chartOptions} plugins={[drawRequestsLineOnTopPlugin, drawTokenAverageLinePlugin]} />')
-    expect(analysisPanelSource).toContain("id: 'analysis-token-average-line'")
-    expect(analysisPanelSource).toContain("const activeContentKey = `${activeTab?.id ?? 'empty'}:${items.map((item) => item.key).join('|')}`")
-    expect(analysisPanelSource).toContain('<Doughnut key={`chart-${activeContentKey}`} data={chartData} options={chartOptions} />')
-    expect(analysisPanelSource).toContain('hoverOffset: COMPOSITION_DONUT_HOVER_OFFSET')
-    expect(analysisPanelSource).toContain("position: 'analysisCompositionCursor'")
-    expect(analysisPanelSource).toContain('analysisCompositionCursor')
-    expect(analysisPanelSource).toContain('<Scatter data={chartData} options={chartOptions} plugins={[modelEfficiencyTooltipPointerPlugin]} />')
-    expect(analysisPanelSource).toContain("id: 'analysis-model-efficiency-tooltip-pointer'")
-    expect(analysisPanelSource).toContain("cost: '#14b8a6'")
-    expect(analysisPanelSource).toContain('ticks: { color: chartTheme.textSecondary')
+    expect(analysisPanelSource).toContain('<Base {...tokenConfig} />')
+    expect(analysisPanelSource).toContain('<Line {...requestConfig} />')
+    expect(analysisPanelSource).toContain('<Line {...costConfig} />')
+    expect(analysisPanelSource).toContain("type: 'lineY'")
+    expect(analysisPanelSource).toContain("const activeContentKey = activeTab?.id ?? 'empty';")
+    expect(analysisPanelSource).toContain('<Pie key={`chart-${activeContentKey}`} {...chartConfig} />')
+    expect(analysisPanelSource).toContain('innerRadius: 0.58')
+    expect(analysisPanelSource).toContain('COMPOSITION_DONUT_HOVER_OFFSET / 5')
+    expect(analysisPanelSource).toContain("type: 'lineX'")
+    expect(analysisPanelSource).toContain('<Base {...chart.config} />')
+    expect(analysisPanelSource).toContain('getStableEntityColor')
+    expect(analysisPanelSource).toContain('labelFill: chartTheme.textSecondary')
     expect(analysisPanelSource).toContain('analysis_cost_per_million_tokens')
     expect(analysisPanelSource).toContain('analysis_blended_rate')
     expect(analysisPanelSource).toContain('styles.costStackFloatingTooltip')
-    expect(analysisPanelSource).toContain('onMouseEnter={(event) => showCostTooltip(tooltipLines, event)}')
-    expect(analysisPanelSource).toContain('createLinearGradient')
+    expect(analysisPanelSource).toContain('onMouseEnter={(event) => showCostTooltip(segment.tooltipLines, event)}')
+    expect(analysisPanelSource).not.toContain('createLinearGradient')
     expect(analysisPanelSource).not.toContain('createRadialGradient')
     expect(analysisPanelSource).toContain('className={styles.costRateMetric}')
-    expect(analysisPanelSource).toContain("yAxisID: 'cost'")
-    expect(analysisPanelSource).toContain('buildAnalysisTokenChartOptions')
-    expect(analysisPanelSource).toContain('buildCompositionChartData')
+    expect(analysisPanelSource).not.toContain('yAxisID')
+    expect(analysisPanelSource).toContain('buildTokenStackConfig')
+    expect(analysisPanelSource).toContain('buildCompositionConfig')
     expect(analysisPanelSource).toContain('className={styles.donutCanvasBox}')
     expect(analysisPanelSource).toContain('className={styles.compositionUsageList}')
     expect(analysisPanelSource).toContain('className={styles.compositionUsageMetaPill}')
@@ -705,8 +588,8 @@ describe('UsagePage toolbar styles', () => {
     expect(analysisPanelSource).toContain('heatmapTooltip')
     expect(analysisPanelSource).toContain('styles.heatmapModelHeaderCell')
     expect(analysisPanelSource).toContain('styles.heatmapModelLabel')
-    expect(analysisPanelSource).toContain('onMouseEnter={(event) => showTooltip([model], event)}')
-    expect(analysisPanelSource).toContain('onFocus={(event) => showTooltip([model], event)}')
+    expect(analysisPanelSource).toContain('onMouseEnter={(event) => onShowTooltip(header.tooltipLines, event)}')
+    expect(analysisPanelSource).toContain('onFocus={(event) => onShowTooltip(header.tooltipLines, event)}')
     expect(analysisPanelSource).not.toContain('styles.efficiencyList')
     expect(analysisPanelSource).not.toContain('styles.efficiencyRow')
     expect(analysisPanelSource).toContain('getHeatmapCellColor(intensity, isDark)')
@@ -768,11 +651,16 @@ describe('UsagePage toolbar styles', () => {
     expect(compositionUsageMetaPillBlock).toContain('max-width: 100%;')
     expect(compositionUsageMetaPillBlock).toContain('min-width: 0;')
     expect(compositionUsageMetaPillBlock).toContain('flex-wrap: wrap;')
-    expect(analysisPanelStyles).toMatch(/\.modelEfficiencyFloatingTooltip\s*\{[\s\S]*?pointer-events:\s*none;/)
+    expect(analysisPanelStyles).not.toContain('.modelEfficiencyFloatingTooltip')
+    expect(analysisPanelStyles).toMatch(/\.chartDataTable\s*\{[\s\S]*?clip:\s*rect\(0, 0, 0, 0\);/)
+    expect(analysisPanelStyles).toMatch(/\.chartDataTable\s*\{[\s\S]*?clip-path:\s*inset\(50%\);/)
+    expect(analysisPanelStyles).toMatch(/\.chartDataTable\s*\{[\s\S]*?contain:\s*strict;/)
+    expect(analysisPanelStyles).toMatch(/\.tokenSmallMultiples\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/)
     expect(analysisPanelStyles).toMatch(/\.compositionTabActive\s*\{[\s\S]*?background:\s*color-mix\(in srgb, var\(--bg-primary\) 84%, var\(--bg-secondary\)\);/)
     expect(analysisPanelStyles).not.toMatch(/\.compositionTabActive\s*\{[\s\S]*?#2563eb/)
-    expect(analysisPanelStyles).toMatch(/\.heatmapCardLight \.analysisChartSurface\s*\{[\s\S]*?background:\s*color-mix/)
-    expect(analysisPanelStyles).toMatch(/\.heatmapCardDark \.analysisChartSurface\s*\{[\s\S]*?background:\s*var\(--bg-secondary\);/)
+    expect(analysisPanelStyles).toMatch(/\.analysisCard\s*\{[\s\S]*?border:\s*1px solid var\(--border-structural\);/)
+    expect(analysisPanelStyles).toMatch(/\.analysisChartSurface\s*\{[\s\S]*?border:\s*0;/)
+    expect(analysisPanelStyles).toMatch(/\.tokenMetricChart\s*\{[\s\S]*?border:\s*0;/)
     expect(analysisPanelStyles).toMatch(/\.heatmapCardDark\s*\{[\s\S]*?\.heatmapCorner,\s*\.heatmapHeaderCell\s*\{[\s\S]*?background:\s*color-mix\(in srgb, var\(--bg-tertiary\) 72%, var\(--bg-primary\)\);/)
     expect(analysisPanelStyles).not.toContain('#100e16')
     expect(analysisPanelStyles).not.toContain('#17131d')
@@ -812,24 +700,56 @@ describe('UsagePage toolbar styles', () => {
     expect(analysisPanelStyles).not.toContain('rgb(250, 244, 230)')
   })
 
-  it('widens only the API key dropdown menu without changing the trigger width', () => {
-    expect(selectSource).toContain('dropdownMinWidth?: number')
-    expect(selectSource).toContain('rect.left - (width - rect.width) / 2')
-    expect(usagePageSource).toContain('dropdownMinWidth={180}')
+  it('keeps the API key trigger close to masked-key content while preserving a readable popup', () => {
+    expect(usagePageSource).toContain("import { Alert, Button as AntButton, Drawer, Menu, Modal, Tabs } from 'antd';")
+    expect(sidebarUtilityActionsSource).toContain('<PreferencesDropdown')
+    expect(usagePageSource).not.toContain('<Segmented')
+    expect(usageFilterBarSource).toContain('<Select')
+    expect(usageFilterBarSource).toContain('const COMPACT_API_KEY_POPUP_WIDTH = 220;')
+    expect(usageFilterBarSource).toContain('popupMatchSelectWidth={compact ? COMPACT_API_KEY_POPUP_WIDTH : undefined}')
+    expect(usageFilterBarStyles).toMatch(/\.apiKeyControl\s*\{[\s\S]*?flex:\s*0 0 220px;/)
+    expect(usageFilterBarStyles).toMatch(/\.apiKeyControl\s*\{[\s\S]*?min-width:\s*220px;/)
+    expect(usageFilterBarStyles).toMatch(/\.rangeControl\s*\{[\s\S]*?min-width:\s*188px;/)
+    expect(usageFilterBarStyles).toMatch(/\.autoRefreshControl\s*\{[\s\S]*?min-width:\s*150px;/)
+    expect(usageFilterBarStyles).toMatch(/\.verticalControl\s*\{[\s\S]*?width:\s*100%;[\s\S]*?min-width:\s*0;/)
+    expect(usageFilterBarSource).toContain('isVertical ? styles.verticalControl')
+    expect(usageFilterBarSource).not.toContain('dropdownMinWidth={180}')
+    expect(usageFilterBarSource).not.toContain("@/components/ui/Select")
   })
 
-  it('preserves the API Key sizing while removing the legacy range select and Custom UI', () => {
-    expect(usagePageStyles).toMatch(/\.toolbarActionsRight\s*\{[\s\S]*?align-items:\s*center;/)
-    expect(usagePageStyles).toMatch(/\.usageFilterBar\s*\{[\s\S]*?align-items:\s*center;/)
-    expect(usagePageStyles).toMatch(/\.usageFilterBar\s*\{[\s\S]*?flex:\s*1 1 auto;/)
-    expect(usagePageStyles).toMatch(/\.apiKeySelectControl\s*\{[\s\S]*?width:\s*172px;/)
-    expect(usagePageStyles).toMatch(/\.apiKeySelectControl\s*\{[\s\S]*?flex:\s*0 0 172px;/)
-    expect(usagePageSource).not.toContain('TIME_RANGE_OPTIONS')
-    expect(keyOverviewPageSource).not.toContain('TIME_RANGE_OPTIONS')
-    expect(usagePageSource).not.toContain('customTimeRange')
-    expect(usagePageStyles).not.toContain('.rangeSelectControl')
-    expect(usagePageStyles).not.toContain('.customRange')
-    expect(keyOverviewPageStyles).not.toContain('.rangeSelectControl')
+  it('uses a wrapper-only shared filter layout without custom Select skinning', () => {
+    expect(usageFilterBarStyles).toMatch(/\.usageFilterBar\s*\{[\s\S]*?width:\s*100%;/)
+    expect(usageFilterBarStyles).not.toContain(':global(button)')
+    expect(usageFilterBarStyles).not.toContain('.ant-form-item')
+    expect(usagePageStyles).not.toContain('.toolbarActionsRight')
+  })
+
+  it('keeps quick and custom ranges inside one stable Grafana-style popover', () => {
+    expect(usageFilterBarSource).toContain('<Popover')
+    expect(usageFilterBarSource).toContain('<DatePicker.RangePicker')
+    expect(usageFilterBarSource).toContain('minDate={minimumDate}')
+    expect(usageFilterBarSource).toContain('maxDate={maximumDate}')
+    expect(usageFilterBarSource).toContain('presetTimeRangeOptions.map')
+    expect(usageFilterBarSource).toContain('handleApplyCustomRange')
+    expect(usageFilterBarSource).not.toContain('{isCustomRange && (')
+  })
+
+  it('delegates custom date interaction and focus treatment to Ant Design', () => {
+    expect(usageFilterBarSource).toContain("import { Button, DatePicker, Form, Popover, Select, Space } from 'antd';")
+    expect(usageFilterBarSource).toContain('format={DATE_FORMAT}')
+    expect(usageFilterBarSource).toContain('onChange={handleDraftCustomRangeChange}')
+    expect(usageFilterBarSource).not.toContain('type="date"')
+    expect(usageFilterBarSource).not.toContain('showPicker')
+    expect(usageFilterBarStyles).not.toContain('.ant-picker')
+  })
+
+  it('keeps the shared filter wrapper full width on mobile without restyling controls', () => {
+    const mobileToolbarStart = usageFilterBarStyles.indexOf('@include mobile {')
+    const mobileToolbarBlock = usageFilterBarStyles.slice(mobileToolbarStart)
+
+    expect(mobileToolbarBlock).toMatch(/\.usageFilterBar\s*\{[\s\S]*?width:\s*100%;/)
+    expect(usageFilterBarStyles).not.toContain('.ant-form-item')
+    expect(usageFilterBarStyles).not.toContain('.ant-space')
   })
 
   it('passes realtime error state and current data guard to the realtime panel', () => {
@@ -844,53 +764,56 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageSource).not.toContain('showEyebrow')
   })
 
-  it('aligns Request Event Log pagination with credential pagination height', () => {
-    expect(usagePageStyles).toMatch(/\.requestEventsCard:global\(\.card\)\s*\{[\s\S]*?padding:\s*0;/)
+  it('gives Ant Design Request Event pagination a stable responsive footer', () => {
+    expect(requestEventsStyles).toMatch(/\.requestEventsCard:global\(\.ant-card\)\s*\{[\s\S]*?:global\(\.ant-card-body\)\s*\{[\s\S]*?padding:\s*0;/)
     expect(requestEventsSource).toContain('className={styles.requestEventsCard}')
-    expect(usagePageStyles).toMatch(/\.requestEventsPaginationFooter\s*\{[\s\S]*?--usage-pagination-bar-height:\s*51px;/)
-    expect(usagePageStyles).toMatch(/\.requestEventsPaginationFooter\s*\{[\s\S]*?height:\s*var\(--usage-pagination-bar-height\);/)
-    expect(usagePageStyles).toMatch(/\.requestEventsPaginationFooter\s*\{[\s\S]*?box-sizing:\s*border-box;/)
-    expect(usagePageStyles).toMatch(/\.requestEventsPaginationFooter\s*\{[\s\S]*?align-items:\s*center;/)
-    expect(usagePageStyles).toMatch(/\.requestEventsPaginationFooter\s*\{[\s\S]*?padding:\s*0 22px;/)
+    expect(requestEventsSource).toContain('<Pagination')
+    expect(requestEventsSource).toContain('showSizeChanger')
+    expect(requestEventsStyles).toMatch(/\.requestEventsPaginationFooter\s*\{[\s\S]*?min-height:\s*58px;/)
+    expect(requestEventsStyles).toMatch(/\.requestEventsPaginationFooter\s*\{[\s\S]*?box-sizing:\s*border-box;/)
+    expect(requestEventsStyles).toMatch(/\.requestEventsPaginationFooter\s*\{[\s\S]*?align-items:\s*center;/)
+    expect(requestEventsStyles).toMatch(/\.requestEventsPaginationFooter\s*\{[\s\S]*?padding:\s*10px var\(--request-events-inset\);/)
   })
 
-  it('keeps Request Event Log headers visible while the table scrolls', () => {
-    expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\s*\{[\s\S]*?height:\s*clamp\(520px,\s*68vh,\s*760px\);/)
-    expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\s*\{[\s\S]*?overflow:\s*auto;/)
-    expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\s*\{[\s\S]*?thead\s+th\s*\{[\s\S]*?position:\s*sticky;/)
-    expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\s*\{[\s\S]*?thead\s+th\s*\{[\s\S]*?top:\s*0;/)
-    expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\s*\{[\s\S]*?thead\s+th\s*\{[\s\S]*?z-index:\s*2;/)
-    expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\s*\{[\s\S]*?\.table\s*\{[\s\S]*?border-collapse:\s*separate;/)
+  it('delegates Request Event Log scrolling and sticky headers to Ant Design Table', () => {
+    expect(requestEventsSource).toContain('Table,')
+    expect(requestEventsSource).toContain('type TableColumnsType,')
+    expect(requestEventsSource).toContain("} from 'antd';")
+    expect(requestEventsSource).toContain('<Table<RequestEventRow>')
+    expect(requestEventsSource).toContain("pagination={false}")
+    expect(requestEventsSource).toContain("scroll={{ x: 'max-content', y: 'clamp(520px, 68vh, 760px)' }}")
+    expect(requestEventsStyles).toMatch(/\.requestEventsTable\s*\{[\s\S]*?:global\(\.ant-table-body\)\s*\{[\s\S]*?scrollbar-gutter:\s*stable;/)
+    expect(requestEventsStyles).not.toMatch(/\.requestEventsTableWrapper\s*\{[\s\S]*?height:\s*clamp\(520px,\s*68vh,\s*760px\);/)
   })
 
-  it('themes the WebKit scrollbar corner so intersecting scrollbars do not show a white square', () => {
-    expect(globalStyles).toMatch(/::-webkit-scrollbar-corner\s*\{[\s\S]*?background:\s*var\(--bg-secondary\);/)
+  it('does not retain a global WebKit scrollbar visual contract', () => {
+    expect(globalStyles).not.toContain('::-webkit-scrollbar-corner')
+    expect(globalStyles).not.toContain('::-webkit-scrollbar-thumb')
   })
 
   it('renders Request Event Log with a single outer frame instead of a nested table card', () => {
-    const cardBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.requestEventsCard:global(.card) {'),
-      usagePageStyles.indexOf('.requestEventsTitleRow')
+    const cardBlock = requestEventsStyles.slice(
+      requestEventsStyles.indexOf('.requestEventsCard:global(.ant-card) {'),
+      requestEventsStyles.indexOf('.requestEventsCountBadge')
     )
-    const tableWrapperBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.requestEventsTableWrapper {'),
-      usagePageStyles.indexOf('.requestEventsNoWrapCell')
+    const tableWrapperBlock = requestEventsStyles.slice(
+      requestEventsStyles.indexOf('.requestEventsTableWrapper {'),
+      requestEventsStyles.indexOf('.requestEventsNoWrapCell')
     )
 
-    expect(cardBlock).toMatch(/padding:\s*0;/)
     expect(cardBlock).toMatch(/overflow:\s*hidden;/)
-    expect(cardBlock).toMatch(/:global\(\.card-header\)\s*\{[\s\S]*?margin-bottom:\s*0;/)
-    expect(cardBlock).toMatch(/:global\(\.card-header\)\s*\{[\s\S]*?border-bottom:\s*1px solid var\(--border-color\);/)
+    expect(cardBlock).toMatch(/box-shadow:\s*none;/)
+    expect(cardBlock).toMatch(/:global\(\.ant-card-body\)\s*\{[\s\S]*?padding:\s*0;/)
     expect(tableWrapperBlock).toMatch(/border:\s*0;/)
     expect(tableWrapperBlock).toMatch(/border-radius:\s*0;/)
     expect(tableWrapperBlock).not.toMatch(/border:\s*1px solid/)
   })
 
   it('keeps Request Event Log adaptive columns free of legacy column styles', () => {
-    expect(usagePageStyles).not.toContain('.requestEventsTimestamp')
-    expect(usagePageStyles).not.toContain('.requestEventsReasoningHeader')
-    expect(usagePageStyles).not.toContain('.requestEventsEndpointCell')
-    expect(usagePageStyles).not.toContain('.durationCell')
+    expect(requestEventsStyles).not.toContain('.requestEventsTimestamp')
+    expect(requestEventsStyles).not.toContain('.requestEventsReasoningHeader')
+    expect(requestEventsStyles).not.toContain('.requestEventsEndpointCell')
+    expect(requestEventsStyles).not.toContain('.durationCell')
     expect(requestEventsSource).not.toContain('styles.requestEventsTimestamp')
     expect(requestEventsSource).not.toContain('styles.requestEventsReasoningHeader')
     expect(requestEventsSource).not.toContain('styles.requestEventsEndpointCell')
@@ -898,22 +821,25 @@ describe('UsagePage toolbar styles', () => {
   })
 
   it('uses the shared adaptive style for the Request Event Log reasoning column', () => {
-    expect(usagePageStyles).not.toContain('.requestEventsReasoningHeader')
+    expect(requestEventsStyles).not.toContain('.requestEventsReasoningHeader')
     expect(requestEventColumnDefinitionBlock('reasoning_tokens')).toContain('styles.requestEventsNoWrapCell')
   })
 
   it('keeps Request Event Log long text columns controlled', () => {
-    expect(usagePageStyles).toMatch(/\.requestEventsAPIKeyCell\s*\{[\s\S]*?min-width:\s*135px;/)
-    expect(usagePageStyles).toMatch(/\.requestEventsAPIKeyCell\s*\{[\s\S]*?max-width:\s*240px;/)
-    expect(usagePageStyles).toMatch(/\.requestEventsSourceCell\s*\{[\s\S]*?min-width:\s*165px;/)
-    expect(usagePageStyles).toMatch(/\.modelCell\s*\{[\s\S]*?min-width:\s*110px;/)
-    expect(usagePageStyles).toMatch(/\.modelCell\s*\{[\s\S]*?max-width:\s*240px;/)
-    expect(usagePageStyles).not.toContain('.requestEventsAuthIndex')
-    expect(usagePageStyles).not.toContain('.requestEventsEndpointCell')
+    expect(requestEventsSource).toContain("api_key: 200")
+    expect(requestEventsSource).toContain("source: 230")
+    expect(requestEventsSource).toContain("model: 220")
+    expect(requestEventsSource).toContain('<EllipsizedValue')
+    expect(requestEventsSource).toContain("trigger={['hover', 'focus', 'click']}")
+    expect(requestEventsStyles).toMatch(/\.requestEventsSourceCell,[\s\S]*?\.requestEventsAPIKeyCell\s*\{[\s\S]*?white-space:\s*nowrap;/)
+    expect(requestEventsStyles).toMatch(/\.modelCell\s*\{[\s\S]*?white-space:\s*nowrap;/)
+    expect(requestEventsStyles).not.toContain('word-break: break-all')
+    expect(requestEventsStyles).not.toContain('.requestEventsAuthIndex')
+    expect(requestEventsStyles).not.toContain('.requestEventsEndpointCell')
   })
 
   it('keeps the Speed Mode tooltip target on the normal arrow cursor', () => {
-    const speedModeCellBlock = styleRuleBlock(usagePageStyles, '.requestEventsSpeedModeCell')
+    const speedModeCellBlock = styleRuleBlock(requestEventsStyles, '.requestEventsSpeedModeCell')
     expect(speedModeCellBlock).toContain('cursor: default;')
     expect(speedModeCellBlock).not.toContain('cursor: help;')
   })
@@ -938,19 +864,19 @@ describe('UsagePage toolbar styles', () => {
       'total_tokens',
       'total_cost',
     ]
-    const noWrapCellBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.requestEventsNoWrapCell {'),
-      usagePageStyles.indexOf('.requestEventsSourceCell')
+    const noWrapCellBlock = requestEventsStyles.slice(
+      requestEventsStyles.indexOf('.requestEventsNoWrapCell {'),
+      requestEventsStyles.indexOf('.requestEventsSourceCell')
     )
 
     expect(noWrapCellBlock).toMatch(/white-space:\s*nowrap;/)
     expect(noWrapCellBlock).toMatch(/font-variant-numeric:\s*tabular-nums;/)
-    expect(usagePageStyles).not.toContain('.requestEventsSpeedCell')
+    expect(requestEventsStyles).not.toContain('.requestEventsSpeedCell')
 
     adaptiveColumnIds.forEach((columnId) => {
       const block = requestEventColumnDefinitionBlock(columnId)
-      expect(block).toMatch(/header:\s*<th[^>]*styles\.requestEventsNoWrapCell/)
-      expect(block).toMatch(/renderCell:[\s\S]*<td[^>]*styles\.requestEventsNoWrapCell/)
+      expect(block).toMatch(/className:[^\n]*styles\.requestEventsNoWrapCell/)
+      expect(block).toContain('render:')
     })
 
     ;['api_key', 'source', 'model'].forEach((columnId) => {
@@ -958,68 +884,47 @@ describe('UsagePage toolbar styles', () => {
     })
   })
 
-  it('provides reusable pill controls for usage subpages', () => {
-    expect(usagePageStyles).toMatch(/\.usagePillControl\s*\{[\s\S]*?border-radius:\s*999px;/)
-    expect(usagePageStyles).toMatch(/\.usagePillAction\s*\{[\s\S]*?border-radius:\s*999px;/)
-    expect(usagePageStyles).toMatch(/\.usagePillAction\s*\{[\s\S]*?font-size:\s*12px;/)
-    expect(usagePageStyles).toMatch(/\.usagePillAction:global\(\.btn\.btn-sm\)\s*\{[\s\S]*?min-height:\s*32px;[\s\S]*?padding:\s*7px 12px;[\s\S]*?font-size:\s*12px;/)
-    expect(usagePageStyles).toMatch(/\.usagePillActionDanger\s*\{[\s\S]*?color:/)
-    expect(usagePageStyles).not.toContain('&:global(.btn-danger):hover:not(:disabled)')
-    expect(usagePageStyles).toMatch(/:global\(\.input\)\s*\{[^}]*border-radius:\s*999px;/)
-    expect(requestEventsSource).toContain('styles.usagePillControl')
-    expect(requestEventsSource).toContain('styles.usagePillAction')
-    expect(priceSettingsSource).toContain('styles.usagePillControl')
-    expect(priceSettingsSource).toContain('styles.usagePillAction')
-    expect(priceSettingsSource).toContain('styles.usagePillActionDanger')
+  it('uses Ant Design controls for migrated request-event and pricing surfaces', () => {
+    expect(requestEventsSource).not.toContain('styles.usagePillControl')
+    expect(requestEventsSource).toContain("<Form layout=\"inline\"")
+    expect(requestEventsSource).toContain('<AntSelect')
+    expect(requestEventsSource).toContain('<AntButton')
+
+    expect(priceSettingsSource).not.toContain('styles.usagePillControl')
+    expect(priceSettingsSource).not.toContain('styles.usagePillAction')
+    expect(priceSettingsSource).not.toContain('styles.usagePillActionDanger')
+    expect(priceSettingsSource).toContain('<Form layout="vertical" className={styles.priceForm}>')
+    expect(priceSettingsSource).toContain('<Table<PricingTableRow>')
+    expect(priceSettingsSource).toContain('<Select')
+    expect(priceSettingsSource).toContain('<Input')
+    expect(priceSettingsSource).toContain('<Button')
+    expect(priceSettingsSource).toContain('<Checkbox')
   })
 
-  it('keeps the Request Event export menu styled and hoverable like the credential inspection control', () => {
-    const exportMenuBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.requestEventsExportMenu {'),
-      usagePageStyles.indexOf('.requestEventsExportButton:global(.btn) {')
-    )
-    const exportButtonBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.requestEventsExportButton:global(.btn) {'),
-      usagePageStyles.indexOf('.requestEventsExportButtonInner {')
-    )
-    const exportDropdownBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.requestEventsExportDropdown {'),
-      usagePageStyles.indexOf('.requestEventsToolbar {')
-    )
-    const clearFilterSlotBlock = styleRuleBlock(usagePageStyles, '.requestEventsFilterActionSlot')
-    const clearFilterButtonBlock = styleRuleBlock(usagePageStyles, '.requestEventsClearFiltersButton:global(.btn)')
-    const credentialRefreshActiveBlock = credentialStyles.slice(
-      credentialStyles.indexOf('.credentialRefreshButtonActive,'),
-      credentialStyles.indexOf('.credentialRefreshButtonInner {')
-    )
-
-    expect(requestEventsSource).toContain('styles.requestEventsExportButton')
-    expect(requestEventsSource).toContain('styles.requestEventsExportButtonInner')
-    expect(requestEventsSource).toContain('<IconDownload size={12} aria-hidden="true" />')
-    expect(requestEventsSource).toContain('styles.requestEventsFilterActionSlot')
-    expect(exportMenuBlock).toMatch(/min-height:\s*42px;/)
-    expect(exportMenuBlock).toMatch(/padding:\s*4px;/)
-    expect(exportMenuBlock).toMatch(/align-items:\s*center;/)
-    expect(exportMenuBlock).not.toMatch(/padding-bottom:\s*6px;/)
-    expect(exportMenuBlock).not.toMatch(/margin-bottom:\s*-6px;/)
-    expect(exportMenuBlock).toContain('&::after')
-    expect(exportMenuBlock).toMatch(/border-radius:\s*999px;/)
-    expect(exportButtonBlock).toMatch(/border:\s*0;/)
-    expect(exportButtonBlock).toMatch(/min-height:\s*32px;/)
-    expect(exportButtonBlock).toMatch(/padding:\s*7px 12px;/)
-    expect(exportButtonBlock).toMatch(/\.requestEventsExportButton:global\(\.btn\.btn-sm\)\s*\{[\s\S]*?min-height:\s*32px;[\s\S]*?padding:\s*7px 12px;[\s\S]*?font-size:\s*12px;/)
-    expect(credentialRefreshActiveBlock).toMatch(/background:\s*var\(--bg-primary\);/)
-    expect(exportButtonBlock).toMatch(/background:\s*var\(--bg-primary\);/)
-    expect(exportButtonBlock).toMatch(/&:global\(\.btn-secondary\),[\s\S]*?&:global\(\.btn-secondary\):hover:not\(:disabled\),[\s\S]*?&:global\(\.btn-secondary\)\[aria-expanded='true'\]\s*\{[\s\S]*?background:\s*var\(--bg-primary\);[\s\S]*?background-color:\s*var\(--bg-primary\);/)
-    expect(exportButtonBlock).toMatch(/font-size:\s*12px;/)
-    expect(exportButtonBlock).toMatch(/box-shadow:\s*0 8px 20px rgba\(0,\s*0,\s*0,\s*0\.1\);/)
-    expect(exportDropdownBlock).toMatch(/top:\s*calc\(100% \+ 6px\);/)
-    expect(clearFilterSlotBlock).toMatch(/display:\s*flex;/)
-    expect(clearFilterSlotBlock).toMatch(/align-items:\s*center;/)
-    expect(clearFilterSlotBlock).toMatch(/align-self:\s*flex-end;/)
-    expect(clearFilterSlotBlock).toMatch(/min-height:\s*40px;/)
-    expect(clearFilterButtonBlock).toMatch(/min-height:\s*32px;/)
-    expect(clearFilterButtonBlock).not.toContain('margin-bottom')
-    expect(usagePageStyles).toMatch(/\.requestEventsClearFiltersButton:global\(\.btn\.btn-sm\)\s*\{[\s\S]*?min-height:\s*32px;[\s\S]*?padding:\s*7px 12px;[\s\S]*?font-size:\s*12px;/)
+  it('uses Ant Design controls for Request Event filters, export, columns, and pagination', () => {
+    expect(requestEventsSource).toContain('Dropdown,')
+    expect(requestEventsSource).toContain('Form,')
+    expect(requestEventsSource).toContain('Pagination,')
+    expect(requestEventsSource).toContain('Select as AntSelect,')
+    expect(requestEventsSource).toContain('<DownloadOutlined />')
+    expect(requestEventsSource).toContain('<TableOutlined />')
+    expect(requestEventsSource).toContain('<Checkbox')
+    expect(requestEventsSource).toContain('<Pagination')
+    expect(requestEventsSource).toContain('showSizeChanger')
+    expect(requestEventsSource).toContain('<Form layout="inline"')
+    expect(requestEventsStyles).toMatch(/\.requestEventsFiltersForm\s*\{[\s\S]*?width:\s*100%;/)
+    expect(requestEventsStyles).not.toContain('.ant-form-item')
+    expect(requestEventsSource).toContain('const REQUEST_EVENT_ENTITY_FILTER_POPUP_WIDTH = 360;')
+    expect(requestEventsSource).toContain('className={styles.requestEventsEntityFilter}')
+    expect(requestEventsSource).toContain('popupMatchSelectWidth={REQUEST_EVENT_ENTITY_FILTER_POPUP_WIDTH}')
+    expect(requestEventsSource).toContain('className={styles.requestEventsResultFilter}')
+    expect(requestEventsStyles).toMatch(/\.requestEventsEntityFilter\s*\{[\s\S]*?min-width:\s*clamp\(220px, 24vw, 320px\);/)
+    expect(requestEventsStyles).toMatch(/\.requestEventsResultFilter\s*\{[\s\S]*?min-width:\s*140px;/)
+    expect(requestEventsStyles).toMatch(/\.requestEventsPaginationControls\s*\{[\s\S]*?justify-content:\s*flex-end;/)
+    expect(requestEventsStyles).not.toContain('.requestEventsExportMenu')
+    expect(requestEventsStyles).not.toContain('.requestEventsExportDropdown')
+    expect(requestEventsStyles).not.toContain('.requestEventsColumnDropdown')
+    expect(requestEventsStyles).not.toContain('.requestEventsPagerButton')
+    expect(requestEventsStyles).not.toContain('.requestEventsPageSizeControl')
   })
 })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import i18n, { SUPPORTED_LANGUAGES } from './index';
+import i18n, { getDocumentLanguage, SUPPORTED_LANGUAGES } from './index';
 
 const flattenKeys = (value: unknown, prefix = ''): string[] => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return [prefix];
@@ -16,6 +16,27 @@ describe('i18n resources', () => {
     for (const language of SUPPORTED_LANGUAGES) {
       expect(flattenKeys(i18n.getResourceBundle(language, 'translation')).sort()).toEqual(englishKeys);
     }
+  });
+
+  it('maps supported languages to valid document language tags', () => {
+    expect(getDocumentLanguage('en')).toBe('en');
+    expect(getDocumentLanguage('zh')).toBe('zh-CN');
+    expect(getDocumentLanguage('zh-TW')).toBe('zh-TW');
+  });
+
+  it('localizes the grouped preferences menu and distinct white theme', () => {
+    expect(i18n.getResource('en', 'translation', 'usage_stats.preferences_menu')).toBe('Preferences');
+    expect(i18n.getResource('en', 'translation', 'usage_stats.preferences_language')).toBe('Language');
+    expect(i18n.getResource('en', 'translation', 'usage_stats.preferences_appearance')).toBe('Appearance');
+    expect(i18n.getResource('en', 'translation', 'usage_stats.theme_white')).toBe('White');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.preferences_menu')).toBe('偏好设置');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.preferences_language')).toBe('语言');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.preferences_appearance')).toBe('外观');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.theme_white')).toBe('纯白');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.preferences_menu')).toBe('偏好設定');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.preferences_language')).toBe('語言');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.preferences_appearance')).toBe('外觀');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.theme_white')).toBe('純白');
   });
 
   it('keeps Auth Files display mode labels available in every language', () => {
@@ -45,11 +66,17 @@ describe('i18n resources', () => {
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_column_activity')).toBe('活動');
   });
 
-  it('keeps session source labels available in every language', () => {
+  it('keeps session identity and source columns available in every language', () => {
+    expect(i18n.getResource('en', 'translation', 'usage_stats.session_settings_session_column')).toBe('Identity');
+    expect(i18n.getResource('en', 'translation', 'usage_stats.session_settings_source_column')).toBe('Access method');
     expect(i18n.getResource('en', 'translation', 'usage_stats.session_settings_source_standard')).toBe('Standalone');
     expect(i18n.getResource('en', 'translation', 'usage_stats.session_settings_source_embed')).toBe('CPAMC Embed');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.session_settings_session_column')).toBe('身份');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.session_settings_source_column')).toBe('访问方式');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.session_settings_source_standard')).toBe('独立访问');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.session_settings_source_embed')).toBe('CPAMC 嵌入');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.session_settings_session_column')).toBe('身份');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.session_settings_source_column')).toBe('存取方式');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.session_settings_source_standard')).toBe('獨立訪問');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.session_settings_source_embed')).toBe('CPAMC 嵌入');
   });
@@ -285,9 +312,9 @@ describe('i18n resources', () => {
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_quota_reset_failed')).toBe('重置限額失敗，請稍後重試。')
   })
 
-  it('keeps the login product title aligned across languages', () => {
-    expect(i18n.getResourceBundle('en', 'translation').auth.login_title).toBe('CPA Usage Statistics Dashboard');
-    expect(i18n.getResourceBundle('zh', 'translation').auth.login_title).toBe('CPA 用量统计\n仪表盘');
-    expect(i18n.getResourceBundle('zh-TW', 'translation').auth.login_title).toBe('CPA 用量統計\n儀表板');
+  it('keeps the simplified login title aligned across languages', () => {
+    expect(i18n.getResourceBundle('en', 'translation').auth.login_title).toBe('Sign in');
+    expect(i18n.getResourceBundle('zh', 'translation').auth.login_title).toBe('登录');
+    expect(i18n.getResourceBundle('zh-TW', 'translation').auth.login_title).toBe('登入');
   });
 });

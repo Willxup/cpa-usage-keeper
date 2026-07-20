@@ -14,7 +14,7 @@ export const getCurrentOverviewUsage = <T>(
   return usage;
 };
 
-export const getDailyAveragePanelUsage = <T>(
+export const getDailyAverageUsage = <T>(
   currentUsage: T | null,
   fallbackUsage: T | null,
   reserveVisible: boolean,
