@@ -557,7 +557,7 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 			PricingStyle:        row.PricingStyle,
 		})
 	}
-	return &servicedto.UsageEventsPage{Events: result, Models: page.Models, TotalCount: page.TotalCount, Page: page.Page, PageSize: page.PageSize, TotalPages: page.TotalPages}, nil
+	return &servicedto.UsageEventsPage{Events: result, TotalCount: page.TotalCount, Page: page.Page, PageSize: page.PageSize, TotalPages: page.TotalPages}, nil
 }
 
 // StreamUsageEvents 使用 Request Event Log 相同筛选条件逐行导出，不应用分页。

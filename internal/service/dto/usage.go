@@ -37,7 +37,6 @@ type UsageFilter struct {
 // UsageEventsPage 是 usage events 列表的服务层结果。
 type UsageEventsPage struct {
 	Events     []UsageEventRecord
-	Models     []string
 	TotalCount int64
 	Page       int
 	PageSize   int

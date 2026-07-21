@@ -51,7 +51,7 @@ type usageEventProjection struct {
 	TotalTokens         int64
 }
 
-// Request Event Log Tab：先按列表条件统计总数，再加载当前页和筛选项。
+// Request Event Log Tab：先按列表条件统计总数，再加载当前页。
 func ListUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.UsageEventsPageRecord, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
@@ -64,12 +64,6 @@ func ListUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.U
 	var totalCount int64
 	if err := baseQuery.Count(&totalCount).Error; err != nil {
 		return nil, fmt.Errorf("count usage events: %w", err)
-	}
-
-	// 第二步：model 筛选项只跟随时间窗口，不跟随当前列表筛选。
-	modelOptions, err := listUsageEventModelFilterOptions(db, filter)
-	if err != nil {
-		return nil, err
 	}
 
 	page := filter.Page
@@ -102,7 +96,7 @@ func ListUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.U
 	if totalCount > 0 {
 		totalPages = int((totalCount + int64(pageSize) - 1) / int64(pageSize))
 	}
-	return &dto.UsageEventsPageRecord{Events: rows, Models: modelOptions, TotalCount: totalCount, Page: page, PageSize: pageSize, TotalPages: totalPages}, nil
+	return &dto.UsageEventsPageRecord{Events: rows, TotalCount: totalCount, Page: page, PageSize: pageSize, TotalPages: totalPages}, nil
 }
 
 // ExportUsageEventsWithFilter 使用 Request Event Log 相同筛选，但不应用分页。
