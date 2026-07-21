@@ -798,7 +798,7 @@ describe('UsagePage toolbar styles', () => {
     const heatmapRowLabelBlock = [...analysisPanelStyles.matchAll(/\.heatmapRowLabel\s*\{([\s\S]*?)\n\}/g)]
       .map((match) => match[1])
       .find((block) => block.includes('display: flex;')) ?? ''
-    expect(heatmapRowLabelBlock).toContain('height: 30px;')
+    expect(heatmapRowLabelBlock).toContain('height: 34px;')
     expect(heatmapRowLabelBlock).toContain('align-self: center;')
     expect(analysisPanelStyles).toMatch(/\.heatmapModelLabel\s*\{[\s\S]*?-webkit-line-clamp:\s*2;/)
     expect(analysisPanelStyles).toMatch(/\.heatmapModelLabel\s*\{[\s\S]*?overflow-wrap:\s*anywhere;/)

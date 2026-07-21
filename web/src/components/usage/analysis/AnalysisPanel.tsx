@@ -186,6 +186,11 @@ const FULL_CIRCLE = Math.PI * 2;
 const HEATMAP_TOOLTIP_MAX_WIDTH = 280;
 const HEATMAP_TOOLTIP_VIEWPORT_PADDING = 8;
 const HEATMAP_TOOLTIP_CURSOR_OFFSET = 14;
+const HEATMAP_KEY_COLUMN_WIDTH = 160;
+const HEATMAP_MODEL_COLUMN_MIN_WIDTH = 82;
+const HEATMAP_SUMMARY_COLUMN_WIDTH = 88;
+const HEATMAP_GRID_GAP = 4;
+const HEATMAP_GRID_BASE_MIN_WIDTH = 680;
 const MODEL_EFFICIENCY_TOOLTIP_ID = 'analysis-model-efficiency-tooltip';
 const MODEL_EFFICIENCY_TOOLTIP_MAX_WIDTH = 320;
 const MODEL_EFFICIENCY_TOOLTIP_VIEWPORT_PADDING = 8;
@@ -1857,10 +1862,30 @@ function Heatmap({ cells, apiKeys, apiKeyLabels, models, loading, isDark }: { ce
   const { t } = useTranslation();
   const [tooltip, setTooltip] = useState<FloatingTooltipState | null>(null);
   const cellMap = useMemo(() => new Map(cells.map((cell) => [`${cell.api_key}\0${cell.model}`, cell])), [cells]);
+  // 固定汇总列按 API Key 聚合所有模型，确保与中间热力单元格使用同一数据口径。
+  const rowTotals = useMemo(() => {
+    const totals = new Map<string, { totalTokens: number; totalCost: number; costAvailable: boolean }>();
+    apiKeys.forEach((apiKey) => totals.set(apiKey, { totalTokens: 0, totalCost: 0, costAvailable: true }));
+    cells.forEach((cell) => {
+      const total = totals.get(cell.api_key) ?? { totalTokens: 0, totalCost: 0, costAvailable: true };
+      total.totalTokens += toNumber(cell.total_tokens);
+      total.totalCost += toNumber(cell.cost_usd);
+      total.costAvailable = total.costAvailable && cell.cost_available !== false;
+      totals.set(cell.api_key, total);
+    });
+    return totals;
+  }, [apiKeys, cells]);
   const hasUnavailableCost = useMemo(() => cells.some((cell) => cell.cost_available === false), [cells]);
   const maxHeatmapTokens = useMemo(
     () => cells.reduce((max, cell) => Math.max(max, toNumber(cell.total_tokens)), 0),
     [cells],
+  );
+  const heatmapGridMinWidth = Math.max(
+    HEATMAP_GRID_BASE_MIN_WIDTH,
+    HEATMAP_KEY_COLUMN_WIDTH
+      + models.length * HEATMAP_MODEL_COLUMN_MIN_WIDTH
+      + HEATMAP_SUMMARY_COLUMN_WIDTH * 2
+      + (models.length + 2) * HEATMAP_GRID_GAP,
   );
   const getAPIKeyLabel = (apiKey: string) => apiKeyLabels[apiKey] || apiKey;
   const buildTooltipLines = (apiKey: string, model: string, cell: AnalysisHeatmapCell | undefined) => {
@@ -1918,8 +1943,14 @@ function Heatmap({ cells, apiKeys, apiKeyLabels, models, loading, isDark }: { ce
         <>
           <div className={styles.analysisChartSurface}>
             <div className={styles.heatmapScroller}>
-              <div className={styles.heatmapGrid} style={{ gridTemplateColumns: `150px repeat(${models.length}, minmax(82px, 1fr))` }}>
-                <div className={styles.heatmapCorner}>{t('usage_stats.analysis_heatmap_api_key')}</div>
+              <div
+                className={styles.heatmapGrid}
+                style={{
+                  gridTemplateColumns: `var(--heatmap-key-column-width) repeat(${models.length}, minmax(${HEATMAP_MODEL_COLUMN_MIN_WIDTH}px, 1fr)) repeat(2, var(--heatmap-summary-column-width))`,
+                  minWidth: heatmapGridMinWidth,
+                } as CSSProperties}
+              >
+                <div className={`${styles.heatmapCorner} ${styles.heatmapKeyColumn}`}>{t('usage_stats.analysis_heatmap_api_key')}</div>
                 {models.map((model) => (
                   <div
                     key={model}
@@ -1936,12 +1967,40 @@ function Heatmap({ cells, apiKeys, apiKeyLabels, models, loading, isDark }: { ce
                     <span className={`${styles.heatmapTruncatedLabel} ${styles.heatmapModelLabel}`}>{model}</span>
                   </div>
                 ))}
+                <div className={`${styles.heatmapHeaderCell} ${styles.heatmapSummaryHeaderCell} ${styles.heatmapTotalTokensColumn}`}>
+                  {t('usage_stats.total_tokens')}
+                </div>
+                <div className={`${styles.heatmapHeaderCell} ${styles.heatmapSummaryHeaderCell} ${styles.heatmapTotalCostColumn}`}>
+                  {t('usage_stats.total_cost')}
+                </div>
                 {apiKeys.map((apiKey) => {
                   const apiKeyLabel = getAPIKeyLabel(apiKey);
+                  const rowTotal = rowTotals.get(apiKey) ?? { totalTokens: 0, totalCost: 0, costAvailable: true };
+                  const formattedTotalTokens = formatCompactNumber(rowTotal.totalTokens);
+                  const formattedTotalCost = formatUsd(rowTotal.totalCost);
+                  const apiKeyColumnLabel = t('usage_stats.analysis_heatmap_api_key');
+                  const summaryTooltipLines = [
+                    apiKeyLabel,
+                    `${t('usage_stats.total_tokens')}: ${formattedTotalTokens}`,
+                    `${t('usage_stats.total_cost')}: ${formattedTotalCost}`,
+                  ];
+                  const apiKeyAriaLabel = `${apiKeyColumnLabel}: ${apiKeyLabel}, ${summaryTooltipLines.slice(1).join(', ')}`;
+                  const totalTokensAriaLabel = `${t('usage_stats.total_tokens')}: ${formattedTotalTokens}, ${apiKeyColumnLabel}: ${apiKeyLabel}`;
+                  const totalCostAriaLabel = `${t('usage_stats.total_cost')}: ${formattedTotalCost}, ${apiKeyColumnLabel}: ${apiKeyLabel}`;
                   return (
                     <div key={apiKey} className={styles.heatmapRowContents}>
-                      <div className={`${styles.heatmapRowLabel} ${styles.heatmapTooltipTarget}`} data-full-name={apiKeyLabel}>
-                        <span className={styles.heatmapTruncatedLabel}>{apiKeyLabel}</span>
+                      <div
+                        className={`${styles.heatmapRowLabel} ${styles.heatmapKeyColumn}`}
+                        tabIndex={0}
+                        aria-label={apiKeyAriaLabel}
+                        onMouseEnter={(event) => showTooltip(summaryTooltipLines, event)}
+                        onMouseMove={(event) => showTooltip(summaryTooltipLines, event)}
+                        onMouseLeave={hideTooltip}
+                        onFocus={(event) => showTooltip(summaryTooltipLines, event)}
+                        onBlur={hideTooltip}
+                      >
+                        <span className={styles.heatmapKeyMarker} aria-hidden="true" />
+                        <span className={`${styles.heatmapTruncatedLabel} ${styles.heatmapKeyLabel}`}>{apiKeyLabel}</span>
                       </div>
                       {models.map((model) => {
                         const cell = cellMap.get(`${apiKey}\0${model}`);
@@ -1971,6 +2030,31 @@ function Heatmap({ cells, apiKeys, apiKeyLabels, models, loading, isDark }: { ce
                           </div>
                         );
                       })}
+                      <div
+                        className={`${styles.heatmapSummaryCell} ${styles.heatmapTotalTokensColumn}`}
+                        tabIndex={0}
+                        aria-label={totalTokensAriaLabel}
+                        onMouseEnter={(event) => showTooltip(summaryTooltipLines, event)}
+                        onMouseMove={(event) => showTooltip(summaryTooltipLines, event)}
+                        onMouseLeave={hideTooltip}
+                        onFocus={(event) => showTooltip(summaryTooltipLines, event)}
+                        onBlur={hideTooltip}
+                      >
+                        <span className={styles.heatmapTotalTokenValue}>{formattedTotalTokens}</span>
+                      </div>
+                      <div
+                        className={`${styles.heatmapSummaryCell} ${styles.heatmapTotalCostColumn}`}
+                        data-cost-available={rowTotal.costAvailable}
+                        tabIndex={0}
+                        aria-label={totalCostAriaLabel}
+                        onMouseEnter={(event) => showTooltip(summaryTooltipLines, event)}
+                        onMouseMove={(event) => showTooltip(summaryTooltipLines, event)}
+                        onMouseLeave={hideTooltip}
+                        onFocus={(event) => showTooltip(summaryTooltipLines, event)}
+                        onBlur={hideTooltip}
+                      >
+                        <span className={styles.heatmapTotalCostValue}>{formattedTotalCost}</span>
+                      </div>
                     </div>
                   );
                 })}

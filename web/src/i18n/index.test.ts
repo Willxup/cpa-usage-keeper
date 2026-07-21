@@ -150,6 +150,9 @@ describe('i18n resources', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.analysis_heatmap_subtitle')).toBe('Token distribution across API keys and models with hover details.');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.analysis_heatmap_subtitle')).toBe('展示 API Key 与模型组合下的 Token 分布，悬浮查看明细。');
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.analysis_heatmap_subtitle')).toBe('顯示 API Key 與模型組合下的 Token 分布，懸浮查看明細。');
+    expect(i18n.getResource('en', 'translation', 'usage_stats.analysis_heatmap_total')).toBeUndefined();
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.analysis_heatmap_total')).toBeUndefined();
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.analysis_heatmap_total')).toBeUndefined();
   });
 
   it('labels Analysis cost metrics', () => {

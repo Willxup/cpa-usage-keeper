@@ -674,13 +674,23 @@
 .heatmapScroller {
   overflow-x: auto;
   padding-bottom: 2px;
+  scrollbar-gutter: stable;
+
+  @include mobile {
+    padding-bottom: 10px;
+  }
 }
 
 .heatmapGrid {
+  --heatmap-key-column-width: 160px;
+  --heatmap-summary-column-width: 88px;
+  --heatmap-grid-gap: 4px;
+
   display: grid;
-  gap: 4px;
+  gap: var(--heatmap-grid-gap, 4px);
   width: 100%;
   min-width: 680px;
+  isolation: isolate;
 }
 
 .heatmapRowContents {
@@ -736,9 +746,27 @@
   align-items: center;
 }
 
-.heatmapTooltipTarget {
-  position: relative;
-  overflow: visible;
+.heatmapKeyColumn {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--bg-primary);
+  box-shadow: 12px 0 22px -20px rgba(15, 23, 42, 0.72);
+}
+
+.heatmapKeyColumn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 0;
+  background: inherit;
+  pointer-events: none;
+}
+
+.heatmapTotalTokensColumn,
+.heatmapTotalCostColumn {
+  min-width: 0;
 }
 
 .heatmapTruncatedLabel {
@@ -764,40 +792,38 @@
   overflow-wrap: anywhere;
 }
 
-.heatmapTooltipTarget:hover::after {
-  content: attr(data-full-name);
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 6px);
-  z-index: 20;
-  max-width: min(360px, 80vw);
-  padding: 6px 8px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16);
-  white-space: normal;
-  overflow-wrap: anywhere;
-  pointer-events: none;
-}
-
 .heatmapRowLabel {
-  height: 30px;
-  min-height: 30px;
+  height: 34px;
+  min-height: 34px;
   align-self: center;
   display: flex;
   align-items: center;
-  border: 0;
-  background: transparent;
-  padding-top: 0;
-  padding-bottom: 0;
+  gap: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: var(--bg-primary);
+  padding: 0 10px;
+  outline: none;
+}
+
+.heatmapKeyMarker {
+  width: 3px;
+  height: 16px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #fb923c, #ef4444);
+}
+
+.heatmapKeyLabel {
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .heatmapCell {
   position: relative;
-  height: 30px;
-  min-height: 30px;
+  height: 34px;
+  min-height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -806,6 +832,69 @@
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.10);
   font-variant-numeric: tabular-nums;
   outline: none;
+}
+
+.heatmapSummaryHeaderCell {
+  justify-content: center;
+  padding: 8px 6px;
+  color: var(--text-primary);
+  text-align: center;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.heatmapSummaryCell {
+  height: 34px;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--bg-secondary) 72%, var(--bg-primary));
+  color: var(--text-primary);
+  padding: 0 5px;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+
+.heatmapRowLabel:focus-visible,
+.heatmapSummaryCell:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--heatmap-focus-color, #d86a4a) 70%, transparent);
+}
+
+.heatmapTotalTokenValue,
+.heatmapTotalCostValue {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.heatmapCardDark {
+  .heatmapKeyColumn {
+    background: var(--bg-secondary);
+  }
+
+  .heatmapRowLabel,
+  .heatmapSummaryCell {
+    background: color-mix(in srgb, var(--bg-tertiary) 74%, var(--bg-primary));
+  }
+
+}
+
+@include mobile {
+  .heatmapKeyColumn {
+    position: static;
+    box-shadow: none;
+  }
+
+  .heatmapKeyColumn::before {
+    content: none;
+  }
 }
 
 .heatmapCell:focus-visible {
