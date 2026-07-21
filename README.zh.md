@@ -323,7 +323,7 @@ Auth Files 定时限额刷新在 Auth Files 巡检弹窗的小齿轮中配置。
 | `LOG_LEVEL` | 否 | `info` | 日志级别 |
 | `LOG_FILE_ENABLED` | 否 | `true` | 是否写入持久化日志文件 |
 | `LOG_RETENTION_DAYS` | 否 | `7` | 日志保留天数；`0` 表示不自动清理 |
-| `CLEANUP_USAGE_EVENTS_ENABLED` | 否 | `false` | 是否在每日维护中删除过期 `usage_events` 原始事件；启用后会删除上个月 1 日 00:00 之前的数据 |
+| `CLEANUP_USAGE_EVENTS_ENABLED` | 否 | `false` | 是否在每日维护中删除过期 `usage_events` 原始事件；启用后会删除早于 90 个本地自然日前 00:00 的数据 |
 | `BACKUP_ENABLED` | 否 | `true` | 是否启用 SQLite 数据库备份 |
 | `BACKUP_INTERVAL` | 否 | `24h` | 数据库备份间隔 |
 | `BACKUP_RETENTION_DAYS` | 否 | `7` | 备份保留天数 |

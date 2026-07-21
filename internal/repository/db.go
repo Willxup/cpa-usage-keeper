@@ -155,6 +155,8 @@ type CleanupStorageOptions struct {
 	CleanupUsageEvents bool
 }
 
+const usageEventsRetentionDays = 90
+
 // CleanupStorage 是每日维护任务的统一仓储清理入口：先清 Redis inbox，按配置清过期 usage_events，再清 Activity 短粒度统计，最后执行 VACUUM。
 // VACUUM 必须在删除完成后单独执行，任何一步失败都会停止后续步骤并把已完成部分的结果返回给上层日志。
 func CleanupStorage(db *gorm.DB, now time.Time, options ...CleanupStorageOptions) (dto.StorageCleanupResult, error) {
@@ -184,7 +186,7 @@ func CleanupStorage(db *gorm.DB, now time.Time, options ...CleanupStorageOptions
 	return dto.StorageCleanupResult{RedisInbox: redisResult, UsageEventsDeleted: usageEventsDeleted}, nil
 }
 
-// cleanupUsageEvents 删除当前页面查询窗口外的原始 usage_events，保留从上个月 1 日本地零点开始的数据。
+// cleanupUsageEvents 严格删除早于“time.Local 当日零点向前 90 个自然日”边界的原始 usage_events。
 func cleanupUsageEvents(db *gorm.DB, now time.Time) (int64, error) {
 	if db == nil {
 		return 0, fmt.Errorf("database is nil")
@@ -204,7 +206,7 @@ func cleanupUsageEvents(db *gorm.DB, now time.Time) (int64, error) {
 		}
 		// 只有安全水位已经覆盖当前最大 ID 时才计算时间保留线。
 		cutoff := usageEventsCleanupCutoff(now)
-		// timestamp 条件保持 main 的原始保留语义，不扩大本次修复范围。
+		// DELETE 保持严格小于 cutoff，边界时刻本身必须保留。
 		result := tx.Unscoped().Where("timestamp < ?", timeutil.FormatStorageTime(cutoff)).Delete(&entities.UsageEvent{})
 		if result.Error != nil {
 			return fmt.Errorf("cleanup usage events: %w", result.Error)
@@ -276,8 +278,8 @@ func usageEventAggregationsCaughtUp(tx *gorm.DB) (bool, error) {
 
 func usageEventsCleanupCutoff(now time.Time) time.Time {
 	localNow := now.In(time.Local)
-	currentMonthStart := time.Date(localNow.Year(), localNow.Month(), 1, 0, 0, 0, 0, time.Local)
-	return currentMonthStart.AddDate(0, -1, 0)
+	localDayStart := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, time.Local)
+	return localDayStart.AddDate(0, 0, -usageEventsRetentionDays)
 }
 
 // Vacuum 提供单独的 SQLite 收缩入口，供需要只做文件整理的调用方使用。

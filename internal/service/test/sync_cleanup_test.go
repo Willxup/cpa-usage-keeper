@@ -16,7 +16,7 @@ import (
 func TestSyncServiceCleanupStorageSkipsUsageEventsByDefault(t *testing.T) {
 	db := openSyncCleanupTestDatabase(t)
 	now := time.Date(2026, 6, 16, 9, 0, 0, 0, time.Local)
-	seedSyncCleanupUsageEvents(t, db)
+	seedSyncCleanupUsageEventsAt(t, db, now.AddDate(0, 0, -91), now.Add(-time.Hour))
 	syncer := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
 		Now: func() time.Time { return now },
 	})
@@ -38,7 +38,7 @@ func TestSyncServiceCleanupStorageDeletesUsageEventsWhenEnabled(t *testing.T) {
 	// 准备：写入一条过期和一条近期事件，并先追平两个全局聚合 checkpoint。
 	db := openSyncCleanupTestDatabase(t)
 	now := time.Date(2026, 6, 16, 9, 0, 0, 0, time.Local)
-	seedSyncCleanupUsageEvents(t, db)
+	seedSyncCleanupUsageEventsAt(t, db, now.AddDate(0, 0, -91), now.Add(-time.Hour))
 	catchUpSyncCleanupAggregations(t, db, now)
 	syncer := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
 		Now:                       func() time.Time { return now },
@@ -50,7 +50,7 @@ func TestSyncServiceCleanupStorageDeletesUsageEventsWhenEnabled(t *testing.T) {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}
 
-	// 断言：安全水位满足后仍保持 main 的时间保留语义，只删除过期事件。
+	// 断言：安全水位满足后只删除早于 90 天边界的过期事件。
 	var remainingKeys []string
 	if err := db.Model(&entities.UsageEvent{}).Order("event_key asc").Pluck("event_key", &remainingKeys).Error; err != nil {
 		t.Fatalf("load remaining usage events: %v", err)
@@ -64,7 +64,7 @@ func TestNewSyncServiceCleanupStorageReadsCleanupFlagFromConfig(t *testing.T) {
 	// 准备：通过生产构造器配置清理开关，并让两个全局聚合 checkpoint 先追平。
 	db := openSyncCleanupTestDatabase(t)
 	now := time.Now().In(time.Local)
-	seedSyncCleanupUsageEventsAt(t, db, now.AddDate(0, -3, 0), now)
+	seedSyncCleanupUsageEventsAt(t, db, now.AddDate(0, 0, -91), now)
 	catchUpSyncCleanupAggregations(t, db, now)
 	syncer := service.NewSyncService(db, config.Config{
 		CPABaseURL:                "https://cpa.example.com",
@@ -104,14 +104,6 @@ func openSyncCleanupTestDatabase(t *testing.T) *gorm.DB {
 		}
 	})
 	return db
-}
-
-func seedSyncCleanupUsageEvents(t *testing.T, db *gorm.DB) {
-	t.Helper()
-	seedSyncCleanupUsageEventsAt(t, db,
-		time.Date(2026, 4, 30, 23, 59, 59, 0, time.Local),
-		time.Date(2026, 6, 16, 8, 0, 0, 0, time.Local),
-	)
 }
 
 func seedSyncCleanupUsageEventsAt(t *testing.T, db *gorm.DB, oldAt, recentAt time.Time) {

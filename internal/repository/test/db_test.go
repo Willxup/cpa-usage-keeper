@@ -508,7 +508,7 @@ func TestCleanupStorageCleansRedisInboxAndVacuums(t *testing.T) {
 	}
 }
 
-func TestCleanupStorageCleansUsageEventsBeforePreviousMonthStart(t *testing.T) {
+func TestCleanupStorageRetainsNinetyLocalDays(t *testing.T) {
 	previousLocal := time.Local
 	location, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {
@@ -517,12 +517,14 @@ func TestCleanupStorageCleansUsageEventsBeforePreviousMonthStart(t *testing.T) {
 	time.Local = location
 	t.Cleanup(func() { time.Local = previousLocal })
 	db := openTestDatabase(t)
-	now := time.Date(2026, 6, 16, 9, 0, 0, 0, time.Local)
+	now := time.Date(2026, 6, 16, 15, 0, 0, 0, time.Local)
+	cutoff := time.Date(2026, 3, 18, 0, 0, 0, 0, time.Local)
 
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
-		{EventKey: "old", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 30, 23, 59, 59, 0, time.Local), TotalTokens: 1},
-		{EventKey: "boundary", Model: "claude-sonnet", Timestamp: time.Date(2026, 5, 1, 0, 0, 0, 0, time.Local), TotalTokens: 2},
-		{EventKey: "recent", Model: "claude-sonnet", Timestamp: time.Date(2026, 6, 16, 8, 0, 0, 0, time.Local), TotalTokens: 3},
+		{EventKey: "before-cutoff", Model: "claude-sonnet", Timestamp: cutoff.Add(-time.Nanosecond), TotalTokens: 1},
+		{EventKey: "at-cutoff", Model: "claude-sonnet", Timestamp: cutoff, TotalTokens: 2},
+		{EventKey: "after-cutoff", Model: "claude-sonnet", Timestamp: cutoff.Add(time.Nanosecond), TotalTokens: 3},
+		{EventKey: "current-day", Model: "claude-sonnet", Timestamp: time.Date(2026, 6, 16, 9, 0, 0, 0, time.Local), TotalTokens: 4},
 	}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
@@ -547,7 +549,55 @@ func TestCleanupStorageCleansUsageEventsBeforePreviousMonthStart(t *testing.T) {
 	if err := db.Model(&entities.UsageEvent{}).Order("event_key asc").Pluck("event_key", &remainingKeys).Error; err != nil {
 		t.Fatalf("load remaining usage events: %v", err)
 	}
-	expectedKeys := []string{"boundary", "recent"}
+	expectedKeys := []string{"after-cutoff", "at-cutoff", "current-day"}
+	if fmt.Sprint(remainingKeys) != fmt.Sprint(expectedKeys) {
+		t.Fatalf("expected remaining usage events %v, got %v", expectedKeys, remainingKeys)
+	}
+}
+
+func TestCleanupStorageUsesLocalCalendarDaysAcrossDST(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	time.Local = location
+	t.Cleanup(func() { time.Local = previousLocal })
+	db := openTestDatabase(t)
+	now := time.Date(2026, 5, 15, 15, 0, 0, 0, time.Local)
+	localDayStart := time.Date(2026, 5, 15, 0, 0, 0, 0, time.Local)
+	cutoff := localDayStart.AddDate(0, 0, -90)
+	if elapsed := localDayStart.Sub(cutoff); elapsed != 90*24*time.Hour-time.Hour {
+		t.Fatalf("expected fixture to cross spring DST in 2159 hours, got %s", elapsed)
+	}
+
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+		{EventKey: "before-dst-cutoff", Model: "claude-sonnet", Timestamp: cutoff.Add(-time.Nanosecond), TotalTokens: 1},
+		{EventKey: "at-dst-cutoff", Model: "claude-sonnet", Timestamp: cutoff, TotalTokens: 2},
+		{EventKey: "after-dst-cutoff", Model: "claude-sonnet", Timestamp: cutoff.Add(time.Nanosecond), TotalTokens: 3},
+	}); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+	if err := repository.AggregateUsageOverviewStats(context.Background(), db, now); err != nil {
+		t.Fatalf("aggregate overview before cleanup: %v", err)
+	}
+	if err := repository.AggregateUsageActivityStats(context.Background(), db, now); err != nil {
+		t.Fatalf("aggregate activity before cleanup: %v", err)
+	}
+
+	result, err := repository.CleanupStorage(db, now, repository.CleanupStorageOptions{CleanupUsageEvents: true})
+	if err != nil {
+		t.Fatalf("CleanupStorage returned error: %v", err)
+	}
+	if result.UsageEventsDeleted != 1 {
+		t.Fatalf("expected only the event before the local calendar cutoff to be deleted, got %+v", result)
+	}
+
+	var remainingKeys []string
+	if err := db.Model(&entities.UsageEvent{}).Order("event_key asc").Pluck("event_key", &remainingKeys).Error; err != nil {
+		t.Fatalf("load remaining usage events: %v", err)
+	}
+	expectedKeys := []string{"after-dst-cutoff", "at-dst-cutoff"}
 	if fmt.Sprint(remainingKeys) != fmt.Sprint(expectedKeys) {
 		t.Fatalf("expected remaining usage events %v, got %v", expectedKeys, remainingKeys)
 	}
@@ -559,8 +609,8 @@ func TestCleanupStorageDefersUsageEventsUntilOverviewAndActivityCatchUp(t *testi
 	now := time.Date(2026, 6, 16, 9, 0, 0, 0, time.Local)
 
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
-		{EventKey: "old-without-checkpoint", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 29, 10, 0, 0, 0, time.Local), TotalTokens: 1},
-		{EventKey: "old-beyond-checkpoint", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 30, 10, 0, 0, 0, time.Local), TotalTokens: 2},
+		{EventKey: "old-without-checkpoint", Model: "claude-sonnet", Timestamp: now.AddDate(0, 0, -92), TotalTokens: 1},
+		{EventKey: "old-beyond-checkpoint", Model: "claude-sonnet", Timestamp: now.AddDate(0, 0, -91), TotalTokens: 2},
 	}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
@@ -590,8 +640,8 @@ func TestCleanupStorageDefersUsageEventsUntilIdentityCatchUp(t *testing.T) {
 	now := time.Date(2026, 6, 16, 9, 0, 0, 0, time.Local)
 
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
-		{EventKey: "identity-aggregated-old", AuthType: "oauth", AuthIndex: "auth-1", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 29, 10, 0, 0, 0, time.Local), TotalTokens: 1},
-		{EventKey: "identity-pending-old", AuthType: "oauth", AuthIndex: "auth-1", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 30, 10, 0, 0, 0, time.Local), TotalTokens: 2},
+		{EventKey: "identity-aggregated-old", AuthType: "oauth", AuthIndex: "auth-1", Model: "claude-sonnet", Timestamp: now.AddDate(0, 0, -92), TotalTokens: 1},
+		{EventKey: "identity-pending-old", AuthType: "oauth", AuthIndex: "auth-1", Model: "claude-sonnet", Timestamp: now.AddDate(0, 0, -91), TotalTokens: 2},
 	}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
