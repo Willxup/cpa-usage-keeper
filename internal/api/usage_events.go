@@ -515,15 +515,11 @@ func buildUsageEventExportPayload(row servicedto.UsageEventRecord, resolver usag
 }
 
 func usageEventSpeedTPS(row servicedto.UsageEventRecord) *float64 {
-	visibleOutputTokens := row.OutputTokens - row.ReasoningTokens
-	if visibleOutputTokens < 0 {
-		visibleOutputTokens = 0
-	}
-	if row.TTFTMS == nil || *row.TTFTMS <= 0 || row.LatencyMS <= *row.TTFTMS || visibleOutputTokens <= 1 {
+	if row.TTFTMS == nil || *row.TTFTMS <= 0 || row.LatencyMS <= *row.TTFTMS || row.OutputTokens <= 0 {
 		return nil
 	}
-	// Speed 只衡量首字后可见输出 token 的平均生成速度，避免把等待首字的时间重复计入。
-	speed := float64(visibleOutputTokens-1) / (float64(row.LatencyMS-*row.TTFTMS) / 1000)
+	// Speed 使用完整 output_tokens 除以首字后的耗时，保持请求事件口径简单一致。
+	speed := float64(row.OutputTokens) / (float64(row.LatencyMS-*row.TTFTMS) / 1000)
 	return &speed
 }
 

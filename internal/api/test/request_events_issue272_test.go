@@ -49,7 +49,7 @@ func TestIssue272RedisIngressKeepsRequestEventSpeedTPS(t *testing.T) {
 		t.Fatalf("expected one normalized issue #272 event, got %+v", result)
 	}
 
-	// Request Events 必须看到 fold 后 Output=70、Reasoning=50，才能用 20 个可见输出 Token 计算非空速度。
+	// Request Events 使用归一化后的完整 Output=70 计算速度，不再扣除 Reasoning=50。
 	router := NewRouter(nil, nil, service.NewUsageService(db), nil, AuthConfig{}, nil, "")
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h", nil)
 	response := httptest.NewRecorder()
@@ -58,8 +58,8 @@ func TestIssue272RedisIngressKeepsRequestEventSpeedTPS(t *testing.T) {
 		t.Fatalf("expected Request Events status 200, got %d body=%s", response.Code, response.Body.String())
 	}
 	body := response.Body.String()
-	if !strings.Contains(body, `"request_id":"issue-272-speed-regression"`) || !strings.Contains(body, `"output_tokens":70`) || !strings.Contains(body, `"reasoning_tokens":50`) || !strings.Contains(body, `"speed_tps":9.5`) {
-		t.Fatalf("expected issue #272 event to retain non-null visible-output speed, got %s", body)
+	if !strings.Contains(body, `"request_id":"issue-272-speed-regression"`) || !strings.Contains(body, `"output_tokens":70`) || !strings.Contains(body, `"reasoning_tokens":50`) || !strings.Contains(body, `"speed_tps":35`) {
+		t.Fatalf("expected issue #272 event to use full output tokens for speed, got %s", body)
 	}
 }
 

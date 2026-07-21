@@ -113,6 +113,12 @@ describe('i18n resources', () => {
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.latency')).toBe('總延遲');
   });
 
+  it('describes request event speed using full output tokens', () => {
+    expect(i18n.getResource('en', 'translation', 'usage_stats.speed_hint')).toBe('Average output tokens per second after TTFT');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_hint')).toBe('首字后输出 token 的平均速度');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_hint')).toBe('首字後輸出 token 的平均速度');
+  });
+
   it('uses compact Chinese labels for request event type column', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.request_type')).toBe('Type');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.request_type')).toBe('类型');

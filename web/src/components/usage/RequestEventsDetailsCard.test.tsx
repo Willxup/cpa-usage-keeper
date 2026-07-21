@@ -94,8 +94,8 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html.indexOf('>Type</th>')).toBeLessThan(html.indexOf('>Endpoint</th>'));
     expect(html.indexOf('>Endpoint</th>')).toBeLessThan(html.indexOf('title="Time to First Token">TTFT</th>'));
     expect(html.indexOf('title="Time to First Token">TTFT</th>')).toBeLessThan(html.indexOf('title="Using latency_ms in ms">Latency</th>'));
-    expect(html.indexOf('title="Using latency_ms in ms">Latency</th>')).toBeLessThan(html.indexOf('title="Average visible output tokens per second after TTFT">Speed</th>'));
-    expect(html.indexOf('title="Average visible output tokens per second after TTFT">Speed</th>')).toBeLessThan(html.indexOf('>Input</th>'));
+    expect(html.indexOf('title="Using latency_ms in ms">Latency</th>')).toBeLessThan(html.indexOf('title="Average output tokens per second after TTFT">Speed</th>'));
+    expect(html.indexOf('title="Average output tokens per second after TTFT">Speed</th>')).toBeLessThan(html.indexOf('>Input</th>'));
     expect(html).toContain('class="_requestEventsAPIKeyCell_');
     expect(html).toContain('title="Production Key">Production Key</td>');
     expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">medium<\/td>/);
@@ -161,7 +161,7 @@ describe('RequestEventsDetailsCard pagination', () => {
     });
 
     expect(html.indexOf('title="Time to First Token">TTFT</th>')).toBeLessThan(html.indexOf('title="Using latency_ms in ms">Latency</th>'));
-    expect(html.indexOf('title="Using latency_ms in ms">Latency</th>')).toBeLessThan(html.indexOf('title="Average visible output tokens per second after TTFT">Speed</th>'));
+    expect(html.indexOf('title="Using latency_ms in ms">Latency</th>')).toBeLessThan(html.indexOf('title="Average output tokens per second after TTFT">Speed</th>'));
     expect(html).toMatch(/45ms<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">--<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*">-<\/td>/);
   });
 
