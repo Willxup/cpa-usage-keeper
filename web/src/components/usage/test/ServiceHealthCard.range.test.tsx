@@ -21,6 +21,12 @@ function buildActivity(windowHours: number, columns = 52): UsageActivityResponse
     total_success: 1,
     total_failure: 0,
     success_rate: 100,
+    input_tokens: 0,
+    output_tokens: 0,
+    reasoning_tokens: 0,
+    cache_read_tokens: 0,
+    cache_creation_tokens: 0,
+    total_tokens: 0,
     rows: 2,
     columns,
     bucket_seconds: Math.ceil(bucketMilliseconds / 1000),
@@ -32,6 +38,12 @@ function buildActivity(windowHours: number, columns = 52): UsageActivityResponse
       success: index === BLOCK_COUNT - 1 ? 1 : 0,
       failure: 0,
       rate: index === BLOCK_COUNT - 1 ? 1 : -1,
+      input_tokens: 0,
+      output_tokens: 0,
+      reasoning_tokens: 0,
+      cache_read_tokens: 0,
+      cache_creation_tokens: 0,
+      total_tokens: 0,
     })),
   };
 }
@@ -54,9 +66,9 @@ describe('ServiceHealthCard activity ranges', () => {
       requestIdentity: `admin::${windowHours}h:::`,
     }));
 
-    expect(html.match(/role="listitem"/g)).toHaveLength(BLOCK_COUNT);
-    expect(html).toMatch(/--health-grid-columns:52(?:;|&quot;)/);
-    expect(html).toMatch(/--health-grid-rows:7(?:;|&quot;)/);
+    expect(html.match(/role="gridcell"/g)).toHaveLength(BLOCK_COUNT);
+    expect(html).toContain('aria-rowcount="7"');
+    expect(html).toContain('aria-colcount="52"');
   });
 });
 
@@ -83,7 +95,7 @@ describe('ServiceHealthCard range changes', () => {
       loading: false,
       requestIdentity: 'admin::8h:::',
     })));
-    const firstBlock = container.querySelector<HTMLElement>('[role="listitem"]');
+    const firstBlock = container.querySelector<HTMLElement>('[role="gridcell"]');
     expect(firstBlock).not.toBeNull();
 
     act(() => firstBlock?.focus());
@@ -111,7 +123,7 @@ describe('ServiceHealthCard range changes', () => {
       loading: false,
       requestIdentity,
     })));
-    const firstBlock = container.querySelector<HTMLElement>('[role="listitem"]');
+    const firstBlock = container.querySelector<HTMLElement>('[role="gridcell"]');
     act(() => firstBlock?.focus());
 
     act(() => root.render(createElement(ServiceHealthCard, {
@@ -121,5 +133,22 @@ describe('ServiceHealthCard range changes', () => {
     })));
 
     expect(document.querySelector('[role="tooltip"]')).not.toBeNull();
+  });
+
+  it('clears the legacy absolute offsets from the fixed portal tooltip', () => {
+    act(() => root.render(createElement(ServiceHealthCard, {
+      activity: buildActivity(24),
+      loading: false,
+      requestIdentity: 'admin::24h:::',
+    })));
+
+    const firstBlock = container.querySelector<HTMLElement>('[role="gridcell"]');
+    act(() => firstBlock?.focus());
+
+    const tooltip = document.querySelector<HTMLElement>('[role="tooltip"]');
+    expect(tooltip).not.toBeNull();
+    expect(tooltip?.style.position).toBe('fixed');
+    expect(tooltip?.style.bottom).toBe('auto');
+    expect(tooltip?.style.right).toBe('auto');
   });
 });

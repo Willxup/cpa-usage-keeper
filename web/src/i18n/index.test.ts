@@ -18,6 +18,18 @@ describe('i18n resources', () => {
     }
   });
 
+  it('localizes Token Activity and density labels in every supported language', () => {
+    expect(i18n.getResource('en', 'translation', 'usage_stats.token_activity_title')).toBe('Token Activity');
+    expect(i18n.getResource('en', 'translation', 'usage_stats.token_activity_less')).toBe('Less');
+    expect(i18n.getResource('en', 'translation', 'usage_stats.token_activity_more')).toBe('More');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.token_activity_title')).toBe('Token 活动');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.token_activity_less')).toBe('较少');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.token_activity_more')).toBe('较多');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.token_activity_title')).toBe('Token 活動');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.token_activity_less')).toBe('較少');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.token_activity_more')).toBe('較多');
+  });
+
   it('keeps Auth Files display mode labels available in every language', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_auth_files_display_mode_aria')).toBe('Auth file display mode');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_auth_files_display_mode_aria')).toBe('认证文件显示模式');

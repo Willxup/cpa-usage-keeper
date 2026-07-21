@@ -101,7 +101,7 @@ export interface UsageOverviewSeries {
 	cache_read_rate: Record<string, number | null>
 }
 
-export type UsageActivityWindow = '24h' | '7d' | '30d'
+export type UsageActivityWindow = '24h' | '7d' | '30d' | '1y'
 
 export interface UsageActivityBlock {
   start_time: string
@@ -109,15 +109,27 @@ export interface UsageActivityBlock {
   success: number
   failure: number
   rate: number
+	input_tokens: number
+	output_tokens: number
+	reasoning_tokens: number
+	cache_read_tokens: number
+	cache_creation_tokens: number
+	total_tokens: number
 }
 
 export interface UsageActivityResponse {
   window: UsageActivityWindow
-  grain: 'short' | 'medium' | 'long'
+  grain: 'short' | 'medium' | 'long' | 'daily'
   timezone?: string
   total_success: number
   total_failure: number
   success_rate: number
+	input_tokens: number
+	output_tokens: number
+	reasoning_tokens: number
+	cache_read_tokens: number
+	cache_creation_tokens: number
+	total_tokens: number
   rows: number
   columns: number
   bucket_seconds: number
@@ -730,6 +742,10 @@ export interface UsageRangeRequest {
 	unit?: UsageCustomRangeUnit
 	start?: string
 	end?: string
+}
+
+export type UsageActivityRequest = UsageRangeRequest | {
+	window: UsageActivityWindow
 }
 
 export interface UsageFilterWindow {

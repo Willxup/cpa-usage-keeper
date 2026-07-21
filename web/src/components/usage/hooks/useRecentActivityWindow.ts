@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import type { UsageActivityWindow, UsageRangeRequest } from '@/lib/types';
+import type { UsageActivityRequest, UsageActivityWindow, UsageRangeRequest } from '@/lib/types';
 import type { UsageRangeQuery } from '@/utils/usage/rangeQuery';
 
 interface ManualActivityWindowSelection {
@@ -8,7 +8,7 @@ interface ManualActivityWindowSelection {
 }
 
 export interface UseRecentActivityWindowReturn {
-  request: UsageRangeRequest;
+  request: UsageActivityRequest;
   manualWindow: UsageActivityWindow | null;
   setWindow: (window: UsageActivityWindow) => void;
 }
@@ -30,8 +30,10 @@ export function useRecentActivityWindow(query: UsageRangeQuery): UseRecentActivi
   }
   const manualWindow = selection.queryIdentity === queryIdentity ? selection.window : null;
 
-  const request: UsageRangeRequest = (
-    manualWindow
+  const request: UsageActivityRequest = (
+    manualWindow === '1y'
+      ? { window: manualWindow }
+      : manualWindow
       ? { range: manualWindow }
       : query.range === 'custom'
         ? { range: query.range, unit: query.unit, start: query.start, end: query.end }

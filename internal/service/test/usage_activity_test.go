@@ -31,6 +31,7 @@ func TestUsageActivityMapsNormalizedTimeRangesToFixedWindowGrains(t *testing.T) 
 		{name: "two days", filter: servicedto.UsageFilter{Range: "2d", RangeUnit: "day", RangeCount: 2}, wantWindow: servicedto.UsageActivityWindow7D, wantGrain: "medium", wantDuration: 7 * 24 * time.Hour},
 		{name: "seven days", filter: servicedto.UsageFilter{Range: "custom", CustomUnit: "day", RangeUnit: "day", RangeCount: 7}, wantWindow: servicedto.UsageActivityWindow7D, wantGrain: "medium", wantDuration: 7 * 24 * time.Hour},
 		{name: "eight days", filter: servicedto.UsageFilter{Range: "8d", RangeUnit: "day", RangeCount: 8}, wantWindow: servicedto.UsageActivityWindow30D, wantGrain: "long", wantDuration: 30 * 24 * time.Hour},
+		{name: "one year", filter: servicedto.UsageFilter{ActivityWindow: servicedto.UsageActivityWindow1Y}, wantWindow: servicedto.UsageActivityWindow1Y, wantGrain: "daily", wantDuration: 364 * 24 * time.Hour},
 	}
 
 	for _, testCase := range testCases {
@@ -71,8 +72,8 @@ func TestUsageActivityHeaderAndBlocksUseTheSameAPIKeyScope(t *testing.T) {
 		t.Fatalf("resolve Activity bucket: %v", err)
 	}
 	rows := []entities.UsageActivityStat{
-		{Grain: entities.UsageActivityGrainShort, BucketStart: bucket.Start, BucketEnd: bucket.End, APIGroupKey: "provider-a", SuccessCount: 1, FailureCount: 1},
-		{Grain: entities.UsageActivityGrainShort, BucketStart: bucket.Start, BucketEnd: bucket.End, APIGroupKey: "provider-b", SuccessCount: 9},
+		{Grain: entities.UsageActivityGrainShort, BucketStart: bucket.Start, BucketEnd: bucket.End, APIGroupKey: "provider-a", SuccessCount: 1, FailureCount: 1, InputTokens: 10, OutputTokens: 20, ReasoningTokens: 30, CacheReadTokens: 40, CacheCreationTokens: 50, TotalTokens: 777},
+		{Grain: entities.UsageActivityGrainShort, BucketStart: bucket.Start, BucketEnd: bucket.End, APIGroupKey: "provider-b", SuccessCount: 9, InputTokens: 900, TotalTokens: 999},
 	}
 	if err := db.Create(&rows).Error; err != nil {
 		t.Fatalf("seed Activity rows: %v", err)
@@ -87,13 +88,22 @@ func TestUsageActivityHeaderAndBlocksUseTheSameAPIKeyScope(t *testing.T) {
 	if activity.TotalSuccess != 1 || activity.TotalFailure != 1 || activity.SuccessRate != 50 {
 		t.Fatalf("unexpected scoped Activity header: success=%d failure=%d rate=%v", activity.TotalSuccess, activity.TotalFailure, activity.SuccessRate)
 	}
+	if activity.InputTokens != 10 || activity.OutputTokens != 20 || activity.ReasoningTokens != 30 || activity.CacheReadTokens != 40 || activity.CacheCreationTokens != 50 || activity.TotalTokens != 777 {
+		t.Fatalf("unexpected scoped Activity Token totals: %+v", activity)
+	}
 	var blockSuccess, blockFailure int64
+	var blockInputTokens, blockTotalTokens int64
 	for _, block := range activity.Blocks {
 		blockSuccess += block.Success
 		blockFailure += block.Failure
+		blockInputTokens += block.InputTokens
+		blockTotalTokens += block.TotalTokens
 	}
 	if blockSuccess != activity.TotalSuccess || blockFailure != activity.TotalFailure {
 		t.Fatalf("Activity header and blocks disagree: header=%d/%d blocks=%d/%d", activity.TotalSuccess, activity.TotalFailure, blockSuccess, blockFailure)
+	}
+	if blockInputTokens != activity.InputTokens || blockTotalTokens != activity.TotalTokens {
+		t.Fatalf("Activity Token header and blocks disagree: header=%d/%d blocks=%d/%d", activity.InputTokens, activity.TotalTokens, blockInputTokens, blockTotalTokens)
 	}
 }
 

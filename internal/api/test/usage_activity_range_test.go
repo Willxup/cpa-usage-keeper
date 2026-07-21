@@ -64,6 +64,16 @@ func TestUsageActivityUsesOverviewTimeQueryAndAcceptsOptionalAPIKey(t *testing.T
 	if provider.lastFilter.Page != 0 || provider.lastFilter.Result != "" {
 		t.Fatalf("Activity should not parse Events-only fields: %+v", provider.lastFilter)
 	}
+
+	oneYearResponse := httptest.NewRecorder()
+	oneYearPath := "/api/v1/usage/activity?window=1y&api_key_id=42"
+	router.ServeHTTP(oneYearResponse, httptest.NewRequest(http.MethodGet, oneYearPath, nil))
+	if oneYearResponse.Code != http.StatusOK {
+		t.Fatalf("Admin one-year Activity status=%d body=%s", oneYearResponse.Code, oneYearResponse.Body.String())
+	}
+	if provider.calls != 2 || provider.lastFilter.ActivityWindow != servicedto.UsageActivityWindow1Y || provider.lastFilter.APIKeyID != "42" {
+		t.Fatalf("unexpected Admin one-year Activity filter: calls=%d filter=%+v", provider.calls, provider.lastFilter)
+	}
 }
 
 func TestUsageActivityRangesReturnBackendSelectedFixedTierWindows(t *testing.T) {
@@ -90,6 +100,7 @@ func TestUsageActivityRangesReturnBackendSelectedFixedTierWindows(t *testing.T) 
 		{name: "seven days", query: "range=7d", wantWindow: "7d", wantDuration: 7 * 24 * time.Hour},
 		{name: "eight days", query: "range=8d", wantWindow: "30d", wantDuration: 30 * 24 * time.Hour},
 		{name: "thirty days", query: "range=30d", wantWindow: "30d", wantDuration: 30 * 24 * time.Hour},
+		{name: "one year", query: "window=1y", wantWindow: "1y", wantDuration: 364 * 24 * time.Hour},
 	}
 
 	for _, testCase := range testCases {
@@ -178,13 +189,13 @@ func TestKeyActivityForcesViewerAPIKeyAndUsesAnIndependentRateLimitScope(t *test
 	}
 
 	activityResponse := httptest.NewRecorder()
-	activityRequest := httptest.NewRequest(http.MethodGet, "/api/v1/key-activity?range=2d&api_key_id=not-a-number&page=0&result=bogus", nil)
+	activityRequest := httptest.NewRequest(http.MethodGet, "/api/v1/key-activity?window=1y&api_key_id=not-a-number&page=0&result=bogus", nil)
 	activityRequest.AddCookie(&http.Cookie{Name: standardSessionCookieName, Value: token})
 	router.ServeHTTP(activityResponse, activityRequest)
 	if activityResponse.Code != http.StatusOK {
 		t.Fatalf("key Activity status=%d body=%s", activityResponse.Code, activityResponse.Body.String())
 	}
-	if provider.lastFilter.APIKeyID != "42" || provider.lastFilter.RangeUnit != "day" || provider.lastFilter.RangeCount != 2 {
+	if provider.lastFilter.APIKeyID != "42" || provider.lastFilter.ActivityWindow != servicedto.UsageActivityWindow1Y {
 		t.Fatalf("key Activity should force the viewer API key and preserve time semantics: %+v", provider.lastFilter)
 	}
 }

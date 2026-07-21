@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, fetchKeyActivity, fetchUsageActivity } from '@/lib/api';
-import type { UsageActivityResponse, UsageRangeRequest } from '@/lib/types';
+import type { UsageActivityRequest, UsageActivityResponse, UsageTimeRange } from '@/lib/types';
 
 export interface UseUsageActivityDataOptions {
   viewer: 'admin' | 'key';
-  request: UsageRangeRequest;
+  request: UsageActivityRequest;
   apiKeyId?: string;
   enabled?: boolean;
   onAuthRequired?: () => void;
@@ -36,21 +36,33 @@ export function useUsageActivityData({
   onAuthRequired,
 }: UseUsageActivityDataOptions): UseUsageActivityDataReturn {
   const normalizedAPIKeyID = viewer === 'admin' ? apiKeyId?.trim() ?? '' : '';
-  const normalizedRequest = useMemo<UsageRangeRequest>(() => ({
-    range: request.range,
-    unit: request.unit,
-    start: request.start,
-    end: request.end,
-  }), [request.end, request.range, request.start, request.unit]);
+  const requestWindow = 'window' in request ? request.window : undefined;
+  const requestRange = 'range' in request ? request.range : undefined;
+  const requestUnit = 'range' in request ? request.unit : undefined;
+  const requestStart = 'range' in request ? request.start : undefined;
+  const requestEnd = 'range' in request ? request.end : undefined;
+  const normalizedRequest = useMemo<UsageActivityRequest>(() => (
+    requestWindow
+      ? { window: requestWindow }
+      : {
+          range: requestRange as UsageTimeRange,
+          unit: requestUnit,
+          start: requestStart,
+          end: requestEnd,
+        }
+  ), [requestEnd, requestRange, requestStart, requestUnit, requestWindow]);
   const queryKey = useMemo(
-    () => `${viewer}:${normalizedAPIKeyID}:${normalizedRequest.range}:${normalizedRequest.unit ?? ''}:${normalizedRequest.start ?? ''}:${normalizedRequest.end ?? ''}`,
-    [normalizedAPIKeyID, normalizedRequest.end, normalizedRequest.range, normalizedRequest.start, normalizedRequest.unit, viewer],
+    () => `${viewer}:${normalizedAPIKeyID}:${requestWindow ?? ''}:${requestRange ?? ''}:${requestUnit ?? ''}:${requestStart ?? ''}:${requestEnd ?? ''}`,
+    [normalizedAPIKeyID, requestEnd, requestRange, requestStart, requestUnit, requestWindow, viewer],
   );
+  const queryScope = `${viewer}:${normalizedAPIKeyID}`;
   const activeRequestRef = useRef<ActiveActivityRequest | null>(null);
   const [response, setResponse] = useState<UsageActivityResponse | null>(null);
   const [responseQueryKey, setResponseQueryKey] = useState('');
+  const [responseQueryScope, setResponseQueryScope] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [errorQueryKey, setErrorQueryKey] = useState('');
 
   const loadActivity = useCallback((options: LoadUsageActivityOptions = {}) => {
     const currentRequest = activeRequestRef.current;
@@ -67,6 +79,7 @@ export function useUsageActivityData({
     activeRequestRef.current = activeRequest;
     setLoading(true);
     setError('');
+    setErrorQueryKey('');
     activeRequest.promise = (async () => {
       try {
         const next = viewer === 'key'
@@ -75,6 +88,7 @@ export function useUsageActivityData({
         if (activeRequestRef.current !== activeRequest) return;
         setResponse(next);
         setResponseQueryKey(queryKey);
+        setResponseQueryScope(queryScope);
         setLoading(false);
       } catch (nextError) {
         if (controller.signal.aborted || activeRequestRef.current !== activeRequest) return;
@@ -87,6 +101,7 @@ export function useUsageActivityData({
         }
         setLoading(false);
         setError(message);
+        setErrorQueryKey(queryKey);
       } finally {
         if (activeRequestRef.current === activeRequest) {
           activeRequestRef.current = null;
@@ -94,7 +109,7 @@ export function useUsageActivityData({
       }
     })();
     return activeRequest.promise;
-  }, [normalizedAPIKeyID, normalizedRequest, onAuthRequired, queryKey, viewer]);
+  }, [normalizedAPIKeyID, normalizedRequest, onAuthRequired, queryKey, queryScope, viewer]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -105,10 +120,17 @@ export function useUsageActivityData({
     };
   }, [enabled, loadActivity]);
 
+  // 同一 viewer/API Key 范围切换窗口时保留旧 payload，成功后原位替换；失败或跨 scope 时停止复用。
+  const displayActivity = responseQueryKey === queryKey
+    ? response
+    : responseQueryScope === queryScope && errorQueryKey !== queryKey
+      ? response
+      : null;
+
   return {
-    activity: responseQueryKey === queryKey ? response : null,
+    activity: displayActivity,
     loading,
-    error,
+    error: errorQueryKey === queryKey ? error : '',
     requestIdentity: queryKey,
     loadActivity,
   };

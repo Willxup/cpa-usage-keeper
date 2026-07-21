@@ -20,7 +20,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 
 const activityFor = (window: UsageActivityWindow): UsageActivityResponse => ({
   window,
-  grain: window === '24h' ? 'short' : window === '7d' ? 'medium' : 'long',
+  grain: window === '24h' ? 'short' : window === '7d' ? 'medium' : window === '30d' ? 'long' : 'daily',
   timezone: 'UTC',
   rows: 7,
   columns: 52,
@@ -30,6 +30,12 @@ const activityFor = (window: UsageActivityWindow): UsageActivityResponse => ({
   total_success: 0,
   total_failure: 0,
   success_rate: 0,
+  input_tokens: 0,
+  output_tokens: 0,
+  reasoning_tokens: 0,
+  cache_read_tokens: 0,
+  cache_creation_tokens: 0,
+  total_tokens: 0,
   blocks: [],
 });
 
@@ -91,6 +97,17 @@ describe('useUsageActivityData', () => {
     expect(apiMocks.fetchUsageActivity).not.toHaveBeenCalled();
   });
 
+  it('loads the one-year Activity-specific window without a shared range', async () => {
+    apiMocks.fetchUsageActivity.mockResolvedValue(activityFor('1y'));
+    const request = { window: '1y' as const };
+
+    await renderOptions({ viewer: 'admin', request });
+
+    expect(apiMocks.fetchUsageActivity).toHaveBeenCalledWith(expect.objectContaining({ request }));
+    expect(latest?.activity?.window).toBe('1y');
+    expect(latest?.activity?.grain).toBe('daily');
+  });
+
   it('aborts the previous time query and never displays its late response', async () => {
     let resolveFirst: ((value: UsageActivityResponse) => void) | undefined;
     apiMocks.fetchUsageActivity
@@ -107,6 +124,54 @@ describe('useUsageActivityData', () => {
     expect(latest?.requestIdentity).not.toBe(firstIdentity);
     await act(async () => resolveFirst?.(activityFor('24h')));
     expect(latest?.activity?.window).toBe('30d');
+  });
+
+  it('keeps the last Activity payload visible while the same API key scope changes window', async () => {
+    let resolveNext: ((value: UsageActivityResponse) => void) | undefined;
+    apiMocks.fetchUsageActivity
+      .mockResolvedValueOnce(activityFor('24h'))
+      .mockImplementationOnce(() => new Promise<UsageActivityResponse>((resolve) => {
+        resolveNext = resolve;
+      }));
+
+    await renderOptions({ viewer: 'admin', request: { range: '24h' }, apiKeyId: '42' });
+    await renderOptions({ viewer: 'admin', request: { range: '7d' }, apiKeyId: '42' });
+
+    expect(latest?.loading).toBe(true);
+    expect(latest?.activity?.window).toBe('24h');
+
+    await act(async () => resolveNext?.(activityFor('7d')));
+    expect(latest?.activity?.window).toBe('7d');
+  });
+
+  it('does not reuse Activity data after the API key scope changes', async () => {
+    apiMocks.fetchUsageActivity
+      .mockResolvedValueOnce(activityFor('24h'))
+      .mockImplementationOnce(() => new Promise<UsageActivityResponse>(() => undefined));
+
+    await renderOptions({ viewer: 'admin', request: { range: '24h' }, apiKeyId: '42' });
+    await renderOptions({ viewer: 'admin', request: { range: '7d' }, apiKeyId: '43' });
+
+    expect(latest?.loading).toBe(true);
+    expect(latest?.activity).toBeNull();
+  });
+
+  it('drops the same-scope fallback after the replacement window fails', async () => {
+    let rejectNext: ((reason: unknown) => void) | undefined;
+    apiMocks.fetchUsageActivity
+      .mockResolvedValueOnce(activityFor('24h'))
+      .mockImplementationOnce(() => new Promise<UsageActivityResponse>((_resolve, reject) => {
+        rejectNext = reject;
+      }));
+
+    await renderOptions({ viewer: 'admin', request: { range: '24h' }, apiKeyId: '42' });
+    await renderOptions({ viewer: 'admin', request: { range: '7d' }, apiKeyId: '42' });
+    expect(latest?.activity?.window).toBe('24h');
+
+    await act(async () => rejectNext?.(new ApiError('failed', 500)));
+
+    expect(latest?.activity).toBeNull();
+    expect(latest?.error).toBe('ACTIVITY_LOAD_FAILED');
   });
 
   it('reuses the same in-flight request when automatic refresh skips it', async () => {
