@@ -120,16 +120,22 @@ func (s *usageService) GetUsageActivity(ctx context.Context, filter servicedto.U
 		return nil, err
 	}
 	result := &servicedto.UsageActivitySnapshot{
-		Window:        window,
-		Grain:         string(grid.Grain),
-		Rows:          grid.Rows,
-		Columns:       grid.Columns,
-		BucketSeconds: grid.BucketSeconds,
-		WindowStart:   grid.WindowStart,
-		WindowEnd:     grid.WindowEnd,
-		TotalSuccess:  grid.TotalSuccess,
-		TotalFailure:  grid.TotalFailure,
-		Blocks:        make([]servicedto.UsageActivityBlock, len(grid.Blocks)),
+		Window:              window,
+		Grain:               string(grid.Grain),
+		Rows:                grid.Rows,
+		Columns:             grid.Columns,
+		BucketSeconds:       grid.BucketSeconds,
+		WindowStart:         grid.WindowStart,
+		WindowEnd:           grid.WindowEnd,
+		TotalSuccess:        grid.TotalSuccess,
+		TotalFailure:        grid.TotalFailure,
+		InputTokens:         grid.InputTokens,
+		OutputTokens:        grid.OutputTokens,
+		ReasoningTokens:     grid.ReasoningTokens,
+		CacheReadTokens:     grid.CacheReadTokens,
+		CacheCreationTokens: grid.CacheCreationTokens,
+		TotalTokens:         grid.TotalTokens,
+		Blocks:              make([]servicedto.UsageActivityBlock, len(grid.Blocks)),
 	}
 	if total := result.TotalSuccess + result.TotalFailure; total > 0 {
 		result.SuccessRate = (float64(result.TotalSuccess) / float64(total)) * 100
@@ -140,17 +146,27 @@ func (s *usageService) GetUsageActivity(ctx context.Context, filter servicedto.U
 			rate = float64(block.SuccessCount) / float64(total)
 		}
 		result.Blocks[index] = servicedto.UsageActivityBlock{
-			StartTime: block.StartTime,
-			EndTime:   block.EndTime,
-			Success:   block.SuccessCount,
-			Failure:   block.FailureCount,
-			Rate:      rate,
+			StartTime:           block.StartTime,
+			EndTime:             block.EndTime,
+			Success:             block.SuccessCount,
+			Failure:             block.FailureCount,
+			Rate:                rate,
+			InputTokens:         block.InputTokens,
+			OutputTokens:        block.OutputTokens,
+			ReasoningTokens:     block.ReasoningTokens,
+			CacheReadTokens:     block.CacheReadTokens,
+			CacheCreationTokens: block.CacheCreationTokens,
+			TotalTokens:         block.TotalTokens,
 		}
 	}
 	return result, nil
 }
 
 func usageActivityWindowForFilter(filter servicedto.UsageFilter) (servicedto.UsageActivityWindow, error) {
+	// Activity 专属窗口优先于公共时间条件，目前只有 1y 不属于公共 1-30d 范围。
+	if filter.ActivityWindow == servicedto.UsageActivityWindow1Y {
+		return servicedto.UsageActivityWindow1Y, nil
+	}
 	switch filter.RangeUnit {
 	case "hour":
 		if filter.RangeCount < 1 {
@@ -178,6 +194,8 @@ func usageActivityGrain(window servicedto.UsageActivityWindow) (entities.UsageAc
 		return entities.UsageActivityGrainMedium, nil
 	case servicedto.UsageActivityWindow30D:
 		return entities.UsageActivityGrainLong, nil
+	case servicedto.UsageActivityWindow1Y:
+		return entities.UsageActivityGrainDaily, nil
 	default:
 		return "", fmt.Errorf("unsupported activity window %q", window)
 	}

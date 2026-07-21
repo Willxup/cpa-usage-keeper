@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"cpa-usage-keeper/internal/auth"
@@ -13,45 +14,76 @@ import (
 )
 
 type usageActivityResponse struct {
-	Window        string               `json:"window"`
-	Grain         string               `json:"grain"`
-	Timezone      string               `json:"timezone"`
-	Rows          int                  `json:"rows"`
-	Columns       int                  `json:"columns"`
-	BucketSeconds int64                `json:"bucket_seconds"`
-	WindowStart   time.Time            `json:"window_start"`
-	WindowEnd     time.Time            `json:"window_end"`
-	TotalSuccess  int64                `json:"total_success"`
-	TotalFailure  int64                `json:"total_failure"`
-	SuccessRate   float64              `json:"success_rate"`
-	Blocks        []usageActivityBlock `json:"blocks"`
+	Window              string               `json:"window"`
+	Grain               string               `json:"grain"`
+	Timezone            string               `json:"timezone"`
+	Rows                int                  `json:"rows"`
+	Columns             int                  `json:"columns"`
+	BucketSeconds       int64                `json:"bucket_seconds"`
+	WindowStart         time.Time            `json:"window_start"`
+	WindowEnd           time.Time            `json:"window_end"`
+	TotalSuccess        int64                `json:"total_success"`
+	TotalFailure        int64                `json:"total_failure"`
+	SuccessRate         float64              `json:"success_rate"`
+	InputTokens         int64                `json:"input_tokens"`
+	OutputTokens        int64                `json:"output_tokens"`
+	ReasoningTokens     int64                `json:"reasoning_tokens"`
+	CacheReadTokens     int64                `json:"cache_read_tokens"`
+	CacheCreationTokens int64                `json:"cache_creation_tokens"`
+	TotalTokens         int64                `json:"total_tokens"`
+	Blocks              []usageActivityBlock `json:"blocks"`
 }
 
 type usageActivityBlock struct {
-	StartTime time.Time `json:"start_time"`
-	EndTime   time.Time `json:"end_time"`
-	Success   int64     `json:"success"`
-	Failure   int64     `json:"failure"`
-	Rate      float64   `json:"rate"`
+	StartTime           time.Time `json:"start_time"`
+	EndTime             time.Time `json:"end_time"`
+	Success             int64     `json:"success"`
+	Failure             int64     `json:"failure"`
+	Rate                float64   `json:"rate"`
+	InputTokens         int64     `json:"input_tokens"`
+	OutputTokens        int64     `json:"output_tokens"`
+	ReasoningTokens     int64     `json:"reasoning_tokens"`
+	CacheReadTokens     int64     `json:"cache_read_tokens"`
+	CacheCreationTokens int64     `json:"cache_creation_tokens"`
+	TotalTokens         int64     `json:"total_tokens"`
 }
 
 func parseUsageActivityFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
+	return parseUsageActivityFilterQueryWithClientAPIKey(req, anchor, true)
+}
+
+func parseUsageActivityFilterQueryWithClientAPIKey(req *http.Request, anchor time.Time, includeClientAPIKey bool) (servicedto.UsageFilter, error) {
 	queryNow := timeutil.NormalizeStorageTime(anchor)
-	filter, err := parseUsageTimeFilterQuery(req, queryNow)
-	if err != nil {
-		return servicedto.UsageFilter{}, err
+	if req == nil || strings.TrimSpace(req.URL.Query().Get("window")) == "" {
+		filter, err := parseUsageTimeFilterQueryWithClientAPIKey(req, queryNow, includeClientAPIKey)
+		if err != nil {
+			return servicedto.UsageFilter{}, err
+		}
+		filter.QueryNow = &queryNow
+		return filter, nil
 	}
-	filter.QueryNow = &queryNow
-	return filter, nil
+
+	// 1y 是 Activity 专属窗口，不进入公共 Usage 只允许 1-30d 的时间解析器。
+	window := servicedto.UsageActivityWindow(strings.TrimSpace(req.URL.Query().Get("window")))
+	if window != servicedto.UsageActivityWindow1Y {
+		return servicedto.UsageFilter{}, fmt.Errorf("unsupported activity window %q", window)
+	}
+	apiKeyID := ""
+	if includeClientAPIKey {
+		var err error
+		apiKeyID, err = parseUsageAPIKeyID(req.URL.Query().Get("api_key_id"))
+		if err != nil {
+			return servicedto.UsageFilter{}, err
+		}
+	}
+	return servicedto.UsageFilter{ActivityWindow: window, QueryNow: &queryNow, APIKeyID: apiKeyID}, nil
 }
 
 func parseKeyUsageActivityFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
-	queryNow := timeutil.NormalizeStorageTime(anchor)
-	filter, err := parseKeyUsageTimeFilterQuery(req, queryNow)
+	filter, err := parseUsageActivityFilterQueryWithClientAPIKey(req, anchor, false)
 	if err != nil {
 		return servicedto.UsageFilter{}, err
 	}
-	filter.QueryNow = &queryNow
 	return filter, nil
 }
 
@@ -122,25 +154,37 @@ func buildUsageActivityResponse(activity *servicedto.UsageActivitySnapshot) usag
 	blocks := make([]usageActivityBlock, len(activity.Blocks))
 	for index, block := range activity.Blocks {
 		blocks[index] = usageActivityBlock{
-			StartTime: block.StartTime,
-			EndTime:   block.EndTime,
-			Success:   block.Success,
-			Failure:   block.Failure,
-			Rate:      block.Rate,
+			StartTime:           block.StartTime,
+			EndTime:             block.EndTime,
+			Success:             block.Success,
+			Failure:             block.Failure,
+			Rate:                block.Rate,
+			InputTokens:         block.InputTokens,
+			OutputTokens:        block.OutputTokens,
+			ReasoningTokens:     block.ReasoningTokens,
+			CacheReadTokens:     block.CacheReadTokens,
+			CacheCreationTokens: block.CacheCreationTokens,
+			TotalTokens:         block.TotalTokens,
 		}
 	}
 	return usageActivityResponse{
-		Window:        string(activity.Window),
-		Grain:         activity.Grain,
-		Timezone:      time.Local.String(),
-		Rows:          activity.Rows,
-		Columns:       activity.Columns,
-		BucketSeconds: activity.BucketSeconds,
-		WindowStart:   activity.WindowStart,
-		WindowEnd:     activity.WindowEnd,
-		TotalSuccess:  activity.TotalSuccess,
-		TotalFailure:  activity.TotalFailure,
-		SuccessRate:   activity.SuccessRate,
-		Blocks:        blocks,
+		Window:              string(activity.Window),
+		Grain:               activity.Grain,
+		Timezone:            time.Local.String(),
+		Rows:                activity.Rows,
+		Columns:             activity.Columns,
+		BucketSeconds:       activity.BucketSeconds,
+		WindowStart:         activity.WindowStart,
+		WindowEnd:           activity.WindowEnd,
+		TotalSuccess:        activity.TotalSuccess,
+		TotalFailure:        activity.TotalFailure,
+		SuccessRate:         activity.SuccessRate,
+		InputTokens:         activity.InputTokens,
+		OutputTokens:        activity.OutputTokens,
+		ReasoningTokens:     activity.ReasoningTokens,
+		CacheReadTokens:     activity.CacheReadTokens,
+		CacheCreationTokens: activity.CacheCreationTokens,
+		TotalTokens:         activity.TotalTokens,
+		Blocks:              blocks,
 	}
 }

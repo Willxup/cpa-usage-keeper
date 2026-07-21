@@ -3298,6 +3298,37 @@
   letter-spacing: 0;
 }
 
+.recentActivityToolbarActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: wrap;
+
+  @include mobile {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+.recentActivityRange {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+
+  @include mobile {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
 .recentActivityWindowSwitcher {
   display: inline-flex;
   align-items: stretch;
@@ -3341,8 +3372,9 @@
 
 .recentActivityGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 530px), 1fr));
   gap: 16px;
+  align-items: stretch;
 }
 
 .overviewRealtimeSection {
@@ -3734,8 +3766,8 @@
   font-weight: 700;
 }
 
-// Service Health Card
-.healthCard {
+// Overview Activity cards share one fixed 7×52 grid and only vary metric semantics.
+.activityCard {
   min-width: 0;
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
@@ -3745,65 +3777,74 @@
   flex-direction: column;
   gap: 14px;
   box-shadow: var(--shadow-lg);
-  --health-grid-columns: 52;
-  --health-grid-rows: 7;
-  --health-grid-aspect-columns: 52;
-  --health-grid-aspect-rows: 7;
-  --health-grid-width: 100%;
-  --health-grid-gap: 3px;
+  --activity-heatmap-gap: 3px;
+  --activity-heatmap-idle: var(--border-secondary, #e5e7eb);
 }
 
-.healthHeader {
+.tokenActivityCard {
+  --token-activity-level-1: #dbeafe;
+  --token-activity-level-2: #93c5fd;
+  --token-activity-level-3: #60a5fa;
+  --token-activity-level-4: #3b82f6;
+  --token-activity-level-5: #1d4ed8;
+}
+
+:global([data-theme='dark']) .tokenActivityCard {
+  --activity-heatmap-idle: #1f2937;
+  --token-activity-level-1: #172554;
+  --token-activity-level-2: #1e3a8a;
+  --token-activity-level-3: #1d4ed8;
+  --token-activity-level-4: #3b82f6;
+  --token-activity-level-5: #60a5fa;
+}
+
+.activityCardHeader {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   flex-wrap: wrap;
 }
 
-.healthTitle {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin: 0;
-}
-
-.healthMeta {
+.activitySummary {
   display: grid;
   justify-items: end;
-  gap: 8px;
+  gap: 3px;
+  min-width: 148px;
   text-align: right;
 }
 
-.healthTopLine {
-  display: inline-flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.healthWindow {
-  font-size: 12px;
+.activitySummaryLabel {
   color: var(--text-tertiary);
-  line-height: 1;
-  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.1;
 }
 
-.healthMetricPanel {
+.activitySummaryValue {
+  color: var(--text-primary);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+}
+
+.tokenActivitySummaryValue {
+  color: #3b82f6;
+}
+
+.activitySummaryDetails {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
-}
-
-.healthRate {
-  display: inline-flex;
-  align-items: center;
-  font-size: 12px;
+  gap: 9px;
+  color: var(--text-tertiary);
+  font-size: 10px;
   font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  padding: 4px 8px;
-  border-radius: 6px;
-  background: var(--bg-tertiary);
 }
 
 .healthCountRow {
@@ -3811,7 +3852,7 @@
   align-items: center;
   gap: 5px;
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -3831,40 +3872,35 @@
   background: #ef4444;
 }
 
-.healthRateHigh {
-  color: var(--success-badge-text, #065f46);
-  background: var(--success-badge-bg, #d1fae5);
+
+.activityCardEmpty {
+  min-height: 120px;
+  display: grid;
+  place-items: center;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 600;
 }
 
-.healthRateMedium {
-  color: var(--warning-text, #92400e);
-  background: var(--warning-bg, #fef3c7);
-}
-
-.healthRateLow {
-  color: var(--failure-badge-text);
-  background: var(--failure-badge-bg);
-}
-
-.healthGridScroller {
+.activityHeatmapScroller {
   width: 100%;
   overflow: hidden;
 }
 
-.healthGrid {
+.activityHeatmapGrid {
   display: grid;
-  width: var(--health-grid-width);
+  width: 100%;
   max-width: 100%;
-  gap: var(--health-grid-gap);
-  grid-template-columns: repeat(var(--health-grid-columns), minmax(0, 1fr));
-  grid-template-rows: repeat(var(--health-grid-rows), minmax(0, 1fr));
+  gap: var(--activity-heatmap-gap);
+  grid-template-columns: repeat(52, minmax(0, 1fr));
+  grid-template-rows: repeat(7, minmax(0, 1fr));
   grid-auto-flow: column;
   margin-left: auto;
   margin-right: auto;
-  aspect-ratio: var(--health-grid-aspect-columns) / var(--health-grid-aspect-rows);
+  aspect-ratio: 52 / 7;
 }
 
-.healthBlockWrapper {
+.activityHeatmapCell {
   position: relative;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -3873,7 +3909,7 @@
   min-width: 0;
 }
 
-.healthBlock {
+.activityHeatmapBlock {
   width: 100%;
   height: 100%;
   border-radius: 2px;
@@ -3881,18 +3917,18 @@
     transform 0.15s ease,
     opacity 0.15s ease;
 
-  .healthBlockWrapper:hover &,
-  .healthBlockWrapper.healthBlockActive & {
+  .activityHeatmapCell:hover &,
+  .activityHeatmapCell.activityHeatmapCellActive & {
     transform: scaleY(1.6);
     opacity: 0.85;
   }
 }
 
-.healthBlockIdle {
-  background-color: var(--border-secondary, #e5e7eb);
+.activityHeatmapBlockIdle {
+  background-color: var(--activity-heatmap-idle, var(--border-secondary, #e5e7eb));
 }
 
-.healthTooltip {
+.activityTooltip {
   position: absolute;
   bottom: calc(100% + 8px);
   left: 50%;
@@ -3933,8 +3969,7 @@
   }
 }
 
-// When tooltip should appear below (for top rows)
-.healthTooltipBelow {
+.activityTooltipBelow {
   bottom: auto;
   top: calc(100% + 8px);
 
@@ -3953,7 +3988,7 @@
   }
 }
 
-.healthTooltipLeft {
+.activityTooltipLeft {
   left: 0;
   transform: translateX(0);
 
@@ -3964,7 +3999,7 @@
   }
 }
 
-.healthTooltipRight {
+.activityTooltipRight {
   left: auto;
   right: 0;
   transform: translateX(0);
@@ -3977,16 +4012,28 @@
   }
 }
 
-.healthTooltipTime {
+.activityTooltipTime {
   color: var(--text-secondary);
   display: block;
   margin-bottom: 2px;
 }
 
-.healthTooltipStats {
+.activityTooltipStats {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.tokenActivityTooltipStats {
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  gap: 2px 12px;
+  color: var(--text-secondary);
+
+  strong {
+    color: var(--text-primary);
+    font-weight: 700;
+  }
 }
 
 .healthTooltipSuccess {
@@ -4002,7 +4049,7 @@
   margin-left: 2px;
 }
 
-.healthLegend {
+.activityLegend {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4010,49 +4057,51 @@
   flex-wrap: wrap;
 }
 
-.healthLegendLabel {
+.activityLegendLabel {
   font-size: 10px;
   color: var(--text-tertiary);
 }
 
-.healthLegendColors {
+.activityLegendColors {
   display: flex;
   gap: 3px;
 }
 
-.healthLegendBlock {
+.activityLegendBlock {
   width: 10px;
   height: 10px;
   border-radius: 2px;
 }
 
 @include mobile {
-  .healthCard {
+  .activityCard {
     padding: 14px;
     gap: 10px;
-    --health-grid-gap: 2px;
+    --activity-heatmap-gap: 2px;
   }
 
-  .healthGridScroller {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .healthGrid {
-    min-width: 540px;
-  }
-
-  .healthBlockWrapper {
+  .activitySummary {
+    width: 100%;
     min-width: 0;
+    justify-items: start;
+    text-align: left;
   }
 
-  .healthTooltip {
+  .activitySummaryDetails {
+    justify-content: flex-start;
+  }
+
+  .activityTooltip {
     font-size: 10px;
     padding: 4px 8px;
   }
 
-  .healthLegendBlock {
+  .activityLegendBlock {
     width: 8px;
     height: 8px;
+  }
+
+  .tokenActivityTooltipStats {
+    grid-template-columns: max-content;
   }
 }

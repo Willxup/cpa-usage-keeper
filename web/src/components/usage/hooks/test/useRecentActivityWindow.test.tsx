@@ -75,6 +75,14 @@ describe('useRecentActivityWindow', () => {
     expect(latest?.request).toEqual({ range: '30d' });
   });
 
+  it('uses the Activity-specific query when the user selects one year', () => {
+    renderQuery(buildUsageRangeQuery({ range: '30d' }));
+    selectWindow('1y');
+
+    expect(latest?.manualWindow).toBe('1y');
+    expect(latest?.request).toEqual({ window: '1y' });
+  });
+
   it('clears a manual window for every top time identity change including A to B to A', () => {
     const first = buildUsageRangeQuery({ range: '8h' });
     const second = buildUsageRangeQuery({ range: '24h' });

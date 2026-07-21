@@ -19,26 +19,6 @@ export {
 export type { UsageTimeRange, UsageFilterWindow } from '@/lib/types';
 export type { UsagePayload } from '@/components/usage/hooks/useUsageData';
 
-export interface StatusBlockDetail {
-  startTime: number;
-  endTime: number;
-  success: number;
-  failure: number;
-  rate: number;
-}
-
-export interface ServiceHealthData {
-  totalSuccess: number;
-  totalFailure: number;
-  successRate: number;
-  rows: number;
-  columns: number;
-  bucketSeconds: number;
-  windowStart: number;
-  windowEnd: number;
-  blockDetails: StatusBlockDetail[];
-}
-
 const toNumber = (value: unknown): number => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;

@@ -23,6 +23,9 @@ const sessionSettingsSource = readSource(new URL('../../components/usage/Session
 const analysisPanelSource = readSource(new URL('../../components/usage/analysis/AnalysisPanel.tsx', import.meta.url))
 const analysisPanelStyles = readSource(new URL('../../components/usage/analysis/AnalysisPanel.module.scss', import.meta.url))
 const overviewRealtimePanelSource = readSource(new URL('../../components/usage/OverviewRealtimePanel.tsx', import.meta.url))
+const overviewActivityCardsSource = readSource(new URL('../../components/usage/OverviewActivityCards.tsx', import.meta.url))
+const activityHeatmapGridSource = readSource(new URL('../../components/usage/ActivityHeatmapGrid.tsx', import.meta.url))
+const serviceHealthCardSource = readSource(new URL('../../components/usage/ServiceHealthCard.tsx', import.meta.url))
 const statCardsSource = readSource(new URL('../../components/usage/StatCards.tsx', import.meta.url))
 const dailyAveragePanelSource = readSource(new URL('../../components/usage/DailyAveragePanel.tsx', import.meta.url))
 const timeRangeControlSource = readSource(new URL('../../components/usage/TimeRangeControl.tsx', import.meta.url))
@@ -369,6 +372,18 @@ describe('UsagePage toolbar styles', () => {
     expect(keyOverviewPageSource.indexOf('<RecentActivityPanel')).toBeLessThan(keyOverviewPageSource.indexOf('<OverviewRealtimePanel'))
     expect(usagePageStyles).toMatch(/\.recentActivityTitle\s*\{[\s\S]*?font-size:\s*17px;[\s\S]*?font-weight:\s*800;/)
     expect(usagePageStyles).toMatch(/\.recentActivityWindowSwitcher\s*\{[\s\S]*?border-radius:\s*999px;/)
+    expect(usagePageStyles).toMatch(/\.recentActivityGrid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(auto-fit, minmax\(min\(100%, 530px\), 1fr\)\);/)
+    expect(overviewActivityCardsSource.indexOf('<TokenActivityCard')).toBeLessThan(overviewActivityCardsSource.indexOf('<ServiceHealthCard'))
+    expect(overviewActivityCardsSource).not.toContain('fetchUsageActivity')
+    expect(overviewActivityCardsSource).not.toContain('useUsageActivityData')
+    expect(activityHeatmapGridSource).toContain('aria-rowcount={ACTIVITY_GRID_ROWS}')
+    expect(activityHeatmapGridSource).toContain('aria-colcount={ACTIVITY_GRID_COLUMNS}')
+    expect(usagePageStyles).toContain('--token-activity-level-1: #dbeafe;')
+    expect(usagePageStyles).toContain('--token-activity-level-2: #93c5fd;')
+    expect(usagePageStyles).toContain('--token-activity-level-3: #60a5fa;')
+    expect(usagePageStyles).toContain('--token-activity-level-4: #3b82f6;')
+    expect(usagePageStyles).toContain('--token-activity-level-5: #1d4ed8;')
+    expect(usagePageStyles).toMatch(/:global\(\[data-theme='dark'\]\) \.tokenActivityCard\s*\{[\s\S]*?--token-activity-level-1:\s*#172554;/)
     expect(usagePageStyles).toMatch(/\.overviewRealtimeGrid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/)
     expect(usagePageStyles).toMatch(/\.overviewRealtimeGrid\s*\{[\s\S]*?@include mobile\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
     expect(usagePageStyles).toMatch(/\.overviewRealtimeCardFull\s*\{[\s\S]*?grid-column:\s*1 \/ -1;/)
@@ -380,6 +395,23 @@ describe('UsagePage toolbar styles', () => {
     expect(keyOverviewPageSource).toContain("value === '15m' || value === '30m' || value === '60m'")
     expect(usagePageSource).not.toContain("value === '5m'")
     expect(keyOverviewPageSource).not.toContain("value === '5m'")
+  })
+
+  it('keeps Recent Activity summaries consistent across desktop and mobile', () => {
+    const rangeRule = styleRuleBlock(usagePageStyles, '.recentActivityRange')
+    const detailsRule = styleRuleBlock(usagePageStyles, '.activitySummaryDetails')
+    const healthCountRule = styleRuleBlock(usagePageStyles, '.healthCountRow')
+    const tokenValueRule = styleRuleBlock(usagePageStyles, '.tokenActivitySummaryValue')
+
+    expect(rangeRule).not.toMatch(/\b(border|background|border-radius|min-height|padding):/)
+    expect(rangeRule).toContain('white-space: nowrap;')
+    expect(detailsRule).toContain('font-size: 10px;')
+    expect(healthCountRule).toContain('font-size: 10px;')
+    expect(tokenValueRule).toContain('color: #3b82f6;')
+    expect(serviceHealthCardSource).not.toContain('styles.requestActivityCard')
+    expect(typesSource).toMatch(/UsageActivityRequest\s*=\s*UsageRangeRequest\s*\|\s*\{\s*window:\s*'1y'/)
+    expect(usagePageStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.activitySummary\s*\{[\s\S]*?justify-items:\s*start;[\s\S]*?text-align:\s*left;/)
+    expect(usagePageStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.activitySummaryDetails\s*\{[\s\S]*?justify-content:\s*flex-start;/)
   })
 
   it('keeps realtime overview empty and metadata states explicit without stale legend styles', () => {
@@ -846,7 +878,7 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageSource).toContain('error={displayRealtimeError}')
   })
 
-  it('loads Request Health through the independent Recent Activity panel', () => {
+  it('loads both Activity cards through one independent Recent Activity request', () => {
     expect(usagePageSource).toContain('useUsageActivityData({')
     expect(usagePageSource).toContain('useRecentActivityWindow(usageRangeQuery)')
     expect(usagePageSource).toContain('await Promise.all([loadUsage(), loadActivity(), loadRealtime()])')

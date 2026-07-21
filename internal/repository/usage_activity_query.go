@@ -106,16 +106,28 @@ func QueryUsageActivityGrid(ctx context.Context, db *gorm.DB, grain entities.Usa
 		result.TotalFailure += row.FailureCount
 		// canonical input tokens 按行求和。
 		block.InputTokens += row.InputTokens
+		// 顶层 input tokens 与 block 共享同一批 scope 后的 Activity rows。
+		result.InputTokens += row.InputTokens
 		// canonical output tokens 按行求和。
 		block.OutputTokens += row.OutputTokens
+		// 顶层 output tokens 直接累计 canonical 列。
+		result.OutputTokens += row.OutputTokens
 		// canonical reasoning tokens 按行求和。
 		block.ReasoningTokens += row.ReasoningTokens
+		// 顶层 reasoning tokens 不参与 total_tokens 的二次推导。
+		result.ReasoningTokens += row.ReasoningTokens
 		// 只累计 cache_read_tokens，不读取或推导 cached_tokens。
 		block.CacheReadTokens += row.CacheReadTokens
+		// 顶层 cache read 同样只读取 canonical cache_read_tokens。
+		result.CacheReadTokens += row.CacheReadTokens
 		// canonical cache creation tokens 按行求和。
 		block.CacheCreationTokens += row.CacheCreationTokens
+		// 顶层 cache creation 与 block 保持逐行一致。
+		result.CacheCreationTokens += row.CacheCreationTokens
 		// canonical total tokens 按行求和。
 		block.TotalTokens += row.TotalTokens
+		// 顶层 total 直接累计服务器保存的 canonical total_tokens。
+		result.TotalTokens += row.TotalTokens
 	}
 	// 返回固定形状和已经补零的 Activity 网格。
 	return result, nil

@@ -55,7 +55,7 @@ describe('KeyOverviewPage layout', () => {
     expect(source).toContain('realtime?.window === realtimeWindow ? realtime : undefined')
   })
 
-  it('renders Request Health through Recent Activity before realtime metrics', () => {
+  it('renders both Activity cards through Recent Activity before realtime metrics', () => {
     expect(source).toContain('<RecentActivityPanel')
     expect(source.indexOf('<RecentActivityPanel')).toBeLessThan(source.indexOf('<OverviewRealtimePanel'))
     expect(source).not.toContain('<ServiceHealthCard')

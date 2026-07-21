@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { UsageCredentialHealth } from '@/lib/types'
+import { healthGreenThreshold } from '@/utils/usage/health'
 import { IconRefreshCw, IconTimer } from '@/components/ui/icons'
 import styles from './CredentialSections.module.scss'
 
@@ -182,7 +183,7 @@ function resolveCredentialHealthSummary(buckets: CredentialHealthBucket[], healt
       detail,
     }
   }
-  if (successCount / total >= credentialHealthGreenThreshold(total)) {
+  if (successCount / total >= healthGreenThreshold(total)) {
     return {
       tone: 'healthy',
       label: t('usage_stats.credentials_health_summary_healthy'),
@@ -327,15 +328,10 @@ function credentialHealthBucketState(successCount: number, failureCount: number,
   if (failureCount > successCount) {
     return 'failure'
   }
-  if (successRate >= credentialHealthGreenThreshold(total)) {
+  if (successRate >= healthGreenThreshold(total)) {
     return 'success'
   }
   return 'warning'
-}
-
-// 样本越多，对绿色状态的成功率要求越高；10 次以内以 90% 为基线，1000 次后封顶 99%。
-function credentialHealthGreenThreshold(total: number): number {
-  return Math.min(0.99, 0.9 + 0.045 * Math.max(0, Math.log10(total / 10)))
 }
 
 function credentialHealthBucketHeight(total: number, successRate: number): number {
