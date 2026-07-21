@@ -3268,6 +3268,83 @@
 }
 
 // Overview Realtime
+.recentActivitySection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.recentActivityToolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.recentActivityHeading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.recentActivityTitle {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.recentActivityWindowSwitcher {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.recentActivityWindowButton {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  min-width: 44px;
+  padding: 8px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    color: var(--text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+}
+
+.recentActivityWindowButtonActive {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
+}
+
+.recentActivityGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
 .overviewRealtimeSection {
   display: flex;
   flex-direction: column;
@@ -3659,6 +3736,7 @@
 
 // Service Health Card
 .healthCard {
+  min-width: 0;
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: $radius-lg;
@@ -3667,9 +3745,9 @@
   flex-direction: column;
   gap: 14px;
   box-shadow: var(--shadow-lg);
-  --health-grid-columns: 96;
+  --health-grid-columns: 52;
   --health-grid-rows: 7;
-  --health-grid-aspect-columns: 96;
+  --health-grid-aspect-columns: 52;
   --health-grid-aspect-rows: 7;
   --health-grid-width: 100%;
   --health-grid-gap: 3px;

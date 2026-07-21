@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appPath, createUsageEventRequestLogDownloadURL, deleteAuthFiles, exportUsageEvents, fetchAnalysis, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyOverview, fetchKeyOverviewRealtime, fetchQuotaAutoRefreshSettings, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUsageQuotaResetCredits, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, fetchVersion, loginWithCPAAPIKey, logout, refreshUsageQuotas, resetUsageQuota, revokeAuthSession, setAuthFilesDisabled, startUsageQuotaInspection, updateCpaApiKeyAlias, updateQuotaAutoRefreshSettings } from '../api';
+import { appPath, createUsageEventRequestLogDownloadURL, deleteAuthFiles, exportUsageEvents, fetchAnalysis, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyActivity, fetchKeyOverview, fetchKeyOverviewRealtime, fetchQuotaAutoRefreshSettings, fetchUsageActivity, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUsageQuotaResetCredits, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, fetchVersion, loginWithCPAAPIKey, logout, refreshUsageQuotas, resetUsageQuota, revokeAuthSession, setAuthFilesDisabled, startUsageQuotaInspection, updateCpaApiKeyAlias, updateQuotaAutoRefreshSettings } from '../api';
 
 const headerValue = (init: RequestInit | undefined, name: string): string | null => new Headers(init?.headers).get(name);
 
@@ -128,6 +128,36 @@ describe('fetchUsageEvents', () => {
     expect(keyOverviewRealtimeUrl.pathname).toBe('/api/v1/key-overview/realtime');
     expect(keyOverviewRealtimeUrl.searchParams.get('window')).toBe('30m');
     expect(keyOverviewRealtimeUrl.searchParams.get('api_key_id')).toBeNull();
+  });
+
+  it('loads Recent Activity with the same time query contract as Overview', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ window: '7d', grain: 'medium', rows: 7, columns: 52, blocks: [] }),
+    } as Response);
+    const signal = new AbortController().signal;
+
+    await fetchUsageActivity({
+      request: { range: 'custom', unit: 'day', start: '2026-07-15', end: '2026-07-21' },
+      apiKeyId: '9007199254740993',
+      signal,
+    });
+    await fetchKeyActivity({ request: { range: '30d' }, signal });
+
+    const usageUrl = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
+    const keyUrl = new URL(String(fetchMock.mock.calls[1][0]), 'http://localhost');
+    expect(usageUrl.pathname).toBe('/api/v1/usage/activity');
+    expect(usageUrl.searchParams.get('window')).toBeNull();
+    expect(usageUrl.searchParams.get('api_key_id')).toBe('9007199254740993');
+    expect(usageUrl.searchParams.get('range')).toBe('custom');
+    expect(usageUrl.searchParams.get('unit')).toBe('day');
+    expect(usageUrl.searchParams.get('start')).toBe('2026-07-15');
+    expect(usageUrl.searchParams.get('end')).toBe('2026-07-21');
+    expect(keyUrl.pathname).toBe('/api/v1/key-activity');
+    expect(keyUrl.searchParams.get('window')).toBeNull();
+    expect(keyUrl.searchParams.get('range')).toBe('30d');
+    expect(keyUrl.searchParams.get('api_key_id')).toBeNull();
   });
 
   it('normalizes key overview realtime responses that omit internal usage dimensions', async () => {

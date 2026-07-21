@@ -18,7 +18,7 @@ describe('ServiceHealthCard time parsing', () => {
 
 describe('ServiceHealthCard title', () => {
   it('renders the health title without the reliability label', () => {
-    const html = renderToStaticMarkup(createElement(ServiceHealthCard, { usage: null, loading: false }));
+    const html = renderToStaticMarkup(createElement(ServiceHealthCard, { activity: null, loading: false, requestIdentity: 'admin::8h:::' }));
 
     expect(html).toContain('Request Health Timeline');
     expect(html).not.toContain('Reliability');

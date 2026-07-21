@@ -17,13 +17,12 @@ import (
 )
 
 type usageOverviewResponse struct {
-	Usage         usageOverviewPayload       `json:"usage"`
-	Summary       usageOverviewSummary       `json:"summary"`
-	Series        usageOverviewSeries        `json:"series"`
-	ServiceHealth usageOverviewServiceHealth `json:"service_health"`
-	Timezone      string                     `json:"timezone"`
-	RangeStart    *time.Time                 `json:"range_start,omitempty"`
-	RangeEnd      *time.Time                 `json:"range_end,omitempty"`
+	Usage      usageOverviewPayload `json:"usage"`
+	Summary    usageOverviewSummary `json:"summary"`
+	Series     usageOverviewSeries  `json:"series"`
+	Timezone   string               `json:"timezone"`
+	RangeStart *time.Time           `json:"range_start,omitempty"`
+	RangeEnd   *time.Time           `json:"range_end,omitempty"`
 }
 
 type usageOverviewPayload struct {
@@ -58,26 +57,6 @@ type usageOverviewSeries struct {
 	TPM           map[string]float64  `json:"tpm"`
 	Cost          map[string]float64  `json:"cost"`
 	CacheReadRate map[string]*float64 `json:"cache_read_rate"`
-}
-
-type usageOverviewServiceHealth struct {
-	TotalSuccess  int64                             `json:"total_success"`
-	TotalFailure  int64                             `json:"total_failure"`
-	SuccessRate   float64                           `json:"success_rate"`
-	Rows          int                               `json:"rows"`
-	Columns       int                               `json:"columns"`
-	BucketSeconds int64                             `json:"bucket_seconds"`
-	WindowStart   time.Time                         `json:"window_start"`
-	WindowEnd     time.Time                         `json:"window_end"`
-	BlockDetails  []usageOverviewServiceHealthBlock `json:"block_details"`
-}
-
-type usageOverviewServiceHealthBlock struct {
-	StartTime time.Time `json:"start_time"`
-	EndTime   time.Time `json:"end_time"`
-	Success   int64     `json:"success"`
-	Failure   int64     `json:"failure"`
-	Rate      float64   `json:"rate"`
 }
 
 type usageOverviewRealtime struct {
@@ -216,7 +195,7 @@ func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsagePro
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
-		filter, err := parseKeyOverviewFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		filter, err := parseKeyUsageTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -248,7 +227,7 @@ func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsagePro
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
-		filter, err := parseUsageRealtimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		filter, err := parseKeyUsageRealtimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -268,7 +247,7 @@ func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageP
 			writeUsageOverviewResponse(c, usageProvider, servicedto.UsageFilter{})
 			return
 		}
-		filter, err := parseUsageFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		filter, err := parseUsageTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -285,33 +264,22 @@ func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageP
 	})
 }
 
-func parseKeyOverviewFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
-	query := req.URL.Query()
-	rangeValue := query.Get("range")
-	_, rollingRange := timeutil.ParseUsageRollingRange(rangeValue)
-	if rangeValue != "today" && rangeValue != "yesterday" && rangeValue != "custom" && !rollingRange {
-		return servicedto.UsageFilter{}, fmt.Errorf("unsupported key overview range %q", rangeValue)
-	}
-	return parseUsageFilterQuery(req, anchor)
-}
-
 func writeUsageOverviewResponse(c *gin.Context, usageProvider service.UsageProvider, filter servicedto.UsageFilter) {
 	if usageProvider == nil {
 		c.JSON(http.StatusOK, usageOverviewResponse{
-			Usage:         buildUsageOverviewPayload(nil),
-			Summary:       usageOverviewSummary{},
-			Series:        emptyUsageOverviewSeries(),
-			ServiceHealth: usageOverviewServiceHealth{BlockDetails: []usageOverviewServiceHealthBlock{}},
-			Timezone:      time.Local.String(),
-			RangeStart:    filter.StartTime,
-			RangeEnd:      filter.EndTime,
+			Usage:      buildUsageOverviewPayload(nil),
+			Summary:    usageOverviewSummary{},
+			Series:     emptyUsageOverviewSeries(),
+			Timezone:   time.Local.String(),
+			RangeStart: filter.StartTime,
+			RangeEnd:   filter.EndTime,
 		})
 		return
 	}
 
 	overview, err := usageProvider.GetUsageOverview(c.Request.Context(), filter)
 	if err != nil {
-		writeUsageOverviewProviderError(c, "get usage overview failed", err)
+		writeUsageProviderError(c, "get usage overview failed", err)
 		return
 	}
 
@@ -320,13 +288,12 @@ func writeUsageOverviewResponse(c *gin.Context, usageProvider service.UsageProvi
 		usage = overview.Usage
 	}
 	c.JSON(http.StatusOK, usageOverviewResponse{
-		Usage:         buildUsageOverviewPayload(usage),
-		Summary:       buildUsageOverviewSummary(overview),
-		Series:        buildUsageOverviewSeries(overview),
-		ServiceHealth: buildUsageOverviewServiceHealth(overview),
-		Timezone:      time.Local.String(),
-		RangeStart:    filter.StartTime,
-		RangeEnd:      filter.EndTime,
+		Usage:      buildUsageOverviewPayload(usage),
+		Summary:    buildUsageOverviewSummary(overview),
+		Series:     buildUsageOverviewSeries(overview),
+		Timezone:   time.Local.String(),
+		RangeStart: filter.StartTime,
+		RangeEnd:   filter.EndTime,
 	})
 }
 
@@ -337,7 +304,7 @@ func writeUsageOverviewRealtimeResponse(c *gin.Context, usageProvider service.Us
 	}
 	realtime, err := usageProvider.GetUsageOverviewRealtime(c.Request.Context(), filter)
 	if err != nil {
-		writeUsageOverviewProviderError(c, "get usage overview realtime failed", err)
+		writeUsageProviderError(c, "get usage overview realtime failed", err)
 		return
 	}
 	apiKeyInfos, err := loadCPAAPIKeyInfos(c, cpaAPIKeyProvider)
@@ -354,13 +321,13 @@ func writeKeyUsageOverviewRealtimeResponse(c *gin.Context, usageProvider service
 	}
 	realtime, err := usageProvider.GetUsageOverviewRealtime(c.Request.Context(), filter)
 	if err != nil {
-		writeUsageOverviewProviderError(c, "get usage overview realtime failed", err)
+		writeUsageProviderError(c, "get usage overview realtime failed", err)
 		return
 	}
 	c.JSON(http.StatusOK, buildKeyUsageOverviewRealtime(realtime, filter.RealtimeWindow))
 }
 
-func writeUsageOverviewProviderError(c *gin.Context, message string, err error) {
+func writeUsageProviderError(c *gin.Context, message string, err error) {
 	if errors.Is(err, service.ErrInvalidID) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid api_key_id"})
 		return
@@ -437,33 +404,6 @@ func buildUsageOverviewSeries(overview *servicedto.UsageOverviewSnapshot) usageO
 		return emptyUsageOverviewSeries()
 	}
 	return mapUsageOverviewSeries(overview.Series)
-}
-
-func buildUsageOverviewServiceHealth(overview *servicedto.UsageOverviewSnapshot) usageOverviewServiceHealth {
-	if overview == nil {
-		return usageOverviewServiceHealth{BlockDetails: []usageOverviewServiceHealthBlock{}}
-	}
-	blocks := make([]usageOverviewServiceHealthBlock, 0, len(overview.Health.BlockDetails))
-	for _, block := range overview.Health.BlockDetails {
-		blocks = append(blocks, usageOverviewServiceHealthBlock{
-			StartTime: block.StartTime,
-			EndTime:   block.EndTime,
-			Success:   block.Success,
-			Failure:   block.Failure,
-			Rate:      block.Rate,
-		})
-	}
-	return usageOverviewServiceHealth{
-		TotalSuccess:  overview.Health.TotalSuccess,
-		TotalFailure:  overview.Health.TotalFailure,
-		SuccessRate:   overview.Health.SuccessRate,
-		Rows:          overview.Health.Rows,
-		Columns:       overview.Health.Columns,
-		BucketSeconds: overview.Health.BucketSeconds,
-		WindowStart:   overview.Health.WindowStart,
-		WindowEnd:     overview.Health.WindowEnd,
-		BlockDetails:  blocks,
-	}
 }
 
 func emptyUsageOverviewRealtime(window string) usageOverviewRealtime {

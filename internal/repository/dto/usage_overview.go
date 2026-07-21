@@ -33,28 +33,6 @@ type UsageOverviewSeriesRecord struct {
 	CacheReadRateReadTokens  map[string]int64
 }
 
-// UsageOverviewHealthBlockRecord 是 overview health 的单个时间块。
-type UsageOverviewHealthBlockRecord struct {
-	StartTime time.Time
-	EndTime   time.Time
-	Success   int64
-	Failure   int64
-	Rate      float64
-}
-
-// UsageOverviewHealthRecord 是 overview health 的聚合结果。
-type UsageOverviewHealthRecord struct {
-	TotalSuccess  int64
-	TotalFailure  int64
-	SuccessRate   float64
-	Rows          int
-	Columns       int
-	BucketSeconds int64
-	WindowStart   time.Time
-	WindowEnd     time.Time
-	BlockDetails  []UsageOverviewHealthBlockRecord
-}
-
 // RealtimeTokenVelocityPointRecord 是 Overview token 速度图的单个短窗口桶。
 type RealtimeTokenVelocityPointRecord struct {
 	Bucket          string
@@ -154,5 +132,4 @@ type UsageOverviewRecord struct {
 	Usage   *StatisticsSnapshot
 	Summary UsageOverviewSummaryRecord
 	Series  UsageOverviewSeriesRecord
-	Health  UsageOverviewHealthRecord
 }

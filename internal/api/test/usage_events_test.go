@@ -94,6 +94,10 @@ func (s *usageEventsStub) GetUsageOverview(_ context.Context, filter servicedto.
 	return nil, nil
 }
 
+func (s *usageEventsStub) GetUsageActivity(context.Context, servicedto.UsageFilter) (*servicedto.UsageActivitySnapshot, error) {
+	return nil, s.err
+}
+
 func (s *usageEventsStub) GetUsageOverviewRealtime(context.Context, servicedto.UsageFilter) (*servicedto.UsageOverviewRealtime, error) {
 	return nil, nil
 }

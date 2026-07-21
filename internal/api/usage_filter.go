@@ -3,7 +3,6 @@ package api
 import (
 	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -20,19 +19,51 @@ var allowedUsageEventsPageSizes = map[int]struct{}{
 	1000: {},
 }
 
+// parseUsageTimeFilterQuery 只解析通用时间条件和 Admin API Key scope，不读取 Events 专属参数。
 func parseUsageTimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
-	filter, err := parseUsageFilterQuery(req, anchor)
+	return parseUsageTimeFilterQueryWithClientAPIKey(req, anchor, true)
+}
+
+// parseKeyUsageTimeFilterQuery 复用公共时间解析，但完全忽略客户端 api_key_id；Key Viewer 身份只由 session 注入。
+func parseKeyUsageTimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
+	return parseUsageTimeFilterQueryWithClientAPIKey(req, anchor, false)
+}
+
+func parseUsageTimeFilterQueryWithClientAPIKey(req *http.Request, anchor time.Time, includeClientAPIKey bool) (servicedto.UsageFilter, error) {
+	if req == nil {
+		return servicedto.UsageFilter{}, nil
+	}
+	query := req.URL.Query()
+	normalizedRange, err := timeutil.ParseUsageQueryRange(
+		query.Get("range"),
+		query.Get("unit"),
+		query.Get("start"),
+		query.Get("end"),
+		anchor,
+	)
 	if err != nil {
 		return servicedto.UsageFilter{}, err
 	}
-	filter.Limit = 0
-	filter.Page = 0
-	filter.PageSize = 0
-	filter.Offset = 0
-	filter.Model = ""
-	filter.Source = ""
-	filter.AuthIndex = ""
-	filter.Result = ""
+	startTime := normalizedRange.StartTime
+	endTime := normalizedRange.EndTime
+	filter := servicedto.UsageFilter{
+		Range:        normalizedRange.Range,
+		RangeUnit:    string(normalizedRange.Unit),
+		RangeCount:   normalizedRange.Count,
+		StartTime:    &startTime,
+		EndTime:      &endTime,
+		EndExclusive: normalizedRange.EndExclusive,
+	}
+	if normalizedRange.Range == "custom" {
+		filter.CustomUnit = string(normalizedRange.Unit)
+	}
+	if includeClientAPIKey {
+		apiKeyID, err := parseUsageAPIKeyID(query.Get("api_key_id"))
+		if err != nil {
+			return servicedto.UsageFilter{}, err
+		}
+		filter.APIKeyID = apiKeyID
+	}
 	return filter, nil
 }
 
@@ -48,122 +79,18 @@ func parseUsageAPIKeyID(value string) (string, error) {
 	return apiKeyID, nil
 }
 
-const (
-	customUsageRangeUnitHour = "hour"
-	customUsageRangeUnitDay  = "day"
-)
-
-func parseCustomUsageDay(value string) (time.Time, error) {
-	return time.ParseInLocation(time.DateOnly, value, time.Local)
-}
-
-func parseCustomUsageHour(value string) (time.Time, error) {
-	parsed, err := time.Parse(time.RFC3339, value)
-	if err != nil {
-		return time.Time{}, err
-	}
-	parsed = timeutil.NormalizeStorageTime(parsed)
-	if parsed.Minute() != 0 || parsed.Second() != 0 || parsed.Nanosecond() != 0 {
-		return time.Time{}, fmt.Errorf("hour must align to the start of an hour")
-	}
-	return parsed, nil
-}
-
-func resolveCustomUsageRangeUnit(unitValue, startValue, endValue string) (string, error) {
-	unit := strings.TrimSpace(unitValue)
-	if unit == "" {
-		_, startDateErr := parseCustomUsageDay(startValue)
-		_, endDateErr := parseCustomUsageDay(endValue)
-		if startDateErr == nil && endDateErr == nil {
-			return customUsageRangeUnitDay, nil
-		}
-		unit = customUsageRangeUnitHour
-	}
-	if unit != customUsageRangeUnitHour && unit != customUsageRangeUnitDay {
-		return "", fmt.Errorf("unsupported custom range unit %q", unit)
-	}
-	return unit, nil
-}
-
-func parseCustomUsageRange(query url.Values, anchor time.Time) (servicedto.UsageFilter, error) {
-	startValue := strings.TrimSpace(query.Get("start"))
-	endValue := strings.TrimSpace(query.Get("end"))
-	if startValue == "" || endValue == "" {
-		return servicedto.UsageFilter{}, fmt.Errorf("custom range requires start and end")
-	}
-	unit, err := resolveCustomUsageRangeUnit(query.Get("unit"), startValue, endValue)
-	if err != nil {
-		return servicedto.UsageFilter{}, err
-	}
-
-	if unit == customUsageRangeUnitDay {
-		startTime, startErr := parseCustomUsageDay(startValue)
-		if startErr != nil {
-			return servicedto.UsageFilter{}, fmt.Errorf("invalid start: %w", startErr)
-		}
-		endDay, endErr := parseCustomUsageDay(endValue)
-		if endErr != nil {
-			return servicedto.UsageFilter{}, fmt.Errorf("invalid end: %w", endErr)
-		}
-		if startTime.After(endDay) {
-			return servicedto.UsageFilter{}, fmt.Errorf("custom range start must be before end")
-		}
-		if !anchor.IsZero() {
-			localAnchor := timeutil.NormalizeStorageTime(anchor)
-			today := time.Date(localAnchor.Year(), localAnchor.Month(), localAnchor.Day(), 0, 0, 0, 0, time.Local)
-			if startTime.Before(today.AddDate(0, 0, -29)) {
-				return servicedto.UsageFilter{}, fmt.Errorf("custom day range cannot start more than 30 calendar days ago")
-			}
-			if endDay.After(today) {
-				return servicedto.UsageFilter{}, fmt.Errorf("custom day range cannot end in the future")
-			}
-		}
-		startTime = timeutil.NormalizeStorageTime(startTime)
-		endTime := timeutil.NormalizeStorageTime(endDay.AddDate(0, 0, 1))
-		return servicedto.UsageFilter{Range: "custom", CustomUnit: unit, StartTime: &startTime, EndTime: &endTime, EndExclusive: true}, nil
-	}
-
-	startTime, err := parseCustomUsageHour(startValue)
-	if err != nil {
-		return servicedto.UsageFilter{}, fmt.Errorf("invalid start: %w", err)
-	}
-	endHour, err := parseCustomUsageHour(endValue)
-	if err != nil {
-		return servicedto.UsageFilter{}, fmt.Errorf("invalid end: %w", err)
-	}
-	if startTime.After(endHour) {
-		return servicedto.UsageFilter{}, fmt.Errorf("custom range start must be before end")
-	}
-	selectedHours := int(endHour.Sub(startTime)/time.Hour) + 1
-	if endHour.Sub(startTime)%time.Hour != 0 || selectedHours < 5 || selectedHours > 24 {
-		return servicedto.UsageFilter{}, fmt.Errorf("custom hour range must include between 5 and 24 hours")
-	}
-	if !anchor.IsZero() {
-		localAnchor := timeutil.NormalizeStorageTime(anchor)
-		currentHour := localAnchor.Add(-time.Duration(localAnchor.Minute())*time.Minute - time.Duration(localAnchor.Second())*time.Second - time.Duration(localAnchor.Nanosecond()))
-		if startTime.Before(currentHour.Add(-23 * time.Hour)) {
-			return servicedto.UsageFilter{}, fmt.Errorf("custom hour range cannot start more than 24 hours ago")
-		}
-		if endHour.After(currentHour) {
-			return servicedto.UsageFilter{}, fmt.Errorf("custom hour range cannot end in the future")
-		}
-	}
-	endTime := timeutil.NormalizeStorageTime(endHour.Add(time.Hour))
-	return servicedto.UsageFilter{Range: "custom", CustomUnit: unit, StartTime: &startTime, EndTime: &endTime, EndExclusive: true}, nil
-}
-
 func parseUsageFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
 	if req == nil {
 		return servicedto.UsageFilter{}, nil
 	}
-
-	rangeValue := strings.TrimSpace(req.URL.Query().Get("range"))
-	if rangeValue == "" {
-		return servicedto.UsageFilter{}, fmt.Errorf("usage range is required")
+	filter, err := parseUsageTimeFilterQuery(req, anchor)
+	if err != nil {
+		return servicedto.UsageFilter{}, err
 	}
-
-	filter := servicedto.UsageFilter{Range: rangeValue, Limit: servicedto.DefaultUsageEventsLimit, Page: 1, PageSize: servicedto.DefaultUsageEventsLimit}
 	query := req.URL.Query()
+	filter.Limit = servicedto.DefaultUsageEventsLimit
+	filter.Page = 1
+	filter.PageSize = servicedto.DefaultUsageEventsLimit
 	if pageValue := strings.TrimSpace(query.Get("page")); pageValue != "" {
 		page, err := strconv.Atoi(pageValue)
 		if err != nil || page < 1 {
@@ -191,51 +118,23 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (servicedto.Usag
 	// Request Events 前端参数仍叫 source，但它的值是 usage identity；路由层会转换成 auth_index 查询。
 	filter.Source = strings.TrimSpace(query.Get("source"))
 	filter.AuthIndex = strings.TrimSpace(query.Get("auth_index"))
-	apiKeyID, err := parseUsageAPIKeyID(query.Get("api_key_id"))
-	if err != nil {
-		return servicedto.UsageFilter{}, err
-	}
-	filter.APIKeyID = apiKeyID
 	filter.Result = strings.TrimSpace(query.Get("result"))
 	if filter.Result != "" && filter.Result != "success" && filter.Result != "failed" {
 		return servicedto.UsageFilter{}, fmt.Errorf("invalid result %q", filter.Result)
 	}
-	switch rangeValue {
-	case "today", "yesterday":
-		localAnchor := timeutil.NormalizeStorageTime(anchor)
-		localStart := time.Date(localAnchor.Year(), localAnchor.Month(), localAnchor.Day(), 0, 0, 0, 0, time.Local)
-		if rangeValue == "yesterday" {
-			localStart = localStart.AddDate(0, 0, -1)
-		}
-		startTime := timeutil.NormalizeStorageTime(localStart)
-		endTime := timeutil.NormalizeStorageTime(localStart.AddDate(0, 0, 1).Add(-time.Nanosecond))
-		filter.StartTime = &startTime
-		filter.EndTime = &endTime
-		return filter, nil
-	case "custom":
-		customFilter, err := parseCustomUsageRange(query, anchor)
-		if err != nil {
-			return servicedto.UsageFilter{}, err
-		}
-		filter.CustomUnit = customFilter.CustomUnit
-		filter.StartTime = customFilter.StartTime
-		filter.EndTime = customFilter.EndTime
-		filter.EndExclusive = customFilter.EndExclusive
-		return filter, nil
-	default:
-		rollingRange, ok := timeutil.ParseUsageRollingRange(rangeValue)
-		if !ok {
-			return servicedto.UsageFilter{}, fmt.Errorf("unsupported usage range %q", rangeValue)
-		}
-		endTime := timeutil.NormalizeStorageTime(anchor)
-		startTime := timeutil.NormalizeStorageTime(endTime.Add(-rollingRange.Duration()))
-		filter.StartTime = &startTime
-		filter.EndTime = &endTime
-		return filter, nil
-	}
+	return filter, nil
 }
 
 func parseUsageRealtimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
+	return parseUsageRealtimeFilterQueryWithClientAPIKey(req, anchor, true)
+}
+
+// parseKeyUsageRealtimeFilterQuery 只解析 Realtime window，不读取客户端 api_key_id。
+func parseKeyUsageRealtimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
+	return parseUsageRealtimeFilterQueryWithClientAPIKey(req, anchor, false)
+}
+
+func parseUsageRealtimeFilterQueryWithClientAPIKey(req *http.Request, anchor time.Time, includeClientAPIKey bool) (servicedto.UsageFilter, error) {
 	if req == nil {
 		return servicedto.UsageFilter{}, nil
 	}
@@ -247,9 +146,13 @@ func parseUsageRealtimeFilterQuery(req *http.Request, anchor time.Time) (service
 	if realtimeWindow == "" {
 		realtimeWindow = "15m"
 	}
-	apiKeyID, err := parseUsageAPIKeyID(query.Get("api_key_id"))
-	if err != nil {
-		return servicedto.UsageFilter{}, err
+	apiKeyID := ""
+	if includeClientAPIKey {
+		var err error
+		apiKeyID, err = parseUsageAPIKeyID(query.Get("api_key_id"))
+		if err != nil {
+			return servicedto.UsageFilter{}, err
+		}
 	}
 	filter := servicedto.UsageFilter{
 		RealtimeWindow: realtimeWindow,
