@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { ServiceHealthData, StatusBlockDetail } from '@/utils/usage';
-import type { UsageOverviewPayload } from './hooks/useUsageData';
+import type { UsageActivityResponse } from '@/lib/types';
 import styles from '@/pages/UsagePage.module.scss';
 
 const COLOR_STOPS = [
@@ -14,12 +14,15 @@ const COLOR_STOPS = [
 const TOOLTIP_OFFSET = 8;
 const TOOLTIP_SAFE_WIDTH = 180;
 const TOOLTIP_SAFE_HEIGHT = 72;
+const ACTIVITY_GRID_ROWS = 7;
+const ACTIVITY_GRID_COLUMNS = 52;
 
 type TooltipHorizontalPosition = 'center' | 'left' | 'right';
 type TooltipVerticalPosition = 'above' | 'below';
 
 interface ActiveTooltipState {
   idx: number;
+  requestIdentity: string;
   anchorEl: HTMLDivElement;
   horizontal: TooltipHorizontalPosition;
   vertical: TooltipVerticalPosition;
@@ -40,13 +43,26 @@ function rateToColor(rate: number): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-function formatDateTime(timestamp: number): string {
-  const date = new Date(timestamp);
-  const month = (date.getMonth() + 1).toString().padStart(2, '0');
-  const day = date.getDate().toString().padStart(2, '0');
-  const h = date.getHours().toString().padStart(2, '0');
-  const m = date.getMinutes().toString().padStart(2, '0');
-  return `${month}/${day} ${h}:${m}`;
+function createDateTimeFormatter(timeZone?: string): Intl.DateTimeFormat {
+  const options: Intl.DateTimeFormatOptions = {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+    timeZone,
+  };
+  try {
+    return new Intl.DateTimeFormat('en-US', options);
+  } catch {
+    return new Intl.DateTimeFormat('en-US', { ...options, timeZone: undefined });
+  }
+}
+
+function formatDateTime(timestamp: number, formatter: Intl.DateTimeFormat): string {
+  const parts = formatter.formatToParts(new Date(timestamp));
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.month}/${values.day} ${values.hour}:${values.minute}`;
 }
 
 export function parseTime(value?: string): number {
@@ -70,41 +86,48 @@ function ServiceHealthTitle({ title, subtitle }: { title: string; subtitle: stri
 }
 
 export interface ServiceHealthCardProps {
-  usage: UsageOverviewPayload | null;
+  activity: UsageActivityResponse | null;
   loading: boolean;
+  requestIdentity: string;
 }
 
-export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
+export function ServiceHealthCard({ activity, loading, requestIdentity }: ServiceHealthCardProps) {
   const { t } = useTranslation();
   const [activeTooltip, setActiveTooltip] = useState<ActiveTooltipState | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  const projectTimeZone = activity?.timezone?.trim() || undefined;
+  const dateTimeFormatter = useMemo(() => createDateTimeFormatter(projectTimeZone), [projectTimeZone]);
 
   const healthData: ServiceHealthData = useMemo(() => {
-    const blockDetails = (usage?.service_health?.block_details ?? []).map((block) => ({
+    const blockDetails = (activity?.blocks ?? []).map((block) => ({
       startTime: Date.parse(block.start_time),
       endTime: Date.parse(block.end_time),
       success: Number(block.success ?? 0),
       failure: Number(block.failure ?? 0),
       rate: Number(block.rate ?? -1),
     }));
-    const rows = Number(usage?.service_health?.rows ?? 7) || 7;
     return {
-      totalSuccess: Number(usage?.service_health?.total_success ?? 0),
-      totalFailure: Number(usage?.service_health?.total_failure ?? 0),
-      successRate: Number(usage?.service_health?.success_rate ?? 0),
-      rows,
-      columns: Number(usage?.service_health?.columns ?? Math.max(1, Math.ceil(blockDetails.length / rows))) || 1,
-      bucketSeconds: Number(usage?.service_health?.bucket_seconds ?? 0),
-      windowStart: parseTime(usage?.service_health?.window_start),
-      windowEnd: parseTime(usage?.service_health?.window_end),
+      totalSuccess: Number(activity?.total_success ?? 0),
+      totalFailure: Number(activity?.total_failure ?? 0),
+      successRate: Number(activity?.success_rate ?? 0),
+      rows: ACTIVITY_GRID_ROWS,
+      columns: ACTIVITY_GRID_COLUMNS,
+      bucketSeconds: Number(activity?.bucket_seconds ?? 0),
+      windowStart: parseTime(activity?.window_start),
+      windowEnd: parseTime(activity?.window_end),
       blockDetails,
     };
-  }, [usage]);
+  }, [activity]);
 
   const hasData = healthData.totalSuccess + healthData.totalFailure > 0;
+  // 请求 identity 改变时在当前 render 内清空 tooltip，防止 A→B→A 后恢复旧状态。
+  if (activeTooltip && activeTooltip.requestIdentity !== requestIdentity) {
+    setActiveTooltip(null);
+  }
+  const visibleTooltip = activeTooltip?.requestIdentity === requestIdentity ? activeTooltip : null;
 
   useEffect(() => {
-    if (activeTooltip === null) return;
+    if (visibleTooltip === null) return;
     const handler = (e: PointerEvent) => {
       if (gridRef.current && !gridRef.current.contains(e.target as Node)) {
         setActiveTooltip(null);
@@ -112,10 +135,10 @@ export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
     };
     document.addEventListener('pointerdown', handler);
     return () => document.removeEventListener('pointerdown', handler);
-  }, [activeTooltip]);
+  }, [visibleTooltip]);
 
   const buildTooltipState = useCallback(
-    (idx: number, anchorEl: HTMLDivElement | null): ActiveTooltipState | null => {
+    (idx: number, anchorEl: HTMLDivElement | null, tooltipRequestIdentity: string): ActiveTooltipState | null => {
       if (!anchorEl || !anchorEl.isConnected) {
         return null;
       }
@@ -141,6 +164,7 @@ export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
 
       return {
         idx,
+        requestIdentity: tooltipRequestIdentity,
         anchorEl,
         horizontal,
         vertical,
@@ -153,14 +177,14 @@ export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
   );
 
   useEffect(() => {
-    if (!activeTooltip) return;
+    if (!visibleTooltip) return;
 
     const updateTooltipPosition = () => {
-      if (!document.body.contains(activeTooltip.anchorEl)) {
+      if (!document.body.contains(visibleTooltip.anchorEl)) {
         setActiveTooltip(null);
         return;
       }
-      setActiveTooltip(buildTooltipState(activeTooltip.idx, activeTooltip.anchorEl));
+      setActiveTooltip(buildTooltipState(visibleTooltip.idx, visibleTooltip.anchorEl, visibleTooltip.requestIdentity));
     };
 
     window.addEventListener('resize', updateTooltipPosition);
@@ -169,13 +193,13 @@ export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
       window.removeEventListener('resize', updateTooltipPosition);
       window.removeEventListener('scroll', updateTooltipPosition, true);
     };
-  }, [activeTooltip, buildTooltipState]);
+  }, [buildTooltipState, visibleTooltip]);
 
   const openTooltip = useCallback(
     (idx: number, anchorEl: HTMLDivElement) => {
-      setActiveTooltip(buildTooltipState(idx, anchorEl));
+      setActiveTooltip(buildTooltipState(idx, anchorEl, requestIdentity));
     },
-    [buildTooltipState]
+    [buildTooltipState, requestIdentity]
   );
 
   const handlePointerEnter = useCallback(
@@ -198,10 +222,14 @@ export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
       if (e.pointerType === 'touch') {
         e.preventDefault();
         const anchorEl = e.currentTarget;
-        setActiveTooltip((prev) => (prev?.idx === idx ? null : buildTooltipState(idx, anchorEl)));
+        setActiveTooltip((prev) => (
+          prev?.idx === idx && prev.requestIdentity === requestIdentity
+            ? null
+            : buildTooltipState(idx, anchorEl, requestIdentity)
+        ));
       }
     },
-    [buildTooltipState]
+    [buildTooltipState, requestIdentity]
   );
 
   const renderTooltip = (detail: StatusBlockDetail, tooltipState: ActiveTooltipState) => {
@@ -213,9 +241,10 @@ export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
           ? styles.healthTooltipRight
           : '';
     const vertClass = tooltipState.vertical === 'below' ? styles.healthTooltipBelow : '';
-    const timeRange = `${formatDateTime(detail.startTime)} – ${formatDateTime(detail.endTime)}`;
+    const timeRange = `${formatDateTime(detail.startTime, dateTimeFormatter)} – ${formatDateTime(detail.endTime, dateTimeFormatter)}`;
     const tooltip = (
       <div
+        role="tooltip"
         className={`${styles.healthTooltip} ${posClass} ${vertClass}`}
         style={{
           position: 'fixed',
@@ -255,18 +284,18 @@ export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
         : styles.healthRateLow;
 
   const windowLabel = healthData.windowStart > 0 && healthData.windowEnd > 0
-    ? `${formatDateTime(healthData.windowStart)} – ${formatDateTime(healthData.windowEnd)}`
+    ? `${formatDateTime(healthData.windowStart, dateTimeFormatter)} – ${formatDateTime(healthData.windowEnd, dateTimeFormatter)}`
     : t('usage_stats.service_health_window');
   const healthCountsLabel = `${t('status_bar.success_short')} ${healthData.totalSuccess}, ${t('status_bar.failure_short')} ${healthData.totalFailure}`;
   const gridStyle = useMemo(
     () => ({
-      '--health-grid-columns': String(healthData.columns),
-      '--health-grid-rows': String(healthData.rows),
-      '--health-grid-aspect-columns': String(healthData.columns),
-      '--health-grid-aspect-rows': String(healthData.rows),
+      '--health-grid-columns': String(ACTIVITY_GRID_COLUMNS),
+      '--health-grid-rows': String(ACTIVITY_GRID_ROWS),
+      '--health-grid-aspect-columns': String(ACTIVITY_GRID_COLUMNS),
+      '--health-grid-aspect-rows': String(ACTIVITY_GRID_ROWS),
       '--health-grid-width': '100%',
     }) as React.CSSProperties,
-    [healthData.columns, healthData.rows]
+    []
   );
 
   return (
@@ -300,8 +329,8 @@ export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
           {healthData.blockDetails.map((detail, idx) => {
             const isIdle = detail.rate === -1;
             const blockStyle = isIdle ? undefined : { backgroundColor: rateToColor(detail.rate) };
-            const isActive = activeTooltip?.idx === idx;
-            const timeRange = `${formatDateTime(detail.startTime)} – ${formatDateTime(detail.endTime)}`;
+            const isActive = visibleTooltip?.idx === idx;
+            const timeRange = `${formatDateTime(detail.startTime, dateTimeFormatter)} – ${formatDateTime(detail.endTime, dateTimeFormatter)}`;
             const summary = detail.success + detail.failure > 0
               ? `${t('status_bar.success_short')} ${detail.success}, ${t('status_bar.failure_short')} ${detail.failure}`
               : t('status_bar.no_requests');
@@ -323,7 +352,7 @@ export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
                   className={`${styles.healthBlock} ${isIdle ? styles.healthBlockIdle : ''}`}
                   style={blockStyle}
                 />
-                {isActive && activeTooltip && renderTooltip(detail, activeTooltip)}
+                {isActive && visibleTooltip && renderTooltip(detail, visibleTooltip)}
               </div>
             );
           })}

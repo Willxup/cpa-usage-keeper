@@ -179,7 +179,7 @@ func TestParseUsageFilterQueryCustomRange(t *testing.T) {
 	if !filter.EndTime.Equal(time.Date(2026, 4, 20, 5, 0, 0, 0, time.UTC)) {
 		t.Fatalf("unexpected custom end: %+v", filter)
 	}
-	if filter.CustomUnit != customUsageRangeUnitHour || !filter.EndExclusive {
+	if filter.CustomUnit != "hour" || !filter.EndExclusive {
 		t.Fatalf("expected exclusive custom hour range, got %+v", filter)
 	}
 }
@@ -216,7 +216,7 @@ func TestParseUsageFilterQueryCustomDateRangeUsesLocalDayBoundary(t *testing.T) 
 	if filter.EndTime.Location().String() != location.String() {
 		t.Fatalf("expected custom date end to keep project timezone, got %s", filter.EndTime.Location())
 	}
-	if filter.CustomUnit != customUsageRangeUnitDay || !filter.EndExclusive {
+	if filter.CustomUnit != "day" || !filter.EndExclusive {
 		t.Fatalf("expected exclusive custom day range, got %+v", filter)
 	}
 }
@@ -323,6 +323,25 @@ func TestParseUsageFilterQueryAcceptsAPIKeyID(t *testing.T) {
 	}
 	if timeFilter.APIKeyID != "1234567890123456789" {
 		t.Fatalf("expected time filter to preserve api key id, got %+v", timeFilter)
+	}
+}
+
+func TestParseUsageTimeFilterQueryIgnoresEventOnlyParameters(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/usage/overview?range=2d&page=0&page_size=25&model=x&source=y&auth_index=z&result=bogus&api_key_id=42", nil)
+	anchor := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)
+
+	filter, err := parseUsageTimeFilterQuery(req, anchor)
+	if err != nil {
+		t.Fatalf("time-only parser should ignore Events parameters: %v", err)
+	}
+	if filter.Range != "2d" || filter.RangeUnit != "day" || filter.RangeCount != 2 {
+		t.Fatalf("unexpected normalized time identity: %+v", filter)
+	}
+	if filter.APIKeyID != "42" {
+		t.Fatalf("expected Admin API key scope to remain available: %+v", filter)
+	}
+	if filter.Page != 0 || filter.PageSize != 0 || filter.Model != "" || filter.Source != "" || filter.AuthIndex != "" || filter.Result != "" {
+		t.Fatalf("time-only parser leaked Events fields: %+v", filter)
 	}
 }
 

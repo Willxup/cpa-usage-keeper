@@ -10,10 +10,12 @@ import { buildUsageStatsQueryKey, useThemeStore } from '@/stores';
 import {
   DailyAveragePanel,
   OverviewRealtimePanel,
-  ServiceHealthCard,
+  RecentActivityPanel,
   StatCards,
   TimeRangeControl,
+  useRecentActivityWindow,
   useSparklines,
+  useUsageActivityData,
 } from '@/components/usage';
 import type { UsageOverviewPayload } from '@/components/usage/hooks/useUsageData';
 import { BrandLink } from '@/components/BrandLink';
@@ -178,6 +180,24 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
     customEnd: customRange?.end,
   }), [customRange?.end, customRange?.start, customRange?.unit, timeRange]);
   const usageRangeQueryKey = usageRangeQuery.valid ? buildUsageStatsQueryKey(usageRangeQuery) : null;
+  const {
+    request: activityRangeRequest,
+    manualWindow: manualActivityWindow,
+    setWindow: setActivityWindow,
+  } = useRecentActivityWindow(usageRangeQuery);
+  const {
+    activity,
+    loading: activityLoading,
+    error: activityError,
+    requestIdentity: activityRequestIdentity,
+    loadActivity,
+  } = useUsageActivityData({
+    viewer: 'key',
+    request: activityRangeRequest,
+    enabled: usageRangeQuery.valid,
+    onAuthRequired,
+  });
+  const activityWindow = manualActivityWindow ?? activity?.window ?? null;
   const rangeTimeZone = usage?.timezone ?? timeRangeState.timeZone;
   const handleTimeRangeChange = useCallback((range: UsageTimeRange, nextCustomRange?: UsageCustomRange) => {
     if (range === 'custom' && nextCustomRange) {
@@ -285,8 +305,8 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
   }, []);
 
   const refreshKeyOverview = useCallback(async (options: KeyOverviewLoadOptions = {}) => {
-    await Promise.all([loadOverview(options), loadRealtime(options)]);
-  }, [loadOverview, loadRealtime]);
+    await Promise.all([loadOverview(options), loadActivity(options), loadRealtime(options)]);
+  }, [loadActivity, loadOverview, loadRealtime]);
 
   const handleAutoRefreshError = useCallback((nextError: unknown) => {
     if (nextError instanceof ApiError && nextError.status === 401) {
@@ -509,7 +529,14 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
               }}
             />
 
-            <ServiceHealthCard usage={usage} loading={overviewDisplayLoading} />
+            <RecentActivityPanel
+              activity={activity}
+              loading={activityLoading}
+              error={activityError}
+              window={activityWindow}
+              requestIdentity={activityRequestIdentity}
+              onWindowChange={setActivityWindow}
+            />
 
             <OverviewRealtimePanel
               realtime={realtime?.window === realtimeWindow ? realtime : undefined}

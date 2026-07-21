@@ -14,6 +14,7 @@ import { useThemeStore } from '@/stores';
 import {
   StatCards,
   DailyAveragePanel,
+  RecentActivityPanel,
   OverviewRealtimePanel,
   AnalysisPanel,
   ApiKeySettingsCard,
@@ -22,9 +23,10 @@ import {
   AuthFileCredentialsSection,
   AiProviderCredentialsSection,
   CredentialProviderFilterBar,
-  ServiceHealthCard,
   TimeRangeControl,
   useUsageData,
+  useRecentActivityWindow,
+  useUsageActivityData,
   useOverviewRealtimeData,
   usePricingData,
   useSparklines,
@@ -744,6 +746,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     customStart: customRange?.start,
     customEnd: customRange?.end,
   }), [customRange?.end, customRange?.start, customRange?.unit, timeRange]);
+  const {
+    request: activityRangeRequest,
+    manualWindow: manualActivityWindow,
+    setWindow: setActivityWindow,
+  } = useRecentActivityWindow(usageRangeQuery);
 
   const {
     usage,
@@ -760,6 +767,20 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     enabled: activeTab === 'overview',
     apiKeyId: selectedApiKeyId,
   });
+  const {
+    activity,
+    loading: activityLoading,
+    error: activityError,
+    requestIdentity: activityRequestIdentity,
+    loadActivity,
+  } = useUsageActivityData({
+    viewer: 'admin',
+    request: activityRangeRequest,
+    apiKeyId: selectedApiKeyId,
+    enabled: activeTab === 'overview' && usageRangeQuery.valid,
+    onAuthRequired,
+  });
+  const activityWindow = manualActivityWindow ?? activity?.window ?? null;
   const rangeTimeZone = status?.timezone ?? usage?.timezone ?? timeRangeState.timeZone;
   const handleTimeRangeChange = useCallback((range: UsageTimeRange, nextCustomRange?: UsageCustomRange) => {
     pendingLegacyCustomRangeRef.current = null;
@@ -1431,8 +1452,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await Promise.all([loadAuthSessions(), loadApiKeySettings(), loadPricing()]);
       return;
     }
-    await Promise.all([loadUsage(), loadRealtime()]);
-  }, [activeTab, credentialSectionVisibility.enabled, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadEventFilterOptions, loadEvents, loadPricing, loadRealtime, loadUsage, refreshCredentials]);
+    await Promise.all([loadUsage(), loadActivity(), loadRealtime()]);
+  }, [activeTab, credentialSectionVisibility.enabled, loadActivity, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadEventFilterOptions, loadEvents, loadPricing, loadRealtime, loadUsage, refreshCredentials]);
 
   const refreshAutoRefreshTab = useCallback(async () => {
     if (activeTab === 'events') {
@@ -1443,8 +1464,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await refreshCredentials();
       return;
     }
-    await Promise.all([loadUsage(), loadRealtime()]);
-  }, [activeTab, credentialSectionVisibility.enabled, loadEvents, loadRealtime, loadUsage, refreshCredentials]);
+    await Promise.all([loadUsage(), loadActivity({ skipIfInFlight: true }), loadRealtime()]);
+  }, [activeTab, credentialSectionVisibility.enabled, loadActivity, loadEvents, loadRealtime, loadUsage, refreshCredentials]);
 
   const handleAutoRefreshError = useCallback((error: unknown) => {
     if (error instanceof ApiError && error.status === 401) {
@@ -1872,7 +1893,14 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   }}
                 />
 
-                <ServiceHealthCard usage={usage} loading={overviewDisplayLoading} />
+                <RecentActivityPanel
+                  activity={activity}
+                  loading={activityLoading}
+                  error={activityError}
+                  window={activityWindow}
+                  requestIdentity={activityRequestIdentity}
+                  onWindowChange={setActivityWindow}
+                />
 
                 <OverviewRealtimePanel
                   realtime={currentRealtime ?? undefined}

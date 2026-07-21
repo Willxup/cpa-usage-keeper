@@ -358,10 +358,17 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).toContain('@media (prefers-reduced-motion: reduce)')
   })
 
-  it('renders the realtime overview panel below Request Health Timeline with the planned responsive grid', () => {
+  it('renders Recent Activity between the stat cards and realtime metrics', () => {
     expect(usagePageSource).toContain('<OverviewRealtimePanel')
     expect(keyOverviewPageSource).toContain('<OverviewRealtimePanel')
-    expect(usagePageSource.indexOf('<ServiceHealthCard usage={usage} loading={overviewDisplayLoading} />')).toBeLessThan(usagePageSource.indexOf('<OverviewRealtimePanel'))
+    expect(usagePageSource).toContain('<RecentActivityPanel')
+    expect(keyOverviewPageSource).toContain('<RecentActivityPanel')
+    expect(usagePageSource.indexOf('<StatCards')).toBeLessThan(usagePageSource.indexOf('<RecentActivityPanel'))
+    expect(usagePageSource.indexOf('<RecentActivityPanel')).toBeLessThan(usagePageSource.indexOf('<OverviewRealtimePanel'))
+    expect(keyOverviewPageSource.indexOf('<StatCards')).toBeLessThan(keyOverviewPageSource.indexOf('<RecentActivityPanel'))
+    expect(keyOverviewPageSource.indexOf('<RecentActivityPanel')).toBeLessThan(keyOverviewPageSource.indexOf('<OverviewRealtimePanel'))
+    expect(usagePageStyles).toMatch(/\.recentActivityTitle\s*\{[\s\S]*?font-size:\s*17px;[\s\S]*?font-weight:\s*800;/)
+    expect(usagePageStyles).toMatch(/\.recentActivityWindowSwitcher\s*\{[\s\S]*?border-radius:\s*999px;/)
     expect(usagePageStyles).toMatch(/\.overviewRealtimeGrid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/)
     expect(usagePageStyles).toMatch(/\.overviewRealtimeGrid\s*\{[\s\S]*?@include mobile\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
     expect(usagePageStyles).toMatch(/\.overviewRealtimeCardFull\s*\{[\s\S]*?grid-column:\s*1 \/ -1;/)
@@ -839,8 +846,12 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageSource).toContain('error={displayRealtimeError}')
   })
 
-  it('removes the Overview Request Health Timeline label instead of toggling it off', () => {
-    expect(usagePageSource).toContain('<ServiceHealthCard usage={usage} loading={overviewDisplayLoading} />')
+  it('loads Request Health through the independent Recent Activity panel', () => {
+    expect(usagePageSource).toContain('useUsageActivityData({')
+    expect(usagePageSource).toContain('useRecentActivityWindow(usageRangeQuery)')
+    expect(usagePageSource).toContain('await Promise.all([loadUsage(), loadActivity(), loadRealtime()])')
+    expect(usagePageSource).toContain('await Promise.all([loadUsage(), loadActivity({ skipIfInFlight: true }), loadRealtime()])')
+    expect(usagePageSource).not.toContain('<ServiceHealthCard')
     expect(usagePageSource).not.toContain('showEyebrow')
   })
 

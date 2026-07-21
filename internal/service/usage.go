@@ -2,9 +2,12 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
+	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 	servicedto "cpa-usage-keeper/internal/service/dto"
@@ -87,30 +90,97 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 			DailyAverageRangeDays: overview.Summary.DailyAverageRangeDays,
 		},
 		Series: mapUsageOverviewSeries(overview.Series),
-		Health: servicedto.UsageOverviewHealth{
-			TotalSuccess:  overview.Health.TotalSuccess,
-			TotalFailure:  overview.Health.TotalFailure,
-			SuccessRate:   overview.Health.SuccessRate,
-			Rows:          overview.Health.Rows,
-			Columns:       overview.Health.Columns,
-			BucketSeconds: overview.Health.BucketSeconds,
-			WindowStart:   overview.Health.WindowStart,
-			WindowEnd:     overview.Health.WindowEnd,
-			BlockDetails: func() []servicedto.UsageOverviewHealthBlock {
-				blocks := make([]servicedto.UsageOverviewHealthBlock, 0, len(overview.Health.BlockDetails))
-				for _, block := range overview.Health.BlockDetails {
-					blocks = append(blocks, servicedto.UsageOverviewHealthBlock{
-						StartTime: block.StartTime,
-						EndTime:   block.EndTime,
-						Success:   block.Success,
-						Failure:   block.Failure,
-						Rate:      block.Rate,
-					})
-				}
-				return blocks
-			}(),
-		},
 	}, nil
+}
+
+// GetUsageActivity 只用统一时间条件选择展示档位；实际 Activity 仍结束于服务器当前时间。
+func (s *usageService) GetUsageActivity(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageActivitySnapshot, error) {
+	ctx = usageServiceContext(ctx)
+	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
+	if err != nil {
+		return nil, err
+	}
+	window, err := usageActivityWindowForFilter(filter)
+	if err != nil {
+		return nil, err
+	}
+	grain, err := usageActivityGrain(window)
+	if err != nil {
+		return nil, err
+	}
+	referenceEnd := time.Time{}
+	if filter.QueryNow != nil {
+		referenceEnd = *filter.QueryNow
+	}
+	if referenceEnd.IsZero() {
+		referenceEnd = time.Now()
+	}
+	grid, err := repository.QueryUsageActivityGrid(ctx, s.db, grain, referenceEnd, apiGroupKey)
+	if err != nil {
+		return nil, err
+	}
+	result := &servicedto.UsageActivitySnapshot{
+		Window:        window,
+		Grain:         string(grid.Grain),
+		Rows:          grid.Rows,
+		Columns:       grid.Columns,
+		BucketSeconds: grid.BucketSeconds,
+		WindowStart:   grid.WindowStart,
+		WindowEnd:     grid.WindowEnd,
+		TotalSuccess:  grid.TotalSuccess,
+		TotalFailure:  grid.TotalFailure,
+		Blocks:        make([]servicedto.UsageActivityBlock, len(grid.Blocks)),
+	}
+	if total := result.TotalSuccess + result.TotalFailure; total > 0 {
+		result.SuccessRate = (float64(result.TotalSuccess) / float64(total)) * 100
+	}
+	for index, block := range grid.Blocks {
+		rate := -1.0
+		if total := block.SuccessCount + block.FailureCount; total > 0 {
+			rate = float64(block.SuccessCount) / float64(total)
+		}
+		result.Blocks[index] = servicedto.UsageActivityBlock{
+			StartTime: block.StartTime,
+			EndTime:   block.EndTime,
+			Success:   block.SuccessCount,
+			Failure:   block.FailureCount,
+			Rate:      rate,
+		}
+	}
+	return result, nil
+}
+
+func usageActivityWindowForFilter(filter servicedto.UsageFilter) (servicedto.UsageActivityWindow, error) {
+	switch filter.RangeUnit {
+	case "hour":
+		if filter.RangeCount < 1 {
+			break
+		}
+		return servicedto.UsageActivityWindow24H, nil
+	case "day":
+		switch {
+		case filter.RangeCount == 1:
+			return servicedto.UsageActivityWindow24H, nil
+		case filter.RangeCount >= 2 && filter.RangeCount <= 7:
+			return servicedto.UsageActivityWindow7D, nil
+		case filter.RangeCount >= 8 && filter.RangeCount <= 30:
+			return servicedto.UsageActivityWindow30D, nil
+		}
+	}
+	return "", fmt.Errorf("unsupported activity time range %q (%s:%d)", filter.Range, filter.RangeUnit, filter.RangeCount)
+}
+
+func usageActivityGrain(window servicedto.UsageActivityWindow) (entities.UsageActivityGrain, error) {
+	switch window {
+	case servicedto.UsageActivityWindow24H:
+		return entities.UsageActivityGrainShort, nil
+	case servicedto.UsageActivityWindow7D:
+		return entities.UsageActivityGrainMedium, nil
+	case servicedto.UsageActivityWindow30D:
+		return entities.UsageActivityGrainLong, nil
+	default:
+		return "", fmt.Errorf("unsupported activity window %q", window)
+	}
 }
 
 func (s *usageService) GetUsageOverviewRealtime(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewRealtime, error) {

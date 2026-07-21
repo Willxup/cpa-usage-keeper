@@ -25,13 +25,15 @@ describe('KeyOverviewPage layout', () => {
     expect(source).toContain('}, [onAuthRequired, realtimeWindow]);')
   })
 
-  it('loads overview and realtime data through separate parallel requests', () => {
+  it('loads overview, Activity, and realtime data through separate requests', () => {
     expect(source).toContain('fetchKeyOverviewRealtime')
     expect(source).toContain('overviewRequestControllerRef')
     expect(source).toContain('realtimeRequestControllerRef')
     expect(source).toContain('const overview = await fetchKeyOverview(')
     expect(source).toContain('const nextRealtime = await fetchKeyOverviewRealtime({')
-    expect(source).toContain('await Promise.all([loadOverview(options), loadRealtime(options)])')
+    expect(source).toContain('useUsageActivityData({')
+    expect(source).toContain('useRecentActivityWindow(usageRangeQuery)')
+    expect(source).toContain('await Promise.all([loadOverview(options), loadActivity(options), loadRealtime(options)])')
   })
 
   it('auto-refreshes the viewer overview and realtime data together', () => {
@@ -53,8 +55,10 @@ describe('KeyOverviewPage layout', () => {
     expect(source).toContain('realtime?.window === realtimeWindow ? realtime : undefined')
   })
 
-  it('removes the Request Health Timeline label instead of toggling it off', () => {
-    expect(source).toContain('<ServiceHealthCard usage={usage} loading={overviewDisplayLoading} />')
+  it('renders Request Health through Recent Activity before realtime metrics', () => {
+    expect(source).toContain('<RecentActivityPanel')
+    expect(source.indexOf('<RecentActivityPanel')).toBeLessThan(source.indexOf('<OverviewRealtimePanel'))
+    expect(source).not.toContain('<ServiceHealthCard')
     expect(source).toContain('<OverviewRealtimePanel')
     expect(source).toContain('KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS')
     expect(source).toContain("visibleDimensions={KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS}")

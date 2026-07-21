@@ -63,9 +63,9 @@ func QueryUsageActivityGrid(ctx context.Context, db *gorm.DB, grain entities.Usa
 		bucketIndex[bucket.Start.Unix()] = index
 		// 查询值复用 Activity 可排序 UTC 格式，只匹配 helper 生成的 364 个真实起点。
 		bucketStarts[index] = timeutil.FormatSortableStorageTime(bucket.Start)
-		// 兼容 bucket_seconds 取当前窗口实际块宽的最大秒数，覆盖交替宽度。
+		// bucket_seconds 取当前窗口实际块宽的最大秒数，覆盖交替宽度。
 		spanSeconds := int64(bucket.End.Sub(bucket.Start) / time.Second)
-		// 更宽块更新兼容元数据值。
+		// 更宽块更新响应中的粒度元数据。
 		if spanSeconds > result.BucketSeconds {
 			result.BucketSeconds = spanSeconds
 		}
@@ -74,7 +74,7 @@ func QueryUsageActivityGrid(ctx context.Context, db *gorm.DB, grain entities.Usa
 	// 查询只读取当前 grain 和 364 个精确起点；IN 不依赖带 offset 文本的字典序。
 	query := db.WithContext(ctx).
 		Where("grain = ? AND bucket_start IN ?", grain, bucketStarts)
-	// API group 非空时保持现有 Overview/API Key 精确 scope。
+	// API group 非空时按 canonical key 精确过滤，与 CPA API Key scope 一致。
 	if normalizedAPIGroupKey := strings.TrimSpace(apiGroupKey); normalizedAPIGroupKey != "" {
 		query = query.Where("api_group_key = ?", normalizedAPIGroupKey)
 	}
@@ -98,8 +98,12 @@ func QueryUsageActivityGrid(ctx context.Context, db *gorm.DB, grain entities.Usa
 		block.EndTime = timeutil.NormalizeStorageTime(row.BucketEnd)
 		// 成功请求数按 API group 行求和。
 		block.SuccessCount += row.SuccessCount
+		// header 成功总数与 block 使用同一批已通过窗口和 scope 校验的 Activity rows。
+		result.TotalSuccess += row.SuccessCount
 		// 失败请求数按 API group 行求和。
 		block.FailureCount += row.FailureCount
+		// header 失败总数同样只累计当前完整 Activity 窗口。
+		result.TotalFailure += row.FailureCount
 		// canonical input tokens 按行求和。
 		block.InputTokens += row.InputTokens
 		// canonical output tokens 按行求和。

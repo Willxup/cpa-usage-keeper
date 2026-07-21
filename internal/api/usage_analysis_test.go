@@ -46,6 +46,10 @@ func (s *usageAnalysisStub) GetUsageOverview(context.Context, servicedto.UsageFi
 	return nil, nil
 }
 
+func (s *usageAnalysisStub) GetUsageActivity(context.Context, servicedto.UsageFilter) (*servicedto.UsageActivitySnapshot, error) {
+	return nil, nil
+}
+
 func (s *usageAnalysisStub) GetUsageOverviewRealtime(context.Context, servicedto.UsageFilter) (*servicedto.UsageOverviewRealtime, error) {
 	return nil, nil
 }

@@ -101,7 +101,9 @@ export interface UsageOverviewSeries {
 	cache_read_rate: Record<string, number | null>
 }
 
-export interface UsageOverviewServiceHealthBlock {
+export type UsageActivityWindow = '24h' | '7d' | '30d'
+
+export interface UsageActivityBlock {
   start_time: string
   end_time: string
   success: number
@@ -109,16 +111,19 @@ export interface UsageOverviewServiceHealthBlock {
   rate: number
 }
 
-export interface UsageOverviewServiceHealth {
+export interface UsageActivityResponse {
+  window: UsageActivityWindow
+  grain: 'short' | 'medium' | 'long'
+  timezone?: string
   total_success: number
   total_failure: number
   success_rate: number
-  rows?: number
-  columns?: number
-  bucket_seconds?: number
-  window_start?: string
-  window_end?: string
-  block_details: UsageOverviewServiceHealthBlock[]
+  rows: number
+  columns: number
+  bucket_seconds: number
+  window_start: string
+  window_end: string
+  blocks: UsageActivityBlock[]
 }
 
 export type OverviewRealtimeWindow = '15m' | '30m' | '60m'
@@ -211,7 +216,6 @@ export interface UsageOverviewResponse {
   usage: UsageOverviewUsageSnapshot
   summary?: UsageOverviewSummary
   series?: UsageOverviewSeries
-  service_health?: UsageOverviewServiceHealth
   timezone?: string
   range_start?: string
   range_end?: string

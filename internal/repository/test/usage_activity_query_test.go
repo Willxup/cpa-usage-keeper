@@ -121,24 +121,20 @@ func TestQueryUsageActivityGridIncludesBothDSTFallbackOffsets(t *testing.T) {
 	}
 }
 
-func TestBuildUsageOverviewReadsRequestHealthFromActivityWithoutLegacyTable(t *testing.T) {
-	// 准备：同一查询窗口内写入成功、失败和其它 API group 事件，并追平 Overview/Activity。
+func TestQueryUsageActivityGridReadsRequestHealthWithoutLegacyTable(t *testing.T) {
+	// 准备：同一窗口内写入成功、失败和其它 API group 事件，并追平 Activity。
 	db := openTestDatabase(t)
 	end := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
-	start := end.Add(-7 * 24 * time.Hour)
 	events := []entities.UsageEvent{
-		{EventKey: "overview-activity-success", APIGroupKey: "provider-a", Model: "model-a", Timestamp: end.Add(-time.Hour), InputTokens: 10, TotalTokens: 10},
-		{EventKey: "overview-activity-failure", APIGroupKey: "provider-a", Model: "model-a", Timestamp: end.Add(-30 * time.Minute), Failed: true, InputTokens: 20, TotalTokens: 20},
-		{EventKey: "overview-activity-other", APIGroupKey: "provider-b", Model: "model-a", Timestamp: end.Add(-15 * time.Minute), InputTokens: 30, TotalTokens: 30},
+		{EventKey: "activity-success", APIGroupKey: "provider-a", Model: "model-a", Timestamp: end.Add(-time.Hour), InputTokens: 10, TotalTokens: 10},
+		{EventKey: "activity-failure", APIGroupKey: "provider-a", Model: "model-a", Timestamp: end.Add(-30 * time.Minute), Failed: true, InputTokens: 20, TotalTokens: 20},
+		{EventKey: "activity-other", APIGroupKey: "provider-b", Model: "model-a", Timestamp: end.Add(-15 * time.Minute), InputTokens: 30, TotalTokens: 30},
 	}
 	if _, _, err := repository.InsertUsageEvents(db, events); err != nil {
-		t.Fatalf("insert overview activity events: %v", err)
-	}
-	if err := repository.AggregateUsageOverviewStats(context.Background(), db, end); err != nil {
-		t.Fatalf("aggregate overview stats: %v", err)
+		t.Fatalf("insert activity events: %v", err)
 	}
 	if err := repository.AggregateUsageActivityStats(context.Background(), db, end); err != nil {
-		t.Fatalf("aggregate overview activity stats: %v", err)
+		t.Fatalf("aggregate Activity stats: %v", err)
 	}
 	if db.Migrator().HasTable("usage_overview_health_stats") {
 		if err := db.Migrator().DropTable("usage_overview_health_stats"); err != nil {
@@ -146,27 +142,22 @@ func TestBuildUsageOverviewReadsRequestHealthFromActivityWithoutLegacyTable(t *t
 		}
 	}
 
-	// 执行：API group Overview 在旧 Health 表不存在时读取 medium Activity。
-	overview, err := repository.BuildUsageOverviewWithFilter(db, repositorydto.UsageQueryFilter{
-		Range: "7d", StartTime: &start, EndTime: &end, QueryNow: &end, APIGroupKey: "provider-a",
-	})
+	// 执行：独立查询在旧 Health 表不存在时读取 medium Activity。
+	grid, err := repository.QueryUsageActivityGrid(context.Background(), db, entities.UsageActivityGrainMedium, end, "provider-a")
 	if err != nil {
-		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
+		t.Fatalf("QueryUsageActivityGrid returned error: %v", err)
 	}
 
-	// 断言：兼容 service_health 语义保持，但固定为 364 格且隔离其它 API group。
-	if overview.Health.Rows != 7 || overview.Health.Columns != 52 || len(overview.Health.BlockDetails) != 364 {
-		t.Fatalf("unexpected activity-backed health shape: %+v", overview.Health)
+	// 断言：Activity 固定为 364 格且隔离其它 API group。
+	if grid.Rows != 7 || grid.Columns != 52 || len(grid.Blocks) != 364 {
+		t.Fatalf("unexpected Activity shape: %+v", grid)
 	}
-	if overview.Health.TotalSuccess != 1 || overview.Health.TotalFailure != 1 || overview.Health.SuccessRate != 50 {
-		t.Fatalf("unexpected activity-backed health totals: %+v", overview.Health)
+	if grid.TotalSuccess != 1 || grid.TotalFailure != 1 {
+		t.Fatalf("unexpected Activity totals: %+v", grid)
 	}
 	populatedBlocks := 0
-	for _, block := range overview.Health.BlockDetails {
-		if block.Success+block.Failure == 0 {
-			if block.Rate != -1 {
-				t.Fatalf("expected empty activity block rate=-1, got %+v", block)
-			}
+	for _, block := range grid.Blocks {
+		if block.SuccessCount+block.FailureCount == 0 {
 			continue
 		}
 		populatedBlocks++
@@ -176,19 +167,19 @@ func TestBuildUsageOverviewReadsRequestHealthFromActivityWithoutLegacyTable(t *t
 	}
 }
 
-func TestBuildUsageOverviewPreservesRequestContextForActivityQuery(t *testing.T) {
-	// 准备：给仓储数据库注入请求级 context，并只在 Activity 查询回调中检查它。
+func TestQueryUsageActivityGridPreservesRequestContext(t *testing.T) {
+	// 准备：给仓储查询注入请求级 context，并只在 Activity 查询回调中检查它。
 	db := openTestDatabase(t)
 	type requestContextKey struct{}
-	requestContext := context.WithValue(context.Background(), requestContextKey{}, "overview-request")
+	requestContext := context.WithValue(context.Background(), requestContextKey{}, "activity-request")
 	activityQuerySawRequestContext := false
 	if err := db.Callback().Query().Before("gorm:query").Register("test:require_activity_request_context", func(tx *gorm.DB) {
-		// 非 Activity 查询保持原样，只观察本次 PR1 新增的数据源读取。
+		// 非 Activity 查询保持原样，只观察 Activity 数据源读取。
 		if tx.Statement.Schema == nil || tx.Statement.Schema.Table != "usage_activity_stats" {
 			return
 		}
 		// Activity 查询必须沿用 service 传入的请求 context，不能覆盖为 Background。
-		if tx.Statement.Context.Value(requestContextKey{}) != "overview-request" {
+		if tx.Statement.Context.Value(requestContextKey{}) != "activity-request" {
 			tx.AddError(context.Canceled)
 			return
 		}
@@ -198,16 +189,13 @@ func TestBuildUsageOverviewPreservesRequestContextForActivityQuery(t *testing.T)
 		t.Fatalf("register Activity context callback: %v", err)
 	}
 	end := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
-	start := end.Add(-7 * 24 * time.Hour)
 
-	// 执行：通过带请求 context 的 GORM session 构建 Activity-backed Overview。
-	_, err := repository.BuildUsageOverviewWithFilter(db.WithContext(requestContext), repositorydto.UsageQueryFilter{
-		Range: "7d", StartTime: &start, EndTime: &end, QueryNow: &end,
-	})
+	// 执行：通过带请求 context 的 GORM session 查询独立 Activity。
+	_, err := repository.QueryUsageActivityGrid(requestContext, db.WithContext(requestContext), entities.UsageActivityGrainMedium, end, "")
 
 	// 断言：Activity 查询应成功且回调必须看到原请求 context。
 	if err != nil {
-		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
+		t.Fatalf("QueryUsageActivityGrid returned error: %v", err)
 	}
 	if !activityQuerySawRequestContext {
 		t.Fatal("expected Activity query to preserve request context")

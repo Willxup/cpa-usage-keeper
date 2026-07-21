@@ -32,6 +32,10 @@ func (s *usageFilterStub) GetUsageOverview(_ context.Context, filter servicedto.
 	return s.overview, s.err
 }
 
+func (s *usageFilterStub) GetUsageActivity(context.Context, servicedto.UsageFilter) (*servicedto.UsageActivitySnapshot, error) {
+	return nil, s.err
+}
+
 func (s *usageFilterStub) GetUsageOverviewRealtime(_ context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewRealtime, error) {
 	s.lastRealtime = filter
 	s.realtimeCalls++
@@ -63,7 +67,7 @@ func mustParseTime(t *testing.T, value string) time.Time {
 	return parsed
 }
 
-func TestKeyOverviewForcesViewerAPIKeyIDAndReturnsOverview(t *testing.T) {
+func TestKeyOverviewIgnoresClientAPIKeyIDAndReturnsViewerOverview(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
 	token, _, err := sessions.CreateAPIKeyViewer(42)
 	if err != nil {
@@ -75,7 +79,7 @@ func TestKeyOverviewForcesViewerAPIKeyIDAndReturnsOverview(t *testing.T) {
 	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
 
 	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/key-overview?range=24h&api_key_id=999", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/key-overview?range=24h&api_key_id=not-a-number", nil)
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
 	router.ServeHTTP(resp, req)
 
@@ -90,7 +94,7 @@ func TestKeyOverviewForcesViewerAPIKeyIDAndReturnsOverview(t *testing.T) {
 	}
 }
 
-func TestKeyOverviewRealtimeForcesViewerAPIKeyIDAndAllowsParallelOverviewRequest(t *testing.T) {
+func TestKeyOverviewRealtimeIgnoresClientAPIKeyIDAndAllowsParallelOverviewRequest(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
 	token, _, err := sessions.CreateAPIKeyViewer(42)
 	if err != nil {
@@ -121,7 +125,7 @@ func TestKeyOverviewRealtimeForcesViewerAPIKeyIDAndAllowsParallelOverviewRequest
 	}
 
 	realtimeResp := httptest.NewRecorder()
-	realtimeReq := httptest.NewRequest(http.MethodGet, "/api/v1/key-overview/realtime?window=60m&api_key_id=999", nil)
+	realtimeReq := httptest.NewRequest(http.MethodGet, "/api/v1/key-overview/realtime?window=60m&api_key_id=not-a-number", nil)
 	realtimeReq.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
 	router.ServeHTTP(realtimeResp, realtimeReq)
 
@@ -554,18 +558,6 @@ func TestUsageOverviewReturnsFilteredSnapshot(t *testing.T) {
 			Cost:          map[string]float64{"2026-04-22T11:00:00Z": 0.123},
 			CacheReadRate: map[string]*float64{"2026-04-22T11:00:00Z": float64Ptr(18.18)},
 		},
-		Health: servicedto.UsageOverviewHealth{
-			TotalSuccess: 1,
-			TotalFailure: 0,
-			SuccessRate:  100,
-			BlockDetails: []servicedto.UsageOverviewHealthBlock{{
-				StartTime: mustParseTime(t, "2026-04-22T11:00:00Z"),
-				EndTime:   mustParseTime(t, "2026-04-22T11:15:00Z"),
-				Success:   1,
-				Failure:   0,
-				Rate:      1,
-			}},
-		},
 	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview?range=24h", nil)
@@ -595,9 +587,8 @@ func TestUsageOverviewReturnsFilteredSnapshot(t *testing.T) {
 	if !contains(body, `"cache_read_rate":{"2026-04-22T11:00:00Z":18.18}`) {
 		t.Fatalf("expected backend cache-rate series in response body: %s", body)
 	}
-	if !contains(body, `"service_health":{"total_success":1,"total_failure":0,"success_rate":100`) ||
-		!contains(body, `"block_details":[{"start_time":"2026-04-22T11:00:00Z","end_time":"2026-04-22T11:15:00Z","success":1,"failure":0,"rate":1}]`) {
-		t.Fatalf("expected service health in response body: %s", body)
+	if contains(body, `"service_health":`) {
+		t.Fatalf("expected overview response to omit Activity health: %s", body)
 	}
 	assertUsageOverviewResponseShape(t, body)
 	if contains(body, `"details":`) {
@@ -684,7 +675,7 @@ func assertUsageOverviewResponseShape(t *testing.T, body string) {
 	if err := json.Unmarshal([]byte(body), &decoded); err != nil {
 		t.Fatalf("failed to decode overview response: %v\n%s", err, body)
 	}
-	assertAllowedJSONKeys(t, decoded, "overview response", body, "usage", "summary", "series", "service_health", "timezone", "range_start", "range_end")
+	assertAllowedJSONKeys(t, decoded, "overview response", body, "usage", "summary", "series", "timezone", "range_start", "range_end")
 
 	usage, ok := decoded["usage"].(map[string]any)
 	if !ok {
@@ -707,6 +698,7 @@ func assertUsageOverviewResponseShape(t *testing.T, body string) {
 		t.Fatalf("expected series object in response, got %s", body)
 	}
 	assertAllowedJSONKeys(t, series, "overview series", body, "requests", "tokens", "rpm", "tpm", "cost", "cache_read_rate")
+
 }
 
 func assertAllowedJSONKeys(t *testing.T, values map[string]any, label, body string, allowedKeys ...string) {

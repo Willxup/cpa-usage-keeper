@@ -141,7 +141,7 @@ func registerUsageAnalysisRoute(router gin.IRoutes, usageProvider service.UsageP
 			return
 		}
 
-		filter, err := parseUsageFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		filter, err := parseUsageTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return

@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// createUsageOverviewStatsMigration 创建 Overview 查询使用的小时、天、health 和 checkpoint 增量表。
+// createUsageOverviewStatsMigration 重放 2026-05-14 的历史 Overview schema；其中旧 Health 表会由后续 Activity migration 迁移并删除。
 func createUsageOverviewStatsMigration(tx *gorm.DB) error {
 	if err := tx.AutoMigrate(
 		&entities.UsageOverviewHourlyStat{},
