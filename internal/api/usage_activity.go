@@ -55,8 +55,8 @@ func parseUsageActivityFilterQuery(req *http.Request, anchor time.Time) (service
 func parseUsageActivityFilterQueryWithClientAPIKey(req *http.Request, anchor time.Time, includeClientAPIKey bool) (servicedto.UsageFilter, error) {
 	queryNow := timeutil.NormalizeStorageTime(anchor)
 	if req == nil || strings.TrimSpace(req.URL.Query().Get("window")) == "" {
-		// Activity 的长 Custom 日范围使用永久 daily 增量档位，不依赖历史 raw events。
-		filter, err := parseUsageTimeFilterQueryWithOptions(req, queryNow, includeClientAPIKey, timeutil.UsageQueryRangeOptions{AllowLongCustomDayRange: true})
+		// Activity 的长 Custom 日范围使用永久 daily 增量档位，并遵循统一的一年上限。
+		filter, err := parseUsageTimeFilterQueryWithOptions(req, queryNow, includeClientAPIKey, timeutil.UsageQueryRangeOptions{MaxCustomDayRangeDays: timeutil.LongCustomDayRangeMaxDays})
 		if err != nil {
 			return servicedto.UsageFilter{}, err
 		}

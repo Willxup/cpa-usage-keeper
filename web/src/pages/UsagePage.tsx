@@ -1150,7 +1150,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     const timeZone = rangeTimeZone?.trim();
     if (!pendingLegacyCustomRange || !timeZone) return;
 
-    // 旧版 Custom 日期需要等项目时区到达后再按当前 30 天边界归一化，期间不覆盖旧存储。
+    // 旧版 Custom 日期需要等项目时区到达后再按当前一年边界归一化，期间不覆盖旧存储。
     const migratedState = migrateLegacyUsageRangeState(pendingLegacyCustomRange, {
       nowMs: Date.now(),
       timeZone,

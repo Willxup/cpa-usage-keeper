@@ -26,8 +26,15 @@ type UsageQueryRange struct {
 
 // UsageQueryRangeOptions 允许调用方只放开自身明确支持的范围能力。
 type UsageQueryRangeOptions struct {
-	AllowLongCustomDayRange bool
+	// MaxCustomDayRangeDays 非正数时保留公共路径原有的 30 天上限。
+	MaxCustomDayRangeDays int
 }
+
+const (
+	defaultCustomDayRangeMaxDays = 30
+	// LongCustomDayRangeMaxDays 是聚合与事件长范围路径共享的硬上限。
+	LongCustomDayRangeMaxDays = 365
+)
 
 // ParseUsageQueryRange 统一解析 Overview、Analysis、Events 与 Activity 共用的时间参数。
 func ParseUsageQueryRange(rangeValue, unitValue, startValue, endValue string, anchor time.Time) (UsageQueryRange, error) {
@@ -88,7 +95,11 @@ func parseCustomUsageQueryRange(unitValue, startValue, endValue string, anchor t
 		return UsageQueryRange{}, err
 	}
 	if unit == UsageQueryUnitDay {
-		return parseCustomUsageDayRange(startValue, endValue, anchor, options.AllowLongCustomDayRange)
+		maxDays := options.MaxCustomDayRangeDays
+		if maxDays <= 0 {
+			maxDays = defaultCustomDayRangeMaxDays
+		}
+		return parseCustomUsageDayRange(startValue, endValue, anchor, maxDays)
 	}
 	return parseCustomUsageHourRange(startValue, endValue, anchor)
 }
@@ -109,7 +120,7 @@ func resolveUsageQueryUnit(unitValue, startValue, endValue string) (UsageQueryUn
 	return unit, nil
 }
 
-func parseCustomUsageDayRange(startValue, endValue string, anchor time.Time, allowLongRange bool) (UsageQueryRange, error) {
+func parseCustomUsageDayRange(startValue, endValue string, anchor time.Time, maxDays int) (UsageQueryRange, error) {
 	startTime, err := time.ParseInLocation(time.DateOnly, startValue, time.Local)
 	if err != nil {
 		return UsageQueryRange{}, fmt.Errorf("invalid start: %w", err)
@@ -124,8 +135,8 @@ func parseCustomUsageDayRange(startValue, endValue string, anchor time.Time, all
 	if !anchor.IsZero() {
 		localAnchor := NormalizeStorageTime(anchor)
 		today := time.Date(localAnchor.Year(), localAnchor.Month(), localAnchor.Day(), 0, 0, 0, 0, time.Local)
-		if !allowLongRange && startTime.Before(today.AddDate(0, 0, -29)) {
-			return UsageQueryRange{}, fmt.Errorf("custom day range cannot start more than 30 calendar days ago")
+		if startTime.Before(today.AddDate(0, 0, -(maxDays - 1))) {
+			return UsageQueryRange{}, fmt.Errorf("custom day range must stay within the most recent %d calendar days", maxDays)
 		}
 		if endDay.After(today) {
 			return UsageQueryRange{}, fmt.Errorf("custom day range cannot end in the future")

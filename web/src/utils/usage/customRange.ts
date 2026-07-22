@@ -3,6 +3,7 @@ import { normalizeSelectableUsageRange, normalizeUsageRange } from './rangeQuery
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
+const CUSTOM_DAY_SLOT_COUNT = 365;
 
 interface CustomRangeClockOptions {
   nowMs: number;
@@ -94,6 +95,30 @@ const formatDayLabel = (dateKey: string, locale?: string): string => {
     .format(new Date(Date.UTC(year, month - 1, day)));
 };
 
+interface CustomDayBounds {
+  firstCalendarMs: number;
+  firstDay: string;
+  todayCalendarMs: number;
+  today: string;
+}
+
+const getCustomDayBounds = ({ nowMs, timeZone }: CustomRangeClockOptions): CustomDayBounds => {
+  const todayParts = getZonedParts(nowMs, timeZone);
+  const todayCalendarMs = Date.UTC(todayParts.year, todayParts.month - 1, todayParts.day);
+  const firstCalendarMs = todayCalendarMs - (CUSTOM_DAY_SLOT_COUNT - 1) * DAY_MS;
+  const firstDate = new Date(firstCalendarMs);
+  return {
+    firstCalendarMs,
+    firstDay: formatDateKey({
+      year: firstDate.getUTCFullYear(),
+      month: firstDate.getUTCMonth() + 1,
+      day: firstDate.getUTCDate(),
+    }),
+    todayCalendarMs,
+    today: formatDateKey(todayParts),
+  };
+};
+
 export const buildCustomWeekdayLabels = (locale?: string): string[] => {
   const formatter = new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone: 'UTC' });
   const sunday = Date.UTC(2024, 0, 7);
@@ -101,12 +126,12 @@ export const buildCustomWeekdayLabels = (locale?: string): string[] => {
 };
 
 export const buildCustomDaySlots = ({ nowMs, timeZone, locale }: CustomRangeClockOptions): UsageCustomRangeSlot[] => {
-  const today = getZonedParts(nowMs, timeZone);
-  const todayCalendarMs = Date.UTC(today.year, today.month - 1, today.day);
-  return Array.from({ length: 30 }, (_, index) => {
-    const date = new Date(todayCalendarMs - (29 - index) * DAY_MS);
+  const { firstCalendarMs } = getCustomDayBounds({ nowMs, timeZone });
+  const labelFormatter = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  return Array.from({ length: CUSTOM_DAY_SLOT_COUNT }, (_, index) => {
+    const date = new Date(firstCalendarMs + index * DAY_MS);
     const value = formatDateKey({ year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() });
-    return { value, label: formatDayLabel(value, locale), dateLabel: value, current: index === 29 };
+    return { value, label: labelFormatter.format(date), dateLabel: value, current: index === CUSTOM_DAY_SLOT_COUNT - 1 };
   });
 };
 
@@ -129,10 +154,21 @@ export const buildCustomHourSlots = ({ nowMs, timeZone, locale }: CustomRangeClo
 };
 
 export const buildDefaultCustomRange = ({ unit, nowMs, timeZone }: BuildDefaultCustomRangeOptions): UsageCustomRange => {
-  const slots = unit === 'hour'
-    ? buildCustomHourSlots({ nowMs, timeZone })
-    : buildCustomDaySlots({ nowMs, timeZone });
-  const startIndex = slots.length - (unit === 'hour' ? 8 : 7);
+  if (unit === 'day') {
+    const { todayCalendarMs, today } = getCustomDayBounds({ nowMs, timeZone });
+    const startDate = new Date(todayCalendarMs - 6 * DAY_MS);
+    return {
+      unit,
+      start: formatDateKey({
+        year: startDate.getUTCFullYear(),
+        month: startDate.getUTCMonth() + 1,
+        day: startDate.getUTCDate(),
+      }),
+      end: today,
+    };
+  }
+  const slots = buildCustomHourSlots({ nowMs, timeZone });
+  const startIndex = slots.length - 8;
   return { unit, start: slots[startIndex].value, end: slots[slots.length - 1].value };
 };
 
@@ -142,8 +178,12 @@ export const normalizeCustomRange = (
 ): UsageCustomRange => {
   const unit = range?.unit ?? 'day';
   if (unit === 'day') {
-    const today = formatDateKey(getZonedParts(options.nowMs, options.timeZone));
-    if (isValidDateKey(range?.start) && isValidDateKey(range?.end) && range.start <= range.end && range.end <= today) {
+    const { firstDay, today } = getCustomDayBounds(options);
+    if (isValidDateKey(range?.start)
+      && isValidDateKey(range?.end)
+      && range.start >= firstDay
+      && range.start <= range.end
+      && range.end <= today) {
       return { unit, start: range.start, end: range.end };
     }
     return buildDefaultCustomRange({ unit, ...options });
@@ -170,11 +210,16 @@ export const clampCustomRangeToCurrentBounds = (
   options: CustomRangeClockOptions,
 ): UsageCustomRange => {
   if (range.unit === 'day') {
-    const today = formatDateKey(getZonedParts(options.nowMs, options.timeZone));
+    const { firstDay, today } = getCustomDayBounds(options);
     if (!isValidDateKey(range.start) || !isValidDateKey(range.end) || range.start > range.end || range.start > today) {
       return buildDefaultCustomRange({ unit: range.unit, ...options });
     }
-    return { unit: range.unit, start: range.start, end: range.end > today ? today : range.end };
+    if (range.end < firstDay) return { unit: range.unit, start: firstDay, end: firstDay };
+    return {
+      unit: range.unit,
+      start: range.start < firstDay ? firstDay : range.start,
+      end: range.end > today ? today : range.end,
+    };
   }
   const slots = buildCustomHourSlots(options);
   const firstSlot = slots[0];

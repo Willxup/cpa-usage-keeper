@@ -396,6 +396,73 @@ describe('TimeRangeControl', () => {
     expect(document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2026-05-01"]')?.disabled).toBe(false);
   });
 
+  it('allows the 365-day boundary and disables earlier calendar dates and navigation', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-17T07:36:42.000Z'));
+    await renderControl('custom', vi.fn(), {
+      unit: 'day',
+      start: '2025-07-18',
+      end: '2026-07-17',
+    });
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
+    await act(async () => trigger?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
+
+    expect(document.querySelector('[data-custom-calendar-month]')?.getAttribute('data-custom-calendar-month')).toBe('2025-07');
+    expect(document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2025-07-18"]')?.disabled).toBe(false);
+    expect(document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2025-07-17"]')?.disabled).toBe(true);
+    expect(document.querySelector('[data-custom-calendar-cell="2025-07-17"]')?.hasAttribute('data-custom-day')).toBe(false);
+    expect(document.querySelector<HTMLButtonElement>('[aria-label="usage_stats.range_custom_previous_month"]')?.disabled).toBe(true);
+  });
+
+  it.each([
+    { timeZone: 'UTC', beforeMidnight: '2026-07-17T23:59:30.000Z', afterMidnight: '2026-07-18T00:00:01.000Z' },
+    { timeZone: 'Asia/Shanghai', beforeMidnight: '2026-07-17T15:59:30.000Z', afterMidnight: '2026-07-17T16:00:01.000Z' },
+  ])('clamps an open Custom draft before applying across $timeZone midnight', async ({ timeZone, beforeMidnight, afterMidnight }) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(beforeMidnight));
+    const onChange = vi.fn();
+    await renderControl('custom', onChange, {
+      unit: 'day',
+      start: '2025-07-18',
+      end: '2026-07-17',
+    }, timeZone);
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
+    await act(async () => trigger?.click());
+
+    vi.setSystemTime(new Date(afterMidnight));
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-summary-apply]')?.click());
+
+    expect(onChange).toHaveBeenCalledWith('custom', {
+      unit: 'day',
+      start: '2025-07-19',
+      end: '2026-07-17',
+    });
+  });
+
+  it.each([
+    { timeZone: 'UTC', beforeMidnight: '2026-07-17T23:59:30.000Z' },
+    { timeZone: 'Asia/Shanghai', beforeMidnight: '2026-07-17T15:59:30.000Z' },
+  ])('refreshes an open Custom calendar across $timeZone midnight', async ({ timeZone, beforeMidnight }) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(beforeMidnight));
+    await renderControl('custom', vi.fn(), {
+      unit: 'day',
+      start: '2025-07-18',
+      end: '2026-07-17',
+    }, timeZone);
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
+    await act(async () => trigger?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
+
+    expect(document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2025-07-18"]')?.disabled).toBe(false);
+
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+
+    expect(document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2025-07-18"]')?.disabled).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2025-07-19"]')?.disabled).toBe(false);
+  });
+
   it('keeps crossed-month ranges continuous inside a fixed six-week calendar', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-17T07:36:42.000Z'));

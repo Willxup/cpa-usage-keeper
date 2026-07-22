@@ -146,3 +146,35 @@ func TestParseUsageQueryRangeRejectsInvalidInputs(t *testing.T) {
 		})
 	}
 }
+
+func TestParseUsageQueryRangeEnforcesLongCustomDayLimit(t *testing.T) {
+	anchor := time.Date(2026, 7, 21, 12, 0, 0, 0, time.Local)
+	today := time.Date(anchor.Year(), anchor.Month(), anchor.Day(), 0, 0, 0, 0, time.Local)
+	options := timeutil.UsageQueryRangeOptions{MaxCustomDayRangeDays: timeutil.LongCustomDayRangeMaxDays}
+
+	result, err := timeutil.ParseUsageQueryRangeWithOptions(
+		"custom",
+		"day",
+		today.AddDate(0, 0, -364).Format(time.DateOnly),
+		today.Format(time.DateOnly),
+		anchor,
+		options,
+	)
+	if err != nil {
+		t.Fatalf("expected 365-day Custom range to be accepted: %v", err)
+	}
+	if result.Count != 365 {
+		t.Fatalf("Custom range count=%d, want 365", result.Count)
+	}
+
+	if _, err := timeutil.ParseUsageQueryRangeWithOptions(
+		"custom",
+		"day",
+		today.AddDate(0, 0, -365).Format(time.DateOnly),
+		today.Format(time.DateOnly),
+		anchor,
+		options,
+	); err == nil {
+		t.Fatal("expected 366-day Custom range to be rejected")
+	}
+}

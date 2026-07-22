@@ -29,23 +29,23 @@ func parseKeyUsageTimeFilterQuery(req *http.Request, anchor time.Time) (serviced
 	return parseUsageTimeFilterQueryWithClientAPIKey(req, anchor, false)
 }
 
-// Overview 的 Custom 日范围只依赖 daily 汇总，因此可以独立放开历史跨度。
+// Overview 的 Custom 日范围只依赖 daily 汇总，因此可以放宽至统一的一年上限。
 func parseUsageOverviewTimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
-	return parseUsageTimeFilterQueryWithOptions(req, anchor, true, timeutil.UsageQueryRangeOptions{AllowLongCustomDayRange: true})
+	return parseUsageTimeFilterQueryWithOptions(req, anchor, true, timeutil.UsageQueryRangeOptions{MaxCustomDayRangeDays: timeutil.LongCustomDayRangeMaxDays})
 }
 
 func parseKeyUsageOverviewTimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
-	return parseUsageTimeFilterQueryWithOptions(req, anchor, false, timeutil.UsageQueryRangeOptions{AllowLongCustomDayRange: true})
+	return parseUsageTimeFilterQueryWithOptions(req, anchor, false, timeutil.UsageQueryRangeOptions{MaxCustomDayRangeDays: timeutil.LongCustomDayRangeMaxDays})
 }
 
-// Events 直接查询仍在保留期内的原始事件，因此只放开 Custom 日范围的历史跨度。
+// Events 直接查询仍在保留期内的原始事件，因此只放宽至统一的一年上限。
 func parseUsageEventsTimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
-	return parseUsageTimeFilterQueryWithOptions(req, anchor, true, timeutil.UsageQueryRangeOptions{AllowLongCustomDayRange: true})
+	return parseUsageTimeFilterQueryWithOptions(req, anchor, true, timeutil.UsageQueryRangeOptions{MaxCustomDayRangeDays: timeutil.LongCustomDayRangeMaxDays})
 }
 
-// Analysis 主数据来自 hourly/daily 汇总，因此和 Overview 一样可以独立放开 Custom 日范围。
+// Analysis 主数据来自 hourly/daily 汇总，因此和 Overview 一样放宽至统一的一年上限。
 func parseUsageAnalysisTimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
-	return parseUsageTimeFilterQueryWithOptions(req, anchor, true, timeutil.UsageQueryRangeOptions{AllowLongCustomDayRange: true})
+	return parseUsageTimeFilterQueryWithOptions(req, anchor, true, timeutil.UsageQueryRangeOptions{MaxCustomDayRangeDays: timeutil.LongCustomDayRangeMaxDays})
 }
 
 func parseUsageTimeFilterQueryWithClientAPIKey(req *http.Request, anchor time.Time, includeClientAPIKey bool) (servicedto.UsageFilter, error) {

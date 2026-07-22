@@ -4,7 +4,12 @@ import { useTranslation } from 'react-i18next';
 import type { UsageCustomRange, UsageTimeRange } from '@/lib/types';
 import { Modal } from '@/components/ui/Modal';
 import { IconChevronDown, IconTimer } from '@/components/ui/icons';
-import { formatCustomRangeLabel, normalizeCustomRange } from '@/utils/usage/customRange';
+import {
+  clampCustomRangeToCurrentBounds,
+  formatCustomRangeLabel,
+  normalizeCustomRange,
+  scheduleCustomRangeBoundsRefresh,
+} from '@/utils/usage/customRange';
 import {
   buildRollingUsageRange,
   parseSelectableUsageRange,
@@ -307,6 +312,17 @@ export function TimeRangeControl({ value, customRange, onChange, ariaLabel, time
     setCustomDraft(normalizeCustomRange(customRange, { nowMs: anchorMs, timeZone }));
   }, [customRange, timeZone]);
 
+  const refreshOpenCustomBounds = useCallback(() => {
+    const anchorMs = Date.now();
+    setCustomAnchorMs(anchorMs);
+    setCustomDraft((current) => clampCustomRangeToCurrentBounds(current, { nowMs: anchorMs, timeZone }));
+  }, [timeZone]);
+
+  useEffect(() => scheduleCustomRangeBoundsRefresh({
+    enabled: customEnabled && panelMode === 'custom' && (desktopOpen || mobileOpen),
+    refreshBounds: refreshOpenCustomBounds,
+  }), [customEnabled, desktopOpen, mobileOpen, panelMode, refreshOpenCustomBounds]);
+
   const handleModeChange = (nextMode: UsageTimeRangeMode) => {
     if (appliedMode === 'hour' || appliedMode === 'day') {
       setRollingValues((current) => ({ ...current, [appliedMode]: displayedRollingValues[appliedMode] }));
@@ -497,12 +513,17 @@ export function TimeRangeControl({ value, customRange, onChange, ariaLabel, time
   }, [closeDesktopPopover, desktopOpen, updatePopoverPosition]);
 
   const handleCustomApply = () => {
+    // 定时刷新与 Apply 双重校验，避免项目时区刚跨日时提交旧边界。
+    const anchorMs = Date.now();
+    const boundedDraft = clampCustomRangeToCurrentBounds(customDraft, { nowMs: anchorMs, timeZone });
+    setCustomAnchorMs(anchorMs);
+    setCustomDraft(boundedDraft);
     lastEmittedRangeRef.current = 'custom';
     mobileOpenRef.current = false;
     setPendingMode(null);
     setDesktopOpen(false);
     setMobileOpen(false);
-    onChange('custom', customDraft);
+    onChange('custom', boundedDraft);
   };
 
   const handleCustomCancel = () => {

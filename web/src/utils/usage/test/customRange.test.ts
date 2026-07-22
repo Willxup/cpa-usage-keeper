@@ -13,11 +13,11 @@ import {
 const SHANGHAI_NOW = Date.parse('2026-07-17T07:36:42.000Z');
 
 describe('custom usage range slots', () => {
-  it('builds exactly 30 project-timezone calendar days including today', () => {
+  it('builds exactly 365 project-timezone calendar days including today', () => {
     const slots = buildCustomDaySlots({ nowMs: SHANGHAI_NOW, timeZone: 'Asia/Shanghai' });
 
-    expect(slots).toHaveLength(30);
-    expect(slots[0].value).toBe('2026-06-18');
+    expect(slots).toHaveLength(365);
+    expect(slots[0].value).toBe('2025-07-18');
     expect(slots.at(-1)?.value).toBe('2026-07-17');
   });
 
@@ -133,6 +133,34 @@ describe('custom usage range slots', () => {
     expect(parseStoredUsageRangeState(storedState, { nowMs: SHANGHAI_NOW })).toEqual({
       range: 'custom',
       customRange: { unit, start: expectedStart, end: expectedEnd },
+      timeZone: 'Asia/Shanghai',
+    });
+  });
+
+  it('clamps a persisted day range to the one-year calendar boundary', () => {
+    const storedState = serializeUsageRangeState({
+      range: 'custom',
+      customRange: { unit: 'day', start: '2025-06-01', end: '2026-07-16' },
+      timeZone: 'Asia/Shanghai',
+    });
+
+    expect(parseStoredUsageRangeState(storedState, { nowMs: SHANGHAI_NOW })).toEqual({
+      range: 'custom',
+      customRange: { unit: 'day', start: '2025-07-18', end: '2026-07-16' },
+      timeZone: 'Asia/Shanghai',
+    });
+  });
+
+  it('collapses a fully expired persisted day range to the earliest selectable day', () => {
+    const storedState = serializeUsageRangeState({
+      range: 'custom',
+      customRange: { unit: 'day', start: '2025-01-01', end: '2025-07-17' },
+      timeZone: 'Asia/Shanghai',
+    });
+
+    expect(parseStoredUsageRangeState(storedState, { nowMs: SHANGHAI_NOW })).toEqual({
+      range: 'custom',
+      customRange: { unit: 'day', start: '2025-07-18', end: '2025-07-18' },
       timeZone: 'Asia/Shanghai',
     });
   });
