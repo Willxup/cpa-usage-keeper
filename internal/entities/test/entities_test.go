@@ -97,3 +97,45 @@ func TestCacheTokenSchemaUsesExplicitReadAndWriteNames(t *testing.T) {
 		t.Fatal("expected model_price_settings.cache_creation_price_per1_m to remain")
 	}
 }
+
+func TestUsageOverviewSchemaIncludesFiveAggregationDimensions(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite memory database: %v", err)
+	}
+	if err := db.AutoMigrate(&UsageOverviewHourlyStat{}, &UsageOverviewDailyStat{}); err != nil {
+		t.Fatalf("AutoMigrate usage overview schema returned error: %v", err)
+	}
+
+	dimensions := []string{"service_tier", "response_service_tier", "reasoning_effort", "endpoint", "executor_type"}
+	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+		for _, dimension := range dimensions {
+			if !db.Migrator().HasColumn(table, dimension) {
+				t.Fatalf("expected %s.%s", table, dimension)
+			}
+		}
+	}
+
+	assertUsageOverviewDimensionIndex(t, db, "uniq_usage_overview_hourly_stats_dimensions")
+	assertUsageOverviewDimensionIndex(t, db, "uniq_usage_overview_daily_stats_dimensions")
+}
+
+func assertUsageOverviewDimensionIndex(t *testing.T, db *gorm.DB, name string) {
+	t.Helper()
+	type indexColumn struct {
+		Seqno int
+		Name  string
+	}
+	var rows []indexColumn
+	if err := db.Raw("PRAGMA index_info(" + name + ")").Scan(&rows).Error; err != nil {
+		t.Fatalf("load index %s columns: %v", name, err)
+	}
+	want := []string{"bucket_start", "api_group_key", "model", "auth_index", "model_alias", "service_tier", "response_service_tier", "reasoning_effort", "endpoint", "executor_type"}
+	got := make([]string, len(rows))
+	for index, row := range rows {
+		got[index] = row.Name
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected %s columns: got %v want %v", name, got, want)
+	}
+}

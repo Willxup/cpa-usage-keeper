@@ -62,7 +62,7 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 	closeTestDatabase(t, db)
 
 	var latestMigrationCount int64
-	if err := db.Table("schema_migrations").Where("version = ?", "20260702_model_price_multiplier").Count(&latestMigrationCount).Error; err != nil {
+	if err := db.Table("schema_migrations").Where("version = ?", "20260723_usage_overview_five_dimensions").Count(&latestMigrationCount).Error; err != nil {
 		t.Fatalf("count latest schema migration: %v", err)
 	}
 	if latestMigrationCount != 1 {
@@ -108,18 +108,25 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 	if db.Migrator().HasTable("usage_overview_health_stats") {
 		t.Fatal("expected fresh schema not to create legacy usage_overview_health_stats")
 	}
+	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+		for _, column := range []string{"service_tier", "response_service_tier", "reasoning_effort", "endpoint", "executor_type"} {
+			if !db.Migrator().HasColumn(table, column) {
+				t.Fatalf("expected fresh schema to create %s.%s", table, column)
+			}
+		}
+	}
 	for _, indexName := range []string{
 		"idx_usage_events_api_group_key",
 		"idx_usage_events_auth_index",
 		"idx_usage_events_model",
 		"idx_usage_events_auth_type_auth_index_id",
 		"idx_usage_events_auth_index_timestamp_id",
-		"uniq_usage_overview_hourly_stats_bucket_api_model_auth_alias",
+		"uniq_usage_overview_hourly_stats_dimensions",
 		"idx_usage_overview_hourly_stats_api_bucket",
 		"idx_usage_overview_hourly_stats_api_model_bucket",
 		"idx_usage_overview_hourly_stats_auth_bucket",
 		"idx_usage_overview_hourly_stats_model_alias_bucket",
-		"uniq_usage_overview_daily_stats_bucket_api_model_auth_alias",
+		"uniq_usage_overview_daily_stats_dimensions",
 		"idx_usage_overview_daily_stats_api_bucket",
 		"idx_usage_overview_daily_stats_api_model_bucket",
 		"idx_usage_overview_daily_stats_auth_bucket",
