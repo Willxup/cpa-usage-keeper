@@ -1,8 +1,10 @@
 package test
 
 import (
+	"context"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 const usageOverviewFiveDimensionsMigrationVersion = "20260723_usage_overview_five_dimensions"
@@ -22,7 +25,36 @@ type usageOverviewFiveDimensionRow struct {
 	Endpoint            string
 	ExecutorType        string
 	RequestCount        int64
+	SuccessCount        int64
+	FailureCount        int64
+	InputTokens         int64
+	OutputTokens        int64
+	ReasoningTokens     int64
+	CachedTokens        int64
+	CacheReadTokens     int64
+	CacheCreationTokens int64
 	TotalTokens         int64
+}
+
+type usageOverviewMigrationSQLRecorder struct {
+	recording  bool
+	statements []string
+}
+
+func (recorder *usageOverviewMigrationSQLRecorder) LogMode(gormlogger.LogLevel) gormlogger.Interface {
+	return recorder
+}
+
+func (*usageOverviewMigrationSQLRecorder) Info(context.Context, string, ...interface{})  {}
+func (*usageOverviewMigrationSQLRecorder) Warn(context.Context, string, ...interface{})  {}
+func (*usageOverviewMigrationSQLRecorder) Error(context.Context, string, ...interface{}) {}
+
+func (recorder *usageOverviewMigrationSQLRecorder) Trace(_ context.Context, _ time.Time, statement func() (string, int64), _ error) {
+	if !recorder.recording {
+		return
+	}
+	sql, _ := statement()
+	recorder.statements = append(recorder.statements, sql)
 }
 
 func TestUsageOverviewFiveDimensionsMigrationRebuildsFromCurrentUsageEvents(t *testing.T) {
@@ -30,9 +62,10 @@ func TestUsageOverviewFiveDimensionsMigrationRebuildsFromCurrentUsageEvents(t *t
 	time.Local = time.UTC
 	t.Cleanup(func() { time.Local = previousLocal })
 
+	recorder := &usageOverviewMigrationSQLRecorder{}
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "five-dimensions.db")), &gorm.Config{NowFunc: func() time.Time {
 		return timeutil.NormalizeStorageTime(time.Now())
-	}})
+	}, Logger: recorder})
 	if err != nil {
 		t.Fatalf("open five-dimension migration database: %v", err)
 	}
@@ -46,9 +79,11 @@ func TestUsageOverviewFiveDimensionsMigrationRebuildsFromCurrentUsageEvents(t *t
 	if err := db.Exec("DELETE FROM schema_migrations WHERE version = ?", usageOverviewFiveDimensionsMigrationVersion).Error; err != nil {
 		t.Fatalf("enable five-dimension migration: %v", err)
 	}
+	recorder.recording = true
 	if err := migration.Run(db); err != nil {
 		t.Fatalf("run five-dimension migration: %v", err)
 	}
+	recorder.recording = false
 
 	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
 		for _, column := range []string{"service_tier", "response_service_tier", "reasoning_effort", "endpoint", "executor_type"} {
@@ -67,8 +102,10 @@ func TestUsageOverviewFiveDimensionsMigrationRebuildsFromCurrentUsageEvents(t *t
 
 	assertUsageOverviewFiveDimensionMigrationRows(t, db, "usage_overview_hourly_stats")
 	assertUsageOverviewFiveDimensionMigrationRows(t, db, "usage_overview_daily_stats")
-	assertUsageOverviewFiveDimensionIndex(t, db, "uniq_usage_overview_hourly_stats_dimensions")
-	assertUsageOverviewFiveDimensionIndex(t, db, "uniq_usage_overview_daily_stats_dimensions")
+	assertUsageOverviewFiveDimensionIndex(t, db, "usage_overview_hourly_stats", "uniq_usage_overview_hourly_stats_dimensions")
+	assertUsageOverviewFiveDimensionIndex(t, db, "usage_overview_daily_stats", "uniq_usage_overview_daily_stats_dimensions")
+	assertUsageOverviewIndexCreatedAfterClear(t, recorder.statements, "usage_overview_hourly_stats", "uniq_usage_overview_hourly_stats_dimensions")
+	assertUsageOverviewIndexCreatedAfterClear(t, recorder.statements, "usage_overview_daily_stats", "uniq_usage_overview_daily_stats_dimensions")
 	for _, oldIndex := range []string{
 		"uniq_usage_overview_hourly_stats_bucket_api_model_auth_alias",
 		"uniq_usage_overview_daily_stats_bucket_api_model_auth_alias",
@@ -284,21 +321,22 @@ func seedUsageOverviewFiveDimensionMigrationData(t *testing.T, db *gorm.DB) {
 		timestamp                                                         time.Time
 		serviceTier, responseTier, effort, executor                       string
 		endpoint                                                          any
+		failed                                                            bool
 		input, output, reasoning, cached, cacheRead, cacheCreation, total int64
 	}
 	fixtures := []fixture{
-		{1, dayOne, "default", "default", "xhigh", "CodexWebsocketsExecutor", "GET /v1/responses", 10, 2, 1, 7, 3, 1, 12},
-		{2, dayOne.Add(10 * time.Minute), "priority", "priority", "max", "CodexExecutor", "POST /v1/responses", 20, 3, 2, 8, 4, 2, 23},
-		{3, dayOne.Add(20 * time.Minute), " default ", " default ", " xhigh ", " CodexWebsocketsExecutor ", " GET /v1/responses ", 30, 4, 3, 9, 5, 3, 34},
-		{4, dayTwo, "default", "default", "xhigh", "CodexWebsocketsExecutor", nil, 40, 5, 4, 10, 6, 4, 45},
+		{1, dayOne, "default", "default", "xhigh", "CodexWebsocketsExecutor", "GET /v1/responses", false, 10, 2, 1, 7, 3, 1, 12},
+		{2, dayOne.Add(10 * time.Minute), "priority", "priority", "max", "CodexExecutor", "POST /v1/responses", true, 20, 3, 2, 8, 4, 2, 23},
+		{3, dayOne.Add(20 * time.Minute), " default ", " default ", " xhigh ", " CodexWebsocketsExecutor ", " GET /v1/responses ", false, 30, 4, 3, 9, 5, 3, 34},
+		{4, dayTwo, "default", "default", "xhigh", "CodexWebsocketsExecutor", nil, false, 40, 5, 4, 10, 6, 4, 45},
 	}
 	for _, row := range fixtures {
 		if err := db.Exec(`INSERT INTO usage_events (
 			id, api_group_key, model, model_alias, auth_index, timestamp, failed,
 			input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens,
 			service_tier, response_service_tier, reasoning_effort, endpoint, executor_type
-		) VALUES (?, 'api-a', 'gpt-a', 'gpt-alias', 'auth-a', ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			row.id, timeutil.FormatStorageTime(row.timestamp), row.input, row.output, row.reasoning, row.cached, row.cacheRead, row.cacheCreation, row.total,
+		) VALUES (?, 'api-a', 'gpt-a', 'gpt-alias', 'auth-a', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			row.id, timeutil.FormatStorageTime(row.timestamp), row.failed, row.input, row.output, row.reasoning, row.cached, row.cacheRead, row.cacheCreation, row.total,
 			row.serviceTier, row.responseTier, row.effort, row.endpoint, row.executor).Error; err != nil {
 			t.Fatalf("seed usage event %d: %v", row.id, err)
 		}
@@ -320,7 +358,7 @@ func assertUsageOverviewFiveDimensionMigrationRows(t *testing.T, db *gorm.DB, ta
 	t.Helper()
 	var rows []usageOverviewFiveDimensionRow
 	if err := db.Table(table).
-		Select("service_tier, response_service_tier, reasoning_effort, endpoint, executor_type, request_count, total_tokens").
+		Select("service_tier, response_service_tier, reasoning_effort, endpoint, executor_type, request_count, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens").
 		Order("bucket_start ASC, service_tier ASC").
 		Find(&rows).Error; err != nil {
 		t.Fatalf("load rebuilt %s rows: %v", table, err)
@@ -328,19 +366,37 @@ func assertUsageOverviewFiveDimensionMigrationRows(t *testing.T, db *gorm.DB, ta
 	if len(rows) != 3 {
 		t.Fatalf("expected 3 rebuilt %s rows, got %d: %+v", table, len(rows), rows)
 	}
-	if got := rows[0]; got.ServiceTier != "default" || got.ResponseServiceTier != "default" || got.ReasoningEffort != "xhigh" || got.Endpoint != "GET /v1/responses" || got.ExecutorType != "CodexWebsocketsExecutor" || got.RequestCount != 2 || got.TotalTokens != 46 {
+	if got := rows[0]; got.ServiceTier != "default" || got.ResponseServiceTier != "default" || got.ReasoningEffort != "xhigh" || got.Endpoint != "GET /v1/responses" || got.ExecutorType != "CodexWebsocketsExecutor" || got.RequestCount != 2 || got.SuccessCount != 2 || got.FailureCount != 0 || got.InputTokens != 40 || got.OutputTokens != 6 || got.ReasoningTokens != 4 || got.CachedTokens != 16 || got.CacheReadTokens != 8 || got.CacheCreationTokens != 4 || got.TotalTokens != 46 {
 		t.Fatalf("unexpected first rebuilt %s row: %+v", table, got)
 	}
-	if got := rows[1]; got.ServiceTier != "priority" || got.ResponseServiceTier != "priority" || got.ReasoningEffort != "max" || got.Endpoint != "POST /v1/responses" || got.ExecutorType != "CodexExecutor" || got.RequestCount != 1 || got.TotalTokens != 23 {
+	if got := rows[1]; got.ServiceTier != "priority" || got.ResponseServiceTier != "priority" || got.ReasoningEffort != "max" || got.Endpoint != "POST /v1/responses" || got.ExecutorType != "CodexExecutor" || got.RequestCount != 1 || got.SuccessCount != 0 || got.FailureCount != 1 || got.InputTokens != 20 || got.OutputTokens != 3 || got.ReasoningTokens != 2 || got.CachedTokens != 8 || got.CacheReadTokens != 4 || got.CacheCreationTokens != 2 || got.TotalTokens != 23 {
 		t.Fatalf("unexpected second rebuilt %s row: %+v", table, got)
 	}
-	if got := rows[2]; got.ServiceTier != "default" || got.ResponseServiceTier != "default" || got.ReasoningEffort != "xhigh" || got.Endpoint != "" || got.ExecutorType != "CodexWebsocketsExecutor" || got.RequestCount != 1 || got.TotalTokens != 45 {
+	if got := rows[2]; got.ServiceTier != "default" || got.ResponseServiceTier != "default" || got.ReasoningEffort != "xhigh" || got.Endpoint != "" || got.ExecutorType != "CodexWebsocketsExecutor" || got.RequestCount != 1 || got.SuccessCount != 1 || got.FailureCount != 0 || got.InputTokens != 40 || got.OutputTokens != 5 || got.ReasoningTokens != 4 || got.CachedTokens != 10 || got.CacheReadTokens != 6 || got.CacheCreationTokens != 4 || got.TotalTokens != 45 {
 		t.Fatalf("unexpected third rebuilt %s row: %+v", table, got)
 	}
 }
 
-func assertUsageOverviewFiveDimensionIndex(t *testing.T, db *gorm.DB, name string) {
+func assertUsageOverviewFiveDimensionIndex(t *testing.T, db *gorm.DB, table string, name string) {
 	t.Helper()
+	type indexListRow struct {
+		Name   string `gorm:"column:name"`
+		Unique int    `gorm:"column:unique"`
+	}
+	var indexes []indexListRow
+	if err := db.Raw("PRAGMA index_list(" + table + ")").Scan(&indexes).Error; err != nil {
+		t.Fatalf("list %s indexes: %v", table, err)
+	}
+	foundUnique := false
+	for _, index := range indexes {
+		if index.Name == name && index.Unique == 1 {
+			foundUnique = true
+		}
+	}
+	if !foundUnique {
+		t.Fatalf("expected %s to be a unique index on %s", name, table)
+	}
+
 	type indexColumn struct {
 		Seqno int
 		Name  string
@@ -356,5 +412,19 @@ func assertUsageOverviewFiveDimensionIndex(t *testing.T, db *gorm.DB, name strin
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected %s columns: got %v want %v", name, got, want)
+	}
+}
+
+func assertUsageOverviewIndexCreatedAfterClear(t *testing.T, statements []string, table string, index string) {
+	t.Helper()
+	normalized := strings.ToLower(strings.Join(statements, "\n"))
+	normalized = strings.NewReplacer("`", "", "\"", "").Replace(normalized)
+	clearPosition := strings.Index(normalized, "delete from "+table)
+	indexPosition := strings.Index(normalized, "create unique index "+index)
+	if clearPosition < 0 || indexPosition < 0 {
+		t.Fatalf("expected migration SQL to clear %s and create %s, got:\n%s", table, index, normalized)
+	}
+	if indexPosition < clearPosition {
+		t.Fatalf("expected migration to clear %s before creating %s", table, index)
 	}
 }

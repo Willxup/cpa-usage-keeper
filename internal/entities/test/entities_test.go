@@ -5,6 +5,7 @@ import (
 	_ "cpa-usage-keeper/internal/timeutil"
 	"reflect"
 	"testing"
+	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -116,12 +117,31 @@ func TestUsageOverviewSchemaIncludesFiveAggregationDimensions(t *testing.T) {
 		}
 	}
 
-	assertUsageOverviewDimensionIndex(t, db, "uniq_usage_overview_hourly_stats_dimensions")
-	assertUsageOverviewDimensionIndex(t, db, "uniq_usage_overview_daily_stats_dimensions")
+	assertUsageOverviewDimensionIndex(t, db, "usage_overview_hourly_stats", "uniq_usage_overview_hourly_stats_dimensions")
+	assertUsageOverviewDimensionIndex(t, db, "usage_overview_daily_stats", "uniq_usage_overview_daily_stats_dimensions")
+	assertUsageOverviewDuplicateDimensionKeyRejected(t, db)
 }
 
-func assertUsageOverviewDimensionIndex(t *testing.T, db *gorm.DB, name string) {
+func assertUsageOverviewDimensionIndex(t *testing.T, db *gorm.DB, table string, name string) {
 	t.Helper()
+	type indexListRow struct {
+		Name   string `gorm:"column:name"`
+		Unique int    `gorm:"column:unique"`
+	}
+	var indexes []indexListRow
+	if err := db.Raw("PRAGMA index_list(" + table + ")").Scan(&indexes).Error; err != nil {
+		t.Fatalf("list %s indexes: %v", table, err)
+	}
+	foundUnique := false
+	for _, index := range indexes {
+		if index.Name == name && index.Unique == 1 {
+			foundUnique = true
+		}
+	}
+	if !foundUnique {
+		t.Fatalf("expected %s to be a unique index on %s", name, table)
+	}
+
 	type indexColumn struct {
 		Seqno int
 		Name  string
@@ -137,5 +157,27 @@ func assertUsageOverviewDimensionIndex(t *testing.T, db *gorm.DB, name string) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected %s columns: got %v want %v", name, got, want)
+	}
+}
+
+func assertUsageOverviewDuplicateDimensionKeyRejected(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	now := time.Now()
+	hourly := UsageOverviewHourlyStat{BucketStart: now, APIGroupKey: "api-a", Model: "gpt-a", AuthIndex: "auth-a", ModelAlias: "alias-a", ServiceTier: "default", ResponseServiceTier: "default", ReasoningEffort: "high", Endpoint: "/v1/responses", ExecutorType: "CodexExecutor", CreatedAt: now, UpdatedAt: now}
+	if err := db.Create(&hourly).Error; err != nil {
+		t.Fatalf("insert first hourly dimension key: %v", err)
+	}
+	hourly.ID = 0
+	if err := db.Create(&hourly).Error; err == nil {
+		t.Fatal("expected duplicate hourly dimension key to fail")
+	}
+
+	daily := UsageOverviewDailyStat{BucketStart: now, APIGroupKey: "api-a", Model: "gpt-a", AuthIndex: "auth-a", ModelAlias: "alias-a", ServiceTier: "default", ResponseServiceTier: "default", ReasoningEffort: "high", Endpoint: "/v1/responses", ExecutorType: "CodexExecutor", CreatedAt: now, UpdatedAt: now}
+	if err := db.Create(&daily).Error; err != nil {
+		t.Fatalf("insert first daily dimension key: %v", err)
+	}
+	daily.ID = 0
+	if err := db.Create(&daily).Error; err == nil {
+		t.Fatal("expected duplicate daily dimension key to fail")
 	}
 }

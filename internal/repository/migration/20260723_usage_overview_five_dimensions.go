@@ -53,29 +53,31 @@ func usageOverviewFiveDimensionsMigration(db *gorm.DB) error {
 
 func prepareUsageOverviewFiveDimensions(db *gorm.DB) error {
 	return db.Transaction(func(tx *gorm.DB) error {
-		// AutoMigrate 为两个 rollup 增加五列并创建最终十列唯一索引。
-		if err := tx.AutoMigrate(&entities.UsageOverviewHourlyStat{}, &entities.UsageOverviewDailyStat{}); err != nil {
-			return fmt.Errorf("create usage overview five-dimension schema: %w", err)
+		rollups := usageOverviewFiveDimensionRollups()
+		// 已有大表只补五列并先移除索引；缺表才直接创建完整空表。
+		for _, rollup := range rollups {
+			if !tx.Migrator().HasTable(rollup.model) {
+				if err := tx.AutoMigrate(rollup.model); err != nil {
+					return fmt.Errorf("create %s five-dimension schema: %w", rollup.table, err)
+				}
+				continue
+			}
+			if err := addUsageOverviewFiveDimensionColumns(tx, rollup); err != nil {
+				return err
+			}
+			// 批次失败后 version 尚未记录，重跑时也要先移除可能残留的最终索引。
+			for _, index := range []string{rollup.legacyIndex, rollup.finalIndex} {
+				if tx.Migrator().HasIndex(rollup.table, index) {
+					if err := tx.Migrator().DropIndex(rollup.table, index); err != nil {
+						return fmt.Errorf("drop usage overview index %s: %w", index, err)
+					}
+				}
+			}
 		}
 		// checkpoint schema 本次没有变化；只为异常缺表的旧库补建，避免无关表重建。
 		if !tx.Migrator().HasTable(&entities.UsageOverviewAggregationCheckpoint{}) {
 			if err := tx.AutoMigrate(&entities.UsageOverviewAggregationCheckpoint{}); err != nil {
 				return fmt.Errorf("create usage overview aggregation checkpoint schema: %w", err)
-			}
-		}
-
-		// 最终索引建立后删除旧五列唯一索引，避免继续维护无效重复结构。
-		for _, oldIndex := range []struct {
-			table string
-			name  string
-		}{
-			{table: "usage_overview_hourly_stats", name: "uniq_usage_overview_hourly_stats_bucket_api_model_auth_alias"},
-			{table: "usage_overview_daily_stats", name: "uniq_usage_overview_daily_stats_bucket_api_model_auth_alias"},
-		} {
-			if tx.Migrator().HasIndex(oldIndex.table, oldIndex.name) {
-				if err := tx.Migrator().DropIndex(oldIndex.table, oldIndex.name); err != nil {
-					return fmt.Errorf("drop legacy usage overview index %s: %w", oldIndex.name, err)
-				}
 			}
 		}
 
@@ -100,8 +102,63 @@ func prepareUsageOverviewFiveDimensions(db *gorm.DB) error {
 			}).Error; err != nil {
 			return fmt.Errorf("reset usage overview migration checkpoint: %w", err)
 		}
+
+		// 只在空 rollup 上创建最终十列唯一索引，避免无用的旧数据全表建索引。
+		for _, rollup := range rollups {
+			if tx.Migrator().HasIndex(rollup.table, rollup.finalIndex) {
+				continue
+			}
+			if err := tx.Migrator().CreateIndex(rollup.model, rollup.finalIndex); err != nil {
+				return fmt.Errorf("create usage overview index %s: %w", rollup.finalIndex, err)
+			}
+		}
 		return nil
 	})
+}
+
+type usageOverviewFiveDimensionRollup struct {
+	model       any
+	table       string
+	legacyIndex string
+	finalIndex  string
+}
+
+func usageOverviewFiveDimensionRollups() []usageOverviewFiveDimensionRollup {
+	return []usageOverviewFiveDimensionRollup{
+		{
+			model:       &entities.UsageOverviewHourlyStat{},
+			table:       "usage_overview_hourly_stats",
+			legacyIndex: "uniq_usage_overview_hourly_stats_bucket_api_model_auth_alias",
+			finalIndex:  "uniq_usage_overview_hourly_stats_dimensions",
+		},
+		{
+			model:       &entities.UsageOverviewDailyStat{},
+			table:       "usage_overview_daily_stats",
+			legacyIndex: "uniq_usage_overview_daily_stats_bucket_api_model_auth_alias",
+			finalIndex:  "uniq_usage_overview_daily_stats_dimensions",
+		},
+	}
+}
+
+func addUsageOverviewFiveDimensionColumns(tx *gorm.DB, rollup usageOverviewFiveDimensionRollup) error {
+	for _, column := range []struct {
+		name  string
+		field string
+	}{
+		{name: "service_tier", field: "ServiceTier"},
+		{name: "response_service_tier", field: "ResponseServiceTier"},
+		{name: "reasoning_effort", field: "ReasoningEffort"},
+		{name: "endpoint", field: "Endpoint"},
+		{name: "executor_type", field: "ExecutorType"},
+	} {
+		if tx.Migrator().HasColumn(rollup.model, column.name) {
+			continue
+		}
+		if err := tx.Migrator().AddColumn(rollup.model, column.field); err != nil {
+			return fmt.Errorf("add %s.%s: %w", rollup.table, column.name, err)
+		}
+	}
+	return nil
 }
 
 func migrateUsageOverviewFiveDimensionsBatch(db *gorm.DB, now time.Time, targetEventID int64) (int, error) {
