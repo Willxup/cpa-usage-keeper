@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/overview"
+	"cpa-usage-keeper/internal/repository/overviewstore"
 	"cpa-usage-keeper/internal/timeutil"
 
 	"gorm.io/gorm"
@@ -124,7 +125,7 @@ func aggregateUsageOverviewStatsBatch(ctx context.Context, db *gorm.DB, now time
 
 		// SELECT 明确保留全部旧 hourly/daily 累计字段，包括 cached_tokens。
 		var events []entities.UsageEvent
-		if err := tx.Select("id, api_group_key, model, model_alias, auth_index, timestamp, failed, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens").
+		if err := tx.Select("id, api_group_key, model, model_alias, auth_index, service_tier, response_service_tier, reasoning_effort, endpoint, executor_type, timestamp, failed, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens").
 			Where("id > ?", checkpoint.LastAggregatedUsageEventID).
 			Order("id asc").
 			Limit(limit).
@@ -137,14 +138,10 @@ func aggregateUsageOverviewStatsBatch(ctx context.Context, db *gorm.DB, now time
 			return nil
 		}
 
-		// 只构建原有 hourly/daily rows；Activity 由独立事务和 checkpoint 处理。
-		hourlyRows, dailyRows, maxEventID := buildUsageOverviewStatsRows(events)
-		// hourly 写入函数和字段累计表达式保持原实现不变。
-		if err := applyUsageOverviewHourlyStats(tx, hourlyRows, now); err != nil {
-			return err
-		}
-		// daily 写入函数和字段累计表达式保持原实现不变。
-		if err := applyUsageOverviewDailyStats(tx, dailyRows, now); err != nil {
+		// migration 与运行时共用同一个五维分组实现，避免重建后增量语义漂移。
+		hourlyRows, dailyRows, maxEventID := overview.BuildRows(events)
+		// hourly、daily 必须通过同一写入层在当前事务内一起完成。
+		if err := overviewstore.ApplyRows(tx, hourlyRows, dailyRows, now); err != nil {
 			return err
 		}
 		// 只有两个旧表都成功后才推进原 Overview checkpoint。
@@ -176,292 +173,4 @@ func getOrCreateUsageOverviewAggregationCheckpoint(tx *gorm.DB) (entities.UsageO
 	}
 	// 返回当前旧 cursor 供本 batch 使用。
 	return checkpoint, nil
-}
-
-type usageOverviewStatsKey struct {
-	BucketStart time.Time
-	APIGroupKey string
-	Model       string
-	AuthIndex   string
-	ModelAlias  string
-}
-
-// buildUsageOverviewStatsRows 先在内存按聚合 key 合并一批事件，减少 SQLite 写入次数。
-func buildUsageOverviewStatsRows(events []entities.UsageEvent) ([]entities.UsageOverviewHourlyStat, []entities.UsageOverviewDailyStat, int64) {
-	// hourly map 的 key 和最终唯一索引维度保持不变。
-	hourly := make(map[usageOverviewStatsKey]*entities.UsageOverviewHourlyStat)
-	// daily map 的 key 和最终唯一索引维度保持不变。
-	daily := make(map[usageOverviewStatsKey]*entities.UsageOverviewDailyStat)
-	// maxEventID 继续决定同事务提交的 Overview checkpoint。
-	maxEventID := int64(0)
-	// 每条事件仍同时进入一个 hourly 和一个 daily row。
-	for _, event := range events {
-		// 记录本批最大 ID，保持原 cursor 推进语义。
-		if event.ID > maxEventID {
-			maxEventID = event.ID
-		}
-		// 时间先归一化到项目存储时区，保持旧 bucket 边界。
-		timestamp := timeutil.NormalizeStorageTime(event.Timestamp)
-		// API group 继续用原有 unknown 规范化逻辑。
-		apiGroupKey := normalizeUsageOverviewDimension(event.APIGroupKey)
-		// model 继续用原有 unknown 规范化逻辑。
-		model := normalizeUsageOverviewDimension(event.Model)
-		// auth index 继续只去除首尾空白。
-		authIndex := normalizeUsageOverviewOptionalDimension(event.AuthIndex)
-		// nil model alias 继续映射为空字符串。
-		modelAlias := ""
-		// 非 nil alias 继续只去除首尾空白。
-		if event.ModelAlias != nil {
-			modelAlias = normalizeUsageOverviewOptionalDimension(*event.ModelAlias)
-		}
-		// hourly bucket 继续使用项目时区 timestamp 的整点截断。
-		hourBucket := timestamp.Truncate(time.Hour)
-		// daily bucket 继续使用项目时区本地零点。
-		dayBucket := time.Date(timestamp.Year(), timestamp.Month(), timestamp.Day(), 0, 0, 0, 0, timestamp.Location())
-
-		// hourly key 维度和旧唯一索引完全一致。
-		hourKey := usageOverviewStatsKey{BucketStart: hourBucket, APIGroupKey: apiGroupKey, Model: model, AuthIndex: authIndex, ModelAlias: modelAlias}
-		// 第一次遇到 key 时创建空 hourly row。
-		if _, ok := hourly[hourKey]; !ok {
-			hourly[hourKey] = &entities.UsageOverviewHourlyStat{BucketStart: hourBucket, APIGroupKey: apiGroupKey, Model: model, AuthIndex: authIndex, ModelAlias: modelAlias}
-		}
-		// 原 helper 继续逐字段累计所有旧 hourly 字段。
-		addUsageOverviewEventToStats(hourly[hourKey], event)
-
-		// daily key 维度和旧唯一索引完全一致。
-		dayKey := usageOverviewStatsKey{BucketStart: dayBucket, APIGroupKey: apiGroupKey, Model: model, AuthIndex: authIndex, ModelAlias: modelAlias}
-		// 第一次遇到 key 时创建空 daily row。
-		if _, ok := daily[dayKey]; !ok {
-			daily[dayKey] = &entities.UsageOverviewDailyStat{BucketStart: dayBucket, APIGroupKey: apiGroupKey, Model: model, AuthIndex: authIndex, ModelAlias: modelAlias}
-		}
-		// 原 helper 继续逐字段累计所有旧 daily 字段。
-		addUsageOverviewEventToStats(daily[dayKey], event)
-	}
-
-	// 把 hourly map 复制为写入切片，保持原写入函数输入类型。
-	hourlyRows := make([]entities.UsageOverviewHourlyStat, 0, len(hourly))
-	// 每个 hourly 唯一 key 只生成一行。
-	for _, row := range hourly {
-		hourlyRows = append(hourlyRows, *row)
-	}
-	// 把 daily map 复制为写入切片，保持原写入函数输入类型。
-	dailyRows := make([]entities.UsageOverviewDailyStat, 0, len(daily))
-	// 每个 daily 唯一 key 只生成一行。
-	for _, row := range daily {
-		dailyRows = append(dailyRows, *row)
-	}
-	// 只返回两个既有 rollup 和原 checkpoint cursor；Health 已由 Activity 替代。
-	return hourlyRows, dailyRows, maxEventID
-}
-
-func normalizeUsageOverviewOptionalDimension(value string) string {
-	return strings.TrimSpace(value)
-}
-
-type usageOverviewTokenStat interface {
-	*entities.UsageOverviewHourlyStat | *entities.UsageOverviewDailyStat
-}
-
-// addUsageOverviewEventToStats 将单条事件累加到 hourly 或 daily token stats 行。
-func addUsageOverviewEventToStats[T usageOverviewTokenStat](row T, event entities.UsageEvent) {
-	// 只按具体旧实体类型分派，不改变 hourly/daily 各自的字段集合。
-	switch stat := any(row).(type) {
-	case *entities.UsageOverviewHourlyStat:
-		// hourly 继续调用原小时累计公式。
-		addUsageOverviewEventToHourlyStat(stat, event)
-	case *entities.UsageOverviewDailyStat:
-		// daily 继续调用原自然日累计公式。
-		addUsageOverviewEventToDailyStat(stat, event)
-	}
-}
-
-// addUsageOverviewEventToHourlyStat 累加请求数、成功失败数和各类 token 到小时行。
-func addUsageOverviewEventToHourlyStat(row *entities.UsageOverviewHourlyStat, event entities.UsageEvent) {
-	// 每条事件继续增加一个旧 request_count。
-	row.RequestCount++
-	// failed 继续决定旧成功失败二选一累计。
-	if event.Failed {
-		// 失败事件只增加 failure_count。
-		row.FailureCount++
-	} else {
-		// 成功事件只增加 success_count。
-		row.SuccessCount++
-	}
-	// 旧 input_tokens 继续原样累计。
-	row.InputTokens += event.InputTokens
-	// 旧 output_tokens 继续原样累计。
-	row.OutputTokens += event.OutputTokens
-	// 旧 reasoning_tokens 继续原样累计。
-	row.ReasoningTokens += event.ReasoningTokens
-	// 旧 cached_tokens 兼容字段必须继续累计。
-	row.CachedTokens += event.CachedTokens
-	// 旧 cache_read_tokens 继续原样累计。
-	row.CacheReadTokens += event.CacheReadTokens
-	// 旧 cache_creation_tokens 继续原样累计。
-	row.CacheCreationTokens += event.CacheCreationTokens
-	// 旧 total_tokens 继续原样累计。
-	row.TotalTokens += event.TotalTokens
-}
-
-// addUsageOverviewEventToDailyStat 累加请求数、成功失败数和各类 token 到天行。
-func addUsageOverviewEventToDailyStat(row *entities.UsageOverviewDailyStat, event entities.UsageEvent) {
-	// 每条事件继续增加一个旧 request_count。
-	row.RequestCount++
-	// failed 继续决定旧成功失败二选一累计。
-	if event.Failed {
-		// 失败事件只增加 failure_count。
-		row.FailureCount++
-	} else {
-		// 成功事件只增加 success_count。
-		row.SuccessCount++
-	}
-	// 旧 input_tokens 继续原样累计。
-	row.InputTokens += event.InputTokens
-	// 旧 output_tokens 继续原样累计。
-	row.OutputTokens += event.OutputTokens
-	// 旧 reasoning_tokens 继续原样累计。
-	row.ReasoningTokens += event.ReasoningTokens
-	// 旧 cached_tokens 兼容字段必须继续累计。
-	row.CachedTokens += event.CachedTokens
-	// 旧 cache_read_tokens 继续原样累计。
-	row.CacheReadTokens += event.CacheReadTokens
-	// 旧 cache_creation_tokens 继续原样累计。
-	row.CacheCreationTokens += event.CacheCreationTokens
-	// 旧 total_tokens 继续原样累计。
-	row.TotalTokens += event.TotalTokens
-}
-
-// applyUsageOverviewHourlyStats 分批写入小时聚合行，复用 SQLite 参数数量保护。
-func applyUsageOverviewHourlyStats(tx *gorm.DB, rows []entities.UsageOverviewHourlyStat, now time.Time) error {
-	// 外层按旧实体写入批次遍历，避免一次处理过多聚合 rows。
-	for start := 0; start < len(rows); start += insertBatchSize(entities.UsageOverviewHourlyStat{}) {
-		// 当前 end 不得越过 rows 尾部。
-		end := min(start+insertBatchSize(entities.UsageOverviewHourlyStat{}), len(rows))
-		// 当前分段仍逐行使用 update-first 语义。
-		for index := start; index < end; index++ {
-			// 任一 hourly 行失败都让上层 Overview 事务整体回滚。
-			if err := applyUsageOverviewHourlyStat(tx, rows[index], now); err != nil {
-				return err
-			}
-		}
-	}
-	// 全部 hourly rows 成功后才允许继续 daily。
-	return nil
-}
-
-// applyUsageOverviewDailyStats 分批写入天聚合行，复用 SQLite 参数数量保护。
-func applyUsageOverviewDailyStats(tx *gorm.DB, rows []entities.UsageOverviewDailyStat, now time.Time) error {
-	// 外层按旧实体写入批次遍历，避免一次处理过多聚合 rows。
-	for start := 0; start < len(rows); start += insertBatchSize(entities.UsageOverviewDailyStat{}) {
-		// 当前 end 不得越过 rows 尾部。
-		end := min(start+insertBatchSize(entities.UsageOverviewDailyStat{}), len(rows))
-		// 当前分段仍逐行使用 update-first 语义。
-		for index := start; index < end; index++ {
-			// 任一 daily 行失败都让上层 Overview 事务整体回滚。
-			if err := applyUsageOverviewDailyStat(tx, rows[index], now); err != nil {
-				return err
-			}
-		}
-	}
-	// 全部 daily rows 成功后，上层才能推进旧 checkpoint。
-	return nil
-}
-
-// applyUsageOverviewHourlyStat 使用 update-first 写入小时 stats，避免 upsert 冲突路径消耗自增 ID。
-func applyUsageOverviewHourlyStat(tx *gorm.DB, row entities.UsageOverviewHourlyStat, now time.Time) error {
-	// updates 继续包含旧 hourly 的全部请求与 Token 增量字段。
-	updates := usageOverviewTokenStatUpdates(row.RequestCount, row.SuccessCount, row.FailureCount, row.InputTokens, row.OutputTokens, row.ReasoningTokens, row.CachedTokens, row.CacheReadTokens, row.CacheCreationTokens, row.TotalTokens, now)
-	// 先按旧唯一维度 UPDATE，避免正常已有行走 INSERT 冲突路径。
-	result := tx.Model(&entities.UsageOverviewHourlyStat{}).Where("bucket_start = ? AND api_group_key = ? AND model = ? AND auth_index = ? AND model_alias = ?", timeutil.FormatStorageTime(row.BucketStart), row.APIGroupKey, row.Model, row.AuthIndex, row.ModelAlias).Updates(updates)
-	// UPDATE 数据库错误必须立即回滚当前 Overview 事务。
-	if result.Error != nil {
-		return fmt.Errorf("update usage overview hourly stat: %w", result.Error)
-	}
-	// 已有行命中后当前 hourly row 已完成累计。
-	if result.RowsAffected > 0 {
-		return nil
-	}
-	// 首次出现的 key 使用本批固定 now 作为创建时间。
-	row.CreatedAt = now
-	// 新行初始更新时间与创建时间保持一致。
-	row.UpdatedAt = now
-	// 首次 key INSERT 失败时只允许按唯一键重试一次 UPDATE，以兼容并发创建竞态。
-	if insertErr := tx.Create(&row).Error; insertErr != nil {
-		// retryResult 必须同时检查数据库错误和实际匹配行数。
-		retryResult := tx.Model(&entities.UsageOverviewHourlyStat{}).Where("bucket_start = ? AND api_group_key = ? AND model = ? AND auth_index = ? AND model_alias = ?", timeutil.FormatStorageTime(row.BucketStart), row.APIGroupKey, row.Model, row.AuthIndex, row.ModelAlias).Updates(updates)
-		// retry UPDATE 自身失败时保留 INSERT 与 UPDATE 两段错误上下文。
-		if retryResult.Error != nil {
-			return fmt.Errorf("insert usage overview hourly stat: %w; retry update: %v", insertErr, retryResult.Error)
-		}
-		// 没有并发创建出的同 key 行时，原 INSERT 错误不能被零行 UPDATE 静默吞掉。
-		if retryResult.RowsAffected == 0 {
-			return fmt.Errorf("insert usage overview hourly stat: %w; retry update matched no existing row", insertErr)
-		}
-	}
-	// INSERT 或可靠 retry UPDATE 成功后返回。
-	return nil
-}
-
-// applyUsageOverviewDailyStat 使用 update-first 写入天 stats，支撑长窗口完整天查询。
-func applyUsageOverviewDailyStat(tx *gorm.DB, row entities.UsageOverviewDailyStat, now time.Time) error {
-	// updates 继续包含旧 daily 的全部请求与 Token 增量字段。
-	updates := usageOverviewTokenStatUpdates(row.RequestCount, row.SuccessCount, row.FailureCount, row.InputTokens, row.OutputTokens, row.ReasoningTokens, row.CachedTokens, row.CacheReadTokens, row.CacheCreationTokens, row.TotalTokens, now)
-	// 先按旧唯一维度 UPDATE，避免正常已有行走 INSERT 冲突路径。
-	result := tx.Model(&entities.UsageOverviewDailyStat{}).Where("bucket_start = ? AND api_group_key = ? AND model = ? AND auth_index = ? AND model_alias = ?", timeutil.FormatStorageTime(row.BucketStart), row.APIGroupKey, row.Model, row.AuthIndex, row.ModelAlias).Updates(updates)
-	// UPDATE 数据库错误必须立即回滚当前 Overview 事务。
-	if result.Error != nil {
-		return fmt.Errorf("update usage overview daily stat: %w", result.Error)
-	}
-	// 已有行命中后当前 daily row 已完成累计。
-	if result.RowsAffected > 0 {
-		return nil
-	}
-	// 首次出现的 key 使用本批固定 now 作为创建时间。
-	row.CreatedAt = now
-	// 新行初始更新时间与创建时间保持一致。
-	row.UpdatedAt = now
-	// 首次 key INSERT 失败时只允许按唯一键重试一次 UPDATE，以兼容并发创建竞态。
-	if insertErr := tx.Create(&row).Error; insertErr != nil {
-		// retryResult 必须同时检查数据库错误和实际匹配行数。
-		retryResult := tx.Model(&entities.UsageOverviewDailyStat{}).Where("bucket_start = ? AND api_group_key = ? AND model = ? AND auth_index = ? AND model_alias = ?", timeutil.FormatStorageTime(row.BucketStart), row.APIGroupKey, row.Model, row.AuthIndex, row.ModelAlias).Updates(updates)
-		// retry UPDATE 自身失败时保留 INSERT 与 UPDATE 两段错误上下文。
-		if retryResult.Error != nil {
-			return fmt.Errorf("insert usage overview daily stat: %w; retry update: %v", insertErr, retryResult.Error)
-		}
-		// 没有并发创建出的同 key 行时，原 INSERT 错误不能被零行 UPDATE 静默吞掉。
-		if retryResult.RowsAffected == 0 {
-			return fmt.Errorf("insert usage overview daily stat: %w; retry update matched no existing row", insertErr)
-		}
-	}
-	// INSERT 或可靠 retry UPDATE 成功后返回。
-	return nil
-}
-
-// usageOverviewTokenStatUpdates 生成 hourly/daily 共用的累加更新表达式。
-func usageOverviewTokenStatUpdates(requestCount, successCount, failureCount, inputTokens, outputTokens, reasoningTokens, cachedTokens, cacheReadTokens, cacheCreationTokens, totalTokens int64, now time.Time) map[string]any {
-	// 每个表达式只做旧字段的原增量加法，不引入 Activity 语义。
-	return map[string]any{
-		// request_count 累加本批旧请求数。
-		"request_count": gorm.Expr("request_count + ?", requestCount),
-		// success_count 累加本批旧成功数。
-		"success_count": gorm.Expr("success_count + ?", successCount),
-		// failure_count 累加本批旧失败数。
-		"failure_count": gorm.Expr("failure_count + ?", failureCount),
-		// input_tokens 累加本批旧输入量。
-		"input_tokens": gorm.Expr("input_tokens + ?", inputTokens),
-		// output_tokens 累加本批旧输出量。
-		"output_tokens": gorm.Expr("output_tokens + ?", outputTokens),
-		// reasoning_tokens 累加本批旧推理量。
-		"reasoning_tokens": gorm.Expr("reasoning_tokens + ?", reasoningTokens),
-		// cached_tokens 必须继续按原公式累计。
-		"cached_tokens": gorm.Expr("cached_tokens + ?", cachedTokens),
-		// cache_read_tokens 累加本批旧读取缓存量。
-		"cache_read_tokens": gorm.Expr("cache_read_tokens + ?", cacheReadTokens),
-		// cache_creation_tokens 累加本批旧创建缓存量。
-		"cache_creation_tokens": gorm.Expr("cache_creation_tokens + ?", cacheCreationTokens),
-		// total_tokens 累加本批旧总量。
-		"total_tokens": gorm.Expr("total_tokens + ?", totalTokens),
-		// updated_at 继续使用本批固定时间。
-		"updated_at": timeutil.FormatStorageTime(now),
-	}
 }

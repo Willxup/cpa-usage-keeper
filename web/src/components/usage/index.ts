@@ -1,5 +1,5 @@
 export { StatCards } from './StatCards';
-export { DailyAveragePanel } from './DailyAveragePanel';
+export { DailyAverageCard } from './DailyAverageCard';
 export { OverviewRealtimePanel } from './OverviewRealtimePanel';
 export { AnalysisPanel } from './analysis';
 export { ApiKeySettingsCard } from './ApiKeySettingsCard';

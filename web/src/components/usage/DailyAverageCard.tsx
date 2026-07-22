@@ -1,11 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useMemo, type CSSProperties, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { IconDiamond, IconDollarSign, IconSatellite } from '@/components/ui/icons';
 import { formatCompactNumber, formatUsd } from '@/utils/usage';
 import type { UsageOverviewPayload } from './hooks/useUsageData';
 import styles from '@/pages/UsagePage.module.scss';
-
-const DAILY_AVERAGE_TRANSITION_MS = 220;
 
 interface DailyAverageMetrics {
   requests: number;
@@ -15,10 +13,9 @@ interface DailyAverageMetrics {
   costAvailable: boolean;
 }
 
-interface DailyAveragePanelProps {
+interface DailyAverageCardProps {
   usage: UsageOverviewPayload | null;
   loading: boolean;
-  reserveVisible?: boolean;
 }
 
 interface DailyAverageMetricItem {
@@ -27,7 +24,7 @@ interface DailyAverageMetricItem {
   value: string;
   icon: ReactNode;
   accent: string;
-  className?: string;
+  hint?: string;
 }
 
 const isFiniteMetric = (value: unknown): value is number => (
@@ -58,6 +55,7 @@ export function buildDailyAverageMetrics(usage: UsageOverviewPayload | null): Da
   if (!isFiniteMetric(requests) || !isFiniteMetric(tokens) || !isFiniteMetric(cost) || !isFiniteMetric(rangeDays)) {
     return null;
   }
+
   return {
     requests,
     tokens,
@@ -67,83 +65,37 @@ export function buildDailyAverageMetrics(usage: UsageOverviewPayload | null): Da
   };
 }
 
-export function DailyAveragePanel({ usage, loading, reserveVisible = false }: DailyAveragePanelProps) {
+export function DailyAverageCard({ usage, loading }: DailyAverageCardProps) {
   const { t } = useTranslation();
   const metrics = useMemo(() => buildDailyAverageMetrics(usage), [usage]);
-  const shouldRenderPanel = Boolean(metrics) || reserveVisible;
-  const [renderPanel, setRenderPanel] = useState(shouldRenderPanel);
-  const [visible, setVisible] = useState(false);
-  const renderPanelRef = useRef(renderPanel);
-
-  useEffect(() => {
-    renderPanelRef.current = renderPanel;
-  }, [renderPanel]);
-
-  useEffect(() => {
-    let frame: number | null = null;
-    let enterFrame: number | null = null;
-    let timer: number | null = null;
-
-    if (shouldRenderPanel) {
-      frame = window.requestAnimationFrame(() => {
-        const hadPanel = renderPanelRef.current;
-        setRenderPanel(true);
-        if (hadPanel) {
-          setVisible(true);
-          return;
-        }
-        setVisible(false);
-        enterFrame = window.requestAnimationFrame(() => setVisible(true));
-      });
-      return () => {
-        if (frame !== null) window.cancelAnimationFrame(frame);
-        if (enterFrame !== null) window.cancelAnimationFrame(enterFrame);
-      };
-    }
-
-    frame = window.requestAnimationFrame(() => setVisible(false));
-    timer = window.setTimeout(() => setRenderPanel(false), DAILY_AVERAGE_TRANSITION_MS);
-    return () => {
-      if (frame !== null) window.cancelAnimationFrame(frame);
-      if (timer !== null) window.clearTimeout(timer);
-    };
-  }, [shouldRenderPanel]);
-
-  if (!renderPanel) {
-    return null;
-  }
-
   const metricItems: DailyAverageMetricItem[] = [
     {
       key: 'requests',
       label: t('usage_stats.avg_requests'),
       value: loading || !metrics ? '-' : formatAverageCount(metrics.requests),
-      icon: <IconSatellite size={15} />,
+      icon: <IconSatellite size={14} />,
       accent: '#3b82f6',
     },
     {
       key: 'tokens',
       label: t('usage_stats.avg_tokens'),
       value: loading || !metrics ? '-' : formatCompactNumber(metrics.tokens),
-      icon: <IconDiamond size={15} />,
+      icon: <IconDiamond size={14} />,
       accent: '#8b5cf6',
     },
     {
       key: 'cost',
       label: t('usage_stats.avg_cost'),
       value: loading || !metrics ? '-' : formatUsd(metrics.cost),
-      icon: <IconDollarSign size={15} />,
+      icon: <IconDollarSign size={14} />,
       accent: '#f59e0b',
-      className: styles.dailyAverageMetricCost,
+      hint: metrics && !metrics.costAvailable ? t('usage_stats.cost_need_price') : undefined,
     },
   ];
 
   return (
-    <section
-      className={`${styles.dailyAveragePanel} ${visible ? styles.dailyAveragePanelVisible : styles.dailyAveragePanelEntering}`.trim()}
-      aria-label={t('usage_stats.daily_average')}
-    >
-      <div className={styles.dailyAverageIdentity}>
+    <section className={`${styles.statCard} ${styles.dailyAverageCard}`} aria-label={t('usage_stats.daily_average')}>
+      <div className={styles.dailyAverageCardHeader}>
         <span className={styles.dailyAverageTitle}>{t('usage_stats.daily_average')}</span>
         {metrics && (
           <span className={styles.dailyAverageRangePill}>
@@ -155,20 +107,18 @@ export function DailyAveragePanel({ usage, loading, reserveVisible = false }: Da
         {metricItems.map((item) => (
           <div
             key={item.key}
-            className={`${styles.dailyAverageMetric} ${item.className ?? ''}`.trim()}
+            className={styles.dailyAverageMetric}
             style={{ '--metric-accent': item.accent } as CSSProperties}
           >
             <span className={styles.dailyAverageMetricIcon}>{item.icon}</span>
-            <span className={styles.dailyAverageMetricText}>
+            <span className={styles.dailyAverageMetricCopy}>
               <span className={styles.dailyAverageMetricLabel}>{item.label}</span>
-              <strong className={styles.dailyAverageMetricValue}>{item.value}</strong>
+              {item.hint && <span className={styles.dailyAverageCostHint}>{item.hint}</span>}
             </span>
+            <strong className={styles.dailyAverageMetricValue}>{item.value}</strong>
           </div>
         ))}
       </div>
-      {metrics && !metrics.costAvailable && (
-        <span className={styles.dailyAverageCostHint}>{t('usage_stats.cost_need_price')}</span>
-      )}
     </section>
   );
 }

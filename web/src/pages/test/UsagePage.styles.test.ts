@@ -27,7 +27,7 @@ const overviewActivityCardsSource = readSource(new URL('../../components/usage/O
 const activityHeatmapGridSource = readSource(new URL('../../components/usage/ActivityHeatmapGrid.tsx', import.meta.url))
 const serviceHealthCardSource = readSource(new URL('../../components/usage/ServiceHealthCard.tsx', import.meta.url))
 const statCardsSource = readSource(new URL('../../components/usage/StatCards.tsx', import.meta.url))
-const dailyAveragePanelSource = readSource(new URL('../../components/usage/DailyAveragePanel.tsx', import.meta.url))
+const dailyAverageCardSource = readSource(new URL('../../components/usage/DailyAverageCard.tsx', import.meta.url))
 const timeRangeControlSource = readSource(new URL('../../components/usage/TimeRangeControl.tsx', import.meta.url))
 const timeRangeControlStyles = readSource(new URL('../../components/usage/TimeRangeControl.module.scss', import.meta.url))
 
@@ -337,10 +337,12 @@ describe('UsagePage toolbar styles', () => {
     expect(timeRangeControlStyles).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.liquidParticle\s*\{[\s\S]*?opacity:\s*0\.72;/)
   })
 
-  it('keeps overview stat cards in a two-plus-four desktop grid with a distinct cache-rate color', () => {
-    expect(usagePageStyles).toMatch(/\.statCard\s*\{[\s\S]*?grid-column:\s*span 3;/)
-    expect(usagePageStyles).toMatch(/\.statCard:nth-child\(-n \+ 2\)\s*\{[\s\S]*?grid-column:\s*span 6;/)
+  it('keeps overview stat cards in a primary row plus a four-card desktop grid', () => {
+    expect(usagePageStyles).toMatch(/\.primaryStatsRow\s*\{[\s\S]*?display:\s*flex;/)
+    expect(usagePageStyles).toMatch(/\.secondaryStatsGrid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\);/)
     expect(usagePageStyles).toMatch(/\.statLabel\s*\{[\s\S]*?letter-spacing:\s*0;/)
+    expect(statCardsSource).toContain('const primaryCards = statsCards.slice(0, 2)')
+    expect(statCardsSource).toContain('const secondaryCards = statsCards.slice(2)')
     expect(statCardsSource).toContain("key: 'requests'")
     expect(statCardsSource).toContain("accent: '#3b82f6'")
     expect(statCardsSource).toContain("key: 'cache-read-rate'")
@@ -348,22 +350,64 @@ describe('UsagePage toolbar styles', () => {
     expect(statCardsSource.match(/accent:\s*'#[0-9a-f]{6}'/g)).toHaveLength(new Set(statCardsSource.match(/accent:\s*'#[0-9a-f]{6}'/g)).size)
   })
 
-  it('places the Daily Average panel above stat cards with animated responsive styling', () => {
-    const usageDailyAverageIndex = usagePageSource.indexOf('<DailyAveragePanel usage={dailyAveragePanelUsage} loading={overviewDisplayLoading} reserveVisible={reserveDailyAveragePanel} />')
-    const keyDailyAverageIndex = keyOverviewPageSource.indexOf('<DailyAveragePanel usage={dailyAveragePanelUsage} loading={overviewDisplayLoading} reserveVisible={reserveDailyAveragePanel} />')
-    expect(usageDailyAverageIndex).toBeGreaterThanOrEqual(0)
-    expect(keyDailyAverageIndex).toBeGreaterThanOrEqual(0)
-    expect(usageDailyAverageIndex).toBeLessThan(usagePageSource.indexOf('<StatCards'))
-    expect(keyDailyAverageIndex).toBeLessThan(keyOverviewPageSource.indexOf('<StatCards'))
-    expect(dailyAveragePanelSource).toContain('buildDailyAverageMetrics')
-    expect(dailyAveragePanelSource).not.toContain('dailyAverageIdentityIcon')
-    expect(usagePageStyles).toMatch(/\.dailyAveragePanel\s*\{[\s\S]*?transition:[\s\S]*?opacity/)
-    expect(usagePageStyles).toMatch(/\.dailyAveragePanelEntering\s*\{[\s\S]*?transform:\s*translateY\(-6px\);/)
-    expect(usagePageStyles).toMatch(/\.dailyAveragePanelVisible\s*\{[\s\S]*?opacity:\s*1;/)
-    expect(usagePageStyles).toMatch(/\.dailyAverageMetrics\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/)
-    expect(usagePageStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.dailyAverageMetrics\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/)
-    expect(usagePageStyles).toMatch(/\.dailyAverageMetricCost\s*\{[\s\S]*?grid-column:\s*1 \/ -1;/)
+  it('expands Daily Average as the first compact primary card without changing row height', () => {
+    const primaryStatsRowStyles = styleRuleBlock(usagePageStyles, '.primaryStatsRow')
+
+    expect(usagePageSource).not.toContain('<DailyAveragePanel')
+    expect(keyOverviewPageSource).not.toContain('<DailyAveragePanel')
+    expect(usagePageSource).toContain('dailyAverageUsage={dailyAverageCardUsage}')
+    expect(usagePageSource).toContain('reserveDailyAverage={reserveDailyAverageCard}')
+    expect(keyOverviewPageSource).toContain('dailyAverageUsage={dailyAverageCardUsage}')
+    expect(keyOverviewPageSource).toContain('reserveDailyAverage={reserveDailyAverageCard}')
+    expect(statCardsSource).toContain('<DailyAverageCard')
+    expect(statCardsSource).toContain('styles.primaryStatsRowExpanded')
+    expect(dailyAverageCardSource).toContain('buildDailyAverageMetrics')
+    expect(usagePageStyles).toMatch(/\.primaryStatsRow\s*\{[\s\S]*?min-height:\s*176px;/)
+    expect(primaryStatsRowStyles).not.toMatch(/(?:^|\n)\s*height:\s*176px;/)
+    expect(usagePageStyles).toMatch(/\.dailyAverageSlot\s*\{[\s\S]*?flex:\s*0 1 0;[\s\S]*?margin-right:\s*-14px;/)
+    expect(usagePageStyles).toMatch(/\.dailyAverageSlot\s*\{[\s\S]*?display:\s*flex;/)
+    expect(usagePageStyles).toMatch(/\.primaryStatsRowExpanded\s*\{[\s\S]*?\.dailyAverageSlot\s*\{[\s\S]*?flex-grow:\s*0\.72;[\s\S]*?margin-right:\s*0;/)
+    expect(usagePageStyles).toMatch(/\.primaryStatSlot\s*\{[\s\S]*?display:\s*flex;/)
+    expect(usagePageStyles).toMatch(/\.dailyAverageCard\s*\{[\s\S]*?height:\s*100%;/)
+    expect(dailyAverageCardSource).toContain('styles.dailyAverageMetricCopy')
+    expect(usagePageStyles).toMatch(/\.dailyAverageMetrics\s*\{[\s\S]*?grid-template-rows:\s*repeat\(3, minmax\(0, 1fr\)\);/)
+    expect(usagePageStyles).toMatch(/\.dailyAverageMetric\s*\{[\s\S]*?grid-template-columns:\s*28px minmax\(0, 1fr\) auto;/)
+    expect(usagePageStyles).toMatch(/\.dailyAverageMetric\s*\{[\s\S]*?border-bottom:\s*1px solid/)
     expect(usagePageStyles).toContain('@media (prefers-reduced-motion: reduce)')
+  })
+
+  it('adds a small desktop-only side inset to Daily Average content', () => {
+    expect(usagePageStyles).toMatch(/\.statCard\.dailyAverageCard\s*\{[\s\S]*?padding-inline:\s*18px;[\s\S]*?@include desktop\s*\{[\s\S]*?padding-inline:\s*22px;/)
+  })
+
+  it('places the Daily Average reduced-motion override after its animation rules', () => {
+    const slotStylesIndex = usagePageStyles.indexOf('.dailyAverageSlot {', usagePageStyles.indexOf('// Stats Layout'))
+    const reducedMotionIndex = usagePageStyles.lastIndexOf('@media (prefers-reduced-motion: reduce)')
+    const reducedMotionStyles = usagePageStyles.slice(reducedMotionIndex)
+
+    expect(reducedMotionIndex).toBeGreaterThan(slotStylesIndex)
+    expect(reducedMotionStyles).toMatch(/\.dailyAverageSlot\s*\{[\s\S]*?transition:\s*none;[\s\S]*?transform:\s*none;/)
+  })
+
+  it('keeps the shared stat-card shadow visible after Daily Average expands', () => {
+    expect(dailyAverageCardSource).toContain('className={`${styles.statCard} ${styles.dailyAverageCard}`}')
+    expect(usagePageStyles).toMatch(/\.primaryStatsRowExpanded\s*\{\s*\.dailyAverageSlot\s*\{\s*flex-grow:\s*0\.72;\s*margin-right:\s*0;\s*overflow:\s*visible;/)
+  })
+
+  it('lets the Daily Average background fade out instead of repainting the lower-right corner', () => {
+    const start = usagePageStyles.indexOf('.statCard.dailyAverageCard')
+    const end = usagePageStyles.indexOf('\n.dailyAverageCardHeader', start)
+    const dailyAverageCardStyles = usagePageStyles.slice(start, end)
+
+    expect(dailyAverageCardStyles).toContain('radial-gradient(90% 120% at 0% 0%')
+    expect(dailyAverageCardStyles).not.toContain('radial-gradient(88% 110% at 100% 100%, rgba(245, 158, 11, 0.12)')
+  })
+
+  it('keeps primary overview cards stacked in one column on mobile', () => {
+    expect(usagePageStyles).toMatch(/\.primaryStatsRow\s*\{[\s\S]*?@include mobile\s*\{[\s\S]*?flex-direction:\s*column;[\s\S]*?overflow:\s*visible;/)
+    expect(usagePageStyles).toMatch(/\.dailyAverageSlot\s*\{[\s\S]*?@include mobile\s*\{[\s\S]*?flex:\s*0 0 auto;[\s\S]*?width:\s*100%;[\s\S]*?max-height:\s*0;[\s\S]*?margin-right:\s*0;[\s\S]*?margin-bottom:\s*-14px;/)
+    expect(usagePageStyles).toMatch(/\.primaryStatsRowExpanded\s*\{[\s\S]*?@include mobile\s*\{[\s\S]*?\.dailyAverageSlot\s*\{[\s\S]*?max-height:\s*220px;[\s\S]*?margin-bottom:\s*0;/)
+    expect(usagePageStyles).toMatch(/\.primaryStatSlot\s*\{[\s\S]*?@include mobile\s*\{[\s\S]*?flex:\s*0 0 auto;[\s\S]*?width:\s*100%;/)
   })
 
   it('renders Recent Activity between the stat cards and realtime metrics', () => {

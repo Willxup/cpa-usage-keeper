@@ -8,7 +8,6 @@ import { IconRefreshCw } from '@/components/ui/icons';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { buildUsageStatsQueryKey, useThemeStore } from '@/stores';
 import {
-  DailyAveragePanel,
   OverviewRealtimePanel,
   RecentActivityPanel,
   StatCards,
@@ -19,7 +18,7 @@ import {
 } from '@/components/usage';
 import type { UsageOverviewPayload } from '@/components/usage/hooks/useUsageData';
 import { BrandLink } from '@/components/BrandLink';
-import { getCurrentOverviewUsage, getDailyAveragePanelUsage, getOverviewDisplayLoading, isDailyAverageRange } from '@/utils/usage/overview';
+import { getCurrentOverviewUsage, getDailyAverageCardUsage, getOverviewDisplayLoading, isDailyAverageRange } from '@/utils/usage/overview';
 import { parseStoredUsageRangeState, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import type { Theme } from '@/types';
@@ -346,13 +345,13 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
 
   const overviewDisplayLoading = getOverviewDisplayLoading({ loading, hasUsage: Boolean(usage) });
   const currentOverviewUsage = getCurrentOverviewUsage(usage, usageRangeQueryKey, loadedUsageRange);
-  const reserveDailyAveragePanel = isDailyAverageRange({
+  const reserveDailyAverageCard = isDailyAverageRange({
     range: timeRange,
     customUnit: customRange?.unit,
     customStart: customRange?.start,
     customEnd: customRange?.end,
   });
-  const dailyAveragePanelUsage = getDailyAveragePanelUsage(currentOverviewUsage, usage, reserveDailyAveragePanel, loading);
+  const dailyAverageCardUsage = getDailyAverageCardUsage(currentOverviewUsage, usage, reserveDailyAverageCard, loading);
   const {
     requestsSparkline,
     tokensSparkline,
@@ -504,11 +503,11 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
 
             {displayError && <div className={styles.errorBox}>{displayError}</div>}
 
-            <DailyAveragePanel usage={dailyAveragePanelUsage} loading={overviewDisplayLoading} reserveVisible={reserveDailyAveragePanel} />
-
             <StatCards
               usage={usage}
               loading={overviewDisplayLoading}
+              dailyAverageUsage={dailyAverageCardUsage}
+              reserveDailyAverage={reserveDailyAverageCard}
               sparklines={{
                 requests: requestsSparkline,
                 tokens: tokensSparkline,

@@ -731,17 +731,11 @@
 
 @media (prefers-reduced-motion: reduce) {
   .usageFilterTransition,
-  .usageFilterBar,
-  .dailyAveragePanel {
+  .usageFilterBar {
     transition: none;
   }
 
   .usageFilterTransition {
-    transform: none;
-  }
-
-  .dailyAveragePanelEntering,
-  .dailyAveragePanelVisible {
     transform: none;
   }
 }
@@ -924,114 +918,242 @@
   }
 }
 
-// Stats Grid
-.dailyAveragePanel {
-  display: grid;
-  grid-template-columns: minmax(176px, 0.72fr) minmax(0, 2.28fr);
+// Stats Layout
+.statsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.primaryStatsRow {
+  display: flex;
   align-items: stretch;
-  gap: 12px;
-  max-height: 0;
-  padding: 0 14px;
-  opacity: 0;
-  overflow: hidden;
-  transform: translateY(-6px);
-  border: 1px solid transparent;
-  border-radius: $radius-md;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 92%, transparent), color-mix(in srgb, var(--bg-secondary) 90%, transparent)),
-    var(--bg-primary);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.07);
-  transition:
-    opacity 220ms ease,
-    transform 220ms ease,
-    max-height 220ms ease,
-    padding 220ms ease,
-    border-color 220ms ease;
+  gap: 14px;
+  width: 100%;
+  min-height: 176px;
+
+  @include tablet {
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
 
   @include mobile {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
+    flex-direction: column;
+    min-height: 168px;
+    overflow: visible;
+    scroll-snap-type: none;
   }
 }
 
-.dailyAveragePanelEntering {
-  transform: translateY(-6px);
-}
-
-.dailyAveragePanelVisible {
-  max-height: 320px;
-  padding: 14px;
-  opacity: 1;
-  transform: translateY(0);
-  border-color: color-mix(in srgb, var(--border-color) 82%, transparent);
-}
-
-.dailyAverageIdentity {
+.dailyAverageSlot {
   display: flex;
+  flex: 0 1 0;
   min-width: 0;
-  flex-direction: column;
-  justify-content: center;
-  gap: 8px;
-  padding: 4px 2px;
+  margin-right: -14px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateX(-12px) scale(0.98);
+  transform-origin: left center;
+  transition:
+    flex-grow 220ms ease,
+    flex-basis 220ms ease,
+    max-height 220ms ease,
+    margin-right 220ms ease,
+    margin-bottom 220ms ease,
+    opacity 160ms ease,
+    transform 220ms ease;
+
+  > .dailyAverageCard {
+    flex: 1;
+    width: 100%;
+  }
+
+  @include tablet {
+    flex: 0 0 0;
+    scroll-snap-align: start;
+  }
+
+  @include mobile {
+    flex: 0 0 auto;
+    width: 100%;
+    max-height: 0;
+    margin-right: 0;
+    margin-bottom: -14px;
+    scroll-snap-align: none;
+    transform: translateY(-6px) scale(0.98);
+  }
+}
+
+.primaryStatsRowExpanded {
+  .dailyAverageSlot {
+    flex-grow: 0.72;
+    margin-right: 0;
+    overflow: visible;
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(0) scale(1);
+  }
+
+  @include tablet {
+    .dailyAverageSlot {
+      flex-basis: calc(50% - 7px);
+      flex-grow: 0;
+    }
+  }
+
+  @include mobile {
+    .dailyAverageSlot {
+      flex-basis: auto;
+      flex-grow: 0;
+      max-height: 220px;
+      margin-bottom: 0;
+      transform: translateY(0) scale(1);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dailyAverageSlot {
+    transition: none;
+    transform: none;
+  }
+
+  .primaryStatsRowExpanded .dailyAverageSlot {
+    transform: none;
+  }
+}
+
+.primaryStatSlot {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+
+  > .statCard {
+    flex: 1;
+    width: 100%;
+  }
+
+  @include tablet {
+    flex: 0 0 calc(50% - 7px);
+    scroll-snap-align: start;
+  }
+
+  @include mobile {
+    flex: 0 0 auto;
+    width: 100%;
+    scroll-snap-align: none;
+  }
+}
+
+.secondaryStatsGrid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+
+  @include tablet {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @include mobile {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.statCard.dailyAverageCard {
+  --accent-border: rgba(139, 92, 246, 0.36);
+
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding-inline: 18px;
+  background:
+    radial-gradient(90% 120% at 0% 0%, rgba(59, 130, 246, 0.14), transparent 58%),
+    linear-gradient(180deg, rgba(139, 92, 246, 0.07), rgba(255, 255, 255, 0)),
+    var(--bg-primary);
+
+  &::before {
+    background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 52%, #f59e0b 100%);
+  }
+
+  @include desktop {
+    padding-inline: 22px;
+  }
+}
+
+.dailyAverageCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
 }
 
 .dailyAverageTitle {
   color: var(--text-primary);
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 800;
-  line-height: 1.15;
+  line-height: 1.2;
   letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .dailyAverageRangePill {
-  width: fit-content;
+  flex: 0 1 auto;
   max-width: 100%;
-  padding: 4px 9px;
+  padding: 4px 8px;
+  overflow: hidden;
   border-radius: $radius-full;
   border: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
   background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   line-height: 1.2;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .dailyAverageMetrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  flex: 1;
+  grid-template-rows: repeat(3, minmax(0, 1fr));
   min-width: 0;
 }
 
 .dailyAverageMetric {
   --metric-accent: var(--primary-color);
 
-  display: flex;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   min-width: 0;
-  min-height: 64px;
-  padding: 11px 12px;
-  border-radius: $radius-md;
-  border: 1px solid color-mix(in srgb, var(--metric-accent) 22%, var(--border-color));
-  background:
-    radial-gradient(120% 120% at 10% 0%, color-mix(in srgb, var(--metric-accent) 12%, transparent), transparent 62%),
-    color-mix(in srgb, var(--bg-primary) 78%, var(--bg-secondary));
+  min-height: 0;
+  padding: 7px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+
+  &:last-child {
+    border-bottom: 0;
+  }
 }
 
 .dailyAverageMetricIcon {
   display: grid;
-  width: 30px;
-  height: 30px;
-  flex: 0 0 30px;
+  width: 28px;
+  height: 28px;
   place-items: center;
   border-radius: $radius-md;
   background: color-mix(in srgb, var(--metric-accent) 12%, var(--bg-primary));
   color: var(--metric-accent);
 }
 
-.dailyAverageMetricText {
+.dailyAverageMetricCopy {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -1042,8 +1164,11 @@
   color: var(--text-tertiary);
   font-size: 11px;
   font-weight: 700;
-  line-height: 1.25;
+  line-height: 1.15;
   letter-spacing: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dailyAverageMetricValue {
@@ -1053,42 +1178,15 @@
   line-height: 1.15;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
-  overflow-wrap: anywhere;
-}
-
-@include mobile {
-  .dailyAverageMetrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-.dailyAverageMetricCost {
-  @include mobile {
-    grid-column: 1 / -1;
-  }
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dailyAverageCostHint {
-  grid-column: 2;
-  margin-top: -4px;
   color: var(--text-tertiary);
-  font-size: 11px;
-  line-height: 1.3;
-
-  @include mobile {
-    grid-column: 1;
-    margin-top: 0;
-  }
-}
-
-.statsGrid {
-  display: grid;
-  gap: 14px;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-
-  @include mobile {
-    grid-template-columns: 1fr;
-  }
+  font-size: 9px;
+  line-height: 1.2;
 }
 
 .statCard {
@@ -1096,7 +1194,6 @@
   --accent-soft: rgba($primary-color, 0.18);
   --accent-border: rgba($primary-color, 0.35);
 
-  grid-column: span 3;
   position: relative;
   padding: 18px;
   background:
@@ -1132,28 +1229,19 @@
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
   }
 
-  @include tablet {
-    grid-column: span 6;
-  }
-
   @include mobile {
-    grid-column: auto;
     min-height: 168px;
   }
 }
 
-.statCard:nth-child(-n + 2) {
-  grid-column: span 6;
-
+.primaryStatSlot {
   .statValue {
     font-size: 32px;
   }
 }
 
 @include mobile {
-  .statCard:nth-child(-n + 2) {
-    grid-column: auto;
-
+  .primaryStatSlot {
     .statValue {
       font-size: 28px;
     }

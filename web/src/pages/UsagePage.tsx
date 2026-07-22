@@ -13,7 +13,6 @@ import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useThemeStore } from '@/stores';
 import {
   StatCards,
-  DailyAveragePanel,
   RecentActivityPanel,
   OverviewRealtimePanel,
   AnalysisPanel,
@@ -39,7 +38,7 @@ import {
 } from '@/components/usage/RequestEventsDetailsCard';
 import { clampStoredUsageRangeStateToCurrentBounds, parseLegacyCustomRange, parseStoredUsageRangeState, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
-import { getDailyAveragePanelUsage, isDailyAverageRange } from '@/utils/usage/overview';
+import { getDailyAverageCardUsage, isDailyAverageRange } from '@/utils/usage/overview';
 import type { Theme } from '@/types';
 import { BrandLink } from '@/components/BrandLink';
 import { isCPAMCEmbed } from '@/embed/cpamcEmbed';
@@ -1703,13 +1702,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   } = useSparklines({ usage, loading });
 
   const overviewDisplayLoading = getOverviewDisplayLoading({ loading, hasUsage: Boolean(usage) });
-  const reserveDailyAveragePanel = isDailyAverageRange({
+  const reserveDailyAverageCard = isDailyAverageRange({
     range: timeRange,
     customUnit: customRange?.unit,
     customStart: customRange?.start,
     customEnd: customRange?.end,
   });
-  const dailyAveragePanelUsage = getDailyAveragePanelUsage(currentOverviewUsage, usage, reserveDailyAveragePanel, loading);
+  const dailyAverageCardUsage = getDailyAverageCardUsage(currentOverviewUsage, usage, reserveDailyAverageCard, loading);
 
   return (
     <div className={styles.pageShell} data-keeper-page="usage">
@@ -1917,11 +1916,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
             {activeTab === 'overview' && (
               <>
-                <DailyAveragePanel usage={dailyAveragePanelUsage} loading={overviewDisplayLoading} reserveVisible={reserveDailyAveragePanel} />
-
                 <StatCards
                   usage={usage}
                   loading={overviewDisplayLoading}
+                  dailyAverageUsage={dailyAverageCardUsage}
+                  reserveDailyAverage={reserveDailyAverageCard}
                   sparklines={{
                     requests: requestsSparkline,
                     tokens: tokensSparkline,
