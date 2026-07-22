@@ -8,6 +8,7 @@ import (
 	"cpa-usage-keeper/internal/repository"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 	"gorm.io/gorm"
+	"gorm.io/plugin/dbresolver"
 )
 
 type ListUsageIdentitiesRequest struct {
@@ -106,10 +107,11 @@ func (s *usageIdentityService) UpdateUsageIdentityAlias(ctx context.Context, id 
 	if id <= 0 {
 		return entities.UsageIdentity{}, ErrInvalidID
 	}
+	// UPDATE 由 dbresolver 自动路由 writer；结果回读再用官方 Write clause 固定到同一物理池。
 	if err := repository.UpdateUsageIdentityAlias(ctx, s.db, id, alias); err != nil {
 		return entities.UsageIdentity{}, err
 	}
-	updated, err := repository.FindUsageIdentityByID(ctx, s.db, id)
+	updated, err := repository.FindUsageIdentityByID(ctx, s.db.Clauses(dbresolver.Write), id)
 	if err != nil {
 		return entities.UsageIdentity{}, err
 	}

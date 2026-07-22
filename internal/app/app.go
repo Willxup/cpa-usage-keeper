@@ -48,8 +48,11 @@ type QuotaRunner interface {
 }
 
 type App struct {
-	Config       *config.Config
-	DB           *gorm.DB
+	Config *config.Config
+	// DB 是统一 GORM 入口：普通查询由 dbresolver 路由到 reader，写入和默认事务留在 writer。
+	DB *gorm.DB
+	// ReadDB 只保留 reader 的生命周期和池状态入口；业务服务不得再自行选择数据库池。
+	ReadDB       *gorm.DB
 	Router       *gin.Engine
 	Poller       StatusProvider
 	RedisIngest  Runner
@@ -90,12 +93,14 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		return nil, err
 	}
 
-	db, err := repository.OpenDatabase(cfg)
+	// repository 先初始化唯一 writer，再注册文件 reader 和官方读写路由；内存库继续复用原单池语义。
+	db, readDB, err := repository.OpenDatabasePools(cfg)
+	// 任一数据库池构造失败时 repository 已回收局部资源，App 只需要释放日志句柄。
 	if err != nil {
 		_ = logCloser.Close()
 		return nil, err
 	}
-	// 最近事件缓存直接从 raw usage_events 加载，不再等待派生聚合追平。
+	// 最近事件缓存继续使用统一 DB；其 Query 会由 dbresolver 自动路由到 reader。
 	recentUsageCache, err := newUsageRecentEventCache(db, repository.UsageRecentEventCacheOptions{})
 	if err != nil {
 		// 缓存初始化失败会让 realtime/最近边界降级到 DB，但不影响核心写入和查询能力。
@@ -158,20 +163,33 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	backgroundPoller := poller.NewRedisPoller(redisIngestRunner, redisProcessRunner)
 	var backupMaintenance *DatabaseBackupRunner
 	if cfg.BackupEnabled {
+		// 备份继续借用唯一 writer 连接，保持旧版串行快照语义，避免独立连接持续写入时反复重启在线备份。
 		sqlDB, err := db.DB()
+		// 无法取得 writer 底层池时备份无法可靠运行，App 构造必须整体失败并逆序清理资源。
 		if err != nil {
+			// 缓存可能已经启动内部资源，先于数据库连接关闭。
 			if recentUsageCache != nil {
 				recentUsageCache.Close()
 			}
+			// quota service 可能已经准备异步任务状态，数据库关闭前先通知其停止。
 			quotaService.StopRefreshTasks()
+			// 文件库 reader 没有其它持有者后先关闭；内存库与 writer 相同，留给下一步只关闭一次。
+			if readDB != db {
+				_ = closeGormDB(readDB)
+			}
+			// 最后关闭唯一 writer，确保任何已开始的写操作先于日志资源结束。
 			_ = closeGormDB(db)
+			// 数据库资源全部回收后再关闭日志文件。
 			_ = logCloser.Close()
 			return nil, err
 		}
+		// 备份期间其它写入继续在 writer 池外排队；页面查询仍可使用独立 reader，不恢复旧版的全局读阻塞。
 		backupStore := newDatabaseBackupStore(sqlDB, cfg.BackupDir)
+		// runner 继续沿用原调度、备份内容与保留策略，本次不改变任何文件结果。
 		backupMaintenance = NewDatabaseBackupRunner(backupStore, backupStore, cfg.BackupInterval, cfg.BackupRetentionDays)
 	}
 
+	// 所有服务统一接收同一个 DB；Query/Row 走 reader，Create/Update/Delete 和默认事务走 writer。
 	usageService := service.NewUsageServiceWithRecentCache(db, recentUsageCache)
 	requestLogService := service.NewRequestLogService(db, cpaClient)
 	usageIdentityService := service.NewUsageIdentityServiceWithOptions(db, recentUsageCache, service.UsageIdentityServiceOptions{
@@ -185,6 +203,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	pricingService := service.NewPricingService(db, cpaClient)
 	sessionManager := auth.NewSessionManager(cfg.AuthSessionTTL)
 	if cfg.AuthEnabled {
+		// Session Get/List 自动走 reader，Save/Delete 仍由写回调路由到唯一 writer。
 		sessionManager = auth.NewPersistentSessionManager(cfg.AuthSessionTTL, auth.NewGormSessionStore(db))
 	}
 	authConfig := api.AuthConfig{
@@ -198,7 +217,10 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 
 	return &App{
 		Config: &cfg,
-		DB:     db,
+		// 对外保留单一 DB 入口，现有服务和后台任务不需要感知物理池。
+		DB: db,
+		// ReadDB 只负责文件 reader 的状态和关闭；内存库与 DB 相同，关闭时只处理一次。
+		ReadDB: readDB,
 		Poller: backgroundPoller,
 		// Redis ingest/process 分成两个后台 runner，避免远端订阅拉取和本地 SQLite 处理互相等待。
 		RedisIngest:       redisIngestRunner,
@@ -280,12 +302,28 @@ func (a *App) Close() error {
 	}
 
 	var closeErr error
+	// 文件库先关闭独立 reader；内存库的 ReadDB 与 DB 相同，必须留给 writer 分支只关闭一次。
+	if a.ReadDB != nil {
+		// 只有独立池才需要单独关闭，避免内存库重复关闭同一个 database/sql。
+		if a.ReadDB != a.DB {
+			// 合并关闭错误，仍继续尝试关闭 writer 和日志资源。
+			closeErr = errors.Join(closeErr, closeGormDB(a.ReadDB))
+		}
+		// 清空字段避免重复 Close 再次操作已经关闭的连接池。
+		a.ReadDB = nil
+	}
+	// reader 释放后再关闭 writer，保持初始化顺序的逆序资源回收。
 	if a.DB != nil {
+		// writer 关闭失败也只并入结果，不能跳过后续日志资源清理。
 		closeErr = errors.Join(closeErr, closeGormDB(a.DB))
+		// 清空 writer 字段，使重复 Close 保持幂等。
 		a.DB = nil
 	}
+	// 数据库连接池全部关闭后再释放日志输出资源。
 	if a.LogCloser != nil {
+		// 日志关闭错误与数据库关闭错误一起返回，保留完整清理结果。
 		closeErr = errors.Join(closeErr, a.LogCloser.Close())
+		// 清空日志字段，避免重复关闭同一个文件句柄。
 		a.LogCloser = nil
 	}
 	return closeErr

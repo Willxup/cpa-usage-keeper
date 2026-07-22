@@ -71,6 +71,7 @@ func (s *pricingService) UpdatePricing(ctx context.Context, input servicedto.Upd
 		}
 	}
 
+	// repository 会把 upsert 的存在性查询固定到 writer，Save 则由写回调自动路由到 writer。
 	return repository.UpsertModelPriceSetting(s.db, repodto.ModelPriceSettingInput{
 		Model:                modelName,
 		PricingStyle:         pricingStyle,

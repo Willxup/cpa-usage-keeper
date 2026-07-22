@@ -5,10 +5,11 @@ go 1.26
 require (
 	github.com/gin-gonic/gin v1.10.0
 	github.com/joho/godotenv v1.5.1
-	github.com/mattn/go-sqlite3 v1.14.22
+	github.com/mattn/go-sqlite3 v1.14.48
 	github.com/sirupsen/logrus v1.9.3
 	gorm.io/driver/sqlite v1.5.7
 	gorm.io/gorm v1.25.12
+	gorm.io/plugin/dbresolver v1.5.3
 )
 
 require (

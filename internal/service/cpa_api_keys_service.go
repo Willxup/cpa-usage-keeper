@@ -9,6 +9,7 @@ import (
 	"cpa-usage-keeper/internal/repository"
 
 	"gorm.io/gorm"
+	"gorm.io/plugin/dbresolver"
 )
 
 var ErrInvalidID = errors.New("invalid id")
@@ -51,8 +52,9 @@ func (s *cpaAPIKeyService) UpdateCPAAPIKeyAlias(_ context.Context, id int64, key
 	if id <= 0 {
 		return entities.CPAAPIKey{}, ErrInvalidID
 	}
+	// UPDATE 由 dbresolver 自动路由 writer；结果回读再用官方 Write clause 固定到同一物理池。
 	if err := repository.UpdateCPAAPIKeyAlias(s.db, id, keyAlias); err != nil {
 		return entities.CPAAPIKey{}, err
 	}
-	return repository.FindActiveCPAAPIKeyByID(s.db, id)
+	return repository.FindActiveCPAAPIKeyByID(s.db.Clauses(dbresolver.Write), id)
 }

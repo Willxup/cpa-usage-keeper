@@ -10,6 +10,7 @@ import (
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository/dto"
 	"gorm.io/gorm"
+	"gorm.io/plugin/dbresolver"
 )
 
 var modelPriceSettingColumns = []string{
@@ -84,7 +85,8 @@ func UpsertModelPriceSetting(db *gorm.DB, input dto.ModelPriceSettingInput) (*en
 	}
 
 	setting := &entities.ModelPriceSetting{}
-	if err := db.Select(modelPriceSettingColumns).Where("model = ?", modelName).First(setting).Error; err != nil {
+	// upsert 的存在性查询属于写命令，使用官方 Write clause 避免被自动分流到 reader。
+	if err := db.Clauses(dbresolver.Write).Select(modelPriceSettingColumns).Where("model = ?", modelName).First(setting).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			setting = &entities.ModelPriceSetting{Model: modelName}
 		} else {

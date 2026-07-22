@@ -15,6 +15,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/plugin/dbresolver"
 )
 
 const (
@@ -339,8 +340,12 @@ func (r *UsageAggregationRunner) RunOnce(ctx context.Context) (UsageAggregationR
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	// 每个写事务之前都查询与 process runner 相同的可处理 inbox 集合。
-	hasInbox, err := repository.HasProcessableRedisUsageInbox(ctx, r.db)
+	// 本轮的 inbox 门禁、聚合事务和提交后 cursor 都共同控制 writer 进度，不能被页面 reader 饱和反向阻塞。
+	// Write scope 只绑定当前 RunOnce；其它 Overview、Activity、Analysis 等纯查询仍由 dbresolver 自动分流。
+	// clause 后重新建 session，保留 writer ConnPool，同时阻止门禁查询的 Model/Where 泄漏到后续聚合。
+	writeDB := r.db.Clauses(dbresolver.Write).Session(&gorm.Session{Context: ctx})
+	// 每个写事务之前都在 writer 上查询与 process runner 相同的可处理 inbox 集合。
+	hasInbox, err := repository.HasProcessableRedisUsageInbox(ctx, writeDB)
 	// inbox 查询失败时保守返回错误，绝不猜测前台没有 backlog。
 	if err != nil {
 		return result, err
@@ -378,7 +383,7 @@ func (r *UsageAggregationRunner) RunOnce(ctx context.Context) (UsageAggregationR
 	switch kind {
 	case UsageAggregationKindOverview:
 		// Overview batch 只写旧 hourly/daily 和自己的 checkpoint。
-		processed, runErr := repository.AggregateUsageOverviewStatsBatch(transactionCtx, r.db, now)
+		processed, runErr := repository.AggregateUsageOverviewStatsBatch(transactionCtx, writeDB, now)
 		// RunOnce 自身不推进轮转；后台 Run 会在记录失败后把配额暂时交给其它 kind。
 		if runErr != nil {
 			return result, runErr
@@ -394,7 +399,7 @@ func (r *UsageAggregationRunner) RunOnce(ctx context.Context) (UsageAggregationR
 		// header gate 不属于已开始的聚合事务，必须响应 App cancel 并使用独立短上限。
 		headerCtx, cancelHeader := context.WithTimeout(ctx, usageAggregationHeaderCursorTimeout)
 		// 只有 Overview 成功提交后才尝试释放满足 cursor gate 的 header snapshots。
-		headerRetryPending, err := r.flushReadyHeaderSnapshots(headerCtx)
+		headerRetryPending, err := r.flushReadyHeaderSnapshots(headerCtx, writeDB)
 		// cursor 查询或非阻塞 appender 返回后立即释放 header deadline timer。
 		cancelHeader()
 		// cursor 或 appender 前置查询失败时交给当前 Overview kind 的错误退避。
@@ -405,7 +410,7 @@ func (r *UsageAggregationRunner) RunOnce(ctx context.Context) (UsageAggregationR
 		result.HeaderRetryPending = headerRetryPending
 	case UsageAggregationKindActivity:
 		// Activity batch 只写新表和自己的 checkpoint。
-		processed, runErr := repository.AggregateUsageActivityStatsBatch(transactionCtx, r.db, now)
+		processed, runErr := repository.AggregateUsageActivityStatsBatch(transactionCtx, writeDB, now)
 		// RunOnce 自身不推进轮转；后台 Run 会先调度其它 kind，Activity checkpoint 保持不变。
 		if runErr != nil {
 			return result, runErr
@@ -416,7 +421,7 @@ func (r *UsageAggregationRunner) RunOnce(ctx context.Context) (UsageAggregationR
 		r.advanceAfterSuccess(UsageAggregationKindActivity, 0, false, 0)
 	case UsageAggregationKindIdentity:
 		// Identity batch 只处理固定一页 identities，并维护各行既有 cursor。
-		batch, runErr := repository.AggregateUsageIdentityStatsBatch(transactionCtx, r.db, now, identityAfterID)
+		batch, runErr := repository.AggregateUsageIdentityStatsBatch(transactionCtx, writeDB, now, identityAfterID)
 		// 失败时不改变内存 cursor，下一次重试同一页。
 		if runErr != nil {
 			return result, runErr
@@ -493,7 +498,7 @@ func (r *UsageAggregationRunner) advanceAfterBackgroundFailure(kind UsageAggrega
 }
 
 // flushReadyHeaderSnapshots 只投递 Overview cursor 已覆盖的内存 snapshots，并报告是否需要有界重试。
-func (r *UsageAggregationRunner) flushReadyHeaderSnapshots(ctx context.Context) (bool, error) {
+func (r *UsageAggregationRunner) flushReadyHeaderSnapshots(ctx context.Context, writeDB *gorm.DB) (bool, error) {
 	// 没有 appender 时 header 功能未启用，聚合本身仍正常运行。
 	if r.headerAppender == nil {
 		return false, nil
@@ -503,7 +508,7 @@ func (r *UsageAggregationRunner) flushReadyHeaderSnapshots(ctx context.Context) 
 		return false, nil
 	}
 	// cursor 必须从已提交 checkpoint 读取，不能使用内存猜测值。
-	overviewCursor, err := repository.UsageOverviewAggregationCursor(ctx, r.db)
+	overviewCursor, err := repository.UsageOverviewAggregationCursor(ctx, writeDB)
 	// cursor 查询失败时保留全部 snapshots，供下一轮重试。
 	if err != nil {
 		return false, err
@@ -562,8 +567,10 @@ func (r *UsageAggregationRunner) flushReadyHeaderSnapshotsOnShutdown(ctx context
 	flushCtx, cancelFlush := boundedUsageAggregationContext(ctx, usageAggregationShutdownFlushTimeout)
 	// 函数退出时释放 shutdown deadline timer。
 	defer cancelFlush()
+	// 关机回读仍属于已提交聚合的收尾，固定 writer 可避免 reader 饱和拖过关闭上限。
+	writeDB := r.db.Clauses(dbresolver.Write).Session(&gorm.Session{Context: flushCtx})
 	// 关闭只尝试一次非阻塞 appender，不进入退避或启动新的聚合事务。
-	retryPending, err := r.flushReadyHeaderSnapshots(flushCtx)
+	retryPending, err := r.flushReadyHeaderSnapshots(flushCtx, writeDB)
 	// 数据库读取失败时保留错误日志；usage 与已提交聚合结果不受影响。
 	if err != nil {
 		logrus.WithError(err).Warn("usage aggregation shutdown header flush failed")

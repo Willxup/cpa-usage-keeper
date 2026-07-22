@@ -5,8 +5,11 @@ import (
 	"context"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/repository/dto"
+	"database/sql"
 	"fmt"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -186,6 +189,238 @@ func TestOpenDatabaseConfiguresSQLiteRuntime(t *testing.T) {
 	}
 	if stats := sqlDB.Stats(); stats.MaxOpenConnections != 1 {
 		t.Fatalf("expected sqlite max open connections to be 1, got %+v", stats)
+	}
+}
+
+func TestOpenDatabaseRejectsFileWhenVFSDoesNotEnableWAL(t *testing.T) {
+	// unix-none 不提供 WAL 所需的共享锁语义，用它稳定复现 PRAGMA 返回非 wal 或失败的启动环境。
+	if runtime.GOOS == "windows" {
+		t.Skip("unix-none VFS is only available on Unix builds")
+	}
+	dbPath := filepath.Join(t.TempDir(), "wal-required.db")
+	dsn := "file:" + filepath.ToSlash(dbPath) + "?vfs=unix-none&_busy_timeout=5000&_foreign_keys=on"
+
+	// 文件库的独立 reader 依赖 WAL；未真正进入 wal 时 writer 初始化必须拒绝继续启动。
+	db, err := repository.OpenDatabase(config.Config{SQLitePath: dsn})
+	if db != nil {
+		closeTestDatabase(t, db)
+	}
+	if err == nil {
+		t.Fatal("expected OpenDatabase to reject a file database without WAL")
+	}
+}
+
+func TestOpenDatabaseClosesPoolWhenMigrationInitializationFails(t *testing.T) {
+	// 准备：构造一个 schema_migrations 结构损坏的旧库，让 writer 在成功打开并取得独占锁后稳定进入迁移失败分支。
+	dbPath := filepath.Join(t.TempDir(), "migration-failure.db")
+	seedDB, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open migration failure seed database: %v", err)
+	}
+	if _, err := seedDB.Exec("CREATE TABLE schema_migrations (applied_at DATETIME NOT NULL)"); err != nil {
+		_ = seedDB.Close()
+		t.Fatalf("create malformed schema migrations table: %v", err)
+	}
+	if err := seedDB.Close(); err != nil {
+		t.Fatalf("close migration failure seed database: %v", err)
+	}
+
+	// 执行：EXCLUSIVE 模式使未关闭的物理连接持续占有文件锁，可以直接观测初始化失败后是否遗留连接池。
+	dsn := dbPath + "?_locking_mode=EXCLUSIVE&_busy_timeout=50&_foreign_keys=on"
+	db, err := repository.OpenDatabase(config.Config{SQLitePath: dsn})
+	if db != nil {
+		closeTestDatabase(t, db)
+	}
+	if err == nil {
+		t.Fatal("expected malformed schema migrations table to fail database initialization")
+	}
+
+	// 断言：失败 writer 必须已经关闭，新连接才能立即修复表结构；如果池泄漏，这里会返回 database is locked。
+	verificationDB, err := sql.Open("sqlite3", dbPath+"?_busy_timeout=50")
+	if err != nil {
+		t.Fatalf("open database after failed initialization: %v", err)
+	}
+	defer verificationDB.Close()
+	if _, err := verificationDB.Exec("DROP TABLE schema_migrations"); err != nil {
+		t.Fatalf("expected failed initialization to release database lock: %v", err)
+	}
+}
+
+func TestOpenReadDatabaseConfiguresBoundedReadOnlyPool(t *testing.T) {
+	// 准备：先用 writer 创建真实文件、启用 WAL 并完成当前 schema 初始化。
+	dbPath := filepath.Join(t.TempDir(), "app.db")
+	writer, err := repository.OpenDatabase(config.Config{SQLitePath: dbPath})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, writer)
+
+	// 执行：为同一个 SQLite 文件打开独立 reader，并取得底层 database/sql 池。
+	reader, err := repository.OpenReadDatabase(config.Config{SQLitePath: dbPath})
+	if err != nil {
+		t.Fatalf("OpenReadDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, reader)
+	readerSQL, err := reader.DB()
+	if err != nil {
+		t.Fatalf("load read sql db: %v", err)
+	}
+	// 断言：reader 的硬上限固定为四条，不继承 writer 的单连接限制。
+	if stats := readerSQL.Stats(); stats.MaxOpenConnections != 4 {
+		t.Fatalf("expected sqlite read max open connections to be 4, got %+v", stats)
+	}
+
+	// 执行：同时持有四条连接，强制 database/sql 真正创建池上限数量的物理连接。
+	connections := make([]*sql.Conn, 0, 4)
+	for index := 0; index < 4; index++ {
+		connection, err := readerSQL.Conn(context.Background())
+		if err != nil {
+			t.Fatalf("open read connection %d: %v", index, err)
+		}
+		connections = append(connections, connection)
+	}
+	// 断言：_query_only 必须通过 DSN 应用到每条物理连接，而不是只配置第一条连接。
+	for index, connection := range connections {
+		var queryOnly int
+		if err := connection.QueryRowContext(context.Background(), "PRAGMA query_only").Scan(&queryOnly); err != nil {
+			t.Fatalf("read query_only from connection %d: %v", index, err)
+		}
+		if queryOnly != 1 {
+			t.Fatalf("expected connection %d to be query-only, got %d", index, queryOnly)
+		}
+	}
+	// 执行：归还全部连接，让 MaxIdleConns 保留已经预热的 reader。
+	for index, connection := range connections {
+		if err := connection.Close(); err != nil {
+			t.Fatalf("close read connection %d: %v", index, err)
+		}
+	}
+	// 断言：峰值结束后四条连接继续空闲常驻，下一轮读取无需重新打开 SQLite 连接。
+	if stats := readerSQL.Stats(); stats.OpenConnections != 4 || stats.Idle != 4 {
+		t.Fatalf("expected sqlite read pool to retain 4 idle connections, got %+v", stats)
+	}
+}
+
+func TestOpenReadDatabaseReadsWriterCommitsAndRejectsWrites(t *testing.T) {
+	// 准备：writer 与 reader 指向同一个 WAL 数据库文件，并保持两个池同时打开。
+	dbPath := filepath.Join(t.TempDir(), "app #reader.db")
+	writer, err := repository.OpenDatabase(config.Config{SQLitePath: dbPath})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, writer)
+	reader, err := repository.OpenReadDatabase(config.Config{SQLitePath: dbPath})
+	if err != nil {
+		t.Fatalf("OpenReadDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, reader)
+
+	// 执行：只通过 writer 提交一条 usage event，模拟真实入库链路。
+	event := entities.UsageEvent{EventKey: "read-pool-event", Model: "model-a", Timestamp: time.Now()}
+	if err := writer.Create(&event).Error; err != nil {
+		t.Fatalf("write usage event: %v", err)
+	}
+	// 断言：writer 提交后新 reader 查询能从同一个 WAL 数据库看到最新记录。
+	var count int64
+	if err := reader.Model(&entities.UsageEvent{}).Where("event_key = ?", event.EventKey).Count(&count).Error; err != nil {
+		t.Fatalf("read writer commit: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected reader to observe writer commit, got %d rows", count)
+	}
+	// 准备：固定使用同一条 reader 物理连接，主动关闭 query_only 以验证底层打开模式。
+	readerSQL, err := reader.DB()
+	if err != nil {
+		t.Fatalf("load read sql db: %v", err)
+	}
+	connection, err := readerSQL.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("open read connection: %v", err)
+	}
+	defer connection.Close()
+	// 执行：query_only 只是第二层保护，测试主动关闭它，不能依靠 PRAGMA 制造只读假象。
+	if _, err := connection.ExecContext(context.Background(), "PRAGMA query_only=OFF"); err != nil {
+		t.Fatalf("disable query_only on read connection: %v", err)
+	}
+	// 断言：mode=ro 必须让底层 SQLite 连接继续拒绝写入同一个数据库文件。
+	if _, err := connection.ExecContext(context.Background(), "INSERT INTO usage_events (event_key, model, timestamp) VALUES (?, ?, ?)", "forbidden-read-write", "model-b", time.Now()); err == nil {
+		t.Fatal("expected hard read-only database to reject writes after query_only is disabled")
+	}
+}
+
+func TestOpenReadDatabaseOverridesConflictingDSNProtection(t *testing.T) {
+	// 准备：writer 先创建真实数据库，reader 输入故意携带可写模式和关闭 query_only 的冲突参数。
+	dbPath := filepath.Join(t.TempDir(), "app.db")
+	writer, err := repository.OpenDatabase(config.Config{SQLitePath: dbPath})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, writer)
+	readerPath := dbPath + "?mode=rwc&_query_only=off&_busy_timeout=2500&_foreign_keys=on"
+
+	// 执行：reader 必须解析并覆盖安全参数，不能把强制参数简单追加在调用方参数之后。
+	reader, err := repository.OpenReadDatabase(config.Config{SQLitePath: readerPath})
+	if err != nil {
+		t.Fatalf("OpenReadDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, reader)
+	readerSQL, err := reader.DB()
+	if err != nil {
+		t.Fatalf("load read sql db: %v", err)
+	}
+	connection, err := readerSQL.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("open read connection: %v", err)
+	}
+	defer connection.Close()
+
+	// 断言：冲突的 _query_only=off 必须被唯一的强制值覆盖。
+	var queryOnly int
+	if err := connection.QueryRowContext(context.Background(), "PRAGMA query_only").Scan(&queryOnly); err != nil {
+		t.Fatalf("read query_only: %v", err)
+	}
+	if queryOnly != 1 {
+		t.Fatalf("expected forced query_only=1, got %d", queryOnly)
+	}
+	// 执行：再次主动关闭第二层保护，单独验证冲突 mode=rwc 已被底层 mode=ro 覆盖。
+	if _, err := connection.ExecContext(context.Background(), "PRAGMA query_only=OFF"); err != nil {
+		t.Fatalf("disable query_only on read connection: %v", err)
+	}
+	// 断言：同一条物理连接仍然不能写入，证明 reader 不是依靠参数顺序偶然只读。
+	if _, err := connection.ExecContext(context.Background(), "INSERT INTO usage_events (event_key, model, timestamp) VALUES (?, ?, ?)", "conflicting-dsn-write", "model-c", time.Now()); err == nil {
+		t.Fatal("expected conflicting DSN reader to remain hard read-only")
+	}
+}
+
+func TestOpenReadDatabaseDoesNotCreateMissingFile(t *testing.T) {
+	// 准备：使用尚不存在的文件路径，reader 不能像 writer 一样隐式创建数据库。
+	dbPath := filepath.Join(t.TempDir(), "missing.db")
+
+	// 执行：真正的 mode=ro 应在打开阶段拒绝不存在的文件。
+	reader, err := repository.OpenReadDatabase(config.Config{SQLitePath: dbPath})
+	if reader != nil {
+		closeTestDatabase(t, reader)
+	}
+	// 断言：返回明确错误，并且文件仍然不存在。
+	if err == nil {
+		t.Fatal("expected read database open to reject a missing file")
+	}
+	if _, statErr := os.Stat(dbPath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected missing database not to be created, stat error=%v", statErr)
+	}
+}
+
+func TestBuildSQLiteFileURIKeepsWindowsDriveInsideURIPath(t *testing.T) {
+	// 准备：传入 filepath.ToSlash 在 Windows 上产生的盘符路径，并包含必须转义的特殊字符。
+	filename := "C:/data/app #reader.db"
+
+	// 执行：统一 URI helper 必须把盘符保留在 path，而不能让 net/url 把 C: 解释成 authority。
+	got := repository.BuildSQLiteFileURI(filename)
+
+	// 断言：SQLite 官方支持的本地盘符形式固定为 file:///C:/...，且文件名经过 URI 转义。
+	const want = "file:///C:/data/app%20%23reader.db"
+	if got != want {
+		t.Fatalf("expected Windows drive URI %q, got %q", want, got)
 	}
 }
 
