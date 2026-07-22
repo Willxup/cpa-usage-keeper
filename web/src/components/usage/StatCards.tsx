@@ -49,7 +49,7 @@ export interface StatCardsProps {
 interface StatCardMetrics {
   requestStats: { successRate: number | null };
   tokenBreakdown: { cacheReadTokens: number; cacheCreationTokens: number; reasoningTokens: number };
-  rateStats: { rpm: number; tpm: number; windowMinutes: number; requestCount: number; tokenCount: number };
+  rateStats: { rpm: number; tpm: number; requestCount: number; tokenCount: number };
   cacheReadRateStats: { cacheReadRate: number | null; cacheReadTokens: number; inputTokens: number };
   totalCost: number;
   costAvailable: boolean;
@@ -77,7 +77,7 @@ export function buildStatCardMetrics({ usage }: { usage: UsageOverviewPayload | 
     return {
       requestStats,
       tokenBreakdown: { cacheReadTokens: 0, cacheCreationTokens: 0, reasoningTokens: 0 },
-      rateStats: { rpm: 0, tpm: 0, windowMinutes: 1, requestCount: 0, tokenCount: 0 },
+      rateStats: { rpm: 0, tpm: 0, requestCount: 0, tokenCount: 0 },
       cacheReadRateStats: { cacheReadRate: null, cacheReadTokens: 0, inputTokens: 0 },
       totalCost: 0,
       costAvailable: false,
@@ -98,9 +98,8 @@ export function buildStatCardMetrics({ usage }: { usage: UsageOverviewPayload | 
     rateStats: {
       rpm: usage.summary.rpm ?? 0,
       tpm: usage.summary.tpm ?? 0,
-      windowMinutes: usage.summary.window_minutes ?? 1,
-      requestCount: usage.summary.request_count ?? 0,
-      tokenCount: usage.summary.token_count ?? 0,
+      requestCount: Math.max(safeNumber(usageSnapshot?.total_requests), 0),
+      tokenCount: Math.max(safeNumber(usageSnapshot?.total_tokens), 0),
     },
     cacheReadRateStats: {
       cacheReadRate: calculateCacheReadRate({ inputTokens, cacheReadTokens }),

@@ -242,7 +242,7 @@ func TestKeyOverviewClearsInactiveViewerSession(t *testing.T) {
 	}
 }
 
-func TestUsageOverviewResponseIncludesResolvedRangeAndTimezone(t *testing.T) {
+func TestUsageOverviewResponseKeepsResolvedFilterAndTimezone(t *testing.T) {
 	previousLocal := time.Local
 	location, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {
@@ -266,11 +266,13 @@ func TestUsageOverviewResponseIncludesResolvedRangeAndTimezone(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
-	expectedStart := startDay.Format(time.RFC3339Nano)
-	expectedEnd := today.AddDate(0, 0, 1).Format(time.RFC3339Nano)
 	body := resp.Body.String()
-	if !contains(body, `"timezone":"Asia/Shanghai"`) || !contains(body, `"range_start":"`+expectedStart+`"`) || !contains(body, `"range_end":"`+expectedEnd+`"`) {
-		t.Fatalf("expected overview response to include resolved range and timezone, got %s", body)
+	if !contains(body, `"timezone":"Asia/Shanghai"`) || contains(body, `"range_start":`) || contains(body, `"range_end":`) {
+		t.Fatalf("expected overview response to retain timezone without redundant range fields, got %s", body)
+	}
+	if provider.lastFilter.StartTime == nil || !provider.lastFilter.StartTime.Equal(startDay) ||
+		provider.lastFilter.EndTime == nil || !provider.lastFilter.EndTime.Equal(today.AddDate(0, 0, 1)) {
+		t.Fatalf("expected resolved range to remain in the service filter, got %+v", provider.lastFilter)
 	}
 }
 
@@ -542,9 +544,6 @@ func TestUsageOverviewReturnsFilteredSnapshot(t *testing.T) {
 			TotalTokens:   20,
 		},
 		Summary: servicedto.UsageOverviewSummary{
-			RequestCount:        1,
-			TokenCount:          20,
-			WindowMinutes:       1440,
 			RPM:                 1.0 / 1440.0,
 			TPM:                 20.0 / 1440.0,
 			TotalCost:           0.123,
@@ -555,12 +554,13 @@ func TestUsageOverviewReturnsFilteredSnapshot(t *testing.T) {
 			ReasoningTokens:     3,
 		},
 		Series: servicedto.UsageOverviewSeries{
-			Requests:      map[string]int64{"2026-04-22T11:00:00Z": 1},
-			Tokens:        map[string]int64{"2026-04-22T11:00:00Z": 20},
-			RPM:           map[string]float64{"2026-04-22T11:00:00Z": 1.0 / 60.0},
-			TPM:           map[string]float64{"2026-04-22T11:00:00Z": 20.0 / 60.0},
-			Cost:          map[string]float64{"2026-04-22T11:00:00Z": 0.123},
-			CacheReadRate: map[string]*float64{"2026-04-22T11:00:00Z": float64Ptr(18.18)},
+			Buckets:       []string{"2026-04-22T11:00:00Z"},
+			Requests:      []int64{1},
+			Tokens:        []int64{20},
+			RPM:           []float64{1.0 / 60.0},
+			TPM:           []float64{20.0 / 60.0},
+			Cost:          []float64{0.123},
+			CacheReadRate: []*float64{float64Ptr(18.18)},
 		},
 	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
@@ -576,7 +576,7 @@ func TestUsageOverviewReturnsFilteredSnapshot(t *testing.T) {
 	if !contains(body, `"usage":`) || !contains(body, `"total_requests":1`) {
 		t.Fatalf("unexpected response body: %s", body)
 	}
-	if !contains(body, `"summary":{"request_count":1,"token_count":20`) {
+	if !contains(body, `"summary":{"rpm":`) {
 		t.Fatalf("expected backend summary in response body: %s", body)
 	}
 	if !contains(body, `"cost_available":true`) {
@@ -585,10 +585,10 @@ func TestUsageOverviewReturnsFilteredSnapshot(t *testing.T) {
 	if !contains(body, `"input_tokens":11`) {
 		t.Fatalf("expected summary input tokens in response body: %s", body)
 	}
-	if !contains(body, `"series":{"requests":{"2026-04-22T11:00:00Z":1}`) {
+	if !contains(body, `"series":{"buckets":["2026-04-22T11:00:00Z"],"requests":[1]`) {
 		t.Fatalf("expected backend series in response body: %s", body)
 	}
-	if !contains(body, `"cache_read_rate":{"2026-04-22T11:00:00Z":18.18}`) {
+	if !contains(body, `"cache_read_rate":[18.18]`) {
 		t.Fatalf("expected backend cache-rate series in response body: %s", body)
 	}
 	if contains(body, `"service_health":`) {
@@ -620,9 +620,6 @@ func TestUsageOverviewReturnsDailyAverageSummaryFields(t *testing.T) {
 			TotalTokens:   7000000,
 		},
 		Summary: servicedto.UsageOverviewSummary{
-			RequestCount:          14,
-			TokenCount:            7000000,
-			WindowMinutes:         10080,
 			RPM:                   14.0 / 10080.0,
 			TPM:                   7000000.0 / 10080.0,
 			TotalCost:             56.49,
@@ -664,10 +661,10 @@ func TestUsageOverviewNilProviderReturnsPrunedShape(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
 	body := resp.Body.String()
-	if !contains(body, `"summary":{"request_count":0`) || !contains(body, `"input_tokens":0`) {
+	if !contains(body, `"summary":{"rpm":0`) || !contains(body, `"input_tokens":0`) {
 		t.Fatalf("expected empty overview summary to include input_tokens, got %s", body)
 	}
-	if !contains(body, `"series":{"requests":{}`) || !contains(body, `"cache_read_rate":{}`) {
+	if !contains(body, `"series":{"buckets":[]`) || !contains(body, `"cache_read_rate":[]`) {
 		t.Fatalf("expected empty overview series to include cache_read_rate, got %s", body)
 	}
 	assertUsageOverviewResponseShape(t, body)
@@ -679,7 +676,7 @@ func assertUsageOverviewResponseShape(t *testing.T, body string) {
 	if err := json.Unmarshal([]byte(body), &decoded); err != nil {
 		t.Fatalf("failed to decode overview response: %v\n%s", err, body)
 	}
-	assertAllowedJSONKeys(t, decoded, "overview response", body, "usage", "summary", "series", "timezone", "range_start", "range_end")
+	assertAllowedJSONKeys(t, decoded, "overview response", body, "usage", "summary", "series", "timezone")
 
 	usage, ok := decoded["usage"].(map[string]any)
 	if !ok {
@@ -692,7 +689,7 @@ func assertUsageOverviewResponseShape(t *testing.T, body string) {
 		t.Fatalf("expected summary object in response, got %s", body)
 	}
 	assertAllowedJSONKeys(t, summary, "overview summary", body,
-		"request_count", "token_count", "window_minutes", "rpm", "tpm", "total_cost", "cost_available",
+		"rpm", "tpm", "total_cost", "cost_available",
 		"input_tokens", "cache_read_tokens", "cache_creation_tokens", "reasoning_tokens",
 		"daily_average_requests", "daily_average_tokens", "daily_average_cost", "daily_average_range_days",
 	)
@@ -701,7 +698,7 @@ func assertUsageOverviewResponseShape(t *testing.T, body string) {
 	if !ok {
 		t.Fatalf("expected series object in response, got %s", body)
 	}
-	assertAllowedJSONKeys(t, series, "overview series", body, "requests", "tokens", "rpm", "tpm", "cost", "cache_read_rate")
+	assertAllowedJSONKeys(t, series, "overview series", body, "buckets", "requests", "tokens", "rpm", "tpm", "cost", "cache_read_rate")
 
 }
 

@@ -379,6 +379,23 @@ describe('TimeRangeControl', () => {
     expect(document.querySelector('[data-custom-calendar-month]')?.getAttribute('data-custom-calendar-month')).toBe('2026-07');
   });
 
+  it('navigates to historical calendar months beyond the former thirty-day window', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-17T07:36:42.000Z'));
+    await renderControl('custom', vi.fn(), {
+      unit: 'day',
+      start: '2026-06-18',
+      end: '2026-07-17',
+    });
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
+    await act(async () => trigger?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="usage_stats.range_custom_previous_month"]')?.click());
+
+    expect(document.querySelector('[data-custom-calendar-month]')?.getAttribute('data-custom-calendar-month')).toBe('2026-05');
+    expect(document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2026-05-01"]')?.disabled).toBe(false);
+  });
+
   it('keeps crossed-month ranges continuous inside a fixed six-week calendar', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-17T07:36:42.000Z'));

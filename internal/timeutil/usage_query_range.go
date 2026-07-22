@@ -24,8 +24,18 @@ type UsageQueryRange struct {
 	EndExclusive bool
 }
 
+// UsageQueryRangeOptions 允许调用方只放开自身明确支持的范围能力。
+type UsageQueryRangeOptions struct {
+	AllowLongCustomDayRange bool
+}
+
 // ParseUsageQueryRange 统一解析 Overview、Analysis、Events 与 Activity 共用的时间参数。
 func ParseUsageQueryRange(rangeValue, unitValue, startValue, endValue string, anchor time.Time) (UsageQueryRange, error) {
+	return ParseUsageQueryRangeWithOptions(rangeValue, unitValue, startValue, endValue, anchor, UsageQueryRangeOptions{})
+}
+
+// ParseUsageQueryRangeWithOptions 在保留公共默认限制的基础上应用调用方显式策略。
+func ParseUsageQueryRangeWithOptions(rangeValue, unitValue, startValue, endValue string, anchor time.Time, options UsageQueryRangeOptions) (UsageQueryRange, error) {
 	rangeValue = strings.TrimSpace(rangeValue)
 	if rangeValue == "" {
 		return UsageQueryRange{}, fmt.Errorf("usage range is required")
@@ -46,7 +56,7 @@ func ParseUsageQueryRange(rangeValue, unitValue, startValue, endValue string, an
 			EndTime:   NormalizeStorageTime(localStart.AddDate(0, 0, 1).Add(-time.Nanosecond)),
 		}, nil
 	case "custom":
-		return parseCustomUsageQueryRange(unitValue, startValue, endValue, anchor)
+		return parseCustomUsageQueryRange(unitValue, startValue, endValue, anchor, options)
 	default:
 		rollingRange, ok := ParseUsageRollingRange(rangeValue)
 		if !ok {
@@ -67,7 +77,7 @@ func ParseUsageQueryRange(rangeValue, unitValue, startValue, endValue string, an
 	}
 }
 
-func parseCustomUsageQueryRange(unitValue, startValue, endValue string, anchor time.Time) (UsageQueryRange, error) {
+func parseCustomUsageQueryRange(unitValue, startValue, endValue string, anchor time.Time, options UsageQueryRangeOptions) (UsageQueryRange, error) {
 	startValue = strings.TrimSpace(startValue)
 	endValue = strings.TrimSpace(endValue)
 	if startValue == "" || endValue == "" {
@@ -78,7 +88,7 @@ func parseCustomUsageQueryRange(unitValue, startValue, endValue string, anchor t
 		return UsageQueryRange{}, err
 	}
 	if unit == UsageQueryUnitDay {
-		return parseCustomUsageDayRange(startValue, endValue, anchor)
+		return parseCustomUsageDayRange(startValue, endValue, anchor, options.AllowLongCustomDayRange)
 	}
 	return parseCustomUsageHourRange(startValue, endValue, anchor)
 }
@@ -99,7 +109,7 @@ func resolveUsageQueryUnit(unitValue, startValue, endValue string) (UsageQueryUn
 	return unit, nil
 }
 
-func parseCustomUsageDayRange(startValue, endValue string, anchor time.Time) (UsageQueryRange, error) {
+func parseCustomUsageDayRange(startValue, endValue string, anchor time.Time, allowLongRange bool) (UsageQueryRange, error) {
 	startTime, err := time.ParseInLocation(time.DateOnly, startValue, time.Local)
 	if err != nil {
 		return UsageQueryRange{}, fmt.Errorf("invalid start: %w", err)
@@ -114,7 +124,7 @@ func parseCustomUsageDayRange(startValue, endValue string, anchor time.Time) (Us
 	if !anchor.IsZero() {
 		localAnchor := NormalizeStorageTime(anchor)
 		today := time.Date(localAnchor.Year(), localAnchor.Month(), localAnchor.Day(), 0, 0, 0, 0, time.Local)
-		if startTime.Before(today.AddDate(0, 0, -29)) {
+		if !allowLongRange && startTime.Before(today.AddDate(0, 0, -29)) {
 			return UsageQueryRange{}, fmt.Errorf("custom day range cannot start more than 30 calendar days ago")
 		}
 		if endDay.After(today) {

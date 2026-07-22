@@ -75,9 +75,6 @@ export interface UsageOverviewUsageSnapshot {
 }
 
 export interface UsageOverviewSummary {
-  request_count: number
-  token_count: number
-  window_minutes: number
   rpm: number
   tpm: number
   total_cost: number
@@ -93,12 +90,13 @@ export interface UsageOverviewSummary {
 }
 
 export interface UsageOverviewSeries {
-  requests: Record<string, number>
-  tokens: Record<string, number>
-  rpm: Record<string, number>
-  tpm: Record<string, number>
-  cost: Record<string, number>
-	cache_read_rate: Record<string, number | null>
+  buckets: string[]
+  requests: number[]
+  tokens: number[]
+  rpm: number[]
+  tpm: number[]
+  cost: number[]
+	cache_read_rate: Array<number | null>
 }
 
 export type UsageActivityWindow = '24h' | '7d' | '30d' | '1y'
@@ -229,8 +227,6 @@ export interface UsageOverviewResponse {
   summary?: UsageOverviewSummary
   series?: UsageOverviewSeries
   timezone?: string
-  range_start?: string
-  range_end?: string
 }
 
 export interface UsageEventTokens {

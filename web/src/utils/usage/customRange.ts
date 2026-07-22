@@ -141,7 +141,14 @@ export const normalizeCustomRange = (
   options: CustomRangeClockOptions,
 ): UsageCustomRange => {
   const unit = range?.unit ?? 'day';
-  const slots = unit === 'hour' ? buildCustomHourSlots(options) : buildCustomDaySlots(options);
+  if (unit === 'day') {
+    const today = formatDateKey(getZonedParts(options.nowMs, options.timeZone));
+    if (isValidDateKey(range?.start) && isValidDateKey(range?.end) && range.start <= range.end && range.end <= today) {
+      return { unit, start: range.start, end: range.end };
+    }
+    return buildDefaultCustomRange({ unit, ...options });
+  }
+  const slots = buildCustomHourSlots(options);
   const startIndex = slots.findIndex((slot) => slot.value === range?.start);
   const endIndex = slots.findIndex((slot) => slot.value === range?.end);
   const selectedSlots = endIndex - startIndex + 1;
@@ -162,7 +169,14 @@ export const clampCustomRangeToCurrentBounds = (
   range: UsageCustomRange,
   options: CustomRangeClockOptions,
 ): UsageCustomRange => {
-  const slots = range.unit === 'hour' ? buildCustomHourSlots(options) : buildCustomDaySlots(options);
+  if (range.unit === 'day') {
+    const today = formatDateKey(getZonedParts(options.nowMs, options.timeZone));
+    if (!isValidDateKey(range.start) || !isValidDateKey(range.end) || range.start > range.end || range.start > today) {
+      return buildDefaultCustomRange({ unit: range.unit, ...options });
+    }
+    return { unit: range.unit, start: range.start, end: range.end > today ? today : range.end };
+  }
+  const slots = buildCustomHourSlots(options);
   const firstSlot = slots[0];
   const lastSlot = slots[slots.length - 1];
   const firstTimestamp = customRangeSlotTimestamp(firstSlot.value, range.unit);

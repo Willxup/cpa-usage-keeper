@@ -70,19 +70,19 @@ export function buildUsageSparklineSeries({ usage }: Omit<UseSparklinesOptions, 
     return { labels: [], requests: [], tokens: [], rpm: [], tpm: [], cacheReadRate: [], cost: [] };
   }
 
-  const labels = Object.keys(usage.series.requests ?? {}).sort((a, b) => a.localeCompare(b));
+  const labels = usage.series.buckets ?? [];
   if (!labels.length) {
     return { labels: [], requests: [], tokens: [], rpm: [], tpm: [], cacheReadRate: [], cost: [] };
   }
 
   return {
     labels,
-    requests: labels.map((label) => normalizeSparklineNumber(usage.series?.requests?.[label])),
-    tokens: labels.map((label) => normalizeSparklineNumber(usage.series?.tokens?.[label])),
-    rpm: labels.map((label) => normalizeSparklineNumber(usage.series?.rpm?.[label])),
-    tpm: labels.map((label) => normalizeSparklineNumber(usage.series?.tpm?.[label])),
-    cacheReadRate: labels.map((label) => normalizeNullableSparklineNumber(usage.series?.cache_read_rate?.[label])),
-    cost: labels.map((label) => normalizeSparklineNumber(usage.series?.cost?.[label])),
+    requests: labels.map((_, index) => normalizeSparklineNumber(usage.series?.requests?.[index])),
+    tokens: labels.map((_, index) => normalizeSparklineNumber(usage.series?.tokens?.[index])),
+    rpm: labels.map((_, index) => normalizeSparklineNumber(usage.series?.rpm?.[index])),
+    tpm: labels.map((_, index) => normalizeSparklineNumber(usage.series?.tpm?.[index])),
+    cacheReadRate: labels.map((_, index) => normalizeNullableSparklineNumber(usage.series?.cache_read_rate?.[index])),
+    cost: labels.map((_, index) => normalizeSparklineNumber(usage.series?.cost?.[index])),
   };
 }
 

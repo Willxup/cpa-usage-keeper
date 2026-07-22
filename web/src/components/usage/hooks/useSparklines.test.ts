@@ -10,9 +10,6 @@ const usageWithBackendSeries: UsageOverviewPayload = {
     total_tokens: 900,
   },
   summary: {
-    request_count: 9,
-    token_count: 900,
-    window_minutes: 120,
     rpm: 0.075,
     tpm: 7.5,
     total_cost: 1,
@@ -23,30 +20,13 @@ const usageWithBackendSeries: UsageOverviewPayload = {
     reasoning_tokens: 0,
   },
   series: {
-    requests: {
-      '2026-04-23T10:00:00Z': 2,
-      '2026-04-23T11:00:00Z': 4,
-    },
-    tokens: {
-      '2026-04-23T10:00:00Z': 200,
-      '2026-04-23T11:00:00Z': 800,
-    },
-    rpm: {
-      '2026-04-23T10:00:00Z': 2 / 60,
-      '2026-04-23T11:00:00Z': 4 / 60,
-    },
-    tpm: {
-      '2026-04-23T10:00:00Z': 200 / 60,
-      '2026-04-23T11:00:00Z': 800 / 60,
-    },
-    cost: {
-      '2026-04-23T10:00:00Z': 0.2,
-      '2026-04-23T11:00:00Z': 0.8,
-    },
-    cache_read_rate: {
-      '2026-04-23T10:00:00Z': 25,
-      '2026-04-23T11:00:00Z': null,
-    },
+    buckets: ['2026-04-23T10:00:00Z', '2026-04-23T11:00:00Z'],
+    requests: [2, 4],
+    tokens: [200, 800],
+    rpm: [2 / 60, 4 / 60],
+    tpm: [200 / 60, 800 / 60],
+    cost: [0.2, 0.8],
+    cache_read_rate: [25, null],
   },
 };
 
@@ -71,10 +51,9 @@ describe('buildUsageSparklineSeries', () => {
         ...usageWithBackendSeries,
         series: {
           ...usageWithBackendSeries.series!,
-          requests: {
-            '2026-04-23T10:00:00Z': 1,
-          },
-          cache_read_rate: {},
+          buckets: ['2026-04-23T10:00:00Z'],
+          requests: [1],
+          cache_read_rate: [],
         },
       },
     });
@@ -89,24 +68,13 @@ describe('buildUsageSparklineSeries', () => {
         ...usageWithBackendSeries,
         series: {
           ...usageWithBackendSeries.series!,
-          requests: {
-            '2026-04-23T10:00:00Z': invalidNumber,
-          },
-          tokens: {
-            '2026-04-23T10:00:00Z': -4,
-          },
-          rpm: {
-            '2026-04-23T10:00:00Z': Number.POSITIVE_INFINITY,
-          },
-          tpm: {
-            '2026-04-23T10:00:00Z': Number.NaN,
-          },
-          cost: {
-            '2026-04-23T10:00:00Z': invalidNumber,
-          },
-          cache_read_rate: {
-            '2026-04-23T10:00:00Z': invalidNumber,
-          },
+          buckets: ['2026-04-23T10:00:00Z'],
+          requests: [invalidNumber],
+          tokens: [-4],
+          rpm: [Number.POSITIVE_INFINITY],
+          tpm: [Number.NaN],
+          cost: [invalidNumber],
+          cache_read_rate: [invalidNumber],
         },
       },
     });

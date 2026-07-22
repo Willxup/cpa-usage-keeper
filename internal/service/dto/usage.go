@@ -83,9 +83,6 @@ type UsageEventRecord struct {
 
 // UsageOverviewSummary 是 overview summary 的服务层结果。
 type UsageOverviewSummary struct {
-	RequestCount          int64
-	TokenCount            int64
-	WindowMinutes         int64
 	RPM                   float64
 	TPM                   float64
 	TotalCost             float64
@@ -102,12 +99,13 @@ type UsageOverviewSummary struct {
 
 // UsageOverviewSeries 是 overview series 的服务层结果。
 type UsageOverviewSeries struct {
-	Requests      map[string]int64
-	Tokens        map[string]int64
-	RPM           map[string]float64
-	TPM           map[string]float64
-	Cost          map[string]float64
-	CacheReadRate map[string]*float64
+	Buckets       []string
+	Requests      []int64
+	Tokens        []int64
+	RPM           []float64
+	TPM           []float64
+	Cost          []float64
+	CacheReadRate []*float64
 }
 
 // RealtimeTokenVelocityPoint 是 Overview token 速度图的单个短窗口桶。

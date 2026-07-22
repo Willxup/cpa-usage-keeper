@@ -16,8 +16,9 @@ func TestRepositoryQueriesAvoidKnownFullEntityReads(t *testing.T) {
 	)
 	assertFileContains(t, "usage.go",
 		"Select(usageEventProjectionColumns).Order(\"timestamp DESC, id DESC\")",
-		"Select(usageOverviewRawEventProjectionColumns).\n\t\tOrder(\"timestamp asc\")",
-		"usageOverviewRawEventProjectionColumns = \"api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens\"",
+		"Select(projection).\n\t\tOrder(\"timestamp asc\")",
+		"usageOverviewBoundaryEventProjectionColumns = \"api_group_key, model, model_alias, timestamp, failed, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens\"",
+		"usageOverviewRealtimeEventProjectionColumns = \"api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens\"",
 	)
 	assertFileContains(t, "usage_recent_event_cache.go",
 		"Select(\"api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens\")",

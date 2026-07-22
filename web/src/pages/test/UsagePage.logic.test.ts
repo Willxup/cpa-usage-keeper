@@ -150,7 +150,7 @@ describe('UsagePage legacy Custom range migration', () => {
     });
   });
 
-  it('clamps aged legacy dates while preserving the selected end', async () => {
+  it('preserves historical legacy dates and their selected end', async () => {
     const usagePageModule = await import('../UsagePage') as Record<string, unknown>;
     const migrateLegacyUsageRangeState = usagePageModule.migrateLegacyUsageRangeState as ((
       range: { unit: 'day'; start: string; end: string },
@@ -168,7 +168,7 @@ describe('UsagePage legacy Custom range migration', () => {
       range: 'custom',
       customRange: {
         unit: 'day',
-        start: '2026-06-18',
+        start: '2026-06-17',
         end: '2026-07-16',
       },
       timeZone: 'Asia/Shanghai',
