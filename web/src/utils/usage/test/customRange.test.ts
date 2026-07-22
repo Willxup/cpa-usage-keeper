@@ -61,14 +61,14 @@ describe('custom usage range slots', () => {
     });
   });
 
-  it('replaces stale or too-short persisted ranges with a valid default', () => {
+  it('preserves historical day ranges and replaces too-short hour ranges with a valid default', () => {
     expect(normalizeCustomRange({
       unit: 'day',
       start: '2026-05-01',
       end: '2026-07-17',
     }, { nowMs: SHANGHAI_NOW, timeZone: 'Asia/Shanghai' })).toEqual({
       unit: 'day',
-      start: '2026-07-11',
+      start: '2026-05-01',
       end: '2026-07-17',
     });
     expect(normalizeCustomRange({
@@ -120,7 +120,7 @@ describe('custom usage range slots', () => {
       unit: 'day' as const,
       storedStart: '2026-06-17',
       storedEnd: '2026-07-16',
-      expectedStart: '2026-06-18',
+      expectedStart: '2026-06-17',
       expectedEnd: '2026-07-16',
     },
   ])('clamps an aged persisted $unit range while preserving its end', ({ unit, storedStart, storedEnd, expectedStart, expectedEnd }) => {
@@ -173,7 +173,7 @@ describe('custom usage range slots', () => {
       end: '2026-07-16',
     }, { nowMs: SHANGHAI_NOW, timeZone: 'Asia/Shanghai' })).toEqual({
       unit: 'day',
-      start: '2026-06-18',
+      start: '2026-06-17',
       end: '2026-07-16',
     });
   });

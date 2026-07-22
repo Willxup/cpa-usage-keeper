@@ -10,9 +10,6 @@ const usageWithBackendSummary: UsageOverviewPayload = {
     total_tokens: 900,
   },
   summary: {
-    request_count: 3,
-    token_count: 777,
-    window_minutes: 120,
     rpm: 0.025,
     tpm: 6.475,
     total_cost: 1.234,
@@ -23,12 +20,13 @@ const usageWithBackendSummary: UsageOverviewPayload = {
     reasoning_tokens: 33,
   },
   series: {
-    requests: {},
-    tokens: {},
-    rpm: {},
-    tpm: {},
-    cost: {},
-    cache_read_rate: {},
+    buckets: [],
+    requests: [],
+    tokens: [],
+    rpm: [],
+    tpm: [],
+    cost: [],
+    cache_read_rate: [],
   },
 };
 
@@ -38,9 +36,8 @@ describe('buildStatCardMetrics', () => {
       usage: usageWithBackendSummary,
     });
 
-    expect(metrics.rateStats.requestCount).toBe(3);
-    expect(metrics.rateStats.tokenCount).toBe(777);
-    expect(metrics.rateStats.windowMinutes).toBe(120);
+    expect(metrics.rateStats.requestCount).toBe(9);
+    expect(metrics.rateStats.tokenCount).toBe(900);
     expect(metrics.rateStats.rpm).toBe(0.025);
     expect(metrics.rateStats.tpm).toBe(6.475);
     expect(metrics.requestStats.successRate).toBeCloseTo(88.8888888889);

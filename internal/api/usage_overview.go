@@ -17,12 +17,10 @@ import (
 )
 
 type usageOverviewResponse struct {
-	Usage      usageOverviewPayload `json:"usage"`
-	Summary    usageOverviewSummary `json:"summary"`
-	Series     usageOverviewSeries  `json:"series"`
-	Timezone   string               `json:"timezone"`
-	RangeStart *time.Time           `json:"range_start,omitempty"`
-	RangeEnd   *time.Time           `json:"range_end,omitempty"`
+	Usage    usageOverviewPayload `json:"usage"`
+	Summary  usageOverviewSummary `json:"summary"`
+	Series   usageOverviewSeries  `json:"series"`
+	Timezone string               `json:"timezone"`
 }
 
 type usageOverviewPayload struct {
@@ -33,9 +31,6 @@ type usageOverviewPayload struct {
 }
 
 type usageOverviewSummary struct {
-	RequestCount          int64    `json:"request_count"`
-	TokenCount            int64    `json:"token_count"`
-	WindowMinutes         int64    `json:"window_minutes"`
 	RPM                   float64  `json:"rpm"`
 	TPM                   float64  `json:"tpm"`
 	TotalCost             float64  `json:"total_cost"`
@@ -51,12 +46,13 @@ type usageOverviewSummary struct {
 }
 
 type usageOverviewSeries struct {
-	Requests      map[string]int64    `json:"requests"`
-	Tokens        map[string]int64    `json:"tokens"`
-	RPM           map[string]float64  `json:"rpm"`
-	TPM           map[string]float64  `json:"tpm"`
-	Cost          map[string]float64  `json:"cost"`
-	CacheReadRate map[string]*float64 `json:"cache_read_rate"`
+	Buckets       []string   `json:"buckets"`
+	Requests      []int64    `json:"requests"`
+	Tokens        []int64    `json:"tokens"`
+	RPM           []float64  `json:"rpm"`
+	TPM           []float64  `json:"tpm"`
+	Cost          []float64  `json:"cost"`
+	CacheReadRate []*float64 `json:"cache_read_rate"`
 }
 
 type usageOverviewRealtime struct {
@@ -195,7 +191,7 @@ func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsagePro
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
-		filter, err := parseKeyUsageTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		filter, err := parseKeyUsageOverviewTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -247,7 +243,7 @@ func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageP
 			writeUsageOverviewResponse(c, usageProvider, servicedto.UsageFilter{})
 			return
 		}
-		filter, err := parseUsageTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		filter, err := parseUsageOverviewTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -267,12 +263,10 @@ func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageP
 func writeUsageOverviewResponse(c *gin.Context, usageProvider service.UsageProvider, filter servicedto.UsageFilter) {
 	if usageProvider == nil {
 		c.JSON(http.StatusOK, usageOverviewResponse{
-			Usage:      buildUsageOverviewPayload(nil),
-			Summary:    usageOverviewSummary{},
-			Series:     emptyUsageOverviewSeries(),
-			Timezone:   time.Local.String(),
-			RangeStart: filter.StartTime,
-			RangeEnd:   filter.EndTime,
+			Usage:    buildUsageOverviewPayload(nil),
+			Summary:  usageOverviewSummary{},
+			Series:   emptyUsageOverviewSeries(),
+			Timezone: time.Local.String(),
 		})
 		return
 	}
@@ -288,12 +282,10 @@ func writeUsageOverviewResponse(c *gin.Context, usageProvider service.UsageProvi
 		usage = overview.Usage
 	}
 	c.JSON(http.StatusOK, usageOverviewResponse{
-		Usage:      buildUsageOverviewPayload(usage),
-		Summary:    buildUsageOverviewSummary(overview),
-		Series:     buildUsageOverviewSeries(overview),
-		Timezone:   time.Local.String(),
-		RangeStart: filter.StartTime,
-		RangeEnd:   filter.EndTime,
+		Usage:    buildUsageOverviewPayload(usage),
+		Summary:  buildUsageOverviewSummary(overview),
+		Series:   buildUsageOverviewSeries(overview),
+		Timezone: time.Local.String(),
 	})
 }
 
@@ -359,9 +351,6 @@ func buildUsageOverviewSummary(overview *servicedto.UsageOverviewSnapshot) usage
 		return usageOverviewSummary{}
 	}
 	return usageOverviewSummary{
-		RequestCount:          overview.Summary.RequestCount,
-		TokenCount:            overview.Summary.TokenCount,
-		WindowMinutes:         overview.Summary.WindowMinutes,
 		RPM:                   overview.Summary.RPM,
 		TPM:                   overview.Summary.TPM,
 		TotalCost:             overview.Summary.TotalCost,
@@ -379,31 +368,29 @@ func buildUsageOverviewSummary(overview *servicedto.UsageOverviewSnapshot) usage
 
 func emptyUsageOverviewSeries() usageOverviewSeries {
 	return usageOverviewSeries{
-		Requests:      map[string]int64{},
-		Tokens:        map[string]int64{},
-		RPM:           map[string]float64{},
-		TPM:           map[string]float64{},
-		Cost:          map[string]float64{},
-		CacheReadRate: map[string]*float64{},
-	}
-}
-
-func mapUsageOverviewSeries(series servicedto.UsageOverviewSeries) usageOverviewSeries {
-	return usageOverviewSeries{
-		Requests:      cloneInt64Map(series.Requests),
-		Tokens:        cloneInt64Map(series.Tokens),
-		RPM:           cloneFloat64Map(series.RPM),
-		TPM:           cloneFloat64Map(series.TPM),
-		Cost:          cloneFloat64Map(series.Cost),
-		CacheReadRate: cloneFloat64PtrMap(series.CacheReadRate),
+		Buckets:       []string{},
+		Requests:      []int64{},
+		Tokens:        []int64{},
+		RPM:           []float64{},
+		TPM:           []float64{},
+		Cost:          []float64{},
+		CacheReadRate: []*float64{},
 	}
 }
 
 func buildUsageOverviewSeries(overview *servicedto.UsageOverviewSnapshot) usageOverviewSeries {
-	if overview == nil {
+	if overview == nil || overview.Series.Buckets == nil {
 		return emptyUsageOverviewSeries()
 	}
-	return mapUsageOverviewSeries(overview.Series)
+	return usageOverviewSeries{
+		Buckets:       overview.Series.Buckets,
+		Requests:      overview.Series.Requests,
+		Tokens:        overview.Series.Tokens,
+		RPM:           overview.Series.RPM,
+		TPM:           overview.Series.TPM,
+		Cost:          overview.Series.Cost,
+		CacheReadRate: overview.Series.CacheReadRate,
+	}
 }
 
 func emptyUsageOverviewRealtime(window string) usageOverviewRealtime {
@@ -695,42 +682,4 @@ func mapUsageOverviewRealtimeAPIKeyTopItems(items []servicedto.RealtimeUsageTopI
 		})
 	}
 	return result
-}
-
-func cloneInt64Map(source map[string]int64) map[string]int64 {
-	if len(source) == 0 {
-		return map[string]int64{}
-	}
-	cloned := make(map[string]int64, len(source))
-	for key, value := range source {
-		cloned[key] = value
-	}
-	return cloned
-}
-
-func cloneFloat64Map(source map[string]float64) map[string]float64 {
-	if len(source) == 0 {
-		return map[string]float64{}
-	}
-	cloned := make(map[string]float64, len(source))
-	for key, value := range source {
-		cloned[key] = value
-	}
-	return cloned
-}
-
-func cloneFloat64PtrMap(source map[string]*float64) map[string]*float64 {
-	if len(source) == 0 {
-		return map[string]*float64{}
-	}
-	cloned := make(map[string]*float64, len(source))
-	for key, value := range source {
-		if value == nil {
-			cloned[key] = nil
-			continue
-		}
-		copied := *value
-		cloned[key] = &copied
-	}
-	return cloned
 }

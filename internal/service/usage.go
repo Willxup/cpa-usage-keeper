@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -73,9 +74,6 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 	return &servicedto.UsageOverviewSnapshot{
 		Usage: overview.Usage,
 		Summary: servicedto.UsageOverviewSummary{
-			RequestCount:          overview.Summary.RequestCount,
-			TokenCount:            overview.Summary.TokenCount,
-			WindowMinutes:         overview.Summary.WindowMinutes,
 			RPM:                   overview.Summary.RPM,
 			TPM:                   overview.Summary.TPM,
 			TotalCost:             overview.Summary.TotalCost,
@@ -89,7 +87,7 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 			DailyAverageCost:      overview.Summary.DailyAverageCost,
 			DailyAverageRangeDays: overview.Summary.DailyAverageRangeDays,
 		},
-		Series: mapUsageOverviewSeries(overview.Series),
+		Series: mapUsageOverviewSeries(overview.Series, filter),
 	}, nil
 }
 
@@ -237,15 +235,90 @@ func (s *usageService) GetUsageOverviewRealtime(ctx context.Context, filter serv
 	return &result, nil
 }
 
-func mapUsageOverviewSeries(series repodto.UsageOverviewSeriesRecord) servicedto.UsageOverviewSeries {
-	return servicedto.UsageOverviewSeries{
-		Requests:      series.Requests,
-		Tokens:        series.Tokens,
-		RPM:           series.RPM,
-		TPM:           series.TPM,
-		Cost:          series.Cost,
-		CacheReadRate: series.CacheReadRate,
+const usageOverviewSeriesMaxPoints = 90
+
+func mapUsageOverviewSeries(series repodto.UsageOverviewSeriesRecord, filter servicedto.UsageFilter) servicedto.UsageOverviewSeries {
+	if len(series.Requests) == 0 {
+		return emptyUsageOverviewServiceSeries(0)
 	}
+	labels := usageOverviewSeriesLabels(series, filter)
+	if len(labels) <= usageOverviewSeriesMaxPoints {
+		return mapUsageOverviewSeriesLabels(series, labels)
+	}
+
+	result := emptyUsageOverviewServiceSeries(usageOverviewSeriesMaxPoints)
+	for index := 0; index < usageOverviewSeriesMaxPoints; index++ {
+		start := index * len(labels) / usageOverviewSeriesMaxPoints
+		end := (index + 1) * len(labels) / usageOverviewSeriesMaxPoints
+		group := labels[start:end]
+		bucket := group[0]
+		var requests, tokens, inputTokens, cacheReadTokens int64
+		var cost float64
+		for _, label := range group {
+			requests += series.Requests[label]
+			tokens += series.Tokens[label]
+			cost += series.Cost[label]
+			inputTokens += series.CacheReadRateInputTokens[label]
+			cacheReadTokens += series.CacheReadRateReadTokens[label]
+		}
+		minutes := float64(len(group) * 24 * 60)
+		result.Buckets = append(result.Buckets, bucket)
+		result.Requests = append(result.Requests, requests)
+		result.Tokens = append(result.Tokens, tokens)
+		result.RPM = append(result.RPM, float64(requests)/minutes)
+		result.TPM = append(result.TPM, float64(tokens)/minutes)
+		result.Cost = append(result.Cost, cost)
+		result.CacheReadRate = append(result.CacheReadRate, usageOverviewSeriesCacheRate(inputTokens, cacheReadTokens))
+	}
+	return result
+}
+
+func usageOverviewSeriesLabels(series repodto.UsageOverviewSeriesRecord, filter servicedto.UsageFilter) []string {
+	if filter.Range == "custom" && filter.CustomUnit == "day" && filter.RangeCount > 30 && filter.StartTime != nil && filter.EndTime != nil {
+		start := time.Date(filter.StartTime.Year(), filter.StartTime.Month(), filter.StartTime.Day(), 0, 0, 0, 0, time.Local)
+		end := time.Date(filter.EndTime.Year(), filter.EndTime.Month(), filter.EndTime.Day(), 0, 0, 0, 0, time.Local)
+		labels := make([]string, 0, filter.RangeCount)
+		for day := start; day.Before(end); day = day.AddDate(0, 0, 1) {
+			labels = append(labels, day.Format(time.DateOnly))
+		}
+		return labels
+	}
+	labels := make([]string, 0, len(series.Requests))
+	for label := range series.Requests {
+		labels = append(labels, label)
+	}
+	sort.Strings(labels)
+	return labels
+}
+
+func mapUsageOverviewSeriesLabels(series repodto.UsageOverviewSeriesRecord, labels []string) servicedto.UsageOverviewSeries {
+	result := emptyUsageOverviewServiceSeries(len(labels))
+	for _, label := range labels {
+		result.Buckets = append(result.Buckets, label)
+		result.Requests = append(result.Requests, series.Requests[label])
+		result.Tokens = append(result.Tokens, series.Tokens[label])
+		result.RPM = append(result.RPM, series.RPM[label])
+		result.TPM = append(result.TPM, series.TPM[label])
+		result.Cost = append(result.Cost, series.Cost[label])
+		result.CacheReadRate = append(result.CacheReadRate, series.CacheReadRate[label])
+	}
+	return result
+}
+
+func emptyUsageOverviewServiceSeries(capacity int) servicedto.UsageOverviewSeries {
+	return servicedto.UsageOverviewSeries{
+		Buckets: make([]string, 0, capacity), Requests: make([]int64, 0, capacity), Tokens: make([]int64, 0, capacity),
+		RPM: make([]float64, 0, capacity), TPM: make([]float64, 0, capacity), Cost: make([]float64, 0, capacity),
+		CacheReadRate: make([]*float64, 0, capacity),
+	}
+}
+
+func usageOverviewSeriesCacheRate(inputTokens, cacheReadTokens int64) *float64 {
+	if inputTokens <= 0 {
+		return nil
+	}
+	value := float64(cacheReadTokens) / float64(inputTokens) * 100
+	return &value
 }
 
 func mapUsageOverviewRealtime(realtime repodto.UsageOverviewRealtimeRecord) servicedto.UsageOverviewRealtime {

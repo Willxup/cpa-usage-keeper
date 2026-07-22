@@ -12,9 +12,6 @@ const usageWithDailyAverages: UsageOverviewPayload = {
     total_tokens: 52590000,
   },
   summary: {
-    request_count: 461,
-    token_count: 52590000,
-    window_minutes: 10080,
     rpm: 0.0457,
     tpm: 5217.26,
     total_cost: 56.47,
@@ -29,12 +26,13 @@ const usageWithDailyAverages: UsageOverviewPayload = {
     daily_average_range_days: 7,
   },
   series: {
-    requests: {},
-    tokens: {},
-    rpm: {},
-    tpm: {},
-    cost: {},
-    cache_read_rate: {},
+    buckets: [],
+    requests: [],
+    tokens: [],
+    rpm: [],
+    tpm: [],
+    cost: [],
+    cache_read_rate: [],
   },
 };
 

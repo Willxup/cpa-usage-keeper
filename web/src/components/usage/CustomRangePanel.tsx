@@ -15,6 +15,7 @@ import styles from './TimeRangeControl.module.scss';
 
 type CustomPickerView = 'summary' | 'day' | 'hour';
 type CustomEndpoint = 'start' | 'end';
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 interface CustomRangePanelProps {
   value: UsageCustomRange;
@@ -55,6 +56,12 @@ const formatCalendarDay = (value: string, locale?: string): string => new Intl.D
 }).format(parseDayKey(value));
 
 const monthKey = (value: string): string => value.slice(0, 7);
+
+const shiftMonth = (value: string, amount: number): string => {
+  const date = parseDayKey(`${value}-01`);
+  date.setUTCMonth(date.getUTCMonth() + amount);
+  return date.toISOString().slice(0, 7);
+};
 
 interface CalendarCell {
   value: string;
@@ -152,12 +159,13 @@ export function CustomRangePanel({ value, timeZone, locale, anchorMs, onChange, 
   const daySlots = useMemo(() => buildCustomDaySlots({ nowMs: anchorMs, timeZone, locale }), [anchorMs, locale, timeZone]);
   const hourSlots = useMemo(() => buildCustomHourSlots({ nowMs: anchorMs, timeZone, locale }), [anchorMs, locale, timeZone]);
   const weekdayLabels = useMemo(() => buildCustomWeekdayLabels(locale), [locale]);
-  const slots = value.unit === 'hour' ? hourSlots : daySlots;
-  const startIndex = slots.findIndex((slot) => slot.value === value.start);
-  const endIndex = slots.findIndex((slot) => slot.value === value.end);
-  const slotCount = Math.max(endIndex - startIndex + 1, 0);
-  const allowedMonths = useMemo(() => [...new Set(daySlots.map((slot) => monthKey(slot.value)))], [daySlots]);
-  const allowedDayValues = useMemo(() => new Set(daySlots.map((slot) => slot.value)), [daySlots]);
+  const startIndex = hourSlots.findIndex((slot) => slot.value === value.start);
+  const endIndex = hourSlots.findIndex((slot) => slot.value === value.end);
+  const slotCount = value.unit === 'hour'
+    ? Math.max(endIndex - startIndex + 1, 0)
+    : Math.max(Math.floor((parseDayKey(value.end).getTime() - parseDayKey(value.start).getTime()) / DAY_MS) + 1, 0);
+  const today = daySlots[daySlots.length - 1].value;
+  const currentMonth = monthKey(today);
   const activeDay = value[activeEndpoint].slice(0, 10);
   const [visibleMonth, setVisibleMonth] = useState(monthKey(activeDay));
   const [pickerSnapshot, setPickerSnapshot] = useState<UsageCustomRange | null>(null);
@@ -283,16 +291,15 @@ export function CustomRangePanel({ value, timeZone, locale, anchorMs, onChange, 
           <div className={styles.customCalendarHeader}>
             <button
               type="button"
-              disabled={allowedMonths.indexOf(visibleMonth) <= 0}
-              onClick={() => setVisibleMonth(allowedMonths[allowedMonths.indexOf(visibleMonth) - 1])}
+              onClick={() => setVisibleMonth((month) => shiftMonth(month, -1))}
               aria-label={t('usage_stats.range_custom_previous_month')}
             ><IconChevronLeft size={14} /></button>
             <strong>{new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'long', timeZone: 'UTC' }).format(parseDayKey(`${visibleMonth}-01`))}</strong>
             <button
               type="button"
-              disabled={allowedMonths.indexOf(visibleMonth) >= allowedMonths.length - 1}
+              disabled={visibleMonth >= currentMonth}
               className={styles.customNextMonthButton}
-              onClick={() => setVisibleMonth(allowedMonths[allowedMonths.indexOf(visibleMonth) + 1])}
+              onClick={() => setVisibleMonth((month) => shiftMonth(month, 1))}
               aria-label={t('usage_stats.range_custom_next_month')}
             ><IconChevronLeft size={14} /></button>
           </div>
@@ -301,17 +308,17 @@ export function CustomRangePanel({ value, timeZone, locale, anchorMs, onChange, 
           </div>
           <div className={styles.customCalendarGrid}>
             {calendarCells.map(({ value: day, outsideMonth }, index) => {
-              const allowed = allowedDayValues.has(day);
+              const allowed = day <= today;
               const selected = day === value.start || day === value.end;
               const inRange = allowed && day >= value.start && day <= value.end;
               const previousDay = calendarCells[index - 1]?.value;
               const nextDay = calendarCells[index + 1]?.value;
               const previousInRange = previousDay !== undefined
-                && allowedDayValues.has(previousDay)
+                && previousDay <= today
                 && previousDay >= value.start
                 && previousDay <= value.end;
               const nextInRange = nextDay !== undefined
-                && allowedDayValues.has(nextDay)
+                && nextDay <= today
                 && nextDay >= value.start
                 && nextDay <= value.end;
               // 色带只在真实区间端点或每周换行处收口，不在月份边界人为断开。

@@ -56,16 +56,17 @@ func TestUsageServiceGetUsageOverviewDelegatesToFilteredOverview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetUsageOverview returned error: %v", err)
 	}
-	if overview.Summary.RequestCount != 2 || overview.Summary.TokenCount != 2425 {
-		t.Fatalf("expected overview summary counts, got %+v", overview.Summary)
+	if overview.Usage == nil || overview.Usage.TotalRequests != 2 || overview.Usage.TotalTokens != 2425 {
+		t.Fatalf("expected overview usage counts, got %+v", overview.Usage)
 	}
-	if overview.Summary.WindowMinutes != 1440 {
-		t.Fatalf("expected 24h overview to use exact 1440 minute window, got %+v", overview.Summary)
+	if math.Abs(overview.Summary.RPM-2.0/1440.0) > 0.000000001 || math.Abs(overview.Summary.TPM-2425.0/1440.0) > 0.000000001 {
+		t.Fatalf("expected 24h overview rates to use exact 1440 minute window, got %+v", overview.Summary)
 	}
-	if overview.Series.Requests["2026-04-16T17:00:00+08:00"] != 1 || overview.Series.Requests["2026-04-16T18:00:00+08:00"] != 1 {
+	if len(overview.Series.Buckets) != 2 || overview.Series.Buckets[0] != "2026-04-16T17:00:00+08:00" || overview.Series.Buckets[1] != "2026-04-16T18:00:00+08:00" ||
+		overview.Series.Requests[0] != 1 || overview.Series.Requests[1] != 1 {
 		t.Fatalf("expected hourly request series values, got %+v", overview.Series)
 	}
-	if math.Abs(overview.Series.Cost["2026-04-16T17:00:00+08:00"]-0.01023) > 0.000000001 || math.Abs(overview.Series.Cost["2026-04-16T18:00:00+08:00"]-0.00525) > 0.000000001 {
+	if math.Abs(overview.Series.Cost[0]-0.01023) > 0.000000001 || math.Abs(overview.Series.Cost[1]-0.00525) > 0.000000001 {
 		t.Fatalf("expected hourly cost series values, got %+v", overview.Series)
 	}
 }
@@ -106,8 +107,8 @@ func TestUsageServiceGetUsageOverviewUsesRecentCacheForBoundaries(t *testing.T) 
 	if err != nil {
 		t.Fatalf("GetUsageOverview returned error: %v", err)
 	}
-	if overview.Summary.RequestCount != 1 || overview.Summary.TokenCount != 100 {
-		t.Fatalf("expected overview service to use recent cache boundary event, got %+v", overview.Summary)
+	if overview.Usage == nil || overview.Usage.TotalRequests != 1 || overview.Usage.TotalTokens != 100 {
+		t.Fatalf("expected overview service to use recent cache boundary event, got %+v", overview.Usage)
 	}
 }
 
@@ -234,8 +235,8 @@ func TestUsageServiceResolvesAPIKeyIDForUsageQueries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetUsageOverview returned error: %v", err)
 	}
-	if overview.Summary.RequestCount != 2 || overview.Summary.TokenCount != 30 {
-		t.Fatalf("expected overview to use resolved API key, got %+v", overview.Summary)
+	if overview.Usage == nil || overview.Usage.TotalRequests != 2 || overview.Usage.TotalTokens != 30 {
+		t.Fatalf("expected overview to use resolved API key, got %+v", overview.Usage)
 	}
 	analysis, err := provider.GetAnalysis(context.Background(), servicedto.UsageFilter{APIKeyID: targetID, Range: "custom", StartTime: &start, EndTime: &end})
 	if err != nil {
