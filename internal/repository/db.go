@@ -262,12 +262,13 @@ func sqliteDatabaseRequiresSinglePool(path string) bool {
 
 // sqliteDatabaseFileExists 判断磁盘数据库文件是否存在；内存库和空路径都按新库处理。
 func sqliteDatabaseFileExists(path string) (bool, error) {
+	// 内存 DSN 没有物理文件；必须在 os.Stat 前识别，避免 Windows 把 file::memory: 当成非法文件名。
+	if sqliteDatabaseRequiresSinglePool(path) {
+		return false, nil
+	}
 	trimmed := strings.TrimSpace(path)
 	if before, _, ok := strings.Cut(trimmed, "?"); ok {
 		trimmed = before
-	}
-	if trimmed == "" || trimmed == ":memory:" {
-		return false, nil
 	}
 	_, err := os.Stat(trimmed)
 	if err == nil {
