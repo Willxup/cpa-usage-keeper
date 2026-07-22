@@ -139,6 +139,10 @@ func (s *usageEventsStub) GetAnalysis(context.Context, servicedto.UsageFilter) (
 	return nil, s.err
 }
 
+func (s *usageEventsStub) GetAnalysisLatency(context.Context, servicedto.UsageFilter) (*servicedto.AnalysisLatencyDiagnostics, error) {
+	return nil, s.err
+}
+
 type authCPAAPIKeyStub struct {
 	row entities.CPAAPIKey
 }

@@ -112,5 +112,4 @@ type AnalysisSnapshot struct {
 	Heatmap               []AnalysisHeatmapCell
 	CostBreakdown         AnalysisCostBreakdown
 	ModelEfficiency       []AnalysisModelEfficiencyItem
-	LatencyDiagnostics    AnalysisLatencyDiagnostics
 }

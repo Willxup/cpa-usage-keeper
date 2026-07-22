@@ -112,5 +112,4 @@ type AnalysisRecord struct {
 	Heatmap               []AnalysisHeatmapRecord
 	CostBreakdown         AnalysisCostBreakdownRecord
 	ModelEfficiency       []AnalysisModelEfficiencyRecord
-	LatencyDiagnostics    AnalysisLatencyDiagnosticsRecord
 }

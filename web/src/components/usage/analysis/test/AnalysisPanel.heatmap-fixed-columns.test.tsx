@@ -51,16 +51,6 @@ const analysis: AnalysisResponse = {
     cost_available: true,
   },
   model_efficiency: [],
-  latency_diagnostics: {
-    points: [],
-    density: [],
-    total_points: 0,
-    sampled: false,
-    p95_ttft_ms: 0,
-    p95_latency_ms: 0,
-    max_ttft_ms: 0,
-    max_latency_ms: 0,
-  },
   heatmap: {
     api_keys: ['key-1'],
     api_key_labels: { 'key-1': 'Primary Production Key' },

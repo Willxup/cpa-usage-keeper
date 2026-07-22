@@ -122,6 +122,7 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageSource).toContain('customRange={customRange}')
     expect(usagePageSource).toContain('onChange={handleTimeRangeChange}')
     expect(usagePageSource).toContain('fetchAnalysis(usageRangeQuery, controller.signal, selectedApiKeyId)')
+    expect(usagePageSource).toContain('fetchAnalysisLatency(usageRangeQuery, controller.signal, selectedApiKeyId)')
     expect(usagePageSource).toContain('fetchUsageEvents(usageRangeQuery, controller.signal, {')
     expect(usagePageSource).toContain('exportUsageEvents(usageRangeQuery, format, {')
 
@@ -530,15 +531,21 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).not.toContain('.apiKeyFilterGroupHidden')
   })
 
-  it('uses the new Analysis panel and endpoint instead of the old detail tables', () => {
+  it('loads core and latency Analysis sections through independent endpoints', () => {
     expect(usagePageSource).toContain('fetchAnalysis')
+    expect(usagePageSource).toContain('fetchAnalysisLatency')
     expect(usagePageSource).toContain('<AnalysisPanel')
+    expect(usagePageSource).toContain('latencyDiagnostics={analysisLatencyData}')
+    expect(usagePageSource).toContain('latencyLoading={analysisLatencyLoading}')
+    expect(usagePageSource).toContain('latencyError={analysisLatencyError}')
     expect(usagePageSource).not.toContain('fetchUsageAnalysis')
     expect(usagePageSource).not.toContain('<ApiDetailsCard')
     expect(usagePageSource).not.toContain('<ModelStatsCard')
     expect(apiIndexSource).not.toContain('ApiDetailsCard')
     expect(apiIndexSource).not.toContain('ModelStatsCard')
     expect(apiClientSource).toContain("apiPath('/usage/analysis')")
+    expect(apiClientSource).toContain("apiPath('/usage/analysis/latency')")
+    expect(typesSource).not.toContain('latency_diagnostics: AnalysisLatencyDiagnostics')
   })
 
   it('renames the Analysis tab label and places it before Request Events', () => {

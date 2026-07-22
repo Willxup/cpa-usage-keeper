@@ -628,7 +628,6 @@ export interface AnalysisResponse {
   heatmap: AnalysisHeatmapPayload
   cost_breakdown: AnalysisCostBreakdown
   model_efficiency: AnalysisModelEfficiencyItem[]
-  latency_diagnostics: AnalysisLatencyDiagnostics
 }
 
 export interface CpaApiKeyDisplayItem {

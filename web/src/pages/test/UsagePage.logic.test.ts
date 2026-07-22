@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getBackToCPALinkURL, getCredentialSectionVisibility, getOverviewDisplayLoading, getUsageTabOptions, isUsagePageVisible, loadRequestEventsPreferences, loadUsagePageVersionInfo, normalizeRequestEventsPreferences, normalizeUsageTabValue, refreshPageData, REQUEST_EVENTS_PREFERENCES_STORAGE_KEY, runUsageEventRequestLogDownload, sanitizeRequestEventFilters, saveRequestEventsPreferences, scheduleOverviewAutoRefresh, shouldAutoRefreshUsageTab, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowUpdateCheckButton, getUpdateCheckToastDuration } from '../UsagePage';
+import { getBackToCPALinkURL, getCredentialSectionVisibility, getOverviewDisplayLoading, getUsageTabOptions, isUsagePageVisible, loadAnalysisSections, loadRequestEventsPreferences, loadUsagePageVersionInfo, normalizeRequestEventsPreferences, normalizeUsageTabValue, refreshPageData, REQUEST_EVENTS_PREFERENCES_STORAGE_KEY, runUsageEventRequestLogDownload, sanitizeRequestEventFilters, saveRequestEventsPreferences, scheduleOverviewAutoRefresh, shouldAutoRefreshUsageTab, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowUpdateCheckButton, getUpdateCheckToastDuration } from '../UsagePage';
 import { REQUEST_EVENT_COLUMN_IDS } from '@/components/usage/RequestEventsDetailsCard';
 import { ApiError } from '@/lib/api';
 import type { UsageFilterWindow, VersionResponse } from '@/lib/types';
@@ -47,6 +47,46 @@ describe('UsagePage Overview loading display', () => {
 
   it('shows loading before Overview data has loaded', () => {
     expect(getOverviewDisplayLoading({ loading: true, hasUsage: false })).toBe(true);
+  });
+});
+
+describe('UsagePage Analysis section loading', () => {
+  it('starts core and latency requests together and publishes each result independently', async () => {
+    let resolveCore: (value: 'core') => void = () => undefined;
+    let rejectLatency: (reason: Error) => void = () => undefined;
+    const loadCore = vi.fn(() => new Promise<'core'>((resolve) => {
+      resolveCore = resolve;
+    }));
+    const loadLatency = vi.fn(() => new Promise<'latency'>((_resolve, reject) => {
+      rejectLatency = reject;
+    }));
+    const onCoreLoaded = vi.fn();
+    const onCoreError = vi.fn();
+    const onLatencyLoaded = vi.fn();
+    const onLatencyError = vi.fn();
+
+    const loading = loadAnalysisSections({
+      loadCore,
+      loadLatency,
+      onCoreLoaded,
+      onCoreError,
+      onLatencyLoaded,
+      onLatencyError,
+    });
+
+    expect(loadCore).toHaveBeenCalledOnce();
+    expect(loadLatency).toHaveBeenCalledOnce();
+
+    resolveCore('core');
+    await flushPromises();
+    expect(onCoreLoaded).toHaveBeenCalledWith('core');
+    expect(onLatencyLoaded).not.toHaveBeenCalled();
+
+    const latencyError = new Error('latency failed');
+    rejectLatency(latencyError);
+    await loading;
+    expect(onCoreError).not.toHaveBeenCalled();
+    expect(onLatencyError).toHaveBeenCalledWith(latencyError);
   });
 });
 

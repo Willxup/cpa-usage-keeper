@@ -69,16 +69,6 @@ const analysis: AnalysisResponse = {
     models: [],
     cells: [],
   },
-  latency_diagnostics: {
-    points: [],
-    density: [],
-    total_points: 0,
-    sampled: false,
-    p95_ttft_ms: 0,
-    p95_latency_ms: 0,
-    max_ttft_ms: 0,
-    max_latency_ms: 0,
-  },
 };
 
 describe('AnalysisPanel cost breakdown summary', () => {

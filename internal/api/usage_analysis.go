@@ -14,19 +14,18 @@ import (
 )
 
 type analysisResponse struct {
-	Granularity           string                     `json:"granularity"`
-	Timezone              string                     `json:"timezone"`
-	RangeStart            *time.Time                 `json:"range_start,omitempty"`
-	RangeEnd              *time.Time                 `json:"range_end,omitempty"`
-	TokenUsage            []analysisTokenUsage       `json:"token_usage"`
-	APIKeyComposition     []analysisCompositionItem  `json:"api_key_composition"`
-	ModelComposition      []analysisCompositionItem  `json:"model_composition"`
-	AuthFilesComposition  []analysisCompositionItem  `json:"auth_files_composition"`
-	AIProviderComposition []analysisCompositionItem  `json:"ai_provider_composition"`
-	Heatmap               analysisHeatmap            `json:"heatmap"`
-	CostBreakdown         analysisCostBreakdown      `json:"cost_breakdown"`
-	ModelEfficiency       []analysisModelEfficiency  `json:"model_efficiency"`
-	LatencyDiagnostics    analysisLatencyDiagnostics `json:"latency_diagnostics"`
+	Granularity           string                    `json:"granularity"`
+	Timezone              string                    `json:"timezone"`
+	RangeStart            *time.Time                `json:"range_start,omitempty"`
+	RangeEnd              *time.Time                `json:"range_end,omitempty"`
+	TokenUsage            []analysisTokenUsage      `json:"token_usage"`
+	APIKeyComposition     []analysisCompositionItem `json:"api_key_composition"`
+	ModelComposition      []analysisCompositionItem `json:"model_composition"`
+	AuthFilesComposition  []analysisCompositionItem `json:"auth_files_composition"`
+	AIProviderComposition []analysisCompositionItem `json:"ai_provider_composition"`
+	Heatmap               analysisHeatmap           `json:"heatmap"`
+	CostBreakdown         analysisCostBreakdown     `json:"cost_breakdown"`
+	ModelEfficiency       []analysisModelEfficiency `json:"model_efficiency"`
 }
 
 type analysisTokenUsage struct {
@@ -159,6 +158,30 @@ func registerUsageAnalysisRoute(router gin.IRoutes, usageProvider service.UsageP
 
 		c.JSON(http.StatusOK, buildAnalysisPayload(analysis, apiKeyInfos))
 	})
+
+	router.GET("/usage/analysis/latency", func(c *gin.Context) {
+		if usageProvider == nil {
+			c.JSON(http.StatusOK, emptyAnalysisLatencyDiagnosticsResponse())
+			return
+		}
+
+		filter, err := parseUsageTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		latency, err := usageProvider.GetAnalysisLatency(c.Request.Context(), filter)
+		if err != nil {
+			writeInternalError(c, "get analysis latency failed", err)
+			return
+		}
+		if latency == nil {
+			c.JSON(http.StatusOK, emptyAnalysisLatencyDiagnosticsResponse())
+			return
+		}
+		c.JSON(http.StatusOK, buildAnalysisLatencyDiagnosticsPayload(*latency))
+	})
 }
 
 func emptyAnalysisResponse() analysisResponse {
@@ -173,8 +196,11 @@ func emptyAnalysisResponse() analysisResponse {
 		Heatmap:               analysisHeatmap{APIKeys: []string{}, APIKeyLabels: map[string]string{}, Models: []string{}, Cells: []analysisHeatmapCell{}},
 		CostBreakdown:         analysisCostBreakdown{CostAvailable: true},
 		ModelEfficiency:       []analysisModelEfficiency{},
-		LatencyDiagnostics:    analysisLatencyDiagnostics{Points: []analysisLatencyPoint{}, Density: []analysisLatencyDensityCell{}},
 	}
+}
+
+func emptyAnalysisLatencyDiagnosticsResponse() analysisLatencyDiagnostics {
+	return analysisLatencyDiagnostics{Points: []analysisLatencyPoint{}, Density: []analysisLatencyDensityCell{}}
 }
 
 func loadCPAAPIKeyInfos(c *gin.Context, provider service.CPAAPIKeyProvider) (map[string]analysisAPIKeyInfo, error) {
@@ -238,8 +264,7 @@ func buildAnalysisPayload(snapshot *servicedto.AnalysisSnapshot, apiKeyInfos map
 			TotalCostUSD:         snapshot.CostBreakdown.TotalCostUSD,
 			CostAvailable:        snapshot.CostBreakdown.CostAvailable,
 		},
-		ModelEfficiency:    buildAnalysisModelEfficiencyPayload(snapshot.ModelEfficiency),
-		LatencyDiagnostics: buildAnalysisLatencyDiagnosticsPayload(snapshot.LatencyDiagnostics),
+		ModelEfficiency: buildAnalysisModelEfficiencyPayload(snapshot.ModelEfficiency),
 	}
 }
 

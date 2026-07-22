@@ -11,6 +11,7 @@ import (
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/repository/dto"
+	"cpa-usage-keeper/internal/repository/percentile"
 	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
 )
@@ -393,11 +394,6 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 			CostAvailable: true,
 		},
 	}
-	latencyDiagnostics, err := buildAnalysisLatencyDiagnosticsWithFilter(db, filter)
-	if err != nil {
-		return nil, err
-	}
-	record.LatencyDiagnostics = latencyDiagnostics
 
 	fullStart, fullEnd := usageOverviewFullHourWindow(*filter.StartTime, *filter.EndTime)
 	fullEnd = analysisHourlyStatsEnd(filter, fullEnd)
@@ -480,13 +476,22 @@ type analysisIdentityInfo struct {
 
 type analysisIdentityLookup map[entities.UsageIdentityAuthType]map[string]analysisIdentityInfo
 
-func buildAnalysisLatencyDiagnosticsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (dto.AnalysisLatencyDiagnosticsRecord, error) {
+// BuildAnalysisLatencyDiagnosticsWithFilter 从 raw usage_events 独立构建延迟诊断，不阻塞聚合表分析结果。
+func BuildAnalysisLatencyDiagnosticsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (dto.AnalysisLatencyDiagnosticsRecord, error) {
 	empty := emptyAnalysisLatencyDiagnosticsRecord()
-	// 延迟诊断只统计要求实际生成的成功请求；TTFT/Latency 有效性仍在内存过滤，避免依赖未索引列。
+	if db == nil {
+		return empty, fmt.Errorf("database is nil")
+	}
+	if filter.StartTime == nil || filter.EndTime == nil {
+		return empty, fmt.Errorf("analysis latency requires start_time and end_time")
+	}
+	// SQL 先减少无效行的扫描传输；Go 侧继续做空值和正数防御，避免异常数据进入统计。
 	query := db.Model(&entities.UsageEvent{}).
 		Select("latency_ms, ttft_ms").
 		Where("failed = ?", false).
-		Where("generate = ?", true)
+		Where("generate = ?", true).
+		Where("ttft_ms > 0").
+		Where("latency_ms > 0")
 	query = applyUsageAnalysisTabQuery(query, filter)
 
 	rows, err := query.Rows()
@@ -500,6 +505,8 @@ func buildAnalysisLatencyDiagnosticsWithFilter(db *gorm.DB, filter dto.UsageQuer
 
 	ttftValues := []int64{}
 	latencyValues := []int64{}
+	var maxTTFTMS int64
+	var maxLatencyMS int64
 	for rows.Next() {
 		var latencyMS int64
 		var ttftMS sql.NullInt64
@@ -512,11 +519,17 @@ func buildAnalysisLatencyDiagnosticsWithFilter(db *gorm.DB, filter dto.UsageQuer
 		// 保留原始 int64 值，避免为毫秒字段引入额外 int32 转换。
 		ttftValues = append(ttftValues, ttftMS.Int64)
 		latencyValues = append(latencyValues, latencyMS)
+		if ttftMS.Int64 > maxTTFTMS {
+			maxTTFTMS = ttftMS.Int64
+		}
+		if latencyMS > maxLatencyMS {
+			maxLatencyMS = latencyMS
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return empty, fmt.Errorf("iterate analysis latency diagnostics: %w", err)
 	}
-	return buildAnalysisLatencyDiagnostics(ttftValues, latencyValues), nil
+	return buildAnalysisLatencyDiagnostics(ttftValues, latencyValues, maxTTFTMS, maxLatencyMS), nil
 }
 
 func emptyAnalysisLatencyDiagnosticsRecord() dto.AnalysisLatencyDiagnosticsRecord {
@@ -534,44 +547,21 @@ func isMissingUsageEventsTableError(err error) bool {
 	return strings.Contains(message, "usage_events") && (strings.Contains(message, "no such table") || strings.Contains(message, "doesn't exist"))
 }
 
-func buildAnalysisLatencyDiagnostics(ttftValues, latencyValues []int64) dto.AnalysisLatencyDiagnosticsRecord {
+func buildAnalysisLatencyDiagnostics(ttftValues, latencyValues []int64, maxTTFTMS, maxLatencyMS int64) dto.AnalysisLatencyDiagnosticsRecord {
 	result := emptyAnalysisLatencyDiagnosticsRecord()
 	if len(ttftValues) == 0 {
 		return result
 	}
 
-	for index, ttft := range ttftValues {
-		latency := latencyValues[index]
-		if ttft > result.MaxTTFTMS {
-			result.MaxTTFTMS = ttft
-		}
-		if latency > result.MaxLatencyMS {
-			result.MaxLatencyMS = latency
-		}
-	}
-
 	// p95 基于完整样本计算；前端散点只做确定性抽样，避免浏览器绘制过多点。
 	result.TotalPoints = int64(len(ttftValues))
-	result.P95TTFTMS = analysisNearestRankPercentile(ttftValues, 0.95)
-	result.P95LatencyMS = analysisNearestRankPercentile(latencyValues, 0.95)
+	result.MaxTTFTMS = maxTTFTMS
+	result.MaxLatencyMS = maxLatencyMS
+	// p95 选择会原地重排切片，必须先复制确定性散点以保留查询顺序和样本配对。
 	result.Points, result.Sampled = sampleAnalysisLatencyPoints(ttftValues, latencyValues)
+	result.P95TTFTMS = percentile.NearestRank(ttftValues, 0.95)
+	result.P95LatencyMS = percentile.NearestRank(latencyValues, 0.95)
 	return result
-}
-
-func analysisNearestRankPercentile(values []int64, percentile float64) int64 {
-	if len(values) == 0 {
-		return 0
-	}
-	sortedValues := append([]int64(nil), values...)
-	sort.Slice(sortedValues, func(i, j int) bool { return sortedValues[i] < sortedValues[j] })
-	index := int(math.Ceil(percentile*float64(len(sortedValues)))) - 1
-	if index < 0 {
-		index = 0
-	}
-	if index >= len(sortedValues) {
-		index = len(sortedValues) - 1
-	}
-	return sortedValues[index]
 }
 
 func sampleAnalysisLatencyPoints(ttftValues, latencyValues []int64) ([]dto.AnalysisLatencyPointRecord, bool) {

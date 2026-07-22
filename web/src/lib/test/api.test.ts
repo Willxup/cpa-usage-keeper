@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appPath, createUsageEventRequestLogDownloadURL, deleteAuthFiles, exportUsageEvents, fetchAnalysis, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyActivity, fetchKeyOverview, fetchKeyOverviewRealtime, fetchQuotaAutoRefreshSettings, fetchUsageActivity, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUsageQuotaResetCredits, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, fetchVersion, loginWithCPAAPIKey, logout, refreshUsageQuotas, resetUsageQuota, revokeAuthSession, setAuthFilesDisabled, startUsageQuotaInspection, updateCpaApiKeyAlias, updateQuotaAutoRefreshSettings } from '../api';
+import { appPath, createUsageEventRequestLogDownloadURL, deleteAuthFiles, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyActivity, fetchKeyOverview, fetchKeyOverviewRealtime, fetchQuotaAutoRefreshSettings, fetchUsageActivity, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUsageQuotaResetCredits, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, fetchVersion, loginWithCPAAPIKey, logout, refreshUsageQuotas, resetUsageQuota, revokeAuthSession, setAuthFilesDisabled, startUsageQuotaInspection, updateCpaApiKeyAlias, updateQuotaAutoRefreshSettings } from '../api';
 
 const headerValue = (init: RequestInit | undefined, name: string): string | null => new Headers(init?.headers).get(name);
 
@@ -489,6 +489,28 @@ describe('fetchUsageEvents', () => {
     expect(analysisUrl.searchParams.get('start')).toBe('2026-04-20');
     expect(analysisUrl.searchParams.get('end')).toBe('2026-04-21');
     expect(analysisUrl.searchParams.get('api_key_id')).toBe('9007199254740993');
+    expect(Array.from(analysisUrl.searchParams.keys())).toEqual(['range', 'unit', 'start', 'end', 'api_key_id']);
+    expect(fetchAnalysis).toHaveLength(3);
+  });
+
+  it('loads Analysis latency from its independent endpoint with the same filters', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ points: [], density: [], total_points: 0 }),
+    } as Response);
+    const signal = new AbortController().signal;
+
+    await fetchAnalysisLatency({ range: 'custom', unit: 'day', start: '2026-04-20', end: '2026-04-21' }, signal, '9007199254740993');
+
+    const latencyUrl = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
+    expect(latencyUrl.pathname).toBe('/api/v1/usage/analysis/latency');
+    expect(latencyUrl.searchParams.get('range')).toBe('custom');
+    expect(latencyUrl.searchParams.get('start')).toBe('2026-04-20');
+    expect(latencyUrl.searchParams.get('end')).toBe('2026-04-21');
+    expect(latencyUrl.searchParams.get('api_key_id')).toBe('9007199254740993');
+    expect(Array.from(latencyUrl.searchParams.keys())).toEqual(['range', 'unit', 'start', 'end', 'api_key_id']);
+    expect(fetchAnalysisLatency).toHaveLength(3);
   });
 
   it('loads a usage event request log by event id', async () => {

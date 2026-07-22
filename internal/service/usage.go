@@ -383,6 +383,27 @@ func (s *usageService) GetAnalysis(ctx context.Context, filter servicedto.UsageF
 	return mapAnalysisRecord(record), nil
 }
 
+func (s *usageService) GetAnalysisLatency(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.AnalysisLatencyDiagnostics, error) {
+	ctx = usageServiceContext(ctx)
+	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
+	if err != nil {
+		return nil, err
+	}
+	record, err := repository.BuildAnalysisLatencyDiagnosticsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
+		Range:        filter.Range,
+		CustomUnit:   filter.CustomUnit,
+		StartTime:    filter.StartTime,
+		EndTime:      filter.EndTime,
+		EndExclusive: filter.EndExclusive,
+		APIGroupKey:  apiGroupKey,
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := mapAnalysisLatencyDiagnosticsRecord(record)
+	return &result, nil
+}
+
 func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnapshot {
 	if record == nil {
 		return &servicedto.AnalysisSnapshot{}
@@ -452,24 +473,6 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 			CacheReadRate:          item.CacheReadRate,
 		})
 	}
-	latencyPoints := make([]servicedto.AnalysisLatencyPoint, 0, len(record.LatencyDiagnostics.Points))
-	for _, point := range record.LatencyDiagnostics.Points {
-		latencyPoints = append(latencyPoints, servicedto.AnalysisLatencyPoint{
-			TTFTMS:    point.TTFTMS,
-			LatencyMS: point.LatencyMS,
-		})
-	}
-	latencyDensity := make([]servicedto.AnalysisLatencyDensityCell, 0, len(record.LatencyDiagnostics.Density))
-	for _, cell := range record.LatencyDiagnostics.Density {
-		latencyDensity = append(latencyDensity, servicedto.AnalysisLatencyDensityCell{
-			TTFTMinMS:    cell.TTFTMinMS,
-			TTFTMaxMS:    cell.TTFTMaxMS,
-			LatencyMinMS: cell.LatencyMinMS,
-			LatencyMaxMS: cell.LatencyMaxMS,
-			Count:        cell.Count,
-			Intensity:    cell.Intensity,
-		})
-	}
 	return &servicedto.AnalysisSnapshot{
 		Granularity:           servicedto.AnalysisGranularity(record.Granularity),
 		RangeStart:            record.RangeStart,
@@ -489,16 +492,37 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 			CostAvailable:        record.CostBreakdown.CostAvailable,
 		},
 		ModelEfficiency: modelEfficiency,
-		LatencyDiagnostics: servicedto.AnalysisLatencyDiagnostics{
-			Points:       latencyPoints,
-			Density:      latencyDensity,
-			TotalPoints:  record.LatencyDiagnostics.TotalPoints,
-			Sampled:      record.LatencyDiagnostics.Sampled,
-			P95TTFTMS:    record.LatencyDiagnostics.P95TTFTMS,
-			P95LatencyMS: record.LatencyDiagnostics.P95LatencyMS,
-			MaxTTFTMS:    record.LatencyDiagnostics.MaxTTFTMS,
-			MaxLatencyMS: record.LatencyDiagnostics.MaxLatencyMS,
-		},
+	}
+}
+
+func mapAnalysisLatencyDiagnosticsRecord(record repodto.AnalysisLatencyDiagnosticsRecord) servicedto.AnalysisLatencyDiagnostics {
+	points := make([]servicedto.AnalysisLatencyPoint, 0, len(record.Points))
+	for _, point := range record.Points {
+		points = append(points, servicedto.AnalysisLatencyPoint{
+			TTFTMS:    point.TTFTMS,
+			LatencyMS: point.LatencyMS,
+		})
+	}
+	density := make([]servicedto.AnalysisLatencyDensityCell, 0, len(record.Density))
+	for _, cell := range record.Density {
+		density = append(density, servicedto.AnalysisLatencyDensityCell{
+			TTFTMinMS:    cell.TTFTMinMS,
+			TTFTMaxMS:    cell.TTFTMaxMS,
+			LatencyMinMS: cell.LatencyMinMS,
+			LatencyMaxMS: cell.LatencyMaxMS,
+			Count:        cell.Count,
+			Intensity:    cell.Intensity,
+		})
+	}
+	return servicedto.AnalysisLatencyDiagnostics{
+		Points:       points,
+		Density:      density,
+		TotalPoints:  record.TotalPoints,
+		Sampled:      record.Sampled,
+		P95TTFTMS:    record.P95TTFTMS,
+		P95LatencyMS: record.P95LatencyMS,
+		MaxTTFTMS:    record.MaxTTFTMS,
+		MaxLatencyMS: record.MaxLatencyMS,
 	}
 }
 

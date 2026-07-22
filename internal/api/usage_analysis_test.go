@@ -72,6 +72,10 @@ func (s *usageAnalysisStub) GetAnalysis(_ context.Context, filter servicedto.Usa
 	return s.analysis, s.err
 }
 
+func (s *usageAnalysisStub) GetAnalysisLatency(_ context.Context, _ servicedto.UsageFilter) (*servicedto.AnalysisLatencyDiagnostics, error) {
+	return nil, s.err
+}
+
 func TestUsageAnalysisReturnsAggregatedRows(t *testing.T) {
 	bucket := time.Date(2026, 4, 22, 10, 0, 0, 0, time.Local)
 	provider := &usageAnalysisStub{analysis: &servicedto.AnalysisSnapshot{
@@ -154,26 +158,6 @@ func TestUsageAnalysisReturnsAggregatedRows(t *testing.T) {
 			OutputTokensPerRequest: 5.5,
 			CacheReadRate:          1.0 / 30.0,
 		}},
-		LatencyDiagnostics: servicedto.AnalysisLatencyDiagnostics{
-			TotalPoints:  2,
-			Sampled:      false,
-			P95TTFTMS:    240,
-			P95LatencyMS: 1200,
-			MaxTTFTMS:    240,
-			MaxLatencyMS: 1200,
-			Points: []servicedto.AnalysisLatencyPoint{
-				{TTFTMS: 120, LatencyMS: 800},
-				{TTFTMS: 240, LatencyMS: 1200},
-			},
-			Density: []servicedto.AnalysisLatencyDensityCell{{
-				TTFTMinMS:    0,
-				TTFTMaxMS:    250,
-				LatencyMinMS: 0,
-				LatencyMaxMS: 1300,
-				Count:        2,
-				Intensity:    1,
-			}},
-		},
 	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/analysis?range=24h", nil)
@@ -212,8 +196,8 @@ func TestUsageAnalysisReturnsAggregatedRows(t *testing.T) {
 	if !contains(body, `"model_efficiency":`) || !contains(body, `"cost_per_request_usd":0.615`) || !contains(body, `"output_tokens_per_request":5.5`) || !contains(body, `"cache_read_rate":0.03333333333333333`) {
 		t.Fatalf("expected model efficiency in response body: %s", body)
 	}
-	if !contains(body, `"latency_diagnostics":`) || !contains(body, `"p95_ttft_ms":240`) || !contains(body, `"p95_latency_ms":1200`) || !contains(body, `"ttft_ms":120`) || !contains(body, `"count":2`) {
-		t.Fatalf("expected latency diagnostics in response body: %s", body)
+	if contains(body, `"latency_diagnostics":`) {
+		t.Fatalf("expected latency diagnostics to use the independent endpoint, got %s", body)
 	}
 	if provider.analysisCalls != 1 {
 		t.Fatalf("expected GetAnalysis to be called once, got %d", provider.analysisCalls)

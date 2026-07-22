@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Interaction, Tooltip } from 'chart.js';
 import type { ChartData, ChartOptions, Plugin } from 'chart.js';
-import type { AnalysisResponse } from '@/lib/types';
+import type { AnalysisLatencyDiagnostics, AnalysisResponse } from '@/lib/types';
 
 type TokenAverageLinePluginOptions = {
   value: number;
@@ -138,16 +138,6 @@ const emptyAnalysis: AnalysisResponse = {
     api_key_labels: {},
     models: [],
     cells: [],
-  },
-  latency_diagnostics: {
-    points: [],
-    density: [],
-    total_points: 0,
-    sampled: false,
-    p95_ttft_ms: 0,
-    p95_latency_ms: 0,
-    max_ttft_ms: 0,
-    max_latency_ms: 0,
   },
 };
 
@@ -746,32 +736,29 @@ describe('AnalysisPanel token chart data', () => {
   });
 
   it('renders latency diagnostics scatter before usage distribution', () => {
-    const analysis: AnalysisResponse = {
-      ...emptyAnalysis,
-      latency_diagnostics: {
-        total_points: 3,
-        sampled: false,
-        p95_ttft_ms: 300,
-        p95_latency_ms: 1400,
-        max_ttft_ms: 900,
-        max_latency_ms: 3600,
-        points: [
-          { ttft_ms: 120, latency_ms: 800 },
-          { ttft_ms: 300, latency_ms: 1400 },
-          { ttft_ms: 900, latency_ms: 3600 },
-        ],
-        density: [{
-          ttft_min_ms: 0,
-          ttft_max_ms: 400,
-          latency_min_ms: 0,
-          latency_max_ms: 1800,
-          count: 2,
-          intensity: 1,
-        }],
-      },
+    const latencyDiagnostics: AnalysisLatencyDiagnostics = {
+      total_points: 3,
+      sampled: false,
+      p95_ttft_ms: 300,
+      p95_latency_ms: 1400,
+      max_ttft_ms: 900,
+      max_latency_ms: 3600,
+      points: [
+        { ttft_ms: 120, latency_ms: 800 },
+        { ttft_ms: 300, latency_ms: 1400 },
+        { ttft_ms: 900, latency_ms: 3600 },
+      ],
+      density: [{
+        ttft_min_ms: 0,
+        ttft_max_ms: 400,
+        latency_min_ms: 0,
+        latency_max_ms: 1800,
+        count: 2,
+        intensity: 1,
+      }],
     };
 
-    const markup = renderToStaticMarkup(<AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} />);
+    const markup = renderToStaticMarkup(<AnalysisPanel analysis={emptyAnalysis} loading={false} latencyDiagnostics={latencyDiagnostics} isDark={false} isMobile={false} />);
 
     expect(markup).toContain('usage_stats.analysis_latency_title');
     expect(markup.indexOf('usage_stats.analysis_latency_title')).toBeLessThan(markup.indexOf('usage_stats.analysis_composition_title'));
@@ -949,21 +936,18 @@ describe('AnalysisPanel token chart data', () => {
       ttft_ms: index + 1,
       latency_ms: (index + 1) * 2,
     }));
-    const analysis: AnalysisResponse = {
-      ...emptyAnalysis,
-      latency_diagnostics: {
-        total_points: points.length,
-        sampled: true,
-        p95_ttft_ms: 142_500,
-        p95_latency_ms: 285_000,
-        max_ttft_ms: 150_000,
-        max_latency_ms: 300_000,
-        points,
-        density: [],
-      },
+    const latencyDiagnostics: AnalysisLatencyDiagnostics = {
+      total_points: points.length,
+      sampled: true,
+      p95_ttft_ms: 142_500,
+      p95_latency_ms: 285_000,
+      max_ttft_ms: 150_000,
+      max_latency_ms: 300_000,
+      points,
+      density: [],
     };
 
-    expect(() => renderToStaticMarkup(<AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} />)).not.toThrow();
+    expect(() => renderToStaticMarkup(<AnalysisPanel analysis={emptyAnalysis} loading={false} latencyDiagnostics={latencyDiagnostics} isDark={false} isMobile={false} />)).not.toThrow();
     const latencyScatterIndex = chartCapture.scatterData.findIndex((data) => data.datasets[0]?.label === 'usage_stats.analysis_latency_samples');
     expect(latencyScatterIndex).toBeGreaterThanOrEqual(0);
     const latencyScatterOptions = chartCapture.scatterOptions[latencyScatterIndex];
@@ -972,28 +956,25 @@ describe('AnalysisPanel token chart data', () => {
   });
 
   it('uses theme-aware lighter colors for latency diagnostics', () => {
-    const analysis: AnalysisResponse = {
-      ...emptyAnalysis,
-      latency_diagnostics: {
-        total_points: 1,
-        sampled: false,
-        p95_ttft_ms: 240,
-        p95_latency_ms: 1200,
-        max_ttft_ms: 240,
-        max_latency_ms: 1200,
-        points: [{ ttft_ms: 240, latency_ms: 1200 }],
-        density: [{
-          ttft_min_ms: 100,
-          ttft_max_ms: 300,
-          latency_min_ms: 800,
-          latency_max_ms: 1400,
-          count: 1,
-          intensity: 1,
-        }],
-      },
+    const latencyDiagnostics: AnalysisLatencyDiagnostics = {
+      total_points: 1,
+      sampled: false,
+      p95_ttft_ms: 240,
+      p95_latency_ms: 1200,
+      max_ttft_ms: 240,
+      max_latency_ms: 1200,
+      points: [{ ttft_ms: 240, latency_ms: 1200 }],
+      density: [{
+        ttft_min_ms: 100,
+        ttft_max_ms: 300,
+        latency_min_ms: 800,
+        latency_max_ms: 1400,
+        count: 1,
+        intensity: 1,
+      }],
     };
 
-    renderToStaticMarkup(<AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} />);
+    renderToStaticMarkup(<AnalysisPanel analysis={emptyAnalysis} loading={false} latencyDiagnostics={latencyDiagnostics} isDark={false} isMobile={false} />);
     const lightScatterIndex = chartCapture.scatterData.findIndex((data) => data.datasets[0]?.label === 'usage_stats.analysis_latency_samples');
     const lightData = chartCapture.scatterData[lightScatterIndex];
     const lightOptions = chartCapture.scatterOptions[lightScatterIndex];
@@ -1001,7 +982,7 @@ describe('AnalysisPanel token chart data', () => {
     chartCapture.scatterData = [];
     chartCapture.scatterOptions = [];
     chartCapture.scatterPlugins = [];
-    renderToStaticMarkup(<AnalysisPanel analysis={analysis} loading={false} isDark isMobile={false} />);
+    renderToStaticMarkup(<AnalysisPanel analysis={emptyAnalysis} loading={false} latencyDiagnostics={latencyDiagnostics} isDark isMobile={false} />);
     const darkScatterIndex = chartCapture.scatterData.findIndex((data) => data.datasets[0]?.label === 'usage_stats.analysis_latency_samples');
     const darkData = chartCapture.scatterData[darkScatterIndex];
     const darkOptions = chartCapture.scatterOptions[darkScatterIndex];

@@ -9,7 +9,7 @@ import (
 	repodto "cpa-usage-keeper/internal/repository/dto"
 )
 
-func TestBuildAnalysisExcludesPrewarmFromLatencyDiagnostics(t *testing.T) {
+func TestBuildAnalysisLatencyDiagnosticsExcludesPrewarm(t *testing.T) {
 	db := openTestDatabase(t)
 	start := time.Date(2026, 7, 15, 9, 0, 0, 0, time.UTC)
 	end := start.Add(time.Hour)
@@ -24,12 +24,10 @@ func TestBuildAnalysisExcludesPrewarmFromLatencyDiagnostics(t *testing.T) {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
-	analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end})
+	diagnostics, err := repository.BuildAnalysisLatencyDiagnosticsWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end})
 	if err != nil {
-		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
+		t.Fatalf("BuildAnalysisLatencyDiagnosticsWithFilter returned error: %v", err)
 	}
-
-	diagnostics := analysis.LatencyDiagnostics
 	if diagnostics.TotalPoints != 1 || len(diagnostics.Points) != 1 {
 		t.Fatalf("expected one normal latency point, got %+v", diagnostics)
 	}

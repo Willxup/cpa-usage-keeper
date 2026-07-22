@@ -123,12 +123,9 @@ func TestBuildAnalysisWithFilterUsesOverviewStatsWithoutUsageEvents(t *testing.T
 	if len(analysis.APIKeyComposition) != 1 || analysis.APIKeyComposition[0].Key != "sk-target-key" {
 		t.Fatalf("expected API composition from overview stats, got %+v", analysis.APIKeyComposition)
 	}
-	if analysis.LatencyDiagnostics.TotalPoints != 0 || len(analysis.LatencyDiagnostics.Points) != 0 {
-		t.Fatalf("expected empty latency diagnostics when usage_events is unavailable, got %+v", analysis.LatencyDiagnostics)
-	}
 }
 
-func TestBuildAnalysisWithFilterBuildsLatencyDiagnosticsFromUsageEvents(t *testing.T) {
+func TestBuildAnalysisLatencyDiagnosticsWithFilterBuildsFromUsageEvents(t *testing.T) {
 	db := openUsageTestDatabase(t)
 	start := time.Date(2026, 4, 20, 9, 0, 0, 0, time.UTC)
 	end := start.Add(time.Hour)
@@ -160,12 +157,10 @@ func TestBuildAnalysisWithFilterBuildsLatencyDiagnosticsFromUsageEvents(t *testi
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
-	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end, APIGroupKey: "sk-target-key"})
+	diagnostics, err := BuildAnalysisLatencyDiagnosticsWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end, APIGroupKey: "sk-target-key"})
 	if err != nil {
-		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
+		t.Fatalf("BuildAnalysisLatencyDiagnosticsWithFilter returned error: %v", err)
 	}
-
-	diagnostics := analysis.LatencyDiagnostics
 	if diagnostics.TotalPoints != 4 || diagnostics.Sampled {
 		t.Fatalf("expected four unsampled latency points, got %+v", diagnostics)
 	}
@@ -193,7 +188,7 @@ func TestBuildAnalysisLatencyDiagnosticsSamplesDisplayPointsFromFullValues(t *te
 		latencyValues = append(latencyValues, value*10)
 	}
 
-	diagnostics := buildAnalysisLatencyDiagnostics(ttftValues, latencyValues)
+	diagnostics := buildAnalysisLatencyDiagnostics(ttftValues, latencyValues, int64(count), int64(count*10))
 
 	if diagnostics.TotalPoints != int64(count) || !diagnostics.Sampled {
 		t.Fatalf("expected full count with sampled display points, got %+v", diagnostics)
