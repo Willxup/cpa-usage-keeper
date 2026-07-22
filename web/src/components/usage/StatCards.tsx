@@ -131,7 +131,7 @@ export function StatCards({
   );
 
   useEffect(() => {
-    // 等浏览器完成当前布局后再切换展开态，让首次出现和范围切换都能触发横向动画。
+    // 等浏览器完成当前布局后再切换展开态，让首次出现和范围切换都能触发卡片布局动画。
     const frame = window.requestAnimationFrame(() => setDailyAverageExpanded(shouldExpandDailyAverage));
     return () => window.cancelAnimationFrame(frame);
   }, [shouldExpandDailyAverage]);

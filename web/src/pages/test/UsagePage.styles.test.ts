@@ -379,7 +379,16 @@ describe('UsagePage toolbar styles', () => {
   })
 
   it('adds a small desktop-only side inset to Daily Average content', () => {
-    expect(usagePageStyles).toMatch(/\.statCard\.dailyAverageCard\s*\{[\s\S]*?padding-inline:\s*22px;[\s\S]*?@include tablet\s*\{[\s\S]*?padding-inline:\s*18px;/)
+    expect(usagePageStyles).toMatch(/\.statCard\.dailyAverageCard\s*\{[\s\S]*?padding-inline:\s*18px;[\s\S]*?@include desktop\s*\{[\s\S]*?padding-inline:\s*22px;/)
+  })
+
+  it('places the Daily Average reduced-motion override after its animation rules', () => {
+    const slotStylesIndex = usagePageStyles.indexOf('.dailyAverageSlot {', usagePageStyles.indexOf('// Stats Layout'))
+    const reducedMotionIndex = usagePageStyles.lastIndexOf('@media (prefers-reduced-motion: reduce)')
+    const reducedMotionStyles = usagePageStyles.slice(reducedMotionIndex)
+
+    expect(reducedMotionIndex).toBeGreaterThan(slotStylesIndex)
+    expect(reducedMotionStyles).toMatch(/\.dailyAverageSlot\s*\{[\s\S]*?transition:\s*none;[\s\S]*?transform:\s*none;/)
   })
 
   it('keeps the shared stat-card shadow visible after Daily Average expands', () => {

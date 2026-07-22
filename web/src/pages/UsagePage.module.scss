@@ -731,16 +731,11 @@
 
 @media (prefers-reduced-motion: reduce) {
   .usageFilterTransition,
-  .usageFilterBar,
-  .dailyAverageSlot {
+  .usageFilterBar {
     transition: none;
   }
 
   .usageFilterTransition {
-    transform: none;
-  }
-
-  .dailyAverageSlot {
     transform: none;
   }
 }
@@ -923,7 +918,7 @@
   }
 }
 
-// Stats Grid
+// Stats Layout
 .statsSection {
   display: flex;
   flex-direction: column;
@@ -1023,6 +1018,17 @@
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .dailyAverageSlot {
+    transition: none;
+    transform: none;
+  }
+
+  .primaryStatsRowExpanded .dailyAverageSlot {
+    transform: none;
+  }
+}
+
 .primaryStatSlot {
   display: flex;
   flex: 1 1 0;
@@ -1065,7 +1071,7 @@
   height: 100%;
   min-width: 0;
   min-height: 0;
-  padding-inline: 22px;
+  padding-inline: 18px;
   background:
     radial-gradient(90% 120% at 0% 0%, rgba(59, 130, 246, 0.14), transparent 58%),
     linear-gradient(180deg, rgba(139, 92, 246, 0.07), rgba(255, 255, 255, 0)),
@@ -1075,8 +1081,8 @@
     background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 52%, #f59e0b 100%);
   }
 
-  @include tablet {
-    padding-inline: 18px;
+  @include desktop {
+    padding-inline: 22px;
   }
 }
 

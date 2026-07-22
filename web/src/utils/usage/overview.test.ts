@@ -30,7 +30,7 @@ describe('shared usage overview helpers', () => {
     expect(isDailyAverageRange({ range: 'yesterday' })).toBe(false);
   });
 
-  it('keeps the previous usage for the daily average panel while another daily-average range loads', () => {
+  it('keeps the previous usage for the daily average card while another daily-average range loads', () => {
     const currentUsage = { summary: { daily_average_requests: 30 } };
     const fallbackUsage = { summary: { daily_average_requests: 7 } };
 
