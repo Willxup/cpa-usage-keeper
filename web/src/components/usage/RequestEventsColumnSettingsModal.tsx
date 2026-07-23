@@ -208,10 +208,11 @@ export function RequestEventsColumnSettingsModal({
     if (target && targetIndex >= 0 && targetIndex !== currentIndex) {
       const targetRect = target.getBoundingClientRect();
       const targetMidpointY = targetRect.top + targetRect.height / 2;
-      if (
-        (currentIndex < targetIndex && clientY < targetMidpointY)
-        || (currentIndex > targetIndex && clientY > targetMidpointY)
-      ) return;
+      if (currentIndex < targetIndex && clientY < targetMidpointY) {
+        targetIndex -= 1;
+      } else if (currentIndex > targetIndex && clientY > targetMidpointY) {
+        targetIndex += 1;
+      }
     } else {
       if (!allowNearestFallback) return;
       // 指针落在行间或列表边界时，才按可见行中点计算插入位，避免增加正常热路径的测量。

@@ -153,6 +153,42 @@ describe('RequestEvents column settings', () => {
     element?.dispatchEvent(pointerEvent);
   };
 
+  const mockColumnRowRect = (row: HTMLElement, top: number) => {
+    row.getBoundingClientRect = () => ({
+      top,
+      right: 560,
+      bottom: top + 46,
+      left: 0,
+      width: 560,
+      height: 46,
+      x: 0,
+      y: top,
+      toJSON: () => ({}),
+    });
+  };
+
+  const mockColumnRowsInCurrentOrder = () => {
+    const rows = [...document.querySelectorAll<HTMLElement>('[data-request-events-column-row]')];
+    for (const row of rows) {
+      row.getBoundingClientRect = () => {
+        const currentRows = [...document.querySelectorAll('[data-request-events-column-row]')];
+        const top = currentRows.indexOf(row) * 52;
+        return {
+          top,
+          right: 560,
+          bottom: top + 46,
+          left: 0,
+          width: 560,
+          height: 46,
+          x: 0,
+          y: top,
+          toJSON: () => ({}),
+        };
+      };
+    }
+    return rows;
+  };
+
   it('reuses the current order when the drag target has not changed', () => {
     expect(moveRequestEventColumnId(customOrder, 'model', 0)).toBe(customOrder);
   });
@@ -304,25 +340,8 @@ describe('RequestEvents column settings', () => {
     await openSettings();
 
     const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
-    const rows = [...document.querySelectorAll<HTMLElement>('[data-request-events-column-row]')];
+    mockColumnRowsInCurrentOrder();
     expect(modelHandle).not.toBeNull();
-    for (const row of rows) {
-      row.getBoundingClientRect = () => {
-        const currentRows = [...document.querySelectorAll('[data-request-events-column-row]')];
-        const top = currentRows.indexOf(row) * 52;
-        return {
-          top,
-          right: 560,
-          bottom: top + 46,
-          left: 0,
-          width: 560,
-          height: 46,
-          x: 0,
-          y: top,
-          toJSON: () => ({}),
-        };
-      };
-    }
     vi.spyOn(document, 'elementFromPoint').mockReturnValue(null);
 
     await act(async () => {
@@ -333,6 +352,69 @@ describe('RequestEvents column settings', () => {
     expect([...document.querySelectorAll('[data-request-events-column-row]')].slice(0, 2).map((row) => (
       row.getAttribute('data-request-events-column-row')
     ))).toEqual(['timestamp', 'model']);
+  });
+
+  it('appends the dragged row when a fast drop lands below the final row', async () => {
+    await renderCard();
+    await openSettings();
+
+    const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
+    const rows = mockColumnRowsInCurrentOrder();
+    expect(modelHandle).not.toBeNull();
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(null);
+
+    await act(async () => {
+      dispatchPointer(modelHandle, 'pointerdown', { clientY: 10 });
+      dispatchPointer(modelHandle, 'pointerup', { clientY: rows.length * 52 + 20 });
+    });
+
+    const reorderedRows = [...document.querySelectorAll('[data-request-events-column-row]')];
+    expect(reorderedRows.at(-1)?.getAttribute('data-request-events-column-row')).toBe('model');
+  });
+
+  it('moves past skipped rows when dropped on the near half of a lower row', async () => {
+    await renderCard();
+    await openSettings();
+
+    const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
+    const apiKeyRow = document.querySelector<HTMLElement>('[data-request-events-column-row="api_key"]');
+    expect(modelHandle).not.toBeNull();
+    expect(apiKeyRow).not.toBeNull();
+    mockColumnRowRect(apiKeyRow!, 104);
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(apiKeyRow);
+
+    await act(async () => {
+      dispatchPointer(modelHandle, 'pointerdown', { clientY: 10 });
+      dispatchPointer(modelHandle, 'pointerup', { clientY: 110 });
+    });
+
+    expect([...document.querySelectorAll('[data-request-events-column-row]')].slice(0, 3).map((row) => (
+      row.getAttribute('data-request-events-column-row')
+    ))).toEqual(['timestamp', 'model', 'api_key']);
+  });
+
+  it('moves past skipped rows when dropped on the near half of a higher row', async () => {
+    await renderCard();
+    await openSettings();
+
+    const apiKeyHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="api_key"]');
+    const apiKeyRow = document.querySelector<HTMLElement>('[data-request-events-column-row="api_key"]');
+    const modelRow = document.querySelector<HTMLElement>('[data-request-events-column-row="model"]');
+    expect(apiKeyHandle).not.toBeNull();
+    expect(apiKeyRow).not.toBeNull();
+    expect(modelRow).not.toBeNull();
+    mockColumnRowRect(apiKeyRow!, 104);
+    mockColumnRowRect(modelRow!, 0);
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(modelRow);
+
+    await act(async () => {
+      dispatchPointer(apiKeyHandle, 'pointerdown', { clientY: 110 });
+      dispatchPointer(apiKeyHandle, 'pointerup', { clientY: 40 });
+    });
+
+    expect([...document.querySelectorAll('[data-request-events-column-row]')].slice(0, 3).map((row) => (
+      row.getAttribute('data-request-events-column-row')
+    ))).toEqual(['model', 'api_key', 'timestamp']);
   });
 
   it('moves the dragged row with the latest pointer position in one animation frame', async () => {
