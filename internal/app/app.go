@@ -393,8 +393,9 @@ func (a *App) Run() error {
 	}
 
 	server := &http.Server{
-		Addr:    ":" + a.Config.AppPort,
-		Handler: a.Router,
+		Addr:     ":" + a.Config.AppPort,
+		Handler:  a.Router,
+		ErrorLog: logging.NewStandardLogger(logrus.ErrorLevel),
 	}
 	if a.Config.TLSEnabled {
 		return server.ListenAndServeTLS(a.Config.TLSCertFile, a.Config.TLSKeyFile)

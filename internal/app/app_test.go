@@ -275,7 +275,7 @@ func TestNewWithConfigContinuesWhenRecentUsageCacheInitializationFails(t *testin
 		t.Fatalf("expected recent usage cache to be nil after initialization failure, got %T", app.RecentUsageCache)
 	}
 	logContent := readAppLogFile(t, logDir)
-	if !strings.Contains(logContent, "level=error") || !strings.Contains(logContent, "recent usage event cache initialization failed") || !strings.Contains(logContent, cacheErr.Error()) {
+	if !strings.Contains(logContent, "| error |") || !strings.Contains(logContent, "recent usage event cache initialization failed") || !strings.Contains(logContent, cacheErr.Error()) {
 		t.Fatalf("expected error log for recent usage cache initialization failure, got %s", logContent)
 	}
 }

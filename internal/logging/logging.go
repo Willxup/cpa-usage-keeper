@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	stdlog "log"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,7 +27,8 @@ type restoreCloser struct {
 	previousLogrusLevel        logrus.Level
 	previousLogrusFormatter    logrus.Formatter
 	previousStdlogOutput       io.Writer
-	previousSlog               *slog.Logger
+	previousStdlogFlags        int
+	previousStdlogPrefix       string
 	previousGinDefaultWriter   io.Writer
 	previousGinErrorWriter     io.Writer
 	previousGinDebugPrint      func(string, ...interface{})
@@ -40,7 +40,8 @@ func (c *restoreCloser) Close() error {
 	logrus.SetLevel(c.previousLogrusLevel)
 	logrus.SetFormatter(c.previousLogrusFormatter)
 	stdlog.SetOutput(c.previousStdlogOutput)
-	slog.SetDefault(c.previousSlog)
+	stdlog.SetFlags(c.previousStdlogFlags)
+	stdlog.SetPrefix(c.previousStdlogPrefix)
 	gin.DefaultWriter = c.previousGinDefaultWriter
 	gin.DefaultErrorWriter = c.previousGinErrorWriter
 	gin.DebugPrintFunc = c.previousGinDebugPrint
@@ -65,7 +66,8 @@ func Configure(cfg config.Config) (io.Closer, error) {
 	previousLogrusLevel := logrus.GetLevel()
 	previousLogrusFormatter := logrus.StandardLogger().Formatter
 	previousStdlogOutput := stdlog.Writer()
-	previousSlog := slog.Default()
+	previousStdlogFlags := stdlog.Flags()
+	previousStdlogPrefix := stdlog.Prefix()
 	previousGinDefaultWriter := gin.DefaultWriter
 	previousGinErrorWriter := gin.DefaultErrorWriter
 	previousGinDebugPrint := gin.DebugPrintFunc
@@ -84,18 +86,16 @@ func Configure(cfg config.Config) (io.Closer, error) {
 		if err != nil {
 			return nil, err
 		}
-		writer = io.MultiWriter(os.Stderr, dailyWriter)
+		writer = io.MultiWriter(os.Stderr, NewPlainWriter(dailyWriter))
 		closer = dailyWriter
 	}
 
 	logrus.SetLevel(level)
-	logrus.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp:   true,
-		TimestampFormat: time.RFC3339,
-	})
+	logrus.SetFormatter(keeperFormatter{})
 	logrus.SetOutput(writer)
-	stdlog.SetOutput(writer)
-	slog.SetDefault(slog.New(slog.NewTextHandler(writer, nil)))
+	stdlog.SetFlags(0)
+	stdlog.SetPrefix("")
+	stdlog.SetOutput(logrusWriter{level: logrus.InfoLevel})
 	configureGinLogging()
 	return &restoreCloser{
 		closer:                     closer,
@@ -103,12 +103,36 @@ func Configure(cfg config.Config) (io.Closer, error) {
 		previousLogrusLevel:        previousLogrusLevel,
 		previousLogrusFormatter:    previousLogrusFormatter,
 		previousStdlogOutput:       previousStdlogOutput,
-		previousSlog:               previousSlog,
+		previousStdlogFlags:        previousStdlogFlags,
+		previousStdlogPrefix:       previousStdlogPrefix,
 		previousGinDefaultWriter:   previousGinDefaultWriter,
 		previousGinErrorWriter:     previousGinErrorWriter,
 		previousGinDebugPrint:      previousGinDebugPrint,
 		previousGinDebugPrintRoute: previousGinDebugPrintRoute,
 	}, nil
+}
+
+// ConfigureBootstrap 让配置加载阶段的致命错误也沿用 Keeper 控制台格式。
+func ConfigureBootstrap() {
+	logrus.SetLevel(logrus.InfoLevel)
+	logrus.SetFormatter(keeperFormatter{})
+	logrus.SetOutput(os.Stderr)
+}
+
+// NewStandardLogger 为只接受标准库 logger 的组件保留明确的 Logrus 级别。
+func NewStandardLogger(level logrus.Level) *stdlog.Logger {
+	return stdlog.New(logrusWriter{level: level}, "", 0)
+}
+
+// LogTerminalError 保证进程即将失败退出时的原因不被 fatal/panic 阈值过滤。
+func LogTerminalError(message string, err error) {
+	logger := logrus.StandardLogger()
+	previousLevel := logger.GetLevel()
+	if !logger.IsLevelEnabled(logrus.ErrorLevel) {
+		logger.SetLevel(logrus.ErrorLevel)
+		defer logger.SetLevel(previousLevel)
+	}
+	logger.WithError(err).Error(message)
 }
 
 type logrusWriter struct {

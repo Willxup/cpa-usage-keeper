@@ -11,6 +11,7 @@ import (
 
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/logging"
 	"cpa-usage-keeper/internal/repository/migration"
 	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/driver/sqlite"
@@ -87,7 +88,10 @@ func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 	// SQLite DSN 统一补齐 busy_timeout/foreign_keys，调用方只需要传项目配置里的路径。
 	dsn := sqliteDSN(cfg.SQLitePath)
 	// GORM 自动时间也先落到项目 TZ，再由 storageTime serializer 输出统一字符串。
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{NowFunc: func() time.Time { return timeutil.NormalizeStorageTime(time.Now()) }})
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
+		Logger:  logging.NewGORMLogger(),
+		NowFunc: func() time.Time { return timeutil.NormalizeStorageTime(time.Now()) },
+	})
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite database %s: %w", filepath.Clean(cfg.SQLitePath), err)
 	}
@@ -161,7 +165,10 @@ func OpenReadDatabase(cfg config.Config) (*gorm.DB, error) {
 		return nil, fmt.Errorf("build sqlite read database DSN %s: %w", filepath.Clean(cfg.SQLitePath), err)
 	}
 	// reader 使用与 writer 相同的项目时区 NowFunc，保证查询参数和 GORM 时间处理语义一致。
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{NowFunc: func() time.Time { return timeutil.NormalizeStorageTime(time.Now()) }})
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
+		Logger:  logging.NewGORMLogger(),
+		NowFunc: func() time.Time { return timeutil.NormalizeStorageTime(time.Now()) },
+	})
 	// 只读文件或 DSN 无法打开时直接终止 App 初始化，禁止静默退回 writer 连接。
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite read database %s: %w", filepath.Clean(cfg.SQLitePath), err)

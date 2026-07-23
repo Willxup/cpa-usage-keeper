@@ -2,12 +2,12 @@ package api
 
 import (
 	"errors"
-	"log/slog"
 	"net/http"
 	"strings"
 
 	"cpa-usage-keeper/internal/quota"
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 type quotaRequest struct {
@@ -241,7 +241,7 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 					writeQuotaResetError(c, statusCode, err)
 					return
 				}
-				slog.Error("quota reset failed", "error", err)
+				logrus.WithError(err).Error("quota reset failed")
 				writeQuotaResetError(c, http.StatusInternalServerError, err)
 			}
 			return

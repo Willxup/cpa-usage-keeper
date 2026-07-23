@@ -3,7 +3,6 @@ package logging
 import (
 	"bytes"
 	stdlog "log"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -53,7 +52,7 @@ func TestConfigureWritesLogrusToDailyFile(t *testing.T) {
 	}
 }
 
-func TestConfigureUsesFullTimestampFormatter(t *testing.T) {
+func TestConfigureUsesKeeperFormatter(t *testing.T) {
 	reset := captureGlobalLogState(t)
 	defer reset()
 
@@ -67,12 +66,9 @@ func TestConfigureUsesFullTimestampFormatter(t *testing.T) {
 	}
 	defer closer.Close()
 
-	formatter, ok := logrus.StandardLogger().Formatter.(*logrus.TextFormatter)
+	_, ok := logrus.StandardLogger().Formatter.(keeperFormatter)
 	if !ok {
-		t.Fatalf("expected text formatter, got %T", logrus.StandardLogger().Formatter)
-	}
-	if !formatter.FullTimestamp || formatter.TimestampFormat == "" {
-		t.Fatalf("expected full timestamp formatter, got FullTimestamp=%v TimestampFormat=%q", formatter.FullTimestamp, formatter.TimestampFormat)
+		t.Fatalf("expected Keeper formatter, got %T", logrus.StandardLogger().Formatter)
 	}
 }
 
@@ -148,7 +144,7 @@ func TestConfigureDisablesFileLogging(t *testing.T) {
 	}
 }
 
-func TestConfigureRoutesStdlibLogAndSlogToFile(t *testing.T) {
+func TestConfigureRoutesStdlibLogToFile(t *testing.T) {
 	reset := captureGlobalLogState(t)
 	defer reset()
 
@@ -165,11 +161,10 @@ func TestConfigureRoutesStdlibLogAndSlogToFile(t *testing.T) {
 	defer closer.Close()
 
 	stdlog.Print("stdlib message")
-	slog.Error("slog message")
 
 	content := readTodayLogFile(t, logDir)
-	if !strings.Contains(content, "stdlib message") || !strings.Contains(content, "slog message") {
-		t.Fatalf("expected stdlib and slog messages in file, got %q", content)
+	if !strings.Contains(content, "stdlib message") {
+		t.Fatalf("expected stdlib message in file, got %q", content)
 	}
 }
 
@@ -245,7 +240,8 @@ func TestConfigureCloseRestoresGlobalLoggers(t *testing.T) {
 	var restoredOutput bytes.Buffer
 	logrus.SetOutput(&restoredOutput)
 	stdlog.SetOutput(&restoredOutput)
-	slog.SetDefault(slog.New(slog.NewTextHandler(&restoredOutput, nil)))
+	stdlog.SetFlags(stdlog.Lshortfile)
+	stdlog.SetPrefix("restored-prefix ")
 	gin.DefaultWriter = &restoredOutput
 	gin.DefaultErrorWriter = &restoredOutput
 	gin.DebugPrintFunc = func(format string, values ...interface{}) {
@@ -267,15 +263,17 @@ func TestConfigureCloseRestoresGlobalLoggers(t *testing.T) {
 	if err := closer.Close(); err != nil {
 		t.Fatalf("Close returned error: %v", err)
 	}
+	if stdlog.Flags() != stdlog.Lshortfile || stdlog.Prefix() != "restored-prefix " {
+		t.Fatalf("expected standard logger flags and prefix to be restored, got flags=%d prefix=%q", stdlog.Flags(), stdlog.Prefix())
+	}
 
 	logrus.Info("after close logrus")
 	stdlog.Print("after close stdlib")
-	slog.Error("after close slog")
 	gin.DebugPrintFunc("ignored")
 	gin.DebugPrintRouteFunc("GET", "/", "handler", 1)
 
 	content := restoredOutput.String()
-	for _, want := range []string{"after close logrus", "after close stdlib", "after close slog", "after close gin debug", "after close gin route"} {
+	for _, want := range []string{"after close logrus", "after close stdlib", "after close gin debug", "after close gin route"} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("expected global loggers to be restored after close with %q, got %q", want, content)
 		}
@@ -346,7 +344,8 @@ func readTodayLogFile(t *testing.T, logDir string) string {
 }
 
 func logLineHasTimestamp(content string) bool {
-	return regexp.MustCompile(`time="?\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}`).MatchString(content)
+	plain := ansiSequencePattern.ReplaceAllString(content, "")
+	return regexp.MustCompile(`(?m)^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2}) \|`).MatchString(plain)
 }
 
 func captureGlobalLogState(t *testing.T) func() {
@@ -355,7 +354,8 @@ func captureGlobalLogState(t *testing.T) func() {
 	previousLogrusLevel := logrus.GetLevel()
 	previousLogrusFormatter := logrus.StandardLogger().Formatter
 	previousStdlogOutput := stdlog.Writer()
-	previousSlog := slog.Default()
+	previousStdlogFlags := stdlog.Flags()
+	previousStdlogPrefix := stdlog.Prefix()
 	previousGinDefaultWriter := gin.DefaultWriter
 	previousGinErrorWriter := gin.DefaultErrorWriter
 	previousGinDebugPrint := gin.DebugPrintFunc
@@ -368,7 +368,8 @@ func captureGlobalLogState(t *testing.T) func() {
 		logrus.SetLevel(previousLogrusLevel)
 		logrus.SetFormatter(previousLogrusFormatter)
 		stdlog.SetOutput(previousStdlogOutput)
-		slog.SetDefault(previousSlog)
+		stdlog.SetFlags(previousStdlogFlags)
+		stdlog.SetPrefix(previousStdlogPrefix)
 		gin.DefaultWriter = previousGinDefaultWriter
 		gin.DefaultErrorWriter = previousGinErrorWriter
 		gin.DebugPrintFunc = previousGinDebugPrint

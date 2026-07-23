@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/auth"
+	"cpa-usage-keeper/internal/logging"
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/service"
@@ -65,7 +66,7 @@ func NewRouter(
 ) *gin.Engine {
 	router := gin.New()
 	_ = router.SetTrustedProxies(nil)
-	router.Use(gin.Recovery())
+	router.Use(logging.NewGinRecovery())
 
 	appGroup := router.Group(basePath)
 	registerHealthRoutes(appGroup)
