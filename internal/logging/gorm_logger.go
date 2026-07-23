@@ -2,9 +2,11 @@ package logging
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 )
 
@@ -26,6 +28,11 @@ func NewGORMLogger() gormlogger.Interface {
 func (l gormLogrusLogger) LogMode(level gormlogger.LogLevel) gormlogger.Interface {
 	l.level = level
 	return l
+}
+
+// ParamsFilter 禁止 GORM 把 API Key 等查询实参插入错误或慢查询日志。
+func (gormLogrusLogger) ParamsFilter(_ context.Context, sql string, _ ...interface{}) (string, []interface{}) {
+	return sql, nil
 }
 
 func (l gormLogrusLogger) Info(ctx context.Context, message string, data ...interface{}) {
@@ -55,9 +62,10 @@ func (l gormLogrusLogger) Trace(ctx context.Context, begin time.Time, query func
 	}
 
 	elapsed := time.Since(begin)
+	recordNotFound := errors.Is(queryErr, gorm.ErrRecordNotFound)
 	// 只有确定需要输出时才展开 SQL，保持 GORM 正常查询路径的原有开销边界。
 	switch {
-	case queryErr != nil && l.level >= gormlogger.Error && logrus.IsLevelEnabled(logrus.ErrorLevel):
+	case queryErr != nil && !recordNotFound && l.level >= gormlogger.Error && logrus.IsLevelEnabled(logrus.ErrorLevel):
 		sql, rows := query()
 		logrus.WithContext(ctx).WithError(queryErr).WithFields(logrus.Fields{
 			"elapsed": elapsed.Round(time.Microsecond).String(),
@@ -72,7 +80,7 @@ func (l gormLogrusLogger) Trace(ctx context.Context, begin time.Time, query func
 			"sql":       sql,
 			"threshold": l.slowThreshold.String(),
 		}).Warn("gorm slow query")
-	case l.level >= gormlogger.Info && logrus.IsLevelEnabled(logrus.InfoLevel):
+	case queryErr == nil && l.level >= gormlogger.Info && logrus.IsLevelEnabled(logrus.InfoLevel):
 		sql, rows := query()
 		logrus.WithContext(ctx).WithFields(logrus.Fields{
 			"elapsed": elapsed.Round(time.Microsecond).String(),

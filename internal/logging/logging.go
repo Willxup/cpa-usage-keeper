@@ -124,6 +124,17 @@ func NewStandardLogger(level logrus.Level) *stdlog.Logger {
 	return stdlog.New(logrusWriter{level: level}, "", 0)
 }
 
+// LogTerminalError 保证进程即将失败退出时的原因不被 fatal/panic 阈值过滤。
+func LogTerminalError(message string, err error) {
+	logger := logrus.StandardLogger()
+	previousLevel := logger.GetLevel()
+	if !logger.IsLevelEnabled(logrus.ErrorLevel) {
+		logger.SetLevel(logrus.ErrorLevel)
+		defer logger.SetLevel(previousLevel)
+	}
+	logger.WithError(err).Error(message)
+}
+
 type logrusWriter struct {
 	level logrus.Level
 }

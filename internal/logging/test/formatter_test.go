@@ -165,6 +165,24 @@ func TestConfigureBootstrapFormatsEarlyLogrusEntries(t *testing.T) {
 	}
 }
 
+func TestLogTerminalErrorBypassesRestrictiveLevelsAndRestoresThem(t *testing.T) {
+	for _, level := range []string{"fatal", "panic"} {
+		t.Run(level, func(t *testing.T) {
+			output := captureConsole(t, config.Config{LogLevel: level}, func() {
+				logging.LogTerminalError("run app", errors.New("listen failed"))
+				if got := logrus.GetLevel().String(); got != level {
+					t.Fatalf("expected log level %q to be restored, got %q", level, got)
+				}
+			})
+
+			plain := ansiPattern.ReplaceAllString(output, "")
+			if !strings.Contains(plain, `| error | run app | error="listen failed"`) {
+				t.Fatalf("expected terminal error to remain visible at %s level, got %q", level, plain)
+			}
+		})
+	}
+}
+
 func captureConsole(t *testing.T, cfg config.Config, writeLog func()) string {
 	t.Helper()
 	return captureStderr(t, func() {

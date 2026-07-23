@@ -22,7 +22,7 @@ func main() {
 	defer application.Close()
 
 	if err := application.Run(); err != nil {
-		logrus.WithError(err).Error("run app")
+		logging.LogTerminalError("run app", err)
 		if closeErr := application.Close(); closeErr != nil {
 			logrus.WithError(closeErr).Error("close app")
 		}
