@@ -288,11 +288,14 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.D
 		if persistErr != nil {
 			return persistErr
 		}
-		// validRows 和 events 按同一循环 append，索引一一对应。
+		// validRows 和 events 按同一循环 append，先固定一一对应关系，再由仓储层按 SQLite 变量上限分批标记。
+		processedUpdates := make([]repository.RedisUsageInboxProcessedUpdate, 0, len(validRows))
 		for i, row := range validRows {
-			if markErr := repository.MarkRedisUsageInboxProcessed(tx, row.ID, events[i].EventKey, fetchedAt); markErr != nil {
-				return fmt.Errorf("mark redis usage inbox processed: %w", markErr)
-			}
+			processedUpdates = append(processedUpdates, repository.RedisUsageInboxProcessedUpdate{ID: row.ID, EventKey: events[i].EventKey})
+		}
+		// 所有子批次仍在当前外层事务内；任意标记失败都会连同 usage_events 和前序标记一起回滚。
+		if markErr := repository.MarkRedisUsageInboxProcessedBatch(tx, processedUpdates, fetchedAt); markErr != nil {
+			return fmt.Errorf("mark redis usage inbox processed: %w", markErr)
 		}
 		return nil
 	})

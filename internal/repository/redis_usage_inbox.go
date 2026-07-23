@@ -50,7 +50,15 @@ const (
 
 	redisUsageInboxMaxErrorLength     = 1024
 	redisUsageInboxMaxProcessAttempts = 5
+	// 每行 CASE 映射占 2 个变量，WHERE IN 再占 1 个；300 行连同固定字段仍低于 SQLite 999 变量限制。
+	redisUsageInboxProcessedBatchSize = 300
 )
+
+// RedisUsageInboxProcessedUpdate 保存单条 inbox 与最终 usage event 的稳定映射。
+type RedisUsageInboxProcessedUpdate struct {
+	ID       int64
+	EventKey string
+}
 
 func InsertRedisUsageInboxRawMessages(db *gorm.DB, source string, messages []string, poppedAt time.Time) ([]entities.RedisUsageInbox, error) {
 	// inputs 统一走结构化 DTO，避免 raw message 快捷入口和测试入口出现两套入库逻辑。
@@ -109,6 +117,35 @@ func MarkRedisUsageInboxProcessed(db *gorm.DB, id int64, eventKey string, proces
 		"processed_at":    timeutil.FormatStorageTime(processedAt),
 		"last_error":      "",
 	}).Error
+}
+
+// MarkRedisUsageInboxProcessedBatch 分批更新 processed 状态，同时保持每个 inbox ID 对应自己的 event key。
+func MarkRedisUsageInboxProcessedBatch(db *gorm.DB, updates []RedisUsageInboxProcessedUpdate, processedAt time.Time) error {
+	for start := 0; start < len(updates); start += redisUsageInboxProcessedBatchSize {
+		end := min(start+redisUsageInboxProcessedBatchSize, len(updates))
+		batch := updates[start:end]
+		ids := make([]int64, 0, len(batch))
+		caseArgs := make([]any, 0, len(batch)*2)
+		var eventKeyCase strings.Builder
+		eventKeyCase.WriteString("CASE id")
+		for _, update := range batch {
+			eventKeyCase.WriteString(" WHEN ? THEN ?")
+			caseArgs = append(caseArgs, update.ID, update.EventKey)
+			ids = append(ids, update.ID)
+		}
+		eventKeyCase.WriteString(" ELSE usage_event_key END")
+
+		result := db.Model(&entities.RedisUsageInbox{}).Where("id IN ?", ids).Updates(map[string]any{
+			"status":          RedisUsageInboxStatusProcessed,
+			"usage_event_key": gorm.Expr(eventKeyCase.String(), caseArgs...),
+			"processed_at":    timeutil.FormatStorageTime(processedAt),
+			"last_error":      "",
+		})
+		if result.Error != nil {
+			return fmt.Errorf("mark redis usage inbox processed batch [%d:%d]: %w", start, end, result.Error)
+		}
+	}
+	return nil
 }
 
 func MarkRedisUsageInboxDecodeFailed(db *gorm.DB, id int64, decodeErr error) error {

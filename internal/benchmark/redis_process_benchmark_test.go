@@ -81,8 +81,11 @@ func benchmarkRedisUsageInboxProcessing(b *testing.B, rowCount, identityCount in
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
 		db := openRedisProcessBenchmarkDB(b, rowCount, identityCount, i)
+		// 使用生产 notifier 的同步内存路径，但不启动后台聚合 goroutine，隔离 ingestion 自身成本。
+		aggregationRunner := poller.NewUsageAggregationRunner(db, nil)
 		syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
-			Now: func() time.Time { return time.Date(2026, 5, 14, 12, 0, 0, 0, time.UTC) },
+			Now:                      func() time.Time { return time.Date(2026, 5, 14, 12, 0, 0, 0, time.UTC) },
+			UsageAggregationNotifier: aggregationRunner,
 		})
 		b.StartTimer()
 
@@ -187,7 +190,7 @@ func redisProcessBenchmarkMessage(i, identityCount int, base time.Time) string {
 	authIndex := redisProcessBenchmarkAuthIndex(i % identityCount)
 	timestamp := base.Add(time.Duration(i) * time.Millisecond).Format(time.RFC3339Nano)
 	return fmt.Sprintf(
-		`{"timestamp":%q,"latency_ms":120,"source":"redis","auth_index":%q,"tokens":{"input_tokens":120,"output_tokens":48,"reasoning_tokens":8,"cached_tokens":16,"cache_read_tokens":4,"cache_creation_tokens":2,"total_tokens":176},"provider":"codex","model":"gpt-5","auth_type":"oauth","api_key":"bench-group","request_id":%q}`,
+		`{"timestamp":%q,"latency_ms":120,"source":"redis","auth_index":%q,"tokens":{"input_tokens":120,"output_tokens":48,"reasoning_tokens":8,"cached_tokens":16,"cache_read_tokens":4,"cache_creation_tokens":2,"total_tokens":168},"provider":"codex","model":"gpt-5","auth_type":"oauth","api_key":"bench-group","request_id":%q}`,
 		timestamp,
 		authIndex,
 		fmt.Sprintf("bench-%08d", i),
