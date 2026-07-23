@@ -2123,10 +2123,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         closeDisabled={loggingOut}
         footer={
           <>
-            <Button type="button" variant="secondary" onClick={() => setLogoutConfirmOpen(false)} disabled={loggingOut}>
+            <Button type="button" variant="secondary" className={styles.usagePillAction} onClick={() => setLogoutConfirmOpen(false)} disabled={loggingOut}>
               {t('common.cancel')}
             </Button>
-            <Button type="button" variant="danger" onClick={() => void handleConfirmLogout()} loading={loggingOut}>
+            <Button type="button" variant="danger" className={`${styles.usagePillAction} ${styles.usagePillActionDanger}`} onClick={() => void handleConfirmLogout()} loading={loggingOut}>
               {loggingOut ? t('common.loading') : t('usage_stats.logout_confirm_action')}
             </Button>
           </>

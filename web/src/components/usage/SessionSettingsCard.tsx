@@ -126,10 +126,10 @@ export function SessionSettingsCard({ sessions, loading = false, revokingId = nu
           closeDisabled={confirmingRevoking}
           footer={
             <>
-              <Button type="button" variant="secondary" onClick={() => setConfirmingSession(null)} disabled={confirmingRevoking}>
+              <Button type="button" variant="secondary" className={styles.usagePillAction} onClick={() => setConfirmingSession(null)} disabled={confirmingRevoking}>
                 {t('common.cancel')}
               </Button>
-              <Button type="button" variant="danger" onClick={() => void handleConfirmLogout()} loading={confirmingRevoking}>
+              <Button type="button" variant="danger" className={`${styles.usagePillAction} ${styles.usagePillActionDanger}`} onClick={() => void handleConfirmLogout()} loading={confirmingRevoking}>
                 {confirmingRevoking ? t('usage_stats.session_settings_logging_out') : t(confirmationKeys.confirmKey)}
               </Button>
             </>

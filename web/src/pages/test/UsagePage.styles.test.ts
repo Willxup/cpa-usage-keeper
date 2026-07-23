@@ -679,6 +679,24 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).toMatch(/\.sessionSettingsLogoutButton\s*\{[\s\S]*?min-width:\s*92px;/)
   })
 
+  it('keeps both logout confirmation button pairs aligned with Usage dialog actions', () => {
+    const sessionLogoutModalStart = sessionSettingsSource.indexOf('<Modal\n          open={Boolean(confirmingSession)}')
+    const pageLogoutModalStart = usagePageSource.indexOf('<Modal\n        open={logoutConfirmOpen}')
+    const sessionLogoutModal = sessionSettingsSource.slice(
+      sessionLogoutModalStart,
+      sessionSettingsSource.indexOf('</Modal>', sessionLogoutModalStart),
+    )
+    const pageLogoutModal = usagePageSource.slice(
+      pageLogoutModalStart,
+      usagePageSource.indexOf('</Modal>', pageLogoutModalStart),
+    )
+
+    for (const modalSource of [sessionLogoutModal, pageLogoutModal]) {
+      expect(modalSource).toMatch(/variant="secondary"\s+className=\{styles\.usagePillAction\}/)
+      expect(modalSource).toContain('className={`${styles.usagePillAction} ${styles.usagePillActionDanger}`}')
+    }
+  })
+
   it('keeps Session and API Key Settings row actions compact like Model Pricing actions', () => {
     const apiKeyButtonsBlock = usagePageStyles.slice(
       usagePageStyles.indexOf('.apiKeySettingsCopyButton,'),
