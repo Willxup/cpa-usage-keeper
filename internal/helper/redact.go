@@ -23,6 +23,9 @@ func RedactSensitiveValue(value string) string {
 
 // CPAAPIKeyMaskedDisplayKey 返回 CPA API Key 的安全展示 key；优先基于原始 key 重新脱敏，避免历史 DisplayKey 格式不一致。
 func CPAAPIKeyMaskedDisplayKey(row entities.CPAAPIKey) string {
+	if row.Source == entities.CPAAPIKeySourceCPAKeyPolicy && strings.TrimSpace(row.DisplayKey) != "" {
+		return strings.TrimSpace(row.DisplayKey)
+	}
 	if strings.TrimSpace(row.APIKey) != "" {
 		return RedactSensitiveValue(row.APIKey)
 	}

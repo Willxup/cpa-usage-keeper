@@ -77,6 +77,8 @@ const (
 	migrationLocalRankingStats = "20260731_local_ranking_stats"
 	// migrationAddCPAAPIKeyLocalRankingAvatar 保存可空的本地排行头像覆盖值。
 	migrationAddCPAAPIKeyLocalRankingAvatar = "20260803_add_cpa_api_key_local_ranking_avatar"
+	// migrationAddCPAAPIKeySource 隔离 native 与 plugin metadata 的认证和 reconcile 范围。
+	migrationAddCPAAPIKeySource = "20260807_add_cpa_api_key_source"
 )
 
 type schemaMigration struct {
@@ -193,6 +195,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationCreateUsageEventArchive, run: createUsageEventArchiveMigration},
 		{version: migrationLocalRankingStats, run: localRankingStatsMigration},
 		{version: migrationAddCPAAPIKeyLocalRankingAvatar, run: addCPAAPIKeyLocalRankingAvatarMigration},
+		{version: migrationAddCPAAPIKeySource, run: addCPAAPIKeySourceMigration},
 	}
 }
 
