@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef, type KeyboardEvent, type SyntheticEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError, fetchAnalysis, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, logout, markStatusActive, revokeAuthSession, updateCpaApiKeyAlias } from '@/lib/api';
+import { ApiError, fetchAnalysis, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, generateCpaApiKey, logout, markStatusActive, revokeAuthSession, updateCpaApiKeyAlias } from '@/lib/api';
 import type { AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, ModelFilterOption, OverviewRealtimeWindow, StatusResponse, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
@@ -826,6 +826,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [apiKeySettingsLoading, setApiKeySettingsLoading] = useState(false);
   const [apiKeySettingsError, setApiKeySettingsError] = useState('');
   const [apiKeySettingsSavingId, setApiKeySettingsSavingId] = useState<string | null>(null);
+  const [apiKeySettingsGenerating, setApiKeySettingsGenerating] = useState(false);
   const apiKeySettingsRequestControllerRef = useRef<AbortController | null>(null);
   const [authSessions, setAuthSessions] = useState<AuthManagedSessionItem[]>([]);
   const [authSessionsLoading, setAuthSessionsLoading] = useState(false);
@@ -1048,6 +1049,28 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       showTopNotice('error', t('usage_stats.api_key_settings_alias_save_failed'));
     } finally {
       setApiKeySettingsSavingId(null);
+    }
+  }, [onAuthRequired, showTopNotice, t]);
+
+  const handleGenerateApiKey = useCallback(async (keyAlias: string) => {
+    setApiKeySettingsGenerating(true);
+    setApiKeySettingsError('');
+    try {
+      const created = await generateCpaApiKey(keyAlias);
+      setApiKeySettings((current) => [...current, created]);
+      setApiKeyOptions((current) => [...current, created]);
+      showTopNotice('success', t('usage_stats.api_key_settings_generate_success'));
+      return created;
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return undefined;
+      }
+      setApiKeySettingsError(error instanceof Error ? error.message : 'Failed to generate CPA API key');
+      showTopNotice('error', t('usage_stats.api_key_settings_generate_failed'));
+      return undefined;
+    } finally {
+      setApiKeySettingsGenerating(false);
     }
   }, [onAuthRequired, showTopNotice, t]);
 
@@ -2029,6 +2052,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   loading={apiKeySettingsLoading}
                   savingId={apiKeySettingsSavingId}
                   onSaveAlias={handleSaveApiKeyAlias}
+                  onGenerateApiKey={handleGenerateApiKey}
+                  generating={apiKeySettingsGenerating}
                   onNotice={showTopNotice}
                 />
                 <PriceSettingsCard

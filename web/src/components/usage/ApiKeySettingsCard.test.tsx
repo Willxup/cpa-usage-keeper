@@ -108,4 +108,17 @@ describe('ApiKeySettingsCard', () => {
     expect(renderCard({ apiKeys: [], loading: true })).toContain('Loading...');
     expect(renderCard({ apiKeys: [], loading: false })).toContain('No CPA API keys synced yet.');
   });
+
+  it('renders a generate action and calls the parent generator', async () => {
+    const created: CpaApiKeySettingsItem = { id: '9007199254740995', apiKey: 'kpr_newsecretvalue', keyAlias: 'New', displayKey: 'kpr_*alue', label: 'New', lastSyncedAt: null };
+    const onGenerateApiKey = vi.fn(async () => created);
+    const html = renderCard({ onGenerateApiKey });
+
+    expect(html).toContain('Generate API Key');
+    expect(html).not.toContain('kpr_newsecretvalue');
+
+    const calls = onGenerateApiKey.mock.calls;
+    expect(calls).toEqual([]);
+    expect(renderCard({ onGenerateApiKey, generating: true })).toContain('Generate API Key');
+  });
 });

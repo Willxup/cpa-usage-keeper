@@ -56,6 +56,10 @@ type updateCPAAPIKeyAliasRequest struct {
 	KeyAlias string `json:"keyAlias"`
 }
 
+type generateCPAAPIKeyRequest struct {
+	KeyAlias string `json:"keyAlias"`
+}
+
 func registerCPAAPIKeyRoutes(router gin.IRoutes, provider service.CPAAPIKeyProvider) {
 	router.GET("/usage/api-keys", func(c *gin.Context) {
 		rows, err := listCPAAPIKeyRows(c, provider)
@@ -79,6 +83,30 @@ func registerCPAAPIKeyRoutes(router gin.IRoutes, provider service.CPAAPIKeyProvi
 			return
 		}
 		c.JSON(http.StatusOK, cpaAPIKeyOptionsResponse{Options: rows})
+	})
+
+	router.POST("/usage/api-keys/generate", func(c *gin.Context) {
+		generator, ok := provider.(service.CPAAPIKeyGenerator)
+		if !ok || generator == nil {
+			c.JSON(http.StatusNotImplemented, gin.H{"error": "api key provider is not configured"})
+			return
+		}
+		var request generateCPAAPIKeyRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		request.KeyAlias = strings.TrimSpace(request.KeyAlias)
+		if err := validateCPAAPIKeyAlias(request.KeyAlias); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		row, err := generator.GenerateCPAAPIKey(c.Request.Context(), request.KeyAlias)
+		if err != nil {
+			writeInternalError(c, "generate cpa api key failed", err)
+			return
+		}
+		c.JSON(http.StatusCreated, toCPAAPIKeySettingsResponse(row))
 	})
 
 	router.PATCH("/usage/api-keys/:id", func(c *gin.Context) {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appPath, deleteAuthFiles, fetchAnalysis, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyOverview, fetchKeyOverviewRealtime, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, loginWithCPAAPIKey, logout, markStatusActive, refreshUsageQuotas, resetUsageQuota, revokeAuthSession, setAuthFilesDisabled, startUsageQuotaInspection, updateCpaApiKeyAlias } from './api';
+import { appPath, deleteAuthFiles, fetchAnalysis, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyOverview, fetchKeyOverviewRealtime, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, generateCpaApiKey, loginWithCPAAPIKey, logout, markStatusActive, refreshUsageQuotas, resetUsageQuota, revokeAuthSession, setAuthFilesDisabled, startUsageQuotaInspection, updateCpaApiKeyAlias } from './api';
 
 describe('fetchUsageEvents', () => {
   afterEach(() => {
@@ -443,6 +443,24 @@ describe('fetchUsageEvents', () => {
     expect(new URL(String(updateUrl), 'http://localhost').pathname).toBe('/api/v1/usage/api-keys/123');
     expect(updateInit).toMatchObject({ credentials: 'include', method: 'PATCH' });
     expect(updateInit?.body).toBe(JSON.stringify({ keyAlias: '' }));
+  });
+
+  it('generates a CPA API key with an optional alias', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: '124', apiKey: 'kpr_generated', keyAlias: 'Secondary', displayKey: 'kpr_***rated', label: 'Secondary', lastSyncedAt: null }),
+    } as Response);
+
+    const created = await generateCpaApiKey('Secondary');
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(new URL(String(url), 'http://localhost').pathname).toBe('/api/v1/usage/api-keys/generate');
+    expect(init).toMatchObject({ credentials: 'include', method: 'POST' });
+    expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(init?.body).toBe(JSON.stringify({ keyAlias: 'Secondary' }));
+    expect(created.apiKey).toBe('kpr_generated');
+    expect(created.keyAlias).toBe('Secondary');
   });
 
   it('loads paged usage identities for one credential auth type', async () => {

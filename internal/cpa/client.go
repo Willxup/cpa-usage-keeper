@@ -188,6 +188,19 @@ func (c *Client) FetchAuthFiles(ctx context.Context) (*response.AuthFilesResult,
 	return result, nil
 }
 
+// AddManagementAPIKey 通过 PATCH 把新 key 追加到 CPA 的 api-keys 配置列表；old 传空串表示找不到已有项时直接追加。
+func (c *Client) AddManagementAPIKey(ctx context.Context, apiKey string) error {
+	key := strings.TrimSpace(apiKey)
+	if key == "" {
+		return fmt.Errorf("api key is empty")
+	}
+	_, _, err := c.doManagementJSONRequestWithBody(ctx, http.MethodPatch, cpaManagementAPIKeysEndpoint, map[string]string{
+		"old": "",
+		"new": key,
+	}, nil, "add api key")
+	return err
+}
+
 func (c *Client) UpdateAuthFileStatus(ctx context.Context, name string, disabled bool) error {
 	_, _, err := c.doManagementJSONRequestWithBody(ctx, http.MethodPatch, cpaManagementAuthFilesStatusEndpoint, authFileStatusRequest{
 		Name:     name,
