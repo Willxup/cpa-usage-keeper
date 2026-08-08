@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cpa-usage-keeper:benchmark:capacity-plan-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "manifest_sha256", "cells"],
+  "properties": {
+    "version": {"const": "capacity-v1"},
+    "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "cells": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "dataset_id", "hot_events", "archive_events", "cardinality", "resource", "rates_per_second"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^capacity-[a-z0-9-]+$"},
+          "kind": {"const": "capacity"},
+          "dataset_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+          "hot_events": {"type": "integer", "minimum": 1},
+          "archive_events": {"type": "integer", "minimum": 0},
+          "cardinality": {"type": "object"},
+          "resource": {"type": "object"},
+          "rates_per_second": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 1}}
+        }
+      }
+    }
+  }
+}

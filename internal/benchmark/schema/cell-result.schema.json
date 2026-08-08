@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cpa-usage-keeper:benchmark:cell-result-v1",
+  "type": "object",
+  "required": ["version", "run_id", "cell", "status", "dataset_fingerprint", "manifest_sha256", "keeper_binary_sha256", "benchctl_binary_sha256", "attempts", "capacity"],
+  "properties": {
+    "version": {"const": "capacity-v1"},
+    "run_id": {"type": "string"},
+    "cell": {"type": "object"},
+    "status": {"enum": ["preparing", "running", "completed", "failed", "oom", "timeout", "skipped_capacity"]},
+    "dataset_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "keeper_binary_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "benchctl_binary_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "shared_driver": {"type": "boolean"},
+    "work_database_retained": {"type": "boolean"},
+    "attempts": {"type": "array", "items": {"type": "object"}},
+    "capacity": {
+      "type": "object",
+      "required": ["hard_events_per_second", "interactive_events_per_second", "recommended_events_per_second"],
+      "properties": {
+        "hard_events_per_second": {"type": "integer", "minimum": 0},
+        "interactive_events_per_second": {"type": "integer", "minimum": 0},
+        "recommended_events_per_second": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

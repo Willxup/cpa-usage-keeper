@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cpa-usage-keeper:benchmark:capacity-v1",
+  "title": "CPA Usage Keeper capacity benchmark suite",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "target", "dataset", "traffic_tiers", "resources", "search"],
+  "properties": {
+    "version": {"const": "capacity-v1"},
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "arch"],
+      "properties": {
+        "os": {"const": "linux"},
+        "arch": {"const": "amd64"}
+      }
+    },
+    "dataset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "hot_events", "archive_events", "failure_rate", "seed", "hot_days", "archive_days", "benchmark_now", "cardinality"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+        "hot_events": {"type": "integer", "minimum": 1},
+        "archive_events": {"type": "integer", "minimum": 0},
+        "failure_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "seed": {"type": "integer", "minimum": 0},
+        "hot_days": {"type": "integer", "minimum": 1},
+        "archive_days": {"type": "integer", "minimum": 0},
+        "benchmark_now": {"type": "string", "format": "date-time"},
+        "cardinality": {"$ref": "#/$defs/cardinality"}
+      }
+    },
+    "traffic_tiers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "key_share", "per_key_weight"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+          "key_share": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+          "per_key_weight": {"type": "number", "exclusiveMinimum": 0}
+        }
+      }
+    },
+    "resources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/resource"}
+    },
+    "search": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rates_per_second", "probe_seconds", "boundary_seconds", "boundary_repetitions", "soak_seconds", "max_run_seconds", "dashboard_core_p95_ms", "dashboard_overall_p99_ms", "dashboard_requests_per_second", "recommended_capacity_ratio"],
+      "properties": {
+        "rates_per_second": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 1}},
+        "probe_seconds": {"type": "integer", "minimum": 1},
+        "boundary_seconds": {"type": "integer", "minimum": 1},
+        "boundary_repetitions": {"type": "integer", "minimum": 1},
+        "skip_boundary": {"type": "boolean"},
+        "soak_seconds": {"type": "integer", "minimum": 1},
+        "max_run_seconds": {"type": "integer", "minimum": 1},
+        "dashboard_core_p95_ms": {"type": "integer", "minimum": 0},
+        "dashboard_overall_p99_ms": {"type": "integer", "minimum": 1},
+        "dashboard_requests_per_second": {"type": "integer", "minimum": 1},
+        "search_dashboard_capacity": {"type": "boolean"},
+        "recommended_capacity_ratio": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}
+      }
+    }
+  },
+  "$defs": {
+    "cardinality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identities", "models", "api_keys"],
+      "properties": {
+        "identities": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "models": {"type": "integer", "minimum": 1, "maximum": 100},
+        "api_keys": {"type": "integer", "minimum": 1, "maximum": 100}
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "cpu", "memory_mib"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+        "cpu": {"type": "integer", "minimum": 1, "maximum": 4},
+        "memory_mib": {
+          "anyOf": [
+            {"const": 0},
+            {"type": "integer", "minimum": 100, "maximum": 4096}
+          ]
+        }
+      }
+    }
+  }
+}

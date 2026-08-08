@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cpa-usage-keeper:benchmark:run-v1",
+  "type": "object",
+  "required": ["version", "run_id", "state", "os", "arch", "manifest_sha256", "plan_sha256", "keeper_binary_sha256", "benchctl_binary_sha256", "selected_cells"],
+  "properties": {
+    "version": {"const": "capacity-v1"},
+    "run_id": {"type": "string", "minLength": 1},
+    "state": {"enum": ["preparing", "running", "completed", "failed"]},
+    "os": {"const": "linux"},
+    "arch": {"const": "amd64"},
+    "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "plan_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "keeper_binary_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "benchctl_binary_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "selected_cells": {"type": "array", "items": {"type": "string"}}
+  }
+}
