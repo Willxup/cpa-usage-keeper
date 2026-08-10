@@ -265,3 +265,84 @@ func TestListUsageEventFilterOptionsWithFilterReturnsStableModels(t *testing.T) 
 		t.Fatalf("expected stable model options, got %+v", options.Models)
 	}
 }
+
+func TestListUsageEventFilterOptionsWithFilterSplitsAliasesIntoDistinctOptions(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-events-filter-options-alias.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	aliasA := "claude-sonnet-cfs"
+	aliasB := "claude-sonnet-phoenix"
+	events := []entities.UsageEvent{
+		{EventKey: "a-1", APIGroupKey: "provider-a", Model: "claude-sonnet", ModelAlias: &aliasA, Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), TotalTokens: 10},
+		{EventKey: "a-2", APIGroupKey: "provider-a", Model: "claude-sonnet", ModelAlias: &aliasB, Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), TotalTokens: 20},
+		{EventKey: "a-3", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC), TotalTokens: 30},
+		{EventKey: "b-1", APIGroupKey: "provider-b", Model: "gpt-5", Timestamp: time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC), TotalTokens: 40},
+	}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	options, err := ListUsageEventFilterOptionsWithFilter(db, dto.UsageQueryFilter{})
+	if err != nil {
+		t.Fatalf("ListUsageEventFilterOptionsWithFilter returned error: %v", err)
+	}
+	want := []string{"claude-sonnet", "claude-sonnet-cfs", "claude-sonnet-phoenix", "gpt-5"}
+	if len(options.Models) != len(want) {
+		t.Fatalf("expected distinct alias options %+v, got %+v", want, options.Models)
+	}
+	for i := range want {
+		if options.Models[i] != want[i] {
+			t.Fatalf("expected model options %+v, got %+v", want, options.Models)
+		}
+	}
+}
+
+func TestListUsageEventsWithFilterFiltersByAliasDisplayValue(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-events-filter-by-alias.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	aliasA := "claude-sonnet-cfs"
+	aliasB := "claude-sonnet-phoenix"
+	events := []entities.UsageEvent{
+		{EventKey: "a-1", APIGroupKey: "provider-a", Model: "claude-sonnet", ModelAlias: &aliasA, Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), TotalTokens: 10},
+		{EventKey: "a-2", APIGroupKey: "provider-a", Model: "claude-sonnet", ModelAlias: &aliasB, Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), TotalTokens: 20},
+		{EventKey: "a-3", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC), TotalTokens: 30},
+		{EventKey: "b-1", APIGroupKey: "provider-b", Model: "gpt-5", Timestamp: time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC), TotalTokens: 40},
+	}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	for _, tc := range []struct {
+		filterModel string
+		wantTokens  []int64
+	}{
+		{filterModel: "claude-sonnet-cfs", wantTokens: []int64{10}},
+		{filterModel: "claude-sonnet-phoenix", wantTokens: []int64{20}},
+		{filterModel: "claude-sonnet", wantTokens: []int64{30}},
+		{filterModel: "gpt-5", wantTokens: []int64{40}},
+	} {
+		t.Run(tc.filterModel, func(t *testing.T) {
+			page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{Model: tc.filterModel, Page: 1, PageSize: 100, Limit: 100})
+			if err != nil {
+				t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
+			}
+			gotTokens := make([]int64, 0, len(page.Events))
+			for _, event := range page.Events {
+				gotTokens = append(gotTokens, event.TotalTokens)
+			}
+			if len(gotTokens) != len(tc.wantTokens) {
+				t.Fatalf("expected events with tokens %v for filter %q, got %v", tc.wantTokens, tc.filterModel, gotTokens)
+			}
+			for i := range tc.wantTokens {
+				if gotTokens[i] != tc.wantTokens[i] {
+					t.Fatalf("expected events with tokens %v for filter %q, got %v", tc.wantTokens, tc.filterModel, gotTokens)
+				}
+			}
+		})
+	}
+}

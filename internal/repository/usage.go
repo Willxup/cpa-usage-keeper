@@ -124,19 +124,34 @@ func ListUsageEventFilterOptionsWithFilter(db *gorm.DB, filter dto.UsageQueryFil
 	if err != nil {
 		return nil, err
 	}
-	modelLabels := loadModelAliasMap(db)
-	return &dto.UsageEventFilterOptionsRecord{Models: models, ModelLabels: modelLabels}, nil
+	return &dto.UsageEventFilterOptionsRecord{Models: models}, nil
 }
 
 func listUsageEventModelFilterOptions(db *gorm.DB, filter dto.UsageQueryFilter) ([]string, error) {
-	// 第一步：model 候选值只来自 usage_events，并且只套用时间窗口。
+	// 第一步：候选值只来自 usage_events，并且只套用时间窗口。
 	query := applyUsageEventFilterOptionsQuery(queryUsageEvents(db), filter)
 
-	// 第二步：去重并排除空 model，保持下拉选项稳定排序。
-	var values []string
-	if err := query.Select("DISTINCT model").Where("model <> ''").Order("model ASC").Pluck("model", &values).Error; err != nil {
+	// 第二步：按 (model, model_alias) 去重生成展示值（alias 优先，无 alias 时回退 model）。
+	// 同一个上游 model 名被配置成不同 alias 时，下拉里会出现多个独立选项，与请求事件列表展示口径一致。
+	type modelAliasPair struct {
+		Model      string
+		ModelAlias *string
+	}
+	var pairs []modelAliasPair
+	if err := query.Select("DISTINCT model, model_alias").Where("model <> ''").Find(&pairs).Error; err != nil {
 		return nil, fmt.Errorf("load usage event model filter options: %w", err)
 	}
+	seen := make(map[string]struct{}, len(pairs))
+	values := make([]string, 0, len(pairs))
+	for _, pair := range pairs {
+		value := usageOverviewModelDimensionKey(pair.Model, pair.ModelAlias)
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		values = append(values, value)
+	}
+	sort.Strings(values)
 	return values, nil
 }
 
@@ -272,7 +287,9 @@ func applyUsageEventListQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm
 		query = query.Where("api_group_key = ?", apiGroupKey)
 	}
 	if model := strings.TrimSpace(filter.Model); model != "" {
-		query = query.Where("model = ?", model)
+		// 模型筛选项的 value 是展示值（alias 优先，无 alias 时回退 model）：
+		// 命中对应 alias，或命中「无 alias 且原始 model 名相同」的事件。
+		query = query.Where("(model_alias = ? OR ((model_alias IS NULL OR model_alias = '') AND model = ?))", model, model)
 	}
 	if authIndex := strings.TrimSpace(filter.AuthIndex); authIndex != "" {
 		// Source 下拉在 API 层已转换成 auth_index，仓储层只保留真实查询维度。
@@ -2365,35 +2382,6 @@ func usageOverviewModelDimensionKey(model string, modelAlias *string) string {
 		}
 	}
 	return normalizeUsageOverviewDimension(model)
-}
-
-// loadModelAliasMap 从 usage_events 读取最新一条 alias 映射，供分析页和筛选项使用 alias 代替原名展示。
-func loadModelAliasMap(db *gorm.DB) map[string]string {
-	if db == nil {
-		return nil
-	}
-	type modelAliasRow struct {
-		Model      string
-		ModelAlias *string `gorm:"column:model_alias"`
-	}
-	var rows []modelAliasRow
-	subQuery := db.Model(&entities.UsageEvent{}).
-		Select("MAX(id)").
-		Where("model_alias IS NOT NULL AND model_alias != ''").
-		Group("model")
-	if err := db.Model(&entities.UsageEvent{}).
-		Select("model, model_alias").
-		Where("id IN (?)", subQuery).
-		Find(&rows).Error; err != nil {
-		return nil
-	}
-	result := make(map[string]string, len(rows))
-	for _, row := range rows {
-		if row.ModelAlias != nil && strings.TrimSpace(*row.ModelAlias) != "" {
-			result[strings.TrimSpace(row.Model)] = strings.TrimSpace(*row.ModelAlias)
-		}
-	}
-	return result
 }
 
 // loadPriceSettingsByModel 把当前价格配置转成按 model 查找的 map。
