@@ -1620,6 +1620,51 @@ func TestBuildUsageOverviewRealtimeWithFilterUsesWarmupEventsForSlidingBucketsOn
 	}
 }
 
+func TestBuildUsageOverviewRealtimeWithFilterSplitsAliasedModelsIntoSeparateRows(t *testing.T) {
+	withRepositoryTestLocation(t, "UTC")
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-realtime-alias.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	cache := newEmptyUsageRecentEventCache(UsageRecentEventCacheOptions{Now: func() time.Time { return now }})
+	t.Cleanup(cache.Close)
+	aliasA := "alias-a"
+	aliasB := "alias-b"
+	cache.appendEvents([]entities.UsageEvent{
+		{EventKey: "a-1", APIGroupKey: "provider-a", Model: "gpt-5", ModelAlias: &aliasA, Timestamp: now.Add(-3 * time.Minute), InputTokens: 100, OutputTokens: 10, TotalTokens: 110},
+		{EventKey: "a-2", APIGroupKey: "provider-a", Model: "gpt-5", ModelAlias: &aliasA, Timestamp: now.Add(-2 * time.Minute), InputTokens: 200, OutputTokens: 20, TotalTokens: 220},
+		{EventKey: "b-1", APIGroupKey: "provider-a", Model: "gpt-5", ModelAlias: &aliasB, Timestamp: now.Add(-1 * time.Minute), InputTokens: 300, OutputTokens: 30, TotalTokens: 330},
+	})
+	if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
+		t.Fatalf("drop usage_events returned error: %v", err)
+	}
+
+	realtime, err := BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, dto.UsageQueryFilter{
+		RealtimeWindow:  "15m",
+		RealtimeEndTime: &now,
+	}, cache)
+	if err != nil {
+		t.Fatalf("BuildUsageOverviewRealtimeWithFilterAndRecentCache returned error: %v", err)
+	}
+
+	if len(realtime.CurrentUsage.Models) != 2 {
+		t.Fatalf("expected same upstream model with two aliases to split into separate Token 占比 rows, got %+v", realtime.CurrentUsage.Models)
+	}
+	modelsByID := make(map[string]dto.RealtimeUsageTopItemRecord, len(realtime.CurrentUsage.Models))
+	for _, item := range realtime.CurrentUsage.Models {
+		modelsByID[item.Key] = item
+	}
+	if got := modelsByID["alias-a"]; got.Key != "alias-a" || got.Label != "alias-a" || got.Tokens != 330 {
+		t.Fatalf("expected alias-a row to aggregate its own tokens, got %+v", got)
+	}
+	if got := modelsByID["alias-b"]; got.Key != "alias-b" || got.Label != "alias-b" || got.Tokens != 330 {
+		t.Fatalf("expected alias-b row to aggregate its own tokens, got %+v", got)
+	}
+}
+
 func TestBuildUsageOverviewRealtimeWithFilterUsesRecentCacheFallbackLabels(t *testing.T) {
 	withRepositoryTestLocation(t, "UTC")
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-realtime-fallback.db")})
