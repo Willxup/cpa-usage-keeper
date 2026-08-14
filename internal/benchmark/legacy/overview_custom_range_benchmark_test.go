@@ -1,4 +1,4 @@
-package test
+package legacy
 
 import (
 	"context"

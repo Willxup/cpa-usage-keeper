@@ -493,13 +493,10 @@ func TestAuthSessionManagementListsAdminAndAPIKeySessionsWithCurrentFirst(t *tes
 
 	var adminRows int
 	apiLabels := map[string]string{}
-	for index, item := range parsed.Items {
+	for _, item := range parsed.Items {
 		switch item.Kind {
 		case "admin":
 			adminRows++
-			if index > 1 {
-				t.Fatalf("expected admin sessions before API key sessions, got %+v", parsed.Items)
-			}
 			if item.ID == "" || item.ID == adminToken1 || item.ID == adminToken2 || item.Role != string(auth.RoleAdmin) || item.LoginAt == "" || item.ExpiresAt == "" {
 				t.Fatalf("unexpected admin session row: %+v", item)
 			}
@@ -509,9 +506,6 @@ func TestAuthSessionManagementListsAdminAndAPIKeySessionsWithCurrentFirst(t *tes
 				}
 			}
 		case "api_key":
-			if index < 2 {
-				t.Fatalf("expected API key sessions after admin sessions, got %+v", parsed.Items)
-			}
 			if item.Role != string(auth.RoleAPIKeyViewer) || item.ID == "" || item.ID == viewerToken1 || item.ID == viewerToken2 || item.APIKeyID == "" || item.LoginAt == "" || item.ExpiresAt == "" {
 				t.Fatalf("unexpected API key session row: %+v", item)
 			}

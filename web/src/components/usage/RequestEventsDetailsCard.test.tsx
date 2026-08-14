@@ -5,6 +5,7 @@ import {
   RequestEventsDetailsCard,
   isRequestEventColumnSelectionControlled,
   shouldCloseMenuOnFocusLeave,
+  shouldLoadMoreRequestEvents,
   toggleRequestEventColumnId,
   type RequestEventColumnId,
 } from './RequestEventsDetailsCard';
@@ -47,18 +48,12 @@ const renderCard = (props: Partial<React.ComponentProps<typeof RequestEventsDeta
     <RequestEventsDetailsCard
       events={events}
       loading={false}
-      page={1}
-      pageSize={20}
-      pageSizeOptions={[20, 50, 100, 500, 1000]}
       totalCount={120}
-      totalPages={6}
       modelOptions={['claude-sonnet', 'claude-opus']}
       sourceOptions={[{ value: 'source-a', label: 'Provider A' }, { value: 'source-b', label: 'Provider B' }]}
       modelFilter="__all__"
       sourceFilter="__all__"
       resultFilter="__all__"
-      onPageChange={() => undefined}
-      onPageSizeChange={() => undefined}
       onModelFilterChange={() => undefined}
       onSourceFilterChange={() => undefined}
       onResultFilterChange={() => undefined}
@@ -86,7 +81,7 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).not.toContain('Event Stream');
   });
 
-  it('renders total events, current page, page size options, and disabled page buttons', () => {
+  it('renders total events, columns, and incremental loading status', () => {
     const html = renderCard();
 
     expect(html).toContain('120 total events');
@@ -112,15 +107,9 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">SSE<\/td><td class="[^"]*requestEventsNoWrapCell[^"]*" title="\/messages">\/messages<\/td>/);
     expect(html.indexOf('>45ms</td>')).toBeLessThan(html.indexOf('>120ms</td>'));
     expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">30\.0 t\/s<\/td>/);
-    expect(html).toContain('1 / 6');
-    expect(html).toContain('20');
-    expect(html).toContain('50');
-    expect(html).toContain('100');
-    expect(html).toContain('500');
-    expect(html).toContain('1000');
-    expect(html).toContain('Previous');
-    expect(html).toContain('Next');
-    expect(html).toContain('disabled');
+    expect(html).toContain('Loaded 1 / 120');
+    expect(html).not.toContain('Previous');
+    expect(html).not.toContain('Next');
   });
 
   it('maps request speed mode values before the independently mapped response mode', () => {
@@ -370,13 +359,8 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('source-c');
   });
 
-  it('falls back to a computed page count when metadata is not populated', () => {
-    const html = renderCard({ totalPages: 0, totalCount: 120, pageSize: 20 });
 
-    expect(html).toContain('1 / 6');
-  });
-
-  it('shows total count in the title and uses the shared pager footer', () => {
+  it('shows total count in the title and uses the incremental loading footer', () => {
     const html = renderCard();
 
     expect(html).toContain('_requestEventsFiltersGroup_');
@@ -385,13 +369,10 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('120 total events');
     expect(html).toContain('_requestEventsPaginationFooter_');
     expect(html).toContain('_requestEventsPaginationControls_');
-    expect(html).toContain('_requestEventsPageSizeControl_');
-    expect(html).toContain('Size');
+    expect(html).not.toContain('_requestEventsPageSizeControl_');
     expect(html).not.toContain('Rows per page');
+    expect(html).not.toContain('<select');
     expect(html).toContain('_requestEventsPaginationPage_');
-    expect(html).toContain('_requestEventsPagerButton_');
-    expect(html).toContain('<select');
-    expect(html).toContain('value="20"');
     expect(html).toContain('_requestEventsActions_');
     expect(html).not.toContain('_requestEventsPaginationItem_');
     expect(html).not.toContain('_requestEventsPageSizeSelectCompact_');
@@ -487,6 +468,26 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(isRequestEventColumnSelectionControlled(undefined, () => undefined)).toBe(false);
     expect(isRequestEventColumnSelectionControlled(['timestamp'], undefined)).toBe(false);
   });
+  it('renders incremental loading status instead of page navigation in infinite mode', () => {
+    const html = renderCard({
+      hasMore: true,
+      totalCount: 500,
+      onLoadMore: () => undefined,
+    });
+
+    expect(html).toContain('Loaded 1 / 500');
+    expect(html).toContain('Load more');
+    expect(html).not.toContain('>Previous<');
+    expect(html).not.toContain('>Next<');
+    expect(html).toContain('aria-rowcount="501"');
+  });
+
+  it('preloads the next cursor batch before the scroller reaches the bottom', () => {
+    expect(shouldLoadMoreRequestEvents({ scrollTop: 100, clientHeight: 600, scrollHeight: 2000 })).toBe(false);
+    expect(shouldLoadMoreRequestEvents({ scrollTop: 400, clientHeight: 600, scrollHeight: 2000 })).toBe(true);
+    expect(shouldLoadMoreRequestEvents({ scrollTop: 0, clientHeight: 0, scrollHeight: 0 })).toBe(false);
+  });
+
 
   it('closes export menu only when focus leaves the menu container', () => {
     const insideTarget = {};

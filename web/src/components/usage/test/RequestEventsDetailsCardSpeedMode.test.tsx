@@ -41,19 +41,13 @@ const renderCardElement = (events: UsageEvent[]) => (
   <RequestEventsDetailsCard
     events={events}
     loading={false}
-    page={1}
-    pageSize={20}
-    pageSizeOptions={[20, 50, 100, 500, 1000]}
     totalCount={events.length}
-    totalPages={1}
     modelOptions={['claude-sonnet']}
     sourceOptions={[{ value: 'source-a', label: 'Provider A' }]}
     modelFilter="__all__"
     sourceFilter="__all__"
     resultFilter="__all__"
     visibleColumnIds={['service_tier']}
-    onPageChange={() => undefined}
-    onPageSizeChange={() => undefined}
     onModelFilterChange={() => undefined}
     onSourceFilterChange={() => undefined}
     onResultFilterChange={() => undefined}

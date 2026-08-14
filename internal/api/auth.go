@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/subtle"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -157,6 +158,7 @@ func (h *authHandler) roleMiddleware(allowedRoles ...auth.Role) gin.HandlerFunc 
 		}
 		c.Set("auth_token", resolved.Token)
 		c.Set("auth_session", session)
+		h.sessions.Touch(resolved.Token, sessionClientIP(c))
 		c.Next()
 	}
 }
@@ -257,7 +259,7 @@ func (h *authHandler) login(c *gin.Context) {
 	h.loginAttempts.Reset(clientKey)
 
 	resolved := resolveSessionToken(c)
-	token, expiresAt, err := h.sessions.CreateWithSource(resolved.Source)
+	token, expiresAt, err := h.sessions.CreateWithSourceAndMetadata(resolved.Source, sessionClientMetadata(c))
 	if err != nil {
 		writeInternalError(c, "create auth session failed", err)
 		return
@@ -296,7 +298,7 @@ func (h *authHandler) apiKeyLogin(c *gin.Context) {
 	}
 	h.loginAttempts.Reset(clientKey)
 	resolved := resolveSessionToken(c)
-	token, expiresAt, err := h.sessions.CreateAPIKeyViewerWithSource(row.ID, resolved.Source)
+	token, expiresAt, err := h.sessions.CreateAPIKeyViewerWithSourceAndMetadata(row.ID, resolved.Source, sessionClientMetadata(c))
 	if err != nil {
 		writeInternalError(c, "create api key viewer session failed", err)
 		return
@@ -404,6 +406,26 @@ func (h *authHandler) clearSessionState(token string) {
 }
 
 func loginClientKey(c *gin.Context) string {
+	return c.ClientIP()
+}
+
+func sessionClientMetadata(c *gin.Context) auth.SessionClientMetadata {
+	return auth.SessionClientMetadata{
+		IP:        sessionClientIP(c),
+		UserAgent: c.Request.UserAgent(),
+	}
+}
+
+// sessionClientIP 只用于会话信息展示；宿主机 Nginx 会把其观测到的客户端追加在 XFF 最右侧。
+func sessionClientIP(c *gin.Context) string {
+	forwarded := strings.Split(c.GetHeader("X-Forwarded-For"), ",")
+	for index := len(forwarded) - 1; index >= 0; index-- {
+		candidate := strings.TrimSpace(forwarded[index])
+		address, err := netip.ParseAddr(candidate)
+		if err == nil {
+			return address.Unmap().String()
+		}
+	}
 	return c.ClientIP()
 }
 

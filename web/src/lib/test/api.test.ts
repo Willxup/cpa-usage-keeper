@@ -424,6 +424,26 @@ describe('fetchUsageEvents', () => {
     expect(init).toMatchObject({ credentials: 'include', signal });
   });
 
+  it('passes cursor pagination metadata for incremental event loading', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ events: [], total_count: -1, page: 1, page_size: 100, total_pages: 0, has_more: false }),
+    } as Response);
+
+    await fetchUsageEvents({ range: '24h' }, undefined, {
+      pageSize: 100,
+      cursorMode: true,
+      cursor: 'opaque-cursor',
+    });
+
+    const parsed = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
+    expect(parsed.searchParams.get('page_size')).toBe('100');
+    expect(parsed.searchParams.get('cursor_mode')).toBe('true');
+    expect(parsed.searchParams.get('cursor')).toBe('opaque-cursor');
+    expect(parsed.searchParams.get('page')).toBeNull();
+  });
+
   it('exports usage events with filters but without pagination params', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const blob = new Blob(['id,timestamp\n']);

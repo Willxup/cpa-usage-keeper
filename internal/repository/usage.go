@@ -62,13 +62,15 @@ func ListUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, costRes
 		return nil, fmt.Errorf("database is nil")
 	}
 
-	// 第一步：应用列表筛选，统计分页总数。
 	baseQuery := queryUsageEvents(db)
 	baseQuery = applyUsageEventListQuery(baseQuery, filter)
 
-	var totalCount int64
-	if err := baseQuery.Count(&totalCount).Error; err != nil {
-		return nil, fmt.Errorf("count usage events: %w", err)
+	// 第一步：应用列表筛选，统计分页总数；cursor 续页跳过 Count 以避免深翻页全表扫描。
+	totalCount := int64(-1)
+	if !filter.CursorMode || filter.CursorTimestamp == nil {
+		if err := baseQuery.Count(&totalCount).Error; err != nil {
+			return nil, fmt.Errorf("count usage events: %w", err)
+		}
 	}
 
 	page := filter.Page
@@ -91,17 +93,38 @@ func ListUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, costRes
 	}
 
 	query := applyUsageEventListQuery(db.Model(&entities.UsageEvent{}), filter)
-	query = query.Select(usageEventProjectionColumns).Order("timestamp DESC, id DESC").Limit(pageSize).Offset(offset)
+	if filter.CursorMode && filter.CursorTimestamp != nil {
+		cursorTimestamp := timeutil.FormatStorageTime(*filter.CursorTimestamp)
+		query = query.Where(
+			"(timestamp < ? OR (timestamp = ? AND id < ?))",
+			cursorTimestamp,
+			cursorTimestamp,
+			filter.CursorID,
+		)
+	}
+	queryLimit := pageSize
+	if filter.CursorMode {
+		queryLimit++
+	}
+	query = query.Select(usageEventProjectionColumns).Order("timestamp DESC, id DESC").Limit(queryLimit)
+	if !filter.CursorMode {
+		query = query.Offset(offset)
+	}
 
 	rows, err := loadUsageEventRecordsForQuery(db, query, costResolver)
 	if err != nil {
 		return nil, err
 	}
+	hasMore := false
+	if filter.CursorMode && len(rows) > pageSize {
+		hasMore = true
+		rows = rows[:pageSize]
+	}
 	totalPages := 0
 	if totalCount > 0 {
 		totalPages = int((totalCount + int64(pageSize) - 1) / int64(pageSize))
 	}
-	return &dto.UsageEventsPageRecord{Events: rows, TotalCount: totalCount, Page: page, PageSize: pageSize, TotalPages: totalPages}, nil
+	return &dto.UsageEventsPageRecord{Events: rows, TotalCount: totalCount, Page: page, PageSize: pageSize, TotalPages: totalPages, HasMore: hasMore}, nil
 }
 
 // ExportUsageEventsWithFilter 使用 Request Event Log 相同筛选，但不应用分页。

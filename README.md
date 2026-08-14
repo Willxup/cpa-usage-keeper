@@ -104,6 +104,10 @@ Docker Compose is the recommended deployment method. Use the full stack when dep
 
 Login protection is enabled by default. Configure `LOGIN_PASSWORD` before starting Keeper, or explicitly set `AUTH_ENABLED=false` only when access is reliably isolated by the deployment environment.
 
+## Benchmark
+
+Production-style `linux/amd64` capacity measurements for sustained ingestion, Dashboard latency, CPU utilization, and Keeper cgroup peak memory are available in the [Capacity Benchmark Report](./internal/benchmark/REPORT.md).
+
 ## Project Structure
 
 ```text
@@ -116,6 +120,7 @@ internal/repository/     SQLite persistence and aggregations
 internal/service/        Usage, pricing, and identity services
 internal/quota/          Provider quota refresh and inspection
 internal/ranking/        Community ranking aggregation and sync
+internal/benchmark/      Capacity suite, reports, manifests, and legacy microbenchmarks
 deploy/linux/            systemd service template
 web/                     React + TypeScript frontend
 ```

@@ -21,7 +21,11 @@ export interface AuthManagedSessionItem {
   source?: AuthManagedSessionSource
   current?: boolean
   loginAt?: string
+  lastSeenAt?: string
   expiresAt?: string
+  loginIp?: string
+  lastSeenIp?: string
+  userAgent?: string
   apiKeyId?: string
   label?: string
   displayKey?: string
@@ -280,6 +284,8 @@ export interface UsageEventsResponse {
   page: number
   page_size: number
   total_pages: number
+  next_cursor?: string
+  has_more?: boolean
 }
 
 export interface UsageEventRequestLogSection {

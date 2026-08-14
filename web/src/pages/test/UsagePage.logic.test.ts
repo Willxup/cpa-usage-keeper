@@ -1,8 +1,82 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getBackToCPALinkURL, getCredentialSectionVisibility, getOverviewDisplayLoading, getUsageCustomRangeForTab, getUsageTabOptions, isUsagePageVisible, loadAnalysisSections, loadRequestEventsPreferences, loadUsagePageVersionInfo, normalizeRequestEventsPreferences, normalizeUsageTabValue, refreshPageData, REQUEST_EVENTS_PREFERENCES_STORAGE_KEY, runUsageEventRequestLogDownload, sanitizeRequestEventFilters, saveRequestEventsPreferences, scheduleOverviewAutoRefresh, shouldAutoRefreshUsageTab, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowUpdateCheckButton, getUpdateCheckToastDuration } from '../UsagePage';
+import { appendUniqueUsageEvents, getBackToCPALinkURL, getCredentialSectionVisibility, getOverviewDisplayLoading, getUsageCustomRangeForTab, getUsageTabOptions, handleUsageEventLoadMoreError, isUsagePageVisible, loadAnalysisSections, loadRequestEventsPreferences, loadUsagePageVersionInfo, normalizeRequestEventsPreferences, normalizeUsageTabValue, refreshPageData, REQUEST_EVENTS_PREFERENCES_STORAGE_KEY, runUsageEventRequestLogDownload, sanitizeRequestEventFilters, saveRequestEventsPreferences, scheduleOverviewAutoRefresh, shouldAutoRefreshUsageTab, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowUpdateCheckButton, getUpdateCheckToastDuration } from '../UsagePage';
 import { REQUEST_EVENT_COLUMN_IDS } from '@/components/usage/RequestEventsDetailsCard';
 import { ApiError } from '@/lib/api';
 import type { UsageFilterWindow, VersionResponse } from '@/lib/types';
+
+describe('appendUniqueUsageEvents', () => {
+  it('appends cursor batches without duplicating overlapping event ids', () => {
+    const current = [
+      { id: '3', timestamp: '2026-07-11T10:00:03Z', model: 'm3', source: 's', failed: false, latency_ms: 1, tokens: { input_tokens: 1, output_tokens: 0, reasoning_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 1 } },
+      { id: '2', timestamp: '2026-07-11T10:00:02Z', model: 'm2', source: 's', failed: false, latency_ms: 1, tokens: { input_tokens: 1, output_tokens: 0, reasoning_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 1 } },
+    ];
+    const incoming = [
+      current[1],
+      { ...current[1], id: '1', timestamp: '2026-07-11T10:00:01Z', model: 'm1' },
+    ];
+
+    expect(appendUniqueUsageEvents(current, incoming).map((event) => event.id)).toEqual(['3', '2', '1']);
+  });
+});
+
+describe('handleUsageEventLoadMoreError', () => {
+  it('pauses automatic loading and surfaces ordinary errors', () => {
+    const pauseAutoLoadMore = vi.fn();
+    const recoverRangeBoundsConflict = vi.fn(() => false);
+    const setError = vi.fn();
+
+    handleUsageEventLoadMoreError({
+      error: new Error('cursor failed'),
+      pauseAutoLoadMore,
+      recoverRangeBoundsConflict,
+      setError,
+    });
+
+    expect(pauseAutoLoadMore).toHaveBeenCalledOnce();
+    expect(recoverRangeBoundsConflict).toHaveBeenCalledOnce();
+    expect(setError).toHaveBeenCalledWith('cursor failed');
+  });
+
+  it('recovers range conflicts without surfacing a pagination error', () => {
+    const pauseAutoLoadMore = vi.fn();
+    const recoverRangeBoundsConflict = vi.fn(() => true);
+    const onAuthRequired = vi.fn();
+    const setError = vi.fn();
+    const error = new ApiError('range changed', 409);
+
+    handleUsageEventLoadMoreError({
+      error,
+      pauseAutoLoadMore,
+      recoverRangeBoundsConflict,
+      onAuthRequired,
+      setError,
+    });
+
+    expect(pauseAutoLoadMore).toHaveBeenCalledOnce();
+    expect(recoverRangeBoundsConflict).toHaveBeenCalledWith(error);
+    expect(onAuthRequired).not.toHaveBeenCalled();
+    expect(setError).not.toHaveBeenCalled();
+  });
+
+  it('keeps authentication handling after pausing automatic loading', () => {
+    const pauseAutoLoadMore = vi.fn();
+    const recoverRangeBoundsConflict = vi.fn(() => false);
+    const onAuthRequired = vi.fn();
+    const setError = vi.fn();
+
+    handleUsageEventLoadMoreError({
+      error: new ApiError('unauthorized', 401),
+      pauseAutoLoadMore,
+      recoverRangeBoundsConflict,
+      onAuthRequired,
+      setError,
+    });
+
+    expect(pauseAutoLoadMore).toHaveBeenCalledOnce();
+    expect(onAuthRequired).toHaveBeenCalledOnce();
+    expect(setError).not.toHaveBeenCalled();
+  });
+});
 
 const createAutoRefreshTestDocument = (visibilityState: DocumentVisibilityState = 'visible') => {
   const target = new EventTarget();
@@ -539,16 +613,10 @@ describe('UsagePage request event filters', () => {
 });
 
 describe('UsagePage request event preferences', () => {
-  it('defaults to 50 rows when no request event preference is stored', () => {
-    const storage = createMemoryStorage();
 
-    expect(loadRequestEventsPreferences(storage).pageSize).toBe(50);
-  });
-
-  it('normalizes persisted filters, page size, and visible columns', () => {
+  it('normalizes persisted filters and visible columns', () => {
     const preferences = normalizeRequestEventsPreferences({
       version: 1,
-      pageSize: 500,
       filters: {
         model: 'claude-opus',
         source: 'authidx-source-b',
@@ -559,7 +627,6 @@ describe('UsagePage request event preferences', () => {
 
     expect(preferences).toEqual({
       version: 8,
-      pageSize: 500,
       filters: {
         model: 'claude-opus',
         source: 'authidx-source-b',
@@ -573,7 +640,6 @@ describe('UsagePage request event preferences', () => {
   it('falls back safely for damaged persisted request event preferences', () => {
     const preferences = normalizeRequestEventsPreferences({
       version: 1,
-      pageSize: 999,
       filters: {
         model: 42,
         source: '',
@@ -582,7 +648,6 @@ describe('UsagePage request event preferences', () => {
       visibleColumnIds: ['not-a-column'],
     });
 
-    expect(preferences.pageSize).toBe(50);
     expect(preferences.filters).toEqual({
       model: '__all__',
       source: '__all__',
@@ -596,7 +661,6 @@ describe('UsagePage request event preferences', () => {
     const columnIdsWithoutSpeed = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'speed');
     const preferences = normalizeRequestEventsPreferences({
       version: 1,
-      pageSize: 100,
       visibleColumnIds: columnIdsWithoutSpeed,
     });
 
@@ -627,7 +691,6 @@ describe('UsagePage request event preferences', () => {
     ];
     const preferences = normalizeRequestEventsPreferences({
       version: 1,
-      pageSize: 100,
       visibleColumnIds: legacyFullColumnIds,
     });
 
@@ -640,7 +703,6 @@ describe('UsagePage request event preferences', () => {
 
     saveRequestEventsPreferences({
       version: 8,
-      pageSize: 100,
       filters: {
         model: '__all__',
         source: '__all__',
@@ -653,7 +715,6 @@ describe('UsagePage request event preferences', () => {
     const stored = JSON.parse(storage.value(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY) ?? '');
     expect(stored).toEqual({
       version: 8,
-      pageSize: 100,
       filters: {
         model: '__all__',
         source: '__all__',
@@ -671,7 +732,6 @@ describe('UsagePage request event preferences', () => {
 
     saveRequestEventsPreferences({
       version: 8,
-      pageSize: 100,
       filters: {
         model: '__all__',
         source: '__all__',
@@ -689,11 +749,14 @@ describe('UsagePage request event preferences', () => {
       [REQUEST_EVENTS_PREFERENCES_STORAGE_KEY]: '{bad json',
     });
 
-    expect(loadRequestEventsPreferences(storage).pageSize).toBe(50);
+    expect(loadRequestEventsPreferences(storage).filters).toEqual({
+      model: '__all__',
+      source: '__all__',
+      result: '__all__',
+    });
 
     saveRequestEventsPreferences({
       version: 4,
-      pageSize: 50,
       filters: {
         model: 'gpt-4.1',
         source: 'source-a',
@@ -705,7 +768,6 @@ describe('UsagePage request event preferences', () => {
     expect(storage.setItem).toHaveBeenCalledTimes(1);
     expect(JSON.parse(storage.value(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY) ?? '')).toEqual({
       version: 8,
-      pageSize: 50,
       filters: {
         model: 'gpt-4.1',
         source: 'source-a',

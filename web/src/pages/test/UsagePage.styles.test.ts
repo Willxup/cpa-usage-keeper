@@ -921,8 +921,27 @@ describe('UsagePage toolbar styles', () => {
     expect(sessionSettingsMobileBodyBlock).not.toMatch(/\n\s{4}height:\s*var\(--settings-list-scroll-height\);/)
   })
 
-  it('reserves the Session Management action column so current rows keep timestamps aligned', () => {
-    expect(usagePageStyles).toMatch(/\.sessionSettingsItem\s*\{[\s\S]*?grid-template-columns:\s*minmax\(160px, 0\.8fr\) minmax\(220px, 1\.2fr\) minmax\(92px, auto\);/)
+  it('uses the full Session Management row for a wrapping User-Agent and adaptive metadata', () => {
+    const clientBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.sessionSettingsClient {'),
+      usagePageStyles.indexOf('.sessionSettingsClientLabel {'),
+    )
+    const sessionSettingsMobileBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('@include mobile {\n  .apiKeySettingsCard:global(.card)'),
+      usagePageStyles.indexOf('.pricesList'),
+    )
+
+    expect(usagePageStyles).toMatch(/\.sessionSettingsItem\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\) auto;/)
+    expect(usagePageStyles).toMatch(/\.sessionSettingsItem\s*\{[\s\S]*?grid-template-areas:\s*'summary actions'\s*'client client'\s*'details details';/)
+    expect(usagePageStyles).toMatch(/\.sessionSettingsDetails\s*\{[\s\S]*?grid-template-columns:\s*repeat\(auto-fit, minmax\(220px, 1fr\)\);/)
+    expect(usagePageStyles).toMatch(/\.sessionSettingsDetailItem\s*\{[\s\S]*?grid-template-columns:\s*max-content minmax\(0, 1fr\);[\s\S]*?align-items:\s*baseline;/)
+    expect(clientBlock).toMatch(/white-space:\s*normal;/)
+    expect(clientBlock).toMatch(/overflow-wrap:\s*anywhere;/)
+    expect(clientBlock).toContain('border: 1px solid var(--border-color);')
+    expect(clientBlock).toContain('background: var(--bg-tertiary);')
+    expect(clientBlock).not.toMatch(/text-overflow:\s*ellipsis;/)
+    expect(clientBlock).not.toMatch(/white-space:\s*nowrap;/)
+    expect(sessionSettingsMobileBlock).toMatch(/\.sessionSettingsItem\s*\{[\s\S]*?grid-template-areas:\s*'summary'\s*'client'\s*'details'\s*'actions';/)
     expect(usagePageStyles).toMatch(/\.sessionSettingsLogoutButton\s*\{[\s\S]*?min-width:\s*92px;/)
   })
 

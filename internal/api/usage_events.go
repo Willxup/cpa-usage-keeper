@@ -26,6 +26,8 @@ type usageEventsResponse struct {
 	Page       int                 `json:"page"`
 	PageSize   int                 `json:"page_size"`
 	TotalPages int                 `json:"total_pages"`
+	NextCursor string              `json:"next_cursor,omitempty"`
+	HasMore    bool                `json:"has_more"`
 }
 
 type usageSourceFilterOption struct {
@@ -196,12 +198,19 @@ func registerUsageEventsRoute(
 		if err != nil {
 			return
 		}
+		nextCursor := ""
+		if filter.CursorMode && rows.HasMore && len(rows.Events) > 0 {
+			lastEvent := rows.Events[len(rows.Events)-1]
+			nextCursor = encodeUsageEventsCursor(lastEvent.Timestamp, lastEvent.ID)
+		}
 		c.JSON(http.StatusOK, usageEventsResponse{
 			Events:     buildUsageEventsPayload(rows.Events, resolver, apiKeyInfos),
 			TotalCount: rows.TotalCount,
 			Page:       rows.Page,
 			PageSize:   rows.PageSize,
 			TotalPages: rows.TotalPages,
+			NextCursor: nextCursor,
+			HasMore:    rows.HasMore,
 		})
 	})
 

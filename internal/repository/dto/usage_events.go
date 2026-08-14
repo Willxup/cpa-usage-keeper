@@ -9,6 +9,7 @@ type UsageEventsPageRecord struct {
 	Page       int
 	PageSize   int
 	TotalPages int
+	HasMore    bool
 }
 
 // UsageEventFilterOptionsRecord 是 usage events 筛选项的仓储查询结果。

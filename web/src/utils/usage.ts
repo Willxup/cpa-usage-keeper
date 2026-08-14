@@ -82,13 +82,25 @@ export function formatPerMinuteValue(value: number): string {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: value >= 100 ? 0 : value >= 10 ? 1 : 2 }).format(value);
 }
 
-export function formatUsd(value: number): string {
-  return new Intl.NumberFormat('en-US', {
+const usdFormatters = {
+  standard: new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
-    minimumFractionDigits: value < 1 ? 4 : 2,
-    maximumFractionDigits: value < 1 ? 4 : 2
-  }).format(value || 0).replace(/^US\$/, '$');
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }),
+  precise: new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 4
+  })
+};
+
+export function formatUsd(value: number): string {
+  return (value < 1 ? usdFormatters.precise : usdFormatters.standard)
+    .format(value || 0)
+    .replace(/^US\$/, '$');
 }
 
 export function normalizeAuthIndex(value: unknown): string {

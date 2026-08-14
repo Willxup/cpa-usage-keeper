@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"strings"
 
@@ -10,6 +12,7 @@ import (
 	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 type usedModelsResponse struct {
@@ -101,7 +104,7 @@ func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingPr
 
 		preview, err := pricingProvider.PreviewPricingSync(c.Request.Context())
 		if err != nil {
-			writeInternalError(c, "preview pricing sync failed", err)
+			writePricingSyncPreviewError(c, err)
 			return
 		}
 		if preview.Matches == nil {
@@ -147,6 +150,18 @@ func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingPr
 		}
 		c.Status(http.StatusNoContent)
 	})
+}
+
+func writePricingSyncPreviewError(c *gin.Context, err error) {
+	var networkError net.Error
+	if !errors.Is(err, context.DeadlineExceeded) &&
+		(!errors.As(err, &networkError) || !networkError.Timeout()) {
+		writeInternalError(c, "preview pricing sync failed", err)
+		return
+	}
+
+	logrus.WithError(err).Error("preview pricing sync failed")
+	c.JSON(http.StatusGatewayTimeout, gin.H{"error": "Models.dev request timed out"})
 }
 
 func updatePricingBatch(c *gin.Context, pricingProvider service.PricingProvider) {

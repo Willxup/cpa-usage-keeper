@@ -46,18 +46,12 @@ const renderCard = () => renderToStaticMarkup(
   <RequestEventsDetailsCard
     events={[event]}
     loading={false}
-    page={1}
-    pageSize={20}
-    pageSizeOptions={[20, 50, 100]}
     totalCount={1}
-    totalPages={1}
     modelOptions={['gpt-5.6-terra']}
     sourceOptions={[{ value: 'openai', label: 'OpenAI' }]}
     modelFilter="__all__"
     sourceFilter="__all__"
     resultFilter="__all__"
-    onPageChange={() => undefined}
-    onPageSizeChange={() => undefined}
     onModelFilterChange={() => undefined}
     onSourceFilterChange={() => undefined}
     onResultFilterChange={() => undefined}

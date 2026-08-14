@@ -286,6 +286,14 @@ func TestParseUsageFilterQueryAcceptsEventsPaginationAndFilters(t *testing.T) {
 	}
 }
 
+func TestParseUsageFilterQueryRejectsInvalidEventsCursor(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/usage/events?range=24h&cursor=not-a-cursor", nil)
+	if _, err := parseUsageFilterQuery(req, time.Time{}); err == nil {
+		t.Fatal("expected invalid cursor error")
+	}
+}
+
+
 func TestParseUsageFilterQueryAcceptsAPIKeyID(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/v1/usage/events?range=24h&api_key_id=%201234567890123456789%20", nil)
 	anchor := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)

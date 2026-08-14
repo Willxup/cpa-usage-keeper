@@ -2,6 +2,7 @@ import React, {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -44,6 +45,11 @@ export {
 } from './requestEventColumns';
 
 const ALL_FILTER = '__all__';
+const REQUEST_EVENT_VIRTUALIZATION_THRESHOLD = 50;
+const REQUEST_EVENT_VIRTUAL_ROW_HEIGHT = 44;
+const REQUEST_EVENT_VIRTUAL_OVERSCAN = 8;
+const REQUEST_EVENT_VIRTUAL_INITIAL_VIEWPORT_HEIGHT = 760;
+const REQUEST_EVENT_LOAD_MORE_THRESHOLD_PX = 1200;
 const REQUEST_LOG_VIRTUAL_LINE_HEIGHT = 18;
 const REQUEST_LOG_VIRTUAL_OVERSCAN = 8;
 const REQUEST_LOG_VIRTUAL_PADDING_Y = 12;
@@ -53,6 +59,7 @@ const REQUEST_LOG_GRAPHEME_CONTEXT_CHARS = 64;
 const REQUEST_EVENT_CLIENT_IP_DISPLAY_LENGTH = 39;
 const REQUEST_EVENT_X_FORWARDED_FOR_DISPLAY_LENGTH = 48;
 const REQUEST_EVENT_USER_AGENT_DISPLAY_LENGTH = 48;
+const REQUEST_EVENT_INTEGER_FORMATTER = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
 const REQUEST_LOG_GRAPHEME_SEGMENTER = typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'
   ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
   : null;
@@ -70,6 +77,18 @@ export const shouldCloseMenuOnFocusLeave = (
   container: { contains: (target: EventTarget) => boolean },
   nextFocus: EventTarget | null
 ): boolean => nextFocus === null || !container.contains(nextFocus);
+
+export const shouldLoadMoreRequestEvents = ({
+  scrollTop,
+  clientHeight,
+  scrollHeight,
+  threshold = REQUEST_EVENT_LOAD_MORE_THRESHOLD_PX,
+}: {
+  scrollTop: number;
+  clientHeight: number;
+  scrollHeight: number;
+  threshold?: number;
+}): boolean => scrollHeight > 0 && scrollTop + clientHeight >= scrollHeight - Math.max(threshold, 0);
 
 const appendSelectedOption = (
   options: SelectOption[],
@@ -106,8 +125,11 @@ type RequestEventRow = {
   isDelete: boolean;
   failed: boolean;
   latencyMs: number | null;
+  latencyLabel: string;
   ttftMs: number | null;
+  ttftLabel: string;
   speedTPS: number | null;
+  speedLabel: string;
   clientIP: string;
   xForwardedFor: string;
   userAgent: string;
@@ -117,9 +139,16 @@ type RequestEventRow = {
   cacheReadTokens: number;
   cacheCreationTokens: number;
   totalTokens: number;
+  inputTokensLabel: string;
+  outputTokensLabel: string;
+  reasoningTokensLabel: string;
+  cacheReadTokensLabel: string;
+  cacheCreationTokensLabel: string;
+  totalTokensLabel: string;
   cacheReadRate: string;
   cost: number | null;
   costAvailable: boolean;
+  costLabel: string;
 };
 
 type RequestEventColumnDefinition = {
@@ -128,6 +157,32 @@ type RequestEventColumnDefinition = {
   header: ReactNode;
   renderCell: (row: RequestEventRow) => ReactNode;
 };
+
+type RequestEventTableRowProps = {
+  row: RequestEventRow;
+  columns: readonly RequestEventColumnDefinition[];
+  virtualIndex?: number;
+  measureElement?: (node: HTMLTableRowElement | null) => void;
+};
+
+const RequestEventTableRow = React.memo(function RequestEventTableRow({
+  row,
+  columns,
+  virtualIndex,
+  measureElement,
+}: RequestEventTableRowProps) {
+  return (
+    <tr
+      ref={measureElement}
+      data-index={virtualIndex}
+      aria-rowindex={virtualIndex === undefined ? undefined : virtualIndex + 2}
+    >
+      {columns.map((column) => (
+        <React.Fragment key={column.id}>{column.renderCell(row)}</React.Fragment>
+      ))}
+    </tr>
+  );
+});
 
 const REQUEST_LOG_SECTION_TITLE_KEYS: Record<string, string> = {
   'REQUEST INFO': 'usage_stats.request_events_log_section_request_info',
@@ -247,24 +302,22 @@ export const splitRequestLogVirtualChunks = (
 export interface RequestEventsDetailsCardProps {
   events: UsageEvent[];
   loading: boolean;
-  page: number;
-  pageSize: number;
-  pageSizeOptions: readonly number[];
   totalCount: number;
-  totalPages: number;
   modelOptions: string[];
   sourceOptions: UsageSourceFilterOption[];
   modelFilter: string;
   sourceFilter: string;
   resultFilter: string;
   exportingFormat?: RequestEventExportFormat | null;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  autoLoadMore?: boolean;
   initialVisibleColumnIds?: readonly RequestEventColumnId[];
   initialColumnOrder?: readonly RequestEventColumnId[];
   visibleColumnIds?: readonly RequestEventColumnId[];
   columnOrder?: readonly RequestEventColumnId[];
-  onPageChange: (page: number) => void;
-  onPageSizeChange: (pageSize: number) => void;
   onModelFilterChange: (model: string) => void;
+  onLoadMore?: () => void;
   onSourceFilterChange: (source: string) => void;
   onResultFilterChange: (result: string) => void;
   onExport?: (format: RequestEventExportFormat) => void;
@@ -612,25 +665,23 @@ function RequestEventsExportMenu({
 export function RequestEventsDetailsCard({
   events,
   loading,
-  page,
-  pageSize,
-  pageSizeOptions,
   totalCount,
-  totalPages,
   modelOptions: backendModelOptions,
   sourceOptions: backendSourceOptions,
   modelFilter,
   sourceFilter,
   resultFilter,
   exportingFormat = null,
+  hasMore = false,
+  loadingMore = false,
+  autoLoadMore = true,
   initialVisibleColumnIds,
   initialColumnOrder,
   visibleColumnIds,
   columnOrder,
-  onPageChange,
-  onPageSizeChange,
   onModelFilterChange,
   onSourceFilterChange,
+  onLoadMore,
   onResultFilterChange,
   onExport,
   onVisibleColumnIdsChange,
@@ -726,8 +777,11 @@ export function RequestEventsDetailsCard({
         isDelete: event.isDelete === true,
         failed: event.failed === true,
         latencyMs,
+        latencyLabel: formatDurationMs(latencyMs),
         ttftMs,
+        ttftLabel: formatTTFTMs(ttftMs),
         speedTPS,
+        speedLabel: formatSpeedTPS(speedTPS),
         clientIP,
         xForwardedFor,
         userAgent,
@@ -737,12 +791,50 @@ export function RequestEventsDetailsCard({
         cacheReadTokens,
         cacheCreationTokens,
         totalTokens,
+        inputTokensLabel: REQUEST_EVENT_INTEGER_FORMATTER.format(inputTokens),
+        outputTokensLabel: REQUEST_EVENT_INTEGER_FORMATTER.format(outputTokens),
+        reasoningTokensLabel: REQUEST_EVENT_INTEGER_FORMATTER.format(reasoningTokens),
+        cacheReadTokensLabel: REQUEST_EVENT_INTEGER_FORMATTER.format(cacheReadTokens),
+        cacheCreationTokensLabel: REQUEST_EVENT_INTEGER_FORMATTER.format(cacheCreationTokens),
+        totalTokensLabel: REQUEST_EVENT_INTEGER_FORMATTER.format(totalTokens),
         cacheReadRate: formatCacheReadRate(cacheReadTokens, inputTokens),
         cost,
         costAvailable,
+        costLabel: costAvailable && cost !== null ? formatUsd(cost) : '-',
       };
     });
   }, [events, t]);
+  const virtualizeRows = rows.length > REQUEST_EVENT_VIRTUALIZATION_THRESHOLD;
+  // TanStack Virtual 依赖内部可变测量状态，不参与 React Compiler 自动记忆化。
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const eventRowVirtualizer = useVirtualizer({
+    count: virtualizeRows ? rows.length : 0,
+    getScrollElement: () => requestEventsTableWrapperRef.current,
+    estimateSize: () => REQUEST_EVENT_VIRTUAL_ROW_HEIGHT,
+    overscan: REQUEST_EVENT_VIRTUAL_OVERSCAN,
+    getItemKey: (index) => rows[index]?.id ?? index,
+    initialRect: { width: 0, height: REQUEST_EVENT_VIRTUAL_INITIAL_VIEWPORT_HEIGHT },
+    useAnimationFrameWithResizeObserver: true,
+  });
+  const virtualRows = eventRowVirtualizer.getVirtualItems();
+  const virtualPaddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
+  const virtualPaddingBottom = virtualRows.length > 0
+    ? Math.max(eventRowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end, 0)
+    : 0;
+  const handleTableScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    if (!autoLoadMore || !hasMore || loading || loadingMore || !onLoadMore) return;
+    const scroller = event.currentTarget;
+    if (shouldLoadMoreRequestEvents(scroller)) {
+      onLoadMore();
+    }
+  }, [autoLoadMore, hasMore, loading, loadingMore, onLoadMore]);
+  useEffect(() => {
+    const scroller = requestEventsTableWrapperRef.current;
+    if (!scroller || !autoLoadMore || !hasMore || loading || loadingMore || !onLoadMore) return;
+    if (shouldLoadMoreRequestEvents(scroller)) {
+      onLoadMore();
+    }
+  }, [autoLoadMore, hasMore, loading, loadingMore, onLoadMore, rows.length]);
   useScrollBoundaryContainment(requestEventsTableWrapperRef, rows.length > 0);
 
   const [internalVisibleColumnIds, setInternalVisibleColumnIds] = useState<RequestEventColumnId[]>(() => (
@@ -768,6 +860,11 @@ export function RequestEventsDetailsCard({
     () => new Set<RequestEventColumnId>(effectiveVisibleColumnIds),
     [effectiveVisibleColumnIds]
   );
+  useLayoutEffect(() => {
+    if (virtualizeRows) {
+      eventRowVirtualizer.measure();
+    }
+  }, [effectiveVisibleColumnIds, eventRowVirtualizer, virtualizeRows]);
   const effectiveColumnOrder = useMemo(
     () => normalizeRequestEventColumnOrder(selectedColumnOrder),
     [selectedColumnOrder]
@@ -1003,19 +1100,19 @@ export function RequestEventsDetailsCard({
         id: 'ttft',
         label: t('usage_stats.ttft'),
         header: <th className={styles.requestEventsNoWrapCell} title={ttftHint}>{t('usage_stats.ttft')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{formatTTFTMs(row.ttftMs)}</td>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.ttftLabel}</td>,
       },
       {
         id: 'latency',
         label: t('usage_stats.latency'),
         header: <th className={styles.requestEventsNoWrapCell} title={latencyHint}>{t('usage_stats.latency')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{formatDurationMs(row.latencyMs)}</td>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.latencyLabel}</td>,
       },
       {
         id: 'speed',
         label: t('usage_stats.speed'),
         header: <th className={styles.requestEventsNoWrapCell} title={speedHint}>{t('usage_stats.speed')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{formatSpeedTPS(row.speedTPS)}</td>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.speedLabel}</td>,
       },
       {
         id: 'client_ip',
@@ -1048,31 +1145,31 @@ export function RequestEventsDetailsCard({
         id: 'input_tokens',
         label: t('usage_stats.input_tokens'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.input_tokens')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.inputTokens.toLocaleString()}</td>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.inputTokensLabel}</td>,
       },
       {
         id: 'output_tokens',
         label: t('usage_stats.output_tokens'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.output_tokens')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.outputTokens.toLocaleString()}</td>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.outputTokensLabel}</td>,
       },
       {
         id: 'reasoning_tokens',
         label: t('usage_stats.reasoning_tokens'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.reasoning_tokens')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.reasoningTokens.toLocaleString()}</td>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.reasoningTokensLabel}</td>,
       },
       {
         id: 'cache_read_tokens',
         label: t('usage_stats.cache_read_tokens'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.cache_read_tokens')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.cacheReadTokens.toLocaleString()}</td>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.cacheReadTokensLabel}</td>,
       },
       {
         id: 'cache_creation_tokens',
         label: t('usage_stats.cache_creation_tokens'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.cache_creation_tokens')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.cacheCreationTokens.toLocaleString()}</td>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.cacheCreationTokensLabel}</td>,
       },
       {
         id: 'cache_read_rate',
@@ -1084,7 +1181,7 @@ export function RequestEventsDetailsCard({
         id: 'total_tokens',
         label: t('usage_stats.total_tokens'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.total_tokens')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.totalTokens.toLocaleString()}</td>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.totalTokensLabel}</td>,
       },
       {
         id: 'total_cost',
@@ -1092,7 +1189,7 @@ export function RequestEventsDetailsCard({
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.total_cost')}</th>,
         renderCell: (row) => (
           <td className={styles.requestEventsNoWrapCell} title={row.costAvailable ? undefined : t('usage_stats.cost_need_price')}>
-            {row.costAvailable && row.cost !== null ? formatUsd(row.cost) : '-'}
+            {row.costLabel}
           </td>
         ),
       },
@@ -1132,10 +1229,6 @@ export function RequestEventsDetailsCard({
     sourceFilter !== ALL_FILTER ||
     resultFilter !== ALL_FILTER;
 
-  const computedTotalPages = pageSize > 0 ? Math.ceil(totalCount / pageSize) : 0;
-  const safeTotalPages = Math.max(totalPages, computedTotalPages, rows.length > 0 ? 1 : 0);
-  const safePage = safeTotalPages > 0 ? Math.min(Math.max(page, 1), safeTotalPages) : 0;
-  const pageLabel = safeTotalPages > 0 ? `${safePage} / ${safeTotalPages}` : t('usage_stats.request_events_page_empty');
 
   const handleClearFilters = () => {
     onModelFilterChange(ALL_FILTER);
@@ -1244,8 +1337,8 @@ export function RequestEventsDetailsCard({
           />
         ) : (
           <>
-            <div ref={requestEventsTableWrapperRef} className={styles.requestEventsTableWrapper}>
-              <table className={styles.table}>
+            <div ref={requestEventsTableWrapperRef} className={styles.requestEventsTableWrapper} data-virtualized={virtualizeRows} data-loaded-row-count={rows.length} onScroll={handleTableScroll}>
+              <table className={styles.table} aria-rowcount={totalCount + 1}>
                 <thead>
                   <tr>
                     {visibleColumns.map((column) => (
@@ -1254,12 +1347,41 @@ export function RequestEventsDetailsCard({
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.id}>
-                      {visibleColumns.map((column) => (
-                        <React.Fragment key={column.id}>{column.renderCell(row)}</React.Fragment>
-                      ))}
-                    </tr>
+                  {virtualizeRows ? (
+                    <>
+                      {virtualPaddingTop > 0 && (
+                        <tr
+                          className={styles.requestEventsVirtualSpacerRow}
+                          style={{ height: `${virtualPaddingTop}px` }}
+                          aria-hidden="true"
+                        >
+                          <td colSpan={visibleColumns.length} />
+                        </tr>
+                      )}
+                      {virtualRows.map((virtualRow) => {
+                        const row = rows[virtualRow.index];
+                        return (
+                          <RequestEventTableRow
+                            key={virtualRow.key}
+                            row={row}
+                            columns={visibleColumns}
+                            virtualIndex={virtualRow.index}
+                            measureElement={eventRowVirtualizer.measureElement}
+                          />
+                        );
+                      })}
+                      {virtualPaddingBottom > 0 && (
+                        <tr
+                          className={styles.requestEventsVirtualSpacerRow}
+                          style={{ height: `${virtualPaddingBottom}px` }}
+                          aria-hidden="true"
+                        >
+                          <td colSpan={visibleColumns.length} />
+                        </tr>
+                      )}
+                    </>
+                  ) : rows.map((row) => (
+                    <RequestEventTableRow key={row.id} row={row} columns={visibleColumns} />
                   ))}
                 </tbody>
               </table>
@@ -1267,19 +1389,21 @@ export function RequestEventsDetailsCard({
 
             <div className={styles.requestEventsPaginationFooter}>
               <div className={styles.requestEventsPaginationControls}>
-                <label className={styles.requestEventsPageSizeControl}>
-                  <span>{t('usage_stats.request_events_rows_per_page')}</span>
-                  <select value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))} disabled={loading}>
-                    {pageSizeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-                  </select>
-                </label>
-                <button type="button" className={styles.requestEventsPagerButton} onClick={() => onPageChange(page - 1)} disabled={loading || safePage <= 1}>
-                  {t('usage_stats.request_events_previous_page')}
-                </button>
-                <span className={styles.requestEventsPaginationPage}>{pageLabel}</span>
-                <button type="button" className={styles.requestEventsPagerButton} onClick={() => onPageChange(page + 1)} disabled={loading || safeTotalPages === 0 || safePage >= safeTotalPages}>
-                  {t('usage_stats.request_events_next_page')}
-                </button>
+                <>
+                  <span className={styles.requestEventsPaginationPage} aria-live="polite">
+                    {t('usage_stats.request_events_loaded_count', { loaded: rows.length, total: totalCount })}
+                  </span>
+                  {hasMore && (
+                    <button
+                      type="button"
+                      className={styles.requestEventsPagerButton}
+                      onClick={onLoadMore}
+                      disabled={loading || loadingMore}
+                    >
+                      {loadingMore ? t('common.loading') : t('usage_stats.request_events_load_more')}
+                    </button>
+                  )}
+                </>
               </div>
             </div>
           </>

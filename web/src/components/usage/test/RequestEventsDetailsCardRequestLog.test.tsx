@@ -12,18 +12,12 @@ import {
 const baseProps: React.ComponentProps<typeof RequestEventsDetailsCard> = {
   events: [],
   loading: false,
-  page: 1,
-  pageSize: 20,
-  pageSizeOptions: [20, 50, 100],
   totalCount: 0,
-  totalPages: 0,
   modelOptions: [],
   sourceOptions: [],
   modelFilter: '__all__',
   sourceFilter: '__all__',
   resultFilter: '__all__',
-  onPageChange: () => undefined,
-  onPageSizeChange: () => undefined,
   onModelFilterChange: () => undefined,
   onSourceFilterChange: () => undefined,
   onResultFilterChange: () => undefined,
@@ -113,6 +107,12 @@ describe('RequestEventsDetailsCard request log virtualization', () => {
   });
 
   afterEach(async () => {
+    // TanStack Virtual 默认在 150ms 后发送滚动结束更新，销毁 Happy DOM 前先等待该更新完成。
+    await act(async () => {
+      const { promise: settleVirtualizer, resolve } = Promise.withResolvers<void>();
+      window.setTimeout(resolve, 200);
+      await settleVirtualizer;
+    });
     await act(async () => root.unmount());
     container.remove();
     document.body.innerHTML = '';
@@ -281,7 +281,6 @@ describe('RequestEventsDetailsCard request log virtualization', () => {
           {...baseProps}
           events={[requestLogEvent]}
           totalCount={1}
-          totalPages={1}
           requestLogAccessEnabled={false}
           onRequestLogOpen={() => undefined}
         />,

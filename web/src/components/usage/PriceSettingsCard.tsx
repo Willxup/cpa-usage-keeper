@@ -7,6 +7,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Select, type SelectOption } from '@/components/ui/Select';
 import { IconCheck, IconCircleAlert, IconRefreshCw } from '@/components/ui/icons';
 import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainment';
+import { ApiError } from '@/lib/api';
 import type { ModelPrice, PricingRule, PricingSaveResult, PricingStyle, PricingSyncMatch, PricingSyncPreviewResponse, ReplacePricingRuleInput } from '@/lib/types';
 import { PriceRulesModal } from './pricing/PriceRulesModal';
 import styles from '@/pages/UsagePage.module.scss';
@@ -174,6 +175,11 @@ export const notifyPricingSyncUnexpectedError = (
   t: (key: string) => string,
   onNotice: PriceSettingsCardProps['onNotice'],
 ) => {
+  if (error instanceof ApiError && error.status === 504) {
+    onNotice?.('error', t('usage_stats.model_price_sync_timeout'));
+    return;
+  }
+
   const message = error instanceof Error ? error.message : '';
   onNotice?.(
     'error',
@@ -465,8 +471,7 @@ export function PriceSettingsCard({
         onNotice?.('info', t('usage_stats.model_price_sync_no_matches'));
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : '';
-      onNotice?.('error', `${t('usage_stats.model_price_sync_failed')}${message ? `: ${message}` : ''}`);
+      notifyPricingSyncUnexpectedError(error, t, onNotice);
     } finally {
       setSyncLoading(false);
     }

@@ -26,16 +26,22 @@ type authSessionListResponse struct {
 }
 
 type authSessionItemResponse struct {
-	ID         string    `json:"id"`
-	Kind       string    `json:"kind"`
-	Role       auth.Role `json:"role"`
-	Source     string    `json:"source"`
-	Current    bool      `json:"current,omitempty"`
-	LoginAt    string    `json:"loginAt,omitempty"`
-	ExpiresAt  string    `json:"expiresAt,omitempty"`
-	APIKeyID   string    `json:"apiKeyId,omitempty"`
-	Label      string    `json:"label,omitempty"`
-	DisplayKey string    `json:"displayKey,omitempty"`
+	ID          string    `json:"id"`
+	Kind        string    `json:"kind"`
+	Role        auth.Role `json:"role"`
+	Source      string    `json:"source"`
+	Current     bool      `json:"current,omitempty"`
+	LoginAt     string    `json:"loginAt,omitempty"`
+	LastSeenAt  string    `json:"lastSeenAt,omitempty"`
+	ExpiresAt   string    `json:"expiresAt,omitempty"`
+	LoginIP     string    `json:"loginIp,omitempty"`
+	LastSeenIP  string    `json:"lastSeenIp,omitempty"`
+	UserAgent   string    `json:"userAgent,omitempty"`
+	APIKeyID    string    `json:"apiKeyId,omitempty"`
+	Label       string    `json:"label,omitempty"`
+	DisplayKey  string    `json:"displayKey,omitempty"`
+	sortSeenAt  time.Time `json:"-"`
+	sortLoginAt time.Time `json:"-"`
 }
 
 func registerAuthSessionManagementRoutes(router gin.IRoutes, handler *authHandler) {
@@ -98,47 +104,43 @@ func buildAuthSessionItems(records []auth.SessionRecord, apiKeysByID map[int64]e
 	items := make([]authSessionItemResponse, 0, len(records))
 
 	for _, record := range records {
+		base := authSessionItemResponse{
+			ID: record.TokenHash, Role: record.Role, Source: string(auth.NormalizeSessionSource(record.Source)),
+			Current: record.TokenHash == currentTokenHash, LoginAt: formatAuthSessionTime(record.CreatedAt),
+			LastSeenAt: formatAuthSessionTime(record.LastSeenAt), ExpiresAt: formatAuthSessionTime(record.ExpiresAt),
+			LoginIP: record.LoginIP, LastSeenIP: record.LastSeenIP, UserAgent: record.UserAgent,
+			sortSeenAt: record.LastSeenAt, sortLoginAt: record.CreatedAt,
+		}
 		if record.Role == auth.RoleAdmin {
-			items = append(items, authSessionItemResponse{
-				ID:        record.TokenHash,
-				Kind:      authSessionKindAdmin,
-				Role:      record.Role,
-				Source:    string(auth.NormalizeSessionSource(record.Source)),
-				Current:   record.TokenHash == currentTokenHash,
-				LoginAt:   formatAuthSessionTime(record.CreatedAt),
-				ExpiresAt: formatAuthSessionTime(record.ExpiresAt),
-			})
+			base.Kind = authSessionKindAdmin
+			items = append(items, base)
 			continue
 		}
 		if record.Role != auth.RoleAPIKeyViewer {
 			continue
 		}
 		label, displayKey := apiKeySessionDisplay(record.CPAAPIKeyID, apiKeysByID)
-		items = append(items, authSessionItemResponse{
-			ID:         record.TokenHash,
-			Kind:       authSessionKindAPIKey,
-			Role:       record.Role,
-			Source:     string(auth.NormalizeSessionSource(record.Source)),
-			Current:    record.TokenHash == currentTokenHash,
-			LoginAt:    formatAuthSessionTime(record.CreatedAt),
-			ExpiresAt:  formatAuthSessionTime(record.ExpiresAt),
-			APIKeyID:   strconv.FormatInt(record.CPAAPIKeyID, 10),
-			Label:      label,
-			DisplayKey: displayKey,
-		})
+		base.Kind = authSessionKindAPIKey
+		base.APIKeyID = strconv.FormatInt(record.CPAAPIKeyID, 10)
+		base.Label = label
+		base.DisplayKey = displayKey
+		items = append(items, base)
 	}
 
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].Current != items[j].Current {
 			return items[i].Current
 		}
-		if sessionKindRank(items[i].Kind) != sessionKindRank(items[j].Kind) {
-			return sessionKindRank(items[i].Kind) < sessionKindRank(items[j].Kind)
+		if !items[i].sortSeenAt.Equal(items[j].sortSeenAt) {
+			return items[i].sortSeenAt.After(items[j].sortSeenAt)
 		}
-		if items[i].LoginAt == items[j].LoginAt {
+		if !items[i].sortLoginAt.Equal(items[j].sortLoginAt) {
+			return items[i].sortLoginAt.After(items[j].sortLoginAt)
+		}
+		if items[i].ID != items[j].ID {
 			return items[i].ID < items[j].ID
 		}
-		return items[i].LoginAt < items[j].LoginAt
+		return false
 	})
 	return items
 }
@@ -156,14 +158,10 @@ func currentAuthSessionHash(c *gin.Context) string {
 	return auth.SessionTokenHash(resolved.Token)
 }
 
-func sessionKindRank(kind string) int {
-	if kind == authSessionKindAdmin {
-		return 0
-	}
-	return 1
-}
-
 func formatAuthSessionTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
 	return timeutil.NormalizeStorageTime(value).Format(authSessionTimeLayout)
 }
 

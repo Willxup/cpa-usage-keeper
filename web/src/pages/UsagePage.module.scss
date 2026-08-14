@@ -2016,23 +2016,24 @@
 
 .sessionSettingsItem {
   display: grid;
-  grid-template-columns: minmax(160px, 0.8fr) minmax(220px, 1.2fr) minmax(92px, auto);
-  align-items: center;
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'summary actions'
+    'client client'
+    'details details';
+  align-items: start;
+  gap: 12px 16px;
   padding: 14px;
   border: 1px solid color-mix(in srgb, var(--border-color) 86%, transparent);
   border-radius: 8px;
   background: color-mix(in srgb, var(--bg-secondary) 76%, transparent);
 }
 
-.sessionSettingsSummary,
-.sessionSettingsDetails {
+.sessionSettingsSummary {
   display: flex;
   flex-direction: column;
   min-width: 0;
-}
-
-.sessionSettingsSummary {
+  grid-area: summary;
   gap: 5px;
 }
 
@@ -2045,14 +2046,39 @@
 }
 
 .sessionSettingsDetails {
-  gap: 4px;
-  color: var(--text-tertiary);
-  font-size: 11px;
-  line-height: 1.45;
+  display: grid;
+  grid-area: details;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 18px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+}
 
-  > span {
-    font-variant-numeric: tabular-nums;
-  }
+.sessionSettingsDetailItem {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sessionSettingsDetailLabel {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.sessionSettingsDetailValue {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 .sessionSettingsType {
@@ -2099,6 +2125,35 @@
   white-space: nowrap;
 }
 
+.sessionSettingsClient {
+  display: grid;
+  grid-area: client;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.sessionSettingsClientLabel {
+  color: var(--text-tertiary);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sessionSettingsClientValue {
+  min-width: 0;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
 .sessionSettingsSource {
   width: fit-content;
   max-width: 100%;
@@ -2115,6 +2170,7 @@
 
 .sessionSettingsActions {
   display: flex;
+  grid-area: actions;
   align-items: center;
   justify-content: flex-end;
   min-width: 0;
@@ -2137,18 +2193,6 @@
     align-items: stretch;
   }
 
-  .sessionSettingsItem {
-    grid-template-columns: minmax(0, 1fr);
-    align-items: stretch;
-  }
-
-  .sessionSettingsActions {
-    justify-content: stretch;
-  }
-
-  .sessionSettingsLogoutButton {
-    width: 100%;
-  }
 }
 
 @include mobile {
@@ -2223,9 +2267,28 @@
 
   .sessionSettingsItem {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'summary'
+      'client'
+      'details'
+      'actions';
     align-items: stretch;
     padding: 12px;
     gap: 12px;
+  }
+
+  .sessionSettingsClient {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
+  }
+
+  .sessionSettingsDetails {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px 12px;
+  }
+
+  .sessionSettingsActions {
+    justify-content: stretch;
   }
 
   .sessionSettingsLogoutButton {
@@ -3002,6 +3065,16 @@
     position: sticky;
     top: 0;
     z-index: 2;
+  }
+}
+
+.requestEventsVirtualSpacerRow {
+  pointer-events: none;
+
+  td {
+    height: 0;
+    padding: 0;
+    border: 0;
   }
 }
 

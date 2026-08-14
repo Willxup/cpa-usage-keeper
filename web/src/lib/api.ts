@@ -407,6 +407,8 @@ export async function fetchUsageOverviewRealtime(options: FetchUsageOverviewReal
 export interface FetchUsageEventsOptions {
   page?: number
   pageSize?: number
+  cursorMode?: boolean
+  cursor?: string
   model?: string
   // Request Events 页面沿用 Source 命名；这里传的是 usage identity，后端会转换为 auth_index 查询。
   source?: string
@@ -432,6 +434,13 @@ function buildUsageEventsParams(request: UsageRangeRequest, options?: FetchUsage
   }
   if (includePagination && typeof options?.pageSize === 'number' && Number.isFinite(options.pageSize) && options.pageSize > 0) {
     params.set('page_size', String(Math.floor(options.pageSize)))
+  }
+  if (includePagination && options?.cursorMode) {
+    params.set('cursor_mode', 'true')
+  }
+  const cursor = options?.cursor?.trim()
+  if (includePagination && cursor) {
+    params.set('cursor', cursor)
   }
   const model = options?.model?.trim()
   if (model) {

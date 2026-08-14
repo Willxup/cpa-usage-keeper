@@ -38,18 +38,12 @@ const renderCard = (props: Partial<React.ComponentProps<typeof RequestEventsDeta
     <RequestEventsDetailsCard
       events={events}
       loading={false}
-      page={1}
-      pageSize={20}
-      pageSizeOptions={[20, 50, 100, 500, 1000]}
       totalCount={1}
-      totalPages={1}
       modelOptions={['claude-sonnet']}
       sourceOptions={[{ value: 'source-a', label: 'Provider A' }]}
       modelFilter="__all__"
       sourceFilter="__all__"
       resultFilter="__all__"
-      onPageChange={() => undefined}
-      onPageSizeChange={() => undefined}
       onModelFilterChange={() => undefined}
       onSourceFilterChange={() => undefined}
       onResultFilterChange={() => undefined}

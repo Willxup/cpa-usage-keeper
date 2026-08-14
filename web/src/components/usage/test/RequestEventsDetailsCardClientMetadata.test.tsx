@@ -43,11 +43,7 @@ const renderCardElement = (events: UsageEvent[]) => (
   <RequestEventsDetailsCard
     events={events}
     loading={false}
-    page={1}
-    pageSize={20}
-    pageSizeOptions={[20, 50, 100]}
     totalCount={events.length}
-    totalPages={1}
     modelOptions={['gpt-5']}
     sourceOptions={[{ value: 'source-a', label: 'Provider A' }]}
     modelFilter="__all__"
@@ -55,8 +51,6 @@ const renderCardElement = (events: UsageEvent[]) => (
     resultFilter="__all__"
     visibleColumnIds={['client_ip', 'x_forwarded_for', 'user_agent']}
     columnOrder={['client_ip', 'x_forwarded_for', 'user_agent']}
-    onPageChange={() => undefined}
-    onPageSizeChange={() => undefined}
     onModelFilterChange={() => undefined}
     onSourceFilterChange={() => undefined}
     onResultFilterChange={() => undefined}

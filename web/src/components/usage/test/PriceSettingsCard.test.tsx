@@ -3,6 +3,7 @@ import React from 'react';
 import '@/i18n';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { ApiError } from '@/lib/api';
 import {
   buildPricingModelOptions,
   buildSelectedSyncPrices,
@@ -295,7 +296,24 @@ describe('PriceSettingsCard', () => {
     expect(notices).toEqual([
       { kind: 'error', message: 'Unable to sync model prices: connection reset' },
     ]);
-    expect(source).toContain('notifyPricingSyncUnexpectedError(error, t, onNotice)');
+    expect(countOccurrences(source, 'notifyPricingSyncUnexpectedError(error, t, onNotice)')).toBe(2);
+  });
+
+  it('shows an actionable notice when Models.dev times out', () => {
+    const notices: Array<{ kind: string; message: string }> = [];
+
+    notifyPricingSyncUnexpectedError(
+      new ApiError('Models.dev request timed out', 504),
+      (key) => (key === 'usage_stats.model_price_sync_timeout'
+        ? 'Models.dev connection timed out. Check the Keeper server network connection and try again.'
+        : key),
+      (kind, message) => notices.push({ kind, message }),
+    );
+
+    expect(notices).toEqual([{
+      kind: 'error',
+      message: 'Models.dev connection timed out. Check the Keeper server network connection and try again.',
+    }]);
   });
 
   it('shows the concrete backend reason in the top notice when Models.dev prices cannot be applied', () => {

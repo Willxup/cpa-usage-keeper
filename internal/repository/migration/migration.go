@@ -79,6 +79,8 @@ const (
 	migrationAddCPAAPIKeyLocalRankingAvatar = "20260803_add_cpa_api_key_local_ranking_avatar"
 	// migrationAddCPAAPIKeySource 隔离 native 与 plugin metadata 的认证和 reconcile 范围。
 	migrationAddCPAAPIKeySource = "20260807_add_cpa_api_key_source"
+	// migrationAddAuthSessionClientMetadata 保存会话客户端与最近活动信息，旧会话只回填活动时间。
+	migrationAddAuthSessionClientMetadata = "20260813_add_auth_session_client_metadata"
 )
 
 type schemaMigration struct {
@@ -196,6 +198,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationLocalRankingStats, run: localRankingStatsMigration},
 		{version: migrationAddCPAAPIKeyLocalRankingAvatar, run: addCPAAPIKeyLocalRankingAvatarMigration},
 		{version: migrationAddCPAAPIKeySource, run: addCPAAPIKeySourceMigration},
+		{version: migrationAddAuthSessionClientMetadata, run: addAuthSessionClientMetadataMigration},
 	}
 }
 

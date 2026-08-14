@@ -1410,6 +1410,52 @@ func TestUsageEventsPassesPaginationAndAuthIndexSourceFilter(t *testing.T) {
 	}
 }
 
+func TestUsageEventsReturnsAndAcceptsCursorPagination(t *testing.T) {
+	eventTimestamp := time.Date(2026, 4, 22, 11, 0, 0, 123456789, time.UTC)
+	provider := &usageEventsStub{eventsPage: &servicedto.UsageEventsPage{
+		Events:     []servicedto.UsageEventRecord{{ID: 42, Timestamp: eventTimestamp, Model: "gpt-5"}},
+		TotalCount: 3,
+		Page:       1,
+		PageSize:   20,
+		HasMore:    true,
+	}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
+	firstRequest := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h&page_size=20&cursor_mode=true", nil)
+	firstResponse := httptest.NewRecorder()
+	router.ServeHTTP(firstResponse, firstRequest)
+
+	if firstResponse.Code != http.StatusOK {
+		t.Fatalf("expected first cursor response status 200, got %d", firstResponse.Code)
+	}
+	var payload struct {
+		NextCursor string `json:"next_cursor"`
+		HasMore    bool   `json:"has_more"`
+	}
+	if err := json.Unmarshal(firstResponse.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode cursor response: %v", err)
+	}
+	if !payload.HasMore || payload.NextCursor == "" {
+		t.Fatalf("expected next cursor metadata, got %s", firstResponse.Body.String())
+	}
+
+	secondRequest := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/usage/events?range=24h&page_size=20&cursor="+url.QueryEscape(payload.NextCursor),
+		nil,
+	)
+	secondResponse := httptest.NewRecorder()
+	router.ServeHTTP(secondResponse, secondRequest)
+	if secondResponse.Code != http.StatusOK {
+		t.Fatalf("expected continuation response status 200, got %d", secondResponse.Code)
+	}
+	if !provider.lastFilter.CursorMode || provider.lastFilter.CursorTimestamp == nil || provider.lastFilter.CursorID != 42 {
+		t.Fatalf("expected decoded cursor filter, got %+v", provider.lastFilter)
+	}
+	if !provider.lastFilter.CursorTimestamp.Equal(eventTimestamp) {
+		t.Fatalf("expected cursor timestamp %s, got %s", eventTimestamp, provider.lastFilter.CursorTimestamp)
+	}
+}
+
 func TestUsageEventsPassesAuthFileIdentitySourceFilterAsAuthIndex(t *testing.T) {
 	provider := &usageEventsStub{eventsPage: &servicedto.UsageEventsPage{Events: []servicedto.UsageEventRecord{}, TotalCount: 0, Page: 1, PageSize: 100, TotalPages: 0}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")

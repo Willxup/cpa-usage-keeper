@@ -80,7 +80,6 @@ const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
 };
 const DEFAULT_USAGE_TAB: UsageTab = 'overview';
 const USAGE_TAB_STORAGE_KEY = 'cli-proxy-usage-tab-v1';
-const REQUEST_EVENTS_PAGE_SIZES = [20, 50, 100, 500, 1000] as const;
 const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 50;
 const REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS = 90;
 // v7 是完整列顺序格式；v8 加入客户端请求元数据列，并保留历史自定义顺序。
@@ -205,6 +204,48 @@ export const shouldAutoRefreshUsageTab = ({
   return false;
 };
 
+export const appendUniqueUsageEvents = (
+  currentEvents: readonly UsageEvent[],
+  incomingEvents: readonly UsageEvent[],
+): UsageEvent[] => {
+  const seenEventIds = new Set(
+    currentEvents
+      .map((event) => String(event.id ?? '').trim())
+      .filter(Boolean),
+  );
+  const merged = [...currentEvents];
+  for (const event of incomingEvents) {
+    const eventId = String(event.id ?? '').trim();
+    if (eventId && seenEventIds.has(eventId)) continue;
+    if (eventId) seenEventIds.add(eventId);
+    merged.push(event);
+  }
+  return merged;
+};
+type UsageEventLoadMoreErrorOptions = {
+  error: unknown;
+  pauseAutoLoadMore: () => void;
+  recoverRangeBoundsConflict: (error: unknown) => boolean;
+  onAuthRequired?: () => void;
+  setError: (message: string) => void;
+};
+
+export const handleUsageEventLoadMoreError = ({
+  error,
+  pauseAutoLoadMore,
+  recoverRangeBoundsConflict,
+  onAuthRequired,
+  setError,
+}: UsageEventLoadMoreErrorOptions) => {
+  pauseAutoLoadMore();
+  if (recoverRangeBoundsConflict(error)) return;
+  if (error instanceof ApiError && error.status === 401) {
+    onAuthRequired?.();
+    return;
+  }
+  setError(error instanceof Error ? error.message : 'Failed to load more usage events');
+};
+
 type RequestEventFilterState = {
   model: string;
   source: string;
@@ -218,7 +259,6 @@ type RequestEventFilterOptionsState = {
 
 export type RequestEventsPreferences = {
   version: typeof REQUEST_EVENTS_PREFERENCES_VERSION;
-  pageSize: number;
   filters: RequestEventFilterState;
   visibleColumnIds: RequestEventColumnId[];
   columnOrder: RequestEventColumnId[];
@@ -234,7 +274,6 @@ const DEFAULT_REQUEST_EVENT_FILTERS: RequestEventFilterState = {
 
 const buildDefaultRequestEventsPreferences = (): RequestEventsPreferences => ({
   version: REQUEST_EVENTS_PREFERENCES_VERSION,
-  pageSize: REQUEST_EVENTS_DEFAULT_PAGE_SIZE,
   filters: { ...DEFAULT_REQUEST_EVENT_FILTERS },
   visibleColumnIds: [...REQUEST_EVENT_COLUMN_IDS],
   columnOrder: [...REQUEST_EVENT_COLUMN_IDS],
@@ -407,9 +446,6 @@ const isRecord = (value: unknown): value is Record<string, unknown> => (
   typeof value === 'object' && value !== null && !Array.isArray(value)
 );
 
-const isRequestEventPageSize = (value: unknown): value is typeof REQUEST_EVENTS_PAGE_SIZES[number] => (
-  typeof value === 'number' && REQUEST_EVENTS_PAGE_SIZES.includes(value as typeof REQUEST_EVENTS_PAGE_SIZES[number])
-);
 
 const isRequestEventColumnId = (value: unknown): value is RequestEventColumnId => (
   typeof value === 'string' && (REQUEST_EVENT_COLUMN_IDS as readonly string[]).includes(value)
@@ -492,7 +528,6 @@ export const normalizeRequestEventsPreferences = (value: unknown): RequestEvents
   const preferences = isRecord(value) ? value : {};
   return {
     version: REQUEST_EVENTS_PREFERENCES_VERSION,
-    pageSize: isRequestEventPageSize(preferences.pageSize) ? preferences.pageSize : REQUEST_EVENTS_DEFAULT_PAGE_SIZE,
     filters: normalizeRequestEventPreferenceFilters(preferences.filters),
     visibleColumnIds: normalizeRequestEventPreferenceColumnIds(preferences.visibleColumnIds, preferences.version),
     columnOrder: normalizeRequestEventPreferenceColumnOrder(preferences.columnOrder, preferences.version),
@@ -993,9 +1028,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [eventsError, setEventsError] = useState('');
   const [eventsData, setEventsData] = useState<UsageEvent[]>([]);
   const [eventsPage, setEventsPage] = useState(1);
-  const [eventsPageSize, setEventsPageSize] = useState<number>(initialRequestEventsPreferences.pageSize);
   const [eventsTotalCount, setEventsTotalCount] = useState(0);
-  const [eventsTotalPages, setEventsTotalPages] = useState(0);
+  const [eventsNextCursor, setEventsNextCursor] = useState<string | null>(null);
+  const eventsHasMore = Boolean(eventsNextCursor);
+  const [eventsLoadingMore, setEventsLoadingMore] = useState(false);
+  const [eventsAutoLoadMore, setEventsAutoLoadMore] = useState(true);
   const [eventsModelOptions, setEventsModelOptions] = useState<string[]>([]);
   const [eventsSourceOptions, setEventsSourceOptions] = useState<UsageSourceFilterOption[]>([]);
   const [eventsModelFilter, setEventsModelFilter] = useState(initialRequestEventsPreferences.filters.model);
@@ -1009,6 +1046,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [requestLogError, setRequestLogError] = useState('');
   const [requestLogLoadingEventId, setRequestLogLoadingEventId] = useState<string | null>(null);
   const [requestLogDownloading, setRequestLogDownloading] = useState(false);
+  const eventsLoadMoreRequestControllerRef = useRef<AbortController | null>(null);
   const requestLogAccessEnabled = status?.cpa_request_log_access_enabled === true;
   const requestLogDownloadGenerationRef = useRef(0);
   const eventsRequestControllerRef = useRef<AbortController | null>(null);
@@ -1361,7 +1399,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   useEffect(() => {
     saveRequestEventsPreferences({
       version: REQUEST_EVENTS_PREFERENCES_VERSION,
-      pageSize: eventsPageSize,
       filters: {
         model: eventsModelFilter,
         source: eventsSourceFilter,
@@ -1370,7 +1407,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       visibleColumnIds: eventsVisibleColumnIds,
       columnOrder: eventsColumnOrder,
     });
-  }, [eventsColumnOrder, eventsModelFilter, eventsPageSize, eventsResultFilter, eventsSourceFilter, eventsVisibleColumnIds]);
+  }, [eventsColumnOrder, eventsModelFilter, eventsResultFilter, eventsSourceFilter, eventsVisibleColumnIds]);
 
   useEffect(() => {
     setEventsPage(1);
@@ -1487,15 +1524,19 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const loadEvents = useCallback(async () => {
     if (!usageRangeQuery.valid) return;
     eventsRequestControllerRef.current?.abort();
+    eventsLoadMoreRequestControllerRef.current?.abort();
+    eventsLoadMoreRequestControllerRef.current = null;
     const controller = new AbortController();
     eventsRequestControllerRef.current = controller;
 
     setEventsLoading(true);
+    setEventsLoadingMore(false);
     setEventsError('');
+    setEventsAutoLoadMore(true);
     try {
       const response = await fetchUsageEvents(usageRangeQuery, controller.signal, {
-        page: eventsPage,
-        pageSize: eventsPageSize,
+        pageSize: REQUEST_EVENTS_DEFAULT_PAGE_SIZE,
+        cursorMode: true,
         model: eventsModelFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsModelFilter,
         source: eventsSourceFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsSourceFilter,
         result: eventsResultFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsResultFilter,
@@ -1504,13 +1545,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       if (eventsRequestControllerRef.current !== controller) {
         return;
       }
-      if (response.total_pages > 0 && eventsPage > response.total_pages) {
-        setEventsPage(response.total_pages);
-        return;
-      }
       setEventsData(response.events);
-      setEventsTotalCount(response.total_count);
-      setEventsTotalPages(response.total_pages);
+      setEventsTotalCount(Math.max(response.total_count, 0));
+      setEventsNextCursor(response.has_more === true ? response.next_cursor?.trim() || null : null);
+      setEventsPage(1);
     } catch (error) {
       if (controller.signal.aborted) {
         return;
@@ -1518,7 +1556,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       if (eventsRequestControllerRef.current === controller) {
         setEventsData([]);
         setEventsTotalCount(0);
-        setEventsTotalPages(0);
+        setEventsNextCursor(null);
       }
       if (recoverRangeBoundsConflict(error)) return;
       if (error instanceof ApiError && error.status === 401) {
@@ -1532,16 +1570,61 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         eventsRequestControllerRef.current = null;
       }
     }
-  }, [eventsModelFilter, eventsPage, eventsPageSize, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, usageRangeQuery]);
+  }, [eventsModelFilter, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, usageRangeQuery]);
+
+  const loadMoreEvents = useCallback(async () => {
+    const cursor = eventsNextCursor?.trim();
+    if (!cursor || !eventsHasMore || eventsLoadMoreRequestControllerRef.current) return;
+    if (!usageRangeQuery.valid) return;
+
+    const controller = new AbortController();
+    eventsLoadMoreRequestControllerRef.current = controller;
+    setEventsLoadingMore(true);
+    setEventsError('');
+    try {
+      const response = await fetchUsageEvents(usageRangeQuery, controller.signal, {
+        pageSize: REQUEST_EVENTS_DEFAULT_PAGE_SIZE,
+        cursorMode: true,
+        cursor,
+        model: eventsModelFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsModelFilter,
+        source: eventsSourceFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsSourceFilter,
+        result: eventsResultFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsResultFilter,
+        apiKeyId: selectedApiKeyId,
+      });
+      if (eventsLoadMoreRequestControllerRef.current !== controller) return;
+      setEventsAutoLoadMore(true);
+      setEventsData((currentEvents) => appendUniqueUsageEvents(currentEvents, response.events));
+      if (response.total_count >= 0) {
+        setEventsTotalCount(response.total_count);
+      }
+      setEventsNextCursor(response.has_more === true ? response.next_cursor?.trim() || null : null);
+      setEventsPage((currentPage) => currentPage + 1);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      handleUsageEventLoadMoreError({
+        error,
+        pauseAutoLoadMore: () => setEventsAutoLoadMore(false),
+        recoverRangeBoundsConflict,
+        onAuthRequired,
+        setError: setEventsError,
+      });
+    } finally {
+      if (eventsLoadMoreRequestControllerRef.current === controller) {
+        eventsLoadMoreRequestControllerRef.current = null;
+        setEventsLoadingMore(false);
+      }
+    }
+  }, [eventsHasMore, eventsModelFilter, eventsNextCursor, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, usageRangeQuery]);
 
   const resetEventsPage = useCallback(() => {
+    eventsLoadMoreRequestControllerRef.current?.abort();
+    eventsLoadMoreRequestControllerRef.current = null;
+    setEventsNextCursor(null);
+    setEventsLoadingMore(false);
+    setEventsAutoLoadMore(true);
     setEventsPage(1);
   }, []);
 
-  const handleEventsPageSizeChange = useCallback((pageSize: number) => {
-    setEventsPageSize(pageSize);
-    resetEventsPage();
-  }, [resetEventsPage]);
 
   const handleEventsModelFilterChange = useCallback((model: string) => {
     setEventsModelFilter(model);
@@ -1796,13 +1879,18 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     if (activeTab !== 'events') {
       eventsRequestControllerRef.current?.abort();
       eventsRequestControllerRef.current = null;
+      eventsLoadMoreRequestControllerRef.current?.abort();
+      eventsLoadMoreRequestControllerRef.current = null;
       setEventsLoading(false);
+      setEventsLoadingMore(false);
       return;
     }
     void loadEvents();
     return () => {
       eventsRequestControllerRef.current?.abort();
       eventsRequestControllerRef.current = null;
+      eventsLoadMoreRequestControllerRef.current?.abort();
+      eventsLoadMoreRequestControllerRef.current = null;
     };
   }, [activeTab, loadEvents]);
 
@@ -2205,25 +2293,23 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 <RequestEventsDetailsCard
                   events={eventsData}
                   loading={eventsLoading}
-                  page={eventsPage}
-                  pageSize={eventsPageSize}
-                  pageSizeOptions={REQUEST_EVENTS_PAGE_SIZES}
                   totalCount={eventsTotalCount}
-                  totalPages={eventsTotalPages}
                   modelOptions={eventsModelOptions}
                   sourceOptions={eventsSourceOptions}
                   modelFilter={eventsModelFilter}
                   sourceFilter={eventsSourceFilter}
                   resultFilter={eventsResultFilter}
                   exportingFormat={eventsExportingFormat}
+                  hasMore={eventsHasMore}
+                  loadingMore={eventsLoadingMore}
+                  autoLoadMore={eventsAutoLoadMore}
                   visibleColumnIds={eventsVisibleColumnIds}
                   columnOrder={eventsColumnOrder}
-                  onPageChange={setEventsPage}
-                  onPageSizeChange={handleEventsPageSizeChange}
                   onModelFilterChange={handleEventsModelFilterChange}
                   onSourceFilterChange={handleEventsSourceFilterChange}
                   onResultFilterChange={handleEventsResultFilterChange}
                   onExport={handleEventsExport}
+                  onLoadMore={loadMoreEvents}
                   onVisibleColumnIdsChange={setEventsVisibleColumnIds}
                   onColumnOrderChange={setEventsColumnOrder}
                   requestLogAccessEnabled={requestLogAccessEnabled}
