@@ -79,6 +79,13 @@ CPA Usage Keeper is a standalone persistence and analytics dashboard for [CLIPro
 - Deploy with Docker/Docker Compose, Homebrew, binaries, or systemd, with optional password protection
 - Embed the Keeper dashboard in CPAMC through the CPA plugin
 
+### CPA Plugin
+
+The CPAMC integration plugin is maintained in [`cpa-plugin/keeper`](./cpa-plugin/keeper).
+Keeper releases publish the application binaries and matching
+`keeper_<version>_<goos>_<goarch>.zip` plugin archives together, so the CPA
+plugin store can use this repository as the single update source.
+
 ## Sponsors and Special Thanks
 
 - Thanks to [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) for providing the upstream CPA foundation and data source this project builds on.

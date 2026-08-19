@@ -53,6 +53,28 @@ jobs:
         shell: msys2 {0}
         run: go test ./cmd/... ./internal/...
 
+  cpa-plugin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: cpa-plugin/keeper/go.mod
+          cache: true
+          cache-dependency-path: cpa-plugin/keeper/go.sum
+
+      - name: Run plugin tests
+        working-directory: cpa-plugin/keeper
+        run: make test
+
+      - name: Vet plugin
+        working-directory: cpa-plugin/keeper
+        run: make vet
+
   frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 15

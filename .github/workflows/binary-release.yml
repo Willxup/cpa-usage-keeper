@@ -224,12 +224,179 @@ jobs:
           path: dist/cpa-usage-keeper_${{ github.ref_name }}_windows_${{ matrix.asset_arch }}.zip
           if-no-files-found: error
 
+  cpa-plugin-release:
+    name: CPA plugin ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            runner: ubuntu-24.04
+          - goos: linux
+            goarch: arm64
+            runner: ubuntu-24.04-arm
+          - goos: darwin
+            goarch: amd64
+            runner: macos-15-intel
+          - goos: darwin
+            goarch: arm64
+            runner: macos-15
+          - goos: windows
+            goarch: amd64
+            runner: windows-2025
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: cpa-plugin/keeper/go.mod
+          cache: true
+          cache-dependency-path: cpa-plugin/keeper/go.sum
+
+      - name: Set up MinGW
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          path-type: inherit
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            make
+
+      - name: Build and package CPA plugin
+        run: >-
+          make -C cpa-plugin/keeper package
+          VERSION="${GITHUB_REF_NAME#v}"
+          GOOS="${{ matrix.goos }}"
+          GOARCH="${{ matrix.goarch }}"
+
+      - name: Upload CPA plugin artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: keeper-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: cpa-plugin/keeper/dist/keeper_*_${{ matrix.goos }}_${{ matrix.goarch }}.zip
+          if-no-files-found: error
+
+  cpa-plugin-release-windows-arm64:
+    name: CPA plugin windows/arm64
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: cpa-plugin/keeper/go.mod
+          cache: true
+          cache-dependency-path: cpa-plugin/keeper/go.sum
+
+      - name: Resolve plugin version
+        id: plugin_version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build Windows ARM64 shared library
+        timeout-minutes: 45
+        uses: go-cross/cgo-actions@v1
+        env:
+          GOFLAGS: -trimpath -buildmode=c-shared
+        with:
+          dir: cpa-plugin/keeper
+          packages: .
+          targets: windows-arm64
+          out-dir: dist/windows-arm64
+          output: keeper.dll
+          flags: -ldflags=-s -w
+          x-flags: main.pluginVersion=${{ steps.plugin_version.outputs.version }}
+
+      - name: Package CPA plugin
+        working-directory: cpa-plugin/keeper
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          rm -f go-cross-bin.h dist/windows-arm64/keeper.h
+          go run ./.github/scripts/package-release.go \
+            -library dist/windows-arm64/keeper.dll \
+            -archive "dist/keeper_${version}_windows_arm64.zip" \
+            -checksum "dist/keeper_${version}_windows_arm64.zip.sha256"
+
+      - name: Upload CPA plugin artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: keeper-${{ github.ref_name }}-windows-arm64
+          path: cpa-plugin/keeper/dist/keeper_*_windows_arm64.zip
+          if-no-files-found: error
+
+  cpa-plugin-release-freebsd:
+    name: CPA plugin freebsd/amd64
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: cpa-plugin/keeper/go.mod
+          cache: true
+          cache-dependency-path: cpa-plugin/keeper/go.sum
+
+      - name: Resolve plugin version
+        id: plugin_version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install FreeBSD cross-build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang lld wget
+
+      - name: Build FreeBSD shared library
+        timeout-minutes: 45
+        uses: go-cross/cgo-actions@v1
+        env:
+          GOFLAGS: -trimpath -buildmode=c-shared
+        with:
+          dir: cpa-plugin/keeper
+          packages: .
+          targets: freebsd-amd64
+          out-dir: dist/freebsd-amd64
+          output: keeper.so
+          flags: -ldflags=-s -w
+          x-flags: main.pluginVersion=${{ steps.plugin_version.outputs.version }}
+
+      - name: Package CPA plugin
+        working-directory: cpa-plugin/keeper
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          rm -f go-cross-bin.h dist/freebsd-amd64/keeper.h
+          go run ./.github/scripts/package-release.go \
+            -library dist/freebsd-amd64/keeper.so \
+            -archive "dist/keeper_${version}_freebsd_amd64.zip" \
+            -checksum "dist/keeper_${version}_freebsd_amd64.zip.sha256"
+
+      - name: Upload CPA plugin artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: keeper-${{ github.ref_name }}-freebsd-amd64
+          path: cpa-plugin/keeper/dist/keeper_*_freebsd_amd64.zip
+          if-no-files-found: error
+
   publish-release:
     runs-on: ubuntu-24.04
     needs:
       - binary-release-linux
       - binary-release-darwin
       - binary-release-windows
+      - cpa-plugin-release
+      - cpa-plugin-release-windows-arm64
+      - cpa-plugin-release-freebsd
     steps:
       - name: Download binary package artifacts
         uses: actions/download-artifact@v6
