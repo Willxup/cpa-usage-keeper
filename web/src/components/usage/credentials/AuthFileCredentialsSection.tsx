@@ -1,3 +1,4 @@
+import { formatDateTime, useDisplayTimeZone } from '@/utils/timezone'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
@@ -117,6 +118,7 @@ interface AuthFileCredentialsSectionProps {
 
 export function AuthFileCredentialsSection({ rows, total, page, totalPages, pageSize, activeOnly, sort, loading, quotaRefreshing, quotaRefreshError, quotaInspectionStatus, quotaInspectionLoading, quotaInspectionStarting, quotaInspectionError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex, onResetQuotaForAuthIndex, aliasSavingId, onSaveAlias, onOpenDetails, onRefreshInspectionStatus, onStartInspection, onAfterInvalidAccountAction }: AuthFileCredentialsSectionProps) {
   const { t } = useTranslation()
+  useDisplayTimeZone()
   const [inspectionOpen, setInspectionOpen] = useState(false)
   const [quotaUsageMode, setQuotaUsageMode] = useState<QuotaUsageMode>('current')
   const [displayMode, setDisplayModeState] = useState<AuthFileDisplayMode>(() => readStoredAuthFileDisplayMode())
@@ -1553,7 +1555,7 @@ export function formatInspectionCompletedAt(value: string | undefined): string {
   if (Number.isNaN(date.getTime())) {
     return ''
   }
-  return date.toLocaleString()
+  return formatDateTime(date)
 }
 
 function formatInspectionDate(value: string | undefined): string {

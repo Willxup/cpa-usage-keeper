@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { UsageCredentialHealth } from '@/lib/types'
 import { healthGreenThreshold } from '@/utils/usage/health'
+import { formatDateTime, useDisplayTimeZone } from '@/utils/timezone'
 import { IconRefreshCw, IconTimer } from '@/components/ui/icons'
 import styles from './CredentialSections.module.scss'
 
@@ -57,6 +58,7 @@ export function CredentialHealthPanel({ displayName, health, lastUsedAt, statsUp
   const buckets = useMemo(() => buildHealthBuckets(health), [health])
   const score = resolveCredentialHealthScore(health, buckets)
   const summary = resolveCredentialHealthSummary(buckets, health, t)
+  useDisplayTimeZone()
   const lastUsed = formatCredentialHealthDate(lastUsedAt)
   const statsUpdated = formatCredentialHealthDate(statsUpdatedAt)
 
@@ -398,20 +400,6 @@ function formatClockMinutes(value: number): string {
 }
 
 function formatCredentialHealthDate(value: string | undefined): string {
-  if (!value) {
-    return ''
-  }
-  const apiDateTime = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/)
-  if (apiDateTime) {
-    return `${apiDateTime[2]}/${apiDateTime[3]} ${apiDateTime[4]}:${apiDateTime[5]}`
-  }
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return ''
-  }
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  return `${month}/${day} ${hours}:${minutes}`
+  if (!value) return ''
+  return formatDateTime(value, { dateStyle: undefined, timeStyle: undefined, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
