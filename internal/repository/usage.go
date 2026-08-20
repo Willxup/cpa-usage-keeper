@@ -433,7 +433,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, costResol
 		if err != nil {
 			return nil, err
 		}
-		applyAnalysisDailyRows(record, dailyRows, dailyIdentityLookup, costResolver)
+		applyAnalysisDailyRows(record, dailyRows, dailyIdentityLookup, costResolver, filter.ModelDimension)
 		return record, nil
 	}
 
@@ -450,7 +450,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, costResol
 	if err != nil {
 		return nil, err
 	}
-	applyAnalysisHourlyRows(record, rows, identityLookup, costResolver)
+	applyAnalysisHourlyRows(record, rows, identityLookup, costResolver, filter.ModelDimension)
 	fillAnalysisFullDayHourlyBuckets(record, filter)
 	return record, nil
 }
@@ -553,7 +553,7 @@ func loadAnalysisIdentityLookup(db *gorm.DB, authIndexes []string) (analysisIden
 	return lookup, nil
 }
 
-func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []analysisOverviewStatProjection, identityLookup analysisIdentityLookup, costResolver pricing.Resolver) {
+func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []analysisOverviewStatProjection, identityLookup analysisIdentityLookup, costResolver pricing.Resolver, modelDimension string) {
 	bucketTotals := map[time.Time]*dto.AnalysisTokenUsageBucketRecord{}
 	modelUsageTotals := map[analysisModelUsageKey]*dto.AnalysisModelUsageRecord{}
 	apiTotals := map[string]*dto.AnalysisCompositionRecord{}
@@ -565,13 +565,13 @@ func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []analysisOverview
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart).Truncate(time.Hour)
 		costResult := calculateAnalysisOverviewProjectionCost(costResolver, row)
 		cost, costAvailable := costResult.Cost, costResult.Available
-		applyAnalysisRow(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
+		applyAnalysisRow(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.ModelAlias, modelDimension, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 		applyAnalysisIdentityComposition(identityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
 	finalizeAnalysisRecord(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 }
 
-func applyAnalysisDailyRows(record *dto.AnalysisRecord, dailyRows []analysisOverviewStatProjection, dailyIdentityLookup analysisIdentityLookup, costResolver pricing.Resolver) {
+func applyAnalysisDailyRows(record *dto.AnalysisRecord, dailyRows []analysisOverviewStatProjection, dailyIdentityLookup analysisIdentityLookup, costResolver pricing.Resolver, modelDimension string) {
 	bucketTotals := map[time.Time]*dto.AnalysisTokenUsageBucketRecord{}
 	modelUsageTotals := map[analysisModelUsageKey]*dto.AnalysisModelUsageRecord{}
 	apiTotals := map[string]*dto.AnalysisCompositionRecord{}
@@ -583,15 +583,16 @@ func applyAnalysisDailyRows(record *dto.AnalysisRecord, dailyRows []analysisOver
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart)
 		costResult := calculateAnalysisOverviewProjectionCost(costResolver, row)
 		cost, costAvailable := costResult.Cost, costResult.Available
-		applyAnalysisRow(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
+		applyAnalysisRow(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.ModelAlias, modelDimension, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 		applyAnalysisIdentityComposition(dailyIdentityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
 	finalizeAnalysisRecord(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 }
 
-func applyAnalysisRow(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, modelUsageTotals map[analysisModelUsageKey]*dto.AnalysisModelUsageRecord, apiTotals, modelTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord, bucket time.Time, apiGroupKey, model string, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens int64, cost helper.UsageTokenCostBreakdown, costAvailable bool) {
+func applyAnalysisRow(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, modelUsageTotals map[analysisModelUsageKey]*dto.AnalysisModelUsageRecord, apiTotals, modelTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord, bucket time.Time, apiGroupKey, model, modelAlias, modelDimension string, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens int64, cost helper.UsageTokenCostBreakdown, costAvailable bool) {
 	apiKey := normalizeUsageOverviewDimension(apiGroupKey)
 	modelName := normalizeUsageOverviewDimension(model)
+	modelKey := resolveUsageModelDimensionKey(modelName, modelAlias, modelDimension)
 	bucketTotal := bucketTotals[bucket]
 	if bucketTotal == nil {
 		bucketTotal = &dto.AnalysisTokenUsageBucketRecord{Bucket: bucket, CostAvailable: true}
@@ -610,10 +611,10 @@ func applyAnalysisRow(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dt
 	}
 
 	// Top Models 与总 Token 图共享同一 bucket；这里只在既有 rows 遍历中补充模型维度累加。
-	modelUsageKey := analysisModelUsageKey{bucket: bucket, model: modelName}
+	modelUsageKey := analysisModelUsageKey{bucket: bucket, model: modelKey}
 	modelUsage := modelUsageTotals[modelUsageKey]
 	if modelUsage == nil {
-		modelUsage = &dto.AnalysisModelUsageRecord{Bucket: bucket, Model: modelName}
+		modelUsage = &dto.AnalysisModelUsageRecord{Bucket: bucket, Model: modelKey}
 		modelUsageTotals[modelUsageKey] = modelUsage
 	}
 	modelUsage.TotalTokens += totalTokens
@@ -626,17 +627,17 @@ func applyAnalysisRow(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dt
 	}
 	applyAnalysisCompositionTotals(apiTotal, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
 
-	modelTotal := modelTotals[modelName]
+	modelTotal := modelTotals[modelKey]
 	if modelTotal == nil {
-		modelTotal = &dto.AnalysisCompositionRecord{Key: modelName, CostAvailable: true}
-		modelTotals[modelName] = modelTotal
+		modelTotal = &dto.AnalysisCompositionRecord{Key: modelKey, CostAvailable: true}
+		modelTotals[modelKey] = modelTotal
 	}
 	applyAnalysisCompositionTotals(modelTotal, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
 
-	heatmapKey := analysisHeatmapKey{apiKey: apiKey, model: modelName}
+	heatmapKey := analysisHeatmapKey{apiKey: apiKey, model: modelKey}
 	heatmapTotal := heatmapTotals[heatmapKey]
 	if heatmapTotal == nil {
-		heatmapTotal = &dto.AnalysisHeatmapRecord{APIKey: apiKey, Model: modelName, CostAvailable: true}
+		heatmapTotal = &dto.AnalysisHeatmapRecord{APIKey: apiKey, Model: modelKey, CostAvailable: true}
 		heatmapTotals[heatmapKey] = heatmapTotal
 	}
 	heatmapTotal.Requests += requests
@@ -1388,7 +1389,7 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, costRe
 		bucket.requests++
 		if visibleEvent {
 			// current usage 的请求数同样包含成功和失败，token 后续只由成功请求累计。
-			applyUsageOverviewRealtimeRequest(realtimeEvent, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage, identityLookup)
+			applyUsageOverviewRealtimeRequest(realtimeEvent, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage, identityLookup, filter.ModelDimension)
 		}
 		if !event.Failed && usageEventGenerateEnabled(event.Generate) && event.TTFTMS != nil && *event.TTFTMS > 0 && event.LatencyMS > 0 {
 			// TTFT 和 Latency 共用同一有效请求样本，避免两张响应分布图的统计口径不一致。
@@ -1414,7 +1415,7 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, costRe
 		}
 		if visibleEvent {
 			// current usage 的 token 占比只统计有 token 的成功请求。
-			applyUsageOverviewRealtimeTokenUsage(realtimeEvent, cost, costResult.Available, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage, identityLookup)
+			applyUsageOverviewRealtimeTokenUsage(realtimeEvent, cost, costResult.Available, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage, identityLookup, filter.ModelDimension)
 		}
 	}
 
@@ -1582,10 +1583,11 @@ func collectRealtimeAuthIndexes(events []usageOverviewRealtimeEvent, visibleStar
 	return result
 }
 
-func applyUsageOverviewRealtimeRequest(realtimeEvent usageOverviewRealtimeEvent, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage map[string]*usageOverviewRealtimeTopAccumulator, identityLookup analysisIdentityLookup) {
+func applyUsageOverviewRealtimeRequest(realtimeEvent usageOverviewRealtimeEvent, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage map[string]*usageOverviewRealtimeTopAccumulator, identityLookup analysisIdentityLookup, modelDimension string) {
 	event := realtimeEvent.event
-	// 模型维度的请求数不区分成功失败。
-	applyUsageOverviewRealtimeRequestToTotals(modelUsage, normalizeUsageOverviewDimension(event.Model), normalizeUsageOverviewDimension(event.Model))
+	// 模型维度的请求数不区分成功失败；alias 模式下合并同名别名。
+	modelKey := resolveUsageOverviewRealtimeModelKey(event, modelDimension)
+	applyUsageOverviewRealtimeRequestToTotals(modelUsage, modelKey, modelKey)
 	// API Key 维度使用 api_group_key，KeyOverview 前端会隐藏这个 tab。
 	applyUsageOverviewRealtimeRequestToTotals(apiKeyUsage, normalizeUsageOverviewDimension(event.APIGroupKey), normalizeUsageOverviewDimension(event.APIGroupKey))
 	// Auth File / AI Provider 维度先走身份表，缺失时再用缓存 fallback。
@@ -1598,14 +1600,37 @@ func applyUsageOverviewRealtimeRequestToTotals(totals map[string]*usageOverviewR
 	item.requests++
 }
 
-func applyUsageOverviewRealtimeTokenUsage(realtimeEvent usageOverviewRealtimeEvent, cost float64, costAvailable bool, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage map[string]*usageOverviewRealtimeTopAccumulator, identityLookup analysisIdentityLookup) {
+func applyUsageOverviewRealtimeTokenUsage(realtimeEvent usageOverviewRealtimeEvent, cost float64, costAvailable bool, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage map[string]*usageOverviewRealtimeTopAccumulator, identityLookup analysisIdentityLookup, modelDimension string) {
 	event := realtimeEvent.event
-	// token share 的模型维度只统计成功且有 token 的请求。
-	applyUsageOverviewRealtimeTokenUsageToTotals(modelUsage, normalizeUsageOverviewDimension(event.Model), normalizeUsageOverviewDimension(event.Model), event.TotalTokens, cost, costAvailable)
+	// token share 的模型维度只统计成功且有 token 的请求；alias 模式下与请求数使用相同键。
+	modelKey := resolveUsageOverviewRealtimeModelKey(event, modelDimension)
+	applyUsageOverviewRealtimeTokenUsageToTotals(modelUsage, modelKey, modelKey, event.TotalTokens, cost, costAvailable)
 	// token share 的 API Key 维度同样按 api_group_key 聚合。
 	applyUsageOverviewRealtimeTokenUsageToTotals(apiKeyUsage, normalizeUsageOverviewDimension(event.APIGroupKey), normalizeUsageOverviewDimension(event.APIGroupKey), event.TotalTokens, cost, costAvailable)
 	// 身份维度 token 聚合保持和请求数相同的身份解析策略。
 	applyUsageOverviewRealtimeIdentityTokenUsage(realtimeEvent, authFileUsage, aiProviderUsage, identityLookup, cost, costAvailable)
+}
+
+// resolveUsageOverviewRealtimeModelKey 返回实时聚合的模型统计键；alias 模式使用 ModelAlias，为空回退真实模型名。
+// 成本仍按原始真实模型名解析，不使用该键。
+func resolveUsageOverviewRealtimeModelKey(event entities.UsageEvent, modelDimension string) string {
+	modelName := normalizeUsageOverviewDimension(event.Model)
+	if modelDimension != dto.ModelDimensionAlias {
+		return modelName
+	}
+	alias := strings.TrimSpace(usageEventModelAlias(event))
+	if alias == "" {
+		return modelName
+	}
+	return alias
+}
+
+// usageEventModelAlias 安全提取事件 ModelAlias，nil 时返回空串。
+func usageEventModelAlias(event entities.UsageEvent) string {
+	if event.ModelAlias == nil {
+		return ""
+	}
+	return *event.ModelAlias
 }
 
 func applyUsageOverviewRealtimeTokenUsageToTotals(totals map[string]*usageOverviewRealtimeTopAccumulator, key, label string, tokens int64, cost float64, costAvailable bool) {
@@ -2084,6 +2109,19 @@ func normalizeUsageOverviewDimension(value string) string {
 		return "unknown"
 	}
 	return trimmed
+}
+
+// resolveUsageModelDimensionKey 返回模型维度的统计展示键；alias 模式优先使用模型别名，别名缺失时回退真实模型名。
+// 定价计算不使用该键，价格仍按原始真实模型名和原始别名解析。
+func resolveUsageModelDimensionKey(modelName, modelAlias, modelDimension string) string {
+	if modelDimension != dto.ModelDimensionAlias {
+		return modelName
+	}
+	alias := strings.TrimSpace(modelAlias)
+	if alias == "" {
+		return modelName
+	}
+	return alias
 }
 
 const (

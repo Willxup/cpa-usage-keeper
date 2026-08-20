@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { ApiError, fetchUsageOverview, fetchUsageOverviewRealtime } from '@/lib/api';
-import type { OverviewRealtimeBlock, OverviewRealtimeWindow, UsageCustomRangeUnit, UsageOverviewResponse, UsageRangeRequest, UsageTimeRange } from '@/lib/types';
+import type { ModelDimension, OverviewRealtimeBlock, OverviewRealtimeWindow, UsageCustomRangeUnit, UsageOverviewResponse, UsageRangeRequest, UsageTimeRange } from '@/lib/types';
 
 export const USAGE_STATS_STALE_TIME_MS = 60_000;
 
@@ -19,6 +19,7 @@ interface LoadUsageStatsRealtimeOptions {
   staleTimeMs?: number;
   apiKeyId?: string;
   realtimeWindow?: OverviewRealtimeWindow;
+  modelDimension?: ModelDimension;
 }
 
 interface UsageStatsState {
@@ -48,8 +49,8 @@ let activeRealtimeRequestController: AbortController | null = null;
 export const buildUsageStatsQueryKey = (request: UsageRangeRequest, apiKeyId?: string): string =>
   `${request.range}:${request.unit ?? ''}:${request.start ?? ''}:${request.end ?? ''}:${apiKeyId ?? ''}`;
 
-const buildRealtimeQueryKey = (apiKeyId?: string, realtimeWindow?: OverviewRealtimeWindow): string =>
-  `${apiKeyId ?? ''}:${realtimeWindow ?? ''}`;
+const buildRealtimeQueryKey = (apiKeyId?: string, realtimeWindow?: OverviewRealtimeWindow, modelDimension?: ModelDimension): string =>
+  `${apiKeyId ?? ''}:${realtimeWindow ?? ''}:${modelDimension ?? 'model'}`;
 
 export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
   usage: null,
@@ -142,10 +143,11 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
       staleTimeMs = USAGE_STATS_STALE_TIME_MS,
       apiKeyId,
       realtimeWindow,
+      modelDimension,
     } = options;
     const { lastRealtimeRefreshedAt, realtimeLoading, realtime, lastRealtimeQueryKey, realtimeError, lastRealtimeErrorQueryKey } = get();
     const now = Date.now();
-    const realtimeQueryKey = buildRealtimeQueryKey(apiKeyId, realtimeWindow);
+    const realtimeQueryKey = buildRealtimeQueryKey(apiKeyId, realtimeWindow, modelDimension);
     const realtimeFresh = Boolean(!force && realtime && lastRealtimeRefreshedAt && lastRealtimeQueryKey === realtimeQueryKey && now - lastRealtimeRefreshedAt < staleTimeMs);
 
     if (realtimeFresh) {
@@ -177,6 +179,7 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
           signal: controller.signal,
           apiKeyId,
           window: realtimeWindow,
+          modelDimension,
         });
         if (activeRealtimeRequestController !== controller) return;
         set({

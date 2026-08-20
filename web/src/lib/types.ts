@@ -142,6 +142,9 @@ export interface UsageActivityResponse {
 
 export type OverviewRealtimeWindow = '15m' | '30m' | '60m'
 
+// ModelDimension 控制按模型名统计还是按模型别名统计，与分析页和实时概览的全局 dropdown 共享。
+export type ModelDimension = 'model' | 'alias'
+
 export interface RealtimeTokenVelocityPoint {
   bucket: string
   tokens_per_minute: number

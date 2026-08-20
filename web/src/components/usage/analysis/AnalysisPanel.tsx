@@ -4,8 +4,9 @@ import '@/lib/chartjs';
 import { Interaction, Tooltip } from 'chart.js';
 import type { Chart, ChartData, ChartOptions, InteractionItem, InteractionModeFunction, Plugin, ScriptableContext, TooltipModel, TooltipPositionerFunction } from 'chart.js';
 import { Bar, Doughnut, Scatter } from 'react-chartjs-2';
-import type { AnalysisCompositionItem, AnalysisCostBreakdown, AnalysisHeatmapCell, AnalysisLatencyDiagnostics, AnalysisModelEfficiencyItem, AnalysisModelUsagePayload, AnalysisResponse, AnalysisTokenUsageBucket } from '@/lib/types';
+import type { AnalysisCompositionItem, AnalysisCostBreakdown, AnalysisHeatmapCell, AnalysisLatencyDiagnostics, AnalysisModelEfficiencyItem, AnalysisModelUsagePayload, AnalysisResponse, AnalysisTokenUsageBucket, ModelDimension } from '@/lib/types';
 import { calculateDisplayInputTokens, calculateDisplayOutputTokens, formatCompactNumber, formatDurationMs, formatPerMinuteValue, formatUsd } from '@/utils/usage';
+import { Select } from '@/components/ui/Select';
 import styles from './AnalysisPanel.module.scss';
 
 interface AnalysisPanelProps {
@@ -14,6 +15,8 @@ interface AnalysisPanelProps {
   latencyDiagnostics?: AnalysisLatencyDiagnostics | null;
   latencyLoading?: boolean;
   latencyError?: string;
+  modelDimension?: ModelDimension;
+  onModelDimensionChange?: (dimension: ModelDimension) => void;
   isDark: boolean;
   isMobile: boolean;
 }
@@ -2388,7 +2391,7 @@ function Heatmap({ cells, apiKeys, apiKeyLabels, models, loading, isDark }: { ce
   );
 }
 
-export function AnalysisPanel({ analysis, loading, latencyDiagnostics, latencyLoading = false, latencyError = '', isDark, isMobile }: AnalysisPanelProps) {
+export function AnalysisPanel({ analysis, loading, latencyDiagnostics, latencyLoading = false, latencyError = '', modelDimension = 'model', onModelDimensionChange, isDark, isMobile }: AnalysisPanelProps) {
   const { t } = useTranslation();
   const tokenRows = useMemo(() => buildTokenUsageRows(analysis?.token_usage ?? [], analysis?.granularity ?? 'hourly', analysis?.timezone), [analysis]);
   const apiComposition = useMemo(() => takeMajorComposition(analysis?.api_key_composition ?? [], t('usage_stats.analysis_others')), [analysis, t]);
@@ -2402,9 +2405,24 @@ export function AnalysisPanel({ analysis, loading, latencyDiagnostics, latencyLo
     { id: 'auth_files', label: t('usage_stats.analysis_composition_auth_files_tab'), items: authFilesComposition },
     { id: 'ai_provider', label: t('usage_stats.analysis_composition_ai_provider_tab'), items: aiProviderComposition },
   ], [apiComposition, modelComposition, authFilesComposition, aiProviderComposition, t]);
+  const modelDimensionOptions = useMemo(() => [
+    { value: 'model', label: t('usage_stats.model_dimension_model') },
+    { value: 'alias', label: t('usage_stats.model_dimension_alias') },
+  ], [t]);
 
   return (
     <div className={styles.analysisPanel}>
+      {onModelDimensionChange && (
+        <div className={styles.analysisDimensionToolbar}>
+          <Select
+            value={modelDimension}
+            options={modelDimensionOptions}
+            onChange={(value) => onModelDimensionChange(value as ModelDimension)}
+            ariaLabel={t('usage_stats.model_dimension_label')}
+            className={styles.analysisDimensionSelect}
+          />
+        </div>
+      )}
       <TokenUsageChart rows={tokenRows} loading={loading} isDark={isDark} isMobile={isMobile} />
       <div className={styles.insightGrid}>
         <CostBreakdownCard breakdown={analysis?.cost_breakdown} rows={tokenRows} loading={loading} />

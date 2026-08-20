@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from 'react';
 import { ApiError } from '@/lib/api';
-import type { OverviewRealtimeBlock, OverviewRealtimeWindow } from '@/lib/types';
+import type { ModelDimension, OverviewRealtimeBlock, OverviewRealtimeWindow } from '@/lib/types';
 import { USAGE_STATS_STALE_TIME_MS, useUsageStatsStore } from '@/stores';
 
 export interface UseOverviewRealtimeDataReturn {
@@ -15,6 +15,7 @@ export interface UseOverviewRealtimeDataOptions {
   enabled?: boolean;
   apiKeyId?: string;
   realtimeWindow?: OverviewRealtimeWindow;
+  modelDimension?: ModelDimension;
 }
 
 interface ResolveDisplayRealtimeOptions {
@@ -24,12 +25,6 @@ interface ResolveDisplayRealtimeOptions {
   realtimeQueryKey: string;
 }
 
-const realtimeQueryScope = (queryKey: string | null): string | null => {
-  if (queryKey === null) return null;
-  const separatorIndex = queryKey.lastIndexOf(':');
-  return separatorIndex === -1 ? queryKey : queryKey.slice(0, separatorIndex);
-};
-
 export function resolveDisplayRealtime({
   realtime,
   lastRealtimeQueryKey,
@@ -38,21 +33,18 @@ export function resolveDisplayRealtime({
 }: ResolveDisplayRealtimeOptions): OverviewRealtimeBlock | null {
   if (lastRealtimeQueryKey === realtimeQueryKey) return realtime;
   if (lastRealtimeErrorQueryKey === realtimeQueryKey) return null;
-  if (realtime && realtimeQueryScope(lastRealtimeQueryKey) === realtimeQueryScope(realtimeQueryKey)) {
-    return realtime;
-  }
   return null;
 }
 
 export function useOverviewRealtimeData(options: UseOverviewRealtimeDataOptions = {}): UseOverviewRealtimeDataReturn {
-  const { onAuthRequired, enabled = true, apiKeyId, realtimeWindow } = options;
+  const { onAuthRequired, enabled = true, apiKeyId, realtimeWindow, modelDimension } = options;
   const realtime = useUsageStatsStore((state) => state.realtime);
   const loading = useUsageStatsStore((state) => state.realtimeLoading);
   const storeError = useUsageStatsStore((state) => state.realtimeError);
   const lastRealtimeQueryKey = useUsageStatsStore((state) => state.lastRealtimeQueryKey);
   const lastRealtimeErrorQueryKey = useUsageStatsStore((state) => state.lastRealtimeErrorQueryKey);
   const loadUsageStatsRealtime = useUsageStatsStore((state) => state.loadUsageStatsRealtime);
-  const realtimeQueryKey = `${apiKeyId ?? ''}:${realtimeWindow ?? ''}`;
+  const realtimeQueryKey = `${apiKeyId ?? ''}:${realtimeWindow ?? ''}:${modelDimension ?? 'model'}`;
   const currentRealtime = resolveDisplayRealtime({
     realtime,
     lastRealtimeQueryKey,
@@ -67,6 +59,7 @@ export function useOverviewRealtimeData(options: UseOverviewRealtimeDataOptions 
         staleTimeMs: USAGE_STATS_STALE_TIME_MS,
         apiKeyId,
         realtimeWindow,
+        modelDimension,
       });
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
@@ -74,7 +67,7 @@ export function useOverviewRealtimeData(options: UseOverviewRealtimeDataOptions 
       }
       throw error;
     }
-  }, [apiKeyId, loadUsageStatsRealtime, onAuthRequired, realtimeWindow]);
+  }, [apiKeyId, loadUsageStatsRealtime, modelDimension, onAuthRequired, realtimeWindow]);
 
   useEffect(() => {
     if (!enabled) {
@@ -84,12 +77,13 @@ export function useOverviewRealtimeData(options: UseOverviewRealtimeDataOptions 
       staleTimeMs: USAGE_STATS_STALE_TIME_MS,
       apiKeyId,
       realtimeWindow,
+      modelDimension,
     }).catch((error) => {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
       }
     });
-  }, [apiKeyId, enabled, loadUsageStatsRealtime, onAuthRequired, realtimeWindow]);
+  }, [apiKeyId, enabled, loadUsageStatsRealtime, modelDimension, onAuthRequired, realtimeWindow]);
 
   return {
     realtime: currentRealtime,

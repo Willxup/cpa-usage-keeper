@@ -672,7 +672,10 @@ const resources = {
         analysis_heatmap_low: 'Low',
         analysis_heatmap_high: 'High',
         analysis_heatmap_legend: 'Heatmap intensity legend',
-        analysis_others: 'Others'
+        analysis_others: 'Others',
+        model_dimension_label: 'Model dimension',
+        model_dimension_model: 'By model name',
+        model_dimension_alias: 'By model alias'
       },
       ranking: {
         kicker: 'Community leaderboard',
@@ -1442,7 +1445,10 @@ const resources = {
         analysis_heatmap_low: '低',
         analysis_heatmap_high: '高',
         analysis_heatmap_legend: '热力强度示例',
-        analysis_others: '其他'
+        analysis_others: '其他',
+        model_dimension_label: '模型维度',
+        model_dimension_model: '按模型名',
+        model_dimension_alias: '按模型别名'
       },
       ranking: {
         kicker: '社区排行榜',
@@ -2212,7 +2218,10 @@ const resources = {
         analysis_heatmap_low: '低',
         analysis_heatmap_high: '高',
         analysis_heatmap_legend: '熱力強度示例',
-        analysis_others: '其他'
+        analysis_others: '其他',
+        model_dimension_label: '模型維度',
+        model_dimension_model: '依模型名稱',
+        model_dimension_alias: '依模型別名'
       },
       ranking: {
         kicker: '社群排行榜',

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, fetchKeyOverview, fetchKeyOverviewRealtime, isUsageRangeBoundsConflict, logout } from '@/lib/api';
-import type { AuthSessionAPIKeySummary, OverviewRealtimeBlock, OverviewRealtimeWindow, UsageCustomRange, UsageOverviewResponse, UsageTimeRange } from '@/lib/types';
+import type { AuthSessionAPIKeySummary, ModelDimension, OverviewRealtimeBlock, OverviewRealtimeWindow, UsageCustomRange, UsageOverviewResponse, UsageTimeRange } from '@/lib/types';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { MainActionButton } from '@/components/ui/MainActionButton';
@@ -160,6 +160,7 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
   const [timeRangeState, setTimeRangeState] = useState<StoredUsageRangeState>(loadTimeRange);
   const { range: timeRange, customRange } = timeRangeState;
   const [realtimeWindow, setRealtimeWindow] = useState<OverviewRealtimeWindow>(loadRealtimeWindow);
+  const [modelDimension, setModelDimension] = useState<ModelDimension>('model');
   const [usage, setUsage] = useState<UsageOverviewPayload | null>(null);
   const [loadedUsageRange, setLoadedUsageRange] = useState<string | null>(null);
   const [realtime, setRealtime] = useState<OverviewRealtimeBlock | null>(null);
@@ -271,10 +272,12 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
     realtimeRequestControllerRef.current = controller;
     setRealtimeLoading(true);
     setRealtimeError('');
+    setRealtime(null);
     try {
       const nextRealtime = await fetchKeyOverviewRealtime({
         window: realtimeWindow,
         signal: controller.signal,
+        modelDimension,
       });
       if (realtimeRequestControllerRef.current !== controller) return;
       setRealtime(nextRealtime);
@@ -295,7 +298,7 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
         realtimeRequestControllerRef.current = null;
       }
     }
-  }, [onAuthRequired, realtimeWindow]);
+  }, [modelDimension, onAuthRequired, realtimeWindow]);
 
   useEffect(() => {
     void loadOverview();
@@ -546,6 +549,8 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
               isMobile={isMobile}
               timezone={realtime?.timezone ?? usage?.timezone}
               visibleDimensions={KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS}
+              modelDimension={modelDimension}
+              onModelDimensionChange={setModelDimension}
             />
           </div>
         </main>

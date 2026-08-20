@@ -22,20 +22,20 @@ const realtimeForWindow = (window: OverviewRealtimeWindow): OverviewRealtimeBloc
 });
 
 describe('resolveDisplayRealtime', () => {
-  it('keeps the previous realtime block visible while a new window is loading', () => {
+  it('hides the previous realtime block while a new window is loading', () => {
     expect(resolveDisplayRealtime({
       realtime: realtimeForWindow('15m'),
       lastRealtimeQueryKey: ':15m',
       realtimeQueryKey: ':60m',
-    })?.window).toBe('15m');
+    })).toBeNull();
   });
 
-  it('keeps the previous realtime block visible before same-scope window loading starts', () => {
+  it('hides the previous realtime block before same-scope window loading starts', () => {
     expect(resolveDisplayRealtime({
       realtime: realtimeForWindow('15m'),
       lastRealtimeQueryKey: 'key-a:15m',
       realtimeQueryKey: 'key-a:60m',
-    })?.window).toBe('15m');
+    })).toBeNull();
   });
 
   it('hides stale realtime data after a same-scope window query fails', () => {
@@ -60,6 +60,22 @@ describe('resolveDisplayRealtime', () => {
       realtime: realtimeForWindow('15m'),
       lastRealtimeQueryKey: 'key-a:15m',
       realtimeQueryKey: 'key-b:15m',
+    })).toBeNull();
+  });
+
+  it('returns the realtime block when the query key matches exactly', () => {
+    expect(resolveDisplayRealtime({
+      realtime: realtimeForWindow('15m'),
+      lastRealtimeQueryKey: 'key-a:15m:model',
+      realtimeQueryKey: 'key-a:15m:model',
+    })?.window).toBe('15m');
+  });
+
+  it('hides stale realtime data when only the model dimension changes', () => {
+    expect(resolveDisplayRealtime({
+      realtime: realtimeForWindow('15m'),
+      lastRealtimeQueryKey: 'key-a:15m:model',
+      realtimeQueryKey: 'key-a:15m:alias',
     })).toBeNull();
   });
 });

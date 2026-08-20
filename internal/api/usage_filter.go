@@ -57,7 +57,23 @@ func parseUsageEventsTimeFilterQuery(req *http.Request, anchor time.Time) (servi
 
 // Analysis 主数据来自 hourly/daily 汇总，因此和 Overview 一样放宽至统一的一年上限。
 func parseUsageAnalysisTimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
-	return parseUsageTimeFilterQueryWithOptions(req, anchor, true, timeutil.UsageQueryRangeOptions{MaxCustomDayRangeDays: timeutil.LongCustomDayRangeMaxDays})
+	filter, err := parseUsageTimeFilterQueryWithOptions(req, anchor, true, timeutil.UsageQueryRangeOptions{MaxCustomDayRangeDays: timeutil.LongCustomDayRangeMaxDays})
+	if err != nil {
+		return servicedto.UsageFilter{}, err
+	}
+	filter.ModelDimension = parseUsageModelDimension(req)
+	return filter, nil
+}
+
+// parseUsageModelDimension 只接受 alias；其余值或缺失一律回退 model，保持既有统计口径。
+func parseUsageModelDimension(req *http.Request) string {
+	if req == nil {
+		return servicedto.ModelDimensionModel
+	}
+	if strings.TrimSpace(req.URL.Query().Get("model_dimension")) == servicedto.ModelDimensionAlias {
+		return servicedto.ModelDimensionAlias
+	}
+	return servicedto.ModelDimensionModel
 }
 
 func parseUsageTimeFilterQueryWithClientAPIKey(req *http.Request, anchor time.Time, includeClientAPIKey bool) (servicedto.UsageFilter, error) {
@@ -298,6 +314,7 @@ func parseUsageRealtimeFilterQueryWithClientAPIKey(req *http.Request, anchor tim
 	filter := servicedto.UsageFilter{
 		RealtimeWindow: realtimeWindow,
 		APIKeyID:       apiKeyID,
+		ModelDimension: parseUsageModelDimension(req),
 	}
 	switch realtimeWindow {
 	case "15m", "30m", "60m":

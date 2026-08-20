@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchVersion, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
-import type { AnalysisLatencyDiagnostics, AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageCustomRange, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption, UsageTimeRange, VersionResponse } from '@/lib/types';
+import type { AnalysisLatencyDiagnostics, AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, ModelDimension, OverviewRealtimeWindow, StatusResponse, UsageCustomRange, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption, UsageTimeRange, VersionResponse } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { Select } from '@/components/ui/Select';
@@ -900,6 +900,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [timeRangeState, setTimeRangeState] = useState<StoredUsageRangeState>(loadedTimeRange.state);
   const { range: timeRange, customRange } = timeRangeState;
   const [realtimeWindow, setRealtimeWindow] = useState<OverviewRealtimeWindow>(loadRealtimeWindow);
+  const [modelDimension, setModelDimension] = useState<ModelDimension>('model');
   const [selectedApiKeyId, setSelectedApiKeyId] = useState('');
   const [apiKeyOptions, setApiKeyOptions] = useState<CpaApiKeyOption[]>([]);
   const [status, setStatus] = useState<StatusResponse | null>(null);
@@ -991,6 +992,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     enabled: activeTab === 'overview',
     apiKeyId: selectedApiKeyId,
     realtimeWindow,
+    modelDimension,
   });
   const {
     modelNames,
@@ -1121,6 +1123,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [analysisLatencyError, setAnalysisLatencyError] = useState('');
   const [analysisLatencyData, setAnalysisLatencyData] = useState<AnalysisLatencyDiagnostics | null>(null);
   const analysisRequestControllerRef = useRef<AbortController | null>(null);
+  const analysisDimensionCacheRef = useRef<Map<string, AnalysisResponse>>(new Map());
 
   const tabOptions = useMemo(
     () => getUsageTabOptions(t, { includeRanking: !isEmbeddedInCPAMC }),
@@ -1296,26 +1299,40 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [loadAuthSessions, onAuthRequired, showTopNotice, t]);
 
-  const loadAnalysis = useCallback(async () => {
+  const loadAnalysis = useCallback(async (options: { force?: boolean } = {}) => {
     if (!usageRangeQuery.valid) return;
+    const { force = false } = options;
+    const analysisCacheKey = `${usageRangeQuery.range}:${usageRangeQuery.unit ?? ''}:${usageRangeQuery.start ?? ''}:${usageRangeQuery.end ?? ''}:${selectedApiKeyId ?? ''}:${modelDimension}`;
+    const cached = !force ? analysisDimensionCacheRef.current.get(analysisCacheKey) : undefined;
+    if (cached) {
+      setAnalysisData(cached);
+      setAnalysisLoading(false);
+      setAnalysisError('');
+    } else {
+      setAnalysisLoading(true);
+      setAnalysisError('');
+    }
     analysisRequestControllerRef.current?.abort();
     const controller = new AbortController();
     analysisRequestControllerRef.current = controller;
 
-    setAnalysisLoading(true);
-    setAnalysisError('');
-    setAnalysisData(null);
+    if (!cached) {
+      setAnalysisData(null);
+    }
     setAnalysisLatencyLoading(true);
     setAnalysisLatencyError('');
     setAnalysisLatencyData(null);
 
     await loadAnalysisSections({
-      loadCore: () => fetchAnalysis(usageRangeQuery, controller.signal, selectedApiKeyId),
+      loadCore: cached ? () => Promise.resolve(cached) : () => fetchAnalysis(usageRangeQuery, controller.signal, selectedApiKeyId, modelDimension),
       loadLatency: () => fetchAnalysisLatency(usageRangeQuery, controller.signal, selectedApiKeyId),
       onCoreLoaded: (response) => {
         if (analysisRequestControllerRef.current !== controller) return;
-        setAnalysisData(response);
+        if (!cached) {
+          setAnalysisData(response);
+        }
         setAnalysisLoading(false);
+        analysisDimensionCacheRef.current.set(analysisCacheKey, response);
       },
       onCoreError: (error) => {
         if (controller.signal.aborted || analysisRequestControllerRef.current !== controller) return;
@@ -1349,7 +1366,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     if (analysisRequestControllerRef.current === controller) {
       analysisRequestControllerRef.current = null;
     }
-  }, [onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, usageRangeQuery]);
+  }, [modelDimension, onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, usageRangeQuery]);
 
   useEffect(() => {
     try {
@@ -1762,7 +1779,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       return;
     }
     if (activeTab === 'analysis') {
-      await loadAnalysis();
+      await loadAnalysis({ force: true });
       return;
     }
     if (activeTab === 'settings') {
@@ -2250,6 +2267,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   isDark={isDark}
                   isMobile={isMobile}
                   timezone={currentRealtime?.timezone ?? usage?.timezone}
+                  modelDimension={modelDimension}
+                  onModelDimensionChange={setModelDimension}
                 />
               </>
             )}
@@ -2263,6 +2282,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   latencyDiagnostics={analysisLatencyData}
                   latencyLoading={analysisLatencyLoading}
                   latencyError={analysisLatencyError}
+                  modelDimension={modelDimension}
+                  onModelDimensionChange={setModelDimension}
                   isDark={isDark}
                   isMobile={isMobile}
                 />

@@ -4,6 +4,7 @@ import '@/lib/chartjs';
 import type { ChartData, ChartOptions } from 'chart.js';
 import { Chart, Line } from 'react-chartjs-2';
 import type {
+  ModelDimension,
   OverviewRealtimeBlock,
   OverviewRealtimeWindow,
   RealtimeResponseAveragePoint,
@@ -18,6 +19,7 @@ import {
   formatUsd,
 } from '@/utils/usage';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { Select } from '@/components/ui/Select';
 import styles from '@/pages/UsagePage.module.scss';
 
 type RealtimeDimensionKey = 'models' | 'api_keys' | 'auth_files' | 'ai_providers';
@@ -48,6 +50,8 @@ interface OverviewRealtimePanelProps {
   isMobile: boolean;
   timezone?: string;
   visibleDimensions?: readonly RealtimeDimensionKey[];
+  modelDimension?: ModelDimension;
+  onModelDimensionChange?: (dimension: ModelDimension) => void;
 }
 
 const REALTIME_WINDOWS: OverviewRealtimeWindow[] = ['15m', '30m', '60m'];
@@ -569,7 +573,7 @@ function UsageMetaPill({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function OverviewRealtimePanel({ realtime, loading, error, window, onWindowChange, isDark, isMobile, timezone, visibleDimensions = DEFAULT_VISIBLE_DIMENSIONS }: OverviewRealtimePanelProps) {
+export function OverviewRealtimePanel({ realtime, loading, error, window, onWindowChange, isDark, isMobile, timezone, visibleDimensions = DEFAULT_VISIBLE_DIMENSIONS, modelDimension = 'model', onModelDimensionChange }: OverviewRealtimePanelProps) {
   const { t } = useTranslation();
   const data = realtime ?? emptyRealtime(window);
   const initialLoading = loading && !realtime;
@@ -734,6 +738,20 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
             </div>
 
             <RealtimeCard title={t('usage_stats.overview_realtime_current_usage')} className={styles.overviewRealtimeCurrentUsageCard}>
+              {onModelDimensionChange && (
+                <div className={styles.overviewRealtimeDimensionToolbar}>
+                  <Select
+                    value={modelDimension}
+                    options={[
+                      { value: 'model', label: t('usage_stats.model_dimension_model') },
+                      { value: 'alias', label: t('usage_stats.model_dimension_alias') },
+                    ]}
+                    onChange={(value) => onModelDimensionChange(value as ModelDimension)}
+                    ariaLabel={t('usage_stats.model_dimension_label')}
+                    className={styles.overviewRealtimeDimensionSelect}
+                  />
+                </div>
+              )}
               <div className={styles.overviewRealtimeDimensionTabs}>
                 {dimensions.map((dimension) => (
                   <button

@@ -1,4 +1,4 @@
-import { type AnalysisLatencyDiagnostics, type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingRulesResponse, type PricingSyncPreviewResponse, type QuotaAutoRefreshSettings, type ReplacePricingRulesRequest, type StatusResponse, type UpdateCheckResponse, type UsageActivityRequest, type UsageActivityResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
+import { type AnalysisLatencyDiagnostics, type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type ModelDimension, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingRulesResponse, type PricingSyncPreviewResponse, type QuotaAutoRefreshSettings, type ReplacePricingRulesRequest, type StatusResponse, type UpdateCheckResponse, type UsageActivityRequest, type UsageActivityResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
 import { isCPAMCEmbed } from '@/embed/cpamcEmbed'
 import { resolveUsageRequestRange } from '@/utils/usage/rangeQuery'
 
@@ -93,6 +93,7 @@ function normalizeOverviewRealtimeBlock(
 export interface FetchKeyOverviewRealtimeOptions {
   window?: OverviewRealtimeWindow
   signal?: AbortSignal
+  modelDimension?: ModelDimension
 }
 
 export interface FetchUsageOverviewRealtimeOptions extends FetchKeyOverviewRealtimeOptions {
@@ -340,10 +341,13 @@ export async function fetchKeyActivity({ request, signal }: FetchUsageActivityOp
 }
 
 export async function fetchKeyOverviewRealtime(options: FetchKeyOverviewRealtimeOptions = {}): Promise<OverviewRealtimeBlock> {
-  const { window, signal } = options
+  const { window, signal, modelDimension } = options
   const params = new URLSearchParams()
   if (window) {
     params.set('window', window)
+  }
+  if (modelDimension === 'alias') {
+    params.set('model_dimension', 'alias')
   }
   const query = params.toString()
   const response = await apiFetch(`${apiPath('/key-overview/realtime')}${query ? `?${query}` : ''}`, { signal })
@@ -384,7 +388,7 @@ export async function fetchUsageActivity({ request, apiKeyId, signal }: FetchUsa
 }
 
 export async function fetchUsageOverviewRealtime(options: FetchUsageOverviewRealtimeOptions = {}): Promise<OverviewRealtimeBlock> {
-  const { signal, apiKeyId, window } = options
+  const { signal, apiKeyId, window, modelDimension } = options
   const params = new URLSearchParams()
   const selectedAPIKeyId = apiKeyId?.trim()
   if (selectedAPIKeyId) {
@@ -392,6 +396,9 @@ export async function fetchUsageOverviewRealtime(options: FetchUsageOverviewReal
   }
   if (window) {
     params.set('window', window)
+  }
+  if (modelDimension === 'alias') {
+    params.set('model_dimension', 'alias')
   }
   const query = params.toString()
   const response = await apiFetch(`${apiPath('/usage/overview/realtime')}${query ? `?${query}` : ''}`, { signal })
@@ -707,11 +714,14 @@ export async function deleteAuthFiles(names: string[]): Promise<AuthFilesManagem
   return response.json()
 }
 
-export async function fetchAnalysis(request: UsageRangeRequest, signal?: AbortSignal, apiKeyId?: string): Promise<AnalysisResponse> {
+export async function fetchAnalysis(request: UsageRangeRequest, signal?: AbortSignal, apiKeyId?: string, modelDimension?: ModelDimension): Promise<AnalysisResponse> {
   const params = buildUsageRangeParams(request)
   const selectedAPIKeyId = apiKeyId?.trim()
   if (selectedAPIKeyId) {
     params.set('api_key_id', selectedAPIKeyId)
+  }
+  if (modelDimension === 'alias') {
+    params.set('model_dimension', 'alias')
   }
   const query = params.toString()
   const response = await apiFetch(`${apiPath('/usage/analysis')}${query ? `?${query}` : ''}`, { signal })

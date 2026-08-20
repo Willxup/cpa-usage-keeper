@@ -4,8 +4,8 @@ import "time"
 
 // UsageQueryFilter 是仓储层的 usage 查询条件。
 type UsageQueryFilter struct {
-	Range        string
-	CustomUnit   string
+	Range      string
+	CustomUnit string
 	StartTime    *time.Time
 	EndTime      *time.Time
 	EndExclusive bool
@@ -26,6 +26,15 @@ type UsageQueryFilter struct {
 	AuthType        string
 	APIGroupKey     string
 	Result          string
+	// ModelDimension 控制模型维度聚合口径；model 表示按真实模型名，alias 表示按模型别名。
+	ModelDimension string
 }
+
+const (
+	// ModelDimensionModel 保持既有按真实模型名聚合的行为。
+	ModelDimensionModel = "model"
+	// ModelDimensionAlias 改按模型别名聚合。
+	ModelDimensionAlias = "alias"
+)
 
 const DefaultUsageEventsLimit = 100

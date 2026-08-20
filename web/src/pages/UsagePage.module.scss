@@ -3767,6 +3767,18 @@
   }
 }
 
+.overviewRealtimeDimensionToolbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.overviewRealtimeDimensionSelect {
+  min-width: 150px;
+}
+
 .overviewRealtimeDimensionTabs {
   display: flex;
   gap: 4px;

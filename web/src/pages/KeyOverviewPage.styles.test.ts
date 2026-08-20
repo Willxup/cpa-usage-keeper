@@ -25,7 +25,7 @@ describe('KeyOverviewPage layout', () => {
     expect(source).not.toContain('}, [onAuthRequired, recoverRangeBoundsConflict, t, usageRangeQuery, usageRangeQueryKey]);')
     expect(source).not.toContain('}, [onAuthRequired, realtimeWindow, t]);')
     expect(source).toContain('}, [onAuthRequired, recoverRangeBoundsConflict, usageRangeQuery, usageRangeQueryKey]);')
-    expect(source).toContain('}, [onAuthRequired, realtimeWindow]);')
+    expect(source).toContain('}, [modelDimension, onAuthRequired, realtimeWindow]);')
   })
 
   it('loads overview, Activity, and realtime data through separate requests', () => {
@@ -53,8 +53,8 @@ describe('KeyOverviewPage layout', () => {
     expect(source).not.toContain('manualRefreshLoading || loading || realtimeLoading || refreshThrottled')
   })
 
-  it('keeps existing realtime data visible during background refreshes', () => {
-    expect(source).not.toContain('setRealtime(null)')
+  it('clears stale realtime data on dimension or window change before the new response arrives', () => {
+    expect(source).toContain('setRealtime(null)')
     expect(source).toContain('realtime?.window === realtimeWindow ? realtime : undefined')
   })
 

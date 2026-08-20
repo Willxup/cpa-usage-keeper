@@ -8,6 +8,12 @@ import (
 
 const DefaultUsageEventsLimit = 100
 
+// 模型维度聚合口径。ModelDimensionModel 保持既有行为，ModelDimensionAlias 改按模型别名聚合。
+const (
+	ModelDimensionModel = "model"
+	ModelDimensionAlias = "alias"
+)
+
 // UsageFilter 是服务层的 usage 查询条件。
 type UsageFilter struct {
 	Range string
@@ -39,6 +45,8 @@ type UsageFilter struct {
 	AuthType        string
 	APIKeyID        string
 	Result          string
+	// ModelDimension 控制按模型名统计还是按模型别名统计；默认 model 保持既有行为。
+	ModelDimension string
 }
 
 // UsageEventsPage 是 usage events 列表的服务层结果。

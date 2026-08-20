@@ -7,6 +7,17 @@
   gap: 18px;
 }
 
+.analysisDimensionToolbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.analysisDimensionSelect {
+  min-width: 160px;
+}
+
 .analysisCard {
   padding: var(--keeper-card-padding);
   min-width: 0;

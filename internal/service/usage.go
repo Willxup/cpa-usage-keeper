@@ -248,6 +248,7 @@ func (s *usageService) GetUsageOverviewRealtime(ctx context.Context, filter serv
 		RealtimeWindow:  filter.RealtimeWindow,
 		RealtimeEndTime: filter.RealtimeEndTime,
 		APIGroupKey:     apiGroupKey,
+		ModelDimension:  filter.ModelDimension,
 	}, s.recentUsage, s.pricing.NewResolver())
 	if err != nil {
 		return nil, err
@@ -482,12 +483,13 @@ func (s *usageService) GetAnalysis(ctx context.Context, filter servicedto.UsageF
 		return nil, err
 	}
 	record, err := repository.BuildAnalysisWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		Range:        filter.Range,
-		CustomUnit:   filter.CustomUnit,
-		StartTime:    filter.StartTime,
-		EndTime:      filter.EndTime,
-		EndExclusive: filter.EndExclusive,
-		APIGroupKey:  apiGroupKey,
+		Range:         filter.Range,
+		CustomUnit:    filter.CustomUnit,
+		StartTime:     filter.StartTime,
+		EndTime:       filter.EndTime,
+		EndExclusive:  filter.EndExclusive,
+		APIGroupKey:   apiGroupKey,
+		ModelDimension: filter.ModelDimension,
 	}, s.pricing.NewResolver())
 	if err != nil {
 		return nil, err

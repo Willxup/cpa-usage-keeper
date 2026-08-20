@@ -563,7 +563,7 @@ describe('fetchUsageEvents', () => {
     expect(analysisUrl.searchParams.get('end')).toBe('2026-04-21');
     expect(analysisUrl.searchParams.get('api_key_id')).toBe('9007199254740993');
     expect(Array.from(analysisUrl.searchParams.keys())).toEqual(['range', 'unit', 'start', 'end', 'api_key_id']);
-    expect(fetchAnalysis).toHaveLength(3);
+    expect(fetchAnalysis).toHaveLength(4);
   });
 
   it('loads Analysis latency from its independent endpoint with the same filters', async () => {
