@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from 'react';
+
 export const DEFAULT_TIME_ZONE = 'America/Chicago';
 export const TIME_ZONE_STORAGE_KEY = 'cpa-usage-keeper-time-zone-v1';
 export const TIME_ZONE_CHANGE_EVENT = 'cpa-usage-keeper-time-zone-change';
@@ -28,3 +30,17 @@ export const saveTimeZonePreference = (value: TimeZonePreference): void => {
   window.localStorage.setItem(TIME_ZONE_STORAGE_KEY, value);
   window.dispatchEvent(new CustomEvent(TIME_ZONE_CHANGE_EVENT));
 };
+
+const subscribeToTimeZone = (onStoreChange: () => void): (() => void) => {
+  if (typeof window === 'undefined') return () => undefined;
+  window.addEventListener(TIME_ZONE_CHANGE_EVENT, onStoreChange);
+  window.addEventListener('storage', onStoreChange);
+  return () => {
+    window.removeEventListener(TIME_ZONE_CHANGE_EVENT, onStoreChange);
+    window.removeEventListener('storage', onStoreChange);
+  };
+};
+
+export const useDisplayTimeZone = (): string => useSyncExternalStore(
+  subscribeToTimeZone, getDisplayTimeZone, () => DEFAULT_TIME_ZONE,
+);
