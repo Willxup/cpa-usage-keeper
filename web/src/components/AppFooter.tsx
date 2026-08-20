@@ -3,6 +3,7 @@ import { fetchVersion } from '@/lib/api';
 import type { VersionResponse } from '@/lib/types';
 import { IconGithub } from '@/components/ui/icons';
 import { CLIPROXYAPI_REPOSITORY_URL, GITHUB_PROFILE_URL, GITHUB_REPOSITORY_URL } from '@/utils/constants';
+import { TimezoneSettings } from '@/components/ui/TimezoneSettings';
 
 type FooterVersionLoader = (signal: AbortSignal) => Promise<Pick<VersionResponse, 'version'>>;
 
@@ -52,6 +53,7 @@ export function AppFooter({ version: fixedVersion, loadVersion = true }: { versi
         <span>·</span>
         <a href={CLIPROXYAPI_REPOSITORY_URL} target="_blank" rel="noreferrer">CLIProxyAPI Integration</a>
       </div>
+      <TimezoneSettings />
       <div className="app-footer-line app-footer-powered">
         <span>Powered By</span>
         <a href={GITHUB_PROFILE_URL} target="_blank" rel="noreferrer" aria-label="Willxup GitHub profile">
