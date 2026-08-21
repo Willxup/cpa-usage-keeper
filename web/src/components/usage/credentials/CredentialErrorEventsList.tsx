@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, type UIEvent } from 'react'
+import { formatDateTime, useDisplayTimeZone } from '@/utils/timezone'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useTranslation } from 'react-i18next'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -24,9 +25,7 @@ interface CredentialErrorEventsListProps {
 
 const formatErrorTimestamp = (timestamp: string | undefined): string => {
   const value = String(timestamp ?? '')
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/)
-  if (!match) return value || '-'
-  return `${match[1]}/${match[2]}/${match[3]} ${match[4]}:${match[5]}:${match[6]}`
+  return formatDateTime(value, { dateStyle: undefined, timeStyle: undefined, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) || value || '-'
 }
 
 export function CredentialErrorEventsList({
@@ -38,6 +37,7 @@ export function CredentialErrorEventsList({
   onLoadMore,
 }: CredentialErrorEventsListProps) {
   const { t } = useTranslation()
+  useDisplayTimeZone()
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   // 首个完整 cursor 页正好是 50 条；此时即启用虚拟化，避免追加第二页后切换渲染模式造成滚动跳位。
   const virtualizeEvents = events.length >= VIRTUALIZATION_THRESHOLD

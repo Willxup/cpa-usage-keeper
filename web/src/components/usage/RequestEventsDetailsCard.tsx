@@ -26,6 +26,7 @@ import {
   normalizeAuthIndex,
 } from '@/utils/usage';
 import styles from '@/pages/UsagePage.module.scss';
+import { formatDateTime, useDisplayTimeZone } from '@/utils/timezone';
 import {
   REQUEST_EVENT_COLUMN_IDS,
   normalizeRequestEventColumnOrder,
@@ -216,11 +217,11 @@ const toNumber = (value: unknown): number => {
   return parsed;
 };
 
-const formatRequestEventTimestamp = (timestamp: string): string => {
-  const match = timestamp.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/);
-  if (!match) return timestamp || '-';
-  return `${match[1]}/${match[2]}/${match[3]} ${match[4]}:${match[5]}:${match[6]}`;
-};
+const formatRequestEventTimestamp = (timestamp: string): string => formatDateTime(timestamp, {
+  dateStyle: undefined, timeStyle: undefined,
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit',
+}) || timestamp || '-';
 
 const formatCacheReadRate = (cacheReadTokens: number, inputTokens: number): string => {
   const rate = calculateCacheReadRate({ inputTokens, cacheReadTokens });
@@ -410,6 +411,7 @@ export function RequestEventsDetailsCard({
   requestLogDownloading = false,
 }: RequestEventsDetailsCardProps) {
   const { t } = useTranslation();
+  const displayTimeZone = useDisplayTimeZone();
   const {
     tooltip: requestEventsTooltip,
     showOnMouseEnter: handleRequestEventsTooltipMouseEnter,
@@ -517,7 +519,7 @@ export function RequestEventsDetailsCard({
         costLabel: costAvailable && cost !== null ? formatUsd(cost) : '-',
       };
     });
-  }, [events, t]);
+  }, [displayTimeZone, events, t]);
   const virtualizeRows = rows.length > REQUEST_EVENT_VIRTUALIZATION_THRESHOLD;
   // TanStack Virtual 依赖内部可变测量状态，不参与 React Compiler 自动记忆化。
   // eslint-disable-next-line react-hooks/incompatible-library

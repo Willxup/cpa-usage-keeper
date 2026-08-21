@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, type UIEvent } from 'react'
+import { formatDateTime, useDisplayTimeZone } from '@/utils/timezone'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useTranslation } from 'react-i18next'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -51,11 +52,11 @@ const toNumber = (value: unknown): number => {
   return Number.isFinite(parsed) ? Math.max(parsed, 0) : 0
 }
 
-const formatTimestamp = (timestamp: string): string => {
-  const match = timestamp.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/)
-  if (!match) return timestamp || '-'
-  return `${match[1]}/${match[2]}/${match[3]} ${match[4]}:${match[5]}:${match[6]}`
-}
+const formatTimestamp = (timestamp: string): string => formatDateTime(timestamp, {
+  dateStyle: undefined, timeStyle: undefined,
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit',
+}) || timestamp || '-'
 
 const parseRequestEndpoint = (rawEndpoint: unknown): { requestType: string; endpoint: string } => {
   const raw = String(rawEndpoint ?? '').trim().replace(/\s+/g, ' ')
@@ -122,8 +123,9 @@ export function CredentialRequestEventsList({
   requestLogLoadingEventId = null,
 }: CredentialRequestEventsListProps) {
   const { t } = useTranslation()
+  const displayTimeZone = useDisplayTimeZone()
   const scrollerRef = useRef<HTMLDivElement | null>(null)
-  const rows = useMemo(() => events.map(buildRow), [events])
+  const rows = useMemo(() => events.map(buildRow), [displayTimeZone, events])
   const virtualizeRows = rows.length > VIRTUALIZATION_THRESHOLD
   // TanStack Virtual 依赖内部可变测量状态，不参与 React Compiler 自动记忆化。
   // eslint-disable-next-line react-hooks/incompatible-library
