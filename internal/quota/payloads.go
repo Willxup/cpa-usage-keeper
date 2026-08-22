@@ -447,6 +447,56 @@ func parseKimiLimitWindow(object map[string]json.RawMessage) *KimiLimitWindow {
 	}
 }
 
+func parseCursorPlanPayload(response *apicall.Response) (*CursorPlanPayload, error) {
+	object, err := parseResponseObject(response)
+	if err != nil {
+		return nil, err
+	}
+	planInfo := objectField(object, "planInfo", "plan_info")
+	if planInfo == nil {
+		return &CursorPlanPayload{}, nil
+	}
+	return &CursorPlanPayload{PlanInfo: &CursorPlanInfo{
+		PlanName:            stringField(planInfo, "planName", "plan_name"),
+		IncludedAmountCents: floatField(planInfo, "includedAmountCents", "included_amount_cents"),
+		Price:               stringField(planInfo, "price"),
+		BillingCycleEnd:     stringField(planInfo, "billingCycleEnd", "billing_cycle_end"),
+	}}, nil
+}
+
+func parseCursorPeriodPayload(response *apicall.Response) (*CursorPeriodPayload, error) {
+	object, err := parseResponseObject(response)
+	if err != nil {
+		return nil, err
+	}
+	payload := &CursorPeriodPayload{
+		BillingCycleStart: stringField(object, "billingCycleStart", "billing_cycle_start"),
+		BillingCycleEnd:   stringField(object, "billingCycleEnd", "billing_cycle_end"),
+	}
+	if planUsage := objectField(object, "planUsage", "plan_usage"); planUsage != nil {
+		payload.PlanUsage = &CursorPlanUsage{
+			TotalSpend: floatField(planUsage, "totalSpend", "total_spend"),
+			Remaining:  floatField(planUsage, "remaining"),
+			Limit:      floatField(planUsage, "limit"),
+		}
+	}
+	return payload, nil
+}
+
+func parseCursorAgentPayload(response *apicall.Response) (*CursorAgentPayload, error) {
+	object, err := parseResponseObject(response)
+	if err != nil {
+		return nil, err
+	}
+	return &CursorAgentPayload{
+		UsagePercent:            floatPtrField(object, "usagePercent", "usage_percent"),
+		HasNonZeroIncludedLimit: boolPtrField(object, "hasNonZeroIncludedLimit", "has_non_zero_included_limit"),
+		HasAvailableUsage:       boolPtrField(object, "hasAvailableUsage", "has_available_usage"),
+		CurrentPeriodStart:      stringField(object, "currentPeriodStart", "current_period_start"),
+		NextResetTimestampUTC:   stringField(object, "nextResetTimestampUtc", "next_reset_timestamp_utc"),
+	}, nil
+}
+
 func parseCodexResetCreditResponse(response *apicall.Response) (ProviderResetOutput, error) {
 	object, err := parseResponseObject(response)
 	if err != nil {

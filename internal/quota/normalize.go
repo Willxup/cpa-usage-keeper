@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -63,9 +64,139 @@ func NormalizeQuotaRows(output ProviderOutput) []QuotaRow {
 			return nil
 		}
 		return normalizeXAIQuotaRows(*result)
+	case CursorResult:
+		return normalizeCursorQuotaRows(result)
+	case *CursorResult:
+		if result == nil {
+			return nil
+		}
+		return normalizeCursorQuotaRows(*result)
 	default:
 		return nil
 	}
+}
+
+func normalizeCursorQuotaRows(result CursorResult) []QuotaRow {
+	rows := make([]QuotaRow, 0, 2)
+	if row, ok := cursorMonthlyQuotaRow(result); ok {
+		rows = append(rows, row)
+	}
+	if row, ok := cursorWeeklyQuotaRow(result.Agent); ok {
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+func cursorMonthlyQuotaRow(result CursorResult) (QuotaRow, bool) {
+	used, hasUsed := cursorPeriodSpend(result.Period)
+	limit, hasLimit := cursorPeriodLimit(result)
+	if !hasUsed && !hasLimit {
+		return QuotaRow{}, false
+	}
+	row := QuotaRow{
+		Key:     "plan.monthly",
+		Label:   "Monthly",
+		Scope:   "billing",
+		Metric:  "usd_cents",
+		Window:  &QuotaWindow{Seconds: intPtr(quotaWindowAverageMonthSeconds)},
+		ResetAt: cursorCycleEnd(result),
+	}
+	if hasUsed {
+		row.Used = floatPtr(used)
+	}
+	if hasLimit {
+		row.Limit = floatPtr(limit)
+	}
+	if hasUsed && hasLimit {
+		remaining := math.Max(0, limit-used)
+		row.Remaining = floatPtr(remaining)
+		if limit > 0 {
+			usedPercent := used / limit * 100
+			row.UsedPercent = floatPtr(usedPercent)
+			limitReached := used >= limit
+			row.LimitReached = boolPtr(limitReached)
+			row.Allowed = boolPtr(!limitReached)
+		}
+	} else if remaining, ok := cursorPeriodRemaining(result.Period); ok {
+		row.Remaining = floatPtr(remaining)
+	}
+	return row, true
+}
+
+func cursorWeeklyQuotaRow(agent *CursorAgentPayload) (QuotaRow, bool) {
+	if agent == nil {
+		return QuotaRow{}, false
+	}
+	if agent.HasNonZeroIncludedLimit != nil && !*agent.HasNonZeroIncludedLimit {
+		return QuotaRow{}, false
+	}
+	if agent.UsagePercent == nil && strings.TrimSpace(agent.NextResetTimestampUTC) == "" {
+		return QuotaRow{}, false
+	}
+	row := QuotaRow{
+		Key:     "agent.weekly",
+		Label:   "Weekly",
+		Scope:   "window",
+		Metric:  "weekly",
+		Window:  &QuotaWindow{Seconds: intPtr(quotaWindowSevenDaySeconds)},
+		ResetAt: strings.TrimSpace(agent.NextResetTimestampUTC),
+	}
+	if agent.UsagePercent != nil {
+		usedPercent := *agent.UsagePercent
+		row.UsedPercent = floatPtr(usedPercent)
+		limitReached := usedPercent >= 100 || (agent.HasAvailableUsage != nil && !*agent.HasAvailableUsage)
+		row.LimitReached = boolPtr(limitReached)
+		row.Allowed = boolPtr(!limitReached)
+	}
+	return row, true
+}
+
+func cursorPeriodSpend(period *CursorPeriodPayload) (float64, bool) {
+	if period == nil || period.PlanUsage == nil {
+		return 0, false
+	}
+	return period.PlanUsage.TotalSpend, true
+}
+
+func cursorPeriodRemaining(period *CursorPeriodPayload) (float64, bool) {
+	if period == nil || period.PlanUsage == nil {
+		return 0, false
+	}
+	return period.PlanUsage.Remaining, true
+}
+
+func cursorPeriodLimit(result CursorResult) (float64, bool) {
+	if result.Period != nil && result.Period.PlanUsage != nil && result.Period.PlanUsage.Limit > 0 {
+		return result.Period.PlanUsage.Limit, true
+	}
+	if result.Plan != nil && result.Plan.PlanInfo != nil && result.Plan.PlanInfo.IncludedAmountCents > 0 {
+		return result.Plan.PlanInfo.IncludedAmountCents, true
+	}
+	return 0, false
+}
+
+func cursorCycleEnd(result CursorResult) string {
+	if result.Period != nil {
+		if resetAt := cursorMillisTimestamp(result.Period.BillingCycleEnd); resetAt != "" {
+			return resetAt
+		}
+	}
+	if result.Plan != nil && result.Plan.PlanInfo != nil {
+		return cursorMillisTimestamp(result.Plan.PlanInfo.BillingCycleEnd)
+	}
+	return ""
+}
+
+func cursorMillisTimestamp(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	ms, err := strconv.ParseInt(trimmed, 10, 64)
+	if err != nil || ms <= 0 {
+		return ""
+	}
+	return time.UnixMilli(ms).UTC().Format(time.RFC3339Nano)
 }
 
 func normalizeClaudeQuotaRows(result ClaudeResult) []QuotaRow {

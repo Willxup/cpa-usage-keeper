@@ -434,6 +434,66 @@ func TestNormalizeXAIDerivesPayAsYouGoUsageFromTotalSpend(t *testing.T) {
 	assertFloatField(t, onDemand.UsedPercent, 60, "derived pay-as-you-go usedPercent")
 }
 
+func TestNormalizeCursorQuotaRows(t *testing.T) {
+	usagePercent := 17.0
+	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "cursor", Result: quota.CursorResult{
+		Plan: &quota.CursorPlanPayload{PlanInfo: &quota.CursorPlanInfo{
+			PlanName:            "Ultra",
+			IncludedAmountCents: 20000,
+			Price:               "$200/mo",
+		}},
+		Period: &quota.CursorPeriodPayload{
+			BillingCycleEnd: "1789830899000",
+			PlanUsage: &quota.CursorPlanUsage{
+				TotalSpend: 183,
+				Remaining:  39817,
+				Limit:      40000,
+			},
+		},
+		Agent: &quota.CursorAgentPayload{
+			UsagePercent:            &usagePercent,
+			HasNonZeroIncludedLimit: boolPtr(true),
+			HasAvailableUsage:       boolPtr(true),
+			NextResetTimestampUTC:   "2026-08-20T00:00:00Z",
+		},
+	}})
+
+	if len(rows) != 2 {
+		t.Fatalf("expected monthly and weekly cursor quota rows, got %#v", rows)
+	}
+	monthly := findQuotaRow(t, rows, "plan.monthly")
+	assertQuotaText(t, monthly, "Monthly", "billing", "usd_cents")
+	assertFloatField(t, monthly.Used, 183, "monthly used")
+	assertFloatField(t, monthly.Limit, 40000, "monthly limit")
+	assertFloatField(t, monthly.Remaining, 39817, "monthly remaining")
+	assertApproxFloatField(t, monthly.UsedPercent, 0.4575, "monthly usedPercent")
+	if monthly.Window == nil || monthly.Window.Seconds == nil || *monthly.Window.Seconds != quotaWindowAverageMonthSeconds {
+		t.Fatalf("expected monthly window, got %#v", monthly.Window)
+	}
+	if monthly.ResetAt == "" {
+		t.Fatalf("expected monthly resetAt from cycle end, got %#v", monthly)
+	}
+	agent := findQuotaRow(t, rows, "agent.weekly")
+	assertQuotaText(t, agent, "Weekly", "window", "weekly")
+	assertFloatField(t, agent.UsedPercent, 17, "weekly usedPercent")
+	if agent.Window == nil || agent.Window.Seconds == nil || *agent.Window.Seconds != quotaWindowSevenDaySeconds {
+		t.Fatalf("expected weekly window, got %#v", agent.Window)
+	}
+	if agent.ResetAt != "2026-08-20T00:00:00Z" {
+		t.Fatalf("unexpected weekly resetAt: %#v", agent)
+	}
+}
+
+func TestNormalizeCursorQuotaRowsOmitEmptyOptionalWindows(t *testing.T) {
+	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "cursor", Result: quota.CursorResult{
+		Period: &quota.CursorPeriodPayload{PlanUsage: &quota.CursorPlanUsage{TotalSpend: 183, Limit: 40000}},
+		Agent:  &quota.CursorAgentPayload{HasNonZeroIncludedLimit: boolPtr(false)},
+	}})
+	if len(rows) != 1 || rows[0].Key != "plan.monthly" {
+		t.Fatalf("expected only monthly row when agent window is empty, got %#v", rows)
+	}
+}
+
 func TestNormalizeXAIQuotaRowsMarksPayAsYouGoExhaustion(t *testing.T) {
 	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "xai", Result: quota.XAIResult{
 		Monthly: &quota.XAIBillingPayload{Config: &quota.XAIBillingConfig{

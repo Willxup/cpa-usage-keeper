@@ -21,9 +21,10 @@ func TestProviderRegistrySupportsQuotaIdentityTypes(t *testing.T) {
 		"claude":      fakeProviderHandler{},
 		"kimi":        fakeProviderHandler{},
 		"xai":         fakeProviderHandler{},
+		"cursor":      fakeProviderHandler{},
 	})
 
-	for _, identityType := range []string{"antigravity", "codex", "gemini-cli", "claude", "kimi", "xai"} {
+	for _, identityType := range []string{"antigravity", "codex", "gemini-cli", "claude", "kimi", "xai", "cursor"} {
 		if _, ok := registry.Provider(identityType); !ok {
 			t.Fatalf("expected registry to support %q", identityType)
 		}
@@ -33,7 +34,7 @@ func TestProviderRegistrySupportsQuotaIdentityTypes(t *testing.T) {
 func TestDefaultProviderRegistrySupportsReferenceQuotaIdentityTypes(t *testing.T) {
 	registry := quota.NewDefaultProviderRegistry(&recordingManagementCaller{}, quota.DefaultProviderConfigs())
 
-	for _, identityType := range []string{"antigravity", "codex", "gemini-cli", "claude", "kimi", "xai"} {
+	for _, identityType := range []string{"antigravity", "codex", "gemini-cli", "claude", "kimi", "xai", "cursor"} {
 		if _, ok := registry.Provider(identityType); !ok {
 			t.Fatalf("expected default registry to support %q", identityType)
 		}

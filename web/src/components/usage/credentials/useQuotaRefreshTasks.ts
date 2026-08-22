@@ -171,7 +171,7 @@ export function useQuotaRefreshTasks({ enabled, currentAuthIndexes, setQuotaResp
 export function buildQuotaRefreshSubmissionUpdate(response: UsageQuotaRefreshResponse, source: PendingRefreshTask['source']): { pendingTasks: PendingRefreshTask[]; stateUpdates: Record<string, QuotaState> } {
   const pendingTasks: PendingRefreshTask[] = []
   const stateUpdates: Record<string, QuotaState> = {}
-  for (const task of response.tasks) {
+  for (const task of response.tasks ?? []) {
     // 新建成功的 task 进入轮询列表，后续由 /quota/refresh/:auth_index 收敛到 completed/failed。
     pendingTasks.push({ authIndex: task.authIndex, source })
     stateUpdates[task.authIndex] = {
