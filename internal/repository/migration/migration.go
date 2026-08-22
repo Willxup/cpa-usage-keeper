@@ -83,6 +83,8 @@ const (
 	migrationCreateErrorEvents = "20260820_create_error_events"
 	// migrationCodexQuotaHistory 创建 Codex 主额度周期父表和整数百分比状态子表。
 	migrationCodexQuotaHistory = "20260820_codex_quota_history"
+	// migrationAddCPAAPIKeySource 区分 CPA 核心 key 与 key-policy 插件 key，存量行回填为 cpa。
+	migrationAddCPAAPIKeySource = "20260822_add_cpa_api_key_source"
 )
 
 type schemaMigration struct {
@@ -204,6 +206,8 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationCreateErrorEvents, run: createErrorEventsMigration},
 		// 新表 migration 使用默认单事务，schema 与版本标记必须一起提交或回滚。
 		{version: migrationCodexQuotaHistory, run: createCodexQuotaHistoryMigration},
+		// source 列只做加列与存量回填，默认单事务即可保证原子性。
+		{version: migrationAddCPAAPIKeySource, run: addCPAAPIKeySourceMigration},
 	}
 }
 

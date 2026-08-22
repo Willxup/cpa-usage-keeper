@@ -31,6 +31,10 @@ func (s *SyncService) SyncMetadata(ctx context.Context) error {
 	authSyncErr := syncAuthFiles(ctx, s.db, authFilesResult, authFilesErr, fetchedAt)
 	// 管理 API Keys 第二个串行写入，不与 SQLite provider 写入并发。
 	apiKeySyncErr := syncManagementAPIKeys(s.db, apiKeysResult, apiKeysErr, fetchedAt)
+	// 插件 key 同步只在 CPA key 同步成功且开关启用时追加；插件失败只记日志，不影响主流程。
+	if apiKeySyncErr == nil && s.keyPolicySyncEnabled {
+		s.syncKeyPolicyPluginKeys(ctx, fetchedAt)
+	}
 	// provider snapshot 最后一次进入 scoped replace 单事务，并分开返回 persistence error 与 fetch warning。
 	providerSyncErr, providerWarningErr := persistProviderMetadata(ctx, s.db, providerSnapshot, providerFetchErr, fetchedAt)
 	// 三类持久化错误按 Auth Files、管理 key、provider 的既有顺序合并。

@@ -13,6 +13,8 @@ type MetadataFetcher interface {
 	FetchAuthFiles(context.Context) (*response.AuthFilesResult, error)
 	// FetchManagementAPIKeys 读取 CPA 管理接口访问 key 清单。
 	FetchManagementAPIKeys(context.Context) (*response.ManagementAPIKeysResult, error)
+	// FetchKeyPolicyPluginKeys 读取 key-policy 插件发行的启用 key 清单。
+	FetchKeyPolicyPluginKeys(context.Context) (*response.KeyPolicyPluginKeysResult, error)
 	// Fetcher 嵌入 provider 纯包定义的固定七来源接口，避免 service 再维护第二份列表。
 	providermetadata.Fetcher
 }

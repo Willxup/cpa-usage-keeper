@@ -1,11 +1,13 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"cpa-usage-keeper/internal/cpa/dto/response"
 	"cpa-usage-keeper/internal/repository"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
@@ -33,4 +35,28 @@ func syncManagementAPIKeys(db *gorm.DB, result *response.ManagementAPIKeysResult
 	}
 	// 成功空列表和非空列表都完成本轮同步。
 	return nil
+}
+
+// syncKeyPolicyPluginKeys 拉取 key-policy 插件 key 清单并同步到本地；任何失败只记日志，不影响 CPA 主同步流程。
+func (s *SyncService) syncKeyPolicyPluginKeys(ctx context.Context, syncedAt time.Time) {
+	// 只在 CPA 管理 key 同步成功后由 SyncMetadata 调用，此时 db 与 fetcher 已通过 validate。
+	result, fetchErr := s.metadataFetcher.FetchKeyPolicyPluginKeys(ctx)
+	// fetch failure 没有完整插件清单，必须保留本地 plugin rows。
+	if fetchErr != nil {
+		logrus.WithError(fetchErr).Warn("key policy plugin keys fetch failed")
+		return
+	}
+	// nil response 不是成功空列表，不能删除本地 plugin keys。
+	if result == nil {
+		logrus.Warn("key policy plugin keys fetch returned empty response")
+		return
+	}
+	keys := make([]repository.PluginAPIKey, 0, len(result.Payload.Keys))
+	for _, key := range result.Payload.Keys {
+		keys = append(keys, repository.PluginAPIKey{ID: key.ID, Name: key.Name, KeyPreview: key.KeyPreview})
+	}
+	if err := repository.SyncPluginAPIKeys(s.db, keys, syncedAt); err != nil {
+		// repository failure 同样只记日志，不回滚本轮已提交的 CPA key 同步。
+		logrus.WithError(err).Error("sync key policy plugin keys failed")
+	}
 }

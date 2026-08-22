@@ -18,6 +18,7 @@ var configEnvKeys = []string{
 	"SQLITE_PATH", "BACKUP_ENABLED", "BACKUP_DIR", "BACKUP_INTERVAL", "BACKUP_RETENTION_DAYS",
 	"REQUEST_TIMEOUT", "LOG_LEVEL", "LOG_FILE_ENABLED", "LOG_DIR", "LOG_RETENTION_DAYS",
 	"AUTH_ENABLED", "LOGIN_PASSWORD", "AUTH_SESSION_TTL", "TRUSTED_PROXY_CIDRS", "TZ", "TLS_SKIP_VERIFY", "QUOTA_REFRESH_WORKER_LIMIT",
+	"KEY_POLICY_SYNC_ENABLED",
 }
 
 func TestMain(m *testing.M) {
@@ -139,6 +140,9 @@ func TestLoadFromEnvAppliesDefaults(t *testing.T) {
 	}
 	if cfg.TLSSkipVerify {
 		t.Fatal("expected TLS skip verify to be disabled by default")
+	}
+	if cfg.KeyPolicySyncEnabled {
+		t.Fatal("expected key policy sync to be disabled by default")
 	}
 	if cfg.RedisQueueTLS {
 		t.Fatal("expected redis queue TLS to be disabled by default")
@@ -466,6 +470,25 @@ func TestLoadFromEnvParsesOverrides(t *testing.T) {
 	}
 	if cfg.AppPort != "9090" || cfg.AppBasePath != "/cpa" || cfg.CPAPublicURL != "https://cpa.public.example.com/" || cfg.WorkDir != "/tmp/work" || cfg.SQLitePath != filepath.Join("/tmp/work", "app.db") || cfg.BackupEnabled || cfg.BackupDir != filepath.Join("/tmp/work", "backups") || cfg.BackupInterval != 2*time.Hour || cfg.BackupRetentionDays != 7 || cfg.RequestTimeout != 15*time.Second || cfg.LogLevel != "debug" || cfg.LogFileEnabled || cfg.LogDir != filepath.Join("/tmp/work", "logs") || cfg.LogRetentionDays != 14 || !cfg.AuthEnabled || cfg.LoginPassword != "top-secret" || cfg.AuthSessionTTL != 12*time.Hour || cfg.RedisQueueIdleInterval != 2*time.Second || cfg.QuotaRefreshWorkerLimit != 8 {
 		t.Fatalf("unexpected config override result: %+v", cfg)
+	}
+}
+
+func TestLoadFromEnvParsesKeyPolicySyncEnabled(t *testing.T) {
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
+	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
+	t.Setenv("KEY_POLICY_SYNC_ENABLED", "true")
+
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("LoadFromEnv returned error: %v", err)
+	}
+	if !cfg.KeyPolicySyncEnabled {
+		t.Fatal("expected key policy sync to be enabled when set to true")
+	}
+
+	t.Setenv("KEY_POLICY_SYNC_ENABLED", "not-a-bool")
+	if _, err := LoadFromEnv(); err == nil || !strings.Contains(err.Error(), "KEY_POLICY_SYNC_ENABLED must be a valid bool") {
+		t.Fatalf("expected invalid bool error, got %v", err)
 	}
 }
 
