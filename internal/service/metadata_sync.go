@@ -25,12 +25,14 @@ func (s *SyncService) SyncMetadata(ctx context.Context) error {
 	authFilesResult, authFilesErr := s.metadataFetcher.FetchAuthFiles(ctx)
 	// 管理 API Keys 保持第二个读取位置，失败同样不阻止 provider。
 	apiKeysResult, apiKeysErr := s.metadataFetcher.FetchManagementAPIKeys(ctx)
+	// Plugin-owned keys 独立读取；失败不能伪装成 authoritative empty snapshot。
+	keyPolicyResult, keyPolicyErr := s.metadataFetcher.FetchCPAKeyPolicyKeys(ctx)
 	// 七个 provider endpoint 只在纯包内并发，返回按 registry 确定性归并的 snapshot。
 	providerSnapshot, providerFetchErr := providermetadata.Fetch(ctx, s.metadataFetcher)
 	// Auth Files 先进入自己的 repository 事务，保持原有写入顺序。
 	authSyncErr := syncAuthFiles(ctx, s.db, authFilesResult, authFilesErr, fetchedAt)
 	// 管理 API Keys 第二个串行写入，不与 SQLite provider 写入并发。
-	apiKeySyncErr := syncManagementAPIKeys(s.db, apiKeysResult, apiKeysErr, fetchedAt)
+	apiKeySyncErr, apiKeyWarningErr := syncManagementAPIKeys(s.db, apiKeysResult, apiKeysErr, keyPolicyResult, keyPolicyErr, fetchedAt)
 	// provider snapshot 最后一次进入 scoped replace 单事务，并分开返回 persistence error 与 fetch warning。
 	providerSyncErr, providerWarningErr := persistProviderMetadata(ctx, s.db, providerSnapshot, providerFetchErr, fetchedAt)
 	// 三类持久化错误按 Auth Files、管理 key、provider 的既有顺序合并。
@@ -53,7 +55,7 @@ func (s *SyncService) SyncMetadata(ctx context.Context) error {
 		}
 	}
 	// 最终顺序保持 persistence、兼容 aggregate、provider warning；生产后台聚合仍有独立生命周期。
-	err := joinErrors(upsertErr, aggregateErr, providerWarningErr)
+	err := joinErrors(upsertErr, aggregateErr, apiKeyWarningErr, providerWarningErr)
 	// 完成日志默认沿用 completed 状态。
 	fields := logrus.Fields{
 		// status 字段保持现有 dashboard/runtime 观察语义。

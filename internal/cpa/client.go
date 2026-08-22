@@ -394,6 +394,31 @@ func (c *Client) FetchManagementAPIKeys(ctx context.Context) (*response.Manageme
 	return result, nil
 }
 
+func (c *Client) FetchCPAKeyPolicyKeys(ctx context.Context) (*response.CPAKeyPolicyKeysResult, error) {
+	result := &response.CPAKeyPolicyKeysResult{}
+	statusCode, body, err := c.doManagementJSONRequest(ctx, cpaManagementCPAKeyPolicyKeysEndpoint, &result.Payload, "cpa-key-policy keys")
+	result.StatusCode = statusCode
+	result.Body = body
+	if err != nil {
+		return result, err
+	}
+	if isBlankJSONResponseBody(body) || result.Payload.Keys == nil {
+		return result, fmt.Errorf("management cpa-key-policy keys response is empty")
+	}
+	seen := make(map[string]struct{}, len(result.Payload.Keys))
+	for _, key := range result.Payload.Keys {
+		id := strings.TrimSpace(key.ID)
+		if id == "" {
+			return result, fmt.Errorf("management cpa-key-policy keys response contains an empty id")
+		}
+		if _, ok := seen[id]; ok {
+			return result, fmt.Errorf("management cpa-key-policy keys response contains duplicate id %q", id)
+		}
+		seen[id] = struct{}{}
+	}
+	return result, nil
+}
+
 func (c *Client) FetchUsageQueue(ctx context.Context, count int) (*response.UsageQueueResult, error) {
 	result := &response.UsageQueueResult{}
 	if count <= 0 {

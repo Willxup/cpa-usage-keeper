@@ -77,6 +77,8 @@ const (
 	migrationLocalRankingStats = "20260731_local_ranking_stats"
 	// migrationAddCPAAPIKeyLocalRankingAvatar 保存可空的本地排行头像覆盖值。
 	migrationAddCPAAPIKeyLocalRankingAvatar = "20260803_add_cpa_api_key_local_ranking_avatar"
+	// migrationAddCPAAPIKeySource 隔离 native 与 plugin metadata 的认证和 reconcile 范围。
+	migrationAddCPAAPIKeySource = "20260807_add_cpa_api_key_source"
 	// migrationAddAuthSessionClientMetadata 保存会话客户端与最近活动信息，旧会话只回填活动时间。
 	migrationAddAuthSessionClientMetadata = "20260813_add_auth_session_client_metadata"
 	// migrationCreateErrorEvents 创建 CPA errors 订阅的独立最终事件表。
@@ -199,6 +201,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationCreateUsageEventArchive, run: createUsageEventArchiveMigration},
 		{version: migrationLocalRankingStats, run: localRankingStatsMigration},
 		{version: migrationAddCPAAPIKeyLocalRankingAvatar, run: addCPAAPIKeyLocalRankingAvatarMigration},
+		{version: migrationAddCPAAPIKeySource, run: addCPAAPIKeySourceMigration},
 		{version: migrationAddAuthSessionClientMetadata, run: addAuthSessionClientMetadataMigration},
 		// 已进入 main 的 Errors 最终表先按原顺序创建，不能因 quota 分支合并而改写已发布迁移序列。
 		{version: migrationCreateErrorEvents, run: createErrorEventsMigration},
