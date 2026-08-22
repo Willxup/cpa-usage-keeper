@@ -153,7 +153,11 @@ func (s *Service) Refresh(ctx context.Context, request RefreshRequest) (RefreshR
 		return RefreshResponse{}, fmt.Errorf("%w: auth_indexes are required", ErrValidation)
 	}
 	// response 先记录 Limit，后续循环逐步填充 accepted/skipped/tasks/rejected。
-	response := RefreshResponse{Limit: limit}
+	response := RefreshResponse{
+		Tasks:    make([]RefreshTaskRef, 0),
+		Rejected: make([]RefreshRejectedAuthIndex, 0),
+		Limit:    limit,
+	}
 	// seen 记录本次请求内已经处理过的 auth_index，避免一个请求内重复入队。
 	seen := make(map[string]struct{}, len(request.AuthIndexes))
 	// queuedAuthIndexes 收集本次真正入队的任务，循环结束后交给单个 dispatcher 派发。
