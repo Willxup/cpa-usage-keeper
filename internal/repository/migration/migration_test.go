@@ -83,6 +83,8 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260820_create_error_events",
 		// Codex 主额度历史是当前最新 schema，必须在既有迁移之后创建父子表。
 		"20260820_codex_quota_history",
+		// CPA API Key 来源列在当前序列最后追加，不能插入已发布迁移之间。
+		"20260822_add_cpa_api_key_source",
 	}
 	assertStringSlicesEqual(t, want, got)
 }

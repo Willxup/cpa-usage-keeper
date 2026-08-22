@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
+	"cpa-usage-keeper/internal/cpa/dto/keypolicy"
 	"cpa-usage-keeper/internal/cpa/dto/providerconfig"
 	"cpa-usage-keeper/internal/cpa/dto/response"
 )
@@ -391,6 +392,25 @@ func (c *Client) FetchManagementAPIKeys(ctx context.Context) (*response.Manageme
 	if err != nil {
 		return result, err
 	}
+	return result, nil
+}
+
+func (c *Client) FetchKeyPolicyPluginKeys(ctx context.Context) (*response.KeyPolicyPluginKeysResult, error) {
+	result := &response.KeyPolicyPluginKeysResult{}
+	statusCode, body, err := c.doManagementJSONRequest(ctx, cpaManagementKeyPolicyKeysEndpoint, &result.Payload, "key policy plugin keys")
+	result.StatusCode = statusCode
+	result.Body = body
+	if err != nil {
+		return result, err
+	}
+	// 禁用 key 不再接受请求，不参与本地同步，也不能因为残留行被错误恢复。
+	enabled := make([]keypolicy.PluginKey, 0, len(result.Payload.Keys))
+	for _, key := range result.Payload.Keys {
+		if key.Enabled {
+			enabled = append(enabled, key)
+		}
+	}
+	result.Payload.Keys = enabled
 	return result, nil
 }
 

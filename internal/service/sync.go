@@ -62,13 +62,16 @@ type SyncService struct {
 	usageAggregation UsageAggregationNotifier
 	// usageHeaderQuota 与聚合 runner 解耦，在 Quota worker 内按一分钟窗口自行合并。
 	usageHeaderQuota UsageHeaderSnapshotAppender
+	// keyPolicySyncEnabled 控制是否在 CPA key 同步成功后追加 key-policy 插件 key 同步。
+	keyPolicySyncEnabled bool
 }
 
 // NewSyncService 按生产配置组装 CPA metadata client；远端 usage 拉取由 poller 独立负责。
 func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 	return NewSyncServiceWithOptions(db, SyncServiceOptions{
-		BaseURL: cfg.CPABaseURL,
-		Client:  cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify),
+		BaseURL:              cfg.CPABaseURL,
+		Client:               cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify),
+		KeyPolicySyncEnabled: cfg.KeyPolicySyncEnabled,
 	})
 }
 
@@ -83,6 +86,8 @@ type SyncServiceOptions struct {
 	UsageAggregationNotifier UsageAggregationNotifier
 	// UsageHeaderQuota 独立接收原始 Header；是否配置聚合 notifier 不影响它。
 	UsageHeaderQuota UsageHeaderSnapshotAppender
+	// KeyPolicySyncEnabled 对应 KEY_POLICY_SYNC_ENABLED；关闭时插件 key 同步完全不执行。
+	KeyPolicySyncEnabled bool
 }
 
 // NewSyncServiceWithOptions 是统一构造入口，负责填充默认时钟和 metadata fetcher。
@@ -106,6 +111,8 @@ func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncServic
 		usageAggregation: opts.UsageAggregationNotifier,
 		// Header appender 始终独立于聚合 notifier，生产 App 会同时注入两个接收方。
 		usageHeaderQuota: opts.UsageHeaderQuota,
+		// 插件 key 同步开关只从构造选项读取，运行期不可变。
+		keyPolicySyncEnabled: opts.KeyPolicySyncEnabled,
 	}
 }
 

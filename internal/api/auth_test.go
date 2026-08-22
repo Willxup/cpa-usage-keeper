@@ -5,12 +5,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"cpa-usage-keeper/internal/auth"
+	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/repository"
+	"cpa-usage-keeper/internal/service"
 )
 
 type authCPAAPIKeyStub struct {
@@ -198,6 +202,51 @@ func TestAuthAPIKeyLoginFailuresAreGenericUnauthorized(t *testing.T) {
 		if resp.Code != http.StatusUnauthorized || !contains(resp.Body.String(), "invalid credentials") {
 			t.Fatalf("expected generic 401 for %s, got %d %s", body, resp.Code, resp.Body.String())
 		}
+	}
+}
+
+func TestAuthAPIKeyLoginRejectsPluginKeys(t *testing.T) {
+	// 插件 key 的 id 是短字符串、可猜测，存进 key 表后必须仍然无法用于 api-key 登录。
+	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "auth-plugin-key.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		sqlDB, err := db.DB()
+		if err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	syncedAt := time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)
+	if err := repository.SyncCPAAPIKeys(db, []string{"sk-alpha123456"}, syncedAt); err != nil {
+		t.Fatalf("seed CPA API keys: %v", err)
+	}
+	if err := repository.SyncPluginAPIKeys(db, []repository.PluginAPIKey{{ID: "kath", Name: "凯瑟琳"}}, syncedAt); err != nil {
+		t.Fatalf("seed plugin API keys: %v", err)
+	}
+
+	sessions := auth.NewSessionManager(time.Hour)
+	authConfig := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
+	// 使用真实 DB-backed provider，验证仓储层确实排除了 plugin 行。
+	router := NewRouter(nil, nil, nil, nil, authConfig, NewAuthHandler(authConfig, sessions), "", OptionalProviders{CPAAPIKeys: service.NewCPAAPIKeyService(db)})
+
+	pluginResp := httptest.NewRecorder()
+	pluginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/api-key-login", strings.NewReader(`{"apiKey":"kath"}`))
+	pluginReq.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
+	pluginReq.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(pluginResp, pluginReq)
+	if pluginResp.Code != http.StatusUnauthorized || !contains(pluginResp.Body.String(), "invalid credentials") {
+		t.Fatalf("expected plugin key login to return generic 401, got %d %s", pluginResp.Code, pluginResp.Body.String())
+	}
+
+	// CPA 核心 key 登录保持原有成功路径，确认排除只针对 plugin 行。
+	cpaResp := httptest.NewRecorder()
+	cpaReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/api-key-login", strings.NewReader(`{"apiKey":"sk-alpha123456"}`))
+	cpaReq.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
+	cpaReq.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(cpaResp, cpaReq)
+	if cpaResp.Code != http.StatusNoContent {
+		t.Fatalf("expected CPA key login status 204, got %d %s", cpaResp.Code, cpaResp.Body.String())
 	}
 }
 

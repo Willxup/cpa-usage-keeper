@@ -92,6 +92,36 @@ func TestFindActiveCPAAPIKeyByIDReturnsOnlyActiveRows(t *testing.T) {
 	}
 }
 
+func TestFindActiveCPAAPIKeyByValueRejectsPluginKeys(t *testing.T) {
+	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "api-keys-plugin.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		sqlDB, err := db.DB()
+		if err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	syncedAt := time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)
+	if err := repository.SyncCPAAPIKeys(db, []string{"sk-alpha123456"}, syncedAt); err != nil {
+		t.Fatalf("seed CPA API keys: %v", err)
+	}
+	if err := repository.SyncPluginAPIKeys(db, []repository.PluginAPIKey{{ID: "kath", Name: "凯瑟琳"}}, syncedAt); err != nil {
+		t.Fatalf("seed plugin API keys: %v", err)
+	}
+	provider := NewCPAAPIKeyService(db)
+
+	// CPA 核心 key 保持原有按值匹配行为。
+	if _, err := provider.FindActiveCPAAPIKeyByValue(context.Background(), "sk-alpha123456"); err != nil {
+		t.Fatalf("expected CPA key lookup to succeed, got %v", err)
+	}
+	// 插件 key 的短 id 可猜测，必须按 not found 拒绝登录匹配。
+	if _, err := provider.FindActiveCPAAPIKeyByValue(context.Background(), "kath"); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("expected plugin key lookup to be rejected, got %v", err)
+	}
+}
+
 func TestUpdateCPAAPIKeyAliasAcceptsParsedInt64ID(t *testing.T) {
 	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "api-keys-service.db")})
 	if err != nil {

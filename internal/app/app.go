@@ -215,6 +215,8 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		UsageAggregationNotifier: usageAggregationRunner,
 		// Header 独立进入 Quota worker 的惰性一分钟窗口，不再等待 Overview 水位。
 		UsageHeaderQuota: quotaService,
+		// 插件 key 同步由 KEY_POLICY_SYNC_ENABLED 控制，默认关闭时行为与既有版本一致。
+		KeyPolicySyncEnabled: cfg.KeyPolicySyncEnabled,
 	})
 	// metadataSyncRunner 提前创建，保证控制消息和后台任务使用同一个调度器实例。
 	metadataSyncRunner := NewMetadataSyncRunner(syncService, cfg.MetadataSyncInterval)

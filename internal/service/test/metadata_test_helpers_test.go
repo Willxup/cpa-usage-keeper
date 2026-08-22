@@ -36,6 +36,10 @@ type metadataTestFetcher struct {
 	managementAPIKeysResult *response.ManagementAPIKeysResult
 	// managementAPIKeysErr 注入管理 API Keys fetch failure。
 	managementAPIKeysErr error
+	// keyPolicyPluginKeysResult 保存 key-policy 插件 keys 的直接响应。
+	keyPolicyPluginKeysResult *response.KeyPolicyPluginKeysResult
+	// keyPolicyPluginKeysErr 注入 key-policy 插件 keys fetch failure。
+	keyPolicyPluginKeysErr error
 	// standardResults 按 source 保存六类标准 API Key endpoint 响应。
 	standardResults map[string]*response.ProviderKeyConfigResult
 	// standardErrors 按 source 注入独立 fetch error。
@@ -122,6 +126,18 @@ func (f *metadataTestFetcher) FetchManagementAPIKeys(context.Context) (*response
 	f.recordCall("management-api-keys")
 	// 返回预设结果与错误。
 	return f.managementAPIKeysResult, f.managementAPIKeysErr
+}
+
+// FetchKeyPolicyPluginKeys 返回测试配置的 key-policy 插件 keys 结果，默认空清单成功响应。
+func (f *metadataTestFetcher) FetchKeyPolicyPluginKeys(context.Context) (*response.KeyPolicyPluginKeysResult, error) {
+	// 插件 keys 只在开关启用时被 SyncMetadata 调用。
+	f.recordCall("key-policy-plugin-keys")
+	// 未显式配置时保持成功空清单，与插件未发行任何 key 的线上形态一致。
+	if f.keyPolicyPluginKeysResult == nil && f.keyPolicyPluginKeysErr == nil {
+		return &response.KeyPolicyPluginKeysResult{StatusCode: 200}, nil
+	}
+	// 返回预设结果与错误。
+	return f.keyPolicyPluginKeysResult, f.keyPolicyPluginKeysErr
 }
 
 // fetchStandardProvider 复用六类标准 API Key endpoint 的测试分派逻辑。

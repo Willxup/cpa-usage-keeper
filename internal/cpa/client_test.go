@@ -281,6 +281,49 @@ func TestFetchManagementAPIKeysRejectsInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestFetchKeyPolicyPluginKeysSendsBearerTokenAndKeepsEnabledKeys(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != cpaManagementKeyPolicyKeysEndpoint {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
+			t.Fatalf("expected management Authorization header, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"keys":[{"id":"kath","name":"凯瑟琳","enabled":true,"key_preview":"sk-8bc0...64426","aliases":["a"],"models":["m"]},{"id":"disabled-key","name":"停用","enabled":false,"key_preview":"sk-0000...00000"}]}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
+	result, err := client.FetchKeyPolicyPluginKeys(context.Background())
+	if err != nil {
+		t.Fatalf("FetchKeyPolicyPluginKeys returned error: %v", err)
+	}
+	if result.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", result.StatusCode)
+	}
+	if len(result.Payload.Keys) != 1 {
+		t.Fatalf("expected only enabled plugin keys, got %#v", result.Payload.Keys)
+	}
+	key := result.Payload.Keys[0]
+	if key.ID != "kath" || key.Name != "凯瑟琳" || !key.Enabled || key.KeyPreview != "sk-8bc0...64426" {
+		t.Fatalf("unexpected plugin key payload: %#v", key)
+	}
+}
+
+func TestFetchKeyPolicyPluginKeysReportsNonSuccessStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
+	_, err := client.FetchKeyPolicyPluginKeys(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "management key policy plugin keys request returned status 404") {
+		t.Fatalf("expected management request failure, got %v", err)
+	}
+}
+
 func TestFetchAuthFilesParsesSyncMetadataFields(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != cpaManagementAuthFilesEndpoint {
