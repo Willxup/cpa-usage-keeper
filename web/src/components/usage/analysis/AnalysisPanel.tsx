@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type FocusEvent, type MouseEvent } from 'react';
+import { useEffect, useId, useMemo, useState, type CSSProperties, type FormEvent, type FocusEvent, type MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import '@/lib/chartjs';
 import { Interaction, Tooltip } from 'chart.js';
@@ -7,6 +7,9 @@ import { Bar, Doughnut, Scatter } from 'react-chartjs-2';
 import type { AnalysisCompositionItem, AnalysisCostBreakdown, AnalysisHeatmapCell, AnalysisLatencyDiagnostics, AnalysisModelEfficiencyItem, AnalysisModelUsagePayload, AnalysisResponse, AnalysisTokenUsageBucket } from '@/lib/types';
 import { calculateDisplayInputTokens, calculateDisplayOutputTokens, formatCompactNumber, formatDurationMs, formatPerMinuteValue, formatUsd } from '@/utils/usage';
 import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill as toGradientFill, USAGE_CHART_REQUESTS_LINE_COLOR, type UsageChartGradientColor, type UsageChartTheme } from '@/utils/usage/chartConfig';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { DEFAULT_ANALYSIS_COMPOSITION_ITEM_LIMIT, loadAnalysisCompositionItemLimit, parseAnalysisCompositionItemLimit, persistAnalysisCompositionItemLimit } from '@/utils/usage/analysisPreferences';
 import styles from './AnalysisPanel.module.scss';
 
 interface AnalysisPanelProps {
@@ -147,6 +150,22 @@ const CHART_COLORS: GradientColor[] = [
   { base: '#b91c1c', light: '#ef4444' },
   { base: '#0891b2', light: '#67e8f9' },
 ];
+const COMPOSITION_EXTENDED_COLOR_START_HUE = 206;
+const COMPOSITION_EXTENDED_COLOR_GOLDEN_ANGLE = 137.508;
+
+function getCompositionColor(index: number): GradientColor {
+  const preset = CHART_COLORS[index];
+  if (preset) return preset;
+
+  const hue = Math.round((
+    COMPOSITION_EXTENDED_COLOR_START_HUE
+    + (index - CHART_COLORS.length) * COMPOSITION_EXTENDED_COLOR_GOLDEN_ANGLE
+  ) % 360);
+  return {
+    base: `hsl(${hue} 68% 42%)`,
+    light: `hsl(${hue} 82% 68%)`,
+  };
+}
 const TOP_MODEL_COLORS: GradientColor[] = [
   { base: '#db2777', light: '#f9a8d4' },
   { base: '#d97706', light: '#fcd34d' },
@@ -197,6 +216,8 @@ const COST_TOOLTIP_VIEWPORT_PADDING = 8;
 const COST_TOOLTIP_CURSOR_OFFSET = 14;
 const COMPOSITION_DONUT_BORDER_RADIUS = 10;
 const COMPOSITION_DONUT_SPACING = 4;
+const COMPOSITION_DONUT_COMPACT_ITEM_THRESHOLD = CHART_COLORS.length;
+const COMPOSITION_DONUT_DENSE_ITEM_THRESHOLD = 12;
 const COMPOSITION_DONUT_HOVER_OFFSET = 10;
 const COMPOSITION_DONUT_LAYOUT_PADDING = 28;
 const COMPOSITION_TOOLTIP_CARET_PADDING = 18;
@@ -959,8 +980,8 @@ function calculateAnalysisWindowMinutes(analysis: AnalysisResponse | null): numb
   return (end - start) / 60_000;
 }
 
-function takeMajorComposition(items: AnalysisCompositionItem[], othersLabel: string, limit = 5): AnalysisCompositionItem[] {
-  if (items.length <= limit) return items;
+function takeMajorComposition(items: AnalysisCompositionItem[], othersLabel: string, limit: number): AnalysisCompositionItem[] {
+  if (limit === 0 || items.length <= limit) return items;
   const major = items.slice(0, limit);
   const rest = items.slice(limit).reduce(
     (sum, item) => ({
@@ -1128,14 +1149,19 @@ function AnalysisCardHeader({ title, subtitle, showPricingHint, hint }: { title:
 }
 
 function buildCompositionChartData(items: AnalysisCompositionItem[]): ChartData<'doughnut', number[], string> {
+  const borderRadius = items.length <= COMPOSITION_DONUT_COMPACT_ITEM_THRESHOLD
+    ? COMPOSITION_DONUT_BORDER_RADIUS
+    : items.length <= COMPOSITION_DONUT_DENSE_ITEM_THRESHOLD
+      ? 4
+      : 0;
   return {
     labels: items.map((item) => item.label),
     datasets: [{
       data: items.map((item) => toNumber(item.total_tokens)),
-      backgroundColor: (context) => toGradientFill(context, CHART_COLORS[context.dataIndex % CHART_COLORS.length]),
+      backgroundColor: (context) => toGradientFill(context, getCompositionColor(context.dataIndex)),
       borderColor: 'transparent',
       borderWidth: 0,
-      borderRadius: COMPOSITION_DONUT_BORDER_RADIUS,
+      borderRadius,
       hoverOffset: COMPOSITION_DONUT_HOVER_OFFSET,
     }],
   };
@@ -1174,7 +1200,12 @@ const wrapCompositionTooltipTitle = (label: unknown): string[] => {
   return visibleLines;
 };
 
-function buildCompositionChartOptions(chartTheme: ChartTheme, labels: CompositionTooltipLabels): ChartOptions<'doughnut'> {
+function buildCompositionChartOptions(chartTheme: ChartTheme, labels: CompositionTooltipLabels, itemCount: number): ChartOptions<'doughnut'> {
+  const spacing = itemCount <= COMPOSITION_DONUT_COMPACT_ITEM_THRESHOLD
+    ? COMPOSITION_DONUT_SPACING
+    : itemCount <= COMPOSITION_DONUT_DENSE_ITEM_THRESHOLD
+      ? 2
+      : 0;
   return {
     responsive: true,
     maintainAspectRatio: false,
@@ -1182,7 +1213,7 @@ function buildCompositionChartOptions(chartTheme: ChartTheme, labels: Compositio
     hover: { mode: 'analysisCompositionArc', intersect: false, axis: 'r' },
     layout: { padding: COMPOSITION_DONUT_LAYOUT_PADDING },
     cutout: '58%',
-    spacing: COMPOSITION_DONUT_SPACING,
+    spacing,
     plugins: {
       legend: { display: false },
       tooltip: {
@@ -1582,19 +1613,49 @@ const formatCompositionRate = (value: number, windowMinutes: number | null): str
   return formatPerMinuteValue(value / windowMinutes);
 };
 
-function CompositionPanel({ tabs, loading, isDark, windowMinutes }: { tabs: CompositionTab[]; loading: boolean; isDark: boolean; windowMinutes: number | null }) {
+function CompositionPanel({
+  tabs,
+  loading,
+  isDark,
+  windowMinutes,
+  itemLimit,
+  onItemLimitApply,
+}: {
+  tabs: CompositionTab[];
+  loading: boolean;
+  isDark: boolean;
+  windowMinutes: number | null;
+  itemLimit: number;
+  onItemLimitApply: (limit: number) => void;
+}) {
   const { t } = useTranslation();
+  const itemLimitInputId = useId();
+  const itemLimitMessageId = `${itemLimitInputId}-message`;
   const [activeTabId, setActiveTabId] = useState<CompositionTab['id']>('api_key');
+  const [itemLimitDraft, setItemLimitDraft] = useState(() => String(itemLimit));
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
   const items = activeTab?.items ?? EMPTY_COMPOSITION_ITEMS;
   const activeContentKey = `${activeTab?.id ?? 'empty'}:${items.map((item) => item.key).join('|')}`;
+  const parsedItemLimit = parseAnalysisCompositionItemLimit(itemLimitDraft);
+  const itemLimitInvalid = parsedItemLimit === null;
+  const canApplyItemLimit = !itemLimitInvalid && parsedItemLimit !== itemLimit;
   const chartTheme = useMemo(() => getChartTheme(isDark), [isDark]);
   const tooltipLabels = useMemo(() => ({
     totalTokens: t('usage_stats.total_tokens'),
   }), [t]);
   const chartData = useMemo(() => buildCompositionChartData(items), [items]);
-  const chartOptions = useMemo(() => buildCompositionChartOptions(chartTheme, tooltipLabels), [chartTheme, tooltipLabels]);
+  const chartOptions = useMemo(
+    () => buildCompositionChartOptions(chartTheme, tooltipLabels, items.length),
+    [chartTheme, items.length, tooltipLabels],
+  );
   const hasUnavailableCost = items.some((item) => item.cost_available === false);
+
+  function handleItemLimitSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (parsedItemLimit === null || parsedItemLimit === itemLimit) return;
+    onItemLimitApply(parsedItemLimit);
+  }
+
   return (
     <section className={`${styles.analysisCard} ${styles.compositionCard} keeper-card-surface`}>
       <AnalysisCardHeader
@@ -1603,19 +1664,57 @@ function CompositionPanel({ tabs, loading, isDark, windowMinutes }: { tabs: Comp
         showPricingHint={hasUnavailableCost}
         hint={t('usage_stats.cost_need_price')}
       />
-      <div className={styles.compositionTabs} role="tablist" aria-label={t('usage_stats.analysis_composition_title')}>
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={tab.id === activeTabId}
-            className={`${styles.compositionTab} ${tab.id === activeTabId ? styles.compositionTabActive : ''}`}
-            onClick={() => setActiveTabId(tab.id)}
+      <div className={styles.compositionToolbar}>
+        <div className={styles.compositionTabs} role="tablist" aria-label={t('usage_stats.analysis_composition_title')}>
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={tab.id === activeTabId}
+              className={`${styles.compositionTab} ${tab.id === activeTabId ? styles.compositionTabActive : ''}`}
+              onClick={() => setActiveTabId(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <form className={styles.compositionLimitControl} onSubmit={handleItemLimitSubmit}>
+          <div className={styles.compositionLimitMain}>
+            <label htmlFor={itemLimitInputId}>{t('usage_stats.analysis_composition_limit_prefix')}</label>
+            <Input
+              id={itemLimitInputId}
+              className={styles.compositionLimitInput}
+              type="number"
+              min={0}
+              step={1}
+              inputMode="numeric"
+              value={itemLimitDraft}
+              aria-invalid={itemLimitInvalid}
+              aria-describedby={itemLimitMessageId}
+              onChange={(event) => setItemLimitDraft(event.target.value)}
+            />
+            <span>{t('usage_stats.analysis_composition_limit_suffix')}</span>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              appearance="action"
+              disabled={!canApplyItemLimit}
+            >
+              {t('common.apply')}
+            </Button>
+          </div>
+          <small
+            id={itemLimitMessageId}
+            className={itemLimitInvalid ? styles.compositionLimitError : styles.compositionLimitHint}
+            aria-live="polite"
           >
-            {tab.label}
-          </button>
-        ))}
+            {t(itemLimitInvalid
+              ? 'usage_stats.analysis_composition_limit_invalid'
+              : 'usage_stats.analysis_composition_limit_hint')}
+          </small>
+        </form>
       </div>
       {loading ? (
         <div className={styles.emptyState}>{t('common.loading')}</div>
@@ -1629,13 +1728,16 @@ function CompositionPanel({ tabs, loading, isDark, windowMinutes }: { tabs: Comp
                 <Doughnut key={`chart-${activeContentKey}`} data={chartData} options={chartOptions} />
               </div>
             </div>
-            <div key={`list-${activeContentKey}`} className={styles.compositionUsageList}>
+            <div
+              key={`list-${activeContentKey}`}
+              className={`${styles.compositionUsageList} ${items.length > COMPOSITION_DONUT_COMPACT_ITEM_THRESHOLD ? styles.compositionUsageListScrollable : ''}`.trim()}
+            >
               {items.map((item, index) => {
                 const rawPercent = toNumber(item.percent);
                 const visualPercent = clampPercent(rawPercent);
                 const barStyle = {
                   width: `${visualPercent}%`,
-                  '--composition-bar-color': CHART_COLORS[index % CHART_COLORS.length].base,
+                  '--composition-bar-color': getCompositionColor(index).base,
                 } as CSSProperties;
                 return (
                   <div key={`${activeTab.id}-${item.key}`} className={styles.compositionUsageItem}>
@@ -2341,11 +2443,24 @@ function Heatmap({ cells, apiKeys, apiKeyLabels, models, loading, isDark }: { ce
 
 export function AnalysisPanel({ analysis, loading, latencyDiagnostics, latencyLoading = false, latencyError = '', isDark, isMobile }: AnalysisPanelProps) {
   const { t } = useTranslation();
+  const [compositionItemLimit, setCompositionItemLimit] = useState(loadAnalysisCompositionItemLimit);
   const tokenRows = useMemo(() => buildTokenUsageRows(analysis?.token_usage ?? [], analysis?.granularity ?? 'hourly', analysis?.timezone), [analysis]);
-  const apiComposition = useMemo(() => takeMajorComposition(analysis?.api_key_composition ?? [], t('usage_stats.analysis_others')), [analysis, t]);
-  const modelComposition = useMemo(() => takeMajorComposition(analysis?.model_composition ?? [], t('usage_stats.analysis_others')), [analysis, t]);
-  const authFilesComposition = useMemo(() => takeMajorComposition(analysis?.auth_files_composition ?? [], t('usage_stats.analysis_others')), [analysis, t]);
-  const aiProviderComposition = useMemo(() => takeMajorComposition(analysis?.ai_provider_composition ?? [], t('usage_stats.analysis_others')), [analysis, t]);
+  const apiComposition = useMemo(
+    () => takeMajorComposition(analysis?.api_key_composition ?? [], t('usage_stats.analysis_others'), compositionItemLimit),
+    [analysis, compositionItemLimit, t],
+  );
+  const modelComposition = useMemo(
+    () => takeMajorComposition(analysis?.model_composition ?? [], t('usage_stats.analysis_others'), compositionItemLimit),
+    [analysis, compositionItemLimit, t],
+  );
+  const authFilesComposition = useMemo(
+    () => takeMajorComposition(analysis?.auth_files_composition ?? [], t('usage_stats.analysis_others'), compositionItemLimit),
+    [analysis, compositionItemLimit, t],
+  );
+  const aiProviderComposition = useMemo(
+    () => takeMajorComposition(analysis?.ai_provider_composition ?? [], t('usage_stats.analysis_others'), compositionItemLimit),
+    [analysis, compositionItemLimit, t],
+  );
   const analysisWindowMinutes = useMemo(() => calculateAnalysisWindowMinutes(analysis), [analysis]);
   const compositionTabs = useMemo<CompositionTab[]>(() => [
     { id: 'api_key', label: t('usage_stats.analysis_composition_api_key_tab'), items: apiComposition },
@@ -2353,6 +2468,11 @@ export function AnalysisPanel({ analysis, loading, latencyDiagnostics, latencyLo
     { id: 'auth_files', label: t('usage_stats.analysis_composition_auth_files_tab'), items: authFilesComposition },
     { id: 'ai_provider', label: t('usage_stats.analysis_composition_ai_provider_tab'), items: aiProviderComposition },
   ], [apiComposition, modelComposition, authFilesComposition, aiProviderComposition, t]);
+
+  function handleCompositionItemLimitApply(limit: number) {
+    setCompositionItemLimit(limit);
+    persistAnalysisCompositionItemLimit(limit);
+  }
 
   return (
     <div className={styles.analysisPanel}>
@@ -2370,7 +2490,14 @@ export function AnalysisPanel({ analysis, loading, latencyDiagnostics, latencyLo
         isMobile={isMobile}
       />
       <LatencyDiagnosticsCard diagnostics={latencyDiagnostics} loading={latencyLoading} error={latencyError} isDark={isDark} isMobile={isMobile} />
-      <CompositionPanel tabs={compositionTabs} loading={loading} isDark={isDark} windowMinutes={analysisWindowMinutes} />
+      <CompositionPanel
+        tabs={compositionTabs}
+        loading={loading}
+        isDark={isDark}
+        windowMinutes={analysisWindowMinutes}
+        itemLimit={compositionItemLimit}
+        onItemLimitApply={handleCompositionItemLimitApply}
+      />
       <Heatmap cells={analysis?.heatmap?.cells ?? []} apiKeys={analysis?.heatmap?.api_keys ?? []} apiKeyLabels={analysis?.heatmap?.api_key_labels ?? {}} models={analysis?.heatmap?.models ?? []} loading={loading} isDark={isDark} />
     </div>
   );
