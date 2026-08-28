@@ -29,6 +29,11 @@ func (p *ProviderKeyConfig) UnmarshalJSON(data []byte) error {
 	p.AuthIndex = firstString(raw, "auth-index", "auth_index", "authIndex")
 	p.Priority = firstInt(raw, "priority")
 	p.Disabled = firstBool(raw, "disabled")
+	// CPA 用 excluded-models 中精确的 * 表示普通 Provider 整条停用；显式 disabled 始终优先。
+	if p.Disabled == nil && stringListContains(raw, "*", "excluded-models", "excluded_models", "excludedModels") {
+		disabled := true
+		p.Disabled = &disabled
+	}
 	p.Note = firstStringPtr(raw, "note")
 	return nil
 }

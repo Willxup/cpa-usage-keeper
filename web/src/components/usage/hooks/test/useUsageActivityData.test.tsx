@@ -231,10 +231,6 @@ describe('useUsageActivityData', () => {
     await renderOptions({ viewer: 'key', request: { range: '8h' }, onAuthRequired });
     expect(onAuthRequired).toHaveBeenCalledTimes(1);
     expect(latest?.error).toBe('AUTH_REQUIRED');
-
-    apiMocks.fetchKeyActivity.mockRejectedValueOnce(new ApiError('limited', 429));
-    await act(async () => latest?.loadActivity());
-    expect(latest?.error).toBe('KEY_ACTIVITY_RATE_LIMITED');
   });
 
   it('normalizes backend failures to the Activity-specific error state', async () => {

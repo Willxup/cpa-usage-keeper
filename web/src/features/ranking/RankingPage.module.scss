@@ -132,28 +132,8 @@
   gap: 8px;
 }
 
-.profilePrivacyHint {
-  appearance: none;
-  display: inline-grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: 1px solid var(--border-color);
-  border-radius: 50%;
-  color: var(--text-secondary);
-  background: var(--bg-secondary);
-  font-size: 11px;
-  font-weight: 750;
-  line-height: 1;
-  font-family: inherit;
-  cursor: default;
-  user-select: none;
-
-  &:focus-visible {
-    outline: 2px solid var(--primary-color);
-    outline-offset: 2px;
-  }
+.profilePrivacyHelp {
+  align-items: center;
 }
 
 .scoreExplanationHint {
@@ -195,9 +175,9 @@
   white-space: normal;
 }
 
-.profilePrivacyHint:hover .profilePrivacyTooltip,
-.profilePrivacyHint:focus-visible .profilePrivacyTooltip,
-.profilePrivacyHintOpen .profilePrivacyTooltip {
+.profilePrivacyHelp:hover .profilePrivacyTooltip,
+.profilePrivacyHelp:focus-within .profilePrivacyTooltip,
+.profilePrivacyTooltipVisible {
   opacity: 1;
   transform: translateY(0);
 }
@@ -581,7 +561,7 @@
   overflow: hidden;
   border: 1px solid var(--border-color);
   border-top: 3px solid var(--podium-accent);
-  border-radius: 12px;
+  border-radius: var(--keeper-card-radius);
   background: linear-gradient(145deg, color-mix(in srgb, var(--podium-accent) 9%, var(--bg-primary)), var(--bg-primary));
   box-shadow: var(--shadow);
 

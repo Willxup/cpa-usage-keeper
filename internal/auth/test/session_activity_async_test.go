@@ -113,6 +113,10 @@ func (s *activitySessionStore) UpdateActivity(string, string, time.Time) error {
 	return s.err
 }
 
+func (s *activitySessionStore) UpdateAdminAliasByTokenHash(string, string, time.Time) (int64, error) {
+	return 0, nil
+}
+
 func (s *activitySessionStore) Delete(string) error {
 	return nil
 }

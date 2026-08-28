@@ -130,13 +130,23 @@ func parseCodexUsageWindow(object map[string]json.RawMessage) *CodexUsageWindow 
 	if object == nil {
 		return nil
 	}
+	// 逐字段保留 presence，历史采集必须区分缺失字段和上游明确返回的零值。
+	usedPercent, hasUsedPercent := floatValue(object, "used_percent", "usedPercent")
+	limitWindowSeconds, hasLimitWindowSeconds := floatValue(object, "limit_window_seconds", "limitWindowSeconds")
+	resetAfterSeconds, hasResetAfterSeconds := floatValue(object, "reset_after_seconds", "resetAfterSeconds")
+	resetAt, hasResetAt := floatValue(object, "reset_at", "resetAt")
 	return &CodexUsageWindow{
-		UsedPercent:        floatField(object, "used_percent", "usedPercent"),
-		LimitWindowSeconds: intField(object, "limit_window_seconds", "limitWindowSeconds"),
-		ResetAfterSeconds:  intField(object, "reset_after_seconds", "resetAfterSeconds"),
-		ResetAt:            intField(object, "reset_at", "resetAt"),
-		WindowUsageTokens:  intPtrField(object, "window_usage_tokens", "windowUsageTokens"),
-		WindowUsageCost:    floatPtrField(object, "window_usage_cost", "windowUsageCost"),
+		// 数值字段保持既有零值/截断语义，presence 字段只为历史提取提供额外事实。
+		UsedPercent:           usedPercent,
+		LimitWindowSeconds:    int64(limitWindowSeconds),
+		ResetAfterSeconds:     int64(resetAfterSeconds),
+		ResetAt:               int64(resetAt),
+		WindowUsageTokens:     intPtrField(object, "window_usage_tokens", "windowUsageTokens"),
+		WindowUsageCost:       floatPtrField(object, "window_usage_cost", "windowUsageCost"),
+		HasUsedPercent:        hasUsedPercent,
+		HasLimitWindowSeconds: hasLimitWindowSeconds,
+		HasResetAfterSeconds:  hasResetAfterSeconds,
+		HasResetAt:            hasResetAt,
 	}
 }
 

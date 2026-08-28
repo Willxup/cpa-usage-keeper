@@ -92,12 +92,26 @@ type AntigravityQuotaPayload struct {
 }
 
 type CodexUsageWindow struct {
-	UsedPercent        float64  `json:"usedPercent,omitempty"`
-	LimitWindowSeconds int64    `json:"limitWindowSeconds,omitempty"`
-	ResetAfterSeconds  int64    `json:"resetAfterSeconds,omitempty"`
-	ResetAt            int64    `json:"resetAt,omitempty"`
-	WindowUsageTokens  *int64   `json:"window_usage_tokens,omitempty"`
-	WindowUsageCost    *float64 `json:"window_usage_cost,omitempty"`
+	// UsedPercent 是上游返回的已用小数百分比；零值只有 HasUsedPercent=true 时才是明确事实。
+	UsedPercent float64 `json:"usedPercent,omitempty"`
+	// LimitWindowSeconds 是上游原始窗口秒数；历史周期身份不把它限制为当前已知枚举。
+	LimitWindowSeconds int64 `json:"limitWindowSeconds,omitempty"`
+	// ResetAfterSeconds 是相对观察时间的剩余秒数；明确零值表示立即重置。
+	ResetAfterSeconds int64 `json:"resetAfterSeconds,omitempty"`
+	// ResetAt 是上游绝对 Unix 秒；存在时优先于相对倒计时。
+	ResetAt int64 `json:"resetAt,omitempty"`
+	// WindowUsageTokens 是现有 quota cache 展示字段，历史表永远不复制或持久化它。
+	WindowUsageTokens *int64 `json:"window_usage_tokens,omitempty"`
+	// WindowUsageCost 是现有 quota cache 展示字段，历史表永远不复制或持久化它。
+	WindowUsageCost *float64 `json:"window_usage_cost,omitempty"`
+	// HasUsedPercent 区分上游缺失字段和明确 0% 已用，仅供内部历史提取使用。
+	HasUsedPercent bool `json:"-"`
+	// HasLimitWindowSeconds 区分上游缺失字段和无效零秒窗口，仅供内部历史提取使用。
+	HasLimitWindowSeconds bool `json:"-"`
+	// HasResetAfterSeconds 区分相对重置字段缺失和明确零秒，仅供内部历史提取使用。
+	HasResetAfterSeconds bool `json:"-"`
+	// HasResetAt 区分绝对重置字段缺失和无效零值，仅供内部历史提取使用。
+	HasResetAt bool `json:"-"`
 }
 
 type CodexRateLimitInfo struct {

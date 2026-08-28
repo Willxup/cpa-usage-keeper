@@ -672,11 +672,11 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 		return nil, err
 	}
 	page, err := repository.ListUsageEventsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		Range:        filter.Range,
-		CustomUnit:   filter.CustomUnit,
-		StartTime:    filter.StartTime,
-		EndTime:      filter.EndTime,
-		EndExclusive: filter.EndExclusive,
+		Range:           filter.Range,
+		CustomUnit:      filter.CustomUnit,
+		StartTime:       filter.StartTime,
+		EndTime:         filter.EndTime,
+		EndExclusive:    filter.EndExclusive,
 		Limit:           filter.Limit,
 		Page:            filter.Page,
 		PageSize:        filter.PageSize,
@@ -684,8 +684,10 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 		CursorMode:      filter.CursorMode,
 		CursorTimestamp: filter.CursorTimestamp,
 		CursorID:        filter.CursorID,
+		SkipTotalCount:  filter.SkipTotalCount,
 		Model:           filter.Model,
 		AuthIndex:       filter.AuthIndex,
+		AuthType:        filter.AuthType,
 		APIGroupKey:     apiGroupKey,
 		Result:          filter.Result,
 	}, s.pricing.NewResolver())
@@ -745,6 +747,7 @@ func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.
 		EndExclusive: filter.EndExclusive,
 		Model:        filter.Model,
 		AuthIndex:    filter.AuthIndex,
+		AuthType:     filter.AuthType,
 		APIGroupKey:  apiGroupKey,
 		Result:       filter.Result,
 	}, func(row repodto.UsageEventRecord) error {

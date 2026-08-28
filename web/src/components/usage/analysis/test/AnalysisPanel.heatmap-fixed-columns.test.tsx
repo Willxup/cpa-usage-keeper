@@ -130,6 +130,8 @@ describe('AnalysisPanel fixed heatmap columns demo', () => {
     expect(keyColumnMask).toContain('position: absolute;');
     expect(keyColumnMask).toContain('inset: 0;');
     expect(keyColumnMask).toContain('z-index: -1;');
+    expect(keyColumnMask).toContain('border-radius: inherit;');
+    expect(keyColumnMask).not.toContain('border-radius: 0;');
     expect(keyColumnMask).toContain('background: inherit;');
     expect(keyColumnMask).not.toContain('var(--heatmap-grid-gap)');
     expect(analysisPanelStyles).toContain(`@include mobile {
@@ -148,12 +150,24 @@ describe('AnalysisPanel fixed heatmap columns demo', () => {
     expect(keyMarker).not.toContain('box-shadow:');
     expect(analysisPanelStyles).toMatch(/\.heatmapRowLabel\s*\{[\s\S]*?height:\s*34px;[\s\S]*?border:\s*1px solid var\(--border-color\);[\s\S]*?background:\s*var\(--bg-primary\);/);
     expect(analysisPanelStyles).toContain('.heatmapRowLabel:focus-visible,\n.heatmapSummaryCell:focus-visible {');
-    const summaryCell = styleRuleBlock('.heatmapSummaryCell');
+    const summaryCell = styleRuleBlock('\n\n.heatmapSummaryCell {');
     expect(summaryCell).toContain('display: flex;');
     expect(summaryCell).toContain('justify-content: center;');
     expect(summaryCell).toContain('font-variant-numeric: tabular-nums;');
     expect(analysisPanelStyles).not.toContain('.heatmapSummaryMetric');
     expect(analysisPanelStyles).not.toContain('.heatmapCostSummaryCell');
     expect(analysisPanelStyles).not.toContain('.heatmapTooltipTarget');
+  });
+
+  it('uses the shared large radius for every heatmap header and data block', () => {
+    const roundedBlocks = styleRuleBlock(`.heatmapCorner,
+.heatmapHeaderCell,
+.heatmapRowLabel,
+.heatmapCell,
+.heatmapSummaryCell`);
+    expect(roundedBlocks).toContain('border-radius: $radius-lg;');
+    expect(styleRuleBlock('\n.heatmapRowLabel {')).not.toContain('border-radius: 5px;');
+    expect(styleRuleBlock('\n.heatmapCell {')).not.toContain('border-radius: 5px;');
+    expect(styleRuleBlock('\n\n.heatmapSummaryCell {')).not.toContain('border-radius: 5px;');
   });
 });

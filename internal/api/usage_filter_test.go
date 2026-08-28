@@ -259,6 +259,29 @@ func TestParseUsageFilterQueryRejectsMissingRange(t *testing.T) {
 	}
 }
 
+func TestParseUsageFilterQueryAcceptsLatestIdentityCursorWithoutRange(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/usage/events?cursor_mode=true&page_size=50&source=shared-auth&auth_type=1", nil)
+
+	filter, err := parseUsageFilterQuery(req, time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("parseUsageFilterQuery returned error: %v", err)
+	}
+	if !filter.CursorMode || filter.PageSize != 50 || filter.Source != "shared-auth" || filter.AuthType != "oauth" {
+		t.Fatalf("expected latest auth-file cursor filter, got %+v", filter)
+	}
+	if filter.StartTime != nil || filter.EndTime != nil || filter.Range != "" {
+		t.Fatalf("expected latest cursor query without fixed time range, got %+v", filter)
+	}
+}
+
+func TestParseUsageFilterQueryRejectsInvalidIdentityAuthType(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/usage/events?cursor_mode=true&source=shared-auth&auth_type=3", nil)
+
+	if _, err := parseUsageFilterQuery(req, time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)); err == nil {
+		t.Fatal("expected invalid auth_type error")
+	}
+}
+
 func TestParseUsageFilterQueryDefaultsEventsPagination(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/v1/usage/events?range=24h", nil)
 
@@ -292,7 +315,6 @@ func TestParseUsageFilterQueryRejectsInvalidEventsCursor(t *testing.T) {
 		t.Fatal("expected invalid cursor error")
 	}
 }
-
 
 func TestParseUsageFilterQueryAcceptsAPIKeyID(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/v1/usage/events?range=24h&api_key_id=%201234567890123456789%20", nil)

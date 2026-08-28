@@ -124,6 +124,8 @@ func TestManagedSessionsSortCurrentFirstThenRecentActivityDescending(t *testing.
 	router := keeperapi.NewRouter(nil, nil, nil, nil, config, keeperapi.NewAuthHandler(config, restarted), "")
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/auth/sessions", nil)
 	request.AddCookie(&http.Cookie{Name: standardSessionCookieName, Value: currentToken})
+	// 排序测试不验证活动写入；保持来源 IP 不变，避免启动异步 writer 干扰临时数据库清理。
+	request.RemoteAddr = "203.0.113.1:42310"
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {

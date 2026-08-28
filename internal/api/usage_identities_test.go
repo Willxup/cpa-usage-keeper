@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/service"
 )
 
@@ -403,11 +402,11 @@ func TestUsageIdentitiesRouteReturnsProviderDisplayName(t *testing.T) {
 	}
 }
 
-func TestUsageIdentitiesRouteMasksAIProviderIdentity(t *testing.T) {
-	rawLookupKey := "sk-live-secret-value"
-	maskedLookupKey := helper.RedactSensitiveValue(rawLookupKey)
+func TestUsageIdentitiesRoutePublishesAIProviderAuthIndexWithoutLookupKey(t *testing.T) {
+	authIndex := "provider-auth-index"
+	lookupKey := "sk-live-secret-value"
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{
-		{ID: 1, Name: "Provider Name", Prefix: "Team Prefix", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: rawLookupKey, Type: "openai", Provider: "OpenAI"},
+		{ID: 1, Name: "Provider Name", Prefix: "Team Prefix", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: authIndex, LookupKey: lookupKey, Type: "openai", Provider: "OpenAI"},
 	}}})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/identities", nil)
 	resp := httptest.NewRecorder()
@@ -418,11 +417,11 @@ func TestUsageIdentitiesRouteMasksAIProviderIdentity(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
 	}
-	if contains(body, rawLookupKey) {
-		t.Fatalf("expected raw AI provider lookup key to be hidden, got %s", body)
+	if contains(body, lookupKey) {
+		t.Fatalf("expected AI provider lookup key to stay hidden, got %s", body)
 	}
-	if !contains(body, `"identity":"`+maskedLookupKey+`"`) {
-		t.Fatalf("expected masked AI provider identity %q in response body: %s", maskedLookupKey, body)
+	if !contains(body, `"identity":"`+authIndex+`"`) {
+		t.Fatalf("expected AI provider auth-index %q in response body: %s", authIndex, body)
 	}
 	if !contains(body, `"name":"Provider Name"`) || !contains(body, `"provider":"OpenAI"`) || !contains(body, `"displayName":"Team Prefix"`) {
 		t.Fatalf("expected AI provider display fields to use usage_identities values directly, got %s", body)

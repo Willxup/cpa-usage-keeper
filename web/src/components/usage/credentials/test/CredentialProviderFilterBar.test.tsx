@@ -30,8 +30,8 @@ describe('CredentialProviderFilterBar', () => {
     expect(html).toContain('>5</span>')
   })
 
-  // xAI API Key 需要在 AI Provider scope 显示现有 xAI 品牌。
-  it('renders the existing xAI label and icon for xAI provider rows', () => {
+  // xAI API Key 需要在 AI Provider scope 显示统一的 Grok Avatar。
+  it('renders the xAI label and Grok Avatar for xAI provider rows', () => {
     // html 使用仅包含 xAI API Key 的 AI Provider 计数。
     const html = renderToStaticMarkup(
       // xAI provider 使用独立筛选按钮。
@@ -39,9 +39,9 @@ describe('CredentialProviderFilterBar', () => {
     )
     // 复用现有 xAI 翻译 key。
     expect(html).toContain('usage_stats.credentials_filter_xai')
-    // 使用统一组件中的 Lobe Icons 单色 xAI 图标。
+    // 使用统一组件中的 Lobe Icons Grok Avatar。
     expect(html).toContain('data-provider-brand-icon="xai"')
-    expect(html).toContain('data-provider-brand-icon-tone="monochrome"')
+    expect(html).toContain('data-provider-brand-icon-tone="avatar"')
     // 按钮展示两行计数。
     expect(html).toContain('>2</span>')
   })

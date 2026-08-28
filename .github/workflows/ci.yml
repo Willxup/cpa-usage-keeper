@@ -8,13 +8,88 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      container: ${{ steps.filter.outputs.container }}
+      other: ${{ steps.filter.outputs.other }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 20
+
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          predicate-quantifier: some-with-excludes
+          filters: |
+            backend:
+              - 'cmd/**'
+              - 'internal/**'
+              - 'go.mod'
+              - 'go.sum'
+              - 'web/static.go'
+              - '.github/workflows/binary-release.yml'
+              - '.github/workflows/binary-dev-release.yml'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'web/**'
+              - 'README.md'
+              - 'README.zh.md'
+              - 'assets/keeper-logo-light.svg'
+              - 'assets/keeper-logo-dark.svg'
+              - '.github/workflows/ci.yml'
+            container:
+              - 'Dockerfile'
+              - '.dockerignore'
+              - 'docker-entrypoint.sh'
+              - 'go.mod'
+              - 'go.sum'
+              - 'web/package.json'
+              - 'web/package-lock.json'
+              - 'web/static.go'
+              - '.github/workflows/docker-publish.yml'
+              - '.github/workflows/docker-dev-publish.yml'
+              - '.github/workflows/ci.yml'
+            other:
+              # 未识别路径保守执行前后端检查，避免新增目录静默漏测。
+              - '**'
+              - '!cmd/**'
+              - '!internal/**'
+              - '!web/**'
+              - '!Dockerfile'
+              - '!.dockerignore'
+              - '!docker-entrypoint.sh'
+              - '!go.mod'
+              - '!go.sum'
+              - '!.github/workflows/binary-release.yml'
+              - '!.github/workflows/binary-dev-release.yml'
+              - '!.github/workflows/docker-publish.yml'
+              - '!.github/workflows/docker-dev-publish.yml'
+              - '!.github/workflows/ci.yml'
+              - '!.github/ISSUE_TEMPLATE/**'
+              - '!README.md'
+              - '!README.zh.md'
+              - '!LICENSE'
+              - '!assets/**'
+              - '!docs/**'
+              - '!test/images/**'
+
   backend:
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.other == 'true' }}
     runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 20
     strategy:
@@ -54,6 +129,8 @@ jobs:
         run: go test ./cmd/... ./internal/...
 
   frontend:
+    needs: changes
+    if: ${{ needs.changes.outputs.frontend == 'true' || needs.changes.outputs.other == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -81,3 +158,42 @@ jobs:
 
       - name: Build frontend
         run: npm --prefix ./web run build
+
+  container:
+    needs: changes
+    if: ${{ needs.changes.outputs.container == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Build Docker image
+        run: docker build -t cpa-usage-keeper:ci .
+
+  ci-gate:
+    if: ${{ always() }}
+    needs:
+      - changes
+      - backend
+      - frontend
+      - container
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify CI results
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          CONTAINER_RESULT: ${{ needs.container.result }}
+        run: |
+          if [[ "$CHANGES_RESULT" != "success" ]]; then
+            exit 1
+          fi
+
+          for result in "$BACKEND_RESULT" "$FRONTEND_RESULT" "$CONTAINER_RESULT"; do
+            if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+              exit 1
+            fi
+          done

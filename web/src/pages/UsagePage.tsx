@@ -1,7 +1,8 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchVersion, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
+import { ApiError, appPath, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchVersion, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateAuthSessionAlias, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
 import type { AnalysisLatencyDiagnostics, AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageCustomRange, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption, UsageTimeRange, VersionResponse } from '@/lib/types';
+import { DEFAULT_USAGE_TAB, getUsageTabPath, handleUsageTabKeyActivation, resolveInitialUsageTab, shouldHandleUsageNavigation, USAGE_TAB_OPTIONS, type UsageTab } from '@/lib/usageNavigation';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { Select } from '@/components/ui/Select';
@@ -22,6 +23,7 @@ import {
   PriceSettingsCard,
   AuthFileCredentialsSection,
   AiProviderCredentialsSection,
+  CredentialDetailDrawer,
   CredentialProviderFilterBar,
   TimeRangeControl,
   useUsageData,
@@ -30,12 +32,14 @@ import {
   useOverviewRealtimeData,
   usePricingData,
   useSparklines,
-  useCredentialsTabData
+  useCredentialsTabData,
+  type CredentialDetailSelection,
 } from '@/components/usage';
 import {
   RequestEventsDetailsCard,
   REQUEST_EVENT_COLUMN_IDS,
   normalizeRequestEventColumnOrder,
+  normalizeRequestEventVisibleColumnIds,
   type RequestEventColumnId,
 } from '@/components/usage/RequestEventsDetailsCard';
 import { clampCustomRangeToCurrentBounds, clampStoredUsageRangeStateToCurrentBounds, parseLegacyCustomRange, parseStoredUsageRangeState, resolveUsageRangeRecoveryTimeZone, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
@@ -43,7 +47,7 @@ import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import { getDailyAverageCardUsage, isDailyAverageRange } from '@/utils/usage/overview';
 import type { Theme } from '@/types';
 import { BrandLink } from '@/components/BrandLink';
-import { isCPAMCEmbed } from '@/embed/cpamcEmbed';
+import { cpamcEmbedSearch, isCPAMCEmbed } from '@/embed/cpamcEmbed';
 import { RankingPage } from '@/features/ranking/RankingPage';
 import { RankingScopeSwitch } from '@/features/ranking/components/RankingScopeSwitch';
 import { useRankingData } from '@/features/ranking/hooks/useRankingData';
@@ -64,10 +68,8 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'dark', labelKey: 'usage_stats.theme_dark' },
   { value: 'auto', labelKey: 'usage_stats.theme_auto' }
 ];
-const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'ranking', 'events', 'auth-files', 'ai-provider', 'settings'] as const;
 const RANKING_PREVIEW_API = resolveRankingPreviewAPI(import.meta.env.VITE_RANKING_PREVIEW_MOCK);
 const LOCAL_RANKING_PREVIEW_API = resolveLocalRankingPreviewAPI(import.meta.env.VITE_RANKING_PREVIEW_MOCK);
-type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];
 type Translate = (key: string) => string;
 const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
   overview: 'usage_stats.tab_overview',
@@ -78,12 +80,11 @@ const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
   'ai-provider': 'usage_stats.tab_ai_provider',
   settings: 'usage_stats.tab_settings',
 };
-const DEFAULT_USAGE_TAB: UsageTab = 'overview';
 const USAGE_TAB_STORAGE_KEY = 'cli-proxy-usage-tab-v1';
 const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 50;
 const REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS = 90;
-// v7 是完整列顺序格式；v8 加入客户端请求元数据列，并保留历史自定义顺序。
-const REQUEST_EVENTS_PREFERENCES_VERSION = 8;
+// v9 将强关联字段折叠为组合列，并加入 Executor；旧版本直接重置列设置以避免错误折叠。
+const REQUEST_EVENTS_PREFERENCES_VERSION = 9;
 const ALL_REQUEST_EVENTS_FILTER = '__all__';
 const OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
 const CPA_MANAGEMENT_PAGE = 'management.html';
@@ -279,169 +280,6 @@ const buildDefaultRequestEventsPreferences = (): RequestEventsPreferences => ({
   columnOrder: [...REQUEST_EVENT_COLUMN_IDS],
 });
 
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V3 = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'model_alias',
-  'reasoning_effort',
-  'service_tier',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cached_tokens',
-  'cache_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V4 = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'model_alias',
-  'reasoning_effort',
-  'service_tier',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cache_read_tokens',
-  'cache_creation_tokens',
-  'cache_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V7 = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'model_alias',
-  'reasoning_effort',
-  'service_tier',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cache_read_tokens',
-  'cache_creation_tokens',
-  'cache_read_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V5 = LEGACY_REQUEST_EVENT_COLUMN_IDS_V7;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V6 = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'model_alias',
-  'reasoning_effort',
-  'service_tier',
-  'response_service_tier',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cache_read_tokens',
-  'cache_creation_tokens',
-  'cache_read_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V2 = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'reasoning_effort',
-  'service_tier',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cached_tokens',
-  'cache_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V1 = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'reasoning_effort',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cached_tokens',
-  'cache_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V1_WITH_MODEL_ALIAS = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'model_alias',
-  'reasoning_effort',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cached_tokens',
-  'cache_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
 const isRecord = (value: unknown): value is Record<string, unknown> => (
   typeof value === 'object' && value !== null && !Array.isArray(value)
 );
@@ -468,69 +306,32 @@ const normalizeRequestEventPreferenceFilters = (value: unknown): RequestEventFil
   };
 };
 
-const hasSameRequestEventColumnOrder = (
-  left: readonly string[],
-  right: readonly string[]
-): boolean => left.length === right.length && left.every((columnId, index) => columnId === right[index]);
-
-const migrateRequestEventColumnId = (value: unknown): RequestEventColumnId | null => {
-  if (value === 'cached_tokens') return 'cache_read_tokens';
-  if (value === 'cache_rate') return 'cache_read_rate';
-  if (value === 'response_service_tier') return 'service_tier';
-  return isRequestEventColumnId(value) ? value : null;
-};
-
-const normalizeRequestEventPreferenceColumnIds = (value: unknown, version: unknown): RequestEventColumnId[] => {
+const normalizeRequestEventPreferenceColumnIds = (value: unknown): RequestEventColumnId[] => {
   if (!Array.isArray(value)) {
     return [...REQUEST_EVENT_COLUMN_IDS];
   }
-
-  const rawColumnIds = value.filter((columnId): columnId is string => typeof columnId === 'string');
-  const legacyFullSelection = version !== REQUEST_EVENTS_PREFERENCES_VERSION && (
-    (version === 7 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V7)) ||
-    (version === 6 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V6)) ||
-    (version === 5 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V5)) ||
-    (version === 4 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V4)) ||
-    (version === 3 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V3)) ||
-    (version === 2 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V2)) ||
-    (typeof version === 'number' && version < 2 && (
-      hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V1) ||
-      hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V1_WITH_MODEL_ALIAS)
-    ))
-  );
-  if (legacyFullSelection) {
-    return [...REQUEST_EVENT_COLUMN_IDS];
-  }
-
-  const seen = new Set<RequestEventColumnId>();
-  const normalized: RequestEventColumnId[] = [];
-  for (const rawColumnId of rawColumnIds) {
-    const columnId = migrateRequestEventColumnId(rawColumnId);
-    if (columnId === null || seen.has(columnId)) continue;
-    seen.add(columnId);
-    normalized.push(columnId);
-  }
-  return normalized.length > 0 ? normalized : [...REQUEST_EVENT_COLUMN_IDS];
+  return normalizeRequestEventVisibleColumnIds(value.filter(isRequestEventColumnId));
 };
 
-const normalizeRequestEventPreferenceColumnOrder = (value: unknown, version: unknown): RequestEventColumnId[] => {
+const normalizeRequestEventPreferenceColumnOrder = (value: unknown): RequestEventColumnId[] => {
   if (!Array.isArray(value)) {
     return [...REQUEST_EVENT_COLUMN_IDS];
   }
-  const rawColumnIds = value.filter((columnId): columnId is string => typeof columnId === 'string');
-  if (version === 7 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V7)) {
-    return [...REQUEST_EVENT_COLUMN_IDS];
-  }
-  return normalizeRequestEventColumnOrder(rawColumnIds.filter(isRequestEventColumnId));
+  return normalizeRequestEventColumnOrder(value.filter(isRequestEventColumnId));
 };
 
 export const normalizeRequestEventsPreferences = (value: unknown): RequestEventsPreferences => {
   const preferences = isRecord(value) ? value : {};
+  const hasCurrentColumnSettings = preferences.version === REQUEST_EVENTS_PREFERENCES_VERSION;
   return {
     version: REQUEST_EVENTS_PREFERENCES_VERSION,
     filters: normalizeRequestEventPreferenceFilters(preferences.filters),
-    visibleColumnIds: normalizeRequestEventPreferenceColumnIds(preferences.visibleColumnIds, preferences.version),
-    columnOrder: normalizeRequestEventPreferenceColumnOrder(preferences.columnOrder, preferences.version),
+    visibleColumnIds: hasCurrentColumnSettings
+      ? normalizeRequestEventPreferenceColumnIds(preferences.visibleColumnIds)
+      : [...REQUEST_EVENT_COLUMN_IDS],
+    columnOrder: hasCurrentColumnSettings
+      ? normalizeRequestEventPreferenceColumnOrder(preferences.columnOrder)
+      : [...REQUEST_EVENT_COLUMN_IDS],
   };
 };
 
@@ -808,15 +609,7 @@ const loadTimeRange = (): LoadedUsageRangeState => loadUsageRangeState(
   typeof localStorage === 'undefined' ? undefined : localStorage,
 );
 
-const isUsageTab = (value: unknown): value is UsageTab =>
-  typeof value === 'string' && USAGE_TAB_OPTIONS.includes(value as UsageTab);
-
-export const normalizeUsageTabValue = (value: unknown): UsageTab | null => {
-  if (value === 'credentials') {
-    return 'auth-files';
-  }
-  return isUsageTab(value) ? value : null;
-};
+export { normalizeUsageTabValue } from '@/lib/usageNavigation';
 
 export const getUsageTabOptions = (
   translate: Translate,
@@ -828,15 +621,18 @@ export const getUsageTabOptions = (
   }));
 
 const loadUsageTab = (): UsageTab => {
+  let storedTab: unknown = null;
   try {
-    if (typeof localStorage === 'undefined') {
-      return DEFAULT_USAGE_TAB;
-    }
-    const raw = localStorage.getItem(USAGE_TAB_STORAGE_KEY);
-    return normalizeUsageTabValue(raw) ?? DEFAULT_USAGE_TAB;
+    if (typeof localStorage !== 'undefined') storedTab = localStorage.getItem(USAGE_TAB_STORAGE_KEY);
   } catch {
-    return DEFAULT_USAGE_TAB;
+    // 忽略存储异常；直达路由不依赖 localStorage 仍可工作。
   }
+
+  return resolveInitialUsageTab(
+    typeof window === 'undefined' ? '/' : window.location.pathname,
+    typeof window === 'undefined' ? undefined : window.__APP_BASE_PATH__,
+    storedTab,
+  );
 };
 
 const isOverviewRealtimeWindow = (value: unknown): value is OverviewRealtimeWindow => (
@@ -888,6 +684,17 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     const loadedTab = loadUsageTab();
     return isEmbeddedInCPAMC && loadedTab === 'ranking' ? DEFAULT_USAGE_TAB : loadedTab;
   });
+  const activateUsageTab = useCallback((tab: UsageTab) => {
+    setActiveTab(tab);
+    window.history.replaceState(null, '', appPath(getUsageTabPath(tab)) + cpamcEmbedSearch());
+  }, []);
+  const handleUsageTabNavigation = useCallback((event: ReactMouseEvent<HTMLAnchorElement>, tab: UsageTab) => {
+    // 普通左键保持现有无刷新切换；组合键和中键交给原生链接打开新页面。
+    if (!shouldHandleUsageNavigation(event.nativeEvent)) return;
+
+    event.preventDefault();
+    activateUsageTab(tab);
+  }, [activateUsageTab]);
   const [rankingScope, setRankingScope] = useState<RankingScope>(loadRankingScope);
   const handleRankingScopeChange = useCallback((scope: RankingScope) => {
     setRankingScope(scope);
@@ -1015,6 +822,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [authSessionsLoading, setAuthSessionsLoading] = useState(false);
   const [authSessionsError, setAuthSessionsError] = useState('');
   const [authSessionRevokingId, setAuthSessionRevokingId] = useState<string | null>(null);
+  const [authSessionAliasSavingId, setAuthSessionAliasSavingId] = useState<string | null>(null);
   const authSessionsRequestControllerRef = useRef<AbortController | null>(null);
   const [statusError, setStatusError] = useState('');
   const [updateCheckLoading, setUpdateCheckLoading] = useState(false);
@@ -1042,6 +850,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [eventsColumnOrder, setEventsColumnOrder] = useState<RequestEventColumnId[]>(initialRequestEventsPreferences.columnOrder);
   const [eventsExportingFormat, setEventsExportingFormat] = useState<UsageEventsExportFormat | null>(null);
   const [eventsFilterOptionsLoaded, setEventsFilterOptionsLoaded] = useState(false);
+  const [credentialDetailSelection, setCredentialDetailSelection] = useState<CredentialDetailSelection | null>(null);
+  const [credentialDetailOpen, setCredentialDetailOpen] = useState(false);
   const [requestLogResponse, setRequestLogResponse] = useState<UsageEventRequestLogResponse | null>(null);
   const [requestLogError, setRequestLogError] = useState('');
   const [requestLogLoadingEventId, setRequestLogLoadingEventId] = useState<string | null>(null);
@@ -1291,6 +1101,26 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       setAuthSessionRevokingId(null);
     }
   }, [loadAuthSessions, onAuthRequired, showTopNotice, t]);
+
+  const handleSaveAuthSessionAlias = useCallback(async (id: string, alias: string) => {
+    setAuthSessionAliasSavingId(id);
+    setAuthSessionsError('');
+    try {
+      const updated = await updateAuthSessionAlias(id, alias);
+      setAuthSessions((current) => current.map((session) => (session.id === updated.id ? { ...session, ...updated } : session)));
+      showTopNotice('success', t('usage_stats.session_settings_alias_save_success'));
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+      } else {
+        setAuthSessionsError(error instanceof Error ? error.message : 'Failed to update auth session alias');
+        showTopNotice('error', t('usage_stats.session_settings_alias_save_failed'));
+      }
+      throw error;
+    } finally {
+      setAuthSessionAliasSavingId((current) => (current === id ? null : current));
+    }
+  }, [onAuthRequired, showTopNotice, t]);
 
   const loadAnalysis = useCallback(async () => {
     if (!usageRangeQuery.valid) return;
@@ -1717,6 +1547,16 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setRequestLogDownloading(false);
   }, []);
 
+  const handleCredentialDetailClose = useCallback(() => {
+    handleRequestLogClose();
+    setCredentialDetailOpen(false);
+  }, [handleRequestLogClose]);
+
+  const handleCredentialDetailOpen = useCallback((selection: CredentialDetailSelection) => {
+    setCredentialDetailSelection(selection);
+    setCredentialDetailOpen(true);
+  }, []);
+
   const handleRequestLogDownload = useCallback(async (eventId: string) => {
     if (!requestLogAccessEnabled) return;
     requestLogDownloadGenerationRef.current += 1;
@@ -1858,9 +1698,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, []);
 
 	  useEffect(() => {
-	    if (activeTab === 'events') return;
+	    if (activeTab === 'events' || credentialDetailOpen) return;
 	    handleRequestLogClose();
-	  }, [activeTab, handleRequestLogClose]);
+	  }, [activeTab, credentialDetailOpen, handleRequestLogClose]);
 
 	  useEffect(() => {
 	    if (activeTab !== 'events') {
@@ -2110,16 +1950,17 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 lang={i18n.resolvedLanguage || i18n.language}
               >
                 {tabOptions.map((option) => (
-                  <button
+                  <a
                     key={option.value}
-                    type="button"
+                    href={appPath(getUsageTabPath(option.value)) + cpamcEmbedSearch()}
                     role="tab"
                     aria-selected={activeTab === option.value}
                     className={`${styles.tabPill} ${activeTab === option.value ? styles.tabPillActive : ''}`.trim()}
-                    onClick={() => setActiveTab(option.value)}
+                    onClick={(event) => handleUsageTabNavigation(event, option.value)}
+                    onKeyDown={(event) => handleUsageTabKeyActivation(event, option.value, activateUsageTab)}
                   >
                     {option.label}
-                  </button>
+                  </a>
                 ))}
               </div>
 
@@ -2359,6 +2200,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       onResetQuotaForAuthIndex={credentialsData.resetQuotaForAuthIndex}
                       aliasSavingId={credentialsData.aliasSavingId}
                       onSaveAlias={credentialsData.saveUsageIdentityAlias}
+                      onOpenDetails={(row) => handleCredentialDetailOpen({ kind: 'auth-file', row })}
                       onRefreshInspectionStatus={credentialsData.refreshQuotaInspectionStatus}
                       onStartInspection={credentialsData.startQuotaInspection}
                       onAfterInvalidAccountAction={credentialsData.refresh}
@@ -2371,12 +2213,15 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       page={credentialsData.aiProviderPage}
                       totalPages={credentialsData.aiProviderTotalPages}
                       pageSize={credentialsData.aiProviderPageSize}
+                      activeOnly={credentialsData.aiProviderActiveOnly}
                       sort={credentialsData.aiProviderSort}
                       loading={credentialsData.loading}
                       aliasSavingId={credentialsData.aliasSavingId}
                       onSaveAlias={credentialsData.saveUsageIdentityAlias}
+                      onOpenDetails={(row) => handleCredentialDetailOpen({ kind: 'ai-provider', row })}
                       onPageChange={credentialsData.setAiProviderPage}
                       onPageSizeChange={credentialsData.setAiProviderPageSize}
+                      onActiveOnlyChange={credentialsData.setAiProviderActiveOnly}
                       onSortChange={credentialsData.setAiProviderSort}
                     />
                   )}
@@ -2390,7 +2235,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   sessions={authSessions}
                   loading={authSessionsLoading}
                   revokingId={authSessionRevokingId}
+                  aliasSavingId={authSessionAliasSavingId}
                   onLogout={handleRevokeAuthSession}
+                  onSaveAlias={handleSaveAuthSessionAlias}
                 />
                 <ApiKeySettingsCard
                   apiKeys={apiKeySettings}
@@ -2416,6 +2263,20 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
           </div>
         </main>
       </div>
+      <CredentialDetailDrawer
+        open={credentialDetailOpen}
+        selection={credentialDetailSelection}
+        onAuthRequired={onAuthRequired}
+        requestLogAccessEnabled={requestLogAccessEnabled}
+        onRequestLogOpen={handleRequestLogOpen}
+        requestLogLoadingEventId={requestLogLoadingEventId}
+        requestLogResponse={requestLogResponse}
+        requestLogError={requestLogError}
+        onRequestLogClose={handleRequestLogClose}
+        onRequestLogDownload={handleRequestLogDownload}
+        requestLogDownloading={requestLogDownloading}
+        onClose={handleCredentialDetailClose}
+      />
       <Modal
         open={logoutConfirmOpen}
         title={t('usage_stats.logout_confirm_title')}

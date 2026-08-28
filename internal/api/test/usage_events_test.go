@@ -1404,9 +1404,50 @@ func TestUsageEventsPassesPaginationAndAuthIndexSourceFilter(t *testing.T) {
 	if provider.lastFilter.Model != "claude-sonnet" || provider.lastFilter.AuthIndex != "authidx-openai-main" || provider.lastFilter.Source != "" || provider.lastFilter.Result != "failed" {
 		t.Fatalf("expected source filter to be translated to auth_index only, got %+v", provider.lastFilter)
 	}
+	if provider.lastFilter.SkipTotalCount {
+		t.Fatalf("expected ranged Request Events query to keep total count, got %+v", provider.lastFilter)
+	}
 	body := resp.Body.String()
 	if !contains(body, `"page":3`) || !contains(body, `"page_size":100`) || !contains(body, `"total_count":0`) || !contains(body, `"total_pages":0`) {
 		t.Fatalf("expected response pagination metadata, got %s", body)
+	}
+}
+
+func TestUsageEventsPassesLatestIdentityTypeFilterWithoutRange(t *testing.T) {
+	provider := &usageEventsStub{eventsPage: &servicedto.UsageEventsPage{Events: []servicedto.UsageEventRecord{}, TotalCount: 0, Page: 1, PageSize: 50}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?cursor_mode=true&page_size=50&source=shared-auth&auth_type=2", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if provider.lastFilter.AuthIndex != "shared-auth" || provider.lastFilter.AuthType != "apikey" || provider.lastFilter.Source != "" {
+		t.Fatalf("expected exact provider identity filter, got %+v", provider.lastFilter)
+	}
+	if provider.lastFilter.StartTime != nil || provider.lastFilter.EndTime != nil || !provider.lastFilter.CursorMode {
+		t.Fatalf("expected unbounded latest cursor filter, got %+v", provider.lastFilter)
+	}
+	if !provider.lastFilter.SkipTotalCount {
+		t.Fatalf("expected latest identity cursor filter to skip total count, got %+v", provider.lastFilter)
+	}
+}
+
+func TestUsageEventsExportRejectsLatestIdentityQueryWithoutRange(t *testing.T) {
+	provider := &usageEventsStub{}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/export?format=csv&cursor_mode=true&source=shared-auth&auth_type=2", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if provider.exportCalls != 0 {
+		t.Fatalf("expected invalid unbounded export not to reach the service, got %d calls", provider.exportCalls)
 	}
 }
 

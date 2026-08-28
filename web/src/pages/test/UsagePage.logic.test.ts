@@ -614,7 +614,7 @@ describe('UsagePage request event filters', () => {
 
 describe('UsagePage request event preferences', () => {
 
-  it('normalizes persisted filters and visible columns', () => {
+  it('preserves persisted filters while resetting legacy columns', () => {
     const preferences = normalizeRequestEventsPreferences({
       version: 1,
       filters: {
@@ -626,20 +626,20 @@ describe('UsagePage request event preferences', () => {
     });
 
     expect(preferences).toEqual({
-      version: 8,
+      version: 9,
       filters: {
         model: 'claude-opus',
         source: 'authidx-source-b',
         result: 'failed',
       },
-      visibleColumnIds: ['model', 'timestamp', 'total_cost'],
+      visibleColumnIds: REQUEST_EVENT_COLUMN_IDS,
       columnOrder: REQUEST_EVENT_COLUMN_IDS,
     });
   });
 
   it('falls back safely for damaged persisted request event preferences', () => {
     const preferences = normalizeRequestEventsPreferences({
-      version: 1,
+      version: 9,
       filters: {
         model: 42,
         source: '',
@@ -657,10 +657,10 @@ describe('UsagePage request event preferences', () => {
     expect(preferences.visibleColumnIds.length).toBeGreaterThan(1);
   });
 
-  it('keeps persisted request event columns unchanged when Speed is absent', () => {
+  it('keeps current request event columns unchanged when Speed is absent', () => {
     const columnIdsWithoutSpeed = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'speed');
     const preferences = normalizeRequestEventsPreferences({
-      version: 1,
+      version: 9,
       visibleColumnIds: columnIdsWithoutSpeed,
     });
 
@@ -668,7 +668,7 @@ describe('UsagePage request event preferences', () => {
     expect(preferences.visibleColumnIds).not.toContain('speed');
   });
 
-  it('adds Speed Mode to legacy full-column request event preferences', () => {
+  it('resets legacy full-column request event preferences', () => {
     const legacyFullColumnIds = [
       'timestamp',
       'api_key',
@@ -702,7 +702,7 @@ describe('UsagePage request event preferences', () => {
     const hiddenSpeedColumnIds = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'speed');
 
     saveRequestEventsPreferences({
-      version: 8,
+      version: 9,
       filters: {
         model: '__all__',
         source: '__all__',
@@ -714,7 +714,7 @@ describe('UsagePage request event preferences', () => {
 
     const stored = JSON.parse(storage.value(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY) ?? '');
     expect(stored).toEqual({
-      version: 8,
+      version: 9,
       filters: {
         model: '__all__',
         source: '__all__',
@@ -731,7 +731,7 @@ describe('UsagePage request event preferences', () => {
     const hiddenSpeedModeColumnIds = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'service_tier');
 
     saveRequestEventsPreferences({
-      version: 8,
+      version: 9,
       filters: {
         model: '__all__',
         source: '__all__',
@@ -756,7 +756,7 @@ describe('UsagePage request event preferences', () => {
     });
 
     saveRequestEventsPreferences({
-      version: 4,
+      version: 9,
       filters: {
         model: 'gpt-4.1',
         source: 'source-a',
@@ -767,7 +767,7 @@ describe('UsagePage request event preferences', () => {
 
     expect(storage.setItem).toHaveBeenCalledTimes(1);
     expect(JSON.parse(storage.value(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY) ?? '')).toEqual({
-      version: 8,
+      version: 9,
       filters: {
         model: 'gpt-4.1',
         source: 'source-a',

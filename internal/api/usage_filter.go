@@ -8,11 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"cpa-usage-keeper/internal/entities"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 	"cpa-usage-keeper/internal/timeutil"
 
 	"github.com/gin-gonic/gin"
 )
+
 var allowedUsageEventsPageSizes = map[int]struct{}{
 	20:  {},
 	50:  {},
@@ -138,16 +140,37 @@ func decodeUsageEventsCursor(value string) (time.Time, int64, error) {
 	return timeutil.NormalizeStorageTime(timestamp), id, nil
 }
 
-
 func parseUsageFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
+	return parseUsageFilterQueryWithLatestIdentity(req, anchor, true)
+}
+
+// Export 保持 Request Events 原有的必选时间范围，不消费详情抽屉的无范围查询例外。
+func parseUsageExportFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
+	return parseUsageFilterQueryWithLatestIdentity(req, anchor, false)
+}
+
+func parseUsageFilterQueryWithLatestIdentity(req *http.Request, anchor time.Time, allowLatestIdentity bool) (servicedto.UsageFilter, error) {
 	if req == nil {
 		return servicedto.UsageFilter{}, nil
 	}
-	filter, err := parseUsageEventsTimeFilterQuery(req, anchor)
-	if err != nil {
-		return servicedto.UsageFilter{}, err
-	}
 	query := req.URL.Query()
+	var filter servicedto.UsageFilter
+	latestIdentityCursorQuery := allowLatestIdentity && isLatestIdentityCursorQuery(req)
+	if latestIdentityCursorQuery {
+		apiKeyID, err := parseUsageAPIKeyID(query.Get("api_key_id"))
+		if err != nil {
+			return servicedto.UsageFilter{}, err
+		}
+		filter.APIKeyID = apiKeyID
+		// 详情只消费游标和 has_more，不为最新请求列表扫描全部历史总数。
+		filter.SkipTotalCount = true
+	} else {
+		var err error
+		filter, err = parseUsageEventsTimeFilterQuery(req, anchor)
+		if err != nil {
+			return servicedto.UsageFilter{}, err
+		}
+	}
 	filter.Limit = servicedto.DefaultUsageEventsLimit
 	filter.Page = 1
 	filter.PageSize = servicedto.DefaultUsageEventsLimit
@@ -199,11 +222,48 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (servicedto.Usag
 	// Request Events 前端参数仍叫 source，但它的值是 usage identity；路由层会转换成 auth_index 查询。
 	filter.Source = strings.TrimSpace(query.Get("source"))
 	filter.AuthIndex = strings.TrimSpace(query.Get("auth_index"))
+	authType, err := parseUsageEventsAuthType(query.Get("auth_type"))
+	if err != nil {
+		return servicedto.UsageFilter{}, err
+	}
+	filter.AuthType = authType
 	filter.Result = strings.TrimSpace(query.Get("result"))
 	if filter.Result != "" && filter.Result != "success" && filter.Result != "failed" {
 		return servicedto.UsageFilter{}, fmt.Errorf("invalid result %q", filter.Result)
 	}
 	return filter, nil
+}
+
+// 详情事件只允许在身份、身份类型和游标模式都明确时省略固定时间范围。
+func isLatestIdentityCursorQuery(req *http.Request) bool {
+	if req == nil {
+		return false
+	}
+	query := req.URL.Query()
+	if strings.TrimSpace(query.Get("range")) != "" || strings.TrimSpace(query.Get("source")) == "" || strings.TrimSpace(query.Get("auth_type")) == "" {
+		return false
+	}
+	cursorMode, _ := strconv.ParseBool(strings.TrimSpace(query.Get("cursor_mode")))
+	return cursorMode || strings.TrimSpace(query.Get("cursor")) != ""
+}
+
+func parseUsageEventsAuthType(rawValue string) (string, error) {
+	value := strings.TrimSpace(rawValue)
+	if value == "" {
+		return "", nil
+	}
+	authType, err := strconv.Atoi(value)
+	if err != nil {
+		return "", fmt.Errorf("auth_type must be 1 or 2")
+	}
+	switch entities.UsageIdentityAuthType(authType) {
+	case entities.UsageIdentityAuthTypeAuthFile:
+		return "oauth", nil
+	case entities.UsageIdentityAuthTypeAIProvider:
+		return "apikey", nil
+	default:
+		return "", fmt.Errorf("auth_type must be 1 or 2")
+	}
 }
 
 func parseUsageRealtimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {

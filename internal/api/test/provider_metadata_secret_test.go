@@ -12,7 +12,6 @@ import (
 	. "cpa-usage-keeper/internal/api"
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
 	"gorm.io/gorm"
@@ -24,7 +23,7 @@ func TestProviderMetadataSecretStaysOutOfUsageIdentityResponses(t *testing.T) {
 	db := openProviderMetadataSecretDatabase(t)
 	// secret 只允许写入数据库 LookupKey。
 	secret := "unique-provider-secret-7f18c2"
-	// authIndex 是业务 identity，接口仍按敏感标识脱敏展示。
+	// authIndex 是业务 identity，也是详情事件查询需要的公开索引。
 	authIndex := "provider-auth-index-91a6"
 	// prefix 是独立可展示 metadata，不能由 secret 派生。
 	prefix := "provider-prefix-visible"
@@ -81,10 +80,10 @@ func TestProviderMetadataSecretStaysOutOfUsageIdentityResponses(t *testing.T) {
 			// 输出 body 定位内部 endpoint 泄漏。
 			t.Fatalf("%s published base_url: %s", path, body)
 		}
-		// auth-index 继续按现有敏感标识规则脱敏，而不是改用 LookupKey。
-		if !strings.Contains(body, `"identity":"`+helper.RedactSensitiveValue(authIndex)+`"`) {
+		// identity 发布原始 auth-index，供详情事件查询精确使用；它不是 LookupKey/API Key。
+		if !strings.Contains(body, `"identity":"`+authIndex+`"`) {
 			// 输出 body 定位 identity 字段来源错误。
-			t.Fatalf("%s did not redact auth-index: %s", path, body)
+			t.Fatalf("%s did not publish auth-index: %s", path, body)
 		}
 		// 独立 name/provider/prefix/type 必须正常发布，证明安全过滤没有删除业务 metadata。
 		for _, expected := range []string{`"name":"Visible Provider"`, `"provider":"Visible Provider"`, `"prefix":"provider-prefix-visible"`, `"type":"xai"`} {

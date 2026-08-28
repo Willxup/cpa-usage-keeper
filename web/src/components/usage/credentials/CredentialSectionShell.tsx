@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react'
 import styles from './CredentialSections.module.scss'
+import { Select } from '@/components/ui/Select'
 import { formatCompactNumber } from '@/utils/usage'
 
 type CredentialSectionStyle = CSSProperties
@@ -146,6 +147,10 @@ export function cacheReadRateTone(value: number | null): 'success' | 'warning' |
 }
 
 const CREDENTIAL_PAGE_SIZE_OPTIONS = [5, 10, 20, 50]
+const CREDENTIAL_PAGE_SIZE_SELECT_OPTIONS = CREDENTIAL_PAGE_SIZE_OPTIONS.map((option) => ({
+  value: String(option),
+  label: String(option),
+}))
 
 export function CredentialsPagination({
   leadingControls,
@@ -182,24 +187,49 @@ export function CredentialsPagination({
     return null
   }
 
+  const selectedSortLabel = sortOptions?.find((option) => option.value === sortValue)?.label
+
   return (
     <div className={styles.credentialPagination}>
       <div className={styles.credentialPaginationControls}>
         {leadingControls}
         {sortOptions && sortOptions.length > 0 && sortLabel && onSortChange && (
-          <label className={styles.credentialPageSizeControl}>
+          <div className={styles.credentialPageSizeControl}>
             <span>{sortLabel}</span>
-            <select value={sortValue} onChange={(event) => onSortChange(event.target.value)}>
-              {sortOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
-          </label>
+            <div className={styles.credentialPaginationSortControl}>
+              <span
+                className={styles.credentialPaginationSortSizer}
+                data-credential-pagination-sort-sizer="true"
+                aria-hidden="true"
+              >
+                {sortOptions.map((option) => <span key={option.value}>{option.label}</span>)}
+              </span>
+              <Select
+                value={sortValue ?? ''}
+                options={sortOptions}
+                onChange={onSortChange}
+                className={`${styles.credentialPaginationSelect} ${styles.credentialPaginationSortSelect}`}
+                dropdownClassName={styles.credentialPaginationDropdown}
+                ariaLabel={selectedSortLabel ? `${sortLabel}: ${selectedSortLabel}` : sortLabel}
+                fullWidth
+                dropdownMinWidth={180}
+              />
+            </div>
+          </div>
         )}
-        <label className={styles.credentialPageSizeControl}>
+        <div className={styles.credentialPageSizeControl}>
           <span>{rowsPerPageLabel}</span>
-          <select value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))}>
-            {CREDENTIAL_PAGE_SIZE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-          </select>
-        </label>
+          <Select
+            value={String(pageSize)}
+            options={CREDENTIAL_PAGE_SIZE_SELECT_OPTIONS}
+            onChange={(value) => onPageSizeChange(Number(value))}
+            className={`${styles.credentialPaginationSelect} ${styles.credentialPaginationPageSizeSelect}`}
+            dropdownClassName={styles.credentialPaginationDropdown}
+            ariaLabel={`${rowsPerPageLabel}: ${pageSize}`}
+            fullWidth={false}
+            dropdownMinWidth={72}
+          />
+        </div>
         <button type="button" onClick={() => onPageChange(page - 1)} disabled={page <= 1}>{previousLabel}</button>
         <span className={styles.credentialPaginationPage}>{page} / {totalPages}</span>
         <button type="button" onClick={() => onPageChange(page + 1)} disabled={page >= totalPages}>{nextLabel}</button>

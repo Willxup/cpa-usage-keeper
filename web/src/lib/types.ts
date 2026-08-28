@@ -19,6 +19,7 @@ export interface AuthManagedSessionItem {
   kind: AuthManagedSessionKind
   role: AuthRole
   source?: AuthManagedSessionSource
+  alias?: string
   current?: boolean
   loginAt?: string
   lastSeenAt?: string
@@ -288,6 +289,40 @@ export interface UsageEventsResponse {
   has_more?: boolean
 }
 
+export interface ErrorEvent {
+  /** Keeper 本地事件主键，仅用于列表 key 与 cursor 稳定排序。 */
+  id: string
+  /** CPA 生成 Error Event 的时间，不是 Keeper 接收时间。 */
+  timestamp: string
+  /** CPA result.provider；缺失表示上游未提供。 */
+  provider?: string
+  /** CPA result.model；缺失表示上游未提供。 */
+  model?: string
+  /** CPA Error.HTTPStatus；上游无状态时当前契约为 500。 */
+  status_code: number
+  /** 原始 body 删除当前 Identity API Key、清理控制字符并限制长度后的展示摘要。 */
+  body_summary: string
+  /** 表示 body_summary 是否因 API 长度上限被截断。 */
+  body_truncated: boolean
+  /** CPA Error.Code；缺失表示上游没有结构化错误码。 */
+  code?: string
+  /** 错误发生时 CPA 是否认为该错误可重试。 */
+  retryable: boolean
+  /** 错误发生时 CPA 给出的凭证级下一次允许重试时间。 */
+  credential_retry_after?: string
+  /** 错误发生时 CPA 给出的模型级下一次允许重试时间。 */
+  model_retry_after?: string
+}
+
+export interface ErrorEventsResponse {
+  /** 当前 Identity 的 Error Event 游标页；body_summary 已删除真实 API Key。 */
+  events: ErrorEvent[]
+  /** 下一页 cursor；没有更多数据时缺失。 */
+  next_cursor?: string
+  /** 是否仍有下一页，前端不依赖总数查询。 */
+  has_more: boolean
+}
+
 export interface UsageEventRequestLogSection {
   title: string
   content: string
@@ -463,6 +498,71 @@ export interface UsageQuotaCacheItem {
 
 export interface UsageQuotaCacheResponse {
   items: UsageQuotaCacheItem[]
+}
+
+// CodexQuotaHistoryWindow 以最近响应存在的 Primary/Secondary 角色为稳定键，并携带最新周期标题。
+export interface CodexQuotaHistoryWindow {
+  window_role: 'primary' | 'secondary'
+  window_kind?: 'five_hour' | 'weekly' | 'monthly'
+  window_seconds: number
+  has_current_cycle: boolean
+  last_observed_at: string
+}
+
+// CodexQuotaHistoryUsage 是周期摘要与百分比变化区间共同复用的动态用量。
+export interface CodexQuotaHistoryUsage {
+  requests: number
+  successful_requests: number
+  failed_requests: number
+  input_tokens: number
+  output_tokens: number
+  reasoning_tokens: number
+  cache_read_tokens: number
+  cache_creation_tokens: number
+  total_tokens: number
+  total_cost_usd: number
+  cost_available: boolean
+}
+
+// CodexQuotaHistoryTransition 只表示真实观察到的相邻百分比变化；跨档不会补中间点。
+export interface CodexQuotaHistoryTransition {
+  from_remaining_percent: number
+  to_remaining_percent: number
+  percentage_points: number
+  is_direct: boolean
+  interval_started_at: string
+  interval_ended_at: string
+  usage: CodexQuotaHistoryUsage
+  tokens_per_point: number
+  cost_per_point: number
+  cost_per_point_available: boolean
+}
+
+// CodexQuotaHistoryCycle 同时提供周期真实边界、Keeper 观察边界、周期总量和效率区间。
+export interface CodexQuotaHistoryCycle {
+  id: number
+  status: 'current' | 'completed'
+  window_seconds: number
+  window_started_at: string
+  reset_at: string
+  effective_started_at: string
+  effective_ended_at: string
+  first_observed_at: string
+  last_observed_at: string
+  first_remaining_percent: number | null
+  last_remaining_percent: number | null
+  observation_count: number
+  usage: CodexQuotaHistoryUsage
+  transitions: CodexQuotaHistoryTransition[]
+}
+
+// CodexQuotaHistoryResponse 一次请求驱动当前周期图表和包含进行中周期的最近三十天完整列表。
+export interface CodexQuotaHistoryResponse {
+  generated_at: string
+  range_start: string
+  windows: CodexQuotaHistoryWindow[]
+  selected_window: CodexQuotaHistoryWindow | null
+  cycles: CodexQuotaHistoryCycle[]
 }
 
 export interface AuthFilesManagementResponse {

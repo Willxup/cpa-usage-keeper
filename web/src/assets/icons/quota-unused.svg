@@ -1,0 +1,7 @@
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Unused percentage</title>
+  <rect x="2.25" y="2.25" width="11.5" height="11.5" rx="3.25" stroke="#4AA3FF" stroke-width="1.5"/>
+  <circle cx="5.75" cy="5.75" r="1" stroke="#4AA3FF" stroke-width="1.15"/>
+  <path d="M10.75 4.75L5.25 11.25" stroke="#4AA3FF" stroke-width="1.25" stroke-linecap="round"/>
+  <circle cx="10.25" cy="10.25" r="1" stroke="#4AA3FF" stroke-width="1.15"/>
+</svg>

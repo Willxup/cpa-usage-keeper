@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 const styles = readFileSync(new URL('../RankingPage.module.scss', import.meta.url), 'utf8');
 const source = readFileSync(new URL('../RankingPage.tsx', import.meta.url), 'utf8');
+const sharedQuestionStyles = readFileSync(new URL('../../../components/ui/QuestionMarkHelpButton.module.scss', import.meta.url), 'utf8');
 
 const rule = (selector: string, fromIndex = 0) => {
   const start = styles.indexOf(selector, fromIndex);
@@ -94,25 +95,26 @@ describe('Ranking table context styles', () => {
 
   it('uses a visible hover and keyboard tooltip without a help cursor', () => {
     const title = rule('.profileModalTitle');
-    const hint = rule('.profilePrivacyHint');
+    const help = rule('.profilePrivacyHelp');
     const tooltip = rule('.profilePrivacyTooltip');
     expect(title).toContain('position: relative;');
-    expect(hint).not.toContain('position: relative;');
-    expect(hint).toContain('cursor: default;');
-    expect(hint).not.toContain('cursor: help;');
+    expect(help).not.toContain('position: relative;');
+    expect(sharedQuestionStyles).toContain('cursor: default;');
+    expect(sharedQuestionStyles).not.toContain('cursor: help;');
     expect(tooltip).toContain('left: 0;');
     expect(tooltip).toContain('max-width: min(340px, calc(100vw - 64px));');
     expect(tooltip).toContain('opacity: 0;');
     expect(tooltip).toContain('pointer-events: none;');
-    expect(styles).toContain('.profilePrivacyHint:hover .profilePrivacyTooltip');
-    expect(styles).toContain('.profilePrivacyHint:focus-visible .profilePrivacyTooltip');
-    expect(styles).toContain('.profilePrivacyHintOpen .profilePrivacyTooltip');
+    expect(styles).toContain('.profilePrivacyHelp:hover .profilePrivacyTooltip');
+    expect(styles).toContain('.profilePrivacyHelp:focus-within .profilePrivacyTooltip');
+    expect(styles).toContain('.profilePrivacyTooltipVisible');
   });
 
   it('reuses the participation question style beside the overall title', () => {
     const titleTrack = rule('.leaderboardTitle :global(.keeper-card-title-track)');
     const scoreHint = rule('.scoreExplanationHint');
-    expect(source).toContain('styles.profilePrivacyHint');
+    expect(source).toContain('<QuestionMarkHelp');
+    expect(source).toContain('styles.profilePrivacyHelp');
     expect(source).toContain('styles.profilePrivacyTooltip');
     expect(source).toContain('data-ranking-score-explanation');
     expect(titleTrack).toContain('position: relative;');
@@ -224,6 +226,7 @@ describe('Ranking table context styles', () => {
     expect(card).toContain('grid-template-areas:');
     expect(card).toContain('min-height: 136px;');
     expect(card).toContain('border-top: 3px solid var(--podium-accent);');
+    expect(card).toContain('border-radius: var(--keeper-card-radius);');
     expect(first).toContain('grid-column: 2;');
     expect(first).not.toContain('transform:');
     expect(second).toContain('grid-column: 1;');

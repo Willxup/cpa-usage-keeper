@@ -579,6 +579,12 @@ textarea {
   }
 }
 
+.modal-overlay-drawer {
+  align-items: stretch;
+  justify-content: flex-end;
+  padding: 0;
+}
+
 @keyframes modal-overlay-fade-in {
   from {
     opacity: 0;
@@ -617,6 +623,59 @@ textarea {
 
   &.modal-closing {
     animation: modal-collapse-to-close 0.35s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+}
+
+.modal-drawer {
+  height: 100vh;
+  max-height: 100vh;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-radius: var(--keeper-card-radius) 0 0 var(--keeper-card-radius);
+  transform-origin: right center;
+
+  .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+  }
+
+  &.modal-entering {
+    animation: modal-drawer-slide-in 0.25s ease-out forwards;
+  }
+
+  &.modal-closing {
+    animation: modal-drawer-slide-out 0.25s ease-in forwards;
+  }
+}
+
+@supports (height: 100dvh) {
+  .modal-drawer {
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+}
+
+@keyframes modal-drawer-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(32px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes modal-drawer-slide-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(32px);
   }
 }
 
@@ -737,6 +796,10 @@ textarea {
     padding: $spacing-md;
   }
 
+  .modal-overlay-drawer {
+    padding: 0;
+  }
+
   .card-header {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -750,9 +813,21 @@ textarea {
     border-radius: var(--keeper-card-radius);
   }
 
+  .modal-drawer {
+    width: 100% !important;
+    max-height: 100vh;
+    border-left: 0;
+    border-radius: 0;
+  }
+
   @supports (height: 100dvh) {
     .modal {
       max-height: calc(100dvh - #{$spacing-md * 2});
+    }
+
+    .modal-drawer {
+      height: 100dvh;
+      max-height: 100dvh;
     }
   }
 

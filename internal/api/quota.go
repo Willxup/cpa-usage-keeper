@@ -18,6 +18,37 @@ const quotaResetErrorFailed = "quota_reset_failed"
 const quotaResetCreditsErrorFailed = "quota_reset_credits_failed"
 
 func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
+	router.GET("/quota/history/:auth_index", func(c *gin.Context) {
+		if provider == nil {
+			writeInternalError(c, "quota provider is not configured", nil)
+			return
+		}
+		// 路径只接受详情抽屉当前 Auth File 的稳定 auth_index，空白不能退化成宽查询。
+		authIndex := strings.TrimSpace(c.Param("auth_index"))
+		if authIndex == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_index is required"})
+			return
+		}
+		request := quota.CodexQuotaHistoryRequest{AuthIndex: authIndex}
+		if rawRole, ok := c.GetQuery("window_role"); ok {
+			role := strings.TrimSpace(rawRole)
+			request.WindowRole = &role
+		}
+		response, err := provider.GetCodexQuotaHistory(c.Request.Context(), request)
+		if err != nil {
+			switch {
+			case errors.Is(err, quota.ErrValidation), errors.Is(err, quota.ErrUnsupportedType):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "codex quota history request is invalid"})
+			case errors.Is(err, quota.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "quota auth identity not found"})
+			default:
+				writeInternalError(c, "codex quota history lookup failed", err)
+			}
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	})
+
 	router.GET("/quota/auto-refresh/settings", func(c *gin.Context) {
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)

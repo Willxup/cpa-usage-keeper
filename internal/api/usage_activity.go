@@ -155,10 +155,6 @@ func registerKeyActivityRoute(router gin.IRoutes, usageProvider service.UsagePro
 			writeUsageFilterParseError(c, err)
 			return
 		}
-		if authHandler != nil && !authHandler.allowKeyOverviewRequest(fmt.Sprint(token), "activity") {
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
-			return
-		}
 		filter.APIKeyID = fmt.Sprintf("%d", session.CPAAPIKeyID)
 		writeUsageActivityResponse(c, usageProvider, filter)
 	})

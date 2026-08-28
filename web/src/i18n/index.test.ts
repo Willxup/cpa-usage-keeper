@@ -18,6 +18,41 @@ describe('i18n resources', () => {
     }
   });
 
+  it('keeps the compact Request Events column labels aligned in Chinese and English', () => {
+    const keys = [
+      'request_events_timestamp',
+      'api_key_filter',
+      'request_events_source',
+      'model_name',
+      'reasoning_effort',
+      'speed_mode',
+      'request_events_result',
+      'request_events_request',
+      'request_events_latency',
+      'speed',
+      'request_events_tokens',
+      'request_events_cache',
+      'request_events_cost',
+      'credentials_detail_executor',
+      'client_ip',
+      'x_forwarded_for',
+      'user_agent',
+    ];
+    const labels = (language: string) => keys.map((key) => (
+      i18n.getResource(language, 'translation', `usage_stats.${key}`)
+    ));
+
+    expect(labels('en')).toEqual([
+      'Timestamp', 'API Key', 'Source', 'Model', 'Effort', 'Speed Mode', 'Result', 'Request',
+      'Latency', 'Speed', 'Tokens', 'Cache', 'Cost', 'Executor', 'Client IP', 'X-Forwarded-For',
+      'User Agent',
+    ]);
+    expect(labels('zh')).toEqual([
+      '时间', 'API Key', '来源', '模型', '推理强度', '速度模式', '结果', '请求', '延时', '生成速度',
+      'Tokens', '缓存', '成本', '执行器', '客户端 IP', 'X-Forwarded-For', '用户代理',
+    ]);
+  });
+
   it('localizes Token Activity and density labels in every supported language', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.token_activity_title')).toBe('Token Activity');
     expect(i18n.getResource('en', 'translation', 'usage_stats.token_activity_less')).toBe('Less');
@@ -56,6 +91,11 @@ describe('i18n resources', () => {
         session_settings_empty: '暂无有效会话。',
         session_settings_admin_label: '管理员会话',
         session_settings_type_admin: '管理员',
+        session_settings_alias_edit: '编辑会话别名',
+        session_settings_alias_placeholder: '会话别名',
+        session_settings_alias_save_success: '会话别名已保存。',
+        session_settings_alias_save_failed: '无法保存会话别名。',
+        session_settings_current: '正在使用',
         session_settings_logout_one: '退出此会话',
         session_settings_admin_logout_title: '退出管理员会话？',
         session_settings_admin_logout_body: '只会退出此管理员会话，其他管理员会话仍保持有效。',
@@ -71,6 +111,11 @@ describe('i18n resources', () => {
         session_settings_empty: '尚無有效工作階段。',
         session_settings_admin_label: '管理員工作階段',
         session_settings_type_admin: '管理員',
+        session_settings_alias_edit: '編輯工作階段別名',
+        session_settings_alias_placeholder: '工作階段別名',
+        session_settings_alias_save_success: '工作階段別名已儲存。',
+        session_settings_alias_save_failed: '無法儲存工作階段別名。',
+        session_settings_current: '使用中',
         session_settings_logout_one: '登出此工作階段',
         session_settings_admin_logout_title: '登出管理員工作階段？',
         session_settings_admin_logout_body: '僅會登出此管理員工作階段，其他管理員工作階段仍保持有效。',

@@ -173,7 +173,7 @@ describe('RequestEventsDetailsCard event table virtualization', () => {
     expect(initialRows.length).toBeGreaterThan(0);
     expect(initialRows.length).toBeLessThan(100);
 
-    await scrollTo(scroller, 22_000);
+    await scrollTo(scroller, 35_000);
 
     const scrolledRows = Array.from(scroller?.querySelectorAll<HTMLTableRowElement>('tbody tr[data-index]') ?? []);
     const scrolledIndexes = scrolledRows.map((row) => Number(row.dataset.index));
@@ -181,7 +181,7 @@ describe('RequestEventsDetailsCard event table virtualization', () => {
     expect(scrolledRows.length).toBeLessThan(100);
     expect(Math.min(...scrolledIndexes)).toBeGreaterThan(Math.min(...initialIndexes));
 
-    await scrollTo(scroller, 43_500);
+    await scrollTo(scroller, 69_500);
 
     const finalRows = Array.from(scroller?.querySelectorAll<HTMLTableRowElement>('tbody tr[data-index]') ?? []);
     const finalIndexes = finalRows.map((row) => Number(row.dataset.index));
@@ -244,7 +244,15 @@ describe('RequestEventsDetailsCard event table virtualization', () => {
     const loadMoreButton = container.querySelector<HTMLButtonElement>(
       '[class*="requestEventsPaginationFooter"] button',
     );
+    const loadedSummary = container.querySelector<HTMLElement>(
+      '[class*="requestEventsPaginationPage"]',
+    );
     expect(loadMoreButton).not.toBeNull();
+    expect(loadedSummary?.getAttribute('role')).toBe('status');
+    expect(loadedSummary?.getAttribute('aria-label')).toBe('Loaded 100 / 500');
+    expect(loadMoreButton?.className).toContain('btn-secondary');
+    expect(loadMoreButton?.className).toContain('btn-action');
+    expect(loadMoreButton?.className).toContain('btn-sm');
     await act(async () => {
       loadMoreButton?.click();
     });

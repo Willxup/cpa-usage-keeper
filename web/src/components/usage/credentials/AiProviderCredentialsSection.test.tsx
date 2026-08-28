@@ -19,10 +19,12 @@ describe('AiProviderCredentialsSection', () => {
         page={1}
         totalPages={1}
         pageSize={10}
+        activeOnly={false}
         sort="priority"
         loading={false}
         onPageChange={() => undefined}
         onPageSizeChange={() => undefined}
+        onActiveOnlyChange={() => undefined}
         onSortChange={() => undefined}
       />,
     )
@@ -80,10 +82,12 @@ describe('AiProviderCredentialsSection', () => {
         page={1}
         totalPages={1}
         pageSize={10}
+        activeOnly={false}
         sort="priority"
         loading={false}
         onPageChange={() => undefined}
         onPageSizeChange={() => undefined}
+        onActiveOnlyChange={() => undefined}
         onSortChange={() => undefined}
       />,
     )
@@ -104,7 +108,9 @@ describe('AiProviderCredentialsSection', () => {
     expect(html).not.toContain('>claude</span>')
     expect(html).toContain('P5')
     expect(html).toContain('usage_stats.credentials_sort_priority')
+    expect(html).toContain('aria-label="usage_stats.credentials_sort_label: usage_stats.credentials_sort_priority"')
     expect(html).toContain('usage_stats.credentials_sort_last_used')
+    expect(html).toContain('data-credential-pagination-sort-sizer="true"')
     expect(html).not.toContain('Team')
     expect(html).not.toContain('25d')
     expect(html).not.toContain('Weekly')

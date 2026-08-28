@@ -1,6 +1,8 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -37,6 +39,7 @@ type authSessionItemResponse struct {
 	LoginIP     string    `json:"loginIp,omitempty"`
 	LastSeenIP  string    `json:"lastSeenIp,omitempty"`
 	UserAgent   string    `json:"userAgent,omitempty"`
+	Alias       *string   `json:"alias,omitempty"`
 	APIKeyID    string    `json:"apiKeyId,omitempty"`
 	Label       string    `json:"label,omitempty"`
 	DisplayKey  string    `json:"displayKey,omitempty"`
@@ -46,6 +49,7 @@ type authSessionItemResponse struct {
 
 func registerAuthSessionManagementRoutes(router gin.IRoutes, handler *authHandler) {
 	router.GET("/auth/sessions", handler.listManagedSessions)
+	router.PATCH("/auth/sessions/:id", handler.updateManagedSessionAlias)
 	router.DELETE("/auth/sessions/:id", handler.revokeManagedSession)
 }
 
@@ -60,6 +64,34 @@ func (h *authHandler) listManagedSessions(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, authSessionListResponse{Items: buildAuthSessionItems(records, apiKeysByID, currentAuthSessionHash(c))})
+}
+
+func (h *authHandler) updateManagedSessionAlias(c *gin.Context) {
+	if h == nil || !h.config.Enabled || h.sessions == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
+		return
+	}
+	sessionID := strings.TrimSpace(c.Param("id"))
+	if sessionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid session id"})
+		return
+	}
+	alias, ok := parseUpdateAuthSessionAliasRequest(c)
+	if !ok {
+		return
+	}
+	if !h.sessions.UpdateAdminAliasByTokenHash(sessionID, alias) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
+		return
+	}
+	items := buildAuthSessionItems(h.sessions.List(), nil, currentAuthSessionHash(c))
+	for _, item := range items {
+		if item.ID == sessionID {
+			c.JSON(http.StatusOK, item)
+			return
+		}
+	}
+	c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
 }
 
 func (h *authHandler) revokeManagedSession(c *gin.Context) {
@@ -77,7 +109,6 @@ func (h *authHandler) revokeManagedSession(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
 		return
 	}
-	h.clearSessionStateForTokens(result.Tokens)
 	if sessionID == currentAuthSessionHash(c) {
 		clearSessionCookie(c, h.config.BasePath, resolveSessionToken(c).CookieKind)
 	}
@@ -113,6 +144,8 @@ func buildAuthSessionItems(records []auth.SessionRecord, apiKeysByID map[int64]e
 		}
 		if record.Role == auth.RoleAdmin {
 			base.Kind = authSessionKindAdmin
+			alias := record.Alias
+			base.Alias = &alias
 			items = append(items, base)
 			continue
 		}
@@ -143,6 +176,33 @@ func buildAuthSessionItems(records []auth.SessionRecord, apiKeysByID map[int64]e
 		return false
 	})
 	return items
+}
+
+func parseUpdateAuthSessionAliasRequest(c *gin.Context) (string, bool) {
+	var payload map[string]json.RawMessage
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return "", false
+	}
+	rawAlias, ok := payload["alias"]
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "alias is required"})
+		return "", false
+	}
+	if bytes.Equal(bytes.TrimSpace(rawAlias), []byte("null")) {
+		return "", true
+	}
+	var alias string
+	if err := json.Unmarshal(rawAlias, &alias); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "alias must be a string or null"})
+		return "", false
+	}
+	alias = strings.TrimSpace(alias)
+	if err := validateUsageIdentityAlias(alias); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return "", false
+	}
+	return alias, true
 }
 
 func currentAuthSessionHash(c *gin.Context) string {

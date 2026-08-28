@@ -48,9 +48,9 @@ describe('KeyOverviewPage layout', () => {
     expect(source).toContain('intervalMs: KEY_OVERVIEW_AUTO_REFRESH_INTERVAL_MS')
   })
 
-  it('keeps manual refresh available while background loads are in flight', () => {
-    expect(source).toContain('const refreshDisabled = manualRefreshLoading || refreshThrottled')
-    expect(source).not.toContain('manualRefreshLoading || loading || realtimeLoading || refreshThrottled')
+  it('disables manual refresh only while its own request is in flight', () => {
+    expect(source).toContain('const refreshDisabled = manualRefreshLoading')
+    expect(source).not.toContain('manualRefreshLoading || loading || realtimeLoading')
   })
 
   it('keeps existing realtime data visible during background refreshes', () => {

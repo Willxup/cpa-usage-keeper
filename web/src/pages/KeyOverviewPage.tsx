@@ -30,7 +30,6 @@ const OVERVIEW_REALTIME_WINDOW_STORAGE_KEY = 'cli-proxy-usage-overview-realtime-
 const DEFAULT_TIME_RANGE: UsageTimeRange = 'today';
 const DEFAULT_REALTIME_WINDOW: OverviewRealtimeWindow = '15m';
 const KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS = ['models'] as const;
-const REFRESH_THROTTLE_MS = 1_000;
 const KEY_OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
 
 const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
@@ -168,11 +167,9 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
   const [error, setError] = useState('');
   const [realtimeError, setRealtimeError] = useState('');
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
-  const [refreshThrottled, setRefreshThrottled] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const overviewRequestControllerRef = useRef<AbortController | null>(null);
   const realtimeRequestControllerRef = useRef<AbortController | null>(null);
-  const refreshThrottleTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const usageRangeQuery = useMemo(() => buildUsageRangeQuery({
     range: timeRange,
     customUnit: customRange?.unit,
@@ -249,10 +246,6 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
         onAuthRequired?.();
         return;
       }
-      if (nextError instanceof ApiError && nextError.status === 429) {
-        setError('KEY_OVERVIEW_RATE_LIMITED');
-        return;
-      }
       setError(nextError instanceof Error ? nextError.message : 'KEY_OVERVIEW_LOAD_FAILED');
     } finally {
       if (overviewRequestControllerRef.current === controller) {
@@ -284,10 +277,6 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
         onAuthRequired?.();
         return;
       }
-      if (nextError instanceof ApiError && nextError.status === 429) {
-        setRealtimeError('KEY_OVERVIEW_RATE_LIMITED');
-        return;
-      }
       setRealtimeError('KEY_OVERVIEW_REALTIME_LOAD_FAILED');
     } finally {
       if (realtimeRequestControllerRef.current === controller) {
@@ -313,13 +302,6 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
     };
   }, [loadRealtime]);
 
-  useEffect(() => () => {
-    if (refreshThrottleTimerRef.current !== null) {
-      window.clearTimeout(refreshThrottleTimerRef.current);
-      refreshThrottleTimerRef.current = null;
-    }
-  }, []);
-
   const refreshKeyOverview = useCallback(async (options: KeyOverviewLoadOptions = {}) => {
     await Promise.all([loadOverview(options), loadActivity(options), loadRealtime(options)]);
   }, [loadActivity, loadOverview, loadRealtime]);
@@ -327,10 +309,6 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
   const handleAutoRefreshError = useCallback((nextError: unknown) => {
     if (nextError instanceof ApiError && nextError.status === 401) {
       onAuthRequired?.();
-      return;
-    }
-    if (nextError instanceof ApiError && nextError.status === 429) {
-      setError('KEY_OVERVIEW_RATE_LIMITED');
       return;
     }
     setError('KEY_OVERVIEW_LOAD_FAILED');
@@ -376,20 +354,12 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
     costSparkline,
   } = useSparklines({ usage, loading });
 
-  const refreshDisabled = manualRefreshLoading || refreshThrottled;
+  const refreshDisabled = manualRefreshLoading;
   const handleManualRefresh = useCallback(async () => {
     if (refreshDisabled) return;
     setManualRefreshLoading(true);
     try {
       await refreshKeyOverview();
-      setRefreshThrottled(true);
-      if (refreshThrottleTimerRef.current !== null) {
-        window.clearTimeout(refreshThrottleTimerRef.current);
-      }
-      refreshThrottleTimerRef.current = window.setTimeout(() => {
-        refreshThrottleTimerRef.current = null;
-        setRefreshThrottled(false);
-      }, REFRESH_THROTTLE_MS);
     } finally {
       setManualRefreshLoading(false);
     }
@@ -406,15 +376,11 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
   }, [onAuthRequired]);
 
   const identityLabel = apiKey?.display_key || t('key_overview.identity_unknown');
-  const displayError = error === 'KEY_OVERVIEW_RATE_LIMITED'
-    ? t('key_overview.rate_limited')
-    : error === 'KEY_OVERVIEW_LOAD_FAILED'
-      ? t('key_overview.load_failed')
-      : error;
+  const displayError = error === 'KEY_OVERVIEW_LOAD_FAILED'
+    ? t('key_overview.load_failed')
+    : error;
   const displayRealtimeError = realtimeError
-    ? realtimeError === 'KEY_OVERVIEW_RATE_LIMITED'
-      ? t('key_overview.rate_limited')
-      : t('usage_stats.overview_realtime_load_failed')
+    ? t('usage_stats.overview_realtime_load_failed')
     : '';
 
   return (

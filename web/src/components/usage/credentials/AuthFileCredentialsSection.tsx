@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { MainActionButton } from '@/components/ui/MainActionButton'
 import { Modal } from '@/components/ui/Modal'
-import { PortalTooltip, usePortalTooltip } from '@/components/ui/PortalTooltip'
 import { IconChartLine, IconGaugeReset, IconRefreshCw, IconSearch, IconSettings, IconShield, IconTrash2 } from '@/components/ui/icons'
 import quotaCostIcon from '@/assets/icons/quota-cost.svg'
 import quotaTokenIcon from '@/assets/icons/quota-token.svg'
@@ -109,29 +108,18 @@ interface AuthFileCredentialsSectionProps {
   onResetQuotaForAuthIndex: (authIndex: string) => Promise<void>
   aliasSavingId?: string
   onSaveAlias?: (id: string, alias: string) => Promise<void>
+  onOpenDetails?: (row: AuthFileCredentialRow) => void
   onRefreshInspectionStatus: () => Promise<void>
   onStartInspection: () => Promise<void>
   onAfterInvalidAccountAction?: () => Promise<void>
 }
 
-export function AuthFileCredentialsSection({ rows, total, page, totalPages, pageSize, activeOnly, sort, loading, quotaRefreshing, quotaRefreshError, quotaInspectionStatus, quotaInspectionLoading, quotaInspectionStarting, quotaInspectionError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex, onResetQuotaForAuthIndex, aliasSavingId, onSaveAlias, onRefreshInspectionStatus, onStartInspection, onAfterInvalidAccountAction }: AuthFileCredentialsSectionProps) {
+export function AuthFileCredentialsSection({ rows, total, page, totalPages, pageSize, activeOnly, sort, loading, quotaRefreshing, quotaRefreshError, quotaInspectionStatus, quotaInspectionLoading, quotaInspectionStarting, quotaInspectionError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex, onResetQuotaForAuthIndex, aliasSavingId, onSaveAlias, onOpenDetails, onRefreshInspectionStatus, onStartInspection, onAfterInvalidAccountAction }: AuthFileCredentialsSectionProps) {
   const { t } = useTranslation()
   const [inspectionOpen, setInspectionOpen] = useState(false)
   const [quotaUsageMode, setQuotaUsageMode] = useState<QuotaUsageMode>('current')
   const [displayMode, setDisplayModeState] = useState<AuthFileDisplayMode>(() => readStoredAuthFileDisplayMode())
   const [expiryTooltip, setExpiryTooltip] = useState<CredentialExpiryTooltipState | null>(null)
-  const {
-    tooltip: filenameTooltip,
-    showOnMouseEnter: showFilenameTooltipOnMouseEnter,
-    hideOnMouseLeave: hideFilenameTooltipOnMouseLeave,
-    showOnFocus: showFilenameTooltipOnFocus,
-    hideOnBlur: hideFilenameTooltipOnBlur,
-    dismiss: dismissFilenameTooltip,
-  } = usePortalTooltip()
-  const filenameTooltipRowsVersion = rows
-    .map((row) => `${row.identity.id || row.identity.identity}\u0000${row.identity.file_name?.trim() ?? ''}`)
-    .sort()
-    .join('\u0001')
   const expiryTooltipHoverTargetRef = useRef<CredentialExpiryTooltipTarget | null>(null)
   const expiryTooltipFocusTargetRef = useRef<CredentialExpiryTooltipTarget | null>(null)
   const showHealthMode = displayMode === 'health'
@@ -179,11 +167,6 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
     }
     positionExpiryTooltip(expiryTooltipHoverTargetRef.current ?? expiryTooltipFocusTargetRef.current)
   }, [positionExpiryTooltip])
-
-  useEffect(() => {
-    // 当前页文件映射变化时清理旧事件快照；统计刷新但映射不变时保留正在查看的 tooltip。
-    dismissFilenameTooltip()
-  }, [dismissFilenameTooltip, filenameTooltipRowsVersion])
 
   useEffect(() => {
     window.addEventListener('resize', syncExpiryTooltip)
@@ -266,25 +249,6 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
         const rowExpiryTooltipText = row.expiresAtLabel
           ? t('usage_stats.credentials_expiry_tooltip', { value: row.expiresAtLabel })
           : ''
-        const fileName = row.identity.file_name?.trim() ?? ''
-        const filenameTooltipTargetProps = {
-          className: styles.credentialFileNameTooltipTarget,
-          'data-auth-file-name-tooltip-target': true,
-          tabIndex: fileName ? 0 : undefined,
-          'aria-label': fileName ? `${row.displayName}; ${fileName}` : undefined,
-          onMouseEnter: fileName
-            ? (event: React.MouseEvent<HTMLSpanElement>) => showFilenameTooltipOnMouseEnter([fileName], event.currentTarget)
-            : undefined,
-          onMouseLeave: fileName
-            ? (event: React.MouseEvent<HTMLSpanElement>) => hideFilenameTooltipOnMouseLeave(event.currentTarget)
-            : undefined,
-          onFocus: fileName
-            ? (event: React.FocusEvent<HTMLSpanElement>) => showFilenameTooltipOnFocus([fileName], event.currentTarget)
-            : undefined,
-          onBlur: fileName
-            ? (event: React.FocusEvent<HTMLSpanElement>) => hideFilenameTooltipOnBlur(event.currentTarget)
-            : undefined,
-        }
         return (
           <CredentialRowShell
             key={rowKey}
@@ -296,10 +260,20 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
                 alias={row.identity.alias}
                 saving={aliasSavingId === row.identity.id}
                 disabled={isCredentialAliasEditorDisabled(row.identity.id, row.identity.is_deleted, aliasSavingId)}
-                displayNameProps={filenameTooltipTargetProps}
+                onOpenDetails={onOpenDetails ? () => onOpenDetails(row) : undefined}
                 onSaveAlias={onSaveAlias}
               />
-            ) : <span {...filenameTooltipTargetProps}>{row.displayName}</span>}
+            ) : onOpenDetails ? (
+              <button
+                type="button"
+                className={styles.credentialDetailNameButton}
+                data-credential-detail-trigger="true"
+                onClick={() => onOpenDetails(row)}
+              >
+                <span className={styles.credentialDetailNameText}>{row.displayName}</span>
+                <span className={styles.credentialDetailNameArrow} aria-hidden="true">›</span>
+              </button>
+            ) : <span>{row.displayName}</span>}
             subtitle={row.subscriptionBadge || row.remainingDaysLabel || row.priorityLabel ? (
               <span className={styles.credentialIdentityBadges}>
                 {row.subscriptionBadge && <CredentialSubscriptionBadge model={row.subscriptionBadge} />}
@@ -401,7 +375,6 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
         onSortChange={(nextSort) => onSortChange(nextSort as UsageIdentityPageSort)}
       />
       </CredentialSectionShell>
-      <PortalTooltip tooltip={filenameTooltip} />
       {expiryTooltip && activeExpiryTooltipText && typeof document !== 'undefined'
         ? createPortal(
             <div

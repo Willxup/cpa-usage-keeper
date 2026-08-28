@@ -26,30 +26,6 @@
   flex: 0 0 auto;
 }
 
-.helpButton {
-  appearance: none;
-  display: inline-grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: 1px solid var(--border-color);
-  border-radius: 50%;
-  color: var(--text-secondary);
-  background: var(--bg-secondary);
-  font-size: 11px;
-  font-weight: 750;
-  line-height: 1;
-  font-family: inherit;
-  cursor: default;
-  user-select: none;
-
-  &:focus-visible {
-    outline: 2px solid var(--primary-color);
-    outline-offset: 2px;
-  }
-}
-
 .helpTooltip {
   position: fixed;
   z-index: 2100;
@@ -143,22 +119,23 @@
   letter-spacing: 0.02em;
 }
 
-.ruleInput {
+.ruleInput:global(.input) {
   width: 100%;
-  height: 40px;
-  min-height: 40px;
+  height: 32px;
+  min-height: 32px;
   min-width: 0;
   box-sizing: border-box;
-  padding: 8px 12px;
+  padding: 6px 12px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
   font-size: 12px;
+  line-height: 18px;
 }
 
 .removeButton {
   align-self: start;
-  margin-top: 20px;
+  margin-top: 16px;
 }
 
 .actions,

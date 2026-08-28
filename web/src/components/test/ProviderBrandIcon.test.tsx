@@ -13,7 +13,7 @@ const lobeProviderIconAssets = [
   ['kimi.svg', 'Kimi'],
   ['openai.svg', 'OpenAI'],
   ['vertex.svg', 'VertexAI'],
-  ['xai.svg', 'Grok'],
+  ['grok.svg', 'Grok'],
 ] as const
 
 describe('ProviderBrandIcon', () => {
@@ -85,20 +85,33 @@ describe('ProviderBrandIcon', () => {
     }
   })
 
-  it('renders the monochrome Lobe Icons xAI asset with a dark-mode inversion', () => {
+  it('renders the Lobe Icons Grok asset inside the shared xAI Avatar', () => {
     const html = renderToStaticMarkup(<ProviderBrandIcon providerType="xai" size={30} />)
 
     expect(html).toContain('data-provider-brand-icon="xai"')
-    expect(html).toContain('data-provider-brand-icon-tone="monochrome"')
+    expect(html).toContain('data-provider-brand-icon-tone="avatar"')
+    expect(html).toContain('M9.27%2015.29')
     expect(html.match(/<img/g)).toHaveLength(1)
-    expect(providerIconStyles).toMatch(/:global\(\[data-theme='dark'\]\) \.providerBrandIconMonochrome\s*\{[\s\S]*?filter:\s*invert\(1\);/)
   })
 
-  it('keeps the Lobe Icons Kimi color mark visible on a stable dark tile', () => {
-    const html = renderToStaticMarkup(<ProviderBrandIcon providerType="kimi" size={30} />)
+  it('renders the monochrome Lobe Icons Vertex asset inside the shared Avatar', () => {
+    const html = renderToStaticMarkup(<ProviderBrandIcon providerType="vertex" size={30} />)
+    const vertexSource = readFileSync(new URL('../../assets/icons/vertex.svg', import.meta.url), 'utf8')
 
-    expect(html).toContain('data-provider-brand-icon-tone="framed"')
-    expect(providerIconStyles).toMatch(/\.providerBrandIconFramed\s*\{[\s\S]*?border-radius:\s*25%;[\s\S]*?background:\s*#050505;/)
+    expect(html).toContain('data-provider-brand-icon-tone="avatar"')
+    expect(vertexSource).not.toMatch(/fill="#[0-9A-Fa-f]+"/)
+  })
+
+  it('matches the Lobe Icons Avatar treatment for all shared providers', () => {
+    for (const providerType of ['antigravity', 'claude', 'codex', 'gemini', 'kimi', 'openai', 'vertex', 'xai']) {
+      const html = renderToStaticMarkup(<ProviderBrandIcon providerType={providerType} size={30} />)
+      expect(html, providerType).toContain('data-provider-brand-icon-tone="avatar"')
+    }
+
+    expect(providerIconStyles).toMatch(/\.providerBrandIconAvatar\s*\{[\s\S]*?border-radius:\s*50%;[\s\S]*?overflow:\s*hidden;/)
+    expect(providerIconStyles.match(/--provider-brand-icon-avatar-scale:/g)).toHaveLength(8)
+    expect(providerIconStyles).toMatch(/data-provider-brand-icon='kimi'[\s\S]*?--provider-brand-icon-avatar-scale:\s*0\.6;[\s\S]*?background:\s*#000;/)
+    expect(providerIconStyles).toMatch(/data-provider-brand-icon='antigravity'[\s\S]*?--provider-brand-icon-avatar-scale:\s*0\.7;[\s\S]*?background:\s*#fff;/)
   })
 
   it('renders nothing for a type outside the unified set', () => {

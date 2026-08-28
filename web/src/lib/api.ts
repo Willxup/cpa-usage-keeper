@@ -1,4 +1,4 @@
-import { type AnalysisLatencyDiagnostics, type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingRulesResponse, type PricingSyncPreviewResponse, type QuotaAutoRefreshSettings, type ReplacePricingRulesRequest, type StatusResponse, type UpdateCheckResponse, type UsageActivityRequest, type UsageActivityResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
+import { type AnalysisLatencyDiagnostics, type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CodexQuotaHistoryResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type ErrorEventsResponse, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingRulesResponse, type PricingSyncPreviewResponse, type QuotaAutoRefreshSettings, type ReplacePricingRulesRequest, type StatusResponse, type UpdateCheckResponse, type UsageActivityRequest, type UsageActivityResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
 import { isCPAMCEmbed } from '@/embed/cpamcEmbed'
 import { resolveUsageRequestRange } from '@/utils/usage/rangeQuery'
 
@@ -290,6 +290,20 @@ export async function revokeAuthSession(id: string): Promise<void> {
   }
 }
 
+export async function updateAuthSessionAlias(id: string, alias: string): Promise<AuthManagedSessionsResponse['items'][number]> {
+  const response = await apiFetch(apiPath(`/auth/sessions/${encodeURIComponent(id)}`), {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ alias }),
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to update auth session alias: ${response.status}`)
+  }
+  return response.json()
+}
+
 const buildUsageRangeParams = (request: UsageRangeRequest): URLSearchParams => {
   const params = new URLSearchParams()
   params.set('range', resolveUsageRequestRange(request.range))
@@ -412,6 +426,7 @@ export interface FetchUsageEventsOptions {
   model?: string
   // Request Events 页面沿用 Source 命名；这里传的是 usage identity，后端会转换为 auth_index 查询。
   source?: string
+  authType?: UsageIdentityAuthType
   result?: string
   apiKeyId?: string
 }
@@ -427,8 +442,8 @@ interface UsageEventRequestLogDownloadURLResponse {
   download_url?: string
 }
 
-function buildUsageEventsParams(request: UsageRangeRequest, options?: FetchUsageEventsOptions, includePagination = true): URLSearchParams {
-  const params = buildUsageRangeParams(request)
+function buildUsageEventsParams(request: UsageRangeRequest | undefined, options?: FetchUsageEventsOptions, includePagination = true): URLSearchParams {
+  const params = request ? buildUsageRangeParams(request) : new URLSearchParams()
   if (includePagination && typeof options?.page === 'number' && Number.isFinite(options.page) && options.page > 0) {
     params.set('page', String(Math.floor(options.page)))
   }
@@ -450,6 +465,9 @@ function buildUsageEventsParams(request: UsageRangeRequest, options?: FetchUsage
   if (source) {
     // Source 下拉的 value 不是 usage_events.source 原始字段，而是后端用于 auth_index 查询的 identity。
     params.set('source', source)
+  }
+  if (options?.authType === 1 || options?.authType === 2) {
+    params.set('auth_type', String(options.authType))
   }
   const result = options?.result?.trim()
   if (result) {
@@ -483,12 +501,25 @@ export async function fetchUsageEventSourceFilterOptions(signal?: AbortSignal): 
   return response.json()
 }
 
-export async function fetchUsageEvents(request: UsageRangeRequest, signal?: AbortSignal, options?: FetchUsageEventsOptions): Promise<UsageEventsResponse> {
+export async function fetchUsageEvents(request: UsageRangeRequest | undefined, signal?: AbortSignal, options?: FetchUsageEventsOptions): Promise<UsageEventsResponse> {
   const params = buildUsageEventsParams(request, options)
   const query = params.toString()
   const response = await apiFetch(`${apiPath('/usage/events')}${query ? `?${query}` : ''}`, { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load usage events: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchErrorEvents(identityId: string, signal?: AbortSignal, cursor?: string, pageSize = 50): Promise<ErrorEventsResponse> {
+  const params = new URLSearchParams()
+  params.set('page_size', String(pageSize))
+  const normalizedCursor = cursor?.trim()
+  if (normalizedCursor) params.set('cursor', normalizedCursor)
+  const query = params.toString()
+  const response = await apiFetch(`${apiPath(`/usage/identities/${encodeURIComponent(identityId)}/errors`)}?${query}`, { signal, cache: 'no-store' })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load CPA error events: ${response.status}`)
   }
   return response.json()
 }
@@ -604,6 +635,25 @@ export async function fetchUsageQuotaCache(authIndexes: string[], signal?: Abort
   })
   if (!response.ok) {
     await parseApiError(response, `Failed to load cached usage quotas: ${response.status}`)
+  }
+  return response.json()
+}
+
+export interface FetchCodexQuotaHistoryOptions {
+  windowRole?: 'primary' | 'secondary'
+}
+
+export async function fetchCodexQuotaHistory(
+  authIndex: string,
+  options: FetchCodexQuotaHistoryOptions = {},
+  signal?: AbortSignal,
+): Promise<CodexQuotaHistoryResponse> {
+  const params = new URLSearchParams()
+  if (options.windowRole) params.set('window_role', options.windowRole)
+  const query = params.toString()
+  const response = await apiFetch(`${apiPath(`/quota/history/${encodeURIComponent(authIndex)}`)}${query ? `?${query}` : ''}`, { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load Codex quota history: ${response.status}`)
   }
   return response.json()
 }

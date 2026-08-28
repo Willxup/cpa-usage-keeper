@@ -65,9 +65,9 @@ func ListUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, costRes
 	baseQuery := queryUsageEvents(db)
 	baseQuery = applyUsageEventListQuery(baseQuery, filter)
 
-	// 第一步：应用列表筛选，统计分页总数；cursor 续页跳过 Count 以避免深翻页全表扫描。
+	// 第一步：应用列表筛选，统计分页总数；详情最新游标和 cursor 续页不消费总数，跳过无用扫描。
 	totalCount := int64(-1)
-	if !filter.CursorMode || filter.CursorTimestamp == nil {
+	if !filter.SkipTotalCount && (!filter.CursorMode || filter.CursorTimestamp == nil) {
 		if err := baseQuery.Count(&totalCount).Error; err != nil {
 			return nil, fmt.Errorf("count usage events: %w", err)
 		}
@@ -368,6 +368,9 @@ func applyUsageEventListQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm
 	if authIndex := strings.TrimSpace(filter.AuthIndex); authIndex != "" {
 		// Source 下拉在 API 层已转换成 auth_index，仓储层只保留真实查询维度。
 		query = query.Where("auth_index = ?", authIndex)
+	}
+	if authType := strings.TrimSpace(filter.AuthType); authType != "" {
+		query = query.Where("auth_type = ?", authType)
 	}
 	switch strings.TrimSpace(filter.Result) {
 	case "success":

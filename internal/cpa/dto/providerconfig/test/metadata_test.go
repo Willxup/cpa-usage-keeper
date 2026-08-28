@@ -48,6 +48,39 @@ func TestProviderKeyConfigDecodesSupportedFieldAliases(t *testing.T) {
 	}
 }
 
+// TestProviderKeyConfigInfersDisabledFromExcludedModels 锁定 CPA 普通 Provider 使用 * 表示整条停用的兼容语义。
+func TestProviderKeyConfigInfersDisabledFromExcludedModels(t *testing.T) {
+	cases := []struct {
+		name         string
+		body         string
+		wantDisabled *bool
+	}{
+		{name: "kebab-case wildcard", body: `{"excluded-models":["gemini-1.5-pro","*"]}`, wantDisabled: boolPtr(true)},
+		{name: "snake-case wildcard", body: `{"excluded_models":[" * "]}`, wantDisabled: boolPtr(true)},
+		{name: "camel-case wildcard", body: `{"excludedModels":["*"]}`, wantDisabled: boolPtr(true)},
+		{name: "ordinary exclusions", body: `{"excluded-models":["gpt-*","claude-3"]}`},
+		{name: "explicit disabled wins", body: `{"disabled":false,"excluded-models":["*"]}`, wantDisabled: boolPtr(false)},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var cfg providerconfig.ProviderKeyConfig
+			if err := json.Unmarshal([]byte(tc.body), &cfg); err != nil {
+				t.Fatalf("unmarshal provider key config: %v", err)
+			}
+			if tc.wantDisabled == nil {
+				if cfg.Disabled != nil {
+					t.Fatalf("disabled = %v, want nil", *cfg.Disabled)
+				}
+				return
+			}
+			if cfg.Disabled == nil || *cfg.Disabled != *tc.wantDisabled {
+				t.Fatalf("disabled = %v, want %v", cfg.Disabled, *tc.wantDisabled)
+			}
+		})
+	}
+}
+
 // TestOpenAICompatibilityConfigDecodesProviderAndEntryFields 锁定 provider 层字段与多 key entry 的兼容组合。
 func TestOpenAICompatibilityConfigDecodesProviderAndEntryFields(t *testing.T) {
 	// body 同时使用 legacy id/key 与 snake auth_index，验证旧 CPA 响应仍可归一化。
@@ -70,4 +103,19 @@ func TestOpenAICompatibilityConfigDecodesProviderAndEntryFields(t *testing.T) {
 	if len(cfg.APIKeyEntries) != 2 || cfg.APIKeyEntries[0].APIKey != "first-key" || cfg.APIKeyEntries[0].AuthIndex != "first-auth" || cfg.APIKeyEntries[1].APIKey != "second-key" || cfg.APIKeyEntries[1].AuthIndex != "second-auth" {
 		t.Fatalf("openai key entries = %+v", cfg.APIKeyEntries)
 	}
+}
+
+// TestOpenAICompatibilityDoesNotInferDisabledFromExcludedModels 保持用户确认的 OpenAI Compatible 现状。
+func TestOpenAICompatibilityDoesNotInferDisabledFromExcludedModels(t *testing.T) {
+	var cfg providerconfig.OpenAICompatibilityConfig
+	if err := json.Unmarshal([]byte(`{"name":"OpenRouter","excluded-models":["*"]}`), &cfg); err != nil {
+		t.Fatalf("unmarshal openai compatibility config: %v", err)
+	}
+	if cfg.Disabled != nil {
+		t.Fatalf("openai disabled = %v, want nil", *cfg.Disabled)
+	}
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }

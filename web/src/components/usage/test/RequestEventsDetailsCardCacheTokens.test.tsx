@@ -59,33 +59,28 @@ const renderCard = () => renderToStaticMarkup(
 );
 
 describe('RequestEventsDetailsCard cache token columns', () => {
-  it('uses cache read and cache write column ids instead of the legacy cached id', () => {
-    expect(REQUEST_EVENT_COLUMN_IDS).toContain('cache_read_tokens');
-    expect(REQUEST_EVENT_COLUMN_IDS).toContain('cache_creation_tokens');
+  it('uses one Tokens column and one Cache column', () => {
+    expect(REQUEST_EVENT_COLUMN_IDS).toContain('total_tokens');
     expect(REQUEST_EVENT_COLUMN_IDS).toContain('cache_read_rate');
+    expect(REQUEST_EVENT_COLUMN_IDS).not.toContain('cache_read_tokens' as never);
+    expect(REQUEST_EVENT_COLUMN_IDS).not.toContain('cache_creation_tokens' as never);
     expect(REQUEST_EVENT_COLUMN_IDS).not.toContain('cached_tokens');
     expect(REQUEST_EVENT_COLUMN_IDS).not.toContain('cache_rate');
-    expect(REQUEST_EVENT_COLUMN_IDS.indexOf('cache_read_tokens')).toBe(
-      REQUEST_EVENT_COLUMN_IDS.indexOf('reasoning_tokens') + 1,
-    );
-    expect(REQUEST_EVENT_COLUMN_IDS.indexOf('cache_creation_tokens')).toBe(
-      REQUEST_EVENT_COLUMN_IDS.indexOf('cache_read_tokens') + 1,
+    expect(REQUEST_EVENT_COLUMN_IDS.indexOf('cache_read_rate')).toBe(
+      REQUEST_EVENT_COLUMN_IDS.indexOf('total_tokens') + 1,
     );
   });
 
-  it('renders read and write separately while calculating cache rate from cache read tokens', () => {
+  it('stacks read, write, and the calculated rate in Cache', () => {
     const html = renderCard();
     const headers = extractTableHeaders(html);
     const cells = extractFirstTableRowCells(html);
-    const readIndex = headers.indexOf('Cache Read');
-    const writeIndex = headers.indexOf('Cache Write');
-    const rateIndex = headers.indexOf('Cache Rate');
+    const tokensIndex = headers.indexOf('Tokens');
+    const cacheIndex = headers.indexOf('Cache');
 
-    expect(readIndex).toBeGreaterThanOrEqual(0);
-    expect(writeIndex).toBe(readIndex + 1);
-    expect(rateIndex).toBe(writeIndex + 1);
-    expect(cells[readIndex]).toBe('30');
-    expect(cells[writeIndex]).toBe('10');
-    expect(cells[rateIndex]).toBe('30.00%');
+    expect(tokensIndex).toBeGreaterThanOrEqual(0);
+    expect(cacheIndex).toBe(tokensIndex + 1);
+    expect(cells[tokensIndex]).toBe('120Input 100Output 20 (Reasoning 5)');
+    expect(cells[cacheIndex]).toBe('30.00%Read 30Write 10');
   });
 });

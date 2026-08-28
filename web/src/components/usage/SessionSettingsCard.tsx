@@ -1,8 +1,10 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Modal } from '@/components/ui/Modal';
+import { IconCheck, IconPencil, IconX } from '@/components/ui/icons';
 import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainment';
 import type { AuthManagedSessionItem } from '@/lib/types';
 import styles from '@/pages/UsagePage.module.scss';
@@ -11,7 +13,9 @@ export interface SessionSettingsCardProps {
   sessions: AuthManagedSessionItem[];
   loading?: boolean;
   revokingId?: string | null;
+  aliasSavingId?: string | null;
   onLogout: (session: AuthManagedSessionItem) => void | Promise<void>;
+  onSaveAlias?: (id: string, alias: string) => Promise<void>;
 }
 
 export function getSessionLogoutConfirmationKeys(session: AuthManagedSessionItem) {
@@ -31,7 +35,7 @@ export function getSessionLogoutConfirmationKeys(session: AuthManagedSessionItem
 
 function getSessionDisplayName(session: AuthManagedSessionItem, t: (key: string) => string) {
   if (session.kind === 'admin') {
-    return t('usage_stats.session_settings_admin_label');
+    return session.alias || t('usage_stats.session_settings_admin_label');
   }
   return session.label || session.displayKey || t('usage_stats.session_settings_unknown_api_key');
 }
@@ -40,7 +44,129 @@ function getSessionClientLabel(session: AuthManagedSessionItem, t: (key: string)
   return session.userAgent || t('usage_stats.session_settings_unknown_value');
 }
 
-export function SessionSettingsCard({ sessions, loading = false, revokingId = null, onLogout }: SessionSettingsCardProps) {
+interface AdminSessionAliasEditorProps {
+  session: AuthManagedSessionItem;
+  displayName: string;
+  saving: boolean;
+  disabled: boolean;
+  onSaveAlias: (id: string, alias: string) => Promise<void>;
+}
+
+function AdminSessionAliasEditor({ session, displayName, saving, disabled, onSaveAlias }: AdminSessionAliasEditorProps) {
+  const { t } = useTranslation();
+  const [editing, setEditing] = useState(false);
+  const [draftAlias, setDraftAlias] = useState(session.alias ?? '');
+  const editButtonRef = useRef<HTMLButtonElement | null>(null);
+  const restoreFocusRef = useRef(false);
+  const currentAlias = session.alias ?? '';
+  const canEdit = !disabled && session.id.trim() !== '';
+  const canSave = !saving && !disabled && draftAlias.trim() !== currentAlias.trim();
+
+  useEffect(() => {
+    if (!editing && restoreFocusRef.current) {
+      restoreFocusRef.current = false;
+      editButtonRef.current?.focus();
+    }
+  }, [editing]);
+
+  const finishEditing = () => {
+    restoreFocusRef.current = true;
+    setEditing(false);
+  };
+
+  const startEditing = () => {
+    if (!canEdit) return;
+    setDraftAlias(currentAlias);
+    setEditing(true);
+  };
+  const cancelEditing = () => {
+    if (saving || disabled) return;
+    setDraftAlias(currentAlias);
+    finishEditing();
+  };
+  const saveAlias = async () => {
+    if (!canSave) return;
+    try {
+      await onSaveAlias(session.id, draftAlias);
+      finishEditing();
+    } catch {
+      // 保存失败时保留输入内容，方便直接修正或重试。
+    }
+  };
+
+  if (editing) {
+    return (
+      <span className={`${styles.sessionSettingsAliasEditor} ${styles.sessionSettingsAliasEditorEditing}`}>
+        <span className={styles.sessionSettingsAliasEditLayout}>
+          <input
+            className={styles.sessionSettingsAliasInput}
+            value={draftAlias}
+            placeholder={t('usage_stats.session_settings_alias_placeholder')}
+            disabled={saving || disabled}
+            maxLength={50}
+            onChange={(event) => setDraftAlias(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                void saveAlias();
+              }
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                cancelEditing();
+              }
+            }}
+            aria-label={t('usage_stats.session_settings_alias_placeholder')}
+            autoFocus
+          />
+          <span className={styles.sessionSettingsAliasEditActions}>
+            <button
+              type="button"
+              className={styles.sessionSettingsAliasIconButton}
+              onClick={() => void saveAlias()}
+              disabled={!canSave}
+              title={saving ? t('usage_stats.session_settings_alias_saving') : t('usage_stats.session_settings_alias_save')}
+              aria-label={saving ? t('usage_stats.session_settings_alias_saving') : t('usage_stats.session_settings_alias_save')}
+              aria-busy={saving}
+            >
+              {saving ? <LoadingSpinner size={12} /> : <IconCheck size={13} />}
+            </button>
+            <button
+              type="button"
+              className={styles.sessionSettingsAliasIconButton}
+              onClick={cancelEditing}
+              disabled={saving || disabled}
+              title={t('usage_stats.session_settings_alias_cancel')}
+              aria-label={t('usage_stats.session_settings_alias_cancel')}
+            >
+              <IconX size={13} />
+            </button>
+          </span>
+        </span>
+      </span>
+    );
+  }
+
+  return (
+    <span className={styles.sessionSettingsAliasEditor}>
+      <span className={styles.sessionSettingsAliasDisplayLayout}>
+        <span className={styles.sessionSettingsName} title={displayName}>{displayName}</span>
+        <button
+          type="button"
+          className={styles.sessionSettingsAliasEditButton}
+          ref={editButtonRef}
+          onClick={startEditing}
+          disabled={!canEdit}
+          title={t('usage_stats.session_settings_alias_edit')}
+          aria-label={t('usage_stats.session_settings_alias_edit')}
+        >
+          <IconPencil size={12} />
+        </button>
+      </span>
+    </span>
+  );
+}
+
+export function SessionSettingsCard({ sessions, loading = false, revokingId = null, aliasSavingId = null, onLogout, onSaveAlias }: SessionSettingsCardProps) {
   const { t } = useTranslation();
   const [confirmingSession, setConfirmingSession] = useState<AuthManagedSessionItem | null>(null);
   const sessionSettingsBodyRef = useRef<HTMLDivElement | null>(null);
@@ -78,6 +204,8 @@ export function SessionSettingsCard({ sessions, loading = false, revokingId = nu
                 ? t('usage_stats.session_settings_source_embed')
                 : t('usage_stats.session_settings_source_standard');
               const disabled = revokingId === session.id;
+              const aliasSaving = aliasSavingId === session.id;
+              const aliasDisabled = Boolean(aliasSavingId && !aliasSaving);
               // 详情项交给 CSS Grid 按可用宽度铺开，额外的最近 IP 不占用固定列。
               const details = [
                 {
@@ -111,13 +239,25 @@ export function SessionSettingsCard({ sessions, loading = false, revokingId = nu
                       <span className={styles.sessionSettingsType}>
                         {isAdmin ? t('usage_stats.session_settings_type_admin') : t('usage_stats.session_settings_type_api_key')}
                       </span>
-                      {session.current && (
-                        <span className={styles.sessionSettingsCurrent}>{t('usage_stats.session_settings_current')}</span>
-                      )}
+                      <span
+                        className={`${styles.sessionSettingsSource} ${session.source === 'embed' ? styles.sessionSettingsSourceEmbed : styles.sessionSettingsSourceStandard}`}
+                        data-session-source={session.source === 'embed' ? 'embed' : 'standard'}
+                      >
+                        {sourceLabel}
+                      </span>
                     </div>
                     <div className={styles.sessionSettingsNameRow}>
-                      <span className={styles.sessionSettingsName} title={displayName}>{displayName}</span>
-                      <span className={styles.sessionSettingsSource}>{sourceLabel}</span>
+                      {isAdmin && onSaveAlias ? (
+                        <AdminSessionAliasEditor
+                          session={session}
+                          displayName={displayName}
+                          saving={aliasSaving}
+                          disabled={aliasDisabled}
+                          onSaveAlias={onSaveAlias}
+                        />
+                      ) : (
+                        <span className={styles.sessionSettingsName} title={displayName}>{displayName}</span>
+                      )}
                     </div>
                   </div>
                   <div className={styles.sessionSettingsClient}>
@@ -133,7 +273,16 @@ export function SessionSettingsCard({ sessions, loading = false, revokingId = nu
                     ))}
                   </dl>
                   <div className={styles.sessionSettingsActions}>
-                    {!session.current && (
+                    {session.current ? (
+                      <span className={styles.sessionSettingsCurrent} data-session-current="true">
+                        <span
+                          className={styles.sessionSettingsCurrentDot}
+                          data-session-current-dot="true"
+                          aria-hidden="true"
+                        />
+                        <span>{t('usage_stats.session_settings_current')}</span>
+                      </span>
+                    ) : (
                       <Button
                         type="button"
                         variant="danger"

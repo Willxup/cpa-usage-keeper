@@ -267,7 +267,7 @@ func TestUsageActivityReturnsInternalErrorWhenUsageProviderIsMissing(t *testing.
 	}
 }
 
-func TestKeyActivityForcesViewerAPIKeyAndUsesAnIndependentRateLimitScope(t *testing.T) {
+func TestKeyActivityForcesViewerAPIKeyAndIgnoresEventsOnlyFilters(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
 	token, _, err := sessions.CreateAPIKeyViewerWithSource(42, auth.SessionSourceStandard)
 	if err != nil {
@@ -286,14 +286,6 @@ func TestKeyActivityForcesViewerAPIKeyAndUsesAnIndependentRateLimitScope(t *test
 	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, APIKey: "provider-a", DisplayKey: "provider-a"}}
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
 	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
-
-	overviewResponse := httptest.NewRecorder()
-	overviewRequest := httptest.NewRequest(http.MethodGet, "/api/v1/key-overview?range=24h", nil)
-	overviewRequest.AddCookie(&http.Cookie{Name: standardSessionCookieName, Value: token})
-	router.ServeHTTP(overviewResponse, overviewRequest)
-	if overviewResponse.Code != http.StatusOK {
-		t.Fatalf("key overview status=%d body=%s", overviewResponse.Code, overviewResponse.Body.String())
-	}
 
 	activityResponse := httptest.NewRecorder()
 	activityRequest := httptest.NewRequest(http.MethodGet, "/api/v1/key-activity?window=year&api_key_id=not-a-number&page=0&result=bogus", nil)

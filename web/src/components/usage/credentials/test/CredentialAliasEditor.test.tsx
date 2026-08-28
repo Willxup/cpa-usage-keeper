@@ -49,4 +49,22 @@ describe('CredentialAliasEditor', () => {
     expect(isCredentialAliasEditorDisabled('1', false, '2')).toBe(true)
     expect(isCredentialAliasEditorDisabled('1', true, '')).toBe(true)
   })
+
+  it('renders the display name as a dedicated detail trigger without nesting the alias edit action', () => {
+    const html = renderToStaticMarkup(
+      <CredentialAliasEditor
+        identityId="1"
+        displayName="Friendly Auth"
+        alias="Friendly Auth"
+        saving={false}
+        onOpenDetails={() => undefined}
+        onSaveAlias={async () => undefined}
+      />,
+    )
+
+    expect(html).toContain('data-credential-detail-trigger="true"')
+    expect(html).toContain('type="button"')
+    expect(html).toContain('credentialDetailNameArrow')
+    expect(html.indexOf('data-credential-detail-trigger="true"')).toBeLessThan(html.indexOf('usage_stats.credentials_alias_edit'))
+  })
 })

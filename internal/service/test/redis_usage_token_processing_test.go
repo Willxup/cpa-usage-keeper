@@ -34,12 +34,12 @@ func (r *tokenProcessorRecentRecorder) TryAppend(events []entities.UsageEvent) b
 
 type tokenProcessorHeaderRecorder struct {
 	calls     int
-	snapshots []quota.UsageHeaderSnapshot
+	snapshots []*quota.UsageHeaderSnapshot
 }
 
 func (r *tokenProcessorHeaderRecorder) NotifyUsageEventsCommitted(_ []entities.UsageEvent) {}
 
-func (r *tokenProcessorHeaderRecorder) TryAppendUsageHeaderSnapshots(snapshots []quota.UsageHeaderSnapshot) bool {
+func (r *tokenProcessorHeaderRecorder) TryAppendUsageHeaderSnapshots(snapshots []*quota.UsageHeaderSnapshot) bool {
 	// 只记录事务提交后真正投递的 snapshot，用于证明 unresolved 行没有提前泄漏。
 	r.calls++
 	r.snapshots = append(r.snapshots, snapshots...)

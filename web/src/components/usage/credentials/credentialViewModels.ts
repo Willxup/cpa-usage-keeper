@@ -88,6 +88,10 @@ export interface AiProviderCredentialRow {
   credentialHealth?: UsageCredentialHealth
 }
 
+export type CredentialDetailSelection =
+  | { kind: 'auth-file'; row: AuthFileCredentialRow }
+  | { kind: 'ai-provider'; row: AiProviderCredentialRow }
+
 export interface CredentialIdentityGroups {
   authFiles: UsageIdentity[]
   aiProviders: UsageIdentity[]

@@ -16,6 +16,10 @@ type quotaResetCreditsProviderStub struct {
 	err      error
 }
 
+func (s *quotaResetCreditsProviderStub) GetCodexQuotaHistory(context.Context, quota.CodexQuotaHistoryRequest) (quota.CodexQuotaHistoryResponse, error) {
+	return quota.CodexQuotaHistoryResponse{}, nil
+}
+
 func (s *quotaResetCreditsProviderStub) GetCachedQuota(context.Context, quota.CacheRequest) (quota.CacheResponse, error) {
 	return quota.CacheResponse{}, nil
 }

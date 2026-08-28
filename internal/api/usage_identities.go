@@ -249,10 +249,6 @@ func mapUsageIdentityResponse(item entities.UsageIdentity) usageIdentityResponse
 
 func mapUsageIdentityResponseWithHealth(item entities.UsageIdentity, health *service.UsageCredentialHealthSnapshot) usageIdentityResponse {
 	// AI Provider identity 是稳定 auth-index；响应不直接发布原始 LookupKey，OpenAI Compatibility 仅按 Issue #281 在 displayName 中保留脱敏 Key 片段。
-	identity := item.Identity
-	if item.AuthType == entities.UsageIdentityAuthTypeAIProvider {
-		identity = helper.RedactSensitiveValue(item.Identity)
-	}
 	var fileName *string
 	var filePath *string
 	if item.AuthType == entities.UsageIdentityAuthTypeAuthFile {
@@ -272,7 +268,7 @@ func mapUsageIdentityResponseWithHealth(item entities.UsageIdentity, health *ser
 		DisplayName:                helper.UsageIdentityDisplayName(item),
 		AuthType:                   item.AuthType,
 		AuthTypeName:               item.AuthTypeName,
-		Identity:                   identity,
+		Identity:                   item.Identity,
 		Type:                       item.Type,
 		Provider:                   item.Provider,
 		Prefix:                     item.Prefix,

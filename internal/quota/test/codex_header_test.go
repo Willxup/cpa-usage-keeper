@@ -3,8 +3,10 @@ package test
 import (
 	"math"
 	"net/http"
+	"reflect"
 	"strconv"
 	"testing"
+	"time"
 
 	. "cpa-usage-keeper/internal/quota"
 )
@@ -77,11 +79,14 @@ func TestParseCodexHeaderQuotaMapsMonthlyWindowMinutes(t *testing.T) {
 	}
 }
 
-func TestBuildCodexUsageHeaderSnapshotKeepsOnlyQuotaHeaders(t *testing.T) {
+func TestBuildCodexUsageHeaderSnapshotCreatesImmutableCacheAndHistoryProjections(t *testing.T) {
+	// 固定 observation instant，证明 history 使用真实 UsageEvent 时间而不是 runner 入队时间。
+	observedAt := time.Date(2026, 6, 22, 3, 10, 44, 0, time.UTC)
 	snapshot, ok := BuildUsageHeaderSnapshot(UsageHeaderSnapshotInput{
-		AuthType:  "oauth",
-		AuthIndex: "codex-auth",
-		Provider:  "codex",
+		AuthType:   "oauth",
+		AuthIndex:  "codex-auth",
+		Provider:   "codex",
+		ObservedAt: observedAt,
 		Headers: http.Header{
 			"Date":                                      []string{"Mon, 22 Jun 2026 03:10:44 GMT"},
 			"Set-Cookie":                                []string{"session=secret"},
@@ -100,26 +105,55 @@ func TestBuildCodexUsageHeaderSnapshotKeepsOnlyQuotaHeaders(t *testing.T) {
 	if !ok {
 		t.Fatal("expected codex header snapshot to build")
 	}
-	for _, key := range []string{"Date", "Set-Cookie", "X-Codex-Credits-Has-Credits", "X-Codex-Bengalfox-Primary-Unrelated-Field"} {
-		if snapshot.Headers.Get(key) != "" {
-			t.Fatalf("expected %s to be filtered out, got %#v", key, snapshot.Headers.Values(key))
-		}
+	// 异步快照不再持有任何 Header map，原始 Cookie/Date 也就无法进入分钟或 history 队列。
+	if _, exists := reflect.TypeOf(*snapshot).FieldByName("Headers"); exists {
+		t.Fatal("expected immutable structured snapshot to omit http.Header")
 	}
-	if values := snapshot.Headers.Values("X-Codex-Primary-Used-Percent"); len(values) != 1 || values[0] != "4" {
-		t.Fatalf("expected first non-empty used percent value to be kept, got %#v", values)
+	// cache 投影必须保留现有主额度和 Additional 行，且不受 history 只选主额度的规则影响。
+	rows := NormalizeQuotaRows(snapshot.CacheOutput)
+	if len(rows) != 2 || rows[0].Key != "rate_limit.primary_window" || rows[1].Key != "additional_rate_limits.GPT-5.3-Codex-Spark.primary_window" {
+		t.Fatalf("unexpected immutable cache output rows: %#v", rows)
 	}
-	for _, key := range []string{
-		"X-Codex-Plan-Type",
-		"X-Codex-Primary-Window-Minutes",
-		"X-Codex-Primary-Reset-At",
-		"X-Codex-Bengalfox-Limit-Name",
-		"X-Codex-Bengalfox-Primary-Used-Percent",
-		"X-Codex-Bengalfox-Primary-Window-Minutes",
-		"X-Codex-Bengalfox-Primary-Reset-At",
-	} {
-		if snapshot.Headers.Get(key) == "" {
-			t.Fatalf("expected quota header %s to be retained, got %#v", key, snapshot.Headers)
-		}
+	// history 投影只允许无 group Primary，并保留整数剩余值、窗口秒数和观察时间。
+	if len(snapshot.MainQuotaObservations) != 1 {
+		t.Fatalf("expected one main quota observation, got %+v", snapshot.MainQuotaObservations)
+	}
+	observation := snapshot.MainQuotaObservations[0]
+	if observation.AuthIndex != "codex-auth" || observation.WindowRole != "primary" || observation.WindowSeconds != 18_000 || observation.RemainingPercent != 96 || !observation.FirstObservedAt.Equal(observedAt) {
+		t.Fatalf("unexpected main quota observation: %+v", observation)
+	}
+	if observation.ResetAtSource != "absolute" {
+		t.Fatalf("unexpected main quota window metadata: %+v", observation)
+	}
+}
+
+func TestBuildCodexUsageHeaderSnapshotKeepsUnknownMainWindowHistoryOnly(t *testing.T) {
+	// 未知 720 分钟窗口不应放宽现有 cache parser，但必须作为合法 Primary 历史 observation 保存。
+	observedAt := time.Date(2026, 8, 20, 8, 0, 0, 0, time.UTC)
+	snapshot, ok := BuildUsageHeaderSnapshot(UsageHeaderSnapshotInput{
+		AuthType:   "oauth",
+		AuthIndex:  "codex-auth",
+		Provider:   "codex",
+		ObservedAt: observedAt,
+		Headers: http.Header{
+			"X-Codex-Primary-Used-Percent":        []string{"10.49"},
+			"X-Codex-Primary-Window-Minutes":      []string{"720"},
+			"X-Codex-Primary-Reset-After-Seconds": []string{"60"},
+		},
+	})
+	if !ok || snapshot == nil {
+		t.Fatal("expected history-only unknown Codex window snapshot")
+	}
+	// cache 输出保持旧合同：未知窗口不会产生任何 quota row。
+	if rows := NormalizeQuotaRows(snapshot.CacheOutput); len(rows) != 0 {
+		t.Fatalf("expected unknown window to stay out of cache output, got %#v", rows)
+	}
+	if len(snapshot.MainQuotaObservations) != 1 {
+		t.Fatalf("expected one unknown-window history observation, got %+v", snapshot.MainQuotaObservations)
+	}
+	observation := snapshot.MainQuotaObservations[0]
+	if observation.WindowSeconds != 43_200 || observation.RemainingPercent != 90 || observation.ResetAtSource != "relative" || !observation.ResetAt.Equal(observedAt.Add(time.Minute)) {
+		t.Fatalf("unexpected unknown-window history observation: %+v", observation)
 	}
 }
 

@@ -85,10 +85,12 @@ export function usePortalTooltip() {
     syncTooltip()
   }, [syncTooltip])
 
-  const dismiss = useCallback(() => {
+  const dismiss = useCallback((): boolean => {
+    const dismissed = hoverTargetRef.current !== null || focusTargetRef.current !== null
     hoverTargetRef.current = null
     focusTargetRef.current = null
     setTooltip(null)
+    return dismissed
   }, [])
 
   useEffect(() => {

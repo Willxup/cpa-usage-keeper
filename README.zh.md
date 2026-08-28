@@ -121,7 +121,7 @@ internal/service/        用量、定价与身份服务
 internal/quota/          Provider 限额刷新与巡检
 internal/ranking/        社区排名聚合与同步
 internal/benchmark/      容量套件、报告、manifest 与历史 Go microbenchmark
-deploy/linux/            systemd 服务模板
+deploy/                  部署模板
 web/                     React + TypeScript 前端
 ```
 
@@ -238,7 +238,7 @@ CPA 数据保存在 `./cpa`，Keeper 数据保存在 `./keeper`。
 CPA 已经部署好时，直接使用仓库中的 Keeper-only Compose 模板：
 
 ```bash
-cp docker-compose.example.yml docker-compose.yml
+cp deploy/docker-compose.example.yml docker-compose.yml
 cp .env.example .env
 vim .env
 ```

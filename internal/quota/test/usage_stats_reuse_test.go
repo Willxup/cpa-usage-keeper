@@ -43,8 +43,9 @@ func TestHeaderManualAndScheduledRefreshReuseSameWindowUsageStats(t *testing.T) 
 
 			switch entry {
 			case "header":
-				header := codexUsageHeaderSnapshot("shared-usage-auth", resetAt.Add(time.Minute), "4")
-				header.Headers.Set("X-Codex-Primary-Reset-At", strconv.FormatInt(resetAt.Unix(), 10))
+				headers := codexUsageHeader("4")
+				headers.Set("X-Codex-Primary-Reset-At", strconv.FormatInt(resetAt.Unix(), 10))
+				header := codexUsageHeaderSnapshotWithHeaders("shared-usage-auth", resetAt.Add(time.Minute), headers)
 				if !applyUsageHeaderSnapshot(service, context.Background(), header) {
 					t.Fatal("expected Header path to populate quota cache")
 				}

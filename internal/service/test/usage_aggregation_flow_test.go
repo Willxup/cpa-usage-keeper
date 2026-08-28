@@ -39,10 +39,10 @@ func (n *recordingUsageAggregationNotifier) NotifyUsageIdentitiesChanged() {
 
 type recordingUsageHeaderSnapshotAppender struct {
 	calls     int
-	snapshots []quota.UsageHeaderSnapshot
+	snapshots []*quota.UsageHeaderSnapshot
 }
 
-func (a *recordingUsageHeaderSnapshotAppender) TryAppendUsageHeaderSnapshots(snapshots []quota.UsageHeaderSnapshot) bool {
+func (a *recordingUsageHeaderSnapshotAppender) TryAppendUsageHeaderSnapshots(snapshots []*quota.UsageHeaderSnapshot) bool {
 	// Header 接收方和聚合 notifier 独立，测试保留原始批次顺序和重复身份。
 	a.calls++
 	a.snapshots = append(a.snapshots, snapshots...)

@@ -6,6 +6,7 @@ import type { Chart, ChartData, ChartOptions, InteractionItem, InteractionModeFu
 import { Bar, Doughnut, Scatter } from 'react-chartjs-2';
 import type { AnalysisCompositionItem, AnalysisCostBreakdown, AnalysisHeatmapCell, AnalysisLatencyDiagnostics, AnalysisModelEfficiencyItem, AnalysisModelUsagePayload, AnalysisResponse, AnalysisTokenUsageBucket } from '@/lib/types';
 import { calculateDisplayInputTokens, calculateDisplayOutputTokens, formatCompactNumber, formatDurationMs, formatPerMinuteValue, formatUsd } from '@/utils/usage';
+import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill as toGradientFill, USAGE_CHART_REQUESTS_LINE_COLOR, type UsageChartGradientColor, type UsageChartTheme } from '@/utils/usage/chartConfig';
 import styles from './AnalysisPanel.module.scss';
 
 interface AnalysisPanelProps {
@@ -33,16 +34,7 @@ type ChartRow = {
   costAvailable: boolean;
 };
 
-type ChartTheme = {
-  textPrimary: string;
-  textSecondary: string;
-  grid: string;
-  axis: string;
-  averageLine: string;
-  tooltipBg: string;
-  tooltipBorder: string;
-  tooltipBody: string;
-};
+type ChartTheme = UsageChartTheme;
 
 type LegendItem = {
   label: string;
@@ -65,10 +57,7 @@ type TopModelsViewModel = {
   rangeTotal: number;
 };
 
-type GradientColor = {
-  base: string;
-  light: string;
-};
+type GradientColor = UsageChartGradientColor;
 
 type TokenTooltipDataset = ChartData<'bar', number[], string>['datasets'][number] & {
   tooltipData?: number[];
@@ -176,7 +165,7 @@ const TOKEN_COLORS = {
   cacheRead: { base: '#d97706', light: '#fde68a' },
   cacheWrite: { base: '#e11d48', light: '#fda4af' },
   reasoning: { base: '#8b5cf6', light: '#d8b4fe' },
-  requests: '#ff5a40',
+  requests: USAGE_CHART_REQUESTS_LINE_COLOR,
   cost: '#14b8a6',
 };
 const LATENCY_COLORS = {
@@ -470,33 +459,8 @@ const modelEfficiencyTooltipPointerPlugin: Plugin<'scatter'> = {
   },
 };
 
-const getChartTheme = (isDark: boolean): ChartTheme => ({
-  textPrimary: isDark ? '#f5f1e8' : '#111827',
-  textSecondary: isDark ? 'rgba(255, 255, 255, 0.72)' : 'rgba(17, 24, 39, 0.72)',
-  grid: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(17, 24, 39, 0.06)',
-  axis: isDark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(17, 24, 39, 0.10)',
-  averageLine: isDark ? 'rgba(203, 213, 225, 0.62)' : 'rgba(71, 85, 105, 0.62)',
-  tooltipBg: isDark ? 'rgba(17, 24, 39, 0.94)' : 'rgba(255, 255, 255, 0.98)',
-  tooltipBorder: isDark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(17, 24, 39, 0.10)',
-  tooltipBody: isDark ? 'rgba(255, 255, 255, 0.86)' : '#374151',
-});
-
-const buildAnalysisBarTooltipStyle = (chartTheme: ChartTheme) => ({
-  backgroundColor: chartTheme.tooltipBg,
-  titleColor: chartTheme.textPrimary,
-  bodyColor: chartTheme.tooltipBody,
-  footerColor: chartTheme.tooltipBody,
-  borderColor: chartTheme.tooltipBorder,
-  borderWidth: 1,
-  padding: 10,
-  titleSpacing: 2,
-  titleMarginBottom: 6,
-  bodySpacing: 2,
-  footerSpacing: 2,
-  footerMarginTop: 6,
-  displayColors: true,
-  usePointStyle: true,
-});
+const getChartTheme = getUsageChartTheme;
+const buildAnalysisBarTooltipStyle = buildUsageChartTooltipStyle;
 
 const getLatencyColors = (isDark: boolean): LatencyThemeColors => (isDark ? LATENCY_COLORS.dark : LATENCY_COLORS.light);
 
@@ -703,19 +667,6 @@ const getTooltipTokenValue = (dataset: unknown, dataIndex: number | undefined, f
     : undefined;
   const tooltipValue = typeof dataIndex === 'number' ? tooltipData?.[dataIndex] : undefined;
   return toNumber(tooltipValue ?? fallback);
-};
-
-const createChartGradient = (ctx: CanvasRenderingContext2D, chartArea: { top: number; bottom: number }, color: GradientColor) => {
-  const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-  gradient.addColorStop(0, color.light);
-  gradient.addColorStop(1, color.base);
-  return gradient;
-};
-
-const toGradientFill = (context: { chart: { ctx: CanvasRenderingContext2D; chartArea?: { top: number; bottom: number } } }, color: GradientColor) => {
-  const { chart } = context;
-  if (!chart.chartArea) return color.base;
-  return createChartGradient(chart.ctx, chart.chartArea, color);
 };
 
 const formatPercent = (value: number) => `${value.toFixed(2)}%`;

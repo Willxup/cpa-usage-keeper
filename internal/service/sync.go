@@ -34,9 +34,10 @@ type UsageAggregationNotifier interface {
 	NotifyUsageIdentitiesChanged()
 }
 
-// UsageHeaderSnapshotAppender 独立接收事务提交后的原始 Header 快照批次。
+// UsageHeaderSnapshotAppender 独立接收事务提交后的不可变 Header 结构化快照批次。
 type UsageHeaderSnapshotAppender interface {
-	TryAppendUsageHeaderSnapshots([]quota.UsageHeaderSnapshot) bool
+	// TryAppendUsageHeaderSnapshots 只转交共享指针；实现不得修改快照或其嵌套对象。
+	TryAppendUsageHeaderSnapshots([]*quota.UsageHeaderSnapshot) bool
 }
 
 const (
@@ -258,7 +259,8 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.D
 	normalizedItems, unresolvedIndexes, typeErr := normalizeRedisUsageEventsDetailed(ctx, writeDB, events)
 	readyRows := make([]entities.RedisUsageInbox, 0, len(events))
 	readyEvents := make([]entities.UsageEvent, 0, len(events))
-	headerSnapshots := make([]quota.UsageHeaderSnapshot, 0, len(events))
+	// headerSnapshots 只保存解码阶段创建的同一快照指针，不复制结构体或嵌套 quota 投影。
+	headerSnapshots := make([]*quota.UsageHeaderSnapshot, 0, len(events))
 	for index, item := range normalizedItems {
 		// ready=false 的槽位依赖失败的 identity 查询，不能按 default 猜测入库。
 		if !item.ready {
@@ -269,7 +271,7 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.D
 		readyEvents = append(readyEvents, item.event)
 		if eventSnapshots[index] != nil {
 			// 只收集已准备入库事件的 snapshot，unresolved snapshot 不得提前通知 quota worker。
-			headerSnapshots = append(headerSnapshots, *eventSnapshots[index])
+			headerSnapshots = append(headerSnapshots, eventSnapshots[index])
 		}
 	}
 	failureCounts := redisInboxFailureCounts{}
@@ -351,7 +353,7 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.D
 				return failureResult, aggregateErr
 			}
 		}
-		// Header 原样交给独立 Quota worker；按 auth_index 合并属于一分钟窗口的消费职责。
+		// 不可变结构化快照交给 Quota service；cache/history fan-out 属于其内部消费职责。
 		if s.usageHeaderQuota != nil && len(headerSnapshots) > 0 && !s.usageHeaderQuota.TryAppendUsageHeaderSnapshots(headerSnapshots) {
 			// 队列拒绝只影响 quota 新鲜度，不能回滚已经提交的 usage/inbox 状态。
 			logrus.WithField("snapshot_count", len(headerSnapshots)).Warn("usage header quota cache append skipped")

@@ -43,6 +43,28 @@ func TestListUsageEventsWithFilterDoesNotLoadModelFilterOptions(t *testing.T) {
 	}
 }
 
+func TestListUsageEventsWithFilterSkipsTotalCountWhenRequested(t *testing.T) {
+	db := openTestDatabase(t)
+	seedUsageEventModels(t, db)
+	recorder, queryDB := usageEventsQueryRecorder(db)
+
+	page, err := repository.ListUsageEventsWithFilter(queryDB, repodto.UsageQueryFilter{
+		Page:           1,
+		PageSize:       1,
+		CursorMode:     true,
+		SkipTotalCount: true,
+	}, emptyPricingResolverForTest())
+	if err != nil {
+		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
+	}
+	if len(page.Events) != 1 || page.TotalCount != -1 || !page.HasMore {
+		t.Fatalf("unexpected count-free usage events page: %+v", page)
+	}
+	if strings.Contains(strings.ToLower(recorder.String()), "count(*)") {
+		t.Fatalf("expected count-free query not to execute COUNT(*), SQL logs:\n%s", recorder.String())
+	}
+}
+
 func TestListUsageEventFilterOptionsWithFilterStillLoadsModels(t *testing.T) {
 	db := openTestDatabase(t)
 	seedUsageEventModels(t, db)

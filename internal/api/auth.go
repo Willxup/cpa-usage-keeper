@@ -6,7 +6,6 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"cpa-usage-keeper/internal/auth"
@@ -48,9 +47,6 @@ type authHandler struct {
 	sessions          *auth.SessionManager
 	cpaAPIKeyProvider service.CPAAPIKeyProvider
 	loginAttempts     *auth.LoginAttemptLimiter
-
-	mu                  sync.Mutex
-	keyOverviewRequests map[string]time.Time
 }
 
 type loginRequest struct {
@@ -107,7 +103,6 @@ func NewAuthHandler(config AuthConfig, sessions *auth.SessionManager) *authHandl
 			GlobalLimit:    loginAttemptGlobalMax,
 			MaxSources:     loginAttemptSourceMax,
 		}),
-		keyOverviewRequests: make(map[string]time.Time),
 	}
 }
 
@@ -352,56 +347,12 @@ func (h *authHandler) allowLoginAttempt(c *gin.Context, key string) bool {
 	return false
 }
 
-func (h *authHandler) allowKeyOverviewRequest(token string, scopes ...string) bool {
-	if h == nil || token == "" {
-		return true
-	}
-	scope := "overview"
-	if len(scopes) > 0 && strings.TrimSpace(scopes[0]) != "" {
-		scope = strings.TrimSpace(scopes[0])
-	}
-	key := token
-	if scope != "overview" {
-		key = token + "\x00" + scope
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	now := time.Now()
-	if last, ok := h.keyOverviewRequests[key]; ok && now.Sub(last) < time.Second {
-		return false
-	}
-	h.keyOverviewRequests[key] = now
-	return true
-}
-
 func (h *authHandler) deleteSession(token string) {
 	if h == nil || token == "" {
 		return
 	}
 	if h.sessions != nil {
 		h.sessions.Delete(token)
-	}
-	h.clearSessionState(token)
-}
-
-func (h *authHandler) clearSessionStateForTokens(tokens []string) {
-	for _, token := range tokens {
-		h.clearSessionState(token)
-	}
-}
-
-func (h *authHandler) clearSessionState(token string) {
-	if h == nil || token == "" {
-		return
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	delete(h.keyOverviewRequests, token)
-	prefix := token + "\x00"
-	for key := range h.keyOverviewRequests {
-		if strings.HasPrefix(key, prefix) {
-			delete(h.keyOverviewRequests, key)
-		}
 	}
 }
 

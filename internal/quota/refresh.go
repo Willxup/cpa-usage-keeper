@@ -382,7 +382,7 @@ func (s *Service) runRefreshTaskWithWorker(authIndex string) {
 	}()
 
 	// 把任务从 queued 切到 running，并拿到锁内确认后的 auth_index。
-	authIndex, ok := s.markRefreshTaskRunning(authIndex)
+	authIndex, source, ok := s.markRefreshTaskRunning(authIndex)
 	// 如果任务不存在或状态已经不是 queued，说明它被清理或状态异常，直接结束 goroutine。
 	if !ok {
 		// 不再调用 provider，避免无任务记录时产生不可见结果。
@@ -393,7 +393,7 @@ func (s *Service) runRefreshTaskWithWorker(authIndex string) {
 	// 任务结束时释放 timeout timer，避免资源泄漏。
 	defer cancel()
 	// Check 会按 auth_index 读取身份、调用对应 provider，并标准化 quota rows。
-	response, err := s.Check(ctx, CheckRequest{AuthIndex: authIndex})
+	response, err := s.Check(ctx, CheckRequest{AuthIndex: authIndex, Source: source})
 	// provider 或身份校验失败时进入失败状态。
 	if err != nil {
 		if errors.Is(err, ErrUnsupportedType) {
@@ -449,7 +449,7 @@ func isRefreshCacheableHTTPStatus(statusCode int) bool {
 	return ok
 }
 
-func (s *Service) markRefreshTaskRunning(authIndex string) (string, bool) {
+func (s *Service) markRefreshTaskRunning(authIndex string) (string, RefreshSource, bool) {
 	// now 记录任务真正开始执行的时间。
 	now := timeutil.NormalizeStorageTime(time.Now())
 	// refreshTasks 是共享 map，状态切换前必须加锁。
@@ -461,14 +461,14 @@ func (s *Service) markRefreshTaskRunning(authIndex string) (string, bool) {
 	// 只有 queued 任务可以切到 running，避免重复 goroutine 改写已完成任务。
 	if !ok || task.Status != RefreshTaskStatusQueued {
 		// 返回 false 告诉 worker 当前任务不应继续执行。
-		return "", false
+		return "", "", false
 	}
 	// 把任务状态切到 running，前端轮询会看到正在刷新。
 	task.Status = RefreshTaskStatusRunning
 	// 记录开始时间，便于前端展示或后续排查耗时。
 	task.StartedAt = now
 	// 返回任务记录中的 auth_index，保证后续使用锁内确认过的值。
-	return task.AuthIndex, true
+	return task.AuthIndex, task.Source, true
 }
 
 func (s *Service) markRefreshTaskCompleted(authIndex string, response CheckResponse) {

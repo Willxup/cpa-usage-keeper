@@ -61,22 +61,19 @@ const extractFirstTableRowCells = (html: string) => {
   return Array.from(row.matchAll(/<td\b[^>]*>(.*?)<\/td>/gs), (match) => textFromMarkup(match[1]));
 };
 
-describe('RequestEventsDetailsCard model alias column', () => {
-  it('shows model alias after model by default', () => {
+describe('RequestEventsDetailsCard model stack', () => {
+  it('shows model alias below model by default', () => {
     const html = renderCard();
     const headers = extractTableHeaders(html);
     const cells = extractFirstTableRowCells(html);
     const modelHeaderIndex = headers.indexOf('Model');
-    const modelAliasHeaderIndex = headers.indexOf('Model Alias');
     const effortHeaderIndex = headers.indexOf('Effort');
 
     expect(modelHeaderIndex).toBeGreaterThanOrEqual(0);
-    expect(modelAliasHeaderIndex).toBeGreaterThanOrEqual(0);
     expect(effortHeaderIndex).toBeGreaterThanOrEqual(0);
-    expect(modelHeaderIndex).toBeLessThan(modelAliasHeaderIndex);
-    expect(modelAliasHeaderIndex).toBeLessThan(effortHeaderIndex);
-    expect(cells[modelHeaderIndex]).toBe('claude-sonnet');
-    expect(cells[modelAliasHeaderIndex]).toBe('sonnet-business');
+    expect(modelHeaderIndex).toBeLessThan(effortHeaderIndex);
+    expect(headers).not.toContain('Model Alias');
+    expect(cells[modelHeaderIndex]).toBe('claude-sonnetsonnet-business');
   });
 
   it('renders a dash when model alias is missing', () => {
@@ -85,10 +82,10 @@ describe('RequestEventsDetailsCard model alias column', () => {
     });
     const headers = extractTableHeaders(html);
     const cells = extractFirstTableRowCells(html);
-    const modelAliasHeaderIndex = headers.indexOf('Model Alias');
+    const modelHeaderIndex = headers.indexOf('Model');
 
-    expect(modelAliasHeaderIndex).toBeGreaterThanOrEqual(0);
-    expect(cells[modelAliasHeaderIndex]).toBe('-');
+    expect(modelHeaderIndex).toBeGreaterThanOrEqual(0);
+    expect(cells[modelHeaderIndex]).toBe('claude-sonnet-');
   });
 
   it('renders a dash when model alias matches the model name', () => {
@@ -97,10 +94,10 @@ describe('RequestEventsDetailsCard model alias column', () => {
     });
     const headers = extractTableHeaders(html);
     const cells = extractFirstTableRowCells(html);
-    const modelAliasHeaderIndex = headers.indexOf('Model Alias');
+    const modelHeaderIndex = headers.indexOf('Model');
 
-    expect(modelAliasHeaderIndex).toBeGreaterThanOrEqual(0);
-    expect(cells[modelAliasHeaderIndex]).toBe('-');
+    expect(modelHeaderIndex).toBeGreaterThanOrEqual(0);
+    expect(cells[modelHeaderIndex]).toBe('claude-sonnet-');
   });
 });
 

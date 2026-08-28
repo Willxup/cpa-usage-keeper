@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"cpa-usage-keeper/internal/quota"
 )
 
 func TestDecodeRedisUsageMessageMapsPayloadToUsageEvent(t *testing.T) {
@@ -99,12 +101,36 @@ func TestDecodeRedisUsageMessageWithHeadersExtractsQuotaSnapshot(t *testing.T) {
 	if snapshot.AuthType != "oauth" || snapshot.AuthIndex != "codex-auth" || snapshot.Provider != "codex" {
 		t.Fatalf("unexpected snapshot identity: %+v", snapshot)
 	}
-	if snapshot.Headers.Get("X-Codex-Plan-Type") != "pro" {
-		t.Fatalf("expected codex plan header, got %#v", snapshot.Headers)
+	if codexSnapshotPlan(snapshot) != "pro" {
+		t.Fatalf("expected decoded Codex plan, got %#v", snapshot.CacheOutput)
 	}
 	if snapshot.ObservedAt.IsZero() {
 		t.Fatalf("expected observed timestamp")
 	}
+}
+
+func codexSnapshotPlan(snapshot *quota.UsageHeaderSnapshot) string {
+	// 快照已不持有 Header；测试从只读 cache 投影验证同一字段语义。
+	if snapshot == nil {
+		return ""
+	}
+	result, ok := snapshot.CacheOutput.Result.(quota.CodexResult)
+	if !ok || result.Usage == nil {
+		return ""
+	}
+	return result.Usage.PlanType
+}
+
+func codexSnapshotPrimaryUsedPercent(snapshot *quota.UsageHeaderSnapshot) (float64, bool) {
+	// 主额度百分比从共享单次解码生成的 cache 投影读取，不依赖已释放的原始 Header。
+	if snapshot == nil {
+		return 0, false
+	}
+	result, ok := snapshot.CacheOutput.Result.(quota.CodexResult)
+	if !ok || result.Usage == nil || result.Usage.RateLimit == nil || result.Usage.RateLimit.PrimaryWindow == nil {
+		return 0, false
+	}
+	return result.Usage.RateLimit.PrimaryWindow.UsedPercent, true
 }
 
 func TestDecodeRedisUsageMessageWithHeadersSkipsMalformedHeadersWithoutBlockingEvent(t *testing.T) {

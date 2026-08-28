@@ -273,7 +273,7 @@ func registerUsageEventsRoute(
 			return
 		}
 
-		filter, err := parseUsageFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		filter, err := parseUsageExportFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
 			writeUsageFilterParseError(c, err)
 			return

@@ -16,6 +16,8 @@ func TestAllIncludesCoreModels(t *testing.T) {
 	expected := []any{
 		&UsageEvent{},
 		&UsageEventArchive{},
+		// Errors 直接写最终表；全新数据库必须随核心模型创建该表。
+		&ErrorEvent{},
 		&RedisUsageInbox{},
 		&ModelPriceSetting{},
 		&ModelPriceRule{},
@@ -32,6 +34,9 @@ func TestAllIncludesCoreModels(t *testing.T) {
 		&UsageLatencyStat{},
 		&AuthSession{},
 		&AppSetting{},
+		// 通用额度历史按父周期、子百分比状态段顺序注册，确保全新数据库创建真实外键。
+		&QuotaCycle{},
+		&QuotaPercentSegment{},
 	}
 	if len(items) != len(expected) {
 		t.Fatalf("expected %d registered models, got %d", len(expected), len(items))

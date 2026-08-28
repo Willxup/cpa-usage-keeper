@@ -121,7 +121,7 @@ internal/service/        Usage, pricing, and identity services
 internal/quota/          Provider quota refresh and inspection
 internal/ranking/        Community ranking aggregation and sync
 internal/benchmark/      Capacity suite, reports, manifests, and legacy microbenchmarks
-deploy/linux/            systemd service template
+deploy/                  Deployment templates
 web/                     React + TypeScript frontend
 ```
 
@@ -238,7 +238,7 @@ CPA data is stored under `./cpa`, and Keeper data is stored under `./keeper`.
 When CPA is already deployed, use the repository's Keeper-only Compose template:
 
 ```bash
-cp docker-compose.example.yml docker-compose.yml
+cp deploy/docker-compose.example.yml docker-compose.yml
 cp .env.example .env
 vim .env
 ```

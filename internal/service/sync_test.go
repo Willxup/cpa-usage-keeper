@@ -35,14 +35,14 @@ type recordingRecentUsageAppender struct {
 type recordingUsageHeaderQuotaAppender struct {
 	eventCalls int
 	calls      int
-	snapshots  []quota.UsageHeaderSnapshot
+	snapshots  []*quota.UsageHeaderSnapshot
 	allowed    bool
 }
 
 type aggregationAwareUsageHeaderQuotaAppender struct {
 	db                  *gorm.DB
 	calls               int
-	snapshots           []quota.UsageHeaderSnapshot
+	snapshots           []*quota.UsageHeaderSnapshot
 	hourlyStatsAtAppend int64
 	countErr            error
 }
@@ -59,7 +59,7 @@ func (r *recordingUsageHeaderQuotaAppender) NotifyUsageEventsCommitted(_ []entit
 
 func (r *recordingUsageHeaderQuotaAppender) NotifyUsageIdentitiesChanged() {}
 
-func (r *recordingUsageHeaderQuotaAppender) TryAppendUsageHeaderSnapshots(snapshots []quota.UsageHeaderSnapshot) bool {
+func (r *recordingUsageHeaderQuotaAppender) TryAppendUsageHeaderSnapshots(snapshots []*quota.UsageHeaderSnapshot) bool {
 	r.calls++
 	r.snapshots = append(r.snapshots, snapshots...)
 	return r.allowed
@@ -68,7 +68,7 @@ func (r *recordingUsageHeaderQuotaAppender) TryAppendUsageHeaderSnapshots(snapsh
 func (r *aggregationAwareUsageHeaderQuotaAppender) NotifyUsageEventsCommitted(_ []entities.UsageEvent) {
 }
 
-func (r *aggregationAwareUsageHeaderQuotaAppender) TryAppendUsageHeaderSnapshots(snapshots []quota.UsageHeaderSnapshot) bool {
+func (r *aggregationAwareUsageHeaderQuotaAppender) TryAppendUsageHeaderSnapshots(snapshots []*quota.UsageHeaderSnapshot) bool {
 	r.calls++
 	r.snapshots = append(r.snapshots, snapshots...)
 	r.countErr = r.db.Model(&entities.UsageOverviewHourlyStat{}).Where("auth_index = ?", "codex-auth").Count(&r.hourlyStatsAtAppend).Error
@@ -308,8 +308,8 @@ func TestProcessRedisUsageInboxNotifiesUsageHeaderQuotaAfterTransactionCommit(t 
 	if snapshot.AuthType != "oauth" || snapshot.AuthIndex != "codex-auth" || snapshot.Provider != "codex" {
 		t.Fatalf("unexpected snapshot identity: %+v", snapshot)
 	}
-	if snapshot.Headers.Get("X-Codex-Plan-Type") != "pro" {
-		t.Fatalf("expected codex header snapshot, got %#v", snapshot.Headers)
+	if codexSnapshotPlan(snapshot) != "pro" {
+		t.Fatalf("expected decoded Codex snapshot, got %#v", snapshot.CacheOutput)
 	}
 }
 
@@ -361,7 +361,7 @@ func TestProcessRedisUsageInboxNotifiesAggregationRunnerBeforeOverviewAggregatio
 	}
 }
 
-func TestProcessRedisUsageInboxForwardsRawUsageHeaderSnapshotsToQuotaWorker(t *testing.T) {
+func TestProcessRedisUsageInboxForwardsStructuredUsageHeaderSnapshotsToQuotaService(t *testing.T) {
 	db := openSyncTestDatabase(t)
 	if _, err := repository.InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{
 		{
@@ -436,15 +436,18 @@ func TestProcessRedisUsageInboxForwardsRawUsageHeaderSnapshotsToQuotaWorker(t *t
 		t.Fatalf("unexpected process result: %+v", result)
 	}
 	if appender.calls != 1 || len(appender.snapshots) != 3 {
-		t.Fatalf("expected three raw snapshots for quota-side coalescing, got calls=%d snapshots=%+v", appender.calls, appender.snapshots)
+		t.Fatalf("expected three structured snapshots for quota-side fan-out, got calls=%d snapshots=%+v", appender.calls, appender.snapshots)
 	}
-	if appender.snapshots[0].AuthIndex != "codex-auth" || appender.snapshots[0].Headers.Get("X-Codex-Primary-Used-Percent") != "4" {
-		t.Fatalf("expected first duplicate identity snapshot to remain raw, got %+v", appender.snapshots[0])
+	firstUsed, firstOK := codexSnapshotPrimaryUsedPercent(appender.snapshots[0])
+	if appender.snapshots[0].AuthIndex != "codex-auth" || !firstOK || firstUsed != 4 {
+		t.Fatalf("expected first duplicate identity snapshot to remain structured, got %+v", appender.snapshots[0])
 	}
-	if appender.snapshots[1].AuthIndex != "codex-auth" || appender.snapshots[1].Headers.Get("X-Codex-Primary-Used-Percent") != "8" {
-		t.Fatalf("expected newer duplicate identity snapshot to remain raw, got %+v", appender.snapshots[1])
+	secondUsed, secondOK := codexSnapshotPrimaryUsedPercent(appender.snapshots[1])
+	if appender.snapshots[1].AuthIndex != "codex-auth" || !secondOK || secondUsed != 8 {
+		t.Fatalf("expected newer duplicate identity snapshot to remain structured, got %+v", appender.snapshots[1])
 	}
-	if appender.snapshots[2].AuthIndex != "other-codex-auth" || appender.snapshots[2].Headers.Get("X-Codex-Primary-Used-Percent") != "20" {
+	thirdUsed, thirdOK := codexSnapshotPrimaryUsedPercent(appender.snapshots[2])
+	if appender.snapshots[2].AuthIndex != "other-codex-auth" || !thirdOK || thirdUsed != 20 {
 		t.Fatalf("expected other identity snapshot to preserve order, got %+v", appender.snapshots[2])
 	}
 }
@@ -507,7 +510,7 @@ func TestProcessRedisUsageInboxIgnoresIncompleteUsageHeaderQuotaSnapshotDuringCo
 	if appender.calls != 1 || len(appender.snapshots) != 1 {
 		t.Fatalf("expected only one complete usage header snapshot, got calls=%d snapshots=%+v", appender.calls, appender.snapshots)
 	}
-	if appender.snapshots[0].Headers.Get("X-Codex-Primary-Used-Percent") != "4" {
+	if used, ok := codexSnapshotPrimaryUsedPercent(appender.snapshots[0]); !ok || used != 4 {
 		t.Fatalf("expected incomplete later header to be filtered before coalesce, got %+v", appender.snapshots[0])
 	}
 }

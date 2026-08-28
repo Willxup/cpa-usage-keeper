@@ -254,17 +254,23 @@ describe('RankingPage', () => {
     await renderPage();
 
     const hint = container.querySelector<HTMLButtonElement>('[data-ranking-score-explanation]');
-    const tooltip = hint?.querySelector<HTMLElement>('[data-ranking-score-explanation-tooltip]');
+    const descriptionID = hint?.getAttribute('aria-describedby');
+    const description = descriptionID ? document.getElementById(descriptionID) : null;
+    const tooltipID = hint?.getAttribute('aria-controls');
+    const tooltip = tooltipID ? document.getElementById(tooltipID) : null;
     expect(hint?.textContent).toContain('?');
     expect(hint?.getAttribute('title')).toBeNull();
     expect(hint?.getAttribute('aria-label')).toBe('ranking.score_explanation_label');
     expect(hint?.getAttribute('aria-label')).not.toBe(tooltip?.textContent);
-    expect(hint?.getAttribute('aria-describedby')).toBe(tooltip?.id);
+    expect(description?.textContent).toBe('Overall score V2 from the ranking center.');
+    expect(hint?.getAttribute('aria-controls')).toBe(tooltip?.id);
     expect(hint?.getAttribute('aria-expanded')).toBe('false');
     expect(tooltip?.getAttribute('role')).toBe('tooltip');
     expect(tooltip?.textContent).toBe('Overall score V2 from the ranking center.');
-    await act(async () => hint?.click());
+    await act(async () => hint?.focus());
     expect(hint?.getAttribute('aria-expanded')).toBe('true');
+    await act(async () => hint?.blur());
+    expect(hint?.getAttribute('aria-expanded')).toBe('false');
 
     await renderPage({
       metric: 'total_tokens',
@@ -353,16 +359,20 @@ describe('RankingPage', () => {
 
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
     expect(dialog?.style.width).toBe('600px');
-    const privacyHint = dialog?.querySelector('[data-ranking-privacy-hint]');
-    const privacyTooltip = dialog?.querySelector('[data-ranking-privacy-tooltip]');
+    const privacyHint = dialog?.querySelector<HTMLButtonElement>('[data-ranking-privacy-hint]');
+    const privacyDescriptionID = privacyHint?.getAttribute('aria-describedby');
+    const privacyDescription = privacyDescriptionID ? document.getElementById(privacyDescriptionID) : null;
+    const privacyTooltipID = privacyHint?.getAttribute('aria-controls');
+    const privacyTooltip = privacyTooltipID ? document.getElementById(privacyTooltipID) : null;
     expect(privacyHint?.getAttribute('title')).toBeNull();
-    expect(privacyHint?.getAttribute('aria-describedby')).toBe(privacyTooltip?.id);
+    expect(privacyDescription?.textContent).toBe('ranking.privacy_description');
+    expect(privacyHint?.getAttribute('aria-controls')).toBe(privacyTooltip?.id);
     expect(privacyHint?.getAttribute('aria-expanded')).toBe('false');
     expect(privacyTooltip?.getAttribute('role')).toBe('tooltip');
     expect(privacyTooltip?.textContent).toBe('ranking.privacy_description');
-    await act(async () => (privacyHint as HTMLButtonElement | null)?.click());
+    await act(async () => privacyHint?.focus());
     expect(privacyHint?.getAttribute('aria-expanded')).toBe('true');
-    await act(async () => (privacyHint as HTMLButtonElement | null)?.click());
+    await act(async () => privacyHint?.blur());
     expect(privacyHint?.getAttribute('aria-expanded')).toBe('false');
     expect(dialog?.querySelector('[data-ranking-upload-field]')).toBeNull();
     expect(dialog?.querySelectorAll('[data-ranking-avatar-option]')).toHaveLength(66);
