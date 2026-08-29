@@ -258,6 +258,7 @@ func TestGenerateCPAAPIKeyCreatesRowWithRawKey(t *testing.T) {
 
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/usage/api-keys/generate", bytes.NewBufferString(`{"keyAlias":"  Generated Key  "}`))
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(resp, req)
 
@@ -302,6 +303,7 @@ func TestGenerateCPAAPIKeyRejectsInvalidInput(t *testing.T) {
 	} {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/usage/api-keys/generate", bytes.NewBufferString(body))
+		req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 		req.Header.Set("Content-Type", "application/json")
 		router.ServeHTTP(resp, req)
 		if resp.Code != http.StatusBadRequest {
@@ -318,6 +320,7 @@ func TestGenerateCPAAPIKeyRequiresProvider(t *testing.T) {
 
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/usage/api-keys/generate", bytes.NewBufferString(`{"keyAlias":"alias"}`))
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(resp, req)
 
