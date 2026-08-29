@@ -16,6 +16,7 @@ import styles from './Select.module.scss';
 export interface SelectOption {
   value: string;
   label: string;
+  triggerLabel?: string;
   suffix?: ReactNode;
   suffixAriaLabel?: string;
   disabled?: boolean;
@@ -27,6 +28,7 @@ interface SelectProps {
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  dropdownClassName?: string;
   disabled?: boolean;
   ariaLabel?: string;
   ariaLabelledBy?: string;
@@ -103,6 +105,7 @@ export function Select({
   onChange,
   placeholder,
   className,
+  dropdownClassName,
   disabled = false,
   ariaLabel,
   ariaLabelledBy,
@@ -198,7 +201,7 @@ export function Select({
         ? selectedIndex
         : firstEnabledIndex;
   const selected = selectedIndex >= 0 ? options[selectedIndex] : undefined;
-  const displayText = selected?.label ?? placeholder ?? '';
+  const displayText = selected?.triggerLabel ?? selected?.label ?? placeholder ?? '';
   const isPlaceholder = !selected && placeholder;
 
   const commitSelection = useCallback(
@@ -296,7 +299,7 @@ export function Select({
       ? (
           <div
             ref={dropdownRef}
-            className={styles.dropdown}
+            className={`${styles.dropdown} ${dropdownClassName ?? ''}`.trim()}
             id={listboxId}
             role="listbox"
             aria-label={ariaLabel}

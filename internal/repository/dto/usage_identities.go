@@ -11,6 +11,7 @@ type UsageIdentityStatsDelta struct {
 	OutputTokens    int64
 	ReasoningTokens int64
 	CachedTokens    int64
+	CacheReadTokens int64
 	TotalTokens     int64
 	FirstUsedAt     *time.Time
 	LastUsedAt      *time.Time

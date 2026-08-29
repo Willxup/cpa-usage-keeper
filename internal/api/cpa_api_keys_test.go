@@ -193,6 +193,7 @@ func TestUpdateCPAAPIKeyAliasUpdatesAndClearsAlias(t *testing.T) {
 	for _, body := range []string{`{"keyAlias":"  Primary Key  "}`, `{"keyAlias":""}`} {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPatch, "/api/v1/usage/api-keys/1", bytes.NewBufferString(body))
+		req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 		req.Header.Set("Content-Type", "application/json")
 		router.ServeHTTP(resp, req)
 		if resp.Code != http.StatusOK {
@@ -232,6 +233,7 @@ func TestUpdateCPAAPIKeyAliasRejectsInvalidInputAndDeletedRows(t *testing.T) {
 	} {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPatch, tc.path, bytes.NewBufferString(tc.body))
+		req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 		req.Header.Set("Content-Type", "application/json")
 		router.ServeHTTP(resp, req)
 		if resp.Code != tc.want {

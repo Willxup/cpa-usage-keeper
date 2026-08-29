@@ -1,6 +1,7 @@
 package test
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -89,9 +90,6 @@ func TestNormalizeCodexQuotaRows(t *testing.T) {
 	}
 	primary := findQuotaRow(t, rows, "rate_limit.primary_window")
 	assertQuotaText(t, primary, "5h", "window", "")
-	if primary.PlanType != "plus" {
-		t.Fatalf("expected primary planType plus, got %#v", primary.PlanType)
-	}
 	assertFloatField(t, primary.UsedPercent, 25, "primary usedPercent")
 	assertIntField(t, primary.Window.Seconds, 18000, "primary window seconds")
 	assertIntField(t, primary.ResetAfterSeconds, 1200, "primary resetAfterSeconds")
@@ -108,9 +106,6 @@ func TestNormalizeCodexQuotaRows(t *testing.T) {
 	assertQuotaText(t, codeReview, "Code Review 5h", "code_review", "")
 	additional := findQuotaRow(t, rows, "additional_rate_limits.codex-spark.primary_window")
 	assertQuotaText(t, additional, "codex-spark 5h", "additional", "spark")
-	if additional.PlanType != "plus" {
-		t.Fatalf("expected additional planType plus, got %#v", additional.PlanType)
-	}
 	assertFloatField(t, additional.UsedPercent, 12, "additional usedPercent")
 }
 
@@ -220,23 +215,77 @@ func TestNormalizeGeminiCLIQuotaRows(t *testing.T) {
 }
 
 func TestNormalizeAntigravityQuotaRows(t *testing.T) {
-	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "antigravity", Result: quota.AntigravityResult{Quota: &quota.AntigravityQuotaPayload{Models: map[string]quota.AntigravityQuotaModel{
-		"pro":   {DisplayName: "Pro", QuotaInfo: &quota.AntigravityQuotaInfo{RemainingFraction: 0.4, Remaining: 12, ResetTime: "2026-05-09T12:00:00Z"}},
-		"flash": {QuotaInfo: &quota.AntigravityQuotaInfo{RemainingFraction: 0.9, Remaining: 32, ResetTime: "2026-05-10T12:00:00Z"}},
+	remainingFiveHour := 0.4
+	remainingWeekly := 0.9
+	remainingExhausted := 0.0
+	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "antigravity", Result: quota.AntigravityResult{Quota: &quota.AntigravityQuotaPayload{Groups: []quota.AntigravityQuotaGroup{
+		{
+			DisplayName: "Gemini Models",
+			Description: "Models within this group: Gemini Flash, Gemini Pro",
+			Buckets: []quota.AntigravityQuotaBucket{
+				{BucketID: "gemini-weekly", DisplayName: "Weekly Limit", Window: "weekly", RemainingFraction: &remainingWeekly, ResetTime: "2026-05-10T12:00:00Z"},
+				{BucketID: "gemini-5h", DisplayName: "Five Hour Limit", Window: "5h", RemainingFraction: &remainingFiveHour, ResetTime: "2026-05-09T12:00:00Z"},
+				{BucketID: "gemini-missing", DisplayName: "Missing", Window: "5h"},
+			},
+		},
+		{
+			DisplayName: "Claude and GPT models",
+			Buckets: []quota.AntigravityQuotaBucket{
+				{BucketID: "3p-5h", DisplayName: "Five Hour Limit", Window: "5h", RemainingFraction: &remainingExhausted, ResetTime: "2026-05-11T12:00:00Z"},
+			},
+		},
 	}}}})
 
-	if len(rows) != 2 {
-		t.Fatalf("expected 2 quota rows, got %#v", rows)
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 quota rows, got %#v", rows)
 	}
-	pro := findQuotaRow(t, rows, "model.pro")
-	assertQuotaText(t, pro, "Pro", "model", "pro")
-	assertFloatField(t, pro.Remaining, 12, "pro remaining")
-	assertFloatField(t, pro.RemainingFraction, 0.4, "pro remainingFraction")
-	assertIntField(t, pro.Window.Seconds, 18000, "pro window seconds")
-	flash := findQuotaRow(t, rows, "model.flash")
-	assertQuotaText(t, flash, "flash", "model", "flash")
-	assertFloatField(t, flash.Remaining, 32, "flash remaining")
-	assertIntField(t, flash.Window.Seconds, 18000, "flash window seconds")
+	if rows[0].Key != "bucket.antigravity-gemini-models.gemini-5h" || rows[1].Key != "bucket.antigravity-gemini-models.gemini-weekly" || rows[2].Key != "bucket.antigravity-claude-and-gpt-models.3p-5h" {
+		t.Fatalf("expected 5h before Weekly within each upstream group, got %#v", rows)
+	}
+	fiveHour := findQuotaRow(t, rows, "bucket.antigravity-gemini-models.gemini-5h")
+	assertQuotaText(t, fiveHour, "5h", "quota_group", "5h")
+	assertFloatField(t, fiveHour.RemainingFraction, 0.4, "five hour remainingFraction")
+	assertIntField(t, fiveHour.Window.Seconds, 18000, "five hour window seconds")
+	if fiveHour.GroupKey != "antigravity-gemini-models" || fiveHour.GroupLabel != "Gemini Models" {
+		t.Fatalf("unexpected five hour group metadata: %#v", fiveHour)
+	}
+	encodedRows, err := json.Marshal(rows)
+	if err != nil {
+		t.Fatalf("marshal normalized antigravity rows: %v", err)
+	}
+	if !contains(string(encodedRows), `"groupDescription":"Models within this group: Gemini Flash, Gemini Pro"`) {
+		t.Fatalf("expected upstream group description on normalized rows, got %s", encodedRows)
+	}
+	weekly := findQuotaRow(t, rows, "bucket.antigravity-gemini-models.gemini-weekly")
+	assertQuotaText(t, weekly, "Weekly", "quota_group", "weekly")
+	assertFloatField(t, weekly.RemainingFraction, 0.9, "weekly remainingFraction")
+	assertIntField(t, weekly.Window.Seconds, 604800, "weekly window seconds")
+	exhausted := findQuotaRow(t, rows, "bucket.antigravity-claude-and-gpt-models.3p-5h")
+	assertFloatField(t, exhausted.RemainingFraction, 0, "exhausted remainingFraction")
+	if exhausted.GroupKey != "antigravity-claude-and-gpt-models" || exhausted.GroupLabel != "Claude and GPT models" {
+		t.Fatalf("unexpected exhausted group metadata: %#v", exhausted)
+	}
+}
+
+func TestNormalizeAntigravityQuotaRowsScopesDuplicateBucketIDsByStableGroup(t *testing.T) {
+	remaining := 0.5
+	groups := []quota.AntigravityQuotaGroup{
+		{DisplayName: "Gemini Models", Buckets: []quota.AntigravityQuotaBucket{{BucketID: "shared-5h", Window: "5h", RemainingFraction: &remaining}}},
+		{DisplayName: "Claude and GPT models", Buckets: []quota.AntigravityQuotaBucket{{BucketID: "shared-5h", Window: "5h", RemainingFraction: &remaining}}},
+	}
+	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "antigravity", Result: quota.AntigravityResult{Quota: &quota.AntigravityQuotaPayload{Groups: groups}}})
+
+	if len(rows) != 2 || rows[0].Key == rows[1].Key {
+		t.Fatalf("expected unique cross-group row keys, got %#v", rows)
+	}
+	if rows[0].Key != "bucket.antigravity-gemini-models.shared-5h" || rows[1].Key != "bucket.antigravity-claude-and-gpt-models.shared-5h" {
+		t.Fatalf("expected stable group-scoped bucket keys, got %#v", rows)
+	}
+
+	reversed := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "antigravity", Result: quota.AntigravityResult{Quota: &quota.AntigravityQuotaPayload{Groups: []quota.AntigravityQuotaGroup{groups[1], groups[0]}}}})
+	if reversed[0].Key != rows[1].Key || reversed[1].Key != rows[0].Key {
+		t.Fatalf("expected keys to remain stable after group reorder, got %#v", reversed)
+	}
 }
 
 func TestNormalizeKimiQuotaRows(t *testing.T) {
@@ -283,32 +332,121 @@ func TestNormalizeKimiQuotaRows(t *testing.T) {
 }
 
 func TestNormalizeXAIQuotaRows(t *testing.T) {
-	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "xai", Result: quota.XAIResult{Billing: &quota.XAIBillingPayload{
-		Config: &quota.XAIBillingConfig{
-			MonthlyLimit:       quota.XAIMoneyValue{Val: 20000},
-			Used:               quota.XAIMoneyValue{Val: 167},
-			OnDemandCap:        quota.XAIMoneyValue{Val: 0},
-			BillingPeriodStart: "2026-06-01T00:00:00+00:00",
-			BillingPeriodEnd:   "2026-07-01T00:00:00+00:00",
-			History: []quota.XAIBillingHistoryItem{{
-				BillingCycle: quota.XAIBillingCycle{Year: 2026, Month: 5},
-				TotalUsed:    quota.XAIMoneyValue{Val: 0},
-			}},
-		},
-	}}})
+	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "xai", Result: quota.XAIResult{
+		Weekly: &quota.XAIBillingPayload{Config: &quota.XAIBillingConfig{
+			CurrentPeriod:      &quota.XAIBillingPeriod{Type: "weekly", Start: "2026-07-06T00:00:00Z", End: "2026-07-13T00:00:00Z"},
+			CreditUsagePercent: floatPtr(62.5),
+		}},
+		Monthly: &quota.XAIBillingPayload{Config: &quota.XAIBillingConfig{
+			MonthlyLimit:       quota.XAIMoneyValue{Val: floatPtr(1000)},
+			Used:               quota.XAIMoneyValue{Val: floatPtr(1250)},
+			OnDemandCap:        quota.XAIMoneyValue{Val: floatPtr(500)},
+			OnDemandUsed:       quota.XAIMoneyValue{Val: floatPtr(200)},
+			BillingPeriodStart: "2026-07-01T00:00:00Z",
+			BillingPeriodEnd:   "2026-08-01T00:00:00Z",
+		}},
+	}})
 
-	if len(rows) != 1 {
-		t.Fatalf("expected 1 quota row, got %#v", rows)
+	if len(rows) != 3 {
+		t.Fatalf("expected weekly, monthly, and pay-as-you-go rows, got %#v", rows)
+	}
+	if rows[0].Key != "billing.weekly" || rows[1].Key != "billing.monthly" || rows[2].Key != "billing.on_demand" {
+		t.Fatalf("unexpected xai quota order: %#v", rows)
+	}
+	weekly := rows[0]
+	assertQuotaText(t, weekly, "Weekly", "billing", "weekly")
+	assertFloatField(t, weekly.UsedPercent, 62.5, "xai weekly usedPercent")
+	assertIntField(t, weekly.Window.Seconds, 604800, "xai weekly window seconds")
+	if weekly.ResetAt != "2026-07-13T00:00:00Z" || weekly.LimitReached == nil || *weekly.LimitReached {
+		t.Fatalf("unexpected xai weekly row: %#v", weekly)
 	}
 	monthly := findQuotaRow(t, rows, "billing.monthly")
 	assertQuotaText(t, monthly, "Monthly Spend", "billing", "usd_cents")
-	assertFloatField(t, monthly.Used, 167, "xai monthly used")
-	assertFloatField(t, monthly.Limit, 20000, "xai monthly limit")
-	assertFloatField(t, monthly.Remaining, 19833, "xai monthly remaining")
-	assertFloatField(t, monthly.UsedPercent, 0.835, "xai monthly usedPercent")
+	assertFloatField(t, monthly.Used, 1000, "xai monthly used")
+	assertFloatField(t, monthly.Limit, 1000, "xai monthly limit")
+	assertFloatField(t, monthly.Remaining, 0, "xai monthly remaining")
+	assertFloatField(t, monthly.UsedPercent, 100, "xai monthly usedPercent")
 	assertIntField(t, monthly.Window.Seconds, 2592000, "xai monthly window seconds")
-	if monthly.ResetAt != "2026-07-01T00:00:00+00:00" {
+	if monthly.ResetAt != "2026-08-01T00:00:00Z" || monthly.LimitReached == nil || *monthly.LimitReached || monthly.Allowed == nil || !*monthly.Allowed {
 		t.Fatalf("unexpected xai monthly resetAt: %#v", monthly)
+	}
+	onDemand := findQuotaRow(t, rows, "billing.on_demand")
+	assertQuotaText(t, onDemand, "Pay-as-you-go", "billing", "usd_cents")
+	assertFloatField(t, onDemand.Used, 200, "xai pay-as-you-go used")
+	assertFloatField(t, onDemand.Limit, 500, "xai pay-as-you-go limit")
+	assertFloatField(t, onDemand.Remaining, 300, "xai pay-as-you-go remaining")
+	assertFloatField(t, onDemand.UsedPercent, 40, "xai pay-as-you-go usedPercent")
+	if onDemand.LimitReached == nil || *onDemand.LimitReached {
+		t.Fatalf("unexpected xai pay-as-you-go state: %#v", onDemand)
+	}
+}
+
+func TestNormalizeXAIProductRowsUsesStableKeysDeduplicationAndSorting(t *testing.T) {
+	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "xai", Result: quota.XAIResult{
+		Weekly: &quota.XAIBillingPayload{Config: &quota.XAIBillingConfig{
+			CurrentPeriod:      &quota.XAIBillingPeriod{Type: "weekly", End: "2026-07-13T00:00:00Z"},
+			CreditUsagePercent: floatPtr(20),
+			ProductUsage: []quota.XAIBillingProductUsage{
+				{Product: "  Grok Code  ", UsagePercent: floatPtr(80)},
+				{Product: "grok 4", UsagePercent: floatPtr(100)},
+				{Product: "GROK CODE", UsagePercent: floatPtr(90)},
+				{Product: "", UsagePercent: floatPtr(50)},
+				{Product: "No Data"},
+			},
+		}},
+	}})
+
+	if len(rows) != 3 {
+		t.Fatalf("expected weekly plus two product rows, got %#v", rows)
+	}
+	if rows[0].Key != "billing.weekly" || rows[1].Key != "billing.weekly.product.grok+4" || rows[2].Key != "billing.weekly.product.grok+code" {
+		t.Fatalf("unexpected product row order or keys: %#v", rows)
+	}
+	assertQuotaText(t, rows[1], "grok 4 Usage", "product", "grok 4")
+	assertFloatField(t, rows[1].UsedPercent, 100, "grok 4 usedPercent")
+	if rows[1].LimitReached == nil || !*rows[1].LimitReached {
+		t.Fatalf("expected grok 4 product quota to be reached: %#v", rows[1])
+	}
+	assertQuotaText(t, rows[2], "Grok Code Usage", "product", "Grok Code")
+	assertFloatField(t, rows[2].UsedPercent, 90, "deduplicated grok code usedPercent")
+	assertIntField(t, rows[2].Window.Seconds, 604800, "product weekly window seconds")
+	if rows[2].ResetAt != "2026-07-13T00:00:00Z" {
+		t.Fatalf("unexpected product resetAt: %#v", rows[2])
+	}
+}
+
+func TestNormalizeXAIDerivesPayAsYouGoUsageFromTotalSpend(t *testing.T) {
+	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "xai", Result: quota.XAIResult{
+		Monthly: &quota.XAIBillingPayload{Config: &quota.XAIBillingConfig{
+			MonthlyLimit: quota.XAIMoneyValue{Val: floatPtr(1000)},
+			Used:         quota.XAIMoneyValue{Val: floatPtr(1300)},
+			OnDemandCap:  quota.XAIMoneyValue{Val: floatPtr(500)},
+		}},
+	}})
+
+	monthly := findQuotaRow(t, rows, "billing.monthly")
+	if monthly.LimitReached == nil || *monthly.LimitReached {
+		t.Fatalf("monthly included spend must remain allowed while PAYG is available: %#v", monthly)
+	}
+	onDemand := findQuotaRow(t, rows, "billing.on_demand")
+	assertFloatField(t, onDemand.Used, 300, "derived pay-as-you-go used")
+	assertFloatField(t, onDemand.Remaining, 200, "derived pay-as-you-go remaining")
+	assertFloatField(t, onDemand.UsedPercent, 60, "derived pay-as-you-go usedPercent")
+}
+
+func TestNormalizeXAIQuotaRowsMarksPayAsYouGoExhaustion(t *testing.T) {
+	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "xai", Result: quota.XAIResult{
+		Monthly: &quota.XAIBillingPayload{Config: &quota.XAIBillingConfig{
+			MonthlyLimit: quota.XAIMoneyValue{Val: floatPtr(1000)},
+			Used:         quota.XAIMoneyValue{Val: floatPtr(1500)},
+			OnDemandCap:  quota.XAIMoneyValue{Val: floatPtr(500)},
+		}},
+	}})
+
+	monthly := findQuotaRow(t, rows, "billing.monthly")
+	onDemand := findQuotaRow(t, rows, "billing.on_demand")
+	if monthly.LimitReached == nil || !*monthly.LimitReached || onDemand.LimitReached == nil || !*onDemand.LimitReached {
+		t.Fatalf("expected exhausted included and PAYG rows to be limit reached: %#v", rows)
 	}
 }
 

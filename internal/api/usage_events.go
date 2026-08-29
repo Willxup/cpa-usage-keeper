@@ -1,7 +1,11 @@
 package api
 
 import (
+	"encoding/csv"
+	"encoding/json"
+	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +17,7 @@ import (
 	"cpa-usage-keeper/internal/timeutil"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type usageEventsResponse struct {
@@ -21,6 +26,8 @@ type usageEventsResponse struct {
 	Page       int                 `json:"page"`
 	PageSize   int                 `json:"page_size"`
 	TotalPages int                 `json:"total_pages"`
+	NextCursor string              `json:"next_cursor,omitempty"`
+	HasMore    bool                `json:"has_more"`
 }
 
 type usageSourceFilterOption struct {
@@ -29,73 +36,126 @@ type usageSourceFilterOption struct {
 	DisplayName string `json:"displayName"`
 }
 
-type modelFilterOption struct {
-	Value string `json:"value"`
-	Label string `json:"label"`
-}
-
 type usageEventFilterOptionsResponse struct {
 	Models  []string                  `json:"models"`
 	Sources []usageSourceFilterOption `json:"sources"`
 }
 
 type usageEventPayload struct {
-	ID              string                 `json:"id,omitempty"`
-	Timestamp       string                 `json:"timestamp"`
-	APIKey          string                 `json:"api_key,omitempty"`
-	Model           string                 `json:"model"`
-	ModelAlias      *string                `json:"model_alias,omitempty"`
-	ReasoningEffort string                 `json:"reasoning_effort,omitempty"`
-	ServiceTier     string                 `json:"service_tier,omitempty"`
-	ExecutorType    string                 `json:"executor_type,omitempty"`
-	Endpoint        string                 `json:"endpoint,omitempty"`
-	Source          string                 `json:"source"`
-	SourceRaw       string                 `json:"source_raw,omitempty"`
-	SourceType      string                 `json:"source_type,omitempty"`
-	AuthIndex       string                 `json:"auth_index,omitempty"`
-	IsDelete        bool                   `json:"isDelete,omitempty"`
-	Failed          bool                   `json:"failed"`
-	LatencyMS       int64                  `json:"latency_ms"`
-	TTFTMS          *int64                 `json:"ttft_ms,omitempty"`
-	SpeedTPS        *float64               `json:"speed_tps,omitempty"`
-	SpeedTotalTPS   *float64               `json:"speed_total_tps,omitempty"`
-	Tokens          usageEventTokenPayload `json:"tokens"`
-	CostUSD         float64                `json:"cost_usd"`
-	CostAvailable   bool                   `json:"cost_available"`
-	PricingStyle    string                 `json:"pricing_style,omitempty"`
+	ID                  string                 `json:"id,omitempty"`
+	Timestamp           string                 `json:"timestamp"`
+	APIKey              string                 `json:"api_key,omitempty"`
+	Model               string                 `json:"model"`
+	ModelAlias          string                 `json:"model_alias,omitempty"`
+	ReasoningEffort     string                 `json:"reasoning_effort,omitempty"`
+	ServiceTier         string                 `json:"service_tier,omitempty"`
+	ResponseServiceTier string                 `json:"response_service_tier,omitempty"`
+	ClientIP            *string                `json:"client_ip"`
+	XForwardedFor       *string                `json:"x_forwarded_for"`
+	UserAgent           *string                `json:"user_agent"`
+	ExecutorType        string                 `json:"executor_type,omitempty"`
+	Endpoint            string                 `json:"endpoint,omitempty"`
+	Source              string                 `json:"source"`
+	SourceRaw           string                 `json:"source_raw,omitempty"`
+	SourceType          string                 `json:"source_type,omitempty"`
+	AuthIndex           string                 `json:"auth_index,omitempty"`
+	RequestID           string                 `json:"request_id,omitempty"`
+	IsDelete            bool                   `json:"isDelete,omitempty"`
+	Failed              bool                   `json:"failed"`
+	LatencyMS           int64                  `json:"latency_ms"`
+	TTFTMS              *int64                 `json:"ttft_ms,omitempty"`
+	SpeedTPS            *float64               `json:"speed_tps,omitempty"`
+	SpeedTotalTPS       *float64               `json:"speed_total_tps,omitempty"`
+	Tokens              usageEventTokenPayload `json:"tokens"`
+	CostUSD             float64                `json:"cost_usd"`
+	CostAvailable       bool                   `json:"cost_available"`
+	PricingStyle        string                 `json:"pricing_style,omitempty"`
 }
 
 type usageEventTokenPayload struct {
 	InputTokens         int64 `json:"input_tokens"`
 	OutputTokens        int64 `json:"output_tokens"`
 	ReasoningTokens     int64 `json:"reasoning_tokens"`
-	CachedTokens        int64 `json:"cached_tokens"`
 	CacheReadTokens     int64 `json:"cache_read_tokens"`
 	CacheCreationTokens int64 `json:"cache_creation_tokens"`
 	TotalTokens         int64 `json:"total_tokens"`
 }
+
+type usageEventRequestLogPayload struct {
+	EventID      string                        `json:"event_id"`
+	RequestID    string                        `json:"request_id,omitempty"`
+	Filename     string                        `json:"filename,omitempty"`
+	Available    bool                          `json:"available"`
+	Previewable  bool                          `json:"previewable"`
+	TooLarge     bool                          `json:"too_large,omitempty"`
+	Downloadable bool                          `json:"downloadable,omitempty"`
+	Sections     []usageEventRequestLogSection `json:"sections"`
+}
+
+type usageEventRequestLogSection struct {
+	Title   string `json:"title"`
+	Content string `json:"content"`
+}
+
+type usageEventRequestLogDownloadTokenPayload struct {
+	DownloadURL string `json:"download_url"`
+}
+
+type usageEventExportPayload struct {
+	ID                  string   `json:"id"`
+	Timestamp           string   `json:"timestamp"`
+	APIKey              string   `json:"api_key"`
+	CPAAPIKeyID         string   `json:"cpa_api_key_id"`
+	Source              string   `json:"source"`
+	SourceType          string   `json:"source_type"`
+	AuthIndex           string   `json:"auth_index"`
+	IsIdentityDeleted   bool     `json:"is_identity_deleted"`
+	Model               string   `json:"model"`
+	ModelAlias          string   `json:"model_alias"`
+	ReasoningEffort     string   `json:"reasoning_effort"`
+	ServiceTier         string   `json:"service_tier"`
+	ResponseServiceTier string   `json:"response_service_tier"`
+	ClientIP            *string  `json:"client_ip"`
+	XForwardedFor       *string  `json:"x_forwarded_for"`
+	UserAgent           *string  `json:"user_agent"`
+	ExecutorType        string   `json:"executor_type"`
+	Result              string   `json:"result"`
+	Endpoint            string   `json:"endpoint"`
+	TTFTMS              *int64   `json:"ttft_ms"`
+	LatencyMS           int64    `json:"latency_ms"`
+	SpeedTPS            *float64 `json:"speed_tps"`
+	InputTokens         int64    `json:"input_tokens"`
+	OutputTokens        int64    `json:"output_tokens"`
+	ReasoningTokens     int64    `json:"reasoning_tokens"`
+	CacheReadTokens     int64    `json:"cache_read_tokens"`
+	CacheCreationTokens int64    `json:"cache_creation_tokens"`
+	CacheReadRate       *float64 `json:"cache_read_rate"`
+	TotalTokens         int64    `json:"total_tokens"`
+	CostUSD             float64  `json:"cost_usd"`
+}
+
+type usageEventStreamFunc func(func(servicedto.UsageEventRecord) error) error
+
+const usageEventsExportMaxConcurrency = 2
 
 func registerUsageEventsRoute(
 	router gin.IRoutes,
 	usageProvider service.UsageProvider,
 	usageIdentityProvider service.UsageIdentityProvider,
 	cpaAPIKeyProvider service.CPAAPIKeyProvider,
+	requestLogProvider service.RequestLogProvider,
+	requestLogDownloadTokens *requestLogDownloadTokenStore,
+	requestLogAccessEnabled bool,
 ) {
+	exportSlots := make(chan struct{}, usageEventsExportMaxConcurrency)
+
 	router.GET("/usage/events/filters/models", func(c *gin.Context) {
-		models, labels, err := loadUsageEventModelFilterOptions(c, usageProvider)
+		models, err := loadUsageEventModelFilterOptions(c, usageProvider)
 		if err != nil {
 			writeInternalError(c, "list usage event model filter options failed", err)
 			return
 		}
-		options := make([]modelFilterOption, 0, len(models))
-		for _, model := range models {
-			label := model
-			if alias, ok := labels[model]; ok {
-				label = alias
-			}
-			options = append(options, modelFilterOption{Value: model, Label: label})
-		}
-		c.JSON(http.StatusOK, gin.H{"models": options})
+		c.JSON(http.StatusOK, gin.H{"models": models})
 	})
 
 	router.GET("/usage/events/filters/sources", func(c *gin.Context) {
@@ -115,7 +175,7 @@ func registerUsageEventsRoute(
 
 		filter, err := parseUsageFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			writeUsageFilterParseError(c, err)
 			return
 		}
 		if err := applyUsageEventsSourceFilter(&filter); err != nil {
@@ -139,14 +199,204 @@ func registerUsageEventsRoute(
 		if err != nil {
 			return
 		}
+		nextCursor := ""
+		if filter.CursorMode && rows.HasMore && len(rows.Events) > 0 {
+			lastEvent := rows.Events[len(rows.Events)-1]
+			nextCursor = encodeUsageEventsCursor(lastEvent.Timestamp, lastEvent.ID)
+		}
 		c.JSON(http.StatusOK, usageEventsResponse{
 			Events:     buildUsageEventsPayload(rows.Events, resolver, apiKeyInfos),
 			TotalCount: rows.TotalCount,
 			Page:       rows.Page,
 			PageSize:   rows.PageSize,
 			TotalPages: rows.TotalPages,
+			NextCursor: nextCursor,
+			HasMore:    rows.HasMore,
 		})
 	})
+
+	router.GET("/usage/events/:id/request-log", func(c *gin.Context) {
+		if !requestLogAccessEnabled {
+			writeUsageEventRequestLogAccessDisabled(c)
+			return
+		}
+		if requestLogProvider == nil {
+			writeInternalError(c, "request log provider is not configured", nil)
+			return
+		}
+		eventID, ok := parseUsageEventRequestLogEventID(c)
+		if !ok {
+			return
+		}
+		response, err := requestLogProvider.GetUsageEventRequestLog(c.Request.Context(), eventID)
+		if err != nil {
+			writeUsageEventRequestLogError(c, err)
+			return
+		}
+		setNoStoreHeaders(c)
+		c.JSON(http.StatusOK, buildUsageEventRequestLogPayload(response))
+	})
+
+	router.POST("/usage/events/:id/request-log/download-token", func(c *gin.Context) {
+		if !requestLogAccessEnabled {
+			writeUsageEventRequestLogAccessDisabled(c)
+			return
+		}
+		if requestLogProvider == nil {
+			writeInternalError(c, "request log provider is not configured", nil)
+			return
+		}
+		if requestLogDownloadTokens == nil {
+			writeInternalError(c, "request log download token store is not configured", nil)
+			return
+		}
+		eventID, ok := parseUsageEventRequestLogEventID(c)
+		if !ok {
+			return
+		}
+		token, err := requestLogDownloadTokens.issue(eventID)
+		if err != nil {
+			writeInternalError(c, "issue request log download token failed", err)
+			return
+		}
+		downloadURL := strings.TrimSuffix(c.Request.URL.Path, "/download-token") + "/download-file?token=" + url.QueryEscape(token)
+		setNoStoreHeaders(c)
+		c.JSON(http.StatusOK, usageEventRequestLogDownloadTokenPayload{DownloadURL: downloadURL})
+	})
+
+	router.GET("/usage/events/export", func(c *gin.Context) {
+		format := strings.ToLower(strings.TrimSpace(c.Query("format")))
+		if format == "" {
+			format = "csv"
+		}
+		if format != "csv" && format != "json" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid export format"})
+			return
+		}
+
+		filter, err := parseUsageExportFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		if err != nil {
+			writeUsageFilterParseError(c, err)
+			return
+		}
+		if err := applyUsageEventsSourceFilter(&filter); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		select {
+		case exportSlots <- struct{}{}:
+			defer func() { <-exportSlots }()
+		default:
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "usage events export capacity is full"})
+			return
+		}
+		filter.Limit = 0
+		filter.Page = 0
+		filter.PageSize = 0
+		filter.Offset = 0
+
+		identities, err := loadUsageResolutionData(c, usageIdentityProvider)
+		if err != nil {
+			writeInternalError(c, "load usage resolution data failed", err)
+			return
+		}
+		resolver := newUsageIdentityResolver(identities)
+		apiKeyInfos, err := loadCPAAPIKeyInfos(c, cpaAPIKeyProvider)
+		if err != nil {
+			return
+		}
+		streamEvents := func(emit func(servicedto.UsageEventRecord) error) error {
+			if usageProvider == nil {
+				return nil
+			}
+			return usageProvider.StreamUsageEvents(c.Request.Context(), filter, emit)
+		}
+		if format == "json" {
+			if err := writeUsageEventsJSONExport(c, streamEvents, resolver, apiKeyInfos); err != nil {
+				writeUsageEventsExportError(c, err)
+			}
+			return
+		}
+		if err := writeUsageEventsCSVExport(c, streamEvents, resolver, apiKeyInfos); err != nil {
+			writeUsageEventsExportError(c, err)
+		}
+	})
+}
+
+func registerUsageEventRequestLogDownloadTokenRoutes(
+	router gin.IRoutes,
+	requestLogProvider service.RequestLogProvider,
+	requestLogDownloadTokens *requestLogDownloadTokenStore,
+	requestLogAccessEnabled bool,
+) {
+	router.GET("/usage/events/:id/request-log/download-file", func(c *gin.Context) {
+		if !requestLogAccessEnabled {
+			writeUsageEventRequestLogAccessDisabled(c)
+			return
+		}
+		if requestLogProvider == nil {
+			writeInternalError(c, "request log provider is not configured", nil)
+			return
+		}
+		if requestLogDownloadTokens == nil {
+			writeInternalError(c, "request log download token store is not configured", nil)
+			return
+		}
+		eventID, ok := parseUsageEventRequestLogEventID(c)
+		if !ok {
+			return
+		}
+		if !requestLogDownloadTokens.consume(strings.TrimSpace(c.Query("token")), eventID) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired request log download token"})
+			return
+		}
+		streamUsageEventRequestLogDownload(c, requestLogProvider, eventID)
+	})
+}
+
+func writeUsageEventRequestLogAccessDisabled(c *gin.Context) {
+	c.JSON(http.StatusForbidden, gin.H{"error": "CPA request log access is disabled"})
+}
+
+func parseUsageEventRequestLogEventID(c *gin.Context) (int64, bool) {
+	eventID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || eventID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid usage event id"})
+		return 0, false
+	}
+	return eventID, true
+}
+
+func streamUsageEventRequestLogDownload(c *gin.Context, requestLogProvider service.RequestLogProvider, eventID int64) {
+	response, err := requestLogProvider.DownloadUsageEventRequestLog(c.Request.Context(), eventID)
+	if err != nil {
+		writeUsageEventRequestLogError(c, err)
+		return
+	}
+	contentType := strings.TrimSpace(response.ContentType)
+	if contentType == "" {
+		contentType = "text/plain; charset=utf-8"
+	}
+	filename := strings.TrimSpace(response.Filename)
+	if filename == "" {
+		requestID := strings.TrimSpace(response.RequestID)
+		if requestID == "" {
+			requestID = strconv.FormatInt(eventID, 10)
+		}
+		filename = "request-log-" + requestID + ".log"
+	}
+	if response.Body == nil {
+		writeInternalError(c, "request log download body is empty", nil)
+		return
+	}
+	defer response.Body.Close()
+	contentLength := int64(-1)
+	if response.ContentLength > 0 {
+		contentLength = response.ContentLength
+	}
+	setNoStoreHeaders(c)
+	c.Header("Content-Disposition", requestLogAttachmentDisposition(filename))
+	c.DataFromReader(http.StatusOK, contentLength, contentType, response.Body, nil)
 }
 
 // Source 下拉提交的是 usage identity；为了兼容前端命名，API 收 source，但进入仓储前只转换成 auth_index 查询。
@@ -177,32 +427,36 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 			id = strconv.FormatInt(row.ID, 10)
 		}
 		payload = append(payload, usageEventPayload{
-			ID:              id,
-			Timestamp:       timeutil.FormatStorageTime(row.Timestamp),
-			APIKey:          usageEventAPIKeyLabel(row.APIGroupKey, apiKeyInfos),
-			ModelAlias:      row.ModelAlias,
-			Model:           row.Model,
-			ReasoningEffort: strings.TrimSpace(row.ReasoningEffort),
-			ServiceTier:     strings.TrimSpace(row.ServiceTier),
-			ExecutorType:    strings.TrimSpace(row.ExecutorType),
-			Endpoint:        strings.TrimSpace(row.Endpoint),
-			Source:          source,
-			SourceType:      identity.Type,
-			AuthIndex:       row.AuthIndex,
-			IsDelete:        isDelete,
-			Failed:          row.Failed,
-			LatencyMS:       row.LatencyMS,
-			TTFTMS:          row.TTFTMS,
-			SpeedTPS:        usageEventSpeedTPS(row),
-			SpeedTotalTPS:   usageEventSpeedTotalTPS(row),
-			CostUSD:         row.CostUSD,
-			CostAvailable:   row.CostAvailable,
-			PricingStyle:    strings.TrimSpace(row.PricingStyle),
+			ID:                  id,
+			Timestamp:           timeutil.FormatStorageTime(row.Timestamp),
+			APIKey:              usageEventAPIKeyLabel(row.APIGroupKey, apiKeyInfos),
+			Model:               row.Model,
+			ModelAlias:          strings.TrimSpace(row.ModelAlias),
+			ReasoningEffort:     strings.TrimSpace(row.ReasoningEffort),
+			ServiceTier:         strings.TrimSpace(row.ServiceTier),
+			ResponseServiceTier: strings.TrimSpace(row.ResponseServiceTier),
+			ClientIP:            row.ClientIP,
+			XForwardedFor:       row.XForwardedFor,
+			UserAgent:           row.UserAgent,
+			ExecutorType:        strings.TrimSpace(row.ExecutorType),
+			Endpoint:            strings.TrimSpace(row.Endpoint),
+			Source:              source,
+			SourceType:          identity.Type,
+			AuthIndex:           row.AuthIndex,
+			RequestID:           strings.TrimSpace(row.RequestID),
+			IsDelete:            isDelete,
+			Failed:              row.Failed,
+			LatencyMS:           row.LatencyMS,
+			TTFTMS:              row.TTFTMS,
+			SpeedTPS:            usageEventSpeedTPS(row),
+			SpeedTotalTPS:       usageEventSpeedTotalTPS(row),
+			CostUSD:             row.CostUSD,
+			CostAvailable:       row.CostAvailable,
+			PricingStyle:        strings.TrimSpace(row.PricingStyle),
 			Tokens: usageEventTokenPayload{
 				InputTokens:         row.InputTokens,
 				OutputTokens:        row.OutputTokens,
 				ReasoningTokens:     row.ReasoningTokens,
-				CachedTokens:        row.CachedTokens,
 				CacheReadTokens:     row.CacheReadTokens,
 				CacheCreationTokens: row.CacheCreationTokens,
 				TotalTokens:         row.TotalTokens,
@@ -212,32 +466,379 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 	return payload
 }
 
-func usageEventSpeedTPS(row servicedto.UsageEventRecord) *float64 {
-	visibleOutputTokens := row.OutputTokens - row.ReasoningTokens
-	if visibleOutputTokens < 0 {
-		visibleOutputTokens = 0
+func buildUsageEventRequestLogPayload(response service.RequestLogResponse) usageEventRequestLogPayload {
+	eventID := ""
+	if response.EventID != 0 {
+		eventID = strconv.FormatInt(response.EventID, 10)
 	}
-	// 生成时间过短（<10ms）时，毫秒级精度无法支撑可信的 TPS 计算。
-	if row.TTFTMS == nil || *row.TTFTMS <= 0 || row.LatencyMS-*row.TTFTMS < 10 || visibleOutputTokens <= 1 {
+	sections := make([]usageEventRequestLogSection, 0, len(response.Sections))
+	for _, section := range response.Sections {
+		sections = append(sections, usageEventRequestLogSection{
+			Title:   strings.TrimSpace(section.Title),
+			Content: section.Content,
+		})
+	}
+	return usageEventRequestLogPayload{
+		EventID:      eventID,
+		RequestID:    strings.TrimSpace(response.RequestID),
+		Filename:     strings.TrimSpace(response.Filename),
+		Available:    response.Available,
+		Previewable:  response.Previewable,
+		TooLarge:     response.TooLarge,
+		Downloadable: response.Downloadable,
+		Sections:     sections,
+	}
+}
+
+func writeUsageEventRequestLogError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "usage event not found"})
+	case errors.Is(err, service.ErrRequestLogMissingID):
+		c.JSON(http.StatusNotFound, gin.H{"error": "usage event request id missing"})
+	case errors.Is(err, service.ErrRequestLogUnavailable):
+		c.JSON(http.StatusNotFound, gin.H{"error": "request log unavailable"})
+	default:
+		writeInternalError(c, "load usage event request log failed", err)
+	}
+}
+
+func buildUsageEventExportPayload(row servicedto.UsageEventRecord, resolver usageIdentityResolver, apiKeyInfos map[string]analysisAPIKeyInfo) usageEventExportPayload {
+	identity, matched := resolver.resolveByAuthIndex(row.AuthIndex)
+	source, isIdentityDeleted := usageEventPublicSource(row, identity, matched)
+	id := ""
+	if row.ID != 0 {
+		id = strconv.FormatInt(row.ID, 10)
+	}
+	result := "success"
+	if row.Failed {
+		result = "failed"
+	}
+	return usageEventExportPayload{
+		ID:                  id,
+		Timestamp:           timeutil.FormatStorageTime(row.Timestamp),
+		APIKey:              usageEventAPIKeyLabel(row.APIGroupKey, apiKeyInfos),
+		CPAAPIKeyID:         usageEventCPAAPIKeyID(row.APIGroupKey, apiKeyInfos),
+		Source:              source,
+		SourceType:          identity.Type,
+		AuthIndex:           strings.TrimSpace(row.AuthIndex),
+		IsIdentityDeleted:   isIdentityDeleted,
+		Model:               row.Model,
+		ModelAlias:          strings.TrimSpace(row.ModelAlias),
+		ReasoningEffort:     strings.TrimSpace(row.ReasoningEffort),
+		ServiceTier:         strings.TrimSpace(row.ServiceTier),
+		ResponseServiceTier: strings.TrimSpace(row.ResponseServiceTier),
+		ClientIP:            row.ClientIP,
+		XForwardedFor:       row.XForwardedFor,
+		UserAgent:           row.UserAgent,
+		ExecutorType:        strings.TrimSpace(row.ExecutorType),
+		Result:              result,
+		Endpoint:            strings.TrimSpace(row.Endpoint),
+		TTFTMS:              row.TTFTMS,
+		LatencyMS:           row.LatencyMS,
+		SpeedTPS:            usageEventSpeedTPS(row),
+		InputTokens:         row.InputTokens,
+		OutputTokens:        row.OutputTokens,
+		ReasoningTokens:     row.ReasoningTokens,
+		CacheReadTokens:     row.CacheReadTokens,
+		CacheCreationTokens: row.CacheCreationTokens,
+		CacheReadRate:       usageEventCacheReadRate(row),
+		TotalTokens:         row.TotalTokens,
+		CostUSD:             row.CostUSD,
+	}
+}
+
+func usageEventSpeedTPS(row servicedto.UsageEventRecord) *float64 {
+	if row.TTFTMS == nil || *row.TTFTMS <= 0 || row.LatencyMS <= *row.TTFTMS || row.OutputTokens <= 0 {
 		return nil
 	}
-	// Speed 只衡量首字后可见输出 token 的平均生成速度，避免把等待首字的时间重复计入。
-	speed := float64(visibleOutputTokens-1) / (float64(row.LatencyMS-*row.TTFTMS) / 1000)
+	// Speed 使用完整 output_tokens 除以首字后的耗时，保持请求事件口径简单一致。
+	speed := float64(row.OutputTokens) / (float64(row.LatencyMS-*row.TTFTMS) / 1000)
 	return &speed
 }
 
-// usageEventSpeedTotalTPS 计算包含 TTFT 在内的总耗时 TPS，更贴近用户体感。
+// usageEventSpeedTotalTPS calculates visible output tokens per second over the full request duration.
 func usageEventSpeedTotalTPS(row servicedto.UsageEventRecord) *float64 {
 	visibleOutputTokens := row.OutputTokens - row.ReasoningTokens
 	if visibleOutputTokens < 0 {
 		visibleOutputTokens = 0
 	}
-	// 总耗时过短（<10ms）时，毫秒级精度无法支撑可信的 TPS 计算。
 	if row.LatencyMS < 10 || visibleOutputTokens <= 0 {
 		return nil
 	}
 	speed := float64(visibleOutputTokens) / (float64(row.LatencyMS) / 1000)
 	return &speed
+}
+
+func usageEventCacheReadRate(row servicedto.UsageEventRecord) *float64 {
+	if row.InputTokens <= 0 {
+		return nil
+	}
+	rate := float64(row.CacheReadTokens) / float64(row.InputTokens) * 100
+	return &rate
+}
+
+var usageEventsExportCSVHeader = []string{
+	"id",
+	"timestamp",
+	"api_key",
+	"cpa_api_key_id",
+	"source",
+	"source_type",
+	"auth_index",
+	"is_identity_deleted",
+	"model",
+	"model_alias",
+	"reasoning_effort",
+	"service_tier",
+	"response_service_tier",
+	"executor_type",
+	"result",
+	"endpoint",
+	"ttft_ms",
+	"latency_ms",
+	"speed_tps",
+	"client_ip",
+	"x_forwarded_for",
+	"user_agent",
+	"input_tokens",
+	"output_tokens",
+	"reasoning_tokens",
+	"cache_read_tokens",
+	"cache_creation_tokens",
+	"cache_read_rate",
+	"total_tokens",
+	"cost_usd",
+}
+
+func writeUsageEventsJSONExport(c *gin.Context, stream usageEventStreamFunc, resolver usageIdentityResolver, apiKeyInfos map[string]analysisAPIKeyInfo) error {
+	encoder := json.NewEncoder(c.Writer)
+	encoder.SetEscapeHTML(false)
+	started := false
+	begin := func() error {
+		if started {
+			return nil
+		}
+		c.Header("Content-Disposition", `attachment; filename="`+usageEventsExportFilename("json")+`"`)
+		c.Header("Content-Type", "application/json; charset=utf-8")
+		c.Status(http.StatusOK)
+		if _, err := c.Writer.Write([]byte(`{"events":[`)); err != nil {
+			return err
+		}
+		started = true
+		return nil
+	}
+	var count int64
+	if err := stream(func(row servicedto.UsageEventRecord) error {
+		if err := begin(); err != nil {
+			return err
+		}
+		if count > 0 {
+			if _, err := c.Writer.Write([]byte(",")); err != nil {
+				return err
+			}
+		}
+		if err := encoder.Encode(buildUsageEventExportPayload(row, resolver, apiKeyInfos)); err != nil {
+			return err
+		}
+		count++
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := begin(); err != nil {
+		return err
+	}
+	if _, err := c.Writer.Write([]byte(`],"total_count":` + strconv.FormatInt(count, 10) + `}`)); err != nil {
+		return err
+	}
+	c.Writer.Flush()
+	return nil
+}
+
+func writeUsageEventsCSVExport(c *gin.Context, stream usageEventStreamFunc, resolver usageIdentityResolver, apiKeyInfos map[string]analysisAPIKeyInfo) error {
+	var writer *csv.Writer
+	started := false
+	begin := func() error {
+		if started {
+			return nil
+		}
+		c.Header("Content-Disposition", `attachment; filename="`+usageEventsExportFilename("csv")+`"`)
+		c.Header("Content-Type", "text/csv; charset=utf-8")
+		c.Status(http.StatusOK)
+		writer = csv.NewWriter(c.Writer)
+		if err := writer.Write(usageEventsExportCSVHeader); err != nil {
+			return err
+		}
+		started = true
+		return nil
+	}
+	var count int64
+	if err := stream(func(row servicedto.UsageEventRecord) error {
+		if err := begin(); err != nil {
+			return err
+		}
+		if err := writer.Write(usageEventExportCSVRecord(buildUsageEventExportPayload(row, resolver, apiKeyInfos))); err != nil {
+			return err
+		}
+		count++
+		if count%100 == 0 {
+			writer.Flush()
+			if err := writer.Error(); err != nil {
+				return err
+			}
+			c.Writer.Flush()
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := begin(); err != nil {
+		return err
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return err
+	}
+	c.Writer.Flush()
+	return nil
+}
+
+func writeUsageEventsExportError(c *gin.Context, err error) {
+	if err == nil {
+		return
+	}
+	if c.Writer.Written() {
+		_ = c.Error(err)
+		return
+	}
+	c.Writer.Header().Del("Content-Disposition")
+	writeInternalError(c, "export usage events failed", err)
+}
+
+func usageEventsExportFilename(format string) string {
+	timestamp := timeutil.NormalizeStorageTime(time.Now()).Format("20060102-150405")
+	return "usage-events-" + timestamp + "." + format
+}
+
+func sanitizeAttachmentFilename(filename string) string {
+	filename = strings.TrimSpace(filename)
+	var builder strings.Builder
+	for _, r := range filename {
+		if r < 0x20 || r == 0x7f || r > 0x7e {
+			builder.WriteByte('_')
+			continue
+		}
+		switch r {
+		case '\\', '/', '"', ';', ':':
+			builder.WriteByte('_')
+		default:
+			builder.WriteRune(r)
+		}
+	}
+	sanitized := strings.TrimSpace(builder.String())
+	if sanitized == "" {
+		return "request-log.log"
+	}
+	return sanitized
+}
+
+func sanitizeAttachmentFilenameStar(filename string) string {
+	filename = strings.TrimSpace(filename)
+	var builder strings.Builder
+	for _, r := range filename {
+		if r < 0x20 || r == 0x7f {
+			builder.WriteByte('_')
+			continue
+		}
+		switch r {
+		case '\\', '/', '"', ';', ':':
+			builder.WriteByte('_')
+		default:
+			builder.WriteRune(r)
+		}
+	}
+	sanitized := strings.TrimSpace(builder.String())
+	if sanitized == "" {
+		return "request-log.log"
+	}
+	return sanitized
+}
+
+func requestLogAttachmentDisposition(filename string) string {
+	original := strings.TrimSpace(filename)
+	fallback := sanitizeAttachmentFilename(original)
+	if original == "" {
+		original = fallback
+	}
+	return `attachment; filename="` + fallback + `"; filename*=UTF-8''` + url.PathEscape(sanitizeAttachmentFilenameStar(original))
+}
+
+func usageEventExportCSVRecord(event usageEventExportPayload) []string {
+	return []string{
+		event.ID,
+		event.Timestamp,
+		event.APIKey,
+		event.CPAAPIKeyID,
+		event.Source,
+		event.SourceType,
+		event.AuthIndex,
+		strconv.FormatBool(event.IsIdentityDeleted),
+		event.Model,
+		event.ModelAlias,
+		event.ReasoningEffort,
+		event.ServiceTier,
+		event.ResponseServiceTier,
+		event.ExecutorType,
+		event.Result,
+		event.Endpoint,
+		formatOptionalInt64(event.TTFTMS),
+		strconv.FormatInt(event.LatencyMS, 10),
+		formatOptionalFloat64(event.SpeedTPS),
+		formatOptionalCSVText(event.ClientIP),
+		formatOptionalCSVText(event.XForwardedFor),
+		formatOptionalCSVText(event.UserAgent),
+		strconv.FormatInt(event.InputTokens, 10),
+		strconv.FormatInt(event.OutputTokens, 10),
+		strconv.FormatInt(event.ReasoningTokens, 10),
+		strconv.FormatInt(event.CacheReadTokens, 10),
+		strconv.FormatInt(event.CacheCreationTokens, 10),
+		formatOptionalFloat64(event.CacheReadRate),
+		strconv.FormatInt(event.TotalTokens, 10),
+		strconv.FormatFloat(event.CostUSD, 'f', -1, 64),
+	}
+}
+
+func formatOptionalInt64(value *int64) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.FormatInt(*value, 10)
+}
+
+func formatOptionalCSVText(value *string) string {
+	if value == nil {
+		return ""
+	}
+	raw := *value
+	candidate := strings.TrimLeft(raw, " \t\r\n")
+	if candidate == "" {
+		return raw
+	}
+	switch candidate[0] {
+	case '=', '+', '-', '@':
+		// CSV 引号不会阻止表格软件解析公式；前置单引号让外部请求元数据按字符串显示。
+		return "'" + raw
+	default:
+		return raw
+	}
+}
+
+func formatOptionalFloat64(value *float64) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.FormatFloat(*value, 'f', -1, 64)
 }
 
 func usageEventAPIKeyLabel(apiGroupKey string, apiKeyInfos map[string]analysisAPIKeyInfo) string {
@@ -246,6 +847,17 @@ func usageEventAPIKeyLabel(apiGroupKey string, apiKeyInfos map[string]analysisAP
 		return ""
 	}
 	return analysisAPIKeyLabel(apiKey, apiKeyInfos)
+}
+
+func usageEventCPAAPIKeyID(apiGroupKey string, apiKeyInfos map[string]analysisAPIKeyInfo) string {
+	apiKey := strings.TrimSpace(apiGroupKey)
+	if apiKey == "" {
+		return ""
+	}
+	if info, ok := apiKeyInfos[apiKey]; ok {
+		return info.ID
+	}
+	return ""
 }
 
 func usageEventPublicSource(row servicedto.UsageEventRecord, identity resolvedUsageIdentity, matched bool) (string, bool) {
@@ -263,15 +875,15 @@ func usageEventPublicSource(row servicedto.UsageEventRecord, identity resolvedUs
 	}
 }
 
-func loadUsageEventModelFilterOptions(c *gin.Context, usageProvider service.UsageProvider) ([]string, map[string]string, error) {
+func loadUsageEventModelFilterOptions(c *gin.Context, usageProvider service.UsageProvider) ([]string, error) {
 	if usageProvider == nil {
-		return []string{}, nil, nil
+		return []string{}, nil
 	}
 	options, err := usageProvider.ListUsageEventFilterOptions(c.Request.Context(), servicedto.UsageFilter{})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return options.Models, options.ModelLabels, nil
+	return options.Models, nil
 }
 
 func loadUsageEventSourceFilterOptions(c *gin.Context, usageIdentityProvider service.UsageIdentityProvider) ([]usageSourceFilterOption, error) {
@@ -314,9 +926,8 @@ func usageSourceFilterOptionFromIdentity(identity entities.UsageIdentity) (usage
 		if value == "" {
 			return usageSourceFilterOption{}, false
 		}
-		label := strings.TrimSpace(identity.Name)
 		displayName := helper.UsageIdentityDisplayName(identity)
-		return usageSourceFilterOption{Value: value, Label: label, DisplayName: displayName}, true
+		return usageSourceFilterOption{Value: value, Label: displayName, DisplayName: displayName}, true
 	default:
 		return usageSourceFilterOption{}, false
 	}

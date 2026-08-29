@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/version"
 	"github.com/gin-gonic/gin"
@@ -30,14 +32,6 @@ func (s statusStub) Status() poller.Status {
 	return s.status
 }
 
-type activeStatusRecorderStub struct {
-	calls int
-}
-
-func (s *activeStatusRecorderStub) RecordActiveStatus(time.Time) {
-	s.calls++
-}
-
 func TestHealthzReturnsOK(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
@@ -47,6 +41,81 @@ func TestHealthzReturnsOK(t *testing.T) {
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+}
+
+func TestHealthzRemainsPublicWhenAuthEnabled(t *testing.T) {
+	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
+	router := NewRouter(nil, nil, nil, nil, config, NewAuthHandler(config, auth.NewSessionManager(time.Hour)), "")
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestPingOnlyAvailableForDevBuildsOrExplicitDebugMode(t *testing.T) {
+	previousVersion := version.Version
+	t.Cleanup(func() { version.Version = previousVersion })
+
+	for _, testCase := range []struct {
+		name       string
+		appVersion string
+		ginMode    string
+		wantStatus int
+	}{
+		{name: "release build hides ping by default", appVersion: "v1.2.3", wantStatus: http.StatusNotFound},
+		{name: "dev build exposes ping", appVersion: "dev", wantStatus: http.StatusOK},
+		{name: "explicit gin debug exposes ping", appVersion: "v1.2.3", ginMode: gin.DebugMode, wantStatus: http.StatusOK},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			version.Version = testCase.appVersion
+			t.Setenv("GIN_MODE", testCase.ginMode)
+
+			router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "")
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/ping", nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != testCase.wantStatus {
+				t.Fatalf("expected status %d, got %d body=%s", testCase.wantStatus, resp.Code, resp.Body.String())
+			}
+		})
+	}
+}
+
+func TestSubpathPingOnlyAvailableForDevBuildsOrExplicitDebugMode(t *testing.T) {
+	previousVersion := version.Version
+	t.Cleanup(func() { version.Version = previousVersion })
+
+	for _, testCase := range []struct {
+		name       string
+		appVersion string
+		ginMode    string
+		path       string
+		wantStatus int
+	}{
+		{name: "release build hides prefixed ping", appVersion: "v1.2.3", path: "/cpa/api/v1/ping", wantStatus: http.StatusNotFound},
+		{name: "dev build exposes prefixed ping", appVersion: "dev", path: "/cpa/api/v1/ping", wantStatus: http.StatusOK},
+		{name: "explicit gin debug exposes prefixed ping", appVersion: "v1.2.3", ginMode: gin.DebugMode, path: "/cpa/api/v1/ping", wantStatus: http.StatusOK},
+		{name: "dev build does not expose unprefixed ping", appVersion: "dev", path: "/api/v1/ping", wantStatus: http.StatusNotFound},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			version.Version = testCase.appVersion
+			t.Setenv("GIN_MODE", testCase.ginMode)
+
+			router := NewRouter(nil, nil, nil, nil, AuthConfig{BasePath: "/cpa"}, nil, "/cpa")
+			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != testCase.wantStatus {
+				t.Fatalf("expected status %d, got %d body=%s", testCase.wantStatus, resp.Code, resp.Body.String())
+			}
+		})
 	}
 }
 
@@ -68,19 +137,10 @@ func TestRouterDoesNotTrustForwardedClientIPByDefault(t *testing.T) {
 }
 
 func TestStatusReturnsPollerState(t *testing.T) {
-	previousLocal := time.Local
-	location, err := time.LoadLocation("Asia/Shanghai")
-	if err != nil {
-		t.Fatalf("load location: %v", err)
-	}
-	t.Cleanup(func() { time.Local = previousLocal })
-	time.Local = location
-
-	lastRunAt := time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC)
 	router := NewRouter(nil, statusStub{status: poller.Status{
 		Running:     true,
 		SyncRunning: false,
-		LastRunAt:   lastRunAt,
+		LastRunAt:   time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC),
 		LastError:   "boom",
 		LastWarning: "metadata unavailable",
 		LastStatus:  "completed_with_warnings",
@@ -94,8 +154,11 @@ func TestStatusReturnsPollerState(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
 	body := resp.Body.String()
-	if !(contains(body, `"running":true`) && contains(body, `"sync_running":false`) && contains(body, `"last_error":"boom"`) && contains(body, `"last_warning":"metadata unavailable"`) && contains(body, `"last_status":"completed_with_warnings"`) && contains(body, `"last_run_at":"2026-04-16T20:00:00+08:00"`)) {
+	if !(contains(body, `"running":true`) && contains(body, `"sync_running":false`) && contains(body, `"last_error":"boom"`) && contains(body, `"last_warning":"metadata unavailable"`) && contains(body, `"last_status":"completed_with_warnings"`)) {
 		t.Fatalf("unexpected response body: %s", body)
+	}
+	if contains(body, `"last_run_at"`) {
+		t.Fatalf("status response must not expose poller last run time: %s", body)
 	}
 }
 
@@ -135,7 +198,140 @@ func TestStatusReturnsEmptyStateWithoutProvider(t *testing.T) {
 	}
 }
 
-func TestStatusReturnsVersionAndUpdateCheckFlag(t *testing.T) {
+func TestVersionReturnsCurrentVersionAndUpdateCheckFlag(t *testing.T) {
+	previousVersion := version.Version
+	t.Cleanup(func() { version.Version = previousVersion })
+	version.Version = "v1.2.3"
+
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	if got := resp.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("expected version Cache-Control no-store, got %q", got)
+	}
+	if got := resp.Header().Get("Pragma"); got != "no-cache" {
+		t.Fatalf("expected version Pragma no-cache, got %q", got)
+	}
+	if got := resp.Header().Get("Expires"); got != "0" {
+		t.Fatalf("expected version Expires 0, got %q", got)
+	}
+	var body versionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response body: %v", err)
+	}
+	if body.Version != "v1.2.3" || !body.UpdateCheckEnabled {
+		t.Fatalf("unexpected response body: %+v", body)
+	}
+}
+
+func TestVersionRequiresAuthWhenAuthEnabled(t *testing.T) {
+	sessions := auth.NewSessionManager(time.Hour)
+	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
+	router := NewRouter(nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status 401, got %d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestVersionAllowsAdminAndAPIKeyViewerSessions(t *testing.T) {
+	previousVersion := version.Version
+	t.Cleanup(func() { version.Version = previousVersion })
+	version.Version = "v1.2.3"
+
+	for _, testCase := range []struct {
+		name        string
+		createToken func(*auth.SessionManager) (string, error)
+	}{
+		{
+			name: "admin",
+			createToken: func(sessions *auth.SessionManager) (string, error) {
+				token, _, err := sessions.Create()
+				return token, err
+			},
+		},
+		{
+			name: "api key viewer",
+			createToken: func(sessions *auth.SessionManager) (string, error) {
+				token, _, err := sessions.CreateAPIKeyViewer(42)
+				return token, err
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			sessions := auth.NewSessionManager(time.Hour)
+			config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
+			router := NewRouter(nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "")
+			token, err := testCase.createToken(sessions)
+			if err != nil {
+				t.Fatalf("create session: %v", err)
+			}
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+			req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+			resp := httptest.NewRecorder()
+
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d body=%s", resp.Code, resp.Body.String())
+			}
+		})
+	}
+}
+
+func TestSubpathVersionRequiresAuthAndAllowsAdminAndAPIKeyViewerSessions(t *testing.T) {
+	previousVersion := version.Version
+	t.Cleanup(func() { version.Version = previousVersion })
+	version.Version = "v1.2.3"
+
+	sessions := auth.NewSessionManager(time.Hour)
+	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour, BasePath: "/cpa"}
+	router := NewRouter(nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "/cpa")
+	adminToken, _, err := sessions.Create()
+	if err != nil {
+		t.Fatalf("create admin session: %v", err)
+	}
+	viewerToken, _, err := sessions.CreateAPIKeyViewer(42)
+	if err != nil {
+		t.Fatalf("create API key viewer session: %v", err)
+	}
+
+	for _, testCase := range []struct {
+		name       string
+		path       string
+		token      string
+		statusCode int
+	}{
+		{name: "unprefixed version route is not served", path: "/api/v1/version", statusCode: http.StatusNotFound},
+		{name: "prefixed version route requires auth", path: "/cpa/api/v1/version", statusCode: http.StatusUnauthorized},
+		{name: "prefixed version route allows admin", path: "/cpa/api/v1/version", token: adminToken, statusCode: http.StatusOK},
+		{name: "prefixed version route allows API key viewer", path: "/cpa/api/v1/version", token: viewerToken, statusCode: http.StatusOK},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+			if testCase.token != "" {
+				req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: testCase.token})
+			}
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != testCase.statusCode {
+				t.Fatalf("expected status %d, got %d body=%s", testCase.statusCode, resp.Code, resp.Body.String())
+			}
+		})
+	}
+}
+
+func TestStatusOmitsVersionFields(t *testing.T) {
 	previousVersion := version.Version
 	t.Cleanup(func() { version.Version = previousVersion })
 	version.Version = "v1.2.3"
@@ -148,9 +344,15 @@ func TestStatusReturnsVersionAndUpdateCheckFlag(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
-	body := resp.Body.String()
-	if !contains(body, `"version":"v1.2.3"`) || !contains(body, `"updateCheckEnabled":true`) {
-		t.Fatalf("unexpected response body: %s", body)
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response body: %v", err)
+	}
+	if _, ok := body["version"]; ok {
+		t.Fatalf("expected status response to omit version, got %+v", body)
+	}
+	if _, ok := body["updateCheckEnabled"]; ok {
+		t.Fatalf("expected status response to omit updateCheckEnabled, got %+v", body)
 	}
 }
 
@@ -174,23 +376,6 @@ func TestStatusReturnsCPAPublicURL(t *testing.T) {
 	}
 }
 
-func TestStatusReturnsQuotaAutoRefreshEnabled(t *testing.T) {
-	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{
-		Status: StatusRouteConfig{QuotaAutoRefreshEnabled: true},
-	})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", resp.Code)
-	}
-	body := resp.Body.String()
-	if !contains(body, `"quotaAutoRefreshEnabled":true`) {
-		t.Fatalf("expected quota auto refresh flag in status response, got %s", body)
-	}
-}
-
 func TestStatusOmitsCPAPublicURLWhenUnset(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{
 		Status: StatusRouteConfig{},
@@ -207,46 +392,32 @@ func TestStatusOmitsCPAPublicURLWhenUnset(t *testing.T) {
 	}
 }
 
-func TestStatusActiveRecordsBackendActivity(t *testing.T) {
-	recorder := &activeStatusRecorderStub{}
-	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{
-		Status: StatusRouteConfig{ActiveRecorder: recorder},
-	})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/status/active", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusNoContent {
-		t.Fatalf("expected status 204, got %d body=%s", resp.Code, resp.Body.String())
-	}
-	if recorder.calls != 1 {
-		t.Fatalf("expected active recorder to be called once, got %d", recorder.calls)
-	}
-}
-
-func TestStatusHidesUpdateCheckForDevVersion(t *testing.T) {
+func TestVersionHidesUpdateCheckForDevVersion(t *testing.T) {
 	previousVersion := version.Version
 	t.Cleanup(func() { version.Version = previousVersion })
 	version.Version = "dev"
 
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
-	body := resp.Body.String()
-	if !contains(body, `"version":"dev"`) || !contains(body, `"updateCheckEnabled":false`) {
-		t.Fatalf("unexpected response body: %s", body)
+	var body versionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response body: %v", err)
+	}
+	if body.Version != "dev" || body.UpdateCheckEnabled {
+		t.Fatalf("unexpected response body: %+v", body)
 	}
 }
 
 func TestManualSyncRouteIsNotRegistered(t *testing.T) {
 	router := NewRouter(nil, statusStub{}, nil, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sync", nil)
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	resp := httptest.NewRecorder()
 
 	router.ServeHTTP(resp, req)
@@ -257,10 +428,8 @@ func TestManualSyncRouteIsNotRegistered(t *testing.T) {
 }
 
 func TestSubpathRoutesOnlyServePrefixedEndpoints(t *testing.T) {
-	lastRunAt := time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC)
 	router := NewRouter(nil, statusStub{status: poller.Status{
-		Running:   true,
-		LastRunAt: lastRunAt,
+		Running: true,
 	}}, nil, nil, AuthConfig{BasePath: "/cpa"}, nil, "/cpa")
 
 	for _, testCase := range []struct {
@@ -269,8 +438,10 @@ func TestSubpathRoutesOnlyServePrefixedEndpoints(t *testing.T) {
 	}{
 		{path: "/cpa/healthz", statusCode: http.StatusOK},
 		{path: "/cpa/api/v1/status", statusCode: http.StatusOK},
+		{path: "/cpa/api/v1/version", statusCode: http.StatusOK},
 		{path: "/healthz", statusCode: http.StatusNotFound},
 		{path: "/api/v1/status", statusCode: http.StatusNotFound},
+		{path: "/api/v1/version", statusCode: http.StatusNotFound},
 	} {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, testCase.path, nil)

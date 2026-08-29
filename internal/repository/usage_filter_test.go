@@ -12,6 +12,7 @@ import (
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/helper"
+	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
@@ -31,13 +32,35 @@ func withRepositoryTestLocation(t *testing.T, name string) {
 func buildUsageOverviewFromEventsForTest(events []entities.UsageEvent, filter dto.UsageQueryFilter, pricingByModel map[string]entities.ModelPriceSetting) *dto.UsageOverviewRecord {
 	windowMinutes := computeWindowMinutes(filter)
 	bucketByDay := shouldBucketUsageOverviewByDay(filter, windowMinutes)
-	overview := newUsageOverviewRecord(filter, windowMinutes)
+	overview := newUsageOverviewRecord(windowMinutes)
+	configs := make([]pricing.ModelConfig, 0, len(pricingByModel))
+	for model, setting := range pricingByModel {
+		setting.Model = model
+		configs = append(configs, pricing.ModelConfig{Pricing: setting})
+	}
+	snapshot, err := pricing.CompileSnapshot(configs)
+	if err != nil {
+		panic(err)
+	}
+	costResolver := pricing.NewCatalog(snapshot).NewResolver()
 	for _, event := range events {
 		applyUsageEventToOverviewSnapshot(overview.Usage, event)
-		applyUsageEventToOverview(overview, event, bucketByDay, pricingByModel)
+		applyUsageEventToOverview(overview, event, bucketByDay, costResolver)
 	}
 	finalizeUsageOverview(overview)
 	return overview
+}
+
+func loadPriceSettingsByModel(db *gorm.DB) (map[string]entities.ModelPriceSetting, error) {
+	settings, err := ListModelPriceSettings(db)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]entities.ModelPriceSetting, len(settings))
+	for _, setting := range settings {
+		result[strings.TrimSpace(setting.Model)] = setting
+	}
+	return result, nil
 }
 
 func loadUsageOverviewOracleEventsForTest(db *gorm.DB, filter dto.UsageQueryFilter) ([]entities.UsageEvent, error) {
@@ -62,7 +85,7 @@ func TestBuildUsageOverviewWithFilterRequiresResolvedTimeRange(t *testing.T) {
 	}
 	closeTestDatabase(t, db)
 
-	if _, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "4h"}); err == nil || !strings.Contains(err.Error(), "requires start_time and end_time") {
+	if _, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "4h"}, emptyPricingResolverForTest()); err == nil || !strings.Contains(err.Error(), "requires start_time and end_time") {
 		t.Fatalf("expected missing resolved time range error, got %v", err)
 	}
 }
@@ -85,12 +108,12 @@ func TestBuildUsageOverviewWithFilterDoesNotRunAggregationCatchup(t *testing.T) 
 
 	start := time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC)
-	if _, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "custom", StartTime: &start, EndTime: &end}); err != nil {
+	if _, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "custom", StartTime: &start, EndTime: &end}, emptyPricingResolverForTest()); err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 	}
 
 	var checkpointCount int64
-	if err := db.Model(&entities.UsageOverviewAggregationCheckpoint{}).Count(&checkpointCount).Error; err != nil {
+	if err := db.Model(&entities.UsageAggregationCheckpoint{}).Where("name = ?", entities.UsageAggregationCheckpointOverview).Count(&checkpointCount).Error; err != nil {
 		t.Fatalf("count overview checkpoints returned error: %v", err)
 	}
 	if checkpointCount != 0 {
@@ -124,7 +147,7 @@ func TestLoadUsageOverviewRawEventWindowsUsesSeparateRangeQueries(t *testing.T) 
 		{start: start, end: fullStart},
 		{start: fullEnd, end: end, includeEnd: true},
 	}
-	if _, err := loadUsageOverviewRawEventWindowsWithFilter(db, filter, windows, nil); err != nil {
+	if _, err := loadUsageOverviewRawEventWindowsWithFilter(db, filter, windows, nil, 0); err != nil {
 		t.Fatalf("loadUsageOverviewRawEventWindowsWithFilter returned error: %v", err)
 	}
 	if len(sqls) != 2 {
@@ -134,44 +157,6 @@ func TestLoadUsageOverviewRawEventWindowsUsesSeparateRangeQueries(t *testing.T) 
 		if strings.Contains(strings.ToUpper(sql), " OR ") {
 			t.Fatalf("expected boundary event query not to contain OR, got %s", sql)
 		}
-	}
-}
-
-func TestBuildUsageOverviewWithFilterIncludesHealthBoundaryInsideFullHour(t *testing.T) {
-	withRepositoryTestLocation(t, "Asia/Shanghai")
-
-	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-health-inner-boundary.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	closeTestDatabase(t, db)
-
-	start := time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC)
-	for start.Truncate(usageOverviewHealthPresetSpan).Equal(start) {
-		start = start.Add(time.Hour)
-	}
-	end := start.Add(2 * time.Hour)
-	boundaryEventTime := start.Add(time.Second)
-	if _, _, err := InsertUsageEvents(db, []entities.UsageEvent{
-		{EventKey: "health-edge", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: boundaryEventTime, TotalTokens: 10},
-	}); err != nil {
-		t.Fatalf("InsertUsageEvents returned error: %v", err)
-	}
-	if err := AggregateUsageOverviewStats(context.Background(), db, end.Add(time.Hour)); err != nil {
-		t.Fatalf("AggregateUsageOverviewStats returned error: %v", err)
-	}
-
-	overview, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "4h", StartTime: &start, EndTime: &end})
-	if err != nil {
-		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
-	}
-	blockIndex := usageOverviewHealthBlockIndex(overview.Health.BlockDetails, boundaryEventTime)
-	if blockIndex < 0 {
-		t.Fatalf("expected boundary event to fall inside health grid")
-	}
-	block := overview.Health.BlockDetails[blockIndex]
-	if block.Success != 1 || block.Rate != 1 {
-		t.Fatalf("expected health boundary event inside full hour to update block, got %+v", block)
 	}
 }
 
@@ -192,49 +177,12 @@ func TestBuildUsageOverviewWithFilterIncludesEndBoundaryWhenNoFullHour(t *testin
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
-	overview, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "custom", StartTime: &start, EndTime: &end})
+	overview, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "custom", StartTime: &start, EndTime: &end}, pricingResolverFromDBForTest(t, db))
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 	}
 	if overview.Usage.TotalRequests != 1 || overview.Summary.RequestCount != 1 || overview.Usage.TotalTokens != 15 {
 		t.Fatalf("expected end boundary event to be included, got usage=%+v summary=%+v", overview.Usage, overview.Summary)
-	}
-}
-
-func TestBuildUsageOverviewWithFilterReusesBoundaryEventsForHealth(t *testing.T) {
-	withRepositoryTestLocation(t, "Asia/Shanghai")
-
-	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-reuse-boundaries.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	closeTestDatabase(t, db)
-
-	start := time.Date(2026, 4, 16, 9, 20, 0, 0, time.UTC)
-	end := time.Date(2026, 4, 16, 12, 40, 0, 0, time.UTC)
-	filter := dto.UsageQueryFilter{Range: "custom", StartTime: &start, EndTime: &end}
-	var usageEventQueries []string
-	callbackName := "test:capture_overview_usage_event_sql"
-	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
-		sql := tx.Statement.SQL.String()
-		if strings.Contains(sql, "FROM `usage_events`") || strings.Contains(sql, "FROM \"usage_events\"") {
-			usageEventQueries = append(usageEventQueries, sql)
-		}
-	}); err != nil {
-		t.Fatalf("register query callback returned error: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Callback().Query().Remove(callbackName) })
-
-	if _, err := BuildUsageOverviewWithFilter(db, filter); err != nil {
-		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
-	}
-	if len(usageEventQueries) != 2 {
-		t.Fatalf("expected two main boundary usage_events queries, got %d: %+v", len(usageEventQueries), usageEventQueries)
-	}
-	for _, sql := range usageEventQueries {
-		if strings.Contains(strings.ToUpper(sql), " OR ") {
-			t.Fatalf("expected reused boundary event query not to contain OR, got %s", sql)
-		}
 	}
 }
 
@@ -280,7 +228,7 @@ func TestBuildUsageOverviewWithFilterKeepsRawEventQueriesAtBoundaries(t *testing
 			}
 			t.Cleanup(func() { _ = db.Callback().Query().Remove(callbackName) })
 
-			if _, err := BuildUsageOverviewWithFilter(db, filter); err != nil {
+			if _, err := BuildUsageOverviewWithFilter(db, filter, emptyPricingResolverForTest()); err != nil {
 				t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 			}
 			if len(ranges) == 0 {
@@ -338,18 +286,18 @@ func TestBuildUsageOverviewWithFilterUsesStatsForFullHoursAndRawEventsForBoundar
 		Model:                "claude-sonnet",
 		PromptPricePer1M:     0,
 		CompletionPricePer1M: 0,
-		CachePricePer1M:      0,
+		CacheReadPricePer1M:  0,
 	}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}
 
 	events := []entities.UsageEvent{
 		{EventKey: "outside-before", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 10, 0, 0, time.UTC), InputTokens: 99, OutputTokens: 99, TotalTokens: 198},
-		{EventKey: "start-boundary", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 25, 0, 0, time.UTC), InputTokens: 1000, OutputTokens: 500, ReasoningTokens: 100, CachedTokens: 200, TotalTokens: 1800},
-		{EventKey: "full-hour-1", APIGroupKey: "provider-a", Model: "claude-sonnet", ModelAlias: stringPtr("sonnet-alias-a"), AuthIndex: "auth-a", Timestamp: time.Date(2026, 4, 16, 10, 10, 0, 0, time.UTC), InputTokens: 2000, OutputTokens: 1000, ReasoningTokens: 50, CachedTokens: 100, TotalTokens: 3150},
-		{EventKey: "full-hour-2", APIGroupKey: "provider-a", Model: "claude-sonnet", ModelAlias: stringPtr("sonnet-alias-b"), AuthIndex: "auth-b", Timestamp: time.Date(2026, 4, 16, 10, 50, 0, 0, time.UTC), Failed: true, InputTokens: 500, OutputTokens: 250, ReasoningTokens: 25, CachedTokens: 50, TotalTokens: 825},
-		{EventKey: "full-hour-3", APIGroupKey: "provider-b", Model: "claude-sonnet", ModelAlias: stringPtr("sonnet-alias-a"), AuthIndex: "auth-c", Timestamp: time.Date(2026, 4, 16, 11, 30, 0, 0, time.UTC), InputTokens: 700, OutputTokens: 300, ReasoningTokens: 30, CachedTokens: 70, TotalTokens: 1100},
-		{EventKey: "end-boundary", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 12, 35, 0, 0, time.UTC), InputTokens: 400, OutputTokens: 200, ReasoningTokens: 20, CachedTokens: 40, TotalTokens: 660},
+		{EventKey: "start-boundary", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 25, 0, 0, time.UTC), InputTokens: 1000, OutputTokens: 500, ReasoningTokens: 100, CachedTokens: 200, CacheReadTokens: 200, TotalTokens: 1800},
+		{EventKey: "full-hour-1", APIGroupKey: "provider-a", Model: "claude-sonnet", ModelAlias: stringPtr("sonnet-alias-a"), AuthIndex: "auth-a", Timestamp: time.Date(2026, 4, 16, 10, 10, 0, 0, time.UTC), InputTokens: 2000, OutputTokens: 1000, ReasoningTokens: 50, CachedTokens: 100, CacheReadTokens: 100, TotalTokens: 3150},
+		{EventKey: "full-hour-2", APIGroupKey: "provider-a", Model: "claude-sonnet", ModelAlias: stringPtr("sonnet-alias-b"), AuthIndex: "auth-b", Timestamp: time.Date(2026, 4, 16, 10, 50, 0, 0, time.UTC), Failed: true, InputTokens: 500, OutputTokens: 250, ReasoningTokens: 25, CachedTokens: 50, CacheReadTokens: 50, TotalTokens: 825},
+		{EventKey: "full-hour-3", APIGroupKey: "provider-b", Model: "claude-sonnet", ModelAlias: stringPtr("sonnet-alias-a"), AuthIndex: "auth-c", Timestamp: time.Date(2026, 4, 16, 11, 30, 0, 0, time.UTC), InputTokens: 700, OutputTokens: 300, ReasoningTokens: 30, CachedTokens: 70, CacheReadTokens: 70, TotalTokens: 1100},
+		{EventKey: "end-boundary", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 12, 35, 0, 0, time.UTC), InputTokens: 400, OutputTokens: 200, ReasoningTokens: 20, CachedTokens: 40, CacheReadTokens: 40, TotalTokens: 660},
 		{EventKey: "outside-after", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 12, 45, 0, 0, time.UTC), InputTokens: 88, OutputTokens: 88, TotalTokens: 176},
 	}
 	if _, _, err := InsertUsageEvents(db, events); err != nil {
@@ -371,14 +319,13 @@ func TestBuildUsageOverviewWithFilterUsesStatsForFullHoursAndRawEventsForBoundar
 		t.Fatalf("loadUsageOverviewOracleEventsForTest returned error: %v", err)
 	}
 	oracle := buildUsageOverviewFromEventsForTest(oracleEvents, filter, pricingByModel)
-
 	fullHourStart := time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC)
 	fullHourEnd := time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC)
 	if err := db.Where("timestamp >= ? AND timestamp < ?", timeutil.FormatStorageTime(fullHourStart), timeutil.FormatStorageTime(fullHourEnd)).Delete(&entities.UsageEvent{}).Error; err != nil {
 		t.Fatalf("delete full-hour usage_events returned error: %v", err)
 	}
 
-	overview, err := BuildUsageOverviewWithFilter(db, filter)
+	overview, err := BuildUsageOverviewWithFilter(db, filter, pricingResolverFromDBForTest(t, db))
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 	}
@@ -391,53 +338,6 @@ func TestBuildUsageOverviewWithFilterUsesStatsForFullHoursAndRawEventsForBoundar
 	}
 	if !reflect.DeepEqual(overview.Series, oracle.Series) {
 		t.Fatalf("series mismatch after full-hour raw events were removed\ngot:  %+v\nwant: %+v", overview.Series, oracle.Series)
-	}
-	if !reflect.DeepEqual(overview.Health, oracle.Health) {
-		t.Fatalf("health mismatch after full-hour raw events were removed\ngot:  %+v\nwant: %+v", overview.Health, oracle.Health)
-	}
-}
-
-func TestBuildUsageOverviewWithFilterKeepsHealthWindowExactAtStatsBoundaries(t *testing.T) {
-	withRepositoryTestLocation(t, "Asia/Shanghai")
-
-	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-health-boundary.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	closeTestDatabase(t, db)
-
-	events := []entities.UsageEvent{
-		{EventKey: "outside-health-bucket", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 19, 30, 0, time.UTC), Failed: true, TotalTokens: 10},
-		{EventKey: "inside-health-bucket", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 20, 30, 0, time.UTC), Failed: false, TotalTokens: 20},
-		{EventKey: "full-hour", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 10, 10, 0, 0, time.UTC), Failed: false, TotalTokens: 30},
-	}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
-		t.Fatalf("InsertUsageEvents returned error: %v", err)
-	}
-	if err := AggregateUsageOverviewStats(context.Background(), db, time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC)); err != nil {
-		t.Fatalf("AggregateUsageOverviewStats returned error: %v", err)
-	}
-
-	start := time.Date(2026, 4, 16, 9, 20, 0, 0, time.UTC)
-	end := time.Date(2026, 4, 16, 10, 30, 0, 0, time.UTC)
-	filter := dto.UsageQueryFilter{Range: "custom", StartTime: &start, EndTime: &end}
-	pricingByModel, err := loadPriceSettingsByModel(db)
-	if err != nil {
-		t.Fatalf("loadPriceSettingsByModel returned error: %v", err)
-	}
-	oracleEvents, err := loadUsageOverviewOracleEventsForTest(db, filter)
-	if err != nil {
-		t.Fatalf("loadUsageOverviewOracleEventsForTest returned error: %v", err)
-	}
-	oracle := buildUsageOverviewFromEventsForTest(oracleEvents, filter, pricingByModel)
-
-	overview, err := BuildUsageOverviewWithFilter(db, filter)
-	if err != nil {
-		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
-	}
-
-	if !reflect.DeepEqual(overview.Health, oracle.Health) {
-		t.Fatalf("health mismatch for non-aligned stats window\ngot:  %+v\nwant: %+v", overview.Health, oracle.Health)
 	}
 }
 
@@ -474,7 +374,7 @@ func TestBuildUsageOverviewWithFilterKeepsHourlyBucketsWhenShortWindowContainsCo
 	}
 	oracle := buildUsageOverviewFromEventsForTest(oracleEvents, filter, pricingByModel)
 
-	overview, err := BuildUsageOverviewWithFilter(db, filter)
+	overview, err := BuildUsageOverviewWithFilter(db, filter, pricingResolverFromDBForTest(t, db))
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 	}
@@ -484,49 +384,6 @@ func TestBuildUsageOverviewWithFilterKeepsHourlyBucketsWhenShortWindowContainsCo
 	}
 	if !reflect.DeepEqual(overview.Usage, oracle.Usage) {
 		t.Fatalf("usage totals mismatch for short window with complete day\ngot:  %+v\nwant: %+v", overview.Usage, oracle.Usage)
-	}
-}
-
-func TestBuildUsageOverviewWithFilterKeepsHealthTotalsForFullQueryWindow(t *testing.T) {
-	withRepositoryTestLocation(t, "Asia/Shanghai")
-
-	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-health-totals.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	closeTestDatabase(t, db)
-
-	events := []entities.UsageEvent{
-		{EventKey: "old-success", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC), TotalTokens: 10},
-		{EventKey: "recent-failure", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 29, 10, 0, 0, 0, time.UTC), Failed: true, TotalTokens: 20},
-	}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
-		t.Fatalf("InsertUsageEvents returned error: %v", err)
-	}
-	if err := AggregateUsageOverviewStats(context.Background(), db, time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC)); err != nil {
-		t.Fatalf("AggregateUsageOverviewStats returned error: %v", err)
-	}
-
-	start := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
-	end := time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC)
-	filter := dto.UsageQueryFilter{Range: "30d", StartTime: &start, EndTime: &end}
-	pricingByModel, err := loadPriceSettingsByModel(db)
-	if err != nil {
-		t.Fatalf("loadPriceSettingsByModel returned error: %v", err)
-	}
-	oracleEvents, err := loadUsageOverviewOracleEventsForTest(db, filter)
-	if err != nil {
-		t.Fatalf("loadUsageOverviewOracleEventsForTest returned error: %v", err)
-	}
-	oracle := buildUsageOverviewFromEventsForTest(oracleEvents, filter, pricingByModel)
-
-	overview, err := BuildUsageOverviewWithFilter(db, filter)
-	if err != nil {
-		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
-	}
-
-	if overview.Health.TotalSuccess != oracle.Health.TotalSuccess || overview.Health.TotalFailure != oracle.Health.TotalFailure || overview.Health.SuccessRate != oracle.Health.SuccessRate {
-		t.Fatalf("health totals mismatch for full query window\ngot:  %+v\nwant: %+v", overview.Health, oracle.Health)
 	}
 }
 
@@ -543,14 +400,14 @@ func TestBuildUsageOverviewWithFilterUsesDailyStatsForCompleteDays(t *testing.T)
 		Model:                "claude-sonnet",
 		PromptPricePer1M:     0,
 		CompletionPricePer1M: 0,
-		CachePricePer1M:      0,
+		CacheReadPricePer1M:  0,
 	}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}
 
 	events := []entities.UsageEvent{
 		{EventKey: "start-boundary", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 15, 15, 40, 0, 0, time.UTC), InputTokens: 100, OutputTokens: 50, TotalTokens: 150},
-		{EventKey: "full-day-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 2, 0, 0, 0, time.UTC), InputTokens: 200, OutputTokens: 100, CachedTokens: 25, TotalTokens: 325},
+		{EventKey: "full-day-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 2, 0, 0, 0, time.UTC), InputTokens: 200, OutputTokens: 100, CachedTokens: 25, CacheReadTokens: 25, TotalTokens: 325},
 		{EventKey: "full-day-2", APIGroupKey: "provider-b", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 15, 30, 0, 0, time.UTC), Failed: true, InputTokens: 300, OutputTokens: 150, ReasoningTokens: 40, TotalTokens: 490},
 		{EventKey: "end-boundary", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 24, 16, 30, 0, 0, time.UTC), InputTokens: 400, OutputTokens: 200, TotalTokens: 600},
 	}
@@ -579,7 +436,7 @@ func TestBuildUsageOverviewWithFilterUsesDailyStatsForCompleteDays(t *testing.T)
 	if err := db.Where("timestamp >= ? AND timestamp < ?", timeutil.FormatStorageTime(fullDayStart), timeutil.FormatStorageTime(fullDayEnd)).Delete(&entities.UsageEvent{}).Error; err != nil {
 		t.Fatalf("delete full-day usage_events returned error: %v", err)
 	}
-	overview, err := BuildUsageOverviewWithFilter(db, filter)
+	overview, err := BuildUsageOverviewWithFilter(db, filter, pricingResolverFromDBForTest(t, db))
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 	}
@@ -608,7 +465,7 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 		Model:                "claude-sonnet",
 		PromptPricePer1M:     3,
 		CompletionPricePer1M: 15,
-		CachePricePer1M:      0.3,
+		CacheReadPricePer1M:  0.3,
 	}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}
@@ -617,17 +474,17 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 		{
 			EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet",
 			Timestamp: time.Date(2026, 4, 16, 9, 15, 0, 0, time.UTC), Failed: false,
-			InputTokens: 1000, OutputTokens: 500, ReasoningTokens: 100, CachedTokens: 200, TotalTokens: 1800,
+			InputTokens: 1000, OutputTokens: 500, ReasoningTokens: 100, CachedTokens: 200, CacheReadTokens: 200, TotalTokens: 1800,
 		},
 		{
 			EventKey: "event-2", APIGroupKey: "provider-a", Model: "claude-sonnet",
 			Timestamp: time.Date(2026, 4, 16, 10, 45, 0, 0, time.UTC), Failed: true,
-			InputTokens: 2000, OutputTokens: 1000, ReasoningTokens: 50, CachedTokens: 100, TotalTokens: 3150,
+			InputTokens: 2000, OutputTokens: 1000, ReasoningTokens: 50, CachedTokens: 100, CacheReadTokens: 100, TotalTokens: 3150,
 		},
 		{
 			EventKey: "event-3", APIGroupKey: "provider-a", Model: "claude-sonnet",
 			Timestamp: time.Date(2026, 4, 17, 11, 5, 0, 0, time.UTC), Failed: false,
-			InputTokens: 500, OutputTokens: 250, ReasoningTokens: 25, CachedTokens: 50, TotalTokens: 825,
+			InputTokens: 500, OutputTokens: 250, ReasoningTokens: 25, CachedTokens: 50, CacheReadTokens: 50, TotalTokens: 825,
 		},
 	}
 	if _, _, err := InsertUsageEvents(db, events); err != nil {
@@ -639,7 +496,7 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 
 	start := time.Date(2026, 4, 16, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 17, 23, 59, 59, 999000000, time.UTC)
-	overview, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "7d", StartTime: &start, EndTime: &end})
+	overview, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "7d", StartTime: &start, EndTime: &end}, pricingResolverFromDBForTest(t, db))
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 	}
@@ -647,7 +504,7 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 	if overview.Summary.RequestCount != 3 || overview.Summary.TokenCount != 5775 {
 		t.Fatalf("unexpected summary counts: %+v", overview.Summary)
 	}
-	if overview.Summary.InputTokens != 3500 || overview.Summary.CachedTokens != 350 || overview.Summary.ReasoningTokens != 175 {
+	if overview.Summary.InputTokens != 3500 || overview.Summary.CacheReadTokens != 350 || overview.Summary.CacheCreationTokens != 0 || overview.Summary.ReasoningTokens != 175 {
 		t.Fatalf("unexpected summary token breakdown: %+v", overview.Summary)
 	}
 	if overview.Summary.WindowMinutes != 2880 {
@@ -678,51 +535,9 @@ func TestBuildUsageOverviewWithFilterComputesSummaryAndSeries(t *testing.T) {
 	if math.Abs(overview.Series.Cost["2026-04-16"]-0.03069) > 0.000000001 || math.Abs(overview.Series.Cost["2026-04-17"]-0.005115) > 0.000000001 {
 		t.Fatalf("unexpected cost series: %+v", overview.Series.Cost)
 	}
-	if overview.Series.CacheRate["2026-04-16"] == nil || math.Abs(*overview.Series.CacheRate["2026-04-16"]-10) > 0.000000001 ||
-		overview.Series.CacheRate["2026-04-17"] == nil || math.Abs(*overview.Series.CacheRate["2026-04-17"]-10) > 0.000000001 {
-		t.Fatalf("unexpected cache-rate series: %+v", overview.Series.CacheRate)
-	}
-	if overview.Health.TotalSuccess != 2 || overview.Health.TotalFailure != 1 {
-		t.Fatalf("unexpected overview health totals: %+v", overview.Health)
-	}
-	expectedSuccessRate := (2.0 / 3.0) * 100.0
-	if diff := overview.Health.SuccessRate - expectedSuccessRate; diff < -1e-9 || diff > 1e-9 {
-		t.Fatalf("unexpected overview health success rate: %+v", overview.Health)
-	}
-	if overview.Health.Rows != 7 || overview.Health.Columns != 96 || overview.Health.BucketSeconds != 15*60 {
-		t.Fatalf("unexpected service health grid metadata: %+v", overview.Health)
-	}
-	location := time.Local
-	if overview.Health.WindowStart != time.Date(2026, 4, 11, 8, 0, 0, 0, location) ||
-		overview.Health.WindowEnd != time.Date(2026, 4, 18, 8, 0, 0, 0, location) {
-		t.Fatalf("unexpected service health window: %+v", overview.Health)
-	}
-	if len(overview.Health.BlockDetails) != overview.Health.Rows*overview.Health.Columns {
-		t.Fatalf("expected full service health grid, got %d blocks", len(overview.Health.BlockDetails))
-	}
-	firstBlock := overview.Health.BlockDetails[0]
-	if firstBlock.StartTime != time.Date(2026, 4, 11, 8, 0, 0, 0, location) ||
-		firstBlock.EndTime != time.Date(2026, 4, 11, 8, 15, 0, 0, location) ||
-		firstBlock.Success != 0 || firstBlock.Failure != 0 || firstBlock.Rate != -1 {
-		t.Fatalf("unexpected first health block: %+v", firstBlock)
-	}
-	populatedBlock := overview.Health.BlockDetails[517]
-	if populatedBlock.StartTime != time.Date(2026, 4, 16, 17, 15, 0, 0, location) ||
-		populatedBlock.EndTime != time.Date(2026, 4, 16, 17, 30, 0, 0, location) ||
-		populatedBlock.Success != 1 || populatedBlock.Failure != 0 || populatedBlock.Rate != 1 {
-		t.Fatalf("unexpected populated health block: %+v", populatedBlock)
-	}
-	failedBlock := overview.Health.BlockDetails[523]
-	if failedBlock.StartTime != time.Date(2026, 4, 16, 18, 45, 0, 0, location) ||
-		failedBlock.EndTime != time.Date(2026, 4, 16, 19, 0, 0, 0, location) ||
-		failedBlock.Success != 0 || failedBlock.Failure != 1 || failedBlock.Rate != 0 {
-		t.Fatalf("unexpected failed health block: %+v", failedBlock)
-	}
-	latestPopulatedBlock := overview.Health.BlockDetails[620]
-	if latestPopulatedBlock.StartTime != time.Date(2026, 4, 17, 19, 0, 0, 0, location) ||
-		latestPopulatedBlock.EndTime != time.Date(2026, 4, 17, 19, 15, 0, 0, location) ||
-		latestPopulatedBlock.Success != 1 || latestPopulatedBlock.Failure != 0 || latestPopulatedBlock.Rate != 1 {
-		t.Fatalf("unexpected latest populated health block: %+v", latestPopulatedBlock)
+	if overview.Series.CacheReadRate["2026-04-16"] == nil || math.Abs(*overview.Series.CacheReadRate["2026-04-16"]-10) > 0.000000001 ||
+		overview.Series.CacheReadRate["2026-04-17"] == nil || math.Abs(*overview.Series.CacheReadRate["2026-04-17"]-10) > 0.000000001 {
+		t.Fatalf("unexpected cache-read-rate series: %+v", overview.Series.CacheReadRate)
 	}
 }
 
@@ -733,13 +548,13 @@ func TestBuildUsageOverviewFromEventsBuildsSnapshotAndOverviewInOnePass(t *testi
 		{
 			EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet",
 			Timestamp: time.Date(2026, 4, 16, 9, 15, 0, 0, time.UTC), Failed: false,
-			InputTokens: 1000, OutputTokens: 500, ReasoningTokens: 100, CachedTokens: 200, TotalTokens: 1800,
+			InputTokens: 1000, OutputTokens: 500, ReasoningTokens: 100, CachedTokens: 200, CacheReadTokens: 200, TotalTokens: 1800,
 			Source: "source-a", AuthIndex: "1", LatencyMS: 120,
 		},
 		{
 			EventKey: "event-2", APIGroupKey: "", Model: "",
 			Timestamp: time.Date(2026, 4, 16, 10, 45, 0, 0, time.UTC), Failed: true,
-			InputTokens: 2000, OutputTokens: 1000, ReasoningTokens: 50, CachedTokens: 100, TotalTokens: 3150,
+			InputTokens: 2000, OutputTokens: 1000, ReasoningTokens: 50, CachedTokens: 100, CacheReadTokens: 100, TotalTokens: 3150,
 			Source: " source-b ", AuthIndex: " 2 ", LatencyMS: 250,
 		},
 	}
@@ -751,7 +566,7 @@ func TestBuildUsageOverviewFromEventsBuildsSnapshotAndOverviewInOnePass(t *testi
 			Model:                "claude-sonnet",
 			PromptPricePer1M:     3,
 			CompletionPricePer1M: 15,
-			CachePricePer1M:      0.3,
+			CacheReadPricePer1M:  0.3,
 		},
 	}
 
@@ -769,7 +584,7 @@ func TestBuildUsageOverviewFromEventsBuildsSnapshotAndOverviewInOnePass(t *testi
 	if overview.Summary.RequestCount != 2 || overview.Summary.TokenCount != 4950 {
 		t.Fatalf("unexpected summary totals: %+v", overview.Summary)
 	}
-	if overview.Summary.InputTokens != 3000 || overview.Summary.CachedTokens != 300 || overview.Summary.ReasoningTokens != 150 {
+	if overview.Summary.InputTokens != 3000 || overview.Summary.CacheReadTokens != 300 || overview.Summary.CacheCreationTokens != 0 || overview.Summary.ReasoningTokens != 150 {
 		t.Fatalf("unexpected summary token breakdown: %+v", overview.Summary)
 	}
 	if overview.Summary.CostAvailable {
@@ -778,77 +593,15 @@ func TestBuildUsageOverviewFromEventsBuildsSnapshotAndOverviewInOnePass(t *testi
 	if overview.Series.Requests["2026-04-16T17:00:00+08:00"] != 1 || overview.Series.Requests["2026-04-16T18:00:00+08:00"] != 1 {
 		t.Fatalf("unexpected hourly request series: %+v", overview.Series.Requests)
 	}
-	if overview.Series.CacheRate["2026-04-16T17:00:00+08:00"] == nil || math.Abs(*overview.Series.CacheRate["2026-04-16T17:00:00+08:00"]-20) > 0.000000001 ||
-		overview.Series.CacheRate["2026-04-16T18:00:00+08:00"] == nil || math.Abs(*overview.Series.CacheRate["2026-04-16T18:00:00+08:00"]-5) > 0.000000001 {
-		t.Fatalf("unexpected hourly cache-rate series: %+v", overview.Series.CacheRate)
-	}
-	if overview.Health.TotalSuccess != 1 || overview.Health.TotalFailure != 1 {
-		t.Fatalf("unexpected health totals: %+v", overview.Health)
-	}
-	if overview.Health.SuccessRate != 50 {
-		t.Fatalf("expected 50%% success rate, got %+v", overview.Health)
+	if overview.Series.CacheReadRate["2026-04-16T17:00:00+08:00"] == nil || math.Abs(*overview.Series.CacheReadRate["2026-04-16T17:00:00+08:00"]-20) > 0.000000001 ||
+		overview.Series.CacheReadRate["2026-04-16T18:00:00+08:00"] == nil || math.Abs(*overview.Series.CacheReadRate["2026-04-16T18:00:00+08:00"]-5) > 0.000000001 {
+		t.Fatalf("unexpected hourly cache-read-rate series: %+v", overview.Series.CacheReadRate)
 	}
 }
-
-func TestBuildUsageOverviewWithFilterBuilds24hHealthGridFor24hRange(t *testing.T) {
-	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-health-24h.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	closeTestDatabase(t, db)
-
-	events := []entities.UsageEvent{
-		{EventKey: "event-success", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 17, 9, 31, 0, 0, time.UTC), Failed: false, TotalTokens: 10},
-		{EventKey: "event-failed", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 17, 23, 59, 0, 0, time.UTC), Failed: true, TotalTokens: 20},
-	}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
-		t.Fatalf("InsertUsageEvents returned error: %v", err)
-	}
-	if err := AggregateUsageOverviewStats(context.Background(), db, time.Date(2026, 4, 18, 0, 0, 0, 0, time.UTC)); err != nil {
-		t.Fatalf("AggregateUsageOverviewStats returned error: %v", err)
-	}
-
-	start := time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC)
-	end := time.Date(2026, 4, 17, 23, 59, 59, 999000000, time.UTC)
-	overview, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "24h", StartTime: &start, EndTime: &end})
-	if err != nil {
-		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
-	}
-
-	if overview.Health.Rows != 7 || overview.Health.Columns != 96 || overview.Health.BucketSeconds != 129 {
-		t.Fatalf("unexpected service health grid metadata: rows=%d columns=%d bucket_seconds=%d", overview.Health.Rows, overview.Health.Columns, overview.Health.BucketSeconds)
-	}
-	if overview.Health.WindowStart.Before(end.Add(-24*time.Hour)) || overview.Health.WindowStart.After(end.Add(-24*time.Hour).Add(time.Second)) ||
-		overview.Health.WindowEnd.Before(end) || overview.Health.WindowEnd.After(end.Add(time.Second)) {
-		t.Fatalf("unexpected service health window: %+v", overview.Health)
-	}
-	if len(overview.Health.BlockDetails) != 7*96 {
-		t.Fatalf("expected 24h service health grid, got %d blocks", len(overview.Health.BlockDetails))
-	}
-
-	var successBlock *dto.UsageOverviewHealthBlockRecord
-	var failedBlock *dto.UsageOverviewHealthBlockRecord
-	for index := range overview.Health.BlockDetails {
-		block := &overview.Health.BlockDetails[index]
-		if block.Success == 1 {
-			successBlock = block
-		}
-		if block.Failure == 1 {
-			failedBlock = block
-		}
-	}
-	if successBlock == nil || successBlock.StartTime.After(events[0].Timestamp) || !successBlock.EndTime.After(events[0].Timestamp) || successBlock.Rate != 1 {
-		t.Fatalf("unexpected success health block: %+v", successBlock)
-	}
-	if failedBlock == nil || failedBlock.StartTime.After(events[1].Timestamp) || !failedBlock.EndTime.After(events[1].Timestamp) || failedBlock.Rate != 0 {
-		t.Fatalf("unexpected failed health block: %+v", failedBlock)
-	}
-}
-
-func TestBuildUsageOverviewWithFilterKeepsCalendarDayHealthWindow(t *testing.T) {
+func TestBuildUsageOverviewWithFilterKeepsCalendarRangeWindowMinutes(t *testing.T) {
 	withRepositoryTestLocation(t, "Asia/Shanghai")
 
-	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-health-calendar-day.db")})
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-calendar-day.db")})
 	if err != nil {
 		t.Fatalf("OpenDatabase returned error: %v", err)
 	}
@@ -866,26 +619,20 @@ func TestBuildUsageOverviewWithFilterKeepsCalendarDayHealthWindow(t *testing.T) 
 		rangeName   string
 		start       time.Time
 		end         time.Time
-		wantStart   time.Time
-		wantEnd     time.Time
 		wantMinutes int64
 	}{
 		{
-			name:        "today keeps midnight to next midnight after future end clamp",
+			name:        "today clamps future end",
 			rangeName:   "today",
 			start:       todayStart,
 			end:         todayEnd,
-			wantStart:   todayStart,
-			wantEnd:     todayStart.AddDate(0, 0, 1),
 			wantMinutes: int64(queryNow.Sub(todayStart) / time.Minute),
 		},
 		{
-			name:        "yesterday keeps previous midnight to current midnight",
+			name:        "yesterday keeps a full day",
 			rangeName:   "yesterday",
 			start:       yesterdayStart,
 			end:         yesterdayEnd,
-			wantStart:   yesterdayStart,
-			wantEnd:     todayStart,
 			wantMinutes: 24 * 60,
 		},
 	} {
@@ -895,12 +642,10 @@ func TestBuildUsageOverviewWithFilterKeepsCalendarDayHealthWindow(t *testing.T) 
 				StartTime: &tc.start,
 				EndTime:   &tc.end,
 				QueryNow:  &queryNow,
-			}, nil)
+			}, nil, emptyPricingResolverForTest())
+
 			if err != nil {
 				t.Fatalf("BuildUsageOverviewWithFilterAndRecentCache returned error: %v", err)
-			}
-			if !overview.Health.WindowStart.Equal(tc.wantStart) || !overview.Health.WindowEnd.Equal(tc.wantEnd) {
-				t.Fatalf("expected %s health window %s - %s, got %s - %s", tc.rangeName, tc.wantStart, tc.wantEnd, overview.Health.WindowStart, overview.Health.WindowEnd)
 			}
 			if overview.Summary.WindowMinutes != tc.wantMinutes {
 				t.Fatalf("expected %s query window minutes %d, got %+v", tc.rangeName, tc.wantMinutes, overview.Summary)
@@ -909,23 +654,21 @@ func TestBuildUsageOverviewWithFilterKeepsCalendarDayHealthWindow(t *testing.T) 
 	}
 }
 
-func TestCalculateUsageEventCostDoesNotDoubleChargeReasoningTokens(t *testing.T) {
-	event := entities.UsageEvent{
+func TestCalculateUsageTokenCostBreakdownDoesNotDoubleChargeReasoningTokens(t *testing.T) {
+	input := helper.UsageTokenCostInput{
 		InputTokens:     1_000_000,
 		OutputTokens:    2_000_000,
-		ReasoningTokens: 3_000_000,
-		CachedTokens:    400_000,
-		TotalTokens:     6_400_000,
+		CacheReadTokens: 400_000,
 	}
 	pricing := entities.ModelPriceSetting{
 		PromptPricePer1M:     10,
 		CompletionPricePer1M: 20,
-		CachePricePer1M:      1,
+		CacheReadPricePer1M:  1,
 	}
 
-	cost := helper.CalculateUsageEventCost(event, pricing)
+	cost := helper.CalculateUsageTokenCostBreakdown(input, pricing).TotalCostUSD
 
-	if cost != 46.4 {
+	if math.Abs(cost-46.4) > 0.000000001 {
 		t.Fatalf("expected reasoning tokens not to be added to completion cost, got %f", cost)
 	}
 }
@@ -951,11 +694,11 @@ func TestBuildUsageOverviewCalculatesClaudeCacheReadAndCreationCost(t *testing.T
 	}
 	overview := buildUsageOverviewFromEventsForTest([]entities.UsageEvent{event}, filter, map[string]entities.ModelPriceSetting{
 		"claude-sonnet": {
-			PricingStyle:            entities.ModelPricingStyleClaude,
-			PromptPricePer1M:        10,
-			CompletionPricePer1M:    20,
-			CachePricePer1M:         1,
-			CacheCreationPricePer1M: 12.5,
+			PricingStyle:         entities.ModelPricingStyleClaude,
+			PromptPricePer1M:     10,
+			CompletionPricePer1M: 20,
+			CacheReadPricePer1M:  1,
+			CacheWritePricePer1M: 12.5,
 		},
 	})
 
@@ -979,7 +722,7 @@ func TestBuildUsageOverviewWithFilterReturnsUnavailableCostForPartialPricing(t *
 		Model:                "priced-model",
 		PromptPricePer1M:     1,
 		CompletionPricePer1M: 0,
-		CachePricePer1M:      0,
+		CacheReadPricePer1M:  0,
 	}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}
@@ -1005,7 +748,7 @@ func TestBuildUsageOverviewWithFilterReturnsUnavailableCostForPartialPricing(t *
 
 	start := time.Date(2026, 4, 16, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 16, 23, 59, 59, 999000000, time.UTC)
-	overview, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "24h", StartTime: &start, EndTime: &end})
+	overview, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "24h", StartTime: &start, EndTime: &end}, pricingResolverFromDBForTest(t, db))
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 	}
@@ -1029,7 +772,7 @@ func TestBuildUsageOverviewWithFilterReturnsAvailableCostWhenUnpricedEventsHaveN
 		Model:                "priced-model",
 		PromptPricePer1M:     1,
 		CompletionPricePer1M: 0,
-		CachePricePer1M:      0,
+		CacheReadPricePer1M:  0,
 	}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}
@@ -1054,7 +797,7 @@ func TestBuildUsageOverviewWithFilterReturnsAvailableCostWhenUnpricedEventsHaveN
 
 	start := time.Date(2026, 4, 16, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 16, 23, 59, 59, 999000000, time.UTC)
-	overview, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "24h", StartTime: &start, EndTime: &end})
+	overview, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "24h", StartTime: &start, EndTime: &end}, pricingResolverFromDBForTest(t, db))
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 	}
@@ -1077,7 +820,7 @@ func TestBuildUsageOverviewWithFilterReturnsUnavailableCostWithoutPricing(t *tes
 	events := []entities.UsageEvent{{
 		EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet",
 		Timestamp: time.Date(2026, 4, 16, 9, 15, 0, 0, time.UTC), TotalTokens: 1800,
-		InputTokens: 1000, OutputTokens: 500, CachedTokens: 200,
+		InputTokens: 1000, OutputTokens: 500, CachedTokens: 200, CacheReadTokens: 200,
 	}}
 	if _, _, err := InsertUsageEvents(db, events); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
@@ -1088,7 +831,7 @@ func TestBuildUsageOverviewWithFilterReturnsUnavailableCostWithoutPricing(t *tes
 
 	start := time.Date(2026, 4, 16, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 16, 23, 59, 59, 999000000, time.UTC)
-	overview, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "24h", StartTime: &start, EndTime: &end})
+	overview, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "24h", StartTime: &start, EndTime: &end}, pricingResolverFromDBForTest(t, db))
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 	}
@@ -1155,7 +898,7 @@ func TestBuildUsageOverviewWithFilterUsesExactPresetWindowMinutes(t *testing.T) 
 				t.Fatalf("AggregateUsageOverviewStats returned error: %v", err)
 			}
 
-			overview, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: tc.rangeName, StartTime: &tc.start, EndTime: &tc.end})
+			overview, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: tc.rangeName, StartTime: &tc.start, EndTime: &tc.end}, pricingResolverFromDBForTest(t, db))
 			if err != nil {
 				t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 			}
@@ -1178,7 +921,7 @@ func TestBuildUsageOverviewWithFilterUsesExactPresetWindowMinutes(t *testing.T) 
 				t.Fatalf("unexpected request series for %s: %+v", tc.rangeName, overview.Series.Requests)
 			}
 		})
-		for _, table := range []string{"usage_events", "usage_overview_hourly_stats", "usage_overview_daily_stats", "usage_overview_health_stats", "usage_overview_aggregation_checkpoints"} {
+		for _, table := range []string{"usage_events", "usage_overview_hourly_stats", "usage_overview_daily_stats", "usage_activity_stats", "usage_latency_stats", "usage_aggregation_checkpoints"} {
 			if err := db.Exec("DELETE FROM " + table).Error; err != nil {
 				t.Fatalf("DELETE %s returned error: %v", table, err)
 			}
@@ -1270,7 +1013,7 @@ func TestBuildUsageOverviewWithFilterUsesDailyBucketsForLongCustomRanges(t *test
 
 	start := time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 26, 23, 59, 59, 999000000, time.UTC)
-	overview, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "custom", StartTime: &start, EndTime: &end})
+	overview, err := BuildUsageOverviewWithFilter(db, dto.UsageQueryFilter{Range: "custom", StartTime: &start, EndTime: &end}, pricingResolverFromDBForTest(t, db))
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 	}
@@ -1297,25 +1040,26 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 	}
 	closeTestDatabase(t, db)
 
-	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "gpt-5", PromptPricePer1M: 1, CompletionPricePer1M: 1, CachePricePer1M: 0.5}); err != nil {
+	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "gpt-5", PromptPricePer1M: 1, CompletionPricePer1M: 1, CacheReadPricePer1M: 0.5}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting gpt-5 returned error: %v", err)
 	}
-	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "claude-sonnet", PromptPricePer1M: 1, CompletionPricePer1M: 1, CachePricePer1M: 0.5}); err != nil {
+	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "claude-sonnet", PromptPricePer1M: 1, CompletionPricePer1M: 1, CacheReadPricePer1M: 0.5}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting claude returned error: %v", err)
 	}
 
 	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 	ttft100 := int64(100)
 	ttft200 := int64(200)
+	ttftFailed := int64(900)
 	ttftZero := int64(0)
 	cache := newEmptyUsageRecentEventCache(UsageRecentEventCacheOptions{Now: func() time.Time { return now }})
 	t.Cleanup(cache.Close)
 	cache.appendEvents([]entities.UsageEvent{
 		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-16 * time.Minute), InputTokens: 900, TotalTokens: 900},
-		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 50*time.Second), InputTokens: 100, OutputTokens: 60, CachedTokens: 20, TotalTokens: 120, LatencyMS: 500, TTFTMS: &ttft100},
-		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 45*time.Second), InputTokens: 50, OutputTokens: 40, CachedTokens: 5, TotalTokens: 80, LatencyMS: 700, TTFTMS: &ttft200},
-		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 40*time.Second), InputTokens: 10, OutputTokens: 10, TotalTokens: 20, LatencyMS: 650, TTFTMS: &ttftZero},
-		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 30*time.Second), Failed: true, InputTokens: 1000, TotalTokens: 1000, LatencyMS: 900},
+		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 50*time.Second), InputTokens: 100, OutputTokens: 60, CachedTokens: 20, CacheReadTokens: 20, TotalTokens: 120, LatencyMS: 500, TTFTMS: &ttft100},
+		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 45*time.Second), InputTokens: 50, OutputTokens: 40, CachedTokens: 5, CacheReadTokens: 5, TotalTokens: 80, LatencyMS: 700, TTFTMS: &ttft200},
+		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 40*time.Second), InputTokens: 10, OutputTokens: 10, TotalTokens: 20, TTFTMS: &ttftZero},
+		{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-1", Timestamp: now.Add(-4*time.Minute - 30*time.Second), Failed: true, InputTokens: 1000, TotalTokens: 1000, LatencyMS: 900, TTFTMS: &ttftFailed},
 		{APIGroupKey: "provider-a", Model: "claude-sonnet", AuthType: "apikey", Provider: "OpenAI Provider", AuthIndex: "provider-1", Timestamp: now.Add(-20 * time.Second), InputTokens: 100, OutputTokens: 25, TotalTokens: 50, LatencyMS: 300},
 		{APIGroupKey: "provider-b", Model: "gpt-5", AuthType: "oauth", AuthIndex: "auth-file-2", Timestamp: now.Add(-10 * time.Second), InputTokens: 700, TotalTokens: 700, LatencyMS: 100},
 	})
@@ -1333,7 +1077,8 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 		APIGroupKey:     "provider-a",
 		RealtimeWindow:  "15m",
 		RealtimeEndTime: &now,
-	}, cache)
+	}, cache, emptyPricingResolverForTest())
+
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewRealtimeWithFilterAndRecentCache returned error: %v", err)
 	}
@@ -1360,14 +1105,18 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 	if expiredUsageBucket.Tokens != 0 || expiredUsageBucket.TokensPerMinute != 0 {
 		t.Fatalf("expected token velocity to expire after the 3m sliding window, got %+v", expiredUsageBucket)
 	}
-	if realtime.ResponseLevel[21].LatencyP95MS == nil || *realtime.ResponseLevel[21].LatencyP95MS != 900 ||
+	if realtime.ResponseLevel[21].LatencyP50MS == nil || *realtime.ResponseLevel[21].LatencyP50MS != 500 ||
+		realtime.ResponseLevel[21].LatencyP95MS == nil || *realtime.ResponseLevel[21].LatencyP95MS != 700 ||
+		realtime.ResponseLevel[21].TTFTP50MS == nil || *realtime.ResponseLevel[21].TTFTP50MS != 100 ||
 		realtime.ResponseLevel[21].TTFTP95MS == nil || *realtime.ResponseLevel[21].TTFTP95MS != 200 {
-		t.Fatalf("expected response level to carry over the sliding window, got %+v", realtime.ResponseLevel[21])
+		t.Fatalf("expected response level to exclude failed latency samples from the sliding window, got %+v", realtime.ResponseLevel[21])
 	}
-	if realtime.ResponseLevel[26].LatencyP95MS == nil || *realtime.ResponseLevel[26].LatencyP95MS != 900 || realtime.ResponseLevel[26].TTFTP95MS != nil {
-		t.Fatalf("expected failed request latency to remain visible without token TTFT, got %+v", realtime.ResponseLevel[26])
+	if realtime.ResponseLevel[26].LatencyP50MS != nil || realtime.ResponseLevel[26].LatencyP95MS != nil ||
+		realtime.ResponseLevel[26].TTFTP50MS != nil || realtime.ResponseLevel[26].TTFTP95MS != nil {
+		t.Fatalf("expected failed request latency samples to be excluded after successful samples expire, got %+v", realtime.ResponseLevel[26])
 	}
-	if realtime.ResponseLevel[27].LatencyP95MS != nil || realtime.ResponseLevel[27].TTFTP95MS != nil {
+	if realtime.ResponseLevel[27].LatencyP50MS != nil || realtime.ResponseLevel[27].LatencyP95MS != nil ||
+		realtime.ResponseLevel[27].TTFTP50MS != nil || realtime.ResponseLevel[27].TTFTP95MS != nil {
 		t.Fatalf("expected response level to expire after the sliding window, got %+v", realtime.ResponseLevel[27])
 	}
 	if len(realtime.ResponseDistribution.TTFT.AverageLine) != 30 || len(realtime.ResponseDistribution.Latency.AverageLine) != 30 {
@@ -1376,12 +1125,12 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 	if realtime.ResponseDistribution.TTFT.AverageLine[21].AvgMS == nil || math.Abs(*realtime.ResponseDistribution.TTFT.AverageLine[21].AvgMS-150) > 0.000000001 {
 		t.Fatalf("expected ttft average line to use sliding samples, got %+v", realtime.ResponseDistribution.TTFT.AverageLine[21])
 	}
-	if realtime.ResponseDistribution.Latency.AverageLine[21].AvgMS == nil || math.Abs(*realtime.ResponseDistribution.Latency.AverageLine[21].AvgMS-687.5) > 0.000000001 {
-		t.Fatalf("expected latency average line to include failed request latency, got %+v", realtime.ResponseDistribution.Latency.AverageLine[21])
+	if realtime.ResponseDistribution.Latency.AverageLine[21].AvgMS == nil || math.Abs(*realtime.ResponseDistribution.Latency.AverageLine[21].AvgMS-600) > 0.000000001 {
+		t.Fatalf("expected latency average line to exclude failed request latency, got %+v", realtime.ResponseDistribution.Latency.AverageLine[21])
 	}
 	if realtime.ResponseDistribution.TTFT.AverageLine[26].AvgMS != nil ||
-		realtime.ResponseDistribution.Latency.AverageLine[26].AvgMS == nil || math.Abs(*realtime.ResponseDistribution.Latency.AverageLine[26].AvgMS-900) > 0.000000001 {
-		t.Fatalf("expected failed request latency distribution without ttft after sliding carry, got ttft=%+v latency=%+v", realtime.ResponseDistribution.TTFT.AverageLine[26], realtime.ResponseDistribution.Latency.AverageLine[26])
+		realtime.ResponseDistribution.Latency.AverageLine[26].AvgMS != nil {
+		t.Fatalf("expected failed request distribution samples to be excluded after successful samples expire, got ttft=%+v latency=%+v", realtime.ResponseDistribution.TTFT.AverageLine[26], realtime.ResponseDistribution.Latency.AverageLine[26])
 	}
 	if len(realtime.ResponseDistribution.TTFT.Particles) != 2 {
 		t.Fatalf("expected response distribution TTFT particles to map one usage event to one point, got %+v", realtime.ResponseDistribution.TTFT.Particles)
@@ -1390,34 +1139,28 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 	assertRealtimeParticleCore(t, realtime.ResponseDistribution.TTFT.Particles[1], "2026-06-09T11:55:00Z", 200, 1)
 	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.TTFT.Particles[0], "2026-06-09T11:55:10Z")
 	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.TTFT.Particles[1], "2026-06-09T11:55:15Z")
-	if len(realtime.ResponseDistribution.Latency.Particles) != 5 {
-		t.Fatalf("expected response distribution latency particles to map one usage event to one point, got %+v", realtime.ResponseDistribution.Latency.Particles)
+	if len(realtime.ResponseDistribution.Latency.Particles) != 2 {
+		t.Fatalf("expected response distribution latency particles to include only valid TTFT/latency pairs, got %+v", realtime.ResponseDistribution.Latency.Particles)
 	}
 	assertRealtimeParticleCore(t, realtime.ResponseDistribution.Latency.Particles[0], "2026-06-09T11:55:00Z", 500, 1)
 	assertRealtimeParticleCore(t, realtime.ResponseDistribution.Latency.Particles[1], "2026-06-09T11:55:00Z", 700, 1)
-	assertRealtimeParticleCore(t, realtime.ResponseDistribution.Latency.Particles[2], "2026-06-09T11:55:00Z", 650, 1)
-	assertRealtimeParticleCore(t, realtime.ResponseDistribution.Latency.Particles[3], "2026-06-09T11:55:30Z", 900, 1)
-	assertRealtimeParticleCore(t, realtime.ResponseDistribution.Latency.Particles[4], "2026-06-09T11:59:30Z", 300, 1)
 	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.Latency.Particles[0], "2026-06-09T11:55:10Z")
 	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.Latency.Particles[1], "2026-06-09T11:55:15Z")
-	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.Latency.Particles[2], "2026-06-09T11:55:20Z")
-	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.Latency.Particles[3], "2026-06-09T11:55:30Z")
-	assertRealtimeParticleTimestamp(t, realtime.ResponseDistribution.Latency.Particles[4], "2026-06-09T11:59:40Z")
 	if realtime.RequestLevel[21].Requests != 4 || math.Abs(realtime.RequestLevel[21].RequestsPerMinute-(4.0/3.0)) > 0.000000001 {
 		t.Fatalf("expected request level to use the 3m sliding window, got %+v", realtime.RequestLevel[21])
 	}
 	if realtime.RequestLevel[26].Requests != 1 || math.Abs(realtime.RequestLevel[26].RequestsPerMinute-(1.0/3.0)) > 0.000000001 {
 		t.Fatalf("expected failed request to remain visible inside the sliding window, got %+v", realtime.RequestLevel[26])
 	}
-	if realtime.CacheLevel[20].InputTokens != 160 || realtime.CacheLevel[20].CachedTokens != 25 ||
-		realtime.CacheLevel[20].CacheRate == nil || math.Abs(*realtime.CacheLevel[20].CacheRate-(25.0/160.0)*100) > 0.000000001 {
+	if realtime.CacheLevel[20].InputTokens != 160 || realtime.CacheLevel[20].CacheReadTokens != 25 || realtime.CacheLevel[20].CacheCreationTokens != 0 ||
+		realtime.CacheLevel[20].CacheReadRate == nil || math.Abs(*realtime.CacheLevel[20].CacheReadRate-(25.0/160.0)*100) > 0.000000001 {
 		t.Fatalf("unexpected cache level bucket: %+v", realtime.CacheLevel[20])
 	}
-	if realtime.CacheLevel[25].InputTokens != 160 || realtime.CacheLevel[25].CachedTokens != 25 ||
-		realtime.CacheLevel[25].CacheRate == nil || math.Abs(*realtime.CacheLevel[25].CacheRate-(25.0/160.0)*100) > 0.000000001 {
+	if realtime.CacheLevel[25].InputTokens != 160 || realtime.CacheLevel[25].CacheReadTokens != 25 || realtime.CacheLevel[25].CacheCreationTokens != 0 ||
+		realtime.CacheLevel[25].CacheReadRate == nil || math.Abs(*realtime.CacheLevel[25].CacheReadRate-(25.0/160.0)*100) > 0.000000001 {
 		t.Fatalf("expected cache level to carry over the sliding window, got %+v", realtime.CacheLevel[25])
 	}
-	if realtime.CacheLevel[26].CacheRate != nil || realtime.CacheLevel[26].InputTokens != 0 || realtime.CacheLevel[26].CachedTokens != 0 {
+	if realtime.CacheLevel[26].CacheReadRate != nil || realtime.CacheLevel[26].InputTokens != 0 || realtime.CacheLevel[26].CacheReadTokens != 0 || realtime.CacheLevel[26].CacheCreationTokens != 0 {
 		t.Fatalf("expected cache level to expire after the sliding window, got %+v", realtime.CacheLevel[26])
 	}
 
@@ -1478,7 +1221,8 @@ func TestBuildUsageOverviewRealtimeWithFilterCapsResponseDistributionParticles(t
 		APIGroupKey:     "provider-a",
 		RealtimeWindow:  "60m",
 		RealtimeEndTime: &now,
-	}, cache)
+	}, cache, emptyPricingResolverForTest())
+
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewRealtimeWithFilterAndRecentCache returned error: %v", err)
 	}
@@ -1603,7 +1347,8 @@ func TestBuildUsageOverviewRealtimeWithFilterUsesWarmupEventsForSlidingBucketsOn
 	realtime, err := BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, dto.UsageQueryFilter{
 		RealtimeWindow:  "15m",
 		RealtimeEndTime: &now,
-	}, cache)
+	}, cache, emptyPricingResolverForTest())
+
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewRealtimeWithFilterAndRecentCache returned error: %v", err)
 	}
@@ -1645,7 +1390,7 @@ func TestBuildUsageOverviewRealtimeWithFilterSplitsAliasedModelsIntoSeparateRows
 	realtime, err := BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, dto.UsageQueryFilter{
 		RealtimeWindow:  "15m",
 		RealtimeEndTime: &now,
-	}, cache)
+	}, cache, emptyPricingResolverForTest())
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewRealtimeWithFilterAndRecentCache returned error: %v", err)
 	}
@@ -1700,7 +1445,8 @@ func TestBuildUsageOverviewRealtimeWithFilterUsesRecentCacheFallbackLabels(t *te
 		APIGroupKey:     "provider-a",
 		RealtimeWindow:  "15m",
 		RealtimeEndTime: &now,
-	}, cache)
+	}, cache, emptyPricingResolverForTest())
+
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewRealtimeWithFilterAndRecentCache returned error: %v", err)
 	}
@@ -1745,7 +1491,8 @@ func TestBuildUsageOverviewRealtimeWithFilterFallsBackToDBWhenRecentCacheIsNil(t
 	realtime, err := BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, dto.UsageQueryFilter{
 		RealtimeWindow:  "15m",
 		RealtimeEndTime: &now,
-	}, nil)
+	}, nil, emptyPricingResolverForTest())
+
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewRealtimeWithFilterAndRecentCache returned error: %v", err)
 	}
@@ -1806,7 +1553,7 @@ func TestBuildUsageOverviewWithFilterUsesRecentCacheForCoveredBoundaryEvents(t *
 		QueryNow:    &now,
 		APIGroupKey: "provider-a",
 	}
-	overview, err := BuildUsageOverviewWithFilterAndRecentCache(db, filter, cache)
+	overview, err := BuildUsageOverviewWithFilterAndRecentCache(db, filter, cache, emptyPricingResolverForTest())
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilterAndRecentCache returned error: %v", err)
 	}
@@ -1814,7 +1561,7 @@ func TestBuildUsageOverviewWithFilterUsesRecentCacheForCoveredBoundaryEvents(t *
 	if overview.Usage.TotalRequests != 1 || overview.Usage.SuccessCount != 1 || overview.Usage.TotalTokens != 150 {
 		t.Fatalf("expected cached boundary event in usage totals, got %+v", overview.Usage)
 	}
-	if overview.Summary.InputTokens != 100 || overview.Summary.CachedTokens != 25 || overview.Summary.ReasoningTokens != 7 {
+	if overview.Summary.InputTokens != 100 || overview.Summary.CacheReadTokens != 3 || overview.Summary.CacheCreationTokens != 4 || overview.Summary.ReasoningTokens != 7 {
 		t.Fatalf("expected cached boundary event in summary, got %+v", overview.Summary)
 	}
 	if overview.Series.Requests["2026-06-10T12:00:00Z"] != 1 || overview.Series.Tokens["2026-06-10T12:00:00Z"] != 150 {
@@ -1851,7 +1598,8 @@ func TestBuildUsageOverviewWithFilterUsesOpenEndedRecentCacheForCurrentRightBoun
 		EndTime:     &end,
 		QueryNow:    &now,
 		APIGroupKey: "provider-a",
-	}, cache)
+	}, cache, emptyPricingResolverForTest())
+
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilterAndRecentCache returned error: %v", err)
 	}
@@ -1903,7 +1651,8 @@ func TestBuildUsageOverviewWithFilterUsesBoundedRecentCacheForHistoricalCustomRi
 		EndTime:     &end,
 		QueryNow:    &now,
 		APIGroupKey: "provider-a",
-	}, cache)
+	}, cache, emptyPricingResolverForTest())
+
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilterAndRecentCache returned error: %v", err)
 	}
@@ -1946,7 +1695,8 @@ func TestBuildUsageOverviewWithFilterClampsFutureCustomEndToQueryNow(t *testing.
 		EndTime:     &end,
 		QueryNow:    &queryNow,
 		APIGroupKey: "provider-a",
-	}, cache)
+	}, cache, emptyPricingResolverForTest())
+
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilterAndRecentCache returned error: %v", err)
 	}
@@ -1979,7 +1729,8 @@ func TestBuildUsageOverviewWithFilterDoesNotFallbackToDBForEmptyCoveredRightBoun
 		EndTime:     &end,
 		QueryNow:    &now,
 		APIGroupKey: "provider-a",
-	}, cache)
+	}, cache, emptyPricingResolverForTest())
+
 	if err != nil {
 		t.Fatalf("expected covered empty right boundary cache not to query DB, got %v", err)
 	}

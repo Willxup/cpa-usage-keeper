@@ -13,6 +13,7 @@ import (
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/timeutil"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -21,6 +22,8 @@ type SessionStore interface {
 	Save(string, Session) error
 	Get(string) (Session, bool, error)
 	List(time.Time) ([]SessionRecord, error)
+	UpdateActivity(string, string, time.Time) error
+	UpdateAdminAliasByTokenHash(string, string, time.Time) (int64, error)
 	Delete(string) error
 	DeleteByTokenHash(string) (int64, error)
 	DeleteByRole(Role) (int64, error)
@@ -42,7 +45,13 @@ func (s *GormSessionStore) Save(token string, session Session) error {
 	row := entities.AuthSession{
 		TokenHash:   sessionTokenHash(token),
 		Role:        string(session.Role),
+		Source:      string(NormalizeSessionSource(session.Source)),
+		Alias:       session.Alias,
 		CPAAPIKeyID: session.CPAAPIKeyID,
+		LoginIP:     session.LoginIP,
+		LastSeenIP:  session.LastSeenIP,
+		UserAgent:   session.UserAgent,
+		LastSeenAt:  sessionTimePointer(session.LastSeenAt),
 		ExpiresAt:   session.ExpiresAt,
 		CreatedAt:   session.CreatedAt,
 		UpdatedAt:   session.CreatedAt,
@@ -51,6 +60,33 @@ func (s *GormSessionStore) Save(token string, session Session) error {
 		Columns:   []clause.Column{{Name: "token_hash"}},
 		UpdateAll: true,
 	}).Create(&row).Error
+}
+
+func (s *GormSessionStore) UpdateAdminAliasByTokenHash(tokenHash, alias string, updatedAt time.Time) (int64, error) {
+	if s == nil || s.db == nil {
+		return 0, fmt.Errorf("auth session store is not configured")
+	}
+	result := s.db.Model(&entities.AuthSession{}).
+		Where("token_hash = ? AND role = ?", tokenHash, string(RoleAdmin)).
+		Updates(map[string]any{
+			"alias":      alias,
+			"updated_at": timeutil.FormatStorageTime(updatedAt),
+		})
+	return result.RowsAffected, result.Error
+}
+
+func (s *GormSessionStore) UpdateActivity(token, lastSeenIP string, lastSeenAt time.Time) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("auth session store is not configured")
+	}
+	updates := map[string]any{
+		"last_seen_ip": lastSeenIP,
+		"last_seen_at": timeutil.FormatStorageTime(lastSeenAt),
+		"updated_at":   timeutil.FormatStorageTime(lastSeenAt),
+	}
+	return s.db.Model(&entities.AuthSession{}).
+		Where("token_hash = ?", sessionTokenHash(token)).
+		Updates(updates).Error
 }
 
 func (s *GormSessionStore) Get(token string) (Session, bool, error) {
@@ -121,11 +157,23 @@ func (s *GormSessionStore) DeleteExpired(now time.Time) error {
 }
 
 func authSessionFromRow(row entities.AuthSession) (Session, error) {
+	source := NormalizeSessionSource(SessionSource(row.Source))
+	lastSeenAt := row.CreatedAt
+	if row.LastSeenAt != nil && !row.LastSeenAt.IsZero() {
+		lastSeenAt = *row.LastSeenAt
+	}
 	switch Role(row.Role) {
 	case RoleAdmin:
-		return Session{Role: RoleAdmin, ExpiresAt: row.ExpiresAt, CreatedAt: row.CreatedAt}, nil
+		return Session{
+			Role: RoleAdmin, Source: source, Alias: row.Alias, LoginIP: row.LoginIP, LastSeenIP: row.LastSeenIP,
+			UserAgent: row.UserAgent, LastSeenAt: lastSeenAt, ExpiresAt: row.ExpiresAt, CreatedAt: row.CreatedAt,
+		}, nil
 	case RoleAPIKeyViewer:
-		return Session{Role: RoleAPIKeyViewer, CPAAPIKeyID: row.CPAAPIKeyID, ExpiresAt: row.ExpiresAt, CreatedAt: row.CreatedAt}, nil
+		return Session{
+			Role: RoleAPIKeyViewer, Source: source, CPAAPIKeyID: row.CPAAPIKeyID,
+			LoginIP: row.LoginIP, LastSeenIP: row.LastSeenIP, UserAgent: row.UserAgent,
+			LastSeenAt: lastSeenAt, ExpiresAt: row.ExpiresAt, CreatedAt: row.CreatedAt,
+		}, nil
 	default:
 		return Session{}, fmt.Errorf("unknown auth session role %q", row.Role)
 	}
@@ -139,7 +187,13 @@ func authSessionRecordFromRow(row entities.AuthSession) (SessionRecord, error) {
 	return SessionRecord{
 		TokenHash:   row.TokenHash,
 		Role:        session.Role,
+		Source:      session.Source,
+		Alias:       session.Alias,
 		CPAAPIKeyID: session.CPAAPIKeyID,
+		LoginIP:     session.LoginIP,
+		LastSeenIP:  session.LastSeenIP,
+		UserAgent:   session.UserAgent,
+		LastSeenAt:  session.LastSeenAt,
 		ExpiresAt:   session.ExpiresAt,
 		CreatedAt:   session.CreatedAt,
 	}, nil
@@ -161,9 +215,29 @@ const (
 	RoleAPIKeyViewer Role = "api_key_viewer"
 )
 
+type SessionSource string
+
+const (
+	SessionSourceStandard SessionSource = "standard"
+	SessionSourceEmbed    SessionSource = "embed"
+)
+
+func NormalizeSessionSource(source SessionSource) SessionSource {
+	if source == SessionSourceEmbed {
+		return SessionSourceEmbed
+	}
+	return SessionSourceStandard
+}
+
 type Session struct {
 	Role        Role
+	Source      SessionSource
+	Alias       string
 	CPAAPIKeyID int64
+	LoginIP     string
+	LastSeenIP  string
+	UserAgent   string
+	LastSeenAt  time.Time
 	ExpiresAt   time.Time
 	CreatedAt   time.Time
 }
@@ -171,14 +245,30 @@ type Session struct {
 type SessionRecord struct {
 	TokenHash   string
 	Role        Role
+	Source      SessionSource
+	Alias       string
 	CPAAPIKeyID int64
+	LoginIP     string
+	LastSeenIP  string
+	UserAgent   string
+	LastSeenAt  time.Time
 	ExpiresAt   time.Time
 	CreatedAt   time.Time
 }
 
+type SessionClientMetadata struct {
+	IP        string
+	UserAgent string
+}
+
 type RevokeResult struct {
 	Deleted int
-	Tokens  []string
+}
+
+type sessionActivityUpdate struct {
+	token      string
+	lastSeenIP string
+	lastSeenAt time.Time
 }
 
 type SessionManager struct {
@@ -187,16 +277,21 @@ type SessionManager struct {
 	generate func() (string, error)
 	store    SessionStore
 
-	mu       sync.RWMutex
-	sessions map[string]Session
+	mu                    sync.RWMutex
+	sessions              map[string]Session
+	pendingActivity       map[string]sessionActivityUpdate
+	activityWriterRunning bool
 }
+
+const sessionActivityWriteInterval = time.Minute
 
 func NewSessionManager(ttl time.Duration) *SessionManager {
 	return &SessionManager{
-		ttl:      ttl,
-		now:      time.Now,
-		generate: generateToken,
-		sessions: make(map[string]Session),
+		ttl:             ttl,
+		now:             time.Now,
+		generate:        generateToken,
+		sessions:        make(map[string]Session),
+		pendingActivity: make(map[string]sessionActivityUpdate),
 	}
 }
 
@@ -207,14 +302,30 @@ func NewPersistentSessionManager(ttl time.Duration, store SessionStore) *Session
 }
 
 func (m *SessionManager) Create() (string, time.Time, error) {
-	return m.create(Session{Role: RoleAdmin})
+	return m.CreateWithSource(SessionSourceStandard)
+}
+
+func (m *SessionManager) CreateWithSource(source SessionSource) (string, time.Time, error) {
+	return m.CreateWithSourceAndMetadata(source, SessionClientMetadata{})
+}
+
+func (m *SessionManager) CreateWithSourceAndMetadata(source SessionSource, metadata SessionClientMetadata) (string, time.Time, error) {
+	return m.create(Session{Role: RoleAdmin, Source: NormalizeSessionSource(source)}, metadata)
 }
 
 func (m *SessionManager) CreateAPIKeyViewer(cpaAPIKeyID int64) (string, time.Time, error) {
-	return m.create(Session{Role: RoleAPIKeyViewer, CPAAPIKeyID: cpaAPIKeyID})
+	return m.CreateAPIKeyViewerWithSource(cpaAPIKeyID, SessionSourceStandard)
 }
 
-func (m *SessionManager) create(session Session) (string, time.Time, error) {
+func (m *SessionManager) CreateAPIKeyViewerWithSource(cpaAPIKeyID int64, source SessionSource) (string, time.Time, error) {
+	return m.CreateAPIKeyViewerWithSourceAndMetadata(cpaAPIKeyID, source, SessionClientMetadata{})
+}
+
+func (m *SessionManager) CreateAPIKeyViewerWithSourceAndMetadata(cpaAPIKeyID int64, source SessionSource, metadata SessionClientMetadata) (string, time.Time, error) {
+	return m.create(Session{Role: RoleAPIKeyViewer, Source: NormalizeSessionSource(source), CPAAPIKeyID: cpaAPIKeyID}, metadata)
+}
+
+func (m *SessionManager) create(session Session, metadata SessionClientMetadata) (string, time.Time, error) {
 	token, err := m.generate()
 	if err != nil {
 		return "", time.Time{}, err
@@ -226,6 +337,12 @@ func (m *SessionManager) create(session Session) (string, time.Time, error) {
 	m.cleanupExpiredLocked()
 	now := m.now()
 	expiresAt := now.Add(m.ttl)
+	metadata = normalizeSessionClientMetadata(metadata)
+	session.Source = NormalizeSessionSource(session.Source)
+	session.LoginIP = metadata.IP
+	session.LastSeenIP = metadata.IP
+	session.UserAgent = metadata.UserAgent
+	session.LastSeenAt = now
 	session.ExpiresAt = expiresAt
 	session.CreatedAt = now
 	if m.store != nil {
@@ -236,6 +353,76 @@ func (m *SessionManager) create(session Session) (string, time.Time, error) {
 	m.sessions[token] = session
 
 	return token, expiresAt, nil
+}
+
+// Touch 立即更新内存，并把需要持久化的最近活动合并给单个后台 writer。
+func (m *SessionManager) Touch(token, lastSeenIP string) bool {
+	if token == "" {
+		return false
+	}
+	if _, ok := m.Get(token); !ok {
+		return false
+	}
+
+	m.mu.Lock()
+	session, ok := m.sessions[token]
+	if !ok || !session.ExpiresAt.After(m.now()) {
+		m.mu.Unlock()
+		return false
+	}
+	now := m.now()
+	lastSeenIP = normalizeSessionIP(lastSeenIP)
+	if lastSeenIP == "" {
+		lastSeenIP = session.LastSeenIP
+	}
+	if lastSeenIP == session.LastSeenIP && session.LastSeenAt.Add(sessionActivityWriteInterval).After(now) {
+		m.mu.Unlock()
+		return false
+	}
+	session.LastSeenIP = lastSeenIP
+	session.LastSeenAt = now
+	m.sessions[token] = session
+
+	startWriter := false
+	if m.store != nil {
+		m.pendingActivity[token] = sessionActivityUpdate{token: token, lastSeenIP: lastSeenIP, lastSeenAt: now}
+		if !m.activityWriterRunning {
+			m.activityWriterRunning = true
+			startWriter = true
+		}
+	}
+	m.mu.Unlock()
+
+	if startWriter {
+		go m.writePendingActivity()
+	}
+	return true
+}
+
+// writePendingActivity 串行写入并按 token 合并更新，避免请求等待 SQLite writer。
+func (m *SessionManager) writePendingActivity() {
+	for {
+		m.mu.Lock()
+		var update sessionActivityUpdate
+		found := false
+		for token, pending := range m.pendingActivity {
+			update = pending
+			delete(m.pendingActivity, token)
+			found = true
+			break
+		}
+		if !found {
+			m.activityWriterRunning = false
+			m.mu.Unlock()
+			return
+		}
+		store := m.store
+		m.mu.Unlock()
+
+		if err := store.UpdateActivity(update.token, update.lastSeenIP, update.lastSeenAt); err != nil {
+			logrus.WithError(err).Warn("auth session activity persistence failed")
+		}
+	}
 }
 
 func (m *SessionManager) Validate(token string) bool {
@@ -271,6 +458,19 @@ func (m *SessionManager) List() []SessionRecord {
 		if err != nil {
 			panic(fmt.Errorf("list auth sessions: %w", err))
 		}
+		cachedByHash := make(map[string]Session, len(m.sessions))
+		for token, session := range m.sessions {
+			cachedByHash[sessionTokenHash(token)] = session
+		}
+		for index := range records {
+			if session, ok := cachedByHash[records[index].TokenHash]; ok {
+				records[index].Alias = session.Alias
+				records[index].LoginIP = session.LoginIP
+				records[index].LastSeenIP = session.LastSeenIP
+				records[index].UserAgent = session.UserAgent
+				records[index].LastSeenAt = session.LastSeenAt
+			}
+		}
 		return records
 	}
 
@@ -279,7 +479,13 @@ func (m *SessionManager) List() []SessionRecord {
 		records = append(records, SessionRecord{
 			TokenHash:   sessionTokenHash(token),
 			Role:        session.Role,
+			Source:      NormalizeSessionSource(session.Source),
+			Alias:       session.Alias,
 			CPAAPIKeyID: session.CPAAPIKeyID,
+			LoginIP:     session.LoginIP,
+			LastSeenIP:  session.LastSeenIP,
+			UserAgent:   session.UserAgent,
+			LastSeenAt:  session.LastSeenAt,
 			ExpiresAt:   session.ExpiresAt,
 			CreatedAt:   session.CreatedAt,
 		})
@@ -291,6 +497,40 @@ func (m *SessionManager) List() []SessionRecord {
 		return records[i].CreatedAt.Before(records[j].CreatedAt)
 	})
 	return records
+}
+
+// UpdateAdminAliasByTokenHash 只更新单个有效管理员会话，并同步内存缓存与持久层。
+func (m *SessionManager) UpdateAdminAliasByTokenHash(tokenHash, alias string) bool {
+	tokenHash = strings.TrimSpace(tokenHash)
+	alias = strings.TrimSpace(alias)
+	if tokenHash == "" {
+		return false
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cleanupExpiredLocked()
+
+	updated := false
+	if m.store != nil {
+		rows, err := m.store.UpdateAdminAliasByTokenHash(tokenHash, alias, m.now())
+		if err != nil {
+			panic(fmt.Errorf("update admin auth session alias: %w", err))
+		}
+		updated = rows > 0
+	}
+	for token, session := range m.sessions {
+		if sessionTokenHash(token) != tokenHash || session.Role != RoleAdmin {
+			continue
+		}
+		if m.store != nil && !updated {
+			return false
+		}
+		session.Alias = alias
+		m.sessions[token] = session
+		updated = true
+	}
+	return updated
 }
 
 func (m *SessionManager) getPersisted(token string) (Session, bool) {
@@ -343,7 +583,6 @@ func (m *SessionManager) DeleteByTokenHash(tokenHash string) RevokeResult {
 		}
 		delete(m.sessions, token)
 		result.Deleted = 1
-		result.Tokens = append(result.Tokens, token)
 	}
 	if m.store != nil {
 		deleted, err := m.store.DeleteByTokenHash(tokenHash)
@@ -369,7 +608,6 @@ func (m *SessionManager) DeleteByRole(role Role) RevokeResult {
 		}
 		delete(m.sessions, token)
 		result.Deleted++
-		result.Tokens = append(result.Tokens, token)
 	}
 	if m.store != nil {
 		deleted, err := m.store.DeleteByRole(role)
@@ -423,4 +661,25 @@ func generateToken() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+func normalizeSessionClientMetadata(metadata SessionClientMetadata) SessionClientMetadata {
+	metadata.IP = normalizeSessionIP(metadata.IP)
+	return metadata
+}
+
+func normalizeSessionIP(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) > 64 {
+		return ""
+	}
+	return value
+}
+
+func sessionTimePointer(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	copy := value
+	return &copy
 }

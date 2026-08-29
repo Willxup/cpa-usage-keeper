@@ -3,6 +3,7 @@ package quota
 import (
 	"fmt"
 	"math"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -130,11 +131,6 @@ func normalizeCodexQuotaRows(result CodexResult) []QuotaRow {
 		primaryLabel := additional.LimitName + " 5h"
 		secondaryLabel := additional.LimitName + " Weekly"
 		rows = appendCodexWindowQuotaRows(rows, "additional_rate_limits."+additional.LimitName, primaryLabel, secondaryLabel, "additional", metric, additional.RateLimit)
-	}
-	if planType := strings.TrimSpace(result.Usage.PlanType); planType != "" {
-		for index := range rows {
-			rows[index].PlanType = planType
-		}
 	}
 	return rows
 }
@@ -286,98 +282,304 @@ func normalizeAntigravityQuotaRows(result AntigravityResult) []QuotaRow {
 	if result.Quota == nil {
 		return nil
 	}
-	keys := make([]string, 0, len(result.Quota.Models))
-	for key := range result.Quota.Models {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	rows := make([]QuotaRow, 0, len(keys))
-	for _, key := range keys {
-		model := result.Quota.Models[key]
-		label := model.DisplayName
-		if label == "" {
-			label = key
+	rows := make([]QuotaRow, 0)
+	for groupIndex, group := range result.Quota.Groups {
+		groupKey := antigravityQuotaGroupKey(group.DisplayName, groupIndex)
+		groupLabel := firstNonEmpty(group.DisplayName, fmt.Sprintf("Quota Group %d", groupIndex+1))
+		groupRows := make([]QuotaRow, 0, len(group.Buckets))
+		for bucketIndex, bucket := range group.Buckets {
+			if bucket.RemainingFraction == nil {
+				continue
+			}
+			label, metric, window := normalizeAntigravityQuotaWindow(bucket)
+			bucketKey := firstNonEmpty(bucket.BucketID, fmt.Sprintf("group-%d-bucket-%d", groupIndex+1, bucketIndex+1))
+			groupRows = append(groupRows, QuotaRow{
+				Key:               "bucket." + groupKey + "." + bucketKey,
+				Label:             label,
+				Scope:             "quota_group",
+				Metric:            metric,
+				GroupKey:          groupKey,
+				GroupLabel:        groupLabel,
+				GroupDescription:  group.Description,
+				RemainingFraction: bucket.RemainingFraction,
+				Window:            window,
+				ResetAt:           bucket.ResetTime,
+			})
 		}
-		row := QuotaRow{Key: "model." + key, Label: label, Scope: "model", Metric: key}
-		if model.QuotaInfo != nil {
-			// Antigravity 模型限额按 5 小时刷新，只有存在 quota info 时才让该 row 进入窗口统计。
-			row.Window = &QuotaWindow{Seconds: intPtr(quotaWindowFiveHourSeconds)}
-			row.Remaining = floatPtr(model.QuotaInfo.Remaining)
-			row.RemainingFraction = floatPtr(model.QuotaInfo.RemainingFraction)
-			row.ResetAt = model.QuotaInfo.ResetTime
-		}
-		rows = append(rows, row)
+		sort.SliceStable(groupRows, func(i, j int) bool {
+			return antigravityQuotaWindowOrder(groupRows[i].Metric) < antigravityQuotaWindowOrder(groupRows[j].Metric)
+		})
+		rows = append(rows, groupRows...)
 	}
 	return rows
 }
 
+func antigravityQuotaGroupKey(displayName string, groupIndex int) string {
+	var normalized strings.Builder
+	pendingSeparator := false
+	for _, value := range strings.ToLower(strings.TrimSpace(displayName)) {
+		if (value >= 'a' && value <= 'z') || (value >= '0' && value <= '9') {
+			if pendingSeparator && normalized.Len() > 0 {
+				normalized.WriteByte('-')
+			}
+			normalized.WriteRune(value)
+			pendingSeparator = false
+			continue
+		}
+		if normalized.Len() > 0 {
+			pendingSeparator = true
+		}
+	}
+	if normalized.Len() == 0 {
+		return fmt.Sprintf("antigravity-group-%d", groupIndex+1)
+	}
+	return "antigravity-" + normalized.String()
+}
+
+func normalizeAntigravityQuotaWindow(bucket AntigravityQuotaBucket) (string, string, *QuotaWindow) {
+	window := strings.ToLower(strings.TrimSpace(bucket.Window))
+	switch window {
+	case "5h", "five-hour", "five_hour":
+		return "5h", "5h", &QuotaWindow{Seconds: intPtr(quotaWindowFiveHourSeconds)}
+	case "weekly", "week":
+		return "Weekly", "weekly", &QuotaWindow{Seconds: intPtr(quotaWindowSevenDaySeconds)}
+	default:
+		return firstNonEmpty(bucket.DisplayName, bucket.BucketID, "Quota"), window, nil
+	}
+}
+
+func antigravityQuotaWindowOrder(metric string) int {
+	switch metric {
+	case "5h":
+		return 0
+	case "weekly":
+		return 1
+	default:
+		return 2
+	}
+}
+
 func normalizeKimiQuotaRows(result KimiResult) []QuotaRow {
-	// Kimi 的 summary 和 limits 结构不同，先保留 summary，再逐条展开 limits。
+	// Kimi 的短窗口位于 limits，顶层 usage 是较长的汇总窗口；按短窗口到长窗口输出。
 	if result.Usage == nil {
 		return nil
 	}
 	rows := make([]QuotaRow, 0, 1+len(result.Usage.Limits))
-	if isMeaningfulKimiDetail(result.Usage.Usage) {
-		rows = append(rows, kimiDetailQuotaRow("usage", "summary", "Usage", result.Usage.Usage))
-	}
 	for index, limit := range result.Usage.Limits {
 		keyName := limit.Name
 		if keyName == "" {
 			keyName = fmt.Sprintf("%d", index)
 		}
-		label := firstNonEmpty(limit.Title, limit.Name, "Limit")
+		window := kimiWindow(limit)
+		label := kimiLimitLabel(limit, window)
 		scope := firstNonEmpty(limit.Scope, "limit")
+		used, quotaLimit, remaining := limit.Used, limit.Limit, limit.Remaining
+		// 新协议把额度值放在 detail；旧协议只把 reset 信息放在 detail，额度仍在外层。
+		if hasKimiQuotaValues(limit.Detail) {
+			used = limit.Detail.Used
+			quotaLimit = limit.Detail.Limit
+			remaining = limit.Detail.Remaining
+		}
 		row := QuotaRow{
 			Key:       "limits." + keyName,
 			Label:     label,
 			Scope:     scope,
 			Metric:    limit.Name,
-			Used:      floatPtr(limit.Used),
-			Limit:     floatPtr(limit.Limit),
-			Remaining: floatPtr(limit.Remaining),
+			Used:      floatPtr(used),
+			Limit:     floatPtr(quotaLimit),
+			Remaining: floatPtr(remaining),
 			ResetAt:   firstNonEmpty(limit.ResetAt, resetAtFromKimiDetail(limit.Detail)),
 		}
-		if limit.Limit > 0 {
-			row.UsedPercent = floatPtr(limit.Used / limit.Limit * 100)
+		if quotaLimit > 0 {
+			row.UsedPercent = floatPtr(used / quotaLimit * 100)
 		}
 		if limit.ResetIn != 0 {
 			row.ResetAfterSeconds = intPtr(int64(limit.ResetIn))
 		} else if limit.Detail != nil && limit.Detail.ResetIn != 0 {
 			row.ResetAfterSeconds = intPtr(int64(limit.Detail.ResetIn))
 		}
-		row.Window = kimiWindow(limit)
+		row.Window = window
 		rows = append(rows, row)
+	}
+	if isMeaningfulKimiDetail(result.Usage.Usage) {
+		rows = append(rows, kimiDetailQuotaRow("usage", "summary", "Weekly", result.Usage.Usage))
 	}
 	return rows
 }
 
 func normalizeXAIQuotaRows(result XAIResult) []QuotaRow {
-	// xAI billing 的 val 是 USD cents；后端缓存保留 cents，前端按 metric=usd_cents 格式化成美元。
-	if result.Billing == nil || result.Billing.Config == nil {
+	// xAI 两个 billing endpoint 同级返回，输出顺序固定为 Weekly、Monthly、PAYG、产品额度。
+	weeklyConfig := xaiBillingConfig(result.Weekly)
+	monthlyConfig := xaiBillingConfig(result.Monthly)
+	rows := make([]QuotaRow, 0, 3)
+	if row, ok := xaiWeeklyQuotaRow(weeklyConfig); ok {
+		rows = append(rows, row)
+	}
+	rows = append(rows, xaiMonthlyQuotaRows(monthlyConfig)...)
+	rows = append(rows, xaiProductQuotaRows(weeklyConfig)...)
+	return rows
+}
+
+func xaiBillingConfig(payload *XAIBillingPayload) *XAIBillingConfig {
+	if payload == nil {
 		return nil
 	}
-	config := result.Billing.Config
-	limit := config.MonthlyLimit.Val
-	used := config.Used.Val
-	remaining := math.Max(0, limit-used)
-	row := QuotaRow{
-		Key:       "billing.monthly",
-		Label:     "Monthly Spend",
-		Scope:     "billing",
-		Metric:    "usd_cents",
-		Used:      floatPtr(used),
-		Limit:     floatPtr(limit),
-		Remaining: floatPtr(remaining),
-		Window:    &QuotaWindow{Seconds: intPtr(quotaWindowThirtyDaySeconds)},
-		ResetAt:   config.BillingPeriodEnd,
+	return payload.Config
+}
+
+func xaiWeeklyQuotaRow(config *XAIBillingConfig) (QuotaRow, bool) {
+	if config == nil || config.CreditUsagePercent == nil {
+		return QuotaRow{}, false
 	}
-	if limit > 0 {
-		row.UsedPercent = floatPtr(used / limit * 100)
-		limitReached := used >= limit
-		row.LimitReached = boolPtr(limitReached)
-		row.Allowed = boolPtr(!limitReached)
+	usedPercent := *config.CreditUsagePercent
+	limitReached := usedPercent >= 100
+	return QuotaRow{
+		Key:          xaiWeeklyBillingQuotaKey,
+		Label:        "Weekly",
+		Scope:        "billing",
+		Metric:       "weekly",
+		UsedPercent:  floatPtr(usedPercent),
+		Allowed:      boolPtr(!limitReached),
+		LimitReached: boolPtr(limitReached),
+		Window:       &QuotaWindow{Seconds: intPtr(quotaWindowSevenDaySeconds)},
+		ResetAt:      xaiWeeklyResetAt(config),
+	}, true
+}
+
+func xaiMonthlyQuotaRows(config *XAIBillingConfig) []QuotaRow {
+	if config == nil {
+		return nil
 	}
-	return []QuotaRow{row}
+	monthlyLimit, hasMonthlyLimit := xaiMoneyValue(config.MonthlyLimit)
+	totalUsed, hasTotalUsed := xaiMoneyValue(config.Used)
+	onDemandCap, hasOnDemandCap := xaiMoneyValue(config.OnDemandCap)
+	onDemandUsed, hasOnDemandUsed := xaiMoneyValue(config.OnDemandUsed)
+	if !hasOnDemandUsed && hasTotalUsed && hasMonthlyLimit {
+		onDemandUsed = math.Max(0, totalUsed-monthlyLimit)
+		hasOnDemandUsed = true
+	}
+
+	rows := make([]QuotaRow, 0, 2)
+	if hasMonthlyLimit || hasTotalUsed {
+		row := QuotaRow{
+			Key:     "billing.monthly",
+			Label:   "Monthly Spend",
+			Scope:   "billing",
+			Metric:  "usd_cents",
+			Window:  &QuotaWindow{Seconds: intPtr(quotaWindowThirtyDaySeconds)},
+			ResetAt: config.BillingPeriodEnd,
+		}
+		if hasMonthlyLimit {
+			row.Limit = floatPtr(monthlyLimit)
+		}
+		if hasTotalUsed {
+			includedUsed := totalUsed
+			if hasMonthlyLimit {
+				includedUsed = math.Min(totalUsed, math.Max(0, monthlyLimit))
+			}
+			row.Used = floatPtr(includedUsed)
+			if hasMonthlyLimit {
+				row.Remaining = floatPtr(math.Max(0, monthlyLimit-includedUsed))
+				if monthlyLimit > 0 {
+					row.UsedPercent = floatPtr(includedUsed / monthlyLimit * 100)
+					onDemandAvailable := hasOnDemandCap && onDemandCap > 0 && hasOnDemandUsed && onDemandUsed < onDemandCap
+					limitReached := includedUsed >= monthlyLimit && !onDemandAvailable
+					row.LimitReached = boolPtr(limitReached)
+					row.Allowed = boolPtr(!limitReached)
+				}
+			}
+		}
+		rows = append(rows, row)
+	}
+
+	if hasOnDemandCap && onDemandCap > 0 {
+		row := QuotaRow{
+			Key:     "billing.on_demand",
+			Label:   "Pay-as-you-go",
+			Scope:   "billing",
+			Metric:  "usd_cents",
+			Limit:   floatPtr(onDemandCap),
+			Window:  &QuotaWindow{Seconds: intPtr(quotaWindowThirtyDaySeconds)},
+			ResetAt: config.BillingPeriodEnd,
+		}
+		if hasOnDemandUsed {
+			row.Used = floatPtr(onDemandUsed)
+			row.Remaining = floatPtr(math.Max(0, onDemandCap-onDemandUsed))
+			row.UsedPercent = floatPtr(onDemandUsed / onDemandCap * 100)
+			limitReached := onDemandUsed >= onDemandCap
+			row.LimitReached = boolPtr(limitReached)
+			row.Allowed = boolPtr(!limitReached)
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+func xaiProductQuotaRows(config *XAIBillingConfig) []QuotaRow {
+	if config == nil || len(config.ProductUsage) == 0 {
+		return nil
+	}
+	type productQuota struct {
+		name           string
+		normalizedName string
+		usedPercent    float64
+	}
+	products := make(map[string]productQuota, len(config.ProductUsage))
+	for _, item := range config.ProductUsage {
+		name := strings.Join(strings.Fields(item.Product), " ")
+		normalizedName := strings.ToLower(name)
+		if normalizedName == "" || item.UsagePercent == nil {
+			continue
+		}
+		if current, ok := products[normalizedName]; ok {
+			if *item.UsagePercent > current.usedPercent {
+				current.usedPercent = *item.UsagePercent
+				products[normalizedName] = current
+			}
+			continue
+		}
+		products[normalizedName] = productQuota{name: name, normalizedName: normalizedName, usedPercent: *item.UsagePercent}
+	}
+	ordered := make([]productQuota, 0, len(products))
+	for _, product := range products {
+		ordered = append(ordered, product)
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		return ordered[i].normalizedName < ordered[j].normalizedName
+	})
+	rows := make([]QuotaRow, 0, len(ordered))
+	for _, product := range ordered {
+		limitReached := product.usedPercent >= 100
+		rows = append(rows, QuotaRow{
+			Key:          "billing.weekly.product." + url.QueryEscape(product.normalizedName),
+			Label:        product.name + " Usage",
+			Scope:        "product",
+			Metric:       product.name,
+			UsedPercent:  floatPtr(product.usedPercent),
+			Allowed:      boolPtr(!limitReached),
+			LimitReached: boolPtr(limitReached),
+			Window:       &QuotaWindow{Seconds: intPtr(quotaWindowSevenDaySeconds)},
+			ResetAt:      xaiWeeklyResetAt(config),
+		})
+	}
+	return rows
+}
+
+func xaiWeeklyResetAt(config *XAIBillingConfig) string {
+	if config == nil {
+		return ""
+	}
+	if config.CurrentPeriod != nil && strings.TrimSpace(config.CurrentPeriod.End) != "" {
+		return config.CurrentPeriod.End
+	}
+	return config.BillingPeriodEnd
+}
+
+func xaiMoneyValue(value XAIMoneyValue) (float64, bool) {
+	if value.Val == nil {
+		return 0, false
+	}
+	return *value.Val, true
 }
 
 func kimiDetailQuotaRow(key string, scope string, fallbackLabel string, detail *KimiUsageDetail) QuotaRow {
@@ -407,6 +609,10 @@ func isMeaningfulKimiDetail(detail *KimiUsageDetail) bool {
 	return detail.Used != 0 || detail.Limit != 0 || detail.Remaining != 0 || detail.Name != "" || detail.Title != "" || detail.ResetAt != "" || detail.ResetIn != 0 || detail.TTL != 0
 }
 
+func hasKimiQuotaValues(detail *KimiUsageDetail) bool {
+	return detail != nil && (detail.Used != 0 || detail.Limit != 0 || detail.Remaining != 0)
+}
+
 func resetAtFromKimiDetail(detail *KimiUsageDetail) string {
 	if detail == nil {
 		return ""
@@ -424,10 +630,24 @@ func kimiWindow(limit KimiLimitItem) *QuotaWindow {
 	return nil
 }
 
+func kimiLimitLabel(limit KimiLimitItem, window *QuotaWindow) string {
+	if label := firstNonEmpty(limit.Title, limit.Name); label != "" {
+		return label
+	}
+	if window != nil && window.Seconds != nil {
+		switch *window.Seconds {
+		case quotaWindowFiveHourSeconds:
+			return "5h"
+		}
+	}
+	return "Limit"
+}
+
 func quotaWindowFromDurationUnit(duration int64, unit string) *QuotaWindow {
 	window := &QuotaWindow{Duration: floatPtr(float64(duration)), Unit: unit}
 	// Kimi 返回显式 duration/unit 时才换算 seconds；未知单位保留原字段但不参与窗口用量统计。
-	switch strings.ToLower(strings.TrimSpace(unit)) {
+	normalizedUnit := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(unit)), "time_unit_")
+	switch normalizedUnit {
 	case "second", "seconds", "s":
 		window.Seconds = intPtr(int64(duration))
 	case "minute", "minutes", "m":

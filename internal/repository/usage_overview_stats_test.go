@@ -75,21 +75,17 @@ func TestAggregateUsageOverviewStatsSplitsHourlyAndDailyByAuthIndexAndModelAlias
 	assertUsageOverviewHourlyStatWithDimensions(t, db, bucket, "api-a", "claude-sonnet", "auth-a", "", 1, 1, 0, 3, 4, 0, 0, 0, 0, 7)
 	assertUsageOverviewDailyStatWithDimensions(t, db, dayBucket, "api-a", "claude-sonnet", "auth-a", "alias-a", 1, 1, 0, 10, 20, 0, 0, 0, 0, 30)
 
-	var healthRows []entities.UsageOverviewHealthStat
-	if err := db.Find(&healthRows).Error; err != nil {
-		t.Fatalf("load health rows: %v", err)
+	// Overview 聚合拆分后不得顺带写 Activity；Activity 由自己的独立 checkpoint 处理。
+	var activityCount int64
+	if err := db.Model(&entities.UsageActivityStat{}).Count(&activityCount).Error; err != nil {
+		t.Fatalf("count activity rows: %v", err)
 	}
-	if len(healthRows) != 2 {
-		t.Fatalf("expected health to remain split only by span/api/bucket, got %+v", healthRows)
-	}
-	for _, row := range healthRows {
-		if row.SuccessCount != 3 || row.FailureCount != 0 {
-			t.Fatalf("expected health rows to aggregate all auth/model alias dimensions, got %+v", row)
-		}
+	if activityCount != 0 {
+		t.Fatalf("expected overview aggregation not to write activity rows, got %d", activityCount)
 	}
 }
 
-func TestAggregateUsageOverviewStatsNormalizesBlankDimensionsAndWritesHealthSpans(t *testing.T) {
+func TestAggregateUsageOverviewStatsNormalizesBlankDimensionsWithoutWritingActivity(t *testing.T) {
 	db := openTestDatabase(t)
 	defer closeTestDatabase(t, db)
 	now := time.Date(2026, 5, 14, 12, 0, 0, 0, time.UTC)
@@ -103,42 +99,13 @@ func TestAggregateUsageOverviewStatsNormalizesBlankDimensionsAndWritesHealthSpan
 	}
 	assertUsageOverviewHourlyStat(t, db, time.Date(2026, 5, 14, 11, 0, 0, 0, time.UTC), "unknown", "unknown", 1, 0, 1, 1, 1, 0, 0, 0, 0, 2)
 
-	var rows []entities.UsageOverviewHealthStat
-	if err := db.Order("span_seconds asc").Find(&rows).Error; err != nil {
-		t.Fatalf("load health stats: %v", err)
+	// Overview 不再生成旧 Health 或新 Activity rows，只维护 hourly/daily。
+	var activityCount int64
+	if err := db.Model(&entities.UsageActivityStat{}).Count(&activityCount).Error; err != nil {
+		t.Fatalf("count activity rows: %v", err)
 	}
-	if len(rows) != 2 {
-		t.Fatalf("expected two health span rows, got %+v", rows)
-	}
-	wantSpans := []int64{int64((usageOverviewHealthPresetSpan + time.Second - 1) / time.Second), int64(usageOverviewHealthDefaultSpan / time.Second)}
-	for index, row := range rows {
-		if row.APIGroupKey != "unknown" || row.SuccessCount != 0 || row.FailureCount != 1 || row.SpanSeconds != wantSpans[index] {
-			t.Fatalf("unexpected health row %d: %+v", index, row)
-		}
-	}
-}
-
-func TestCleanupUsageOverviewHealthStatsRemovesRowsOutsideRetention(t *testing.T) {
-	db := openTestDatabase(t)
-	defer closeTestDatabase(t, db)
-	now := time.Date(2026, 5, 14, 12, 0, 0, 0, time.UTC)
-	rows := []entities.UsageOverviewHealthStat{
-		{BucketStart: now.Add(-9 * 24 * time.Hour), SpanSeconds: 900, APIGroupKey: "old", SuccessCount: 1},
-		{BucketStart: now.Add(-7 * 24 * time.Hour), SpanSeconds: 900, APIGroupKey: "fresh", SuccessCount: 1},
-	}
-	if err := db.Create(&rows).Error; err != nil {
-		t.Fatalf("seed health stats: %v", err)
-	}
-
-	if err := CleanupUsageOverviewHealthStats(db, now); err != nil {
-		t.Fatalf("CleanupUsageOverviewHealthStats returned error: %v", err)
-	}
-	var remaining []entities.UsageOverviewHealthStat
-	if err := db.Order("api_group_key asc").Find(&remaining).Error; err != nil {
-		t.Fatalf("load remaining health stats: %v", err)
-	}
-	if len(remaining) != 1 || remaining[0].APIGroupKey != "fresh" {
-		t.Fatalf("expected only fresh health row to remain, got %+v", remaining)
+	if activityCount != 0 {
+		t.Fatalf("expected overview aggregation not to write activity rows, got %d", activityCount)
 	}
 }
 
@@ -211,8 +178,8 @@ func assertUsageOverviewStatValues(t *testing.T, label string, gotRequestCount, 
 
 func assertUsageOverviewCheckpoint(t *testing.T, db *gorm.DB, wantLastID int64) {
 	t.Helper()
-	var checkpoint entities.UsageOverviewAggregationCheckpoint
-	if err := db.Where("name = ?", "overview").First(&checkpoint).Error; err != nil {
+	var checkpoint entities.UsageAggregationCheckpoint
+	if err := db.Where("name = ?", entities.UsageAggregationCheckpointOverview).First(&checkpoint).Error; err != nil {
 		t.Fatalf("load overview checkpoint: %v", err)
 	}
 	if checkpoint.LastAggregatedUsageEventID != wantLastID || checkpoint.StatsUpdatedAt == nil {

@@ -57,7 +57,7 @@ export function LoginPage({ loading = false, adminError = '', apiKeyError = '', 
   const canSubmit = mode === 'api_key' ? Boolean(apiKey.trim()) : Boolean(password.trim());
 
   return (
-    <div className={styles.pageShell}>
+    <div className={styles.pageShell} data-keeper-page="login">
       <div className={styles.frame}>
         <div className={styles.utilityDock}>
           <LanguageSwitcher />

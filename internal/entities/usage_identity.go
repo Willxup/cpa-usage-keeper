@@ -12,8 +12,9 @@ const (
 
 // UsageIdentity 是从 CPA auth_files 和 provider config 同步出的 usage source 身份实体。
 type UsageIdentity struct {
-	ID           int64                 `gorm:"primaryKey;index:idx_usage_identities_auth_type_name_id,priority:3"`
-	Name         string                `gorm:"index:idx_usage_identities_auth_type_name_id,priority:2"`
+	ID           int64  `gorm:"primaryKey;index:idx_usage_identities_auth_type_name_id,priority:3"`
+	Name         string `gorm:"index:idx_usage_identities_auth_type_name_id,priority:2"`
+	Alias        *string
 	AuthType     UsageIdentityAuthType `gorm:"uniqueIndex:uniq_usage_identities_type_identity;index:idx_usage_identities_auth_type_name_id,priority:1;index:idx_usage_identities_auth_type_type,priority:1"`
 	AuthTypeName string
 	Identity     string `gorm:"uniqueIndex:uniq_usage_identities_type_identity"`
@@ -29,6 +30,7 @@ type UsageIdentity struct {
 	Note         *string
 	AccountID    *string
 	ProjectID    *string
+	XAIUserID    *string
 
 	ActiveStart *time.Time `gorm:"serializer:storageTime"`
 	ActiveUntil *time.Time `gorm:"serializer:storageTime"`
@@ -41,6 +43,7 @@ type UsageIdentity struct {
 	OutputTokens    int64
 	ReasoningTokens int64
 	CachedTokens    int64
+	CacheReadTokens int64 `gorm:"not null;default:0"`
 	TotalTokens     int64
 
 	LastAggregatedUsageEventID int64

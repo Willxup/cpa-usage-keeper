@@ -11,12 +11,49 @@ import (
 	"cpa-usage-keeper/internal/timeutil"
 
 	"gorm.io/gorm"
+	"gorm.io/plugin/dbresolver"
 )
+
+// HasPendingUsageIdentityAggregation 只判断是否存在超过任一身份行水位的匹配事件。
+func HasPendingUsageIdentityAggregation(ctx context.Context, db *gorm.DB) (bool, error) {
+	if db == nil {
+		return false, fmt.Errorf("database is nil")
+	}
+	pending, err := hasPendingUsageIdentityAggregation(db.Clauses(dbresolver.Read).WithContext(ctx))
+	if err != nil {
+		return false, fmt.Errorf("check pending usage identity aggregation: %w", err)
+	}
+	return pending, nil
+}
+
+func hasPendingUsageIdentityAggregation(db *gorm.DB) (bool, error) {
+	var pending int
+	err := db.Raw(`SELECT EXISTS (
+		SELECT 1
+		FROM usage_identities AS identity
+		JOIN usage_events AS event
+		  ON event.id > identity.last_aggregated_usage_event_id
+		 AND event.auth_index = identity.identity
+		 AND ((identity.auth_type = ? AND event.auth_type = ?) OR (identity.auth_type = ? AND event.auth_type = ?))
+		LIMIT 1
+	)`, entities.UsageIdentityAuthTypeAuthFile, "oauth", entities.UsageIdentityAuthTypeAIProvider, "apikey").Scan(&pending).Error
+	if err != nil {
+		return false, err
+	}
+	return pending != 0, nil
+}
 
 func ReplaceUsageIdentitiesForAuthType(ctx context.Context, db *gorm.DB, identities []entities.UsageIdentity, authType entities.UsageIdentityAuthType, now time.Time) error {
 	if db == nil {
 		return fmt.Errorf("database is nil")
 	}
+	// 零时间无法形成可靠的 metadata 版本，必须在任何数据库读取或写入前拒绝。
+	if now.IsZero() {
+		// 明确错误阻止调用方把零值继续传播到 identity 行。
+		return fmt.Errorf("usage identity sync time is zero")
+	}
+	// 本轮所有 create、refresh、restore 与 stale 路径共用同一个项目存储时区时间。
+	normalizedNow := timeutil.NormalizeStorageTime(now)
 
 	// 先统一清洗和去重输入，后续 upsert 与 stale 判断都使用同一组 identity。
 	normalized, incomingIdentities := normalizeUsageIdentities(identities, authType)
@@ -27,12 +64,12 @@ func ReplaceUsageIdentitiesForAuthType(ctx context.Context, db *gorm.DB, identit
 			return fmt.Errorf("list usage identities for sync: %w", err)
 		}
 		// 先写入或恢复本次同步到的身份，确保 CPA 返回的 deleted row 会重新变为 active。
-		if err := syncUsageIdentities(tx, normalized, existingRows); err != nil {
+		if err := syncUsageIdentities(tx, normalized, existingRows, normalizedNow); err != nil {
 			return err
 		}
 
 		// 再按 auth_type 范围只对当前 active 身份做 stale 对比；未返回且已 deleted 的历史行不刷新 deleted_at。
-		return markStaleUsageIdentityRowsDeleted(tx, existingRows, incomingIdentities, now, "mark stale usage identities deleted")
+		return markStaleUsageIdentityRowsDeleted(tx, existingRows, incomingIdentities, normalizedNow, "mark stale usage identities deleted")
 	})
 }
 
@@ -40,6 +77,13 @@ func ReplaceUsageIdentitiesForProviderTypes(ctx context.Context, db *gorm.DB, id
 	if db == nil {
 		return fmt.Errorf("database is nil")
 	}
+	// Provider replace 同样在事务前拒绝零时间，避免部分 provider scope 被错误刷新。
+	if now.IsZero() {
+		// 与 Auth File 入口返回同一明确错误，保持调用方处理简单。
+		return fmt.Errorf("usage identity sync time is zero")
+	}
+	// provider 的所有成功类型共用一轮规范化时间，不能各自读取系统时钟。
+	normalizedNow := timeutil.NormalizeStorageTime(now)
 
 	// Provider metadata 只允许刷新 AI provider 身份，输入类型和 identity 先统一规范化。
 	normalized, incomingIdentities := normalizeUsageIdentities(identities, entities.UsageIdentityAuthTypeAIProvider)
@@ -51,7 +95,7 @@ func ReplaceUsageIdentitiesForProviderTypes(ctx context.Context, db *gorm.DB, id
 			return fmt.Errorf("list provider usage identities for sync: %w", err)
 		}
 		// 先同步本次成功拉到的 provider identity，CPA 返回的历史 deleted provider 会在这里恢复 active。
-		if err := syncUsageIdentities(tx, normalized, existingRows); err != nil {
+		if err := syncUsageIdentities(tx, normalized, existingRows, normalizedNow); err != nil {
 			return err
 		}
 		if len(types) == 0 {
@@ -68,7 +112,7 @@ func ReplaceUsageIdentitiesForProviderTypes(ctx context.Context, db *gorm.DB, id
 			if err != nil {
 				return fmt.Errorf("list stale provider usage identities: %w", err)
 			}
-			if err := markStaleUsageIdentityRowsDeleted(tx, staleRows, incomingIdentities, now, "mark stale provider usage identities deleted"); err != nil {
+			if err := markStaleUsageIdentityRowsDeleted(tx, staleRows, incomingIdentities, normalizedNow, "mark stale provider usage identities deleted"); err != nil {
 				return err
 			}
 		}
@@ -93,9 +137,12 @@ const (
 	UsageIdentityPageSortLastUsedAt    = "last_used_at"
 )
 
-const usageIdentityReadColumns = "id, name, auth_type, auth_type_name, identity, type, provider, lookup_key, prefix, base_url, file_name, file_path, priority, disabled, note, account_id, project_id, active_start, active_until, plan_type, total_requests, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, total_tokens, last_aggregated_usage_event_id, first_used_at, last_used_at, stats_updated_at, is_deleted, created_at, updated_at, deleted_at"
+const usageIdentityReadColumns = "id, name, alias, auth_type, auth_type_name, identity, type, provider, lookup_key, prefix, base_url, file_name, file_path, priority, disabled, note, account_id, project_id, xai_user_id, active_start, active_until, plan_type, total_requests, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, total_tokens, last_aggregated_usage_event_id, first_used_at, last_used_at, stats_updated_at, is_deleted, created_at, updated_at, deleted_at"
 
-const usageIdentityAggregationColumns = "id, auth_type, identity, total_requests, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, total_tokens, last_aggregated_usage_event_id, first_used_at, last_used_at"
+const usageIdentityAggregationColumns = "id, auth_type, identity, total_requests, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, total_tokens, last_aggregated_usage_event_id, first_used_at, last_used_at"
+
+// UsageIdentityAggregationBatchSize 限制单个 Identity 写事务最多处理 25 行。
+const UsageIdentityAggregationBatchSize = 25
 
 const activeAuthFileUsageIdentityLookupBatchSize = 500
 
@@ -159,6 +206,42 @@ func ListActiveUsageIdentitiesPage(ctx context.Context, db *gorm.DB, request Lis
 	return identities, total, typeCounts, nil
 }
 
+func FindUsageIdentityByID(ctx context.Context, db *gorm.DB, id int64) (entities.UsageIdentity, error) {
+	var identity entities.UsageIdentity
+	if db == nil {
+		return identity, fmt.Errorf("database is nil")
+	}
+	if err := db.WithContext(ctx).
+		Select(usageIdentityReadColumns).
+		Where("id = ?", id).
+		First(&identity).Error; err != nil {
+		return identity, fmt.Errorf("find usage identity by id: %w", err)
+	}
+	return identity, nil
+}
+
+func UpdateUsageIdentityAlias(ctx context.Context, db *gorm.DB, id int64, alias string) error {
+	if db == nil {
+		return fmt.Errorf("database is nil")
+	}
+	trimmed := strings.TrimSpace(alias)
+	var value any
+	if trimmed != "" {
+		value = trimmed
+	}
+	result := db.WithContext(ctx).
+		Model(&entities.UsageIdentity{}).
+		Where("id = ? AND is_deleted = ?", id, false).
+		Update("alias", value)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
 func ListActiveUsageIdentityTypeCounts(ctx context.Context, db *gorm.DB, request ListUsageIdentitiesPageRequest) ([]dto.UsageIdentityTypeCount, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
@@ -207,10 +290,10 @@ func applyUsageIdentityTypesFilter(query *gorm.DB, types []string) *gorm.DB {
 func applyUsageIdentityPageSort(query *gorm.DB, sort string, authType *entities.UsageIdentityAuthType) *gorm.DB {
 	switch sort {
 	case UsageIdentityPageSortPriority:
-		// Auth Files 的 priority 同分需要稳定按名称排列；AI Provider 只保留同步顺序兜底。
+		// Auth Files 的 priority 同分按 CPA 文件名排列；AI Provider 只保留同步顺序兜底。
 		query = query.Order("priority IS NULL ASC").Order("priority DESC")
 		if authType != nil && *authType == entities.UsageIdentityAuthTypeAuthFile {
-			query = query.Order("LOWER(name) ASC")
+			query = query.Order("LOWER(file_name) ASC")
 		}
 		return query.Order("id ASC")
 	case UsageIdentityPageSortTotalTokens:
@@ -280,59 +363,162 @@ func normalizeUniqueAuthIndexes(authIndexes []string) []string {
 	return normalized
 }
 
+// UsageIdentityAggregationBatchResult 把 repository 页面 cursor 交给单 writer runner 继续调度。
+type UsageIdentityAggregationBatchResult struct {
+	// ProcessedIdentities 是本事务真正写入新 usage delta 的 identity 行数。
+	ProcessedIdentities int
+	// LastIdentityID 是下一批 id > cursor 查询使用的内存 cursor。
+	LastIdentityID int64
+	// ReachedEnd 表示当前 ID 扫描已经到达一轮末尾。
+	ReachedEnd bool
+}
+
+// AggregateUsageIdentityStats 循环执行有界 identity pages，保留现有完整 catch-up API。
 func AggregateUsageIdentityStats(ctx context.Context, db *gorm.DB, now time.Time) error {
+	// nil 数据库无法执行 identity catch-up。
 	if db == nil {
 		return fmt.Errorf("database is nil")
 	}
-
-	// 聚合统计需要覆盖 active/deleted 全量身份，避免历史已删除身份停止累计对应 usage_events。
-	var identities []entities.UsageIdentity
-	if err := db.WithContext(ctx).Select(usageIdentityAggregationColumns).Find(&identities).Error; err != nil {
-		return fmt.Errorf("list usage identities for aggregation: %w", err)
-	}
-
-	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		for _, identity := range identities {
-			delta, err := aggregateUsageIdentityDelta(tx, identity)
-			if err != nil {
-				return err
-			}
-			if delta.TotalRequests == 0 {
-				continue
-			}
-
-			firstUsedAt := identity.FirstUsedAt
-			if delta.FirstUsedAt != nil && (firstUsedAt == nil || delta.FirstUsedAt.Before(*firstUsedAt)) {
-				first := *delta.FirstUsedAt
-				firstUsedAt = &first
-			}
-
-			lastUsedAt := identity.LastUsedAt
-			if delta.LastUsedAt != nil && (lastUsedAt == nil || delta.LastUsedAt.After(*lastUsedAt)) {
-				last := *delta.LastUsedAt
-				lastUsedAt = &last
-			}
-
-			updates := map[string]any{
-				"total_requests":                 identity.TotalRequests + delta.TotalRequests,
-				"success_count":                  identity.SuccessCount + delta.SuccessCount,
-				"failure_count":                  identity.FailureCount + delta.FailureCount,
-				"input_tokens":                   identity.InputTokens + delta.InputTokens,
-				"output_tokens":                  identity.OutputTokens + delta.OutputTokens,
-				"reasoning_tokens":               identity.ReasoningTokens + delta.ReasoningTokens,
-				"cached_tokens":                  identity.CachedTokens + delta.CachedTokens,
-				"total_tokens":                   identity.TotalTokens + delta.TotalTokens,
-				"first_used_at":                  formatStorageTimePtr(firstUsedAt),
-				"last_used_at":                   formatStorageTimePtr(lastUsedAt),
-				"stats_updated_at":               timeutil.FormatStorageTime(now),
-				"last_aggregated_usage_event_id": delta.MaxUsageEventID,
-			}
-			if err := tx.Model(&entities.UsageIdentity{}).Where("id = ?", identity.ID).Updates(updates).Error; err != nil {
-				return fmt.Errorf("update usage identity stats for %q: %w", identity.Identity, err)
-			}
+	// 完整 catch-up 固定同一个项目时区 now，保持所有 batch 的 stats_updated_at 一致。
+	normalizedNow := timeutil.NormalizeStorageTime(now)
+	// 每次完整扫描从最小 identity ID 开始。
+	afterIdentityID := int64(0)
+	// 每轮只提交一个最多 25 identities 的事务。
+	for {
+		// 单批函数返回下一页 cursor 和是否已到一轮末尾。
+		result, err := AggregateUsageIdentityStatsBatch(ctx, db, normalizedNow, afterIdentityID)
+		// 任一 batch 失败立即停止，前面已提交 identity cursors 供下次幂等恢复。
+		if err != nil {
+			return err
 		}
+		// 到达当前 identity ID 末尾后完整 catch-up 结束。
+		if result.ReachedEnd {
+			return nil
+		}
+		// 下一批只读取本批最后 ID 之后的 identities。
+		afterIdentityID = result.LastIdentityID
+	}
+}
+
+// AggregateUsageIdentityStatsBatch 在一个短事务内处理一页 active/deleted identities。
+func AggregateUsageIdentityStatsBatch(ctx context.Context, db *gorm.DB, now time.Time, afterIdentityID int64) (UsageIdentityAggregationBatchResult, error) {
+	// 默认保留调用方 cursor，空页也能安全返回同一个位置。
+	result := UsageIdentityAggregationBatchResult{LastIdentityID: afterIdentityID}
+	// nil 数据库不能开启 identity 事务。
+	if db == nil {
+		return result, fmt.Errorf("database is nil")
+	}
+	// 负 cursor 没有合法 identity 语义，直接拒绝而不是静默重扫。
+	if afterIdentityID < 0 {
+		return result, fmt.Errorf("usage identity aggregation cursor is negative")
+	}
+	// 单批入口也归一化 now，保证 runner 直接调用时与完整入口一致。
+	normalizedNow := timeutil.NormalizeStorageTime(now)
+
+	// identity 列表读取、delta 查询和该页所有 identity 更新在同一短事务提交。
+	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 按 ID 升序读取固定一页，且不加 is_deleted 条件以保留 deleted 聚合语义。
+		var identities []entities.UsageIdentity
+		if err := tx.Select(usageIdentityAggregationColumns).
+			Where("id > ?", afterIdentityID).
+			Order("id asc").
+			Limit(UsageIdentityAggregationBatchSize).
+			Find(&identities).Error; err != nil {
+			return fmt.Errorf("list usage identities for aggregation batch: %w", err)
+		}
+		// 空页明确表示当前扫描已到末尾。
+		if len(identities) == 0 {
+			result.ReachedEnd = true
+			return nil
+		}
+
+		// 复用原逐 identity delta 和字段更新语义处理当前页，并记录真正更新的行数。
+		processedIdentities, err := aggregateUsageIdentityRows(tx, identities, normalizedNow)
+		// 任一 identity 查询或写入失败时整页回滚。
+		if err != nil {
+			return err
+		}
+		// 只记录存在新 delta 的 identities，避免已追平尾页被误判为持续工作。
+		result.ProcessedIdentities = processedIdentities
+		// identities 已按 ID 升序，最后一行就是下一页 cursor。
+		result.LastIdentityID = identities[len(identities)-1].ID
+		// 少于固定页大小表示本页已经覆盖当前末尾。
+		result.ReachedEnd = len(identities) < UsageIdentityAggregationBatchSize
 		return nil
 	})
+	// 事务失败时返回 error，调用方不得推进 in-memory cursor。
+	return result, err
+}
+
+func aggregateUsageIdentityRows(tx *gorm.DB, identities []entities.UsageIdentity, now time.Time) (int, error) {
+	// processedIdentities 只统计真正执行旧字段 UPDATE 的 identity。
+	processedIdentities := 0
+	// 当前页逐 identity 保留原 delta 查询和更新顺序。
+	for _, identity := range identities {
+		// delta 继续按 auth type、auth index 和每行 event cursor 查询。
+		delta, err := aggregateUsageIdentityDelta(tx, identity)
+		if err != nil {
+			return 0, err
+		}
+		// 没有新事件时保持该 identity 所有统计和 cursor 不变。
+		if delta.TotalRequests == 0 {
+			continue
+		}
+
+		// 先保留 identity 已有 first_used_at。
+		firstUsedAt := identity.FirstUsedAt
+		// delta 更早或原值为空时才更新 first_used_at。
+		if delta.FirstUsedAt != nil && (firstUsedAt == nil || delta.FirstUsedAt.Before(*firstUsedAt)) {
+			first := *delta.FirstUsedAt
+			firstUsedAt = &first
+		}
+
+		// 先保留 identity 已有 last_used_at。
+		lastUsedAt := identity.LastUsedAt
+		// delta 更晚或原值为空时才更新 last_used_at。
+		if delta.LastUsedAt != nil && (lastUsedAt == nil || delta.LastUsedAt.After(*lastUsedAt)) {
+			last := *delta.LastUsedAt
+			lastUsedAt = &last
+		}
+
+		// 所有旧字段继续使用“已有总量 + 本次 delta”的原公式。
+		updates := map[string]any{
+			// total_requests 保留原有总量加 delta 公式。
+			"total_requests": identity.TotalRequests + delta.TotalRequests,
+			// success_count 保留原有总量加 delta 公式。
+			"success_count": identity.SuccessCount + delta.SuccessCount,
+			// failure_count 保留原有总量加 delta 公式。
+			"failure_count": identity.FailureCount + delta.FailureCount,
+			// input_tokens 保留原有总量加 delta 公式。
+			"input_tokens": identity.InputTokens + delta.InputTokens,
+			// output_tokens 保留原有总量加 delta 公式。
+			"output_tokens": identity.OutputTokens + delta.OutputTokens,
+			// reasoning_tokens 保留原有总量加 delta 公式。
+			"reasoning_tokens": identity.ReasoningTokens + delta.ReasoningTokens,
+			// cached_tokens 必须继续保留原有总量加 delta 公式。
+			"cached_tokens": identity.CachedTokens + delta.CachedTokens,
+			// cache_read_tokens 保留原有总量加 delta 公式。
+			"cache_read_tokens": identity.CacheReadTokens + delta.CacheReadTokens,
+			// total_tokens 保留原有总量加 delta 公式。
+			"total_tokens": identity.TotalTokens + delta.TotalTokens,
+			// first_used_at 只在前面比较后写回规范化值。
+			"first_used_at": formatStorageTimePtr(firstUsedAt),
+			// last_used_at 只在前面比较后写回规范化值。
+			"last_used_at": formatStorageTimePtr(lastUsedAt),
+			// stats_updated_at 使用当前有界事务固定 now。
+			"stats_updated_at": timeutil.FormatStorageTime(now),
+			// 每行 cursor 只推进到该 identity delta 的最大事件 ID。
+			"last_aggregated_usage_event_id": delta.MaxUsageEventID,
+		}
+		// 单行 update 与该页其它 identities 共用事务，失败时整页回滚。
+		if err := tx.Model(&entities.UsageIdentity{}).Where("id = ?", identity.ID).Updates(updates).Error; err != nil {
+			return 0, fmt.Errorf("update usage identity stats for %q: %w", identity.Identity, err)
+		}
+		// UPDATE 成功后才把当前 identity 计入真正处理行数。
+		processedIdentities++
+	}
+	// 返回当前页实际发生旧统计变化的 identity 数量。
+	return processedIdentities, nil
 }
 
 func aggregateUsageIdentityDelta(tx *gorm.DB, identity entities.UsageIdentity) (dto.UsageIdentityStatsDelta, error) {
@@ -353,6 +539,7 @@ func aggregateUsageIdentityDelta(tx *gorm.DB, identity entities.UsageIdentity) (
 			COALESCE(SUM(output_tokens), 0) AS output_tokens,
 			COALESCE(SUM(reasoning_tokens), 0) AS reasoning_tokens,
 			COALESCE(SUM(cached_tokens), 0) AS cached_tokens,
+			COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
 			COALESCE(SUM(total_tokens), 0) AS total_tokens,
 			COALESCE(MAX(id), 0) AS max_usage_event_id`).
 		Where("id > ?", identity.LastAggregatedUsageEventID).
@@ -419,6 +606,8 @@ func normalizeUsageIdentities(identities []entities.UsageIdentity, authType enti
 		incomingIdentities = append(incomingIdentities, authIndex)
 
 		identity.ID = 0
+		// alias 是 Keeper-only 展示覆盖，不参与 CPA 同步输入。
+		identity.Alias = nil
 		identity.AuthType = authType
 		identity.Identity = authIndex
 		identity.Name = strings.TrimSpace(identity.Name)
@@ -541,16 +730,18 @@ func markStaleUsageIdentityRowsDeleted(tx *gorm.DB, rows []usageIdentitySyncRow,
 	// stale ID 也按批次更新，避免 id IN 在数据量大时再次触发 SQLite 变量上限。
 	for start := 0; start < len(staleIDs); start += insertBatchSize(entities.UsageIdentity{}) {
 		end := min(start+insertBatchSize(entities.UsageIdentity{}), len(staleIDs))
+		// stale 状态与 metadata 更新时间必须使用同一个调用方 now，不能依赖 GORM 隐式时钟。
 		if err := tx.Model(&entities.UsageIdentity{}).
 			Where("id IN ?", staleIDs[start:end]).
-			Updates(map[string]any{"is_deleted": true, "deleted_at": timeutil.FormatStorageTime(now)}).Error; err != nil {
+			Updates(map[string]any{"is_deleted": true, "deleted_at": timeutil.FormatStorageTime(now), "updated_at": timeutil.FormatStorageTime(now)}).Error; err != nil {
 			return fmt.Errorf("%s: %w", context, err)
 		}
 	}
 	return nil
 }
 
-func syncUsageIdentities(tx *gorm.DB, identities []entities.UsageIdentity, existingRows []usageIdentitySyncRow) error {
+// syncUsageIdentities 使用入口规范化后的统一 now 创建、刷新或恢复 identity。
+func syncUsageIdentities(tx *gorm.DB, identities []entities.UsageIdentity, existingRows []usageIdentitySyncRow, now time.Time) error {
 	if len(identities) == 0 {
 		return nil
 	}
@@ -563,11 +754,17 @@ func syncUsageIdentities(tx *gorm.DB, identities []entities.UsageIdentity, exist
 	toCreate := make([]entities.UsageIdentity, 0)
 	for _, identity := range identities {
 		if existing, ok := existingByKey[usageIdentitySyncKey(identity.AuthType, identity.Identity)]; ok {
-			if err := tx.Model(&entities.UsageIdentity{}).Where("id = ?", existing.ID).Updates(usageIdentityMetadataUpdates(identity)).Error; err != nil {
+			// 既有 active 或 deleted 行都保留 created_at，并只用本轮 now 刷新 updated_at。
+			if err := tx.Model(&entities.UsageIdentity{}).Where("id = ?", existing.ID).Updates(usageIdentityMetadataUpdates(identity, now)).Error; err != nil {
 				return fmt.Errorf("update usage identity: %w", err)
 			}
 			continue
 		}
+		// 新行的 created_at 来自本轮统一时间，避免 GORM 为不同批次生成不同时间。
+		identity.CreatedAt = now
+		// 新行的 updated_at 与 created_at 完全一致，建立首次 metadata 版本。
+		identity.UpdatedAt = now
+		// 只有真正不存在的 identity 才进入批量创建，既有 ID 不受影响。
 		toCreate = append(toCreate, identity)
 	}
 	if len(toCreate) == 0 {
@@ -583,7 +780,8 @@ func usageIdentitySyncKey(authType entities.UsageIdentityAuthType, identity stri
 	return fmt.Sprintf("%d:%s", authType, identity)
 }
 
-func usageIdentityMetadataUpdates(identity entities.UsageIdentity) map[string]any {
+// usageIdentityMetadataUpdates 只刷新上游 metadata 与 active 状态，保留 alias、统计、游标和 created_at。
+func usageIdentityMetadataUpdates(identity entities.UsageIdentity, now time.Time) map[string]any {
 	return map[string]any{
 		"name":           identity.Name,
 		"auth_type_name": identity.AuthTypeName,
@@ -599,11 +797,13 @@ func usageIdentityMetadataUpdates(identity entities.UsageIdentity) map[string]an
 		"note":           identity.Note,
 		"account_id":     identity.AccountID,
 		"project_id":     identity.ProjectID,
+		"xai_user_id":    identity.XAIUserID,
 		"active_start":   identity.ActiveStart,
 		"active_until":   identity.ActiveUntil,
 		"plan_type":      identity.PlanType,
 		"is_deleted":     false,
 		"deleted_at":     nil,
-		"updated_at":     identity.UpdatedAt,
+		// updated_at 明确使用入口统一 now，不能读取输入实体通常为空的时间字段。
+		"updated_at": timeutil.FormatStorageTime(now),
 	}
 }

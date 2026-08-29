@@ -1,5 +1,6 @@
 import type { UsageCredentialHealth, UsageIdentity, UsageQuotaCheckResponse, UsageQuotaRow } from '@/lib/types'
-import { calculateCacheRate, formatCompactTokenValue } from '@/utils/usage'
+import { calculateCacheReadRate, formatCompactTokenValue } from '@/utils/usage'
+import { resolveCredentialSubscriptionBadge, type SubscriptionBadgeModel } from './credentialSubscription'
 
 export const CREDENTIALS_PAGE_SIZE = 10
 const FIVE_HOUR_WINDOW_SECONDS = 5 * 60 * 60
@@ -8,7 +9,6 @@ const THIRTY_DAY_WINDOW_SECONDS = 30 * 24 * 60 * 60
 const AVERAGE_MONTH_WINDOW_SECONDS = 365 * 24 * 60 * 60 / 12
 
 type QuotaStatus = 'ok' | 'warning' | 'danger' | 'unknown'
-export type PlanTypeTone = 'free' | 'team' | 'plus' | 'pro' | 'neutral'
 
 export interface QuotaWindowUsageDisplay {
   tokens: string
@@ -24,6 +24,10 @@ export interface QuotaBillingUsageDisplay {
 export interface DisplayQuota {
   key: string
   label: string
+  scope?: string
+  groupKey?: string
+  groupLabel?: string
+  groupDescription?: string
   percent: number | null
   barPercent: number | null
   percentKind: 'used' | 'remaining' | 'unknown'
@@ -46,15 +50,15 @@ export interface AuthFileCredentialRow {
   typeLabel: string
   authTypeLabel: string
   priorityLabel?: string
-  planTypeLabel?: string
-  planTypeTone?: PlanTypeTone
+  subscriptionBadge?: SubscriptionBadgeModel
   remainingDaysLabel?: string
+  expiresAtLabel?: string
   totalRequests: number
   successCount: number
   failureCount: number
   successRate: number | null
   totalTokens: number
-  cacheRate: number | null
+  cacheReadRate: number | null
   quota: UsageQuotaRow[]
   quotaResetCreditsAvailableCount?: number | null
   quotaLoading: boolean
@@ -78,11 +82,15 @@ export interface AiProviderCredentialRow {
   failureCount: number
   successRate: number | null
   totalTokens: number
-  cacheRate: number | null
+  cacheReadRate: number | null
   lastUsedText?: string
   statsUpdatedText?: string
   credentialHealth?: UsageCredentialHealth
 }
+
+export type CredentialDetailSelection =
+  | { kind: 'auth-file'; row: AuthFileCredentialRow }
+  | { kind: 'ai-provider'; row: AiProviderCredentialRow }
 
 export interface CredentialIdentityGroups {
   authFiles: UsageIdentity[]
@@ -140,7 +148,7 @@ export function buildAuthFileCredentialRows(
     const quota = quotaResponse?.quota ?? []
     const state = quotaStates.get(identity.identity)
     const displayQuotas = quota.map(toDisplayQuota).filter(isDisplayableQuota)
-    const planType = firstNonEmpty(...quota.map((row) => row.planType), identity.plan_type)
+    const subscriptionBadge = resolveCredentialSubscriptionBadge(quotaResponse?.subscription ?? identity.subscription)
 
     return {
       identity,
@@ -150,15 +158,15 @@ export function buildAuthFileCredentialRows(
       typeLabel: credentialTypeLabel(identity),
       authTypeLabel: credentialAuthTypeLabel(identity),
       priorityLabel: credentialPriorityLabel(identity.priority),
-      planTypeLabel: credentialPlanTypeLabel(planType),
-      planTypeTone: credentialPlanTypeTone(planType),
+      subscriptionBadge,
       remainingDaysLabel: remainingDaysLabel(identity.active_until),
+      expiresAtLabel: formatCredentialExpiry(identity.active_until),
       totalRequests: safeNumber(identity.total_requests),
       successCount: safeNumber(identity.success_count),
       failureCount: safeNumber(identity.failure_count),
       successRate: successRate(identity),
       totalTokens: safeNumber(identity.total_tokens),
-      cacheRate: cacheRate(identity),
+      cacheReadRate: cacheReadRate(identity),
       quota,
       quotaResetCreditsAvailableCount: quotaResponse?.rateLimitResetCreditsAvailableCount,
       quotaLoading: state?.quotaLoading ?? false,
@@ -185,7 +193,7 @@ export function buildAiProviderCredentialRows(identities: UsageIdentity[]): AiPr
     failureCount: safeNumber(identity.failure_count),
     successRate: successRate(identity),
     totalTokens: safeNumber(identity.total_tokens),
-    cacheRate: cacheRate(identity),
+    cacheReadRate: cacheReadRate(identity),
     lastUsedText: identity.last_used_at,
     statsUpdatedText: identity.stats_updated_at,
     credentialHealth: identity.credential_health,
@@ -208,6 +216,10 @@ function toDisplayQuota(row: UsageQuotaRow): DisplayQuota | undefined {
   return {
     key: row.key,
     label,
+    scope: row.scope,
+    groupKey: row.groupKey,
+    groupLabel: row.groupLabel,
+    groupDescription: row.groupDescription,
     percent: percentDisplay.percent,
     barPercent: quotaBarPercent(percentDisplay.percent, percentDisplay.kind),
     percentKind: percentDisplay.kind,
@@ -428,7 +440,7 @@ function isDisplayableQuota(quota: DisplayQuota | undefined): quota is DisplayQu
 }
 
 function credentialDisplayName(identity: UsageIdentity): string {
-  return firstNonEmpty(identity.displayName, identity.name, identity.identity) ?? '-'
+  return firstNonEmpty(identity.displayName, identity.identity) ?? '-'
 }
 
 function credentialProviderLabel(identity: UsageIdentity): string {
@@ -450,36 +462,6 @@ function credentialPriorityLabel(priority: number | undefined): string | undefin
   return `P${priority}`
 }
 
-function credentialPlanTypeLabel(planType?: string): string | undefined {
-  const tone = credentialPlanTypeTone(planType)
-  if (!tone) {
-    return undefined
-  }
-  const label = tone === 'neutral' ? firstNonEmpty(planType) : tone
-  return label ? label.charAt(0).toUpperCase() + label.slice(1) : undefined
-}
-
-function credentialPlanTypeTone(planType?: string): PlanTypeTone | undefined {
-  // planType 展示只做宽松匹配和样式分类，不改变后端原始字段。
-  const normalized = planType?.trim().toLowerCase()
-  if (!normalized) {
-    return undefined
-  }
-  if (normalized.includes('pro')) {
-    return 'pro'
-  }
-  if (normalized === 'plus') {
-    return 'plus'
-  }
-  if (normalized === 'team') {
-    return 'team'
-  }
-  if (normalized === 'free') {
-    return 'free'
-  }
-  return 'neutral'
-}
-
 function remainingDaysLabel(activeUntil?: string): string | undefined {
   if (!activeUntil) {
     return undefined
@@ -492,6 +474,23 @@ function remainingDaysLabel(activeUntil?: string): string | undefined {
   return `${Math.max(0, Math.ceil((untilMs - Date.now()) / dayMs))}d`
 }
 
+function formatCredentialExpiry(activeUntil?: string): string | undefined {
+  if (!activeUntil || !Number.isFinite(Date.parse(activeUntil))) {
+    return undefined
+  }
+  const match = activeUntil.trim().match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/i,
+  )
+  if (!match) {
+    return undefined
+  }
+  const [, year, month, day, hour, minute, second, rawOffset] = match
+  const offset = rawOffset.toUpperCase() === 'Z' || rawOffset === '+00:00' || rawOffset === '-00:00'
+    ? 'UTC'
+    : `UTC${rawOffset}`
+  return `${year}-${month}-${day} ${hour}:${minute}:${second} ${offset}`
+}
+
 function successRate(identity: UsageIdentity): number | null {
   const total = safeNumber(identity.total_requests)
   if (total <= 0) {
@@ -500,10 +499,10 @@ function successRate(identity: UsageIdentity): number | null {
   return (safeNumber(identity.success_count) / total) * 100
 }
 
-function cacheRate(identity: UsageIdentity): number | null {
-  return calculateCacheRate({
+function cacheReadRate(identity: UsageIdentity): number | null {
+  return calculateCacheReadRate({
     inputTokens: identity.input_tokens,
-    cachedTokens: identity.cached_tokens,
+    cacheReadTokens: identity.cache_read_tokens,
   })
 }
 

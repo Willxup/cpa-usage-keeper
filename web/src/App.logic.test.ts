@@ -27,7 +27,7 @@ describe('App role route normalization', () => {
   it('mounts the shared footer from the app shell', () => {
     expect(appSource).toContain("import './App.css';");
     expect(appSource).toContain("import { AppFooter } from './components/AppFooter';");
-    expect(appSource).toMatch(/<div className="app-frame">[\s\S]*<main className="app-main">\{page\}<\/main>[\s\S]*<AppFooter \/>[\s\S]*<\/div>/);
+    expect(appSource).toMatch(/<div className="app-frame"[^>]*>[\s\S]*<main className="app-main">\{page\}<\/main>[\s\S]*<AppFooter loadVersion=\{authState === 'authenticated'\} \/>[\s\S]*<\/div>/);
   });
 
   it('lets app pages fill the space above the shared footer', () => {

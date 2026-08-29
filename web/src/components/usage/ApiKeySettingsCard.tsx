@@ -3,21 +3,10 @@ import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { IconEye, IconEyeOff } from '@/components/ui/icons';
+import { IconCheck, IconCopy, IconEye, IconEyeOff } from '@/components/ui/icons';
+import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainment';
 import type { CpaApiKeySettingsItem } from '@/lib/types';
 import styles from '@/pages/UsagePage.module.scss';
-
-interface ApiKeySettingsTitleProps {
-  title: string;
-  subtitle: string;
-  showFullApiKeys: boolean;
-  onToggleFullApiKeys: () => void;
-  onGenerateApiKey?: () => void;
-  generateLabel: string;
-  generateDisabled: boolean;
-  showFullLabel: string;
-  hideFullLabel: string;
-}
 
 type ClipboardWriter = Pick<Clipboard, 'writeText'>;
 type CopyTextArea = {
@@ -94,62 +83,21 @@ export async function copyApiKeyToClipboard(apiKey: string, context: CopyContext
   }
 }
 
-function ApiKeySettingsTitle({ title, subtitle, showFullApiKeys, onToggleFullApiKeys, onGenerateApiKey, generateLabel, generateDisabled, showFullLabel, hideFullLabel }: ApiKeySettingsTitleProps) {
-  const toggleLabel = showFullApiKeys ? hideFullLabel : showFullLabel;
-
-  return (
-    <div className={styles.sectionTitleBlock}>
-      <div className={styles.apiKeySettingsTitleRow}>
-        <h3 className={styles.sectionTitle}>{title}</h3>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className={`${styles.apiKeyVisibilityToggle} ${showFullApiKeys ? styles.apiKeyVisibilityToggleActive : ''}`.trim()}
-          onClick={onToggleFullApiKeys}
-          aria-label={toggleLabel}
-          aria-pressed={showFullApiKeys}
-          title={toggleLabel}
-        >
-          {showFullApiKeys ? <IconEye size={16} /> : <IconEyeOff size={16} />}
-        </Button>
-        {onGenerateApiKey && (
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className={`${styles.usagePillAction} ${styles.settingsCompactAction} ${styles.apiKeySettingsGenerateButton}`.trim()}
-            onClick={onGenerateApiKey}
-            disabled={generateDisabled}
-          >
-            {generateLabel}
-          </Button>
-        )}
-      </div>
-      <p className={styles.sectionSubtitle}>{subtitle}</p>
-    </div>
-  );
-}
-
 export interface ApiKeySettingsCardProps {
   apiKeys: CpaApiKeySettingsItem[];
   loading?: boolean;
   savingId?: string | null;
   onSaveAlias: (id: string, keyAlias: string) => void | Promise<void>;
-  onGenerateApiKey?: (keyAlias: string) => void | Promise<CpaApiKeySettingsItem | undefined>;
-  generating?: boolean;
   onNotice?: (kind: 'success' | 'info' | 'error', message: string) => void;
 }
 
-export function ApiKeySettingsCard({ apiKeys, loading = false, savingId = null, onSaveAlias, onGenerateApiKey, generating = false, onNotice }: ApiKeySettingsCardProps) {
+export function ApiKeySettingsCard({ apiKeys, loading = false, savingId = null, onSaveAlias, onNotice }: ApiKeySettingsCardProps) {
   const { t } = useTranslation();
   const [showFullApiKeys, setShowFullApiKeys] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [newAlias, setNewAlias] = useState('');
-  const [createdKey, setCreatedKey] = useState<CpaApiKeySettingsItem | null>(null);
-  const [generatedCopied, setGeneratedCopied] = useState(false);
   const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const apiKeySettingsBodyRef = useRef<HTMLDivElement | null>(null);
+  useScrollBoundaryContainment(apiKeySettingsBodyRef);
   const initialAliases = useMemo(
     () => Object.fromEntries(apiKeys.map((item) => [item.id, item.keyAlias])),
     [apiKeys],
@@ -180,122 +128,31 @@ export function ApiKeySettingsCard({ apiKeys, loading = false, savingId = null, 
       onNotice?.('error', t('usage_stats.api_key_settings_copy_failed'));
     }
   }, [onNotice, t]);
-
-  const openCreate = useCallback(() => {
-    setCreateOpen(true);
-    setNewAlias('');
-  }, []);
-
-  const closeCreate = useCallback(() => {
-    setCreateOpen(false);
-    setNewAlias('');
-  }, []);
-
-  const handleGenerate = useCallback(async () => {
-    if (!onGenerateApiKey) {
-      return;
-    }
-    try {
-      const created = await onGenerateApiKey(newAlias.trim());
-      if (!created) {
-        return;
-      }
-      setCreatedKey(created);
-      setGeneratedCopied(false);
-      setCreateOpen(false);
-      setNewAlias('');
-    } catch {
-      // parent surfaces the failure via notice/error; keep the create form open for retry
-    }
-  }, [newAlias, onGenerateApiKey]);
-
-  const handleCopyGenerated = useCallback(async () => {
-    if (!createdKey?.apiKey) {
-      return;
-    }
-    try {
-      await copyApiKeyToClipboard(createdKey.apiKey);
-      setGeneratedCopied(true);
-      onNotice?.('success', t('usage_stats.api_key_settings_copy_success'));
-    } catch {
-      setGeneratedCopied(false);
-      onNotice?.('error', t('usage_stats.api_key_settings_copy_failed'));
-    }
-  }, [createdKey, onNotice, t]);
+  const toggleLabel = showFullApiKeys
+    ? t('usage_stats.api_key_settings_hide_full')
+    : t('usage_stats.api_key_settings_show_full');
 
   return (
     <Card
-      title={
-        <ApiKeySettingsTitle
-          title={t('usage_stats.api_key_settings_title')}
-          subtitle={t('usage_stats.api_key_settings_subtitle')}
-          showFullApiKeys={showFullApiKeys}
-          onToggleFullApiKeys={() => setShowFullApiKeys((current) => !current)}
-          onGenerateApiKey={openCreate}
-          generateLabel={t('usage_stats.api_key_settings_generate')}
-          generateDisabled={generating}
-          showFullLabel={t('usage_stats.api_key_settings_show_full')}
-          hideFullLabel={t('usage_stats.api_key_settings_hide_full')}
-        />
+      title={t('usage_stats.api_key_settings_title')}
+      subtitle={t('usage_stats.api_key_settings_subtitle')}
+      titleMeta={
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className={`${styles.apiKeyVisibilityToggle} ${showFullApiKeys ? styles.apiKeyVisibilityToggleActive : ''}`.trim()}
+          onClick={() => setShowFullApiKeys((current) => !current)}
+          aria-label={toggleLabel}
+          aria-pressed={showFullApiKeys}
+          title={toggleLabel}
+        >
+          {showFullApiKeys ? <IconEye size={16} /> : <IconEyeOff size={16} />}
+        </Button>
       }
       className={`${styles.detailsFixedCard} ${styles.apiKeySettingsCard}`}
     >
-      <div className={styles.apiKeySettingsBody}>
-        {createdKey && (
-          <div className={styles.apiKeySettingsGeneratedBox}>
-            <span className={styles.apiKeySettingsGeneratedLabel}>{t('usage_stats.api_key_settings_generate_result')}</span>
-            <span className={styles.apiKeySettingsGeneratedValue} title={createdKey.apiKey}>{createdKey.apiKey}</span>
-            <div className={styles.apiKeySettingsActions}>
-              <Button
-                variant="secondary"
-                size="sm"
-                className={`${styles.usagePillAction} ${styles.settingsCompactAction} ${styles.apiKeySettingsCopyButton}`.trim()}
-                onClick={() => void handleCopyGenerated()}
-                disabled={!createdKey.apiKey}
-              >
-                {generatedCopied ? t('usage_stats.api_key_settings_copied') : t('usage_stats.api_key_settings_copy')}
-              </Button>
-            </div>
-            <p className={styles.apiKeySettingsGeneratedHint}>{t('usage_stats.api_key_settings_generate_warning')}</p>
-          </div>
-        )}
-
-        {createOpen && (
-          <div className={styles.apiKeySettingsCreateBox}>
-            <label className={styles.apiKeyAliasField}>
-              <span className={styles.apiKeyAliasLabel}>{t('usage_stats.api_key_settings_generate_alias')}</span>
-              <Input
-                value={newAlias}
-                onChange={(event) => setNewAlias(event.target.value)}
-                placeholder={t('usage_stats.api_key_settings_generate_alias_placeholder')}
-                aria-label={t('usage_stats.api_key_settings_generate_alias')}
-                className={`${styles.usagePillControl} ${styles.apiKeyAliasInput}`.trim()}
-                disabled={generating}
-              />
-            </label>
-            <div className={styles.apiKeySettingsActions}>
-              <Button
-                variant="secondary"
-                size="sm"
-                className={`${styles.usagePillAction} ${styles.settingsCompactAction}`.trim()}
-                onClick={closeCreate}
-                disabled={generating}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                className={`${styles.usagePillAction} ${styles.settingsCompactAction} ${styles.apiKeySettingsSaveButton}`.trim()}
-                onClick={() => void handleGenerate()}
-                disabled={generating}
-              >
-                {generating ? t('usage_stats.api_key_settings_generating') : t('usage_stats.api_key_settings_generate_submit')}
-              </Button>
-            </div>
-          </div>
-        )}
-
+      <div ref={apiKeySettingsBodyRef} className={styles.apiKeySettingsBody}>
         {loading && apiKeys.length === 0 ? (
           <div className={styles.hint}>{t('common.loading')}</div>
         ) : apiKeys.length === 0 ? (
@@ -311,7 +168,19 @@ export function ApiKeySettingsCard({ apiKeys, loading = false, savingId = null, 
                 <div key={item.id} className={styles.apiKeySettingsItem}>
                   <div className={styles.apiKeySettingsSummary}>
                     <span className={styles.apiKeyFieldLabel}>{t('usage_stats.api_key_settings_display_key')}</span>
-                    <span className={styles.apiKeySettingsName} title={apiKey}>{apiKey}</span>
+                    <div className={styles.apiKeySettingsNameRow}>
+                      <span className={styles.apiKeySettingsName} title={apiKey}>{apiKey}</span>
+                      <button
+                        type="button"
+                        className={`${styles.apiKeySettingsCopyIconButton} ${copiedId === item.id ? styles.apiKeySettingsCopyIconButtonCopied : ''}`.trim()}
+                        onClick={() => void handleCopyApiKey(item)}
+                        disabled={!item.apiKey}
+                        aria-label={copyLabel}
+                        title={copyLabel}
+                      >
+                        {copiedId === item.id ? <IconCheck size={14} /> : <IconCopy size={14} />}
+                      </button>
+                    </div>
                   </div>
                   <div className={styles.apiKeySettingsForm}>
                     <label className={styles.apiKeyAliasField}>
@@ -327,18 +196,10 @@ export function ApiKeySettingsCard({ apiKeys, loading = false, savingId = null, 
                     </label>
                     <div className={styles.apiKeySettingsActions}>
                       <Button
-                        variant="secondary"
-                        size="sm"
-                        className={`${styles.usagePillAction} ${styles.settingsCompactAction} ${styles.apiKeySettingsCopyButton}`.trim()}
-                        onClick={() => void handleCopyApiKey(item)}
-                        disabled={!item.apiKey}
-                      >
-                        {copyLabel}
-                      </Button>
-                      <Button
                         variant="primary"
                         size="sm"
-                        className={`${styles.usagePillAction} ${styles.settingsCompactAction} ${styles.apiKeySettingsSaveButton}`.trim()}
+                        appearance="action"
+                        className={styles.apiKeySettingsSaveButton}
                         onClick={() => onSaveAlias(item.id, draftAlias)}
                         disabled={disabled}
                       >

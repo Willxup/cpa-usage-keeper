@@ -1,7 +1,8 @@
 import type { UsageIdentityTypeCount } from '@/lib/types'
+import type { ProviderBrandIconKey } from '@/components/ProviderBrandIcon'
 
 export type CredentialProviderFilterScope = 'auth-files' | 'ai-provider'
-export type KnownCredentialProviderFilterKey = 'antigravity' | 'claude' | 'codex' | 'gemini' | 'gemini-cli' | 'iflow' | 'openai' | 'xai'
+export type KnownCredentialProviderFilterKey = ProviderBrandIconKey
 export type CredentialProviderFilterKey = 'all' | KnownCredentialProviderFilterKey
 
 export interface CredentialProviderFilterOption {
@@ -21,15 +22,20 @@ const AUTH_FILE_PROVIDER_FILTERS: KnownCredentialProviderFilter[] = [
   { key: 'antigravity', labelKey: 'usage_stats.credentials_filter_antigravity', types: ['antigravity'] },
   { key: 'claude', labelKey: 'usage_stats.credentials_filter_claude', types: ['claude'] },
   { key: 'codex', labelKey: 'usage_stats.credentials_filter_codex', types: ['codex'] },
-  { key: 'gemini-cli', labelKey: 'usage_stats.credentials_filter_gemini_cli', types: ['gemini-cli'] },
-  { key: 'iflow', labelKey: 'usage_stats.credentials_filter_iflow', types: ['iflow'] },
+  // Gemini Auth File 兼容 CPA 的原始与 CLI type，并统一复用 Gemini 品牌筛选。
+  { key: 'gemini', labelKey: 'usage_stats.credentials_filter_gemini', types: ['gemini', 'gemini-cli'] },
+  { key: 'kimi', labelKey: 'usage_stats.credentials_filter_kimi', types: ['kimi'] },
   { key: 'xai', labelKey: 'usage_stats.credentials_filter_xai', types: ['xai'] },
+  { key: 'vertex', labelKey: 'usage_stats.credentials_filter_vertex', types: ['vertex'] },
 ]
 
 const AI_PROVIDER_FILTERS: KnownCredentialProviderFilter[] = [
-  { key: 'claude', labelKey: 'usage_stats.credentials_filter_claude', types: ['claude'] },
   { key: 'codex', labelKey: 'usage_stats.credentials_filter_codex', types: ['codex'] },
-  { key: 'gemini', labelKey: 'usage_stats.credentials_filter_gemini', types: ['gemini'] },
+  { key: 'xai', labelKey: 'usage_stats.credentials_filter_xai', types: ['xai'] },
+  // AI Provider 的 Gemini 品牌同时兼容普通、CLI 与 Interactions 三种原始 type。
+  { key: 'gemini', labelKey: 'usage_stats.credentials_filter_gemini', types: ['gemini', 'gemini-cli', 'gemini-interactions'] },
+  { key: 'claude', labelKey: 'usage_stats.credentials_filter_claude', types: ['claude'] },
+  { key: 'vertex', labelKey: 'usage_stats.credentials_filter_vertex', types: ['vertex'] },
   { key: 'openai', labelKey: 'usage_stats.credentials_filter_openai', types: ['openai'] },
 ]
 
@@ -68,7 +74,7 @@ export function buildCredentialProviderFilterOptions(scope: CredentialProviderFi
 
   const options: CredentialProviderFilterOption[] = [{ key: 'all', labelKey: 'usage_stats.credentials_filter_all', count: allCount }]
 
-  // 每个 tab 只展示有专用图标的一对一 type；未知 type 只计入 All，不单独生成按钮。
+  // 每个品牌按钮可以聚合多个原始 type；未知 type 仍只计入 All，不单独生成按钮。
   for (const filter of credentialProviderFiltersForScope(scope)) {
     const count = filter.types.reduce((sum, type) => sum + (countsByType.get(type) ?? 0), 0)
     if (count <= 0) {

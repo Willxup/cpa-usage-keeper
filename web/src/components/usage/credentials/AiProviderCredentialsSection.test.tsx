@@ -19,10 +19,12 @@ describe('AiProviderCredentialsSection', () => {
         page={1}
         totalPages={1}
         pageSize={10}
+        activeOnly={false}
         sort="priority"
         loading={false}
         onPageChange={() => undefined}
         onPageSizeChange={() => undefined}
+        onActiveOnlyChange={() => undefined}
         onSortChange={() => undefined}
       />,
     )
@@ -31,7 +33,7 @@ describe('AiProviderCredentialsSection', () => {
     expect(html).not.toContain('usage_stats.credentials_ai_providers_eyebrow')
   })
 
-  it('keeps the unified four-metric row layout without auth-file-only badges or quota content', () => {
+  it('renders the shared provider logo before the name without the type badge', () => {
     const row = {
       identity: {
         id: '1',
@@ -47,7 +49,7 @@ describe('AiProviderCredentialsSection', () => {
         input_tokens: 0,
         output_tokens: 0,
         reasoning_tokens: 0,
-        cached_tokens: 0,
+        cache_read_tokens: 0,
         total_tokens: 0,
         last_aggregated_usage_event_id: '0',
         is_deleted: false,
@@ -65,10 +67,9 @@ describe('AiProviderCredentialsSection', () => {
       failureCount: 0,
       successRate: null,
       totalTokens: 0,
-      cacheRate: null,
+      cacheReadRate: null,
       lastUsedText: '2026-05-10T10:00:00Z',
       statsUpdatedText: '2026-05-10T10:02:00Z',
-      planTypeLabel: 'Team',
       remainingDaysLabel: '25d',
       primaryQuota: { label: '5h' },
       secondaryQuota: { label: 'Weekly' },
@@ -81,10 +82,12 @@ describe('AiProviderCredentialsSection', () => {
         page={1}
         totalPages={1}
         pageSize={10}
+        activeOnly={false}
         sort="priority"
         loading={false}
         onPageChange={() => undefined}
         onPageSizeChange={() => undefined}
+        onActiveOnlyChange={() => undefined}
         onSortChange={() => undefined}
       />,
     )
@@ -98,10 +101,16 @@ describe('AiProviderCredentialsSection', () => {
     expect(html).toContain('usage_stats.credentials_health_last_5h')
     expect(html).toContain('usage_stats.credentials_last_used')
     expect(html).toContain('usage_stats.credentials_stats_updated')
-    expect(html).toContain('claude')
+    expect(html).toContain('data-provider-brand-icon="claude"')
+    expect(html.indexOf('data-provider-brand-icon="claude"')).toBeLessThan(html.indexOf('Provider Key'))
+    expect(html).toContain('role="img"')
+    expect(html).toContain('aria-label="claude"')
+    expect(html).not.toContain('>claude</span>')
     expect(html).toContain('P5')
     expect(html).toContain('usage_stats.credentials_sort_priority')
+    expect(html).toContain('aria-label="usage_stats.credentials_sort_label: usage_stats.credentials_sort_priority"')
     expect(html).toContain('usage_stats.credentials_sort_last_used')
+    expect(html).toContain('data-credential-pagination-sort-sizer="true"')
     expect(html).not.toContain('Team')
     expect(html).not.toContain('25d')
     expect(html).not.toContain('Weekly')

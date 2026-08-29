@@ -1,6 +1,9 @@
 package providerconfig
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 func decodeOpenAIApiKeyEntries(value any) ([]OpenAIApiKeyEntry, error) {
 	rawEntries, ok := value.([]any)
@@ -91,4 +94,24 @@ func firstBool(raw map[string]any, keys ...string) *bool {
 		}
 	}
 	return nil
+}
+
+func stringListContains(raw map[string]any, target string, keys ...string) bool {
+	for _, key := range keys {
+		value, ok := raw[key]
+		if !ok {
+			continue
+		}
+		items, ok := value.([]any)
+		if !ok {
+			continue
+		}
+		for _, item := range items {
+			text, ok := item.(string)
+			if ok && strings.TrimSpace(text) == target {
+				return true
+			}
+		}
+	}
+	return false
 }

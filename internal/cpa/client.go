@@ -7,10 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
@@ -19,9 +22,28 @@ import (
 )
 
 type Client struct {
-	baseURL       string
-	managementKey string
-	httpClient    *http.Client
+	baseURL           string
+	managementKey     string
+	httpClient        *http.Client
+	streamHTTPClient  *http.Client
+	streamIdleTimeout time.Duration
+}
+
+type RequestLogResult struct {
+	StatusCode    int
+	Body          []byte
+	Filename      string
+	ContentType   string
+	ContentLength int64
+	BodyTruncated bool
+}
+
+type RequestLogStream struct {
+	StatusCode    int
+	Body          io.ReadCloser
+	Filename      string
+	ContentType   string
+	ContentLength int64
 }
 
 type authFileStatusRequest struct {
@@ -113,20 +135,252 @@ func (c *Client) doManagementJSONRequestWithBody(ctx context.Context, method str
 	})
 }
 
+const defaultRequestLogStreamIdleTimeout = 30 * time.Second
+
 func NewClient(baseURL, managementKey string, timeout time.Duration, tlsSkipVerify bool) *Client {
-	httpClient := &http.Client{
-		Timeout: timeout,
-	}
+	transport := cloneDefaultHTTPTransport()
 	if tlsSkipVerify {
-		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-		httpClient.Transport = transport
+	}
+	httpClient := &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+	}
+	streamTransport := transport.Clone()
+	if timeout > 0 {
+		streamTransport.ResponseHeaderTimeout = timeout
 	}
 	return &Client{
-		baseURL:       strings.TrimRight(strings.TrimSpace(baseURL), "/"),
-		managementKey: strings.TrimSpace(managementKey),
-		httpClient:    httpClient,
+		baseURL:           strings.TrimRight(strings.TrimSpace(baseURL), "/"),
+		managementKey:     strings.TrimSpace(managementKey),
+		httpClient:        httpClient,
+		streamHTTPClient:  &http.Client{Transport: streamTransport},
+		streamIdleTimeout: requestLogStreamIdleTimeout(timeout),
 	}
+}
+
+func cloneDefaultHTTPTransport() *http.Transport {
+	if transport, ok := http.DefaultTransport.(*http.Transport); ok {
+		return transport.Clone()
+	}
+	return (&http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}).Clone()
+}
+
+func requestLogStreamIdleTimeout(timeout time.Duration) time.Duration {
+	if timeout > defaultRequestLogStreamIdleTimeout {
+		return timeout
+	}
+	return defaultRequestLogStreamIdleTimeout
+}
+
+func (c *Client) FetchRequestLogByID(ctx context.Context, requestID string) (*RequestLogResult, error) {
+	return c.fetchRequestLogByID(ctx, requestID, RequestLogPreviewMaxBytes)
+}
+
+const RequestLogPreviewMaxBytes int64 = 6 * 1024 * 1024
+
+func (c *Client) fetchRequestLogByID(ctx context.Context, requestID string, maxBodyBytes int64) (*RequestLogResult, error) {
+	result := &RequestLogResult{}
+	req, err := c.newRequestLogRequest(ctx, requestID)
+	if err != nil {
+		return result, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return result, fmt.Errorf("request management request log: %w", err)
+	}
+	defer resp.Body.Close()
+
+	result.StatusCode = resp.StatusCode
+	result.ContentType = strings.TrimSpace(resp.Header.Get("Content-Type"))
+	result.Filename = filenameFromContentDisposition(resp.Header.Get("Content-Disposition"))
+	result.ContentLength = resp.ContentLength
+	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices && maxBodyBytes > 0 && resp.ContentLength > maxBodyBytes {
+		result.BodyTruncated = true
+		return result, nil
+	}
+
+	reader := io.Reader(resp.Body)
+	if maxBodyBytes > 0 {
+		reader = io.LimitReader(resp.Body, maxBodyBytes+1)
+	}
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		return result, fmt.Errorf("read management request log response: %w", err)
+	}
+	result.Body = body
+	if maxBodyBytes > 0 && int64(len(body)) > maxBodyBytes {
+		result.BodyTruncated = true
+	} else if result.ContentLength < 0 {
+		result.ContentLength = int64(len(body))
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return result, fmt.Errorf("management request log request returned status %d", resp.StatusCode)
+	}
+	return result, nil
+}
+
+func (c *Client) OpenRequestLogByID(ctx context.Context, requestID string) (*RequestLogStream, error) {
+	result := &RequestLogStream{}
+	req, err := c.newRequestLogRequest(ctx, requestID)
+	if err != nil {
+		return result, err
+	}
+
+	httpClient := c.streamHTTPClient
+	if httpClient == nil {
+		httpClient = c.httpClient
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return result, fmt.Errorf("request management request log: %w", err)
+	}
+	result.StatusCode = resp.StatusCode
+	result.ContentType = strings.TrimSpace(resp.Header.Get("Content-Type"))
+	result.Filename = filenameFromContentDisposition(resp.Header.Get("Content-Disposition"))
+	result.ContentLength = resp.ContentLength
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		_ = resp.Body.Close()
+		return result, fmt.Errorf("management request log request returned status %d", resp.StatusCode)
+	}
+	result.Body = newIdleTimeoutReadCloser(resp.Body, c.streamIdleTimeout)
+	return result, nil
+}
+
+type idleTimeoutReadCloser struct {
+	body    io.ReadCloser
+	timeout time.Duration
+
+	mu       sync.Mutex
+	timedOut bool
+}
+
+type idleTimeoutReadResult struct {
+	n   int
+	err error
+}
+
+func newIdleTimeoutReadCloser(body io.ReadCloser, timeout time.Duration) io.ReadCloser {
+	if body == nil || timeout <= 0 {
+		return body
+	}
+	return &idleTimeoutReadCloser{body: body, timeout: timeout}
+}
+
+func (r *idleTimeoutReadCloser) Read(p []byte) (int, error) {
+	if r == nil {
+		return 0, io.EOF
+	}
+	r.mu.Lock()
+	if r.timedOut {
+		r.mu.Unlock()
+		return 0, fmt.Errorf("read management request log stream body: %w", context.DeadlineExceeded)
+	}
+	body := r.body
+	timeout := r.timeout
+	r.mu.Unlock()
+
+	if body == nil {
+		return 0, io.ErrClosedPipe
+	}
+	if timeout <= 0 {
+		return body.Read(p)
+	}
+
+	// 让读取结果和 idle timer 竞速，只有 timer 先赢时才关闭底层 body。
+	readResult := make(chan idleTimeoutReadResult, 1)
+	go func() {
+		n, err := body.Read(p)
+		readResult <- idleTimeoutReadResult{n: n, err: err}
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case result := <-readResult:
+		return result.n, result.err
+	case <-timer.C:
+		select {
+		case result := <-readResult:
+			return result.n, result.err
+		default:
+		}
+		r.markTimedOut()
+		_ = body.Close()
+		result := <-readResult
+		if result.err != nil {
+			return result.n, fmt.Errorf("read management request log stream body: %w", context.DeadlineExceeded)
+		}
+		return result.n, result.err
+	}
+}
+
+func (r *idleTimeoutReadCloser) Close() error {
+	if r == nil {
+		return nil
+	}
+	return r.body.Close()
+}
+
+func (r *idleTimeoutReadCloser) markTimedOut() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.timedOut = true
+}
+
+func (c *Client) newRequestLogRequest(ctx context.Context, requestID string) (*http.Request, error) {
+	if c == nil {
+		return nil, fmt.Errorf("cpa client is nil")
+	}
+	if c.baseURL == "" {
+		return nil, fmt.Errorf("cpa base url is required")
+	}
+	if c.managementKey == "" {
+		return nil, fmt.Errorf("cpa management key is required")
+	}
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return nil, fmt.Errorf("request id is required")
+	}
+	if strings.ContainsAny(requestID, "/\\") {
+		return nil, fmt.Errorf("request id is invalid")
+	}
+
+	path := cpaManagementRequestLogByIDEndpoint + "/" + url.PathEscape(requestID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build management request log request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.managementKey)
+	return req, nil
+}
+
+func filenameFromContentDisposition(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	_, params, err := mime.ParseMediaType(value)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(params["filename"])
 }
 
 func (c *Client) FetchManagementAPIKeys(ctx context.Context) (*response.ManagementAPIKeysResult, error) {
@@ -227,12 +481,24 @@ func (c *Client) FetchGeminiAPIKeys(ctx context.Context) (*response.ProviderKeyC
 	return c.fetchProviderKeyConfig(ctx, cpaManagementGeminiAPIKeyEndpoint, "gemini-api-key", "gemini api keys")
 }
 
+// FetchInteractionsAPIKeys 读取独立的 Gemini Interactions API Key metadata endpoint。
+func (c *Client) FetchInteractionsAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
+	// 复用标准 provider key 解码器，保持 direct/wrapped、状态码和错误包装与现有来源一致。
+	return c.fetchProviderKeyConfig(ctx, cpaManagementInteractionsAPIKeyEndpoint, "interactions-api-key", "interactions api keys")
+}
+
 func (c *Client) FetchClaudeAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
 	return c.fetchProviderKeyConfig(ctx, cpaManagementClaudeAPIKeyEndpoint, "claude-api-key", "claude api keys")
 }
 
 func (c *Client) FetchCodexAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
 	return c.fetchProviderKeyConfig(ctx, cpaManagementCodexAPIKeyEndpoint, "codex-api-key", "codex api keys")
+}
+
+// FetchXAIAPIKeys 读取 xAI API Key metadata endpoint，不复用 OAuth Auth File 路径。
+func (c *Client) FetchXAIAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
+	// 复用标准 provider key 解码器，忽略 websockets 等 Keeper 不消费的额外字段。
+	return c.fetchProviderKeyConfig(ctx, cpaManagementXAIAPIKeyEndpoint, "xai-api-key", "xai api keys")
 }
 
 func (c *Client) FetchVertexAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {

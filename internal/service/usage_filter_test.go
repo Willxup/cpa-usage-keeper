@@ -11,11 +11,16 @@ import (
 
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/repository/dto"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 	"gorm.io/gorm"
 )
+
+func emptyPricingCatalogForTest() *pricing.Catalog {
+	return pricing.NewCatalog(pricing.EmptySnapshot())
+}
 
 func TestUsageServiceGetUsageOverviewDelegatesToFilteredOverview(t *testing.T) {
 	previousLocal := time.Local
@@ -35,12 +40,12 @@ func TestUsageServiceGetUsageOverviewDelegatesToFilteredOverview(t *testing.T) {
 		Model:                "claude-sonnet",
 		PromptPricePer1M:     3,
 		CompletionPricePer1M: 15,
-		CachePricePer1M:      0.3,
+		CacheReadPricePer1M:  0.3,
 	}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
-		{EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), InputTokens: 1000, OutputTokens: 500, CachedTokens: 100, ReasoningTokens: 50, TotalTokens: 1650},
+		{EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), InputTokens: 1000, OutputTokens: 500, CachedTokens: 100, CacheReadTokens: 100, ReasoningTokens: 50, TotalTokens: 1650},
 		{EventKey: "event-2", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), InputTokens: 500, OutputTokens: 250, CachedTokens: 0, ReasoningTokens: 25, TotalTokens: 775},
 	}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
@@ -51,21 +56,26 @@ func TestUsageServiceGetUsageOverviewDelegatesToFilteredOverview(t *testing.T) {
 
 	start := time.Date(2026, 4, 16, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 16, 23, 59, 59, 0, time.UTC)
-	provider := NewUsageService(db)
+	pricingSnapshot, err := repository.LoadPricingSnapshot(context.Background(), db)
+	if err != nil {
+		t.Fatalf("LoadPricingSnapshot returned error: %v", err)
+	}
+	provider := NewUsageServiceWithOptions(db, UsageServiceOptions{PricingCatalog: pricing.NewCatalog(pricingSnapshot)})
 	overview, err := provider.GetUsageOverview(context.Background(), servicedto.UsageFilter{Range: "24h", StartTime: &start, EndTime: &end})
 	if err != nil {
 		t.Fatalf("GetUsageOverview returned error: %v", err)
 	}
-	if overview.Summary.RequestCount != 2 || overview.Summary.TokenCount != 2425 {
-		t.Fatalf("expected overview summary counts, got %+v", overview.Summary)
+	if overview.Usage == nil || overview.Usage.TotalRequests != 2 || overview.Usage.TotalTokens != 2425 {
+		t.Fatalf("expected overview usage counts, got %+v", overview.Usage)
 	}
-	if overview.Summary.WindowMinutes != 1440 {
-		t.Fatalf("expected 24h overview to use exact 1440 minute window, got %+v", overview.Summary)
+	if math.Abs(overview.Summary.RPM-2.0/1440.0) > 0.000000001 || math.Abs(overview.Summary.TPM-2425.0/1440.0) > 0.000000001 {
+		t.Fatalf("expected 24h overview rates to use exact 1440 minute window, got %+v", overview.Summary)
 	}
-	if overview.Series.Requests["2026-04-16T17:00:00+08:00"] != 1 || overview.Series.Requests["2026-04-16T18:00:00+08:00"] != 1 {
+	if len(overview.Series.Buckets) != 2 || overview.Series.Buckets[0] != "2026-04-16T17:00:00+08:00" || overview.Series.Buckets[1] != "2026-04-16T18:00:00+08:00" ||
+		overview.Series.Requests[0] != 1 || overview.Series.Requests[1] != 1 {
 		t.Fatalf("expected hourly request series values, got %+v", overview.Series)
 	}
-	if math.Abs(overview.Series.Cost["2026-04-16T17:00:00+08:00"]-0.01023) > 0.000000001 || math.Abs(overview.Series.Cost["2026-04-16T18:00:00+08:00"]-0.00525) > 0.000000001 {
+	if math.Abs(overview.Series.Cost[0]-0.01023) > 0.000000001 || math.Abs(overview.Series.Cost[1]-0.00525) > 0.000000001 {
 		t.Fatalf("expected hourly cost series values, got %+v", overview.Series)
 	}
 }
@@ -100,14 +110,14 @@ func TestUsageServiceGetUsageOverviewUsesRecentCacheForBoundaries(t *testing.T) 
 		TotalTokens:  100,
 	}})
 
-	provider := NewUsageServiceWithRecentCache(db, cache)
+	provider := NewUsageServiceWithRecentCache(db, cache, emptyPricingCatalogForTest())
 	queryNow := now
 	overview, err := provider.GetUsageOverview(context.Background(), servicedto.UsageFilter{Range: "custom", StartTime: &start, EndTime: &end, QueryNow: &queryNow})
 	if err != nil {
 		t.Fatalf("GetUsageOverview returned error: %v", err)
 	}
-	if overview.Summary.RequestCount != 1 || overview.Summary.TokenCount != 100 {
-		t.Fatalf("expected overview service to use recent cache boundary event, got %+v", overview.Summary)
+	if overview.Usage == nil || overview.Usage.TotalRequests != 1 || overview.Usage.TotalTokens != 100 {
+		t.Fatalf("expected overview service to use recent cache boundary event, got %+v", overview.Usage)
 	}
 }
 
@@ -133,7 +143,7 @@ func TestUsageServiceGetUsageOverviewRealtimeUsesRecentCache(t *testing.T) {
 		t.Fatalf("drop usage_events returned error: %v", err)
 	}
 
-	provider := NewUsageServiceWithRecentCache(db, cache)
+	provider := NewUsageServiceWithRecentCache(db, cache, emptyPricingCatalogForTest())
 	realtime, err := provider.GetUsageOverviewRealtime(context.Background(), servicedto.UsageFilter{
 		RealtimeWindow:  "15m",
 		RealtimeEndTime: &now,
@@ -177,7 +187,7 @@ func TestUsageServiceGetUsageOverviewRealtimeResolvesAPIKeyIDForRecentCache(t *t
 		{APIGroupKey: "sk-other-key", Model: "gpt-5", AuthType: "oauth", Source: "other@example.com", AuthIndex: "other-auth", Timestamp: now.Add(-1 * time.Minute), InputTokens: 100, TotalTokens: 300},
 	})
 
-	provider := NewUsageServiceWithRecentCache(db, cache)
+	provider := NewUsageServiceWithRecentCache(db, cache, emptyPricingCatalogForTest())
 	realtime, err := provider.GetUsageOverviewRealtime(context.Background(), servicedto.UsageFilter{
 		APIKeyID:        targetID,
 		RealtimeWindow:  "15m",
@@ -218,7 +228,7 @@ func TestUsageServiceResolvesAPIKeyIDForUsageQueries(t *testing.T) {
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
 		{EventKey: "target-1", APIGroupKey: "sk-target-key", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), TotalTokens: 10},
 		{EventKey: "target-2", APIGroupKey: "sk-target-key", Model: "claude-opus", Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), TotalTokens: 20},
-		{EventKey: "other-1", APIGroupKey: "sk-other-key", Model: "claude-other", Timestamp: time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC), TotalTokens: 300},
+		{EventKey: "other-1", APIGroupKey: "sk-other-key", Model: "claude-other", Timestamp: time.Date(2026, 4, 16, 10, 30, 0, 0, time.UTC), TotalTokens: 300},
 	}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
@@ -229,13 +239,13 @@ func TestUsageServiceResolvesAPIKeyIDForUsageQueries(t *testing.T) {
 
 	start := time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC)
-	provider := NewUsageService(db)
+	provider := NewUsageService(db, emptyPricingCatalogForTest())
 	overview, err := provider.GetUsageOverview(context.Background(), servicedto.UsageFilter{APIKeyID: targetID, Range: "custom", StartTime: &start, EndTime: &end})
 	if err != nil {
 		t.Fatalf("GetUsageOverview returned error: %v", err)
 	}
-	if overview.Summary.RequestCount != 2 || overview.Summary.TokenCount != 30 {
-		t.Fatalf("expected overview to use resolved API key, got %+v", overview.Summary)
+	if overview.Usage == nil || overview.Usage.TotalRequests != 2 || overview.Usage.TotalTokens != 30 {
+		t.Fatalf("expected overview to use resolved API key, got %+v", overview.Usage)
 	}
 	analysis, err := provider.GetAnalysis(context.Background(), servicedto.UsageFilter{APIKeyID: targetID, Range: "custom", StartTime: &start, EndTime: &end})
 	if err != nil {
@@ -259,7 +269,7 @@ func TestUsageServiceRejectsInvalidAPIKeyID(t *testing.T) {
 		t.Fatalf("OpenDatabase returned error: %v", err)
 	}
 	closeTestDatabase(t, db)
-	provider := NewUsageService(db)
+	provider := NewUsageService(db, emptyPricingCatalogForTest())
 
 	_, err = provider.ListUsageEvents(context.Background(), servicedto.UsageFilter{APIKeyID: "not-an-id", Page: 1, PageSize: 100, Limit: 100})
 	if !errors.Is(err, ErrInvalidID) {
@@ -286,7 +296,7 @@ func TestUsageServiceRejectsDeletedAPIKeyID(t *testing.T) {
 	if err := db.Model(&entities.CPAAPIKey{}).Where("id = ?", activeKeys[0].ID).Update("is_deleted", true).Error; err != nil {
 		t.Fatalf("mark api key deleted: %v", err)
 	}
-	provider := NewUsageService(db)
+	provider := NewUsageService(db, emptyPricingCatalogForTest())
 
 	_, err = provider.GetUsageOverview(context.Background(), servicedto.UsageFilter{APIKeyID: strconv.FormatInt(activeKeys[0].ID, 10)})
 	if !errors.Is(err, gorm.ErrRecordNotFound) {

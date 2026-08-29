@@ -2,10 +2,12 @@ import React, { type ButtonHTMLAttributes, type PropsWithChildren } from 'react'
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 type ButtonSize = 'md' | 'sm';
+type ButtonAppearance = 'default' | 'action';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;
+  appearance?: ButtonAppearance;
   fullWidth?: boolean;
   loading?: boolean;
 }
@@ -14,6 +16,7 @@ export function Button({
   children,
   variant = 'primary',
   size = 'md',
+  appearance = 'default',
   fullWidth = false,
   loading = false,
   className = '',
@@ -24,6 +27,7 @@ export function Button({
   const classes = [
     'btn',
     `btn-${variant}`,
+    appearance === 'action' ? 'btn-action' : '',
     size === 'sm' ? 'btn-sm' : '',
     fullWidth ? 'btn-full' : '',
     className

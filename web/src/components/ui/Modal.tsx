@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type MouseEvent,
@@ -20,6 +21,16 @@ interface ModalProps {
   width?: number | string;
   className?: string;
   closeDisabled?: boolean;
+  variant?: 'dialog' | 'drawer';
+}
+
+interface ModalRenderSnapshot {
+  title?: ReactNode;
+  footer?: ReactNode;
+  width: number | string;
+  className?: string;
+  variant: 'dialog' | 'drawer';
+  children: ReactNode;
 }
 
 const CLOSE_ANIMATION_DURATION = 350;
@@ -96,6 +107,7 @@ export function Modal({
   width = 520,
   className,
   closeDisabled = false,
+  variant = 'dialog',
   children,
 }: PropsWithChildren<ModalProps>) {
   const { t } = useTranslation();
@@ -107,6 +119,11 @@ export function Modal({
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  const currentSnapshot: ModalRenderSnapshot = useMemo(
+    () => ({ title, footer, width, className, variant, children }),
+    [children, className, footer, title, variant, width]
+  );
+  const [renderSnapshot, setRenderSnapshot] = useState<ModalRenderSnapshot>(currentSnapshot);
 
   const getFocusableElements = useCallback(() => {
     if (!modalRef.current) return [] as HTMLElement[];
@@ -115,9 +132,24 @@ export function Modal({
     );
   }, []);
 
+  const isTopmostModal = useCallback(() => {
+    if (!modalRef.current || typeof document === 'undefined') return false;
+    const focusedModal = document.activeElement instanceof Element
+      ? document.activeElement.closest<HTMLElement>('.modal[role="dialog"][aria-modal="true"]')
+      : null;
+    if (focusedModal) {
+      return focusedModal === modalRef.current;
+    }
+    const modals = document.querySelectorAll<HTMLElement>('.modal[role="dialog"][aria-modal="true"]');
+    return modals.length > 0 && modals[modals.length - 1] === modalRef.current;
+  }, []);
+
   const startClose = useCallback(
-    (notifyParent: boolean) => {
+    (notifyParent: boolean, snapshot?: ModalRenderSnapshot) => {
       if (closeTimerRef.current !== null) return;
+      if (snapshot) {
+        setRenderSnapshot(snapshot);
+      }
       setIsClosing(true);
       if (notifyParent) {
         onClose();
@@ -141,6 +173,7 @@ export function Modal({
       }
       queueMicrotask(() => {
         if (cancelled) return;
+        setRenderSnapshot({ title, footer, width, className, variant, children });
         setIsVisible(true);
         setIsClosing(false);
       });
@@ -154,11 +187,11 @@ export function Modal({
     return () => {
       cancelled = true;
     };
-  }, [open, isVisible, startClose]);
+  }, [children, className, currentSnapshot, footer, isVisible, open, startClose, title, variant, width]);
 
   const handleClose = useCallback(() => {
-    startClose(true);
-  }, [startClose]);
+    startClose(true, currentSnapshot);
+  }, [currentSnapshot, startClose]);
 
   const handleOverlayMouseDown = useCallback((event: MouseEvent<HTMLDivElement>) => {
     if (closeDisabled || event.target !== event.currentTarget) return;
@@ -207,6 +240,8 @@ export function Modal({
     if (!open) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      // 抽屉内可能继续打开列设置或请求日志；只有最上层弹窗处理 Esc 与焦点循环。
+      if (!isTopmostModal()) return;
       if (event.key === 'Escape') {
         if (closeDisabled) return;
         event.preventDefault();
@@ -243,7 +278,7 @@ export function Modal({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [closeDisabled, getFocusableElements, handleClose, open]);
+  }, [closeDisabled, getFocusableElements, handleClose, isTopmostModal, open]);
 
   useEffect(() => {
     if (!open && !isVisible) return;
@@ -272,18 +307,23 @@ export function Modal({
 
   if (!open && !isVisible) return null;
 
-  const overlayClass = `modal-overlay ${isClosing ? 'modal-overlay-closing' : 'modal-overlay-entering'}`;
-  const modalClass = `modal ${isClosing ? 'modal-closing' : 'modal-entering'}${className ? ` ${className}` : ''}`;
+  const activeSnapshot = open ? currentSnapshot : renderSnapshot;
+  const renderedTitle = activeSnapshot.title;
+  const renderedFooter = activeSnapshot.footer;
+  const renderedClassName = activeSnapshot.className;
+  const renderedVariant = activeSnapshot.variant;
+  const overlayClass = `modal-overlay ${renderedVariant === 'drawer' ? 'modal-overlay-drawer ' : ''}${isClosing ? 'modal-overlay-closing' : 'modal-overlay-entering'}`;
+  const modalClass = `modal ${renderedVariant === 'drawer' ? 'modal-drawer ' : ''}${isClosing ? 'modal-closing' : 'modal-entering'}${renderedClassName ? ` ${renderedClassName}` : ''}`;
 
   const modalContent = (
     <div ref={overlayRef} className={overlayClass} onMouseDown={handleOverlayMouseDown}>
       <div
         ref={modalRef}
         className={modalClass}
-        style={{ width, maxWidth: '100%' }}
+        style={{ width: activeSnapshot.width, maxWidth: '100%' }}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={title ? titleId : undefined}
+        aria-labelledby={renderedTitle ? titleId : undefined}
         tabIndex={-1}
       >
         <button
@@ -297,12 +337,12 @@ export function Modal({
           <IconX size={20} />
         </button>
         <div className="modal-header">
-          <div className="modal-title" id={title ? titleId : undefined}>
-            {title}
+          <div className="modal-title" id={renderedTitle ? titleId : undefined}>
+            {renderedTitle}
           </div>
         </div>
-        <div className="modal-body">{children}</div>
-        {footer && <div className="modal-footer">{footer}</div>}
+        <div className="modal-body">{activeSnapshot.children}</div>
+        {renderedFooter && <div className="modal-footer">{renderedFooter}</div>}
       </div>
     </div>
   );

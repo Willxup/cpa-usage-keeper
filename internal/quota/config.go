@@ -15,17 +15,17 @@ const (
 	// RefreshTransientTaskTTL 是普通失败在内存中的短期保留时间，只用于当前页面轮询读取失败结果。
 	RefreshTransientTaskTTL = 20 * time.Minute
 
-	// AutoRefreshInterval 是后台自动刷新 Auth Files 限额的默认调度间隔。
-	AutoRefreshInterval = 5 * time.Minute
-
-	// AutoRefreshActiveTTL 是后台页面心跳的内存租约，前端 30s 心跳停止后会在短时间内失效。
-	AutoRefreshActiveTTL = 90 * time.Second
-
 	// RefreshErrorCacheTTL 是可恢复展示的 HTTP 错误缓存时间，过期后自动刷新可以重新尝试。
 	RefreshErrorCacheTTL = 4 * time.Hour
 
 	// CodexRateLimitResetCreditsConsumeURL 是 Codex 官方 reset credit 消费端点，reset 操作固定调用它。
 	CodexRateLimitResetCreditsConsumeURL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume"
+
+	// CodexRateLimitResetCreditsURL 返回当前账号每次可用 reset credit 及其过期时间。
+	CodexRateLimitResetCreditsURL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
+
+	// xaiGrokClientVersion 与 CPA 当前 Grok CLI chat-proxy 请求保持一致。
+	xaiGrokClientVersion = "0.2.93"
 )
 
 // RefreshCacheableHTTPStatusCodes 定义会写入页面恢复缓存并被自动刷新跳过的 provider HTTP 状态码。
@@ -41,14 +41,16 @@ type APICallConfig struct {
 }
 
 type ProviderConfigs struct {
-	Antigravity         []APICallConfig
-	Codex               APICallConfig
-	GeminiCLI           APICallConfig
-	GeminiCLICodeAssist APICallConfig
-	ClaudeUsage         APICallConfig
-	ClaudeProfile       APICallConfig
-	Kimi                APICallConfig
-	XAI                 APICallConfig
+	Antigravity              []APICallConfig
+	AntigravitySubscriptions []APICallConfig
+	Codex                    APICallConfig
+	GeminiCLI                APICallConfig
+	GeminiCLICodeAssist      APICallConfig
+	ClaudeUsage              APICallConfig
+	ClaudeProfile            APICallConfig
+	Kimi                     APICallConfig
+	XAIWeekly                APICallConfig
+	XAIMonthly               APICallConfig
 }
 
 func DefaultProviderConfigs() ProviderConfigs {
@@ -56,29 +58,49 @@ func DefaultProviderConfigs() ProviderConfigs {
 		Antigravity: []APICallConfig{
 			{
 				Method: "POST",
-				URL:    "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+				URL:    "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
 				Headers: map[string]string{
 					"Authorization": "Bearer $TOKEN$",
 					"Content-Type":  "application/json",
-					"User-Agent":    "antigravity/1.11.5 windows/amd64",
+					"User-Agent":    "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)",
 				},
 			},
 			{
 				Method: "POST",
-				URL:    "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels",
+				URL:    "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary",
 				Headers: map[string]string{
 					"Authorization": "Bearer $TOKEN$",
 					"Content-Type":  "application/json",
-					"User-Agent":    "antigravity/1.11.5 windows/amd64",
+					"User-Agent":    "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)",
 				},
 			},
 			{
 				Method: "POST",
-				URL:    "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+				URL:    "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
 				Headers: map[string]string{
 					"Authorization": "Bearer $TOKEN$",
 					"Content-Type":  "application/json",
-					"User-Agent":    "antigravity/1.11.5 windows/amd64",
+					"User-Agent":    "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)",
+				},
+			},
+		},
+		AntigravitySubscriptions: []APICallConfig{
+			{
+				Method: "POST",
+				URL:    "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+				Headers: map[string]string{
+					"Authorization": "Bearer $TOKEN$",
+					"Content-Type":  "application/json",
+					"User-Agent":    "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)",
+				},
+			},
+			{
+				Method: "POST",
+				URL:    "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+				Headers: map[string]string{
+					"Authorization": "Bearer $TOKEN$",
+					"Content-Type":  "application/json",
+					"User-Agent":    "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)",
 				},
 			},
 		},
@@ -132,19 +154,34 @@ func DefaultProviderConfigs() ProviderConfigs {
 				"Authorization": "Bearer $TOKEN$",
 			},
 		},
-		XAI: APICallConfig{
-			Method: "GET",
-			URL:    "https://cli-chat-proxy.grok.com/v1/billing",
-			Headers: map[string]string{
-				"Authorization": "Bearer $TOKEN$",
-			},
+		XAIWeekly: APICallConfig{
+			Method:  "GET",
+			URL:     "https://cli-chat-proxy.grok.com/v1/billing?format=credits",
+			Headers: xaiRequestHeaders(),
+		},
+		XAIMonthly: APICallConfig{
+			Method:  "GET",
+			URL:     "https://cli-chat-proxy.grok.com/v1/billing",
+			Headers: xaiRequestHeaders(),
 		},
 	}
 }
 
+func xaiRequestHeaders() map[string]string {
+	userAgent := "grok-pager/" + xaiGrokClientVersion + " grok-shell/" + xaiGrokClientVersion + " (macos; aarch64)"
+	return map[string]string{
+		"Authorization":         "Bearer $TOKEN$",
+		"x-xai-token-auth":      "xai-grok-cli",
+		"x-grok-client-version": xaiGrokClientVersion,
+		"Accept":                "*/*",
+		"User-Agent":            userAgent,
+	}
+}
+
 func (c ProviderConfigs) APICallTemplates() []APICallConfig {
-	templates := make([]APICallConfig, 0, len(c.Antigravity)+7)
+	templates := make([]APICallConfig, 0, len(c.Antigravity)+len(c.AntigravitySubscriptions)+8)
 	templates = append(templates, c.Antigravity...)
+	templates = append(templates, c.AntigravitySubscriptions...)
 	templates = append(templates,
 		c.Codex,
 		c.GeminiCLI,
@@ -152,7 +189,8 @@ func (c ProviderConfigs) APICallTemplates() []APICallConfig {
 		c.ClaudeUsage,
 		c.ClaudeProfile,
 		c.Kimi,
-		c.XAI,
+		c.XAIWeekly,
+		c.XAIMonthly,
 	)
 	return templates
 }

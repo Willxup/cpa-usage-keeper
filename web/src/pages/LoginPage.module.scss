@@ -11,15 +11,14 @@
   background:
     linear-gradient(115deg, rgba(17, 24, 39, 0.08) 0 1px, transparent 1px 100%) 0 0 / 28px 28px,
     radial-gradient(900px 480px at 12% 0%, rgba($primary-color, 0.16), transparent 58%),
-    radial-gradient(760px 420px at 100% 100%, rgba(34, 197, 94, 0.1), transparent 60%),
     var(--bg-secondary);
 }
 
 .frame {
-  width: min(1060px, 100%);
+  width: min(1180px, 100%);
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(340px, 440px);
-  gap: 30px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(360px, 440px);
+  gap: 64px;
   align-items: center;
 
   @include mobile {
@@ -78,10 +77,15 @@
 }
 
 .brandBlock {
+  transform: translateY(-50px);
   display: flex;
   flex-direction: column;
   gap: 16px;
   min-width: 0;
+
+  @include mobile {
+    transform: none;
+  }
 }
 
 .eyebrow {
@@ -89,12 +93,12 @@
   align-items: center;
   width: fit-content;
   min-height: 40px;
-  padding: 0 18px;
-  border-radius: 999px;
-  border: 1px solid rgba($primary-color, 0.24);
-  background: color-mix(in srgb, var(--bg-primary) 82%, transparent);
+  padding: 0;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
   color: var(--text-primary);
-  font-size: 15px;
+  font-size: 20px;
   font-weight: 900;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -102,21 +106,31 @@
 
 .title {
   margin: 0;
-  font-size: clamp(38px, 5.6vw, 68px);
+  font-size: 60px;
   line-height: 0.92;
   letter-spacing: -0.055em;
+  white-space: pre-line;
   color: var(--text-primary);
+
+  @include mobile {
+    font-size: 38px;
+  }
 }
 
 .subtitle {
   margin: 0;
   max-width: 560px;
   color: var(--text-secondary);
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.75;
 }
 
 .loginCard {
+  width: 100%;
+  min-height: 440px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
   padding: 28px;
   border-radius: 28px;
   background:
@@ -126,6 +140,7 @@
   border: 1px solid color-mix(in srgb, var(--border-color) 84%, rgba($primary-color, 0.28));
 
   @include mobile {
+    min-height: 0;
     padding: 20px;
   }
 }
@@ -180,7 +195,7 @@
 }
 
 .tab {
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 999px;
   background: transparent;
   color: var(--text-secondary);
@@ -201,15 +216,21 @@
 }
 
 .tabActive {
-  background: var(--bg-primary);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 48%, var(--border-color));
+  background: color-mix(in srgb, var(--primary-color) 18%, var(--bg-primary));
   color: var(--text-primary);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16), inset 0 0 0 1px color-mix(in srgb, var(--text-primary) 18%, transparent);
 }
 
 .form {
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
+
+  :global(.btn) {
+    margin-top: auto;
+  }
 
   :global(.input::placeholder) {
     font-size: 12px;

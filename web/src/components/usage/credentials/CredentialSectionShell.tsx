@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react'
 import styles from './CredentialSections.module.scss'
+import { Select } from '@/components/ui/Select'
 import { formatCompactNumber } from '@/utils/usage'
 
 type CredentialSectionStyle = CSSProperties
@@ -15,7 +16,8 @@ interface CredentialSectionShellProps {
 }
 
 interface CredentialRowShellProps {
-  title: string
+  icon?: ReactNode
+  title: ReactNode
   subtitle?: ReactNode
   badges: ReactNode
   metrics: ReactNode
@@ -28,22 +30,22 @@ interface CredentialTableHeaderProps {
   totalRequestsLabel: string
   successRateLabel: string
   totalTokensLabel: string
-  cacheRateLabel: string
+  cacheReadRateLabel: string
   sideLabel: string
   rowClassName?: string
 }
 
 export function CredentialSectionShell({ title, subtitle, countLabel, titleExtra, actions, style, children }: CredentialSectionShellProps) {
   return (
-    <section className={styles.credentialSectionCard} style={style}>
+    <section className={`${styles.credentialSectionCard} keeper-card-surface`} style={style}>
       <div className={styles.credentialSectionHeader}>
         <div className={styles.credentialSectionTitleBlock}>
-          <div className={styles.credentialSectionTitleRow}>
-            <h3 className={styles.credentialSectionTitle}>{title}</h3>
+          <div className={`${styles.credentialSectionTitleRow} keeper-card-title-track`}>
+            <h3 className={`${styles.credentialSectionTitle} keeper-card-title`}>{title}</h3>
             <span className={styles.credentialCountBadge}>{countLabel}</span>
             {titleExtra}
           </div>
-          <p className={styles.credentialSectionSubtitle}>{subtitle}</p>
+          <p className={`${styles.credentialSectionSubtitle} keeper-card-subtitle`}>{subtitle}</p>
         </div>
         {actions && <div className={styles.credentialSectionActions}>{actions}</div>}
       </div>
@@ -52,16 +54,21 @@ export function CredentialSectionShell({ title, subtitle, countLabel, titleExtra
   )
 }
 
-export function CredentialRowShell({ title, subtitle, badges, metrics, side, rowClassName }: CredentialRowShellProps) {
+export function CredentialRowShell({ icon, title, subtitle, badges, metrics, side, rowClassName }: CredentialRowShellProps) {
   // 统一三段式行结构：左侧身份信息、中间指标、右侧 quota/状态区域。
   return (
     <article className={`${styles.credentialRow} ${rowClassName ?? ''}`.trim()}>
       <div className={styles.credentialIdentityBlock}>
-        <div className={styles.credentialNameRow}>
-          <span className={styles.credentialDisplayName}>{title}</span>
-          {badges && <div className={styles.credentialBadges}>{badges}</div>}
+        {icon}
+        <div className={styles.credentialIdentityContent}>
+          <div className={styles.credentialNameRow}>
+            <div className={styles.credentialNameMain}>
+              <span className={styles.credentialDisplayName}>{title}</span>
+            </div>
+            {badges && <div className={styles.credentialBadges}>{badges}</div>}
+          </div>
+          {subtitle && <span className={styles.credentialIdentityText}>{subtitle}</span>}
         </div>
-        {subtitle && <span className={styles.credentialIdentityText}>{subtitle}</span>}
       </div>
       <div className={styles.credentialMetricGroup}>{metrics}</div>
       <div className={styles.credentialSidePanel}>{side}</div>
@@ -69,7 +76,7 @@ export function CredentialRowShell({ title, subtitle, badges, metrics, side, row
   )
 }
 
-export function CredentialTableHeader({ nameLabel, totalRequestsLabel, successRateLabel, totalTokensLabel, cacheRateLabel, sideLabel, rowClassName }: CredentialTableHeaderProps) {
+export function CredentialTableHeader({ nameLabel, totalRequestsLabel, successRateLabel, totalTokensLabel, cacheReadRateLabel, sideLabel, rowClassName }: CredentialTableHeaderProps) {
   return (
     <div className={`${styles.credentialTableHeader} ${rowClassName ?? ''}`.trim()}>
       <span className={styles.credentialTableHeaderName}>{nameLabel}</span>
@@ -77,7 +84,7 @@ export function CredentialTableHeader({ nameLabel, totalRequestsLabel, successRa
         <span className={styles.credentialMetricHeaderCell}>{totalRequestsLabel}</span>
         <span className={styles.credentialMetricHeaderCell}>{successRateLabel}</span>
         <span className={styles.credentialMetricHeaderCell}>{totalTokensLabel}</span>
-        <span className={styles.credentialMetricHeaderCell}>{cacheRateLabel}</span>
+        <span className={styles.credentialMetricHeaderCell}>{cacheReadRateLabel}</span>
       </div>
       <span className={styles.credentialTableHeaderSide}>{sideLabel}</span>
     </div>
@@ -126,7 +133,7 @@ export function successRateTone(value: number | null): 'success' | 'warning' | '
   return 'danger'
 }
 
-export function cacheRateTone(value: number | null): 'success' | 'warning' | 'danger' | 'neutral' {
+export function cacheReadRateTone(value: number | null): 'success' | 'warning' | 'danger' | 'neutral' {
   if (value === null) {
     return 'neutral'
   }
@@ -140,6 +147,10 @@ export function cacheRateTone(value: number | null): 'success' | 'warning' | 'da
 }
 
 const CREDENTIAL_PAGE_SIZE_OPTIONS = [5, 10, 20, 50]
+const CREDENTIAL_PAGE_SIZE_SELECT_OPTIONS = CREDENTIAL_PAGE_SIZE_OPTIONS.map((option) => ({
+  value: String(option),
+  label: String(option),
+}))
 
 export function CredentialsPagination({
   leadingControls,
@@ -176,24 +187,49 @@ export function CredentialsPagination({
     return null
   }
 
+  const selectedSortLabel = sortOptions?.find((option) => option.value === sortValue)?.label
+
   return (
     <div className={styles.credentialPagination}>
       <div className={styles.credentialPaginationControls}>
         {leadingControls}
         {sortOptions && sortOptions.length > 0 && sortLabel && onSortChange && (
-          <label className={styles.credentialPageSizeControl}>
+          <div className={styles.credentialPageSizeControl}>
             <span>{sortLabel}</span>
-            <select value={sortValue} onChange={(event) => onSortChange(event.target.value)}>
-              {sortOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
-          </label>
+            <div className={styles.credentialPaginationSortControl}>
+              <span
+                className={styles.credentialPaginationSortSizer}
+                data-credential-pagination-sort-sizer="true"
+                aria-hidden="true"
+              >
+                {sortOptions.map((option) => <span key={option.value}>{option.label}</span>)}
+              </span>
+              <Select
+                value={sortValue ?? ''}
+                options={sortOptions}
+                onChange={onSortChange}
+                className={`${styles.credentialPaginationSelect} ${styles.credentialPaginationSortSelect}`}
+                dropdownClassName={styles.credentialPaginationDropdown}
+                ariaLabel={selectedSortLabel ? `${sortLabel}: ${selectedSortLabel}` : sortLabel}
+                fullWidth
+                dropdownMinWidth={180}
+              />
+            </div>
+          </div>
         )}
-        <label className={styles.credentialPageSizeControl}>
+        <div className={styles.credentialPageSizeControl}>
           <span>{rowsPerPageLabel}</span>
-          <select value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))}>
-            {CREDENTIAL_PAGE_SIZE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-          </select>
-        </label>
+          <Select
+            value={String(pageSize)}
+            options={CREDENTIAL_PAGE_SIZE_SELECT_OPTIONS}
+            onChange={(value) => onPageSizeChange(Number(value))}
+            className={`${styles.credentialPaginationSelect} ${styles.credentialPaginationPageSizeSelect}`}
+            dropdownClassName={styles.credentialPaginationDropdown}
+            ariaLabel={`${rowsPerPageLabel}: ${pageSize}`}
+            fullWidth={false}
+            dropdownMinWidth={72}
+          />
+        </div>
         <button type="button" onClick={() => onPageChange(page - 1)} disabled={page <= 1}>{previousLabel}</button>
         <span className={styles.credentialPaginationPage}>{page} / {totalPages}</span>
         <button type="button" onClick={() => onPageChange(page + 1)} disabled={page >= totalPages}>{nextLabel}</button>

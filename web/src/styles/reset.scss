@@ -21,6 +21,7 @@ body {
 body {
   margin: 0;
   font-family: $font-family;
+  font-size: var(--keeper-body-font-size);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   line-height: 1.5;

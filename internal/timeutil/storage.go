@@ -14,6 +14,12 @@ func FormatStorageTime(t time.Time) string {
 	return NormalizeStorageTime(t).Format(time.RFC3339Nano)
 }
 
+// FormatSortableStorageTime 使用固定宽度 UTC 文本保存需要按 instant 排序的时间列。
+func FormatSortableStorageTime(t time.Time) string {
+	// UTC 消除 DST offset 变化，固定九位小数保证 SQLite 文本顺序与真实 instant 顺序一致。
+	return t.UTC().Format("2006-01-02T15:04:05.000000000Z")
+}
+
 // 旧库带 offset 的值按原 offset 解析；不带 offset 的值按项目 TZ 本地时间解析。
 func ParseStorageTime(value string) (time.Time, error) {
 	trimmed := strings.TrimSpace(value)

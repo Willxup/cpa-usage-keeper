@@ -821,13 +821,13 @@ func TestUsageIdentityListActivePageFiltersEnabledAuthFilesAndOrdersByPriority(t
 	disabled := true
 	enabled := false
 	rows := []entities.UsageIdentity{
-		{Identity: "default", Name: "Default", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: nil, Disabled: nil, TotalRequests: 40, TotalTokens: 400, CreatedAt: now, UpdatedAt: now},
-		{Identity: "priority-5-zeta", Name: "Zeta", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(5), Disabled: &enabled, TotalRequests: 25, TotalTokens: 250, CreatedAt: now, UpdatedAt: now},
-		{Identity: "priority-5-alpha", Name: "Alpha", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(5), Disabled: &enabled, TotalRequests: 22, TotalTokens: 220, CreatedAt: now, UpdatedAt: now},
-		{Identity: "priority-5-beta-lower", Name: "beta", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(5), Disabled: &enabled, TotalRequests: 21, TotalTokens: 210, CreatedAt: now, UpdatedAt: now},
-		{Identity: "priority-1", Name: "Priority 1", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(1), Disabled: &enabled, TotalRequests: 10, TotalTokens: 100, CreatedAt: now, UpdatedAt: now},
-		{Identity: "priority-5", Name: "Priority 5", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(5), Disabled: &enabled, TotalRequests: 20, TotalTokens: 200, CreatedAt: now, UpdatedAt: now},
-		{Identity: "disabled", Name: "Disabled", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(0), Disabled: &disabled, TotalRequests: 99, TotalTokens: 999, CreatedAt: now, UpdatedAt: now},
+		{Identity: "default", Name: "Default", FileName: strPtr("default.json"), AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: nil, Disabled: nil, TotalRequests: 40, TotalTokens: 400, CreatedAt: now, UpdatedAt: now},
+		{Identity: "priority-5-zeta", Name: "Zeta", FileName: strPtr("zeta.json"), AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(5), Disabled: &enabled, TotalRequests: 25, TotalTokens: 250, CreatedAt: now, UpdatedAt: now},
+		{Identity: "priority-5-alpha", Name: "Alpha", FileName: strPtr("Alpha.json"), AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(5), Disabled: &enabled, TotalRequests: 22, TotalTokens: 220, CreatedAt: now, UpdatedAt: now},
+		{Identity: "priority-5-beta-lower", Name: "beta", FileName: strPtr("beta.json"), AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(5), Disabled: &enabled, TotalRequests: 21, TotalTokens: 210, CreatedAt: now, UpdatedAt: now},
+		{Identity: "priority-1", Name: "Priority 1", FileName: strPtr("priority-1.json"), AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(1), Disabled: &enabled, TotalRequests: 10, TotalTokens: 100, CreatedAt: now, UpdatedAt: now},
+		{Identity: "priority-5", Name: "Priority 5", FileName: strPtr("priority-5.json"), AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(5), Disabled: &enabled, TotalRequests: 20, TotalTokens: 200, CreatedAt: now, UpdatedAt: now},
+		{Identity: "disabled", Name: "Disabled", FileName: strPtr("disabled.json"), AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", Priority: intPtr(0), Disabled: &disabled, TotalRequests: 99, TotalTokens: 999, CreatedAt: now, UpdatedAt: now},
 	}
 	if err := db.Create(&rows).Error; err != nil {
 		t.Fatalf("seed usage identities: %v", err)
@@ -843,7 +843,7 @@ func TestUsageIdentityListActivePageFiltersEnabledAuthFilesAndOrdersByPriority(t
 		t.Fatalf("expected total 6, got %d", total)
 	}
 	if got := []string{items[0].Identity, items[1].Identity, items[2].Identity, items[3].Identity, items[4].Identity, items[5].Identity}; !reflect.DeepEqual(got, []string{"priority-5-alpha", "priority-5-beta-lower", "priority-5", "priority-5-zeta", "priority-1", "default"}) {
-		t.Fatalf("expected enabled auth files sorted by priority desc, name asc case-insensitively, then missing priority last, got %v", got)
+		t.Fatalf("expected enabled auth files sorted by priority desc, file name asc case-insensitively, then missing priority last, got %v", got)
 	}
 }
 
@@ -949,7 +949,7 @@ func TestUsageIdentityListActivePageOrdersAIProvidersByPriorityWithoutNameTieBre
 	}
 }
 
-func TestUsageIdentityPrioritySortUsesPortableNullAndNameOrdering(t *testing.T) {
+func TestUsageIdentityPrioritySortUsesPortableNullAndFileNameOrdering(t *testing.T) {
 	db := openTestDatabase(t).Session(&gorm.Session{DryRun: true})
 	authType := entities.UsageIdentityAuthTypeAuthFile
 	var rows []entities.UsageIdentity
@@ -960,7 +960,7 @@ func TestUsageIdentityPrioritySortUsesPortableNullAndNameOrdering(t *testing.T) 
 	for _, expected := range []string{
 		"priority IS NULL ASC",
 		"priority DESC",
-		"LOWER(name) ASC",
+		"LOWER(file_name) ASC",
 		"id ASC",
 	} {
 		if !strings.Contains(sql, expected) {
@@ -969,6 +969,9 @@ func TestUsageIdentityPrioritySortUsesPortableNullAndNameOrdering(t *testing.T) 
 	}
 	if strings.Contains(sql, "COLLATE NOCASE") {
 		t.Fatalf("expected priority sort SQL to avoid sqlite-specific COLLATE NOCASE, got %s", sql)
+	}
+	if strings.Contains(sql, "LOWER(name) ASC") {
+		t.Fatalf("expected auth file priority ties not to use the display name, got %s", sql)
 	}
 }
 

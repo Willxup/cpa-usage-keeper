@@ -4,6 +4,25 @@
 
 // 浅色主题（默认）
 :root {
+  // Keeper 全局视觉基础：普通页面、embed 与 Portal Modal 共用。
+  --keeper-card-radius: 24px;
+  --keeper-card-padding: 20px;
+  --keeper-card-header-padding-x: 22px;
+  --keeper-card-header-padding-top: 20px;
+  --keeper-card-header-padding-bottom: 16px;
+  --keeper-card-title-size: 18px;
+  --keeper-card-title-weight: 700;
+  --keeper-card-title-line-height: 1.2;
+  --keeper-card-title-track-height: 32px;
+  --keeper-card-subtitle-size: 12px;
+  --keeper-card-subtitle-weight: 400;
+  --keeper-card-subtitle-line-height: 1.5;
+  --keeper-body-font-size: 12px;
+  --keeper-control-font-size: 12px;
+  --keeper-control-height-sm: 32px;
+  --keeper-control-height-md: 36px;
+  --keeper-toolbar-control-height: 42px;
+
   // 极简暖灰：浅色模式
   --bg-secondary: #faf9f5; // 页面背景（纸感）
   --bg-primary: #f0eee8; // 容器/卡片背景

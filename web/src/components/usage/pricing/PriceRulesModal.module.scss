@@ -1,0 +1,191 @@
+.modal :global(.modal-header) {
+  padding-right: 56px;
+}
+
+.modal :global(.modal-title) {
+  min-width: 0;
+}
+
+.title {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.titleText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.help {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.helpTooltip {
+  position: fixed;
+  z-index: 2100;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow-lg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition: opacity 150ms ease, transform 150ms ease, visibility 150ms ease;
+  pointer-events: none;
+}
+
+.helpTooltip p {
+  margin: 0;
+}
+
+.helpExamplesLabel {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.helpExamples {
+  display: grid;
+  gap: 5px;
+  margin-top: 5px;
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+
+.helpTooltipVisible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.rules {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: min(56vh, 520px);
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 3px;
+}
+
+.ruleRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(110px, 0.55fr) auto;
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--bg-secondary) 74%, transparent);
+}
+
+.ruleRow :global(.form-group) {
+  gap: 3px;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.ruleRow :global(.form-group > label) {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 13px;
+  letter-spacing: 0.02em;
+}
+
+.ruleInput:global(.input) {
+  width: 100%;
+  height: 32px;
+  min-height: 32px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.removeButton {
+  align-self: start;
+  margin-top: 16px;
+}
+
+.actions,
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.footer {
+  justify-content: flex-end;
+}
+
+.state,
+.error {
+  padding: 12px;
+  border-radius: 14px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.state {
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+}
+
+.error {
+  color: var(--danger-color);
+  background: var(--bg-error-light);
+}
+
+@media (max-width: 768px) {
+  .ruleRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .removeButton {
+    width: 100%;
+    margin-top: 0;
+  }
+
+  .actions,
+  .footer {
+    align-items: stretch;
+  }
+
+  .actions :global(.btn),
+  .footer :global(.btn) {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+}

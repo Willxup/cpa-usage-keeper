@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,7 +13,6 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
-	"cpa-usage-keeper/internal/cpa/dto/response"
 )
 
 func TestBlankJSONResponseBodyCheckDoesNotAllocate(t *testing.T) {
@@ -54,6 +54,187 @@ func TestFetchManagementAPIKeysSendsBearerTokenAndParsesKeys(t *testing.T) {
 	}
 	if len(result.Payload.APIKeys) != 2 || result.Payload.APIKeys[0] != "sk-alpha" || result.Payload.APIKeys[1] != "sk-beta" {
 		t.Fatalf("unexpected API keys payload: %#v", result.Payload)
+	}
+}
+
+func TestFetchRequestLogByIDDownloadsFileWithBearerToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != cpaManagementRequestLogByIDEndpoint+"/req-log-42" {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
+			t.Fatalf("expected management Authorization header, got %q", got)
+		}
+		w.Header().Set("Content-Disposition", `attachment; filename="error-v1-responses-req-log-42.log"`)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte("=== REQUEST INFO ===\nURL: /v1/responses\n"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
+	result, err := client.FetchRequestLogByID(context.Background(), " req-log-42 ")
+	if err != nil {
+		t.Fatalf("FetchRequestLogByID returned error: %v", err)
+	}
+	if result.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", result.StatusCode)
+	}
+	if result.Filename != "error-v1-responses-req-log-42.log" {
+		t.Fatalf("unexpected filename %q", result.Filename)
+	}
+	if result.ContentType != "text/plain; charset=utf-8" {
+		t.Fatalf("unexpected content type %q", result.ContentType)
+	}
+	if string(result.Body) != "=== REQUEST INFO ===\nURL: /v1/responses\n" {
+		t.Fatalf("unexpected body %q", string(result.Body))
+	}
+}
+
+func TestFetchRequestLogByIDLimitsPreviewBody(t *testing.T) {
+	previewLimit := int64(16)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Disposition", `attachment; filename="large-request.log"`)
+		w.(http.Flusher).Flush()
+		_, _ = w.Write([]byte("0123456789abcdefX"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
+	result, err := client.fetchRequestLogByID(context.Background(), "req-large", previewLimit)
+
+	if err != nil {
+		t.Fatalf("fetchRequestLogByID returned error: %v", err)
+	}
+	if result.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", result.StatusCode)
+	}
+	if !result.BodyTruncated {
+		t.Fatalf("expected oversized response to be marked truncated")
+	}
+	if len(result.Body) != int(previewLimit+1) {
+		t.Fatalf("expected limited body length %d, got %d", previewLimit+1, len(result.Body))
+	}
+	if result.Filename != "large-request.log" {
+		t.Fatalf("unexpected filename %q", result.Filename)
+	}
+}
+
+func TestFetchRequestLogByIDSkipsBodyWhenContentLengthExceedsPreviewLimit(t *testing.T) {
+	previewLimit := int64(16)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Disposition", `attachment; filename="large-request.log"`)
+		w.Header().Set("Content-Length", "17")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
+	result, err := client.fetchRequestLogByID(context.Background(), "req-large", previewLimit)
+
+	if err != nil {
+		t.Fatalf("fetchRequestLogByID returned error: %v", err)
+	}
+	if !result.BodyTruncated {
+		t.Fatalf("expected content-length oversized response to be marked truncated")
+	}
+	if len(result.Body) != 0 {
+		t.Fatalf("expected oversized response body not to be read, got %d bytes", len(result.Body))
+	}
+	if result.ContentLength != 17 {
+		t.Fatalf("expected original content length 17, got %d", result.ContentLength)
+	}
+}
+
+func TestFetchRequestLogByIDKeepsUnknownContentLengthWhenPreviewBodyTruncated(t *testing.T) {
+	previewLimit := int64(16)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Disposition", `attachment; filename="large-request.log"`)
+		w.(http.Flusher).Flush()
+		_, _ = w.Write([]byte("0123456789abcdefX"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
+	result, err := client.fetchRequestLogByID(context.Background(), "req-large", previewLimit)
+
+	if err != nil {
+		t.Fatalf("fetchRequestLogByID returned error: %v", err)
+	}
+	if !result.BodyTruncated {
+		t.Fatalf("expected oversized response to be marked truncated")
+	}
+	if result.ContentLength != -1 {
+		t.Fatalf("expected unknown content length to stay -1 after truncation, got %d", result.ContentLength)
+	}
+}
+
+func TestOpenRequestLogByIDDoesNotTimeoutWhileStreamingBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Disposition", `attachment; filename="slow-request.log"`)
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		time.Sleep(80 * time.Millisecond)
+		_, _ = w.Write([]byte("late body"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 20*time.Millisecond, false)
+	stream, err := client.OpenRequestLogByID(context.Background(), "req-slow")
+	if err != nil {
+		t.Fatalf("OpenRequestLogByID returned error before streaming body: %v", err)
+	}
+	defer stream.Body.Close()
+
+	body, err := io.ReadAll(stream.Body)
+	if err != nil {
+		t.Fatalf("expected stream body read to outlive client request timeout, got %v", err)
+	}
+	if string(body) != "late body" {
+		t.Fatalf("unexpected stream body %q", string(body))
+	}
+}
+
+func TestOpenRequestLogByIDTimesOutStalledStreamBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Disposition", `attachment; filename="stalled-request.log"`)
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		time.Sleep(200 * time.Millisecond)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
+	client.streamIdleTimeout = 20 * time.Millisecond
+	stream, err := client.OpenRequestLogByID(context.Background(), "req-stalled")
+	if err != nil {
+		t.Fatalf("OpenRequestLogByID returned error before streaming body: %v", err)
+	}
+	defer stream.Body.Close()
+
+	startedAt := time.Now()
+	_, err = io.ReadAll(stream.Body)
+	if err == nil {
+		t.Fatalf("expected stalled stream body read to fail")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded error, got %v", err)
+	}
+	if time.Since(startedAt) > time.Second {
+		t.Fatalf("expected stalled stream body to fail quickly, took %s", time.Since(startedAt))
+	}
+}
+
+func TestIdleTimeoutReadCloserNilReceiver(t *testing.T) {
+	var reader *idleTimeoutReadCloser
+
+	n, err := reader.Read(make([]byte, 1))
+	if n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("expected nil reader to return EOF, got n=%d err=%v", n, err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("expected nil reader close to be a no-op, got %v", err)
 	}
 }
 
@@ -480,201 +661,6 @@ func TestFetchModelsRejectsInvalidModelsJSON(t *testing.T) {
 	_, err := client.FetchModels(context.Background())
 	if err == nil {
 		t.Fatal("expected invalid json error")
-	}
-}
-
-func TestProviderMetadataFetchersUseDedicatedEndpoints(t *testing.T) {
-	tests := []struct {
-		name     string
-		path     string
-		fetch    func(context.Context, *Client) (*response.ProviderKeyConfigResult, error)
-		response string
-	}{
-		{
-			name: "gemini",
-			path: cpaManagementGeminiAPIKeyEndpoint,
-			fetch: func(ctx context.Context, client *Client) (*response.ProviderKeyConfigResult, error) {
-				return client.FetchGeminiAPIKeys(ctx)
-			},
-			response: `[{"apiKey":"gemini-key","prefix":"gemini-prefix","name":"Gemini","auth-index":"gemini-auth-index"}]`,
-		},
-		{
-			name: "claude",
-			path: cpaManagementClaudeAPIKeyEndpoint,
-			fetch: func(ctx context.Context, client *Client) (*response.ProviderKeyConfigResult, error) {
-				return client.FetchClaudeAPIKeys(ctx)
-			},
-			response: `[{"api-key":"claude-key","prefix":"claude-prefix","name":"Claude","auth_index":"claude-auth-index"}]`,
-		},
-		{
-			name: "codex",
-			path: cpaManagementCodexAPIKeyEndpoint,
-			fetch: func(ctx context.Context, client *Client) (*response.ProviderKeyConfigResult, error) {
-				return client.FetchCodexAPIKeys(ctx)
-			},
-			response: `[{"key":"codex-key","prefix":"codex-prefix","name":"Codex","authIndex":"codex-auth-index"}]`,
-		},
-		{
-			name: "vertex",
-			path: cpaManagementVertexAPIKeyEndpoint,
-			fetch: func(ctx context.Context, client *Client) (*response.ProviderKeyConfigResult, error) {
-				return client.FetchVertexAPIKeys(ctx)
-			},
-			response: `[{"apiKey":"vertex-key","prefix":"vertex-prefix","name":"Vertex","auth-index":"vertex-auth-index"}]`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path != tt.path {
-					t.Fatalf("unexpected path %q", r.URL.Path)
-				}
-				if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
-					t.Fatalf("expected management Authorization header, got %q", got)
-				}
-				_, _ = w.Write([]byte(tt.response))
-			}))
-			defer server.Close()
-
-			client := NewClient(server.URL, "management-secret", 2*time.Second, false)
-			result, err := tt.fetch(context.Background(), client)
-			if err != nil {
-				t.Fatalf("fetch returned error: %v", err)
-			}
-			if result.StatusCode != http.StatusOK || len(result.Body) == 0 {
-				t.Fatalf("unexpected result metadata: %+v", result)
-			}
-			if len(result.Payload) != 1 || result.Payload[0].APIKey == "" || result.Payload[0].Prefix == "" || result.Payload[0].Name == "" || result.Payload[0].AuthIndex == "" {
-				t.Fatalf("unexpected provider payload: %#v", result.Payload)
-			}
-		})
-	}
-}
-
-func TestProviderMetadataFetchersParseWrappedEndpointResponses(t *testing.T) {
-	tests := []struct {
-		name     string
-		path     string
-		fetch    func(context.Context, *Client) (*response.ProviderKeyConfigResult, error)
-		response string
-	}{
-		{
-			name: "gemini",
-			path: cpaManagementGeminiAPIKeyEndpoint,
-			fetch: func(ctx context.Context, client *Client) (*response.ProviderKeyConfigResult, error) {
-				return client.FetchGeminiAPIKeys(ctx)
-			},
-			response: `{"gemini-api-key":[{"apiKey":"gemini-key","prefix":"gemini-prefix","name":"Gemini","auth-index":"gemini-auth-index"}]}`,
-		},
-		{
-			name: "claude",
-			path: cpaManagementClaudeAPIKeyEndpoint,
-			fetch: func(ctx context.Context, client *Client) (*response.ProviderKeyConfigResult, error) {
-				return client.FetchClaudeAPIKeys(ctx)
-			},
-			response: `{"claude-api-key":[{"api-key":"claude-key","prefix":"claude-prefix","name":"Claude","auth_index":"claude-auth-index"}]}`,
-		},
-		{
-			name: "codex",
-			path: cpaManagementCodexAPIKeyEndpoint,
-			fetch: func(ctx context.Context, client *Client) (*response.ProviderKeyConfigResult, error) {
-				return client.FetchCodexAPIKeys(ctx)
-			},
-			response: `{"codex-api-key":[{"key":"codex-key","prefix":"codex-prefix","name":"Codex","authIndex":"codex-auth-index"}]}`,
-		},
-		{
-			name: "vertex",
-			path: cpaManagementVertexAPIKeyEndpoint,
-			fetch: func(ctx context.Context, client *Client) (*response.ProviderKeyConfigResult, error) {
-				return client.FetchVertexAPIKeys(ctx)
-			},
-			response: `{"vertex-api-key":[{"apiKey":"vertex-key","prefix":"vertex-prefix","name":"Vertex","auth-index":"vertex-auth-index"}]}`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path != tt.path {
-					t.Fatalf("unexpected path %q", r.URL.Path)
-				}
-				_, _ = w.Write([]byte(tt.response))
-			}))
-			defer server.Close()
-
-			client := NewClient(server.URL, "management-secret", 2*time.Second, false)
-			result, err := tt.fetch(context.Background(), client)
-			if err != nil {
-				t.Fatalf("fetch returned error: %v", err)
-			}
-			if len(result.Payload) != 1 || result.Payload[0].APIKey == "" || result.Payload[0].Prefix == "" || result.Payload[0].Name == "" || result.Payload[0].AuthIndex == "" {
-				t.Fatalf("unexpected wrapped provider payload: %#v", result.Payload)
-			}
-		})
-	}
-}
-
-func TestFetchOpenAICompatibilityParsesWrappedEndpointResponse(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != cpaManagementOpenAICompatibilityEndpoint {
-			t.Fatalf("unexpected path %q", r.URL.Path)
-		}
-		_, _ = w.Write([]byte(`{"openai-compatibility":[{"id":"custom-openai","prefix":"custom","api-key-entries":[{"api-key":"custom-key","auth-index":"custom-auth-index"}]}]}`))
-	}))
-	defer server.Close()
-
-	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
-	result, err := client.FetchOpenAICompatibility(context.Background())
-	if err != nil {
-		t.Fatalf("FetchOpenAICompatibility returned error: %v", err)
-	}
-	if len(result.Payload) != 1 || result.Payload[0].Name != "custom-openai" || result.Payload[0].Prefix != "custom" || len(result.Payload[0].APIKeyEntries) != 1 || result.Payload[0].APIKeyEntries[0].APIKey != "custom-key" || result.Payload[0].APIKeyEntries[0].AuthIndex != "custom-auth-index" {
-		t.Fatalf("unexpected wrapped openai compatibility payload: %#v", result.Payload)
-	}
-}
-
-func TestFetchOpenAICompatibilityKeepsLegacyKeyAlias(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != cpaManagementOpenAICompatibilityEndpoint {
-			t.Fatalf("unexpected path %q", r.URL.Path)
-		}
-		_, _ = w.Write([]byte(`{"openai-compatibility":[{"id":"legacy-openai","api-key-entries":[{"key":"legacy-key","auth_index":"legacy-auth-index"}]}]}`))
-	}))
-	defer server.Close()
-
-	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
-	result, err := client.FetchOpenAICompatibility(context.Background())
-	if err != nil {
-		t.Fatalf("FetchOpenAICompatibility returned error: %v", err)
-	}
-	if len(result.Payload) != 1 || len(result.Payload[0].APIKeyEntries) != 1 || result.Payload[0].APIKeyEntries[0].APIKey != "legacy-key" || result.Payload[0].APIKeyEntries[0].AuthIndex != "legacy-auth-index" {
-		t.Fatalf("unexpected legacy openai compatibility payload: %#v", result.Payload)
-	}
-}
-
-func TestFetchOpenAICompatibilityUsesDedicatedEndpoint(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != cpaManagementOpenAICompatibilityEndpoint {
-			t.Fatalf("unexpected path %q", r.URL.Path)
-		}
-		if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
-			t.Fatalf("expected management Authorization header, got %q", got)
-		}
-		_, _ = w.Write([]byte(`[{"id":"custom-openai","prefix":"custom","api-keys":["custom-key"]}]`))
-	}))
-	defer server.Close()
-
-	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
-	result, err := client.FetchOpenAICompatibility(context.Background())
-	if err != nil {
-		t.Fatalf("FetchOpenAICompatibility returned error: %v", err)
-	}
-	if result.StatusCode != http.StatusOK || len(result.Body) == 0 {
-		t.Fatalf("unexpected result metadata: %+v", result)
-	}
-	if len(result.Payload) != 1 || result.Payload[0].Name != "custom-openai" || result.Payload[0].Prefix != "custom" || len(result.Payload[0].APIKeyEntries) != 1 || result.Payload[0].APIKeyEntries[0].APIKey != "custom-key" {
-		t.Fatalf("unexpected openai compatibility payload: %#v", result.Payload)
 	}
 }
 

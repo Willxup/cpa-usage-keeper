@@ -11,6 +11,16 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const autoRefreshSettingsCheckInterval = time.Minute
+
+type autoRefreshWakeReason int
+
+const (
+	autoRefreshWakeElapsed autoRefreshWakeReason = iota
+	autoRefreshWakeSettingsChanged
+	autoRefreshWakeCanceled
+)
+
 type authFileRefreshRoundOptions struct {
 	source              RefreshSource
 	skipCachedHTTPError bool
@@ -31,18 +41,12 @@ func (s *Service) RunAutoRefresh(ctx context.Context) error {
 	if s == nil || s.db == nil {
 		return nil
 	}
-	// now 作为本轮调度时间，后续 active 判断、轮次互斥和缓存过期判断都复用它。
+	// now 作为本轮调度时间，后续轮次互斥和缓存过期判断都复用它。
 	now := time.Now()
-	// 自动刷新必须依赖前端活跃心跳，避免无人打开后台时仍持续扫库和请求上游。
-	if !s.HasRecentActiveStatus(now) {
-		// inactive 是正常节流路径，用 debug 日志避免污染生产日志。
-		logrus.Debug("quota auto refresh skipped because backend page is inactive")
-		return nil
-	}
-	// 同一时间只允许一个自动刷新轮次存活，并且两轮整表入队之间必须满足配置间隔。
+	// 同一时间只允许一个自动刷新轮次存活；调度频率由 StartAutoRefresh 读取持久配置控制。
 	if !s.beginAutoRefreshRound(now) {
-		// 上一轮仍 active 或上一轮刚启动过时直接跳过，手动刷新仍可走共享任务队列。
-		logrus.Debug("quota auto refresh skipped because previous auto round is still active or recently started")
+		// 上一轮仍 active 时直接跳过，手动刷新仍可走共享任务队列。
+		logrus.Debug("quota auto refresh skipped because previous auto round is still active")
 		return nil
 	}
 	// 该标记用于区分“本 goroutine 自己收尾”和“任务监控 goroutine 收尾”。
@@ -60,7 +64,7 @@ func (s *Service) RunAutoRefresh(ctx context.Context) error {
 	// 自动刷新每轮开始先清理过期任务，确保 401/402 过期后能重新进入队列，而不是被旧缓存一直拦住。
 	s.cleanupExpiredRefreshTasks(now)
 	summary, err := s.queueAuthFileRefreshRound(ctx, now, authFileRefreshRoundOptions{
-		source:              RefreshSourceAuto,
+		source:              RefreshSourceScheduled,
 		skipCachedHTTPError: true,
 	})
 	if err != nil {
@@ -140,14 +144,6 @@ func (s *Service) beginAutoRefreshRound(now time.Time) bool {
 	if s.autoRefreshRunning {
 		return false
 	}
-	// 上一次尝试刚发生过时不再重复扫库，避免 DB 故障或配置错误时形成忙循环。
-	if !s.lastAutoRefreshAttemptAt.IsZero() && now.Sub(s.lastAutoRefreshAttemptAt) < s.autoRefreshInterval {
-		return false
-	}
-	// 上一次整轮自动刷新刚启动过时不再重复扫库入队，心跳只负责续约 active。
-	if !s.lastAutoRefreshRoundAt.IsZero() && now.Sub(s.lastAutoRefreshRoundAt) < s.autoRefreshInterval {
-		return false
-	}
 	// 标记当前自动刷新轮次开始，后续由当前调用栈或监控 goroutine 释放。
 	s.autoRefreshRunning = true
 	// 记录最近一次尝试时间；即使扫描失败，也要用它为下一次尝试提供退避。
@@ -158,12 +154,23 @@ func (s *Service) beginAutoRefreshRound(now time.Time) bool {
 func (s *Service) markAutoRefreshRoundStartedAt(now time.Time) {
 	// now 归一化后写入内存时间，和 beginAutoRefreshRound 的 interval 判断保持一致。
 	now = timeutil.NormalizeStorageTime(now)
-	// autoRefreshMu 保护 lastAutoRefreshRoundAt，避免心跳和定时触发并发读写。
+	// autoRefreshMu 保护 lastAutoRefreshRoundAt，避免定时触发和任务监控并发读写。
 	s.autoRefreshMu.Lock()
 	// defer 解锁，保证写入完成后释放轮次锁。
 	defer s.autoRefreshMu.Unlock()
-	// 记录本轮整表自动刷新启动时间，后续心跳和 ticker 都用它控制下一轮间隔。
+	// 记录本轮整表自动刷新启动时间，后续调度循环用它控制下一轮间隔。
 	s.lastAutoRefreshRoundAt = now
+}
+
+func (s *Service) resetAutoRefreshScheduleAnchor() {
+	if s == nil {
+		return
+	}
+	// 配置更新后下一次调度按新配置的首次触发语义计算，不能沿用旧轮次或失败退避锚点。
+	s.autoRefreshMu.Lock()
+	defer s.autoRefreshMu.Unlock()
+	s.lastAutoRefreshRoundAt = time.Time{}
+	s.lastAutoRefreshAttemptAt = time.Time{}
 }
 
 func (s *Service) finishAutoRefreshRound() {
@@ -217,8 +224,8 @@ func (s *Service) hasActiveRefreshTask(authIndexes []string) bool {
 	for _, authIndex := range authIndexes {
 		// 按本轮入队的 auth_index 查任务，避免扫描整个任务 map。
 		task, ok := s.refreshTasks[authIndex]
-		// 只把本轮自动刷新任务的 queued/running 算作轮次仍 active。
-		if ok && task.Source == RefreshSourceAuto && task.isActive() {
+		// 只把本轮定时刷新任务的 queued/running 算作轮次仍 active。
+		if ok && task.Source == RefreshSourceScheduled && task.isActive() {
 			return true
 		}
 	}
@@ -230,58 +237,209 @@ func (s *Service) StartAutoRefresh(ctx context.Context) error {
 	if s == nil || s.db == nil {
 		return nil
 	}
-	// 启动后先检查一次；只有已经收到前端 active 心跳时才会真正扫描 Auth Files。
-	if err := s.RunAutoRefresh(ctx); err != nil {
-		logrus.Errorf("quota auto refresh failed: %v", err)
-	}
 	for {
-		// 每次循环都按上次整轮启动时间重新计算等待时长，避免心跳立即刷新后固定 ticker 造成下一轮最多延迟一个 interval。
-		delay := s.nextAutoRefreshDelay(time.Now())
-		// timer 只覆盖下一次检查点，检查后重新计算，便于 lastAutoRefreshRoundAt 被心跳唤醒更新后自动校准。
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			// 退出前停止 timer，避免 context 取消时留下 runtime timer。
-			timer.Stop()
+		if err := ctx.Err(); err != nil {
 			return nil
-		case <-timer.C:
-			if err := s.RunAutoRefresh(ctx); err != nil {
-				logrus.Errorf("quota auto refresh failed: %v", err)
+		}
+		settings, err := s.GetAutoRefreshSettings(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
 			}
+			logrus.Errorf("quota auto refresh settings lookup failed: %v", err)
+			if s.sleepAutoRefreshDelay(ctx, autoRefreshSettingsCheckInterval) == autoRefreshWakeCanceled {
+				return nil
+			}
+			continue
+		}
+		if !settings.Enabled || settings.Schedule == nil {
+			if s.sleepAutoRefreshDelay(ctx, autoRefreshSettingsCheckInterval) == autoRefreshWakeCanceled {
+				return nil
+			}
+			continue
+		}
+
+		delay := s.nextAutoRefreshDelay(settings, s.currentAutoRefreshTime())
+		if delay > 0 {
+			switch s.sleepAutoRefreshDelay(ctx, delay) {
+			case autoRefreshWakeCanceled:
+				return nil
+			case autoRefreshWakeSettingsChanged:
+				continue
+			}
+		}
+		if err := s.RunAutoRefresh(ctx); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			logrus.Errorf("quota auto refresh failed: %v", err)
 		}
 	}
 }
 
-func (s *Service) nextAutoRefreshDelay(now time.Time) time.Duration {
-	// 页面不活跃时只按配置间隔做低频检查；重新打开页面会由心跳立即唤醒，不依赖这里等满 interval。
-	if !s.HasRecentActiveStatus(now) {
-		return s.autoRefreshInterval
+func (s *Service) currentAutoRefreshTime() time.Time {
+	if s != nil && s.autoRefreshNow != nil {
+		return s.autoRefreshNow()
 	}
+	return time.Now()
+}
+
+func (s *Service) sleepAutoRefreshDelay(ctx context.Context, delay time.Duration) autoRefreshWakeReason {
+	if s == nil {
+		return autoRefreshWakeCanceled
+	}
+	if delay <= 0 {
+		return autoRefreshWakeElapsed
+	}
+	if s != nil && s.autoRefreshDelay != nil {
+		if !s.autoRefreshDelay(ctx, delay) {
+			return autoRefreshWakeCanceled
+		}
+		return autoRefreshWakeElapsed
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return autoRefreshWakeCanceled
+	case <-s.autoRefreshSettingsChanged:
+		return autoRefreshWakeSettingsChanged
+	case <-timer.C:
+		return autoRefreshWakeElapsed
+	}
+}
+
+func (s *Service) notifyAutoRefreshSettingsChanged() {
+	if s == nil || s.autoRefreshSettingsChanged == nil {
+		return
+	}
+	select {
+	case s.autoRefreshSettingsChanged <- struct{}{}:
+	default:
+	}
+}
+
+func (s *Service) nextAutoRefreshDelay(settings AutoRefreshSettings, now time.Time) time.Duration {
+	if s == nil {
+		return autoRefreshSettingsCheckInterval
+	}
+	if !settings.Enabled || settings.Schedule == nil {
+		return autoRefreshSettingsCheckInterval
+	}
+	normalizedNow := timeutil.NormalizeStorageTime(now)
 	// 自动刷新轮次状态由 autoRefreshMu 保护，读取 running 和 lastAutoRefreshRoundAt 前必须加锁。
 	s.autoRefreshMu.Lock()
-	// defer 解锁，保证所有返回路径都释放轮次锁。
-	defer s.autoRefreshMu.Unlock()
-	// 上一轮仍未完成时不做短间隔复查，本次触发直接让出，等待下一次心跳激活或定时触发。
-	if s.autoRefreshRunning {
-		return s.autoRefreshInterval
+	running := s.autoRefreshRunning
+	anchor := s.lastAutoRefreshRoundAt
+	lastAttempt := s.lastAutoRefreshAttemptAt
+	s.autoRefreshMu.Unlock()
+
+	if running {
+		if anchor.IsZero() {
+			return autoRefreshSettingsCheckInterval
+		}
+		dueAt := nextAutoRefreshDueAt(anchor, settings.Schedule)
+		if !normalizedNow.Before(dueAt) {
+			return autoRefreshSettingsCheckInterval
+		}
+		return dueAt.Sub(normalizedNow)
 	}
-	// 没有成功启动过整轮时，下一次检查可以立即尝试，RunAutoRefresh 会再次验证 active 状态。
-	throttleAt := s.lastAutoRefreshRoundAt
-	if throttleAt.IsZero() || (!s.lastAutoRefreshAttemptAt.IsZero() && s.lastAutoRefreshAttemptAt.After(throttleAt)) {
-		throttleAt = s.lastAutoRefreshAttemptAt
+	if !lastAttempt.IsZero() && (anchor.IsZero() || lastAttempt.After(anchor)) {
+		return autoRefreshSettingsCheckInterval
 	}
-	if throttleAt.IsZero() {
+	if anchor.IsZero() {
+		return nextAutoRefreshDelayWithoutAnchor(settings.Schedule, normalizedNow)
+	}
+	dueAt := nextAutoRefreshDueAt(anchor, settings.Schedule)
+	if !normalizedNow.Before(dueAt) {
 		return 0
 	}
-	// dueAt 是下一次允许启动整轮 Auth Files 自动刷新的最早时间。
-	dueAt := throttleAt.Add(s.autoRefreshInterval)
-	// now 同样归一化，和 lastAutoRefreshRoundAt 保持一致时间口径。
-	now = timeutil.NormalizeStorageTime(now)
-	// 已到期时立即返回，让 StartAutoRefresh 下一轮马上执行 RunAutoRefresh。
+	return dueAt.Sub(normalizedNow)
+}
+
+func nextAutoRefreshDelayWithoutAnchor(schedule *AutoRefreshSchedule, now time.Time) time.Duration {
+	if schedule == nil {
+		return autoRefreshSettingsCheckInterval
+	}
+	var dueAt time.Time
+	switch schedule.Unit {
+	case AutoRefreshScheduleUnitMinute:
+		dueAt = now.Add(time.Duration(schedule.Value) * time.Minute)
+	case AutoRefreshScheduleUnitHour:
+		dueAt = now.Add(time.Duration(schedule.Value) * time.Hour)
+	case AutoRefreshScheduleUnitDay:
+		dueAt = nextLocalMidnightAtOrAfter(now)
+	case AutoRefreshScheduleUnitWeek:
+		dueAt = nextWeekdayMidnightAtOrAfter(now, schedule.Value)
+	default:
+		return autoRefreshSettingsCheckInterval
+	}
+	return delayUntil(now, dueAt)
+}
+
+func nextAutoRefreshDueAt(anchor time.Time, schedule *AutoRefreshSchedule) time.Time {
+	anchor = timeutil.NormalizeStorageTime(anchor)
+	switch schedule.Unit {
+	case AutoRefreshScheduleUnitMinute:
+		return anchor.Add(time.Duration(schedule.Value) * time.Minute)
+	case AutoRefreshScheduleUnitHour:
+		return anchor.Add(time.Duration(schedule.Value) * time.Hour)
+	case AutoRefreshScheduleUnitDay:
+		return nextLocalMidnightAfter(anchor).AddDate(0, 0, schedule.Value-1)
+	case AutoRefreshScheduleUnitWeek:
+		return nextWeekdayMidnightAfter(anchor, schedule.Value)
+	default:
+		return anchor.Add(autoRefreshSettingsCheckInterval)
+	}
+}
+
+func nextLocalMidnightAtOrAfter(now time.Time) time.Time {
+	localNow := now.In(time.Local)
+	candidate := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, time.Local)
+	if candidate.Before(localNow) {
+		candidate = candidate.AddDate(0, 0, 1)
+	}
+	return candidate
+}
+
+func nextLocalMidnightAfter(anchor time.Time) time.Time {
+	localAnchor := anchor.In(time.Local)
+	candidate := time.Date(localAnchor.Year(), localAnchor.Month(), localAnchor.Day(), 0, 0, 0, 0, time.Local)
+	if !candidate.After(localAnchor) {
+		candidate = candidate.AddDate(0, 0, 1)
+	}
+	return candidate
+}
+
+func nextWeekdayMidnightAtOrAfter(now time.Time, weekdayValue int) time.Time {
+	localNow := now.In(time.Local)
+	candidate := weekdayMidnight(localNow, weekdayValue)
+	if candidate.Before(localNow) {
+		candidate = candidate.AddDate(0, 0, 7)
+	}
+	return candidate
+}
+
+func nextWeekdayMidnightAfter(anchor time.Time, weekdayValue int) time.Time {
+	localAnchor := anchor.In(time.Local)
+	candidate := weekdayMidnight(localAnchor, weekdayValue)
+	if !candidate.After(localAnchor) {
+		candidate = candidate.AddDate(0, 0, 7)
+	}
+	return candidate
+}
+
+func weekdayMidnight(base time.Time, weekdayValue int) time.Time {
+	target := time.Weekday(weekdayValue % 7)
+	startOfDay := time.Date(base.Year(), base.Month(), base.Day(), 0, 0, 0, 0, time.Local)
+	daysUntilTarget := (int(target) - int(startOfDay.Weekday()) + 7) % 7
+	return startOfDay.AddDate(0, 0, daysUntilTarget)
+}
+
+func delayUntil(now time.Time, dueAt time.Time) time.Duration {
 	if !now.Before(dueAt) {
 		return 0
 	}
-	// 未到期时只睡到 dueAt，避免固定 ticker 导致额外等待一个完整 interval。
 	return dueAt.Sub(now)
 }
 
@@ -289,7 +447,7 @@ func (s *Service) listAutoRefreshAuthFiles(ctx context.Context) ([]entities.Usag
 	var identities []entities.UsageIdentity
 	// 自动刷新只扫描未删除且未禁用的 Auth Files；AI Provider 和用户停用的 Auth File 都不应产生后台请求。
 	err := s.db.WithContext(ctx).
-		Select("id, name, identity, provider, type, file_name, auth_type, is_deleted, disabled").
+		Select("id, name, alias, identity, provider, type, file_name, auth_type, is_deleted, disabled").
 		Where("auth_type = ? AND is_deleted = ? AND (disabled IS NULL OR disabled = ?)", entities.UsageIdentityAuthTypeAuthFile, false, false).
 		Order("priority IS NULL ASC").
 		Order("priority DESC").

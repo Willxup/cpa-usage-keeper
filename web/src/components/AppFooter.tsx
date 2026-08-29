@@ -1,34 +1,46 @@
 import { useEffect, useState } from 'react';
-import { fetchStatus } from '@/lib/api';
+import { fetchVersion } from '@/lib/api';
+import type { VersionResponse } from '@/lib/types';
 import { IconGithub } from '@/components/ui/icons';
 import { CLIPROXYAPI_REPOSITORY_URL, GITHUB_PROFILE_URL, GITHUB_REPOSITORY_URL } from '@/utils/constants';
+
+type FooterVersionLoader = (signal: AbortSignal) => Promise<Pick<VersionResponse, 'version'>>;
 
 export function footerVersionLabel(version?: string): string | undefined {
   const trimmed = version?.trim();
   return trimmed ? `Version: ${trimmed}` : undefined;
 }
 
-export function AppFooter({ version: fixedVersion }: { version?: string }) {
+export async function loadFooterVersion(loadVersion: FooterVersionLoader, signal: AbortSignal): Promise<string> {
+  try {
+    const versionInfo = await loadVersion(signal);
+    return versionInfo.version ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export function AppFooter({ version: fixedVersion, loadVersion = true }: { version?: string; loadVersion?: boolean }) {
   const [version, setVersion] = useState('');
 
   useEffect(() => {
     if (fixedVersion !== undefined) return;
+    if (!loadVersion) return;
 
-    let cancelled = false;
-    void fetchStatus()
-      .then((status) => {
-        if (!cancelled) setVersion(status.version ?? '');
-      })
-      .catch(() => {
-        if (!cancelled) setVersion('');
+    const requestController = new AbortController();
+    void loadFooterVersion(fetchVersion, requestController.signal)
+      .then((nextVersion) => {
+        if (!requestController.signal.aborted) {
+          setVersion(nextVersion);
+        }
       });
 
     return () => {
-      cancelled = true;
+      requestController.abort();
     };
-  }, [fixedVersion]);
+  }, [fixedVersion, loadVersion]);
 
-  const versionLabel = footerVersionLabel(fixedVersion ?? version);
+  const versionLabel = footerVersionLabel(fixedVersion ?? (loadVersion ? version : ''));
 
   return (
     <footer className="app-footer">
@@ -48,7 +60,7 @@ export function AppFooter({ version: fixedVersion }: { version?: string }) {
         </a>
         {versionLabel ? (
           <>
-            <span>·</span>
+            <span className="app-footer-version-separator" aria-hidden="true">·</span>
             <span className="app-footer-version">{versionLabel}</span>
           </>
         ) : null}

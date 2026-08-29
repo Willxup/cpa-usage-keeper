@@ -10,49 +10,60 @@ const (
 )
 
 type AnalysisTokenUsageBucketRecord struct {
-	Bucket          time.Time
-	InputTokens     int64
-	OutputTokens    int64
-	CachedTokens    int64
-	ReasoningTokens int64
-	TotalTokens     int64
-	Requests        int64
-	CostUSD         float64
-	CostAvailable   bool
+	Bucket              time.Time
+	InputTokens         int64
+	OutputTokens        int64
+	CacheReadTokens     int64
+	CacheCreationTokens int64
+	ReasoningTokens     int64
+	TotalTokens         int64
+	Requests            int64
+	CostUSD             float64
+	CostAvailable       bool
+}
+
+type AnalysisModelUsageRecord struct {
+	Bucket      time.Time
+	Model       string
+	TotalTokens int64
+	Requests    int64
 }
 
 type AnalysisCompositionRecord struct {
-	Key             string
-	Label           string
-	TotalTokens     int64
-	Requests        int64
-	InputTokens     int64
-	OutputTokens    int64
-	CachedTokens    int64
-	ReasoningTokens int64
-	CostUSD         float64
-	CostAvailable   bool
+	Key                 string
+	Label               string
+	TotalTokens         int64
+	Requests            int64
+	InputTokens         int64
+	OutputTokens        int64
+	CacheReadTokens     int64
+	CacheCreationTokens int64
+	ReasoningTokens     int64
+	CostUSD             float64
+	CostAvailable       bool
 }
 
 type AnalysisHeatmapRecord struct {
-	APIKey          string
-	Model           string
-	InputTokens     int64
-	OutputTokens    int64
-	CachedTokens    int64
-	ReasoningTokens int64
-	TotalTokens     int64
-	Requests        int64
-	CostUSD         float64
-	CostAvailable   bool
+	APIKey              string
+	Model               string
+	InputTokens         int64
+	OutputTokens        int64
+	CacheReadTokens     int64
+	CacheCreationTokens int64
+	ReasoningTokens     int64
+	TotalTokens         int64
+	Requests            int64
+	CostUSD             float64
+	CostAvailable       bool
 }
 
 type AnalysisCostBreakdownRecord struct {
-	InputCostUSD  float64
-	OutputCostUSD float64
-	CachedCostUSD float64
-	TotalCostUSD  float64
-	CostAvailable bool
+	UncachedInputCostUSD float64
+	CacheReadCostUSD     float64
+	CacheWriteCostUSD    float64
+	OutputCostUSD        float64
+	TotalCostUSD         float64
+	CostAvailable        bool
 }
 
 type AnalysisModelEfficiencyRecord struct {
@@ -60,14 +71,15 @@ type AnalysisModelEfficiencyRecord struct {
 	Requests               int64
 	InputTokens            int64
 	OutputTokens           int64
-	CachedTokens           int64
+	CacheReadTokens        int64
+	CacheCreationTokens    int64
 	ReasoningTokens        int64
 	TotalTokens            int64
 	CostUSD                float64
 	CostAvailable          bool
 	CostPerRequestUSD      float64
 	OutputTokensPerRequest float64
-	CacheRate              float64
+	CacheReadRate          float64
 }
 
 type AnalysisLatencyPointRecord struct {
@@ -100,6 +112,7 @@ type AnalysisRecord struct {
 	RangeStart            *time.Time
 	RangeEnd              *time.Time
 	TokenUsage            []AnalysisTokenUsageBucketRecord
+	ModelUsage            []AnalysisModelUsageRecord
 	APIKeyComposition     []AnalysisCompositionRecord
 	ModelComposition      []AnalysisCompositionRecord
 	AuthFilesComposition  []AnalysisCompositionRecord
@@ -107,5 +120,4 @@ type AnalysisRecord struct {
 	Heatmap               []AnalysisHeatmapRecord
 	CostBreakdown         AnalysisCostBreakdownRecord
 	ModelEfficiency       []AnalysisModelEfficiencyRecord
-	LatencyDiagnostics    AnalysisLatencyDiagnosticsRecord
 }

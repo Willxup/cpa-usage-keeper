@@ -4,28 +4,43 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	repositorydto "cpa-usage-keeper/internal/repository/dto"
 )
 
 const codexHeaderSnapshotValueMaxLength = 4096
 
 type UsageHeaderSnapshotInput struct {
-	AuthType   string
-	AuthIndex  string
-	Provider   string
+	// AuthType 是 UsageEvent 的标准化身份来源；只有 oauth 才能对应 Codex Auth File。
+	AuthType string
+	// AuthIndex 是 UsageEvent 携带的 CPA auth-index，空值不能建立 cache 或历史归属。
+	AuthIndex string
+	// Provider 是 UsageEvent 的上游提示，仅用于诊断，不参与真实 Codex 身份判定。
+	Provider string
+	// ObservedAt 是 Header 对应 UsageEvent 的发生 instant，不得替换为解码或入队时间。
 	ObservedAt time.Time
-	Headers    http.Header
+	// Headers 是同步构造阶段借用的响应 Header；返回后不会被快照或 runner 持有。
+	Headers http.Header
 }
 
 type UsageHeaderSnapshot struct {
-	AuthType   string
-	AuthIndex  string
-	Provider   string
+	// AuthType 是标准化身份来源；Header 快照只接受 oauth。
+	AuthType string
+	// AuthIndex 是 CPA Auth File 稳定账号键，供 cache 身份匹配和历史回溯使用。
+	AuthIndex string
+	// Provider 是上游诊断提示，不替代 usage_identities.type 的 Codex 身份校验。
+	Provider string
+	// ObservedAt 是对应 UsageEvent 的真实观察时间，不是 runner 入队或 flush 时间。
 	ObservedAt time.Time
-	Headers    http.Header
+	// CacheOutput 是现有 quota cache 合同的完整只读解析结果，worker 不再解析 Header。
+	CacheOutput ProviderOutput
+	// MainQuotaObservations 只包含无 group Primary/Secondary，供 history runner 在十秒批次到期后消费。
+	MainQuotaObservations []repositorydto.CodexMainQuotaObservation
 }
 
 type UsageHeaderSnapshotAppender interface {
-	TryAppendUsageHeaderSnapshots([]UsageHeaderSnapshot) bool
+	// TryAppendUsageHeaderSnapshots 接收不可变快照指针；实现只能复制指针，不能修改嵌套对象。
+	TryAppendUsageHeaderSnapshots([]*UsageHeaderSnapshot) bool
 }
 
 type usageHeaderSnapshotProcessor interface {
@@ -53,31 +68,45 @@ func (codexUsageHeaderSnapshotProcessor) TryBuildUsageHeaderSnapshot(input Usage
 	if authType != "oauth" || authIndex == "" || len(input.Headers) == 0 {
 		return nil, false
 	}
-	headers := codexQuotaSnapshotHeaders(input.Headers)
-	if _, ok := parseCodexHeaderQuota(headers); !ok {
+	// Header 只在构造阶段过滤和数值解析一次，同时生成 cache 与 history 两个独立投影。
+	decoded, ok := decodeCodexHeaderQuota(input.Headers)
+	if !ok {
+		return nil, false
+	}
+	cacheOutput, cacheOK := decoded.cacheOutput()
+	// history 复用同一 decoded 主窗口，不读取 cache 已过滤掉的未知窗口结果。
+	historyOutput := decoded.mainQuotaOutput()
+	observations := BuildCodexMainQuotaObservations(authIndex, historyOutput, input.ObservedAt)
+	// 只有 cache 或 history 至少一个消费者可处理时才创建异步快照。
+	if !cacheOK && len(observations) == 0 {
 		return nil, false
 	}
 	return &UsageHeaderSnapshot{
-		AuthType:   authType,
-		AuthIndex:  authIndex,
-		Provider:   strings.TrimSpace(input.Provider),
-		ObservedAt: input.ObservedAt,
-		Headers:    headers,
+		AuthType:              authType,
+		AuthIndex:             authIndex,
+		Provider:              strings.TrimSpace(input.Provider),
+		ObservedAt:            input.ObservedAt,
+		CacheOutput:           cacheOutput,
+		MainQuotaObservations: observations,
 	}, true
 }
 
 func codexQuotaSnapshotHeaders(headers http.Header) http.Header {
-	canonical := canonicalQuotaHeaders(headers)
-	if len(canonical) == 0 {
+	// 空输入不分配 map，保持无快照的快速路径。
+	if len(headers) == 0 {
 		return nil
 	}
+	// 只为 quota 白名单字段分配目标 map，避免先复制全部 Cookie/Date 再二次过滤。
 	filtered := make(http.Header)
-	for key, values := range canonical {
-		if !isCodexQuotaHeaderKey(key) {
+	for key, values := range headers {
+		// Header key 先 trim/canonical，兼容 Redis JSON 中的全小写字段名。
+		canonicalKey := http.CanonicalHeaderKey(strings.TrimSpace(key))
+		if canonicalKey == "" || !isCodexQuotaHeaderKey(canonicalKey) {
 			continue
 		}
 		if value, ok := firstBoundedHeaderValue(values); ok {
-			filtered.Set(key, value)
+			// 每个 quota key 只保留第一个非空有界值，快照构造后不再持有调用方 value slice。
+			filtered.Set(canonicalKey, value)
 		}
 	}
 	return filtered

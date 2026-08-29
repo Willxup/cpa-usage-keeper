@@ -5,11 +5,16 @@ import "time"
 // UsageOverviewHourlyStat 是 Overview 页面按小时预聚合的 usage 统计。
 type UsageOverviewHourlyStat struct {
 	ID                  int64     `gorm:"primaryKey"`
-	BucketStart         time.Time `gorm:"serializer:storageTime;not null;uniqueIndex:uniq_usage_overview_hourly_stats_bucket_api_model_auth_alias,priority:1;index:idx_usage_overview_hourly_stats_bucket_start;index:idx_usage_overview_hourly_stats_api_bucket,priority:2;index:idx_usage_overview_hourly_stats_api_model_bucket,priority:3;index:idx_usage_overview_hourly_stats_auth_bucket,priority:2;index:idx_usage_overview_hourly_stats_model_alias_bucket,priority:2"`
-	APIGroupKey         string    `gorm:"not null;uniqueIndex:uniq_usage_overview_hourly_stats_bucket_api_model_auth_alias,priority:2;index:idx_usage_overview_hourly_stats_api_bucket,priority:1;index:idx_usage_overview_hourly_stats_api_model_bucket,priority:1"`
-	Model               string    `gorm:"not null;uniqueIndex:uniq_usage_overview_hourly_stats_bucket_api_model_auth_alias,priority:3;index:idx_usage_overview_hourly_stats_api_model_bucket,priority:2"`
-	AuthIndex           string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_hourly_stats_bucket_api_model_auth_alias,priority:4;index:idx_usage_overview_hourly_stats_auth_bucket,priority:1"`
-	ModelAlias          string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_hourly_stats_bucket_api_model_auth_alias,priority:5;index:idx_usage_overview_hourly_stats_model_alias_bucket,priority:1"`
+	BucketStart         time.Time `gorm:"serializer:storageTime;not null;uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:1;index:idx_usage_overview_hourly_stats_bucket_start;index:idx_usage_overview_hourly_stats_api_bucket,priority:2;index:idx_usage_overview_hourly_stats_api_model_bucket,priority:3;index:idx_usage_overview_hourly_stats_auth_bucket,priority:2;index:idx_usage_overview_hourly_stats_model_alias_bucket,priority:2"`
+	APIGroupKey         string    `gorm:"not null;uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:2;index:idx_usage_overview_hourly_stats_api_bucket,priority:1;index:idx_usage_overview_hourly_stats_api_model_bucket,priority:1"`
+	Model               string    `gorm:"not null;uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:3;index:idx_usage_overview_hourly_stats_api_model_bucket,priority:2"`
+	AuthIndex           string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:4;index:idx_usage_overview_hourly_stats_auth_bucket,priority:1"`
+	ModelAlias          string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:5;index:idx_usage_overview_hourly_stats_model_alias_bucket,priority:1"`
+	ServiceTier         string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:6"`
+	ResponseServiceTier string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:7"`
+	ReasoningEffort     string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:8"`
+	Endpoint            string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:9"`
+	ExecutorType        string    `gorm:"not null;default:'';uniqueIndex:uniq_usage_overview_hourly_stats_dimensions,priority:10"`
 	RequestCount        int64     `gorm:"not null;default:0"`
 	SuccessCount        int64     `gorm:"not null;default:0"`
 	FailureCount        int64     `gorm:"not null;default:0"`

@@ -325,6 +325,14 @@ func (s *trackingSessionStore) List(now time.Time) ([]SessionRecord, error) {
 	return s.store.List(now)
 }
 
+func (s *trackingSessionStore) UpdateActivity(token, lastSeenIP string, lastSeenAt time.Time) error {
+	return s.store.UpdateActivity(token, lastSeenIP, lastSeenAt)
+}
+
+func (s *trackingSessionStore) UpdateAdminAliasByTokenHash(tokenHash, alias string, updatedAt time.Time) (int64, error) {
+	return s.store.UpdateAdminAliasByTokenHash(tokenHash, alias, updatedAt)
+}
+
 func (s *trackingSessionStore) Delete(token string) error {
 	return s.store.Delete(token)
 }

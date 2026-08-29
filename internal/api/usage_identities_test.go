@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/service"
 )
 
@@ -45,6 +44,13 @@ func (s usageIdentitiesStub) ListActiveUsageIdentitiesPage(_ context.Context, re
 	return service.ListUsageIdentitiesResponse{Items: s.items, Total: int64(len(s.items)), TypeCounts: s.pagedTypeCounts}, s.err
 }
 
+func (s usageIdentitiesStub) UpdateUsageIdentityAlias(context.Context, int64, string) (entities.UsageIdentity, error) {
+	if len(s.items) == 0 {
+		return entities.UsageIdentity{}, s.err
+	}
+	return s.items[0], s.err
+}
+
 func TestUsageIdentitiesRouteReturnsMetadataStatsAndActiveRows(t *testing.T) {
 	firstUsedAt := time.Date(2026, 5, 4, 8, 0, 0, 0, time.UTC)
 	lastUsedAt := time.Date(2026, 5, 4, 9, 0, 0, 0, time.UTC)
@@ -72,6 +78,7 @@ func TestUsageIdentitiesRouteReturnsMetadataStatsAndActiveRows(t *testing.T) {
 		OutputTokens:               200,
 		ReasoningTokens:            30,
 		CachedTokens:               40,
+		CacheReadTokens:            45,
 		TotalTokens:                370,
 		LastAggregatedUsageEventID: 99,
 		FirstUsedAt:                &firstUsedAt,
@@ -128,7 +135,7 @@ func TestUsageIdentitiesRouteReturnsMetadataStatsAndActiveRows(t *testing.T) {
 		`"input_tokens":100`,
 		`"output_tokens":200`,
 		`"reasoning_tokens":30`,
-		`"cached_tokens":40`,
+		`"cache_read_tokens":45`,
 		`"total_tokens":370`,
 		`"last_aggregated_usage_event_id":"99"`,
 		`"first_used_at":"2026-05-04T08:00:00Z"`,
@@ -139,6 +146,9 @@ func TestUsageIdentitiesRouteReturnsMetadataStatsAndActiveRows(t *testing.T) {
 		if !contains(body, expected) {
 			t.Fatalf("expected %s in response body: %s", expected, body)
 		}
+	}
+	if contains(body, `"cached_tokens"`) {
+		t.Fatalf("did not expect legacy cached_tokens in response body: %s", body)
 	}
 }
 
@@ -176,7 +186,7 @@ func TestUsageIdentitiesRouteReturnsPublishedMetadataFields(t *testing.T) {
 		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
 	}
 	for _, expected := range []string{
-		`"plan_type":"team"`,
+		`"subscription":{"provider":"codex","plan":"team"}`,
 		`"active_start":"2026-05-01T00:00:00Z"`,
 		`"active_until":"2026-06-01T00:00:00Z"`,
 		`"prefix":"codex-prefix"`,
@@ -191,6 +201,7 @@ func TestUsageIdentitiesRouteReturnsPublishedMetadataFields(t *testing.T) {
 	for _, forbidden := range []string{
 		`"base_url"`,
 		`"account_id"`,
+		`"plan_type"`,
 	} {
 		if contains(body, forbidden) {
 			t.Fatalf("expected API response not to include %s, got %s", forbidden, body)
@@ -391,11 +402,11 @@ func TestUsageIdentitiesRouteReturnsProviderDisplayName(t *testing.T) {
 	}
 }
 
-func TestUsageIdentitiesRouteMasksAIProviderIdentity(t *testing.T) {
-	rawLookupKey := "sk-live-secret-value"
-	maskedLookupKey := helper.RedactSensitiveValue(rawLookupKey)
+func TestUsageIdentitiesRoutePublishesAIProviderAuthIndexWithoutLookupKey(t *testing.T) {
+	authIndex := "provider-auth-index"
+	lookupKey := "sk-live-secret-value"
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{
-		{ID: 1, Name: "Provider Name", Prefix: "Team Prefix", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: rawLookupKey, Type: "openai", Provider: "OpenAI"},
+		{ID: 1, Name: "Provider Name", Prefix: "Team Prefix", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: authIndex, LookupKey: lookupKey, Type: "openai", Provider: "OpenAI"},
 	}}})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/identities", nil)
 	resp := httptest.NewRecorder()
@@ -406,11 +417,11 @@ func TestUsageIdentitiesRouteMasksAIProviderIdentity(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
 	}
-	if contains(body, rawLookupKey) {
-		t.Fatalf("expected raw AI provider lookup key to be hidden, got %s", body)
+	if contains(body, lookupKey) {
+		t.Fatalf("expected AI provider lookup key to stay hidden, got %s", body)
 	}
-	if !contains(body, `"identity":"`+maskedLookupKey+`"`) {
-		t.Fatalf("expected masked AI provider identity %q in response body: %s", maskedLookupKey, body)
+	if !contains(body, `"identity":"`+authIndex+`"`) {
+		t.Fatalf("expected AI provider auth-index %q in response body: %s", authIndex, body)
 	}
 	if !contains(body, `"name":"Provider Name"`) || !contains(body, `"provider":"OpenAI"`) || !contains(body, `"displayName":"Team Prefix"`) {
 		t.Fatalf("expected AI provider display fields to use usage_identities values directly, got %s", body)

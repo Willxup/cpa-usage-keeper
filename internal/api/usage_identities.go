@@ -1,15 +1,25 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/helper"
+	"cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/service"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
+
+const maxUsageIdentityAliasLength = 50
 
 type usageIdentitiesResponse struct {
 	Identities []usageIdentityResponse `json:"identities"`
@@ -32,6 +42,7 @@ type usageIdentityTypeCount struct {
 type usageIdentityResponse struct {
 	ID                         string                         `json:"id"`
 	Name                       string                         `json:"name"`
+	Alias                      *string                        `json:"alias"`
 	DisplayName                string                         `json:"displayName"`
 	AuthType                   entities.UsageIdentityAuthType `json:"auth_type"`
 	AuthTypeName               string                         `json:"auth_type_name"`
@@ -44,7 +55,7 @@ type usageIdentityResponse struct {
 	Priority                   *int                           `json:"priority,omitempty"`
 	Disabled                   bool                           `json:"disabled"`
 	Note                       *string                        `json:"note,omitempty"`
-	PlanType                   *string                        `json:"plan_type,omitempty"`
+	Subscription               *quota.SubscriptionInfo        `json:"subscription,omitempty"`
 	ActiveStart                *time.Time                     `json:"active_start,omitempty"`
 	ActiveUntil                *time.Time                     `json:"active_until,omitempty"`
 	TotalRequests              int64                          `json:"total_requests"`
@@ -53,7 +64,7 @@ type usageIdentityResponse struct {
 	InputTokens                int64                          `json:"input_tokens"`
 	OutputTokens               int64                          `json:"output_tokens"`
 	ReasoningTokens            int64                          `json:"reasoning_tokens"`
-	CachedTokens               int64                          `json:"cached_tokens"`
+	CacheReadTokens            int64                          `json:"cache_read_tokens"`
 	TotalTokens                int64                          `json:"total_tokens"`
 	LastAggregatedUsageEventID string                         `json:"last_aggregated_usage_event_id"`
 	FirstUsedAt                *time.Time                     `json:"first_used_at,omitempty"`
@@ -144,6 +155,36 @@ func registerUsageIdentityRoutes(router gin.IRoutes, usageIdentityProvider servi
 		}
 		c.JSON(http.StatusOK, usageIdentitiesResponse{Identities: response})
 	})
+
+	router.PATCH("/usage/identities/:id", func(c *gin.Context) {
+		if usageIdentityProvider == nil {
+			c.JSON(http.StatusNotImplemented, gin.H{"error": "usage identity provider is not configured"})
+			return
+		}
+		id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+		if err != nil || id <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid usage identity id"})
+			return
+		}
+		alias, ok := parseUpdateUsageIdentityAliasRequest(c)
+		if !ok {
+			return
+		}
+		row, err := usageIdentityProvider.UpdateUsageIdentityAlias(c.Request.Context(), id, alias)
+		if err != nil {
+			if errors.Is(err, service.ErrInvalidID) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid usage identity id"})
+				return
+			}
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "usage identity not found"})
+				return
+			}
+			writeInternalError(c, "update usage identity alias failed", err)
+			return
+		}
+		c.JSON(http.StatusOK, mapUsageIdentityResponse(row))
+	})
 }
 
 func parseUsageIdentitiesPageRequest(c *gin.Context) (service.ListUsageIdentitiesRequest, bool) {
@@ -207,11 +248,7 @@ func mapUsageIdentityResponse(item entities.UsageIdentity) usageIdentityResponse
 }
 
 func mapUsageIdentityResponseWithHealth(item entities.UsageIdentity, health *service.UsageCredentialHealthSnapshot) usageIdentityResponse {
-	// AI provider 的 identity 是 API Key，只在返回给前端时脱敏，数据库原值不改。
-	identity := item.Identity
-	if item.AuthType == entities.UsageIdentityAuthTypeAIProvider {
-		identity = helper.RedactSensitiveValue(item.Identity)
-	}
+	// AI Provider identity 是稳定 auth-index；响应不直接发布原始 LookupKey，OpenAI Compatibility 仅按 Issue #281 在 displayName 中保留脱敏 Key 片段。
 	var fileName *string
 	var filePath *string
 	if item.AuthType == entities.UsageIdentityAuthTypeAuthFile {
@@ -227,10 +264,11 @@ func mapUsageIdentityResponseWithHealth(item entities.UsageIdentity, health *ser
 	return usageIdentityResponse{
 		ID:                         strconv.FormatInt(item.ID, 10),
 		Name:                       item.Name,
+		Alias:                      item.Alias,
 		DisplayName:                helper.UsageIdentityDisplayName(item),
 		AuthType:                   item.AuthType,
 		AuthTypeName:               item.AuthTypeName,
-		Identity:                   identity,
+		Identity:                   item.Identity,
 		Type:                       item.Type,
 		Provider:                   item.Provider,
 		Prefix:                     item.Prefix,
@@ -239,7 +277,7 @@ func mapUsageIdentityResponseWithHealth(item entities.UsageIdentity, health *ser
 		Priority:                   item.Priority,
 		Disabled:                   disabled,
 		Note:                       item.Note,
-		PlanType:                   item.PlanType,
+		Subscription:               quota.ResolveIdentitySubscription(item),
 		ActiveStart:                item.ActiveStart,
 		ActiveUntil:                item.ActiveUntil,
 		TotalRequests:              item.TotalRequests,
@@ -248,7 +286,7 @@ func mapUsageIdentityResponseWithHealth(item entities.UsageIdentity, health *ser
 		InputTokens:                item.InputTokens,
 		OutputTokens:               item.OutputTokens,
 		ReasoningTokens:            item.ReasoningTokens,
-		CachedTokens:               item.CachedTokens,
+		CacheReadTokens:            item.CacheReadTokens,
 		TotalTokens:                item.TotalTokens,
 		LastAggregatedUsageEventID: strconv.FormatInt(item.LastAggregatedUsageEventID, 10),
 		FirstUsedAt:                item.FirstUsedAt,
@@ -259,6 +297,60 @@ func mapUsageIdentityResponseWithHealth(item entities.UsageIdentity, health *ser
 		UpdatedAt:                  item.UpdatedAt,
 		DeletedAt:                  item.DeletedAt,
 		CredentialHealth:           mapUsageCredentialHealthResponse(health),
+	}
+}
+
+func validateUsageIdentityAlias(value string) error {
+	if utf8.RuneCountInString(value) > maxUsageIdentityAliasLength {
+		return errors.New("alias is too long")
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) || isDisallowedUsageIdentityAliasFormatRune(r) {
+			return errors.New("alias cannot contain control or invisible formatting characters")
+		}
+	}
+	return nil
+}
+
+func parseUpdateUsageIdentityAliasRequest(c *gin.Context) (string, bool) {
+	var payload map[string]json.RawMessage
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return "", false
+	}
+	rawAlias, ok := payload["alias"]
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "alias is required"})
+		return "", false
+	}
+	if bytes.Equal(bytes.TrimSpace(rawAlias), []byte("null")) {
+		return "", true
+	}
+	var alias string
+	if err := json.Unmarshal(rawAlias, &alias); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "alias must be a string or null"})
+		return "", false
+	}
+	alias = strings.TrimSpace(alias)
+	if err := validateUsageIdentityAlias(alias); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return "", false
+	}
+	return alias, true
+}
+
+func isDisallowedUsageIdentityAliasFormatRune(r rune) bool {
+	switch {
+	case r == '\u061c' || r == '\u180e' || r == '\u200b' || r == '\u200c' || r == '\u2060' || r == '\ufeff':
+		return true
+	case r == '\u200e' || r == '\u200f':
+		return true
+	case r >= '\u202a' && r <= '\u202e':
+		return true
+	case r >= '\u2066' && r <= '\u2069':
+		return true
+	default:
+		return false
 	}
 }
 

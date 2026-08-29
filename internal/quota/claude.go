@@ -2,9 +2,12 @@ package quota
 
 import (
 	"context"
+	"time"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
 )
+
+const claudeProfileTimeout = 10 * time.Second
 
 type claudeProvider struct {
 	caller        ManagementAPICaller
@@ -31,19 +34,26 @@ func (p claudeProvider) Check(ctx context.Context, input ProviderInput) (Provide
 	if err != nil {
 		return ProviderOutput{}, err
 	}
-	// usage 解析成功后再查询 profile，避免 profile 请求掩盖主限额接口错误。
-	profileResponse, err := p.caller.CallManagementAPI(ctx, apicall.Request{
+	profile := p.checkProfile(ctx, input)
+	return ProviderOutput{Provider: "claude", Result: ClaudeResult{Usage: usage, Profile: profile}}, nil
+}
+
+func (p claudeProvider) checkProfile(ctx context.Context, input ProviderInput) *ClaudeProfileResponse {
+	// Profile 只是套餐补充信息，继承父 Context 并限制在 10 秒内，任何失败都不影响 Usage 主结果。
+	profileCtx, cancel := context.WithTimeout(ctx, claudeProfileTimeout)
+	defer cancel()
+	profileResponse, err := p.caller.CallManagementAPI(profileCtx, apicall.Request{
 		AuthIndex: input.Identity.Identity,
 		Method:    p.profileConfig.Method,
 		URL:       p.profileConfig.URL,
 		Header:    copyHeaders(p.profileConfig.Headers),
 	})
 	if err != nil {
-		return ProviderOutput{}, err
+		return nil
 	}
 	profile, err := parseClaudeProfilePayload(profileResponse)
 	if err != nil {
-		return ProviderOutput{}, err
+		return nil
 	}
-	return ProviderOutput{Provider: "claude", Result: ClaudeResult{Usage: usage, Profile: profile}}, nil
+	return profile
 }

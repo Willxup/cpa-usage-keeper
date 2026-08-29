@@ -114,7 +114,6 @@ func TestUsagePerformanceIndexesSupportRepresentativeQueryPlans(t *testing.T) {
 
 	assertQueryPlanUsesIndex(t, db, "idx_usage_events_model", `
 		EXPLAIN QUERY PLAN SELECT DISTINCT model FROM usage_events
-		WHERE model <> ''
 		ORDER BY model ASC`)
 
 	assertQueryPlanUsesIndex(t, db, "idx_usage_events_auth_index", `

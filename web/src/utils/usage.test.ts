@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateCacheRate, resolveUsageFilterWindow } from '@/utils/usage';
+import { calculateCacheReadRate, calculateDisplayInputTokens, resolveUsageFilterWindow } from '@/utils/usage';
 
 describe('resolveUsageFilterWindow', () => {
   it('resolves today from local day start through the refresh anchor', () => {
@@ -47,16 +47,26 @@ describe('resolveUsageFilterWindow', () => {
   });
 });
 
-describe('calculateCacheRate', () => {
+describe('calculateCacheReadRate', () => {
   it('uses normalized input tokens as the denominator', () => {
-    expect(calculateCacheRate({ inputTokens: 1000, cachedTokens: 250 })).toBe(25);
+    expect(calculateCacheReadRate({ inputTokens: 1000, cacheReadTokens: 250 })).toBe(25);
   });
 
   it('does not apply provider-specific token math in the frontend', () => {
-    expect(calculateCacheRate({ inputTokens: 400, cachedTokens: 600 })).toBe(150);
+    expect(calculateCacheReadRate({ inputTokens: 400, cacheReadTokens: 600 })).toBe(150);
   });
 
   it('returns null when there is no cacheable input', () => {
-    expect(calculateCacheRate({ inputTokens: 0, cachedTokens: 0 })).toBeNull();
+    expect(calculateCacheReadRate({ inputTokens: 0, cacheReadTokens: 0 })).toBeNull();
+  });
+});
+
+describe('calculateDisplayInputTokens', () => {
+  it('subtracts both cache read and cache write tokens from normalized input', () => {
+    expect(calculateDisplayInputTokens({
+      inputTokens: 1000,
+      cacheReadTokens: 250,
+      cacheCreationTokens: 100,
+    })).toBe(650);
   });
 });

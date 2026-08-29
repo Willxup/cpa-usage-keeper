@@ -1,0 +1,1028 @@
+@use '../../styles/variables' as *;
+@use '../../styles/mixins' as *;
+
+.page {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+  gap: 18px;
+  min-width: 0;
+}
+
+.leaderboardCard:global(.card) {
+  container-name: ranking-card;
+  container-type: inline-size;
+  min-width: 0;
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: hidden;
+}
+
+.leaderboardHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'title profile';
+  align-items: start;
+  align-content: start;
+  column-gap: 16px;
+  row-gap: 12px;
+  padding: 0;
+}
+
+.leaderboardTitle {
+  grid-area: title;
+  align-self: start;
+  justify-self: start;
+  min-width: 0;
+}
+
+.leaderboardTitle :global(.keeper-card-title-track) {
+  position: relative;
+  flex-wrap: wrap;
+}
+
+.metricTitleHeading {
+  display: inline-flex;
+  max-width: 100%;
+  overflow: hidden;
+  margin: 0;
+}
+
+.titleMetricSelect {
+  min-width: 0;
+  max-width: 100%;
+
+  :global(button) {
+    width: auto;
+    max-width: 100%;
+    height: var(--keeper-card-title-track-height);
+    min-height: var(--keeper-card-title-track-height);
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: var(--keeper-card-title-size);
+    font-weight: var(--keeper-card-title-weight);
+    line-height: var(--keeper-card-title-line-height);
+    gap: 6px;
+
+    &:hover {
+      border: 0;
+      background: transparent;
+      color: color-mix(in srgb, var(--text-primary) 82%, var(--primary-color));
+    }
+
+    &:focus,
+    &[aria-expanded='true'] {
+      border: 0;
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 16%, transparent);
+    }
+  }
+
+  :global(button > span:first-child) {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  :global(button > span:last-child) {
+    color: var(--text-tertiary);
+  }
+}
+
+.leaderboardHeaderToolbar {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.staleBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 4px 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.profileModalContent {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+}
+
+.profileModalTitle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.profilePrivacyHelp {
+  align-items: center;
+}
+
+.scoreExplanationHint {
+  flex: 0 0 18px;
+}
+
+.scoreExplanationSlot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+}
+
+.profilePrivacyTooltip {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 10px);
+  left: 0;
+  width: max-content;
+  max-width: min(340px, calc(100vw - 64px));
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+  letter-spacing: 0;
+  opacity: 0;
+  pointer-events: none;
+  text-align: left;
+  text-transform: none;
+  transform: translateY(-4px);
+  transition: opacity 0.14s ease, transform 0.14s ease;
+  white-space: normal;
+}
+
+.profilePrivacyHelp:hover .profilePrivacyTooltip,
+.profilePrivacyHelp:focus-within .profilePrivacyTooltip,
+.profilePrivacyTooltipVisible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.profileModal :global(.modal-body) {
+  max-height: none;
+  overflow: hidden;
+}
+
+.joinForm,
+.activeState,
+.deletedState {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.activeState .syncFacts {
+  margin-top: 11px;
+}
+
+.joinForm :global(.form-group) {
+  margin-bottom: 0;
+
+  label {
+    font-size: 12px;
+  }
+
+  :global(.hint) {
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  :global(.input) {
+    min-height: 40px;
+    border-radius: 999px;
+    padding-inline: 14px;
+    background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+    font-size: 12px;
+  }
+}
+
+.fieldLabel {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.avatarField {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.avatarGrid {
+  display: grid;
+  grid-template-columns: repeat(11, minmax(0, 1fr));
+  gap: 6px;
+  max-height: 202px;
+  padding: 8px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+  scrollbar-gutter: stable;
+}
+
+.profileModal .avatarGrid {
+  grid-template-columns: repeat(8, minmax(48px, 1fr));
+  gap: 8px;
+  max-height: min(390px, 48vh);
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.avatarOption {
+  appearance: none;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  min-width: 0;
+  padding: 3px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+
+  &:hover {
+    background: var(--bg-tertiary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+}
+
+.avatarOptionActive {
+  border-color: var(--primary-color);
+  background: var(--bg-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 14%, transparent);
+}
+
+.avatar {
+  display: inline-block;
+  width: 100%;
+  aspect-ratio: 1;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background-repeat: no-repeat;
+  background-color: var(--bg-tertiary);
+}
+
+.profileIdentity,
+.participantCell,
+.confirmBody {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.profileIdentity > div,
+.confirmBody > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+
+  strong {
+    overflow: hidden;
+    color: var(--text-primary);
+    font-size: 14px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  span,
+  p {
+    margin: 3px 0 0;
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+}
+
+.profileAvatar,
+.confirmAvatar {
+  width: 64px;
+}
+
+.tableAvatar {
+  width: 32px;
+}
+
+.localProfileAvatarButton {
+  appearance: none;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+
+  .avatar {
+    width: 100%;
+    height: 100%;
+  }
+
+  &:hover {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 18%, transparent);
+    transform: translateY(-1px);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+}
+
+.syncFacts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+
+  > div {
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-secondary);
+  }
+
+  dt {
+    color: var(--text-secondary);
+    font-size: 10px;
+  }
+
+  dd {
+    margin: 4px 0 0;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 650;
+  }
+}
+
+.actionRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.profileActionFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.profileActionFooterRight {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pausedNotice {
+  padding: 10px 11px;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 24%, var(--border-color));
+  border-radius: 10px;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--primary-color) 6%, var(--bg-primary));
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.deletedState {
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--danger-color) 30%, var(--border-color));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--danger-color) 8%, var(--bg-primary));
+
+  strong {
+    color: var(--text-primary);
+  }
+
+  p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+}
+
+.noticeBox,
+.successBox,
+.errorBox {
+  padding: 10px 11px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.successBox {
+  color: var(--success-badge-text);
+  border-color: var(--success-badge-border);
+  background: var(--success-badge-bg);
+}
+
+.errorBox {
+  color: var(--warning-text);
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+}
+
+.metadataWarning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--warning-border);
+  border-radius: 12px;
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.leaderboardHeaderActions {
+  grid-area: profile;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  align-self: start;
+  justify-self: end;
+  margin-right: calc(var(--keeper-card-header-padding-x) - var(--keeper-card-padding));
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.profileActionShell {
+  flex: 0 1 auto;
+  width: fit-content;
+  max-width: 210px;
+  min-width: 0;
+}
+
+.profileActionShellActive {
+  max-width: 260px;
+}
+
+.profileActionName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profileActionAvatar {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+}
+
+.boardMeta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.leaderboardResults {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  margin-top: 12px;
+  min-width: 0;
+}
+
+.podiumGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px;
+  padding: 4px 20px 0;
+}
+
+.podiumCard {
+  --podium-accent: var(--primary-color);
+
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas:
+    'rank avatar'
+    '. .'
+    'name value';
+  min-width: 0;
+  min-height: 136px;
+  gap: 8px 12px;
+  padding: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-top: 3px solid var(--podium-accent);
+  border-radius: var(--keeper-card-radius);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--podium-accent) 9%, var(--bg-primary)), var(--bg-primary));
+  box-shadow: var(--shadow);
+
+  &::after {
+    position: absolute;
+    right: -42px;
+    bottom: -54px;
+    width: 120px;
+    height: 120px;
+    border: 18px solid color-mix(in srgb, var(--podium-accent) 14%, transparent);
+    border-radius: 50%;
+    content: '';
+  }
+}
+
+.podiumCard1 {
+  --podium-accent: #c99a2e;
+
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.podiumCard2 {
+  --podium-accent: #9aa0a6;
+
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 124px;
+  transform: translateY(16px);
+}
+
+.podiumCard3 {
+  --podium-accent: #b7794a;
+
+  grid-column: 3;
+  grid-row: 1;
+  min-height: 124px;
+  transform: translateY(16px);
+}
+
+.podiumRank {
+  position: relative;
+  z-index: 1;
+  grid-area: rank;
+  display: grid;
+  align-self: start;
+  gap: 1px;
+
+  span {
+    color: var(--text-primary);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  strong {
+    color: var(--text-primary);
+    font-size: 32px;
+    font-style: italic;
+    font-weight: 850;
+    line-height: 0.92;
+    letter-spacing: -0.08em;
+  }
+}
+
+.podiumAvatar {
+  position: relative;
+  z-index: 1;
+  grid-area: avatar;
+  align-self: start;
+  justify-self: end;
+  width: 48px;
+  height: 48px;
+}
+
+.podiumName {
+  position: relative;
+  z-index: 1;
+  grid-area: name;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.podiumValue {
+  position: relative;
+  z-index: 1;
+  grid-area: value;
+  align-self: end;
+  justify-self: end;
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+}
+
+.podiumValueMedium {
+  font-size: 16px;
+}
+
+.podiumValueCompact {
+  font-size: 14px;
+}
+
+.tableScroll {
+  --ranking-rank-column-width: 54px;
+
+  position: relative;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+
+  th,
+  td {
+    padding: 11px 14px;
+    border-top: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  th {
+    color: var(--text-secondary);
+    background: color-mix(in srgb, var(--bg-secondary) 76%, transparent);
+    font-size: 10px;
+    font-weight: 750;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  tbody tr {
+    transition: background-color 0.15s ease;
+
+    &:hover {
+      background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+    }
+  }
+}
+
+.table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+.rankColumn {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  box-sizing: border-box;
+  width: var(--ranking-rank-column-width);
+  min-width: var(--ranking-rank-column-width);
+  max-width: var(--ranking-rank-column-width);
+  padding-right: 4px !important;
+  background: var(--bg-primary);
+  text-align: center !important;
+}
+
+.participantColumn {
+  position: sticky;
+  left: var(--ranking-rank-column-width);
+  z-index: 1;
+  min-width: 200px;
+  background: var(--bg-primary);
+}
+
+.table thead .rankColumn,
+.table thead .participantColumn {
+  z-index: 4;
+  background: var(--bg-secondary);
+}
+
+.table thead .rankColumn {
+  z-index: 5;
+}
+
+.table tbody tr:hover .rankColumn,
+.table tbody tr:hover .participantColumn {
+  background: color-mix(in srgb, var(--bg-secondary) 72%, var(--bg-primary));
+}
+
+.numberCell {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.scoreCell {
+  font-weight: 750;
+}
+
+.participantCell {
+  min-width: 170px;
+
+  strong {
+    max-width: 230px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.rankBadge {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.rankBadge1 {
+  color: var(--primary-contrast);
+  background: var(--primary-color);
+}
+
+.rankBadge2 {
+  color: var(--text-primary);
+  border: 1px solid var(--border-hover);
+  background: var(--bg-tertiary);
+}
+
+.rankBadge3 {
+  color: var(--text-secondary);
+  border: 1px solid color-mix(in srgb, var(--text-secondary) 28%, var(--border-color));
+  background: color-mix(in srgb, var(--text-secondary) 8%, var(--bg-primary));
+}
+
+.loadingState,
+.emptyState,
+.errorState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  gap: 9px;
+  min-height: 400px;
+  padding: 30px 20px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.emptyState,
+.errorState {
+  flex-direction: column;
+
+  strong {
+    color: var(--text-primary);
+    font-size: 14px;
+  }
+
+  p {
+    max-width: 520px;
+    margin: 0;
+    line-height: 1.55;
+  }
+}
+
+.confirmBody {
+  align-items: flex-start;
+}
+
+.confirmText {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  min-width: 0;
+}
+
+.periodControl {
+  display: flex;
+  min-height: 32px;
+  width: max-content;
+}
+
+.periodSelect {
+  width: max-content;
+  max-width: 100%;
+
+  :global(button) {
+    width: max-content;
+    max-width: 100%;
+    height: 32px;
+    border-radius: 999px;
+    border-color: color-mix(in srgb, var(--border-color) 88%, transparent);
+    background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+    box-shadow: none;
+    font-size: 12px;
+    font-weight: 680;
+
+    > span:first-child {
+      flex: 1 1 auto;
+      min-width: 0;
+      text-align: center;
+    }
+  }
+}
+
+@mixin ranking-header-stacked {
+  .leaderboardHeader {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'title profile';
+    align-items: stretch;
+    column-gap: 12px;
+    row-gap: 12px;
+    padding: 0;
+  }
+
+  .leaderboardHeaderToolbar {
+    justify-self: start;
+  }
+
+  .leaderboardTitle {
+    width: 100%;
+  }
+
+  .boardMeta {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  .leaderboardHeaderActions {
+    align-self: start;
+    justify-content: flex-end;
+    justify-self: end;
+    max-width: 100%;
+    width: auto;
+    margin-right: 0;
+  }
+
+  .toolbar {
+    justify-content: flex-start;
+  }
+}
+
+@container ranking-card (max-width: 760px) {
+  @include ranking-header-stacked;
+}
+
+@include mobile {
+  @include ranking-header-stacked;
+
+  .profileActionShell {
+    max-width: 160px;
+  }
+
+  .profileActionShellActive {
+    flex: 0 0 42px;
+    width: 42px;
+    height: 42px;
+    min-height: 42px;
+    border-radius: 50%;
+  }
+
+  .profileActionShellActive :global(.main-action-button) {
+    flex: 0 0 32px;
+    width: 32px;
+    height: 32px;
+    min-height: 32px;
+    padding: 5px;
+    border-radius: 50%;
+  }
+
+  .profileActionName {
+    display: none;
+  }
+
+  .participantColumn,
+  .participantCell {
+    min-width: 0;
+  }
+
+  .profileModal :global(.modal-body) {
+    max-height: min(60dvh, calc(100dvh - 180px));
+    overflow: auto;
+  }
+
+  .avatarGrid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .profileModal .avatarGrid {
+    grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  }
+
+  .profileActionFooter {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .profileActionFooterRight {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+  }
+
+  .profileActionFooter > :global(.btn),
+  .profileActionFooterRight :global(.btn) {
+    width: 100%;
+  }
+
+  .podiumGrid {
+    grid-template-columns: minmax(0, 1fr);
+    padding-inline: 16px;
+  }
+
+  .podiumCard1,
+  .podiumCard2,
+  .podiumCard3 {
+    grid-column: 1;
+    grid-row: auto;
+    min-height: 112px;
+    transform: none;
+  }
+
+  .podiumCard1 {
+    order: 1;
+  }
+
+  .podiumCard2 {
+    order: 2;
+  }
+
+  .podiumCard3 {
+    order: 3;
+  }
+
+  .syncFacts {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avatarOption,
+  .localProfileAvatarButton,
+  .table tbody tr {
+    transition: none;
+  }
+}

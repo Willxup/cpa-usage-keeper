@@ -10,7 +10,6 @@ AGENTS.md
 .env
 .env.*
 !.env.example
-!deploy/.env.example
 
 # runtime data
 /data/

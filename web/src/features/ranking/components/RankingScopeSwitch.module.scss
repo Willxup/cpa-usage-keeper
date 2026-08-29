@@ -1,0 +1,95 @@
+@use '../../../styles/variables' as *;
+@use '../../../styles/mixins' as *;
+
+.switch {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 196px;
+  max-width: 100%;
+  height: 42px;
+  padding: 4px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-secondary) 84%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  box-sizing: border-box;
+  isolation: isolate;
+}
+
+.indicator {
+  position: absolute;
+  z-index: 0;
+  inset: 4px auto 4px 4px;
+  width: calc((100% - 8px) / 2);
+  border: 1px solid color-mix(in srgb, var(--text-primary) 18%, var(--border-color));
+  border-radius: 999px;
+  background: var(--bg-primary);
+  box-shadow:
+    0 6px 14px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 color-mix(in srgb, white 46%, transparent);
+  transform: translateX(0);
+  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.switchCommunity .indicator {
+  transform: translateX(100%);
+}
+
+.option {
+  position: relative;
+  z-index: 1;
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 680;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 160ms ease;
+
+  &:hover {
+    color: var(--text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: -2px;
+  }
+}
+
+.optionActive {
+  color: var(--text-primary);
+  font-weight: 800;
+}
+
+:global([data-theme='dark']) .indicator {
+  border-color: color-mix(in srgb, var(--text-primary) 22%, var(--border-color));
+  background: var(--bg-primary);
+  box-shadow:
+    0 5px 14px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+@include mobile {
+  .switch {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .indicator,
+  .option {
+    transition: none;
+  }
+}

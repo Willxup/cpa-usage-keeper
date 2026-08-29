@@ -1,0 +1,243 @@
+// @vitest-environment happy-dom
+
+import { act, useEffect } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { UsageActivityResponse, UsageActivityWindow } from '@/lib/types';
+import { ApiError } from '@/lib/api';
+import { useUsageActivityData, type UseUsageActivityDataOptions } from '../useUsageActivityData';
+
+const apiMocks = vi.hoisted(() => ({
+  fetchUsageActivity: vi.fn(),
+  fetchKeyActivity: vi.fn(),
+}));
+
+vi.mock('@/lib/api', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/api')>(),
+  fetchUsageActivity: apiMocks.fetchUsageActivity,
+  fetchKeyActivity: apiMocks.fetchKeyActivity,
+}));
+
+const activityFor = (window: UsageActivityWindow): UsageActivityResponse => ({
+  window,
+  grain: window === 'day' ? 'short' : window === 'week' ? 'medium' : window === 'month' ? 'long' : 'daily',
+  timezone: 'UTC',
+  rows: 7,
+  columns: 52,
+  bucket_seconds: 1,
+  window_start: '2026-07-01T00:00:00Z',
+  window_end: '2026-07-02T00:00:00Z',
+  total_success: 0,
+  total_failure: 0,
+  success_rate: 0,
+  input_tokens: 0,
+  output_tokens: 0,
+  reasoning_tokens: 0,
+  cache_read_tokens: 0,
+  cache_creation_tokens: 0,
+  total_tokens: 0,
+  blocks: [],
+});
+
+let latest: ReturnType<typeof useUsageActivityData> | null = null;
+
+function Harness({ options }: { options: UseUsageActivityDataOptions }) {
+  const result = useUsageActivityData(options);
+  useEffect(() => {
+    latest = result;
+  }, [result]);
+  return null;
+}
+
+describe('useUsageActivityData', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    apiMocks.fetchUsageActivity.mockReset();
+    apiMocks.fetchKeyActivity.mockReset();
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    latest = null;
+  });
+
+  const renderOptions = async (options: UseUsageActivityDataOptions) => {
+    await act(async () => {
+      root.render(<Harness options={options} />);
+      await Promise.resolve();
+    });
+  };
+
+  it('uses the Admin endpoint with the Overview time query and selected API key scope', async () => {
+    apiMocks.fetchUsageActivity.mockResolvedValue(activityFor('week'));
+    const request = { range: '2d' as const };
+
+    await renderOptions({ viewer: 'admin', request, apiKeyId: '42' });
+
+    expect(apiMocks.fetchUsageActivity).toHaveBeenCalledWith(expect.objectContaining({ request, apiKeyId: '42' }));
+    expect(apiMocks.fetchKeyActivity).not.toHaveBeenCalled();
+    expect(latest?.activity?.window).toBe('week');
+  });
+
+  it('uses the Key endpoint without an external API key scope', async () => {
+    apiMocks.fetchKeyActivity.mockResolvedValue(activityFor('day'));
+    const request = { range: '8h' as const };
+
+    await renderOptions({ viewer: 'key', request, apiKeyId: '999' });
+
+    expect(apiMocks.fetchKeyActivity).toHaveBeenCalledWith(expect.objectContaining({ request }));
+    expect(apiMocks.fetchKeyActivity.mock.calls[0][0].apiKeyId).toBeUndefined();
+    expect(apiMocks.fetchUsageActivity).not.toHaveBeenCalled();
+  });
+
+  it('loads the one-year Activity-specific window without a shared range', async () => {
+    apiMocks.fetchUsageActivity.mockResolvedValue(activityFor('year'));
+    const request = { window: 'year' as const };
+
+    await renderOptions({ viewer: 'admin', request });
+
+    expect(apiMocks.fetchUsageActivity).toHaveBeenCalledWith(expect.objectContaining({ request }));
+    expect(latest?.activity?.window).toBe('year');
+    expect(latest?.activity?.grain).toBe('daily');
+  });
+
+  it('aborts the previous time query and never displays its late response', async () => {
+    let resolveFirst: ((value: UsageActivityResponse) => void) | undefined;
+    apiMocks.fetchUsageActivity
+      .mockImplementationOnce(() => new Promise<UsageActivityResponse>((resolve) => { resolveFirst = resolve; }))
+      .mockResolvedValueOnce(activityFor('month'));
+
+    await renderOptions({ viewer: 'admin', request: { range: '8h' } });
+    const firstSignal = apiMocks.fetchUsageActivity.mock.calls[0][0].signal as AbortSignal;
+    const firstIdentity = latest?.requestIdentity;
+    await renderOptions({ viewer: 'admin', request: { range: '8d' } });
+
+    expect(firstSignal.aborted).toBe(true);
+    expect(latest?.activity?.window).toBe('month');
+    expect(latest?.requestIdentity).not.toBe(firstIdentity);
+    await act(async () => resolveFirst?.(activityFor('day')));
+    expect(latest?.activity?.window).toBe('month');
+  });
+
+  it('keeps the last Activity payload visible while the same API key scope changes window', async () => {
+    let resolveNext: ((value: UsageActivityResponse) => void) | undefined;
+    apiMocks.fetchUsageActivity
+      .mockResolvedValueOnce(activityFor('day'))
+      .mockImplementationOnce(() => new Promise<UsageActivityResponse>((resolve) => {
+        resolveNext = resolve;
+      }));
+
+    await renderOptions({ viewer: 'admin', request: { range: '24h' }, apiKeyId: '42' });
+    expect(latest?.activityMatchesRequest).toBe(true);
+    await renderOptions({ viewer: 'admin', request: { range: '7d' }, apiKeyId: '42' });
+
+    expect(latest?.loading).toBe(true);
+    expect(latest?.activity?.window).toBe('day');
+    expect(latest?.activityMatchesRequest).toBe(false);
+
+    await act(async () => resolveNext?.(activityFor('week')));
+    expect(latest?.activity?.window).toBe('week');
+    expect(latest?.activityMatchesRequest).toBe(true);
+  });
+
+  it('does not reuse Activity data after the API key scope changes', async () => {
+    apiMocks.fetchUsageActivity
+      .mockResolvedValueOnce(activityFor('day'))
+      .mockImplementationOnce(() => new Promise<UsageActivityResponse>(() => undefined));
+
+    await renderOptions({ viewer: 'admin', request: { range: '24h' }, apiKeyId: '42' });
+    await renderOptions({ viewer: 'admin', request: { range: '7d' }, apiKeyId: '43' });
+
+    expect(latest?.loading).toBe(true);
+    expect(latest?.activity).toBeNull();
+  });
+
+  it('drops the same-scope fallback after the replacement window fails', async () => {
+    let rejectNext: ((reason: unknown) => void) | undefined;
+    apiMocks.fetchUsageActivity
+      .mockResolvedValueOnce(activityFor('day'))
+      .mockImplementationOnce(() => new Promise<UsageActivityResponse>((_resolve, reject) => {
+        rejectNext = reject;
+      }));
+
+    await renderOptions({ viewer: 'admin', request: { range: '24h' }, apiKeyId: '42' });
+    await renderOptions({ viewer: 'admin', request: { range: '7d' }, apiKeyId: '42' });
+    expect(latest?.activity?.window).toBe('day');
+
+    await act(async () => rejectNext?.(new ApiError('failed', 500)));
+
+    expect(latest?.activity).toBeNull();
+    expect(latest?.error).toBe('ACTIVITY_LOAD_FAILED');
+  });
+
+  it('reuses the same in-flight request when automatic refresh skips it', async () => {
+    let resolveRequest: ((value: UsageActivityResponse) => void) | undefined;
+    apiMocks.fetchUsageActivity.mockImplementation(() => new Promise<UsageActivityResponse>((resolve) => {
+      resolveRequest = resolve;
+    }));
+
+    await renderOptions({ viewer: 'admin', request: { range: '8h' } });
+    const firstSignal = apiMocks.fetchUsageActivity.mock.calls[0][0].signal as AbortSignal;
+    let refreshPromise: Promise<void> | undefined;
+    await act(async () => {
+      refreshPromise = latest?.loadActivity({ skipIfInFlight: true });
+      await Promise.resolve();
+    });
+
+    expect(apiMocks.fetchUsageActivity).toHaveBeenCalledTimes(1);
+    expect(firstSignal.aborted).toBe(false);
+    await act(async () => {
+      resolveRequest?.(activityFor('day'));
+      await refreshPromise;
+    });
+    expect(latest?.activity?.window).toBe('day');
+  });
+
+  it('lets a manual refresh replace the same in-flight request', async () => {
+    let resolveReplacement: ((value: UsageActivityResponse) => void) | undefined;
+    apiMocks.fetchUsageActivity
+      .mockImplementationOnce(() => new Promise<UsageActivityResponse>(() => undefined))
+      .mockImplementationOnce(() => new Promise<UsageActivityResponse>((resolve) => {
+        resolveReplacement = resolve;
+      }));
+
+    await renderOptions({ viewer: 'admin', request: { range: '8h' } });
+    const firstSignal = apiMocks.fetchUsageActivity.mock.calls[0][0].signal as AbortSignal;
+    let refreshPromise: Promise<void> | undefined;
+    await act(async () => {
+      refreshPromise = latest?.loadActivity();
+      await Promise.resolve();
+    });
+
+    expect(apiMocks.fetchUsageActivity).toHaveBeenCalledTimes(2);
+    expect(firstSignal.aborted).toBe(true);
+    await act(async () => {
+      resolveReplacement?.(activityFor('day'));
+      await refreshPromise;
+    });
+    expect(latest?.activity?.window).toBe('day');
+  });
+
+  it('keeps Activity errors local and handles viewer authentication errors', async () => {
+    const onAuthRequired = vi.fn();
+    apiMocks.fetchKeyActivity.mockRejectedValueOnce(new ApiError('unauthorized', 401));
+    await renderOptions({ viewer: 'key', request: { range: '8h' }, onAuthRequired });
+    expect(onAuthRequired).toHaveBeenCalledTimes(1);
+    expect(latest?.error).toBe('AUTH_REQUIRED');
+  });
+
+  it('normalizes backend failures to the Activity-specific error state', async () => {
+    apiMocks.fetchUsageActivity.mockRejectedValue(new ApiError('internal details', 500));
+
+    await renderOptions({ viewer: 'admin', request: { range: '8h' } });
+
+    expect(latest?.error).toBe('ACTIVITY_LOAD_FAILED');
+  });
+});

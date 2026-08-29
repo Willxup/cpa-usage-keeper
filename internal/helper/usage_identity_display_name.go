@@ -7,6 +7,11 @@ import (
 )
 
 func UsageIdentityDisplayName(item entities.UsageIdentity) string {
+	if item.Alias != nil {
+		if alias := strings.TrimSpace(*item.Alias); alias != "" {
+			return alias
+		}
+	}
 	name := strings.TrimSpace(item.Name)
 	provider := strings.TrimSpace(item.Provider)
 	if item.AuthType != entities.UsageIdentityAuthTypeAIProvider {
@@ -18,6 +23,9 @@ func UsageIdentityDisplayName(item entities.UsageIdentity) string {
 
 	isOpenAICompatible := strings.TrimSpace(item.Type) == "openai"
 	if isOpenAICompatible && name != "" && name != "openai" && provider == name {
+		if lookupKey := maskedUsageIdentityLookupKey(item.LookupKey); lookupKey != "" {
+			return strings.Join(displayQualifiers(name, lookupKey), " @ ")
+		}
 		return name
 	}
 
@@ -28,6 +36,18 @@ func UsageIdentityDisplayName(item entities.UsageIdentity) string {
 		return strings.Join(qualifiers, " @ ")
 	}
 	return name
+}
+
+func maskedUsageIdentityLookupKey(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+	masked := RedactSensitiveValue(trimmed)
+	if masked == "unknown" {
+		return ""
+	}
+	return masked
 }
 
 func displayQualifiers(values ...string) []string {

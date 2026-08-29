@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError, deletePricing, fetchPricing, fetchPricingSyncPreview, fetchUsedModels, updatePricing } from '@/lib/api';
-import type { ModelPrice, PricingEntry, PricingSaveResult, PricingStyle, PricingSyncPreviewResponse } from '@/lib/types';
+import { ApiError, deletePricing, fetchPricing, fetchPricingRules, fetchPricingSyncPreview, fetchUsedModels, replacePricingRules, updatePricing, updatePricingBatch } from '@/lib/api';
+import type { ModelPrice, PricingEntry, PricingRule, PricingSaveResult, PricingStyle, PricingSyncPreviewResponse, ReplacePricingRuleInput } from '@/lib/types';
 import { useNotificationStore } from '@/stores';
 
 export interface UsePricingDataOptions {
@@ -14,9 +14,11 @@ export interface UsePricingDataReturn {
   modelPrices: Record<string, ModelPrice>;
   loading: boolean;
   error: string;
-  lastRefreshedAt: Date | null;
   loadPricing: () => Promise<void>;
-  setModelPrices: (prices: Record<string, ModelPrice>) => Promise<void>;
+  saveModelPrice: (model: string, price: ModelPrice) => Promise<void>;
+  deleteModelPrice: (model: string) => Promise<void>;
+  loadPricingRules: (model: string) => Promise<PricingRule[] | null>;
+  savePricingRules: (model: string, rules: ReplacePricingRuleInput[]) => Promise<PricingRule[] | null>;
   syncModelPrices: (prices: Record<string, ModelPrice>) => Promise<PricingSaveResult>;
   previewPricingSync: () => Promise<PricingSyncPreviewResponse>;
 }
@@ -24,56 +26,54 @@ export interface UsePricingDataReturn {
 const normalizePricingStyle = (style: PricingStyle | string | undefined): PricingStyle =>
   style === 'claude' ? 'claude' : 'openai';
 
-const pricingToModelPrice = (entry: PricingEntry): ModelPrice => ({
+export const pricingToModelPrice = (entry: PricingEntry): ModelPrice => ({
   style: normalizePricingStyle(entry.pricing_style),
   prompt: entry.prompt_price_per_1m,
   completion: entry.completion_price_per_1m,
-  cache: entry.cache_price_per_1m,
-  cacheCreation: entry.cache_creation_price_per_1m ?? 0,
+  cacheRead: entry.cache_read_price_per_1m,
+  cacheWrite: entry.cache_write_price_per_1m,
+  multiplier: Number.isFinite(entry.price_multiplier) && entry.price_multiplier >= 0 ? entry.price_multiplier : 1,
 });
 
 const modelPriceToPricingEntry = (pricing: ModelPrice): Omit<PricingEntry, 'model'> => ({
   prompt_price_per_1m: pricing.prompt,
   completion_price_per_1m: pricing.completion,
-  cache_price_per_1m: pricing.cache,
-  cache_creation_price_per_1m: pricing.cacheCreation,
+  cache_read_price_per_1m: pricing.cacheRead,
+  cache_write_price_per_1m: pricing.cacheWrite,
+  price_multiplier: pricing.multiplier,
   pricing_style: pricing.style,
 });
 
 interface PricingPersistence {
-  updatePricingEntry: typeof updatePricing;
+  updatePricingEntries: typeof updatePricingBatch;
 }
 
 const defaultPricingPersistence: PricingPersistence = {
-  updatePricingEntry: updatePricing,
+  updatePricingEntries: updatePricingBatch,
 };
 
 export async function persistModelPriceEntries(
   prices: Record<string, ModelPrice>,
   persistence: PricingPersistence = defaultPricingPersistence,
 ): Promise<PricingSaveResult> {
-  const settled = await Promise.all(Object.entries(prices).map(async ([model, pricing]) => {
-    try {
-      await persistence.updatePricingEntry(model, modelPriceToPricingEntry(pricing));
-      return { model, ok: true as const };
-    } catch (error) {
-      return {
-        model,
-        ok: false as const,
-        message: error instanceof Error ? error.message : String(error),
-        error,
-      };
-    }
+  const entries = Object.entries(prices).map(([model, pricing]) => ({
+    model,
+    ...modelPriceToPricingEntry(pricing),
   }));
+  if (entries.length === 0) {
+    return { successModels: [], failures: [] };
+  }
 
-  return settled.reduce<PricingSaveResult>((result, item) => {
-    if (item.ok) {
-      result.successModels.push(item.model);
-    } else {
-      result.failures.push({ model: item.model, message: item.message, error: item.error });
-    }
-    return result;
-  }, { successModels: [], failures: [] });
+  try {
+    await persistence.updatePricingEntries(entries);
+    return { successModels: entries.map((entry) => entry.model), failures: [] };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      successModels: [],
+      failures: entries.map((entry) => ({ model: entry.model, message, error })),
+    };
+  }
 }
 
 export function usePricingData(options: UsePricingDataOptions = {}): UsePricingDataReturn {
@@ -84,8 +84,10 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
   const [modelPrices, setModelPricesState] = useState<Record<string, ModelPrice>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
+  const pricingRulesReadRequestRef = useRef<{ id: number; controller: AbortController } | null>(null);
+  const pricingRulesWriteRequestRef = useRef<{ id: number; controller: AbortController } | null>(null);
+  const pricingRulesRequestIDRef = useRef(0);
   const onAuthRequiredRef = useRef(onAuthRequired);
 
   useEffect(() => {
@@ -97,7 +99,6 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
       pricingResponse.pricing.map((entry) => [entry.model, pricingToModelPrice(entry)])
     );
     setModelPricesState(prices);
-    setLastRefreshedAt(new Date());
   }, []);
 
   const loadPricing = useCallback(async () => {
@@ -138,46 +139,122 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
   useEffect(() => {
     if (!enabled) {
       requestControllerRef.current?.abort();
+      pricingRulesReadRequestRef.current?.controller.abort();
+      pricingRulesWriteRequestRef.current?.controller.abort();
       requestControllerRef.current = null;
+      pricingRulesReadRequestRef.current = null;
+      pricingRulesWriteRequestRef.current = null;
       setLoading(false);
       return;
     }
     void loadPricing();
     return () => {
       requestControllerRef.current?.abort();
+      pricingRulesReadRequestRef.current?.controller.abort();
+      pricingRulesWriteRequestRef.current?.controller.abort();
       requestControllerRef.current = null;
+      pricingRulesReadRequestRef.current = null;
+      pricingRulesWriteRequestRef.current = null;
     };
   }, [enabled, loadPricing]);
 
-  const setModelPrices = useCallback(async (prices: Record<string, ModelPrice>) => {
-    const previousPrices = modelPrices;
-    setModelPricesState(prices);
-
+  const saveModelPrice = useCallback(async (model: string, price: ModelPrice) => {
     try {
-      const previousModels = new Set(Object.keys(previousPrices));
-      const nextModels = new Set(Object.keys(prices));
-      await Promise.all([
-        ...Object.entries(prices).map(([model, pricing]) =>
-          updatePricing(model, modelPriceToPricingEntry(pricing))
-        ),
-        ...Array.from(previousModels)
-          .filter((model) => !nextModels.has(model))
-          .map((model) => deletePricing(model)),
-      ]);
-      setLastRefreshedAt(new Date());
+      await updatePricing(model, modelPriceToPricingEntry(price));
+      setModelPricesState((current) => ({
+        ...current,
+        [model]: price,
+      }));
     } catch (error) {
-      setModelPricesState(previousPrices);
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequiredRef.current?.();
-        return;
+        throw error;
       }
       const message = error instanceof Error ? error.message : '';
       showNotification(
         `${t('notification.upload_failed')}${message ? `: ${message}` : ''}`,
         'error'
       );
+      throw error;
     }
-  }, [modelPrices, showNotification, t]);
+  }, [showNotification, t]);
+
+  const deleteModelPrice = useCallback(async (model: string) => {
+    try {
+      await deletePricing(model);
+      setModelPricesState((current) => {
+        const nextPrices = { ...current };
+        delete nextPrices[model];
+        return nextPrices;
+      });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequiredRef.current?.();
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : '';
+      showNotification(
+        `${t('notification.upload_failed')}${message ? `: ${message}` : ''}`,
+        'error'
+      );
+      throw error;
+    }
+  }, [showNotification, t]);
+
+  const loadPricingRules = useCallback(async (model: string): Promise<PricingRule[] | null> => {
+    pricingRulesReadRequestRef.current?.controller.abort();
+    const controller = new AbortController();
+    const request = { id: ++pricingRulesRequestIDRef.current, controller };
+    pricingRulesReadRequestRef.current = request;
+    try {
+      const response = await fetchPricingRules(model, controller.signal);
+      if (pricingRulesReadRequestRef.current?.id !== request.id || response.model !== model) {
+        return null;
+      }
+      return response.rules ?? [];
+    } catch (error) {
+      if (controller.signal.aborted || pricingRulesReadRequestRef.current?.id !== request.id) {
+        return null;
+      }
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequiredRef.current?.();
+      }
+      throw error;
+    } finally {
+      if (pricingRulesReadRequestRef.current?.id === request.id) {
+        pricingRulesReadRequestRef.current = null;
+      }
+    }
+  }, []);
+
+  const savePricingRules = useCallback(async (
+    model: string,
+    rules: ReplacePricingRuleInput[],
+  ): Promise<PricingRule[] | null> => {
+    pricingRulesWriteRequestRef.current?.controller.abort();
+    const controller = new AbortController();
+    const request = { id: ++pricingRulesRequestIDRef.current, controller };
+    pricingRulesWriteRequestRef.current = request;
+    try {
+      const response = await replacePricingRules({ model, rules }, controller.signal);
+      if (pricingRulesWriteRequestRef.current?.id !== request.id || response.model !== model) {
+        return null;
+      }
+      return response.rules ?? [];
+    } catch (error) {
+      if (controller.signal.aborted || pricingRulesWriteRequestRef.current?.id !== request.id) {
+        return null;
+      }
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequiredRef.current?.();
+      }
+      throw error;
+    } finally {
+      if (pricingRulesWriteRequestRef.current?.id === request.id) {
+        pricingRulesWriteRequestRef.current = null;
+      }
+    }
+  }, []);
 
   const syncModelPrices = useCallback(async (prices: Record<string, ModelPrice>) => {
     const result = await persistModelPriceEntries(prices);
@@ -189,7 +266,6 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
         }
         return nextPrices;
       });
-      setLastRefreshedAt(new Date());
     }
     if (result.failures.some((failure) => failure.error instanceof ApiError && failure.error.status === 401)) {
       onAuthRequiredRef.current?.();
@@ -213,9 +289,11 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
     modelPrices,
     loading,
     error,
-    lastRefreshedAt,
     loadPricing,
-    setModelPrices,
+    saveModelPrice,
+    deleteModelPrice,
+    loadPricingRules,
+    savePricingRules,
     syncModelPrices,
     previewPricingSync,
   };

@@ -2,9 +2,10 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '@/lib/api'
 import { buildCredentialQuotaStateMap, quotaRefreshDisplayError, quotaResetDisplayError, runQuotaResetForAuthIndex } from './useCredentialsTabData'
-import { CREDENTIAL_PAGES_REFRESH_INTERVAL_MS } from './useCredentialPages'
+import { CREDENTIAL_PAGES_REFRESH_INTERVAL_MS, mergeUsageIdentityAliasUpdate } from './useCredentialPages'
 import { buildQuotaCacheAuthIndexesKey, QUOTA_CACHE_REFRESH_INTERVAL_MS } from './useQuotaCache'
 import { buildQuotaRefreshSubmissionUpdate, buildQuotaRefreshTaskErrorUpdate } from './useQuotaRefreshTasks'
+import type { UsageIdentity } from '@/lib/types'
 
 const credentialsTabDataSource = readFileSync(new URL('./useCredentialsTabData.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 const quotaCacheSource = readFileSync(new URL('./useQuotaCache.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
@@ -100,6 +101,37 @@ describe('Credentials quota inspection cache refresh', () => {
       refreshStatus: undefined,
       quotaResetting: true,
     })
+  })
+})
+
+describe('mergeUsageIdentityAliasUpdate', () => {
+  it('updates alias display fields without dropping cached credential health', () => {
+    const credentialHealth = {
+      window_seconds: 18_000,
+      bucket_seconds: 600,
+      buckets: [],
+    }
+    const current = {
+      id: '1',
+      auth_type: 1,
+      name: 'Original Auth',
+      displayName: 'Original Auth',
+      alias: null,
+      credential_health: credentialHealth,
+    } as UsageIdentity
+    const updated = {
+      id: '1',
+      auth_type: 1,
+      name: 'Original Auth',
+      displayName: 'Friendly 🚀',
+      alias: 'Friendly 🚀',
+    } as UsageIdentity
+
+    const merged = mergeUsageIdentityAliasUpdate(current, updated)
+
+    expect(merged.displayName).toBe('Friendly 🚀')
+    expect(merged.alias).toBe('Friendly 🚀')
+    expect(merged.credential_health).toBe(credentialHealth)
   })
 })
 

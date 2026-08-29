@@ -2,12 +2,12 @@ package api
 
 import (
 	"errors"
-	"log/slog"
 	"net/http"
 	"strings"
 
 	"cpa-usage-keeper/internal/quota"
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 type quotaRequest struct {
@@ -15,8 +15,86 @@ type quotaRequest struct {
 }
 
 const quotaResetErrorFailed = "quota_reset_failed"
+const quotaResetCreditsErrorFailed = "quota_reset_credits_failed"
 
 func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
+	router.GET("/quota/history/:auth_index", func(c *gin.Context) {
+		if provider == nil {
+			writeInternalError(c, "quota provider is not configured", nil)
+			return
+		}
+		// 路径只接受详情抽屉当前 Auth File 的稳定 auth_index，空白不能退化成宽查询。
+		authIndex := strings.TrimSpace(c.Param("auth_index"))
+		if authIndex == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_index is required"})
+			return
+		}
+		request := quota.CodexQuotaHistoryRequest{AuthIndex: authIndex}
+		if rawRole, ok := c.GetQuery("window_role"); ok {
+			role := strings.TrimSpace(rawRole)
+			request.WindowRole = &role
+		}
+		response, err := provider.GetCodexQuotaHistory(c.Request.Context(), request)
+		if err != nil {
+			switch {
+			case errors.Is(err, quota.ErrValidation), errors.Is(err, quota.ErrUnsupportedType):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "codex quota history request is invalid"})
+			case errors.Is(err, quota.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "quota auth identity not found"})
+			default:
+				writeInternalError(c, "codex quota history lookup failed", err)
+			}
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	})
+
+	router.GET("/quota/auto-refresh/settings", func(c *gin.Context) {
+		if provider == nil {
+			writeInternalError(c, "quota provider is not configured", nil)
+			return
+		}
+
+		response, err := provider.GetAutoRefreshSettings(c.Request.Context())
+		if err != nil {
+			switch {
+			case errors.Is(err, quota.ErrValidation):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "quota auto refresh settings are invalid"})
+			default:
+				writeInternalError(c, "quota auto refresh settings lookup failed", err)
+			}
+			return
+		}
+
+		c.JSON(http.StatusOK, response)
+	})
+
+	router.PUT("/quota/auto-refresh/settings", func(c *gin.Context) {
+		if provider == nil {
+			writeInternalError(c, "quota provider is not configured", nil)
+			return
+		}
+
+		var request quota.AutoRefreshSettings
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "quota auto refresh settings are required"})
+			return
+		}
+
+		response, err := provider.UpdateAutoRefreshSettings(c.Request.Context(), request)
+		if err != nil {
+			switch {
+			case errors.Is(err, quota.ErrValidation):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "quota auto refresh settings are invalid"})
+			default:
+				writeInternalError(c, "quota auto refresh settings update failed", err)
+			}
+			return
+		}
+
+		c.JSON(http.StatusOK, response)
+	})
+
 	router.POST("/quota/cache", func(c *gin.Context) {
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)
@@ -136,6 +214,23 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 
 		c.JSON(http.StatusOK, response)
 	})
+	router.GET("/quota/reset-credits/:auth_index", func(c *gin.Context) {
+		if provider == nil {
+			writeInternalError(c, "quota provider is not configured", nil)
+			return
+		}
+		authIndex := strings.TrimSpace(c.Param("auth_index"))
+		if authIndex == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_index is required"})
+			return
+		}
+		response, err := provider.GetResetCredits(c.Request.Context(), quota.ResetCreditsRequest{AuthIndex: authIndex})
+		if err != nil {
+			writeQuotaResetCreditsError(c, quotaProviderErrorStatus(err), err)
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	})
 	router.POST("/quota/reset", func(c *gin.Context) {
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)
@@ -177,7 +272,7 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 					writeQuotaResetError(c, statusCode, err)
 					return
 				}
-				slog.Error("quota reset failed", "error", err)
+				logrus.WithError(err).Error("quota reset failed")
 				writeQuotaResetError(c, http.StatusInternalServerError, err)
 			}
 			return
@@ -186,6 +281,31 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 		c.JSON(http.StatusOK, response)
 	})
 
+}
+
+func quotaProviderErrorStatus(err error) int {
+	switch {
+	case errors.Is(err, quota.ErrValidation), errors.Is(err, quota.ErrUnsupportedType):
+		return http.StatusBadRequest
+	case errors.Is(err, quota.ErrNotFound):
+		return http.StatusNotFound
+	}
+	var httpErr quota.ProviderHTTPError
+	if errors.As(err, &httpErr) && httpErr.StatusCode >= 100 && httpErr.StatusCode <= 599 {
+		if httpErr.StatusCode == http.StatusUnauthorized {
+			return http.StatusBadGateway
+		}
+		return httpErr.StatusCode
+	}
+	return http.StatusInternalServerError
+}
+
+func writeQuotaResetCreditsError(c *gin.Context, statusCode int, err error) {
+	payload := gin.H{"error": quotaResetCreditsErrorFailed}
+	if err != nil {
+		payload["detail"] = err.Error()
+	}
+	c.JSON(statusCode, payload)
 }
 
 func writeQuotaResetError(c *gin.Context, statusCode int, err error) {

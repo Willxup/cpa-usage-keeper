@@ -1,7 +1,7 @@
 package repository
 
 import (
-	"cpa-usage-keeper/internal/repository/dto"
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"strings"
@@ -9,9 +9,33 @@ import (
 	"unicode/utf8"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
 )
+
+// HasProcessableRedisUsageInbox 只判断是否存在需要前台优先处理的 inbox 行。
+func HasProcessableRedisUsageInbox(ctx context.Context, db *gorm.DB) (bool, error) {
+	// nil 数据库无法执行 inbox 优先级检查。
+	if db == nil {
+		return false, fmt.Errorf("database is nil")
+	}
+	// marker 只承接一行常量，不读取 raw_message 等大字段。
+	var marker int
+	// pending 和 process_failed 与实际 process runner 的可处理集合保持一致。
+	err := db.WithContext(ctx).
+		Model(&entities.RedisUsageInbox{}).
+		Select("1").
+		Where("status = ? OR status = ?", RedisUsageInboxStatusPending, RedisUsageInboxStatusProcessFailed).
+		Limit(1).
+		Scan(&marker).Error
+	// 查询失败时 runner 不得猜测 inbox 为空。
+	if err != nil {
+		return false, fmt.Errorf("check processable redis usage inbox: %w", err)
+	}
+	// 读到常量 1 表示前台仍有可处理行，聚合必须立即让路。
+	return marker == 1, nil
+}
 
 const redisUsageInboxProcessingColumns = "id, source, raw_message, status, attempt_count, usage_event_key, popped_at"
 
@@ -26,7 +50,15 @@ const (
 
 	redisUsageInboxMaxErrorLength     = 1024
 	redisUsageInboxMaxProcessAttempts = 5
+	// 每行 CASE 映射占 2 个变量，WHERE IN 再占 1 个；300 行连同固定字段仍低于 SQLite 999 变量限制。
+	redisUsageInboxProcessedBatchSize = 300
 )
+
+// RedisUsageInboxProcessedUpdate 保存单条 inbox 与最终 usage event 的稳定映射。
+type RedisUsageInboxProcessedUpdate struct {
+	ID       int64
+	EventKey string
+}
 
 func InsertRedisUsageInboxRawMessages(db *gorm.DB, source string, messages []string, poppedAt time.Time) ([]entities.RedisUsageInbox, error) {
 	// inputs 统一走结构化 DTO，避免 raw message 快捷入口和测试入口出现两套入库逻辑。
@@ -85,6 +117,35 @@ func MarkRedisUsageInboxProcessed(db *gorm.DB, id int64, eventKey string, proces
 		"processed_at":    timeutil.FormatStorageTime(processedAt),
 		"last_error":      "",
 	}).Error
+}
+
+// MarkRedisUsageInboxProcessedBatch 分批更新 processed 状态，同时保持每个 inbox ID 对应自己的 event key。
+func MarkRedisUsageInboxProcessedBatch(db *gorm.DB, updates []RedisUsageInboxProcessedUpdate, processedAt time.Time) error {
+	for start := 0; start < len(updates); start += redisUsageInboxProcessedBatchSize {
+		end := min(start+redisUsageInboxProcessedBatchSize, len(updates))
+		batch := updates[start:end]
+		ids := make([]int64, 0, len(batch))
+		caseArgs := make([]any, 0, len(batch)*2)
+		var eventKeyCase strings.Builder
+		eventKeyCase.WriteString("CASE id")
+		for _, update := range batch {
+			eventKeyCase.WriteString(" WHEN ? THEN ?")
+			caseArgs = append(caseArgs, update.ID, update.EventKey)
+			ids = append(ids, update.ID)
+		}
+		eventKeyCase.WriteString(" ELSE usage_event_key END")
+
+		result := db.Model(&entities.RedisUsageInbox{}).Where("id IN ?", ids).Updates(map[string]any{
+			"status":          RedisUsageInboxStatusProcessed,
+			"usage_event_key": gorm.Expr(eventKeyCase.String(), caseArgs...),
+			"processed_at":    timeutil.FormatStorageTime(processedAt),
+			"last_error":      "",
+		})
+		if result.Error != nil {
+			return fmt.Errorf("mark redis usage inbox processed batch [%d:%d]: %w", start, end, result.Error)
+		}
+	}
+	return nil
 }
 
 func MarkRedisUsageInboxDecodeFailed(db *gorm.DB, id int64, decodeErr error) error {

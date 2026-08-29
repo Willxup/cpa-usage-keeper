@@ -10,11 +10,18 @@ const DefaultUsageEventsLimit = 100
 
 // UsageFilter 是服务层的 usage 查询条件。
 type UsageFilter struct {
-	Range     string
-	StartTime *time.Time
-	EndTime   *time.Time
-	// QueryNow 仅供内部调用固定仓储层当前时刻，API 层不需要显式传这个值。
+	Range string
+	// RangeUnit/RangeCount 是统一时间解析器给出的规范化选择跨度，供不读取历史边界的查询复用。
+	RangeUnit    string
+	RangeCount   int
+	CustomUnit   string
+	StartTime    *time.Time
+	EndTime      *time.Time
+	EndExclusive bool
+	// QueryNow 固定本次内部查询的服务器时刻；Activity API 会显式设置，其他调用可留空。
 	QueryNow *time.Time
+	// ActivityWindow 承载 Activity 的显式 window 请求；普通范围仍使用上面的统一时间字段。
+	ActivityWindow UsageActivityWindow
 	// RealtimeWindow 控制 Overview 实时图表短窗口，独立于页面主查询范围。
 	RealtimeWindow  string
 	RealtimeEndTime *time.Time
@@ -22,9 +29,14 @@ type UsageFilter struct {
 	Page            int
 	PageSize        int
 	Offset          int
+	CursorMode      bool
+	CursorTimestamp *time.Time
+	CursorID        int64
+	SkipTotalCount  bool
 	Model           string
 	Source          string
 	AuthIndex       string
+	AuthType        string
 	APIKeyID        string
 	Result          string
 }
@@ -32,8 +44,8 @@ type UsageFilter struct {
 // UsageEventsPage 是 usage events 列表的服务层结果。
 type UsageEventsPage struct {
 	Events     []UsageEventRecord
-	Models     []string
 	TotalCount int64
+	HasMore    bool
 	Page       int
 	PageSize   int
 	TotalPages int
@@ -41,8 +53,7 @@ type UsageEventsPage struct {
 
 // UsageEventFilterOptions 是 usage events 筛选项的服务层结果。
 type UsageEventFilterOptions struct {
-	Models      []string
-	ModelLabels map[string]string
+	Models []string
 }
 
 // UsageEventRecord 是单条 usage event 的服务层结果。
@@ -51,12 +62,17 @@ type UsageEventRecord struct {
 	Timestamp           time.Time
 	APIGroupKey         string
 	Model               string
-	ModelAlias          *string
+	ModelAlias          string
 	ReasoningEffort     string
 	ServiceTier         string
+	ResponseServiceTier string
+	ClientIP            *string
+	XForwardedFor       *string
+	UserAgent           *string
 	ExecutorType        string
 	Endpoint            string
 	AuthType            string
+	RequestID           string
 	Provider            string
 	Source              string
 	AuthIndex           string
@@ -66,7 +82,6 @@ type UsageEventRecord struct {
 	InputTokens         int64
 	OutputTokens        int64
 	ReasoningTokens     int64
-	CachedTokens        int64
 	CacheReadTokens     int64
 	CacheCreationTokens int64
 	TotalTokens         int64
@@ -77,15 +92,13 @@ type UsageEventRecord struct {
 
 // UsageOverviewSummary 是 overview summary 的服务层结果。
 type UsageOverviewSummary struct {
-	RequestCount          int64
-	TokenCount            int64
-	WindowMinutes         int64
 	RPM                   float64
 	TPM                   float64
 	TotalCost             float64
 	CostAvailable         bool
 	InputTokens           int64
-	CachedTokens          int64
+	CacheReadTokens       int64
+	CacheCreationTokens   int64
 	ReasoningTokens       int64
 	DailyAverageRequests  *float64
 	DailyAverageTokens    *float64
@@ -95,34 +108,13 @@ type UsageOverviewSummary struct {
 
 // UsageOverviewSeries 是 overview series 的服务层结果。
 type UsageOverviewSeries struct {
-	Requests  map[string]int64
-	Tokens    map[string]int64
-	RPM       map[string]float64
-	TPM       map[string]float64
-	Cost      map[string]float64
-	CacheRate map[string]*float64
-}
-
-// UsageOverviewHealthBlock 是 overview health 的单个时间块。
-type UsageOverviewHealthBlock struct {
-	StartTime time.Time
-	EndTime   time.Time
-	Success   int64
-	Failure   int64
-	Rate      float64
-}
-
-// UsageOverviewHealth 是 overview health 的聚合结果。
-type UsageOverviewHealth struct {
-	TotalSuccess  int64
-	TotalFailure  int64
-	SuccessRate   float64
-	Rows          int
-	Columns       int
-	BucketSeconds int64
-	WindowStart   time.Time
-	WindowEnd     time.Time
-	BlockDetails  []UsageOverviewHealthBlock
+	Buckets       []string
+	Requests      []int64
+	Tokens        []int64
+	RPM           []float64
+	TPM           []float64
+	Cost          []float64
+	CacheReadRate []*float64
 }
 
 // RealtimeTokenVelocityPoint 是 Overview token 速度图的单个短窗口桶。
@@ -198,10 +190,11 @@ type RealtimeRequestLevelPoint struct {
 
 // RealtimeCacheLevelPoint 是 Overview 缓存水平图的单个短窗口桶。
 type RealtimeCacheLevelPoint struct {
-	Bucket       string
-	CacheRate    *float64
-	CachedTokens int64
-	InputTokens  int64
+	Bucket              string
+	CacheReadRate       *float64
+	CacheReadTokens     int64
+	CacheCreationTokens int64
+	InputTokens         int64
 }
 
 // UsageOverviewRealtime 是 Overview 页面实时图表区使用的数据块。
@@ -223,5 +216,4 @@ type UsageOverviewSnapshot struct {
 	Usage   *repodto.StatisticsSnapshot
 	Summary UsageOverviewSummary
 	Series  UsageOverviewSeries
-	Health  UsageOverviewHealth
 }

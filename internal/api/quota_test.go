@@ -14,6 +14,9 @@ import (
 )
 
 type quotaProviderStub struct {
+	historyRequest           quota.CodexQuotaHistoryRequest
+	historyResponse          quota.CodexQuotaHistoryResponse
+	historyErr               error
 	resetRequest             quota.ResetRequest
 	resetResponse            quota.ResetResponse
 	resetErr                 error
@@ -32,6 +35,18 @@ type quotaProviderStub struct {
 	inspectionStartErr       error
 	inspectionStatusCalls    int
 	inspectionStartCalls     int
+}
+
+func (s *quotaProviderStub) GetCodexQuotaHistory(ctx context.Context, request quota.CodexQuotaHistoryRequest) (quota.CodexQuotaHistoryResponse, error) {
+	s.historyRequest = request
+	if s.historyErr != nil {
+		return quota.CodexQuotaHistoryResponse{}, s.historyErr
+	}
+	return s.historyResponse, nil
+}
+
+func (s *quotaProviderStub) GetResetCredits(ctx context.Context, request quota.ResetCreditsRequest) (quota.ResetCreditsResponse, error) {
+	return quota.ResetCreditsResponse{}, nil
 }
 
 func (s *quotaProviderStub) Refresh(ctx context.Context, request quota.RefreshRequest) (quota.RefreshResponse, error) {
@@ -82,14 +97,87 @@ func (s *quotaProviderStub) StartInspection(ctx context.Context) (quota.Inspecti
 	return s.inspectionStartResponse, nil
 }
 
+func (s *quotaProviderStub) GetAutoRefreshSettings(ctx context.Context) (quota.AutoRefreshSettings, error) {
+	return quota.AutoRefreshSettings{}, nil
+}
+
+func (s *quotaProviderStub) UpdateAutoRefreshSettings(ctx context.Context, settings quota.AutoRefreshSettings) (quota.AutoRefreshSettings, error) {
+	return settings, nil
+}
+
+func TestCodexQuotaHistoryForwardsWindowRoleSelection(t *testing.T) {
+	generatedAt := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	provider := &quotaProviderStub{historyResponse: quota.CodexQuotaHistoryResponse{
+		GeneratedAt: generatedAt,
+		RangeStart:  generatedAt.Add(-30 * 24 * time.Hour),
+		Cycles: []quota.CodexQuotaHistoryCycle{{
+			ID:                 1,
+			Status:             "current",
+			WindowSeconds:      604800,
+			WindowStartedAt:    generatedAt.Add(-24 * time.Hour),
+			ResetAt:            generatedAt.Add(6 * 24 * time.Hour),
+			EffectiveStartedAt: generatedAt.Add(-24 * time.Hour),
+			EffectiveEndedAt:   generatedAt.Add(6 * 24 * time.Hour),
+		}},
+		Windows: []quota.CodexQuotaHistoryWindow{{
+			WindowRole:      "secondary",
+			WindowSeconds:   604800,
+			HasCurrentCycle: true,
+			LastObservedAt:  generatedAt,
+		}},
+	}}
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{Quota: provider})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/quota/history/codex-auth?window_role=secondary", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if provider.historyRequest.AuthIndex != "codex-auth" || provider.historyRequest.WindowRole == nil || *provider.historyRequest.WindowRole != "secondary" {
+		t.Fatalf("unexpected quota history request: %+v", provider.historyRequest)
+	}
+	body := resp.Body.String()
+	if !contains(body, `"generated_at":"2026-08-21T12:00:00Z"`) || !contains(body, `"window_role":"secondary"`) || !contains(body, `"window_seconds":604800`) || !contains(body, `"effective_started_at":"2026-08-20T12:00:00Z"`) || !contains(body, `"effective_ended_at":"2026-08-27T12:00:00Z"`) {
+		t.Fatalf("unexpected quota history response: %s", body)
+	}
+}
+
+func TestCodexQuotaHistoryMapsValidationAndIdentityErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		err        error
+		wantStatus int
+	}{
+		{name: "service validation", path: "/api/v1/quota/history/codex-auth?window_role=primary", err: quota.ErrValidation, wantStatus: http.StatusBadRequest},
+		{name: "unsupported identity", path: "/api/v1/quota/history/codex-auth", err: quota.ErrUnsupportedType, wantStatus: http.StatusBadRequest},
+		{name: "missing identity", path: "/api/v1/quota/history/codex-auth", err: quota.ErrNotFound, wantStatus: http.StatusNotFound},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			provider := &quotaProviderStub{historyErr: test.err}
+			router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{Quota: provider})
+			req := httptest.NewRequest(http.MethodGet, test.path, nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+			if resp.Code != test.wantStatus {
+				t.Fatalf("expected status %d, got %d body=%s", test.wantStatus, resp.Code, resp.Body.String())
+			}
+		})
+	}
+}
+
 func TestQuotaCacheReturnsCachedCurrentPageQuota(t *testing.T) {
 	refreshedAt := time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC)
 	provider := &quotaProviderStub{cacheResponse: quota.CacheResponse{
-		Items: []quota.CachedQuotaItem{{AuthIndex: "auth-1", FileName: apiStringPtr("claude-user.json"), Status: quota.RefreshTaskStatusCompleted, RefreshedAt: &refreshedAt, Quota: &quota.CheckResponse{ID: "auth-1", Quota: []quota.QuotaRow{{Key: "rate_limit.secondary_window", Label: "Weekly", PlanType: "plus"}}}}},
+		Items: []quota.CachedQuotaItem{{AuthIndex: "auth-1", FileName: apiStringPtr("claude-user.json"), Status: quota.RefreshTaskStatusCompleted, RefreshedAt: &refreshedAt, Quota: &quota.CheckResponse{ID: "auth-1", Subscription: &quota.SubscriptionInfo{Provider: "codex", Plan: "plus"}, Quota: []quota.QuotaRow{{Key: "rate_limit.secondary_window", Label: "Weekly"}}}}},
 	}}
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{Quota: provider})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/quota/cache", strings.NewReader(`{"auth_indexes":["auth-1","auth-2"]}`))
+
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -101,7 +189,7 @@ func TestQuotaCacheReturnsCachedCurrentPageQuota(t *testing.T) {
 		t.Fatalf("expected auth indexes to be forwarded, got %+v", provider.cacheRequest.AuthIndexes)
 	}
 	body := resp.Body.String()
-	if !contains(body, `"items"`) || !contains(body, `"file_name":"claude-user.json"`) || !contains(body, `"refreshed_at":"2026-05-26T12:00:00Z"`) || contains(body, `"updated_at"`) || !contains(body, `"id":"auth-1"`) || !contains(body, `"label":"Weekly"`) || !contains(body, `"planType":"plus"`) {
+	if !contains(body, `"items"`) || !contains(body, `"file_name":"claude-user.json"`) || !contains(body, `"refreshed_at":"2026-05-26T12:00:00Z"`) || contains(body, `"updated_at"`) || !contains(body, `"id":"auth-1"`) || !contains(body, `"label":"Weekly"`) || !contains(body, `"subscription":{"provider":"codex","plan":"plus"}`) || contains(body, `"planType"`) {
 		t.Fatalf("unexpected response body: %s", body)
 	}
 }
@@ -119,6 +207,8 @@ func TestQuotaCacheAllowsMoreThanRefreshLimit(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/quota/cache", strings.NewReader(string(bodyBytes)))
+
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -164,6 +254,8 @@ func TestQuotaInspectionStartReturnsFreshStatus(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{Quota: provider})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/quota/inspection", nil)
+
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -187,6 +279,8 @@ func TestQuotaRefreshCreatesTasksForCurrentPageAuthIndexes(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{Quota: provider})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/quota/refresh", strings.NewReader(`{"auth_indexes":["auth-1","auth-2"]}`))
+
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -215,6 +309,8 @@ func TestQuotaRefreshAllowsCurrentPageSizeWithoutOuterTwentyLimit(t *testing.T) 
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/quota/refresh", strings.NewReader(`{"auth_indexes":[`+strings.Join(authIndexes, ",")+"]}"))
+
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -232,6 +328,8 @@ func TestQuotaRefreshRejectsEmptyAuthIndexes(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{Quota: provider})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/quota/refresh", strings.NewReader(`{"auth_indexes":[]}`))
+
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -251,7 +349,7 @@ func TestQuotaRefreshTaskReturnsCachedQuotaByAuthIndex(t *testing.T) {
 		FileName:    apiStringPtr("claude-user.json"),
 		Status:      quota.RefreshTaskStatusCompleted,
 		RefreshedAt: &refreshedAt,
-		Quota:       &quota.CheckResponse{ID: "auth-1", Quota: []quota.QuotaRow{{Key: "rate_limit.primary_window", Label: "5h", PlanType: "pro"}}},
+		Quota:       &quota.CheckResponse{ID: "auth-1", Subscription: &quota.SubscriptionInfo{Provider: "codex", Plan: "pro-20x"}, Quota: []quota.QuotaRow{{Key: "rate_limit.primary_window", Label: "5h"}}},
 	}}
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{Quota: provider})
 
@@ -266,7 +364,7 @@ func TestQuotaRefreshTaskReturnsCachedQuotaByAuthIndex(t *testing.T) {
 		t.Fatalf("expected auth_index to be forwarded, got %q", provider.taskAuthIndex)
 	}
 	body := resp.Body.String()
-	if contains(body, `"taskId"`) || contains(body, `"cachedAt"`) || !contains(body, `"file_name":"claude-user.json"`) || !contains(body, `"refreshed_at":"2026-05-26T12:00:00Z"`) || !contains(body, `"status":"completed"`) || !contains(body, `"quota":{"id":"auth-1"`) || !contains(body, `"key":"rate_limit.primary_window"`) || !contains(body, `"planType":"pro"`) {
+	if contains(body, `"taskId"`) || contains(body, `"cachedAt"`) || !contains(body, `"file_name":"claude-user.json"`) || !contains(body, `"refreshed_at":"2026-05-26T12:00:00Z"`) || !contains(body, `"status":"completed"`) || !contains(body, `"quota":{"id":"auth-1"`) || !contains(body, `"key":"rate_limit.primary_window"`) || !contains(body, `"subscription":{"provider":"codex","plan":"pro-20x"}`) || contains(body, `"planType"`) {
 		t.Fatalf("unexpected response body: %s", body)
 	}
 }
@@ -296,6 +394,7 @@ func TestQuotaDoesNotExposeProviderSpecificEndpoints(t *testing.T) {
 	}
 	for _, path := range paths {
 		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 		resp := httptest.NewRecorder()
 		router.ServeHTTP(resp, req)
 		if resp.Code != http.StatusNotFound {
@@ -309,6 +408,8 @@ func TestQuotaResetReturnsResetResponse(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{Quota: provider})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/quota/reset", strings.NewReader(`{"auth_index":"codex-auth"}`))
+
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -330,6 +431,8 @@ func TestQuotaResetRejectsEmptyAuthIndex(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{Quota: provider})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/quota/reset", strings.NewReader(`{"auth_index":"   "}`))
+
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -347,6 +450,8 @@ func TestQuotaResetMapsNotFoundTo404(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{Quota: provider})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/quota/reset", strings.NewReader(`{"auth_index":"missing-auth"}`))
+
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -361,6 +466,8 @@ func TestQuotaResetMapsUnsupportedTypeTo400(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{Quota: provider})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/quota/reset", strings.NewReader(`{"auth_index":"claude-auth"}`))
+
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -378,6 +485,8 @@ func TestQuotaResetMapsProviderHTTPErrorToTargetStatus(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{Quota: provider})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/quota/reset", strings.NewReader(`{"auth_index":"codex-auth"}`))
+
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -395,6 +504,8 @@ func TestQuotaResetMapsProviderUnauthorizedAwayFromAppAuth(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{Quota: provider})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/quota/reset", strings.NewReader(`{"auth_index":"codex-auth"}`))
+
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -412,6 +523,8 @@ func TestQuotaResetMapsValidationTo400(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{Quota: provider})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/quota/reset", strings.NewReader(`{"auth_index":"codex-auth"}`))
+
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -429,6 +542,8 @@ func TestQuotaResetMapsResetInProgressTo409(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{Quota: provider})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/quota/reset", strings.NewReader(`{"auth_index":"codex-auth"}`))
+
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)

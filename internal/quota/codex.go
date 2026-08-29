@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
+	"cpa-usage-keeper/internal/entities"
 )
 
 type codexProvider struct {
@@ -48,10 +49,7 @@ func optionalAccountID(value *string) string {
 }
 
 func (p codexProvider) Reset(ctx context.Context, input ProviderInput) (ProviderResetOutput, error) {
-	headers := copyHeaders(p.config.Headers)
-	if accountID := optionalAccountID(input.Identity.AccountID); accountID != "" {
-		headers = mergeHeaders(headers, map[string]string{"Chatgpt-Account-Id": accountID})
-	}
+	headers := p.requestHeaders(input.Identity)
 	// reset 与普通限额刷新共用同一份 auth header，但调用官方 consume 端点消费一次 reset credit。
 	redeemRequestID, err := newRedeemRequestID()
 	if err != nil {
@@ -69,4 +67,31 @@ func (p codexProvider) Reset(ctx context.Context, input ProviderInput) (Provider
 		return ProviderResetOutput{}, err
 	}
 	return parseCodexResetCreditResponse(response)
+}
+
+func (p codexProvider) ListResetCredits(ctx context.Context, input ProviderInput) (ProviderResetCreditsOutput, error) {
+	// 过期明细只由弹窗按需调用，不进入手动、自动或 Header quota cache 链路。
+	headers := mergeHeaders(p.requestHeaders(input.Identity), map[string]string{
+		"Accept":      "application/json",
+		"OpenAI-Beta": "codex-1",
+		"Originator":  "Codex Desktop",
+	})
+	response, err := p.caller.CallManagementAPI(ctx, apicall.Request{
+		AuthIndex: input.Identity.Identity,
+		Method:    "GET",
+		URL:       CodexRateLimitResetCreditsURL,
+		Header:    headers,
+	})
+	if err != nil {
+		return ProviderResetCreditsOutput{}, err
+	}
+	return parseCodexResetCreditsResponse(response)
+}
+
+func (p codexProvider) requestHeaders(identity entities.UsageIdentity) map[string]string {
+	headers := copyHeaders(p.config.Headers)
+	if accountID := optionalAccountID(identity.AccountID); accountID != "" {
+		headers = mergeHeaders(headers, map[string]string{"Chatgpt-Account-Id": accountID})
+	}
+	return headers
 }

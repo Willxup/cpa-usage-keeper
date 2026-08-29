@@ -1,0 +1,90 @@
+@use '../../styles/variables' as *;
+
+.requestEventsResultSuccess {
+  color: var(--success-badge-text, #065f46);
+  background: var(--success-badge-bg, #d1fae5);
+  border: 1px solid var(--success-badge-border, #6ee7b7);
+}
+
+.requestEventsResultFailed {
+  color: var(--failure-badge-text);
+  background: var(--failure-badge-bg);
+  border: 1px solid var(--failure-badge-border);
+}
+
+.requestEventsResultSuccess,
+.requestEventsResultFailed {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  padding: 2px 8px;
+  border-radius: $radius-full;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+
+  &[data-result-locale='zh'] {
+    width: 50px;
+  }
+}
+
+.requestEventsResultLogButton {
+  position: relative;
+  font-family: inherit;
+  cursor: pointer;
+  appearance: none;
+  transition: filter 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+
+  &:hover:not(:disabled) {
+    filter: brightness(0.97);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 18%, transparent);
+  }
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.76;
+  }
+}
+
+.requestEventsResultCompact {
+  width: auto;
+  min-height: 22px;
+  padding: 3px 7px;
+  font-size: 9px;
+  font-weight: 800;
+
+  &[data-result-locale='zh'] {
+    width: auto;
+  }
+}
+
+.requestEventsResultLogIcon {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border: 1px solid currentColor;
+  border-radius: $radius-full;
+  background: var(--bg-primary);
+  box-shadow: var(--shadow);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .requestEventsResultLogButton {
+    transition: none;
+  }
+}

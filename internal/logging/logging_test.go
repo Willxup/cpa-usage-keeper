@@ -3,7 +3,6 @@ package logging
 import (
 	"bytes"
 	stdlog "log"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -53,7 +52,7 @@ func TestConfigureWritesLogrusToDailyFile(t *testing.T) {
 	}
 }
 
-func TestConfigureUsesFullTimestampFormatter(t *testing.T) {
+func TestConfigureUsesKeeperFormatter(t *testing.T) {
 	reset := captureGlobalLogState(t)
 	defer reset()
 
@@ -67,12 +66,9 @@ func TestConfigureUsesFullTimestampFormatter(t *testing.T) {
 	}
 	defer closer.Close()
 
-	formatter, ok := logrus.StandardLogger().Formatter.(*logrus.TextFormatter)
+	_, ok := logrus.StandardLogger().Formatter.(keeperFormatter)
 	if !ok {
-		t.Fatalf("expected text formatter, got %T", logrus.StandardLogger().Formatter)
-	}
-	if !formatter.FullTimestamp || formatter.TimestampFormat == "" {
-		t.Fatalf("expected full timestamp formatter, got FullTimestamp=%v TimestampFormat=%q", formatter.FullTimestamp, formatter.TimestampFormat)
+		t.Fatalf("expected Keeper formatter, got %T", logrus.StandardLogger().Formatter)
 	}
 }
 
@@ -148,7 +144,7 @@ func TestConfigureDisablesFileLogging(t *testing.T) {
 	}
 }
 
-func TestConfigureRoutesStdlibLogAndSlogToFile(t *testing.T) {
+func TestConfigureRoutesStdlibLogToFile(t *testing.T) {
 	reset := captureGlobalLogState(t)
 	defer reset()
 
@@ -165,59 +161,75 @@ func TestConfigureRoutesStdlibLogAndSlogToFile(t *testing.T) {
 	defer closer.Close()
 
 	stdlog.Print("stdlib message")
-	slog.Error("slog message")
 
 	content := readTodayLogFile(t, logDir)
-	if !strings.Contains(content, "stdlib message") || !strings.Contains(content, "slog message") {
-		t.Fatalf("expected stdlib and slog messages in file, got %q", content)
+	if !strings.Contains(content, "stdlib message") {
+		t.Fatalf("expected stdlib message in file, got %q", content)
 	}
 }
 
-func TestConfigureRoutesGinDebugToTimestampedLogrusOutput(t *testing.T) {
-	reset := captureGlobalLogState(t)
-	defer reset()
+func TestConfigureFiltersGinDebugByLogLevel(t *testing.T) {
+	for _, testCase := range []struct {
+		name        string
+		logLevel    string
+		wantVisible bool
+	}{
+		{name: "info hides debug output", logLevel: "info", wantVisible: false},
+		{name: "debug shows debug output", logLevel: "debug", wantVisible: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			reset := captureGlobalLogState(t)
+			defer reset()
 
-	previousStderr := os.Stderr
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("create stderr pipe: %v", err)
-	}
-	os.Stderr = writer
-	defer func() {
-		os.Stderr = previousStderr
-		_ = reader.Close()
-	}()
+			previousStderr := os.Stderr
+			reader, writer, err := os.Pipe()
+			if err != nil {
+				t.Fatalf("create stderr pipe: %v", err)
+			}
+			os.Stderr = writer
+			defer func() {
+				os.Stderr = previousStderr
+				_ = reader.Close()
+			}()
 
-	closer, err := Configure(config.Config{
-		LogLevel:         "info",
-		LogFileEnabled:   false,
-		LogRetentionDays: 7,
-	})
-	if err != nil {
-		t.Fatalf("Configure returned error: %v", err)
-	}
+			closer, err := Configure(config.Config{
+				LogLevel:         testCase.logLevel,
+				LogFileEnabled:   false,
+				LogRetentionDays: 7,
+			})
+			if err != nil {
+				t.Fatalf("Configure returned error: %v", err)
+			}
 
-	if gin.DebugPrintFunc == nil {
-		t.Fatal("expected Configure to install Gin debug print function")
-	}
-	gin.DebugPrintFunc("GET %s", "/api/v1/status")
-	if err := closer.Close(); err != nil {
-		t.Fatalf("Close returned error: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close stderr writer: %v", err)
-	}
+			if gin.DebugPrintFunc == nil || gin.DebugPrintRouteFunc == nil {
+				t.Fatal("expected Configure to install Gin debug print functions")
+			}
+			gin.DebugPrintFunc("GET %s", "/api/v1/status")
+			gin.DebugPrintRouteFunc("POST", "/api/v1/events", "handler", 3)
+			if err := closer.Close(); err != nil {
+				t.Fatalf("Close returned error: %v", err)
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatalf("close stderr writer: %v", err)
+			}
 
-	var output bytes.Buffer
-	if _, err := output.ReadFrom(reader); err != nil {
-		t.Fatalf("read stderr output: %v", err)
-	}
-	content := output.String()
-	if !strings.Contains(content, "[GIN-debug] GET /api/v1/status") {
-		t.Fatalf("expected Gin debug output to be routed through logrus, got %q", content)
-	}
-	if !logLineHasTimestamp(content) {
-		t.Fatalf("expected Gin debug output to include timestamp, got %q", content)
+			var output bytes.Buffer
+			if _, err := output.ReadFrom(reader); err != nil {
+				t.Fatalf("read stderr output: %v", err)
+			}
+			content := output.String()
+			for _, message := range []string{
+				"[GIN-debug] GET /api/v1/status",
+				"[GIN-debug] POST   /api/v1/events --> handler (3 handlers)",
+			} {
+				if visible := strings.Contains(content, message); visible != testCase.wantVisible {
+					t.Fatalf("expected Gin debug visibility %v for %q, got %q", testCase.wantVisible, message, content)
+				}
+			}
+			if testCase.wantVisible && !logLineHasTimestamp(content) {
+				t.Fatalf("expected visible Gin debug output to include timestamp, got %q", content)
+			}
+		})
 	}
 }
 
@@ -228,7 +240,8 @@ func TestConfigureCloseRestoresGlobalLoggers(t *testing.T) {
 	var restoredOutput bytes.Buffer
 	logrus.SetOutput(&restoredOutput)
 	stdlog.SetOutput(&restoredOutput)
-	slog.SetDefault(slog.New(slog.NewTextHandler(&restoredOutput, nil)))
+	stdlog.SetFlags(stdlog.Lshortfile)
+	stdlog.SetPrefix("restored-prefix ")
 	gin.DefaultWriter = &restoredOutput
 	gin.DefaultErrorWriter = &restoredOutput
 	gin.DebugPrintFunc = func(format string, values ...interface{}) {
@@ -250,15 +263,17 @@ func TestConfigureCloseRestoresGlobalLoggers(t *testing.T) {
 	if err := closer.Close(); err != nil {
 		t.Fatalf("Close returned error: %v", err)
 	}
+	if stdlog.Flags() != stdlog.Lshortfile || stdlog.Prefix() != "restored-prefix " {
+		t.Fatalf("expected standard logger flags and prefix to be restored, got flags=%d prefix=%q", stdlog.Flags(), stdlog.Prefix())
+	}
 
 	logrus.Info("after close logrus")
 	stdlog.Print("after close stdlib")
-	slog.Error("after close slog")
 	gin.DebugPrintFunc("ignored")
 	gin.DebugPrintRouteFunc("GET", "/", "handler", 1)
 
 	content := restoredOutput.String()
-	for _, want := range []string{"after close logrus", "after close stdlib", "after close slog", "after close gin debug", "after close gin route"} {
+	for _, want := range []string{"after close logrus", "after close stdlib", "after close gin debug", "after close gin route"} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("expected global loggers to be restored after close with %q, got %q", want, content)
 		}
@@ -307,6 +322,9 @@ func TestRetentionDeletesOnlyOldAppLogs(t *testing.T) {
 		t.Fatalf("newDailyFileWriter returned error: %v", err)
 	}
 	defer writer.Close()
+	if err := writer.Maintain(); err != nil {
+		t.Fatalf("maintain daily log files: %v", err)
+	}
 
 	if _, err := os.Stat(oldAppLog); !os.IsNotExist(err) {
 		t.Fatalf("expected old app log to be removed, stat err=%v", err)
@@ -329,7 +347,8 @@ func readTodayLogFile(t *testing.T, logDir string) string {
 }
 
 func logLineHasTimestamp(content string) bool {
-	return regexp.MustCompile(`time="?\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}`).MatchString(content)
+	plain := ansiSequencePattern.ReplaceAllString(content, "")
+	return regexp.MustCompile(`(?m)^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2}) \|`).MatchString(plain)
 }
 
 func captureGlobalLogState(t *testing.T) func() {
@@ -338,7 +357,8 @@ func captureGlobalLogState(t *testing.T) func() {
 	previousLogrusLevel := logrus.GetLevel()
 	previousLogrusFormatter := logrus.StandardLogger().Formatter
 	previousStdlogOutput := stdlog.Writer()
-	previousSlog := slog.Default()
+	previousStdlogFlags := stdlog.Flags()
+	previousStdlogPrefix := stdlog.Prefix()
 	previousGinDefaultWriter := gin.DefaultWriter
 	previousGinErrorWriter := gin.DefaultErrorWriter
 	previousGinDebugPrint := gin.DebugPrintFunc
@@ -351,7 +371,8 @@ func captureGlobalLogState(t *testing.T) func() {
 		logrus.SetLevel(previousLogrusLevel)
 		logrus.SetFormatter(previousLogrusFormatter)
 		stdlog.SetOutput(previousStdlogOutput)
-		slog.SetDefault(previousSlog)
+		stdlog.SetFlags(previousStdlogFlags)
+		stdlog.SetPrefix(previousStdlogPrefix)
 		gin.DefaultWriter = previousGinDefaultWriter
 		gin.DefaultErrorWriter = previousGinErrorWriter
 		gin.DebugPrintFunc = previousGinDebugPrint

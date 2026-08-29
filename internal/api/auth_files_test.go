@@ -43,6 +43,8 @@ func TestAuthFilesStatusRouteDisablesSelectedNames(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{AuthFiles: provider})
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/auth-files/status", strings.NewReader(`{"names":[" a.json ","b.json"],"disabled":true}`))
+
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -64,6 +66,8 @@ func TestAuthFilesDeleteRouteDeletesSelectedNames(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{AuthFiles: provider})
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/auth-files", strings.NewReader(`{"names":["a.json"," b.json "]}`))
+
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -95,6 +99,7 @@ func TestAuthFilesManagementRoutesRejectEmptyNames(t *testing.T) {
 		{method: http.MethodDelete, path: "/api/v1/auth-files", body: `{"names":[]}`},
 	} {
 		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 		req.Header.Set("Content-Type", "application/json")
 		resp := httptest.NewRecorder()
 		router.ServeHTTP(resp, req)
@@ -121,6 +126,7 @@ func TestAuthFilesManagementRoutesMapValidationErrors(t *testing.T) {
 		{method: http.MethodDelete, path: "/api/v1/auth-files", body: `{"names":["a.json"]}`},
 	} {
 		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 		req.Header.Set("Content-Type", "application/json")
 		resp := httptest.NewRecorder()
 		router.ServeHTTP(resp, req)
@@ -136,6 +142,8 @@ func TestAuthFilesManagementRoutesReturnInternalError(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{AuthFiles: provider})
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/auth-files/status", strings.NewReader(`{"names":["a.json"],"disabled":true}`))
+
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)

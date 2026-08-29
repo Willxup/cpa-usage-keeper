@@ -1,0 +1,49 @@
+.root {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 2100;
+  display: grid;
+  gap: 3px;
+  width: max-content;
+  max-width: min(280px, calc(100vw - 16px));
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  text-align: left;
+
+  span {
+    display: block;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+}
+
+.tooltipVisible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.screenReaderOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  border: 0;
+  white-space: nowrap;
+}

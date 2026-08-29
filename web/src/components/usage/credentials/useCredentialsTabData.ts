@@ -9,7 +9,7 @@ import {
 import { useCredentialPages } from './useCredentialPages'
 import { useQuotaCache } from './useQuotaCache'
 import { useQuotaInspection } from './useQuotaInspection'
-import { resetUsageQuota, type UsageIdentityPageSort } from '@/lib/api'
+import { ApiError, resetUsageQuota, updateUsageIdentityAlias, type UsageIdentityPageSort } from '@/lib/api'
 import i18n from '@/i18n'
 import type { UsageIdentityTypeCount, UsageQuotaCheckResponse, UsageQuotaInspectionStatusResponse } from '@/lib/types'
 import { quotaRefreshDisplayError, useQuotaRefreshTasks, type QuotaState } from './useQuotaRefreshTasks'
@@ -24,7 +24,6 @@ interface CredentialResetState {
 interface UseCredentialsTabDataOptions {
   enabledAuthFiles: boolean
   enabledAiProviders: boolean
-  quotaAutoRefreshEnabled: boolean
   onAuthRequired?: () => void
   onNotice?: (kind: 'success' | 'info' | 'error', message: string) => void
 }
@@ -43,6 +42,7 @@ export interface CredentialsTabData {
   authFileTotalPages: number
   aiProviderTotalPages: number
   authFileActiveOnly: boolean
+  aiProviderActiveOnly: boolean
   authFileProviderFilter: CredentialProviderFilterKey
   aiProviderProviderFilter: CredentialProviderFilterKey
   authFileSort: UsageIdentityPageSort
@@ -52,6 +52,7 @@ export interface CredentialsTabData {
   setAuthFilePageSize: (pageSize: number) => void
   setAiProviderPageSize: (pageSize: number) => void
   setAuthFileActiveOnly: (activeOnly: boolean) => void
+  setAiProviderActiveOnly: (activeOnly: boolean) => void
   setAuthFileProviderFilter: (filter: CredentialProviderFilterKey) => void
   setAiProviderProviderFilter: (filter: CredentialProviderFilterKey) => void
   setAuthFileSort: (sort: UsageIdentityPageSort) => void
@@ -64,7 +65,9 @@ export interface CredentialsTabData {
   quotaInspectionLoading: boolean
   quotaInspectionStarting: boolean
   quotaInspectionError: string
+  aliasSavingId: string
   refresh: () => Promise<void>
+  saveUsageIdentityAlias: (id: string, alias: string) => Promise<void>
   refreshQuotaForCurrentAuthFilePage: () => Promise<void>
   refreshQuotaForAuthIndex: (authIndex: string) => Promise<void>
   resetQuotaForAuthIndex: (authIndex: string) => Promise<void>
@@ -72,7 +75,7 @@ export interface CredentialsTabData {
   startQuotaInspection: () => Promise<void>
 }
 
-export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, quotaAutoRefreshEnabled, onAuthRequired, onNotice }: UseCredentialsTabDataOptions): CredentialsTabData {
+export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, onAuthRequired, onNotice }: UseCredentialsTabDataOptions): CredentialsTabData {
   const credentialPages = useCredentialPages({ enabledAuthFiles, enabledAiProviders, onAuthRequired })
   const currentAuthIndexes = useMemo(
     () => selectQuotaEligibleAuthIndexes(credentialPages.authFileIdentities),
@@ -91,6 +94,7 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, qu
   })
   const { refreshQuotaForAuthIndex } = quotaRefreshTasks
   const [quotaResetStateByAuthIndex, setQuotaResetStateByAuthIndex] = useState<Record<string, CredentialResetState>>({})
+  const [aliasSavingId, setAliasSavingId] = useState('')
   const quotaInspection = useQuotaInspection({
     enabled: enabledAuthFiles,
     onAuthRequired,
@@ -115,6 +119,25 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, qu
   const refresh = useCallback(async () => {
     await Promise.all([refreshCredentialPages(), refreshQuotaCache()])
   }, [refreshCredentialPages, refreshQuotaCache])
+
+  const saveUsageIdentityAlias = useCallback(async (id: string, alias: string) => {
+    setAliasSavingId(id)
+    try {
+      const updated = await updateUsageIdentityAlias(id, alias)
+      credentialPages.replaceUsageIdentity(updated)
+      onNotice?.('success', i18n.t('usage_stats.credentials_alias_save_success'))
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        if (onAuthRequired) {
+          onAuthRequired()
+        }
+      }
+      onNotice?.('error', i18n.t('usage_stats.credentials_alias_save_failed'))
+      throw error
+    } finally {
+      setAliasSavingId((current) => (current === id ? '' : current))
+    }
+  }, [credentialPages, onAuthRequired, onNotice])
 
   const resetQuotaForAuthIndex = useCallback(async (authIndex: string) => {
     setQuotaResetStateByAuthIndex((current) => ({
@@ -156,6 +179,7 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, qu
     authFileTotalPages: credentialPages.authFileTotalPages,
     aiProviderTotalPages: credentialPages.aiProviderTotalPages,
     authFileActiveOnly: credentialPages.authFileActiveOnly,
+    aiProviderActiveOnly: credentialPages.aiProviderActiveOnly,
     authFileProviderFilter: credentialPages.authFileProviderFilter,
     aiProviderProviderFilter: credentialPages.aiProviderProviderFilter,
     authFileSort: credentialPages.authFileSort,
@@ -165,6 +189,7 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, qu
     setAuthFilePageSize: credentialPages.setAuthFilePageSize,
     setAiProviderPageSize: credentialPages.setAiProviderPageSize,
     setAuthFileActiveOnly: credentialPages.setAuthFileActiveOnly,
+    setAiProviderActiveOnly: credentialPages.setAiProviderActiveOnly,
     setAuthFileProviderFilter: credentialPages.setAuthFileProviderFilter,
     setAiProviderProviderFilter: credentialPages.setAiProviderProviderFilter,
     setAuthFileSort: credentialPages.setAuthFileSort,
@@ -177,12 +202,14 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, qu
     quotaInspectionLoading: quotaInspection.quotaInspectionLoading,
     quotaInspectionStarting: quotaInspection.quotaInspectionStarting,
     quotaInspectionError: quotaInspection.quotaInspectionError,
+    aliasSavingId,
     refresh: refresh,
+    saveUsageIdentityAlias,
     refreshQuotaForCurrentAuthFilePage: quotaRefreshTasks.refreshQuotaForCurrentAuthFilePage,
     refreshQuotaForAuthIndex: quotaRefreshTasks.refreshQuotaForAuthIndex,
     resetQuotaForAuthIndex,
     refreshQuotaInspectionStatus: quotaInspection.refreshQuotaInspectionStatus,
-    startQuotaInspection: quotaAutoRefreshEnabled ? async () => undefined : quotaInspection.startQuotaInspection,
+    startQuotaInspection: quotaInspection.startQuotaInspection,
   }
 }
 

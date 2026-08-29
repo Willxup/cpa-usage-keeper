@@ -11,6 +11,7 @@ const sessions: AuthManagedSessionItem[] = [
     id: 'current-admin-hash',
     kind: 'admin',
     role: 'admin',
+    source: 'standard',
     current: true,
     loginAt: '2026/06/20 10:00:00',
     expiresAt: '2026/06/20 12:00:00',
@@ -19,6 +20,7 @@ const sessions: AuthManagedSessionItem[] = [
     id: 'other-admin-hash',
     kind: 'admin',
     role: 'admin',
+    source: 'standard',
     loginAt: '2026/06/20 10:05:00',
     expiresAt: '2026/06/20 12:05:00',
   },
@@ -26,6 +28,7 @@ const sessions: AuthManagedSessionItem[] = [
     id: 'hashed-session-id',
     kind: 'api_key',
     role: 'api_key_viewer',
+    source: 'embed',
     apiKeyId: '42',
     label: 'Team Key',
     displayKey: 'sk-*********123456',
@@ -50,6 +53,8 @@ describe('SessionSettingsCard', () => {
 
     expect(html).toContain('Session Management');
     expect(html).toContain('Admin Session');
+    expect(html).toContain('Standalone');
+    expect(html).toContain('CPAMC Embed');
     expect(html).toContain('Current');
     expect(html).toContain('2026/06/20 10:00:00');
     expect(html).toContain('2026/06/20 12:00:00');

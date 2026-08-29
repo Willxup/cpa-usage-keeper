@@ -51,16 +51,25 @@ const resolveSecondDecimalPlaces = (
 const resolveDurationLocale = (locale?: string): string | undefined =>
   locale?.trim() || i18n.resolvedLanguage || i18n.language || undefined;
 
+const durationNumberFormatters = new Map<string, Intl.NumberFormat>();
+
 const formatDurationNumber = (
   value: number,
   locale: string | undefined,
   options: Intl.NumberFormatOptions = {}
 ): string => {
   try {
-    return new Intl.NumberFormat(locale, {
+    const normalizedOptions = {
       useGrouping: false,
       ...options,
-    }).format(value);
+    };
+    const cacheKey = `${locale ?? ''}:${JSON.stringify(normalizedOptions)}`;
+    let formatter = durationNumberFormatters.get(cacheKey);
+    if (!formatter) {
+      formatter = new Intl.NumberFormat(locale, normalizedOptions);
+      durationNumberFormatters.set(cacheKey, formatter);
+    }
+    return formatter.format(value);
   } catch {
     return String(value);
   }

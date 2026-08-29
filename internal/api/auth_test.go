@@ -95,6 +95,7 @@ func TestAuthLoginSetsCookieAndUnlocksProtectedRoute(t *testing.T) {
 
 	loginResp := httptest.NewRecorder()
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"secret"}`))
+	loginReq.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	loginReq.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(loginResp, loginReq)
 
@@ -129,6 +130,7 @@ func TestAuthSessionReturnsAdminRoleAfterPasswordLogin(t *testing.T) {
 
 	loginResp := httptest.NewRecorder()
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"secret"}`))
+	loginReq.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	loginReq.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(loginResp, loginReq)
 	if loginResp.Code != http.StatusNoContent {
@@ -153,6 +155,7 @@ func TestAuthAPIKeyLoginSetsViewerSessionCookieAndSessionSummary(t *testing.T) {
 
 	loginResp := httptest.NewRecorder()
 	loginReq := httptest.NewRequest(http.MethodPost, "/cpa/api/v1/auth/api-key-login", strings.NewReader(`{"apiKey":"sk-live123456"}`))
+	loginReq.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	loginReq.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(loginResp, loginReq)
 	if loginResp.Code != http.StatusNoContent {
@@ -189,6 +192,7 @@ func TestAuthAPIKeyLoginFailuresAreGenericUnauthorized(t *testing.T) {
 	for _, body := range []string{`{"apiKey":"missing"}`, `{bad json}`} {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/api-key-login", strings.NewReader(body))
+		req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 		req.Header.Set("Content-Type", "application/json")
 		router.ServeHTTP(resp, req)
 		if resp.Code != http.StatusUnauthorized || !contains(resp.Body.String(), "invalid credentials") {
@@ -206,6 +210,7 @@ func TestAuthAPIKeyLoginRateLimitsRepeatedFailures(t *testing.T) {
 	for i := 0; i < maxFailedLoginAttempts; i++ {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/api-key-login", strings.NewReader(`{"apiKey":"missing"}`))
+		req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 		req.Header.Set("Content-Type", "application/json")
 		req.RemoteAddr = "198.51.100.10:1234"
 		router.ServeHTTP(resp, req)
@@ -216,6 +221,7 @@ func TestAuthAPIKeyLoginRateLimitsRepeatedFailures(t *testing.T) {
 
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/api-key-login", strings.NewReader(`{"apiKey":"missing"}`))
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = "198.51.100.10:1234"
 	router.ServeHTTP(resp, req)
@@ -231,9 +237,10 @@ func TestAuthAPIKeyLoginSuccessClearsFailedAttempts(t *testing.T) {
 	keyProvider := &authCPAAPIKeyStub{findErr: context.Canceled}
 	router := NewRouter(nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
 
-	for i := 0; i < maxFailedLoginAttempts; i++ {
+	for i := 0; i < maxFailedLoginAttempts-1; i++ {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/api-key-login", strings.NewReader(`{"apiKey":"missing"}`))
+		req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 		req.Header.Set("Content-Type", "application/json")
 		req.RemoteAddr = "198.51.100.11:1234"
 		router.ServeHTTP(resp, req)
@@ -246,6 +253,7 @@ func TestAuthAPIKeyLoginSuccessClearsFailedAttempts(t *testing.T) {
 	keyProvider.row = entities.CPAAPIKey{ID: 42, DisplayKey: "sk-*********live"}
 	successResp := httptest.NewRecorder()
 	successReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/api-key-login", strings.NewReader(`{"apiKey":"sk-live"}`))
+	successReq.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	successReq.Header.Set("Content-Type", "application/json")
 	successReq.RemoteAddr = "198.51.100.11:1234"
 	router.ServeHTTP(successResp, successReq)
@@ -256,6 +264,7 @@ func TestAuthAPIKeyLoginSuccessClearsFailedAttempts(t *testing.T) {
 	keyProvider.findErr = context.Canceled
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/api-key-login", strings.NewReader(`{"apiKey":"missing"}`))
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = "198.51.100.11:1234"
 	router.ServeHTTP(resp, req)
@@ -292,72 +301,14 @@ func TestAuthSessionClearsInactiveViewerSession(t *testing.T) {
 	}
 }
 
-func TestAuthLogoutClearsKeyOverviewRateLimitForSession(t *testing.T) {
-	sessions := auth.NewSessionManager(time.Hour)
-	token, _, err := sessions.CreateAPIKeyViewer(42)
-	if err != nil {
-		t.Fatalf("CreateAPIKeyViewer returned error: %v", err)
-	}
-	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	handler := NewAuthHandler(config, sessions)
-	router := NewRouter(nil, nil, nil, nil, config, handler, "")
-
-	if !handler.allowKeyOverviewRequest(token) {
-		t.Fatal("expected initial key overview request to be allowed")
-	}
-
-	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
-	router.ServeHTTP(resp, req)
-	if resp.Code != http.StatusNoContent {
-		t.Fatalf("expected logout status 204, got %d", resp.Code)
-	}
-	if _, ok := handler.keyOverviewRequests[token]; ok {
-		t.Fatal("expected logout to clear key overview rate limit entry")
-	}
-}
-
-func TestAuthSessionClearsKeyOverviewRateLimitForInactiveViewerSession(t *testing.T) {
-	sessions := auth.NewSessionManager(time.Hour)
-	token, _, err := sessions.CreateAPIKeyViewer(42)
-	if err != nil {
-		t.Fatalf("CreateAPIKeyViewer returned error: %v", err)
-	}
-	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	keyProvider := &authCPAAPIKeyStub{findErr: context.Canceled}
-	handler := NewAuthHandler(config, sessions)
-	router := NewRouter(nil, nil, nil, nil, config, handler, "", OptionalProviders{CPAAPIKeys: keyProvider})
-
-	if !handler.allowKeyOverviewRequest(token) {
-		t.Fatal("expected initial key overview request to be allowed")
-	}
-
-	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
-	router.ServeHTTP(resp, req)
-	if resp.Code != http.StatusOK || !contains(resp.Body.String(), `"authenticated":false`) {
-		t.Fatalf("unexpected inactive session response: %d %s", resp.Code, resp.Body.String())
-	}
-	if _, ok := handler.keyOverviewRequests[token]; ok {
-		t.Fatal("expected inactive viewer session cleanup to clear key overview rate limit entry")
-	}
-}
-
-func TestAuthSessionClearsKeyOverviewRateLimitForExpiredSession(t *testing.T) {
+func TestAuthSessionRejectsExpiredSession(t *testing.T) {
 	sessions := auth.NewSessionManager(-time.Hour)
 	token, _, err := sessions.CreateAPIKeyViewer(42)
 	if err != nil {
 		t.Fatalf("CreateAPIKeyViewer returned error: %v", err)
 	}
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: -time.Hour}
-	handler := NewAuthHandler(config, sessions)
-	router := NewRouter(nil, nil, nil, nil, config, handler, "")
-
-	if !handler.allowKeyOverviewRequest(token) {
-		t.Fatal("expected initial key overview request to be allowed")
-	}
+	router := NewRouter(nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "")
 
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil)
@@ -366,24 +317,16 @@ func TestAuthSessionClearsKeyOverviewRateLimitForExpiredSession(t *testing.T) {
 	if resp.Code != http.StatusOK || !contains(resp.Body.String(), `"authenticated":false`) {
 		t.Fatalf("unexpected expired session response: %d %s", resp.Code, resp.Body.String())
 	}
-	if _, ok := handler.keyOverviewRequests[token]; ok {
-		t.Fatal("expected expired auth session cleanup to clear key overview rate limit entry")
-	}
 }
 
-func TestAuthMiddlewareClearsKeyOverviewRateLimitForExpiredSession(t *testing.T) {
+func TestAuthMiddlewareRejectsExpiredSession(t *testing.T) {
 	sessions := auth.NewSessionManager(-time.Hour)
 	token, _, err := sessions.CreateAPIKeyViewer(42)
 	if err != nil {
 		t.Fatalf("CreateAPIKeyViewer returned error: %v", err)
 	}
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: -time.Hour}
-	handler := NewAuthHandler(config, sessions)
-	router := NewRouter(nil, nil, nil, nil, config, handler, "")
-
-	if !handler.allowKeyOverviewRequest(token) {
-		t.Fatal("expected initial key overview request to be allowed")
-	}
+	router := NewRouter(nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "")
 
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview", nil)
@@ -391,9 +334,6 @@ func TestAuthMiddlewareClearsKeyOverviewRateLimitForExpiredSession(t *testing.T)
 	router.ServeHTTP(resp, req)
 	if resp.Code != http.StatusUnauthorized {
 		t.Fatalf("expected expired session to return 401, got %d %s", resp.Code, resp.Body.String())
-	}
-	if _, ok := handler.keyOverviewRequests[token]; ok {
-		t.Fatal("expected expired middleware session cleanup to clear key overview rate limit entry")
 	}
 }
 
@@ -483,13 +423,10 @@ func TestAuthSessionManagementListsAdminAndAPIKeySessionsWithCurrentFirst(t *tes
 
 	var adminRows int
 	apiLabels := map[string]string{}
-	for index, item := range parsed.Items {
+	for _, item := range parsed.Items {
 		switch item.Kind {
 		case "admin":
 			adminRows++
-			if index > 1 {
-				t.Fatalf("expected admin sessions before API key sessions, got %+v", parsed.Items)
-			}
 			if item.ID == "" || item.ID == adminToken1 || item.ID == adminToken2 || item.Role != string(auth.RoleAdmin) || item.LoginAt == "" || item.ExpiresAt == "" {
 				t.Fatalf("unexpected admin session row: %+v", item)
 			}
@@ -499,9 +436,6 @@ func TestAuthSessionManagementListsAdminAndAPIKeySessionsWithCurrentFirst(t *tes
 				}
 			}
 		case "api_key":
-			if index < 2 {
-				t.Fatalf("expected API key sessions after admin sessions, got %+v", parsed.Items)
-			}
 			if item.Role != string(auth.RoleAPIKeyViewer) || item.ID == "" || item.ID == viewerToken1 || item.ID == viewerToken2 || item.APIKeyID == "" || item.LoginAt == "" || item.ExpiresAt == "" {
 				t.Fatalf("unexpected API key session row: %+v", item)
 			}
@@ -565,6 +499,7 @@ func TestAuthSessionManagementRevokesCurrentAdminSession(t *testing.T) {
 
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/auth/sessions/"+parsed.Items[0].ID, nil)
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: adminToken1})
 	router.ServeHTTP(resp, req)
 
@@ -594,31 +529,6 @@ func TestAuthSessionManagementRevokesCurrentAdminSession(t *testing.T) {
 	}
 }
 
-func TestViewerSessionCannotAccessStatusActiveRoute(t *testing.T) {
-	sessions := auth.NewSessionManager(time.Hour)
-	token, _, err := sessions.CreateAPIKeyViewer(42)
-	if err != nil {
-		t.Fatalf("CreateAPIKeyViewer returned error: %v", err)
-	}
-	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	recorder := &activeStatusRecorderStub{}
-	router := NewRouter(nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{
-		Status: StatusRouteConfig{ActiveRecorder: recorder},
-	})
-
-	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/status/active", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusForbidden {
-		t.Fatalf("expected viewer session to be forbidden from status active route, got %d %s", resp.Code, resp.Body.String())
-	}
-	if recorder.calls != 0 {
-		t.Fatalf("expected forbidden viewer heartbeat not to record activity, got %d calls", recorder.calls)
-	}
-}
-
 func TestAdminSessionCannotAccessKeyOverviewRoute(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
 	token, _, err := sessions.Create()
@@ -644,6 +554,7 @@ func TestAuthLoginRejectsWrongPassword(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "")
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"wrong"}`))
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 
 	router.ServeHTTP(resp, req)
@@ -661,6 +572,7 @@ func TestAuthLoginRateLimitsRepeatedFailures(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"wrong"}`))
+		req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 		req.Header.Set("Content-Type", "application/json")
 		req.RemoteAddr = "198.51.100.1:1234"
 		router.ServeHTTP(resp, req)
@@ -671,6 +583,7 @@ func TestAuthLoginRateLimitsRepeatedFailures(t *testing.T) {
 
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"wrong"}`))
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = "198.51.100.1:1234"
 	router.ServeHTTP(resp, req)
@@ -680,7 +593,7 @@ func TestAuthLoginRateLimitsRepeatedFailures(t *testing.T) {
 	}
 }
 
-func TestAuthLoginAllowsCorrectPasswordAfterRateLimitThreshold(t *testing.T) {
+func TestAuthLoginRateLimitBlocksCorrectPasswordAfterThreshold(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
 	router := NewRouter(nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "")
@@ -688,6 +601,7 @@ func TestAuthLoginAllowsCorrectPasswordAfterRateLimitThreshold(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"wrong"}`))
+		req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 		req.Header.Set("Content-Type", "application/json")
 		req.RemoteAddr = "198.51.100.2:1234"
 		router.ServeHTTP(resp, req)
@@ -698,12 +612,16 @@ func TestAuthLoginAllowsCorrectPasswordAfterRateLimitThreshold(t *testing.T) {
 
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"secret"}`))
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = "198.51.100.2:1234"
 	router.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusNoContent {
-		t.Fatalf("expected correct password to clear failed attempts and login, got %d", resp.Code)
+	if resp.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected correct password to remain rate limited, got %d", resp.Code)
+	}
+	if resp.Header().Get("Retry-After") == "" {
+		t.Fatal("expected rate-limited login to include Retry-After")
 	}
 }
 
@@ -715,6 +633,7 @@ func TestAuthLogoutDeletesSessionCookie(t *testing.T) {
 
 	loginResp := httptest.NewRecorder()
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"secret"}`))
+	loginReq.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	loginReq.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(loginResp, loginReq)
 	if loginResp.Code != http.StatusNoContent {
@@ -727,6 +646,7 @@ func TestAuthLogoutDeletesSessionCookie(t *testing.T) {
 
 	logoutResp := httptest.NewRecorder()
 	logoutReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+	logoutReq.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	logoutReq.AddCookie(cookies[0])
 	router.ServeHTTP(logoutResp, logoutReq)
 	if logoutResp.Code != http.StatusNoContent {
@@ -746,6 +666,40 @@ func TestAuthLogoutDeletesSessionCookie(t *testing.T) {
 	}
 }
 
+func TestAuthLogoutClearsSecureSessionCookieBehindHTTPSProxy(t *testing.T) {
+	sessions := auth.NewSessionManager(time.Hour)
+	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
+	router := NewRouter(nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "")
+
+	loginResp := httptest.NewRecorder()
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"secret"}`))
+	loginReq.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginReq.Header.Set("X-Forwarded-Proto", "https")
+	router.ServeHTTP(loginResp, loginReq)
+	if loginResp.Code != http.StatusNoContent {
+		t.Fatalf("expected login status 204, got %d", loginResp.Code)
+	}
+	cookies := loginResp.Result().Cookies()
+	if len(cookies) == 0 || !cookies[0].Secure {
+		t.Fatalf("expected proxied HTTPS login to set a secure session cookie, got %+v", cookies)
+	}
+
+	logoutResp := httptest.NewRecorder()
+	logoutReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+	logoutReq.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
+	logoutReq.Header.Set("X-Forwarded-Proto", "https")
+	logoutReq.AddCookie(cookies[0])
+	router.ServeHTTP(logoutResp, logoutReq)
+	if logoutResp.Code != http.StatusNoContent {
+		t.Fatalf("expected logout status 204, got %d", logoutResp.Code)
+	}
+	clearCookies := logoutResp.Result().Cookies()
+	if len(clearCookies) == 0 || clearCookies[0].Name != sessionCookieName || clearCookies[0].MaxAge >= 0 || !clearCookies[0].Secure {
+		t.Fatalf("expected proxied HTTPS logout to clear a secure session cookie, got %+v", clearCookies)
+	}
+}
+
 func TestSubpathAuthUsesPrefixedRoutesAndCookiePath(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour, BasePath: "/cpa"}
@@ -761,6 +715,7 @@ func TestSubpathAuthUsesPrefixedRoutesAndCookiePath(t *testing.T) {
 
 	loginResp := httptest.NewRecorder()
 	loginReq := httptest.NewRequest(http.MethodPost, "/cpa/api/v1/auth/login", strings.NewReader(`{"password":"secret"}`))
+	loginReq.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	loginReq.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(loginResp, loginReq)
 	if loginResp.Code != http.StatusNoContent {

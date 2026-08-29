@@ -22,7 +22,7 @@ func (s *Service) attachWindowUsageStats(ctx context.Context, authIndex string, 
 	if s == nil {
 		return response
 	}
-	calculator, err := repository.NewUsageWindowStatsCalculator(ctx, s.db)
+	calculator, err := repository.NewUsageWindowStatsCalculator(ctx, s.db, s.pricing.NewResolver())
 	if err != nil {
 		return response
 	}
@@ -88,8 +88,9 @@ func shouldBackfillWindowUsageStats(row QuotaRow) bool {
 	if row.WindowUsageTokens != nil && row.WindowUsageCost != nil {
 		return false
 	}
-	// 本地 usage_events 兜底只适用于普通 5h/Weekly/Monthly window scope。
-	if !strings.EqualFold(strings.TrimSpace(row.Scope), "window") {
+	// 普通窗口和 xAI canonical Weekly 都能安全映射到当前 auth_index 的明确时间范围。
+	ordinaryWindow := strings.EqualFold(strings.TrimSpace(row.Scope), "window")
+	if !ordinaryWindow && !isXAIWeeklyUsageWindowQuotaRow(row) {
 		return false
 	}
 	if row.Window == nil || row.Window.Seconds == nil {
