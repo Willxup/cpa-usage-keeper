@@ -84,6 +84,45 @@ func TestCodexProviderUsesAccountIDForUsageRequest(t *testing.T) {
 	}
 }
 
+func TestCodexProviderKeepsSameEmailTeamsSeparatedByIdentityAndAccountHeader(t *testing.T) {
+	const usageJSON = `{"plan_type":"team","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":12,"limit_window_seconds":18000,"reset_after_seconds":60},"secondary_window":{"used_percent":4,"limit_window_seconds":604800,"reset_after_seconds":120}}}`
+	caller := &recordingManagementCaller{responses: []*apicall.Response{
+		{StatusCode: 200, BodyText: usageJSON, Body: json.RawMessage(usageJSON)},
+		{StatusCode: 200, BodyText: usageJSON, Body: json.RawMessage(usageJSON)},
+	}}
+	provider := quota.NewCodexProvider(caller, quota.DefaultProviderConfigs().Codex)
+	identities := []entities.UsageIdentity{
+		{Name: "same-user@example.invalid", Identity: "codex-team-a-auth", AccountID: stringPtr("team-account-a")},
+		{Name: "same-user@example.invalid", Identity: "codex-team-b-auth", AccountID: stringPtr("team-account-b")},
+	}
+	for _, identity := range identities {
+		if _, err := provider.Check(context.Background(), quota.ProviderInput{Identity: identity}); err != nil {
+			t.Fatalf("Check for %s returned error: %v", identity.Identity, err)
+		}
+	}
+	if len(caller.requests) != 2 {
+		t.Fatalf("expected one request per Codex team, got %d", len(caller.requests))
+	}
+	for index, want := range []struct {
+		authIndex string
+		accountID string
+	}{
+		{authIndex: "codex-team-a-auth", accountID: "team-account-a"},
+		{authIndex: "codex-team-b-auth", accountID: "team-account-b"},
+	} {
+		request := caller.requests[index]
+		if request.AuthIndex != want.authIndex {
+			t.Fatalf("request %d used wrong auth index %q, want %q", index, request.AuthIndex, want.authIndex)
+		}
+		if got := request.Header["Chatgpt-Account-Id"]; got != want.accountID {
+			t.Fatalf("request %d used wrong Chatgpt-Account-Id %q, want %q", index, got, want.accountID)
+		}
+	}
+	if caller.requests[0].Header["Chatgpt-Account-Id"] == caller.requests[1].Header["Chatgpt-Account-Id"] {
+		t.Fatal("same-email Codex teams unexpectedly shared Chatgpt-Account-Id")
+	}
+}
+
 func TestCodexProviderParsesZeroRateLimitResetCredits(t *testing.T) {
 	codexUsageJSON := `{"plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false},"rate_limit_reset_credits":{"available_count":0}}`
 	caller := &recordingManagementCaller{responses: []*apicall.Response{{

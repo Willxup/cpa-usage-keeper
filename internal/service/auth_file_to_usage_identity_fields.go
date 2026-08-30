@@ -24,6 +24,9 @@ func resolveCodexAccountID(file authfiles.AuthFile) *string {
 		idTokenAccountIDCamel = file.IDToken.AccountIDCamel
 	}
 	return firstNonEmptyStringPtr(
+		stringValue(file.AccountID),
+		stringValue(file.ChatGPTAccountID),
+		stringValue(file.ChatGPTAccountIDCamel),
 		idTokenAccountID,
 		idTokenAccountIDCamel,
 	)
@@ -37,6 +40,8 @@ func resolveCodexPlanType(file authfiles.AuthFile) *string {
 		idTokenPlanTypeCamel = file.IDToken.PlanTypeCamel
 	}
 	return firstNonEmptyStringPtr(
+		stringValue(file.PlanType),
+		stringValue(file.PlanTypeCamel),
 		idTokenPlanType,
 		idTokenPlanTypeCamel,
 	)

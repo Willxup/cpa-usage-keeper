@@ -1,6 +1,7 @@
 package cpa
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
+	"cpa-usage-keeper/internal/cpa/dto/authfiles"
 )
 
 func TestBlankJSONResponseBodyCheckDoesNotAllocate(t *testing.T) {
@@ -351,6 +353,186 @@ func TestFetchAuthFilesParsesCodexIDTokenFields(t *testing.T) {
 	}
 }
 
+func TestFetchAuthFilesEnrichesSidecarAccountAndTeamMetadata(t *testing.T) {
+	const sharedEmail = "same-user@example.invalid"
+	var downloadCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
+			t.Errorf("expected management Authorization header, got %q", got)
+		}
+		switch r.URL.Path {
+		case cpaManagementAuthFilesEndpoint:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"files":[
+				{"name":"codex-account-a-same-user@example.invalid-team-agent-identity.json","auth_index":"agent-auth-a","type":"codex","email":"` + sharedEmail + `"},
+				{"name":"codex-account-b-same-user@example.invalid-team-agent-identity.json","auth_index":"agent-auth-b","type":"codex","email":"` + sharedEmail + `"},
+				{"name":"codex-native.json","auth_index":"native-auth","type":"codex","email":"native@example.invalid"}
+			]}`))
+		case cpaManagementAuthFilesDownloadEndpoint:
+			downloadCalls++
+			w.Header().Set("Content-Type", "application/json")
+			switch r.URL.Query().Get("name") {
+			case "codex-account-a-same-user@example.invalid-team-agent-identity.json":
+				_, _ = w.Write([]byte(`{"type":"codex","auth_mode":"agent_identity_sidecar","credential_kind":"agent_identity","agent_identity_id":"agent-aabb0011","email":"` + sharedEmail + `","account_id":"team-account-a","chatgpt_user_id":"chatgpt-user-a","plan_type":"team","access_token":"cais_secret_a_do_not_return"}`))
+			case "codex-account-b-same-user@example.invalid-team-agent-identity.json":
+				_, _ = w.Write([]byte(`{"type":"codex","auth_mode":"agent_identity_sidecar","credential_kind":"personal_access_token","agent_identity_id":"agent-ccdd2233","email":"` + sharedEmail + `","account_id":"team-account-b","chatgpt_user_id":"chatgpt-user-b","plan_type":"team","access_token":"cais_secret_b_do_not_return"}`))
+			default:
+				http.NotFound(w, r)
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
+	result, err := client.FetchAuthFiles(context.Background())
+	if err != nil {
+		t.Fatalf("FetchAuthFiles returned error: %v", err)
+	}
+	if len(result.Payload.Files) != 3 {
+		t.Fatalf("expected three auth files, got %#v", result.Payload.Files)
+	}
+	if downloadCalls != 2 {
+		t.Fatalf("expected only sidecar candidates to be downloaded, got %d calls", downloadCalls)
+	}
+	if bytes.Contains(result.Body, []byte("cais_secret_a_do_not_return")) || bytes.Contains(result.Body, []byte("cais_secret_b_do_not_return")) {
+		t.Fatalf("auth-files response body contains a sidecar credential")
+	}
+
+	filesByIndex := make(map[string]authfiles.AuthFile, len(result.Payload.Files))
+	for _, file := range result.Payload.Files {
+		filesByIndex[file.AuthIndex] = file
+	}
+	first := filesByIndex["agent-auth-a"]
+	second := filesByIndex["agent-auth-b"]
+	if first.AccountID != "team-account-a" || first.ChatGPTUserID != "chatgpt-user-a" || first.PlanType != "team" || first.AuthMode != "agent_identity_sidecar" {
+		t.Fatalf("first sidecar metadata = %+v", first)
+	}
+	if second.AccountID != "team-account-b" || second.ChatGPTUserID != "chatgpt-user-b" || second.PlanType != "team" || second.CredentialKind != "personal_access_token" {
+		t.Fatalf("second sidecar metadata = %+v", second)
+	}
+	if first.Email != sharedEmail || second.Email != sharedEmail || first.AccountID == second.AccountID {
+		t.Fatalf("same-email sidecars were not kept distinct: first=%+v second=%+v", first, second)
+	}
+	if native := filesByIndex["native-auth"]; native.AccountID != "" || native.PlanType != "" || native.AuthMode != "" {
+		t.Fatalf("native OAuth file was unexpectedly enriched: %+v", native)
+	}
+}
+
+func TestClassifyCodexAuthFileRejectsUnknownShape(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want codexAuthFileClassification
+	}{
+		{name: "native oauth", raw: `{"type":"codex","access_token":"oauth-access","refresh_token":"oauth-refresh","id_token":"header.payload.signature"}`, want: codexAuthFileNative},
+		{name: "sidecar", raw: `{"type":"codex","auth_mode":"agent_identity_sidecar","agent_identity_id":"agent-aabb0011","access_token":"cais_fake_for_test_only"}`, want: codexAuthFileSidecar},
+		{name: "unknown codex", raw: `{"type":"codex","access_token":"opaque-but-unclassified"}`, want: codexAuthFileUnknown},
+		{name: "plugin type without marker", raw: `{"type":"codex-agent-identity","access_token":"opaque-but-unclassified"}`, want: codexAuthFileUnknown},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := classifyCodexAuthFile([]byte(test.raw)); got != test.want {
+				t.Fatalf("classifyCodexAuthFile() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestFetchAuthFilesUsesPathBasenameAndNestedCodexMetadata(t *testing.T) {
+	var downloadNames []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
+			t.Errorf("expected management Authorization header, got %q", got)
+		}
+		switch r.URL.Path {
+		case cpaManagementAuthFilesEndpoint:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"files":[{"name":"auth-record.json","path":"/var/lib/cpa/auths/codex-agent-identity-team.json","auth_index":"team-auth","type":"codex-agent-identity","email":"team-user@example.invalid"}]}`))
+		case cpaManagementAuthFilesDownloadEndpoint:
+			name := r.URL.Query().Get("name")
+			downloadNames = append(downloadNames, name)
+			if name == "auth-record.json" {
+				http.NotFound(w, r)
+				return
+			}
+			if name != "codex-agent-identity-team.json" {
+				t.Errorf("unexpected download candidate %q", name)
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"metadata":{"type":"codex-agent-identity","auth_mode":"agent_identity_sidecar","agent_identity_id":"agent-aabb0011","account_id":"team-from-path","plan_type":"team","id_token":{"chatgpt_account_id":"team-from-id-token"}},"attributes":{"chatgpt_user_id":"chatgpt-user-from-attributes"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
+	result, err := client.FetchAuthFiles(context.Background())
+	if err != nil {
+		t.Fatalf("FetchAuthFiles returned error: %v", err)
+	}
+	if len(downloadNames) != 2 || downloadNames[0] != "auth-record.json" || downloadNames[1] != "codex-agent-identity-team.json" {
+		t.Fatalf("expected safe name/path candidate order, got %#v", downloadNames)
+	}
+	if len(result.Payload.Files) != 1 {
+		t.Fatalf("expected one auth file, got %#v", result.Payload.Files)
+	}
+	file := result.Payload.Files[0]
+	if file.Type != "codex-agent-identity" || file.AuthMode != "agent_identity_sidecar" || file.AgentIdentityID != "agent-aabb0011" {
+		t.Fatalf("nested sidecar classification metadata = %+v", file)
+	}
+	if file.AccountID != "team-from-path" || file.ChatGPTAccountID != "team-from-id-token" || file.PlanType != "team" || file.ChatGPTUserID != "chatgpt-user-from-attributes" {
+		t.Fatalf("nested sidecar routing metadata = %+v", file)
+	}
+	if file.IDToken != nil {
+		t.Fatalf("downloaded sidecar id_token claims must not be promoted to a raw credential field: %+v", file.IDToken)
+	}
+}
+
+func TestAuthFileDownloadNamesRejectTraversalAndUseJSONBasenames(t *testing.T) {
+	if got := authFileDownloadNames("../secret.json", `C:\\data\\safe.json`); len(got) != 1 || got[0] != "safe.json" {
+		t.Fatalf("unexpected sanitized auth file candidates: %#v", got)
+	}
+	if got := authFileDownloadNames("auth-record.txt", "/data/auths/real.json"); len(got) != 1 || got[0] != "real.json" {
+		t.Fatalf("expected invalid name to fall back to path basename, got %#v", got)
+	}
+	if got := authFileDownloadNames("nested/auth.json", "/data/auths/auth.json"); len(got) != 1 || got[0] != "auth.json" {
+		t.Fatalf("expected duplicate basenames to be deduplicated, got %#v", got)
+	}
+	if got := authFileDownloadNames("../secret.json", "../also-secret.json"); len(got) != 0 {
+		t.Fatalf("expected traversal candidates to be rejected, got %#v", got)
+	}
+}
+
+func TestDownloadAuthFileRawLimitsResponseWithoutReturningCredentialBody(t *testing.T) {
+	const sentinel = "cais_secret_should_not_escape"
+	body := strings.Repeat("x", int(authFileDownloadMaxBytes)-len(sentinel)+1) + sentinel
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != cpaManagementAuthFilesDownloadEndpoint {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, body)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
+	_, exists, err := client.downloadAuthFileRaw(context.Background(), "oversized.json", "")
+	if err == nil {
+		t.Fatal("expected oversized auth file response error")
+	}
+	if exists {
+		t.Fatal("oversized auth file must not be reported as existing")
+	}
+	if strings.Contains(err.Error(), sentinel) {
+		t.Fatalf("oversized response leaked credential content in error: %v", err)
+	}
+}
+
 func TestUpdateAuthFileStatusPatchesManagementEndpoint(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPatch {
@@ -495,6 +677,204 @@ func TestCallManagementAPIParsesSnakeCaseResponse(t *testing.T) {
 	}
 	if result.StatusCode != http.StatusCreated || result.BodyText != "created" || string(result.Body) != `{"ok":true}` {
 		t.Fatalf("unexpected snake case api-call response: %+v", result)
+	}
+}
+
+func TestCallManagementAPICodexQuotaUsesPluginBridge(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		url    string
+		data   any
+	}{
+		{
+			name:   "usage",
+			method: http.MethodGet,
+			url:    "https://chatgpt.com/backend-api/wham/usage",
+		},
+		{
+			name:   "reset credit details",
+			method: http.MethodGet,
+			url:    "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits",
+		},
+		{
+			name:   "reset credit consume",
+			method: http.MethodPost,
+			url:    "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume",
+			data:   map[string]string{"redeem_request_id": "redeem-test"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost {
+					t.Errorf("expected POST method, got %s", r.Method)
+				}
+				if r.URL.Path != cpaManagementCodexAgentIdentityAPICallEndpoint {
+					t.Errorf("expected plugin bridge path %q, got %q", cpaManagementCodexAgentIdentityAPICallEndpoint, r.URL.Path)
+				}
+				if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
+					t.Errorf("expected management Authorization header, got %q", got)
+				}
+				if got := r.Header.Get("Content-Type"); got != "application/json" {
+					t.Errorf("expected JSON content type, got %q", got)
+				}
+
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Errorf("decode bridge request body: %v", err)
+				}
+				if body["authIndex"] != "codex-auth" || body["method"] != test.method || body["url"] != test.url {
+					t.Errorf("unexpected bridge request body: %#v", body)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"statusCode":200,"bodyText":"bridge-ok","body":{"bridge":true}}`))
+			}))
+			defer server.Close()
+
+			client := NewClient(server.URL, "management-secret", 2*time.Second, false)
+			result, err := client.CallManagementAPI(context.Background(), apicall.Request{
+				AuthIndex: "codex-auth",
+				Method:    test.method,
+				URL:       test.url,
+				Header:    map[string]string{"Chatgpt-Account-Id": "acct-test"},
+				Data:      test.data,
+			})
+			if err != nil {
+				t.Fatalf("CallManagementAPI returned error: %v", err)
+			}
+			if result.StatusCode != http.StatusOK || result.BodyText != "bridge-ok" || string(result.Body) != `{"bridge":true}` {
+				t.Fatalf("unexpected bridge response: %+v", result)
+			}
+		})
+	}
+}
+
+func TestIsCodexQuotaRequestMatchesOnlySupportedEndpoints(t *testing.T) {
+	tests := []struct {
+		name    string
+		method  string
+		url     string
+		expects bool
+	}{
+		{name: "usage", method: http.MethodGet, url: "https://chatgpt.com/backend-api/wham/usage", expects: true},
+		{name: "reset details", method: http.MethodGet, url: "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits", expects: true},
+		{name: "reset consume", method: http.MethodPost, url: "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume", expects: true},
+		{name: "lowercase method", method: "get", url: "https://chatgpt.com/backend-api/wham/usage", expects: true},
+		{name: "wrong method", method: http.MethodPost, url: "https://chatgpt.com/backend-api/wham/usage", expects: false},
+		{name: "query string", method: http.MethodGet, url: "https://chatgpt.com/backend-api/wham/usage?account=1", expects: false},
+		{name: "fragment", method: http.MethodGet, url: "https://chatgpt.com/backend-api/wham/usage#fragment", expects: false},
+		{name: "trailing slash", method: http.MethodGet, url: "https://chatgpt.com/backend-api/wham/usage/", expects: false},
+		{name: "wrong scheme", method: http.MethodGet, url: "http://chatgpt.com/backend-api/wham/usage", expects: false},
+		{name: "wrong host", method: http.MethodGet, url: "https://chat.openai.com/backend-api/wham/usage", expects: false},
+		{name: "host suffix", method: http.MethodGet, url: "https://chatgpt.com.evil.example/backend-api/wham/usage", expects: false},
+		{name: "explicit port", method: http.MethodGet, url: "https://chatgpt.com:443/backend-api/wham/usage", expects: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := isCodexQuotaRequest(apicall.Request{Method: test.method, URL: test.url})
+			if got != test.expects {
+				t.Fatalf("isCodexQuotaRequest(%q, %q) = %v, want %v", test.method, test.url, got, test.expects)
+			}
+		})
+	}
+}
+
+func TestCallManagementAPIFallsBackToNativeForKnownOAuthWhenBridgeIsMissing(t *testing.T) {
+	var bridgeBody, nativeBody []byte
+	var bridgeCalls, nativeCalls, listCalls, downloadCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
+			t.Errorf("expected management Authorization header, got %q", got)
+		}
+		switch r.URL.Path {
+		case cpaManagementCodexAgentIdentityAPICallEndpoint:
+			bridgeCalls++
+			bridgeBody, _ = io.ReadAll(r.Body)
+			http.NotFound(w, r)
+		case cpaManagementAuthFilesEndpoint:
+			listCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"files":[{"name":"codex-native-agent-identity.json","auth_index":"oauth-auth","type":"codex"}]}`))
+		case cpaManagementAuthFilesDownloadEndpoint:
+			downloadCalls++
+			if got := r.URL.Query().Get("name"); got != "codex-native-agent-identity.json" {
+				t.Errorf("unexpected auth file download name %q", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"type":"codex","access_token":"oauth-token","refresh_token":"oauth-refresh-token","id_token":"header.payload.signature"}`))
+		case cpaManagementAPICallEndpoint:
+			nativeCalls++
+			nativeBody, _ = io.ReadAll(r.Body)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"statusCode":200,"bodyText":"native-ok","body":{"oauth":true}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
+	result, err := client.CallManagementAPI(context.Background(), apicall.Request{
+		AuthIndex: "oauth-auth",
+		Method:    http.MethodGet,
+		URL:       "https://chatgpt.com/backend-api/wham/usage",
+		Header:    map[string]string{"User-Agent": "keeper-test"},
+	})
+	if err != nil {
+		t.Fatalf("CallManagementAPI returned error: %v", err)
+	}
+	if result.StatusCode != http.StatusOK || result.BodyText != "native-ok" || string(result.Body) != `{"oauth":true}` {
+		t.Fatalf("unexpected native fallback response: %+v", result)
+	}
+	if bridgeCalls != 1 || nativeCalls != 1 || listCalls != 1 || downloadCalls != 1 {
+		t.Fatalf("unexpected fallback calls: bridge=%d native=%d list=%d download=%d", bridgeCalls, nativeCalls, listCalls, downloadCalls)
+	}
+	if len(bridgeBody) == 0 || !bytes.Equal(bridgeBody, nativeBody) {
+		t.Fatalf("bridge and native request bodies differ: bridge=%s native=%s", bridgeBody, nativeBody)
+	}
+}
+
+func TestCallManagementAPINeverFallsBackForSidecarAuthWhenBridgeIsMissing(t *testing.T) {
+	var nativeCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case cpaManagementCodexAgentIdentityAPICallEndpoint:
+			http.NotFound(w, r)
+		case cpaManagementAuthFilesEndpoint:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"files":[{"name":"codex-agent.json","auth_index":"agent-auth","type":"codex"}]}`))
+		case cpaManagementAuthFilesDownloadEndpoint:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"type":"codex","auth_mode":"agent_identity_sidecar","agent_identity_id":"agent-aabb0011","access_token":"cais_fake_for_test_only"}`))
+		case cpaManagementAPICallEndpoint:
+			nativeCalls++
+			http.Error(w, "native route must not receive sidecar auth", http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
+	_, err := client.CallManagementAPI(context.Background(), apicall.Request{
+		AuthIndex: "agent-auth",
+		Method:    http.MethodGet,
+		URL:       "https://chatgpt.com/backend-api/wham/usage",
+	})
+	if err == nil {
+		t.Fatal("expected bridge-unavailable error")
+	}
+	if !strings.Contains(err.Error(), "install or enable the Codex Agent Identity plugin") {
+		t.Fatalf("unexpected bridge-unavailable error: %v", err)
+	}
+	if strings.Contains(err.Error(), "cais_fake_for_test_only") {
+		t.Fatalf("error leaked an opaque credential: %v", err)
+	}
+	if nativeCalls != 0 {
+		t.Fatalf("native route received a sidecar request %d time(s)", nativeCalls)
 	}
 }
 

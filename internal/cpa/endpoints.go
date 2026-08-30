@@ -2,6 +2,7 @@ package cpa
 
 const (
 	cpaManagementAuthFilesEndpoint           = "/v0/management/auth-files"
+	cpaManagementAuthFilesDownloadEndpoint   = "/v0/management/auth-files/download"
 	cpaManagementAuthFilesStatusEndpoint     = "/v0/management/auth-files/status"
 	cpaManagementAPIKeysEndpoint             = "/v0/management/api-keys"
 	cpaManagementVertexAPIKeyEndpoint        = "/v0/management/vertex-api-key"
@@ -12,8 +13,13 @@ const (
 	cpaManagementOpenAICompatibilityEndpoint = "/v0/management/openai-compatibility"
 	cpaManagementUsageQueueEndpoint          = "/v0/management/usage-queue"
 	cpaManagementAPICallEndpoint             = "/v0/management/api-call"
-	cpaManagementRequestLogByIDEndpoint      = "/v0/management/request-log-by-id"
-	cpaModelsEndpoint                        = "/v1/models"
+	// The plugin host cannot replace CPA's reserved api-call route. Codex
+	// quota/reset requests therefore use the plugin-owned bridge, which then
+	// applies AgentAssertion/PAT auth for sidecar credentials and forwards
+	// ordinary OAuth credentials back to CPA's native route.
+	cpaManagementCodexAgentIdentityAPICallEndpoint = "/v0/management/codex-agent-identity/api-call"
+	cpaManagementRequestLogByIDEndpoint            = "/v0/management/request-log-by-id"
+	cpaModelsEndpoint                              = "/v1/models"
 
 	cpaManagementRedisNetwork       = "tcp"
 	ManagementRedisDefaultPort      = "8317"

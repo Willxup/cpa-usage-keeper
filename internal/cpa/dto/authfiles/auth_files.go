@@ -17,46 +17,74 @@ type AuthFilesResponse struct {
 
 // AuthFile 是 CPA /management/auth-files 中单个 auth file 的原始响应 DTO。
 type AuthFile struct {
-	AuthIndex   string                  `json:"auth_index"`
-	Name        string                  `json:"name"`
-	Path        string                  `json:"path"`
-	Email       string                  `json:"email"`
-	Type        string                  `json:"type"`
-	Provider    string                  `json:"provider"`
-	Label       string                  `json:"label"`
-	Status      string                  `json:"status"`
-	Source      string                  `json:"source"`
-	Prefix      string                  `json:"prefix"`
-	Priority    *int                    `json:"priority"`
-	Disabled    *bool                   `json:"disabled"`
-	Note        *string                 `json:"note"`
-	Unavailable bool                    `json:"unavailable"`
-	RuntimeOnly bool                    `json:"runtime_only"`
-	Account     string                  `json:"account,omitempty"`
-	ProjectID   string                  `json:"project_id,omitempty"`
-	Sub         *AuthFileXAIUserIDValue `json:"sub,omitempty"`
-	Subject     *AuthFileXAIUserIDValue `json:"subject,omitempty"`
-	UserID      *AuthFileXAIUserIDValue `json:"user_id,omitempty"`
-	UserIDCamel *AuthFileXAIUserIDValue `json:"userId,omitempty"`
-	Metadata    *AuthFileClaims         `json:"metadata,omitempty"`
-	Attributes  *AuthFileClaims         `json:"attributes,omitempty"`
-	OAuth       *AuthFileOAuth          `json:"oauth,omitempty"`
-	User        *AuthFileUser           `json:"user,omitempty"`
-	IDToken     *AuthFileIDToken        `json:"id_token"`
-	xaiOAuthSet bool
-	xaiUserSet  bool
+	AuthIndex   string  `json:"auth_index"`
+	Name        string  `json:"name"`
+	Path        string  `json:"path"`
+	Email       string  `json:"email"`
+	Type        string  `json:"type"`
+	Provider    string  `json:"provider"`
+	Label       string  `json:"label"`
+	Status      string  `json:"status"`
+	Source      string  `json:"source"`
+	Prefix      string  `json:"prefix"`
+	Priority    *int    `json:"priority"`
+	Disabled    *bool   `json:"disabled"`
+	Note        *string `json:"note"`
+	Unavailable bool    `json:"unavailable"`
+	RuntimeOnly bool    `json:"runtime_only"`
+	Account     string  `json:"account,omitempty"`
+	// The CPA auth-files list does not expose plugin-owned metadata on every
+	// release. These non-secret fields are populated from the sidecar auth file
+	// by the Keeper client when the list entry is clearly Codex Agent Identity.
+	AuthMode              string                  `json:"auth_mode,omitempty"`
+	CredentialKind        string                  `json:"credential_kind,omitempty"`
+	AgentIdentityID       string                  `json:"agent_identity_id,omitempty"`
+	AccountID             string                  `json:"account_id,omitempty"`
+	ChatGPTAccountID      string                  `json:"chatgpt_account_id,omitempty"`
+	ChatGPTAccountIDCamel string                  `json:"chatgptAccountId,omitempty"`
+	ChatGPTUserID         string                  `json:"chatgpt_user_id,omitempty"`
+	ChatGPTUserIDCamel    string                  `json:"chatgptUserId,omitempty"`
+	PlanType              string                  `json:"plan_type,omitempty"`
+	PlanTypeCamel         string                  `json:"planType,omitempty"`
+	ProjectID             string                  `json:"project_id,omitempty"`
+	Sub                   *AuthFileXAIUserIDValue `json:"sub,omitempty"`
+	Subject               *AuthFileXAIUserIDValue `json:"subject,omitempty"`
+	UserID                *AuthFileXAIUserIDValue `json:"user_id,omitempty"`
+	UserIDCamel           *AuthFileXAIUserIDValue `json:"userId,omitempty"`
+	Metadata              *AuthFileClaims         `json:"metadata,omitempty"`
+	Attributes            *AuthFileClaims         `json:"attributes,omitempty"`
+	OAuth                 *AuthFileOAuth          `json:"oauth,omitempty"`
+	User                  *AuthFileUser           `json:"user,omitempty"`
+	IDToken               *AuthFileIDToken        `json:"id_token"`
+	xaiOAuthSet           bool
+	xaiUserSet            bool
 }
 
 // AuthFileClaims 是 CPA auth file 中可能携带身份 subject 的通用 claims DTO。
 type AuthFileClaims struct {
-	Sub         *AuthFileXAIUserIDValue `json:"sub,omitempty"`
-	Subject     *AuthFileXAIUserIDValue `json:"subject,omitempty"`
-	UserID      *AuthFileXAIUserIDValue `json:"user_id,omitempty"`
-	UserIDCamel *AuthFileXAIUserIDValue `json:"userId,omitempty"`
-	OAuth       *AuthFileOAuth          `json:"oauth,omitempty"`
-	User        *AuthFileUser           `json:"user,omitempty"`
-	xaiOAuthSet bool
-	xaiUserSet  bool
+	Type                  string                  `json:"type,omitempty"`
+	Provider              string                  `json:"provider,omitempty"`
+	AuthMode              string                  `json:"auth_mode,omitempty"`
+	CredentialKind        string                  `json:"credential_kind,omitempty"`
+	AgentIdentityID       string                  `json:"agent_identity_id,omitempty"`
+	Email                 string                  `json:"email,omitempty"`
+	AccountID             string                  `json:"account_id,omitempty"`
+	ChatGPTAccountID      string                  `json:"chatgpt_account_id,omitempty"`
+	ChatGPTAccountIDCamel string                  `json:"chatgptAccountId,omitempty"`
+	ChatGPTUserID         string                  `json:"chatgpt_user_id,omitempty"`
+	ChatGPTUserIDCamel    string                  `json:"chatgptUserId,omitempty"`
+	PlanType              string                  `json:"plan_type,omitempty"`
+	PlanTypeCamel         string                  `json:"planType,omitempty"`
+	ProjectID             string                  `json:"project_id,omitempty"`
+	IDToken               *AuthFileIDToken        `json:"id_token,omitempty"`
+	Sub                   *AuthFileXAIUserIDValue `json:"sub,omitempty"`
+	Subject               *AuthFileXAIUserIDValue `json:"subject,omitempty"`
+	UserID                *AuthFileXAIUserIDValue `json:"user_id,omitempty"`
+	UserIDCamel           *AuthFileXAIUserIDValue `json:"userId,omitempty"`
+	OAuth                 *AuthFileOAuth          `json:"oauth,omitempty"`
+	User                  *AuthFileUser           `json:"user,omitempty"`
+	xaiOAuthSet           bool
+	xaiUserSet            bool
 }
 
 // AuthFileOAuth 是 CPA auth file 中 oauth 身份字段的最小 DTO。
@@ -88,6 +116,7 @@ func (file *AuthFile) UnmarshalJSON(data []byte) error {
 		Attributes  json.RawMessage `json:"attributes"`
 		OAuth       json.RawMessage `json:"oauth"`
 		User        json.RawMessage `json:"user"`
+		IDToken     json.RawMessage `json:"id_token"`
 	}{authFileAlias: &decoded}
 	if err := json.Unmarshal(data, &shadow); err != nil {
 		return fmt.Errorf("decode auth file: %w", err)
@@ -105,7 +134,10 @@ func (file *AuthFile) UnmarshalJSON(data []byte) error {
 	decoded.Attributes = authFileClaims(object["attributes"])
 	decoded.OAuth, decoded.xaiOAuthSet = authFileOAuth(object["oauth"])
 	decoded.User, decoded.xaiUserSet = authFileUser(object["user"])
+	decoded.IDToken = authFileIDToken(object["id_token"])
 	*file = AuthFile(decoded)
+	mergeAuthFileCodexClaims(file, file.Metadata)
+	mergeAuthFileCodexClaims(file, file.Attributes)
 	return nil
 }
 
@@ -154,14 +186,151 @@ func authFileClaims(data json.RawMessage) *AuthFileClaims {
 		return nil
 	}
 	claims := &AuthFileClaims{
-		Sub:         authFileXAIUserIDValue(object["sub"]),
-		Subject:     authFileXAIUserIDValue(object["subject"]),
-		UserID:      authFileXAIUserIDValue(object["user_id"]),
-		UserIDCamel: authFileXAIUserIDValue(object["userId"]),
+		Type:                  authFileString(object["type"]),
+		Provider:              authFileString(object["provider"]),
+		AuthMode:              authFileString(object["auth_mode"]),
+		CredentialKind:        authFileString(object["credential_kind"]),
+		AgentIdentityID:       authFileString(object["agent_identity_id"]),
+		Email:                 authFileString(object["email"]),
+		AccountID:             authFileString(object["account_id"]),
+		ChatGPTAccountID:      authFileString(object["chatgpt_account_id"]),
+		ChatGPTAccountIDCamel: authFileString(object["chatgptAccountId"]),
+		ChatGPTUserID:         authFileString(object["chatgpt_user_id"]),
+		ChatGPTUserIDCamel:    authFileString(object["chatgptUserId"]),
+		PlanType:              authFileString(object["plan_type"]),
+		PlanTypeCamel:         authFileString(object["planType"]),
+		ProjectID:             authFileString(object["project_id"]),
+		IDToken:               authFileIDToken(object["id_token"]),
+		Sub:                   authFileXAIUserIDValue(object["sub"]),
+		Subject:               authFileXAIUserIDValue(object["subject"]),
+		UserID:                authFileXAIUserIDValue(object["user_id"]),
+		UserIDCamel:           authFileXAIUserIDValue(object["userId"]),
 	}
 	claims.OAuth, claims.xaiOAuthSet = authFileOAuth(object["oauth"])
 	claims.User, claims.xaiUserSet = authFileUser(object["user"])
 	return claims
+}
+
+func authFileString(data json.RawMessage) string {
+	if len(data) == 0 {
+		return ""
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case json.Number:
+		return strings.TrimSpace(typed.String())
+	default:
+		return ""
+	}
+}
+
+func authFileStringPointer(data json.RawMessage) *string {
+	value := authFileString(data)
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func authFileTime(data json.RawMessage) *time.Time {
+	value := authFileString(data)
+	if value == "" {
+		return nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return nil
+	}
+	return &parsed
+}
+
+func authFileIDToken(data json.RawMessage) *AuthFileIDToken {
+	object := authFileObject(data)
+	if object == nil {
+		return nil
+	}
+	return &AuthFileIDToken{
+		AccountID:        authFileStringPointer(object["chatgpt_account_id"]),
+		AccountIDCamel:   authFileStringPointer(object["chatgptAccountId"]),
+		ActiveStart:      authFileTime(object["chatgpt_subscription_active_start"]),
+		ActiveStartCamel: authFileTime(object["chatgptSubscriptionActiveStart"]),
+		ActiveUntil:      authFileTime(object["chatgpt_subscription_active_until"]),
+		ActiveUntilCamel: authFileTime(object["chatgptSubscriptionActiveUntil"]),
+		PlanType:         authFileStringPointer(object["plan_type"]),
+		PlanTypeCamel:    authFileStringPointer(object["planType"]),
+	}
+}
+
+func mergeAuthFileCodexClaims(file *AuthFile, claims *AuthFileClaims) {
+	if file == nil || claims == nil {
+		return
+	}
+	file.Type = authFileFirstNonEmpty(file.Type, claims.Type)
+	file.Provider = authFileFirstNonEmpty(file.Provider, claims.Provider)
+	file.AuthMode = authFileFirstNonEmpty(file.AuthMode, claims.AuthMode)
+	file.CredentialKind = authFileFirstNonEmpty(file.CredentialKind, claims.CredentialKind)
+	file.AgentIdentityID = authFileFirstNonEmpty(file.AgentIdentityID, claims.AgentIdentityID)
+	file.Email = authFileFirstNonEmpty(file.Email, claims.Email)
+	file.AccountID = authFileFirstNonEmpty(file.AccountID, claims.AccountID, claims.ChatGPTAccountID, claims.ChatGPTAccountIDCamel)
+	file.ChatGPTAccountID = authFileFirstNonEmpty(file.ChatGPTAccountID, claims.ChatGPTAccountID, claims.AccountID)
+	file.ChatGPTAccountIDCamel = authFileFirstNonEmpty(file.ChatGPTAccountIDCamel, claims.ChatGPTAccountIDCamel)
+	file.ChatGPTUserID = authFileFirstNonEmpty(file.ChatGPTUserID, claims.ChatGPTUserID)
+	file.ChatGPTUserIDCamel = authFileFirstNonEmpty(file.ChatGPTUserIDCamel, claims.ChatGPTUserIDCamel)
+	file.PlanType = authFileFirstNonEmpty(file.PlanType, claims.PlanType, claims.PlanTypeCamel)
+	file.PlanTypeCamel = authFileFirstNonEmpty(file.PlanTypeCamel, claims.PlanTypeCamel)
+	file.ProjectID = authFileFirstNonEmpty(file.ProjectID, claims.ProjectID)
+	if file.IDToken == nil {
+		file.IDToken = claims.IDToken
+		return
+	}
+	if claims.IDToken == nil {
+		return
+	}
+	file.IDToken.AccountID = authFileFirstNonEmptyPointer(file.IDToken.AccountID, claims.IDToken.AccountID)
+	file.IDToken.AccountIDCamel = authFileFirstNonEmptyPointer(file.IDToken.AccountIDCamel, claims.IDToken.AccountIDCamel)
+	file.IDToken.ActiveStart = authFileFirstNonEmptyTime(file.IDToken.ActiveStart, claims.IDToken.ActiveStart)
+	file.IDToken.ActiveStartCamel = authFileFirstNonEmptyTime(file.IDToken.ActiveStartCamel, claims.IDToken.ActiveStartCamel)
+	file.IDToken.ActiveUntil = authFileFirstNonEmptyTime(file.IDToken.ActiveUntil, claims.IDToken.ActiveUntil)
+	file.IDToken.ActiveUntilCamel = authFileFirstNonEmptyTime(file.IDToken.ActiveUntilCamel, claims.IDToken.ActiveUntilCamel)
+	file.IDToken.PlanType = authFileFirstNonEmptyPointer(file.IDToken.PlanType, claims.IDToken.PlanType)
+	file.IDToken.PlanTypeCamel = authFileFirstNonEmptyPointer(file.IDToken.PlanTypeCamel, claims.IDToken.PlanTypeCamel)
+}
+
+func authFileFirstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func authFileFirstNonEmptyPointer(values ...*string) *string {
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+		if trimmed := strings.TrimSpace(*value); trimmed != "" {
+			return &trimmed
+		}
+	}
+	return nil
+}
+
+func authFileFirstNonEmptyTime(values ...*time.Time) *time.Time {
+	for _, value := range values {
+		if value != nil && !value.IsZero() {
+			return value
+		}
+	}
+	return nil
 }
 
 func authFileOAuth(data json.RawMessage) (*AuthFileOAuth, bool) {

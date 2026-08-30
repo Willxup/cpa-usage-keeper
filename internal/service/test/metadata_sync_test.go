@@ -460,3 +460,77 @@ func TestSyncMetadataInteractionsRestoreCatchesUpOnlyNewHistoricalEvents(t *test
 		t.Fatalf("repeated Interactions stats = %+v", repeated)
 	}
 }
+
+func TestSyncMetadataKeepsSameEmailCodexTeamsDistinct(t *testing.T) {
+	db := openMetadataTestDatabase(t, "codex-same-email-teams.db")
+	const sharedEmail = "same-codex-user@example.invalid"
+	currentNow := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	fetcher := newMetadataTestFetcher()
+	fetcher.setAuthFiles([]authfiles.AuthFile{
+		{
+			AuthIndex: "codex-team-a-auth",
+			Name:      "team-a.json",
+			Email:     sharedEmail,
+			Type:      "codex-agent-identity",
+			Provider:  "codex-agent-identity",
+			AccountID: "team-account-a",
+			PlanType:  "team",
+		},
+		{
+			AuthIndex: "codex-team-b-auth",
+			Name:      "team-b.json",
+			Email:     sharedEmail,
+			Type:      "codex",
+			Provider:  "codex",
+			AccountID: "team-account-b",
+			PlanType:  "team",
+		},
+	})
+	syncer := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
+		BaseURL:         "https://cpa.example.com",
+		MetadataFetcher: fetcher,
+		Now:             func() time.Time { return currentNow },
+	})
+
+	if err := syncer.SyncMetadata(context.Background()); err != nil {
+		t.Fatalf("initial Codex team metadata sync returned error: %v", err)
+	}
+	rows := loadMetadataIdentityMap(t, db)
+	teamA := rows[metadataIdentityKey(entities.UsageIdentityAuthTypeAuthFile, "codex-team-a-auth")]
+	teamB := rows[metadataIdentityKey(entities.UsageIdentityAuthTypeAuthFile, "codex-team-b-auth")]
+	if teamA.ID == 0 || teamB.ID == 0 || teamA.ID == teamB.ID {
+		t.Fatalf("same-email Codex teams were merged: teamA=%+v teamB=%+v", teamA, teamB)
+	}
+	if teamA.Name != sharedEmail || teamB.Name != sharedEmail || teamA.AccountID == nil || *teamA.AccountID != "team-account-a" || teamB.AccountID == nil || *teamB.AccountID != "team-account-b" {
+		t.Fatalf("same-email Codex team metadata was not preserved: teamA=%+v teamB=%+v", teamA, teamB)
+	}
+	if teamA.Type != "codex-agent-identity" || teamB.Type != "codex" || teamA.AuthTypeName != "oauth" || teamB.AuthTypeName != "oauth" {
+		t.Fatalf("unexpected Codex team identity types: teamA=%+v teamB=%+v", teamA, teamB)
+	}
+
+	var activeRows []entities.UsageIdentity
+	if err := db.Where("auth_type = ? AND is_deleted = ?", entities.UsageIdentityAuthTypeAuthFile, false).Find(&activeRows).Error; err != nil {
+		t.Fatalf("list active Codex team identities: %v", err)
+	}
+	if len(activeRows) != 2 {
+		t.Fatalf("expected exactly two active Codex team identities, got %d: %+v", len(activeRows), activeRows)
+	}
+
+	currentNow = currentNow.Add(time.Hour)
+	if err := syncer.SyncMetadata(context.Background()); err != nil {
+		t.Fatalf("repeated Codex team metadata sync returned error: %v", err)
+	}
+	rowsAfterRepeat := loadMetadataIdentityMap(t, db)
+	teamAAfterRepeat := rowsAfterRepeat[metadataIdentityKey(entities.UsageIdentityAuthTypeAuthFile, "codex-team-a-auth")]
+	teamBAfterRepeat := rowsAfterRepeat[metadataIdentityKey(entities.UsageIdentityAuthTypeAuthFile, "codex-team-b-auth")]
+	if teamAAfterRepeat.ID != teamA.ID || teamBAfterRepeat.ID != teamB.ID || teamAAfterRepeat.AccountID == nil || *teamAAfterRepeat.AccountID != "team-account-a" || teamBAfterRepeat.AccountID == nil || *teamBAfterRepeat.AccountID != "team-account-b" {
+		t.Fatalf("repeated sync changed or merged Codex teams: teamA=%+v teamB=%+v", teamAAfterRepeat, teamBAfterRepeat)
+	}
+	var total int64
+	if err := db.Model(&entities.UsageIdentity{}).Where("auth_type = ?", entities.UsageIdentityAuthTypeAuthFile).Count(&total).Error; err != nil {
+		t.Fatalf("count all auth-file identities after repeat: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("repeated sync created duplicate auth-file rows: %d", total)
+	}
+}
