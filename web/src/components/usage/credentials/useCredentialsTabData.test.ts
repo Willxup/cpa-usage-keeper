@@ -5,7 +5,7 @@ import { buildCredentialQuotaStateMap, quotaRefreshDisplayError, quotaResetDispl
 import { CREDENTIAL_PAGES_REFRESH_INTERVAL_MS, mergeUsageIdentityAliasUpdate } from './useCredentialPages'
 import { buildQuotaCacheAuthIndexesKey, QUOTA_CACHE_REFRESH_INTERVAL_MS } from './useQuotaCache'
 import { buildQuotaRefreshSubmissionUpdate, buildQuotaRefreshTaskErrorUpdate } from './useQuotaRefreshTasks'
-import type { UsageIdentity } from '@/lib/types'
+import type { UsageIdentity, UsageQuotaRefreshResponse } from '@/lib/types'
 
 const credentialsTabDataSource = readFileSync(new URL('./useCredentialsTabData.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 const quotaCacheSource = readFileSync(new URL('./useQuotaCache.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
@@ -174,6 +174,19 @@ describe('buildQuotaRefreshSubmissionUpdate', () => {
     ])
     expect(update.stateUpdates['auth-2']).toEqual({ refreshStatus: 'queued', error: undefined })
     expect(update.stateUpdates['auth-3']).toEqual({ refreshStatus: 'failed', error: 'This credential was already included in the refresh request.' })
+  })
+
+  it('treats missing tasks and rejected lists as empty', () => {
+    const update = buildQuotaRefreshSubmissionUpdate({
+      tasks: undefined as unknown as UsageQuotaRefreshResponse['tasks'],
+      rejected: undefined as unknown as UsageQuotaRefreshResponse['rejected'],
+      accepted: 0,
+      skipped: 1,
+      limit: 1,
+    }, 'row')
+
+    expect(update.pendingTasks).toEqual([])
+    expect(update.stateUpdates).toEqual({})
   })
 })
 

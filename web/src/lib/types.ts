@@ -625,8 +625,8 @@ export interface UsageQuotaRefreshRejectedAuthIndex {
 }
 
 export interface UsageQuotaRefreshResponse {
-  tasks: UsageQuotaRefreshTaskRef[]
-  rejected: UsageQuotaRefreshRejectedAuthIndex[]
+  tasks?: UsageQuotaRefreshTaskRef[] | null
+  rejected?: UsageQuotaRefreshRejectedAuthIndex[] | null
   accepted: number
   skipped: number
   limit: number

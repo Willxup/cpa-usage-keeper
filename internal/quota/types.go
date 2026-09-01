@@ -336,6 +336,43 @@ type XAIResult struct {
 	Monthly *XAIBillingPayload `json:"monthly,omitempty"`
 }
 
+type CursorPlanInfo struct {
+	PlanName            string  `json:"planName,omitempty"`
+	IncludedAmountCents float64 `json:"includedAmountCents,omitempty"`
+	Price               string  `json:"price,omitempty"`
+	BillingCycleEnd     string  `json:"billingCycleEnd,omitempty"`
+}
+
+type CursorPlanPayload struct {
+	PlanInfo *CursorPlanInfo `json:"planInfo,omitempty"`
+}
+
+type CursorPlanUsage struct {
+	TotalSpend float64 `json:"totalSpend,omitempty"`
+	Remaining  float64 `json:"remaining,omitempty"`
+	Limit      float64 `json:"limit,omitempty"`
+}
+
+type CursorPeriodPayload struct {
+	BillingCycleStart string           `json:"billingCycleStart,omitempty"`
+	BillingCycleEnd   string           `json:"billingCycleEnd,omitempty"`
+	PlanUsage         *CursorPlanUsage `json:"planUsage,omitempty"`
+}
+
+type CursorAgentPayload struct {
+	UsagePercent            *float64 `json:"usagePercent,omitempty"`
+	HasNonZeroIncludedLimit *bool    `json:"hasNonZeroIncludedLimit,omitempty"`
+	HasAvailableUsage       *bool    `json:"hasAvailableUsage,omitempty"`
+	CurrentPeriodStart      string   `json:"currentPeriodStart,omitempty"`
+	NextResetTimestampUTC   string   `json:"nextResetTimestampUtc,omitempty"`
+}
+
+type CursorResult struct {
+	Plan   *CursorPlanPayload   `json:"plan,omitempty"`
+	Period *CursorPeriodPayload `json:"period,omitempty"`
+	Agent  *CursorAgentPayload  `json:"agent,omitempty"`
+}
+
 type ProviderHandler interface {
 	Check(context.Context, ProviderInput) (ProviderOutput, error)
 }
