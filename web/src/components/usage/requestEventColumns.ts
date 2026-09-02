@@ -9,6 +9,7 @@ export const REQUEST_EVENT_COLUMN_IDS = [
   'request_type',
   'latency',
   'speed',
+  'speed_total',
   'total_tokens',
   'cache_read_rate',
   'total_cost',

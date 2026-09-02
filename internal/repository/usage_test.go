@@ -395,6 +395,60 @@ func TestBuildAnalysisWithFilterKeepsHeatmapPairsSeparateWhenValuesContainDelimi
 	}
 }
 
+func TestBuildAnalysisWithFilterSplitsAliasedModelsIntoSeparateRows(t *testing.T) {
+	db := openUsageTestDatabase(t)
+	bucket := time.Date(2026, 4, 20, 9, 0, 0, 0, time.UTC)
+	if err := db.Create(&entities.CPAAPIKey{APIKey: "sk-active-key", DisplayKey: "sk-*********active"}).Error; err != nil {
+		t.Fatalf("insert CPA API key: %v", err)
+	}
+	if err := db.Create([]entities.UsageOverviewHourlyStat{
+		{BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "claude-sonnet", ModelAlias: "alias-a", RequestCount: 2, InputTokens: 10, OutputTokens: 20, TotalTokens: 30},
+		{BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "claude-sonnet", ModelAlias: "alias-b", RequestCount: 3, InputTokens: 30, OutputTokens: 10, TotalTokens: 40},
+		{BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "claude-opus", RequestCount: 1, InputTokens: 5, OutputTokens: 5, TotalTokens: 10},
+	}).Error; err != nil {
+		t.Fatalf("insert hourly stats: %v", err)
+	}
+	if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
+		t.Fatalf("drop usage_events: %v", err)
+	}
+	start := bucket
+	end := bucket.Add(time.Hour)
+
+	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end}, emptyPricingResolverForTest())
+	if err != nil {
+		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
+	}
+	if len(analysis.ModelComposition) != 3 {
+		t.Fatalf("expected same upstream model with two aliases to split into separate rows, got %+v", analysis.ModelComposition)
+	}
+	compositionByKey := make(map[string]repodto.AnalysisCompositionRecord, len(analysis.ModelComposition))
+	for _, item := range analysis.ModelComposition {
+		compositionByKey[item.Key] = item
+	}
+	if got, ok := compositionByKey["alias-a"]; !ok || got.Label != "alias-a" || got.TotalTokens != 30 || got.Requests != 2 {
+		t.Fatalf("expected alias-a row, got %+v", compositionByKey)
+	}
+	if got, ok := compositionByKey["alias-b"]; !ok || got.Label != "alias-b" || got.TotalTokens != 40 || got.Requests != 3 {
+		t.Fatalf("expected alias-b row, got %+v", compositionByKey)
+	}
+	if got, ok := compositionByKey["claude-opus"]; !ok || got.Label != "claude-opus" || got.TotalTokens != 10 {
+		t.Fatalf("expected raw claude-opus row, got %+v", compositionByKey)
+	}
+	if len(analysis.ModelEfficiency) != 3 {
+		t.Fatalf("expected model efficiency to split by alias too, got %+v", analysis.ModelEfficiency)
+	}
+	heatmapByModel := make(map[string]int64, len(analysis.Heatmap))
+	for _, cell := range analysis.Heatmap {
+		heatmapByModel[cell.Model] += cell.TotalTokens
+	}
+	if heatmapByModel["alias-a"] != 30 || heatmapByModel["alias-b"] != 40 || heatmapByModel["claude-opus"] != 10 {
+		t.Fatalf("expected heatmap to split by alias, got %+v", heatmapByModel)
+	}
+	if len(analysis.TokenUsage) != 1 || analysis.TokenUsage[0].TotalTokens != 80 {
+		t.Fatalf("expected combined bucket total to remain intact, got %+v", analysis.TokenUsage)
+	}
+}
+
 func TestBuildAnalysisWithFilterIncludesCurrentHourStatsInRollingHourlyRanges(t *testing.T) {
 	withRepositoryTestLocation(t, "Asia/Shanghai")
 	db := openUsageTestDatabase(t)

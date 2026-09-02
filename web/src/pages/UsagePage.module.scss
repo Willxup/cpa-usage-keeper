@@ -2046,6 +2046,61 @@
   justify-content: center;
 }
 
+.apiKeySettingsGenerateButton:global(.btn) {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.apiKeySettingsGeneratedBox {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 86%, transparent);
+  border-radius: 16px;
+  background:
+    radial-gradient(360px 120px at 100% 0%, rgba($primary-color, 0.1), transparent 62%),
+    color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+}
+
+.apiKeySettingsGeneratedLabel {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.apiKeySettingsGeneratedValue {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apiKeySettingsGeneratedHint {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.apiKeySettingsCreateBox {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px dashed color-mix(in srgb, var(--border-color) 86%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
+}
+
 .sessionSettingsCard:global(.card) {
   height: auto;
   min-height: auto;
@@ -2437,6 +2492,19 @@
   .apiKeySettingsActions,
   .apiKeySettingsSaveButton {
     width: 100%;
+  }
+
+  .apiKeySettingsGeneratedBox {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .apiKeySettingsGeneratedValue {
+    white-space: normal;
+    word-break: break-all;
+  }
+
+  .apiKeySettingsCreateBox {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .sessionSettingsCard:global(.card) {

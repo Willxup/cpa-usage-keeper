@@ -65,6 +65,7 @@ type usageEventPayload struct {
 	LatencyMS           int64                  `json:"latency_ms"`
 	TTFTMS              *int64                 `json:"ttft_ms,omitempty"`
 	SpeedTPS            *float64               `json:"speed_tps,omitempty"`
+	SpeedTotalTPS       *float64               `json:"speed_total_tps,omitempty"`
 	Tokens              usageEventTokenPayload `json:"tokens"`
 	CostUSD             float64                `json:"cost_usd"`
 	CostAvailable       bool                   `json:"cost_available"`
@@ -448,6 +449,7 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 			LatencyMS:           row.LatencyMS,
 			TTFTMS:              row.TTFTMS,
 			SpeedTPS:            usageEventSpeedTPS(row),
+			SpeedTotalTPS:       usageEventSpeedTotalTPS(row),
 			CostUSD:             row.CostUSD,
 			CostAvailable:       row.CostAvailable,
 			PricingStyle:        strings.TrimSpace(row.PricingStyle),
@@ -552,6 +554,19 @@ func usageEventSpeedTPS(row servicedto.UsageEventRecord) *float64 {
 	}
 	// Speed 使用完整 output_tokens 除以首字后的耗时，保持请求事件口径简单一致。
 	speed := float64(row.OutputTokens) / (float64(row.LatencyMS-*row.TTFTMS) / 1000)
+	return &speed
+}
+
+// usageEventSpeedTotalTPS calculates visible output tokens per second over the full request duration.
+func usageEventSpeedTotalTPS(row servicedto.UsageEventRecord) *float64 {
+	visibleOutputTokens := row.OutputTokens - row.ReasoningTokens
+	if visibleOutputTokens < 0 {
+		visibleOutputTokens = 0
+	}
+	if row.LatencyMS < 10 || visibleOutputTokens <= 0 {
+		return nil
+	}
+	speed := float64(visibleOutputTokens) / (float64(row.LatencyMS) / 1000)
 	return &speed
 }
 

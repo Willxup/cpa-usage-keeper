@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"errors"
 	"strings"
 	"time"
 
@@ -91,6 +92,46 @@ func SyncCPAAPIKeys(db *gorm.DB, keys []string, syncedAt time.Time) error {
 		}
 		return tx.Model(&entities.CPAAPIKey{}).Where("id IN ?", staleIDs).Updates(map[string]any{"is_deleted": true, "updated_at": syncedAt}).Error
 	})
+}
+
+// UpsertActiveCPAAPIKey 新增或重新激活一条本地 API Key 记录，并把别名写回；创建时使用调用方传入的 syncedAt 作为时间基准。
+func UpsertActiveCPAAPIKey(db *gorm.DB, apiKey string, keyAlias string, syncedAt time.Time) (entities.CPAAPIKey, error) {
+	apiKey = strings.TrimSpace(apiKey)
+	keyAlias = strings.TrimSpace(keyAlias)
+	if apiKey == "" {
+		return entities.CPAAPIKey{}, errors.New("api key is empty")
+	}
+	var existing entities.CPAAPIKey
+	err := db.Where("api_key = ?", apiKey).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row := entities.CPAAPIKey{
+			APIKey:       apiKey,
+			DisplayKey:   helper.RedactSensitiveValue(apiKey),
+			KeyAlias:     keyAlias,
+			IsDeleted:    false,
+			LastSyncedAt: &syncedAt,
+			CreatedAt:    syncedAt,
+			UpdatedAt:    syncedAt,
+		}
+		if err := db.Create(&row).Error; err != nil {
+			return entities.CPAAPIKey{}, err
+		}
+		return row, nil
+	}
+	if err != nil {
+		return entities.CPAAPIKey{}, err
+	}
+	updates := map[string]any{
+		"display_key":    helper.RedactSensitiveValue(apiKey),
+		"is_deleted":     false,
+		"key_alias":      keyAlias,
+		"last_synced_at": &syncedAt,
+		"updated_at":     syncedAt,
+	}
+	if err := db.Model(&entities.CPAAPIKey{}).Where("id = ?", existing.ID).Updates(updates).Error; err != nil {
+		return entities.CPAAPIKey{}, err
+	}
+	return FindActiveCPAAPIKeyByID(db, existing.ID)
 }
 
 func ListActiveCPAAPIKeys(db *gorm.DB) ([]entities.CPAAPIKey, error) {

@@ -167,10 +167,10 @@ func TestAnalysisProjectionPreservesHourlyResultsAndAPIKeyFiltering(t *testing.T
 	}
 	assertFloatClose(t, usage.CostUSD, 9.3)
 	assertAnalysisProjectionComposition(t, analysis.APIKeyComposition, "group-a", "", 2, 1_300_000, 9.3)
-	assertAnalysisProjectionComposition(t, analysis.ModelComposition, "model-a", "", 2, 1_300_000, 9.3)
+	assertAnalysisProjectionComposition(t, analysis.ModelComposition, "alias-a", "alias-a", 2, 1_300_000, 9.3)
 	assertAnalysisProjectionComposition(t, analysis.AuthFilesComposition, "identity-a", "Auth Account", 2, 1_300_000, 9.3)
 	assertAnalysisProjectionComposition(t, analysis.AIProviderComposition, "identity-a", "Provider Account", 2, 1_300_000, 9.3)
-	if len(analysis.Heatmap) != 1 || analysis.Heatmap[0].APIKey != "group-a" || analysis.Heatmap[0].Model != "model-a" ||
+	if len(analysis.Heatmap) != 1 || analysis.Heatmap[0].APIKey != "group-a" || analysis.Heatmap[0].Model != "alias-a" ||
 		analysis.Heatmap[0].Requests != 2 || analysis.Heatmap[0].TotalTokens != 1_300_000 || !analysis.Heatmap[0].CostAvailable {
 		t.Fatalf("unexpected heatmap: %+v", analysis.Heatmap)
 	}
@@ -179,7 +179,7 @@ func TestAnalysisProjectionPreservesHourlyResultsAndAPIKeyFiltering(t *testing.T
 		t.Fatalf("unexpected model efficiency: %+v", analysis.ModelEfficiency)
 	}
 	efficiency := analysis.ModelEfficiency[0]
-	if efficiency.Model != "model-a" || efficiency.Requests != 2 || efficiency.TotalTokens != 1_300_000 || !efficiency.CostAvailable {
+	if efficiency.Model != "alias-a" || efficiency.Requests != 2 || efficiency.TotalTokens != 1_300_000 || !efficiency.CostAvailable {
 		t.Fatalf("unexpected model efficiency: %+v", efficiency)
 	}
 	assertFloatClose(t, efficiency.CostUSD, 9.3)
@@ -280,7 +280,7 @@ func TestAnalysisProjectionPreservesDailyResultsWithoutBoundaryHourlyRows(t *tes
 		}
 	}
 	assertAnalysisProjectionComposition(t, analysis.APIKeyComposition, "group-a", "", 5, 550, 0.0138)
-	assertAnalysisProjectionComposition(t, analysis.ModelComposition, "model-a", "", 5, 550, 0.0138)
+	assertAnalysisProjectionComposition(t, analysis.ModelComposition, "alias-a", "alias-a", 5, 550, 0.0138)
 	assertAnalysisProjectionComposition(t, analysis.AuthFilesComposition, "identity-a", "Auth Account", 5, 550, 0.0138)
 	assertAnalysisProjectionComposition(t, analysis.AIProviderComposition, "identity-a", "Provider Account", 5, 550, 0.0138)
 	if len(analysis.Heatmap) != 1 || analysis.Heatmap[0].Requests != 5 || analysis.Heatmap[0].TotalTokens != 550 {

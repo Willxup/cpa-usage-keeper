@@ -265,6 +265,7 @@ export interface UsageEvent {
   latency_ms: number
   ttft_ms?: number
   speed_tps?: number
+  speed_total_tps?: number
   client_ip?: string | null
   x_forwarded_for?: string | null
   user_agent?: string | null

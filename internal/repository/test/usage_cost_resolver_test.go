@@ -386,8 +386,8 @@ func TestBuildAnalysisWithFilterFallsBackToAliasPricingWhenModelPriceMissing(t *
 	if len(analysis.ModelEfficiency) != 1 {
 		t.Fatalf("expected one model efficiency row, got %+v", analysis.ModelEfficiency)
 	}
-	if analysis.ModelEfficiency[0].Model != "missing-model" {
-		t.Fatalf("expected analysis to keep real model display value, got %+v", analysis.ModelEfficiency[0])
+	if analysis.ModelEfficiency[0].Model != "alias-model" {
+		t.Fatalf("expected analysis to use alias model display value, got %+v", analysis.ModelEfficiency[0])
 	}
 	assertUsageCostClose(t, analysis.ModelEfficiency[0].CostUSD, 2)
 }
@@ -464,8 +464,8 @@ func TestBuildAnalysisWithFilterFallsBackToDailyAliasPricingWhenModelPriceMissin
 	if len(analysis.ModelEfficiency) != 1 {
 		t.Fatalf("expected one model efficiency row, got %+v", analysis.ModelEfficiency)
 	}
-	if analysis.ModelEfficiency[0].Model != "missing-model" {
-		t.Fatalf("expected analysis daily row to keep real model display value, got %+v", analysis.ModelEfficiency[0])
+	if analysis.ModelEfficiency[0].Model != "alias-model" {
+		t.Fatalf("expected analysis daily row to use alias model display value, got %+v", analysis.ModelEfficiency[0])
 	}
 	assertUsageCostClose(t, analysis.ModelEfficiency[0].CostUSD, 2)
 }
@@ -531,8 +531,8 @@ func TestBuildUsageOverviewRealtimeWithFilterFallsBackToRawAliasPricingWhenModel
 	if len(realtime.CurrentUsage.Models) != 1 {
 		t.Fatalf("expected one realtime model row, got %+v", realtime.CurrentUsage.Models)
 	}
-	if realtime.CurrentUsage.Models[0].Key != "missing-model" {
-		t.Fatalf("expected realtime model row to keep real model display value, got %+v", realtime.CurrentUsage.Models[0])
+	if realtime.CurrentUsage.Models[0].Key != "alias-model" {
+		t.Fatalf("expected realtime model row to use alias model display value, got %+v", realtime.CurrentUsage.Models[0])
 	}
 	if realtime.CurrentUsage.Models[0].CostUSD == nil {
 		t.Fatalf("expected realtime alias-fallback cost to be available, got %+v", realtime.CurrentUsage.Models[0])
@@ -615,8 +615,8 @@ func TestBuildUsageOverviewRealtimeWithRecentCacheFallsBackToAliasPricingWhenMod
 	if len(realtime.CurrentUsage.Models) != 1 {
 		t.Fatalf("expected one realtime model row, got %+v", realtime.CurrentUsage.Models)
 	}
-	if realtime.CurrentUsage.Models[0].Key != "missing-model" {
-		t.Fatalf("expected realtime cache model row to keep real model display value, got %+v", realtime.CurrentUsage.Models[0])
+	if realtime.CurrentUsage.Models[0].Key != "alias-model" {
+		t.Fatalf("expected realtime cache model row to use alias model display value, got %+v", realtime.CurrentUsage.Models[0])
 	}
 	if realtime.CurrentUsage.Models[0].CostUSD == nil {
 		t.Fatalf("expected realtime cache alias-fallback cost to be available, got %+v", realtime.CurrentUsage.Models[0])

@@ -134,6 +134,7 @@ type RequestEventRow = {
   ttftLabel: string;
   speedTPS: number | null;
   speedLabel: string;
+  speedTotalTPS: number | null;
   clientIP: string;
   xForwardedFor: string;
   userAgent: string;
@@ -534,6 +535,7 @@ export function RequestEventsDetailsCard({
   });
   const ttftHint = t('usage_stats.ttft_hint');
   const speedHint = t('usage_stats.speed_hint');
+  const speedTotalHint = t('usage_stats.speed_total_hint');
 
   const rows = useMemo<RequestEventRow[]>(() => {
     return events.map((event, index) => {
@@ -568,6 +570,7 @@ export function RequestEventsDetailsCard({
       const latencyMs = Number.isFinite(event.latency_ms) ? event.latency_ms : null;
       const ttftMs = Number.isFinite(event.ttft_ms) ? event.ttft_ms as number : null;
       const speedTPS = Number.isFinite(event.speed_tps) ? event.speed_tps as number : null;
+      const speedTotalTPS = Number.isFinite(event.speed_total_tps) ? event.speed_total_tps as number : null;
       const clientIP = String(event.client_ip ?? '').trim() || '-';
       const xForwardedFor = String(event.x_forwarded_for ?? '').trim() || '-';
       const userAgent = String(event.user_agent ?? '').trim() || '-';
@@ -611,6 +614,7 @@ export function RequestEventsDetailsCard({
         ttftLabel: formatTTFTMs(ttftMs),
         speedTPS,
         speedLabel: formatSpeedTPS(speedTPS),
+        speedTotalTPS,
         clientIP,
         xForwardedFor,
         userAgent,
@@ -914,6 +918,12 @@ export function RequestEventsDetailsCard({
         renderCell: (row) => <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsPrimaryCell}`}>{row.speedLabel}</td>,
       },
       {
+        id: 'speed_total',
+        label: t('usage_stats.speed_total'),
+        header: <th className={styles.requestEventsNoWrapCell} title={speedTotalHint}>{t('usage_stats.speed_total')}</th>,
+        renderCell: (row) => <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsPrimaryCell}`}>{formatSpeedTPS(row.speedTotalTPS)}</td>,
+      },
+      {
         id: 'total_tokens',
         label: t('usage_stats.request_events_tokens'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_tokens')}</th>,
@@ -1045,6 +1055,7 @@ export function RequestEventsDetailsCard({
     requestLogLoadingEventId,
     renderClientMetadataCell,
     speedHint,
+    speedTotalHint,
     t,
     ttftHint,
   ]);

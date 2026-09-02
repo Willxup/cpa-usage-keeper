@@ -29,6 +29,7 @@ const events: UsageEvent[] = [
     latency_ms: 120,
     ttft_ms: 45,
     speed_tps: 30,
+    speed_total_tps: 28.8,
     tokens: {
       input_tokens: 100,
       output_tokens: 60,
@@ -97,6 +98,7 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html.indexOf('>Request</th>')).toBeLessThan(html.indexOf('>Latency</th>'));
     expect(html.indexOf('>Latency</th>')).toBeLessThan(html.indexOf('title="Average output tokens per second after TTFT">Speed</th>'));
     expect(html.indexOf('title="Average output tokens per second after TTFT">Speed</th>')).toBeLessThan(html.indexOf('>Tokens</th>'));
+    expect(html).toContain('title="Average visible output tokens per second including TTFT">Overall Speed</th>');
     expect(html.indexOf('>Tokens</th>')).toBeLessThan(html.indexOf('>Cache</th>'));
     expect(html.indexOf('>Cache</th>')).toBeLessThan(html.indexOf('>Cost</th>'));
     expect(html.indexOf('>Cost</th>')).toBeLessThan(html.indexOf('>Executor</th>'));
@@ -109,6 +111,7 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('>120ms</span>');
     expect(html).toContain('>TTFT</span> 45ms</span>');
     expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">30\.0 t\/s<\/td>/);
+    expect(html).toMatch(/<td class="[^"]*requestEventsNoWrapCell[^"]*">28\.8 t\/s<\/td>/);
     expect(html).toContain('Loaded 1 / 120');
     expect(html).not.toContain('Previous');
     expect(html).not.toContain('Next');

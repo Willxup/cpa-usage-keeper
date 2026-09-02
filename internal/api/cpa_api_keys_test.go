@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -26,7 +27,7 @@ func TestCPAAPIKeyRoutesReturnDisplayDataWithoutRawKeys(t *testing.T) {
 	if err := repository.UpdateCPAAPIKeyAlias(db, 1, "Primary Key"); err != nil {
 		t.Fatalf("seed alias: %v", err)
 	}
-	router := NewRouter(nil, statusStub{}, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: service.NewCPAAPIKeyService(db)})
+	router := NewRouter(nil, statusStub{}, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: service.NewCPAAPIKeyService(db, nil)})
 
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/api-keys", nil)
@@ -71,7 +72,7 @@ func TestCPAAPIKeySettingsRouteReturnsRawKeys(t *testing.T) {
 	if err := repository.UpdateCPAAPIKeyAlias(db, 1, "Primary Key"); err != nil {
 		t.Fatalf("seed alias: %v", err)
 	}
-	router := NewRouter(nil, statusStub{}, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: service.NewCPAAPIKeyService(db)})
+	router := NewRouter(nil, statusStub{}, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: service.NewCPAAPIKeyService(db, nil)})
 
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/api-keys/settings", nil)
@@ -112,7 +113,7 @@ func TestCPAAPIKeyRoutesNormalizeStaleDisplayKeys(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatalf("seed stale API key: %v", err)
 	}
-	router := NewRouter(nil, statusStub{}, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: service.NewCPAAPIKeyService(db)})
+	router := NewRouter(nil, statusStub{}, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: service.NewCPAAPIKeyService(db, nil)})
 
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/api-keys", nil)
@@ -146,7 +147,7 @@ func TestCPAAPIKeyOptionsReturnActiveLabels(t *testing.T) {
 	if err := repository.SyncCPAAPIKeys(db, []string{"sk-alpha123456"}, time.Date(2026, 5, 13, 11, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("delete missing key: %v", err)
 	}
-	router := NewRouter(nil, statusStub{}, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: service.NewCPAAPIKeyService(db)})
+	router := NewRouter(nil, statusStub{}, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: service.NewCPAAPIKeyService(db, nil)})
 
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/api-keys/options", nil)
@@ -187,7 +188,7 @@ func TestUpdateCPAAPIKeyAliasUpdatesAndClearsAlias(t *testing.T) {
 	if err := repository.SyncCPAAPIKeys(db, []string{"sk-alpha123456"}, time.Date(2026, 5, 13, 10, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("seed API keys: %v", err)
 	}
-	router := NewRouter(nil, statusStub{}, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: service.NewCPAAPIKeyService(db)})
+	router := NewRouter(nil, statusStub{}, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: service.NewCPAAPIKeyService(db, nil)})
 
 	for _, body := range []string{`{"keyAlias":"  Primary Key  "}`, `{"keyAlias":""}`} {
 		resp := httptest.NewRecorder()
@@ -217,7 +218,7 @@ func TestUpdateCPAAPIKeyAliasRejectsInvalidInputAndDeletedRows(t *testing.T) {
 	if err := repository.SyncCPAAPIKeys(db, nil, time.Date(2026, 5, 13, 11, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("mark deleted: %v", err)
 	}
-	router := NewRouter(nil, statusStub{}, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: service.NewCPAAPIKeyService(db)})
+	router := NewRouter(nil, statusStub{}, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: service.NewCPAAPIKeyService(db, nil)})
 
 	for _, tc := range []struct {
 		name string
@@ -238,6 +239,93 @@ func TestUpdateCPAAPIKeyAliasRejectsInvalidInputAndDeletedRows(t *testing.T) {
 		if resp.Code != tc.want {
 			t.Fatalf("%s: expected status %d, got %d body=%s", tc.name, tc.want, resp.Code, resp.Body.String())
 		}
+	}
+}
+
+type fakeAPIKeyAdder struct {
+	added []string
+}
+
+func (f *fakeAPIKeyAdder) AddManagementAPIKey(_ context.Context, apiKey string) error {
+	f.added = append(f.added, apiKey)
+	return nil
+}
+
+func TestGenerateCPAAPIKeyCreatesRowWithRawKey(t *testing.T) {
+	db := openCPAAPIKeyAPITestDatabase(t)
+	adder := &fakeAPIKeyAdder{}
+	router := NewRouter(nil, statusStub{}, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: service.NewCPAAPIKeyService(db, adder)})
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/usage/api-keys/generate", bytes.NewBufferString(`{"keyAlias":"  Generated Key  "}`))
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var parsed struct {
+		ID         string `json:"id"`
+		APIKey     string `json:"apiKey"`
+		KeyAlias   string `json:"keyAlias"`
+		DisplayKey string `json:"displayKey"`
+		Label      string `json:"label"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &parsed); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if parsed.ID == "" || parsed.KeyAlias != "Generated Key" || parsed.APIKey == "" || parsed.DisplayKey == "" || parsed.Label != "Generated Key" {
+		t.Fatalf("unexpected generated response: %+v", parsed)
+	}
+	if len(adder.added) != 1 || adder.added[0] != parsed.APIKey {
+		t.Fatalf("expected upstream add for generated key, got %+v", adder.added)
+	}
+
+	rows, err := repository.ListActiveCPAAPIKeys(db)
+	if err != nil {
+		t.Fatalf("ListActiveCPAAPIKeys returned error: %v", err)
+	}
+	if len(rows) != 1 || rows[0].APIKey != parsed.APIKey || rows[0].KeyAlias != "Generated Key" {
+		t.Fatalf("expected generated row persisted, got %+v", rows)
+	}
+}
+
+func TestGenerateCPAAPIKeyRejectsInvalidInput(t *testing.T) {
+	db := openCPAAPIKeyAPITestDatabase(t)
+	adder := &fakeAPIKeyAdder{}
+	router := NewRouter(nil, statusStub{}, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: service.NewCPAAPIKeyService(db, adder)})
+
+	for _, body := range []string{
+		"not json",
+		`{"keyAlias":"` + strings.Repeat("a", 129) + `"}`,
+		"{\"keyAlias\":\"bad\\u0001alias\"}",
+	} {
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/usage/api-keys/generate", bytes.NewBufferString(body))
+		req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(resp, req)
+		if resp.Code != http.StatusBadRequest {
+			t.Fatalf("body=%q: expected status 400, got %d body=%s", body, resp.Code, resp.Body.String())
+		}
+	}
+	if len(adder.added) != 0 {
+		t.Fatalf("expected no upstream add on invalid input, got %+v", adder.added)
+	}
+}
+
+func TestGenerateCPAAPIKeyRequiresProvider(t *testing.T) {
+	router := NewRouter(nil, statusStub{}, nil, nil, AuthConfig{}, nil, "", OptionalProviders{})
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/usage/api-keys/generate", bytes.NewBufferString(`{"keyAlias":"alias"}`))
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotImplemented {
+		t.Fatalf("expected status 501, got %d body=%s", resp.Code, resp.Body.String())
 	}
 }
 

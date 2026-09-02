@@ -305,6 +305,15 @@ describe('i18n resources', () => {
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_mode_flex')).toBe('彈性');
   });
 
+  it('labels the overall speed column across languages', () => {
+    expect(i18n.getResource('en', 'translation', 'usage_stats.speed_total')).toBe('Overall Speed');
+    expect(i18n.getResource('en', 'translation', 'usage_stats.speed_total_hint')).toBe('Average visible output tokens per second including TTFT');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_total')).toBe('整体速度');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_total_hint')).toBe('包含首字延迟在内的平均输出速度');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_total')).toBe('整體速度');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_total_hint')).toBe('包含首字延遲在內的平均輸出速度');
+  });
+
   it('keeps Analysis heatmap copy focused on hover details', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.analysis_heatmap_subtitle')).toBe('Token distribution across API keys and models with hover details.');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.analysis_heatmap_subtitle')).toBe('展示 API Key 与模型组合下的 Token 分布，悬浮查看明细。');

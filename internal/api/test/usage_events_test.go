@@ -396,6 +396,9 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	if !contains(body, `"speed_tps":30.5`) {
 		t.Fatalf("expected speed_tps in response body: %s", body)
 	}
+	if !contains(body, `"speed_total_tps":28.8`) {
+		t.Fatalf("expected speed_total_tps in response body: %s", body)
+	}
 	if !contains(body, `"executor_type":"responses"`) {
 		t.Fatalf("expected executor_type in response body: %s", body)
 	}
