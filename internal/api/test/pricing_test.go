@@ -47,6 +47,10 @@ func (s pricingStub) PreviewPricingSync(context.Context) (servicedto.PricingSync
 	return s.preview, s.err
 }
 
+func (s pricingStub) EnsureModelsPricing(context.Context, []string) ([]entities.ModelPriceSetting, error) {
+	return nil, s.err
+}
+
 func (s *pricingStub) UpdatePricing(_ context.Context, input servicedto.UpdatePricingInput) (*entities.ModelPriceSetting, error) {
 	s.lastUpdate = &input
 	return s.updated, s.err
