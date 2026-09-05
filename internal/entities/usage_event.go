@@ -6,7 +6,7 @@ import "time"
 type UsageEvent struct {
 	ID                  int64 `gorm:"primaryKey;index:idx_usage_events_timestamp_id,sort:desc,priority:2;index:idx_usage_events_auth_type_auth_index_id,priority:3;index:idx_usage_events_auth_index_timestamp_id,priority:3"`
 	EventKey            string
-	APIGroupKey         string    `gorm:"index:idx_usage_events_api_group_key"`
+	APIGroupKey         string    `gorm:"index:idx_usage_events_api_group_key;index:idx_usage_events_api_group_key_timestamp,priority:1"`
 	Provider            string    `gorm:"column:provider"`
 	Endpoint            string    `gorm:"column:endpoint"`
 	AuthType            string    `gorm:"column:auth_type;index:idx_usage_events_auth_type_auth_index_id,priority:1"`
@@ -20,7 +20,7 @@ type UsageEvent struct {
 	ServiceTier         string    `gorm:"column:service_tier;not null;default:''"`
 	ResponseServiceTier string    `gorm:"column:response_service_tier;not null;default:''"`
 	ExecutorType        string    `gorm:"column:executor_type;not null;default:''"`
-	Timestamp           time.Time `gorm:"serializer:storageTime;index:idx_usage_events_timestamp_id,sort:desc,priority:1;index:idx_usage_events_auth_index_timestamp_id,priority:2"`
+	Timestamp           time.Time `gorm:"serializer:storageTime;index:idx_usage_events_timestamp_id,sort:desc,priority:1;index:idx_usage_events_auth_index_timestamp_id,priority:2;index:idx_usage_events_api_group_key_timestamp,sort:desc,priority:2"`
 	Source              string
 	AuthIndex           string `gorm:"index:idx_usage_events_auth_index;index:idx_usage_events_auth_type_auth_index_id,priority:2;index:idx_usage_events_auth_index_timestamp_id,priority:1"`
 	Failed              bool
