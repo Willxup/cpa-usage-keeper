@@ -3932,6 +3932,95 @@
   gap: 6px;
 }
 
+.overviewRealtimePairedMetrics {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+
+  @include mobile {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+.overviewRealtimePairedMetric {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 26px;
+  padding: 4px 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.overviewRealtimeScreenReaderOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  border: 0;
+  white-space: nowrap;
+}
+
+.overviewRealtimePairedMetricLabel {
+  color: var(--text-tertiary);
+}
+
+.overviewRealtimePairedMetricSeries {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.overviewRealtimePairedMetricTokenLabel,
+.overviewRealtimePairedMetricRequestLabel {
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.025em;
+}
+
+.overviewRealtimePairedMetricTokenLabel {
+  color: #3b82f6;
+}
+
+.overviewRealtimePairedMetricRequestLabel {
+  color: #f97316;
+}
+
+.overviewRealtimePairedMetricDivider {
+  color: var(--text-tertiary);
+}
+
+.overviewRealtimePairedMetricValue {
+  color: var(--text-primary);
+  font-weight: 800;
+}
+
+.overviewRealtimePairedMetricValueUp {
+  color: #16a34a;
+}
+
+.overviewRealtimePairedMetricValueDown {
+  color: #dc2626;
+}
+
+.overviewRealtimePairedMetricValueFlat {
+  color: var(--text-secondary);
+}
+
 .overviewRealtimeMetric {
   display: inline-flex;
   align-items: center;

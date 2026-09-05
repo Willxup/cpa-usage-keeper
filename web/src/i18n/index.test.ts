@@ -350,6 +350,18 @@ describe('i18n resources', () => {
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.overview_realtime_section_title')).toBe('即時指標');
   });
 
+  it('localizes the realtime throughput chart and its request scope', () => {
+    expect(i18n.getResource('en', 'translation', 'usage_stats.overview_realtime_throughput')).toBe('Throughput');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.overview_realtime_throughput')).toBe('吞吐量');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.overview_realtime_throughput')).toBe('吞吐量');
+    expect(i18n.getResource('en', 'translation', 'usage_stats.overview_realtime_throughput_empty')).toBe('No throughput data');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.overview_realtime_throughput_empty')).toBe('暂无吞吐数据');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.overview_realtime_throughput_empty')).toBe('暫無吞吐資料');
+    expect(i18n.getResource('en', 'translation', 'usage_stats.overview_realtime_throughput_hint')).toBe(
+      'Rates use rolling aggregation. Requests include successful and failed requests; tokens include successful requests with token usage.',
+    );
+  });
+
   it('localizes realtime overview sample and rolling hints', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.overview_realtime_ttft_empty')).toBe('No TTFT samples');
     expect(i18n.getResource('en', 'translation', 'usage_stats.overview_realtime_latency_empty')).toBe('No latency samples');
@@ -372,12 +384,16 @@ describe('i18n resources', () => {
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.overview_realtime_trend')).toBe('趨勢');
   });
 
-  it('removes obsolete realtime response-level labels', () => {
+  it('removes obsolete realtime chart labels', () => {
     for (const language of SUPPORTED_LANGUAGES) {
       const usageStats = i18n.getResourceBundle(language, 'translation').usage_stats;
       expect(usageStats).not.toHaveProperty('overview_realtime_response_level');
       expect(usageStats).not.toHaveProperty('overview_realtime_ttft_p95');
       expect(usageStats).not.toHaveProperty('overview_realtime_latency_p95');
+      expect(usageStats).not.toHaveProperty('overview_realtime_token_velocity');
+      expect(usageStats).not.toHaveProperty('overview_realtime_request_level');
+      expect(usageStats).not.toHaveProperty('overview_realtime_token_empty');
+      expect(usageStats).not.toHaveProperty('overview_realtime_request_empty');
     }
   });
 
