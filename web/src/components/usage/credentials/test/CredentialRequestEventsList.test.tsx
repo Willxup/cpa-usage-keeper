@@ -185,7 +185,9 @@ describe('CredentialRequestEventsList', () => {
     ))
 
     expect(container.querySelector('[data-credential-request-events-list="true"]')).not.toBeNull()
-    expect(container.textContent).not.toContain('Team Alpha')
+    const apiKeyCell = container.querySelector('tbody tr:first-child td:nth-child(2)')
+    expect(apiKeyCell?.textContent).toBe('Team Alpha')
+    expect(apiKeyCell?.className).toContain('apiKey')
     expect(container.textContent).toContain('gpt-5.6')
     expect(container.textContent).toContain('keeper-gpt')
     expect(container.textContent).toContain('high')
@@ -217,8 +219,8 @@ describe('CredentialRequestEventsList', () => {
       'usage_stats.speed',
     ])
     const metricCells = container.querySelectorAll<HTMLTableCellElement>('tbody tr:first-child td')
-    const tokenCell = metricCells[4]
-    const cacheCell = metricCells[5]
+    const tokenCell = metricCells[5]
+    const cacheCell = metricCells[6]
     expect(tokenCell.tabIndex).toBe(0)
     expect(cacheCell.tabIndex).toBe(0)
     expect(tokenCell.getAttribute('aria-label')).toContain('usage_stats.total_tokens: 1,300')
@@ -230,13 +232,14 @@ describe('CredentialRequestEventsList', () => {
     expect(container.querySelectorAll('[data-cache-operation="write"]')).toHaveLength(1)
     expect(Array.from(container.querySelectorAll('thead th')).map((cell) => cell.textContent)).toEqual([
       'usage_stats.request_events_timestamp',
+      'usage_stats.api_key_filter',
       'usage_stats.model_name',
       'usage_stats.request_type',
       'usage_stats.request_events_result',
-      'usage_stats.total_tokens',
+      'usage_stats.request_events_tokens',
       'usage_stats.credentials_detail_cache_column',
       'usage_stats.latency',
-      'usage_stats.total_cost',
+      'usage_stats.request_events_cost',
     ])
     expect(container.textContent).not.toContain('usage_stats.request_events_title')
     expect(container.textContent).not.toContain('usage_stats.request_events_subtitle')
@@ -271,8 +274,8 @@ describe('CredentialRequestEventsList', () => {
     ))
 
     const cells = container.querySelectorAll<HTMLTableCellElement>('tbody tr:first-child td')
-    const tokenCell = cells[4]
-    const cacheCell = cells[5]
+    const tokenCell = cells[5]
+    const cacheCell = cells[6]
     expect(tokenCell.textContent).toContain('5.68M')
     expect(tokenCell.textContent).toContain('1.23M')
     expect(tokenCell.textContent).toContain('2.35M')
@@ -325,15 +328,15 @@ describe('CredentialRequestEventsList', () => {
     expect(toggle?.getAttribute('aria-expanded')).toBe('true')
     expect(toggle?.querySelector('path')?.getAttribute('d')).toBe('m6 9 6 6 6-6')
     expect(details?.querySelectorAll('[data-credential-request-detail-group]')).toHaveLength(2)
-    expect(details?.querySelectorAll('[data-credential-request-detail-item]')).toHaveLength(7)
+    expect(details?.querySelectorAll('[data-credential-request-detail-item]')).toHaveLength(6)
     for (const item of details?.querySelectorAll('[data-credential-request-detail-item]') ?? []) {
       expect(item.children).toHaveLength(2)
     }
     expect(details?.textContent).toContain('usage_stats.credentials_detail_request_context')
     expect(details?.textContent).toContain('usage_stats.credentials_detail_client_context')
-    expect(details?.textContent).toContain('Team Alpha')
-    expect(details?.textContent).toContain('usage_stats.speed_mode_fast')
-    expect(details?.textContent).toContain('usage_stats.speed_mode_flex')
+    expect(details?.textContent).not.toContain('Team Alpha')
+    expect(details?.textContent).toContain('usage_stats.speed_mode_fast (priority)')
+    expect(details?.textContent).toContain('usage_stats.speed_mode_flex (flex)')
     expect(details?.textContent).toContain('OpenAIResponsesExecutor')
     expect(details?.textContent).toContain('192.0.2.10')
     expect(details?.textContent).toContain('198.51.100.7, 192.0.2.10')
@@ -341,6 +344,31 @@ describe('CredentialRequestEventsList', () => {
     expect(details?.textContent).not.toContain('request-1')
     expect(details?.textContent).not.toContain('keeper-gpt')
     expect(details?.textContent).not.toContain('42.5 t/s')
+  })
+
+  it('does not expand a row when API Key is the only extra value', async () => {
+    await act(async () => root.render(
+      <CredentialRequestEventsList
+        events={[{
+          ...event,
+          service_tier: '',
+          response_service_tier: '',
+          executor_type: '',
+          client_ip: '',
+          x_forwarded_for: '',
+          user_agent: '',
+        }]}
+        loading={false}
+        hasMore={false}
+        loadingMore={false}
+        autoLoadMore
+        onLoadMore={() => undefined}
+      />,
+    ))
+
+    expect(container.textContent).toContain('Team Alpha')
+    expect(container.querySelector('[data-credential-request-event-toggle="1"]')).toBeNull()
+    expect(container.querySelector('[data-credential-request-event-details="1"]')).toBeNull()
   })
 
   it('shows the shared tooltip only when compact or detail text is actually truncated', async () => {

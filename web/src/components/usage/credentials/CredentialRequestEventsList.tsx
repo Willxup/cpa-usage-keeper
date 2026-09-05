@@ -306,6 +306,12 @@ const formatSpeedMode = (value: unknown, t: (key: string) => string): string => 
   return labelKey ? t(labelKey) : normalized
 }
 
+const formatSpeedModeDetailValue = (value: unknown, t: (key: string) => string): string => {
+  const rawValue = optionalText(value)
+  const displayValue = formatSpeedMode(rawValue, t)
+  return rawValue === '-' ? displayValue : `${displayValue} (${rawValue})`
+}
+
 const formatSpeed = (value: unknown): string => {
   const speed = Number(value)
   return Number.isFinite(speed) && speed > 0 ? `${speed.toFixed(1)} t/s` : '-'
@@ -370,8 +376,8 @@ const buildRow = (
   const inputTokens = toNumber(event.tokens?.input_tokens)
   const cacheReadTokens = toNumber(event.tokens?.cache_read_tokens)
   const apiKey = optionalText(event.api_key)
-  const requestTier = formatSpeedMode(event.service_tier, t)
-  const responseTier = formatSpeedMode(event.response_service_tier, t)
+  const requestTier = formatSpeedModeDetailValue(event.service_tier, t)
+  const responseTier = formatSpeedModeDetailValue(event.response_service_tier, t)
   const executorType = optionalText(event.executor_type)
   const clientIP = optionalText(event.client_ip)
   const xForwardedFor = optionalText(event.x_forwarded_for)
@@ -422,7 +428,7 @@ const buildRow = (
     clientIP,
     xForwardedFor,
     userAgent,
-    canExpand: [apiKey, requestTier, responseTier, executorType, clientIP, xForwardedFor, userAgent]
+    canExpand: [requestTier, responseTier, executorType, clientIP, xForwardedFor, userAgent]
       .some((value) => value !== '-'),
   }
 }
@@ -637,6 +643,12 @@ export function CredentialRequestEventsList({
             )}
           </td>
           <td
+            className={`${styles.stackedCell} ${styles.apiKey}`.trim()}
+            data-credential-request-api-key={row.id}
+          >
+            {renderOverflowText('strong', row.apiKey)}
+          </td>
+          <td
             className={`${styles.stackedCell} ${styles.model}`.trim()}
             data-credential-request-model={row.id}
           >
@@ -644,11 +656,11 @@ export function CredentialRequestEventsList({
             {renderOverflowText('small', row.modelAlias)}
             {renderLabeledOverflowText(t('usage_stats.reasoning_effort'), row.reasoningEffort)}
           </td>
-          <td className={`${styles.stackedCell} ${styles.request}`.trim()}>
+          <td className={styles.stackedCell}>
             {renderOverflowText('strong', row.requestType)}
             {renderOverflowText('small', row.endpoint)}
           </td>
-          <td className={styles.resultColumn}>
+          <td>
             <RequestEventResultBadge
               failed={row.failed}
               loading={logLoading}
@@ -725,15 +737,11 @@ export function CredentialRequestEventsList({
             className={styles.detailRow}
             data-credential-request-event-details={row.id}
           >
-            <td colSpan={8}>
+            <td colSpan={9}>
               <div className={styles.detailLayout}>
                 <section className={styles.detailGroup} data-credential-request-detail-group="request">
                   <h4>{t('usage_stats.credentials_detail_request_context')}</h4>
                   <div className={styles.detailGrid}>
-                    <div className={styles.detailItem} data-credential-request-detail-item>
-                      <span>{t('usage_stats.api_key_filter')}</span>
-                      {renderOverflowText('strong', row.apiKey)}
-                    </div>
                     <div className={styles.detailItem} data-credential-request-detail-item>
                       <span>{t('usage_stats.credentials_detail_request_tier')}</span>
                       {renderOverflowText('strong', row.requestTier)}
@@ -787,13 +795,14 @@ export function CredentialRequestEventsList({
           <thead>
             <tr>
               <th className={styles.timestamp}>{t('usage_stats.request_events_timestamp')}</th>
+              <th className={styles.apiKey}>{t('usage_stats.api_key_filter')}</th>
               <th className={styles.model}>{t('usage_stats.model_name')}</th>
-              <th className={styles.request}>{t('usage_stats.request_type')}</th>
-              <th className={styles.resultColumn}>{t('usage_stats.request_events_result')}</th>
-              <th className={styles.tokens}>{t('usage_stats.total_tokens')}</th>
+              <th>{t('usage_stats.request_type')}</th>
+              <th>{t('usage_stats.request_events_result')}</th>
+              <th className={styles.tokens}>{t('usage_stats.request_events_tokens')}</th>
               <th className={styles.cache}>{t('usage_stats.credentials_detail_cache_column')}</th>
               <th className={styles.performance}>{t('usage_stats.latency')}</th>
-              <th className={styles.cost}>{t('usage_stats.total_cost')}</th>
+              <th className={styles.cost}>{t('usage_stats.request_events_cost')}</th>
             </tr>
           </thead>
           {virtualizeRows ? (
@@ -801,7 +810,7 @@ export function CredentialRequestEventsList({
               {virtualPaddingTop > 0 ? (
                 <tbody aria-hidden="true">
                   <tr className={styles.virtualSpacerRow} style={{ height: `${virtualPaddingTop}px` }} aria-hidden="true" data-credential-request-events-spacer>
-                    <td colSpan={8} />
+                    <td colSpan={9} />
                   </tr>
                 </tbody>
               ) : null}
@@ -809,7 +818,7 @@ export function CredentialRequestEventsList({
               {virtualPaddingBottom > 0 ? (
                 <tbody aria-hidden="true">
                   <tr className={styles.virtualSpacerRow} style={{ height: `${virtualPaddingBottom}px` }} aria-hidden="true" data-credential-request-events-spacer>
-                    <td colSpan={8} />
+                    <td colSpan={9} />
                   </tr>
                 </tbody>
               ) : null}
