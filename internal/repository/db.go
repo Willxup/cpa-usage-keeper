@@ -125,7 +125,12 @@ func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 	if !sqliteDatabaseRequiresSinglePool(cfg.SQLitePath) && !strings.EqualFold(strings.TrimSpace(journalMode), "wal") {
 		return nil, fmt.Errorf("enable sqlite WAL: journal mode is %q", journalMode)
 	}
-	if err := db.Exec("PRAGMA busy_timeout=5000").Error; err != nil {
+	if strings.EqualFold(strings.TrimSpace(journalMode), "wal") {
+		if err := db.Exec("PRAGMA synchronous=NORMAL").Error; err != nil {
+			return nil, fmt.Errorf("set sqlite synchronous normal: %w", err)
+		}
+	}
+	if err := db.Exec("PRAGMA busy_timeout=15000").Error; err != nil {
 		return nil, fmt.Errorf("set sqlite busy timeout: %w", err)
 	}
 	if err := db.Exec("PRAGMA foreign_keys=ON").Error; err != nil {
@@ -217,7 +222,7 @@ func sqliteDSN(path string) string {
 	if strings.Contains(trimmed, "?") {
 		return trimmed
 	}
-	return trimmed + "?_busy_timeout=5000&_foreign_keys=on"
+	return trimmed + "?_busy_timeout=15000&_foreign_keys=on"
 }
 
 // sqliteReadDSN 把文件路径规范化为 SQLite URI，并强制底层只读模式与连接级 query_only 保护。
@@ -235,7 +240,7 @@ func sqliteReadDSN(path string) (string, error) {
 	}
 	// 无自定义 query 时沿用 writer 的连接级默认值；显式参数则保持旧 DSN 的覆盖语义。
 	if !hasQuery {
-		query.Set("_busy_timeout", "5000")
+		query.Set("_busy_timeout", "15000")
 		query.Set("_foreign_keys", "on")
 	}
 	// Set 会删除同名冲突值，保证调用方不能用参数顺序关闭 reader 的两层保护。

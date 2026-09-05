@@ -92,6 +92,8 @@ const (
 	migrationResetQuotaHistory = "20260827_reset_quota_history"
 	// migrationRepairUsageEventQuotaWindowIndex 修复旧 migration 记录与物理索引不一致的数据库。
 	migrationRepairUsageEventQuotaWindowIndex = "20260902_repair_usage_event_quota_window_index"
+	// migrationAddUsageEventAPIGroupKeyTimestampIndex 为 (api_group_key, timestamp DESC) 添加复合索引以加速时序聚合与范围查询。
+	migrationAddUsageEventAPIGroupKeyTimestampIndex = "20260905_usage_event_api_group_key_timestamp_index"
 )
 
 type schemaMigration struct {
@@ -235,6 +237,8 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationResetQuotaHistory, run: resetQuotaHistoryMigration, destructive: true},
 		// 历史 migration 不会重跑；用新版本幂等补齐额度历史查询强制依赖的索引。
 		{version: migrationRepairUsageEventQuotaWindowIndex, run: repairUsageEventQuotaWindowIndexMigration},
+		// 为 API Group 和 Timestamp 补复合索引，加速看板过滤与排行榜聚合。
+		{version: migrationAddUsageEventAPIGroupKeyTimestampIndex, run: addUsageEventAPIGroupKeyTimestampIndexMigration},
 	}
 }
 
