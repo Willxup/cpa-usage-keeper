@@ -26,6 +26,11 @@ type RecentUsageEventAppender interface {
 	TryAppend([]entities.UsageEvent) bool
 }
 
+// AutoPricingProvider 由共享 pricingService 提供，用于新事件触发的缺价补齐。
+type AutoPricingProvider interface {
+	EnsureModelsPricing(ctx context.Context, models []string) ([]entities.ModelPriceSetting, error)
+}
+
 // UsageAggregationNotifier 把已提交 usage 或 identity 变化转成后台 runner 的非阻塞唤醒。
 type UsageAggregationNotifier interface {
 	// NotifyUsageEventsCommitted 只接收已经与 inbox processed 状态共同提交的事件。
@@ -58,6 +63,7 @@ type SyncService struct {
 	baseURL         string
 	now             func() time.Time
 	recentUsage     RecentUsageEventAppender
+	pricing         AutoPricingProvider
 	// usageAggregation 只接收提交后通知，不允许热路径同步调用聚合仓储函数。
 	usageAggregation UsageAggregationNotifier
 	// usageHeaderQuota 与聚合 runner 解耦，在 Quota worker 内按一分钟窗口自行合并。
@@ -79,6 +85,7 @@ type SyncServiceOptions struct {
 	MetadataFetcher   MetadataFetcher
 	Now               func() time.Time
 	RecentUsageEvents RecentUsageEventAppender
+	PricingProvider   AutoPricingProvider
 	// UsageAggregationNotifier 注入 App 唯一的单 writer runner。
 	UsageAggregationNotifier UsageAggregationNotifier
 	// UsageHeaderQuota 独立接收原始 Header；是否配置聚合 notifier 不影响它。
@@ -102,6 +109,7 @@ func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncServic
 		baseURL:         strings.TrimSpace(opts.BaseURL),
 		now:             now,
 		recentUsage:     opts.RecentUsageEvents,
+		pricing:         opts.PricingProvider,
 		// 构造时只保存 notifier 接口，不启动额外 goroutine。
 		usageAggregation: opts.UsageAggregationNotifier,
 		// Header appender 始终独立于聚合 notifier，生产 App 会同时注入两个接收方。
@@ -334,6 +342,14 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.D
 	// 事务已经同时提交 usage_events 与对应 inbox processed，只有此时事件级 Token 日志才代表真实入库事件。
 	logCommittedTokenProcessingEvents(normalizedItems)
 	if result.InsertedEvents > 0 {
+		// 补价失败只影响成本展示，不应阻塞 usage_events 和 inbox 状态。
+		if s.pricing != nil {
+			if incomingModels := incomingUsageModels(events); len(incomingModels) > 0 {
+				if _, ensureErr := s.pricing.EnsureModelsPricing(ctx, incomingModels); ensureErr != nil {
+					logrus.WithError(ensureErr).Warn("failed to auto-resolve pricing for incoming models")
+				}
+			}
+		}
 		// usage_events 事务已经提交后才通知最近事件缓存，避免缓存看到未落库的数据。
 		if s.recentUsage != nil && !s.recentUsage.TryAppend(events) {
 			// 缓存队列满只影响 realtime/边界缓存的新鲜度，不能反向阻塞或回滚写入链路。
@@ -392,6 +408,23 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.D
 		// 已确认丢弃只在 service 逐行告警一次，runner 使用该计数避免重复批次告警。
 		DiscardedRows: failureCounts.discarded,
 	}, returnErr
+}
+
+func incomingUsageModels(events []entities.UsageEvent) []string {
+	models := make([]string, 0, len(events))
+	seen := make(map[string]struct{}, len(events))
+	for _, event := range events {
+		model := strings.TrimSpace(event.Model)
+		if model == "" || strings.EqualFold(model, "unknown") {
+			continue
+		}
+		if _, exists := seen[model]; exists {
+			continue
+		}
+		seen[model] = struct{}{}
+		models = append(models, model)
+	}
+	return models
 }
 
 func newRedisBatchSyncResult(status string, processedRows int) *servicedto.RedisBatchSyncResult {
