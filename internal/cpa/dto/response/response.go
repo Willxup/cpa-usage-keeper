@@ -5,6 +5,7 @@ import (
 
 	"cpa-usage-keeper/internal/cpa/dto/authfiles"
 	"cpa-usage-keeper/internal/cpa/dto/cpaapikeys"
+	"cpa-usage-keeper/internal/cpa/dto/keypolicy"
 	"cpa-usage-keeper/internal/cpa/dto/models"
 	"cpa-usage-keeper/internal/cpa/dto/providerconfig"
 )
@@ -14,6 +15,12 @@ type ManagementAPIKeysResult struct {
 	StatusCode int
 	Body       []byte
 	Payload    cpaapikeys.ManagementAPIKeysResponse
+}
+
+type CPAKeyPolicyKeysResult struct {
+	StatusCode int
+	Body       []byte
+	Payload    keypolicy.KeysResponse
 }
 
 // ModelsResult 是 FetchModels 返回的 HTTP 包装，保留状态码、原始响应体和解析后的 DTO。
