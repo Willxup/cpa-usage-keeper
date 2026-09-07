@@ -25,6 +25,7 @@ type PricingProvider interface {
 	ListUsedModels(context.Context) ([]string, error)
 	ListPricing(context.Context) ([]entities.ModelPriceSetting, error)
 	PreviewPricingSync(context.Context) (servicedto.PricingSyncPreview, error)
+	EnsureModelsPricing(context.Context, []string) ([]entities.ModelPriceSetting, error)
 	UpdatePricing(context.Context, servicedto.UpdatePricingInput) (*entities.ModelPriceSetting, error)
 	UpdatePricingBatch(context.Context, []servicedto.UpdatePricingInput) ([]entities.ModelPriceSetting, error)
 	DeletePricing(context.Context, string) error

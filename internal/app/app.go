@@ -199,6 +199,8 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	pricingCatalog := pricing.NewCatalog(pricingSnapshot)
 
 	cpaClient := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)
+	// pricingService 先于 syncService 创建，确保同一 writer、catalog 和官方价 fetcher 被两条链路共享。
+	pricingService := service.NewPricingService(db, pricingCatalog, cpaClient)
 	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{
 		RefreshWorkerLimit:            cfg.QuotaRefreshWorkerLimit,
 		QuotaUpstreamResponsesEnabled: cfg.QuotaUpstreamResponsesEnabled,
@@ -214,6 +216,8 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		RecentUsageEvents: recentUsageCache,
 		// usage 与 metadata 提交后只唤醒单 writer runner，不在前台链路执行派生聚合。
 		UsageAggregationNotifier: usageAggregationRunner,
+		// 新 usage 事件提交后自动补齐缺失价格；catalog 通过共享实例立即发布。
+		PricingProvider: pricingService,
 		// Header 独立进入 Quota worker 的惰性一分钟窗口，不再等待 Overview 水位。
 		UsageHeaderQuota: quotaService,
 	})
@@ -309,7 +313,6 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	if cfg.TLSSkipVerify {
 		logrus.WithField("cpa_base_url", cfg.CPABaseURL).Warn("TLS certificate verification is disabled for CPA and Redis queue connections")
 	}
-	pricingService := service.NewPricingService(db, pricingCatalog, cpaClient)
 	sessionManager := auth.NewSessionManager(cfg.AuthSessionTTL)
 	if cfg.AuthEnabled {
 		// Session Get/List 自动走 reader，Save/Delete 仍由写回调路由到唯一 writer。
