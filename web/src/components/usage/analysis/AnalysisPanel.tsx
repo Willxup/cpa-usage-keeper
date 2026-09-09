@@ -160,8 +160,8 @@ function getCompositionColor(index: number): GradientColor {
     + (index - CHART_COLORS.length) * COMPOSITION_EXTENDED_COLOR_GOLDEN_ANGLE
   ) % 360);
   return {
-    base: `hsl(${hue} 68% 42%)`,
-    light: `hsl(${hue} 82% 68%)`,
+    base: `hsl(${hue}, 68%, 42%)`,
+    light: `hsl(${hue}, 82%, 68%)`,
   };
 }
 const TOP_MODEL_COLORS: GradientColor[] = [
@@ -1718,6 +1718,7 @@ function CompositionPanel({
               step={1}
               inputMode="numeric"
               value={itemLimitDraft}
+              aria-label={`${t('usage_stats.analysis_composition_limit_prefix')} ${t('usage_stats.analysis_composition_limit_suffix')}`}
               aria-invalid={itemLimitInvalid}
               aria-describedby={itemLimitMessageId}
               onChange={(event) => setItemLimitDraft(event.target.value)}
