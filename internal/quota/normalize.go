@@ -16,6 +16,8 @@ const (
 	quotaWindowSevenDaySeconds     int64 = 7 * 24 * 60 * 60
 	quotaWindowThirtyDaySeconds    int64 = 30 * 24 * 60 * 60
 	quotaWindowAverageMonthSeconds int64 = 365 * 24 * 60 * 60 / 12
+	antigravityGeminiGroupKey            = "antigravity-gemini-models"
+	antigravityClaudeGPTGroupKey         = "antigravity-claude-and-gpt-models"
 )
 
 func NormalizeQuotaRows(output ProviderOutput) []QuotaRow {
@@ -315,6 +317,9 @@ func normalizeAntigravityQuotaRows(result AntigravityResult) []QuotaRow {
 }
 
 func antigravityQuotaGroupKey(displayName string, groupIndex int) string {
+	if knownKey, ok := knownAntigravityQuotaGroupKey(displayName); ok {
+		return knownKey
+	}
 	var normalized strings.Builder
 	pendingSeparator := false
 	for _, value := range strings.ToLower(strings.TrimSpace(displayName)) {
@@ -334,6 +339,33 @@ func antigravityQuotaGroupKey(displayName string, groupIndex int) string {
 		return fmt.Sprintf("antigravity-group-%d", groupIndex+1)
 	}
 	return "antigravity-" + normalized.String()
+}
+
+func knownAntigravityQuotaGroupKey(displayName string) (string, bool) {
+	words := strings.FieldsFunc(strings.ToLower(strings.TrimSpace(displayName)), func(value rune) bool {
+		return (value < 'a' || value > 'z') && (value < '0' || value > '9')
+	})
+	hasGemini := false
+	hasClaude := false
+	hasGPT := false
+	for _, word := range words {
+		switch word {
+		case "gemini":
+			hasGemini = true
+		case "claude":
+			hasClaude = true
+		case "gpt":
+			hasGPT = true
+		}
+	}
+	switch {
+	case hasGemini && !hasClaude && !hasGPT:
+		return antigravityGeminiGroupKey, true
+	case hasClaude && hasGPT && !hasGemini:
+		return antigravityClaudeGPTGroupKey, true
+	default:
+		return "", false
+	}
 }
 
 func normalizeAntigravityQuotaWindow(bucket AntigravityQuotaBucket) (string, string, *QuotaWindow) {

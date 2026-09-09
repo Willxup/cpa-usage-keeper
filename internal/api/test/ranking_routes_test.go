@@ -13,7 +13,8 @@ import (
 )
 
 type rankingRouteProviderStub struct {
-	statusCalls int
+	statusCalls      int
+	leaderboardCalls int
 }
 
 func (s *rankingRouteProviderStub) Status(context.Context) (ranking.LocalStatus, error) {
@@ -39,7 +40,8 @@ func (*rankingRouteProviderStub) Exit(context.Context) (ranking.LocalStatus, err
 	return ranking.LocalStatus{}, nil
 }
 
-func (*rankingRouteProviderStub) Leaderboard(context.Context, ranking.LeaderboardPeriod, ranking.LeaderboardMetric) (ranking.Leaderboard, error) {
+func (s *rankingRouteProviderStub) Leaderboard(context.Context, ranking.LeaderboardPeriod, ranking.LeaderboardMetric) (ranking.Leaderboard, error) {
+	s.leaderboardCalls++
 	return ranking.Leaderboard{}, nil
 }
 

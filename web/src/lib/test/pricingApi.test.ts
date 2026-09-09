@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { deletePricing, fetchPricingRules, replacePricingRules, updatePricing, updatePricingBatch } from '../api'
+import { deletePricing, fetchPricingRules, fetchPricingSyncPreview, replacePricingRules, updatePricing, updatePricingBatch } from '../api'
 
 const headerValue = (init: RequestInit | undefined, name: string): string | null => (
   new Headers(init?.headers).get(name)
@@ -9,6 +9,18 @@ describe('pricing API client', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it.each([undefined, 'litellm'] as const)('requests the selected pricing source %s with cancellation', async (source) => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper' })
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
+    const signal = new AbortController().signal
+    await fetchPricingSyncPreview(source, signal)
+    const [rawURL, init] = fetchMock.mock.calls[0]
+    const url = new URL(String(rawURL), 'http://localhost')
+    expect(url.pathname).toBe('/keeper/api/v1/pricing/sync/preview')
+    expect(url.searchParams.get('source')).toBe(source ?? 'models-dev')
+    expect(init).toMatchObject({ credentials: 'include', cache: 'no-store', signal })
   })
 
   it('updates one model through the pricing endpoint without sending a pricing snapshot', async () => {

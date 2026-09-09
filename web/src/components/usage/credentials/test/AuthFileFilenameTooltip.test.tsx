@@ -26,6 +26,7 @@ const row = {
   successRate: null,
   totalTokens: 0,
   cacheReadRate: null,
+  windowCacheReadRate: null,
   quota: [],
   quotaLoading: false,
   displayQuotas: [],

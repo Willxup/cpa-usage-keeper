@@ -127,6 +127,78 @@ func TestBuildCodexUsageHeaderSnapshotCreatesImmutableCacheAndHistoryProjections
 	}
 }
 
+func TestBuildCodexUsageHeaderSnapshotSkipsAdditionalActiveLimitHistory(t *testing.T) {
+	// 生产 Spark 响应会把当前 Additional 额度重复投影到无 group Primary。
+	// cache 只保留带 group 的 Spark 行，主历史也不接受这份投影。
+	observedAt := time.Date(2026, 8, 27, 14, 5, 0, 0, time.Local)
+	headers := http.Header{
+		"x-codex-active-limit":                            []string{"codex_bengalfox"},
+		"X-Codex-Primary-Used-Percent":                    []string{"4"},
+		"X-Codex-Primary-Window-Minutes":                  []string{"300"},
+		"X-Codex-Primary-Reset-After-Seconds":             []string{"7200"},
+		"X-Codex-Secondary-Used-Percent":                  []string{"6"},
+		"X-Codex-Secondary-Window-Minutes":                []string{"10080"},
+		"X-Codex-Secondary-Reset-After-Seconds":           []string{"3600"},
+		"X-Codex-Bengalfox-Limit-Name":                    []string{"GPT-5.3-Codex-Spark"},
+		"X-Codex-Bengalfox-Primary-Used-Percent":          []string{"4"},
+		"X-Codex-Bengalfox-Primary-Window-Minutes":        []string{"300"},
+		"X-Codex-Bengalfox-Primary-Reset-After-Seconds":   []string{"7200"},
+		"X-Codex-Bengalfox-Secondary-Used-Percent":        []string{"6"},
+		"X-Codex-Bengalfox-Secondary-Window-Minutes":      []string{"10080"},
+		"X-Codex-Bengalfox-Secondary-Reset-After-Seconds": []string{"3600"},
+	}
+	snapshot, ok := BuildUsageHeaderSnapshot(UsageHeaderSnapshotInput{
+		AuthType: "oauth", AuthIndex: "spark-auth", Provider: "codex",
+		ObservedAt: observedAt, Headers: headers,
+	})
+	if !ok || snapshot == nil {
+		t.Fatal("expected Spark header to keep its cache snapshot")
+	}
+	rows := NormalizeQuotaRows(snapshot.CacheOutput)
+	if len(rows) != 2 || rows[0].Key != "additional_rate_limits.GPT-5.3-Codex-Spark.primary_window" || rows[1].Key != "additional_rate_limits.GPT-5.3-Codex-Spark.secondary_window" {
+		t.Fatalf("unexpected Spark cache rows: %#v", rows)
+	}
+	if len(snapshot.MainQuotaObservations) != 0 {
+		t.Fatalf("expected Spark active Additional header to create no main history, got %+v", snapshot.MainQuotaObservations)
+	}
+}
+
+func TestBuildCodexUsageHeaderSnapshotAcceptsKnownMainAndRejectsUnknownActiveLimit(t *testing.T) {
+	baseHeaders := http.Header{
+		"X-Codex-Primary-Used-Percent":        []string{"22"},
+		"X-Codex-Primary-Window-Minutes":      []string{"10080"},
+		"X-Codex-Primary-Reset-After-Seconds": []string{"604800"},
+	}
+	tests := []struct {
+		name        string
+		activeLimit string
+		wantHistory bool
+	}{
+		{name: "known main", activeLimit: "premium", wantHistory: true},
+		{name: "unknown non-empty", activeLimit: "future_pool", wantHistory: false},
+		{name: "unknown normalized empty", activeLimit: "___", wantHistory: false},
+		{name: "missing compatibility", wantHistory: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			headers := baseHeaders.Clone()
+			if test.activeLimit != "" {
+				headers.Set("X-Codex-Active-Limit", test.activeLimit)
+			}
+			snapshot, ok := BuildUsageHeaderSnapshot(UsageHeaderSnapshotInput{
+				AuthType: "oauth", AuthIndex: "codex-auth", Provider: "codex",
+				ObservedAt: time.Date(2026, 8, 27, 14, 5, 0, 0, time.Local), Headers: headers,
+			})
+			if !ok || snapshot == nil {
+				t.Fatal("expected valid cache snapshot")
+			}
+			if got := len(snapshot.MainQuotaObservations); (got == 1) != test.wantHistory {
+				t.Fatalf("unexpected history eligibility for active limit %q: %+v", test.activeLimit, snapshot.MainQuotaObservations)
+			}
+		})
+	}
+}
+
 func TestBuildCodexUsageHeaderSnapshotKeepsUnknownMainWindowHistoryOnly(t *testing.T) {
 	// 未知 720 分钟窗口不应放宽现有 cache parser，但必须作为合法 Primary 历史 observation 保存。
 	observedAt := time.Date(2026, 8, 20, 8, 0, 0, 0, time.UTC)

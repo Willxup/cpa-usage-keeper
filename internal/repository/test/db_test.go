@@ -121,7 +121,7 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 		}
 	}
 	for _, indexName := range []string{
-		"idx_usage_events_api_group_key",
+		"idx_usage_events_api_group_key_timestamp",
 		"idx_usage_events_auth_index",
 		"idx_usage_events_model",
 		"idx_usage_events_auth_type_auth_index_id",
@@ -143,6 +143,7 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 		assertSQLiteIndexExists(t, db, indexName)
 	}
 	for _, indexName := range []string{
+		"idx_usage_events_api_group_key",
 		"idx_usage_events_api_group_key_timestamp_id",
 		"idx_usage_events_event_key",
 		"idx_usage_events_failed",
@@ -183,8 +184,16 @@ func TestOpenDatabaseConfiguresSQLiteRuntime(t *testing.T) {
 	if err := db.Raw("PRAGMA busy_timeout").Scan(&busyTimeout).Error; err != nil {
 		t.Fatalf("read busy timeout: %v", err)
 	}
-	if busyTimeout < 5000 {
-		t.Fatalf("expected busy timeout at least 5000ms, got %d", busyTimeout)
+	if busyTimeout != 15000 {
+		t.Fatalf("expected busy timeout 15000ms, got %d", busyTimeout)
+	}
+
+	var synchronous int
+	if err := db.Raw("PRAGMA synchronous").Scan(&synchronous).Error; err != nil {
+		t.Fatalf("read synchronous mode: %v", err)
+	}
+	if synchronous != 1 {
+		t.Fatalf("expected NORMAL synchronous mode, got %d", synchronous)
 	}
 
 	var foreignKeys int

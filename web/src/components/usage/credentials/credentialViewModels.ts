@@ -3,6 +3,7 @@ import { calculateCacheReadRate, formatCompactTokenValue } from '@/utils/usage'
 import { resolveCredentialSubscriptionBadge, type SubscriptionBadgeModel } from './credentialSubscription'
 
 export const CREDENTIALS_PAGE_SIZE = 10
+export const CREDENTIAL_PAGE_SIZE_OPTIONS = [5, 10, 20, 50] as const
 const FIVE_HOUR_WINDOW_SECONDS = 5 * 60 * 60
 const WEEKLY_WINDOW_SECONDS = 7 * 24 * 60 * 60
 const THIRTY_DAY_WINDOW_SECONDS = 30 * 24 * 60 * 60
@@ -59,6 +60,8 @@ export interface AuthFileCredentialRow {
   successRate: number | null
   totalTokens: number
   cacheReadRate: number | null
+  /** 最近 5h 滚动窗口内的缓存率，与终身 cacheReadRate 同公式、不同作用域。 */
+  windowCacheReadRate: number | null
   quota: UsageQuotaRow[]
   quotaResetCreditsAvailableCount?: number | null
   quotaLoading: boolean
@@ -83,6 +86,8 @@ export interface AiProviderCredentialRow {
   successRate: number | null
   totalTokens: number
   cacheReadRate: number | null
+  /** 最近 5h 滚动窗口内的缓存率，与终身 cacheReadRate 同公式、不同作用域。 */
+  windowCacheReadRate: number | null
   lastUsedText?: string
   statsUpdatedText?: string
   credentialHealth?: UsageCredentialHealth
@@ -167,6 +172,7 @@ export function buildAuthFileCredentialRows(
       successRate: successRate(identity),
       totalTokens: safeNumber(identity.total_tokens),
       cacheReadRate: cacheReadRate(identity),
+      windowCacheReadRate: windowCacheReadRate(identity.credential_health),
       quota,
       quotaResetCreditsAvailableCount: quotaResponse?.rateLimitResetCreditsAvailableCount,
       quotaLoading: state?.quotaLoading ?? false,
@@ -194,6 +200,7 @@ export function buildAiProviderCredentialRows(identities: UsageIdentity[]): AiPr
     successRate: successRate(identity),
     totalTokens: safeNumber(identity.total_tokens),
     cacheReadRate: cacheReadRate(identity),
+    windowCacheReadRate: windowCacheReadRate(identity.credential_health),
     lastUsedText: identity.last_used_at,
     statsUpdatedText: identity.stats_updated_at,
     credentialHealth: identity.credential_health,
@@ -503,6 +510,17 @@ function cacheReadRate(identity: UsageIdentity): number | null {
   return calculateCacheReadRate({
     inputTokens: identity.input_tokens,
     cacheReadTokens: identity.cache_read_tokens,
+  })
+}
+
+// 5h 窗口缓存率复用同一个 calculateCacheReadRate，只把分子分母换成健康窗口的合计值。
+function windowCacheReadRate(health?: UsageCredentialHealth): number | null {
+  if (!health) {
+    return null
+  }
+  return calculateCacheReadRate({
+    inputTokens: health.input_tokens,
+    cacheReadTokens: health.cache_read_tokens,
   })
 }
 

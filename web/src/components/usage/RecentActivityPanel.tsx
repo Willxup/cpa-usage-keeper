@@ -45,11 +45,9 @@ export function RecentActivityPanel({
     : '';
   const displayError = error === 'ACTIVITY_LOAD_FAILED'
     ? t('usage_stats.recent_activity_load_failed')
-    : error === 'KEY_ACTIVITY_RATE_LIMITED'
-      ? t('usage_stats.recent_activity_rate_limited')
-      : error === 'AUTH_REQUIRED'
-        ? t('auth.session_expired')
-        : error;
+    : error === 'AUTH_REQUIRED'
+      ? t('auth.session_expired')
+      : error;
 
   return (
     <section className={styles.recentActivitySection}>

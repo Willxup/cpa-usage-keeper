@@ -6,7 +6,6 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"cpa-usage-keeper/internal/auth"
@@ -17,8 +16,12 @@ import (
 )
 
 const (
-	sessionCookieName      = "cpa_usage_keeper_session"
-	embedSessionCookieName = "cpa_usage_keeper_embed_session"
+	sessionCookieName         = "cpa_usage_keeper_session"
+	embedSessionCookieName    = "cpa_usage_keeper_embed_session"
+	authTokenContextKey       = "auth_token"
+	authSessionContextKey     = "auth_session"
+	authResolvedContextKey    = "auth_resolved_session"
+	activeViewerKeyContextKey = "active_viewer_api_key"
 
 	embedHeaderName               = "X-CPA-Usage-Keeper-Embed"
 	embedHeaderValueCPAMC         = "cpamc"
@@ -35,12 +38,13 @@ const (
 )
 
 type AuthConfig struct {
-	Enabled              bool
-	LoginPassword        string
-	SessionTTL           time.Duration
-	BasePath             string
-	FrameAncestorOrigins []string
-	TrustedProxyCIDRs    []string
+	Enabled                         bool
+	LoginPassword                   string
+	SessionTTL                      time.Duration
+	BasePath                        string
+	FrameAncestorOrigins            []string
+	TrustedProxyCIDRs               []string
+	APIKeyViewerLocalRankingEnabled bool
 }
 
 type authHandler struct {
@@ -48,9 +52,6 @@ type authHandler struct {
 	sessions          *auth.SessionManager
 	cpaAPIKeyProvider service.CPAAPIKeyProvider
 	loginAttempts     *auth.LoginAttemptLimiter
-
-	mu                  sync.Mutex
-	keyOverviewRequests map[string]time.Time
 }
 
 type loginRequest struct {
@@ -68,8 +69,9 @@ type sessionResponse struct {
 }
 
 type sessionAPIKeyResponse struct {
-	DisplayKey string `json:"display_key"`
-	Alias      string `json:"alias,omitempty"`
+	DisplayKey          string `json:"display_key"`
+	Alias               string `json:"alias,omitempty"`
+	LocalRankingEnabled bool   `json:"local_ranking_enabled,omitempty"`
 }
 
 type loginResponse struct {
@@ -107,7 +109,6 @@ func NewAuthHandler(config AuthConfig, sessions *auth.SessionManager) *authHandl
 			GlobalLimit:    loginAttemptGlobalMax,
 			MaxSources:     loginAttemptSourceMax,
 		}),
-		keyOverviewRequests: make(map[string]time.Time),
 	}
 }
 
@@ -156,11 +157,50 @@ func (h *authHandler) roleMiddleware(allowedRoles ...auth.Role) gin.HandlerFunc 
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			return
 		}
-		c.Set("auth_token", resolved.Token)
-		c.Set("auth_session", session)
+		c.Set(authTokenContextKey, resolved.Token)
+		c.Set(authSessionContextKey, session)
+		c.Set(authResolvedContextKey, resolved)
 		h.sessions.Touch(resolved.Token, sessionClientIP(c))
 		c.Next()
 	}
+}
+
+func (h *authHandler) activeAPIKeyViewerMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if h == nil || !h.config.Enabled {
+			c.Next()
+			return
+		}
+		resolvedValue, hasResolved := c.Get(authResolvedContextKey)
+		resolved, resolvedOK := resolvedValue.(resolvedSessionToken)
+		sessionValue, hasSession := c.Get(authSessionContextKey)
+		session, sessionOK := sessionValue.(auth.Session)
+		if !hasResolved || !resolvedOK || !hasSession || !sessionOK || session.Role != auth.RoleAPIKeyViewer {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		row, ok := h.activeViewerAPIKey(c, resolved, session)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		c.Set(activeViewerKeyContextKey, row)
+		c.Next()
+	}
+}
+
+func activeAPIKeyViewerContext(c *gin.Context) (auth.Session, entities.CPAAPIKey, bool) {
+	if c == nil {
+		return auth.Session{}, entities.CPAAPIKey{}, false
+	}
+	sessionValue, hasSession := c.Get(authSessionContextKey)
+	session, sessionOK := sessionValue.(auth.Session)
+	keyValue, hasKey := c.Get(activeViewerKeyContextKey)
+	key, keyOK := keyValue.(entities.CPAAPIKey)
+	if !hasSession || !sessionOK || !hasKey || !keyOK || session.CPAAPIKeyID <= 0 || session.CPAAPIKeyID != key.ID {
+		return auth.Session{}, entities.CPAAPIKey{}, false
+	}
+	return session, key, true
 }
 
 func sessionRoleAllowed(role auth.Role, allowedRoles []auth.Role) bool {
@@ -222,7 +262,11 @@ func (h *authHandler) getSession(c *gin.Context) {
 			c.JSON(http.StatusOK, sessionResponse{Authenticated: false})
 			return
 		}
-		response.APIKey = &sessionAPIKeyResponse{DisplayKey: helper.CPAAPIKeyMaskedDisplayKey(row), Alias: row.KeyAlias}
+		response.APIKey = &sessionAPIKeyResponse{
+			DisplayKey:          helper.CPAAPIKeyMaskedDisplayKey(row),
+			Alias:               row.KeyAlias,
+			LocalRankingEnabled: h.config.APIKeyViewerLocalRankingEnabled,
+		}
 	}
 	c.JSON(http.StatusOK, response)
 }
@@ -352,56 +396,12 @@ func (h *authHandler) allowLoginAttempt(c *gin.Context, key string) bool {
 	return false
 }
 
-func (h *authHandler) allowKeyOverviewRequest(token string, scopes ...string) bool {
-	if h == nil || token == "" {
-		return true
-	}
-	scope := "overview"
-	if len(scopes) > 0 && strings.TrimSpace(scopes[0]) != "" {
-		scope = strings.TrimSpace(scopes[0])
-	}
-	key := token
-	if scope != "overview" {
-		key = token + "\x00" + scope
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	now := time.Now()
-	if last, ok := h.keyOverviewRequests[key]; ok && now.Sub(last) < time.Second {
-		return false
-	}
-	h.keyOverviewRequests[key] = now
-	return true
-}
-
 func (h *authHandler) deleteSession(token string) {
 	if h == nil || token == "" {
 		return
 	}
 	if h.sessions != nil {
 		h.sessions.Delete(token)
-	}
-	h.clearSessionState(token)
-}
-
-func (h *authHandler) clearSessionStateForTokens(tokens []string) {
-	for _, token := range tokens {
-		h.clearSessionState(token)
-	}
-}
-
-func (h *authHandler) clearSessionState(token string) {
-	if h == nil || token == "" {
-		return
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	delete(h.keyOverviewRequests, token)
-	prefix := token + "\x00"
-	for key := range h.keyOverviewRequests {
-		if strings.HasPrefix(key, prefix) {
-			delete(h.keyOverviewRequests, key)
-		}
 	}
 }
 

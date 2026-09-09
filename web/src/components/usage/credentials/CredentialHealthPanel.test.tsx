@@ -76,6 +76,8 @@ describe('CredentialHealthPanel', () => {
           total_success: 2,
           total_failure: 1,
           success_rate: 66.6667,
+          input_tokens: 0,
+          cache_read_tokens: 0,
           buckets: [
             {
               start_time: '2026-05-10T10:10:00+08:00',

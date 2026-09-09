@@ -50,6 +50,7 @@ const commonRow = {
   successRate: 100,
   totalTokens: 15,
   cacheReadRate: 0,
+  windowCacheReadRate: null,
 }
 
 const authFileRow = {

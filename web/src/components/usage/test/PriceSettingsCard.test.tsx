@@ -4,22 +4,16 @@ import '@/i18n';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ApiError } from '@/lib/api';
+import { buildPricingModelOptions, PriceSettingsCard } from '../PriceSettingsCard';
 import {
-  buildPricingModelOptions,
-  buildSelectedSyncPrices,
-  markPricingSyncFailures,
-  notifyPricingSyncUnexpectedError,
-  notifyPricingSyncFailures,
-  PriceSettingsCard,
-  pricingDraftToModelPrice,
-  syncDraftToModelPrice,
-  syncMatchToDraft,
-  saveSyncDraftsWithSingleModelCallback,
+  buildSelectedSyncPrices, markPricingSyncFailures, notifyPricingSyncUnexpectedError,
+  notifyPricingSyncFailures, pricingDraftToModelPrice, syncDraftToModelPrice, syncMatchToDraft,
   type PricingSyncDraft,
-} from '../PriceSettingsCard';
+} from '../pricing/pricingDrafts';
 
 const countOccurrences = (text: string, value: string) => text.split(value).length - 1;
-const source = readFileSync(new URL('../PriceSettingsCard.tsx', import.meta.url), 'utf8');
+const source = ['../PriceSettingsCard.tsx', '../pricing/PriceSyncPanel.tsx', '../pricing/pricingDrafts.ts']
+  .map((path) => readFileSync(new URL(path, import.meta.url), 'utf8')).join('\n');
 
 const syncDraft = (model: string): PricingSyncDraft => ({
   model,
@@ -148,13 +142,22 @@ describe('PriceSettingsCard', () => {
     expect(emptyHTML).not.toContain('>Rules</span>');
   });
 
-  it('renders saved model prices in natural descending model-name order', () => {
+  it('renders saved prices by family priority, descending version and ascending suffix', () => {
     const prices = Object.fromEntries([
       'gpt-5.5',
       'gpt-5.6-sol',
       'gpt-5.10',
       'gpt-5.6-terra',
       'gpt-5.9',
+      'qwen-3',
+      'claude-sonnet-4.6',
+      'deepseek-v3',
+      'gemini-2.5-pro',
+      'claude-opus-4.5',
+      'gpt-5.6',
+      'claude-opus-4.6',
+      'openai/gpt-4o',
+      'team2/anthropic/claude-opus-4.7',
     ].map((model, index) => [model, {
       style: 'openai' as const,
       prompt: index + 1,
@@ -175,9 +178,18 @@ describe('PriceSettingsCard', () => {
     const renderedOrder = [
       'gpt-5.10',
       'gpt-5.9',
-      'gpt-5.6-terra',
+      'gpt-5.6',
       'gpt-5.6-sol',
+      'gpt-5.6-terra',
       'gpt-5.5',
+      'openai/gpt-4o',
+      'team2/anthropic/claude-opus-4.7',
+      'claude-opus-4.6',
+      'claude-opus-4.5',
+      'claude-sonnet-4.6',
+      'gemini-2.5-pro',
+      'deepseek-v3',
+      'qwen-3',
     ].map((model) => html.indexOf(`>${model}</span>`));
 
     expect(renderedOrder.every((index) => index >= 0)).toBe(true);
@@ -241,7 +253,9 @@ describe('PriceSettingsCard', () => {
         modelPrices={{}}
         onPriceSave={() => undefined}
         onPriceDelete={() => undefined}
+        onSyncPricesChange={async (prices) => ({ successModels: Object.keys(prices), failures: [] })}
         onSyncPreview={async () => ({
+          source_id: 'models-dev',
           source: 'Models.dev',
           source_url: 'https://models.dev/api.json',
           metadata_models: 1,
@@ -296,7 +310,6 @@ describe('PriceSettingsCard', () => {
     expect(notices).toEqual([
       { kind: 'error', message: 'Unable to sync model prices: connection reset' },
     ]);
-    expect(countOccurrences(source, 'notifyPricingSyncUnexpectedError(error, t, onNotice)')).toBe(2);
   });
 
   it('shows an actionable notice when Models.dev times out', () => {
@@ -543,41 +556,18 @@ describe('PriceSettingsCard', () => {
 		});
 	});
 
-  it('sync fallback saves selected models with single-model callbacks', async () => {
-    const calls: Array<{ model: string; price: number }> = [];
-    const selectedDrafts = [
-      syncDraft('gpt-4o'),
-      syncDraft('claude-sonnet'),
-    ];
-    const prices = {
-      'gpt-4o': { ...syncDraftToModelPrice(selectedDrafts[0])!, prompt: 3 },
-      'claude-sonnet': { ...syncDraftToModelPrice(selectedDrafts[1])!, prompt: 4 },
-      'gpt-4o-mini': { ...syncDraftToModelPrice(syncDraft('gpt-4o-mini'))!, prompt: 5 },
-    };
 
-    const result = await saveSyncDraftsWithSingleModelCallback(
-      selectedDrafts,
-      prices,
-      async (model, price) => {
-        calls.push({ model, price: price.prompt });
-      },
-    );
-
-    expect(calls).toEqual([
-      { model: 'gpt-4o', price: 3 },
-      { model: 'claude-sonnet', price: 4 },
-    ]);
-    expect(result).toEqual({ successModels: ['gpt-4o', 'claude-sonnet'], failures: [] });
-  });
 });
 
 describe('buildPricingModelOptions', () => {
-  it('groups unconfigured models first and naturally sorts both groups descending', () => {
+  it('keeps unconfigured models first and applies the shared ordering within both groups', () => {
     const options = buildPricingModelOptions(
-      ['gpt-5.5', 'gpt-5.6-sol', 'gpt-5.10', 'gpt-5.6-terra', 'gpt-5.9'],
+      ['gpt-5.5', 'gpt-5.6-sol', 'gpt-5.10', 'gpt-5.6-terra', 'gpt-5.9',
+        'qwen-3', 'gemini-2.5-pro', 'claude-opus-4.6', 'deepseek-v3', 'claude-sonnet-4.6'],
       {
         'gpt-5.9': { style: 'openai', prompt: 3, completion: 15, cacheRead: 0.3, cacheWrite: 0, multiplier: 1 },
         'gpt-5.5': { style: 'openai', prompt: 2, completion: 8, cacheRead: 0.2, cacheWrite: 0, multiplier: 1 },
+        'claude-sonnet-4.6': { style: 'claude', prompt: 3, completion: 15, cacheRead: 0.3, cacheWrite: 0, multiplier: 1 },
       },
       'Select model',
       'Configured',
@@ -586,10 +576,15 @@ describe('buildPricingModelOptions', () => {
     expect(options.map((option) => option.value)).toEqual([
       '',
       'gpt-5.10',
-      'gpt-5.6-terra',
       'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'claude-opus-4.6',
+      'gemini-2.5-pro',
+      'deepseek-v3',
+      'qwen-3',
       'gpt-5.9',
       'gpt-5.5',
+      'claude-sonnet-4.6',
     ]);
     expect(options.find((option) => option.value === 'gpt-5.9')).toMatchObject({
       disabled: true,
@@ -598,6 +593,67 @@ describe('buildPricingModelOptions', () => {
     expect(options.find((option) => option.value === 'gpt-5.9')?.suffix).toBeTruthy();
     expect(options.find((option) => option.value === 'gpt-5.10')?.suffix).toBeUndefined();
     expect(options.find((option) => option.value === 'gpt-5.10')?.disabled).toBeUndefined();
+  });
+
+  it.each([
+    {
+      name: 'case-insensitive family priority with alphabetical remaining families',
+      ordered: ['GPT-5.6', 'Claude-opus-4.6', 'Gemini-2.5-pro', 'Alpha', 'deepseek-v3', 'gptish-1', 'Qwen3'],
+    },
+    {
+      name: 'natural versions, base models and natural ascending suffixes',
+      ordered: ['gpt-5.10', 'gpt-5.9', 'gpt-5.6', 'gpt-5.6-preview-2', 'gpt-5.6-preview-10', 'gpt-5.6-sol', 'gpt-5.6-terra'],
+    },
+    {
+      name: 'Claude subseries and both dotted and hyphenated version formats',
+      ordered: ['claude-opus-4.6', 'claude-opus-4.5', 'claude-sonnet-4-6', 'claude-sonnet-4-5', 'claude-3-7-sonnet-20250219', 'claude-3-5-sonnet-20241022'],
+    },
+    {
+      name: 'dates remain suffixes after their base version',
+      ordered: ['claude-sonnet-4-6', 'claude-sonnet-4-6-20260901', 'claude-sonnet-4-5', 'claude-sonnet-4-5-20250929'],
+    },
+    {
+      name: 'unknown families and names without versions',
+      ordered: ['deepseek-v3.10', 'deepseek-v3.9', 'model-alpha', 'model-beta', 'qwen3.5', 'qwen3'],
+    },
+    {
+      name: 'provider-prefixed models mixed with bare names',
+      ordered: ['openai/gpt-5.10', 'gpt-5.9', 'openai/gpt-4o', 'anthropic/claude-opus-4.6', 'google/gemini-2.5-pro', 'deepseek-v3'],
+    },
+    {
+      name: 'nested and numbered prefixes before version and Claude parsing',
+      ordered: ['team1/openai/gpt-5.10', 'team2/gpt-5.6', 'team/anthropic/claude-opus-4.6', 'claude-opus-4.5', 'team/claude-sonnet-4-6', 'team/claude-3-7-sonnet-20250219'],
+    },
+    {
+      name: 'full-name tie-breaks between prefixes for the same model',
+      ordered: ['zeta/openai/gpt-5.6', 'gpt-5.6', 'alpha/gpt-5.6'],
+    },
+  ])('sorts $name independently of the input order', ({ ordered }) => {
+    const reversed = [...ordered].reverse();
+    const rotated = [...ordered.slice(2), ...ordered.slice(0, 2)];
+    for (const models of [reversed, rotated]) {
+      const original = [...models];
+      expect(buildPricingModelOptions(models, {}, 'Select model').slice(1).map((option) => option.value))
+        .toEqual(ordered);
+      expect(models).toEqual(original);
+    }
+  });
+
+  it('preserves distinct prefixed model identities and their configured status', () => {
+    const options = buildPricingModelOptions(
+      ['alpha/gpt-5.6', 'gpt-5.6', 'zeta/gpt-5.6'],
+      {
+        'zeta/gpt-5.6': { style: 'openai', prompt: 2, completion: 8, cacheRead: 0.2, cacheWrite: 0, multiplier: 1 },
+      },
+      'Select model',
+      'Configured',
+    );
+
+    expect(options.slice(1).map(({ value, label, disabled }) => ({ value, label, disabled }))).toEqual([
+      { value: 'gpt-5.6', label: 'gpt-5.6', disabled: undefined },
+      { value: 'alpha/gpt-5.6', label: 'alpha/gpt-5.6', disabled: undefined },
+      { value: 'zeta/gpt-5.6', label: 'zeta/gpt-5.6', disabled: true },
+    ]);
   });
 
   it('uses an exact-name tie-break when natural model names compare equally', () => {

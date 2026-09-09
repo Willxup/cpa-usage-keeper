@@ -263,7 +263,6 @@ type SessionClientMetadata struct {
 
 type RevokeResult struct {
 	Deleted int
-	Tokens  []string
 }
 
 type sessionActivityUpdate struct {
@@ -584,7 +583,6 @@ func (m *SessionManager) DeleteByTokenHash(tokenHash string) RevokeResult {
 		}
 		delete(m.sessions, token)
 		result.Deleted = 1
-		result.Tokens = append(result.Tokens, token)
 	}
 	if m.store != nil {
 		deleted, err := m.store.DeleteByTokenHash(tokenHash)
@@ -610,7 +608,6 @@ func (m *SessionManager) DeleteByRole(role Role) RevokeResult {
 		}
 		delete(m.sessions, token)
 		result.Deleted++
-		result.Tokens = append(result.Tokens, token)
 	}
 	if m.store != nil {
 		deleted, err := m.store.DeleteByRole(role)

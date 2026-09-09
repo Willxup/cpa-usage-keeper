@@ -1,5 +1,5 @@
-@use '../styles/variables' as *;
-@use '../styles/mixins' as *;
+@use '../../styles/variables' as *;
+@use '../../styles/mixins' as *;
 
 .pageShell {
   min-height: 100svh;
@@ -89,6 +89,7 @@
 .themeSwitcher {
   display: inline-flex;
   align-items: stretch;
+  gap: 4px;
   min-height: var(--keeper-toolbar-control-height, 42px);
   padding: 4px;
   border-radius: 999px;
@@ -131,7 +132,7 @@
   padding: 8px 12px;
   border-radius: 999px;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 
   &:hover:not(:disabled) {
     color: var(--text-primary);
@@ -155,11 +156,10 @@
 }
 
 .loadingOverlaySpinner {
-  width: 12px;
-  height: 12px;
   border-width: 2px;
   border-color: rgba($primary-color, 0.25);
   border-top-color: var(--primary-color);
+  box-shadow: 0 0 10px rgba($primary-color, 0.25);
 }
 
 .contentColumn {
@@ -186,6 +186,8 @@
 }
 
 .toolbarRow {
+  position: relative;
+  z-index: 6;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -243,18 +245,80 @@
     0 4px 12px rgba($primary-color, 0.14);
 }
 
+// API Key 只读页与管理页使用同一组连接式导航标签。
+.tabBarConnected {
+  display: inline-flex;
+  align-items: stretch;
+  width: max-content;
+  max-width: 100%;
+  min-height: 40px;
+  padding: 4px;
+  gap: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-primary) 12%, transparent);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+:global([data-theme='dark']) .tabBarConnected {
+  border-color: transparent;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.tabBarConnected .tabPill {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.tabBarConnected:lang(zh) .tabPill {
+  padding-inline: 16px;
+}
+
+.tabBarConnected .tabPill:not(.tabPillActive):hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--bg-primary) 58%, transparent);
+}
+
+.tabBarConnected .tabPillActive {
+  border: 0;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--text-primary) 10%, transparent);
+}
+
 .toolbarActionsRight {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 10px;
   gap: 10px;
-  flex-wrap: wrap;
   width: 100%;
   min-width: 0;
+
+  // Ranking 无本地排名权限时仍将刷新按钮靠右，与管理页保持同一列边界。
+  > :only-child {
+    grid-column: 2;
+  }
 
   @include mobile {
     align-items: stretch;
     justify-content: flex-start;
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 0;
+
+    > :only-child {
+      grid-column: 1;
+    }
   }
 }
 
@@ -270,6 +334,13 @@
   opacity: 1;
   overflow: hidden;
   transform: translateY(0);
+
+  @include mobile {
+    width: 100%;
+    justify-content: flex-start;
+    max-height: none;
+    overflow: visible;
+  }
 }
 
 .usageRefreshSlot {
@@ -286,26 +357,72 @@
   flex: 0 0 auto;
 }
 
+@media (max-width: #{$breakpoint-tablet}) {
+  .toolbarActionsRight {
+    align-items: flex-start;
+    justify-content: flex-start;
+  }
+
+  .usageFilterBar {
+    width: 100%;
+    justify-content: flex-start;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .usageRefreshSlot {
+    margin-left: auto;
+  }
+
+  .usageFilterActions {
+    margin-left: 0;
+  }
+}
+
 .errorBox {
-  padding: 12px 14px;
-  border-radius: 16px;
-  border: 1px solid rgba($error-color, 0.28);
-  background: rgba($error-color, 0.1);
-  color: var(--danger-color);
-  font-size: 13px;
-  line-height: 1.6;
+  padding: 10px;
+  background-color: rgba($error-color, 0.1);
+  border: 1px solid var(--error-color);
+  border-radius: $radius-sm;
+  color: var(--error-color);
+  font-size: 12px;
+}
+
+.errorBoxWithAction {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.errorRetryButton {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--danger-color) 14%, var(--bg-primary));
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+  }
 }
 
 .loadingOverlay {
   position: absolute;
   inset: 0;
   z-index: 5;
-  display: grid;
-  place-items: center;
-  min-height: 280px;
-  border-radius: 24px;
-  background: color-mix(in srgb, var(--bg-secondary) 68%, transparent);
-  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  --glass-blur: 6px;
+  background: var(--glass-bg-secondary);
+  backdrop-filter: var(--glass-backdrop-filter);
+  -webkit-backdrop-filter: var(--glass-backdrop-filter);
 }
 
 .loadingOverlayContent {
@@ -313,16 +430,16 @@
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
-  border-radius: 999px;
+  border-radius: $radius-lg;
   border: 1px solid var(--border-color);
   background: var(--bg-primary);
-  box-shadow: var(--floating-shadow);
+  box-shadow: var(--shadow-lg);
 }
 
 .loadingOverlayText {
   color: var(--text-secondary);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 @include mobile {
@@ -330,10 +447,19 @@
     white-space: nowrap;
   }
 
+  .toolbarActionsRight,
+  .usageFilterBar,
   .usageRefreshSlot,
   .usageFilterActions,
   .refreshMainActionShell {
     width: 100%;
+  }
+
+  .usageFilterBar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    margin-bottom: 10px;
   }
 
   .refreshMainActionButton {

@@ -9,7 +9,8 @@ import { calculateDisplayInputTokens, calculateDisplayOutputTokens, formatCompac
 import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill as toGradientFill, USAGE_CHART_REQUESTS_LINE_COLOR, type UsageChartGradientColor, type UsageChartTheme } from '@/utils/usage/chartConfig';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { DEFAULT_ANALYSIS_COMPOSITION_ITEM_LIMIT, loadAnalysisCompositionItemLimit, parseAnalysisCompositionItemLimit, persistAnalysisCompositionItemLimit } from '@/utils/usage/analysisPreferences';
+import { loadAnalysisCompositionItemLimit, parseAnalysisCompositionItemLimit, persistAnalysisCompositionItemLimit } from '@/utils/usage/analysisPreferences';
+import { createCompositionLabelsPlugin } from './compositionLabels';
 import styles from './AnalysisPanel.module.scss';
 
 interface AnalysisPanelProps {
@@ -20,7 +21,12 @@ interface AnalysisPanelProps {
   latencyError?: string;
   isDark: boolean;
   isMobile: boolean;
+  compositionDimensions?: readonly AnalysisCompositionDimension[];
 }
+
+export type AnalysisCompositionDimension = 'api_key' | 'model' | 'auth_files' | 'ai_provider';
+
+const DEFAULT_COMPOSITION_DIMENSIONS: readonly AnalysisCompositionDimension[] = ['api_key', 'model', 'auth_files', 'ai_provider'];
 
 type ChartRow = {
   label: string;
@@ -89,14 +95,6 @@ type ChartTooltipPointer = {
   chartX: number;
   chartY: number;
   viewport?: ViewportPoint;
-};
-type CostBreakdownSegmentKey = 'input' | 'cacheRead' | 'cacheWrite' | 'output';
-type CostBreakdownSegment = {
-  key: CostBreakdownSegmentKey;
-  label: string;
-  value: number;
-  color: string;
-  tokens: number;
 };
 type ModelEfficiencyColor = {
   base: string;
@@ -211,15 +209,11 @@ const MODEL_EFFICIENCY_COLORS: ModelEfficiencyColor[] = [
   { base: '#b07194', light: '#c188a7', dark: '#854f6c' },
   { base: '#8c9f61', light: '#a0b374', dark: '#62733d' },
 ];
-const COST_TOOLTIP_MAX_WIDTH = 280;
-const COST_TOOLTIP_VIEWPORT_PADDING = 8;
-const COST_TOOLTIP_CURSOR_OFFSET = 14;
 const COMPOSITION_DONUT_BORDER_RADIUS = 10;
 const COMPOSITION_DONUT_SPACING = 4;
 const COMPOSITION_DONUT_COMPACT_ITEM_THRESHOLD = CHART_COLORS.length;
 const COMPOSITION_DONUT_DENSE_ITEM_THRESHOLD = 12;
 const COMPOSITION_DONUT_HOVER_OFFSET = 10;
-const COMPOSITION_DONUT_LAYOUT_PADDING = 28;
 const COMPOSITION_TOOLTIP_CARET_PADDING = 18;
 const COMPOSITION_TOOLTIP_TITLE_LINE_LENGTH = 28;
 const COMPOSITION_TOOLTIP_TITLE_MAX_LINES = 3;
@@ -1211,7 +1205,14 @@ function buildCompositionChartOptions(chartTheme: ChartTheme, labels: Compositio
     maintainAspectRatio: false,
     interaction: { mode: 'analysisCompositionArc', intersect: false, axis: 'r' },
     hover: { mode: 'analysisCompositionArc', intersect: false, axis: 'r' },
-    layout: { padding: COMPOSITION_DONUT_LAYOUT_PADDING },
+    layout: {
+      padding: ({ chart }) => ({
+        top: 20,
+        bottom: 20,
+        left: Math.min(130, chart.width * 0.27),
+        right: Math.min(130, chart.width * 0.27),
+      }),
+    },
     cutout: '58%',
     spacing,
     plugins: {
@@ -1240,7 +1241,7 @@ function buildCompositionChartOptions(chartTheme: ChartTheme, labels: Compositio
   };
 }
 
-function TokenUsageChart({ rows, loading, isDark, isMobile }: { rows: ChartRow[]; loading: boolean; isDark: boolean; isMobile: boolean }) {
+function TokenUsageChart({ rows, breakdown, loading, isDark, isMobile }: { rows: ChartRow[]; breakdown: AnalysisCostBreakdown | undefined; loading: boolean; isDark: boolean; isMobile: boolean }) {
   const { t } = useTranslation();
   const tokenLabels = useMemo(() => ({
     input: t('usage_stats.input_tokens'),
@@ -1264,15 +1265,33 @@ function TokenUsageChart({ rows, loading, isDark, isMobile }: { rows: ChartRow[]
     averageTokenTotal,
   }), [averageTokenTotal, chartTheme, isMobile, rows, tokenLabels.total]);
   const legendItems = useMemo(() => buildTokenLegendItems(tokenLabels, averageTokenTotal, chartTheme.averageLine), [averageTokenTotal, chartTheme.averageLine, tokenLabels]);
-  const hasUnavailableCost = rows.some((row) => !row.costAvailable);
+  const hasUnavailableCost = breakdown?.cost_available === false || rows.some((row) => !row.costAvailable);
+  const totalTokens = rows.reduce((sum, row) => sum + row.total, 0);
+  const totalCost = toNumber(breakdown?.total_cost_usd);
   return (
-    <section className={`${styles.analysisCard} ${styles.tokenUsageCard} keeper-card-surface`}>
+    <section className={`${styles.analysisCard} keeper-card-surface`}>
       <AnalysisCardHeader
         title={t('usage_stats.analysis_token_usage_title')}
         subtitle={t('usage_stats.analysis_token_usage_subtitle')}
         showPricingHint={hasUnavailableCost}
         hint={t('usage_stats.cost_need_price')}
       />
+      {!loading && (rows.length > 0 || totalCost > 0) && (
+        <dl className={styles.analysisSummary}>
+          <div>
+            <dt>{t('usage_stats.total_tokens')}</dt>
+            <dd>{formatCompactNumber(totalTokens)}</dd>
+          </div>
+          <div>
+            <dt>{t('usage_stats.total_cost')}</dt>
+            <dd>{formatUsd(totalCost)}</dd>
+          </div>
+          <div>
+            <dt>{t('usage_stats.analysis_cost_per_million_tokens')}</dt>
+            <dd title={t('usage_stats.analysis_blended_rate')}>{formatUsd(getCostRatePerMillion(totalCost, totalTokens))}</dd>
+          </div>
+        </dl>
+      )}
       {loading ? (
         <div className={styles.emptyState}>{t('common.loading')}</div>
       ) : rows.length === 0 ? (
@@ -1335,7 +1354,7 @@ function TopModelsCard({
   }), [chartTheme, isMobile, t, view.bucketTotals]);
 
   return (
-    <section className={`${styles.analysisCard} ${styles.topModelsCard} keeper-card-surface`}>
+    <section className={`${styles.analysisCard} keeper-card-surface`}>
       <AnalysisCardHeader
         title={t('usage_stats.analysis_top_models_title')}
         subtitle={t('usage_stats.analysis_top_models_subtitle')}
@@ -1550,7 +1569,7 @@ function LatencyDiagnosticsCard({ diagnostics, loading, error, isDark, isMobile 
   const unsupported = safeDiagnostics.supported === false;
   const hasData = toNumber(safeDiagnostics.total_points) > 0 && safeDiagnostics.points.length > 0;
   return (
-    <section className={`${styles.analysisCard} ${styles.latencyDiagnosticsCard} keeper-card-surface`}>
+    <section className={`${styles.analysisCard} keeper-card-surface`}>
       <AnalysisCardHeader
         title={t('usage_stats.analysis_latency_title')}
         subtitle={t('usage_stats.analysis_latency_subtitle')}
@@ -1566,35 +1585,37 @@ function LatencyDiagnosticsCard({ diagnostics, loading, error, isDark, isMobile 
       ) : !hasData ? (
         <div className={styles.emptyState}>{t('usage_stats.no_data')}</div>
       ) : (
-        <div className={styles.latencyDiagnosticsBody}>
-          <div className={styles.latencyMetricGrid}>
-            <div className={styles.latencyMetric}>
-              <span>{t('usage_stats.analysis_latency_p95_ttft')}</span>
-              <strong>{formatDurationMs(safeDiagnostics.p95_ttft_ms)}</strong>
+        <>
+          <dl className={styles.analysisSummary}>
+            <div>
+              <dt>{t('usage_stats.analysis_latency_p95_ttft')}</dt>
+              <dd>{formatDurationMs(safeDiagnostics.p95_ttft_ms)}</dd>
             </div>
-            <div className={styles.latencyMetric}>
-              <span>{t('usage_stats.analysis_latency_p95_latency')}</span>
-              <strong>{formatDurationMs(safeDiagnostics.p95_latency_ms)}</strong>
+            <div>
+              <dt>{t('usage_stats.analysis_latency_p95_latency')}</dt>
+              <dd>{formatDurationMs(safeDiagnostics.p95_latency_ms)}</dd>
             </div>
-            <div className={styles.latencyMetric}>
-              <span>{t('usage_stats.analysis_latency_samples_count')}</span>
-              <strong>{formatCompactNumber(safeDiagnostics.total_points)}</strong>
-              {safeDiagnostics.sampled ? <small>{t('usage_stats.analysis_latency_sampled')}</small> : null}
+            <div>
+              <dt>{t('usage_stats.analysis_latency_samples_count')}</dt>
+              <dd>
+                {formatCompactNumber(safeDiagnostics.total_points)}
+                {safeDiagnostics.sampled ? <small>{t('usage_stats.analysis_latency_sampled')}</small> : null}
+              </dd>
             </div>
-          </div>
+          </dl>
           <div className={styles.analysisChartSurface}>
             <div className={styles.latencyChartFrame}>
               <Scatter data={chartData} options={chartOptions} plugins={[latencyDiagnosticsPlugin]} />
             </div>
           </div>
-        </div>
+        </>
       )}
     </section>
   );
 }
 
 type CompositionTab = {
-  id: 'api_key' | 'model' | 'auth_files' | 'ai_provider';
+  id: AnalysisCompositionDimension;
   label: string;
   items: AnalysisCompositionItem[];
 };
@@ -1631,7 +1652,7 @@ function CompositionPanel({
   const { t } = useTranslation();
   const itemLimitInputId = useId();
   const itemLimitMessageId = `${itemLimitInputId}-message`;
-  const [activeTabId, setActiveTabId] = useState<CompositionTab['id']>('api_key');
+  const [activeTabId, setActiveTabId] = useState<CompositionTab['id']>(tabs[0]?.id ?? 'model');
   const [itemLimitDraft, setItemLimitDraft] = useState(() => String(itemLimit));
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
   const items = activeTab?.items ?? EMPTY_COMPOSITION_ITEMS;
@@ -1648,6 +1669,13 @@ function CompositionPanel({
     () => buildCompositionChartOptions(chartTheme, tooltipLabels, items.length),
     [chartTheme, items.length, tooltipLabels],
   );
+  const chartLabels = useMemo(() => items.map((item) => ({
+    name: item.label,
+    share: formatPercent(toNumber(item.percent)),
+  })), [items]);
+  const labelsPlugin = useMemo(() => createCompositionLabelsPlugin(chartLabels, chartTheme.textPrimary), [chartLabels, chartTheme.textPrimary]);
+  // Recreate the chart when labels or theme colors change to refresh the plugin closure.
+  const chartKey = JSON.stringify([activeContentKey, chartLabels, chartTheme.textPrimary]);
   const hasUnavailableCost = items.some((item) => item.cost_available === false);
 
   function handleItemLimitSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1657,10 +1685,10 @@ function CompositionPanel({
   }
 
   return (
-    <section className={`${styles.analysisCard} ${styles.compositionCard} keeper-card-surface`}>
+    <section className={`${styles.analysisCard} keeper-card-surface`}>
       <AnalysisCardHeader
         title={t('usage_stats.analysis_composition_title')}
-        subtitle={t('usage_stats.analysis_composition_subtitle')}
+        subtitle={tabs.length === 1 ? t('usage_stats.analysis_composition_single_dimension_subtitle') : t('usage_stats.analysis_composition_subtitle')}
         showPricingHint={hasUnavailableCost}
         hint={t('usage_stats.cost_need_price')}
       />
@@ -1671,8 +1699,8 @@ function CompositionPanel({
               key={tab.id}
               type="button"
               role="tab"
-              aria-selected={tab.id === activeTabId}
-              className={`${styles.compositionTab} ${tab.id === activeTabId ? styles.compositionTabActive : ''}`}
+              aria-selected={tab.id === activeTab?.id}
+              className={`${styles.compositionTab} ${tab.id === activeTab?.id ? styles.compositionTabActive : ''}`}
               onClick={() => setActiveTabId(tab.id)}
             >
               {tab.label}
@@ -1724,8 +1752,12 @@ function CompositionPanel({
         <div key={activeContentKey} className={styles.analysisChartSurface}>
           <div className={styles.compositionLayout}>
             <div className={styles.donutChartFrame}>
-              <div className={styles.donutCanvasBox}>
-                <Doughnut key={`chart-${activeContentKey}`} data={chartData} options={chartOptions} />
+              <div
+                className={styles.donutCanvasBox}
+                role="img"
+                aria-label={`${activeTab.label}: ${items.map((item) => `${item.label} ${formatPercent(toNumber(item.percent))}`).join(', ')}`}
+              >
+                <Doughnut key={chartKey} data={chartData} options={chartOptions} plugins={[labelsPlugin]} />
               </div>
             </div>
             <div
@@ -1770,144 +1802,6 @@ function CompositionPanel({
 
 function getCostRatePerMillion(cost: number, tokens: number) {
   return tokens > 0 ? (cost / tokens) * 1_000_000 : 0;
-}
-
-function getCostSegmentTokens(rows: ChartRow[]): Record<CostBreakdownSegmentKey, number> {
-  return rows.reduce(
-    (totals, row) => ({
-      input: totals.input + Math.max(row.rawInput - row.cacheRead - row.cacheWrite, 0),
-      cacheRead: totals.cacheRead + row.cacheRead,
-      cacheWrite: totals.cacheWrite + row.cacheWrite,
-      output: totals.output + row.rawOutput,
-    }),
-    { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 },
-  );
-}
-
-function CostBreakdownCard({ breakdown, rows, loading }: { breakdown: AnalysisCostBreakdown | undefined; rows: ChartRow[]; loading: boolean }) {
-  const { t } = useTranslation();
-  const [costTooltip, setCostTooltip] = useState<FloatingTooltipState | null>(null);
-  const safeBreakdown = breakdown ?? { uncached_input_cost_usd: 0, cache_read_cost_usd: 0, cache_write_cost_usd: 0, output_cost_usd: 0, total_cost_usd: 0, cost_available: true };
-  const totalCost = toNumber(safeBreakdown.total_cost_usd);
-  const totalTokens = rows.reduce((sum, row) => sum + row.total, 0);
-  const segmentTokens = getCostSegmentTokens(rows);
-  const costAvailable = safeBreakdown.cost_available !== false;
-  const blendedRate = getCostRatePerMillion(totalCost, totalTokens);
-  const segments: CostBreakdownSegment[] = [
-    { key: 'input', label: t('usage_stats.input_tokens'), value: toNumber(safeBreakdown.uncached_input_cost_usd), color: TOKEN_COLORS.input.base, tokens: segmentTokens.input },
-    { key: 'cacheRead', label: t('usage_stats.cache_read_tokens'), value: toNumber(safeBreakdown.cache_read_cost_usd), color: TOKEN_COLORS.cacheRead.base, tokens: segmentTokens.cacheRead },
-    { key: 'cacheWrite', label: t('usage_stats.cache_creation_tokens'), value: toNumber(safeBreakdown.cache_write_cost_usd), color: TOKEN_COLORS.cacheWrite.base, tokens: segmentTokens.cacheWrite },
-    { key: 'output', label: t('usage_stats.output_tokens'), value: toNumber(safeBreakdown.output_cost_usd), color: TOKEN_COLORS.output.base, tokens: segmentTokens.output },
-  ];
-  const hasData = rows.length > 0 || totalCost > 0 || segments.some((segment) => segment.value > 0);
-  const buildCostTooltipLines = (segment: CostBreakdownSegment, percent: number) => [
-    `${segment.label} · ${t('usage_stats.analysis_cost_share')}`,
-    `${t('usage_stats.total_cost')}: ${formatUsd(segment.value)}`,
-    `${t('usage_stats.analysis_cost_share')}: ${formatPercent(percent)}`,
-    `${t('usage_stats.total_tokens')}: ${formatCompactNumber(segment.tokens)}`,
-    `${t('usage_stats.analysis_cost_per_million_tokens')}: ${formatUsd(getCostRatePerMillion(segment.value, segment.tokens))}`,
-  ];
-  const showCostTooltip = (
-    lines: string[],
-    event: MouseEvent<HTMLSpanElement> | FocusEvent<HTMLSpanElement>,
-  ) => {
-    const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth;
-    const viewportHeight = typeof window === 'undefined' ? 768 : window.innerHeight;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const pointerX = 'clientX' in event && event.clientX > 0 ? event.clientX : rect.left + rect.width / 2;
-    const pointerY = 'clientY' in event && event.clientY > 0 ? event.clientY : rect.top + rect.height / 2;
-    const left = Math.max(
-      COST_TOOLTIP_VIEWPORT_PADDING,
-      Math.min(pointerX + COST_TOOLTIP_CURSOR_OFFSET, viewportWidth - COST_TOOLTIP_MAX_WIDTH - COST_TOOLTIP_VIEWPORT_PADDING),
-    );
-    const placement = pointerY > viewportHeight - 200 ? 'above' : 'below';
-    const y = pointerY + (placement === 'above' ? -COST_TOOLTIP_CURSOR_OFFSET : COST_TOOLTIP_CURSOR_OFFSET);
-    setCostTooltip({ lines, x: left, y, placement });
-  };
-  const hideCostTooltip = () => setCostTooltip(null);
-  return (
-    <section className={`${styles.analysisCard} ${styles.costBreakdownCard} keeper-card-surface`}>
-      <AnalysisCardHeader
-        title={t('usage_stats.analysis_cost_breakdown_title')}
-        subtitle={t('usage_stats.analysis_cost_breakdown_subtitle')}
-        showPricingHint={!costAvailable}
-        hint={t('usage_stats.cost_need_price')}
-      />
-      {loading ? (
-        <div className={styles.emptyState}>{t('common.loading')}</div>
-      ) : !hasData ? (
-        <div className={styles.emptyState}>{t('usage_stats.no_data')}</div>
-      ) : (
-        <div className={styles.costBreakdownBody}>
-          <div className={styles.costStack} aria-label={t('usage_stats.analysis_cost_breakdown_title')}>
-            {segments.map((segment) => {
-              const percent = totalCost > 0 ? (segment.value / totalCost) * 100 : 0;
-              const tooltipLines = buildCostTooltipLines(segment, percent);
-              return (
-                <span
-                  key={segment.key}
-                  className={styles.costStackSegment}
-                  style={{
-                    '--cost-segment-color': segment.color,
-                    flexBasis: `${Math.max(percent, segment.value > 0 ? 4 : 0)}%`,
-                  } as CSSProperties}
-                  tabIndex={0}
-                  aria-label={tooltipLines.join(', ')}
-                  onMouseEnter={(event) => showCostTooltip(tooltipLines, event)}
-                  onMouseMove={(event) => showCostTooltip(tooltipLines, event)}
-                  onMouseLeave={hideCostTooltip}
-                  onFocus={(event) => showCostTooltip(tooltipLines, event)}
-                  onBlur={hideCostTooltip}
-                >
-                  <span>{formatPercent(percent)}</span>
-                </span>
-              );
-            })}
-          </div>
-          {costTooltip ? (
-            <div
-              className={styles.costStackFloatingTooltip}
-              role="tooltip"
-              style={{
-                left: costTooltip.x,
-                top: costTooltip.y,
-                transform: costTooltip.placement === 'above' ? 'translateY(-100%)' : undefined,
-              }}
-            >
-              {costTooltip.lines.map((line, index) => (
-                <span key={`${index}-${line}`} className={index === 0 ? styles.costStackTooltipTitle : ''}>{line}</span>
-              ))}
-            </div>
-          ) : null}
-          <div className={styles.costRatePanel}>
-            <div className={styles.costRateMetric}>
-              <span>{t('usage_stats.total_tokens')}</span>
-              <strong>{formatCompactNumber(totalTokens)}</strong>
-            </div>
-            <div className={styles.costRateMetric}>
-              <span>{t('usage_stats.total_cost')}</span>
-              <strong>{formatUsd(totalCost)}</strong>
-            </div>
-            <div className={styles.costRateMetric}>
-              <span>{t('usage_stats.analysis_cost_per_million_tokens')}</span>
-              <strong>{formatUsd(blendedRate)}</strong>
-              <small>{t('usage_stats.analysis_blended_rate')}</small>
-            </div>
-          </div>
-          <div className={styles.costMetricGrid}>
-            {segments.map((segment) => (
-              <div key={segment.key} className={styles.costMetric}>
-                <span className={styles.costMetricDot} style={{ backgroundColor: segment.color }} />
-                <span className={styles.costMetricLabel}>{segment.label}</span>
-                <strong>{formatUsd(segment.value)}</strong>
-                <small>{formatPercent(totalCost > 0 ? (segment.value / totalCost) * 100 : 0)}</small>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </section>
-  );
 }
 
 type EfficiencyPoint = {
@@ -2186,7 +2080,7 @@ function ModelEfficiencyCard({ rows, loading, isDark, isMobile }: { rows: Analys
   const hasPricedData = pricedRows.length > 0;
   const hasUnavailableCost = rows.some((row) => row.cost_available === false);
   return (
-    <section className={`${styles.analysisCard} ${styles.modelEfficiencyCard} keeper-card-surface`}>
+    <section className={`${styles.analysisCard} keeper-card-surface`}>
       <AnalysisCardHeader
         title={t('usage_stats.analysis_model_efficiency_title')}
         subtitle={t('usage_stats.analysis_model_efficiency_subtitle')}
@@ -2441,7 +2335,16 @@ function Heatmap({ cells, apiKeys, apiKeyLabels, models, loading, isDark }: { ce
   );
 }
 
-export function AnalysisPanel({ analysis, loading, latencyDiagnostics, latencyLoading = false, latencyError = '', isDark, isMobile }: AnalysisPanelProps) {
+export function AnalysisPanel({
+  analysis,
+  loading,
+  latencyDiagnostics,
+  latencyLoading = false,
+  latencyError = '',
+  isDark,
+  isMobile,
+  compositionDimensions = DEFAULT_COMPOSITION_DIMENSIONS,
+}: AnalysisPanelProps) {
   const { t } = useTranslation();
   const [compositionItemLimit, setCompositionItemLimit] = useState(loadAnalysisCompositionItemLimit);
   const tokenRows = useMemo(() => buildTokenUsageRows(analysis?.token_usage ?? [], analysis?.granularity ?? 'hourly', analysis?.timezone), [analysis]);
@@ -2462,12 +2365,15 @@ export function AnalysisPanel({ analysis, loading, latencyDiagnostics, latencyLo
     [analysis, compositionItemLimit, t],
   );
   const analysisWindowMinutes = useMemo(() => calculateAnalysisWindowMinutes(analysis), [analysis]);
-  const compositionTabs = useMemo<CompositionTab[]>(() => [
-    { id: 'api_key', label: t('usage_stats.analysis_composition_api_key_tab'), items: apiComposition },
-    { id: 'model', label: t('usage_stats.analysis_composition_model_tab'), items: modelComposition },
-    { id: 'auth_files', label: t('usage_stats.analysis_composition_auth_files_tab'), items: authFilesComposition },
-    { id: 'ai_provider', label: t('usage_stats.analysis_composition_ai_provider_tab'), items: aiProviderComposition },
-  ], [apiComposition, modelComposition, authFilesComposition, aiProviderComposition, t]);
+  const compositionTabs = useMemo<CompositionTab[]>(() => {
+    const tabs: Record<AnalysisCompositionDimension, CompositionTab> = {
+      api_key: { id: 'api_key', label: t('usage_stats.analysis_composition_api_key_tab'), items: apiComposition },
+      model: { id: 'model', label: t('usage_stats.analysis_composition_model_tab'), items: modelComposition },
+      auth_files: { id: 'auth_files', label: t('usage_stats.analysis_composition_auth_files_tab'), items: authFilesComposition },
+      ai_provider: { id: 'ai_provider', label: t('usage_stats.analysis_composition_ai_provider_tab'), items: aiProviderComposition },
+    };
+    return compositionDimensions.map((dimension) => tabs[dimension]);
+  }, [apiComposition, modelComposition, authFilesComposition, aiProviderComposition, compositionDimensions, t]);
 
   function handleCompositionItemLimitApply(limit: number) {
     setCompositionItemLimit(limit);
@@ -2476,28 +2382,29 @@ export function AnalysisPanel({ analysis, loading, latencyDiagnostics, latencyLo
 
   return (
     <div className={styles.analysisPanel}>
-      <TokenUsageChart rows={tokenRows} loading={loading} isDark={isDark} isMobile={isMobile} />
+      <TokenUsageChart rows={tokenRows} breakdown={analysis?.cost_breakdown} loading={loading} isDark={isDark} isMobile={isMobile} />
       <div className={styles.insightGrid}>
-        <CostBreakdownCard breakdown={analysis?.cost_breakdown} rows={tokenRows} loading={loading} />
+        <CompositionPanel
+          tabs={compositionTabs}
+          loading={loading}
+          isDark={isDark}
+          windowMinutes={analysisWindowMinutes}
+          itemLimit={compositionItemLimit}
+          onItemLimitApply={handleCompositionItemLimitApply}
+        />
+        <TopModelsCard
+          modelUsage={analysis?.model_usage}
+          granularity={analysis?.granularity ?? 'hourly'}
+          timezone={analysis?.timezone}
+          loading={loading}
+          isDark={isDark}
+          isMobile={isMobile}
+        />
+      </div>
+      <div className={styles.insightGrid}>
+        <LatencyDiagnosticsCard diagnostics={latencyDiagnostics} loading={latencyLoading} error={latencyError} isDark={isDark} isMobile={isMobile} />
         <ModelEfficiencyCard rows={analysis?.model_efficiency ?? []} loading={loading} isDark={isDark} isMobile={isMobile} />
       </div>
-      <TopModelsCard
-        modelUsage={analysis?.model_usage}
-        granularity={analysis?.granularity ?? 'hourly'}
-        timezone={analysis?.timezone}
-        loading={loading}
-        isDark={isDark}
-        isMobile={isMobile}
-      />
-      <LatencyDiagnosticsCard diagnostics={latencyDiagnostics} loading={latencyLoading} error={latencyError} isDark={isDark} isMobile={isMobile} />
-      <CompositionPanel
-        tabs={compositionTabs}
-        loading={loading}
-        isDark={isDark}
-        windowMinutes={analysisWindowMinutes}
-        itemLimit={compositionItemLimit}
-        onItemLimitApply={handleCompositionItemLimitApply}
-      />
       <Heatmap cells={analysis?.heatmap?.cells ?? []} apiKeys={analysis?.heatmap?.api_keys ?? []} apiKeyLabels={analysis?.heatmap?.api_key_labels ?? {}} models={analysis?.heatmap?.models ?? []} loading={loading} isDark={isDark} />
     </div>
   );

@@ -7,7 +7,7 @@
 }
 
 .app-frame[data-embed='cpamc'] [data-keeper-page='usage'],
-.app-frame[data-embed='cpamc'] [data-keeper-page='key-overview'] {
+.app-frame[data-embed='cpamc'] [data-keeper-page='key-viewer'] {
   min-height: auto;
 }
 

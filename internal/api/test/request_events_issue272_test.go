@@ -24,7 +24,7 @@ func TestIssue272RedisIngressKeepsRequestEventSpeedTPS(t *testing.T) {
 	_, err := repository.InsertRedisUsageInboxMessages(db, []repodto.RedisInboxInsert{{
 		Source: "usage",
 		RawMessage: `{
-			"latency_ms":2045,
+			"latency_ms":2000,
 			"ttft_ms":45,
 			"provider":"OpenAI Compatible",
 			"auth_type":"api_key",

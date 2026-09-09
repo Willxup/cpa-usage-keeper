@@ -37,6 +37,7 @@ describe('Codex quota history styles', () => {
 
   it('centers the combined chart legend below the graph', () => {
     expect(quotaHistoryStyles).toMatch(/\.chartLegend\s*\{[\s\S]*?justify-content:\s*center;/)
+    expect(quotaHistoryStyles).toMatch(/\.remainingLine\s*\{[\s\S]*?border-top:\s*1\.5px solid var\(--quota-remaining-line-color, rgba\(120, 113, 108, 0\.68\)\);/)
     expect(quotaHistoryStyles).toMatch(/\.costLine\s*\{[\s\S]*?border-top:\s*2px dashed var\(--quota-cost-line-color, #ff5a40\);/)
   })
 

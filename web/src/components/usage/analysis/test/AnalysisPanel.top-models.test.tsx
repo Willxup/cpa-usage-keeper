@@ -175,7 +175,7 @@ describe('AnalysisPanel Top Models card', () => {
 
     const topModelsStart = markup.indexOf('usage_stats.analysis_top_models_title');
     const latencyStart = markup.indexOf('usage_stats.analysis_latency_title');
-    expect(topModelsStart).toBeGreaterThan(markup.indexOf('usage_stats.analysis_model_efficiency_title'));
+    expect(topModelsStart).toBeGreaterThan(markup.indexOf('usage_stats.analysis_composition_title'));
     expect(topModelsStart).toBeLessThan(latencyStart);
 
     const topModelsBar = findTopModelsBar();

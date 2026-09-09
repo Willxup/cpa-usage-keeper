@@ -19,6 +19,7 @@ describe('UsagePage request event column preferences', () => {
       expect(preferences).toEqual({
         version: 9,
         filters: {
+          apiKeyId: '',
           model: 'gpt-5.6',
           source: 'openai-team',
           result: 'failed',
@@ -41,6 +42,7 @@ describe('UsagePage request event column preferences', () => {
     });
 
     expect(preferences.filters).toEqual({
+      apiKeyId: '',
       model: 'claude-sonnet',
       source: 'anthropic-team',
       result: 'success',

@@ -2,20 +2,24 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const source = readFileSync(new URL('./KeyOverviewPage.tsx', import.meta.url), 'utf8')
-const styles = readFileSync(new URL('./KeyOverviewPage.module.scss', import.meta.url), 'utf8')
+const styles = readFileSync(new URL('../features/key-viewer/KeyViewerShell.module.scss', import.meta.url), 'utf8')
+const shellSource = readFileSync(new URL('../features/key-viewer/KeyViewerShell.tsx', import.meta.url), 'utf8')
 
 describe('KeyOverviewPage layout', () => {
-  it('keeps the viewer page on independent styles while matching the admin overview toolbar structure', () => {
+  it('keeps the viewer page data-specific while matching the admin overview toolbar structure', () => {
     expect(source).not.toContain('UsagePage.module.scss')
-    expect(source).toContain('className={styles.themeSwitcher}')
-    expect(source.match(/<MainActionButton/g)).toHaveLength(2)
-    expect(source).toContain("aria-label={t('common.logout')}")
-    expect(source).not.toContain('styles.logoutSwitcher')
-    expect(source).not.toContain('styles.logoutPill')
+    expect(source).toContain("import { KeyViewerShell } from '@/features/key-viewer/KeyViewerShell';")
+    expect(shellSource).toContain('className={styles.themeSwitcher}')
+    expect(source.match(/<MainActionButton/g)).toHaveLength(1)
+    expect(shellSource.match(/<MainActionButton/g)).toHaveLength(1)
+    expect(shellSource).toContain("aria-label={t('common.logout')}")
+    expect(shellSource).not.toContain('styles.logoutSwitcher')
+    expect(shellSource).not.toContain('styles.logoutPill')
     expect(source).not.toContain('check_updates')
-    expect(source.indexOf('className={styles.tabBar}')).toBeLessThan(source.indexOf('className={styles.toolbarActionsRight}'))
+    expect(shellSource).toContain('styles.tabBarConnected')
+    expect(shellSource).toContain('className={styles.toolbarActionsRight}')
     expect(source).toContain('<TimeRangeControl')
-    expect(source).toContain('parseStoredUsageRangeState')
+    expect(source).toContain('loadKeyViewerTimeRange')
     expect(source).not.toContain('className={styles.timeRangeGroup}')
     expect(source).toContain('className={styles.usageRefreshSlot}')
     expect(source).not.toContain('className={styles.toolbarMetaRow}')
@@ -48,9 +52,9 @@ describe('KeyOverviewPage layout', () => {
     expect(source).toContain('intervalMs: KEY_OVERVIEW_AUTO_REFRESH_INTERVAL_MS')
   })
 
-  it('keeps manual refresh available while background loads are in flight', () => {
-    expect(source).toContain('const refreshDisabled = manualRefreshLoading || refreshThrottled')
-    expect(source).not.toContain('manualRefreshLoading || loading || realtimeLoading || refreshThrottled')
+  it('disables manual refresh only while its own request is in flight', () => {
+    expect(source).toContain('const refreshDisabled = manualRefreshLoading')
+    expect(source).not.toContain('manualRefreshLoading || loading || realtimeLoading')
   })
 
   it('keeps existing realtime data visible during background refreshes', () => {

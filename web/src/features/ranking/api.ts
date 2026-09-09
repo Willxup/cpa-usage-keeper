@@ -1,4 +1,4 @@
-import { apiPath } from '@/lib/api';
+import { apiFetch, apiPath } from '@/lib/api';
 import type {
   LocalRankingProfileRequest,
   LocalRankingProfileResponse,
@@ -30,7 +30,7 @@ const requestRankingJSON = async <T>(path: string, init: RequestInit = {}): Prom
   if (method !== 'GET' && method !== 'HEAD') {
     headers.set('X-CPA-Usage-Keeper-Request', 'fetch');
   }
-  const response = await fetch(apiPath(path), {
+  const response = await apiFetch(apiPath(path), {
     ...init,
     credentials: 'include',
     cache: 'no-store',
@@ -100,6 +100,24 @@ export const fetchLocalRankingLeaderboard = (
 ) => {
   const query = new URLSearchParams({ period, metric });
   return requestRankingJSON<RankingLeaderboardResponse>(`/ranking/local/leaderboards?${query.toString()}`, { signal });
+};
+
+export const fetchKeyRankingLeaderboard = (
+  period: RankingPeriod,
+  metric: RankingMetric,
+  signal?: AbortSignal,
+) => {
+  const query = new URLSearchParams({ period, metric });
+  return requestRankingJSON<RankingLeaderboardResponse>(`/key-ranking/leaderboards?${query.toString()}`, { signal });
+};
+
+export const fetchKeyLocalRankingLeaderboard = (
+  period: RankingPeriod,
+  metric: RankingMetric,
+  signal?: AbortSignal,
+) => {
+  const query = new URLSearchParams({ period, metric });
+  return requestRankingJSON<RankingLeaderboardResponse>(`/key-ranking/local/leaderboards?${query.toString()}`, { signal });
 };
 
 export const updateLocalRankingProfile = (

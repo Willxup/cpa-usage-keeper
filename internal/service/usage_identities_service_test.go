@@ -34,7 +34,7 @@ func TestUsageIdentityServiceAddsCredentialHealthToPagedRows(t *testing.T) {
 		t.Fatalf("seed usage identities: %v", err)
 	}
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
-		{EventKey: "provider-success", AuthType: "apikey", AuthIndex: "shared-auth", Timestamp: now.Add(-3 * time.Minute), Failed: false},
+		{EventKey: "provider-success", AuthType: "apikey", AuthIndex: "shared-auth", Timestamp: now.Add(-3 * time.Minute), Failed: false, InputTokens: 400, CacheReadTokens: 250},
 		{EventKey: "provider-failure", AuthType: "apikey", AuthIndex: "shared-auth", Timestamp: now.Add(-4 * time.Minute), Failed: true},
 		{EventKey: "auth-file-success", AuthType: "oauth", AuthIndex: "shared-auth", Timestamp: now.Add(-3 * time.Minute), Failed: false},
 	}); err != nil {
@@ -65,6 +65,9 @@ func TestUsageIdentityServiceAddsCredentialHealthToPagedRows(t *testing.T) {
 	}
 	if health.TotalSuccess != 1 || health.TotalFailure != 1 {
 		t.Fatalf("expected AI provider health to ignore oauth rows with the same auth_index, got %+v", health)
+	}
+	if health.InputTokens != 400 || health.CacheReadTokens != 250 {
+		t.Fatalf("expected AI provider health token totals to be mapped, got input=%d cacheRead=%d", health.InputTokens, health.CacheReadTokens)
 	}
 }
 

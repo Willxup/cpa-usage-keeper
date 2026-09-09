@@ -141,7 +141,11 @@ func BuildCodexQuotaEfficiencyHistory(ctx context.Context, db *gorm.DB, query re
 	if len(selectedCycles) == 0 {
 		return result, nil
 	}
-	periods := buildCodexQuotaEfficiencyCyclePeriods(selectedCycles, selected.HasCurrentCycle, query.Now)
+	currentCycleID := int64(0)
+	if selected.HasCurrentCycle {
+		currentCycleID = latestCodexQuotaEfficiencyCycleID(selectedCycles)
+	}
+	periods := buildCodexQuotaEfficiencyCyclePeriods(selectedCycles, currentCycleID, query.Now)
 
 	// 所有子段用一次 IN 查询读出；每周期最多 101 个整数桶，不允许对父周期逐条 Preload。
 	var segments []entities.QuotaPercentSegment
@@ -334,36 +338,54 @@ func selectCodexQuotaEfficiencyWindow(windows []repositorydto.CodexQuotaEfficien
 	return selected
 }
 
-func buildCodexQuotaEfficiencyCyclePeriods(cycles []entities.QuotaCycle, roleHasCurrentCycle bool, now time.Time) map[int64]codexQuotaEfficiencyCyclePeriod {
-	// 观察顺序表达角色真实演进；复制后排序，避免扰动调用方用于历史倒序展示的父周期切片。
+// latestCodexQuotaEfficiencyCycleID 与窗口标题共享 LastObservedAt 口径，返回该角色最近被确认的父周期。
+func latestCodexQuotaEfficiencyCycleID(cycles []entities.QuotaCycle) int64 {
+	var latest entities.QuotaCycle
+	for _, cycle := range cycles {
+		if latest.ID == 0 || cycle.LastObservedAt.After(latest.LastObservedAt) || (cycle.LastObservedAt.Equal(latest.LastObservedAt) && cycle.ID > latest.ID) {
+			latest = cycle
+		}
+	}
+	return latest.ID
+}
+
+func buildCodexQuotaEfficiencyCyclePeriods(cycles []entities.QuotaCycle, currentCycleID int64, now time.Time) map[int64]codexQuotaEfficiencyCyclePeriod {
+	// 最近观察顺序表达角色当前演进；复用旧父行后它必须排到中间错误周期之后。
 	ordered := append([]entities.QuotaCycle(nil), cycles...)
 	sort.SliceStable(ordered, func(left, right int) bool {
-		if !ordered[left].FirstObservedAt.Equal(ordered[right].FirstObservedAt) {
-			return ordered[left].FirstObservedAt.Before(ordered[right].FirstObservedAt)
+		if !ordered[left].LastObservedAt.Equal(ordered[right].LastObservedAt) {
+			return ordered[left].LastObservedAt.Before(ordered[right].LastObservedAt)
 		}
 		return ordered[left].ID < ordered[right].ID
 	})
 	periods := make(map[int64]codexQuotaEfficiencyCyclePeriod, len(ordered))
-	for index, cycle := range ordered {
-		period := codexQuotaEfficiencyCyclePeriod{start: cycle.WindowStartedAt, end: cycle.ResetAt}
-		if index > 0 {
-			previousCycle := ordered[index-1]
-			previousPeriod := periods[previousCycle.ID]
-			// 无论窗口长度是否变化，重叠部分都以新周期的理论起点切分。
-			if cycle.WindowStartedAt.Before(previousPeriod.end) {
-				previousPeriod.end = cycle.WindowStartedAt
-				periods[previousCycle.ID] = previousPeriod
-			}
+	// 反向维护所有后续周期中最早的理论起点；这样一次线性扫描就能覆盖多个连续 detour。
+	var earliestLaterStart time.Time
+	for index := len(ordered) - 1; index >= 0; index-- {
+		cycle := ordered[index]
+		periodEnd := cycle.ResetAt
+		// 后续观察到的周期从其理论起点接管；此前周期只能保留到该起点之前。
+		if !earliestLaterStart.IsZero() && earliestLaterStart.Before(periodEnd) {
+			periodEnd = earliestLaterStart
 		}
-		periods[cycle.ID] = period
+		periods[cycle.ID] = codexQuotaEfficiencyCyclePeriod{start: cycle.WindowStartedAt, end: periodEnd}
+		// 更早周期需要同时避开当前周期和已经处理过的所有后续周期，因此只保留最早起点。
+		if earliestLaterStart.IsZero() || cycle.WindowStartedAt.Before(earliestLaterStart) {
+			earliestLaterStart = cycle.WindowStartedAt
+		}
 	}
 	if len(ordered) == 0 {
 		return periods
 	}
-	latestCycle := ordered[len(ordered)-1]
-	latestPeriod := periods[latestCycle.ID]
-	latestPeriod.current = roleHasCurrentCycle && !now.Before(latestPeriod.start) && now.Before(latestPeriod.end)
-	periods[latestCycle.ID] = latestPeriod
+	if currentCycleID == 0 {
+		return periods
+	}
+	currentPeriod, found := periods[currentCycleID]
+	if !found {
+		return periods
+	}
+	currentPeriod.current = !now.Before(currentPeriod.start) && now.Before(currentPeriod.end)
+	periods[currentCycleID] = currentPeriod
 	return periods
 }
 

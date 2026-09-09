@@ -58,7 +58,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-import { AnalysisPanel } from './AnalysisPanel';
+import { AnalysisPanel } from '../AnalysisPanel';
 
 type FakeElement = {
   tagName: string;
@@ -325,12 +325,12 @@ describe('AnalysisPanel token chart data', () => {
       hover: { mode: 'analysisCompositionArc', intersect: false, axis: 'r' },
     });
     expect(chartCapture.doughnutOptions?.maintainAspectRatio).toBe(false);
-    expect(chartCapture.doughnutOptions?.layout?.padding).toBe(28);
+    expect(chartCapture.doughnutOptions?.layout?.padding).toEqual(expect.any(Function));
     expect(chartCapture.doughnutOptions?.plugins?.tooltip?.enabled).toBe(true);
     expect(chartCapture.doughnutOptions?.plugins?.tooltip?.position).toBe('analysisCompositionCursor');
     expect(chartCapture.doughnutOptions?.plugins?.tooltip?.caretPadding).toBe(18);
     expect(chartCapture.doughnutOptions?.plugins?.tooltip?.external).toBeUndefined();
-    expect(chartCapture.doughnutPlugins).toBeUndefined();
+    expect(chartCapture.doughnutPlugins?.map((plugin) => plugin.id)).toContain('analysis-composition-labels');
     expect(markup).toContain('usage_stats.analysis_composition_title');
     expect(markup).toContain('usage_stats.analysis_composition_api_key_tab');
     expect(markup).toContain('usage_stats.analysis_composition_token_percent');
@@ -469,7 +469,7 @@ describe('AnalysisPanel token chart data', () => {
       caretPadding: 18,
     });
     expect(chartCapture.doughnutOptions?.plugins?.tooltip?.external).toBeUndefined();
-    expect(chartCapture.doughnutPlugins).toBeUndefined();
+    expect(chartCapture.doughnutPlugins?.map((plugin) => plugin.id)).toContain('analysis-composition-labels');
   });
 
   it('limits usage distribution hover to the doughnut ring while allowing arc edges', () => {
@@ -764,7 +764,7 @@ describe('AnalysisPanel token chart data', () => {
     const markup = renderToStaticMarkup(<AnalysisPanel analysis={emptyAnalysis} loading={false} latencyDiagnostics={latencyDiagnostics} isDark={false} isMobile={false} />);
 
     expect(markup).toContain('usage_stats.analysis_latency_title');
-    expect(markup.indexOf('usage_stats.analysis_latency_title')).toBeLessThan(markup.indexOf('usage_stats.analysis_composition_title'));
+    expect(markup.indexOf('usage_stats.analysis_composition_title')).toBeLessThan(markup.indexOf('usage_stats.analysis_latency_title'));
     const latencyScatterIndex = chartCapture.scatterData.findIndex((data) => data.datasets[0]?.label === 'usage_stats.analysis_latency_samples');
     expect(latencyScatterIndex).toBeGreaterThanOrEqual(0);
     const latencyScatterData = chartCapture.scatterData[latencyScatterIndex];
@@ -1014,61 +1014,6 @@ describe('AnalysisPanel token chart data', () => {
     expect(darkPluginColors).not.toHaveProperty('equalLine');
     expect(lightPluginColors).not.toHaveProperty('guideText');
     expect(darkPluginColors).not.toHaveProperty('guideText');
-  });
-
-  it('renders cost breakdown with total tokens, total cost, blended rate and segment percentages', () => {
-    const analysis: AnalysisResponse = {
-      ...emptyAnalysis,
-      timezone: 'Asia/Shanghai',
-      token_usage: [{
-        bucket: '2026-05-28T01:00:00Z',
-        input_tokens: 1_000_000,
-        output_tokens: 1_000_000,
-        cache_read_tokens: 500_000,
-        cache_creation_tokens: 100_000,
-        reasoning_tokens: 100_000,
-        total_tokens: 3_000_000,
-        requests: 10,
-        cost_usd: 6,
-        cost_available: true,
-      }],
-      cost_breakdown: {
-        uncached_input_cost_usd: 1,
-        output_cost_usd: 3,
-        cache_read_cost_usd: 1.5,
-        cache_write_cost_usd: 0.5,
-        total_cost_usd: 6,
-        cost_available: true,
-      },
-    };
-
-    const markup = renderToStaticMarkup(<AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} />);
-
-    expect(markup).not.toContain('costHeaderTotal');
-    expect(markup).toContain('usage_stats.analysis_cost_per_million_tokens');
-    expect(markup).toContain('usage_stats.analysis_blended_rate');
-    expect(markup).toContain('--cost-segment-color:#2563eb');
-    expect(markup).toContain('--cost-segment-color:#16a34a');
-    expect(markup).toContain('--cost-segment-color:#d97706');
-    expect(markup).toContain('--cost-segment-color:#e11d48');
-    expect(markup).toContain('background-color:#2563eb');
-    expect(markup).toContain('background-color:#16a34a');
-    expect(markup).toContain('background-color:#d97706');
-    expect(markup).toContain('background-color:#e11d48');
-    expect(markup).not.toContain('filter:saturate');
-    expect(markup).toContain('usage_stats.analysis_cost_share: 16.67%');
-    expect(markup).toContain('usage_stats.input_tokens · usage_stats.analysis_cost_share');
-    expect(markup).not.toContain('title="usage_stats.input_tokens · usage_stats.analysis_cost_share');
-    expect(markup).toContain('usage_stats.analysis_cost_per_million_tokens: $2.50');
-    expect(markup).toContain('usage_stats.total_tokens: 400.00K');
-    expect(markup).toContain('<span>usage_stats.total_tokens</span><strong>3.00M</strong>');
-    expect(chartCapture.barData?.labels).toEqual(['09:00']);
-    expect(markup).toContain('$6.00');
-    expect(markup).toContain('$2.00');
-    expect(markup).toContain('16.67%');
-    expect(markup).toContain('50.00%');
-    expect(markup).toContain('25.00%');
-    expect(markup).toContain('8.33%');
   });
 
   it('renders model efficiency as cost per million total tokens against total tokens', () => {
@@ -1465,13 +1410,13 @@ describe('AnalysisPanel token chart data', () => {
     expect(markup).toContain('<h2 class="keeper-card-title">usage_stats.analysis_token_usage_title</h2><small class="_costHeaderHint_');
     expect(markup).toContain('</small></div><p class="keeper-card-subtitle">usage_stats.analysis_token_usage_subtitle</p>');
     expect(markup).not.toContain('usage_stats.analysis_token_usage_subtitle (usage_stats.cost_need_price)');
-    expect(markup.match(/costHeaderHint/g)?.length).toBe(5);
+    expect(markup.match(/costHeaderHint/g)?.length).toBe(4);
     expect(markup).not.toContain('costWarning');
-    expect(markup).toContain('usage_stats.analysis_cost_per_million_tokens</span><strong>$0.0000</strong>');
+    expect(markup).toContain('usage_stats.analysis_cost_per_million_tokens</dt><dd title="usage_stats.analysis_blended_rate">$0.0000</dd>');
     expect(markup).toContain('usage_stats.total_cost: $0.0000');
   });
 
-  it('keeps partially priced cost breakdown rates visible under the card-level pricing hint', () => {
+  it('keeps partially priced summary rates visible under the token chart pricing hint', () => {
     const analysis: AnalysisResponse = {
       ...emptyAnalysis,
       token_usage: [{
@@ -1500,11 +1445,11 @@ describe('AnalysisPanel token chart data', () => {
 
     const costDataset = chartCapture.barData?.datasets.find((dataset) => dataset.label === 'usage_stats.total_cost');
     expect(costDataset?.data).toEqual([9]);
-    expect(markup).toContain('<h2 class="keeper-card-title">usage_stats.analysis_cost_breakdown_title</h2><small class="_costHeaderHint_');
+    expect(markup).toContain('<h2 class="keeper-card-title">usage_stats.analysis_token_usage_title</h2><small class="_costHeaderHint_');
     expect(markup).toContain('usage_stats.cost_need_price');
-    expect(markup).toContain('usage_stats.total_cost</span><strong>$9.00</strong>');
-    expect(markup).toContain('usage_stats.analysis_cost_per_million_tokens</span><strong>$8,181.82</strong>');
-    expect(markup).not.toContain('usage_stats.analysis_cost_per_million_tokens</span><strong>usage_stats.cost_need_price</strong>');
+    expect(markup).toContain('usage_stats.total_cost</dt><dd>$9.00</dd>');
+    expect(markup).toContain('usage_stats.analysis_cost_per_million_tokens</dt><dd title="usage_stats.analysis_blended_rate">$8,181.82</dd>');
+    expect(markup).not.toContain('usage_stats.analysis_cost_per_million_tokens</dt><dd title="usage_stats.analysis_blended_rate">usage_stats.cost_need_price</dd>');
     expect(markup).not.toContain('costWarning');
   });
 

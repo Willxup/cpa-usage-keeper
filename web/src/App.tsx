@@ -6,7 +6,10 @@ import './embed/cpamcEmbed.css';
 import { ApiError, appPath, clearEmbedSessionToken, getSession, login, loginWithCPAAPIKey } from './lib/api';
 import type { AuthRole, AuthSessionAPIKeySummary } from './lib/types';
 import { AppFooter } from './components/AppFooter';
+import { isKeyViewerPath, type KeyViewerPath } from './features/key-viewer';
+import { KeyAnalysisPage } from './pages/KeyAnalysisPage';
 import { KeyOverviewPage } from './pages/KeyOverviewPage';
+import { KeyRankingPage } from './pages/KeyRankingPage';
 import { LoginPage } from './pages/LoginPage';
 import { UsagePage } from './pages/UsagePage';
 import { cpamcEmbedSearch, isCPAMCEmbed, notifyCPAMCEmbedReady } from './embed/cpamcEmbed';
@@ -14,6 +17,11 @@ import { getUsageTabPath, resolveUsageTabFromPath, stripAppBasePath } from './li
 import { useUsageStatsStore } from './stores/useUsageStatsStore';
 
 type AuthState = 'checking' | 'authenticated' | 'unauthenticated';
+const getInitialKeyViewerPath = (): KeyViewerPath => {
+  if (typeof window === 'undefined') return '/key-overview';
+  const currentPath = stripAppBasePath(window.location.pathname, window.__APP_BASE_PATH__) ?? '/';
+  return isKeyViewerPath(currentPath) ? currentPath : '/key-overview';
+};
 
 export const getRoleHomePath = (role: AuthRole): '/' | '/key-overview' => (
   role === 'api_key_viewer' ? '/key-overview' : '/'
@@ -25,7 +33,9 @@ export const getRoleTargetPath = (
   isEmbeddedInCPAMC = false,
 ): string => {
   // 路径白名单与会话角色共同决定落点；未知路径只回到该角色自己的首页。
-  if (role === 'api_key_viewer') return '/key-overview';
+  if (role === 'api_key_viewer') {
+    return isKeyViewerPath(currentPath) ? currentPath : '/key-overview';
+  }
   if (currentPath === '/') return '/';
 
   const usageTab = resolveUsageTabFromPath(currentPath);
@@ -44,6 +54,7 @@ function App() {
   const [authState, setAuthState] = useState<AuthState>('checking');
   const [authRole, setAuthRole] = useState<AuthRole | null>(null);
   const [sessionAPIKey, setSessionAPIKey] = useState<AuthSessionAPIKeySummary | undefined>();
+  const [keyViewerPath, setKeyViewerPath] = useState<KeyViewerPath>(getInitialKeyViewerPath);
   const [adminLoginError, setAdminLoginError] = useState('');
   const [apiKeyLoginError, setAPIKeyLoginError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -88,6 +99,9 @@ function App() {
     if (authState !== 'authenticated' || !authRole) return;
     const strippedPath = stripAppBasePath(window.location.pathname, window.__APP_BASE_PATH__);
     const targetPath = getRoleTargetPath(authRole, strippedPath ?? '/', isEmbeddedInCPAMC);
+    if (authRole === 'api_key_viewer') {
+      setKeyViewerPath(targetPath as KeyViewerPath);
+    }
     if (strippedPath === targetPath) return;
     window.history.replaceState(null, '', appPath(targetPath) + cpamcEmbedSearch());
   }, [authRole, authState, isEmbeddedInCPAMC]);
@@ -129,7 +143,10 @@ function App() {
         clearSession();
         return;
       }
-      window.history.replaceState(null, '', appPath('/key-overview') + cpamcEmbedSearch());
+      const currentPath = stripAppBasePath(window.location.pathname, window.__APP_BASE_PATH__) ?? '/';
+      const targetPath = getRoleTargetPath(session.role, currentPath, isEmbeddedInCPAMC) as KeyViewerPath;
+      setKeyViewerPath(targetPath);
+      window.history.replaceState(null, '', appPath(targetPath) + cpamcEmbedSearch());
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         setAPIKeyLoginError(t('auth.invalid_api_key'));
@@ -142,7 +159,13 @@ function App() {
     } finally {
       setSubmitting(false);
     }
-  }, [clearSession, loadSession, t]);
+  }, [clearSession, isEmbeddedInCPAMC, loadSession, t]);
+
+  const handleKeyViewerNavigate = useCallback((path: KeyViewerPath) => {
+    if (path === keyViewerPath) return;
+    window.history.replaceState(null, '', appPath(path) + cpamcEmbedSearch());
+    setKeyViewerPath(path);
+  }, [keyViewerPath]);
 
   let page: ReactNode;
   if (authState === 'checking') {
@@ -150,7 +173,11 @@ function App() {
   } else if (authState === 'unauthenticated') {
     page = <LoginPage loading={submitting} adminError={adminLoginError} apiKeyError={apiKeyLoginError} onPasswordSubmit={handlePasswordLogin} onAPIKeySubmit={handleAPIKeyLogin} />;
   } else if (authRole === 'api_key_viewer') {
-    page = <KeyOverviewPage apiKey={sessionAPIKey} onAuthRequired={clearSession} />;
+    page = keyViewerPath === '/key-analysis'
+      ? <KeyAnalysisPage apiKey={sessionAPIKey} onNavigate={handleKeyViewerNavigate} onAuthRequired={clearSession} />
+      : keyViewerPath === '/key-ranking'
+        ? <KeyRankingPage apiKey={sessionAPIKey} onNavigate={handleKeyViewerNavigate} onAuthRequired={clearSession} />
+        : <KeyOverviewPage apiKey={sessionAPIKey} onNavigate={handleKeyViewerNavigate} onAuthRequired={clearSession} />;
   } else {
     page = <UsagePage onAuthRequired={clearSession} />;
   }

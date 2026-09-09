@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { UsageCredentialHealth } from '@/lib/types'
 import { healthGreenThreshold } from '@/utils/usage/health'
 import { IconRefreshCw, IconTimer } from '@/components/ui/icons'
+import { cacheReadRateTone, credentialToneClassName, formatCredentialPercent } from './CredentialSectionShell'
 import styles from './CredentialSections.module.scss'
 
 type CredentialHealthBucketState = 'success' | 'warning' | 'failure' | 'empty'
@@ -29,6 +30,8 @@ interface CredentialHealthPanelProps {
   health?: UsageCredentialHealth
   lastUsedAt?: string
   statsUpdatedAt?: string
+  /** 最近 5h 窗口缓存率；传入时在 meta 区多加一行文字，不额外画图形。 */
+  windowCacheReadRate?: number | null
 }
 
 const HEALTH_WINDOW_MINUTES = 5 * 60
@@ -52,13 +55,14 @@ const healthMetaToneClassName: Record<CredentialHealthSummaryTone, string> = {
   quiet: styles.credentialHealthMetaQuiet,
 }
 
-export function CredentialHealthPanel({ displayName, health, lastUsedAt, statsUpdatedAt }: CredentialHealthPanelProps) {
+export function CredentialHealthPanel({ displayName, health, lastUsedAt, statsUpdatedAt, windowCacheReadRate }: CredentialHealthPanelProps) {
   const { t } = useTranslation()
   const buckets = useMemo(() => buildHealthBuckets(health), [health])
   const score = resolveCredentialHealthScore(health, buckets)
   const summary = resolveCredentialHealthSummary(buckets, health, t)
   const lastUsed = formatCredentialHealthDate(lastUsedAt)
   const statsUpdated = formatCredentialHealthDate(statsUpdatedAt)
+  const showWindowCacheReadRate = windowCacheReadRate !== undefined
 
   return (
     <div className={styles.credentialHealthPanel}>
@@ -117,6 +121,14 @@ export function CredentialHealthPanel({ displayName, health, lastUsedAt, statsUp
           <span className={styles.credentialHealthMetaStatus}>{summary.label}</span>
           <span className={styles.credentialHealthMetaDetail}>{summary.detail}</span>
         </div>
+        {showWindowCacheReadRate && (
+          <div className={styles.credentialHealthMetaCache}>
+            <span className={styles.credentialHealthMetaCacheLabel}>{t('usage_stats.credentials_health_cache_rate_5h')}</span>
+            <span className={`${styles.credentialHealthMetaCacheValue} ${credentialToneClassName('credentialMetricValue', cacheReadRateTone(windowCacheReadRate ?? null))}`.trim()}>
+              {formatCredentialPercent(windowCacheReadRate ?? null)}
+            </span>
+          </div>
+        )}
         {(lastUsed || statsUpdated) && (
           <div className={styles.credentialHealthMetaTimes}>
             {lastUsed && (

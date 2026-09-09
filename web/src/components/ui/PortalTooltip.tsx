@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import styles from './PortalTooltip.module.scss'
 
@@ -7,11 +7,40 @@ const TOOLTIP_ESTIMATED_HEIGHT = 72
 const TOOLTIP_OFFSET = 10
 const TOOLTIP_VIEWPORT_PADDING = 8
 
+type TooltipPlacementInput = {
+  anchorTop: number
+  anchorBottom: number
+  viewportHeight: number
+  tooltipHeight: number
+}
+
+type TooltipPlacement = {
+  placement: 'above' | 'below'
+  y: number
+}
+
+const resolveTooltipPlacement = ({
+  anchorTop,
+  anchorBottom,
+  viewportHeight,
+  tooltipHeight,
+}: TooltipPlacementInput): TooltipPlacement => {
+  const spaceBelow = viewportHeight - anchorBottom - TOOLTIP_OFFSET - TOOLTIP_VIEWPORT_PADDING
+  const spaceAbove = anchorTop - TOOLTIP_OFFSET - TOOLTIP_VIEWPORT_PADDING
+  const placement = spaceBelow >= tooltipHeight || spaceBelow >= spaceAbove ? 'below' : 'above'
+  return {
+    placement,
+    y: placement === 'above' ? anchorTop - TOOLTIP_OFFSET : anchorBottom + TOOLTIP_OFFSET,
+  }
+}
+
 export type PortalTooltipState = {
   lines: string[]
   x: number
   y: number
   placement: 'above' | 'below'
+  anchorTop?: number
+  anchorBottom?: number
 }
 
 type PortalTooltipTarget = {
@@ -43,12 +72,14 @@ export function usePortalTooltip() {
     const maxX = viewportWidth - TOOLTIP_VIEWPORT_PADDING - halfTooltipWidth
     const anchorX = rect.left + rect.width / 2
     const x = maxX >= minX ? Math.max(minX, Math.min(anchorX, maxX)) : viewportWidth / 2
-    const spaceBelow = viewportHeight - rect.bottom - TOOLTIP_OFFSET - TOOLTIP_VIEWPORT_PADDING
-    const spaceAbove = rect.top - TOOLTIP_OFFSET - TOOLTIP_VIEWPORT_PADDING
-    const placement = spaceBelow >= TOOLTIP_ESTIMATED_HEIGHT || spaceBelow >= spaceAbove ? 'below' : 'above'
-    const y = placement === 'above' ? rect.top - TOOLTIP_OFFSET : rect.bottom + TOOLTIP_OFFSET
+    const { placement, y } = resolveTooltipPlacement({
+      anchorTop: rect.top,
+      anchorBottom: rect.bottom,
+      viewportHeight,
+      tooltipHeight: TOOLTIP_ESTIMATED_HEIGHT,
+    })
 
-    setTooltip({ lines: target.lines, x, y, placement })
+    setTooltip({ lines: target.lines, x, y, placement, anchorTop: rect.top, anchorBottom: rect.bottom })
   }, [])
 
   const syncTooltip = useCallback(() => {
@@ -118,16 +149,54 @@ export function usePortalTooltip() {
 }
 
 export function PortalTooltip({ tooltip }: { tooltip: PortalTooltipState | null }) {
+  const tooltipRef = useRef<HTMLDivElement | null>(null)
+  const [measuredPosition, setMeasuredPosition] = useState<{
+    tooltip: PortalTooltipState
+    x: number
+    placement: 'above' | 'below'
+    y: number
+  } | null>(null)
+
+  useLayoutEffect(() => {
+    if (!tooltip || tooltip.anchorTop === undefined || tooltip.anchorBottom === undefined) {
+      return
+    }
+
+    const renderedTooltip = tooltipRef.current
+    if (!renderedTooltip) return
+    const measuredHeight = renderedTooltip.getBoundingClientRect().height
+    if (!Number.isFinite(measuredHeight) || measuredHeight <= 0) return
+
+    const viewportHeight = typeof window === 'undefined' ? 768 : window.innerHeight
+    const nextPosition = resolveTooltipPlacement({
+      anchorTop: tooltip.anchorTop,
+      anchorBottom: tooltip.anchorBottom,
+      viewportHeight,
+      tooltipHeight: measuredHeight,
+    })
+    setMeasuredPosition((current) => (
+      current?.tooltip === tooltip
+      && current.x === tooltip.x
+      && current.placement === nextPosition.placement
+      && current.y === nextPosition.y
+        ? current
+        : { tooltip, x: tooltip.x, ...nextPosition }
+    ))
+  }, [tooltip])
+
   if (!tooltip || typeof document === 'undefined') return null
+
+  const position = measuredPosition?.tooltip === tooltip ? measuredPosition : tooltip
 
   return createPortal(
     <div
+      ref={tooltipRef}
       className={styles.tooltip}
       role="tooltip"
       style={{
-        left: tooltip.x,
-        top: tooltip.y,
-        transform: tooltip.placement === 'above'
+        left: position.x,
+        top: position.y,
+        transform: position.placement === 'above'
           ? 'translate(-50%, -100%)'
           : 'translateX(-50%)',
       }}

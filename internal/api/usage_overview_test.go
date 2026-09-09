@@ -98,14 +98,13 @@ func TestKeyOverviewIgnoresClientAPIKeyIDAndReturnsViewerOverview(t *testing.T) 
 	}
 }
 
-func TestKeyOverviewRealtimeIgnoresClientAPIKeyIDAndAllowsParallelOverviewRequest(t *testing.T) {
+func TestKeyOverviewRealtimeIgnoresClientAPIKeyID(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
 	token, _, err := sessions.CreateAPIKeyViewer(42)
 	if err != nil {
 		t.Fatalf("CreateAPIKeyViewer returned error: %v", err)
 	}
 	provider := &usageFilterStub{
-		overview: &servicedto.UsageOverviewSnapshot{Usage: &dto.StatisticsSnapshot{TotalRequests: 3}},
 		realtime: &servicedto.UsageOverviewRealtime{
 			Window:        "60m",
 			BucketSeconds: 120,
@@ -119,14 +118,6 @@ func TestKeyOverviewRealtimeIgnoresClientAPIKeyIDAndAllowsParallelOverviewReques
 	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, DisplayKey: "sk-*********live"}}
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
 	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
-
-	overviewResp := httptest.NewRecorder()
-	overviewReq := httptest.NewRequest(http.MethodGet, "/api/v1/key-overview?range=24h", nil)
-	overviewReq.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
-	router.ServeHTTP(overviewResp, overviewReq)
-	if overviewResp.Code != http.StatusOK {
-		t.Fatalf("expected overview status 200, got %d %s", overviewResp.Code, overviewResp.Body.String())
-	}
 
 	realtimeResp := httptest.NewRecorder()
 	realtimeReq := httptest.NewRequest(http.MethodGet, "/api/v1/key-overview/realtime?window=60m&api_key_id=not-a-number", nil)
@@ -154,8 +145,8 @@ func TestKeyOverviewRealtimeIgnoresClientAPIKeyIDAndAllowsParallelOverviewReques
 	if contains(realtimeResp.Body.String(), `"api_keys":`) || contains(realtimeResp.Body.String(), `"auth_files":`) || contains(realtimeResp.Body.String(), `"ai_providers":`) {
 		t.Fatalf("expected key overview realtime to omit internal current-usage dimensions, got %s", realtimeResp.Body.String())
 	}
-	if provider.overviewCalls != 1 || provider.realtimeCalls != 1 {
-		t.Fatalf("expected one overview and one realtime call, got overview=%d realtime=%d", provider.overviewCalls, provider.realtimeCalls)
+	if provider.realtimeCalls != 1 {
+		t.Fatalf("expected one realtime call, got %d", provider.realtimeCalls)
 	}
 }
 
@@ -208,28 +199,6 @@ func TestKeyOverviewReturnsConflictForExpiredCustomRange(t *testing.T) {
 	}
 }
 
-func TestKeyOverviewRateLimitsPerViewerSession(t *testing.T) {
-	sessions := auth.NewSessionManager(time.Hour)
-	token, _, err := sessions.CreateAPIKeyViewer(42)
-	if err != nil {
-		t.Fatalf("CreateAPIKeyViewer returned error: %v", err)
-	}
-	provider := &usageFilterStub{overview: &servicedto.UsageOverviewSnapshot{}}
-	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, DisplayKey: "sk-*********live"}}
-	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
-
-	for i, expected := range []int{http.StatusOK, http.StatusTooManyRequests} {
-		resp := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/key-overview?range=24h", nil)
-		req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
-		router.ServeHTTP(resp, req)
-		if resp.Code != expected {
-			t.Fatalf("request %d expected %d, got %d %s", i+1, expected, resp.Code, resp.Body.String())
-		}
-	}
-}
-
 func TestKeyOverviewClearsInactiveViewerSession(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
 	token, _, err := sessions.CreateAPIKeyViewer(42)
@@ -242,10 +211,6 @@ func TestKeyOverviewClearsInactiveViewerSession(t *testing.T) {
 	handler := NewAuthHandler(config, sessions)
 	router := NewRouter(nil, nil, provider, nil, config, handler, "/cpa", OptionalProviders{CPAAPIKeys: keyProvider})
 
-	if !handler.allowKeyOverviewRequest(token) {
-		t.Fatal("expected initial key overview request to be allowed")
-	}
-
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/cpa/api/v1/key-overview?range=24h", nil)
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
@@ -256,9 +221,6 @@ func TestKeyOverviewClearsInactiveViewerSession(t *testing.T) {
 	}
 	if sessions.Validate(token) {
 		t.Fatal("expected inactive viewer session to be deleted")
-	}
-	if _, ok := handler.keyOverviewRequests[token]; ok {
-		t.Fatal("expected inactive key overview cleanup to clear rate limit entry")
 	}
 	cookies := resp.Result().Cookies()
 	if len(cookies) == 0 || cookies[0].Path != "/cpa" || cookies[0].MaxAge >= 0 {

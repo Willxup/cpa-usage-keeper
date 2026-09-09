@@ -42,7 +42,7 @@ const extractFirstTableRowCells = (html: string) => {
   return Array.from(row.matchAll(/<td\b[^>]*>(.*?)<\/td>/gs), (match) => textFromMarkup(match[1]));
 };
 
-const renderCard = () => renderToStaticMarkup(
+const renderCard = (props: Partial<React.ComponentProps<typeof RequestEventsDetailsCard>> = {}) => renderToStaticMarkup(
   <RequestEventsDetailsCard
     events={[event]}
     loading={false}
@@ -52,9 +52,13 @@ const renderCard = () => renderToStaticMarkup(
     modelFilter="__all__"
     sourceFilter="__all__"
     resultFilter="__all__"
+    apiKeyOptions={[]}
+    apiKeyFilter=""
+    onApiKeyFilterChange={() => undefined}
     onModelFilterChange={() => undefined}
     onSourceFilterChange={() => undefined}
     onResultFilterChange={() => undefined}
+    {...props}
   />,
 );
 
@@ -80,7 +84,42 @@ describe('RequestEventsDetailsCard cache token columns', () => {
 
     expect(tokensIndex).toBeGreaterThanOrEqual(0);
     expect(cacheIndex).toBe(tokensIndex + 1);
-    expect(cells[tokensIndex]).toBe('120Input 100Output 20 (Reasoning 5)');
-    expect(cells[cacheIndex]).toBe('30.00%Read 30Write 10');
+    expect(cells[tokensIndex]).toBe('120100205');
+    expect(cells[cacheIndex]).toBe('30.00%3010');
+    expect(html).toContain('data-token-direction="input"');
+    expect(html).toContain('data-token-direction="output"');
+    expect(html).toContain('data-token-direction="reasoning"');
+    expect(html).toContain('data-token-flow="upload"');
+    expect(html).toContain('data-token-flow="download"');
+    expect(html).toContain('data-cache-operation="read"');
+    expect(html).toContain('data-cache-operation="write"');
+    expect(html).toContain('data-cache-flow="upload"');
+    expect(html).toContain('data-cache-flow="download"');
+    expect(html).not.toContain('data-cache-rate-tone=');
+  });
+
+  it('uses compact token units in cells while keeping full values in the cell labels', () => {
+    const html = renderCard({
+      events: [{
+        ...event,
+        tokens: {
+          input_tokens: 1_234_567,
+          output_tokens: 2_345_678,
+          reasoning_tokens: 12_345,
+          cache_read_tokens: 3_456_789,
+          cache_creation_tokens: 4_567_890,
+          total_tokens: 5_678_901,
+        },
+      }],
+    });
+    const headers = extractTableHeaders(html);
+    const cells = extractFirstTableRowCells(html);
+    const tokensIndex = headers.indexOf('Tokens');
+    const cacheIndex = headers.indexOf('Cache');
+
+    expect(cells[tokensIndex]).toBe('5.68M1.23M2.35M12.35K');
+    expect(cells[cacheIndex]).toBe('280.00%3.46M4.57M');
+    expect(html).toContain('aria-label="Total Tokens: 5,678,901; Input: 1,234,567; Output: 2,345,678; Reasoning: 12,345"');
+    expect(html).toContain('aria-label="Cache Rate: 280.00%; Cache Read: 3,456,789; Cache Write: 4,567,890"');
   });
 });

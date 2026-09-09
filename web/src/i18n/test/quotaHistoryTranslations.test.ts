@@ -9,10 +9,10 @@ describe('Codex quota history translations', () => {
   })
 
   it.each([
-    ['en', '1-point sample', 'Multi-point average', '{{count}}-point average', 'Used', 'Full-quota estimate', 'Median per 1%', 'Estimated unused', 'Unused percentage'],
-    ['zh', '单百分点样本', '多百分点均摊', '{{count}} 个百分点均摊', '已用', '满额估算', '每 1% 中位数', '估算未用', '未用百分比'],
-    ['zh-TW', '單百分點樣本', '多百分點均攤', '{{count}} 個百分點均攤', '已用', '滿額估算', '每 1% 中位數', '估算未用', '未用百分比'],
-  ])('describes quota samples and summaries clearly in %s', (language, direct, cross, crossPoints, used, fullEstimate, medianPerPoint, estimatedUnused, unusedPercentage) => {
+    ['en', '1-point sample', 'Multi-point average', '{{count}}-point average', 'Used', 'Full-quota estimate', 'Median per 1%', 'Estimated unused', 'Unused percentage', 'Remaining percentage'],
+    ['zh', '单百分点样本', '多百分点均摊', '{{count}} 个百分点均摊', '已用', '满额估算', '每 1% 中位数', '估算未用', '未用百分比', '剩余百分比'],
+    ['zh-TW', '單百分點樣本', '多百分點均攤', '{{count}} 個百分點均攤', '已用', '滿額估算', '每 1% 中位數', '估算未用', '未用百分比', '剩餘百分比'],
+  ])('describes quota samples and summaries clearly in %s', (language, direct, cross, crossPoints, used, fullEstimate, medianPerPoint, estimatedUnused, unusedPercentage, remainingPercentage) => {
     expect(i18n.getResource(language, 'translation', 'usage_stats.credentials_quota_history_direct')).toBe(direct)
     expect(i18n.getResource(language, 'translation', 'usage_stats.credentials_quota_history_cross')).toBe(cross)
     expect(i18n.getResource(language, 'translation', 'usage_stats.credentials_quota_history_cross_points')).toBe(crossPoints)
@@ -21,5 +21,6 @@ describe('Codex quota history translations', () => {
     expect(i18n.getResource(language, 'translation', 'usage_stats.credentials_quota_history_median_per_point')).toBe(medianPerPoint)
     expect(i18n.getResource(language, 'translation', 'usage_stats.credentials_quota_history_estimated_unused')).toBe(estimatedUnused)
     expect(i18n.getResource(language, 'translation', 'usage_stats.credentials_quota_history_unused_percentage')).toBe(unusedPercentage)
+    expect(i18n.getResource(language, 'translation', 'usage_stats.credentials_quota_history_remaining_percentage')).toBe(remainingPercentage)
   })
 })

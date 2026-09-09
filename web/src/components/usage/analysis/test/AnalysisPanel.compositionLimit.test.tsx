@@ -50,7 +50,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-import { AnalysisPanel } from './AnalysisPanel';
+import { AnalysisPanel } from '../AnalysisPanel';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 

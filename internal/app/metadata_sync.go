@@ -24,6 +24,8 @@ type MetadataSyncRunner struct {
 	refreshDebounce time.Duration
 	// refreshRequests 用单元素缓冲合并密集 refresh 通知。
 	refreshRequests chan struct{}
+	// connectedRequests 用单元素缓冲接收 ingest 连接成功信号，避免连接建立时阻塞 ingest。
+	connectedRequests chan struct{}
 	// onStart 只给测试确认后台 runner 已启动，生产逻辑不依赖它。
 	onStart func()
 	// now 允许测试控制 debounce 时间判断，生产使用 time.Now。
@@ -35,6 +37,8 @@ type MetadataSyncRunner struct {
 	running bool
 	// notificationMode 表示 CPA 已支持通知，周期 tick 应该 no-op。
 	notificationMode bool
+	// activated 表示 ingest 至少成功建立过一次连接；首次连接前周期 tick 不执行同步。
+	activated bool
 	// lastRefreshRequestedAt 记录最后一条 refresh=true 的收到时间。
 	lastRefreshRequestedAt time.Time
 }
@@ -42,15 +46,16 @@ type MetadataSyncRunner struct {
 func NewMetadataSyncRunner(syncer MetadataSyncer, interval time.Duration) *MetadataSyncRunner {
 	// 构造阶段只保存依赖，不主动访问 CPA 或数据库。
 	return &MetadataSyncRunner{
-		syncer:          syncer,
-		interval:        interval,
-		refreshDebounce: metadataSyncRefreshDebounceDefault,
-		refreshRequests: make(chan struct{}, 1),
-		now:             time.Now,
+		syncer:            syncer,
+		interval:          interval,
+		refreshDebounce:   metadataSyncRefreshDebounceDefault,
+		refreshRequests:   make(chan struct{}, 1),
+		connectedRequests: make(chan struct{}, 1),
+		now:               time.Now,
 	}
 }
 
-// Run 启动独立 metadata 同步任务：默认轮询；收到 CPA 控制消息后进入通知模式，周期 tick 只保持空转。
+// Run 启动独立 metadata 同步任务：等待 ingest 首次连接后激活；默认轮询，收到 CPA 控制消息后进入通知模式。
 func (r *MetadataSyncRunner) Run(ctx context.Context) error {
 	// 启动前统一校验依赖和补齐测试可能清空的可选字段。
 	if err := r.validate(); err != nil {
@@ -66,13 +71,6 @@ func (r *MetadataSyncRunner) Run(ctx context.Context) error {
 	if r.onStart != nil {
 		r.onStart()
 	}
-
-	// 如果应用启动后立刻取消，就不再执行首次同步。
-	if ctx.Err() != nil {
-		return nil
-	}
-	// 无论后续是否进入通知模式，启动时先同步一次 metadata。
-	r.runSync(ctx)
 
 	// periodic 负责默认轮询模式的固定周期 tick。
 	periodic := time.NewTimer(r.interval)
@@ -94,13 +92,25 @@ func (r *MetadataSyncRunner) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			// 应用关闭是正常退出，不返回错误。
 			return nil
+		case <-r.connectedRequests:
+			// 连接成功是首次同步的门闩；无论当前是否通知模式，都执行一次。
+			// 关停优先于连接触发的同步，避免应用退出时再发起外部请求。
+			if ctx.Err() != nil {
+				return nil
+			}
+			// 首次消费连接信号后解锁周期同步和后续 refresh debounce。
+			r.markActivated()
+			// 连接事件只触发一次同步，失败由后续连接、周期或 refresh 调度再次处理。
+			r.runSync(ctx)
+			// 连接触发的同步完成后重新开始周期计时，避免紧接着又执行一次轮询。
+			resetTimer(periodic, r.interval)
 		case <-periodic.C:
 			// 周期 tick 到达后再检查一次 context，避免关停时多同步。
 			if ctx.Err() != nil {
 				return nil
 			}
-			// 通知模式下周期 tick 完全 no-op，避免继续轮询 CPA。
-			if !r.isNotificationMode() {
+			// 首次连接前不访问 metadata；非订阅（轮询）模式继续按 interval 同步。
+			if r.isActivated() && !r.isNotificationMode() {
 				r.runSync(ctx)
 			}
 			// 无论是否 no-op，都继续维持 tick，方便降级回轮询后恢复节奏。
@@ -149,11 +159,15 @@ func (r *MetadataSyncRunner) RequestMetadataRefresh() {
 	if r == nil {
 		return
 	}
-	// refresh=true 同时证明通知可用，并刷新 trailing debounce 的起点。
-	changed := r.recordRefreshRequest()
+	// refresh=true 同时证明通知可用；只有 runner 已经激活时才进入 trailing debounce。
+	changed, activated := r.recordRefreshRequest()
 	if changed {
 		// refresh=true 也能证明 CPA 通知可用，首次进入通知模式时记录。
 		logrus.WithField("source", "refresh").Info("metadata sync switched to notification mode")
+	}
+	if !activated {
+		// 首次连接同步会读取最新 metadata，连接信号消费前无需再排队一次 refresh。
+		return
 	}
 	// channel 已满时说明已有 refresh 待处理，时间戳已更新即可。
 	select {
@@ -191,6 +205,10 @@ func (r *MetadataSyncRunner) validate() error {
 	if r.refreshRequests == nil {
 		r.refreshRequests = make(chan struct{}, 1)
 	}
+	// 测试可能清空连接信号 channel，运行前恢复单缓冲队列。
+	if r.connectedRequests == nil {
+		r.connectedRequests = make(chan struct{}, 1)
+	}
 	// 测试可能清空时钟函数，运行前恢复生产时钟。
 	if r.now == nil {
 		r.now = time.Now
@@ -198,10 +216,22 @@ func (r *MetadataSyncRunner) validate() error {
 	return nil
 }
 
+func (r *MetadataSyncRunner) NotifyIngestConnected() {
+	// nil runner 保护只为防御异常 wiring，正常路径不会触发。
+	if r == nil {
+		return
+	}
+	// 连接恢复期间多个事件合并为一个待执行同步，避免同步请求堆积。
+	select {
+	case r.connectedRequests <- struct{}{}:
+	default:
+	}
+}
+
 func (r *MetadataSyncRunner) runSync(ctx context.Context) {
 	// 所有 metadata 同步都从这里串行调用 SyncMetadata。
 	if err := r.syncer.SyncMetadata(ctx); err != nil {
-		// 单次同步失败不退出 runner，下一次 tick 或 refresh 继续尝试。
+		// 单次同步失败不退出 runner，下一次连接信号、tick 或 refresh 再按既有调度尝试。
 		logrus.WithError(err).Error("metadata sync failed")
 	}
 }
@@ -211,6 +241,20 @@ func (r *MetadataSyncRunner) setRunning(running bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.running = running
+}
+
+func (r *MetadataSyncRunner) markActivated() {
+	// activated 只需记录一次，后续连接恢复仍然通过同一 channel 触发同步。
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.activated = true
+}
+
+func (r *MetadataSyncRunner) isActivated() bool {
+	// 周期 tick 读取 activated 时需要加锁，避免和连接事件竞争。
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.activated
 }
 
 func (r *MetadataSyncRunner) setNotificationMode(enabled bool) bool {
@@ -226,14 +270,19 @@ func (r *MetadataSyncRunner) setNotificationMode(enabled bool) bool {
 	return changed
 }
 
-func (r *MetadataSyncRunner) recordRefreshRequest() bool {
-	// refresh 请求需要在同一把锁内更新通知模式和最后请求时间。
+func (r *MetadataSyncRunner) recordRefreshRequest() (changed, activated bool) {
+	// refresh 请求需要在同一把锁内更新通知模式、激活状态和 debounce 时间。
+	// changed 表示通知模式是否切换；activated 表示首次连接信号是否已被消费。
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	changed := !r.notificationMode
+	changed = !r.notificationMode
 	r.notificationMode = true
-	r.lastRefreshRequestedAt = r.currentTimeLocked()
-	return changed
+	activated = r.activated
+	if activated {
+		// 激活前的 refresh 由首次连接同步覆盖，不污染后续 debounce 起点。
+		r.lastRefreshRequestedAt = r.currentTimeLocked()
+	}
+	return changed, activated
 }
 
 func (r *MetadataSyncRunner) isNotificationMode() bool {

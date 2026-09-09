@@ -223,6 +223,64 @@ export function IconDownload({ size = 20, ...props }: IconProps) {
   );
 }
 
+export function IconArrowDownToLine({ size = 20, ...props }: IconProps) {
+  return (
+    <svg {...baseSvgProps} width={size} height={size} {...props}>
+      <path d="M12 3v12" />
+      <path d="m7 10 5 5 5-5" />
+    </svg>
+  );
+}
+
+export function IconArrowUpFromLine({ size = 20, ...props }: IconProps) {
+  return (
+    <svg {...baseSvgProps} width={size} height={size} {...props}>
+      <path d="M12 21V9" />
+      <path d="m7 14 5-5 5 5" />
+    </svg>
+  );
+}
+
+export function IconBrain({ size = 20, ...props }: IconProps) {
+  return (
+    <svg {...baseSvgProps} width={size} height={size} {...props}>
+      <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 0 0 8 21h4Z" />
+      <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 0 1 16 21h-4Z" />
+      <path d="M12 5v16" />
+      <path d="M9 8H7.5" />
+      <path d="M14.5 8H17" />
+      <path d="M9 12H7" />
+      <path d="M15 12h2" />
+      <path d="M9 16H7.5" />
+      <path d="M14.5 16H17" />
+    </svg>
+  );
+}
+
+export function IconDatabaseArrowDown({ size = 20, ...props }: IconProps) {
+  return (
+    <svg {...baseSvgProps} width={size} height={size} {...props}>
+      <ellipse cx="9" cy="5" rx="6" ry="2.5" />
+      <path d="M3 5v8c0 1.38 2.69 2.5 6 2.5s6-1.12 6-2.5V5" />
+      <path d="M3 9c0 1.38 2.69 2.5 6 2.5 1.04 0 2.01-.11 2.84-.31" />
+      <path d="M19 9v10" />
+      <path d="m16 16 3 3 3-3" />
+    </svg>
+  );
+}
+
+export function IconDatabaseArrowUp({ size = 20, ...props }: IconProps) {
+  return (
+    <svg {...baseSvgProps} width={size} height={size} {...props}>
+      <ellipse cx="9" cy="19" rx="6" ry="2.5" />
+      <path d="M3 19v-8c0-1.38 2.69-2.5 6-2.5s6 1.12 6 2.5v8" />
+      <path d="M3 15c0-1.38 2.69-2.5 6-2.5 1.04 0 2.01.11 2.84.31" />
+      <path d="M19 15V5" />
+      <path d="m16 8 3-3 3 3" />
+    </svg>
+  );
+}
+
 export function IconCopy({ size = 20, ...props }: IconProps) {
   return (
     <svg {...baseSvgProps} width={size} height={size} {...props}>

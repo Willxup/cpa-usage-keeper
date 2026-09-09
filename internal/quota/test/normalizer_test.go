@@ -288,6 +288,21 @@ func TestNormalizeAntigravityQuotaRowsScopesDuplicateBucketIDsByStableGroup(t *t
 	}
 }
 
+func TestNormalizeAntigravityQuotaRowsCanonicalizesKnownGroupLabelVariants(t *testing.T) {
+	remaining := 0.5
+	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "antigravity", Result: quota.AntigravityResult{Quota: &quota.AntigravityQuotaPayload{Groups: []quota.AntigravityQuotaGroup{
+		{DisplayName: "Gemini models", Buckets: []quota.AntigravityQuotaBucket{{BucketID: "gemini", Window: "5h", RemainingFraction: &remaining}}},
+		{DisplayName: "Claude & GPT Models", Buckets: []quota.AntigravityQuotaBucket{{BucketID: "claude-gpt", Window: "5h", RemainingFraction: &remaining}}},
+	}}}})
+
+	if len(rows) != 2 {
+		t.Fatalf("expected two canonical Antigravity groups, got %#v", rows)
+	}
+	if rows[0].GroupKey != "antigravity-gemini-models" || rows[1].GroupKey != "antigravity-claude-and-gpt-models" {
+		t.Fatalf("expected display-name variants to use canonical usage group keys, got %#v", rows)
+	}
+}
+
 func TestNormalizeKimiQuotaRows(t *testing.T) {
 	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Provider: "kimi", Result: quota.KimiResult{Usage: &quota.KimiUsagePayload{
 		Usage: &quota.KimiUsageDetail{Used: 3, Limit: 10, Remaining: 7, Name: "monthly", Title: "Monthly", ResetAt: "2026-05-09T12:00:00Z", ResetIn: 3600},

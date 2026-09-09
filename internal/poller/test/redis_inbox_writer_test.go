@@ -3,6 +3,7 @@ package poller_test
 import (
 	"context"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -111,7 +112,8 @@ func TestControlAwareRedisInboxWriterFiltersControlMessages(t *testing.T) {
 	if inserted != 2 {
 		t.Fatalf("expected two usage rows, got %d", inserted)
 	}
-	if observer.support != 2 || observer.refresh != 1 {
+	_, support, refresh, _ := observer.counts()
+	if support != 2 || refresh != 1 {
 		t.Fatalf("unexpected observer calls: %+v", observer)
 	}
 
@@ -136,7 +138,8 @@ func TestControlAwareRedisInboxWriterSkipsControlOnlyBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Insert returned error: %v", err)
 	}
-	if inserted != 0 || observer.refresh != 1 {
+	_, _, refresh, _ := observer.counts()
+	if inserted != 0 || refresh != 1 {
 		t.Fatalf("expected filtered refresh only, inserted=%d observer=%+v", inserted, observer)
 	}
 
@@ -164,7 +167,8 @@ func TestControlAwareRedisInboxWriterSkipsEmptyAndNullPayloads(t *testing.T) {
 	if inserted != 1 {
 		t.Fatalf("expected one usage row, got %d", inserted)
 	}
-	if observer.support != 0 || observer.refresh != 0 {
+	_, support, refresh, _ := observer.counts()
+	if support != 0 || refresh != 0 {
 		t.Fatalf("expected empty/null payloads not to trigger control observer, got %+v", observer)
 	}
 
@@ -178,21 +182,41 @@ func TestControlAwareRedisInboxWriterSkipsEmptyAndNullPayloads(t *testing.T) {
 }
 
 type controlObserverStub struct {
-	support int
-	refresh int
-	polling int
+	mu        sync.Mutex
+	connected int
+	support   int
+	refresh   int
+	polling   int
+}
+
+func (s *controlObserverStub) NotifyIngestConnected() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.connected++
 }
 
 func (s *controlObserverStub) MarkRefreshSupported() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.support++
 }
 
 func (s *controlObserverStub) RequestMetadataRefresh() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.refresh++
 }
 
 func (s *controlObserverStub) MarkRefreshPollingRequired(string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.polling++
+}
+
+func (s *controlObserverStub) counts() (connected, support, refresh, polling int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.connected, s.support, s.refresh, s.polling
 }
 
 func openPollerTestDB(t *testing.T) *gorm.DB {

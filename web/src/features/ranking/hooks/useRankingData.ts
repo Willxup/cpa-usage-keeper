@@ -10,6 +10,7 @@ import {
   resumeRanking,
   syncRanking,
 } from '../api';
+import { loadRankingPreferences, persistRankingPreferences } from '../preferences';
 import type {
   RankingLeaderboardResponse,
   RankingMetadataResponse,
@@ -81,8 +82,9 @@ export function useRankingData({
   onBackgroundRefreshError,
   api = defaultAPI,
 }: UseRankingDataOptions) {
-  const [period, setPeriod] = useState<RankingPeriod>('today');
-  const [metric, setMetric] = useState<RankingMetric>('overall');
+  const [initialPreferences] = useState(loadRankingPreferences);
+  const [period, setPeriodState] = useState<RankingPeriod>(initialPreferences.period);
+  const [metric, setMetricState] = useState<RankingMetric>(initialPreferences.metric);
   const [status, setStatus] = useState<RankingStatusResponse | null>(null);
   const [metadata, setMetadata] = useState<RankingMetadataResponse | null>(null);
   const [leaderboard, setLeaderboard] = useState<RankingLeaderboardResponse | null>(null);
@@ -107,6 +109,16 @@ export function useRankingData({
   const lastLeaderboardErrorRef = useRef<unknown>(null);
   const refreshFailureKeyRef = useRef<string | null>(null);
   enabledRef.current = enabled;
+
+  const setPeriod = useCallback((nextPeriod: RankingPeriod) => {
+    setPeriodState(nextPeriod);
+    persistRankingPreferences({ period: nextPeriod });
+  }, []);
+
+  const setMetric = useCallback((nextMetric: RankingMetric) => {
+    setMetricState(nextMetric);
+    persistRankingPreferences({ metric: nextMetric });
+  }, []);
 
   const notifyAuthentication = useCallback((error: unknown) => {
     if (error instanceof RankingApiError && error.status === 401) {

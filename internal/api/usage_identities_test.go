@@ -332,13 +332,15 @@ func TestUsageIdentitiesPageRouteReturnsCredentialHealthSnapshot(t *testing.T) {
 			Provider:     "Claude Team",
 		}},
 		pagedHealth: []service.UsageCredentialHealthSnapshot{{
-			WindowSeconds: 5 * 60 * 60,
-			BucketSeconds: 10 * 60,
-			WindowStart:   windowStart,
-			WindowEnd:     windowEnd,
-			TotalSuccess:  2,
-			TotalFailure:  1,
-			SuccessRate:   66.6666666667,
+			WindowSeconds:   5 * 60 * 60,
+			BucketSeconds:   10 * 60,
+			WindowStart:     windowStart,
+			WindowEnd:       windowEnd,
+			TotalSuccess:    2,
+			TotalFailure:    1,
+			SuccessRate:     66.6666666667,
+			InputTokens:     400,
+			CacheReadTokens: 250,
 			Buckets: []service.UsageCredentialHealthBucket{{
 				StartTime: bucketStart,
 				EndTime:   bucketStart.Add(10 * time.Minute),
@@ -366,6 +368,8 @@ func TestUsageIdentitiesPageRouteReturnsCredentialHealthSnapshot(t *testing.T) {
 		`"total_success":2`,
 		`"total_failure":1`,
 		`"success_rate":66.6666666667`,
+		`"input_tokens":400`,
+		`"cache_read_tokens":250`,
 		`"buckets":[{"start_time":"2026-06-15T12:40:00Z","end_time":"2026-06-15T12:50:00Z","success":2,"failure":1,"rate":0.6666666667}]`,
 	} {
 		if !contains(body, expected) {

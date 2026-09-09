@@ -36,8 +36,10 @@ type RedisInboxWriter interface {
 	Insert(ctx context.Context, source string, messages []string, receivedAt time.Time) (int, error)
 }
 
-// RedisControlMessageObserver 接收 usage 通道里的 metadata 控制信号。
+// RedisControlMessageObserver 接收 usage ingest 的连接和 metadata 控制信号。
 type RedisControlMessageObserver interface {
+	// NotifyIngestConnected 表示 usage ingest 已成功建立或恢复一条 CPA 连接。
+	NotifyIngestConnected()
 	// MarkRefreshSupported 表示 CPA 已支持 metadata refresh 通知，周期轮询可以 no-op。
 	MarkRefreshSupported()
 	// RequestMetadataRefresh 表示 CPA metadata 配置已变化，需要 debounce 后同步。

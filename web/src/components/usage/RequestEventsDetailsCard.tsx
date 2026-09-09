@@ -16,12 +16,23 @@ import { MainActionButton } from '@/components/ui/MainActionButton';
 import { PortalTooltip, usePortalTooltip } from '@/components/ui/PortalTooltip';
 import { ProviderBrandIcon } from '@/components/ProviderBrandIcon';
 import { Select } from '@/components/ui/Select';
-import { IconChevronDown, IconDownload, IconSettings } from '@/components/ui/icons';
-import type { UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption } from '@/lib/types';
+import {
+  IconArrowDownToLine,
+  IconArrowUpFromLine,
+  IconBrain,
+  IconChevronDown,
+  IconDatabaseArrowDown,
+  IconDatabaseArrowUp,
+  IconDownload,
+  IconSettings,
+} from '@/components/ui/icons';
+import type { CpaApiKeyOption, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption } from '@/lib/types';
 import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainment';
+import { compareModelNames } from '@/utils/modelSort';
 import {
   calculateCacheReadRate,
   formatDurationMs,
+  formatCompactTokenValue,
   formatUsd,
   LATENCY_SOURCE_FIELD,
   normalizeAuthIndex,
@@ -134,6 +145,12 @@ type RequestEventRow = {
   cacheReadTokens: number;
   cacheCreationTokens: number;
   totalTokens: number;
+  inputTokensDisplayLabel: string;
+  outputTokensDisplayLabel: string;
+  reasoningTokensDisplayLabel: string;
+  cacheReadTokensDisplayLabel: string;
+  cacheCreationTokensDisplayLabel: string;
+  totalTokensDisplayLabel: string;
   inputTokensLabel: string;
   outputTokensLabel: string;
   reasoningTokensLabel: string;
@@ -162,6 +179,78 @@ type RequestEventTableRowProps = {
   measureElement?: (node: HTMLTableRowElement | null) => void;
 };
 
+function RequestEventsTokenMetric({
+  direction,
+  label,
+  value,
+  fullValue,
+}: {
+  direction: 'input' | 'output';
+  label: string;
+  value: string;
+  fullValue: string;
+}) {
+  const Icon = direction === 'input' ? IconArrowUpFromLine : IconArrowDownToLine;
+  return (
+    <span
+      className={`${styles.requestEventsTokenMetric} ${direction === 'input' ? styles.requestEventsTokenMetricInput : styles.requestEventsTokenMetricOutput}`}
+      role="img"
+      aria-label={`${label}: ${fullValue}`}
+      data-token-direction={direction}
+      data-token-flow={direction === 'input' ? 'upload' : 'download'}
+    >
+      <span className={styles.requestEventsMetricIconSlot} aria-hidden="true">
+        <Icon size={14} aria-hidden="true" />
+      </span>
+      <span>{value}</span>
+    </span>
+  );
+}
+
+function RequestEventsReasoningMetric({ label, value, fullValue }: { label: string; value: string; fullValue: string }) {
+  return (
+    <span
+      className={`${styles.requestEventsTokenMetric} ${styles.requestEventsTokenMetricReasoning}`}
+      role="img"
+      aria-label={`${label}: ${fullValue}`}
+      data-token-direction="reasoning"
+    >
+      <span className={styles.requestEventsMetricIconSlot} aria-hidden="true">
+        <IconBrain size={12} aria-hidden="true" />
+      </span>
+      <span>{value}</span>
+    </span>
+  );
+}
+
+function RequestEventsCacheMetric({
+  operation,
+  label,
+  value,
+  fullValue,
+}: {
+  operation: 'read' | 'write';
+  label: string;
+  value: string;
+  fullValue: string;
+}) {
+  const Icon = operation === 'read' ? IconDatabaseArrowUp : IconDatabaseArrowDown;
+  return (
+    <span
+      className={`${styles.requestEventsCacheMetric} ${operation === 'read' ? styles.requestEventsCacheMetricRead : styles.requestEventsCacheMetricWrite}`}
+      role="img"
+      aria-label={`${label}: ${fullValue}`}
+      data-cache-operation={operation}
+      data-cache-flow={operation === 'read' ? 'upload' : 'download'}
+    >
+      <span className={styles.requestEventsMetricIconSlot} aria-hidden="true">
+        <Icon className={styles.requestEventsCacheIcon} size={14} aria-hidden="true" />
+      </span>
+      <span>{value}</span>
+    </span>
+  );
+}
+
 const RequestEventTableRow = React.memo(function RequestEventTableRow({
   row,
   columns,
@@ -186,8 +275,10 @@ export interface RequestEventsDetailsCardProps {
   loading: boolean;
   totalCount: number;
   modelOptions: string[];
+  apiKeyOptions: ReadonlyArray<CpaApiKeyOption>;
   sourceOptions: UsageSourceFilterOption[];
   modelFilter: string;
+  apiKeyFilter: string;
   sourceFilter: string;
   resultFilter: string;
   exportingFormat?: RequestEventExportFormat | null;
@@ -199,6 +290,7 @@ export interface RequestEventsDetailsCardProps {
   visibleColumnIds?: readonly RequestEventColumnId[];
   columnOrder?: readonly RequestEventColumnId[];
   onModelFilterChange: (model: string) => void;
+  onApiKeyFilterChange: (apiKeyId: string) => void;
   onLoadMore?: () => void;
   onSourceFilterChange: (source: string) => void;
   onResultFilterChange: (result: string) => void;
@@ -231,8 +323,8 @@ const formatRequestEventTimestamp = (timestamp: string): { time: string; date: s
 };
 
 const formatCacheReadRate = (cacheReadTokens: number, inputTokens: number): string => {
-  const rate = calculateCacheReadRate({ inputTokens, cacheReadTokens });
-  return rate === null ? '-' : `${rate.toFixed(2)}%`;
+  const value = calculateCacheReadRate({ inputTokens, cacheReadTokens });
+  return value === null ? '-' : `${value.toFixed(2)}%`;
 };
 
 const formatTTFTMs = (ttftMs: number | null): string => {
@@ -296,6 +388,31 @@ const buildSpeedModeTooltipLines = (
   ),
 ];
 
+const formatRequestEventMetricTooltipLine = (
+  label: string,
+  value: string,
+  t: (key: string, options?: Record<string, string>) => string,
+): string => t('usage_stats.request_events_metric_tooltip_line', { label, value });
+
+const buildTokenTooltipLines = (
+  row: RequestEventRow,
+  t: (key: string, options?: Record<string, string>) => string,
+): string[] => [
+  formatRequestEventMetricTooltipLine(t('usage_stats.total_tokens'), row.totalTokensLabel, t),
+  formatRequestEventMetricTooltipLine(t('usage_stats.input_tokens'), row.inputTokensLabel, t),
+  formatRequestEventMetricTooltipLine(t('usage_stats.output_tokens'), row.outputTokensLabel, t),
+  formatRequestEventMetricTooltipLine(t('usage_stats.reasoning_tokens'), row.reasoningTokensLabel, t),
+];
+
+const buildCacheTooltipLines = (
+  row: RequestEventRow,
+  t: (key: string, options?: Record<string, string>) => string,
+): string[] => [
+  formatRequestEventMetricTooltipLine(t('usage_stats.cache_rate'), row.cacheReadRate, t),
+  formatRequestEventMetricTooltipLine(t('usage_stats.cache_read_tokens'), row.cacheReadTokensLabel, t),
+  formatRequestEventMetricTooltipLine(t('usage_stats.cache_creation_tokens'), row.cacheCreationTokensLabel, t),
+];
+
 const parseRequestEndpoint = (rawEndpoint: unknown): { requestType: string; endpoint: string } => {
   const raw = String(rawEndpoint ?? '').trim().replace(/\s+/g, ' ');
   if (!raw) {
@@ -353,8 +470,6 @@ function RequestEventsExportMenu({
   return (
     <div
       className={styles.requestEventsExportMenu}
-      onMouseEnter={() => !disabled && setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
       onKeyDown={handleKeyDown}
       onBlur={handleBlur}
     >
@@ -389,8 +504,10 @@ export function RequestEventsDetailsCard({
   loading,
   totalCount,
   modelOptions: backendModelOptions,
+  apiKeyOptions: backendApiKeyOptions,
   sourceOptions: backendSourceOptions,
   modelFilter,
+  apiKeyFilter,
   sourceFilter,
   resultFilter,
   exportingFormat = null,
@@ -402,6 +519,7 @@ export function RequestEventsDetailsCard({
   visibleColumnIds,
   columnOrder,
   onModelFilterChange,
+  onApiKeyFilterChange,
   onSourceFilterChange,
   onLoadMore,
   onResultFilterChange,
@@ -520,6 +638,12 @@ export function RequestEventsDetailsCard({
         cacheReadTokens,
         cacheCreationTokens,
         totalTokens,
+        inputTokensDisplayLabel: formatCompactTokenValue(inputTokens),
+        outputTokensDisplayLabel: formatCompactTokenValue(outputTokens),
+        reasoningTokensDisplayLabel: formatCompactTokenValue(reasoningTokens),
+        cacheReadTokensDisplayLabel: formatCompactTokenValue(cacheReadTokens),
+        cacheCreationTokensDisplayLabel: formatCompactTokenValue(cacheCreationTokens),
+        totalTokensDisplayLabel: formatCompactTokenValue(totalTokens),
         inputTokensLabel: REQUEST_EVENT_INTEGER_FORMATTER.format(inputTokens),
         outputTokensLabel: REQUEST_EVENT_INTEGER_FORMATTER.format(outputTokens),
         reasoningTokensLabel: REQUEST_EVENT_INTEGER_FORMATTER.format(reasoningTokens),
@@ -645,12 +769,20 @@ export function RequestEventsDetailsCard({
   ]);
 
   const modelOptions = useMemo(() => {
-    const options = [
+    const options = appendSelectedOption(
+      backendModelOptions.map((model) => ({ value: model, label: model })),
+      modelFilter,
+    ).sort((left, right) => compareModelNames(left.value, right.value));
+    return [
       { value: ALL_FILTER, label: t('usage_stats.filter_all') },
-      ...backendModelOptions.map((model) => ({ value: model, label: model })),
+      ...options,
     ];
-    return appendSelectedOption(options, modelFilter);
   }, [backendModelOptions, modelFilter, t]);
+
+  const apiKeyOptions = useMemo(() => appendSelectedOption([
+    { value: '', label: t('usage_stats.api_key_filter_all') },
+    ...backendApiKeyOptions.map((option) => ({ value: option.id, label: option.label })),
+  ], apiKeyFilter), [apiKeyFilter, backendApiKeyOptions, t]);
 
   const sourceOptions = useMemo(() => {
     const options = [
@@ -817,33 +949,80 @@ export function RequestEventsDetailsCard({
         id: 'total_tokens',
         label: t('usage_stats.request_events_tokens'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_tokens')}</th>,
-        renderCell: (row) => (
-          <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell}`}>
-            <span className={styles.requestEventsStackedPrimary}>{row.totalTokensLabel}</span>
-            <span className={styles.requestEventsStackedSecondary}>
-              <span className={styles.requestEventsStackedLabel}>{t('usage_stats.input_tokens')}</span> {row.inputTokensLabel}
-            </span>
-            <span className={styles.requestEventsStackedSecondary}>
-              <span className={styles.requestEventsStackedLabel}>{t('usage_stats.output_tokens')}</span> {row.outputTokensLabel} ({t('usage_stats.reasoning_tokens')} {row.reasoningTokensLabel})
-            </span>
-          </td>
-        ),
+        renderCell: (row) => {
+          const tooltipLines = buildTokenTooltipLines(row, t);
+          return (
+            <td
+              className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell} ${styles.requestEventsSpeedModeCell}`}
+              tabIndex={0}
+              aria-label={tooltipLines.join('; ')}
+              onMouseEnter={(event) => handleRequestEventsTooltipMouseEnter(tooltipLines, event.currentTarget)}
+              onMouseLeave={(event) => handleRequestEventsTooltipMouseLeave(event.currentTarget)}
+              onFocus={(event) => handleRequestEventsTooltipFocus(tooltipLines, event.currentTarget)}
+              onBlur={(event) => handleRequestEventsTooltipBlur(event.currentTarget)}
+            >
+              <span className={styles.requestEventsStackedPrimary}>{row.totalTokensDisplayLabel}</span>
+              <div className={styles.requestEventsTokenMetricRow}>
+                <RequestEventsTokenMetric
+                  direction="input"
+                  label={t('usage_stats.input_tokens')}
+                  value={row.inputTokensDisplayLabel}
+                  fullValue={row.inputTokensLabel}
+                />
+              </div>
+              <div className={styles.requestEventsTokenMetricRow}>
+                <RequestEventsTokenMetric
+                  direction="output"
+                  label={t('usage_stats.output_tokens')}
+                  value={row.outputTokensDisplayLabel}
+                  fullValue={row.outputTokensLabel}
+                />
+                <RequestEventsReasoningMetric
+                  label={t('usage_stats.reasoning_tokens')}
+                  value={row.reasoningTokensDisplayLabel}
+                  fullValue={row.reasoningTokensLabel}
+                />
+              </div>
+            </td>
+          );
+        },
       },
       {
         id: 'cache_read_rate',
         label: t('usage_stats.request_events_cache'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_cache')}</th>,
-        renderCell: (row) => (
-          <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell}`}>
-            <span className={styles.requestEventsStackedPrimary}>{row.cacheReadRate}</span>
-            <span className={styles.requestEventsStackedSecondary}>
-              <span className={styles.requestEventsStackedLabel}>{t('usage_stats.credentials_detail_cache_read')}</span> {row.cacheReadTokensLabel}
-            </span>
-            <span className={styles.requestEventsStackedSecondary}>
-              <span className={styles.requestEventsStackedLabel}>{t('usage_stats.credentials_detail_cache_write')}</span> {row.cacheCreationTokensLabel}
-            </span>
-          </td>
-        ),
+        renderCell: (row) => {
+          const tooltipLines = buildCacheTooltipLines(row, t);
+          return (
+            <td
+              className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell} ${styles.requestEventsSpeedModeCell}`}
+              tabIndex={0}
+              aria-label={tooltipLines.join('; ')}
+              onMouseEnter={(event) => handleRequestEventsTooltipMouseEnter(tooltipLines, event.currentTarget)}
+              onMouseLeave={(event) => handleRequestEventsTooltipMouseLeave(event.currentTarget)}
+              onFocus={(event) => handleRequestEventsTooltipFocus(tooltipLines, event.currentTarget)}
+              onBlur={(event) => handleRequestEventsTooltipBlur(event.currentTarget)}
+            >
+              <span className={styles.requestEventsCacheRate}>
+                {row.cacheReadRate}
+              </span>
+              <div className={styles.requestEventsCacheMetrics}>
+                <RequestEventsCacheMetric
+                  operation="read"
+                  label={t('usage_stats.cache_read_tokens')}
+                  value={row.cacheReadTokensDisplayLabel}
+                  fullValue={row.cacheReadTokensLabel}
+                />
+                <RequestEventsCacheMetric
+                  operation="write"
+                  label={t('usage_stats.cache_creation_tokens')}
+                  value={row.cacheCreationTokensDisplayLabel}
+                  fullValue={row.cacheCreationTokensLabel}
+                />
+              </div>
+            </td>
+          );
+        },
       },
       {
         id: 'total_cost',
@@ -921,12 +1100,14 @@ export function RequestEventsDetailsCard({
 
   const hasActiveFilters =
     modelFilter !== ALL_FILTER ||
+    apiKeyFilter !== '' ||
     sourceFilter !== ALL_FILTER ||
     resultFilter !== ALL_FILTER;
 
 
   const handleClearFilters = () => {
     onModelFilterChange(ALL_FILTER);
+    onApiKeyFilterChange('');
     onSourceFilterChange(ALL_FILTER);
     onResultFilterChange(ALL_FILTER);
   };
@@ -970,7 +1151,8 @@ export function RequestEventsDetailsCard({
       >
         <div className={styles.requestEventsToolbar}>
           <div className={styles.requestEventsFiltersGroup}>
-            <label className={styles.requestEventsFilterItem}>
+            {/* 控件已有 aria-label，外层避免使用 label 将标题和空隙的点击转交给控件。 */}
+            <div className={styles.requestEventsFilterItem}>
               <span className={styles.requestEventsFilterLabel}>
                 {t('usage_stats.request_events_filter_model')}
               </span>
@@ -978,12 +1160,33 @@ export function RequestEventsDetailsCard({
                 value={effectiveModelFilter}
                 options={modelOptions}
                 onChange={onModelFilterChange}
+                search={{
+                  placeholder: t('usage_stats.request_events_search_model'),
+                  noResultsText: t('usage_stats.request_events_no_matching_models'),
+                }}
                 className={`${styles.requestEventsSelect} ${styles.usagePillControl}`}
                 ariaLabel={t('usage_stats.request_events_filter_model')}
                 fullWidth={false}
               />
-            </label>
-            <label className={styles.requestEventsFilterItem}>
+            </div>
+            <div className={styles.requestEventsFilterItem}>
+              <span className={styles.requestEventsFilterLabel}>
+                {t('usage_stats.api_key_filter')}
+              </span>
+              <Select
+                value={apiKeyFilter}
+                options={apiKeyOptions}
+                onChange={onApiKeyFilterChange}
+                search={{
+                  placeholder: t('usage_stats.request_events_search_api_key'),
+                  noResultsText: t('usage_stats.request_events_no_matching_api_keys'),
+                }}
+                className={`${styles.requestEventsSelect} ${styles.usagePillControl}`}
+                ariaLabel={t('usage_stats.api_key_filter')}
+                fullWidth={false}
+              />
+            </div>
+            <div className={styles.requestEventsFilterItem}>
               <span className={styles.requestEventsFilterLabel}>
                 {t('usage_stats.request_events_filter_source')}
               </span>
@@ -991,12 +1194,16 @@ export function RequestEventsDetailsCard({
                 value={effectiveSourceFilter}
                 options={sourceOptions}
                 onChange={onSourceFilterChange}
+                search={{
+                  placeholder: t('usage_stats.request_events_search_source'),
+                  noResultsText: t('usage_stats.request_events_no_matching_sources'),
+                }}
                 className={`${styles.requestEventsSelect} ${styles.usagePillControl}`}
                 ariaLabel={t('usage_stats.request_events_filter_source')}
                 fullWidth={false}
               />
-            </label>
-            <label className={styles.requestEventsFilterItem}>
+            </div>
+            <div className={styles.requestEventsFilterItem}>
               <span className={styles.requestEventsFilterLabel}>
                 {t('usage_stats.request_events_filter_result')}
               </span>
@@ -1008,7 +1215,7 @@ export function RequestEventsDetailsCard({
                 ariaLabel={t('usage_stats.request_events_filter_result')}
                 fullWidth={false}
               />
-            </label>
+            </div>
             <div className={styles.requestEventsFilterActionSlot}>
               <Button
                 variant="ghost"

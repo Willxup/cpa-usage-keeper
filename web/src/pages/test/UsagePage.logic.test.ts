@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appendUniqueUsageEvents, getBackToCPALinkURL, getCredentialSectionVisibility, getOverviewDisplayLoading, getUsageCustomRangeForTab, getUsageTabOptions, handleUsageEventLoadMoreError, isUsagePageVisible, loadAnalysisSections, loadRequestEventsPreferences, loadUsagePageVersionInfo, normalizeRequestEventsPreferences, normalizeUsageTabValue, refreshPageData, REQUEST_EVENTS_PREFERENCES_STORAGE_KEY, runUsageEventRequestLogDownload, sanitizeRequestEventFilters, saveRequestEventsPreferences, scheduleOverviewAutoRefresh, shouldAutoRefreshUsageTab, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowUpdateCheckButton, getUpdateCheckToastDuration } from '../UsagePage';
+import { appendUniqueUsageEvents, getBackToCPALinkURL, getCredentialSectionVisibility, getOverviewDisplayLoading, getUsageCustomRangeForTab, getUsageTabOptions, handleUsageEventLoadMoreError, isUsagePageVisible, loadAnalysisSections, loadRequestEventsPreferences, loadUsagePageVersionInfo, normalizeRequestEventsPreferences, normalizeStoredApiKeyFilter, normalizeUsageTabValue, refreshPageData, REQUEST_EVENTS_PREFERENCES_STORAGE_KEY, resolveApiKeyFilterRequestState, runUsageEventRequestLogDownload, sanitizeRequestEventFilters, saveRequestEventsPreferences, scheduleOverviewAutoRefresh, shouldAutoRefreshUsageTab, shouldResetSelectedApiKeyFilter, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowUpdateCheckButton, getUpdateCheckToastDuration, API_KEY_FILTER_MAX_LENGTH } from '../UsagePage';
 import { REQUEST_EVENT_COLUMN_IDS } from '@/components/usage/RequestEventsDetailsCard';
 import { ApiError } from '@/lib/api';
 import type { UsageFilterWindow, VersionResponse } from '@/lib/types';
@@ -628,6 +628,7 @@ describe('UsagePage request event preferences', () => {
     expect(preferences).toEqual({
       version: 9,
       filters: {
+        apiKeyId: '',
         model: 'claude-opus',
         source: 'authidx-source-b',
         result: 'failed',
@@ -649,6 +650,7 @@ describe('UsagePage request event preferences', () => {
     });
 
     expect(preferences.filters).toEqual({
+      apiKeyId: '',
       model: '__all__',
       source: '__all__',
       result: '__all__',
@@ -716,6 +718,7 @@ describe('UsagePage request event preferences', () => {
     expect(stored).toEqual({
       version: 9,
       filters: {
+        apiKeyId: '',
         model: '__all__',
         source: '__all__',
         result: '__all__',
@@ -733,6 +736,7 @@ describe('UsagePage request event preferences', () => {
     saveRequestEventsPreferences({
       version: 9,
       filters: {
+        apiKeyId: '',
         model: '__all__',
         source: '__all__',
         result: '__all__',
@@ -750,6 +754,7 @@ describe('UsagePage request event preferences', () => {
     });
 
     expect(loadRequestEventsPreferences(storage).filters).toEqual({
+      apiKeyId: '',
       model: '__all__',
       source: '__all__',
       result: '__all__',
@@ -758,6 +763,7 @@ describe('UsagePage request event preferences', () => {
     saveRequestEventsPreferences({
       version: 9,
       filters: {
+        apiKeyId: '',
         model: 'gpt-4.1',
         source: 'source-a',
         result: 'success',
@@ -769,6 +775,7 @@ describe('UsagePage request event preferences', () => {
     expect(JSON.parse(storage.value(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY) ?? '')).toEqual({
       version: 9,
       filters: {
+        apiKeyId: '',
         model: 'gpt-4.1',
         source: 'source-a',
         result: 'success',
@@ -903,5 +910,44 @@ describe('UsagePage request log download guard', () => {
     expect(triggerDownload).not.toHaveBeenCalled();
     expect(showDownloadError).not.toHaveBeenCalled();
     expect(setDownloading).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('persisted API key filter', () => {
+  it('accepts only positive int64 ids accepted by the backend', () => {
+    expect(normalizeStoredApiKeyFilter('42')).toBe('42');
+    expect(normalizeStoredApiKeyFilter(' 0042 ')).toBe('42');
+    expect(normalizeStoredApiKeyFilter('key-42')).toBe('');
+    expect(normalizeStoredApiKeyFilter('')).toBe('');
+    expect(normalizeStoredApiKeyFilter('0')).toBe('');
+    expect(normalizeStoredApiKeyFilter('-1')).toBe('');
+    expect(normalizeStoredApiKeyFilter(null)).toBe('');
+    expect(normalizeStoredApiKeyFilter(42)).toBe('');
+    expect(normalizeStoredApiKeyFilter('9223372036854775807')).toBe('9223372036854775807');
+    expect(normalizeStoredApiKeyFilter('9223372036854775808')).toBe('');
+    expect(normalizeStoredApiKeyFilter('1'.repeat(API_KEY_FILTER_MAX_LENGTH + 1))).toBe('');
+  });
+
+  it('keeps a restored selection until the options actually load', () => {
+    // 首帧选项还是空列表，此时清空会让持久化的筛选永远存活不过一次刷新。
+    expect(shouldResetSelectedApiKeyFilter('42', [], false)).toBe(false);
+    expect(shouldResetSelectedApiKeyFilter('42', [{ id: '1' }], false)).toBe(false);
+  });
+
+  it('clears the selection once loaded options no longer contain it', () => {
+    expect(shouldResetSelectedApiKeyFilter('42', [{ id: '1' }], true)).toBe(true);
+    expect(shouldResetSelectedApiKeyFilter('42', [{ id: '42' }], true)).toBe(false);
+    expect(shouldResetSelectedApiKeyFilter('', [], true)).toBe(false);
+  });
+
+  it('does not send a restored id until it has been checked against loaded options', () => {
+    expect(resolveApiKeyFilterRequestState('42', [], false, false)).toEqual({ ready: false, apiKeyId: '' });
+    expect(resolveApiKeyFilterRequestState('42', [{ id: '42' }], true, true)).toEqual({ ready: true, apiKeyId: '42' });
+    expect(resolveApiKeyFilterRequestState('42', [{ id: '7' }], true, true)).toEqual({ ready: true, apiKeyId: '' });
+    expect(resolveApiKeyFilterRequestState('', [], false, false)).toEqual({ ready: true, apiKeyId: '' });
+  });
+
+  it('keeps a locally valid restored id when option loading fails', () => {
+    expect(resolveApiKeyFilterRequestState('42', [], false, true)).toEqual({ ready: true, apiKeyId: '42' });
   });
 });

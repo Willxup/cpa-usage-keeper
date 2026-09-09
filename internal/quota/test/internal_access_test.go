@@ -8,6 +8,7 @@ import (
 	"unsafe"
 
 	"cpa-usage-keeper/internal/quota"
+	"cpa-usage-keeper/internal/repository"
 	repositorydto "cpa-usage-keeper/internal/repository/dto"
 
 	"gorm.io/gorm"
@@ -29,6 +30,14 @@ func quotaRowUsageWindow(row quota.QuotaRow, now time.Time) (time.Time, time.Tim
 //go:linkname attachWindowUsageStats cpa-usage-keeper/internal/quota.(*Service).attachWindowUsageStats
 func attachWindowUsageStats(service *quota.Service, ctx context.Context, authIndex string, response quota.CheckResponse, now time.Time) quota.CheckResponse
 
+type usageWindowStatsProvider interface {
+	SumByAuthIndex(context.Context, string, time.Time, *time.Time) (repository.UsageWindowStats, error)
+	SumGroupsByAuthIndex(context.Context, string, time.Time, *time.Time, repository.UsageWindowStatsGrouper) (repository.UsageWindowGroupedStats, error)
+}
+
+//go:linkname attachWindowUsageStatsWithProvider cpa-usage-keeper/internal/quota.(*Service).attachWindowUsageStatsWithProvider
+func attachWindowUsageStatsWithProvider(service *quota.Service, ctx context.Context, authIndex string, response quota.CheckResponse, now time.Time, statsProvider usageWindowStatsProvider) quota.CheckResponse
+
 //go:linkname applyUsageHeaderSnapshot cpa-usage-keeper/internal/quota.(*Service).applyUsageHeaderSnapshot
 func applyUsageHeaderSnapshot(service *quota.Service, ctx context.Context, snapshot quota.UsageHeaderSnapshot) bool
 
@@ -46,6 +55,9 @@ func nextAutoRefreshDelay(service *quota.Service, settings quota.AutoRefreshSett
 
 //go:linkname sleepAutoRefreshDelay cpa-usage-keeper/internal/quota.(*Service).sleepAutoRefreshDelay
 func sleepAutoRefreshDelay(service *quota.Service, ctx context.Context, delay time.Duration) int
+
+//go:linkname newSuspendAwareTimer cpa-usage-keeper/internal/quota.newSuspendAwareTimer
+func newSuspendAwareTimer(delay time.Duration) (<-chan time.Time, func(), error)
 
 //go:linkname resetInspectionCompletedAt cpa-usage-keeper/internal/quota.(*Service).resetInspectionCompletedAt
 func resetInspectionCompletedAt(service *quota.Service)
@@ -137,7 +149,7 @@ func setUsageHeaderTimerFactory(service *quota.Service, factory func(time.Durati
 }
 
 func setCodexQuotaHistoryTimerFactory(service *quota.Service, factory func(time.Duration) (<-chan time.Time, func())) {
-	// history runner 的手动 timer 只用于锁定十秒批次边界，不依赖真实墙钟调度。
+	// history runner 的手动 timer 只用于锁定一分钟批次边界，不依赖真实墙钟调度。
 	quotaServiceField(service, "codexQuotaHistoryNewTimer").Set(reflect.ValueOf(factory))
 }
 

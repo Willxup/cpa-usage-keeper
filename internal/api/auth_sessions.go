@@ -109,7 +109,6 @@ func (h *authHandler) revokeManagedSession(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
 		return
 	}
-	h.clearSessionStateForTokens(result.Tokens)
 	if sessionID == currentAuthSessionHash(c) {
 		clearSessionCookie(c, h.config.BasePath, resolveSessionToken(c).CookieKind)
 	}
@@ -207,7 +206,7 @@ func parseUpdateAuthSessionAliasRequest(c *gin.Context) (string, bool) {
 }
 
 func currentAuthSessionHash(c *gin.Context) string {
-	if value, ok := c.Get("auth_token"); ok {
+	if value, ok := c.Get(authTokenContextKey); ok {
 		if token, ok := value.(string); ok && token != "" {
 			return auth.SessionTokenHash(token)
 		}

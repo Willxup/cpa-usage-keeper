@@ -123,7 +123,7 @@ export function CredentialAliasEditor({ identityId, displayName, alias, saving, 
             onClick={onOpenDetails}
           >
             <span className={styles.credentialDetailNameText}>{displayName}</span>
-            <span className={styles.credentialDetailNameArrow} aria-hidden="true">›</span>
+            <span className={styles.credentialDetailNameArrow} aria-hidden="true">‹</span>
           </button>
         ) : (
           <span className={styles.credentialAliasNameSlot}>{displayName}</span>

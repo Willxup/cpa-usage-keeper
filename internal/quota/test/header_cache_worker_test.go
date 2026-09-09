@@ -579,6 +579,83 @@ func TestApplyUsageHeaderSnapshotMergesRowsAndPreservesResetCredits(t *testing.T
 	}
 }
 
+func TestUsageHeaderPendingMergesOutOfOrderMainAndActiveSparkIndependently(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{
+		UsageHeaderSnapshotFlushInterval: time.Hour,
+		CodexQuotaHistoryFlushInterval:   time.Hour,
+		PricingCatalog:                   emptyPricingCatalogForTest(),
+	})
+	defer service.StopRefreshTasks()
+
+	base := time.Date(2026, 8, 27, 14, 0, 0, 0, time.Local)
+	mainResetAt := strconv.FormatInt(time.Date(2026, 9, 1, 22, 28, 0, 0, time.Local).Unix(), 10)
+	sparkPrimaryResetAt := strconv.FormatInt(time.Date(2026, 8, 27, 19, 7, 0, 0, time.Local).Unix(), 10)
+	sparkSecondaryResetAt := strconv.FormatInt(time.Date(2026, 9, 1, 15, 1, 0, 0, time.Local).Unix(), 10)
+	mainHeaders := http.Header{
+		"X-Codex-Primary-Used-Percent":               []string{"8"},
+		"X-Codex-Primary-Window-Minutes":             []string{"10080"},
+		"X-Codex-Primary-Reset-At":                   []string{mainResetAt},
+		"X-Codex-Bengalfox-Limit-Name":               []string{"GPT-5.3-Codex-Spark"},
+		"X-Codex-Bengalfox-Primary-Used-Percent":     []string{"9"},
+		"X-Codex-Bengalfox-Primary-Window-Minutes":   []string{"300"},
+		"X-Codex-Bengalfox-Primary-Reset-At":         []string{sparkPrimaryResetAt},
+		"X-Codex-Bengalfox-Secondary-Used-Percent":   []string{"9"},
+		"X-Codex-Bengalfox-Secondary-Window-Minutes": []string{"10080"},
+		"X-Codex-Bengalfox-Secondary-Reset-At":       []string{sparkSecondaryResetAt},
+	}
+	sparkHeaders := http.Header{
+		"X-Codex-Active-Limit":                       []string{"codex_bengalfox"},
+		"X-Codex-Primary-Used-Percent":               []string{"1"},
+		"X-Codex-Primary-Window-Minutes":             []string{"300"},
+		"X-Codex-Primary-Reset-At":                   []string{sparkPrimaryResetAt},
+		"X-Codex-Secondary-Used-Percent":             []string{"1"},
+		"X-Codex-Secondary-Window-Minutes":           []string{"10080"},
+		"X-Codex-Secondary-Reset-At":                 []string{sparkSecondaryResetAt},
+		"X-Codex-Bengalfox-Limit-Name":               []string{"GPT-5.3-Codex-Spark"},
+		"X-Codex-Bengalfox-Primary-Used-Percent":     []string{"1"},
+		"X-Codex-Bengalfox-Primary-Window-Minutes":   []string{"300"},
+		"X-Codex-Bengalfox-Primary-Reset-At":         []string{sparkPrimaryResetAt},
+		"X-Codex-Bengalfox-Secondary-Used-Percent":   []string{"1"},
+		"X-Codex-Bengalfox-Secondary-Window-Minutes": []string{"10080"},
+		"X-Codex-Bengalfox-Secondary-Reset-At":       []string{sparkSecondaryResetAt},
+	}
+	// 复现生产乱序：较新的 Spark 先处理；随后旧 Header 的 Weekly 应补入，但其中较旧 Spark 不能回滚。
+	mainSnapshot := codexUsageHeaderSnapshotWithHeaders("codex-auth", base.Add(30*time.Second), mainHeaders)
+	sparkSnapshot := codexUsageHeaderSnapshotWithHeaders("codex-auth", base.Add(59*time.Second), sparkHeaders)
+	if !service.TryAppendUsageHeaderSnapshots(usageHeaderSnapshotPointers(sparkSnapshot, mainSnapshot)) {
+		t.Fatal("expected production Header pending path to accept snapshots")
+	}
+	// Stop 会立即 flush 已接收的 pending，测试无需真实等待一分钟。
+	service.StopRefreshTasks()
+
+	task := refreshTaskRecord(service, "codex-auth")
+	if task == nil || task.Quota == nil {
+		t.Fatalf("expected completed quota cache, got %+v", task)
+	}
+	wantKeys := []string{
+		"rate_limit.primary_window",
+		"additional_rate_limits.GPT-5.3-Codex-Spark.primary_window",
+		"additional_rate_limits.GPT-5.3-Codex-Spark.secondary_window",
+	}
+	if len(task.Quota.Quota) != len(wantKeys) {
+		t.Fatalf("expected main Weekly and two Spark rows, got %#v", task.Quota.Quota)
+	}
+	for index, key := range wantKeys {
+		if task.Quota.Quota[index].Key != key {
+			t.Fatalf("unexpected quota row order: %#v", task.Quota.Quota)
+		}
+	}
+	wantPercents := []float64{8, 1, 1}
+	for index, wantPercent := range wantPercents {
+		row := task.Quota.Quota[index]
+		if row.UsedPercent == nil || *row.UsedPercent != wantPercent {
+			t.Fatalf("expected %s used percent %.0f, got %#v", row.Key, wantPercent, row)
+		}
+	}
+}
+
 func TestApplyUsageHeaderSnapshotDoesNotBackfillAdditionalLimitUsageStats(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
@@ -825,7 +902,7 @@ func TestUsageHeaderWorkerStaysSilentWithoutSnapshotsAndDoesNotResetActiveWindow
 		t.Fatalf("expected second Header not to reset timer, got delay=%s", timer.delay)
 	case <-time.After(30 * time.Millisecond):
 	}
-	// 独立 history runner 会等待自己的十秒批次窗口；一分钟 cache 仍不得在自己的 timer 前应用结果。
+	// 独立 history runner 会等待自己的一分钟批次窗口；一分钟 cache 仍不得在自己的 timer 前应用结果。
 	if refreshTaskCount(service) != 0 {
 		t.Fatalf("expected pending cache window to remain unapplied, got %+v", refreshTasks(service))
 	}
@@ -1076,19 +1153,19 @@ func TestTryAppendUsageHeaderSnapshotsKeepsLatestPendingSnapshotPerAuthIndex(t *
 	}
 }
 
-func TestUsageHeaderPendingKeepsOneThousandIdentitiesAndStillUpdatesExistingOnes(t *testing.T) {
-	// 一分钟内身份种类异常增长时内存必须有硬上限；已接收身份仍允许更新到最新 Header。
+func TestUsageHeaderPendingKeepsNewestOneThousandIdentities(t *testing.T) {
+	// 一分钟内身份种类异常增长时内存必须有硬上限，并按真实观察时间保留最新身份。
 	pending := make(map[string]UsageHeaderSnapshot)
 	firstBatch := make([]UsageHeaderSnapshot, 0, 1000)
 	baseTime := time.Date(2026, 6, 22, 11, 0, 0, 0, time.Local)
 	for index := 0; index < 1000; index++ {
 		firstBatch = append(firstBatch, UsageHeaderSnapshot{
-			AuthType: "oauth", AuthIndex: fmt.Sprintf("bounded-auth-%04d", index), Provider: "codex", ObservedAt: baseTime,
+			AuthType: "oauth", AuthIndex: fmt.Sprintf("bounded-auth-%04d", index), Provider: "codex", ObservedAt: baseTime.Add(time.Duration(index) * time.Second),
 		})
 	}
 	mergePendingUsageHeaderSnapshots(pending, firstBatch)
-	newerExisting := UsageHeaderSnapshot{AuthType: "oauth", AuthIndex: "bounded-auth-0000", Provider: "codex", ObservedAt: baseTime.Add(time.Minute)}
-	overflow := UsageHeaderSnapshot{AuthType: "oauth", AuthIndex: "bounded-auth-overflow", Provider: "codex", ObservedAt: baseTime.Add(2 * time.Minute)}
+	newerExisting := UsageHeaderSnapshot{AuthType: "oauth", AuthIndex: "bounded-auth-0000", Provider: "codex", ObservedAt: baseTime.Add(1000 * time.Second)}
+	overflow := UsageHeaderSnapshot{AuthType: "oauth", AuthIndex: "bounded-auth-overflow", Provider: "codex", ObservedAt: baseTime.Add(1001 * time.Second)}
 	mergePendingUsageHeaderSnapshots(pending, []UsageHeaderSnapshot{newerExisting, overflow})
 
 	if len(pending) != 1000 {
@@ -1097,8 +1174,18 @@ func TestUsageHeaderPendingKeepsOneThousandIdentitiesAndStillUpdatesExistingOnes
 	if got := pending["bounded-auth-0000"].ObservedAt; !got.Equal(newerExisting.ObservedAt) {
 		t.Fatalf("expected existing identity to update at cap, got %s", got)
 	}
-	if _, ok := pending["bounded-auth-overflow"]; ok {
-		t.Fatal("expected a new identity beyond the cap to be rejected")
+	if _, ok := pending["bounded-auth-0001"]; ok {
+		t.Fatal("expected the oldest identity to be evicted at the cap")
+	}
+	if got, ok := pending["bounded-auth-overflow"]; !ok || !got.ObservedAt.Equal(overflow.ObservedAt) {
+		t.Fatalf("expected the newest identity to be retained at the cap, got %+v", got)
+	}
+
+	// 迟到但观察时间更旧的新身份不能反向挤掉已经保留的更新数据。
+	stale := UsageHeaderSnapshot{AuthType: "oauth", AuthIndex: "bounded-auth-stale", Provider: "codex", ObservedAt: baseTime.Add(-time.Second)}
+	mergePendingUsageHeaderSnapshots(pending, []UsageHeaderSnapshot{stale})
+	if _, ok := pending["bounded-auth-stale"]; ok {
+		t.Fatal("expected an out-of-order stale identity not to evict newer pending data")
 	}
 }
 

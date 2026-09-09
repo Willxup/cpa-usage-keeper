@@ -215,7 +215,8 @@ func redisProcessBenchmarkAuthIndex(i int) string {
 
 type redisProcessBenchmarkRefreshObserver struct{}
 
-func (o *redisProcessBenchmarkRefreshObserver) MarkRefreshSupported() {}
+func (o *redisProcessBenchmarkRefreshObserver) NotifyIngestConnected() {}
+func (o *redisProcessBenchmarkRefreshObserver) MarkRefreshSupported()  {}
 
 func (o *redisProcessBenchmarkRefreshObserver) RequestMetadataRefresh() {}
 

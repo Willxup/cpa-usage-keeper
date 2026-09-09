@@ -74,7 +74,7 @@ func (c *metadataSyncErrContext) CloseDone() {
 	close(c.done)
 }
 
-func TestMetadataSyncRunnerRunsImmediatelyThenAtInterval(t *testing.T) {
+func TestMetadataSyncRunnerRunsOnConnectionThenAtInterval(t *testing.T) {
 	syncer := &metadataSyncStub{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -84,12 +84,13 @@ func TestMetadataSyncRunnerRunsImmediatelyThenAtInterval(t *testing.T) {
 		}
 	}
 	runner := NewMetadataSyncRunner(syncer, time.Millisecond)
+	runner.NotifyIngestConnected()
 
 	if err := runner.Run(ctx); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 	if got := syncer.CallCount(); got != 2 {
-		t.Fatalf("expected two metadata sync calls, got %d", got)
+		t.Fatalf("expected connection sync plus periodic sync, got %d", got)
 	}
 }
 
@@ -104,6 +105,7 @@ func TestMetadataSyncRunnerLogsFailureAndContinues(t *testing.T) {
 		}
 	}
 	runner := NewMetadataSyncRunner(syncer, time.Millisecond)
+	runner.NotifyIngestConnected()
 
 	if err := runner.Run(ctx); err != nil {
 		t.Fatalf("Run returned error: %v", err)
@@ -137,6 +139,7 @@ func TestMetadataSyncRunnerDefaultsRefreshDebounceToOneSecond(t *testing.T) {
 func TestMetadataSyncRunnerRefreshSupportMakesPeriodicTickNoop(t *testing.T) {
 	syncer := &metadataSyncStub{}
 	runner := NewMetadataSyncRunner(syncer, time.Millisecond)
+	runner.NotifyIngestConnected()
 	runner.MarkRefreshSupported()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -153,7 +156,7 @@ func TestMetadataSyncRunnerRefreshSupportMakesPeriodicTickNoop(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 	if got := syncer.CallCount(); got != 1 {
-		t.Fatalf("expected only startup sync in notification mode, got %d", got)
+		t.Fatalf("expected only connection-triggered sync in notification mode, got %d", got)
 	}
 }
 
@@ -180,10 +183,11 @@ func TestMetadataSyncRunnerLogsModeSwitches(t *testing.T) {
 	}
 }
 
-func TestMetadataSyncRunnerRefreshSupportDoesNotSyncWithoutRefreshRequest(t *testing.T) {
+func TestMetadataSyncRunnerRefreshSupportDoesNotAddExtraSyncWithoutRefreshRequest(t *testing.T) {
 	syncer := &metadataSyncStub{}
 	runner := NewMetadataSyncRunner(syncer, time.Millisecond)
 	runner.refreshDebounce = time.Millisecond
+	runner.NotifyIngestConnected()
 	runner.MarkRefreshSupported()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -200,7 +204,7 @@ func TestMetadataSyncRunnerRefreshSupportDoesNotSyncWithoutRefreshRequest(t *tes
 		t.Fatalf("Run returned error: %v", err)
 	}
 	if got := syncer.CallCount(); got != 1 {
-		t.Fatalf("expected support-only notification mode not to sync without refresh, got %d", got)
+		t.Fatalf("expected support-only notification mode not to add a sync without refresh, got %d", got)
 	}
 }
 
@@ -208,21 +212,40 @@ func TestMetadataSyncRunnerRefreshRequestDebounces(t *testing.T) {
 	syncer := &metadataSyncStub{}
 	runner := NewMetadataSyncRunner(syncer, time.Hour)
 	runner.refreshDebounce = 5 * time.Millisecond
-	runner.RequestMetadataRefresh()
-	runner.RequestMetadataRefresh()
+	runner.NotifyIngestConnected()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	firstCall := make(chan struct{}, 1)
 	syncer.onCall = func(call int) {
+		if call == 1 {
+			firstCall <- struct{}{}
+		}
 		if call >= 2 {
 			cancel()
 		}
 	}
 
-	if err := runner.Run(ctx); err != nil {
-		t.Fatalf("Run returned error: %v", err)
+	done := make(chan error, 1)
+	go func() {
+		done <- runner.Run(ctx)
+	}()
+	select {
+	case <-firstCall:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for connection sync")
+	}
+	runner.RequestMetadataRefresh()
+	runner.RequestMetadataRefresh()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for metadata runner to stop")
 	}
 	if got := syncer.CallCount(); got != 2 {
-		t.Fatalf("expected startup sync plus one debounced refresh sync, got %d", got)
+		t.Fatalf("expected connection sync plus one debounced refresh sync, got %d", got)
 	}
 }
 
@@ -230,6 +253,7 @@ func TestMetadataSyncRunnerRefreshRequestUsesTrailingDebounce(t *testing.T) {
 	syncer := &metadataSyncStub{}
 	runner := NewMetadataSyncRunner(syncer, time.Hour)
 	runner.refreshDebounce = 150 * time.Millisecond
+	runner.NotifyIngestConnected()
 	calls := make(chan time.Time, 3)
 	syncer.onCall = func(int) {
 		calls <- time.Now()
@@ -243,7 +267,7 @@ func TestMetadataSyncRunnerRefreshRequestUsesTrailingDebounce(t *testing.T) {
 	select {
 	case <-calls:
 	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for startup sync")
+		t.Fatal("timed out waiting for connection sync")
 	}
 
 	runner.RequestMetadataRefresh()
@@ -270,7 +294,7 @@ func TestMetadataSyncRunnerRefreshRequestUsesTrailingDebounce(t *testing.T) {
 		t.Fatalf("expected debounce to wait after the last refresh request, elapsed %s", elapsed)
 	}
 	if got := syncer.CallCount(); got != 2 {
-		t.Fatalf("expected startup sync plus one trailing refresh sync, got %d", got)
+		t.Fatalf("expected connection sync plus one trailing refresh sync, got %d", got)
 	}
 }
 
@@ -278,6 +302,7 @@ func TestMetadataSyncRunnerSkipsDebouncedRefreshAfterContextError(t *testing.T) 
 	syncer := &metadataSyncStub{}
 	runner := NewMetadataSyncRunner(syncer, time.Hour)
 	runner.refreshDebounce = time.Millisecond
+	runner.NotifyIngestConnected()
 	ctx := newMetadataSyncErrContext()
 	syncer.onCall = func(call int) {
 		if call == 1 {
@@ -310,6 +335,7 @@ func TestMetadataSyncRunnerFallbackRestoresPolling(t *testing.T) {
 	runner := NewMetadataSyncRunner(syncer, time.Millisecond)
 	runner.MarkRefreshSupported()
 	runner.MarkRefreshPollingRequired("redis_degraded_http")
+	runner.NotifyIngestConnected()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	syncer.onCall = func(call int) {
@@ -322,6 +348,6 @@ func TestMetadataSyncRunnerFallbackRestoresPolling(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 	if got := syncer.CallCount(); got != 2 {
-		t.Fatalf("expected startup sync plus restored periodic sync, got %d", got)
+		t.Fatalf("expected connection sync plus restored periodic sync, got %d", got)
 	}
 }

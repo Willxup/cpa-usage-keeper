@@ -16,17 +16,18 @@ import (
 )
 
 type pricingStub struct {
-	usedModels []string
-	pricing    []entities.ModelPriceSetting
-	preview    servicedto.PricingSyncPreview
-	updated    *entities.ModelPriceSetting
-	lastUpdate *servicedto.UpdatePricingInput
-	batch      []entities.ModelPriceSetting
-	lastBatch  []servicedto.UpdatePricingInput
-	rules      []servicedto.PricingRule
-	lastRules  *servicedto.ReplacePricingRulesInput
-	deleted    string
-	err        error
+	usedModels    []string
+	pricing       []entities.ModelPriceSetting
+	preview       servicedto.PricingSyncPreview
+	previewSource *string
+	updated       *entities.ModelPriceSetting
+	lastUpdate    *servicedto.UpdatePricingInput
+	batch         []entities.ModelPriceSetting
+	lastBatch     []servicedto.UpdatePricingInput
+	rules         []servicedto.PricingRule
+	lastRules     *servicedto.ReplacePricingRulesInput
+	deleted       string
+	err           error
 }
 
 type pricingTimeoutError struct{}
@@ -43,8 +44,41 @@ func (s pricingStub) ListPricing(context.Context) ([]entities.ModelPriceSetting,
 	return s.pricing, s.err
 }
 
-func (s pricingStub) PreviewPricingSync(context.Context) (servicedto.PricingSyncPreview, error) {
+func (s pricingStub) PreviewPricingSync(_ context.Context, source string) (servicedto.PricingSyncPreview, error) {
+	if s.previewSource != nil {
+		*s.previewSource = source
+	}
 	return s.preview, s.err
+}
+
+func TestPricingSyncPreviewSelectsSource(t *testing.T) {
+	for _, tc := range []struct {
+		query, source string
+		status        int
+	}{
+		{"", "models-dev", http.StatusOK},
+		{"?source=litellm", "litellm", http.StatusOK},
+		{"?source=other", "", http.StatusBadRequest},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			var source string
+			router := NewRouter(nil, nil, nil, &pricingStub{previewSource: &source}, AuthConfig{}, nil, "")
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/pricing/sync/preview"+tc.query, nil))
+			if resp.Code != tc.status || source != tc.source {
+				t.Fatalf("status=%d source=%q, want %+v", resp.Code, source, tc)
+			}
+		})
+	}
+}
+
+func TestPricingSyncLiteLLMTimeoutNamesSelectedSource(t *testing.T) {
+	router := NewRouter(nil, nil, nil, &pricingStub{err: context.DeadlineExceeded}, AuthConfig{}, nil, "")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/pricing/sync/preview?source=litellm", nil))
+	if resp.Code != http.StatusGatewayTimeout || !strings.Contains(resp.Body.String(), "LiteLLM request timed out") {
+		t.Fatalf("unexpected timeout: %d %s", resp.Code, resp.Body.String())
+	}
 }
 
 func (s *pricingStub) UpdatePricing(_ context.Context, input servicedto.UpdatePricingInput) (*entities.ModelPriceSetting, error) {

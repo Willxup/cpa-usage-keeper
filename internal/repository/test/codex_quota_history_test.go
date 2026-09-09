@@ -169,6 +169,43 @@ func TestWriteCodexMainQuotaObservationsSwitchesWindowBeforeComparingReset(t *te
 	}
 }
 
+func TestWriteCodexMainQuotaObservationsReusesMatchingCycleAfterWindowDetour(t *testing.T) {
+	// Weekly 中间出现错误 5h 后再次观察同一 Weekly，必须回到原父行而不是触发唯一键或创建重复周期。
+	db := openCodexQuotaHistoryRepositoryDatabase(t, "reuse-window-cycle.db")
+	base := time.Date(2026, 8, 27, 8, 0, 0, 0, time.UTC)
+	weeklyReset := base.Add(7 * 24 * time.Hour)
+	fiveHourReset := base.Add(5 * time.Hour)
+	weekly := codexQuotaHistoryObservation("codex-auth", "primary", 604_800, weeklyReset, 90, base)
+	fiveHour := codexQuotaHistoryObservation("codex-auth", "primary", 18_000, fiveHourReset, 50, base.Add(time.Minute))
+	restoredWeekly := codexQuotaHistoryObservation("codex-auth", "primary", 604_800, weeklyReset, 89, base.Add(2*time.Minute))
+
+	if err := repository.WriteCodexMainQuotaObservations(context.Background(), db, []repositorydto.CodexMainQuotaObservation{weekly, fiveHour, restoredWeekly}); err != nil {
+		t.Fatalf("write restored Weekly observations: %v", err)
+	}
+
+	var cycles []entities.QuotaCycle
+	if err := db.Where("provider = ? AND auth_index = ? AND quota_key = ?", "codex", "codex-auth", "rate_limit.primary_window").Order("window_seconds desc").Find(&cycles).Error; err != nil {
+		t.Fatalf("load restored Weekly cycles: %v", err)
+	}
+	if len(cycles) != 2 || cycles[0].WindowSeconds != 604_800 || cycles[1].WindowSeconds != 18_000 {
+		t.Fatalf("expected one reused Weekly and one intermediate 5h cycle, got %+v", cycles)
+	}
+	weeklySegments := loadCodexQuotaHistorySegments(t, db, cycles[0].ID)
+	if len(weeklySegments) != 2 || weeklySegments[0].RemainingPercent != 90 || weeklySegments[1].RemainingPercent != 89 {
+		t.Fatalf("expected restored Weekly observation on the original parent, got %+v", weeklySegments)
+	}
+	if !cycles[0].LastObservedAt.Equal(restoredWeekly.LastObservedAt) {
+		t.Fatalf("expected reused Weekly to become latest observed cycle, got %+v", cycles[0])
+	}
+	state, err := repository.LoadLatestCodexQuotaHistoryState(context.Background(), db, "codex-auth", "primary")
+	if err != nil {
+		t.Fatalf("load restored Weekly state: %v", err)
+	}
+	if !state.Found || state.WindowSeconds != 604_800 || !state.HasTail || state.TailRemainingPercent != 89 {
+		t.Fatalf("expected state recovery to select reused Weekly, got %+v", state)
+	}
+}
+
 func TestWriteCodexMainQuotaObservationsMergesRelativeResetAndUpgradesAbsoluteBoundary(t *testing.T) {
 	// 准备：relative-only 候选相差 30 秒，随后官方 absolute 边界在两分钟容差内到达。
 	db := openCodexQuotaHistoryRepositoryDatabase(t, "relative-upgrade.db")

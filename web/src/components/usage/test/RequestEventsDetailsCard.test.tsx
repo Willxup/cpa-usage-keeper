@@ -8,7 +8,7 @@ import {
   shouldLoadMoreRequestEvents,
   toggleRequestEventColumnId,
   type RequestEventColumnId,
-} from './RequestEventsDetailsCard';
+} from '../RequestEventsDetailsCard';
 import type { UsageEvent } from '@/lib/types';
 
 const events: UsageEvent[] = [
@@ -54,6 +54,9 @@ const renderCard = (props: Partial<React.ComponentProps<typeof RequestEventsDeta
       modelFilter="__all__"
       sourceFilter="__all__"
       resultFilter="__all__"
+      apiKeyOptions={[]}
+      apiKeyFilter=""
+      onApiKeyFilterChange={() => undefined}
       onModelFilterChange={() => undefined}
       onSourceFilterChange={() => undefined}
       onResultFilterChange={() => undefined}
@@ -95,8 +98,8 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html.indexOf('>Speed Mode</th>')).toBeLessThan(html.indexOf('>Result</th>'));
     expect(html.indexOf('>Result</th>')).toBeLessThan(html.indexOf('>Request</th>'));
     expect(html.indexOf('>Request</th>')).toBeLessThan(html.indexOf('>Latency</th>'));
-    expect(html.indexOf('>Latency</th>')).toBeLessThan(html.indexOf('title="Average output tokens per second after TTFT">Speed</th>'));
-    expect(html.indexOf('title="Average output tokens per second after TTFT">Speed</th>')).toBeLessThan(html.indexOf('>Tokens</th>'));
+    expect(html.indexOf('>Latency</th>')).toBeLessThan(html.indexOf('title="Average output tokens per second over total latency">Speed</th>'));
+    expect(html.indexOf('title="Average output tokens per second over total latency">Speed</th>')).toBeLessThan(html.indexOf('>Tokens</th>'));
     expect(html.indexOf('>Tokens</th>')).toBeLessThan(html.indexOf('>Cache</th>'));
     expect(html.indexOf('>Cache</th>')).toBeLessThan(html.indexOf('>Cost</th>'));
     expect(html.indexOf('>Cost</th>')).toBeLessThan(html.indexOf('>Executor</th>'));
@@ -149,7 +152,7 @@ describe('RequestEventsDetailsCard pagination', () => {
 
   it('keeps TTFT visible inside Latency when TTFT is missing', () => {
     const html = renderCard({
-      events: [{ ...events[0], ttft_ms: undefined, speed_tps: undefined }],
+      events: [{ ...events[0], ttft_ms: undefined }],
     });
 
     expect(html).toContain('>Latency</th>');
@@ -162,14 +165,14 @@ describe('RequestEventsDetailsCard pagination', () => {
       events: [{ ...events[0], latency_ms: undefined, speed_tps: undefined }],
     });
 
-    expect(html.indexOf('>Latency</th>')).toBeLessThan(html.indexOf('title="Average output tokens per second after TTFT">Speed</th>'));
+    expect(html.indexOf('>Latency</th>')).toBeLessThan(html.indexOf('title="Average output tokens per second over total latency">Speed</th>'));
     expect(html).toContain('>--</span>');
     expect(html).toContain('>TTFT</span> 45ms</span>');
   });
 
   it('shows a dash for zero TTFT values', () => {
     const html = renderCard({
-      events: [{ ...events[0], ttft_ms: 0, speed_tps: undefined }],
+      events: [{ ...events[0], ttft_ms: 0 }],
     });
 
     expect(html).toContain('>TTFT</span> -</span>');
@@ -199,8 +202,9 @@ describe('RequestEventsDetailsCard pagination', () => {
 
     expect(html.indexOf('>Tokens</th>')).toBeLessThan(html.indexOf('>Cache</th>'));
     expect(html).toContain('>25.00%</span>');
-    expect(html).toContain('>Read</span> 25</span>');
-    expect(html).toContain('>Write</span> 0</span>');
+    expect(html).toContain('data-cache-operation="read"');
+    expect(html).toContain('data-cache-operation="write"');
+    expect(html).not.toContain('data-cache-rate-tone=');
   });
 
   it('keeps cache rate based on normalized input for all providers', () => {
@@ -222,8 +226,8 @@ describe('RequestEventsDetailsCard pagination', () => {
     });
 
     expect(html).toContain('>Cache</th>');
-    expect(html).toContain('>Read</span> 25</span>');
-    expect(html).toContain('>Write</span> 0</span>');
+    expect(html).toContain('data-cache-operation="read"');
+    expect(html).toContain('data-cache-operation="write"');
   });
 
   it('stacks source value above source tags', () => {
@@ -247,20 +251,20 @@ describe('RequestEventsDetailsCard pagination', () => {
     });
 
     expect(countOccurrences(html, 'Team Prefix')).toBeGreaterThanOrEqual(1);
-    expect(html).toContain('aria-label="Source"><span class="_triggerText_c80422 ">Team Prefix</span>');
+    expect(html).toMatch(/<input[^>]*role="combobox"[^>]*aria-label="Source"[^>]*value="Team Prefix"/);
   });
 
   it('uses backend model and source options instead of current page grouping', () => {
     const html = renderCard({ modelFilter: 'claude-opus', sourceFilter: 'source-b' });
 
-    expect(html).toContain('aria-label="Model"><span class="_triggerText_c80422 ">claude-opus</span>');
-    expect(html).toContain('aria-label="Source"><span class="_triggerText_c80422 ">Provider B</span>');
+    expect(html).toMatch(/<input[^>]*role="combobox"[^>]*aria-label="Model"[^>]*value="claude-opus"/);
+    expect(html).toMatch(/<input[^>]*role="combobox"[^>]*aria-label="Source"[^>]*value="Provider B"/);
   });
 
-  it('renders a Result filter and no Credential filter control', () => {
+  it('renders a Status filter and no Credential filter control', () => {
     const html = renderCard({ resultFilter: 'failed' });
 
-    expect(html).toContain('aria-label="Result"');
+    expect(html).toContain('aria-label="Status"');
     expect(html).toContain('Failure');
     expect(html).not.toContain('aria-label="Credential"');
   });
@@ -395,9 +399,9 @@ describe('RequestEventsDetailsCard pagination', () => {
 
     expect(html).toContain('Clear Filters');
     expect(countOccurrences(html, '>Export<')).toBe(1);
-    expect(html.indexOf('aria-label="Result"')).toBeLessThan(html.indexOf('Clear Filters'));
+    expect(html.indexOf('aria-label="Status"')).toBeLessThan(html.indexOf('Clear Filters'));
     expect(html.indexOf('aria-label="Columns"')).toBeLessThan(html.indexOf('>Export<'));
-    expect(html.indexOf('>Export<')).toBeLessThan(html.indexOf('aria-label="Result"'));
+    expect(html.indexOf('>Export<')).toBeLessThan(html.indexOf('aria-label="Status"'));
     expect(html).toContain('aria-haspopup="menu"');
     expect(countOccurrences(html, 'class="main-action-button-shell')).toBe(2);
     expect(countOccurrences(html, 'btn btn-primary btn-action main-action-button')).toBe(2);
@@ -429,7 +433,7 @@ describe('RequestEventsDetailsCard pagination', () => {
 
     expect(html).toContain('data-request-events-column-settings-trigger="true"');
     expect(html.indexOf('data-request-events-column-settings-trigger="true"')).toBeLessThan(html.indexOf('>Export<'));
-    expect(html.indexOf('data-request-events-column-settings-trigger="true"')).toBeLessThan(html.indexOf('aria-label="Result"'));
+    expect(html.indexOf('data-request-events-column-settings-trigger="true"')).toBeLessThan(html.indexOf('aria-label="Status"'));
     expect(html).not.toContain('_requestEventsColumnTrigger_');
   });
 

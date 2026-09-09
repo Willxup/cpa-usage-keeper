@@ -89,7 +89,6 @@ export function LoginPage({ loading = false, adminError = '', apiKeyError = '', 
           <div className={styles.cardHeader}>
             <span className={styles.cardKicker}>{t('auth.console_kicker')}</span>
             <h2 className={styles.cardTitle}>{t('auth.console_title')}</h2>
-            <p className={styles.cardHint}>{t('auth.console_hint')}</p>
           </div>
 
           <div className={styles.tabs} role="tablist" aria-label={t('auth.login_method')}>
@@ -117,33 +116,27 @@ export function LoginPage({ loading = false, adminError = '', apiKeyError = '', 
 
           <form className={styles.form} onSubmit={(event) => void handleSubmit(event)}>
             {mode === 'api_key' ? (
-              <>
-                <Input
-                  type="password"
-                  autoComplete="off"
-                  label={t('auth.api_key_label')}
-                  placeholder={t('auth.api_key_placeholder')}
-                  value={apiKey}
-                  onChange={(event) => setApiKey(event.target.value)}
-                  error={activeError || undefined}
-                  disabled={loading}
-                />
-                <p className={styles.formHint}>{t('auth.api_key_hint')}</p>
-              </>
+              <Input
+                type="password"
+                autoComplete="off"
+                label={t('auth.api_key_label')}
+                placeholder={t('auth.api_key_placeholder')}
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                error={activeError || undefined}
+                disabled={loading}
+              />
             ) : (
-              <>
-                <Input
-                  type="password"
-                  autoComplete="current-password"
-                  label={t('auth.password_label')}
-                  placeholder={t('auth.password_placeholder')}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  error={activeError || undefined}
-                  disabled={loading}
-                />
-                <p className={styles.formHint}>{t('auth.password_hint')}</p>
-              </>
+              <Input
+                type="password"
+                autoComplete="current-password"
+                label={t('auth.password_label')}
+                placeholder={t('auth.password_placeholder')}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                error={activeError || undefined}
+                disabled={loading}
+              />
             )}
             <Button type="submit" fullWidth loading={loading} disabled={!canSubmit}>
               {mode === 'api_key' ? t('auth.api_key_login_submit') : t('auth.login_submit')}

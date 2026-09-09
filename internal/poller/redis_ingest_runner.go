@@ -110,6 +110,46 @@ func (r *RedisIngestRunner) SetControlMessageObserver(observer RedisControlMessa
 	r.controlObserver = observer
 }
 
+func (r *RedisIngestRunner) onConnectionEstablished() {
+	// 所有首次连接、重试恢复和降级连接都从这里分发通知，便于未来扩展其它 runner。
+	// 先复制 observer，避免回调 metadata runner 时持有 ingest 状态锁。
+	r.mu.Lock()
+	observer := r.controlObserver
+	r.mu.Unlock()
+	if observer != nil {
+		// 每次连接建立都分发一次事件；具体同步由 metadata runner 串行执行。
+		observer.NotifyIngestConnected()
+	}
+}
+
+// redisIngestConnectionSource 表示当前实际用于拉取 usage 的远端来源。
+type redisIngestConnectionSource uint8
+
+const (
+	// redisIngestConnectionNone 表示当前来源不可用，下一次成功需要重新通知。
+	redisIngestConnectionNone redisIngestConnectionSource = iota
+	// redisIngestConnectionRedis 表示最近一次成功使用 Redis pull。
+	redisIngestConnectionRedis
+	// redisIngestConnectionHTTP 表示最近一次成功使用 HTTP pull。
+	redisIngestConnectionHTTP
+)
+
+func (r *RedisIngestRunner) markConnectionEstablished(current *redisIngestConnectionSource, source redisIngestConnectionSource) {
+	// 同一来源持续健康时不重复通知；只有来源切换或失败恢复才分发事件。
+	if current == nil || *current == source {
+		return
+	}
+	*current = source
+	r.onConnectionEstablished()
+}
+
+func markConnectionUnavailable(current *redisIngestConnectionSource, source redisIngestConnectionSource) {
+	// 只清除当前实际使用的来源，探测其它来源失败不能影响仍健康的 fallback。
+	if current != nil && *current == source {
+		*current = redisIngestConnectionNone
+	}
+}
+
 func (r *RedisIngestRunner) Run(ctx context.Context) error {
 	// 先校验依赖，避免后台 goroutine 运行后才暴露 nil source/writer。
 	if err := r.validate(); err != nil {
@@ -132,6 +172,8 @@ func (r *RedisIngestRunner) Run(ctx context.Context) error {
 		if subErr == nil {
 			// 任一启动入口恢复后，下一次整体故障重新从 10s 开始。
 			r.startupAllFailedBackoff.Reset()
+			// 首次 subscribe 握手成功后通知 metadata runner，允许执行一次同步。
+			r.onConnectionEstablished()
 			// 订阅连上后先进入 backfill 阶段，补订阅建立前可能遗漏的队列数据。
 			r.recordState(RedisIngestSyncModeSubscribe, RedisIngestSubStateSubscribeBackfill, "subscribe_connected", "", "")
 			// subscribe 模式内部会处理断线、降级轮询和固定间隔重连。
@@ -151,6 +193,8 @@ func (r *RedisIngestRunner) Run(ctx context.Context) error {
 			r.startupAllFailedBackoff.Reset()
 			// 成功拉取说明远端恢复，清掉连续失败退避。
 			r.failureBackoff.Reset()
+			// 首次 Redis pull 成功后通知 metadata runner；空批次同样代表连接可用。
+			r.onConnectionEstablished()
 			// 记录 redis_pull 长期模式，message_count 不进 status，避免状态字符串频繁变化。
 			r.recordState(RedisIngestSyncModeRedisPull, RedisIngestSubStateRedisPullActive, pullStatus(redisCount), "", "")
 			// redis_pull 模式内部负责 Redis 失败后的 HTTP 降级和 Redis 恢复。
@@ -176,6 +220,8 @@ func (r *RedisIngestRunner) Run(ctx context.Context) error {
 			r.startupAllFailedBackoff.Reset()
 			// HTTP 成功说明兜底链路可用，重置连续失败退避。
 			r.failureBackoff.Reset()
+			// 首次 HTTP pull 成功后通知 metadata runner；空批次同样代表连接可用。
+			r.onConnectionEstablished()
 			// 记录 http_pull 固定模式；该模式不再尝试 Redis/subscribe，符合启动选择规则。
 			r.recordState(RedisIngestSyncModeHTTPPull, RedisIngestSubStateHTTPPullActive, pullStatus(httpCount), "", "")
 			// http_pull 模式只按 HTTP 拉取，失败时用指数退避。
@@ -372,6 +418,8 @@ func (r *RedisIngestRunner) receiveSubscribeBatches(ctx context.Context, sub Usa
 func (r *RedisIngestRunner) runSubscribeDegradedPolling(ctx context.Context) (UsageSubscription, error) {
 	// 订阅断开后不是立即重连，而是 固定间隔后探测，避免断线时高频打 Redis。
 	nextSubscribeRetryAt := r.now().Add(redisIngestRecoveryRetryInterval)
+	// fallbackSource 记录降级轮询当前实际使用的来源，避免健康 pull 重复通知。
+	fallbackSource := redisIngestConnectionNone
 	// 降级轮询会持续运行，直到 subscribe 恢复或应用关闭。
 	for {
 		// 每轮先检查关停，避免关停时继续拉取远端数据。
@@ -387,6 +435,8 @@ func (r *RedisIngestRunner) runSubscribeDegradedPolling(ctx context.Context) (Us
 			if err == nil {
 				// 重连成功后回到 backfill 阶段，补断线期间可能遗漏的数据。
 				r.recordState(RedisIngestSyncModeSubscribe, RedisIngestSubStateSubscribeBackfill, "subscribe_reconnected", "", "")
+				// subscribe 恢复后通知 metadata runner，再由其串行执行一次同步。
+				r.onConnectionEstablished()
 				// 恢复细节放 debug；子状态切换已经输出 info。
 				logrus.Debug("redis ingest subscribe reconnected")
 				return sub, nil
@@ -399,6 +449,8 @@ func (r *RedisIngestRunner) runSubscribeDegradedPolling(ctx context.Context) (Us
 		// 降级期间优先 Redis pull，尽量走原 Redis 队列路径。
 		count, err := r.serialPullAndWrite(ctx, RedisIngestSourceRedisPull, r.redisSource)
 		if err == nil {
+			// 降级 Redis 首次建立或从其它 fallback 切换后通知 metadata runner。
+			r.markConnectionEstablished(&fallbackSource, redisIngestConnectionRedis)
 			// Redis pull 成功表示降级拉取链路健康，清掉状态快照中的旧失败。
 			r.recordAvailable(RedisIngestSyncModeSubscribe, RedisIngestSubStateSubscribeDegradedPolling, pullStatus(count), count)
 			// Redis pull 成功表示降级拉取链路健康，清掉连续失败退避。
@@ -421,11 +473,15 @@ func (r *RedisIngestRunner) runSubscribeDegradedPolling(ctx context.Context) (Us
 		}
 		// Redis pull 失败后保留错误，后面如果 HTTP 也失败要一起上报。
 		redisErr := err
+		// Redis fallback 已不可用；后续 HTTP 成功需要重新发一次连接事件。
+		markConnectionUnavailable(&fallbackSource, redisIngestConnectionRedis)
 		// 记录 Redis 降级失败，日志中能看到正在从 Redis 继续降到 HTTP。
 		r.recordWarning("subscribe_degraded_redis_failed", redisErr)
 		// Redis 降级失败后尝试 HTTP pull，保证最终仍可从 CPA 管理接口取数。
 		count, err = r.serialPullAndWrite(ctx, RedisIngestSourceHTTPPull, r.httpSource)
 		if err == nil {
+			// 降级 HTTP 首次建立或从其它 fallback 切换后通知 metadata runner。
+			r.markConnectionEstablished(&fallbackSource, redisIngestConnectionHTTP)
 			// HTTP 成功表示兜底链路健康，清掉状态快照中的旧失败。
 			r.recordAvailable(RedisIngestSyncModeSubscribe, RedisIngestSubStateSubscribeDegradedPolling, pullStatus(count), count)
 			// HTTP 成功表示兜底链路健康，清掉失败退避。
@@ -448,6 +504,8 @@ func (r *RedisIngestRunner) runSubscribeDegradedPolling(ctx context.Context) (Us
 		}
 		// HTTP 也失败时保留错误，与 Redis 错误合并后上报。
 		httpErr := err
+		// 降级 HTTP 已不可用，下一次成功需要重新发连接事件。
+		markConnectionUnavailable(&fallbackSource, redisIngestConnectionHTTP)
 		// 连续失败使用指数退避，避免订阅断线且 CPA 故障时高频刷日志。
 		delay := r.failureBackoff.NextDelay()
 		// 同时记录 Redis 和 HTTP 两个失败原因，方便判断是局部还是整体故障。
@@ -462,6 +520,8 @@ func (r *RedisIngestRunner) runSubscribeDegradedPolling(ctx context.Context) (Us
 func (r *RedisIngestRunner) runRedisPullMode(ctx context.Context) error {
 	// 固定 redis_pull 模式不会主动尝试 subscribe，只负责 Redis pull 与 HTTP 降级恢复。
 	degraded := false
+	// connectionSource 记录当前实际使用的来源，避免健康 pull 重复通知。
+	connectionSource := redisIngestConnectionRedis
 	// nextRedisRetryAt 只在 HTTP 降级阶段生效，用于 Redis 恢复探测。
 	nextRedisRetryAt := time.Time{}
 	for {
@@ -480,6 +540,8 @@ func (r *RedisIngestRunner) runRedisPullMode(ctx context.Context) error {
 					r.failureBackoff.Reset()
 					degraded = false
 					r.recordState(RedisIngestSyncModeRedisPull, RedisIngestSubStateRedisPullActive, pullStatus(count), "", "")
+					// Redis 重试从失败恢复后通知 metadata runner；普通健康 pull 不会走这里。
+					r.markConnectionEstablished(&connectionSource, redisIngestConnectionRedis)
 					if r.pulledFullBatch(count) {
 						continue
 					}
@@ -501,6 +563,8 @@ func (r *RedisIngestRunner) runRedisPullMode(ctx context.Context) error {
 			// 恢复点未到或恢复失败时，继续 HTTP pull 作为兜底。
 			count, err := r.serialPullAndWrite(ctx, RedisIngestSourceHTTPPull, r.httpSource)
 			if err == nil {
+				// 降级 HTTP 首次建立或从其它来源切换后通知 metadata runner。
+				r.markConnectionEstablished(&connectionSource, redisIngestConnectionHTTP)
 				// HTTP 成功后清掉状态快照中的旧失败。
 				r.recordAvailable(RedisIngestSyncModeRedisPull, RedisIngestSubStateRedisPullDegradedHTTP, pullStatus(count), count)
 				// HTTP 成功后清退避。
@@ -521,6 +585,8 @@ func (r *RedisIngestRunner) runRedisPullMode(ctx context.Context) error {
 				}
 				continue
 			}
+			// 降级 HTTP 已不可用，下一次成功需要重新发连接事件。
+			markConnectionUnavailable(&connectionSource, redisIngestConnectionHTTP)
 			delay := r.failureBackoff.NextDelay()
 			r.recordError("redis_degraded_http_failed", err)
 			// HTTP 失败退避不能睡过 Redis 恢复探测点。
@@ -537,6 +603,8 @@ func (r *RedisIngestRunner) runRedisPullMode(ctx context.Context) error {
 		if err == nil {
 			// Redis 成功表示固定 redis_pull 链路恢复，清掉状态快照中的旧失败。
 			r.recordAvailable(RedisIngestSyncModeRedisPull, RedisIngestSubStateRedisPullActive, pullStatus(count), count)
+			// Redis 请求从失败恢复后通知 metadata runner；普通健康 pull 不会走这里。
+			r.markConnectionEstablished(&connectionSource, redisIngestConnectionRedis)
 			// Redis 成功后清掉失败退避。
 			r.failureBackoff.Reset()
 			if r.pulledFullBatch(count) {
@@ -557,11 +625,15 @@ func (r *RedisIngestRunner) runRedisPullMode(ctx context.Context) error {
 			continue
 		}
 		redisErr := err
+		// Redis 已经不可用，清除当前来源；后续 HTTP 接管或 Redis 恢复会重新通知。
+		markConnectionUnavailable(&connectionSource, redisIngestConnectionRedis)
 		// 记录 Redis pull 失败，日志能看到准备降级到 HTTP。
 		r.recordWarning("redis_pull_failed", redisErr)
 		// Redis 失败时立即尝试 HTTP，不让 ingest 完全中断。
 		count, err = r.serialPullAndWrite(ctx, RedisIngestSourceHTTPPull, r.httpSource)
 		if err == nil {
+			// Redis 失败后的 HTTP 降级连接建立后通知 metadata runner。
+			r.markConnectionEstablished(&connectionSource, redisIngestConnectionHTTP)
 			// HTTP 成功后清退避，并进入 redis_pull 的 HTTP 降级子状态。
 			r.failureBackoff.Reset()
 			degraded = true
@@ -599,6 +671,8 @@ func (r *RedisIngestRunner) runRedisPullMode(ctx context.Context) error {
 
 func (r *RedisIngestRunner) runHTTPPullMode(ctx context.Context) error {
 	// 固定 http_pull 模式是启动时 Redis/subscribe 都不可用后的兜底模式。
+	// connectionSource 记录 HTTP 当前是否可用，避免健康 pull 重复通知。
+	connectionSource := redisIngestConnectionHTTP
 	for {
 		// 每轮先响应应用关闭。
 		if err := ctx.Err(); err != nil {
@@ -609,6 +683,8 @@ func (r *RedisIngestRunner) runHTTPPullMode(ctx context.Context) error {
 		// HTTP 模式只调用 HTTP source，不再尝试 Redis 或 subscribe。
 		count, err := r.serialPullAndWrite(ctx, RedisIngestSourceHTTPPull, r.httpSource)
 		if err == nil {
+			// HTTP 重试从失败恢复后通知 metadata runner；健康轮询不会重复触发。
+			r.markConnectionEstablished(&connectionSource, redisIngestConnectionHTTP)
 			// HTTP 成功后如果之前记录过失败，需要打一条恢复 info。
 			r.recordRecovery(RedisIngestSyncModeHTTPPull, RedisIngestSubStateHTTPPullActive, "http_pull_recovered", count)
 			// HTTP 成功后清掉连续失败退避。
@@ -624,6 +700,10 @@ func (r *RedisIngestRunner) runHTTPPullMode(ctx context.Context) error {
 			continue
 		}
 		// HTTP 连续失败按指数退避增长到上限。
+		if !errors.Is(err, errRedisIngestInboxWrite) {
+			// 本地 inbox 写入失败不清除 HTTP 来源，避免把本地 sink 故障误判为远端断开。
+			markConnectionUnavailable(&connectionSource, redisIngestConnectionHTTP)
+		}
 		delay := r.failureBackoff.NextDelay()
 		// HTTP 是本模式唯一链路，每次失败都记录 error。
 		r.recordError("http_pull_failed", err)

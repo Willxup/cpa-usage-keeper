@@ -14,8 +14,14 @@ type quotaUsageWindowKey struct {
 	end   time.Time
 }
 
+type quotaGroupedUsageWindowResult struct {
+	stats  repository.UsageWindowGroupedStats
+	failed bool
+}
+
 type usageWindowStatsProvider interface {
 	SumByAuthIndex(context.Context, string, time.Time, *time.Time) (repository.UsageWindowStats, error)
+	SumGroupsByAuthIndex(context.Context, string, time.Time, *time.Time, repository.UsageWindowStatsGrouper) (repository.UsageWindowGroupedStats, error)
 }
 
 func (s *Service) attachWindowUsageStats(ctx context.Context, authIndex string, response CheckResponse, now time.Time) CheckResponse {
@@ -37,8 +43,51 @@ func (s *Service) attachWindowUsageStatsWithProvider(ctx context.Context, authIn
 	}
 	// 同一个 quota response 可能包含多个相同窗口，按 start/end 去重后再查询数据库。
 	statsByWindow := make(map[quotaUsageWindowKey]repository.UsageWindowStats)
+	groupedStatsByWindow := make(map[quotaUsageWindowKey]quotaGroupedUsageWindowResult)
 	// 遍历每一条 quota row，只对没有完整 provider 用量的普通窗口补 token/cost。
 	for index := range response.Quota {
+		if groupKey, ok := antigravityQuotaUsageGroupKey(response.Quota[index]); ok {
+			// 完整 provider pair 仍优先；Antigravity 当前不返回该字段，但保持统一信任规则。
+			if response.Quota[index].WindowUsageTokens != nil && response.Quota[index].WindowUsageCost != nil {
+				continue
+			}
+			response.Quota[index].WindowUsageTokens = nil
+			response.Quota[index].WindowUsageCost = nil
+			windowStart, windowEnd, windowOK := quotaRowUsageWindow(response.Quota[index], now)
+			if !windowOK {
+				continue
+			}
+			key := quotaUsageWindowKey{start: windowStart, end: windowEnd}
+			result, cached := groupedStatsByWindow[key]
+			if !cached {
+				var err error
+				result.stats, err = statsProvider.SumGroupsByAuthIndex(ctx, authIndex, windowStart, &windowEnd, antigravityUsageGroupForModel)
+				result.failed = err != nil
+				// 失败结果也按窗口缓存，避免同一响应内重复查询后只发布部分模型组。
+				groupedStatsByWindow[key] = result
+			}
+			if result.failed {
+				continue
+			}
+			grouped := result.stats
+			// 任一正 Token 模型无法归组时，整个窗口都不能发布可能低估的分组统计。
+			if !grouped.Complete {
+				continue
+			}
+			stats, exists := grouped.Groups[groupKey]
+			if !exists {
+				// 已知组在完整查询中没有事件时是可靠的零用量，而不是缺失结果。
+				stats.CostAvailable = true
+			}
+			if !stats.CostAvailable {
+				continue
+			}
+			tokens := stats.Tokens
+			cost := stats.Cost
+			response.Quota[index].WindowUsageTokens = &tokens
+			response.Quota[index].WindowUsageCost = &cost
+			continue
+		}
 		// Pro 等上游可能已经返回窗口 token/cost；非 window scope 不用本地 auth 级统计兜底。
 		if !shouldBackfillWindowUsageStats(response.Quota[index]) {
 			// 保留 provider 原始字段，避免覆盖 additional/code_review 等专项限额。
@@ -81,6 +130,42 @@ func (s *Service) attachWindowUsageStatsWithProvider(ctx context.Context, authIn
 	}
 	// 返回已经补充窗口用量的 quota 响应。
 	return response
+}
+
+func antigravityQuotaUsageGroupKey(row QuotaRow) (string, bool) {
+	if !strings.EqualFold(strings.TrimSpace(row.Scope), "quota_group") {
+		return "", false
+	}
+	if row.Window == nil || row.Window.Seconds == nil {
+		return "", false
+	}
+	switch *row.Window.Seconds {
+	case quotaWindowFiveHourSeconds, quotaWindowSevenDaySeconds:
+	default:
+		return "", false
+	}
+	groupKey := strings.TrimSpace(row.GroupKey)
+	if !strings.HasPrefix(strings.TrimSpace(row.Key), "bucket."+groupKey+".") {
+		return "", false
+	}
+	switch groupKey {
+	case antigravityGeminiGroupKey, antigravityClaudeGPTGroupKey:
+		return groupKey, true
+	default:
+		return "", false
+	}
+}
+
+func antigravityUsageGroupForModel(model string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	switch {
+	case strings.HasPrefix(normalized, "gemini-"):
+		return antigravityGeminiGroupKey, true
+	case strings.HasPrefix(normalized, "claude-"), strings.HasPrefix(normalized, "gpt-"):
+		return antigravityClaudeGPTGroupKey, true
+	default:
+		return "", false
+	}
 }
 
 func shouldBackfillWindowUsageStats(row QuotaRow) bool {

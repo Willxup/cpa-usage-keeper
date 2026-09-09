@@ -105,6 +105,48 @@
   }
 }
 
+.searchableDropdown {
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+
+.searchInput {
+  min-width: 0;
+  padding-right: 36px;
+  cursor: text;
+  text-overflow: ellipsis;
+
+  &::placeholder {
+    color: var(--text-tertiary);
+  }
+}
+
+.searchIcon {
+  position: absolute;
+  right: 12px;
+  pointer-events: none;
+
+  .searchInput[aria-expanded='true'] + & {
+    transform: rotate(180deg);
+  }
+}
+
+.searchOptions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.noResults {
+  padding: 8px 12px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
 .optionLabel {
   min-width: 0;
   overflow: hidden;

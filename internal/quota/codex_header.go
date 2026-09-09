@@ -10,7 +10,7 @@ import (
 
 const codexHeaderPrefix = "X-Codex-"
 
-// codexDecodedHeaderAdditional 保存一次 Header 解码得到的 Additional group，history 永远不遍历它。
+// codexDecodedHeaderAdditional 保存一次 Header 解码得到的 Additional group；history 只用 group 排除污染，不从窗口生成 observation。
 type codexDecodedHeaderAdditional struct {
 	// Group 是 X-Codex-{group}-* 中的稳定 Header group 名称，仅供读取同组窗口。
 	Group string
@@ -26,11 +26,13 @@ type codexDecodedHeaderAdditional struct {
 type codexDecodedHeaderQuota struct {
 	// PlanType 是 X-Codex-Plan-Type，用于现有 subscription cache 输出。
 	PlanType string
-	// PrimaryWindow 是无 group 主额度 Primary，允许 cache 未知的正窗口秒数。
+	// ActiveLimit 是 X-Codex-Active-Limit，用于判断无 group 窗口是否只是 Additional 的兼容投影。
+	ActiveLimit string
+	// PrimaryWindow 是无 group Primary；Active-Limit 命中 Additional 时，它可能是兼容投影。
 	PrimaryWindow *CodexUsageWindow
-	// SecondaryWindow 是无 group 主额度 Secondary，允许 cache 未知的正窗口秒数。
+	// SecondaryWindow 是无 group Secondary；归属规则与 PrimaryWindow 相同。
 	SecondaryWindow *CodexUsageWindow
-	// Additional 保存 cache 所需 group；history 投影不会读取该切片。
+	// Additional 同时服务 cache 投影和 Active-Limit 归属判断，但它的窗口不会进入主额度历史。
 	Additional []codexDecodedHeaderAdditional
 }
 
@@ -52,6 +54,7 @@ func decodeCodexHeaderQuota(headers http.Header) (codexDecodedHeaderQuota, bool)
 	// 主额度两个窗口各解析一次，通用结果同时服务 cache/history 投影。
 	decoded := codexDecodedHeaderQuota{
 		PlanType:        strings.TrimSpace(firstHeaderValue(filtered, "X-Codex-Plan-Type")),
+		ActiveLimit:     strings.TrimSpace(firstHeaderValue(filtered, "X-Codex-Active-Limit")),
 		PrimaryWindow:   parseCodexDecodedHeaderUsageWindow(filtered, codexHeaderPrefix+"Primary-"),
 		SecondaryWindow: parseCodexDecodedHeaderUsageWindow(filtered, codexHeaderPrefix+"Secondary-"),
 	}
@@ -63,10 +66,66 @@ func decodeCodexHeaderQuota(headers http.Header) (codexDecodedHeaderQuota, bool)
 	return decoded, true
 }
 
+// mainQuotaHistoryAllowed 只根据本次 Header 自带 provenance 决定主历史是否可信，不按请求模型猜测。
+func (decoded codexDecodedHeaderQuota) mainQuotaHistoryAllowed() bool {
+	if strings.TrimSpace(decoded.ActiveLimit) == "" {
+		// 只有原始值确实缺失时才进入旧协议兼容；非空异常值不能被规范化成“缺失”。
+		return true
+	}
+	activeAlias := normalizeCodexLimitAlias(decoded.ActiveLimit)
+	if activeAlias == "" {
+		// 非空却无法形成有效别名时，宁可留下采样缺口，也不能污染主额度历史。
+		return false
+	}
+	if decoded.activeLimitMatchesAdditionalGroup(activeAlias) {
+		// Active-Limit 命中 Additional group，无 group 窗口不属于主额度。
+		return false
+	}
+	// 生产普通主额度明确返回 premium；其它未知非空值宁可留下采样缺口，也不能污染主周期。
+	return activeAlias == "premium"
+}
+
+// activeLimitMatchesAdditionalGroup 只匹配本次 Header 已解码的 group，用于识别 Additional 兼容投影。
+func (decoded codexDecodedHeaderQuota) activeLimitMatchesAdditionalGroup(activeAlias string) bool {
+	if activeAlias == "" {
+		return false
+	}
+	for _, additional := range decoded.Additional {
+		if activeAlias == normalizeCodexLimitAlias(additional.Group) {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeCodexLimitAlias 把 Bengalfox 与 codex_bengalfox 收敛成同一别名，仅用于本次解码匹配。
+func normalizeCodexLimitAlias(value string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(value))
+	if trimmed == "" {
+		return ""
+	}
+	var normalized strings.Builder
+	normalized.Grow(len(trimmed))
+	for _, character := range trimmed {
+		if (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') {
+			normalized.WriteRune(character)
+		}
+	}
+	alias := normalized.String()
+	if strings.HasPrefix(alias, "codex") {
+		alias = strings.TrimPrefix(alias, "codex")
+	}
+	return alias
+}
+
 func (decoded codexDecodedHeaderQuota) cacheOutput() (ProviderOutput, bool) {
-	// cache 主额度继续只接受既有已知窗口和非负 used percent，不因 history 放宽协议范围。
 	usage := &CodexUsagePayload{PlanType: decoded.PlanType}
-	usage.RateLimit = codexDecodedCacheRateLimit(decoded.PrimaryWindow, decoded.SecondaryWindow)
+	activeAlias := normalizeCodexLimitAlias(decoded.ActiveLimit)
+	// Active-Limit 命中 Additional 时，无 group 窗口是同一额度的兼容投影，由下方 Additional 行唯一输出。
+	if !decoded.activeLimitMatchesAdditionalGroup(activeAlias) {
+		// 普通、缺失或未知 Active-Limit 仍沿用原 cache 合同，只过滤未支持窗口和负 used percent。
+		usage.RateLimit = codexDecodedCacheRateLimit(decoded.PrimaryWindow, decoded.SecondaryWindow)
+	}
 	// Additional group 按已排序解码顺序投影，保持既有 quota row 稳定顺序。
 	for _, additional := range decoded.Additional {
 		rateLimit := codexDecodedCacheRateLimit(additional.PrimaryWindow, additional.SecondaryWindow)

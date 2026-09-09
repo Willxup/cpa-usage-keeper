@@ -533,6 +533,7 @@ export function CredentialDetailDrawer({
               health={row.credentialHealth}
               lastUsedAt={identity.last_used_at}
               statsUpdatedAt={identity.stats_updated_at}
+              windowCacheReadRate={row.windowCacheReadRate}
             />
           </section>
           </section>

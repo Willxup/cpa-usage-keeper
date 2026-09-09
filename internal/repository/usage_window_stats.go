@@ -17,8 +17,18 @@ import (
 const quotaWindowRawOnlyThreshold = 5 * time.Hour
 
 type UsageWindowStats struct {
-	Tokens int64
-	Cost   float64
+	Tokens        int64
+	Cost          float64
+	CostAvailable bool
+}
+
+// UsageWindowStatsGrouper 把 SQL 已聚合的真实模型映射到额度组；false 表示模型归属未知。
+type UsageWindowStatsGrouper func(model string) (groupKey string, ok bool)
+
+// UsageWindowGroupedStats 保留每个额度组的统计，并标记窗口内模型是否都能可靠归组。
+type UsageWindowGroupedStats struct {
+	Groups   map[string]UsageWindowStats
+	Complete bool
 }
 
 type UsageWindowStatsCalculator struct {
@@ -73,6 +83,29 @@ func (c *UsageWindowStatsCalculator) SumByAuthIndex(ctx context.Context, authInd
 		return UsageWindowStats{}, err
 	}
 	return usageWindowStatsFromTokenStats(rows, c.costResolver), nil
+}
+
+func (c *UsageWindowStatsCalculator) SumGroupsByAuthIndex(ctx context.Context, authIndex string, start time.Time, end *time.Time, grouper UsageWindowStatsGrouper) (UsageWindowGroupedStats, error) {
+	if c == nil || c.db == nil {
+		return UsageWindowGroupedStats{}, fmt.Errorf("usage window stats calculator is nil")
+	}
+	authIndex = strings.TrimSpace(authIndex)
+	if authIndex == "" {
+		return UsageWindowGroupedStats{}, fmt.Errorf("auth_index is required")
+	}
+	if grouper == nil {
+		return UsageWindowGroupedStats{}, fmt.Errorf("usage window stats grouper is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// 分组统计与普通窗口统计共用相同 Reader、索引范围和 SQL 模型聚合，只改变少量结果行的最终合并方式。
+	queryDB := c.db.Clauses(dbresolver.Read).Session(&gorm.Session{Context: ctx})
+	rows, err := loadUsageWindowTokenStats(queryDB, authIndex, start, end, c.costResolver.ActiveFields())
+	if err != nil {
+		return UsageWindowGroupedStats{}, err
+	}
+	return usageWindowGroupedStatsFromTokenStats(rows, c.costResolver, grouper), nil
 }
 
 func SumUsageWindowStatsByAuthIndex(ctx context.Context, db *gorm.DB, authIndex string, start time.Time, end *time.Time, costResolver pricing.Resolver) (UsageWindowStats, error) {
@@ -305,32 +338,67 @@ func usageWindowTokenStatsValues(merged map[usageWindowTokenStatsKey]usageWindow
 }
 
 func usageWindowStatsFromTokenStats(rows []usageWindowTokenStats, costResolver pricing.Resolver) UsageWindowStats {
-	// 初始化最终返回的 token/cost 汇总。
-	stats := UsageWindowStats{}
+	// 空窗口的 cost 仍是完整的零值，只有存在无法计价的 Token 行时才降级为 unavailable。
+	stats := UsageWindowStats{CostAvailable: true}
 	// 遍历每个 model_alias/model 的聚合 token。
 	for _, row := range rows {
-		// total_tokens 直接累计到前端展示的窗口 token。
-		stats.Tokens += row.TotalTokens
-		// 使用统一 resolver 先按真实 model、再按 alias 回退计算该维度的 cost。
-		result := costResolver.Calculate(newUsagePricingCostSubject(
-			row.APIGroupKey,
-			row.Model,
-			row.AuthIndex,
-			row.ModelAlias,
-			row.ServiceTier,
-			row.ResponseServiceTier,
-			row.ReasoningEffort,
-			row.Endpoint,
-			row.ExecutorType,
-			row.InputTokens,
-			row.OutputTokens,
-			row.CacheReadTokens,
-			row.CacheCreationTokens,
-		))
-		stats.Cost += result.Cost.TotalCostUSD
+		stats = addUsageWindowTokenStats(stats, row, costResolver)
 	}
 	// 返回最终窗口统计。
 	return stats
+}
+
+func usageWindowGroupedStatsFromTokenStats(rows []usageWindowTokenStats, costResolver pricing.Resolver, grouper UsageWindowStatsGrouper) UsageWindowGroupedStats {
+	result := UsageWindowGroupedStats{Groups: make(map[string]UsageWindowStats), Complete: true}
+	for _, row := range rows {
+		groupKey, ok := grouper(row.Model)
+		groupKey = strings.TrimSpace(groupKey)
+		if !ok || groupKey == "" {
+			// 未知的零值聚合行不影响完整性；任何正 Token 事实都可能属于某个额度组，不能静默漏算。
+			if usageWindowTokenStatsHasUsage(row) {
+				result.Complete = false
+			}
+			continue
+		}
+		stats, exists := result.Groups[groupKey]
+		if !exists {
+			stats.CostAvailable = true
+		}
+		result.Groups[groupKey] = addUsageWindowTokenStats(stats, row, costResolver)
+	}
+	return result
+}
+
+func addUsageWindowTokenStats(stats UsageWindowStats, row usageWindowTokenStats, costResolver pricing.Resolver) UsageWindowStats {
+	stats.Tokens += row.TotalTokens
+	result := costResolver.Calculate(newUsagePricingCostSubject(
+		row.APIGroupKey,
+		row.Model,
+		row.AuthIndex,
+		row.ModelAlias,
+		row.ServiceTier,
+		row.ResponseServiceTier,
+		row.ReasoningEffort,
+		row.Endpoint,
+		row.ExecutorType,
+		row.InputTokens,
+		row.OutputTokens,
+		row.CacheReadTokens,
+		row.CacheCreationTokens,
+	))
+	// 兼容极少数只有 total_tokens 的旧行：模型未匹配价格时不能把零成本冒充完整结果。
+	if row.TotalTokens > 0 && result.MatchedModel == "" {
+		result.Available = false
+	}
+	stats.Cost += result.Cost.TotalCostUSD
+	if !result.Available {
+		stats.CostAvailable = false
+	}
+	return stats
+}
+
+func usageWindowTokenStatsHasUsage(row usageWindowTokenStats) bool {
+	return row.TotalTokens > 0 || row.InputTokens > 0 || row.OutputTokens > 0 || row.CacheReadTokens > 0 || row.CacheCreationTokens > 0
 }
 
 func ceilUsageWindowHour(value time.Time) time.Time {

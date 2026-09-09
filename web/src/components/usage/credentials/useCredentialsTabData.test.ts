@@ -109,6 +109,13 @@ describe('mergeUsageIdentityAliasUpdate', () => {
     const credentialHealth = {
       window_seconds: 18_000,
       bucket_seconds: 600,
+      window_start: '2026-05-10T05:30:00Z',
+      window_end: '2026-05-10T10:30:00Z',
+      total_success: 0,
+      total_failure: 0,
+      success_rate: 0,
+      input_tokens: 120,
+      cache_read_tokens: 45,
       buckets: [],
     }
     const current = {

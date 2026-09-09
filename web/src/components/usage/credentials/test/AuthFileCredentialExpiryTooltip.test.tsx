@@ -22,6 +22,7 @@ const row = (id: string, remainingDaysLabel: string, expiresAtLabel: string) => 
   successRate: null,
   totalTokens: 0,
   cacheReadRate: null,
+  windowCacheReadRate: null,
   quota: [],
   quotaLoading: false,
   displayQuotas: [],

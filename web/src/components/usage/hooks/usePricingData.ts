@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, deletePricing, fetchPricing, fetchPricingRules, fetchPricingSyncPreview, fetchUsedModels, replacePricingRules, updatePricing, updatePricingBatch } from '@/lib/api';
-import type { ModelPrice, PricingEntry, PricingRule, PricingSaveResult, PricingStyle, PricingSyncPreviewResponse, ReplacePricingRuleInput } from '@/lib/types';
+import type { ModelPrice, PricingEntry, PricingRule, PricingSaveResult, PricingStyle, PricingSyncSource, PricingSyncPreviewResponse, ReplacePricingRuleInput } from '@/lib/types';
 import { useNotificationStore } from '@/stores';
 
 export interface UsePricingDataOptions {
@@ -20,7 +20,7 @@ export interface UsePricingDataReturn {
   loadPricingRules: (model: string) => Promise<PricingRule[] | null>;
   savePricingRules: (model: string, rules: ReplacePricingRuleInput[]) => Promise<PricingRule[] | null>;
   syncModelPrices: (prices: Record<string, ModelPrice>) => Promise<PricingSaveResult>;
-  previewPricingSync: () => Promise<PricingSyncPreviewResponse>;
+  previewPricingSync: (source: PricingSyncSource, signal?: AbortSignal) => Promise<PricingSyncPreviewResponse>;
 }
 
 const normalizePricingStyle = (style: PricingStyle | string | undefined): PricingStyle =>
@@ -273,9 +273,9 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
     return result;
   }, []);
 
-  const previewPricingSync = useCallback(async () => {
+  const previewPricingSync = useCallback(async (source: PricingSyncSource, signal?: AbortSignal) => {
     try {
-      return await fetchPricingSyncPreview();
+      return await fetchPricingSyncPreview(source, signal);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequiredRef.current?.();

@@ -198,6 +198,68 @@ func registerUsageAnalysisRoute(router gin.IRoutes, usageProvider service.UsageP
 	})
 }
 
+func registerKeyUsageAnalysisRoute(router gin.IRoutes, usageProvider service.UsageProvider) {
+	router.GET("/key-analysis", func(c *gin.Context) {
+		session, apiKey, ok := activeAPIKeyViewerContext(c)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		if usageProvider == nil {
+			c.JSON(http.StatusOK, emptyAnalysisResponse())
+			return
+		}
+		filter, err := parseKeyUsageAnalysisTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		if err != nil {
+			writeUsageFilterParseError(c, err)
+			return
+		}
+		// Viewer 的数据范围只由 session 决定，客户端 api_key_id 不参与解析或过滤。
+		filter.APIKeyID = strconv.FormatInt(session.CPAAPIKeyID, 10)
+		analysis, err := usageProvider.GetAnalysis(c.Request.Context(), filter)
+		if err != nil {
+			writeInternalError(c, "get key analysis failed", err)
+			return
+		}
+		apiKeyInfos := map[string]analysisAPIKeyInfo{
+			apiKey.APIKey: {ID: strconv.FormatInt(apiKey.ID, 10), Label: helper.CPAAPIKeyDisplayName(apiKey)},
+		}
+		payload := buildAnalysisPayload(analysis, apiKeyInfos)
+		// 来源身份属于管理员视图；Viewer JSON 在服务端直接清空，避免仅靠 UI 隐藏。
+		payload.AuthFilesComposition = []analysisCompositionItem{}
+		payload.AIProviderComposition = []analysisCompositionItem{}
+		c.JSON(http.StatusOK, payload)
+	})
+
+	router.GET("/key-analysis/latency", func(c *gin.Context) {
+		session, _, ok := activeAPIKeyViewerContext(c)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		if usageProvider == nil {
+			c.JSON(http.StatusOK, emptyAnalysisLatencyDiagnosticsResponse())
+			return
+		}
+		filter, err := parseKeyUsageAnalysisTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		if err != nil {
+			writeUsageFilterParseError(c, err)
+			return
+		}
+		filter.APIKeyID = strconv.FormatInt(session.CPAAPIKeyID, 10)
+		latency, err := usageProvider.GetAnalysisLatency(c.Request.Context(), filter)
+		if err != nil {
+			writeInternalError(c, "get key analysis latency failed", err)
+			return
+		}
+		if latency == nil {
+			c.JSON(http.StatusOK, emptyAnalysisLatencyDiagnosticsResponse())
+			return
+		}
+		c.JSON(http.StatusOK, buildAnalysisLatencyDiagnosticsPayload(*latency))
+	})
+}
+
 func emptyAnalysisResponse() analysisResponse {
 	return analysisResponse{
 		Granularity:           string(servicedto.AnalysisGranularityHourly),

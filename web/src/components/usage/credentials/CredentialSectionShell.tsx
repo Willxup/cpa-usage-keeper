@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import styles from './CredentialSections.module.scss'
 import { Select } from '@/components/ui/Select'
 import { formatCompactNumber } from '@/utils/usage'
+import { CREDENTIAL_PAGE_SIZE_OPTIONS } from './credentialViewModels'
 
 type CredentialSectionStyle = CSSProperties
 
@@ -146,7 +147,6 @@ export function cacheReadRateTone(value: number | null): 'success' | 'warning' |
   return 'neutral'
 }
 
-const CREDENTIAL_PAGE_SIZE_OPTIONS = [5, 10, 20, 50]
 const CREDENTIAL_PAGE_SIZE_SELECT_OPTIONS = CREDENTIAL_PAGE_SIZE_OPTIONS.map((option) => ({
   value: String(option),
   label: String(option),

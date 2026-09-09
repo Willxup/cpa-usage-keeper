@@ -97,8 +97,6 @@ export function useUsageActivityData({
         if (nextError instanceof ApiError && nextError.status === 401) {
           message = 'AUTH_REQUIRED';
           onAuthRequired?.();
-        } else if (viewer === 'key' && nextError instanceof ApiError && nextError.status === 429) {
-          message = 'KEY_ACTIVITY_RATE_LIMITED';
         }
         setLoading(false);
         setError(message);

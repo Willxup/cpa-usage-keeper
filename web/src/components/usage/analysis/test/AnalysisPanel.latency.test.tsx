@@ -51,8 +51,8 @@ describe('AnalysisPanel latency loading boundary', () => {
     );
 
     const latencyStart = markup.indexOf('usage_stats.analysis_latency_title');
-    const compositionStart = markup.indexOf('usage_stats.analysis_composition_title', latencyStart);
-    const latencyMarkup = markup.slice(latencyStart, compositionStart);
+    const efficiencyStart = markup.indexOf('usage_stats.analysis_model_efficiency_title', latencyStart);
+    const latencyMarkup = markup.slice(latencyStart, efficiencyStart);
     expect(latencyStart).toBeGreaterThan(-1);
     expect(latencyMarkup).toContain('common.loading');
     expect(markup.slice(0, latencyStart)).not.toContain('common.loading');
@@ -101,8 +101,8 @@ describe('AnalysisPanel latency loading boundary', () => {
     );
 
     const latencyStart = markup.indexOf('usage_stats.analysis_latency_title');
-    const compositionStart = markup.indexOf('usage_stats.analysis_composition_title', latencyStart);
-    const latencyMarkup = markup.slice(latencyStart, compositionStart);
+    const efficiencyStart = markup.indexOf('usage_stats.analysis_model_efficiency_title', latencyStart);
+    const latencyMarkup = markup.slice(latencyStart, efficiencyStart);
     expect(latencyMarkup).toContain('usage_stats.analysis_latency_recent_range_only');
     expect(latencyMarkup).not.toContain('usage_stats.no_data');
   });

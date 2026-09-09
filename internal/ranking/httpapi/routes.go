@@ -9,18 +9,25 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type LeaderboardProvider interface {
+	Leaderboard(context.Context, ranking.LeaderboardPeriod, ranking.LeaderboardMetric) (ranking.Leaderboard, error)
+}
+
 type Provider interface {
+	LeaderboardProvider
+	LeaderboardMetadata(context.Context) (ranking.LeaderboardMetadata, error)
 	Status(context.Context) (ranking.LocalStatus, error)
 	Join(context.Context, string, uint8) (ranking.LocalStatus, error)
 	SyncNow(context.Context) error
 	Pause(context.Context) (ranking.LocalStatus, error)
 	Resume(context.Context) (ranking.LocalStatus, error)
 	Exit(context.Context) (ranking.LocalStatus, error)
-	Leaderboard(context.Context, ranking.LeaderboardPeriod, ranking.LeaderboardMetric) (ranking.Leaderboard, error)
-	LeaderboardMetadata(context.Context) (ranking.LeaderboardMetadata, error)
 }
 
 func RegisterRoutes(router gin.IRoutes, provider Provider) {
+	registerLeaderboardRoute(router, "/ranking/leaderboards", provider)
+	registerLeaderboardMetadataRoute(router, "/ranking/leaderboards/metadata", provider)
+
 	router.GET("/ranking/status", func(c *gin.Context) {
 		if provider == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ranking_unavailable"})
@@ -110,8 +117,15 @@ func RegisterRoutes(router gin.IRoutes, provider Provider) {
 		}
 		c.JSON(http.StatusOK, status)
 	})
+}
 
-	router.GET("/ranking/leaderboards", func(c *gin.Context) {
+// RegisterKeyViewerRoutes 只挂载 Community 榜单读取，不暴露参与或同步动作。
+func RegisterKeyViewerRoutes(router gin.IRoutes, provider LeaderboardProvider) {
+	registerLeaderboardRoute(router, "/key-ranking/leaderboards", provider)
+}
+
+func registerLeaderboardRoute(router gin.IRoutes, route string, provider LeaderboardProvider) {
+	router.GET(route, func(c *gin.Context) {
 		setNoStoreHeaders(c)
 		if provider == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ranking_unavailable"})
@@ -135,8 +149,10 @@ func RegisterRoutes(router gin.IRoutes, provider Provider) {
 		}
 		c.JSON(http.StatusOK, board)
 	})
+}
 
-	router.GET("/ranking/leaderboards/metadata", func(c *gin.Context) {
+func registerLeaderboardMetadataRoute(router gin.IRoutes, route string, provider Provider) {
+	router.GET(route, func(c *gin.Context) {
 		setNoStoreHeaders(c)
 		if provider == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ranking_unavailable"})

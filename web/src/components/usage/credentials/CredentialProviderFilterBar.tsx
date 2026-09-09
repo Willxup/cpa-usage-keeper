@@ -18,6 +18,10 @@ export function CredentialProviderFilterBar({ scope, typeCounts, value, onChange
   const visibleOptions = useMemo(() => buildCredentialProviderFilterOptions(scope, typeCounts), [scope, typeCounts])
 
   useEffect(() => {
+    // 计数还没加载时没有可对账的选项，此时重置会把持久化恢复出来的筛选直接清掉。
+    if (visibleOptions.length === 0) {
+      return
+    }
     if (value !== 'all' && !visibleOptions.some((option) => option.key === value)) {
       onChange('all')
     }

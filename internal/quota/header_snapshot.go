@@ -34,12 +34,16 @@ type UsageHeaderSnapshot struct {
 	ObservedAt time.Time
 	// CacheOutput 是现有 quota cache 合同的完整只读解析结果，worker 不再解析 Header。
 	CacheOutput ProviderOutput
-	// MainQuotaObservations 只包含无 group Primary/Secondary，供 history runner 在十秒批次到期后消费。
+	// MainQuotaObservations 只包含无 group Primary/Secondary，供 history runner 在一分钟批次到期后消费。
 	MainQuotaObservations []repositorydto.CodexMainQuotaObservation
+	// pendingMainObservedAt 只供一分钟 cache 合并记录主额度自身的新鲜度；零值表示回退 ObservedAt。
+	pendingMainObservedAt time.Time
+	// pendingAdditionalObservedAt 按 LimitName 记录 Additional 自身的新鲜度，不进入 history 或对外响应。
+	pendingAdditionalObservedAt map[string]time.Time
 }
 
 type UsageHeaderSnapshotAppender interface {
-	// TryAppendUsageHeaderSnapshots 接收不可变快照指针；实现只能复制指针，不能修改嵌套对象。
+	// TryAppendUsageHeaderSnapshots 接收不可变快照；实现可以保留指针或创建派生快照，但不能修改输入及其嵌套对象。
 	TryAppendUsageHeaderSnapshots([]*UsageHeaderSnapshot) bool
 }
 
@@ -74,9 +78,12 @@ func (codexUsageHeaderSnapshotProcessor) TryBuildUsageHeaderSnapshot(input Usage
 		return nil, false
 	}
 	cacheOutput, cacheOK := decoded.cacheOutput()
-	// history 复用同一 decoded 主窗口，不读取 cache 已过滤掉的未知窗口结果。
-	historyOutput := decoded.mainQuotaOutput()
-	observations := BuildCodexMainQuotaObservations(authIndex, historyOutput, input.ObservedAt)
+	// history 只在来源可信时复用同一 decoded 主窗口；cache 始终保持原有投影。
+	var observations []repositorydto.CodexMainQuotaObservation
+	if decoded.mainQuotaHistoryAllowed() {
+		historyOutput := decoded.mainQuotaOutput()
+		observations = BuildCodexMainQuotaObservations(authIndex, historyOutput, input.ObservedAt)
+	}
 	// 只有 cache 或 history 至少一个消费者可处理时才创建异步快照。
 	if !cacheOK && len(observations) == 0 {
 		return nil, false
@@ -113,7 +120,7 @@ func codexQuotaSnapshotHeaders(headers http.Header) http.Header {
 }
 
 func isCodexQuotaHeaderKey(key string) bool {
-	if key == "X-Codex-Plan-Type" {
+	if key == "X-Codex-Plan-Type" || key == "X-Codex-Active-Limit" {
 		return true
 	}
 	if !strings.HasPrefix(key, codexHeaderPrefix) {

@@ -42,7 +42,7 @@ describe('App CPAMC embed shell', () => {
   it('preserves the CPAMC embed query when normalizing app paths', () => {
     const replaceStateTargets = Array.from(appSource.matchAll(/window\.history\.replaceState\(null, '', ([\s\S]*?)\);/g)).map((match) => match[1]);
 
-    expect(replaceStateTargets).toHaveLength(3);
+    expect(replaceStateTargets).toHaveLength(4);
     replaceStateTargets.forEach((target) => {
       expect(target).toContain('appPath(');
       expect(target).toContain('+ cpamcEmbedSearch()');

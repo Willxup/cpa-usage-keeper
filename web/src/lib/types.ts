@@ -3,6 +3,7 @@ export type AuthRole = 'admin' | 'api_key_viewer'
 export interface AuthSessionAPIKeySummary {
   display_key: string
   alias?: string
+  local_ranking_enabled?: boolean
 }
 
 export interface AuthSessionResponse {
@@ -365,6 +366,10 @@ export interface UsageCredentialHealth {
   total_success: number
   total_failure: number
   success_rate: number
+  /** 窗口内 canonical input_tokens 合计，缓存率的分母。 */
+  input_tokens: number
+  /** 窗口内 canonical cache_read_tokens 合计，缓存率的分子。 */
+  cache_read_tokens: number
   buckets: UsageCredentialHealthBucket[]
 }
 
@@ -466,6 +471,14 @@ export interface UsageQuotaCheckResponse {
   rateLimitResetCreditsAvailableCount?: number | null
 }
 
+export interface UsageQuotaUpstreamResponse {
+  method: string
+  url: string
+  status_code: number
+  header?: Record<string, string[]>
+  body: string
+}
+
 export interface UsageQuotaResetResponse {
   authIndex: string
   code?: string
@@ -494,6 +507,7 @@ export interface UsageQuotaCacheItem {
   http_status_code?: number
   expires_at?: string
   refreshed_at?: string
+  upstream_responses?: UsageQuotaUpstreamResponse[]
 }
 
 export interface UsageQuotaCacheResponse {
@@ -575,6 +589,7 @@ export interface UsageQuotaRefreshTaskResponse {
   file_name?: string
   status: 'queued' | 'running' | 'completed' | 'failed'
   quota?: UsageQuotaCheckResponse
+  upstream_responses?: UsageQuotaUpstreamResponse[]
   error?: string
   http_status_code?: number
   refreshed_at?: string
@@ -860,7 +875,10 @@ export interface PricingSyncMatch {
 	cache_write_price_per_1m: number
 }
 
+export type PricingSyncSource = 'models-dev' | 'litellm'
+
 export interface PricingSyncPreviewResponse {
+  source_id: PricingSyncSource
   source: string
   source_url: string
   metadata_models: number

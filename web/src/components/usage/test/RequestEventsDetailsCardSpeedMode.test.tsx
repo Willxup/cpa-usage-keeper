@@ -48,6 +48,9 @@ const renderCardElement = (events: UsageEvent[]) => (
     sourceFilter="__all__"
     resultFilter="__all__"
     visibleColumnIds={['service_tier']}
+    apiKeyOptions={[]}
+    apiKeyFilter=""
+    onApiKeyFilterChange={() => undefined}
     onModelFilterChange={() => undefined}
     onSourceFilterChange={() => undefined}
     onResultFilterChange={() => undefined}

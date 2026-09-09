@@ -1,6 +1,7 @@
 package migration
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -87,6 +88,12 @@ const (
 	migrationRebuildQuotaHistory = "20260822_rebuild_quota_history"
 	// migrationAddAuthSessionAlias 保存单个管理员会话的可选辨识名称。
 	migrationAddAuthSessionAlias = "20260824_add_auth_session_alias"
+	// migrationResetQuotaHistory 在新来源判定生效后清空无法证明 provenance 的旧额度历史。
+	migrationResetQuotaHistory = "20260827_reset_quota_history"
+	// migrationRepairUsageEventQuotaWindowIndex 修复旧 migration 记录与物理索引不一致的数据库。
+	migrationRepairUsageEventQuotaWindowIndex = "20260902_repair_usage_event_quota_window_index"
+	// migrationAddUsageEventAPIGroupKeyTimestampIndex 用 (api_group_key, timestamp) 复合索引替代单列 Key 索引。
+	migrationAddUsageEventAPIGroupKeyTimestampIndex = "20260905_usage_event_api_group_key_timestamp_index"
 )
 
 type schemaMigration struct {
@@ -102,15 +109,30 @@ type databaseMigration struct {
 	version            string
 	run                func(*gorm.DB) error
 	disableTransaction bool
+	// destructive 要求在默认事务开始前完成一份通用数据库快照，失败时不得执行 migration。
+	destructive bool
 }
 
-func Run(db *gorm.DB) error {
+// RunOptions 为生产启动注入通用 migration 安全边界；测试可按目标替换备份实现。
+type RunOptions struct {
+	// BeforeDestructiveMigration 在破坏性 migration 事务前执行，version 仅用于日志和诊断。
+	BeforeDestructiveMigration func(context.Context, string) error
+}
+
+func Run(db *gorm.DB, optionValues ...RunOptions) error {
+	if len(optionValues) > 1 {
+		return fmt.Errorf("run schema migrations: expected at most one options value")
+	}
+	options := RunOptions{}
+	if len(optionValues) == 1 {
+		options = optionValues[0]
+	}
 	if err := createSchemaMigrationsTable(db); err != nil {
 		return err
 	}
 
 	for _, migration := range orderedMigrations() {
-		if err := runSchemaMigration(db, migration); err != nil {
+		if err := runSchemaMigration(db, migration, options); err != nil {
 			return err
 		}
 	}
@@ -211,16 +233,58 @@ func orderedMigrations() []databaseMigration {
 		// 破坏性清空与通用表创建必须和版本标记处于同一个默认事务。
 		{version: migrationRebuildQuotaHistory, run: rebuildQuotaHistoryMigration},
 		{version: migrationAddAuthSessionAlias, run: addAuthSessionAliasMigration},
+		// 清表前必须先在事务外完成通用数据库备份；DELETE 与版本标记仍使用默认单事务。
+		{version: migrationResetQuotaHistory, run: resetQuotaHistoryMigration, destructive: true},
+		// 历史 migration 不会重跑；用新版本幂等补齐额度历史查询强制依赖的索引。
+		{version: migrationRepairUsageEventQuotaWindowIndex, run: repairUsageEventQuotaWindowIndexMigration},
+		// 将单列 Key 索引收敛为 Key+时间复合索引，支持请求记录和历史边界查询。
+		{version: migrationAddUsageEventAPIGroupKeyTimestampIndex, run: addUsageEventAPIGroupKeyTimestampIndexMigration},
 	}
 }
 
-func runSchemaMigration(db *gorm.DB, migration databaseMigration) error {
+func runSchemaMigration(db *gorm.DB, migration databaseMigration, optionValues ...RunOptions) error {
+	if len(optionValues) > 1 {
+		return fmt.Errorf("run schema migration %s: expected at most one options value", migration.version)
+	}
+	options := RunOptions{}
+	if len(optionValues) == 1 {
+		options = optionValues[0]
+	}
+	if migration.destructive {
+		// 先检查版本，已经成功执行过的清表迁移不能在每次启动时重复生成备份。
+		applied, err := schemaMigrationApplied(db, migration.version)
+		if err != nil {
+			return err
+		}
+		if !applied {
+			// 没有备份实现时直接终止启动，不能以“尽力而为”方式继续执行不可逆 DELETE。
+			if options.BeforeDestructiveMigration == nil {
+				return fmt.Errorf("run schema migration %s: destructive migration backup is required", migration.version)
+			}
+			logger := logrus.WithField("version", migration.version)
+			logger.Info("schema migration backup started")
+			// 备份必须先在 migration 事务外完成；回调成功返回后才允许进入下面的默认单事务。
+			if err := options.BeforeDestructiveMigration(context.Background(), migration.version); err != nil {
+				logger.WithError(err).Error("schema migration backup failed")
+				return fmt.Errorf("backup before schema migration %s: %w", migration.version, err)
+			}
+			logger.Info("schema migration backup completed")
+		}
+	}
 	if migration.disableTransaction {
 		return runSchemaMigrationWithoutTransaction(db, migration)
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
 		return runSchemaMigrationBody(tx, migration)
 	})
+}
+
+func schemaMigrationApplied(db *gorm.DB, version string) (bool, error) {
+	var count int64
+	if err := db.Table("schema_migrations").Where("version = ?", version).Count(&count).Error; err != nil {
+		return false, fmt.Errorf("check schema migration %s: %w", version, err)
+	}
+	return count > 0, nil
 }
 
 func runSchemaMigrationWithoutTransaction(db *gorm.DB, migration databaseMigration) error {

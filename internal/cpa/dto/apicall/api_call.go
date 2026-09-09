@@ -26,18 +26,20 @@ func (r Request) MarshalJSON() ([]byte, error) {
 }
 
 type Response struct {
-	StatusCode int             `json:"statusCode"`
-	BodyText   string          `json:"bodyText"`
-	Body       json.RawMessage `json:"body"`
+	StatusCode int                 `json:"statusCode"`
+	Header     map[string][]string `json:"header"`
+	BodyText   string              `json:"bodyText"`
+	Body       json.RawMessage     `json:"body"`
 }
 
 func (r *Response) UnmarshalJSON(data []byte) error {
 	type alias struct {
-		StatusCode      int             `json:"statusCode"`
-		BodyText        string          `json:"bodyText"`
-		Body            json.RawMessage `json:"body"`
-		StatusCodeSnake int             `json:"status_code"`
-		BodyTextSnake   string          `json:"body_text"`
+		StatusCode      int                 `json:"statusCode"`
+		Header          map[string][]string `json:"header"`
+		BodyText        string              `json:"bodyText"`
+		Body            json.RawMessage     `json:"body"`
+		StatusCodeSnake int                 `json:"status_code"`
+		BodyTextSnake   string              `json:"body_text"`
 	}
 	var decoded alias
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -51,6 +53,7 @@ func (r *Response) UnmarshalJSON(data []byte) error {
 	}
 	*r = Response{
 		StatusCode: decoded.StatusCode,
+		Header:     decoded.Header,
 		BodyText:   decoded.BodyText,
 		Body:       decoded.Body,
 	}

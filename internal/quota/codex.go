@@ -38,6 +38,22 @@ func (p codexProvider) Check(ctx context.Context, input ProviderInput) (Provider
 	if err != nil {
 		return ProviderOutput{}, err
 	}
+	// usage 未明确给出 reset credit 数量时，按 CPAMC 的 best-effort 语义补查详情接口；明确 0 不触发额外请求。
+	if usage.RateLimitResetCredits == nil || usage.RateLimitResetCredits.AvailableCount == nil {
+		credits, creditsErr := p.ListResetCredits(ctx, input)
+		if creditsErr == nil {
+			availableCount := credits.AvailableCount
+			// 兼容详情接口只有可用 credit 明细而缺少聚合 count 的响应。
+			if availableCount == nil && len(credits.Credits) > 0 {
+				count := len(credits.Credits)
+				availableCount = &count
+			}
+			if availableCount != nil {
+				count := *availableCount
+				usage.RateLimitResetCredits = &CodexRateLimitResetCredits{AvailableCount: &count}
+			}
+		}
+	}
 	return ProviderOutput{Provider: "codex", Result: CodexResult{Usage: usage}}, nil
 }
 

@@ -30,11 +30,16 @@
 .utilityDock {
   grid-column: 1 / -1;
   justify-self: end;
+  transform: translateY(24px);
   display: inline-flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
   justify-content: flex-end;
+
+  @include mobile {
+    transform: none;
+  }
 }
 
 .themeSwitcher {
@@ -127,7 +132,7 @@
 
 .loginCard {
   width: 100%;
-  min-height: 440px;
+  min-height: 0;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -140,7 +145,6 @@
   border: 1px solid color-mix(in srgb, var(--border-color) 84%, rgba($primary-color, 0.28));
 
   @include mobile {
-    min-height: 0;
     padding: 20px;
   }
 }
@@ -166,20 +170,6 @@
   font-size: 24px;
   line-height: 1.1;
   letter-spacing: -0.03em;
-}
-
-.cardHint {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.formHint {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.5;
 }
 
 .tabs {
@@ -223,14 +213,10 @@
 }
 
 .form {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-
-  :global(.btn) {
-    margin-top: auto;
-  }
+  gap: 18px;
 
   :global(.input::placeholder) {
     font-size: 12px;

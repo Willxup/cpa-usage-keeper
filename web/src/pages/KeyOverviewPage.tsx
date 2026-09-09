@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError, fetchKeyOverview, fetchKeyOverviewRealtime, isUsageRangeBoundsConflict, logout } from '@/lib/api';
+import { ApiError, fetchKeyOverview, fetchKeyOverviewRealtime, isUsageRangeBoundsConflict } from '@/lib/api';
 import type { AuthSessionAPIKeySummary, OverviewRealtimeBlock, OverviewRealtimeWindow, UsageCustomRange, UsageOverviewResponse, UsageTimeRange } from '@/lib/types';
-import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { MainActionButton } from '@/components/ui/MainActionButton';
 import { IconRefreshCw } from '@/components/ui/icons';
+import { KeyViewerShell } from '@/features/key-viewer/KeyViewerShell';
+import type { KeyViewerPath } from '@/features/key-viewer/navigation';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { buildUsageStatsQueryKey, useThemeStore } from '@/stores';
 import {
@@ -18,34 +18,19 @@ import {
   useUsageActivityData,
 } from '@/components/usage';
 import type { UsageOverviewPayload } from '@/components/usage/hooks/useUsageData';
-import { BrandLink } from '@/components/BrandLink';
 import { getCurrentOverviewUsage, getDailyAverageCardUsage, getOverviewDisplayLoading, isDailyAverageRange } from '@/utils/usage/overview';
-import { clampStoredUsageRangeStateToCurrentBounds, parseStoredUsageRangeState, resolveUsageRangeRecoveryTimeZone, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
+import { clampStoredUsageRangeStateToCurrentBounds, resolveUsageRangeRecoveryTimeZone, type StoredUsageRangeState } from '@/utils/usage/customRange';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
-import type { Theme } from '@/types';
-import styles from './KeyOverviewPage.module.scss';
+import { loadKeyViewerTimeRange, persistKeyViewerTimeRange } from '@/features/key-viewer/timeRange';
+import styles from '@/features/key-viewer/KeyViewerShell.module.scss';
 
-const KEY_OVERVIEW_RANGE_STORAGE_KEY = 'cli-proxy-key-overview-range-v1';
 const OVERVIEW_REALTIME_WINDOW_STORAGE_KEY = 'cli-proxy-usage-overview-realtime-window-v1';
-const DEFAULT_TIME_RANGE: UsageTimeRange = 'today';
 const DEFAULT_REALTIME_WINDOW: OverviewRealtimeWindow = '15m';
 const KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS = ['models'] as const;
-const REFRESH_THROTTLE_MS = 1_000;
 const KEY_OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
 
-const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
-  { value: 'white', labelKey: 'usage_stats.theme_light' },
-  { value: 'dark', labelKey: 'usage_stats.theme_dark' },
-  { value: 'auto', labelKey: 'usage_stats.theme_auto' },
-];
-
 const loadTimeRange = (): StoredUsageRangeState => {
-  try {
-    if (typeof localStorage === 'undefined') return { range: DEFAULT_TIME_RANGE };
-    return parseStoredUsageRangeState(localStorage.getItem(KEY_OVERVIEW_RANGE_STORAGE_KEY), { nowMs: Date.now() });
-  } catch {
-    return { range: DEFAULT_TIME_RANGE };
-  }
+  return loadKeyViewerTimeRange();
 };
 
 const isOverviewRealtimeWindow = (value: unknown): value is OverviewRealtimeWindow => (
@@ -147,16 +132,15 @@ export const scheduleKeyOverviewAutoRefresh = ({
 
 export interface KeyOverviewPageProps {
   apiKey?: AuthSessionAPIKeySummary;
+  onNavigate: (path: KeyViewerPath) => void;
   onAuthRequired?: () => void;
 }
 
-export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps) {
+export function KeyOverviewPage({ apiKey, onNavigate, onAuthRequired }: KeyOverviewPageProps) {
   const { t } = useTranslation();
   const isMobile = useMediaQuery('(max-width: 768px)');
-  const theme = useThemeStore((state) => state.theme);
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const isDark = resolvedTheme === 'dark';
-  const setTheme = useThemeStore((state) => state.setTheme);
   const [timeRangeState, setTimeRangeState] = useState<StoredUsageRangeState>(loadTimeRange);
   const { range: timeRange, customRange } = timeRangeState;
   const [realtimeWindow, setRealtimeWindow] = useState<OverviewRealtimeWindow>(loadRealtimeWindow);
@@ -168,11 +152,8 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
   const [error, setError] = useState('');
   const [realtimeError, setRealtimeError] = useState('');
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
-  const [refreshThrottled, setRefreshThrottled] = useState(false);
-  const [loggingOut, setLoggingOut] = useState(false);
   const overviewRequestControllerRef = useRef<AbortController | null>(null);
   const realtimeRequestControllerRef = useRef<AbortController | null>(null);
-  const refreshThrottleTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const usageRangeQuery = useMemo(() => buildUsageRangeQuery({
     range: timeRange,
     customUnit: customRange?.unit,
@@ -215,17 +196,16 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
     return true;
   }, [rangeRecoveryTimeZone, timeRangeState]);
   const handleTimeRangeChange = useCallback((range: UsageTimeRange, nextCustomRange?: UsageCustomRange) => {
+    let nextState: StoredUsageRangeState;
     if (range === 'custom' && nextCustomRange) {
-      setTimeRangeState({ range, customRange: nextCustomRange, timeZone: rangeTimeZone });
-      return;
+      nextState = { range, customRange: nextCustomRange, timeZone: rangeTimeZone };
+    } else {
+      nextState = { ...timeRangeState, range };
     }
-    setTimeRangeState((current) => ({ ...current, range }));
-  }, [rangeTimeZone]);
-
-  const themeOptions = useMemo(
-    () => THEME_OPTIONS.map((option) => ({ ...option, label: t(option.labelKey) })),
-    [t]
-  );
+    setTimeRangeState(nextState);
+    // 切换页面可能紧接着发生，先同步写入共享缓存，再等待状态 effect。
+    persistKeyViewerTimeRange(nextState);
+  }, [rangeTimeZone, timeRangeState]);
 
   const loadOverview = useCallback(async (options: KeyOverviewLoadOptions = {}) => {
     if (!usageRangeQuery.valid) return;
@@ -247,10 +227,6 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
       if (recoverRangeBoundsConflict(nextError)) return;
       if (nextError instanceof ApiError && nextError.status === 401) {
         onAuthRequired?.();
-        return;
-      }
-      if (nextError instanceof ApiError && nextError.status === 429) {
-        setError('KEY_OVERVIEW_RATE_LIMITED');
         return;
       }
       setError(nextError instanceof Error ? nextError.message : 'KEY_OVERVIEW_LOAD_FAILED');
@@ -284,10 +260,6 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
         onAuthRequired?.();
         return;
       }
-      if (nextError instanceof ApiError && nextError.status === 429) {
-        setRealtimeError('KEY_OVERVIEW_RATE_LIMITED');
-        return;
-      }
       setRealtimeError('KEY_OVERVIEW_REALTIME_LOAD_FAILED');
     } finally {
       if (realtimeRequestControllerRef.current === controller) {
@@ -313,13 +285,6 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
     };
   }, [loadRealtime]);
 
-  useEffect(() => () => {
-    if (refreshThrottleTimerRef.current !== null) {
-      window.clearTimeout(refreshThrottleTimerRef.current);
-      refreshThrottleTimerRef.current = null;
-    }
-  }, []);
-
   const refreshKeyOverview = useCallback(async (options: KeyOverviewLoadOptions = {}) => {
     await Promise.all([loadOverview(options), loadActivity(options), loadRealtime(options)]);
   }, [loadActivity, loadOverview, loadRealtime]);
@@ -327,10 +292,6 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
   const handleAutoRefreshError = useCallback((nextError: unknown) => {
     if (nextError instanceof ApiError && nextError.status === 401) {
       onAuthRequired?.();
-      return;
-    }
-    if (nextError instanceof ApiError && nextError.status === 429) {
-      setError('KEY_OVERVIEW_RATE_LIMITED');
       return;
     }
     setError('KEY_OVERVIEW_LOAD_FAILED');
@@ -343,11 +304,7 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
   }), [handleAutoRefreshError, refreshKeyOverview]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(KEY_OVERVIEW_RANGE_STORAGE_KEY, serializeUsageRangeState(timeRangeState));
-    } catch {
-      // ignore storage failures
-    }
+    persistKeyViewerTimeRange(timeRangeState);
   }, [timeRangeState]);
 
   useEffect(() => {
@@ -376,180 +333,104 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
     costSparkline,
   } = useSparklines({ usage, loading });
 
-  const refreshDisabled = manualRefreshLoading || refreshThrottled;
+  const refreshDisabled = manualRefreshLoading;
   const handleManualRefresh = useCallback(async () => {
     if (refreshDisabled) return;
     setManualRefreshLoading(true);
     try {
       await refreshKeyOverview();
-      setRefreshThrottled(true);
-      if (refreshThrottleTimerRef.current !== null) {
-        window.clearTimeout(refreshThrottleTimerRef.current);
-      }
-      refreshThrottleTimerRef.current = window.setTimeout(() => {
-        refreshThrottleTimerRef.current = null;
-        setRefreshThrottled(false);
-      }, REFRESH_THROTTLE_MS);
     } finally {
       setManualRefreshLoading(false);
     }
   }, [refreshDisabled, refreshKeyOverview]);
 
-  const handleLogout = useCallback(async () => {
-    setLoggingOut(true);
-    try {
-      await logout();
-    } finally {
-      onAuthRequired?.();
-      setLoggingOut(false);
-    }
-  }, [onAuthRequired]);
-
-  const identityLabel = apiKey?.display_key || t('key_overview.identity_unknown');
-  const displayError = error === 'KEY_OVERVIEW_RATE_LIMITED'
-    ? t('key_overview.rate_limited')
-    : error === 'KEY_OVERVIEW_LOAD_FAILED'
-      ? t('key_overview.load_failed')
-      : error;
+  const displayError = error === 'KEY_OVERVIEW_LOAD_FAILED'
+    ? t('key_overview.load_failed')
+    : error;
   const displayRealtimeError = realtimeError
-    ? realtimeError === 'KEY_OVERVIEW_RATE_LIMITED'
-      ? t('key_overview.rate_limited')
-      : t('usage_stats.overview_realtime_load_failed')
+    ? t('usage_stats.overview_realtime_load_failed')
     : '';
 
-  return (
-    <div className={styles.pageShell} data-keeper-page="key-overview">
-      <div className={styles.pageFrame}>
-        <header className={styles.topBar}>
-          <div className={styles.brandBlock}>
-            <BrandLink className={styles.eyebrow} />
-          </div>
-          <div className={styles.topBarActions}>
-            <span className={styles.identityChip} title={identityLabel}>
-              <span className={styles.identityDot} aria-hidden="true" />
-              <span className={styles.identityText}>{identityLabel}</span>
-            </span>
-            <LanguageSwitcher />
-            <div className={styles.themeSwitcher} role="tablist" aria-label={t('usage_stats.theme_switch')}>
-              {themeOptions.map((option) => {
-                const active = theme === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    role="tab"
-                    aria-selected={active}
-                    className={`${styles.themePill} ${active ? styles.themePillActive : ''}`.trim()}
-                    onClick={() => setTheme(option.value)}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
-            </div>
-            <MainActionButton
-              type="button"
-              aria-label={t('common.logout')}
-              onClick={() => void handleLogout()}
-              disabled={loggingOut}
-              loading={loggingOut}
-            >
-              {loggingOut ? t('common.loading') : t('common.logout')}
-            </MainActionButton>
-          </div>
-        </header>
-
-        <main className={styles.contentColumn}>
-          <div className={styles.container}>
-            {loading && !usage && (
-              <div className={styles.loadingOverlay} aria-busy="true">
-                <div className={styles.loadingOverlayContent}>
-                  <LoadingSpinner size={28} className={styles.loadingOverlaySpinner} />
-                  <span className={styles.loadingOverlayText}>{t('common.loading')}</span>
-                </div>
-              </div>
-            )}
-
-            <div className={styles.toolbarRow}>
-              <div className={styles.tabBar} role="tablist" aria-label={t('key_overview.tabs_aria_label')}>
-                <button type="button" role="tab" aria-selected="true" className={`${styles.tabPill} ${styles.tabPillActive}`.trim()}>
-                  {t('usage_stats.tab_overview')}
-                </button>
-              </div>
-
-              <div className={styles.toolbarActionsRight}>
-                <div className={styles.usageFilterBar}>
-                  <TimeRangeControl
-                    value={timeRange}
-                    customRange={customRange}
-                    timeZone={rangeTimeZone}
-                    onChange={handleTimeRangeChange}
-                    ariaLabel={t('usage_stats.range_filter')}
-                  />
-                </div>
-                <div className={styles.usageRefreshSlot}>
-                  <div className={styles.usageFilterActions}>
-                    <MainActionButton
-                      type="button"
-                      shellClassName={styles.refreshMainActionShell}
-                      className={styles.refreshMainActionButton}
-                      onClick={() => void handleManualRefresh()}
-                      disabled={refreshDisabled}
-                      loading={manualRefreshLoading}
-                    >
-                      {manualRefreshLoading ? t('common.loading') : (
-                        <>
-                          <IconRefreshCw size={14} />
-                          <span>{t('usage_stats.refresh')}</span>
-                        </>
-                      )}
-                    </MainActionButton>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {displayError && <div className={styles.errorBox}>{displayError}</div>}
-
-            <StatCards
-              usage={usage}
-              loading={overviewDisplayLoading}
-              dailyAverageUsage={dailyAverageCardUsage}
-              reserveDailyAverage={reserveDailyAverageCard}
-              sparklines={{
-                requests: requestsSparkline,
-                tokens: tokensSparkline,
-                rpm: rpmSparkline,
-                tpm: tpmSparkline,
-                cacheReadRate: cacheReadRateSparkline,
-                cost: costSparkline,
-              }}
-            />
-
-            <RecentActivityPanel
-              activity={activity}
-              loading={activityLoading}
-              error={activityError}
-              window={activityWindow}
-              windowIsCurrent={activityWindowIsCurrent}
-              requestIdentity={activityRequestIdentity}
-              onWindowChange={setActivityWindow}
-            />
-
-            <OverviewRealtimePanel
-              realtime={realtime?.window === realtimeWindow ? realtime : undefined}
-              loading={realtimeLoading}
-              error={displayRealtimeError}
-              window={realtimeWindow}
-              onWindowChange={setRealtimeWindow}
-              isDark={isDark}
-              isMobile={isMobile}
-              timezone={realtime?.timezone ?? usage?.timezone}
-              visibleDimensions={KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS}
-            />
-          </div>
-        </main>
+  const toolbar = (
+    <>
+      <div className={styles.usageFilterBar}>
+        <TimeRangeControl
+          value={timeRange}
+          customRange={customRange}
+          timeZone={rangeTimeZone}
+          onChange={handleTimeRangeChange}
+          ariaLabel={t('usage_stats.range_filter')}
+        />
       </div>
-    </div>
+      <div className={styles.usageRefreshSlot}>
+        <div className={styles.usageFilterActions}>
+          <MainActionButton
+            type="button"
+            shellClassName={styles.refreshMainActionShell}
+            className={styles.refreshMainActionButton}
+            onClick={() => void handleManualRefresh()}
+            disabled={refreshDisabled}
+            loading={manualRefreshLoading}
+          >
+            {manualRefreshLoading ? t('common.loading') : (
+              <>
+                <IconRefreshCw size={14} />
+                <span>{t('usage_stats.refresh')}</span>
+              </>
+            )}
+          </MainActionButton>
+        </div>
+      </div>
+    </>
+  );
+
+  return (
+    <KeyViewerShell
+      activePage="overview"
+      apiKey={apiKey}
+      loading={loading && !usage}
+      toolbar={toolbar}
+      onNavigate={onNavigate}
+      onAuthRequired={onAuthRequired}
+    >
+      {displayError && <div className={styles.errorBox}>{displayError}</div>}
+
+      <StatCards
+        usage={usage}
+        loading={overviewDisplayLoading}
+        dailyAverageUsage={dailyAverageCardUsage}
+        reserveDailyAverage={reserveDailyAverageCard}
+        sparklines={{
+          requests: requestsSparkline,
+          tokens: tokensSparkline,
+          rpm: rpmSparkline,
+          tpm: tpmSparkline,
+          cacheReadRate: cacheReadRateSparkline,
+          cost: costSparkline,
+        }}
+      />
+
+      <RecentActivityPanel
+        activity={activity}
+        loading={activityLoading}
+        error={activityError}
+        window={activityWindow}
+        windowIsCurrent={activityWindowIsCurrent}
+        requestIdentity={activityRequestIdentity}
+        onWindowChange={setActivityWindow}
+      />
+
+      <OverviewRealtimePanel
+        realtime={realtime?.window === realtimeWindow ? realtime : undefined}
+        loading={realtimeLoading}
+        error={displayRealtimeError}
+        window={realtimeWindow}
+        onWindowChange={setRealtimeWindow}
+        isDark={isDark}
+        isMobile={isMobile}
+        timezone={realtime?.timezone ?? usage?.timezone}
+        visibleDimensions={KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS}
+      />
+    </KeyViewerShell>
   );
 }

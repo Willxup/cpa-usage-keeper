@@ -51,6 +51,9 @@ const renderCardElement = (events: UsageEvent[]) => (
     resultFilter="__all__"
     visibleColumnIds={['client_ip', 'x_forwarded_for', 'user_agent']}
     columnOrder={['client_ip', 'x_forwarded_for', 'user_agent']}
+    apiKeyOptions={[]}
+    apiKeyFilter=""
+    onApiKeyFilterChange={() => undefined}
     onModelFilterChange={() => undefined}
     onSourceFilterChange={() => undefined}
     onResultFilterChange={() => undefined}

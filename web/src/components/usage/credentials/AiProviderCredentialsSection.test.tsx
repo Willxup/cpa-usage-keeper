@@ -68,6 +68,7 @@ describe('AiProviderCredentialsSection', () => {
       successRate: null,
       totalTokens: 0,
       cacheReadRate: null,
+      windowCacheReadRate: 61.75,
       lastUsedText: '2026-05-10T10:00:00Z',
       statsUpdatedText: '2026-05-10T10:02:00Z',
       remainingDaysLabel: '25d',
@@ -99,6 +100,9 @@ describe('AiProviderCredentialsSection', () => {
     expect(html).toContain('usage_stats.credentials_column_name')
     expect(html).toContain('usage_stats.credentials_column_health')
     expect(html).toContain('usage_stats.credentials_health_last_5h')
+    // 5h 缓存率只是健康面板 meta 区的一行文字，不再额外画一条柱状图。
+    expect(html).toContain('usage_stats.credentials_health_cache_rate_5h')
+    expect(html).toContain('61.75%')
     expect(html).toContain('usage_stats.credentials_last_used')
     expect(html).toContain('usage_stats.credentials_stats_updated')
     expect(html).toContain('data-provider-brand-icon="claude"')

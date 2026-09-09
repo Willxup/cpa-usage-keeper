@@ -33,6 +33,8 @@ const healthWithBuckets = (
     total_success: totalSuccess,
     total_failure: totalFailure,
     success_rate: total > 0 ? totalSuccess / total * 100 : 0,
+    input_tokens: 0,
+    cache_read_tokens: 0,
     buckets,
     ...overrides,
   }
@@ -47,6 +49,27 @@ const bucket = (minute: number, success: number, failure: number): UsageCredenti
 })
 
 describe('CredentialHealthPanel health semantics', () => {
+  it.each([
+    { label: 'undefined', rate: undefined, expected: null },
+    { label: 'null', rate: null, expected: '—' },
+    { label: 'zero', rate: 0, expected: '0.00%' },
+  ])('handles a $label 5h cache rate explicitly', ({ rate, expected }) => {
+    const html = renderToStaticMarkup(
+      <CredentialHealthPanel
+        displayName="Provider Key"
+        health={healthWithBuckets([])}
+        windowCacheReadRate={rate}
+      />,
+    )
+
+    if (expected === null) {
+      expect(html).not.toContain('usage_stats.credentials_health_cache_rate_5h')
+      return
+    }
+    expect(html).toContain('usage_stats.credentials_health_cache_rate_5h')
+    expect(html).toContain(`>${expected}<`)
+  })
+
   it('raises the green threshold logarithmically with the request sample size', () => {
     const html = renderToStaticMarkup(
       <CredentialHealthPanel

@@ -107,6 +107,72 @@ func TestCodexProviderParsesZeroRateLimitResetCredits(t *testing.T) {
 	if *result.Usage.RateLimitResetCredits.AvailableCount != 0 {
 		t.Fatalf("expected zero reset credits available count, got %#v", result.Usage.RateLimitResetCredits.AvailableCount)
 	}
+	if len(caller.requests) != 1 {
+		t.Fatalf("expected explicit zero count to skip reset credits fallback, got %d requests", len(caller.requests))
+	}
+}
+
+func TestCodexProviderFetchesResetCreditCountWhenUsageOmitsIt(t *testing.T) {
+	usageJSON := `{"plan_type":"plus","rate_limit":{"allowed":true},"rate_limit_reset_credits":{}}`
+	detailsJSON := `{"available_count":1,"credits":[{"id":"credit-1","reset_type":"codex_rate_limits","status":"available","expires_at":"2026-09-30T00:00:00Z"}]}`
+	caller := &recordingManagementCaller{responses: []*apicall.Response{
+		{StatusCode: 200, BodyText: usageJSON, Body: json.RawMessage(usageJSON)},
+		{StatusCode: 200, BodyText: detailsJSON, Body: json.RawMessage(detailsJSON)},
+	}}
+	provider := quota.NewCodexProvider(caller, quota.DefaultProviderConfigs().Codex)
+
+	output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "codex-auth"}})
+	if err != nil {
+		t.Fatalf("Check returned error: %v", err)
+	}
+	result := output.Result.(quota.CodexResult)
+	if result.Usage == nil || result.Usage.RateLimitResetCredits == nil || result.Usage.RateLimitResetCredits.AvailableCount == nil || *result.Usage.RateLimitResetCredits.AvailableCount != 1 {
+		t.Fatalf("expected fallback reset credit count 1, got %#v", result.Usage)
+	}
+	if len(caller.requests) != 2 || caller.requests[1].URL != quota.CodexRateLimitResetCreditsURL {
+		t.Fatalf("expected reset credits fallback request, got %+v", caller.requests)
+	}
+}
+
+func TestCodexProviderCountsFallbackCreditDetailsWhenCountMissing(t *testing.T) {
+	usageJSON := `{"plan_type":"plus","rate_limit":{"allowed":true}}`
+	detailsJSON := `{"credits":[{"id":"credit-1","reset_type":"codex_rate_limits","status":"available","expires_at":"2026-09-30T00:00:00Z"}]}`
+	caller := &recordingManagementCaller{responses: []*apicall.Response{
+		{StatusCode: 200, BodyText: usageJSON, Body: json.RawMessage(usageJSON)},
+		{StatusCode: 200, BodyText: detailsJSON, Body: json.RawMessage(detailsJSON)},
+	}}
+	provider := quota.NewCodexProvider(caller, quota.DefaultProviderConfigs().Codex)
+
+	output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "codex-auth"}})
+	if err != nil {
+		t.Fatalf("Check returned error: %v", err)
+	}
+	result := output.Result.(quota.CodexResult)
+	if result.Usage == nil || result.Usage.RateLimitResetCredits == nil || result.Usage.RateLimitResetCredits.AvailableCount == nil || *result.Usage.RateLimitResetCredits.AvailableCount != 1 {
+		t.Fatalf("expected one available fallback credit, got %#v", result.Usage)
+	}
+}
+
+func TestCodexProviderKeepsUsageWhenResetCreditFallbackFails(t *testing.T) {
+	usageJSON := `{"plan_type":"plus","rate_limit":{"allowed":true,"primary_window":{"used_percent":12,"limit_window_seconds":18000}}}`
+	errorJSON := `{"error":{"message":"reset credits unavailable"}}`
+	caller := &recordingManagementCaller{responses: []*apicall.Response{
+		{StatusCode: 200, BodyText: usageJSON, Body: json.RawMessage(usageJSON)},
+		{StatusCode: 503, BodyText: errorJSON, Body: json.RawMessage(errorJSON)},
+	}}
+	provider := quota.NewCodexProvider(caller, quota.DefaultProviderConfigs().Codex)
+
+	output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "codex-auth"}})
+	if err != nil {
+		t.Fatalf("expected reset credits fallback failure not to discard usage, got %v", err)
+	}
+	result := output.Result.(quota.CodexResult)
+	if result.Usage == nil || result.Usage.RateLimit == nil || result.Usage.RateLimit.PrimaryWindow == nil || result.Usage.RateLimit.PrimaryWindow.UsedPercent != 12 {
+		t.Fatalf("expected primary usage to survive fallback failure, got %#v", result.Usage)
+	}
+	if result.Usage.RateLimitResetCredits != nil {
+		t.Fatalf("expected unknown reset credits after failed fallback, got %#v", result.Usage.RateLimitResetCredits)
+	}
 }
 
 func TestCodexProviderListsAvailableRateLimitResetCredits(t *testing.T) {
@@ -303,22 +369,31 @@ func TestCodexProviderTreatsNullWindowUsageAsMissingAndPreservesCamelCaseZero(t 
 }
 
 func TestCodexProviderOmitsAccountIDHeaderWhenMissing(t *testing.T) {
-	caller := &recordingManagementCaller{responses: []*apicall.Response{{
-		StatusCode: 200,
-		BodyText:   `{"plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false}}`,
-		Body:       json.RawMessage(`{"plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false}}`),
-	}}}
+	caller := &recordingManagementCaller{responses: []*apicall.Response{
+		{
+			StatusCode: 200,
+			BodyText:   `{"plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false}}`,
+			Body:       json.RawMessage(`{"plan_type":"plus","rate_limit":{"allowed":true,"limit_reached":false}}`),
+		},
+		{
+			StatusCode: 200,
+			BodyText:   `{"available_count":0}`,
+			Body:       json.RawMessage(`{"available_count":0}`),
+		},
+	}}
 	provider := quota.NewCodexProvider(caller, quota.DefaultProviderConfigs().Codex)
 
 	_, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "codex-auth"}})
 	if err != nil {
 		t.Fatalf("Check returned error: %v", err)
 	}
-	if len(caller.requests) != 1 {
-		t.Fatalf("expected one api-call request without account_id, got %d", len(caller.requests))
+	if len(caller.requests) != 2 {
+		t.Fatalf("expected usage and reset-credit requests without account_id, got %d", len(caller.requests))
 	}
-	if _, ok := caller.requests[0].Header["Chatgpt-Account-Id"]; ok {
-		t.Fatalf("expected account id header to be omitted, got headers: %+v", caller.requests[0].Header)
+	for _, request := range caller.requests {
+		if _, ok := request.Header["Chatgpt-Account-Id"]; ok {
+			t.Fatalf("expected account id header to be omitted, got headers: %+v", request.Header)
+		}
 	}
 }
 

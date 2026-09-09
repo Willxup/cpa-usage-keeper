@@ -1,7 +1,7 @@
 package repository
 
 import (
-	"cpa-usage-keeper/internal/repository/dto"
+	"context"
 	"fmt"
 	"net/url"
 	"os"
@@ -9,11 +9,14 @@ import (
 	"strings"
 	"time"
 
+	"cpa-usage-keeper/internal/backup"
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/logging"
+	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/repository/migration"
 	"cpa-usage-keeper/internal/timeutil"
+	"github.com/sirupsen/logrus"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/plugin/dbresolver"
@@ -122,7 +125,7 @@ func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 	if !sqliteDatabaseRequiresSinglePool(cfg.SQLitePath) && !strings.EqualFold(strings.TrimSpace(journalMode), "wal") {
 		return nil, fmt.Errorf("enable sqlite WAL: journal mode is %q", journalMode)
 	}
-	if err := db.Exec("PRAGMA busy_timeout=5000").Error; err != nil {
+	if err := db.Exec("PRAGMA busy_timeout=15000").Error; err != nil {
 		return nil, fmt.Errorf("set sqlite busy timeout: %w", err)
 	}
 	if err := db.Exec("PRAGMA foreign_keys=ON").Error; err != nil {
@@ -147,7 +150,17 @@ func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 	}
 
 	// 已有业务表的数据库必须走显式迁移，确保旧库按版本顺序补齐结构和索引。
-	if err := migration.Run(db); err != nil {
+	// 破坏性 migration 直接复用定时任务的 Writer，生成相同目录和 database_*.db 文件名。
+	migrationBackupWriter := backup.NewWriter(cfg.BackupDir)
+	if err := migration.Run(db, migration.RunOptions{BeforeDestructiveMigration: func(ctx context.Context, version string) error {
+		// 在线 SQLite backup 读取唯一 writer 的一致快照；失败会原样返回并阻止 migration 进入清表事务。
+		backupPath, err := migrationBackupWriter.WriteDatabase(ctx, sqlDB, time.Now())
+		if err != nil {
+			return err
+		}
+		logrus.WithFields(logrus.Fields{"version": version, "backup_path": backupPath}).Info("database backed up before destructive migration")
+		return nil
+	}}); err != nil {
 		return nil, fmt.Errorf("run schema migrations: %w", err)
 	}
 
@@ -204,7 +217,7 @@ func sqliteDSN(path string) string {
 	if strings.Contains(trimmed, "?") {
 		return trimmed
 	}
-	return trimmed + "?_busy_timeout=5000&_foreign_keys=on"
+	return trimmed + "?_busy_timeout=15000&_foreign_keys=on"
 }
 
 // sqliteReadDSN 把文件路径规范化为 SQLite URI，并强制底层只读模式与连接级 query_only 保护。
@@ -222,7 +235,7 @@ func sqliteReadDSN(path string) (string, error) {
 	}
 	// 无自定义 query 时沿用 writer 的连接级默认值；显式参数则保持旧 DSN 的覆盖语义。
 	if !hasQuery {
-		query.Set("_busy_timeout", "5000")
+		query.Set("_busy_timeout", "15000")
 		query.Set("_foreign_keys", "on")
 	}
 	// Set 会删除同名冲突值，保证调用方不能用参数顺序关闭 reader 的两层保护。

@@ -301,73 +301,14 @@ func TestAuthSessionClearsInactiveViewerSession(t *testing.T) {
 	}
 }
 
-func TestAuthLogoutClearsKeyOverviewRateLimitForSession(t *testing.T) {
-	sessions := auth.NewSessionManager(time.Hour)
-	token, _, err := sessions.CreateAPIKeyViewer(42)
-	if err != nil {
-		t.Fatalf("CreateAPIKeyViewer returned error: %v", err)
-	}
-	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	handler := NewAuthHandler(config, sessions)
-	router := NewRouter(nil, nil, nil, nil, config, handler, "")
-
-	if !handler.allowKeyOverviewRequest(token) {
-		t.Fatal("expected initial key overview request to be allowed")
-	}
-
-	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
-	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
-	router.ServeHTTP(resp, req)
-	if resp.Code != http.StatusNoContent {
-		t.Fatalf("expected logout status 204, got %d", resp.Code)
-	}
-	if _, ok := handler.keyOverviewRequests[token]; ok {
-		t.Fatal("expected logout to clear key overview rate limit entry")
-	}
-}
-
-func TestAuthSessionClearsKeyOverviewRateLimitForInactiveViewerSession(t *testing.T) {
-	sessions := auth.NewSessionManager(time.Hour)
-	token, _, err := sessions.CreateAPIKeyViewer(42)
-	if err != nil {
-		t.Fatalf("CreateAPIKeyViewer returned error: %v", err)
-	}
-	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	keyProvider := &authCPAAPIKeyStub{findErr: context.Canceled}
-	handler := NewAuthHandler(config, sessions)
-	router := NewRouter(nil, nil, nil, nil, config, handler, "", OptionalProviders{CPAAPIKeys: keyProvider})
-
-	if !handler.allowKeyOverviewRequest(token) {
-		t.Fatal("expected initial key overview request to be allowed")
-	}
-
-	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
-	router.ServeHTTP(resp, req)
-	if resp.Code != http.StatusOK || !contains(resp.Body.String(), `"authenticated":false`) {
-		t.Fatalf("unexpected inactive session response: %d %s", resp.Code, resp.Body.String())
-	}
-	if _, ok := handler.keyOverviewRequests[token]; ok {
-		t.Fatal("expected inactive viewer session cleanup to clear key overview rate limit entry")
-	}
-}
-
-func TestAuthSessionClearsKeyOverviewRateLimitForExpiredSession(t *testing.T) {
+func TestAuthSessionRejectsExpiredSession(t *testing.T) {
 	sessions := auth.NewSessionManager(-time.Hour)
 	token, _, err := sessions.CreateAPIKeyViewer(42)
 	if err != nil {
 		t.Fatalf("CreateAPIKeyViewer returned error: %v", err)
 	}
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: -time.Hour}
-	handler := NewAuthHandler(config, sessions)
-	router := NewRouter(nil, nil, nil, nil, config, handler, "")
-
-	if !handler.allowKeyOverviewRequest(token) {
-		t.Fatal("expected initial key overview request to be allowed")
-	}
+	router := NewRouter(nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "")
 
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil)
@@ -376,24 +317,16 @@ func TestAuthSessionClearsKeyOverviewRateLimitForExpiredSession(t *testing.T) {
 	if resp.Code != http.StatusOK || !contains(resp.Body.String(), `"authenticated":false`) {
 		t.Fatalf("unexpected expired session response: %d %s", resp.Code, resp.Body.String())
 	}
-	if _, ok := handler.keyOverviewRequests[token]; ok {
-		t.Fatal("expected expired auth session cleanup to clear key overview rate limit entry")
-	}
 }
 
-func TestAuthMiddlewareClearsKeyOverviewRateLimitForExpiredSession(t *testing.T) {
+func TestAuthMiddlewareRejectsExpiredSession(t *testing.T) {
 	sessions := auth.NewSessionManager(-time.Hour)
 	token, _, err := sessions.CreateAPIKeyViewer(42)
 	if err != nil {
 		t.Fatalf("CreateAPIKeyViewer returned error: %v", err)
 	}
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: -time.Hour}
-	handler := NewAuthHandler(config, sessions)
-	router := NewRouter(nil, nil, nil, nil, config, handler, "")
-
-	if !handler.allowKeyOverviewRequest(token) {
-		t.Fatal("expected initial key overview request to be allowed")
-	}
+	router := NewRouter(nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "")
 
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview", nil)
@@ -401,9 +334,6 @@ func TestAuthMiddlewareClearsKeyOverviewRateLimitForExpiredSession(t *testing.T)
 	router.ServeHTTP(resp, req)
 	if resp.Code != http.StatusUnauthorized {
 		t.Fatalf("expected expired session to return 401, got %d %s", resp.Code, resp.Body.String())
-	}
-	if _, ok := handler.keyOverviewRequests[token]; ok {
-		t.Fatal("expected expired middleware session cleanup to clear key overview rate limit entry")
 	}
 }
 

@@ -20,22 +20,8 @@ const scssRule = (selector: string) => {
 };
 
 describe('AnalysisPanel inner element radii', () => {
-  it('uses the shared card radius for chart frames and summary cards', () => {
-    for (const selector of [
-      '.analysisChartSurface',
-      '.costRatePanel',
-      '.costMetric',
-      '.latencyMetric',
-    ]) {
-      expect(scssRule(selector)).toContain('border-radius: var(--keeper-card-radius);');
-    }
-  });
-
-  it('keeps the cost bar compact while rounded metric cards preserve text clearance', () => {
-    expect(scssRule('.costStack')).toContain('border-radius: 8px;');
-    expect(scssRule('.costRateMetric')).toContain('padding: 16px;');
-    expect(scssRule('.costMetric')).toContain('padding: 16px;');
-    expect(scssRule('.latencyMetric')).toContain('padding: 16px;');
+  it('uses the shared card radius for chart surfaces', () => {
+    expect(scssRule('.analysisChartSurface')).toContain('border-radius: var(--keeper-card-radius);');
   });
 
   it('uses the project pill radius for model and distribution controls', () => {

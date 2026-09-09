@@ -2,11 +2,13 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const loginPageStyles = readFileSync(new URL('../LoginPage.module.scss', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+const loginPageSource = readFileSync(new URL('../LoginPage.tsx', import.meta.url), 'utf8')
 const themeStyles = readFileSync(new URL('../../styles/themes.scss', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 const pageShellRules = loginPageStyles.match(/\.pageShell\s*\{[\s\S]*?\n\}/g) ?? []
 const pageShellStyles = pageShellRules[0] ?? ''
 const pageShellBackground = pageShellStyles.match(/background:\s*([\s\S]*?);/)?.[1] ?? ''
 const eyebrowStyles = loginPageStyles.match(/\.eyebrow\s*\{([\s\S]*?)\n\}/)?.[1] ?? ''
+const utilityDockStyles = loginPageStyles.match(/\.utilityDock\s*\{([\s\S]*?)\n\}/)?.[1] ?? ''
 
 describe('LoginPage layout styles', () => {
   it('ends the login surface on the base theme background without an edge glow', () => {
@@ -26,6 +28,11 @@ describe('LoginPage layout styles', () => {
   it('nudges the desktop brand block upward without shifting the mobile layout', () => {
     expect(loginPageStyles).toMatch(/\.brandBlock\s*\{[\s\S]*?transform:\s*translateY\(-50px\);/)
     expect(loginPageStyles).toMatch(/\.brandBlock\s*\{[\s\S]*?@include mobile\s*\{[\s\S]*?transform:\s*none;/)
+  })
+
+  it('lowers only the desktop language and theme controls', () => {
+    expect(utilityDockStyles).toMatch(/transform:\s*translateY\(24px\);/)
+    expect(utilityDockStyles).toMatch(/@include mobile\s*\{[\s\S]*?transform:\s*none;/)
   })
 
   it('keeps the compact single-column layout on mobile', () => {
@@ -50,13 +57,13 @@ describe('LoginPage layout styles', () => {
     expect(eyebrowStyles).toMatch(/font-size:\s*20px;/)
   })
 
-  it('keeps the login card width stable when localized copy changes', () => {
+  it('keeps the login card naturally sized around its controls', () => {
     expect(loginPageStyles).toMatch(/\.loginCard\s*\{[\s\S]*?width:\s*100%;/)
-    expect(loginPageStyles).toMatch(/\.loginCard\s*\{[\s\S]*?min-height:\s*440px;/)
+    expect(loginPageStyles).toMatch(/\.loginCard\s*\{[\s\S]*?min-height:\s*0;/)
+    expect(loginPageStyles).not.toMatch(/\.loginCard\s*\{[\s\S]*?min-height:\s*440px;/)
     expect(loginPageStyles).toMatch(/\.loginCard\s*\{[\s\S]*?box-sizing:\s*border-box;/)
     expect(loginPageStyles).toMatch(/\.loginCard\s*\{[\s\S]*?display:\s*flex;/)
     expect(loginPageStyles).toMatch(/\.loginCard\s*\{[\s\S]*?flex-direction:\s*column;/)
-    expect(loginPageStyles).toMatch(/\.loginCard\s*\{[\s\S]*?@include mobile\s*\{[\s\S]*?min-height:\s*0;/)
   })
 
   it('makes the active login method visible in dark mode surfaces', () => {
@@ -68,8 +75,16 @@ describe('LoginPage layout styles', () => {
     expect(themeStyles).toMatch(/\[data-theme='dark'\]\s*\{[\s\S]*?--text-primary:\s*#f6f4f1;/)
   })
 
-  it('keeps the submit action anchored inside the minimum-height login card', () => {
-    expect(loginPageStyles).toMatch(/\.form\s*\{[\s\S]*?flex:\s*1 1 auto;/)
-    expect(loginPageStyles).toMatch(/\.form\s*\{[\s\S]*?:global\(\.btn\)\s*\{[\s\S]*?margin-top:\s*auto;/)
+  it('keeps the input and submit action in a compact natural flow', () => {
+    expect(loginPageStyles).toMatch(/\.form\s*\{[\s\S]*?flex:\s*0 0 auto;/)
+    expect(loginPageStyles).toMatch(/\.form\s*\{[\s\S]*?gap:\s*18px;/)
+    expect(loginPageStyles).not.toMatch(/\.form\s*\{[\s\S]*?:global\(\.btn\)\s*\{[\s\S]*?margin-top:\s*auto;/)
+  })
+
+  it('keeps the login card focused on credentials without explanatory copy', () => {
+    expect(loginPageSource).not.toContain('auth.console_hint')
+    expect(loginPageSource).not.toContain('auth.password_hint')
+    expect(loginPageSource).not.toContain('auth.api_key_hint')
+    expect(loginPageStyles).not.toMatch(/\.(?:cardHint|formHint)\s*\{/)
   })
 })

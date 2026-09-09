@@ -78,14 +78,17 @@ type usageIdentityResponse struct {
 }
 
 type usageCredentialHealthResponse struct {
-	WindowSeconds int64                         `json:"window_seconds"`
-	BucketSeconds int64                         `json:"bucket_seconds"`
-	WindowStart   time.Time                     `json:"window_start"`
-	WindowEnd     time.Time                     `json:"window_end"`
-	TotalSuccess  int64                         `json:"total_success"`
-	TotalFailure  int64                         `json:"total_failure"`
-	SuccessRate   float64                       `json:"success_rate"`
-	Buckets       []usageCredentialHealthBucket `json:"buckets"`
+	WindowSeconds int64     `json:"window_seconds"`
+	BucketSeconds int64     `json:"bucket_seconds"`
+	WindowStart   time.Time `json:"window_start"`
+	WindowEnd     time.Time `json:"window_end"`
+	TotalSuccess  int64     `json:"total_success"`
+	TotalFailure  int64     `json:"total_failure"`
+	SuccessRate   float64   `json:"success_rate"`
+	// 窗口内 canonical token 合计；前端用与终身缓存率相同的公式派生百分比。
+	InputTokens     int64                         `json:"input_tokens"`
+	CacheReadTokens int64                         `json:"cache_read_tokens"`
+	Buckets         []usageCredentialHealthBucket `json:"buckets"`
 }
 
 type usageCredentialHealthBucket struct {
@@ -369,13 +372,15 @@ func mapUsageCredentialHealthResponse(snapshot *service.UsageCredentialHealthSna
 		})
 	}
 	return &usageCredentialHealthResponse{
-		WindowSeconds: snapshot.WindowSeconds,
-		BucketSeconds: snapshot.BucketSeconds,
-		WindowStart:   snapshot.WindowStart,
-		WindowEnd:     snapshot.WindowEnd,
-		TotalSuccess:  snapshot.TotalSuccess,
-		TotalFailure:  snapshot.TotalFailure,
-		SuccessRate:   snapshot.SuccessRate,
-		Buckets:       buckets,
+		WindowSeconds:   snapshot.WindowSeconds,
+		BucketSeconds:   snapshot.BucketSeconds,
+		WindowStart:     snapshot.WindowStart,
+		WindowEnd:       snapshot.WindowEnd,
+		TotalSuccess:    snapshot.TotalSuccess,
+		TotalFailure:    snapshot.TotalFailure,
+		SuccessRate:     snapshot.SuccessRate,
+		InputTokens:     snapshot.InputTokens,
+		CacheReadTokens: snapshot.CacheReadTokens,
+		Buckets:         buckets,
 	}
 }

@@ -276,6 +276,67 @@ func TestUsageRecentEventCacheCredentialHealthUsesExactIdentityMatch(t *testing.
 	}
 }
 
+func TestUsageRecentEventCacheAccumulatesCredentialHealthCacheTokens(t *testing.T) {
+	withRepositoryTestLocation(t, "Asia/Shanghai")
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "credential-health-cache-tokens.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	now := time.Date(2026, 6, 10, 12, 34, 0, 0, time.FixedZone("CST", 8*60*60))
+	events := []entities.UsageEvent{
+		// 启动加载路径：两条事件落在同一个 10 分钟桶。
+		{EventKey: "startup-a", AuthType: "apikey", AuthIndex: "provider-1", Timestamp: now.Add(-23 * time.Minute), InputTokens: 1000, CacheReadTokens: 400},
+		{EventKey: "startup-b", AuthType: "apikey", AuthIndex: "provider-1", Timestamp: now.Add(-24 * time.Minute), InputTokens: 1000, CacheReadTokens: 200, Failed: true},
+		// 窗口外事件不得进入 5h 合计。
+		{EventKey: "too-old", AuthType: "apikey", AuthIndex: "provider-1", Timestamp: now.Add(-5*time.Hour - time.Minute), InputTokens: 9_000_000, CacheReadTokens: 9_000_000},
+		// 另一个身份必须与 provider-1 完全隔离。
+		{EventKey: "other-identity", AuthType: "apikey", AuthIndex: "provider-2", Timestamp: now.Add(-10 * time.Minute), InputTokens: 500, CacheReadTokens: 500},
+	}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	cache, err := NewUsageRecentEventCache(db, UsageRecentEventCacheOptions{Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatalf("NewUsageRecentEventCache returned error: %v", err)
+	}
+	t.Cleanup(cache.Close)
+
+	// 增量追加路径必须与启动加载累计到同一份合计，并把负数 token 截断为 0。
+	cache.appendEvents([]entities.UsageEvent{
+		{EventKey: "appended", AuthType: "apikey", AuthIndex: "provider-1", Timestamp: now.Add(-3 * time.Minute), InputTokens: 2000, CacheReadTokens: 900},
+		{EventKey: "negative", AuthType: "apikey", AuthIndex: "provider-1", Timestamp: now.Add(-3 * time.Minute), InputTokens: -50, CacheReadTokens: -50},
+	})
+
+	health, ok := cache.CredentialHealth("apikey", "provider-1", now)
+	if !ok {
+		t.Fatal("expected credential health cache to be available")
+	}
+	// 1000+1000+2000 = 4000 input，400+200+900 = 1500 cache_read；窗口外与他人事件都不参与。
+	if health.InputTokens != 4000 || health.CacheReadTokens != 1500 {
+		t.Fatalf("unexpected 5h token totals: input=%d cacheRead=%d", health.InputTokens, health.CacheReadTokens)
+	}
+
+	isolated, ok := cache.CredentialHealth("apikey", "provider-2", now)
+	if !ok {
+		t.Fatal("expected second identity credential health to be available")
+	}
+	if isolated.InputTokens != 500 || isolated.CacheReadTokens != 500 {
+		t.Fatalf("expected provider-2 tokens to stay isolated, got input=%d cacheRead=%d", isolated.InputTokens, isolated.CacheReadTokens)
+	}
+
+	// 无流量身份返回零合计，展示层据此落到 "—" 而不是 0%。
+	quiet, ok := cache.CredentialHealth("apikey", "missing-provider", now)
+	if !ok {
+		t.Fatal("expected missing credential health to still return an empty placeholder")
+	}
+	if quiet.InputTokens != 0 || quiet.CacheReadTokens != 0 {
+		t.Fatalf("expected empty placeholder to carry zero tokens, got %+v", quiet)
+	}
+}
+
 func TestCredentialHealthStartupLoadStreamsRowsInBatches(t *testing.T) {
 	withRepositoryTestLocation(t, "UTC")
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "credential-health-stream.db")})

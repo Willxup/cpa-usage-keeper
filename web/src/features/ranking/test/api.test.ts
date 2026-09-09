@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   exitRanking,
+  fetchKeyLocalRankingLeaderboard,
+  fetchKeyRankingLeaderboard,
   fetchLocalRankingLeaderboard,
   fetchRankingLeaderboard,
   fetchRankingMetadata,
@@ -26,7 +28,7 @@ describe('ranking API', () => {
 
   it('uses the Keeper base path and exact leaderboard selection', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper/' });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => jsonResponse({
       period: 'today',
       period_key: '2026-07-24',
       metric: 'overall',
@@ -62,6 +64,54 @@ describe('ranking API', () => {
     expect(url.pathname).toBe('/keeper/api/v1/ranking/local/leaderboards');
     expect(url.search).toBe('?period=today&metric=overall');
     expect(init).toMatchObject({ credentials: 'include', cache: 'no-store' });
+  });
+
+  it('uses dedicated read-only API Key Viewer leaderboard endpoints', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper/' });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => jsonResponse({
+      period: 'today',
+      period_key: '2026-08-28',
+      metric: 'overall',
+      generated_at: '2026-08-28T04:00:00Z',
+      stale: false,
+      entries: [],
+    }));
+
+    await fetchKeyRankingLeaderboard('today', 'overall');
+    await fetchKeyLocalRankingLeaderboard('today', 'overall');
+
+    expect(fetchMock.mock.calls.map(([rawURL, init]) => {
+      const url = new URL(String(rawURL), 'http://localhost');
+      return [url.pathname, url.search, init?.method ?? 'GET'];
+    })).toEqual([
+      ['/keeper/api/v1/key-ranking/leaderboards', '?period=today&metric=overall', 'GET'],
+      ['/keeper/api/v1/key-ranking/local/leaderboards', '?period=today&metric=overall', 'GET'],
+    ]);
+  });
+
+  it('uses the CPAMC embed session for API Key Viewer leaderboard reads', async () => {
+    const sessionStorage = {
+      getItem: vi.fn(() => 'viewer-embed-token'),
+    };
+    vi.stubGlobal('window', {
+      __APP_BASE_PATH__: '/keeper/',
+      location: { search: '?embed=cpamc' },
+      sessionStorage,
+    });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({
+      period: 'today',
+      period_key: '2026-08-28',
+      metric: 'overall',
+      generated_at: '2026-08-28T04:00:00Z',
+      stale: false,
+      entries: [],
+    }));
+
+    await fetchKeyRankingLeaderboard('today', 'overall');
+
+    const headers = new Headers(fetchMock.mock.calls[0][1]?.headers);
+    expect(headers.get('X-CPA-Usage-Keeper-Embed')).toBe('cpamc');
+    expect(headers.get('X-CPA-Usage-Keeper-Embed-Session')).toBe('viewer-embed-token');
   });
 
   it('updates a local Key profile through the dedicated admin endpoint', async () => {

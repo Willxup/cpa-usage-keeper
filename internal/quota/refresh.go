@@ -43,14 +43,15 @@ type CacheResponse struct {
 }
 
 type CachedQuotaItem struct {
-	AuthIndex      string            `json:"auth_index"`
-	FileName       *string           `json:"file_name,omitempty"`
-	Status         RefreshTaskStatus `json:"status"`
-	Quota          *CheckResponse    `json:"quota,omitempty"`
-	Error          string            `json:"error,omitempty"`
-	HTTPStatusCode *int              `json:"http_status_code,omitempty"`
-	ExpiresAt      *time.Time        `json:"expires_at,omitempty"`
-	RefreshedAt    *time.Time        `json:"refreshed_at,omitempty"`
+	AuthIndex         string             `json:"auth_index"`
+	FileName          *string            `json:"file_name,omitempty"`
+	Status            RefreshTaskStatus  `json:"status"`
+	Quota             *CheckResponse     `json:"quota,omitempty"`
+	Error             string             `json:"error,omitempty"`
+	HTTPStatusCode    *int               `json:"http_status_code,omitempty"`
+	ExpiresAt         *time.Time         `json:"expires_at,omitempty"`
+	RefreshedAt       *time.Time         `json:"refreshed_at,omitempty"`
+	UpstreamResponses []UpstreamResponse `json:"upstream_responses,omitempty"`
 }
 
 type RefreshRequest struct {
@@ -76,30 +77,32 @@ type RefreshRejectedAuthIndex struct {
 }
 
 type RefreshTaskResponse struct {
-	AuthIndex      string            `json:"authIndex"`
-	FileName       *string           `json:"file_name,omitempty"`
-	Status         RefreshTaskStatus `json:"status"`
-	Quota          *CheckResponse    `json:"quota,omitempty"`
-	Error          string            `json:"error,omitempty"`
-	HTTPStatusCode *int              `json:"http_status_code,omitempty"`
-	RefreshedAt    *time.Time        `json:"refreshed_at,omitempty"`
-	ExpiresAt      *time.Time        `json:"expiresAt,omitempty"`
+	AuthIndex         string             `json:"authIndex"`
+	FileName          *string            `json:"file_name,omitempty"`
+	Status            RefreshTaskStatus  `json:"status"`
+	Quota             *CheckResponse     `json:"quota,omitempty"`
+	Error             string             `json:"error,omitempty"`
+	HTTPStatusCode    *int               `json:"http_status_code,omitempty"`
+	RefreshedAt       *time.Time         `json:"refreshed_at,omitempty"`
+	ExpiresAt         *time.Time         `json:"expiresAt,omitempty"`
+	UpstreamResponses []UpstreamResponse `json:"upstream_responses,omitempty"`
 }
 
 type RefreshTaskRecord struct {
-	AuthIndex      string
-	Name           string
-	Type           string
-	FileName       *string
-	Status         RefreshTaskStatus
-	Quota          *CheckResponse
-	Error          string
-	HTTPStatusCode *int
-	Source         RefreshSource
-	CreatedAt      time.Time
-	StartedAt      time.Time
-	RefreshedAt    time.Time
-	ExpiresAt      time.Time
+	AuthIndex         string
+	Name              string
+	Type              string
+	FileName          *string
+	Status            RefreshTaskStatus
+	Quota             *CheckResponse
+	Error             string
+	HTTPStatusCode    *int
+	Source            RefreshSource
+	CreatedAt         time.Time
+	StartedAt         time.Time
+	RefreshedAt       time.Time
+	ExpiresAt         time.Time
+	UpstreamResponses []UpstreamResponse
 }
 
 func (s *Service) GetCachedQuota(ctx context.Context, request CacheRequest) (CacheResponse, error) {
@@ -133,11 +136,11 @@ func (s *Service) GetCachedQuota(ctx context.Context, request CacheRequest) (Cac
 		case task.Status == RefreshTaskStatusCompleted && task.Quota != nil:
 			quota := *task.Quota
 			refreshedAt := task.RefreshedAt
-			response.Items = append(response.Items, CachedQuotaItem{AuthIndex: authIndex, FileName: task.FileName, Status: RefreshTaskStatusCompleted, Quota: &quota, RefreshedAt: &refreshedAt})
+			response.Items = append(response.Items, CachedQuotaItem{AuthIndex: authIndex, FileName: task.FileName, Status: RefreshTaskStatusCompleted, Quota: &quota, RefreshedAt: &refreshedAt, UpstreamResponses: cloneUpstreamResponses(task.UpstreamResponses)})
 		case task.Status == RefreshTaskStatusFailed && task.HTTPStatusCode != nil && isRefreshCacheableHTTPStatus(*task.HTTPStatusCode):
 			expiresAt := task.ExpiresAt
 			refreshedAt := task.RefreshedAt
-			response.Items = append(response.Items, CachedQuotaItem{AuthIndex: authIndex, FileName: task.FileName, Status: RefreshTaskStatusFailed, Error: task.Error, HTTPStatusCode: task.HTTPStatusCode, ExpiresAt: &expiresAt, RefreshedAt: &refreshedAt})
+			response.Items = append(response.Items, CachedQuotaItem{AuthIndex: authIndex, FileName: task.FileName, Status: RefreshTaskStatusFailed, Error: task.Error, HTTPStatusCode: task.HTTPStatusCode, ExpiresAt: &expiresAt, RefreshedAt: &refreshedAt, UpstreamResponses: cloneUpstreamResponses(task.UpstreamResponses)})
 		}
 	}
 	return response, nil
@@ -393,7 +396,7 @@ func (s *Service) runRefreshTaskWithWorker(authIndex string) {
 	// 任务结束时释放 timeout timer，避免资源泄漏。
 	defer cancel()
 	// Check 会按 auth_index 读取身份、调用对应 provider，并标准化 quota rows。
-	response, err := s.Check(ctx, CheckRequest{AuthIndex: authIndex, Source: source})
+	response, upstreamResponses, err := s.checkWithUpstreamResponses(ctx, CheckRequest{AuthIndex: authIndex, Source: source})
 	// provider 或身份校验失败时进入失败状态。
 	if err != nil {
 		if errors.Is(err, ErrUnsupportedType) {
@@ -402,14 +405,14 @@ func (s *Service) runRefreshTaskWithWorker(authIndex string) {
 			return
 		}
 		// markRefreshTaskFailed 会把友好错误、HTTP 状态和缓存 TTL 写入任务记录。
-		s.markRefreshTaskFailed(authIndex, err)
+		s.markRefreshTaskFailed(authIndex, err, upstreamResponses)
 		// 失败任务不再计算 token/cost，也不会写 completed quota 缓存。
 		return
 	}
 	// provider 成功后立即把窗口内 token/cost 补进同一次缓存，前端读取缓存时不再触发额外统计请求。
 	response = s.attachWindowUsageStats(ctx, authIndex, response, time.Now())
 	// quota rows 和 token/cost 都准备好后，把任务切到 completed 并写入长期成功缓存。
-	s.markRefreshTaskCompleted(authIndex, response)
+	s.markRefreshTaskCompleted(authIndex, response, upstreamResponses)
 }
 
 func (s *Service) deleteRefreshTask(authIndex string) {
@@ -471,7 +474,7 @@ func (s *Service) markRefreshTaskRunning(authIndex string) (string, RefreshSourc
 	return task.AuthIndex, task.Source, true
 }
 
-func (s *Service) markRefreshTaskCompleted(authIndex string, response CheckResponse) {
+func (s *Service) markRefreshTaskCompleted(authIndex string, response CheckResponse, upstreamResponses []UpstreamResponse) {
 	// now 同时作为完成时间和成功缓存写入时间。
 	now := timeutil.NormalizeStorageTime(time.Now())
 	// refreshTasks 是共享 map，写 completed 状态前必须加锁。
@@ -491,17 +494,19 @@ func (s *Service) markRefreshTaskCompleted(authIndex string, response CheckRespo
 	task.RefreshedAt = now
 	// 保存包含 token/cost 的 quota 响应，后续 cache 接口直接复用。
 	task.Quota = &response
+	// raw 响应与当前 quota 同生命周期；同 auth_index 的下一次刷新会整体覆盖任务记录。
+	task.UpstreamResponses = cloneUpstreamResponses(upstreamResponses)
 }
 
 func (s *Service) markQueuedRefreshTasksFailed(authIndexes []string, err error) {
 	// dispatcher 取消时批量处理剩余 queued 任务，避免未派发任务永久停留在 queued。
 	for _, authIndex := range authIndexes {
 		// 复用单任务失败逻辑，确保错误信息、HTTP 状态和 TTL 语义一致。
-		s.markRefreshTaskFailed(authIndex, err)
+		s.markRefreshTaskFailed(authIndex, err, nil)
 	}
 }
 
-func (s *Service) markRefreshTaskFailed(authIndex string, err error) {
+func (s *Service) markRefreshTaskFailed(authIndex string, err error, upstreamResponses []UpstreamResponse) {
 	// now 同时作为失败完成时间和失败缓存写入时间。
 	now := timeutil.NormalizeStorageTime(time.Now())
 	// 把底层错误转换成前端可展示的友好信息。
@@ -527,6 +532,8 @@ func (s *Service) markRefreshTaskFailed(authIndex string, err error) {
 	task.Error = message
 	// 写入可选 HTTP 状态码，cache 接口会用它判断是否可恢复展示。
 	task.HTTPStatusCode = httpStatusCode
+	// 即使 provider 返回非 2xx 或解析失败，也保留已经收到的上游响应用于生产排障。
+	task.UpstreamResponses = cloneUpstreamResponses(upstreamResponses)
 	// 可缓存 HTTP 错误使用专门 TTL，让刷新页面后仍能看到稳定认证/余额错误。
 	if httpStatusCode != nil && isRefreshCacheableHTTPStatus(*httpStatusCode) {
 		// 401/402 等可配置错误使用较长的错误缓存 TTL。
@@ -560,11 +567,12 @@ func (t *RefreshTaskRecord) isActive() bool {
 
 func (t *RefreshTaskRecord) response() RefreshTaskResponse {
 	response := RefreshTaskResponse{
-		AuthIndex:      t.AuthIndex,
-		FileName:       t.FileName,
-		Status:         t.Status,
-		Error:          t.Error,
-		HTTPStatusCode: t.HTTPStatusCode,
+		AuthIndex:         t.AuthIndex,
+		FileName:          t.FileName,
+		Status:            t.Status,
+		Error:             t.Error,
+		HTTPStatusCode:    t.HTTPStatusCode,
+		UpstreamResponses: cloneUpstreamResponses(t.UpstreamResponses),
 	}
 	if t.Quota != nil {
 		quota := *t.Quota

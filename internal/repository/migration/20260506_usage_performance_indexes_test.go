@@ -18,7 +18,7 @@ func TestOpenDatabaseAddsUsagePerformanceIndexes(t *testing.T) {
 
 	for _, indexName := range []string{
 		"idx_usage_events_timestamp_id",
-		"idx_usage_events_api_group_key",
+		"idx_usage_events_api_group_key_timestamp",
 		"idx_usage_events_auth_index",
 		"idx_usage_events_model",
 		"idx_usage_events_auth_index_timestamp_id",
@@ -36,6 +36,7 @@ func TestOpenDatabaseAddsUsagePerformanceIndexes(t *testing.T) {
 	}
 
 	for _, indexName := range []string{
+		"idx_usage_events_api_group_key",
 		"idx_usage_events_timestamp",
 		"idx_usage_events_trim_model",
 		"idx_usage_events_trim_source",
@@ -120,7 +121,7 @@ func TestUsagePerformanceIndexesSupportRepresentativeQueryPlans(t *testing.T) {
 		EXPLAIN QUERY PLAN SELECT id FROM usage_events
 		WHERE auth_index = ?`, "authidx-main")
 
-	assertQueryPlanUsesIndex(t, db, "idx_usage_events_api_group_key", `
+	assertQueryPlanUsesIndex(t, db, "idx_usage_events_api_group_key_timestamp", `
 		EXPLAIN QUERY PLAN SELECT api_group_key, COUNT(*) FROM usage_events
 		GROUP BY api_group_key`)
 

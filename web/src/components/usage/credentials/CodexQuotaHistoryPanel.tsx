@@ -20,6 +20,7 @@ type QuotaEfficiencyChartOptions = ChartOptions<QuotaEfficiencyChartType>
 
 interface QuotaEfficiencyPoint {
   label: string
+  remainingPercent: number
   transition: CodexQuotaHistoryTransition
 }
 
@@ -44,6 +45,12 @@ const QUOTA_EFFICIENCY_BAR_COLORS = {
   direct: { base: '#2563eb', light: '#93c5fd' },
   averaged: { base: '#d97706', light: '#fde68a' },
 } satisfies Record<'direct' | 'averaged', UsageChartGradientColor>
+
+const QUOTA_REMAINING_LINE_COLORS = {
+  // 低饱和暖灰只承担趋势提示，贴合页面的纸感中性色，避免与 Token 柱体和 Cost 虚线争夺焦点。
+  light: 'rgba(120, 113, 108, 0.68)',
+  dark: 'rgba(168, 162, 158, 0.68)',
+} as const
 
 interface CodexQuotaHistoryPanelProps {
   authIndex: string
@@ -224,6 +231,14 @@ function CurrentCycleEfficiencyCard({
               <span><i className={styles.crossDot} />{t('usage_stats.credentials_quota_history_cross')}</span>
               <span>
                 <i
+                  className={styles.remainingLine}
+                  data-codex-quota-remaining-legend="true"
+                  style={{ '--quota-remaining-line-color': isDark ? QUOTA_REMAINING_LINE_COLORS.dark : QUOTA_REMAINING_LINE_COLORS.light } as CSSProperties}
+                />
+                {t('usage_stats.credentials_quota_history_remaining_percentage')}
+              </span>
+              <span>
+                <i
                   className={styles.costLine}
                   data-codex-quota-cost-legend="true"
                   style={{ '--quota-cost-line-color': USAGE_CHART_REQUESTS_LINE_COLOR } as CSSProperties}
@@ -326,17 +341,21 @@ function QuotaSummaryMetric({
 }
 
 function calculateFullQuotaEstimate(cycle: CodexQuotaHistoryCycle): QuotaSummaryMetrics | null {
-  const remainingPercent = cycle.last_remaining_percent
-  if (remainingPercent == null || !Number.isFinite(remainingPercent)) return null
-  const usedPercent = 100 - Math.min(100, Math.max(0, remainingPercent))
-  if (usedPercent <= 0 || cycle.usage.requests <= 0 || cycle.usage.total_tokens <= 0) return null
-  // 与认证文件列表 Estimated 口径一致：当前用量除以已用比例，外推到 100% 额度。
-  const ratio = usedPercent / 100
+  // 只使用已经被相邻百分比观察夹住的事件；周期总量还包含首段前和尾段后的未结算用量。
+  const settled = cycle.transitions.reduce((total, transition) => ({
+    percentagePoints: total.percentagePoints + transition.percentage_points,
+    requests: total.requests + transition.usage.requests,
+    tokens: total.tokens + transition.usage.total_tokens,
+    cost: total.cost + transition.usage.total_cost_usd,
+    costAvailable: total.costAvailable && transition.cost_per_point_available,
+  }), { percentagePoints: 0, requests: 0, tokens: 0, cost: 0, costAvailable: true })
+  if (settled.percentagePoints <= 0 || settled.requests <= 0 || settled.tokens <= 0) return null
+  const ratio = 100 / settled.percentagePoints
   return {
-    requests: cycle.usage.requests / ratio,
-    tokens: cycle.usage.total_tokens / ratio,
-    cost: cycle.usage.total_cost_usd / ratio,
-    costAvailable: cycle.usage.cost_available,
+    requests: settled.requests * ratio,
+    tokens: settled.tokens * ratio,
+    cost: settled.cost * ratio,
+    costAvailable: settled.costAvailable,
   }
 }
 
@@ -615,6 +634,7 @@ function buildEfficiencyChart(
   const costValues = points.map(({ transition }) => transition.cost_per_point_available ? transition.cost_per_point : null)
   const hasUnavailableCost = transitions.some((transition) => !transition.cost_per_point_available)
   const chartTheme = getUsageChartTheme(isDark)
+  const remainingLineColor = isDark ? QUOTA_REMAINING_LINE_COLORS.dark : QUOTA_REMAINING_LINE_COLORS.light
   const text = chartTheme.textPrimary
   const muted = chartTheme.textSecondary
   const grid = chartTheme.grid
@@ -656,6 +676,23 @@ function buildEfficiencyChart(
           spanGaps: false,
           order: 1,
         },
+        {
+          type: 'line',
+          label: t('usage_stats.credentials_quota_history_remaining_percentage'),
+          data: points.map(({ remainingPercent }) => remainingPercent),
+          yAxisID: 'remaining',
+          borderColor: remainingLineColor,
+          backgroundColor: remainingLineColor,
+          pointBackgroundColor: remainingLineColor,
+          pointBorderColor: isDark ? '#111827' : '#ffffff',
+          pointBorderWidth: 1.5,
+          pointRadius: 0,
+          pointHoverRadius: 3,
+          borderWidth: 2,
+          tension: 0,
+          spanGaps: false,
+          order: 0,
+        },
       ],
     },
     options: {
@@ -684,9 +721,11 @@ function buildEfficiencyChart(
               const point = points[items[0]?.dataIndex]
               if (!point) return []
               const interval = `${t('usage_stats.credentials_quota_history_interval')}: ${formatDateTime(point.transition.interval_started_at, locale)} → ${formatDateTime(point.transition.interval_ended_at, locale)}`
+              const remaining = `${t('usage_stats.credentials_quota_history_remaining_percentage')}: ${point.remainingPercent}%`
               // Direct 与跨百分点样本统一显示真实观察时间；跨百分点再补充整段变化和总用量。
-              if (point.transition.is_direct) return [interval]
+              if (point.transition.is_direct) return [remaining, interval]
               return [
+                remaining,
                 `${t('usage_stats.credentials_quota_history_change')}: ${point.transition.from_remaining_percent}% → ${point.transition.to_remaining_percent}%`,
                 interval,
                 `${t('usage_stats.total_tokens')}: ${formatCompactNumber(point.transition.usage.total_tokens)} Token`,
@@ -720,6 +759,17 @@ function buildEfficiencyChart(
           border: { display: false },
           title: { display: true, color: text, text: 'USD/1%' },
         },
+        remaining: {
+          // 保留一个无视觉元素的 0–100 线性尺度；完全隐藏 display 会让
+          // Chart.js 在混合图中无法为该 dataset 计算有效绘图区。
+          position: 'right',
+          display: true,
+          min: 0,
+          max: 100,
+          grid: { display: false },
+          border: { display: false },
+          ticks: { display: false },
+        },
       },
     },
     hasUnavailableCost,
@@ -739,6 +789,8 @@ function expandEfficiencyPoints(transitions: CodexQuotaHistoryTransition[]): Quo
     const from = transition.from_remaining_percent - offset
     return {
       label: `${from}% → ${from - 1}%`,
+      // 柱体代表这一百分点消耗后的剩余值，下降线与 Tooltip 因此使用同一位置口径。
+      remainingPercent: from - 1,
       transition,
     }
   }))
@@ -799,6 +851,7 @@ function formatDateTime(value: string, locale?: string): string {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+    hourCycle: 'h23',
     ...(offsetTime ? { timeZone: 'UTC' } : {}),
   }).format(displayDate)
 }

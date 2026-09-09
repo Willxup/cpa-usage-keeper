@@ -55,6 +55,16 @@ export function credentialProviderFilterTypes(scope: CredentialProviderFilterSco
   return credentialProviderFiltersForScope(scope).find((item) => item.key === filter)?.types ?? []
 }
 
+// 恢复持久化筛选时使用：跨分区（例如 Auth 文件独有的 antigravity）或未知的 key 一律回落到 all。
+export function normalizeCredentialProviderFilterKey(scope: CredentialProviderFilterScope, value: unknown): CredentialProviderFilterKey {
+  if (typeof value !== 'string' || value === 'all') {
+    return 'all'
+  }
+  return credentialProviderFiltersForScope(scope).some((item) => item.key === value)
+    ? value as CredentialProviderFilterKey
+    : 'all'
+}
+
 export function buildCredentialProviderFilterOptions(scope: CredentialProviderFilterScope, typeCounts: UsageIdentityTypeCount[]): CredentialProviderFilterOption[] {
   const countsByType = new Map<string, number>()
   let allCount = 0

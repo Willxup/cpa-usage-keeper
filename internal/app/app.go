@@ -200,8 +200,9 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 
 	cpaClient := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)
 	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{
-		RefreshWorkerLimit: cfg.QuotaRefreshWorkerLimit,
-		PricingCatalog:     pricingCatalog,
+		RefreshWorkerLimit:            cfg.QuotaRefreshWorkerLimit,
+		QuotaUpstreamResponsesEnabled: cfg.QuotaUpstreamResponsesEnabled,
+		PricingCatalog:                pricingCatalog,
 	})
 	// 单 writer aggregation runner 只维护 rollups/Identity，并在 App.Run 时主动追平。
 	usageAggregationRunner := poller.NewUsageAggregationRunner(db)
@@ -315,12 +316,13 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		sessionManager = auth.NewPersistentSessionManager(cfg.AuthSessionTTL, auth.NewGormSessionStore(db))
 	}
 	authConfig := api.AuthConfig{
-		Enabled:              cfg.AuthEnabled,
-		LoginPassword:        cfg.LoginPassword,
-		SessionTTL:           cfg.AuthSessionTTL,
-		BasePath:             cfg.AppBasePath,
-		FrameAncestorOrigins: frameAncestorOrigins(cfg),
-		TrustedProxyCIDRs:    cfg.TrustedProxyCIDRs,
+		Enabled:                         cfg.AuthEnabled,
+		LoginPassword:                   cfg.LoginPassword,
+		SessionTTL:                      cfg.AuthSessionTTL,
+		BasePath:                        cfg.AppBasePath,
+		FrameAncestorOrigins:            frameAncestorOrigins(cfg),
+		TrustedProxyCIDRs:               cfg.TrustedProxyCIDRs,
+		APIKeyViewerLocalRankingEnabled: cfg.APIKeyViewerLocalRankingEnabled,
 	}
 	authHandler := api.NewAuthHandler(authConfig, sessionManager)
 

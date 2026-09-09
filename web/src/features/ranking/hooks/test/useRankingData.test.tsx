@@ -4,6 +4,7 @@ import { act, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RankingApiError } from '../../api';
+import { RANKING_PREFERENCES_STORAGE_KEY } from '../../preferences';
 import { useRankingData, type RankingDataAPI } from '../useRankingData';
 import type {
   RankingLeaderboardResponse,
@@ -94,6 +95,12 @@ describe('useRankingData', () => {
   let root: Root;
 
   beforeEach(() => {
+    // period/metric 现在会持久化，用例之间必须清掉，否则上一条的选择会泄漏成下一条的初始值。
+    try {
+      window.localStorage.removeItem(RANKING_PREFERENCES_STORAGE_KEY);
+    } catch {
+      // 环境没有可用的 localStorage 时 hook 也不会写入，无需清理。
+    }
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);

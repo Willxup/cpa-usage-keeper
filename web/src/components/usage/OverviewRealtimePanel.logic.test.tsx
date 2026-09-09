@@ -1,17 +1,17 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ChartData, ChartOptions } from 'chart.js';
+import type { ChartData, ChartOptions, Plugin } from 'chart.js';
 import type { OverviewRealtimeBlock } from '@/lib/types';
 import i18n from '@/i18n';
 
 const chartCapture = vi.hoisted(() => ({
-  lineCalls: [] as Array<{ data: ChartData<'line', Array<number | null>, string>; options: ChartOptions<'line'> }>,
+  lineCalls: [] as Array<{ data: ChartData<'line', Array<number | null>, string>; options: ChartOptions<'line'>; plugins?: Plugin<'line'>[] }>,
   chartCalls: [] as Array<{ type?: string; data: ChartData; options: ChartOptions }>,
 }));
 
 vi.mock('react-chartjs-2', () => ({
-  Line: (props: { data: ChartData<'line', Array<number | null>, string>; options: ChartOptions<'line'> }) => {
+  Line: (props: { data: ChartData<'line', Array<number | null>, string>; options: ChartOptions<'line'>; plugins?: Plugin<'line'>[] }) => {
     chartCapture.lineCalls.push(props);
     return React.createElement('div');
   },
@@ -90,6 +90,10 @@ const realtimeWithProjectOffset: OverviewRealtimeBlock = {
     { bucket: '2026-06-09T11:55:00+08:00', tokens_per_minute: 120, tokens: 60 },
     { bucket: '2026-06-09T11:55:30+08:00', tokens_per_minute: 240, tokens: 120 },
   ],
+  request_level: [
+    { bucket: '2026-06-09T11:55:00+08:00', requests_per_minute: 2, requests: 1 },
+    { bucket: '2026-06-09T11:55:30+08:00', requests_per_minute: 4, requests: 2 },
+  ],
 };
 
 describe('OverviewRealtimePanel', () => {
@@ -99,7 +103,7 @@ describe('OverviewRealtimePanel', () => {
     await i18n.changeLanguage('en');
   });
 
-  it('renders realtime chart layout with one full-width chart and two two-column rows', () => {
+  it('renders a dual-axis throughput chart without duplicating the request chart', () => {
     const html = renderToStaticMarkup(
       <OverviewRealtimePanel
         realtime={realtime}
@@ -108,28 +112,93 @@ describe('OverviewRealtimePanel', () => {
         onWindowChange={() => {}}
         isDark={false}
         isMobile={false}
+        timezone="UTC"
       />
     );
 
-    expect(html).toContain('usage_stats.overview_realtime_token_velocity');
+    expect(html).toContain('usage_stats.overview_realtime_throughput');
     expect(html).toContain('usage_stats.overview_realtime_section_title');
     expect(html).toContain('usage_stats.overview_realtime_ttft_distribution');
     expect(html).toContain('usage_stats.overview_realtime_latency_distribution');
     expect(html).toContain('usage_stats.overview_realtime_current_usage');
-    expect(html).toContain('usage_stats.overview_realtime_request_level');
+    expect(html).not.toContain('usage_stats.overview_realtime_request_level');
     expect(html).toContain('usage_stats.overview_realtime_cache_level');
-    expect(html).toContain('overviewRealtimeCardFull');
-    expect(html.match(/keeper-card-surface/g) ?? []).toHaveLength(6);
-    expect(html.match(/class="keeper-card-title-track"/g) ?? []).toHaveLength(6);
-    expect(html.match(/class="keeper-card-title"/g) ?? []).toHaveLength(6);
+    expect(html.match(/overviewRealtimeCardFull/g) ?? []).toHaveLength(2);
+    expect(html.match(/keeper-card-surface/g) ?? []).toHaveLength(5);
+    expect(html.match(/class="keeper-card-title-track"/g) ?? []).toHaveLength(5);
+    expect(html.match(/class="keeper-card-title"/g) ?? []).toHaveLength(5);
     expect(html).toContain('30m');
     expect(html).not.toMatch(/>5m<\/button>/);
     expect(html).toContain('usage_stats.overview_realtime_dimension_api_keys');
     expect(html).toContain('usage_stats.overview_realtime_dimension_auth_files');
     expect(html).toContain('gpt-5');
-    expect(chartCapture.lineCalls).toHaveLength(3);
+    expect(chartCapture.lineCalls).toHaveLength(2);
     expect(chartCapture.chartCalls).toHaveLength(2);
-    expect(chartCapture.lineCalls[0].data.datasets[0].data).toEqual([120, 240]);
+    expect(chartCapture.lineCalls[0].data.datasets).toMatchObject([
+      {
+        label: 'usage_stats.overview_realtime_tpm',
+        data: [120, 240],
+        yAxisID: 'tokens',
+        fill: true,
+      },
+      {
+        label: 'usage_stats.overview_realtime_rpm',
+        data: [2, 4],
+        yAxisID: 'requests',
+        fill: false,
+        borderDash: [6, 4],
+      },
+    ]);
+    expect(chartCapture.lineCalls[0].options).toMatchObject({
+      plugins: {
+        legend: {
+          display: true,
+          labels: {
+            usePointStyle: true,
+            pointStyle: 'line',
+            pointStyleWidth: 32,
+            generateLabels: expect.any(Function),
+          },
+        },
+      },
+      scales: {
+        tokens: {
+          position: 'left',
+          beginAtZero: true,
+          border: { color: 'rgba(17, 24, 39, 0.07)' },
+          ticks: { count: 6 },
+        },
+        requests: {
+          position: 'right',
+          beginAtZero: true,
+          max: 5,
+          grid: { drawOnChartArea: false },
+          border: { color: 'rgba(17, 24, 39, 0.07)' },
+          ticks: { count: 6, precision: 0 },
+        },
+      },
+    });
+    const generateLabels = chartCapture.lineCalls[0].options.plugins?.legend?.labels?.generateLabels;
+    const legendItems = generateLabels?.({
+      data: chartCapture.lineCalls[0].data,
+      isDatasetVisible: () => true,
+    } as never);
+    expect(legendItems).toMatchObject([
+      { text: 'usage_stats.overview_realtime_tpm', lineDash: [], pointStyle: 'line' },
+      { text: 'usage_stats.overview_realtime_rpm', lineDash: [6, 4], pointStyle: 'line' },
+    ]);
+    expect(chartCapture.lineCalls[0].plugins?.map((plugin) => plugin.id)).toContain('throughputLegendSpacing');
+    expect(html.match(/overviewRealtimePairedMetric_/g) ?? []).toHaveLength(3);
+    expect(html).not.toContain('overviewRealtimeSeriesSwatch');
+    expect(html.match(/>usage_stats\.overview_realtime_latest<\/span>/g) ?? []).toHaveLength(4);
+    expect(html.match(/>usage_stats\.overview_realtime_average<\/span>/g) ?? []).toHaveLength(4);
+    expect(html.match(/>usage_stats\.overview_realtime_trend<\/span>/g) ?? []).toHaveLength(4);
+    expect(html).toContain('usage_stats.tpm');
+    expect(html).toContain('usage_stats.rpm');
+    expect(html).not.toContain('aria-label="usage_stats.overview_realtime_latest usage_stats.overview_realtime_tpm');
+    expect(html).toContain('overviewRealtimeScreenReaderOnly_');
+    expect(html).toContain('>usage_stats.overview_realtime_latest usage_stats.overview_realtime_tpm 240 usage_stats.overview_realtime_rpm 4 usage_stats.overview_realtime_throughput_hint</span>');
+    expect(html).toContain('aria-hidden="true">usage_stats.overview_realtime_latest</span>');
     expect(chartCapture.chartCalls[0].data.datasets.map((dataset) => dataset.label)).toEqual([
       'usage_stats.overview_realtime_ttft_average',
       'usage_stats.overview_realtime_ttft_distribution',
@@ -138,8 +207,30 @@ describe('OverviewRealtimePanel', () => {
       'usage_stats.overview_realtime_latency_average',
       'usage_stats.overview_realtime_latency_distribution',
     ]);
-    expect(chartCapture.lineCalls[1].data.datasets[0].data).toEqual([2, 4]);
-    expect(chartCapture.lineCalls[2].data.datasets[0].data).toEqual([25, 50]);
+    expect(chartCapture.lineCalls[1].data.datasets[0].data).toEqual([25, 50]);
+  });
+
+  it('aligns throughput series by bucket when one response series has a missing point', () => {
+    renderToStaticMarkup(
+      <OverviewRealtimePanel
+        realtime={{
+          ...realtime,
+          request_level: [
+            { bucket: '2026-06-09T11:55:30Z', requests_per_minute: 4, requests: 2 },
+          ],
+        }}
+        loading={false}
+        window="15m"
+        onWindowChange={() => {}}
+        isDark={false}
+        isMobile={false}
+        timezone="UTC"
+      />
+    );
+
+    expect(chartCapture.lineCalls[0].data.labels).toEqual(['11:55', '11:55:30']);
+    expect(chartCapture.lineCalls[0].data.datasets[0].data).toEqual([120, 240]);
+    expect(chartCapture.lineCalls[0].data.datasets[1].data).toEqual([null, 4]);
   });
 
   it('shows metric-specific empty states while keeping valid zero lines visible', () => {
@@ -179,13 +270,12 @@ describe('OverviewRealtimePanel', () => {
       />
     );
 
-    expect(html).not.toContain('usage_stats.overview_realtime_token_empty');
-    expect(html).not.toContain('usage_stats.overview_realtime_request_empty');
+    expect(html).not.toContain('usage_stats.overview_realtime_throughput_empty');
     expect(html).toContain('usage_stats.overview_realtime_ttft_empty');
     expect(html).toContain('usage_stats.overview_realtime_latency_empty');
     expect(html).toContain('usage_stats.overview_realtime_cache_empty');
     expect(html).toContain('usage_stats.overview_realtime_usage_empty');
-    expect(chartCapture.lineCalls).toHaveLength(3);
+    expect(chartCapture.lineCalls).toHaveLength(2);
     expect(chartCapture.chartCalls).toHaveLength(2);
   });
 
@@ -202,7 +292,7 @@ describe('OverviewRealtimePanel', () => {
     );
 
     expect(html).toContain('title="usage_stats.overview_realtime_rolling_metric_hint"');
-    expect(html).toContain('aria-label="usage_stats.overview_realtime_latest usage_stats.overview_realtime_rolling_metric_hint"');
+    expect(html).toContain('aria-label="usage_stats.overview_realtime_latest 190ms usage_stats.overview_realtime_rolling_metric_hint"');
   });
 
   it('renders token share metadata as labeled compact chips', () => {
@@ -434,7 +524,7 @@ describe('OverviewRealtimePanel', () => {
     );
 
     expect(html).toContain('Realtime failed');
-    expect(chartCapture.lineCalls).toHaveLength(3);
+    expect(chartCapture.lineCalls).toHaveLength(2);
     expect(chartCapture.chartCalls).toHaveLength(2);
   });
 
@@ -494,8 +584,9 @@ describe('OverviewRealtimePanel', () => {
       />
     );
 
-    expect(html).toContain('2.00K/min');
-    expect(html).toContain('1.50K/min');
+    expect(html).toContain('2.00K');
+    expect(html).toContain('1.50K');
+    expect(html).not.toContain('2.00K/min');
     expect(html).toContain('900ms');
     expect(html).toContain('800ms');
     expect(html).toContain('2.5s');
@@ -628,7 +719,6 @@ describe('OverviewRealtimePanel', () => {
 
     expect(chartCapture.lineCalls[0].options.spanGaps).toBeUndefined();
     expect(chartCapture.lineCalls[1].options.spanGaps).toBeUndefined();
-    expect(chartCapture.lineCalls[2].options.spanGaps).toBeUndefined();
     expect(chartCapture.chartCalls[0].options.spanGaps).toBeUndefined();
     expect(chartCapture.chartCalls[1].options.spanGaps).toBeUndefined();
   });
@@ -646,7 +736,7 @@ describe('OverviewRealtimePanel', () => {
     );
 
     const responseYAxis = chartCapture.chartCalls[0].options.scales?.y as { type?: string; beginAtZero?: boolean; min?: number; ticks?: { maxTicksLimit?: number } };
-    const cacheYAxis = chartCapture.lineCalls[2].options.scales?.y as { ticks?: { maxTicksLimit?: number } };
+    const cacheYAxis = chartCapture.lineCalls[1].options.scales?.y as { ticks?: { maxTicksLimit?: number } };
 
     expect(responseYAxis.type).toBe('logarithmic');
     expect(responseYAxis.beginAtZero).toBeUndefined();

@@ -2,6 +2,7 @@ package migration
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 
@@ -46,7 +47,7 @@ func openMigratedDatabase(t *testing.T, dbPath string) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open migrated database: %v", err)
 	}
-	if err := Run(db); err != nil {
+	if err := Run(db, RunOptions{BeforeDestructiveMigration: func(context.Context, string) error { return nil }}); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 	return db

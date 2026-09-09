@@ -71,18 +71,18 @@ const analysis: AnalysisResponse = {
   },
 };
 
-describe('AnalysisPanel cost breakdown summary', () => {
-  it('shows total tokens, total cost, and blended cost in order without a sparkline', () => {
+describe('AnalysisPanel token chart summary', () => {
+  it.each([undefined, ['model'] as const])('keeps range totals in the token chart for composition dimensions %s', (compositionDimensions) => {
     const markup = renderToStaticMarkup(
-      <AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} />,
+      <AnalysisPanel analysis={analysis} loading={false} isDark={false} isMobile={false} compositionDimensions={compositionDimensions} />,
     );
-    const summaryStart = markup.indexOf('costRatePanel');
-    const detailsStart = markup.indexOf('costMetricGrid', summaryStart);
-    const summaryMarkup = markup.slice(summaryStart, detailsStart);
+    const tokenCard = markup.slice(markup.indexOf('<section'), markup.indexOf('</section>'));
+    const summaryStart = tokenCard.indexOf('analysisSummary');
+    const chartStart = tokenCard.indexOf('analysisChartSurface');
+    const summaryMarkup = tokenCard.slice(summaryStart, chartStart);
 
     expect(summaryStart).toBeGreaterThan(-1);
-    expect(detailsStart).toBeGreaterThan(summaryStart);
-    expect(summaryMarkup.match(/costRateMetric/g)).toHaveLength(3);
+    expect(chartStart).toBeGreaterThan(summaryStart);
     expect(summaryMarkup).toContain('usage_stats.total_tokens');
     expect(summaryMarkup).toContain('usage_stats.total_cost');
     expect(summaryMarkup).toContain('usage_stats.analysis_cost_per_million_tokens');
@@ -95,7 +95,27 @@ describe('AnalysisPanel cost breakdown summary', () => {
     expect(summaryMarkup).toContain('3.00M');
     expect(summaryMarkup).toContain('$6.00');
     expect(summaryMarkup).toContain('$2.00');
-    expect(summaryMarkup).not.toContain('costRateSparkline');
-    expect(summaryMarkup).not.toContain('usage_stats.analysis_cost_rate_sparkline_hint');
+    expect(markup).not.toContain('usage_stats.analysis_cost_breakdown_title');
+    const titles = [...markup.matchAll(/<h2[^>]*>(.*?)<\/h2>/g)].map((match) => match[1]);
+    expect(titles).toEqual([
+      'usage_stats.analysis_token_usage_title',
+      'usage_stats.analysis_composition_title',
+      'usage_stats.analysis_top_models_title',
+      'usage_stats.analysis_latency_title',
+      'usage_stats.analysis_model_efficiency_title',
+      'usage_stats.analysis_heatmap_title',
+    ]);
+  });
+
+  it('retains the pricing hint and avoids invalid rates for zero tokens', () => {
+    const markup = renderToStaticMarkup(
+      <AnalysisPanel analysis={{ ...analysis, token_usage: [], cost_breakdown: { ...analysis.cost_breakdown, cost_available: false } }} loading={false} isDark={false} isMobile={false} />,
+    );
+    const tokenCard = markup.slice(markup.indexOf('<section'), markup.indexOf('</section>'));
+    expect(tokenCard).toContain('usage_stats.cost_need_price');
+    expect(tokenCard).toContain('analysisSummary');
+    expect(tokenCard).toContain('$6.00');
+    expect(tokenCard).toContain('$0.00');
+    expect(tokenCard).not.toMatch(/NaN|Infinity/);
   });
 });

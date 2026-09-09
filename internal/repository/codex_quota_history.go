@@ -165,22 +165,31 @@ func normalizeCodexMainQuotaObservation(observation repositorydto.CodexMainQuota
 
 func applyCodexMainQuotaObservation(tx *gorm.DB, observation repositorydto.CodexMainQuotaObservation) error {
 	quotaKey, _ := codexQuotaKey(observation.WindowRole)
-	cycle, found, err := loadCurrentQuotaCycle(tx, observation.AuthIndex, quotaKey)
+	latestCycle, latestFound, err := loadCurrentQuotaCycle(tx, observation.AuthIndex, quotaKey)
 	if err != nil {
 		return err
 	}
-	if found && cycle.WindowSeconds != observation.WindowSeconds {
-		// 窗口变化优先于 reset；只有观察时间更旧时才把它视为切换前的迟到事实。
-		if observation.LastObservedAt.Before(cycle.LastObservedAt) {
-			return nil
+	// 正常连续观察直接复用最近父行，只保留原来的一次查询。
+	cycle := latestCycle
+	found := latestFound && latestCycle.WindowSeconds == observation.WindowSeconds && quotaResetTimesMatch(latestCycle.ResetAt, observation.ResetAt)
+	if latestFound && !found {
+		// 只有窗口绕行或 reset 变化时才回查旧父行；Weekly 经 5h 绕行后由这里复用原周期。
+		cycle, found, err = loadMatchingQuotaCycle(tx, observation.AuthIndex, quotaKey, observation.WindowSeconds, observation.ResetAt)
+		if err != nil {
+			return err
 		}
-		found = false
-	} else if found && !quotaResetTimesMatch(cycle.ResetAt, observation.ResetAt) {
-		// 相同窗口仍按观察时间与 reset 顺序拒绝旧事实，超过两分钟的未来 reset 建立新周期。
-		if observation.LastObservedAt.Before(cycle.LastObservedAt) || observation.ResetAt.Before(cycle.ResetAt) {
-			return nil
-		}
-		found = false
+	}
+	if latestFound && observation.LastObservedAt.Before(latestCycle.LastObservedAt) {
+		// 无论能否匹配旧父行，真实观察时间更旧的迟到事实都不能反向切换当前周期。
+		return nil
+	}
+	if found && latestFound && cycle.ID != latestCycle.ID && cycle.WindowSeconds == latestCycle.WindowSeconds {
+		// 同一种窗口已经进入更新 reset 时，不能仅因迟到数据匹配旧父行而回写；跨窗口恢复才允许复用。
+		return nil
+	}
+	if !found && latestFound && latestCycle.WindowSeconds == observation.WindowSeconds && observation.ResetAt.Before(latestCycle.ResetAt) {
+		// 同窗口没有落入容差且 reset 更早，只可能属于已经结束的旧周期。
+		return nil
 	}
 
 	created := false
@@ -264,6 +273,41 @@ func applyCodexMainQuotaObservation(tx *gorm.DB, observation repositorydto.Codex
 		}
 	}
 	return updateQuotaCycleObservedTimes(tx, cycle, observation)
+}
+
+// loadMatchingQuotaCycle 在同账号角色和窗口内选择 reset 距离最近的已有父行，支持周期恢复复用。
+func loadMatchingQuotaCycle(tx *gorm.DB, authIndex string, quotaKey string, windowSeconds int64, resetAt time.Time) (entities.QuotaCycle, bool, error) {
+	// reset 查询边界与写入状态机共用固定两分钟容差，避免两处周期身份规则漂移。
+	resetLower := timeutil.FormatSortableStorageTime(resetAt.Add(-codexQuotaResetTolerance))
+	resetUpper := timeutil.FormatSortableStorageTime(resetAt.Add(codexQuotaResetTolerance))
+	var candidates []entities.QuotaCycle
+	err := tx.Where(
+		"provider = ? AND auth_index = ? AND quota_key = ? AND window_seconds = ? AND reset_at >= ? AND reset_at <= ?",
+		codexQuotaProvider, authIndex, quotaKey, windowSeconds, resetLower, resetUpper,
+	).Order("last_observed_at DESC, id DESC").Find(&candidates).Error
+	if err != nil {
+		return entities.QuotaCycle{}, false, fmt.Errorf("load matching quota cycle: %w", err)
+	}
+	if len(candidates) == 0 {
+		return entities.QuotaCycle{}, false, nil
+	}
+	// 正常只有一个候选；若历史抖动曾产生多个父行，则复用 reset 距离本次事实最近的一行。
+	selected := candidates[0]
+	selectedDistance := selected.ResetAt.Sub(resetAt)
+	if selectedDistance < 0 {
+		selectedDistance = -selectedDistance
+	}
+	for _, candidate := range candidates[1:] {
+		distance := candidate.ResetAt.Sub(resetAt)
+		if distance < 0 {
+			distance = -distance
+		}
+		if distance < selectedDistance {
+			selected = candidate
+			selectedDistance = distance
+		}
+	}
+	return selected, true, nil
 }
 
 func correctQuotaPercentTail(tx *gorm.DB, cycle entities.QuotaCycle, observation repositorydto.CodexMainQuotaObservation) error {

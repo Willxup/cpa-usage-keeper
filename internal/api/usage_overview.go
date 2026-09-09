@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/helper"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/service"
@@ -170,24 +169,10 @@ type usageOverviewCacheLevelPoint struct {
 	InputTokens         int64    `json:"input_tokens"`
 }
 
-func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsageProvider, cpaAPIKeyProvider service.CPAAPIKeyProvider, authHandler *authHandler) {
+func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsageProvider) {
 	router.GET("/key-overview", func(c *gin.Context) {
-		token, _ := c.Get("auth_token")
-		sessionValue, _ := c.Get("auth_session")
-		session, ok := sessionValue.(auth.Session)
-		if !ok || session.Role != auth.RoleAPIKeyViewer || session.CPAAPIKeyID <= 0 {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-		if cpaAPIKeyProvider == nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-		if _, err := cpaAPIKeyProvider.FindActiveCPAAPIKeyByID(c.Request.Context(), session.CPAAPIKeyID); err != nil {
-			if authHandler != nil {
-				authHandler.deleteSession(fmt.Sprint(token))
-				clearSessionCookie(c, authHandler.config.BasePath, resolveSessionToken(c).CookieKind)
-			}
+		session, _, ok := activeAPIKeyViewerContext(c)
+		if !ok {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
@@ -196,40 +181,18 @@ func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsagePro
 			writeUsageFilterParseError(c, err)
 			return
 		}
-		if authHandler != nil && !authHandler.allowKeyOverviewRequest(fmt.Sprint(token)) {
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
-			return
-		}
 		filter.APIKeyID = fmt.Sprintf("%d", session.CPAAPIKeyID)
 		writeUsageOverviewResponse(c, usageProvider, filter)
 	})
 	router.GET("/key-overview/realtime", func(c *gin.Context) {
-		token, _ := c.Get("auth_token")
-		sessionValue, _ := c.Get("auth_session")
-		session, ok := sessionValue.(auth.Session)
-		if !ok || session.Role != auth.RoleAPIKeyViewer || session.CPAAPIKeyID <= 0 {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-		if cpaAPIKeyProvider == nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-		if _, err := cpaAPIKeyProvider.FindActiveCPAAPIKeyByID(c.Request.Context(), session.CPAAPIKeyID); err != nil {
-			if authHandler != nil {
-				authHandler.deleteSession(fmt.Sprint(token))
-				clearSessionCookie(c, authHandler.config.BasePath, resolveSessionToken(c).CookieKind)
-			}
+		session, _, ok := activeAPIKeyViewerContext(c)
+		if !ok {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
 		filter, err := parseKeyUsageRealtimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
 			writeUsageFilterParseError(c, err)
-			return
-		}
-		if authHandler != nil && !authHandler.allowKeyOverviewRequest(fmt.Sprint(token), "realtime") {
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
 			return
 		}
 		filter.APIKeyID = fmt.Sprintf("%d", session.CPAAPIKeyID)

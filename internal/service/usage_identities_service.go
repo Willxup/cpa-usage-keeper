@@ -38,7 +38,10 @@ type UsageCredentialHealthSnapshot struct {
 	TotalSuccess  int64
 	TotalFailure  int64
 	SuccessRate   float64
-	Buckets       []UsageCredentialHealthBucket
+	// 窗口内 canonical token 合计；缓存率由展示层按终身口径的同一公式派生。
+	InputTokens     int64
+	CacheReadTokens int64
+	Buckets         []UsageCredentialHealthBucket
 }
 
 type ListUsageIdentitiesResponse struct {
@@ -168,13 +171,15 @@ func mapUsageCredentialHealthSnapshot(snapshot repository.CredentialHealthSnapsh
 		})
 	}
 	return UsageCredentialHealthSnapshot{
-		WindowSeconds: snapshot.WindowSeconds,
-		BucketSeconds: snapshot.BucketSeconds,
-		WindowStart:   snapshot.WindowStart,
-		WindowEnd:     snapshot.WindowEnd,
-		TotalSuccess:  snapshot.TotalSuccess,
-		TotalFailure:  snapshot.TotalFailure,
-		SuccessRate:   snapshot.SuccessRate,
-		Buckets:       buckets,
+		WindowSeconds:   snapshot.WindowSeconds,
+		BucketSeconds:   snapshot.BucketSeconds,
+		WindowStart:     snapshot.WindowStart,
+		WindowEnd:       snapshot.WindowEnd,
+		TotalSuccess:    snapshot.TotalSuccess,
+		TotalFailure:    snapshot.TotalFailure,
+		SuccessRate:     snapshot.SuccessRate,
+		InputTokens:     snapshot.InputTokens,
+		CacheReadTokens: snapshot.CacheReadTokens,
+		Buckets:         buckets,
 	}
 }
