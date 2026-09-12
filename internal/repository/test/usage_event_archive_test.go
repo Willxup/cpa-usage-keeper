@@ -68,7 +68,7 @@ func TestArchiveExpiredUsageEventsPreservesOriginalRowAndHotSequence(t *testing.
 	events := []entities.UsageEvent{
 		{
 			EventKey: "archive-me", APIGroupKey: "group-a", Provider: "openai", Endpoint: "/v1/responses",
-			AuthType: "oauth", RequestID: "request-a", ClientIP: &clientIP, Model: "gpt-5", ReasoningEffort: "high",
+			AuthType: "oauth", RequestID: "request-a", SessionID: "session-child", ParentSessionID: "session-root", ClientIP: &clientIP, Model: "gpt-5", ReasoningEffort: "high",
 			ServiceTier: "priority", ResponseServiceTier: "priority", ExecutorType: "codex", Timestamp: now.AddDate(0, 0, -91),
 			Source: "auth-a", AuthIndex: "auth-a", Failed: true, Generate: &generate, LatencyMS: 999, TTFTMS: &ttft,
 			InputTokens: 10, OutputTokens: 20, ReasoningTokens: 5, CachedTokens: 4, CacheReadTokens: 3, CacheCreationTokens: 2, TotalTokens: 35,
@@ -97,7 +97,7 @@ func TestArchiveExpiredUsageEventsPreservesOriginalRowAndHotSequence(t *testing.
 	if err := db.Where("id = ?", original.ID).Take(&archived).Error; err != nil {
 		t.Fatalf("load archived usage event: %v", err)
 	}
-	if archived.ID != original.ID || archived.EventKey != original.EventKey || archived.RequestID != original.RequestID || archived.TotalTokens != original.TotalTokens {
+	if archived.ID != original.ID || archived.EventKey != original.EventKey || archived.RequestID != original.RequestID || archived.SessionID != original.SessionID || archived.ParentSessionID != original.ParentSessionID || archived.TotalTokens != original.TotalTokens {
 		t.Fatalf("archive row did not preserve original values: original=%+v archive=%+v", original, archived)
 	}
 	var oldHotCount int64
