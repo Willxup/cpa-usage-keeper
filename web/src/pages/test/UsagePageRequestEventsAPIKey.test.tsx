@@ -243,7 +243,7 @@ describe('UsagePage top API Key request event filter', () => {
     expect(api.exportUsageEvents).toHaveBeenLastCalledWith(expect.objectContaining({ range: 'yesterday' }), 'json', expect.objectContaining({ apiKeyId: '11' }));
   });
 
-  it('keeps the top selection effective on overview and analysis after leaving Request Events', async () => {
+  it('isolates Overview and Realtime requests while retaining the shared API Key filter', async () => {
     await render();
     await choose(topKey(), 'Other key');
     const navigate = async (path: string) => {
@@ -251,8 +251,16 @@ describe('UsagePage top API Key request event filter', () => {
     };
     await navigate('/overview');
     expect(api.fetchUsageOverview).toHaveBeenLastCalledWith(expect.anything(), expect.any(AbortSignal), '33');
-    expect(api.fetchUsageOverviewRealtime).toHaveBeenLastCalledWith(expect.objectContaining({ apiKeyId: '33' }));
+    expect(api.fetchUsageOverviewRealtime).not.toHaveBeenCalled();
     expect(api.fetchUsageActivity).toHaveBeenLastCalledWith(expect.objectContaining({ apiKeyId: '33' }));
+    const overviewCalls = api.fetchUsageOverview.mock.calls.length;
+    const activityCalls = api.fetchUsageActivity.mock.calls.length;
+    await navigate('/realtime');
+    expect(api.fetchUsageOverviewRealtime).toHaveBeenLastCalledWith(expect.objectContaining({ apiKeyId: '33' }));
+    expect(container.querySelector('[data-time-range-trigger]')).toBeNull();
+    await act(async () => { void triggerHeaderRefresh(); });
+    expect(api.fetchUsageOverview.mock.calls.length).toBe(overviewCalls);
+    expect(api.fetchUsageActivity.mock.calls.length).toBe(activityCalls);
     await navigate('/analysis');
     expect(api.fetchAnalysis).toHaveBeenLastCalledWith(expect.anything(), expect.any(AbortSignal), '33');
     expect(api.fetchAnalysisLatency).toHaveBeenLastCalledWith(expect.anything(), expect.any(AbortSignal), '33');

@@ -78,6 +78,7 @@ const LOCAL_RANKING_PREVIEW_API = resolveLocalRankingPreviewAPI(import.meta.env.
 type Translate = (key: string) => string;
 const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
   overview: 'usage_stats.tab_overview',
+  realtime: 'usage_stats.tab_realtime',
   analysis: 'usage_stats.tab_analysis',
   ranking: 'usage_stats.tab_ranking',
   events: 'usage_stats.tab_events',
@@ -140,9 +141,9 @@ export const getCredentialSectionVisibility = (tab: UsageTab) => ({
   showAiProvider: tab === 'ai-provider',
 });
 
-export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'ranking' && tab !== 'settings' && !getCredentialSectionVisibility(tab).enabled;
+export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'realtime' && tab !== 'ranking' && tab !== 'settings' && !getCredentialSectionVisibility(tab).enabled;
 
-export const shouldShowApiKeyFilter = (tab: UsageTab) => shouldShowRangeControls(tab);
+export const shouldShowApiKeyFilter = (tab: UsageTab) => tab === 'realtime' || shouldShowRangeControls(tab);
 
 // 恢复出来的 API Key 筛选只有在选项成功加载后才能判定失效；加载中或加载失败时保留选择，避免被空列表误清。
 export const shouldResetSelectedApiKeyFilter = (
@@ -234,7 +235,7 @@ export const shouldAutoRefreshUsageTab = ({
   activeTab: UsageTab;
   eventsPage: number;
 }) => {
-  if (activeTab === 'overview') return true;
+  if (activeTab === 'overview' || activeTab === 'realtime') return true;
   if (activeTab === 'events') return eventsPage === 1;
   return false;
 };
@@ -864,7 +865,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     loadRealtime
   } = useOverviewRealtimeData({
     onAuthRequired,
-    enabled: activeTab === 'overview' && apiKeyFilterReady,
+    enabled: activeTab === 'realtime' && apiKeyFilterReady,
     apiKeyId: requestApiKeyId,
     realtimeWindow,
   });
@@ -1715,7 +1716,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [onAuthRequired, requestLogAccessEnabled, showTopNotice, t]);
 
   const refreshActiveTab = useCallback(async () => {
-    if (!apiKeyFilterReady && shouldShowRangeControls(activeTab)) return;
+    if (!apiKeyFilterReady && shouldShowApiKeyFilter(activeTab)) return;
+    if (activeTab === 'realtime') {
+      await loadRealtime();
+      return;
+    }
     if (activeTab === 'events') {
       await Promise.all([loadEventFilterOptions(), loadEvents()]);
       return;
@@ -1736,11 +1741,15 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await Promise.all([loadAuthSessions(), loadApiKeySettings(), loadPricing()]);
       return;
     }
-    await Promise.all([loadUsage(), loadActivity(), loadRealtime()]);
+    await Promise.all([loadUsage(), loadActivity()]);
   }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadEventFilterOptions, loadEvents, loadPricing, loadRealtime, loadUsage, refreshCredentialDetail, refreshCredentials, refreshRanking]);
 
   const refreshAutoRefreshTab = useCallback(async () => {
-    if (!apiKeyFilterReady && shouldShowRangeControls(activeTab)) return;
+    if (!apiKeyFilterReady && shouldShowApiKeyFilter(activeTab)) return;
+    if (activeTab === 'realtime') {
+      await loadRealtime();
+      return;
+    }
     if (activeTab === 'events') {
       await loadEvents();
       return;
@@ -1749,7 +1758,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await refreshCredentials();
       return;
     }
-    await Promise.all([loadUsage(), loadActivity({ skipIfInFlight: true }), loadRealtime()]);
+    await Promise.all([loadUsage(), loadActivity({ skipIfInFlight: true })]);
   }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadEvents, loadRealtime, loadUsage, refreshCredentials]);
 
   const handleAutoRefreshError = useCallback((error: unknown) => {
@@ -1947,6 +1956,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     : '';
   // 只有需要时间范围的 tab 才渲染 Range 控件，避免 Credentials/Pricing 产生空白占位。
   const showRangeControls = shouldShowRangeControls(activeTab);
+  const showApiKeyFilter = shouldShowApiKeyFilter(activeTab);
   const showRankingScopeControl = activeTab === 'ranking' && !isEmbeddedInCPAMC;
   const {
     requestsSparkline,
@@ -2093,12 +2103,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
               <div className={`${styles.toolbarActionsRight} ${!isEmbeddedInCPAMC ? styles.toolbarActionsRightAnimated : ''}`.trim()}>
                 <div className={isEmbeddedInCPAMC ? styles.toolbarContextSlotImmediate : styles.toolbarContextSlot}>
-                  {(!isEmbeddedInCPAMC || showRangeControls) && (
+                  {(!isEmbeddedInCPAMC || showApiKeyFilter) && (
                   /* 普通模式保留筛选区节点以执行过渡；CPAMC 继续按需挂载，维持既有布局。 */
                   <div
-                    className={`${styles.usageFilterTransition} ${isEmbeddedInCPAMC ? styles.usageFilterTransitionImmediate : ''} ${showRangeControls ? styles.usageFilterTransitionOpen : ''}`.trim()}
-                    aria-hidden={!showRangeControls}
-                    inert={!showRangeControls}
+                    className={`${styles.usageFilterTransition} ${isEmbeddedInCPAMC ? styles.usageFilterTransitionImmediate : ''} ${showApiKeyFilter ? styles.usageFilterTransitionOpen : ''}`.trim()}
+                    aria-hidden={!showApiKeyFilter}
+                    inert={!showApiKeyFilter}
                   >
                     <div className={styles.usageFilterTransitionInner}>
                       <div className={styles.usageFilterBar}>
@@ -2116,14 +2126,14 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       />
                     </label>
                   </div>
-                    <TimeRangeControl
+                    {showRangeControls && <TimeRangeControl
                       value={timeRange}
                       customRange={activeCustomRange}
                       timeZone={rangeTimeZone}
                       maxCustomDayRangeDays={activeTab === 'events' ? REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS : undefined}
                       onChange={handleTimeRangeChange}
                       ariaLabel={t('usage_stats.range_filter')}
-                    />
+                    />}
                       </div>
                     </div>
                   </div>
@@ -2166,7 +2176,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               activeId={activeTab}
               items={tabOptions.map((option) => ({ id: option.value, label: option.label, href: appPath(getUsageTabPath(option.value)) }))}
               onNavigate={activateUsageTab}
-              filters={showRangeControls ? [
+              filters={showApiKeyFilter ? [
                 <Select
                   key="api-key"
                   value={selectedApiKeyId}
@@ -2177,7 +2187,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   dropdownMinWidth={180}
                   renderValue={(option) => <><span data-dashboard-filter-caption>{t('usage_stats.api_key_filter')}</span><span data-dashboard-filter-value>{option?.label}</span></>}
                 />,
-                <TimeRangeControl key="range" value={timeRange} customRange={activeCustomRange} timeZone={rangeTimeZone} maxCustomDayRangeDays={activeTab === 'events' ? REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS : undefined} onChange={handleTimeRangeChange} ariaLabel={t('usage_stats.range_filter')} labelInsideTrigger />,
+                ...showRangeControls ? [<TimeRangeControl key="range" value={timeRange} customRange={activeCustomRange} timeZone={rangeTimeZone} maxCustomDayRangeDays={activeTab === 'events' ? REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS : undefined} onChange={handleTimeRangeChange} ariaLabel={t('usage_stats.range_filter')} labelInsideTrigger />] : [],
               ] : showRankingScopeControl ? [<RankingScopeSwitch key="ranking-scope" value={rankingScope} onChange={handleRankingScopeChange} />] : []}
               onRefresh={() => void handleManualRefresh().catch(() => {})}
               refreshing={manualRefreshLoading}
@@ -2215,18 +2225,20 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   requestIdentity={activityRequestIdentity}
                   onWindowChange={setActivityWindow}
                 />
-
-                <OverviewRealtimePanel
-                  realtime={currentRealtime ?? undefined}
-                  loading={realtimeLoading}
-                  error={displayRealtimeError}
-                  window={realtimeWindow}
-                  onWindowChange={setRealtimeWindow}
-                  isDark={isDark}
-                  isMobile={isMobile}
-                  timezone={currentRealtime?.timezone ?? usage?.timezone}
-                />
               </>
+            )}
+
+            {activeTab === 'realtime' && (
+              <OverviewRealtimePanel
+                realtime={currentRealtime ?? undefined}
+                loading={realtimeLoading}
+                error={displayRealtimeError}
+                window={realtimeWindow}
+                onWindowChange={setRealtimeWindow}
+                isDark={isDark}
+                isMobile={isMobile}
+                timezone={currentRealtime?.timezone ?? status?.timezone}
+              />
             )}
 
             {activeTab === 'analysis' && (

@@ -15,6 +15,7 @@ describe('usage page navigation', () => {
   it('maps only the fixed public page paths to existing tabs', () => {
     const mappings = [
       ['overview', '/overview'],
+      ['realtime', '/realtime'],
       ['analysis', '/analysis'],
       ['ranking', '/ranking'],
       ['events', '/request-events'],

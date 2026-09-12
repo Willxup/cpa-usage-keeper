@@ -704,10 +704,10 @@ describe('UsagePage toolbar styles', () => {
 
   it('crossfades normal filters and ranking scope in one stable slot while Refresh stays fixed', () => {
     expect(usagePageSource).toContain("${!isEmbeddedInCPAMC ? styles.toolbarActionsRightAnimated : ''}")
-    expect(usagePageSource).toContain('{(!isEmbeddedInCPAMC || showRangeControls) && (')
+    expect(usagePageSource).toContain('{(!isEmbeddedInCPAMC || showApiKeyFilter) && (')
     expect(usagePageSource).not.toContain("activeTab !== 'ranking' &&")
-    expect(usagePageSource).toContain('showRangeControls ? styles.usageFilterTransitionOpen : \'\'')
-    expect(usagePageSource).toContain('inert={!showRangeControls}')
+    expect(usagePageSource).toContain('showApiKeyFilter ? styles.usageFilterTransitionOpen : \'\'')
+    expect(usagePageSource).toContain('inert={!showApiKeyFilter}')
     expect(usagePageSource).toContain('<div className={styles.usageFilterBar}>')
     expect(usagePageSource).not.toContain("key={showRangeControls ? 'open' : 'closed'}")
     expect(usagePageSource).toContain('className={styles.usageRefreshSlot}')
@@ -807,9 +807,8 @@ describe('UsagePage toolbar styles', () => {
   })
 
   it('keeps the API Key filter visible on the Analysis page so Analysis requests can be filtered', () => {
-    expect(usagePageSource).not.toContain('shouldShowApiKeyFilter(activeTab)')
+    expect(usagePageSource).toContain('const showApiKeyFilter = shouldShowApiKeyFilter(activeTab)')
     expect(usagePageSource).not.toContain('styles.apiKeyFilterGroupHidden')
-    expect(usagePageSource).not.toContain('aria-hidden={!showApiKeyFilter}')
     expect(usagePageStyles).not.toContain('.apiKeyFilterGroupHidden')
   })
 
@@ -835,7 +834,7 @@ describe('UsagePage toolbar styles', () => {
     expect(i18nSource).not.toContain("tab_analysis: 'API & Models'")
     expect(i18nSource).not.toContain("tab_analysis: 'API 与模型'")
     expect(i18nSource).not.toContain("tab_analysis: 'API 與模型'")
-    expect(usageNavigationSource).toMatch(/USAGE_TAB_OPTIONS = \[\s*'overview',\s*'analysis',\s*'ranking',\s*'events',\s*'auth-files',\s*'ai-provider',\s*'settings',\s*\] as const/)
+    expect(usageNavigationSource).toMatch(/USAGE_TAB_OPTIONS = \[\s*'overview',\s*'realtime',\s*'analysis',\s*'ranking',\s*'events',\s*'auth-files',\s*'ai-provider',\s*'settings',\s*\] as const/)
   })
 
   it('keeps update checks and Sign out in the shared header menu', () => {
@@ -1324,8 +1323,8 @@ describe('UsagePage toolbar styles', () => {
   it('loads both Activity cards through one independent Recent Activity request', () => {
     expect(usagePageSource).toContain('useUsageActivityData({')
     expect(usagePageSource).toContain('useRecentActivityWindow(usageRangeQuery)')
-    expect(usagePageSource).toContain('await Promise.all([loadUsage(), loadActivity(), loadRealtime()])')
-    expect(usagePageSource).toContain('await Promise.all([loadUsage(), loadActivity({ skipIfInFlight: true }), loadRealtime()])')
+    expect(usagePageSource).toContain('await Promise.all([loadUsage(), loadActivity()])')
+    expect(usagePageSource).toContain('await Promise.all([loadUsage(), loadActivity({ skipIfInFlight: true })])')
     expect(usagePageSource).not.toContain('<ServiceHealthCard')
     expect(usagePageSource).not.toContain('showEyebrow')
   })
