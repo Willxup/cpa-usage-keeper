@@ -583,6 +583,10 @@ func tokenViolationCodes(violations []tokenprocessor.Violation) []string {
 }
 
 func logTokenProcessingBatch(items []normalizedUsageEvent, inboxStatus string, processedRows, successfulEvents, decodeFailed int, failures redisInboxFailureCounts) {
+	// 默认 Info 不消费批次汇总，提前跳过逐事件计数和日志 map 分配。
+	if !logrus.IsLevelEnabled(logrus.DebugLevel) {
+		return
+	}
 	// outcome map 预先放入全部枚举，零计数也稳定出现在结构化日志中，便于监控直接聚合。
 	outcomeCounts := map[string]int{
 		string(tokenprocessor.TokenOutcomeValid):         0,

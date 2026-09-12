@@ -17,6 +17,8 @@ import (
 
 type RefreshSource string
 
+const refreshTaskReadCleanupInterval = time.Minute
+
 const (
 	RefreshSourceManual        RefreshSource = "manual"
 	RefreshSourceInspection    RefreshSource = "inspection"
@@ -112,9 +114,10 @@ func (s *Service) GetCachedQuota(ctx context.Context, request CacheRequest) (Cac
 		return CacheResponse{}, fmt.Errorf("%w: auth_indexes are required", ErrValidation)
 	}
 	response := CacheResponse{Items: make([]CachedQuotaItem, 0, len(request.AuthIndexes))}
-	s.cleanupExpiredRefreshTasks(time.Now())
+	now := time.Now()
 	s.refreshMu.Lock()
 	defer s.refreshMu.Unlock()
+	s.cleanupRefreshTasksForReadLocked(now)
 	// 按请求顺序去重并读取每个 auth_index 最近一次完成的任务缓存。
 	seen := make(map[string]struct{}, len(request.AuthIndexes))
 	for _, rawAuthIndex := range request.AuthIndexes {
@@ -126,7 +129,7 @@ func (s *Service) GetCachedQuota(ctx context.Context, request CacheRequest) (Cac
 			continue
 		}
 		seen[authIndex] = struct{}{}
-		task, ok := s.refreshTasks[authIndex]
+		task, ok := s.refreshTaskForReadLocked(authIndex, now)
 		if !ok {
 			continue
 		}
@@ -260,10 +263,11 @@ func (s *Service) GetRefreshTaskByAuthIndex(ctx context.Context, authIndex strin
 	if authIndex == "" {
 		return RefreshTaskResponse{}, fmt.Errorf("%w: auth_index is required", ErrValidation)
 	}
-	s.cleanupExpiredRefreshTasks(time.Now())
+	now := time.Now()
 	s.refreshMu.Lock()
 	defer s.refreshMu.Unlock()
-	task, ok := s.refreshTasks[authIndex]
+	s.cleanupRefreshTasksForReadLocked(now)
+	task, ok := s.refreshTaskForReadLocked(authIndex, now)
 	if !ok {
 		return RefreshTaskResponse{}, ErrTaskNotFound
 	}
@@ -559,6 +563,24 @@ func (s *Service) cleanupExpiredRefreshTasksLocked(now time.Time) {
 		}
 		delete(s.refreshTasks, authIndex)
 	}
+	s.nextRefreshTaskCleanupAt = now.Add(refreshTaskReadCleanupInterval)
+}
+
+func (s *Service) cleanupRefreshTasksForReadLocked(now time.Time) {
+	// 高频逐项轮询共享一分钟清理窗口；刷新、巡检等既有入口仍可立即全量清理。
+	if !now.Before(s.nextRefreshTaskCleanupAt) {
+		s.cleanupExpiredRefreshTasksLocked(now)
+	}
+}
+
+func (s *Service) refreshTaskForReadLocked(authIndex string, now time.Time) (*RefreshTaskRecord, bool) {
+	task, ok := s.refreshTasks[authIndex]
+	// 全量清理可以延后，但当前请求项到期后必须立即不可见，不能延长失败缓存 TTL。
+	if ok && !task.ExpiresAt.IsZero() && !now.Before(task.ExpiresAt) {
+		delete(s.refreshTasks, authIndex)
+		return nil, false
+	}
+	return task, ok
 }
 
 func (t *RefreshTaskRecord) isActive() bool {

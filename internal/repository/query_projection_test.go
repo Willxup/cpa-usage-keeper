@@ -30,8 +30,6 @@ func TestRepositoryQueriesAvoidKnownFullEntityReads(t *testing.T) {
 	assertFileContains(t, "usage_identities.go",
 		"Select(usageIdentityReadColumns)",
 		"Select(usageIdentityAggregationColumns)",
-		"Select(\"timestamp\").Where(\"id > ?\", identity.LastAggregatedUsageEventID).Order(\"timestamp asc, id asc\").First(&firstEvent)",
-		"Select(\"timestamp\").Where(\"id > ?\", identity.LastAggregatedUsageEventID).Order(\"timestamp desc, id desc\").First(&lastEvent)",
 	)
 
 	assertFileContains(t, "redis_usage_inbox.go",

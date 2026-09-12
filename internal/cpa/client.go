@@ -135,10 +135,15 @@ func (c *Client) doManagementJSONRequestWithBody(ctx context.Context, method str
 	})
 }
 
-const defaultRequestLogStreamIdleTimeout = 30 * time.Second
+const (
+	defaultRequestLogStreamIdleTimeout = 30 * time.Second
+	// 同时覆盖七路 metadata 和默认十个 quota worker（部分每个发两次请求）的空闲连接复用。
+	defaultMaxIdleConnsPerHost = 32
+)
 
 func NewClient(baseURL, managementKey string, timeout time.Duration, tlsSkipVerify bool) *Client {
 	transport := cloneDefaultHTTPTransport()
+	transport.MaxIdleConnsPerHost = max(transport.MaxIdleConnsPerHost, defaultMaxIdleConnsPerHost)
 	if tlsSkipVerify {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}

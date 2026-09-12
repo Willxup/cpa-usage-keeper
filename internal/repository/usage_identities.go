@@ -529,7 +529,8 @@ func aggregateUsageIdentityDelta(tx *gorm.DB, identity entities.UsageIdentity) (
 		return delta, nil
 	}
 
-	// 再用 last_aggregated_usage_event_id 做增量游标，只累计上次之后的新事件。
+	// 同一次增量查询取齐累计和首尾时间，减少唯一 writer 事务内的重复查询。
+	// MIN/MAX 沿用原先 timestamp 排序口径，DTO serializer 兼容新旧存储时间格式。
 	if err := query.
 		Select(`
 			COUNT(*) AS total_requests,
@@ -541,36 +542,13 @@ func aggregateUsageIdentityDelta(tx *gorm.DB, identity entities.UsageIdentity) (
 			COALESCE(SUM(cached_tokens), 0) AS cached_tokens,
 			COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
 			COALESCE(SUM(total_tokens), 0) AS total_tokens,
+			MIN(timestamp) AS first_used_at,
+			MAX(timestamp) AS last_used_at,
 			COALESCE(MAX(id), 0) AS max_usage_event_id`).
 		Where("id > ?", identity.LastAggregatedUsageEventID).
 		Scan(&delta).Error; err != nil {
 		return delta, fmt.Errorf("aggregate usage identity stats for %q: %w", identity.Identity, err)
 	}
-	if delta.TotalRequests == 0 {
-		return delta, nil
-	}
-
-	// 统计总量不包含首尾时间，首尾时间用同一组身份过滤条件分别取最早和最晚事件。
-	var firstEvent struct {
-		Timestamp time.Time
-	}
-	firstQuery, _ := usageIdentityEventsQuery(tx.Model(&entities.UsageEvent{}), identity)
-	if err := firstQuery.Select("timestamp").Where("id > ?", identity.LastAggregatedUsageEventID).Order("timestamp asc, id asc").First(&firstEvent).Error; err != nil {
-		return delta, fmt.Errorf("find first usage identity event for %q: %w", identity.Identity, err)
-	}
-	firstUsedAt := firstEvent.Timestamp
-	delta.FirstUsedAt = &firstUsedAt
-
-	var lastEvent struct {
-		Timestamp time.Time
-	}
-	lastQuery, _ := usageIdentityEventsQuery(tx.Model(&entities.UsageEvent{}), identity)
-	if err := lastQuery.Select("timestamp").Where("id > ?", identity.LastAggregatedUsageEventID).Order("timestamp desc, id desc").First(&lastEvent).Error; err != nil {
-		return delta, fmt.Errorf("find last usage identity event for %q: %w", identity.Identity, err)
-	}
-	lastUsedAt := lastEvent.Timestamp
-	delta.LastUsedAt = &lastUsedAt
-
 	return delta, nil
 }
 
