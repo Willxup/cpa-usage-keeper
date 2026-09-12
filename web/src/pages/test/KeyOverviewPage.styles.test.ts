@@ -32,10 +32,10 @@ describe('KeyOverviewPage layout', () => {
     expect(source).toContain('const nextRealtime = await fetchKeyOverviewRealtime({')
     expect(source).toContain('useUsageActivityData({')
     expect(source).toContain('useRecentActivityWindow(usageRangeQuery)')
-    expect(source).toContain('await Promise.all([loadOverview(options), loadActivity(options), loadRealtime(options)])')
+    expect(source).toContain('await Promise.all([loadOverview(options), loadActivity(options)])')
   })
 
-  it('auto-refreshes the viewer overview and realtime data together', () => {
+  it('auto-refreshes the active viewer page', () => {
     expect(source).toContain('KEY_OVERVIEW_AUTO_REFRESH_INTERVAL_MS')
     expect(source).toContain('scheduleKeyOverviewAutoRefresh')
     expect(source).toContain('refreshKeyOverview')
