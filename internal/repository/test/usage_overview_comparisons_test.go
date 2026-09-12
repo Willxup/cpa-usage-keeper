@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -100,6 +101,16 @@ func TestOverviewComparisonsCustomDayNeverReadsRawEvents(t *testing.T) {
 	if !strings.Contains((*queries)[0], "api_group_key") {
 		t.Fatal("missing comparison grouping")
 	}
+	// 混合查询的比较行没有时间桶，独立查询直接省略时间列；两者都应返回相同汇总。
+	filter.ComparisonOnly = true
+	comparisonOnly, err := repository.BuildUsageOverviewWithFilter(db, filter, emptyPricingResolverForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(overview.Comparisons, comparisonOnly.Comparisons) || len(overview.Series.Requests) != 2 {
+		t.Fatal("nullable comparison buckets must preserve comparisons and the main series")
+	}
+	filter.ComparisonOnly = false
 	filter.IncludeComparisons = false
 	plain, err := repository.BuildUsageOverviewWithFilter(db, filter, emptyPricingResolverForTest())
 	if err != nil {

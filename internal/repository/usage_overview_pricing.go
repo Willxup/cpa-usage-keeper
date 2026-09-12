@@ -13,8 +13,9 @@ import (
 )
 
 type usageOverviewStatProjection struct {
-	ComparisonKind          int
-	BucketStart             time.Time
+	ComparisonKind int
+	// 比较行没有时间桶；只有主序列行需要读取非空 bucket_start。
+	BucketStart             *time.Time
 	APIGroupKey             string
 	Model                   string
 	AuthIndex               string
@@ -125,7 +126,7 @@ func loadUsageOverviewStatProjectionComparisonOnly(query *gorm.DB, filter dto.Us
 		args = append(args, key)
 	}
 	group := strings.Join(dimensions[1:], ", ")
-	sql := fmt.Sprintf("SELECT 1 AS comparison_kind, NULL AS bucket_start, %s, %s FROM %s WHERE %s GROUP BY %s ORDER BY model ASC, api_group_key ASC", strings.Join(dimensions[1:], ", "), usageOverviewStatProjectionAggregateColumns, table, where, group)
+	sql := fmt.Sprintf("SELECT 1 AS comparison_kind, %s, %s FROM %s WHERE %s GROUP BY %s ORDER BY model ASC, api_group_key ASC", strings.Join(dimensions[1:], ", "), usageOverviewStatProjectionAggregateColumns, table, where, group)
 	rows := make([]usageOverviewStatProjection, 0)
 	if err := query.Raw(sql, args...).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load usage overview %s comparison projection: %w", grain, err)
@@ -226,7 +227,7 @@ func applyUsageOverviewStatToOverviewWithCost(overview *dto.UsageOverviewRecord,
 	rowCost := result.Cost.TotalCostUSD
 	applyUsageOverviewStatToSummary(overview, row.InputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, rowCost)
 
-	bucketKey, bucketMinutes := usageOverviewBucket(timeutil.NormalizeStorageTime(row.BucketStart), bucketByDay)
+	bucketKey, bucketMinutes := usageOverviewBucket(timeutil.NormalizeStorageTime(*row.BucketStart), bucketByDay)
 	applyUsageOverviewStatToSeries(&overview.Series, row.RequestCount, row.InputTokens, row.CacheReadTokens, row.TotalTokens, rowCost, bucketKey, bucketMinutes)
 }
 
