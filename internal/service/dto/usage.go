@@ -10,7 +10,7 @@ const DefaultUsageEventsLimit = 100
 
 // UsageFilter 是服务层的 usage 查询条件。
 type UsageFilter struct {
-	// IncludeComparisons 仅由管理员 Overview 路由启用，Viewer 保持原来的轻量查询。
+	// IncludeComparisons 由 Overview 路由启用；Viewer 仍受会话 Key 范围限制，API 仅输出模型维度。
 	IncludeComparisons bool
 	Range              string
 	// RangeUnit/RangeCount 是统一时间解析器给出的规范化选择跨度，供不读取历史边界的查询复用。
@@ -201,6 +201,7 @@ type RealtimeCacheLevelPoint struct {
 
 // UsageOverviewRealtime 是 Overview 页面实时图表区使用的数据块。
 type UsageOverviewRealtime struct {
+	Insights             *repodto.RealtimeInsightsRecord
 	Window               string
 	BucketSeconds        int64
 	WindowStart          time.Time

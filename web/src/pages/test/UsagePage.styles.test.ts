@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { USAGE_CHART_TOKEN_COLORS } from '@/utils/usage/chartConfig'
 
 const readSource = (url: URL) => readFileSync(url, 'utf8').replace(/\r\n/g, '\n')
 
@@ -36,6 +37,7 @@ const sessionSettingsSource = readSource(new URL('../../components/usage/Session
 const analysisPanelSource = readSource(new URL('../../components/usage/analysis/AnalysisPanel.tsx', import.meta.url))
 const analysisPanelStyles = readSource(new URL('../../components/usage/analysis/AnalysisPanel.module.scss', import.meta.url))
 const overviewRealtimePanelSource = readSource(new URL('../../components/usage/OverviewRealtimePanel.tsx', import.meta.url))
+const usageShareListSource = readSource(new URL('../../components/usage/UsageShareList.tsx', import.meta.url))
 const overviewActivityCardsSource = readSource(new URL('../../components/usage/OverviewActivityCards.tsx', import.meta.url))
 const activityHeatmapGridSource = readSource(new URL('../../components/usage/ActivityHeatmapGrid.tsx', import.meta.url))
 const serviceHealthCardSource = readSource(new URL('../../components/usage/ServiceHealthCard.tsx', import.meta.url))
@@ -693,7 +695,7 @@ describe('UsagePage toolbar styles', () => {
     expect(overviewRealtimePanelSource).toContain('overview_realtime_ttft_empty')
     expect(overviewRealtimePanelSource).toContain('overview_realtime_latency_empty')
     expect(overviewRealtimePanelSource).toContain('overview_realtime_cache_empty')
-    expect(overviewRealtimePanelSource).toContain('overviewRealtimeUsageMetaPill')
+    expect(usageShareListSource).toContain('overviewRealtimeUsageMetaPill')
     expect(usagePageStyles).toContain('.overviewRealtimeEmptyOverlay')
     expect(usagePageStyles).toContain('.overviewRealtimeUsageMetaPill')
     expect(usagePageStyles).not.toContain('.overviewRealtimeLegend')
@@ -1206,7 +1208,7 @@ describe('UsagePage toolbar styles', () => {
     expect(analysisPanelSource).toContain('analysisCompositionCursor')
     expect(analysisPanelSource).toContain('<Scatter data={chartData} options={chartOptions} plugins={[modelEfficiencyTooltipPointerPlugin]} />')
     expect(analysisPanelSource).toContain("id: 'analysis-model-efficiency-tooltip-pointer'")
-    expect(analysisPanelSource).toContain("cost: '#14b8a6'")
+    expect(USAGE_CHART_TOKEN_COLORS.cost).toBe('#14b8a6')
     expect(analysisPanelSource).toContain('ticks: { color: chartTheme.textSecondary')
     expect(analysisPanelSource).toContain('analysis_cost_per_million_tokens')
     expect(analysisPanelSource).toContain('analysis_blended_rate')
@@ -1323,8 +1325,8 @@ describe('UsagePage toolbar styles', () => {
   it('loads both Activity cards through one independent Recent Activity request', () => {
     expect(usagePageSource).toContain('useUsageActivityData({')
     expect(usagePageSource).toContain('useRecentActivityWindow(usageRangeQuery)')
-    expect(usagePageSource).toContain('await Promise.all([loadUsage(), loadActivity()])')
-    expect(usagePageSource).toContain('await Promise.all([loadUsage(), loadActivity({ skipIfInFlight: true })])')
+    expect(usagePageSource).toContain('await Promise.all([loadUsage(), loadActivity(), loadComparisons()])')
+    expect(usagePageSource).toContain('await Promise.all([loadUsage(), loadActivity({ skipIfInFlight: true }), loadComparisons()])')
     expect(usagePageSource).not.toContain('<ServiceHealthCard')
     expect(usagePageSource).not.toContain('showEyebrow')
   })

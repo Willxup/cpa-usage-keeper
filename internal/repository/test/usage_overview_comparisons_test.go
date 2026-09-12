@@ -59,9 +59,9 @@ func TestOverviewComparisonsShareRollupsAndExactBoundaries(t *testing.T) {
 			t.Fatal("comparisons diverged from overview")
 		}
 	}
-	// 比较图另读压缩维度汇总；首尾明细不能重复读取。
-	if len(*queries) != 4 {
-		t.Fatalf("expected two boundary reads and two rollup reads, got %d", len(*queries))
+	// 比较图与主序列共享一次带时间桶的 rollup 读取；首尾明细不能重复读取。
+	if len(*queries) != 3 {
+		t.Fatalf("expected two boundary reads and one rollup read, got %d", len(*queries))
 	}
 	filter.APIGroupKey = "key-a"
 	filtered, err := repository.BuildUsageOverviewWithFilter(db, filter, emptyPricingResolverForTest())
@@ -94,10 +94,10 @@ func TestOverviewComparisonsCustomDayNeverReadsRawEvents(t *testing.T) {
 		t.Fatal("lost rollup dimensions")
 	}
 	assertOverviewQueryTables(t, *queries, false, true)
-	if len(*queries) != 2 {
-		t.Fatalf("expected two daily reads, got %d", len(*queries))
+	if len(*queries) != 1 {
+		t.Fatalf("expected one daily read, got %d", len(*queries))
 	}
-	if !strings.Contains((*queries)[1], "api_group_key") {
+	if !strings.Contains((*queries)[0], "api_group_key") {
 		t.Fatal("missing comparison grouping")
 	}
 	filter.IncludeComparisons = false

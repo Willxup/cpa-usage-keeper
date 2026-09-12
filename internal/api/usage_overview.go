@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
+	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/helper"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/service"
@@ -16,11 +18,10 @@ import (
 )
 
 type usageOverviewResponse struct {
-	Comparisons *usageOverviewComparisons `json:"comparisons,omitempty"`
-	Usage       usageOverviewPayload      `json:"usage"`
-	Summary     usageOverviewSummary      `json:"summary"`
-	Series      usageOverviewSeries       `json:"series"`
-	Timezone    string                    `json:"timezone"`
+	Usage    usageOverviewPayload `json:"usage"`
+	Summary  usageOverviewSummary `json:"summary"`
+	Series   usageOverviewSeries  `json:"series"`
+	Timezone string               `json:"timezone"`
 }
 
 type usageOverviewPayload struct {
@@ -56,6 +57,7 @@ type usageOverviewSeries struct {
 }
 
 type usageOverviewRealtime struct {
+	Insights             *usageRealtimeInsights            `json:"insights,omitempty"`
 	Window               string                            `json:"window"`
 	Timezone             string                            `json:"timezone"`
 	BucketSeconds        int64                             `json:"bucket_seconds"`
@@ -70,6 +72,7 @@ type usageOverviewRealtime struct {
 }
 
 type keyUsageOverviewRealtime struct {
+	Insights             *usageRealtimeInsights               `json:"insights,omitempty"`
 	Window               string                               `json:"window"`
 	Timezone             string                               `json:"timezone"`
 	BucketSeconds        int64                                `json:"bucket_seconds"`
@@ -183,8 +186,21 @@ func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsagePro
 			return
 		}
 		filter.APIKeyID = fmt.Sprintf("%d", session.CPAAPIKeyID)
-		filter.IncludeComparisons = true
-		writeUsageOverviewResponse(c, usageProvider, filter, nil, true)
+		writeUsageOverviewResponse(c, usageProvider, filter)
+	})
+	router.GET("/key-overview/comparisons", func(c *gin.Context) {
+		session, viewerKey, ok := activeAPIKeyViewerContext(c)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		filter, err := parseKeyUsageOverviewTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		if err != nil {
+			writeUsageFilterParseError(c, err)
+			return
+		}
+		filter.APIKeyID = fmt.Sprintf("%d", session.CPAAPIKeyID)
+		writeUsageOverviewComparisonsResponse(c, usageProvider, filter, nil, true, &viewerKey)
 	})
 	router.GET("/key-overview/realtime", func(c *gin.Context) {
 		session, _, ok := activeAPIKeyViewerContext(c)
@@ -205,7 +221,7 @@ func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsagePro
 func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageProvider, cpaAPIKeyProvider service.CPAAPIKeyProvider) {
 	router.GET("/usage/overview", func(c *gin.Context) {
 		if usageProvider == nil {
-			writeUsageOverviewResponse(c, usageProvider, servicedto.UsageFilter{IncludeComparisons: true}, cpaAPIKeyProvider, false)
+			writeUsageOverviewResponse(c, usageProvider, servicedto.UsageFilter{})
 			return
 		}
 		filter, err := parseUsageOverviewTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
@@ -213,8 +229,15 @@ func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageP
 			writeUsageFilterParseError(c, err)
 			return
 		}
-		filter.IncludeComparisons = true
-		writeUsageOverviewResponse(c, usageProvider, filter, cpaAPIKeyProvider, false)
+		writeUsageOverviewResponse(c, usageProvider, filter)
+	})
+	router.GET("/usage/overview/comparisons", func(c *gin.Context) {
+		filter, err := parseUsageOverviewTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		if err != nil {
+			writeUsageFilterParseError(c, err)
+			return
+		}
+		writeUsageOverviewComparisonsResponse(c, usageProvider, filter, cpaAPIKeyProvider, false, nil)
 	})
 	router.GET("/usage/overview/realtime", func(c *gin.Context) {
 		filter, err := parseUsageRealtimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
@@ -226,7 +249,34 @@ func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageP
 	})
 }
 
-func writeUsageOverviewResponse(c *gin.Context, usageProvider service.UsageProvider, filter servicedto.UsageFilter, cpaAPIKeyProvider service.CPAAPIKeyProvider, keyViewer bool) {
+func writeUsageOverviewComparisonsResponse(c *gin.Context, usageProvider service.UsageProvider, filter servicedto.UsageFilter, cpaAPIKeyProvider service.CPAAPIKeyProvider, keyViewer bool, viewerKey *entities.CPAAPIKey) {
+	comparisonProvider, ok := usageProvider.(service.UsageComparisonProvider)
+	if !ok {
+		c.JSON(http.StatusOK, usageOverviewComparisons{Models: []usageOverviewComparisonItem{}})
+		return
+	}
+	filter.IncludeComparisons = true
+	overview, err := comparisonProvider.GetUsageOverviewComparisons(c.Request.Context(), filter)
+	if err != nil {
+		writeUsageProviderError(c, "get usage overview comparisons failed", err)
+		return
+	}
+	apiKeyInfos, err := loadCPAAPIKeyInfos(c, cpaAPIKeyProvider)
+	if err != nil {
+		return
+	}
+	if keyViewer && viewerKey != nil && viewerKey.ID > 0 && viewerKey.APIKey != "" {
+		apiKeyInfos[viewerKey.APIKey] = analysisAPIKeyInfo{ID: strconv.FormatInt(viewerKey.ID, 10), Label: helper.CPAAPIKeyDisplayName(*viewerKey)}
+	}
+	comparisons := buildUsageOverviewComparisons(overview, apiKeyInfos)
+	if keyViewer {
+		comparisons.AuthFiles = nil
+		comparisons.AIProviders = nil
+	}
+	c.JSON(http.StatusOK, comparisons)
+}
+
+func writeUsageOverviewResponse(c *gin.Context, usageProvider service.UsageProvider, filter servicedto.UsageFilter) {
 	if usageProvider == nil {
 		c.JSON(http.StatusOK, usageOverviewResponse{
 			Usage:    buildUsageOverviewPayload(nil),
@@ -243,28 +293,15 @@ func writeUsageOverviewResponse(c *gin.Context, usageProvider service.UsageProvi
 		return
 	}
 
-	var comparisons *usageOverviewComparisons
-	if filter.IncludeComparisons {
-		apiKeyInfos, err := loadCPAAPIKeyInfos(c, cpaAPIKeyProvider)
-		if err != nil {
-			return
-		}
-		comparisons = buildUsageOverviewComparisons(overview, apiKeyInfos)
-		// Viewer 只接收本 Key 范围的模型汇总，不向浏览器发送 API Key 维度。
-		if keyViewer {
-			comparisons.APIKeys = nil
-		}
-	}
 	var usage *repodto.StatisticsSnapshot
 	if overview != nil {
 		usage = overview.Usage
 	}
 	c.JSON(http.StatusOK, usageOverviewResponse{
-		Usage:       buildUsageOverviewPayload(usage),
-		Comparisons: comparisons,
-		Summary:     buildUsageOverviewSummary(overview),
-		Series:      buildUsageOverviewSeries(overview),
-		Timezone:    time.Local.String(),
+		Usage:    buildUsageOverviewPayload(usage),
+		Summary:  buildUsageOverviewSummary(overview),
+		Series:   buildUsageOverviewSeries(overview),
+		Timezone: time.Local.String(),
 	})
 }
 
@@ -463,6 +500,7 @@ func buildUsageOverviewRealtime(realtime *servicedto.UsageOverviewRealtime, wind
 		return emptyUsageOverviewRealtime(window)
 	}
 	result := usageOverviewRealtime{
+		Insights:             mapUsageRealtimeInsights(realtime.Insights),
 		Window:               realtime.Window,
 		Timezone:             time.Local.String(),
 		BucketSeconds:        realtime.BucketSeconds,
@@ -527,6 +565,7 @@ func buildKeyUsageOverviewRealtime(realtime *servicedto.UsageOverviewRealtime, w
 		return emptyKeyUsageOverviewRealtime(window)
 	}
 	result := keyUsageOverviewRealtime{
+		Insights:             mapUsageRealtimeInsights(realtime.Insights),
 		Window:               realtime.Window,
 		Timezone:             time.Local.String(),
 		BucketSeconds:        realtime.BucketSeconds,

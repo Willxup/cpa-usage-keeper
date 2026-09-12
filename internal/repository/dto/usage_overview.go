@@ -99,6 +99,7 @@ type RealtimeCurrentUsageRecord struct {
 
 // UsageOverviewRealtimeRecord 是 Overview 页面实时图表区使用的数据块。
 type UsageOverviewRealtimeRecord struct {
+	Insights             RealtimeInsightsRecord
 	Window               string
 	BucketSeconds        int64
 	WindowStart          time.Time
@@ -138,6 +139,7 @@ type UsageOverviewRecord struct {
 // UsageComparisonItemRecord 与顶部 Overview 共用请求、Token 和动态计费口径。
 type UsageComparisonItemRecord struct {
 	Key                 string
+	Label               string
 	Requests            int64
 	Failures            int64
 	InputTokens         int64
@@ -150,8 +152,37 @@ type UsageComparisonItemRecord struct {
 	CostAvailable       bool
 }
 
-// UsageOverviewComparisonsRecord 在已有 rows / 边界事件遍历中按维度累计。
+// UsageOverviewComparisonsRecord 在压缩汇总行与边界事件遍历中按维度累计。
 type UsageOverviewComparisonsRecord struct {
-	Models  map[string]*UsageComparisonItemRecord
-	APIKeys map[string]*UsageComparisonItemRecord
+	Models      map[string]*UsageComparisonItemRecord
+	APIKeys     map[string]*UsageComparisonItemRecord
+	AuthFiles   map[string]*UsageComparisonItemRecord
+	AIProviders map[string]*UsageComparisonItemRecord
+}
+
+// RealtimeWindowSummaryRecord 是选定可见短窗的非重叠总量，排除平滑预热段。
+type RealtimeWindowSummaryRecord struct {
+	Requests            int64
+	Failures            int64
+	TokenRequests       int64
+	CachedRequests      int64
+	TotalTokens         int64
+	InputTokens         int64
+	OutputTokens        int64
+	ReasoningTokens     int64
+	CacheReadTokens     int64
+	CacheCreationTokens int64
+	CostUSD             float64
+	CostAvailable       bool
+}
+
+type RealtimeOutcomePointRecord struct {
+	Bucket   string
+	Requests int64
+	Failures int64
+}
+
+type RealtimeInsightsRecord struct {
+	Summary  RealtimeWindowSummaryRecord
+	Outcomes []RealtimeOutcomePointRecord
 }

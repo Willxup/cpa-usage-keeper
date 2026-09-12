@@ -30,6 +30,7 @@ import {
   CredentialProviderFilterBar,
   TimeRangeControl,
   useUsageData,
+  useUsageComparisonsData,
   useRecentActivityWindow,
   useUsageActivityData,
   useOverviewRealtimeData,
@@ -828,6 +829,21 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     enabled: activeTab === 'overview' && apiKeyFilterReady,
     apiKeyId: requestApiKeyId,
     onRangeBoundsConflict: recoverRangeBoundsConflict,
+  });
+  const {
+    comparisons: overviewComparisons,
+    loading: comparisonsLoading,
+    error: comparisonsError,
+    loadComparisons,
+  } = useUsageComparisonsData({
+    onAuthRequired,
+    onRangeBoundsConflict: recoverRangeBoundsConflict,
+    enabled: activeTab === 'overview' && usageRangeQuery.valid && apiKeyFilterReady,
+    apiKeyId: requestApiKeyId,
+    range: timeRange,
+    customUnit: activeCustomRange?.unit,
+    customStart: activeCustomRange?.start,
+    customEnd: activeCustomRange?.end,
   });
   const {
     activity,
@@ -1742,8 +1758,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await Promise.all([loadAuthSessions(), loadApiKeySettings(), loadPricing()]);
       return;
     }
-    await Promise.all([loadUsage(), loadActivity()]);
-  }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadEventFilterOptions, loadEvents, loadPricing, loadRealtime, loadUsage, refreshCredentialDetail, refreshCredentials, refreshRanking]);
+    await Promise.all([loadUsage(), loadActivity(), loadComparisons()]);
+  }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadComparisons, loadEventFilterOptions, loadEvents, loadPricing, loadRealtime, loadUsage, refreshCredentialDetail, refreshCredentials, refreshRanking]);
 
   const refreshAutoRefreshTab = useCallback(async () => {
     if (!apiKeyFilterReady && shouldShowApiKeyFilter(activeTab)) return;
@@ -1759,8 +1775,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await refreshCredentials();
       return;
     }
-    await Promise.all([loadUsage(), loadActivity({ skipIfInFlight: true })]);
-  }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadEvents, loadRealtime, loadUsage, refreshCredentials]);
+    await Promise.all([loadUsage(), loadActivity({ skipIfInFlight: true }), loadComparisons()]);
+  }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadComparisons, loadEvents, loadRealtime, loadUsage, refreshCredentials]);
 
   const handleAutoRefreshError = useCallback((error: unknown) => {
     if (recoverRangeBoundsConflict(error)) return;
@@ -2194,7 +2210,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               refreshing={manualRefreshLoading}
             />}
 
-            {activeTab === 'overview' && error && <div className={styles.errorBox}>{error === 'AUTH_REQUIRED' ? t('auth.session_expired') : error}</div>}
+            {activeTab === 'overview' && (error || comparisonsError) && <div className={styles.errorBox}>{(error || comparisonsError) === 'AUTH_REQUIRED' ? t('auth.session_expired') : (error || comparisonsError)}</div>}
             {activeTab === 'settings' && pricingError && <div className={styles.errorBox}>{pricingError === 'AUTH_REQUIRED' ? t('auth.session_expired') : pricingError}</div>}
             {activeTab === 'settings' && authSessionsError && <div className={styles.errorBox}>{authSessionsError}</div>}
             {activeTab === 'settings' && apiKeySettingsError && <div className={styles.errorBox}>{apiKeySettingsError}</div>}
@@ -2226,7 +2242,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   requestIdentity={activityRequestIdentity}
                   onWindowChange={setActivityWindow}
                 />
-                <UsageComparisonCharts comparisons={currentOverviewUsage?.comparisons} loading={loading} />
+                <UsageComparisonCharts comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading} />
               </>
             )}
 

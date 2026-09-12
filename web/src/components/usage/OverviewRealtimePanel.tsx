@@ -1,3 +1,5 @@
+import { RealtimeCacheChart, RealtimeDiagnostics, RealtimeWindowCards } from './RealtimeInsights';
+import { UsageShareList } from './UsageShareList';
 import { useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import '@/lib/chartjs';
@@ -15,7 +17,6 @@ import {
   formatDurationMs,
   formatFixedTwoDecimals,
   formatPerMinuteValue,
-  formatUsd,
 } from '@/utils/usage';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import styles from '@/pages/UsagePage.module.scss';
@@ -334,19 +335,6 @@ function buildRealtimeLineOptions(
   };
 }
 
-function buildSingleLineData(labels: string[], label: string, values: Array<number | null>, color: string): ChartData<'line', Array<number | null>, string> {
-  return {
-    labels,
-    datasets: [{
-      label,
-      data: values,
-      borderColor: color,
-      backgroundColor: `${color}24`,
-      fill: true,
-    }],
-  };
-}
-
 function buildThroughputOptions(
   isDark: boolean,
   isMobile: boolean,
@@ -435,7 +423,7 @@ function buildThroughputOptions(
         title: {
           display: true,
           text: tokenLabel,
-          color: CHART_COLORS.token,
+          color: tickColor,
           font: { size: isMobile ? 10 : 11 },
         },
         ticks: {
@@ -455,7 +443,7 @@ function buildThroughputOptions(
         title: {
           display: true,
           text: requestLabel,
-          color: CHART_COLORS.request,
+          color: tickColor,
           font: { size: isMobile ? 10 : 11 },
         },
         ticks: {
@@ -842,15 +830,6 @@ function RealtimeChartFrame({ loading, emptyLabel, children }: { loading: boolea
   );
 }
 
-function UsageMetaPill({ label, value }: { label: string; value: string }) {
-  return (
-    <span className={styles.overviewRealtimeUsageMetaPill}>
-      <span className={styles.overviewRealtimeUsageMetaLabel}>{label}</span>
-      <span className={styles.overviewRealtimeUsageMetaValue}>{value}</span>
-    </span>
-  );
-}
-
 export function OverviewRealtimePanel({ realtime, loading, error, window, onWindowChange, isDark, isMobile, timezone, visibleDimensions = DEFAULT_VISIBLE_DIMENSIONS }: OverviewRealtimePanelProps) {
   const { t } = useTranslation();
   const data = realtime ?? emptyRealtime(window);
@@ -867,6 +846,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
   const requestValues = useMemo(() => throughputPoints.map((point) => point.requestsPerMinute), [throughputPoints]);
   const cacheValues = useMemo(() => data.cache_level.map((point) => point.cache_read_rate == null ? null : safeNumber(point.cache_read_rate)), [data.cache_level]);
   const responseTimezone = data.timezone ?? timezone;
+  const outcomeLabels = useMemo(() => (data.insights?.outcomes ?? []).map(point => formatBucketLabel(point.bucket, data.timezone ?? timezone)), [data.insights?.outcomes, data.timezone, timezone]);
   const ttftAveragePoints = useMemo(() => responseDistributionAveragePoints(
     data.response_distribution.ttft.average_line,
     data.response_level.map((point) => ({ bucket: point.bucket, value: point.ttft_p95_ms })),
@@ -885,9 +865,8 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
   const throughputEmptyLabel = throughputPoints.length === 0 ? t('usage_stats.overview_realtime_throughput_empty') : undefined;
   const ttftEmptyLabel = !hasFiniteNumber(ttftAverageValues) && ttftParticleValues.length === 0 ? t('usage_stats.overview_realtime_ttft_empty') : undefined;
   const latencyEmptyLabel = !hasFiniteNumber(latencyAverageValues) && latencyParticleValues.length === 0 ? t('usage_stats.overview_realtime_latency_empty') : undefined;
-  const cacheEmptyLabel = !hasFiniteNumber(cacheValues) ? t('usage_stats.overview_realtime_cache_empty') : undefined;
+  const cacheEmptyLabel = !hasFiniteNumber(cacheValues) && !data.cache_level.some(point => point.input_tokens > 0 || point.cache_read_tokens > 0 || point.cache_creation_tokens > 0) ? t('usage_stats.overview_realtime_cache_empty') : undefined;
 
-  const percentLineOptions = useMemo(() => buildRealtimeLineOptions(isDark, isMobile, (value) => `${formatFixedTwoDecimals(value)}%`, { yMaxTicksLimit: 5 }), [isDark, isMobile]);
   const ttftDistributionOptions = useMemo(() => buildResponseDistributionOptions(
     isDark,
     isMobile,
@@ -916,7 +895,6 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
 
   const throughputOptions = useMemo(() => buildThroughputOptions(isDark, isMobile, tokenRateLabel, requestRateLabel, requestValues), [isDark, isMobile, requestRateLabel, requestValues, tokenRateLabel]);
   const throughputChartData = useMemo(() => buildThroughputData(labels, tokenRateLabel, requestRateLabel, tokenValues, requestValues), [labels, requestRateLabel, requestValues, tokenRateLabel, tokenValues]);
-  const cacheChartData = useMemo(() => buildSingleLineData(cacheLabels, t('usage_stats.overview_realtime_cache_rate'), cacheValues, CHART_COLORS.cache), [cacheLabels, cacheValues, t]);
   const ttftDistributionChartData = useMemo(() => buildResponseDistributionData(
     t('usage_stats.overview_realtime_ttft_average'),
     t('usage_stats.overview_realtime_ttft_distribution'),
@@ -994,6 +972,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
       ) : (
         <>
           {showInlineError && <div className={styles.errorBox}>{error}</div>}
+          {data.insights && <RealtimeWindowCards summary={data.insights.summary} window={data.window} />}
           <div className={styles.overviewRealtimeGrid}>
           <RealtimeCard
             title={t('usage_stats.overview_realtime_throughput')}
@@ -1013,6 +992,8 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
               <Line data={throughputChartData} options={throughputOptions} plugins={THROUGHPUT_CHART_PLUGINS} />
             </RealtimeChartFrame>
           </RealtimeCard>
+
+          {data.insights && <RealtimeDiagnostics insights={data.insights} labels={outcomeLabels} isDark={isDark} isMobile={isMobile} />}
 
           <div className={styles.overviewRealtimeResponseUsageRow}>
             <div className={styles.overviewRealtimeResponseStack}>
@@ -1053,30 +1034,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
                   </button>
                 ))}
               </div>
-              <div className={styles.overviewRealtimeUsageList} aria-busy={loading}>
-                {(visibleDimension?.items ?? []).length === 0 ? (
-                  <div className={styles.overviewRealtimeEmpty}>{t('usage_stats.overview_realtime_usage_empty')}</div>
-                ) : (
-                  visibleDimension?.items.map((item) => (
-                    <div key={item.key} className={styles.overviewRealtimeUsageItem}>
-                      <div className={styles.overviewRealtimeUsageTopline}>
-                        <span className={styles.overviewRealtimeUsageLabel} title={item.label}>{item.label}</span>
-                        <span className={styles.overviewRealtimeUsageShare}>{formatFixedTwoDecimals(safeNumber(item.share))}%</span>
-                      </div>
-                      <div className={styles.overviewRealtimeUsageTrack}>
-                        {safeNumber(item.share) > 0 && (
-                          <span className={styles.overviewRealtimeUsageBar} style={{ width: `${Math.max(0, Math.min(100, safeNumber(item.share)))}%` }} />
-                        )}
-                      </div>
-                      <div className={styles.overviewRealtimeUsageMeta}>
-                        <UsageMetaPill label={t('usage_stats.overview_realtime_tokens_label')} value={formatCompactNumber(item.tokens)} />
-                        <UsageMetaPill label={t('usage_stats.overview_realtime_requests_label')} value={item.requests.toLocaleString()} />
-                        {typeof item.cost === 'number' && <UsageMetaPill label={t('usage_stats.overview_realtime_cost_label')} value={formatUsd(item.cost)} />}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
+              <UsageShareList items={visibleDimension?.items ?? []} loading={loading} />
             </RealtimeCard>
           </div>
 
@@ -1087,7 +1045,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
             full
           >
             <RealtimeChartFrame loading={loading} emptyLabel={cacheEmptyLabel}>
-              <Line data={cacheChartData} options={percentLineOptions} />
+              <RealtimeCacheChart points={data.cache_level} labels={cacheLabels} isDark={isDark} isMobile={isMobile} />
             </RealtimeChartFrame>
           </RealtimeCard>
           </div>

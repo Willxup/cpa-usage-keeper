@@ -37,7 +37,7 @@ func BenchmarkOverviewComparisons(b *testing.B) {
 		for _, enabled := range []bool{false, true} {
 			b.Run(fmt.Sprintf("days_%d/comparisons_%t", days, enabled), func(b *testing.B) {
 				start := end.AddDate(0, 0, -days)
-				filter := repodto.UsageQueryFilter{Range: "custom", CustomUnit: "day", StartTime: &start, EndTime: &end, EndExclusive: true, QueryNow: &end, IncludeComparisons: enabled}
+				filter := repodto.UsageQueryFilter{Range: "custom", CustomUnit: "day", StartTime: &start, EndTime: &end, EndExclusive: true, QueryNow: &end, IncludeComparisons: enabled, ComparisonOnly: enabled}
 				resolver := emptyPricingResolverForTest()
 				b.ReportAllocs()
 				b.ResetTimer()
@@ -46,7 +46,7 @@ func BenchmarkOverviewComparisons(b *testing.B) {
 					if err != nil {
 						b.Fatal(err)
 					}
-					if result.Usage.TotalRequests != int64(days*12*4*2*10000) {
+				if !enabled && result.Usage.TotalRequests != int64(days*12*4*2*10000) {
 						b.Fatal("lost requests")
 					}
 				}

@@ -15,6 +15,7 @@ import {
   useRecentActivityWindow,
   useSparklines,
   useUsageActivityData,
+  useUsageComparisonsData,
 } from '@/components/usage';
 import type { UsageOverviewPayload } from '@/components/usage/hooks/useUsageData';
 import { getCurrentOverviewUsage, getDailyAverageCardUsage, getOverviewDisplayLoading, isDailyAverageRange } from '@/utils/usage/overview';
@@ -195,6 +196,21 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
     setTimeRangeState(nextState);
     return true;
   }, [rangeRecoveryTimeZone, timeRangeState]);
+  const {
+    comparisons: overviewComparisons,
+    loading: comparisonsLoading,
+    error: comparisonsError,
+    loadComparisons,
+  } = useUsageComparisonsData({
+    onAuthRequired,
+    onRangeBoundsConflict: recoverRangeBoundsConflict,
+    enabled: page === 'overview' && usageRangeQuery.valid,
+    keyViewer: true,
+    range: timeRange,
+    customUnit: customRange?.unit,
+    customStart: customRange?.start,
+    customEnd: customRange?.end,
+  });
   const handleTimeRangeChange = useCallback((range: UsageTimeRange, nextCustomRange?: UsageCustomRange) => {
     let nextState: StoredUsageRangeState;
     if (range === 'custom' && nextCustomRange) {
@@ -292,8 +308,8 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
       await loadRealtime(options);
       return;
     }
-    await Promise.all([loadOverview(options), loadActivity(options)]);
-  }, [loadActivity, loadOverview, loadRealtime, page]);
+    await Promise.all([loadOverview(options), loadActivity(options), loadComparisons()]);
+  }, [loadActivity, loadComparisons, loadOverview, loadRealtime, page]);
 
   const handleAutoRefreshError = useCallback((nextError: unknown) => {
     if (nextError instanceof ApiError && nextError.status === 401) {
@@ -371,7 +387,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
       onAuthRequired={onAuthRequired}
     >
       {page === 'overview' && <>
-      {displayError && <div className={styles.errorBox}>{displayError}</div>}
+      {(displayError || comparisonsError) && <div className={styles.errorBox}>{displayError || comparisonsError}</div>}
 
       <StatCards
         usage={usage}
@@ -398,7 +414,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
         onWindowChange={setActivityWindow}
       />
 
-      <UsageComparisonCharts comparisons={currentOverviewUsage?.comparisons} loading={loading} keyViewer />
+      <UsageComparisonCharts comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading} keyViewer />
       </>}
 
       {page === 'realtime' && <OverviewRealtimePanel

@@ -44,28 +44,26 @@ func TestOverviewComparisonAPIUsesAliasesAndViewerScope(t *testing.T) {
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: keys})
 	query := "?range=custom&unit=day&start=" + today.Format(time.DateOnly) + "&end=" + today.Format(time.DateOnly)
 	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview"+query, nil))
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview/comparisons"+query, nil))
 	if response.Code != http.StatusOK {
 		t.Fatalf("admin status %d: %s", response.Code, response.Body.String())
 	}
 	var payload struct {
-		Comparisons struct {
-			Models []struct {
-				Key  string
-				Cost *float64
-			}
-			APIKeys []struct{ Key, Label string } `json:"api_keys"`
+		Models []struct {
+			Key  string
+			Cost *float64
 		}
+		APIKeys []struct{ Key, Label string } `json:"api_keys"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if len(payload.Comparisons.APIKeys) != 4 {
-		t.Fatalf("key count: %d", len(payload.Comparisons.APIKeys))
+	if len(payload.APIKeys) != 4 {
+		t.Fatalf("key count: %d", len(payload.APIKeys))
 	}
 	seen := map[string]bool{}
 	foundAlias := false
-	for _, item := range payload.Comparisons.APIKeys {
+	for _, item := range payload.APIKeys {
 		if seen[item.Key] {
 			t.Fatal("history key identifiers collided")
 		}
@@ -91,16 +89,16 @@ func TestOverviewComparisonAPIUsesAliasesAndViewerScope(t *testing.T) {
 	authConfig := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
 	viewerRouter := NewRouter(nil, nil, provider, nil, authConfig, NewAuthHandler(authConfig, sessions), "", OptionalProviders{CPAAPIKeys: keys})
 	response = httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/key-overview"+query+"&api_key_id=99", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/key-overview/comparisons"+query+"&api_key_id=99", nil)
 	request.AddCookie(&http.Cookie{Name: standardSessionCookieName, Value: token})
 	viewerRouter.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("viewer status %d: %s", response.Code, response.Body.String())
 	}
-	if strings.Contains(response.Body.String(), "api_keys") || strings.Contains(response.Body.String(), "other-model") || strings.Contains(response.Body.String(), key.APIKey) {
-		t.Fatal("viewer received data outside model scope")
+	if !strings.Contains(response.Body.String(), "api_keys") || strings.Contains(response.Body.String(), "other-model") || strings.Contains(response.Body.String(), key.APIKey) {
+		t.Fatal("viewer received data outside API Key scope")
 	}
-	if !strings.Contains(response.Body.String(), "my-model") || keys.listCalls != 0 {
-		t.Fatal("viewer should receive its model data without listing keys")
+	if !strings.Contains(response.Body.String(), `"key":"42"`) || keys.listCalls != 0 {
+		t.Fatal("viewer should receive its own API Key data without listing keys")
 	}
 }

@@ -15,6 +15,7 @@ export { OverviewActivityCards } from './OverviewActivityCards';
 export { RecentActivityPanel } from './RecentActivityPanel';
 export { TimeRangeControl } from './TimeRangeControl';
 export { useUsageData } from './hooks/useUsageData';
+export { useUsageComparisonsData } from './hooks/useUsageComparisonsData';
 export { useRecentActivityWindow } from './hooks/useRecentActivityWindow';
 export { useUsageActivityData } from './hooks/useUsageActivityData';
 export { useOverviewRealtimeData } from './hooks/useOverviewRealtimeData';

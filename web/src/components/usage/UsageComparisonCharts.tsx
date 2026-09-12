@@ -1,95 +1,112 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { UsageComparisonItem, UsageOverviewComparisons } from '@/lib/types';
 import { Card } from '@/components/ui/Card';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { PortalTooltip, usePortalTooltip } from '@/components/ui/PortalTooltip';
 import { formatCompactNumber, formatUsd } from '@/utils/usage';
+import { USAGE_CHART_COMPOSITION_COLORS } from '@/utils/usage/chartConfig';
+import { buildComparisonView, layoutComparisonTreemap, type ComparisonRow } from './usageComparisonData';
+import { UsageShareList } from './UsageShareList';
 import styles from './UsageComparisonCharts.module.scss';
+import usageStyles from '@/pages/UsagePage.module.scss';
 
-type Metric = 'tokens' | 'requests' | 'cost' | 'failures' | 'per_request' | 'unit_cost' | 'cache' | 'failure_rate';
-const METRICS: Metric[] = ['tokens', 'requests', 'cost', 'failures'];
-const EFFICIENCY_METRICS: Metric[] = ['per_request', 'unit_cost', 'cache', 'failure_rate'];
-const PAGE_SIZE = 6;
 const EMPTY: UsageComparisonItem[] = [];
-const EMPTY_ITEM: UsageComparisonItem = { key: '', label: '', requests: 0, failures: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, reasoning_tokens: 0, total_tokens: 0, cost: null };
-const percent = (numerator: number, denominator: number) => denominator > 0 ? `${(numerator / denominator * 100).toFixed(1)}%` : '—';
-const metricValue = (item: UsageComparisonItem, metric: Metric): number | null => {
-  if (metric === 'tokens') return item.total_tokens;
-  if (metric === 'per_request') return item.requests > 0 ? item.total_tokens / item.requests : null;
-  if (metric === 'unit_cost') return item.requests > 0 && item.cost !== null ? item.cost / item.requests * 1000 : null;
-  if (metric === 'cache') return item.input_tokens > 0 ? item.cache_read_tokens / item.input_tokens * 100 : null;
-  if (metric === 'failure_rate') return item.requests > 0 ? item.failures / item.requests * 100 : null;
-  return item[metric];
+const OTHER_COLOR = { base: '#64748b', light: '#cbd5e1' };
+const rowStyle = (row: ComparisonRow, index: number): CSSProperties => {
+  const color = row.other ? OTHER_COLOR : USAGE_CHART_COMPOSITION_COLORS[index % USAGE_CHART_COMPOSITION_COLORS.length];
+  return { '--usage-light': color.light } as CSSProperties;
 };
+const formatCost = (value: number | null) => value === null ? '—' : formatUsd(value);
+const formatShare = (value: number | null) => value === null ? '—' : `${value.toFixed(1)}%`;
 
-function ComparisonChart({ items, dimension, loading }: { items: UsageComparisonItem[]; dimension: 'models' | 'api_keys' | 'efficiency'; loading: boolean }) {
+type UsageDimension = 'api_keys' | 'auth_files' | 'ai_providers';
+const DIMENSION_KEYS: readonly UsageDimension[] = ['api_keys', 'auth_files', 'ai_providers'];
+
+function ComparisonChart({ items, dimension, loading, dimensions, titleKey }: { items: UsageComparisonItem[]; dimension: 'models' | UsageDimension; loading: boolean; dimensions?: Partial<Record<UsageDimension, UsageComparisonItem[]>>; titleKey?: string }) {
   const { t } = useTranslation();
-  const efficiency = dimension === 'efficiency';
-  const [metric, setMetric] = useState<Metric>(efficiency ? 'per_request' : 'tokens');
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(0);
-  const title = t(`usage_stats.comparison_${dimension}`);
-  const ranked = useMemo(() => [...items].sort((a, b) => {
-    const av = metricValue(a, metric), bv = metricValue(b, metric);
-    if (av === null || bv === null) return av === bv ? a.key.localeCompare(b.key) : av === null ? 1 : -1;
-    return bv - av || a.key.localeCompare(b.key);
-  }), [items, metric]);
-  // 排序、搜索和翻页只影响展示；分母始终来自完整筛选范围，不能把当前页误当作总体。
-  const total = useMemo(() => items.reduce((sum, item) => sum + (metricValue(item, metric) ?? 0), 0), [items, metric]);
-  const filtered = useMemo(() => ranked.filter((item) => item.label.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())), [ranked, search]);
-  const currentPage = Math.min(page, Math.max(0, Math.ceil(filtered.length / PAGE_SIZE) - 1));
-  const visible = filtered.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
-  const maximum = Math.max(0, metricValue(ranked[0] ?? EMPTY_ITEM, metric) ?? 0);
-  const partialCost = (metric === 'cost' || metric === 'unit_cost') && items.some((item) => item.cost === null);
-  const format = (value: number | null) => value === null ? '—' : metric === 'cost' || metric === 'unit_cost' ? formatUsd(value) : metric === 'cache' || metric === 'failure_rate' ? `${value.toFixed(1)}%` : formatCompactNumber(value);
-  const topThree = ranked.slice(0, 3).reduce((sum, item) => sum + (metricValue(item, metric) ?? 0), 0);
+  const [activeDimension, setActiveDimension] = useState<UsageDimension>(dimension === 'models' ? 'api_keys' : dimension);
+  const activeItems = dimensions ? (dimensions[activeDimension] ?? EMPTY) : items;
+  const view = useMemo(() => buildComparisonView(activeItems, t('usage_stats.comparison_others')), [activeItems, t]);
+  const shareItems = useMemo(() => view.rows.map(row => ({
+    key: row.key, label: row.label, tokens: row.total_tokens, requests: row.requests, share: row.share, cost: row.cost,
+    cacheRate: row.input_tokens > 0 ? row.cache_read_tokens / row.input_tokens * 100 : null,
+  })), [view.rows]);
+  const title = t(titleKey ?? `usage_stats.comparison_${dimension}`);
+  const treeRef = useRef<HTMLDivElement>(null);
+  const [treeSize, setTreeSize] = useState({width: 480, height: 224});
+  const tooltip = usePortalTooltip();
+  const { dismiss } = tooltip;
+  useEffect(() => { dismiss(); }, [items, dismiss]);
+  useEffect(() => {
+    const element = treeRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+        setTreeSize({width:entry.contentRect.width, height:entry.contentRect.height});
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const rects = useMemo(() => layoutComparisonTreemap(view.rows, treeSize.width / treeSize.height), [view.rows, treeSize]);
+  const tooltipLines = (row: ComparisonRow) => [
+    row.label,
+    `${t('usage_stats.comparison_tokens')}: ${formatCompactNumber(row.total_tokens)} · ${formatShare(row.share)}`,
+    `${t('usage_stats.comparison_requests')}: ${row.requests.toLocaleString()} · ${t('usage_stats.comparison_failures')}: ${row.failures.toLocaleString()}`,
+    `${t('usage_stats.comparison_input')}: ${formatCompactNumber(row.input_tokens)} · ${t('usage_stats.comparison_output')}: ${formatCompactNumber(row.output_tokens)}`,
+    `${t('usage_stats.comparison_cache_read')}: ${formatCompactNumber(row.cache_read_tokens)} · ${t('usage_stats.comparison_cache_write')}: ${formatCompactNumber(row.cache_creation_tokens)}`,
+    `${t('usage_stats.comparison_reasoning')}: ${formatCompactNumber(row.reasoning_tokens)}`,
+    `${t('usage_stats.comparison_cost')}: ${formatCost(row.cost)}`,
+  ];
+  const events = (row: ComparisonRow) => ({
+    onMouseEnter: (event: React.MouseEvent<HTMLButtonElement>) => tooltip.showOnMouseEnter(tooltipLines(row), event.currentTarget),
+    onMouseLeave: (event: React.MouseEvent<HTMLButtonElement>) => tooltip.hideOnMouseLeave(event.currentTarget),
+    onFocus: (event: React.FocusEvent<HTMLButtonElement>) => tooltip.showOnFocus(tooltipLines(row), event.currentTarget),
+    onBlur: (event: React.FocusEvent<HTMLButtonElement>) => tooltip.hideOnBlur(event.currentTarget),
+    onClick: (event: React.MouseEvent<HTMLButtonElement>) => tooltip.showOnFocus(tooltipLines(row), event.currentTarget),
+    onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => { if (event.key === 'Escape') tooltip.dismiss(); },
+  });
+  const empty = loading && items.length === 0 ? <><LoadingSpinner size={18} />{t('common.loading')}</> : t('usage_stats.comparison_empty');
 
-  return <Card title={title} subtitle={t('usage_stats.comparison_subtitle')} className={styles.card} data-comparison={dimension}>
-    <div className={styles.controls} role="group" aria-label={`${title}: ${t('usage_stats.comparison_metric')}`}>
-      {(efficiency ? EFFICIENCY_METRICS : METRICS).map((value) => <button key={value} type="button" aria-pressed={metric === value} onClick={() => { setMetric(value); setPage(0); }}>{t(`usage_stats.comparison_${value}`)}</button>)}
-    </div>
-    <div className={styles.summary}>
-      <div><span>{t(efficiency ? 'usage_stats.comparison_highest' : partialCost ? 'usage_stats.comparison_known_cost' : `usage_stats.comparison_${metric}`)}</span><strong>{efficiency ? format(metricValue(ranked[0] ?? EMPTY_ITEM, metric)) : format(total)}</strong></div>
-      <div><span>{t('usage_stats.comparison_active')}</span><strong>{items.length.toLocaleString()}</strong></div>
-      {!efficiency && <div><span>{t('usage_stats.comparison_top3')}</span><strong>{percent(topThree, total)}</strong></div>}
-    </div>
-    <input className={styles.search} type="search" value={search} placeholder={t('usage_stats.comparison_search')} aria-label={`${title}: ${t('usage_stats.comparison_search')}`} onInput={(event) => { setSearch(event.currentTarget.value); setPage(0); }} />
-    <div className={styles.chart} aria-busy={loading} aria-label={title}>
-      {loading && items.length === 0 ? <div className={styles.empty}><LoadingSpinner size={18} />{t('common.loading')}</div> : visible.length === 0 ? <div className={styles.empty}>{t('usage_stats.comparison_empty')}</div> : visible.map((item) => {
-        const value = metricValue(item, metric);
-        const width = maximum > 0 && value !== null ? Math.max(0, value / maximum * 100) : 0;
-        return <details key={item.key} className={styles.row}>
-          <summary>
-            <div className={styles.topline}><span className={styles.name} title={item.label}>{item.label}</span><strong>{format(value)}</strong>{!efficiency && <span className={styles.share}>{value === null ? '—' : percent(value, total)}</span>}</div>
-            <div className={styles.track} aria-hidden="true"><span className={styles.bar} data-metric={metric} style={{ width: `${width}%` }}>{metric === 'requests' && item.failures > 0 && <span className={styles.failed} style={{ width: `${Math.min(100, item.failures / item.requests * 100)}%` }} />}</span></div>
-            <div className={styles.meta}>
-              <span>{t('usage_stats.comparison_success')} <b>{percent(item.requests - item.failures, item.requests)}</b></span>
-              <span>{t('usage_stats.comparison_cache')} <b>{percent(item.cache_read_tokens, item.input_tokens)}</b></span>
-              <span>{t('usage_stats.comparison_per_request')} <b>{item.requests > 0 ? formatCompactNumber(item.total_tokens / item.requests) : '—'}</b></span>
-            </div>
-          </summary>
-          <dl className={styles.details}>
-            {([
-              ['requests', item.requests], ['failures', item.failures], ['input', item.input_tokens], ['output', item.output_tokens],
-              ['cache_read', item.cache_read_tokens], ['cache_write', item.cache_creation_tokens], ['reasoning', item.reasoning_tokens],
-            ] as const).map(([label, amount]) => <div key={label}><dt>{t(`usage_stats.comparison_${label}`)}</dt><dd>{amount.toLocaleString()}</dd></div>)}
-            <div><dt>{t('usage_stats.comparison_cost')}</dt><dd>{item.cost === null ? '—' : formatUsd(item.cost)}</dd></div>
-            <div><dt>{t('usage_stats.comparison_unit_cost')}</dt><dd>{item.cost === null || item.requests === 0 ? '—' : formatUsd(item.cost / item.requests * 1000)}</dd></div>
-          </dl>
-        </details>;
-      })}
-    </div>
-    <div className={styles.footer}><span>{t('usage_stats.comparison_page', { start: filtered.length ? currentPage * PAGE_SIZE + 1 : 0, end: Math.min((currentPage + 1) * PAGE_SIZE, filtered.length), total: filtered.length })}</span><div>
-      <button type="button" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>{t('usage_stats.comparison_previous')}</button>
-      <button type="button" disabled={(currentPage + 1) * PAGE_SIZE >= filtered.length} onClick={() => setPage(currentPage + 1)}>{t('usage_stats.comparison_next')}</button>
-    </div></div>
-    <p className={styles.note}>{t(efficiency ? 'usage_stats.comparison_efficiency_hint' : partialCost ? 'usage_stats.comparison_partial_hint' : 'usage_stats.comparison_hint')}</p>
+  return <Card title={title} className={styles.card} data-comparison={dimension}>
+    {dimension === 'models' ? <div className={styles.chartSurface} aria-busy={loading}>
+      <div ref={treeRef} className={styles.treemap} aria-label={title}>
+        {rects.length === 0 ? <div className={styles.empty}>{empty}</div> : rects.map((rect, index) => {
+          const tiny = rect.width * treeSize.width / 100 < 48 || rect.height * treeSize.height / 100 < 28;
+          return <div key={rect.row.key} className={styles.tileSlot} style={{left:`${rect.x}%`, top:`${rect.y}%`, width:`${rect.width}%`, height:`${rect.height}%`}}>
+            <button type="button" data-comparison-entry={rect.row.key} className={styles.tile} style={rowStyle(rect.row,index)} aria-label={tooltipLines(rect.row).join(', ')} data-tiny={tiny} {...events(rect.row)}>
+              <span className={styles.tileName}>{rect.row.label}</span>
+            </button>
+          </div>;
+        })}
+      </div>
+    </div> : <>
+      {dimensions && <div className={usageStyles.overviewRealtimeDimensionTabs} role="tablist">
+        {DIMENSION_KEYS.map((key) => <button key={key} type="button" className={`${usageStyles.overviewRealtimeDimensionTab} ${activeDimension === key ? usageStyles.overviewRealtimeDimensionTabActive : ''}`.trim()} onClick={() => setActiveDimension(key)} aria-pressed={activeDimension === key}>{t(`usage_stats.overview_realtime_dimension_${key}`)}</button>)}
+      </div>}
+      <UsageShareList items={shareItems} loading={loading} emptyContent={empty} />
+    </>}
+    <PortalTooltip tooltip={tooltip.tooltip} />
   </Card>;
 }
 
 export function UsageComparisonCharts({ comparisons, loading, keyViewer = false }: { comparisons?: UsageOverviewComparisons; loading: boolean; keyViewer?: boolean }) {
-  return <div className={styles.grid}>
-    <ComparisonChart dimension="models" items={comparisons?.models ?? EMPTY} loading={loading} />
-    <ComparisonChart dimension={keyViewer ? "efficiency" : "api_keys"} items={(keyViewer ? comparisons?.models : comparisons?.api_keys) ?? EMPTY} loading={loading} />
-  </div>;
+  const { t } = useTranslation();
+  const headingId = useId();
+  return <section className={usageStyles.recentActivitySection} aria-labelledby={headingId}>
+    <div className={usageStyles.recentActivityHeading}>
+      <h2 id={headingId} className={usageStyles.recentActivityTitle}>{t('usage_stats.comparison_title')}</h2>
+    </div>
+    <div className={styles.grid}>
+      <ComparisonChart dimension="models" items={comparisons?.models ?? EMPTY} loading={loading} />
+      <ComparisonChart
+        dimension="api_keys"
+        items={comparisons?.api_keys ?? EMPTY}
+        dimensions={keyViewer ? undefined : { api_keys: comparisons?.api_keys ?? EMPTY, auth_files: comparisons?.auth_files ?? EMPTY, ai_providers: comparisons?.ai_providers ?? EMPTY }}
+        titleKey={keyViewer ? 'usage_stats.comparison_api_keys' : 'usage_stats.comparison_token_usage'}
+        loading={loading}
+      />
+    </div>
+  </section>;
 }

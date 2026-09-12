@@ -24,24 +24,31 @@ type usageOverviewComparisonItem struct {
 }
 
 type usageOverviewComparisons struct {
-	Models  []usageOverviewComparisonItem `json:"models"`
-	APIKeys []usageOverviewComparisonItem `json:"api_keys,omitempty"`
+	Models      []usageOverviewComparisonItem `json:"models"`
+	APIKeys     []usageOverviewComparisonItem `json:"api_keys,omitempty"`
+	AuthFiles   []usageOverviewComparisonItem `json:"auth_files,omitempty"`
+	AIProviders []usageOverviewComparisonItem `json:"ai_providers,omitempty"`
 }
 
 func buildUsageOverviewComparisons(overview *servicedto.UsageOverviewSnapshot, infos map[string]analysisAPIKeyInfo) *usageOverviewComparisons {
-	result := &usageOverviewComparisons{Models: []usageOverviewComparisonItem{}, APIKeys: []usageOverviewComparisonItem{}}
+	result := &usageOverviewComparisons{Models: []usageOverviewComparisonItem{}, APIKeys: []usageOverviewComparisonItem{}, AuthFiles: []usageOverviewComparisonItem{}, AIProviders: []usageOverviewComparisonItem{}}
 	if overview == nil || overview.Comparisons == nil {
 		return result
 	}
 	result.Models = mapUsageOverviewComparison(overview.Comparisons.Models, nil, false)
 	result.APIKeys = mapUsageOverviewComparison(overview.Comparisons.APIKeys, infos, true)
+	result.AuthFiles = mapUsageOverviewComparison(overview.Comparisons.AuthFiles, nil, false)
+	result.AIProviders = mapUsageOverviewComparison(overview.Comparisons.AIProviders, nil, false)
 	return result
 }
 
 func mapUsageOverviewComparison(items map[string]*repodto.UsageComparisonItemRecord, infos map[string]analysisAPIKeyInfo, apiKeys bool) []usageOverviewComparisonItem {
 	result := make([]usageOverviewComparisonItem, 0, len(items))
 	for _, item := range items {
-		key, label := item.Key, item.Key
+		key, label := item.Key, item.Label
+		if label == "" {
+			label = item.Key
+		}
 		if apiKeys {
 			label = analysisAPIKeyLabel(item.Key, infos)
 			if info, ok := infos[item.Key]; ok && info.ID != "" {
