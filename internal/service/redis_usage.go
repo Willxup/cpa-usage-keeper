@@ -148,6 +148,10 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 }
 
 func (d queuedUsageDetail) toUsageHeaderSnapshot(event entities.UsageEvent) *quota.UsageHeaderSnapshot {
+	// event 已规范化；没有 OAuth 身份的 Header 不会产生额度快照，无需解析响应头。
+	if event.AuthType != "oauth" || event.AuthIndex == "" {
+		return nil
+	}
 	headers, ok := decodeRedisUsageResponseHeaders(d.ResponseHeaders)
 	if !ok {
 		return nil
