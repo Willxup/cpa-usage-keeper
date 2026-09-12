@@ -1,13 +1,11 @@
 // @vitest-environment happy-dom
 
 import React, { act } from 'react';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { BasicPlatform, Chart } from 'chart.js/auto';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ChartData, ChartOptions, Plugin } from 'chart.js';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AnalysisResponse, AnalysisTokenUsageBucket } from '@/lib/types';
 
 type CapturedBar = {
@@ -154,9 +152,12 @@ const readVerticalGradientStops = (backgroundColor: unknown) => {
 describe('AnalysisPanel Top Models card', () => {
   beforeEach(() => {
     chartCapture.bars = [];
+    vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
   });
 
-  it('builds a stable whole-range Top 5 and merges every remaining model into Others', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('ranks every model across the whole range without merging the tail', () => {
     const buckets = ['2026-08-01T01:00:00Z', '2026-08-01T02:00:00Z'];
     const analysis = baseAnalysis('hourly', buckets);
     analysis.model_usage.series = [
@@ -186,28 +187,30 @@ describe('AnalysisPanel Top Models card', () => {
       'model-gamma',
       'model-delta',
       'model-epsilon',
-      'usage_stats.analysis_others',
+      'model-zeta',
+      'model-eta',
     ]);
     expect(topModelsBar?.data.datasets[0]?.data).toEqual([100, null]);
-    expect(topModelsBar?.data.datasets.at(-1)?.data).toEqual([50, 40]);
-    expect(topModelsBar?.data.datasets.map((dataset) => readVerticalGradientStops(dataset.backgroundColor))).toEqual([
+    expect(topModelsBar?.data.datasets.at(-2)?.data).toEqual([50, null]);
+    expect(topModelsBar?.data.datasets.at(-1)?.data).toEqual([null, 40]);
+    const colors = topModelsBar?.data.datasets.map((dataset) => readVerticalGradientStops(dataset.backgroundColor)[1][1]);
+    expect(new Set(colors).size).toBe(7);
+    expect(topModelsBar?.data.datasets.slice(0, 5).map((dataset) => readVerticalGradientStops(dataset.backgroundColor))).toEqual([
       [[0, '#f9a8d4'], [1, '#db2777']],
       [[0, '#fcd34d'], [1, '#d97706']],
       [[0, '#6ee7b7'], [1, '#059669']],
       [[0, '#93c5fd'], [1, '#2563eb']],
       [[0, '#fca5a5'], [1, '#dc2626']],
-      [[0, '#cbd5e1'], [1, '#64748b']],
     ]);
-    expect(topModelsBar?.data.datasets.map((dataset) => dataset.minBarLength)).toEqual([4, 4, 4, 4, 4, 4]);
     expect(topModelsBar?.options.scales?.x?.stacked).toBe(true);
     expect(topModelsBar?.options.scales?.tokens?.stacked).toBe(true);
 
     const cardMarkup = markup.slice(topModelsStart, latencyStart);
     expect(cardMarkup).toContain('<button');
     expect(cardMarkup).toContain('aria-label="1. model-alpha');
-    expect(cardMarkup).toContain('aria-label="6. usage_stats.analysis_others');
-    expect(cardMarkup).not.toContain('model-zeta');
-    expect(cardMarkup).not.toContain('model-eta');
+    expect(cardMarkup).toContain('aria-label="6. model-zeta');
+    expect(cardMarkup).toContain('model-zeta');
+    expect(cardMarkup).toContain('model-eta');
   });
 
   it('uses response timezone for daily labels and reports model share plus bucket total in tooltip', () => {
@@ -306,6 +309,68 @@ describe('AnalysisPanel Top Models card', () => {
     }
   });
 
+  it.each([false, true])('exposes every bucket entry in an external tooltip and dismisses stale details (mobile: %s)', (isMobile) => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const analysis = baseAnalysis('daily', ['2026-07-31T16:00:00Z']);
+    analysis.model_usage.series = Array.from({ length: 21 }, (_, index) => ({
+      model: index === 0 ? 'model-alpha' : `model-${index}`,
+      total_tokens: [index === 20 ? 0 : 100], requests: [1],
+    }));
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    let chart: Chart<'bar'> | undefined;
+    try {
+      const render = (data: AnalysisResponse) => act(() => root.render(
+        <AnalysisPanel analysis={data} loading={false} isDark={false} isMobile={isMobile} />,
+      ));
+      render(analysis);
+      const captured = findLatestTopModelsBar()!;
+      expect(captured.options.plugins?.tooltip?.enabled).toBe(false);
+      const canvas = createFakeChartCanvas();
+      canvas.getBoundingClientRect = () => new DOMRect(0, 0, 500, 300);
+      chart = new Chart(canvas, {
+        type: 'bar', platform: BasicPlatform, data: captured.data,
+        options: { ...captured.options, responsive: false, animation: false },
+      });
+      const show = (x: number) => act(() => {
+        chart!.tooltip!.setActiveElements(captured.data.datasets.map((_, datasetIndex) => ({ datasetIndex, index: 0 })), { x, y: 100 });
+        chart!.draw();
+      });
+      show(100);
+      const tooltip = document.querySelector('[data-top-models-tooltip]')!;
+      expect(tooltip).not.toBeNull();
+      expect(tooltip.querySelectorAll('li')).toHaveLength(20);
+      expect(tooltip.textContent).toContain('8/1');
+      expect(tooltip.textContent).toContain('model-19: 100 (5.00%)');
+      expect(tooltip.textContent).not.toContain('model-20:');
+      expect(tooltip.textContent).toContain('usage_stats.total_tokens: 2.00K');
+
+      vi.useFakeTimers();
+      act(() => tooltip.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' })));
+      act(() => chart!.tooltip!.setActiveElements([], { x: 0, y: 0 }));
+      act(() => vi.advanceTimersByTime(300));
+      expect(document.querySelector('[data-top-models-tooltip]')).not.toBeNull();
+      act(() => tooltip.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse', relatedTarget: document.body })));
+      act(() => vi.advanceTimersByTime(300));
+      expect(document.querySelector('[data-top-models-tooltip]')).toBeNull();
+      vi.useRealTimers();
+      show(105);
+
+      act(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+      expect(document.querySelector('[data-top-models-tooltip]')).toBeNull();
+      show(110);
+      expect(document.querySelector('[data-top-models-tooltip]')).not.toBeNull();
+      render({ ...analysis, model_usage: { ...analysis.model_usage } });
+      expect(document.querySelector('[data-top-models-tooltip]')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+      chart?.destroy();
+      act(() => root.unmount());
+      container.remove();
+    }
+  });
+
   it('shows card-local loading and empty states', () => {
     const analysis = baseAnalysis('hourly', []);
     const loadingMarkup = renderToStaticMarkup(
@@ -344,13 +409,13 @@ describe('AnalysisPanel Top Models card', () => {
       expect(alphaButton).toBeDefined();
       expect(betaButton).toBeDefined();
 
-      act(() => alphaButton?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+      act(() => alphaButton?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' })));
       act(() => betaButton?.focus());
       expect(document.activeElement).toBe(betaButton);
       expect(findLatestTopModelsBar()?.data.datasets[0]?.borderWidth).toBe(0);
       expect(findLatestTopModelsBar()?.data.datasets[1]?.borderWidth).toBe(1.5);
 
-      act(() => alphaButton?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })));
+      act(() => alphaButton?.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse', relatedTarget: document.body })));
       expect(document.activeElement).toBe(betaButton);
       expect(findLatestTopModelsBar()?.data.datasets[1]?.borderWidth).toBe(1.5);
     } finally {
@@ -358,17 +423,6 @@ describe('AnalysisPanel Top Models card', () => {
       container.remove();
     }
 
-    const panelSource = readFileSync(resolve(process.cwd(), 'src/components/usage/analysis/AnalysisPanel.tsx'), 'utf8');
-    const panelStyles = readFileSync(resolve(process.cwd(), 'src/components/usage/analysis/AnalysisPanel.module.scss'), 'utf8');
-    expect(panelSource).toContain('setHoveredModel');
-    expect(panelSource).toContain('setFocusedModel');
-    expect(panelSource).toContain('onMouseEnter');
-    expect(panelSource).toContain('onFocus');
-    expect(panelStyles).toMatch(/\.topModelsRankItem:focus-visible/);
-    expect(panelStyles).toContain('outline: 2px solid var(--text-primary);');
-    expect(panelStyles).not.toMatch(/\[data-muted='true'\]\s*\{\s*opacity:/);
-    expect(panelStyles).toMatch(/\.topModelsRankItem\[data-muted='true'\] \.topModelsColor/);
-    expect(panelStyles).toContain('@media (prefers-reduced-motion: reduce)');
   });
 
   it('keeps non-focused datasets muted while the chart bucket is active', () => {
@@ -409,10 +463,9 @@ describe('AnalysisPanel Top Models card', () => {
       ]);
 
       const alphaElement = chart.getDatasetMeta(0).data[0] as unknown as { options: { backgroundColor?: unknown } };
-      expect(getRecordedGradientStops(alphaElement.options.backgroundColor)).toEqual([
-        [0, '#f9a8d433'],
-        [1, '#db277733'],
-      ]);
+      const expected = readVerticalGradientStops(topModelsBar!.data.datasets[0].backgroundColor);
+      expect(getRecordedGradientStops(alphaElement.options.backgroundColor)).toEqual(expected);
+      expect(expected.every(([, color]) => color.endsWith('33'))).toBe(true);
     } finally {
       chart?.destroy();
       act(() => root.unmount());

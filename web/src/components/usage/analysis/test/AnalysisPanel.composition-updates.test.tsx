@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import React, { act } from 'react';
+import { Chart } from 'chart.js';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AnalysisCompositionItem, AnalysisResponse } from '@/lib/types';
@@ -24,14 +25,25 @@ import { AnalysisPanel, type AnalysisCompositionDimension } from '../AnalysisPan
 
 type DrawnLabel = { text: string; color: unknown };
 const frames = new WeakMap<HTMLCanvasElement, DrawnLabel[]>();
+const filledSweeps = new WeakMap<HTMLCanvasElement, number[]>();
 
 function contextFor(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+  let pathSweeps: number[] = [];
   const target: Record<PropertyKey, unknown> = {
     canvas,
     measureText: (text: unknown) => ({ width: String(text).length * 6 }),
     createLinearGradient: () => ({ [Symbol.toStringTag]: 'CanvasGradient', addColorStop: () => {} }),
     getLineDash: () => [],
-    clearRect: () => frames.set(canvas, []),
+    clearRect: () => { frames.set(canvas, []); filledSweeps.set(canvas, []); },
+    beginPath: () => { pathSweeps = []; },
+    arc: (_x: number, _y: number, radius: number, start: number, end: number, anticlockwise = false) => {
+      // 记录 Canvas 真正绘制的方向与角度，而不只检查 Chart.js 中仍然正确的数据占比。
+      if (radius <= 20) return;
+      const sweep = anticlockwise ? start - end : end - start;
+      const fullCircle = Math.PI * 2;
+      pathSweeps.push(Math.abs(sweep) >= fullCircle ? fullCircle : ((sweep % fullCircle) + fullCircle) % fullCircle);
+    },
+    fill: () => filledSweeps.get(canvas)?.push(...pathSweeps),
     fillText: (text: unknown) => frames.get(canvas)?.push({ text: String(text), color: target.fillStyle }),
   };
   return new Proxy(target, {
@@ -92,6 +104,27 @@ describe('composition labels after mounted chart updates', () => {
 
   const drawn = () => frames.get(container.querySelector('canvas')!) ?? [];
 
+  it.each(['focus', 'selection', 'chart hover'])('keeps a 0.02 percent slice narrow during %s', async (interaction) => {
+    await render(analysisWith([90.73, 4.2, 3.16, 1.89, 0.02].map((share, index) => item(String(index), `Model ${index}`, share))));
+    const canvas = container.querySelector('canvas')!;
+    const chart = Chart.getChart(canvas)!;
+    const tinyButton = container.querySelectorAll<HTMLButtonElement>('ol button')[4];
+    const assertNarrowPaths = () => {
+      const sweeps = filledSweeps.get(canvas)!;
+      expect(sweeps.length).toBeGreaterThan(0);
+      // 圆环内外边界各分两段；即使 90.73% 的大扇区，单段也不会超过半圈。
+      expect(Math.max(...sweeps)).toBeLessThan(Math.PI);
+    };
+    assertNarrowPaths();
+    await act(async () => {
+      if (interaction === 'focus') tinyButton.focus();
+      else if (interaction === 'selection') tinyButton.click();
+      else { chart.setActiveElements([{ datasetIndex: 0, index: 4 }]); chart.update('none'); }
+    });
+    assertNarrowPaths();
+    expect(chart.data.datasets[0].data[4]).toBe(0.02);
+  });
+
   it.each([
     { page: 'analysis', dimensions: undefined },
     { page: 'key-analysis', dimensions: ['model'] as const },
@@ -118,14 +151,15 @@ describe('composition labels after mounted chart updates', () => {
     expect(drawn()).toContainEqual({ text: 'Alpha', color: '#111827' });
   });
 
-  it('updates the Others label when changing language on the loaded page', async () => {
+  it('updates the total label when changing language while keeping all entries', async () => {
     const analysis = analysisWith([50, 20, 10, 8, 5, 4, 3].map((share, index) => item(String(index), `Model ${index}`, share)));
     await render(analysis);
-    expect(drawn().map((label) => label.text)).toContain('Others');
+    expect(container.querySelector('ol')?.querySelectorAll('button')).toHaveLength(7);
+    expect(container.textContent).toContain('Total Tokens');
 
     await act(async () => { await i18n.changeLanguage('zh'); });
-    const texts = drawn().map((label) => label.text);
-    expect(texts).toContain('其他');
-    expect(texts).not.toContain('Others');
+    expect(container.textContent).toContain('总 Token');
+    expect(container.textContent).not.toContain('Total Tokens');
+    expect(container.querySelector('ol')?.querySelectorAll('button')).toHaveLength(7);
   });
 });
