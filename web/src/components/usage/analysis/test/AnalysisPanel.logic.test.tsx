@@ -336,12 +336,6 @@ describe('AnalysisPanel token chart data', () => {
     expect(markup).toContain('usage_stats.analysis_composition_token_percent');
     expect(markup).toContain('Primary Key');
     expect(markup).toContain('donutCanvasBox');
-    expect(markup).toContain('compositionUsageList');
-    expect(markup).toContain('compositionUsageItem');
-    expect(markup).toContain('compositionUsageTrack');
-    expect(markup).toContain('compositionUsageBar');
-    expect(markup).toContain('compositionUsageMetaPill');
-    expect(markup).toContain('style="width:100%;--composition-bar-color:#1d4ed8"');
     expect(markup).toContain('usage_stats.rpm');
     expect(markup).toContain('0.03');
     expect(markup).toContain('usage_stats.tpm');
@@ -660,8 +654,8 @@ describe('AnalysisPanel token chart data', () => {
       hoverOffset: 10,
     });
     expect(chartCapture.doughnutOptions?.spacing).toBe(4);
-    expect(markup).toContain('--composition-bar-color:#1d4ed8');
-    expect(markup).toContain('--composition-bar-color:#ca8a04');
+    expect(markup).toContain('75.00%');
+    expect(markup).toContain('25.00%');
   });
 
   it('shows raw composition percentages while bounding progress bar width', () => {
@@ -689,7 +683,7 @@ describe('AnalysisPanel token chart data', () => {
     expect(markup).toContain('width:100%');
   });
 
-  it('uses a distinct sixth composition color when others are collapsed', () => {
+  it('preserves all composition segments and distinguishes their colors', () => {
     const analysis: AnalysisResponse = {
       ...emptyAnalysis,
       api_key_composition: Array.from({ length: 7 }, (_, index) => ({
@@ -729,13 +723,13 @@ describe('AnalysisPanel token chart data', () => {
     expect(ctx.createLinearGradient).toHaveBeenCalledWith(0, 0, 0, 100);
     expect(gradientStops).toEqual([[0, '#60a5fa'], [1, '#1d4ed8']]);
 
-    const compositionColors = Array.from({ length: 6 }, (_, dataIndex) => (
+    const compositionColors = Array.from({ length: 7 }, (_, dataIndex) => (
       backgroundColor as (context: { dataIndex: number; chart: { chartArea?: unknown } }) => string
     )({ dataIndex, chart: {} }));
 
-    expect(markup).toContain('usage_stats.analysis_others');
-    expect(compositionColors).toHaveLength(6);
-    expect(new Set(compositionColors).size).toBe(6);
+    expect(markup).not.toContain('usage_stats.analysis_others');
+    expect(chartCapture.doughnutData?.datasets[0]?.data).toHaveLength(7);
+    expect(new Set(compositionColors).size).toBe(7);
   });
 
   it('renders latency diagnostics scatter before usage distribution', () => {

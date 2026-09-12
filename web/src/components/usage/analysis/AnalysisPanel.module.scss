@@ -117,129 +117,217 @@
   }
 }
 
-.topModelsBody {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-width: 0;
+.pairedChartCard {
+  --paired-chart-height: 300px;
+  height: 780px;
+  display: grid;
+  grid-template-rows: 68px 38px auto minmax(0, 1fr);
+  gap: 12px;
+
+  .cardHeader { margin-bottom: 0; }
+  .analysisChartSurface { padding: 12px; }
+  .emptyState { grid-row: 3 / -1; }
+
+  @include mobile {
+    --paired-chart-height: 240px;
+    height: 640px;
+    grid-template-rows: 80px 38px auto minmax(0, 1fr);
+    gap: 10px;
+    .analysisChartSurface { padding: 8px; }
+  }
 }
 
-.topModelsChartFrame {
-  height: 310px;
+.pairedChartFrame {
+  position: relative;
+  height: var(--paired-chart-height);
   min-width: 0;
 
   :global(canvas) {
+    max-width: 100%;
+    max-height: 100%;
     touch-action: pan-x pan-y !important;
   }
-
-  @include mobile {
-    height: 270px;
-  }
 }
 
-.topModelsRanking {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+.pairedChartToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.chartSummaryCount {
+  flex-shrink: 0;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  font-size: 12px;
+  font-weight: 750;
+  color: var(--text-secondary);
+}
+
+.chartSummaryTotal {
+  min-width: 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  text-align: right;
+  strong { color: var(--text-primary); margin-left: 6px; font-size: 13px; }
+}
+
+.rankingList {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
   min-width: 0;
-  margin: 0;
-  padding: 0;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
+  scrollbar-gutter: stable;
+  margin: 0 -5px 0 -3px;
+  padding: 3px;
   list-style: none;
-
-  li {
-    min-width: 0;
-  }
+  li { min-width: 0; flex-shrink: 0; }
 }
 
-.topModelsRankItem {
+.rankingItem {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   width: 100%;
-  min-height: 48px;
-  display: grid;
-  grid-template-columns: 24px 10px minmax(0, 1fr) auto 58px;
-  align-items: center;
-  gap: 9px;
   min-width: 0;
-  padding: 9px 11px;
+  padding: 12px;
   border: 1px solid var(--border-color);
-  border-radius: 999px;
+  border-radius: $radius-lg;
   background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
   color: var(--text-primary);
   font: inherit;
   text-align: left;
-  cursor: default;
-  transition: border-color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background-color 0.16s ease;
 
-  &:hover,
+  &[data-active='true'] {
+    border-color: color-mix(in srgb, var(--ranking-color) 65%, var(--border-color));
+    background: color-mix(in srgb, var(--ranking-color) 7%, var(--bg-secondary));
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      border-color: color-mix(in srgb, var(--ranking-color) 65%, var(--border-color));
+      background: color-mix(in srgb, var(--ranking-color) 7%, var(--bg-secondary));
+    }
+  }
+
   &:focus-visible {
-    border-color: color-mix(in srgb, var(--top-model-color) 68%, var(--border-color));
-    background: color-mix(in srgb, var(--top-model-color) 9%, var(--bg-secondary));
+    outline: 2px solid var(--text-primary);
+    outline-offset: 1px;
   }
 
-  @include mobile {
-    grid-template-columns: 20px 9px minmax(0, 1fr) auto 50px;
-    gap: 7px;
-    padding-inline: 9px;
-  }
+  &[data-muted='true'] .rankingColor { opacity: 0.42; }
+  @include mobile { padding: 10px; }
 }
 
-.topModelsRankItem[data-muted='true'] .topModelsColor {
-  opacity: 0.42;
-}
-
-.topModelsRankItem:focus-visible {
-  outline: 2px solid var(--text-primary);
-  outline-offset: 2px;
-  box-shadow: 0 0 0 1px var(--bg-primary);
-}
-
-.topModelsRank {
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 900;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-}
-
-.topModelsColor {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  background: var(--top-model-color);
-
-  @include mobile {
-    width: 9px;
-    height: 9px;
-  }
-}
-
-.topModelsName {
+.rankingTopline {
+  display: grid;
+  grid-template-columns: 18px 9px minmax(0, 1fr) auto 58px;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
+  font-size: 12px;
+  @include mobile { grid-template-columns: 15px 8px minmax(0, 1fr) auto 49px; gap: 6px; }
+}
+
+.rankingRank { color: var(--text-tertiary); font-size: 10px; text-align: center; font-variant-numeric: tabular-nums; }
+.rankingColor { width: 9px; height: 9px; border-radius: 3px; background: var(--ranking-color); }
+.rankingName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 750; }
+.rankingTokens, .rankingShare { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rankingTokens { font-weight: 800; }
+.rankingShare { color: var(--text-secondary); text-align: right; font-size: 11px; }
+
+.rankingTrack {
+  display: block;
+  height: 3px;
   overflow: hidden;
-  color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  span { display: block; height: 100%; border-radius: inherit; background: var(--ranking-color); opacity: 0.75; }
 }
 
-.topModelsTokens,
-.topModelsShare {
-  color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 900;
+.rankingMetrics {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1.5;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  > span { white-space: nowrap; }
+  strong { margin-left: 3px; color: var(--text-secondary); font-weight: 650; }
 }
 
-.topModelsShare {
-  color: var(--text-secondary);
-  text-align: right;
+.rankingCache strong { color: var(--text-primary); }
+
+.topModelsTooltip {
+  position: absolute;
+  z-index: 2100;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
+
+.topModelsTooltipHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+  button {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    margin: -4px -4px -4px 0;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    &:hover { background: var(--bg-tertiary); }
+  }
+}
+
+.topModelsTooltipRows {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y pinch-zoom;
+  scrollbar-width: thin;
+  margin: 0;
+  padding: 0 4px 0 0;
+  list-style: none;
+  color: var(--text-secondary);
+  li { display: grid; grid-template-columns: 8px minmax(0, 1fr); gap: 6px; padding-block: 2px; }
+}
+
+.topModelsTooltipDot { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; }
+.topModelsTooltipFooter { flex-shrink: 0; }
 
 @media (prefers-reduced-motion: reduce) {
-  .topModelsRankItem {
-    transition-duration: 0.01ms;
-  }
+  .rankingItem { transition: none; }
 }
 
 .latencyChartFrame {
@@ -374,12 +462,14 @@
 
 .compositionTabs {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: -4px 0 14px;
+  min-width: 0;
+  overflow-x: auto;
+  gap: 6px;
+  scrollbar-width: none;
 }
 
 .compositionTab {
+  flex-shrink: 0;
   border: 1px solid var(--border-color);
   border-radius: 999px;
   background: var(--bg-secondary);
@@ -399,136 +489,7 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 8px 18px rgba(15, 23, 42, 0.06);
 }
 
-.compositionLayout {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-width: 0;
-}
-
-.donutChartFrame {
-  min-width: 0;
-  width: 100%;
-}
-
-.donutCanvasBox {
-  position: relative;
-  width: 100%;
-  height: 280px;
-  min-width: 0;
-
-  :global(canvas) {
-    max-width: 100%;
-    max-height: 100%;
-    touch-action: pan-x pan-y !important;
-  }
-
-  @include mobile {
-    height: 250px;
-  }
-}
-
-.compositionUsageList {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.compositionUsageItem {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border-color);
-
-  &:last-child {
-    border-bottom: 0;
-  }
-}
-
-.compositionUsageTopline,
-.compositionUsageMeta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.compositionUsageTopline {
-  justify-content: space-between;
-}
-
-.compositionUsageLabel {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 750;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-
-  @include mobile {
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
-}
-
-.compositionUsageShare {
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-
-.compositionUsageTrack {
-  position: relative;
-  height: 5px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--bg-tertiary);
-}
-
-.compositionUsageBar {
-  position: absolute;
-  inset: 0 auto 0 0;
-  min-width: 3px;
-  border-radius: inherit;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--composition-bar-color) 70%, var(--bg-secondary)), var(--composition-bar-color));
-}
-
-.compositionUsageMeta {
-  gap: 4px 10px;
-  justify-content: flex-start;
-  flex-wrap: wrap;
-  color: var(--text-tertiary);
-  font-size: 11px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.compositionUsageMetaPill {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 5px;
-  max-width: 100%;
-  min-width: 0;
-  line-height: 1.4;
-}
-
-.compositionUsageMetaLabel {
-  color: var(--text-tertiary);
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.compositionUsageMetaValue {
-  color: var(--text-secondary);
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
+.donutCanvasBox { width: 100%; }
 
 .heatmapScroller {
   overflow-x: auto;

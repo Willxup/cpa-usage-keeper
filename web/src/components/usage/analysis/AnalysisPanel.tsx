@@ -5,9 +5,12 @@ import { Interaction, Tooltip } from 'chart.js';
 import type { Chart, ChartData, ChartOptions, InteractionItem, InteractionModeFunction, Plugin, ScriptableContext, TooltipModel, TooltipPositionerFunction } from 'chart.js';
 import { Bar, Doughnut, Scatter } from 'react-chartjs-2';
 import type { AnalysisCompositionItem, AnalysisCostBreakdown, AnalysisHeatmapCell, AnalysisLatencyDiagnostics, AnalysisModelEfficiencyItem, AnalysisModelUsagePayload, AnalysisResponse, AnalysisTokenUsageBucket } from '@/lib/types';
-import { calculateDisplayInputTokens, calculateDisplayOutputTokens, formatCompactNumber, formatDurationMs, formatPerMinuteValue, formatUsd } from '@/utils/usage';
+import { calculateDisplayInputTokens, calculateDisplayOutputTokens, formatCompactNumber, formatDurationMs, formatUsd } from '@/utils/usage';
 import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill as toGradientFill, USAGE_CHART_REQUESTS_LINE_COLOR, type UsageChartGradientColor, type UsageChartTheme } from '@/utils/usage/chartConfig';
 import { createCompositionLabelsPlugin } from './compositionLabels';
+import { compositionGeometryPlugin } from './compositionGeometry';
+import { AnalysisRankingList, getAnalysisRankingColor, useAnalysisHighlight, type AnalysisRankingItem } from './analysisRanking';
+import { useTopModelsTooltip } from './topModelsTooltip';
 import styles from './AnalysisPanel.module.scss';
 
 interface AnalysisPanelProps {
@@ -47,13 +50,9 @@ type LegendItem = {
   color: string;
 };
 
-type TopModelViewSeries = {
-  key: string;
+type TopModelViewSeries = AnalysisRankingItem & {
   model: string;
   totalTokens: number[];
-  total: number;
-  share: number;
-  color: GradientColor;
 };
 
 type TopModelsViewModel = {
@@ -152,11 +151,8 @@ const TOP_MODEL_COLORS: GradientColor[] = [
   { base: '#2563eb', light: '#93c5fd' },
   { base: '#dc2626', light: '#fca5a5' },
 ];
-const TOP_MODELS_OTHERS_COLOR: GradientColor = { base: '#64748b', light: '#cbd5e1' };
-const TOP_MODELS_LIMIT = 5;
 const TOP_MODELS_MIN_SEGMENT_PX = 4;
 const TOP_MODELS_SCALE_HEADROOM_RATIO = 1.12;
-const TOP_MODELS_OTHERS_KEY = '__analysis_top_models_others__';
 const TOKEN_COLORS = {
   input: { base: '#2563eb', light: '#93c5fd' },
   output: { base: '#16a34a', light: '#86efac' },
@@ -664,7 +660,6 @@ const getTooltipTokenValue = (dataset: unknown, dataIndex: number | undefined, f
 };
 
 const formatPercent = (value: number) => `${value.toFixed(2)}%`;
-const clampPercent = (value: number) => Math.max(0, Math.min(100, value));
 
 const interpolateColor = (from: [number, number, number], to: [number, number, number], ratio: number) => {
   const clampedRatio = Math.max(0, Math.min(1, ratio));
@@ -759,10 +754,12 @@ function buildTopModelsViewModel(
   modelUsage: AnalysisModelUsagePayload | undefined,
   granularity: AnalysisResponse['granularity'],
   timezone: string | undefined,
-  othersLabel: string,
+  composition: AnalysisCompositionItem[],
 ): TopModelsViewModel {
   const buckets = modelUsage?.buckets ?? [];
   const valuesByModel = new Map<string, number[]>();
+  const requestsByModel = new Map<string, number>();
+  const detailsByModel = new Map(composition.map((item) => [item.label.trim(), item]));
   for (const source of modelUsage?.series ?? []) {
     const model = String(source.model ?? '').trim();
     if (!model) continue;
@@ -771,6 +768,7 @@ function buildTopModelsViewModel(
       values[index] += Math.max(0, toNumber(source.total_tokens?.[index]));
     }
     valuesByModel.set(model, values);
+    requestsByModel.set(model, (requestsByModel.get(model) ?? 0) + (source.requests ?? []).reduce((sum, count) => sum + Math.max(0, toNumber(count)), 0));
   }
 
   const ranked = Array.from(valuesByModel, ([model, totalTokens]) => ({
@@ -779,32 +777,26 @@ function buildTopModelsViewModel(
     totalTokens,
     total: totalTokens.reduce((sum, value) => sum + value, 0),
   }))
-    .filter((item) => item.total > 0)
+    .filter((item) => item.total > 0 || (requestsByModel.get(item.model) ?? 0) > 0 || detailsByModel.has(item.model))
     .sort((left, right) => right.total - left.total || compareModelNames(left.model, right.model));
   const rangeTotal = ranked.reduce((sum, item) => sum + item.total, 0);
-  const major = ranked.slice(0, TOP_MODELS_LIMIT).map((item, index) => ({
-    ...item,
-    share: rangeTotal > 0 ? (item.total / rangeTotal) * 100 : 0,
-    color: TOP_MODEL_COLORS[index % TOP_MODEL_COLORS.length],
-  }));
-  const rest = ranked.slice(TOP_MODELS_LIMIT);
-  if (rest.length > 0) {
-    const totalTokens = Array.from({ length: buckets.length }, (_, index) =>
-      rest.reduce((sum, item) => sum + item.totalTokens[index], 0));
-    const total = totalTokens.reduce((sum, value) => sum + value, 0);
-    major.push({
-      key: TOP_MODELS_OTHERS_KEY,
-      model: othersLabel,
-      totalTokens,
-      total,
-      share: rangeTotal > 0 ? (total / rangeTotal) * 100 : 0,
-      color: TOP_MODELS_OTHERS_COLOR,
-    });
-  }
+  const series = ranked.map((item, index) => {
+    const details = detailsByModel.get(item.model);
+    return {
+      ...item,
+      label: item.model,
+      share: rangeTotal > 0 ? (item.total / rangeTotal) * 100 : 0,
+      requests: details ? toNumber(details.requests) : requestsByModel.get(item.model) ?? 0,
+      cost: details && details.cost_available !== false ? toNumber(details.cost_usd) : null,
+      inputTokens: details ? toNumber(details.input_tokens) : null,
+      cacheReadTokens: details ? toNumber(details.cache_read_tokens) : null,
+      color: getAnalysisRankingColor(`model:${item.model}`, index, TOP_MODEL_COLORS),
+    };
+  });
 
   return {
     labels: buckets.map((bucket) => formatBucketLabel(bucket, granularity, timezone)),
-    series: major,
+    series,
     bucketTotals: Array.from({ length: buckets.length }, (_, index) =>
       ranked.reduce((sum, item) => sum + item.totalTokens[index], 0)),
     rangeTotal,
@@ -857,22 +849,28 @@ function buildTopModelsChartOptions({
   isMobile,
   bucketTotals,
   totalLabel,
+  external,
 }: {
   chartTheme: ChartTheme;
   isMobile: boolean;
   bucketTotals: number[];
   totalLabel: string;
+  external: (context: { chart: Chart; tooltip: TooltipModel<'bar'> }) => void;
 }): ChartOptions<'bar'> {
   const maxBucketTotal = bucketTotals.reduce((maximum, value) => Math.max(maximum, toNumber(value)), 0);
   return {
     responsive: true,
     maintainAspectRatio: false,
     animation: false,
+    // 触摸拖动留给页面滚动；轻点产生的 click 才打开明细。
+    events: ['mousemove', 'mouseout', 'click'],
     interaction: { mode: 'index', intersect: false },
     plugins: {
       legend: { display: false },
       tooltip: {
         ...buildAnalysisBarTooltipStyle(chartTheme),
+        enabled: false,
+        external,
         filter: (context) => toNumber(context.parsed.y) > 0,
         // 图表维持全范围稳定色序；tooltip 单独按当前 bucket 用量降序，便于直接比较。
         itemSort: (left, right) => (
@@ -951,43 +949,6 @@ function calculateAnalysisWindowMinutes(analysis: AnalysisResponse | null): numb
   const end = Date.parse(analysis?.range_end ?? '');
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
   return (end - start) / 60_000;
-}
-
-function takeMajorComposition(items: AnalysisCompositionItem[], othersLabel: string, limit = 5): AnalysisCompositionItem[] {
-  if (items.length <= limit) return items;
-  const major = items.slice(0, limit);
-  const rest = items.slice(limit).reduce(
-    (sum, item) => ({
-      total_tokens: sum.total_tokens + toNumber(item.total_tokens),
-      requests: sum.requests + toNumber(item.requests),
-      input_tokens: sum.input_tokens + toNumber(item.input_tokens),
-      output_tokens: sum.output_tokens + toNumber(item.output_tokens),
-      cache_read_tokens: sum.cache_read_tokens + toNumber(item.cache_read_tokens),
-      cache_creation_tokens: sum.cache_creation_tokens + toNumber(item.cache_creation_tokens),
-      reasoning_tokens: sum.reasoning_tokens + toNumber(item.reasoning_tokens),
-      cost_usd: sum.cost_usd + toNumber(item.cost_usd),
-      cost_available: sum.cost_available && item.cost_available !== false,
-    }),
-    { total_tokens: 0, requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, reasoning_tokens: 0, cost_usd: 0, cost_available: true },
-  );
-  const total = items.reduce((sum, item) => sum + toNumber(item.total_tokens), 0);
-  return [
-    ...major,
-    {
-      key: '__others__',
-      label: othersLabel,
-      total_tokens: rest.total_tokens,
-      requests: rest.requests,
-      input_tokens: rest.input_tokens,
-      output_tokens: rest.output_tokens,
-      cache_read_tokens: rest.cache_read_tokens,
-      cache_creation_tokens: rest.cache_creation_tokens,
-      reasoning_tokens: rest.reasoning_tokens,
-      cost_usd: rest.cost_usd,
-      cost_available: rest.cost_available,
-      percent: total > 0 ? (rest.total_tokens / total) * 100 : 0,
-    },
-  ];
 }
 
 function buildTokenLegendItems(labels: TokenLabels, averageTokenTotal: number, averageLineColor: string): LegendItem[] {
@@ -1121,15 +1082,21 @@ function AnalysisCardHeader({ title, subtitle, showPricingHint, hint }: { title:
   );
 }
 
-function buildCompositionChartData(items: AnalysisCompositionItem[]): ChartData<'doughnut', number[], string> {
+function buildCompositionChartData(items: AnalysisRankingItem[], highlighted: string | null): ChartData<'doughnut', number[], string> {
   return {
     labels: items.map((item) => item.label),
     datasets: [{
-      data: items.map((item) => toNumber(item.total_tokens)),
-      backgroundColor: (context) => toGradientFill(context, CHART_COLORS[context.dataIndex % CHART_COLORS.length]),
+      data: items.map((item) => item.total),
+      backgroundColor: (context) => {
+        const item = items[context.dataIndex];
+        const color = highlighted && highlighted !== item.key
+          ? { base: `${item.color.base}33`, light: `${item.color.light}33` } : item.color;
+        return toGradientFill(context, color);
+      },
       borderColor: 'transparent',
       borderWidth: 0,
       borderRadius: COMPOSITION_DONUT_BORDER_RADIUS,
+      offset: items.map((item) => item.key === highlighted ? 8 : 0),
       hoverOffset: COMPOSITION_DONUT_HOVER_OFFSET,
     }],
   };
@@ -1284,95 +1251,44 @@ function TokenUsageChart({ rows, breakdown, loading, isDark, isMobile }: { rows:
   );
 }
 
-function TopModelsCard({
-  modelUsage,
-  granularity,
-  timezone,
-  loading,
-  isDark,
-  isMobile,
-}: {
+function TopModelsCard({ modelUsage, composition, granularity, timezone, loading, isDark, isMobile, windowMinutes }: {
   modelUsage: AnalysisModelUsagePayload | undefined;
+  composition: AnalysisCompositionItem[];
   granularity: AnalysisResponse['granularity'];
   timezone: string | undefined;
   loading: boolean;
   isDark: boolean;
   isMobile: boolean;
+  windowMinutes: number | null;
 }) {
   const { t } = useTranslation();
-  const [hoveredModel, setHoveredModel] = useState<string | null>(null);
-  const [focusedModel, setFocusedModel] = useState<string | null>(null);
+  const highlight = useAnalysisHighlight('models');
   const chartTheme = useMemo(() => getChartTheme(isDark), [isDark]);
-  const view = useMemo(
-    () => buildTopModelsViewModel(modelUsage, granularity, timezone, t('usage_stats.analysis_others')),
-    [granularity, modelUsage, t, timezone],
-  );
-  const highlightedModel = focusedModel ?? hoveredModel;
-  const activeHighlightedModel = view.series.some((item) => item.key === highlightedModel)
-    ? highlightedModel
-    : null;
-  const chartData = useMemo(
-    () => buildTopModelsChartData(view, activeHighlightedModel),
-    [activeHighlightedModel, view],
-  );
+  const view = useMemo(() => buildTopModelsViewModel(modelUsage, granularity, timezone, composition), [composition, granularity, modelUsage, timezone]);
+  const activeHighlightedModel = view.series.some((item) => item.key === highlight.active) ? highlight.active : null;
+  const chartData = useMemo(() => buildTopModelsChartData(view, activeHighlightedModel), [activeHighlightedModel, view]);
+  const { external, onPointerDown, tooltip } = useTopModelsTooltip(chartData, !loading, isMobile);
   const chartOptions = useMemo(() => buildTopModelsChartOptions({
-    chartTheme,
-    isMobile,
-    bucketTotals: view.bucketTotals,
-    totalLabel: t('usage_stats.total_tokens'),
-  }), [chartTheme, isMobile, t, view.bucketTotals]);
+    chartTheme, isMobile, bucketTotals: view.bucketTotals, totalLabel: t('usage_stats.total_tokens'), external,
+  }), [chartTheme, external, isMobile, t, view.bucketTotals]);
 
   return (
-    <section className={`${styles.analysisCard} keeper-card-surface`}>
-      <AnalysisCardHeader
-        title={t('usage_stats.analysis_top_models_title')}
-        subtitle={t('usage_stats.analysis_top_models_subtitle')}
-        showPricingHint={false}
-        hint=""
-      />
-      {loading ? (
-        <div className={styles.emptyState}>{t('common.loading')}</div>
-      ) : view.series.length === 0 ? (
-        <div className={styles.emptyState}>{t('usage_stats.no_data')}</div>
-      ) : (
-        <div className={styles.topModelsBody}>
+    <section className={`${styles.analysisCard} ${styles.pairedChartCard} keeper-card-surface`}>
+      <AnalysisCardHeader title={t('usage_stats.analysis_top_models_title')} subtitle={t('usage_stats.analysis_top_models_subtitle')} showPricingHint={false} hint="" />
+      <div className={styles.pairedChartToolbar}>
+        <span className={styles.chartSummaryCount}>{t('usage_stats.analysis_models_count', { count: view.series.length })}</span>
+        <span className={styles.chartSummaryTotal}>{t('usage_stats.total_tokens')} <strong>{formatCompactNumber(view.rangeTotal)}</strong></span>
+      </div>
+      {loading ? <div className={styles.emptyState}>{t('common.loading')}</div> : view.series.length === 0 ? <div className={styles.emptyState}>{t('usage_stats.no_data')}</div> : (
+        <>
           <div className={styles.analysisChartSurface}>
-            <div
-              className={styles.topModelsChartFrame}
-              role="img"
-              aria-label={`${t('usage_stats.analysis_top_models_chart_aria')}: ${formatCompactNumber(view.rangeTotal)}`}
-            >
+            <div className={styles.pairedChartFrame} role="img" onPointerDown={onPointerDown} aria-label={`${t('usage_stats.analysis_top_models_chart_aria')}: ${formatCompactNumber(view.rangeTotal)}`}>
               <Bar data={chartData} options={chartOptions} />
             </div>
           </div>
-          <ol className={styles.topModelsRanking} aria-label={t('usage_stats.analysis_top_models_ranking_aria')}>
-            {view.series.map((item, index) => {
-              const muted = Boolean(activeHighlightedModel && activeHighlightedModel !== item.key);
-              const ariaLabel = `${index + 1}. ${item.model}, ${t('usage_stats.total_tokens')}: ${formatCompactNumber(item.total)}, ${t('usage_stats.analysis_top_models_share')}: ${formatPercent(item.share)}`;
-              return (
-                <li key={item.key}>
-                  <button
-                    type="button"
-                    className={styles.topModelsRankItem}
-                    style={{ '--top-model-color': item.color.base } as CSSProperties}
-                    data-muted={muted}
-                    aria-label={ariaLabel}
-                    onMouseEnter={() => setHoveredModel(item.key)}
-                    onMouseLeave={() => setHoveredModel(null)}
-                    onFocus={() => setFocusedModel(item.key)}
-                    onBlur={() => setFocusedModel(null)}
-                  >
-                    <span className={styles.topModelsRank}>{index + 1}</span>
-                    <span className={styles.topModelsColor} aria-hidden="true" />
-                    <span className={styles.topModelsName} title={item.model}>{item.model}</span>
-                    <strong className={styles.topModelsTokens}>{formatCompactNumber(item.total)}</strong>
-                    <span className={styles.topModelsShare}>{formatPercent(item.share)}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
-        </div>
+          <AnalysisRankingList items={view.series} label={t('usage_stats.analysis_top_models_ranking_aria')} windowMinutes={windowMinutes} highlight={highlight} />
+          {tooltip}
+        </>
       )}
     </section>
   );
@@ -1589,110 +1505,53 @@ type CompositionTab = {
   items: AnalysisCompositionItem[];
 };
 
-function CompositionMetaPill({ label, value }: { label: string; value: string }) {
-  return (
-    <span className={styles.compositionUsageMetaPill}>
-      <span className={styles.compositionUsageMetaLabel}>{label}</span>
-      <span className={styles.compositionUsageMetaValue}>{value}</span>
-    </span>
-  );
-}
-
-const formatCompositionRate = (value: number, windowMinutes: number | null): string => {
-  if (!windowMinutes || windowMinutes <= 0) return '--';
-  return formatPerMinuteValue(value / windowMinutes);
-};
-
 function CompositionPanel({ tabs, loading, isDark, windowMinutes }: { tabs: CompositionTab[]; loading: boolean; isDark: boolean; windowMinutes: number | null }) {
   const { t } = useTranslation();
   const [activeTabId, setActiveTabId] = useState<CompositionTab['id']>(tabs[0]?.id ?? 'model');
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
   const items = activeTab?.items ?? EMPTY_COMPOSITION_ITEMS;
   const activeContentKey = `${activeTab?.id ?? 'empty'}:${items.map((item) => item.key).join('|')}`;
+  const highlight = useAnalysisHighlight(activeTab?.id ?? 'empty');
+  const rankingItems = useMemo<AnalysisRankingItem[]>(() => items.map((item, index) => ({
+    key: item.key, label: item.label, total: toNumber(item.total_tokens), share: toNumber(item.percent),
+    requests: toNumber(item.requests), cost: item.cost_available === false ? null : toNumber(item.cost_usd),
+    inputTokens: toNumber(item.input_tokens), cacheReadTokens: toNumber(item.cache_read_tokens),
+    color: getAnalysisRankingColor(`${activeTab?.id}:${item.key}`, index, CHART_COLORS),
+  })), [activeTab?.id, items]);
+  const highlighted = rankingItems.find((item) => item.key === highlight.active);
   const chartTheme = useMemo(() => getChartTheme(isDark), [isDark]);
-  const tooltipLabels = useMemo(() => ({
-    totalTokens: t('usage_stats.total_tokens'),
-  }), [t]);
-  const chartData = useMemo(() => buildCompositionChartData(items), [items]);
+  const tooltipLabels = useMemo(() => ({ totalTokens: t('usage_stats.total_tokens') }), [t]);
+  const chartData = useMemo(() => buildCompositionChartData(rankingItems, highlighted?.key ?? null), [rankingItems, highlighted?.key]);
   const chartOptions = useMemo(() => buildCompositionChartOptions(chartTheme, tooltipLabels), [chartTheme, tooltipLabels]);
-  const chartLabels = useMemo(() => items.map((item) => ({
-    name: item.label,
-    share: formatPercent(toNumber(item.percent)),
-  })), [items]);
+  const chartLabels = useMemo(() => items.map((item) => ({ name: item.label, share: formatPercent(toNumber(item.percent)) })), [items]);
   const labelsPlugin = useMemo(() => createCompositionLabelsPlugin(chartLabels, chartTheme.textPrimary), [chartLabels, chartTheme.textPrimary]);
-  // 插件只在图表创建时安装，标签或主题色变化后需重建图表以更新闭包。
+  // 标签与主题变化时重建已安装的插件；悬浮只更新图表数据，不重建实例。
   const chartKey = JSON.stringify([activeContentKey, chartLabels, chartTheme.textPrimary]);
   const hasUnavailableCost = items.some((item) => item.cost_available === false);
   return (
-    <section className={`${styles.analysisCard} keeper-card-surface`}>
-      <AnalysisCardHeader
-        title={t('usage_stats.analysis_composition_title')}
+    <section className={`${styles.analysisCard} ${styles.pairedChartCard} keeper-card-surface`}>
+      <AnalysisCardHeader title={t('usage_stats.analysis_composition_title')}
         subtitle={tabs.length === 1 ? t('usage_stats.analysis_composition_single_dimension_subtitle') : t('usage_stats.analysis_composition_subtitle')}
-        showPricingHint={hasUnavailableCost}
-        hint={t('usage_stats.cost_need_price')}
-      />
-      <div className={styles.compositionTabs} role="tablist" aria-label={t('usage_stats.analysis_composition_title')}>
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={tab.id === activeTab?.id}
-            className={`${styles.compositionTab} ${tab.id === activeTab?.id ? styles.compositionTabActive : ''}`}
-            onClick={() => setActiveTabId(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
+        showPricingHint={hasUnavailableCost} hint={t('usage_stats.cost_need_price')} />
+      <div className={styles.pairedChartToolbar}>
+        <div className={styles.compositionTabs} role="tablist" aria-label={t('usage_stats.analysis_composition_title')}>
+          {tabs.map((tab) => (
+            <button key={tab.id} type="button" role="tab" aria-selected={tab.id === activeTab?.id}
+              className={`${styles.compositionTab} ${tab.id === activeTab?.id ? styles.compositionTabActive : ''}`}
+              onClick={() => setActiveTabId(tab.id)}>{tab.label}</button>
+          ))}
+        </div>
       </div>
-      {loading ? (
-        <div className={styles.emptyState}>{t('common.loading')}</div>
-      ) : items.length === 0 ? (
-        <div className={styles.emptyState}>{t('usage_stats.no_data')}</div>
-      ) : (
-        <div key={activeContentKey} className={styles.analysisChartSurface}>
-          <div className={styles.compositionLayout}>
-            <div className={styles.donutChartFrame}>
-              <div
-                className={styles.donutCanvasBox}
-                role="img"
-                aria-label={`${activeTab.label}: ${items.map((item) => `${item.label} ${formatPercent(toNumber(item.percent))}`).join(', ')}`}
-              >
-                <Doughnut key={chartKey} data={chartData} options={chartOptions} plugins={[labelsPlugin]} />
-              </div>
-            </div>
-            <div key={`list-${activeContentKey}`} className={styles.compositionUsageList}>
-              {items.map((item, index) => {
-                const rawPercent = toNumber(item.percent);
-                const visualPercent = clampPercent(rawPercent);
-                const barStyle = {
-                  width: `${visualPercent}%`,
-                  '--composition-bar-color': CHART_COLORS[index % CHART_COLORS.length].base,
-                } as CSSProperties;
-                return (
-                  <div key={`${activeTab.id}-${item.key}`} className={styles.compositionUsageItem}>
-                    <div className={styles.compositionUsageTopline}>
-                      <span className={styles.compositionUsageLabel} title={item.label}>{item.label}</span>
-                      <span className={styles.compositionUsageShare} aria-label={t('usage_stats.analysis_composition_token_percent')}>{formatPercent(rawPercent)}</span>
-                    </div>
-                    <div className={styles.compositionUsageTrack}>
-                      {visualPercent > 0 && (
-                        <span className={styles.compositionUsageBar} style={barStyle} />
-                      )}
-                    </div>
-                    <div className={styles.compositionUsageMeta}>
-                      <CompositionMetaPill label={t('usage_stats.total_tokens')} value={formatCompactNumber(toNumber(item.total_tokens))} />
-                      <CompositionMetaPill label={t('usage_stats.requests_count')} value={formatCompactNumber(toNumber(item.requests))} />
-                      <CompositionMetaPill label={t('usage_stats.total_cost')} value={formatUsd(toNumber(item.cost_usd))} />
-                      <CompositionMetaPill label={t('usage_stats.rpm')} value={formatCompositionRate(toNumber(item.requests), windowMinutes)} />
-                      <CompositionMetaPill label={t('usage_stats.tpm')} value={formatCompositionRate(toNumber(item.total_tokens), windowMinutes)} />
-                    </div>
-                  </div>
-                );
-              })}
+      {loading ? <div className={styles.emptyState}>{t('common.loading')}</div> : items.length === 0 ? <div className={styles.emptyState}>{t('usage_stats.no_data')}</div> : (
+        <>
+          <div className={styles.analysisChartSurface}>
+            <div className={`${styles.pairedChartFrame} ${styles.donutCanvasBox}`} role="img"
+              aria-label={`${activeTab.label}: ${items.map((item) => `${item.label} ${formatPercent(toNumber(item.percent))}`).join(', ')}`}>
+              <Doughnut key={chartKey} data={chartData} options={chartOptions} plugins={[compositionGeometryPlugin, labelsPlugin]} />
             </div>
           </div>
-        </div>
+          <AnalysisRankingList key={activeTab.id} items={rankingItems} label={t('usage_stats.analysis_composition_title')} windowMinutes={windowMinutes} highlight={highlight} />
+        </>
       )}
     </section>
   );
@@ -2245,10 +2104,10 @@ export function AnalysisPanel({
 }: AnalysisPanelProps) {
   const { t } = useTranslation();
   const tokenRows = useMemo(() => buildTokenUsageRows(analysis?.token_usage ?? [], analysis?.granularity ?? 'hourly', analysis?.timezone), [analysis]);
-  const apiComposition = useMemo(() => takeMajorComposition(analysis?.api_key_composition ?? [], t('usage_stats.analysis_others')), [analysis, t]);
-  const modelComposition = useMemo(() => takeMajorComposition(analysis?.model_composition ?? [], t('usage_stats.analysis_others')), [analysis, t]);
-  const authFilesComposition = useMemo(() => takeMajorComposition(analysis?.auth_files_composition ?? [], t('usage_stats.analysis_others')), [analysis, t]);
-  const aiProviderComposition = useMemo(() => takeMajorComposition(analysis?.ai_provider_composition ?? [], t('usage_stats.analysis_others')), [analysis, t]);
+  const apiComposition = analysis?.api_key_composition ?? EMPTY_COMPOSITION_ITEMS;
+  const modelComposition = analysis?.model_composition ?? EMPTY_COMPOSITION_ITEMS;
+  const authFilesComposition = analysis?.auth_files_composition ?? EMPTY_COMPOSITION_ITEMS;
+  const aiProviderComposition = analysis?.ai_provider_composition ?? EMPTY_COMPOSITION_ITEMS;
   const analysisWindowMinutes = useMemo(() => calculateAnalysisWindowMinutes(analysis), [analysis]);
   const compositionTabs = useMemo<CompositionTab[]>(() => {
     const tabs: Record<AnalysisCompositionDimension, CompositionTab> = {
@@ -2267,6 +2126,8 @@ export function AnalysisPanel({
         <CompositionPanel tabs={compositionTabs} loading={loading} isDark={isDark} windowMinutes={analysisWindowMinutes} />
         <TopModelsCard
           modelUsage={analysis?.model_usage}
+          composition={modelComposition}
+          windowMinutes={analysisWindowMinutes}
           granularity={analysis?.granularity ?? 'hourly'}
           timezone={analysis?.timezone}
           loading={loading}

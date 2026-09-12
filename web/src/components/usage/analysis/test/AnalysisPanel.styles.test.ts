@@ -24,8 +24,7 @@ describe('AnalysisPanel inner element radii', () => {
     expect(scssRule('.analysisChartSurface')).toContain('border-radius: var(--keeper-card-radius);');
   });
 
-  it('uses the project pill radius for model and distribution controls', () => {
-    expect(scssRule('.topModelsRankItem')).toContain('border-radius: 999px;');
+  it('uses the project pill radius for distribution controls', () => {
     expect(scssRule('.compositionTab')).toContain('border-radius: 999px;');
   });
 });

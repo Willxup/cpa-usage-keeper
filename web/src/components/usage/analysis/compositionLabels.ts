@@ -8,6 +8,8 @@ type PositionedLabel = CompositionLabel & {
   textX: number;
   y: number;
   side: -1 | 1;
+  value: number;
+  active: boolean;
 };
 
 const LABEL_GAP = 32;
@@ -38,6 +40,8 @@ export function createCompositionLabelsPlugin(labels: CompositionLabel[], color:
         const side = Math.cos(angle) >= 0 ? 1 : -1;
         positions.push({
           ...label,
+          value,
+          active: (element as ArcElement).options.offset > 0 || chart.getActiveElements().some((item) => item.index === index),
           side,
           anchorX: arc.x + Math.cos(angle) * arc.outerRadius,
           anchorY: arc.y + Math.sin(angle) * arc.outerRadius,
@@ -56,9 +60,13 @@ export function createCompositionLabelsPlugin(labels: CompositionLabel[], color:
 
       // 左右分别按高度排布，再从底部回推，避免集中在小扇区的标签重叠或越界。
       for (const side of [-1, 1] as const) {
-        const column = positions.filter((label) => label.side === side).sort((a, b) => a.y - b.y);
         const top = EDGE_PADDING + 10;
         const bottom = height - EDGE_PADDING - 10;
+        // 全量扇区仍参与绘制，外围只放得下的标签优先展示选中项与大项。
+        const capacity = Math.max(1, Math.floor((bottom - top) / LABEL_GAP) + 1);
+        const column = positions.filter((label) => label.side === side)
+          .sort((a, b) => Number(b.active) - Number(a.active) || b.value - a.value)
+          .slice(0, capacity).sort((a, b) => a.y - b.y);
         column.forEach((label, index) => {
           label.y = Math.max(top, label.y, index > 0 ? column[index - 1].y + LABEL_GAP : top);
         });
