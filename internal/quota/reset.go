@@ -17,9 +17,10 @@ type ResetRequest struct {
 }
 
 type ResetResponse struct {
-	AuthIndex    string `json:"authIndex"`
-	Code         string `json:"code,omitempty"`
-	WindowsReset int    `json:"windowsReset,omitempty"`
+	AuthIndex      string `json:"authIndex"`
+	Code           string `json:"code,omitempty"`
+	WindowsReset   int    `json:"windowsReset,omitempty"`
+	RecoveryFailed bool   `json:"recoveryFailed,omitempty"`
 }
 
 type ResetCreditsRequest struct {
@@ -102,9 +103,10 @@ func (s *Service) Reset(ctx context.Context, request ResetRequest) (ResetRespons
 		return ResetResponse{}, err
 	}
 	return ResetResponse{
-		AuthIndex:    authIndex,
-		Code:         output.Code,
-		WindowsReset: output.WindowsReset,
+		AuthIndex:      authIndex,
+		Code:           output.Code,
+		WindowsReset:   output.WindowsReset,
+		RecoveryFailed: output.RecoveryFailed,
 	}, nil
 }
 

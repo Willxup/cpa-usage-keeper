@@ -209,6 +209,7 @@ describe('runQuotaResetForAuthIndex', () => {
     const outcome = await runQuotaResetForAuthIndex('auth-1', {
       resetUsageQuota: async () => {
         calls.push('reset')
+        return { authIndex: 'auth-1' }
       },
       refreshQuotaForAuthIndex: async () => {
         calls.push('refresh')
@@ -224,6 +225,7 @@ describe('runQuotaResetForAuthIndex', () => {
     const outcome = await runQuotaResetForAuthIndex('auth-1', {
       resetUsageQuota: async () => {
         calls.push('reset')
+        return { authIndex: 'auth-1' }
       },
       refreshQuotaForAuthIndex: async () => {
         calls.push('refresh')

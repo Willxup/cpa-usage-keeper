@@ -65,11 +65,11 @@ func (c *upstreamResponseCollector) snapshot() []UpstreamResponse {
 }
 
 type upstreamResponseRecordingCaller struct {
-	caller ManagementAPICaller
+	ManagementClient
 }
 
 func (c upstreamResponseRecordingCaller) CallManagementAPI(ctx context.Context, request apicall.Request) (*apicall.Response, error) {
-	response, err := c.caller.CallManagementAPI(ctx, request)
+	response, err := c.ManagementClient.CallManagementAPI(ctx, request)
 	// 在 provider 解析前记录，因此非 2xx 或无法解析的真实上游响应仍可从刷新任务排查。
 	if collector := upstreamResponseCollectorFromContext(ctx); collector != nil {
 		collector.record(request, response)

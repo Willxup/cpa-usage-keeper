@@ -131,13 +131,13 @@ type CheckResponse struct {
 	RateLimitResetCreditsAvailableCount *int              `json:"rateLimitResetCreditsAvailableCount,omitempty"`
 }
 
-func NewService(db *gorm.DB, caller ManagementAPICaller, pricingCatalog *pricing.Catalog) *Service {
+func NewService(db *gorm.DB, caller ManagementClient, pricingCatalog *pricing.Catalog) *Service {
 	return NewServiceWithOptions(db, caller, ServiceOptions{PricingCatalog: pricingCatalog})
 }
 
-func NewServiceWithOptions(db *gorm.DB, caller ManagementAPICaller, options ServiceOptions) *Service {
+func NewServiceWithOptions(db *gorm.DB, caller ManagementClient, options ServiceOptions) *Service {
 	if options.QuotaUpstreamResponsesEnabled {
-		caller = upstreamResponseRecordingCaller{caller: caller}
+		caller = upstreamResponseRecordingCaller{ManagementClient: caller}
 	}
 	return NewServiceWithRegistryAndOptions(db, NewDefaultProviderRegistry(caller, DefaultProviderConfigs()), options)
 }

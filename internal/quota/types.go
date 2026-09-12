@@ -11,6 +11,11 @@ type ManagementAPICaller interface {
 	CallManagementAPI(context.Context, apicall.Request) (*apicall.Response, error)
 }
 
+type ManagementClient interface {
+	ManagementAPICaller
+	ResetQuota(context.Context, string) error
+}
+
 type ProviderInput struct {
 	Identity entities.UsageIdentity
 }
@@ -21,8 +26,9 @@ type ProviderOutput struct {
 }
 
 type ProviderResetOutput struct {
-	Code         string `json:"code,omitempty"`
-	WindowsReset int    `json:"windowsReset,omitempty"`
+	Code           string `json:"code,omitempty"`
+	WindowsReset   int    `json:"windowsReset,omitempty"`
+	RecoveryFailed bool   `json:"recoveryFailed,omitempty"`
 }
 
 type ProviderResetter interface {

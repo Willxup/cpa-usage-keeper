@@ -469,6 +469,13 @@ func (c *Client) CallManagementAPI(ctx context.Context, request apicall.Request)
 	return result, nil
 }
 
+func (c *Client) ResetQuota(ctx context.Context, authIndex string) error {
+	_, _, err := c.doManagementJSONPostRequest(ctx, cpaManagementResetQuotaEndpoint, struct {
+		AuthIndex string `json:"auth_index"`
+	}{AuthIndex: authIndex}, nil, "quota recovery")
+	return err
+}
+
 func (c *Client) FetchGeminiAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
 	return c.fetchProviderKeyConfig(ctx, cpaManagementGeminiAPIKeyEndpoint, "gemini-api-key", "gemini api keys")
 }
