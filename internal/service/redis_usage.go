@@ -58,6 +58,8 @@ type queuedUsageDetail struct {
 	AuthType            string          `json:"auth_type"`
 	APIKey              string          `json:"api_key"`
 	RequestID           string          `json:"request_id"`
+	SessionID           string          `json:"session_id"`
+	ParentSessionID     string          `json:"parent_session_id"`
 	ResponseHeaders     json.RawMessage `json:"response_headers"`
 }
 
@@ -120,6 +122,8 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 		Endpoint:            strings.TrimSpace(d.Endpoint),
 		AuthType:            normalizeRedisAuthType(d.AuthType),
 		RequestID:           strings.TrimSpace(d.RequestID),
+		SessionID:           strings.TrimSpace(d.SessionID),
+		ParentSessionID:     strings.TrimSpace(d.ParentSessionID),
 		ClientIP:            d.ClientIP,
 		XForwardedFor:       d.XForwardedFor,
 		UserAgent:           d.UserAgent,

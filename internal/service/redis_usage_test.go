@@ -30,6 +30,8 @@ func TestDecodeRedisUsageMessageMapsPayloadToUsageEvent(t *testing.T) {
 		"auth_type":"api_key",
 		"api_key":"raw-key",
 		"request_id":"req-123",
+		"session_id":"session-root",
+		"parent_session_id":"session-parent",
 		"unknown":"ignored"
 	}`, fetchedAt)
 	if err != nil {
@@ -43,6 +45,9 @@ func TestDecodeRedisUsageMessageMapsPayloadToUsageEvent(t *testing.T) {
 	}
 	if event.Provider != "claude" || event.Endpoint != "/v1/messages" || event.AuthType != "apikey" || event.RequestID != "req-123" {
 		t.Fatalf("unexpected redis identity fields: %+v", event)
+	}
+	if event.SessionID != "session-root" || event.ParentSessionID != "session-parent" {
+		t.Fatalf("unexpected session fields: session_id=%q parent_session_id=%q", event.SessionID, event.ParentSessionID)
 	}
 	if event.ModelAlias == nil || *event.ModelAlias != "claude-sonnet-alias" {
 		t.Fatalf("expected model alias to decode, got %+v", event.ModelAlias)
