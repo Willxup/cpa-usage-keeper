@@ -6,7 +6,7 @@ type ProviderRegistry struct {
 	handlers map[string]ProviderHandler
 }
 
-func NewDefaultProviderRegistry(caller ManagementAPICaller, configs ProviderConfigs) ProviderRegistry {
+func NewDefaultProviderRegistry(caller ManagementClient, configs ProviderConfigs) ProviderRegistry {
 	return NewProviderRegistry(map[string]ProviderHandler{
 		"antigravity": NewAntigravityProvider(caller, configs.Antigravity, configs.AntigravitySubscriptions),
 		"codex":       NewCodexProvider(caller, configs.Codex),

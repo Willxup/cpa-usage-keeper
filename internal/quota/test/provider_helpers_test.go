@@ -12,6 +12,10 @@ type recordingManagementCaller struct {
 	responses []*apicall.Response
 }
 
+func (c *recordingManagementCaller) ResetQuota(context.Context, string) error {
+	return nil
+}
+
 func (c *recordingManagementCaller) CallManagementAPI(ctx context.Context, request apicall.Request) (*apicall.Response, error) {
 	c.requests = append(c.requests, request)
 	if len(c.responses) == 0 {

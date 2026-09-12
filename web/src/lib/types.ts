@@ -494,6 +494,7 @@ export interface UsageQuotaResetResponse {
   authIndex: string
   code?: string
   windowsReset?: number
+  recoveryFailed?: boolean
 }
 
 export interface UsageQuotaResetCredit {
