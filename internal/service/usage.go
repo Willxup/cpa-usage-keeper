@@ -75,14 +75,13 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 		return nil, err
 	}
 	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		Range:              filter.Range,
-		IncludeComparisons: false,
-		CustomUnit:         filter.CustomUnit,
-		StartTime:          filter.StartTime,
-		EndTime:            filter.EndTime,
-		EndExclusive:       filter.EndExclusive,
-		QueryNow:           filter.QueryNow,
-		APIGroupKey:        apiGroupKey,
+		Range:        filter.Range,
+		CustomUnit:   filter.CustomUnit,
+		StartTime:    filter.StartTime,
+		EndTime:      filter.EndTime,
+		EndExclusive: filter.EndExclusive,
+		QueryNow:     filter.QueryNow,
+		APIGroupKey:  apiGroupKey,
 	}, s.recentUsage, s.pricing.NewResolver())
 	if err != nil {
 		return nil, err
@@ -116,15 +115,14 @@ func (s *usageService) GetUsageOverviewComparisons(ctx context.Context, filter s
 		return nil, err
 	}
 	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		Range:              filter.Range,
-		IncludeComparisons: true,
-		ComparisonOnly:     true,
-		CustomUnit:         filter.CustomUnit,
-		StartTime:          filter.StartTime,
-		EndTime:            filter.EndTime,
-		EndExclusive:       filter.EndExclusive,
-		QueryNow:           filter.QueryNow,
-		APIGroupKey:        apiGroupKey,
+		Range:          filter.Range,
+		ComparisonOnly: true,
+		CustomUnit:     filter.CustomUnit,
+		StartTime:      filter.StartTime,
+		EndTime:        filter.EndTime,
+		EndExclusive:   filter.EndExclusive,
+		QueryNow:       filter.QueryNow,
+		APIGroupKey:    apiGroupKey,
 	}, s.recentUsage, s.pricing.NewResolver())
 	if err != nil {
 		return nil, err

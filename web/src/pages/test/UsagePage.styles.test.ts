@@ -1326,7 +1326,7 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageSource).toContain('useUsageActivityData({')
     expect(usagePageSource).toContain('useRecentActivityWindow(usageRangeQuery)')
     expect(usagePageSource).toContain('await Promise.all([loadUsage(), loadActivity(), loadComparisons()])')
-    expect(usagePageSource).toContain('await Promise.all([loadUsage(), loadActivity({ skipIfInFlight: true }), loadComparisons()])')
+    expect(usagePageSource).toContain('await Promise.all([loadUsage(), loadActivity({ skipIfInFlight: true }), loadComparisons({ skipIfInFlight: true })])')
     expect(usagePageSource).not.toContain('<ServiceHealthCard')
     expect(usagePageSource).not.toContain('showEyebrow')
   })

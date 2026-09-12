@@ -83,7 +83,7 @@ function ComparisonChart({ items, dimension, loading, dimensions, titleKey }: { 
       </div>
     </div> : <>
       {dimensions && <div className={usageStyles.overviewRealtimeDimensionTabs} role="tablist">
-        {DIMENSION_KEYS.map((key) => <button key={key} type="button" className={`${usageStyles.overviewRealtimeDimensionTab} ${activeDimension === key ? usageStyles.overviewRealtimeDimensionTabActive : ''}`.trim()} onClick={() => setActiveDimension(key)} aria-pressed={activeDimension === key}>{t(`usage_stats.overview_realtime_dimension_${key}`)}</button>)}
+        {DIMENSION_KEYS.map((key) => <button key={key} type="button" role="tab" tabIndex={activeDimension === key ? 0 : -1} className={`${usageStyles.overviewRealtimeDimensionTab} ${activeDimension === key ? usageStyles.overviewRealtimeDimensionTabActive : ''}`.trim()} onClick={() => setActiveDimension(key)} aria-selected={activeDimension === key}>{t(`usage_stats.overview_realtime_dimension_${key}`)}</button>)}
       </div>}
       <UsageShareList items={shareItems} loading={loading} emptyContent={empty} />
     </>}

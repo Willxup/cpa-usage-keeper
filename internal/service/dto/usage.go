@@ -10,9 +10,7 @@ const DefaultUsageEventsLimit = 100
 
 // UsageFilter 是服务层的 usage 查询条件。
 type UsageFilter struct {
-	// IncludeComparisons 由 Overview 路由启用；Viewer 仍受会话 Key 范围限制，API 仅输出模型维度。
-	IncludeComparisons bool
-	Range              string
+	Range string
 	// RangeUnit/RangeCount 是统一时间解析器给出的规范化选择跨度，供不读取历史边界的查询复用。
 	RangeUnit    string
 	RangeCount   int

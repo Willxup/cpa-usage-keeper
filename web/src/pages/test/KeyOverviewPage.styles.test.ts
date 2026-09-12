@@ -32,7 +32,7 @@ describe('KeyOverviewPage layout', () => {
     expect(source).toContain('const nextRealtime = await fetchKeyOverviewRealtime({')
     expect(source).toContain('useUsageActivityData({')
     expect(source).toContain('useRecentActivityWindow(usageRangeQuery)')
-    expect(source).toContain('await Promise.all([loadOverview(options), loadActivity(options), loadComparisons()])')
+    expect(source).toContain('await Promise.all([loadOverview(options), loadActivity(options), loadComparisons({ skipIfInFlight: options.skipIfInFlight })])')
   })
 
   it('auto-refreshes the active viewer page', () => {

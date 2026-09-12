@@ -308,7 +308,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
       await loadRealtime(options);
       return;
     }
-    await Promise.all([loadOverview(options), loadActivity(options), loadComparisons()]);
+    await Promise.all([loadOverview(options), loadActivity(options), loadComparisons({ skipIfInFlight: options.skipIfInFlight })]);
   }, [loadActivity, loadComparisons, loadOverview, loadRealtime, page]);
 
   const handleAutoRefreshError = useCallback((nextError: unknown) => {

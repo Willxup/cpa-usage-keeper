@@ -58,20 +58,19 @@ func addUsageOverviewComparison(items map[string]*dto.UsageComparisonItemRecord,
 	item.CostAvailable = item.CostAvailable && row.CostAvailable
 }
 
-// 主曲线和比较维度共享同一批带时间桶的 rollup 行；比较结果只在内存中去掉时间桶累计。
-// 两者共享原来的范围规划，边界事件由调用方读取一次并直接补入比较结果。
+func calculateUsageOverviewComparisonProjectionCost(costResolver pricing.Resolver, row usageOverviewComparisonProjection) pricing.CostResult {
+	return costResolver.Calculate(newUsagePricingCostSubject(row.APIGroupKey, row.Model, row.AuthIndex, row.ModelAlias, row.ServiceTier, row.ResponseServiceTier, row.ReasoningEffort, row.Endpoint, row.ExecutorType, row.CostUncachedInputTokens+row.CostCacheReadTokens+row.CostCacheCreationTokens, row.CostOutputTokens, row.CostCacheReadTokens, row.CostCacheCreationTokens))
+}
+
+// comparison-only 使用无时间桶的独立 rollup projection。
+// 比较查询复用范围规划，边界事件由调用方读取一次并补入比较结果。
 func loadAndApplyUsageOverviewStats(overview *dto.UsageOverviewRecord, db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, grain string, bucketByDay bool, resolver pricing.Resolver) error {
-	var model any = &entities.UsageOverviewHourlyStat{}
-	if grain == "daily" {
-		model = &entities.UsageOverviewDailyStat{}
-	}
-	filter.IncludeComparisons = overview.Comparisons != nil
-	rows, err := loadUsageOverviewStatProjection(db.Model(model), filter, start, end, grain, resolver.ActiveFields())
-	if err != nil {
-		return err
-	}
-	var identityLookup analysisIdentityLookup
-	if overview.Comparisons != nil {
+	if filter.ComparisonOnly {
+		rows, err := loadUsageOverviewComparisonProjection(db, filter, start, end, grain, resolver.ActiveFields())
+		if err != nil {
+			return err
+		}
+		var identityLookup analysisIdentityLookup
 		authIndexes := make([]string, 0, len(rows))
 		seenAuthIndexes := make(map[string]struct{}, len(rows))
 		for _, row := range rows {
@@ -82,32 +81,28 @@ func loadAndApplyUsageOverviewStats(overview *dto.UsageOverviewRecord, db *gorm.
 				}
 			}
 		}
-		var err error
 		identityLookup, err = loadAnalysisIdentityLookup(db, authIndexes)
 		if err != nil {
 			return err
 		}
-	}
-	comparisonRows := make([]usageOverviewStatProjection, 0)
-	for _, row := range rows {
-		if row.ComparisonKind == 1 {
-			comparisonRows = append(comparisonRows, row)
-			continue
+		for _, row := range rows {
+			result := calculateUsageOverviewComparisonProjectionCost(resolver, row)
+			comparison := dto.UsageComparisonItemRecord{Requests: row.RequestCount, Failures: row.FailureCount, InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CacheReadTokens: row.CacheReadTokens, CacheCreationTokens: row.CacheCreationTokens, ReasoningTokens: row.ReasoningTokens, TotalTokens: row.TotalTokens, CostUSD: result.Cost.TotalCostUSD, CostAvailable: result.Available}
+			applyUsageOverviewComparison(overview.Comparisons, row.Model, row.APIGroupKey, comparison)
+			applyUsageOverviewIdentityComparison(overview.Comparisons, identityLookup, row.AuthIndex, comparison)
 		}
-		applyUsageOverviewStatToOverview(overview, row, bucketByDay, resolver)
-	}
-	if overview.Comparisons == nil {
 		return nil
 	}
-	for _, row := range comparisonRows {
-		result := calculateUsageOverviewProjectionCost(resolver, row)
-		comparison := dto.UsageComparisonItemRecord{
-			Requests: row.RequestCount, Failures: row.FailureCount, InputTokens: row.InputTokens, OutputTokens: row.OutputTokens,
-			CacheReadTokens: row.CacheReadTokens, CacheCreationTokens: row.CacheCreationTokens, ReasoningTokens: row.ReasoningTokens,
-			TotalTokens: row.TotalTokens, CostUSD: result.Cost.TotalCostUSD, CostAvailable: result.Available,
-		}
-		applyUsageOverviewComparison(overview.Comparisons, row.Model, row.APIGroupKey, comparison)
-		applyUsageOverviewIdentityComparison(overview.Comparisons, identityLookup, row.AuthIndex, comparison)
+	var model any = &entities.UsageOverviewHourlyStat{}
+	if grain == "daily" {
+		model = &entities.UsageOverviewDailyStat{}
+	}
+	rows, err := loadUsageOverviewStatProjection(db.Model(model), filter, start, end, grain, resolver.ActiveFields())
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		applyUsageOverviewStatToOverview(overview, row, bucketByDay, resolver)
 	}
 	return nil
 }

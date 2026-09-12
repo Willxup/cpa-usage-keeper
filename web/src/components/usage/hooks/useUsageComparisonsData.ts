@@ -15,6 +15,10 @@ export interface UseUsageComparisonsDataOptions {
   customEnd?: string
 }
 
+interface LoadComparisonsOptions {
+  skipIfInFlight?: boolean
+}
+
 export function useUsageComparisonsData(options: UseUsageComparisonsDataOptions = {}) {
   const { onAuthRequired, onRangeBoundsConflict, enabled = true, keyViewer = false, apiKeyId, range = 'today', customUnit, customStart, customEnd } = options
   const [comparisons, setComparisons] = useState<UsageOverviewComparisons | null>(null)
@@ -24,8 +28,9 @@ export function useUsageComparisonsData(options: UseUsageComparisonsDataOptions 
   const activeController = useRef<AbortController | null>(null)
   const rangeQuery = useMemo(() => buildUsageRangeQuery({ range, customUnit, customStart, customEnd }), [customEnd, customStart, customUnit, range])
 
-  const loadComparisons = useCallback(async () => {
+  const loadComparisons = useCallback(async (options: LoadComparisonsOptions = {}) => {
     if (!rangeQuery.valid) return
+    if (options.skipIfInFlight && activeController.current) return
     const sequence = ++requestSequence.current
     activeController.current?.abort()
     const controller = new AbortController()
@@ -48,6 +53,7 @@ export function useUsageComparisonsData(options: UseUsageComparisonsDataOptions 
 
   useEffect(() => {
     if (!enabled || !rangeQuery.valid) return
+    setComparisons(null)
     void loadComparisons()
     return () => {
       requestSequence.current += 1

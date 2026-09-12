@@ -383,7 +383,7 @@ func TestUsageOverviewRealtimeAcceptsWindowAndReturnsRealtimeBlock(t *testing.T)
 		`"token_velocity":[{"bucket":"2026-04-22T11:00:00Z","tokens_per_minute":120,"tokens":20,"cost":0.123}]`,
 		`"response_level":[{"bucket":"2026-04-22T11:00:00Z","ttft_p95_ms":210,"latency_p95_ms":820}]`,
 		`"response_distribution":{"ttft":{"average_line":[],"particles":[{"bucket":"2026-04-22T11:00:00Z","timestamp":"2026-04-22T11:00:15Z","ms":120,"count":1}],"total_particles":1,"sampled":false,"max_particles":1000},"latency":{"average_line":[],"particles":[],"total_particles":0,"sampled":false,"max_particles":1000}}`,
-		`"current_usage":{"models":[{"key":"gpt-5","label":"gpt-5","tokens":20,"requests":1,"cost":0.123,"share":100}],"api_keys":[{"key":"sk-*********123456","label":"sk-*********123456","tokens":20,"requests":1,"share":100}]`,
+		`"current_usage":{"models":[{"key":"gpt-5","label":"gpt-5","tokens":20,"requests":1,"cost":0.123,"share":100}],"api_keys":[{"key":"legacy:27700bd703475abc6c2914e741fd24a43ed288ce9364331facfa31677c735f84","label":"sk-*********123456","tokens":20,"requests":1,"share":100}]`,
 		`"request_level":[{"bucket":"2026-04-22T11:00:00Z","requests_per_minute":6,"requests":1}]`,
 		`"cache_level":[{"bucket":"2026-04-22T11:00:00Z","cache_read_rate":25,"cache_read_tokens":5,"cache_creation_tokens":2,"input_tokens":20}]`,
 	} {
@@ -706,4 +706,18 @@ func float64Ptr(value float64) *float64 {
 
 func int64Ptr(value int64) *int64 {
 	return &value
+}
+
+func TestUsageOverviewRealtimeAPIKeyHistoryIdentifiersDoNotCollide(t *testing.T) {
+	items := []servicedto.RealtimeUsageTopItem{
+		{Key: "sk-same-prefix-middle-one-123456", Label: "", Tokens: 2},
+		{Key: "sk-same-prefix-middle-two-123456", Label: "", Tokens: 1},
+	}
+	result := mapUsageOverviewRealtimeAPIKeyTopItems(items, nil)
+	if len(result) != 2 || result[0].Key == result[1].Key {
+		t.Fatalf("history API Key identifiers collided: %+v", result)
+	}
+	if result[0].Key[:7] != "legacy:" || result[1].Key[:7] != "legacy:" {
+		t.Fatalf("unexpected history API Key identifiers: %+v", result)
+	}
 }

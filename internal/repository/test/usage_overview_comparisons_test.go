@@ -3,7 +3,6 @@ package test
 import (
 	"context"
 	"math"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -31,7 +30,7 @@ func TestOverviewComparisonsShareRollupsAndExactBoundaries(t *testing.T) {
 	if err := repository.AggregateUsageOverviewStats(context.Background(), db, end); err != nil {
 		t.Fatal(err)
 	}
-	filter := repodto.UsageQueryFilter{Range: "4h", StartTime: &start, EndTime: &end, EndExclusive: true, QueryNow: &end, IncludeComparisons: true}
+	filter := repodto.UsageQueryFilter{Range: "4h", StartTime: &start, EndTime: &end, EndExclusive: true, QueryNow: &end, ComparisonOnly: true}
 	queries := captureOverviewDataQueries(t, db, "comparisons")
 	overview, err := repository.BuildUsageOverviewWithFilter(db, filter, emptyPricingResolverForTest())
 	if err != nil {
@@ -47,20 +46,9 @@ func TestOverviewComparisonsShareRollupsAndExactBoundaries(t *testing.T) {
 	if b.Requests != 2 || b.Failures != 1 || b.TotalTokens != 230 {
 		t.Fatalf("key totals: %+v", b)
 	}
-	for _, items := range []map[string]*repodto.UsageComparisonItemRecord{overview.Comparisons.Models, overview.Comparisons.APIKeys} {
-		var requests, tokens, failures int64
-		var cost float64
-		for _, item := range items {
-			requests += item.Requests
-			tokens += item.TotalTokens
-			failures += item.Failures
-			cost += item.CostUSD
-		}
-		if requests != overview.Usage.TotalRequests || tokens != overview.Usage.TotalTokens || failures != overview.Usage.FailureCount || math.Abs(cost-overview.Summary.TotalCost) > 1e-9 {
-			t.Fatal("comparisons diverged from overview")
-		}
+	if overview.Usage.TotalRequests != 0 || len(overview.Series.Requests) != 0 {
+		t.Fatal("comparison-only query must not build overview totals or series")
 	}
-	// 比较图与主序列共享一次带时间桶的 rollup 读取；首尾明细不能重复读取。
 	if len(*queries) != 3 {
 		t.Fatalf("expected two boundary reads and one rollup read, got %d", len(*queries))
 	}
@@ -69,7 +57,7 @@ func TestOverviewComparisonsShareRollupsAndExactBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(filtered.Comparisons.APIKeys) != 1 || filtered.Usage.TotalTokens != 210 {
+	if len(filtered.Comparisons.APIKeys) != 1 || filtered.Comparisons.APIKeys["key-a"].TotalTokens != 210 || filtered.Usage.TotalTokens != 0 {
 		t.Fatalf("key filter leaked: %+v", filtered.Comparisons)
 	}
 }
@@ -86,7 +74,7 @@ func TestOverviewComparisonsCustomDayNeverReadsRawEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	queries := captureOverviewDataQueries(t, db, "comparisons_long")
-	filter := repodto.UsageQueryFilter{Range: "custom", CustomUnit: "day", StartTime: &start, EndTime: &end, EndExclusive: true, QueryNow: &end, IncludeComparisons: true}
+	filter := repodto.UsageQueryFilter{Range: "custom", CustomUnit: "day", StartTime: &start, EndTime: &end, EndExclusive: true, QueryNow: &end, ComparisonOnly: true}
 	overview, err := repository.BuildUsageOverviewWithFilter(db, filter, emptyPricingResolverForTest())
 	if err != nil {
 		t.Fatal(err)
@@ -101,18 +89,10 @@ func TestOverviewComparisonsCustomDayNeverReadsRawEvents(t *testing.T) {
 	if !strings.Contains((*queries)[0], "api_group_key") {
 		t.Fatal("missing comparison grouping")
 	}
-	// 混合查询的比较行没有时间桶，独立查询直接省略时间列；两者都应返回相同汇总。
-	filter.ComparisonOnly = true
-	comparisonOnly, err := repository.BuildUsageOverviewWithFilter(db, filter, emptyPricingResolverForTest())
-	if err != nil {
-		t.Fatal(err)
+	if len(overview.Series.Requests) != 0 || overview.Usage.TotalRequests != 0 {
+		t.Fatal("comparison-only projection must preserve comparisons without building the main series")
 	}
-	if !reflect.DeepEqual(overview.Comparisons, comparisonOnly.Comparisons) || len(overview.Series.Requests) != 2 {
-		t.Fatal("nullable comparison buckets must preserve comparisons and the main series")
-	}
-	filter.ComparisonOnly = false
-	filter.IncludeComparisons = false
-	plain, err := repository.BuildUsageOverviewWithFilter(db, filter, emptyPricingResolverForTest())
+	plain, err := repository.BuildUsageOverviewWithFilter(db, repodto.UsageQueryFilter{Range: "custom", CustomUnit: "day", StartTime: &start, EndTime: &end, EndExclusive: true, QueryNow: &end}, emptyPricingResolverForTest())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +107,7 @@ func TestOverviewComparisonCostUsesTheSamePricingRules(t *testing.T) {
 	start := end.Add(-4 * time.Hour)
 	events := []entities.UsageEvent{
 		{EventKey: "priced-left", Timestamp: start, APIGroupKey: "key-a", Model: "model-a", InputTokens: 1000000, TotalTokens: 1000000},
-		{EventKey: "priced-middle", Timestamp: start.Add(time.Hour), APIGroupKey: "key-b", Model: "model-a", InputTokens: 1000000, TotalTokens: 1000000},
+		{EventKey: "priced-middle", Timestamp: start.Add(time.Hour), APIGroupKey: "key-b", Model: "model-a", InputTokens: 1000000, CacheReadTokens: 100000, CacheCreationTokens: 50000, TotalTokens: 1000000},
 	}
 	if err := db.Create(&events).Error; err != nil {
 		t.Fatal(err)
@@ -136,11 +116,12 @@ func TestOverviewComparisonCostUsesTheSamePricingRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	resolver := repositoryPricingResolver(t, []pricing.RuleConfig{{Key: "api_group_key", Value: "key-b", Multiplier: 2}})
-	result, err := repository.BuildUsageOverviewWithFilter(db, repodto.UsageQueryFilter{Range: "4h", StartTime: &start, EndTime: &end, QueryNow: &end, IncludeComparisons: true}, resolver)
+	comparisonOnlyFilter := repodto.UsageQueryFilter{Range: "4h", StartTime: &start, EndTime: &end, QueryNow: &end, ComparisonOnly: true}
+	comparisonOnly, err := repository.BuildUsageOverviewWithFilter(db, comparisonOnlyFilter, resolver)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if math.Abs(result.Comparisons.APIKeys["key-a"].CostUSD-1) > 1e-9 || math.Abs(result.Comparisons.APIKeys["key-b"].CostUSD-2) > 1e-9 || math.Abs(result.Summary.TotalCost-3) > 1e-9 {
-		t.Fatalf("pricing parity: %+v", result.Comparisons)
+	if math.Abs(comparisonOnly.Comparisons.APIKeys["key-b"].CostUSD-1.7) > 1e-9 {
+		t.Fatalf("comparison-only cache pricing diverged: got=%v", comparisonOnly.Comparisons.APIKeys["key-b"].CostUSD)
 	}
 }

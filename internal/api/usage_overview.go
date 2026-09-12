@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net/http"
@@ -255,7 +256,6 @@ func writeUsageOverviewComparisonsResponse(c *gin.Context, usageProvider service
 		c.JSON(http.StatusOK, usageOverviewComparisons{Models: []usageOverviewComparisonItem{}})
 		return
 	}
-	filter.IncludeComparisons = true
 	overview, err := comparisonProvider.GetUsageOverviewComparisons(c.Request.Context(), filter)
 	if err != nil {
 		writeUsageProviderError(c, "get usage overview comparisons failed", err)
@@ -690,8 +690,12 @@ func mapUsageOverviewRealtimeTopItems(items []servicedto.RealtimeUsageTopItem, r
 func mapUsageOverviewRealtimeAPIKeyTopItems(items []servicedto.RealtimeUsageTopItem, apiKeyInfos map[string]analysisAPIKeyInfo) []usageOverviewRealtimeUsageTopItem {
 	result := make([]usageOverviewRealtimeUsageTopItem, 0, len(items))
 	for _, item := range items {
+		key := analysisAPIKeyResponseKey(item.Key, apiKeyInfos)
+		if _, ok := apiKeyInfos[item.Key]; !ok {
+			key = fmt.Sprintf("legacy:%x", sha256.Sum256([]byte(item.Key)))
+		}
 		result = append(result, usageOverviewRealtimeUsageTopItem{
-			Key:      analysisAPIKeyResponseKey(item.Key, apiKeyInfos),
+			Key:      key,
 			Label:    analysisAPIKeyLabel(item.Key, apiKeyInfos),
 			Tokens:   item.Tokens,
 			Requests: item.Requests,

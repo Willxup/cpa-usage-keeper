@@ -4,7 +4,6 @@ import "time"
 
 // UsageQueryFilter 是仓储层的 usage 查询条件。
 type UsageQueryFilter struct {
-	IncludeComparisons bool
 	// ComparisonOnly 仅构建比较维度，跳过 Overview 主统计和时间序列。
 	ComparisonOnly bool
 	Range          string

@@ -828,8 +828,8 @@ func BuildUsageOverviewWithFilterAndRecentCache(db *gorm.DB, filter dto.UsageQue
 		return nil, fmt.Errorf("usage overview requires start_time and end_time")
 	}
 
-	// 比较视图的主序列与维度汇总必须读取同一个数据库快照，避免增量写入夹在两次读取之间。
-	if filter.IncludeComparisons {
+	// 独立比较查询使用同一个数据库快照，避免增量写入夹在边界与 rollup 读取之间。
+	if filter.ComparisonOnly {
 		var overview *dto.UsageOverviewRecord
 		err := db.Clauses(dbresolver.Read).Transaction(func(tx *gorm.DB) error {
 			var err error
@@ -883,7 +883,7 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, costR
 	windowMinutes := computeWindowMinutes(effectiveFilter)
 	bucketByDay := shouldBucketUsageOverviewByDay(effectiveFilter, windowMinutes)
 	overview := newUsageOverviewRecord(windowMinutes)
-	if filter.IncludeComparisons {
+	if filter.ComparisonOnly {
 		overview.Comparisons = &dto.UsageOverviewComparisonsRecord{
 			Models: map[string]*dto.UsageComparisonItemRecord{}, APIKeys: map[string]*dto.UsageComparisonItemRecord{},
 			AuthFiles: map[string]*dto.UsageComparisonItemRecord{}, AIProviders: map[string]*dto.UsageComparisonItemRecord{},
@@ -1235,7 +1235,7 @@ func usageOverviewRecentCacheCoversWindow(recentCache *UsageRecentEventCache, wi
 
 func loadUsageOverviewBoundaryEventRangeWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, includeEnd bool, activeFields pricing.ActiveFields) ([]entities.UsageEvent, error) {
 	projection := usageOverviewBoundaryEventProjectionColumns
-	if !filter.IncludeComparisons {
+	if !filter.ComparisonOnly {
 		projection = strings.TrimSuffix(projection, ", auth_index")
 	}
 	return loadUsageOverviewEventRangeWithProjection(db, filter, start, end, includeEnd, usagePricingProjectionColumns(projection, activeFields))
