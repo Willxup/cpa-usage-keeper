@@ -212,8 +212,6 @@ const MODEL_EFFICIENCY_TOOLTIP_CURSOR_OFFSET = 14;
 const MODEL_EFFICIENCY_MIN_RADIUS = 5;
 const MODEL_EFFICIENCY_MAX_RADIUS = 24;
 const MODEL_EFFICIENCY_HOVER_RADIUS_DELTA = 4;
-const MODEL_EFFICIENCY_RADIUS_EASING = 0.75;
-const MODEL_EFFICIENCY_OUTLIER_RATIO = 8;
 const MODEL_EFFICIENCY_AXIS_PADDING_FACTOR = 2.5;
 const LATENCY_REFERENCE_HIT_RADIUS_PX = 8;
 const EMPTY_COMPOSITION_ITEMS: AnalysisCompositionItem[] = [];
@@ -1718,41 +1716,21 @@ const getEfficiencyPalette = (index: number) => {
 
 const getEfficiencyColor = (index: number) => getEfficiencyPalette(index).base;
 
-const getNearestRankPercentile = (values: number[], percentile: number) => {
-  const sortedValues = values
-    .filter((value) => Number.isFinite(value) && value > 0)
-    .sort((a, b) => a - b);
-  if (sortedValues.length === 0) return 0;
-  const index = Math.min(sortedValues.length - 1, Math.max(0, Math.ceil(percentile * sortedValues.length) - 1));
-  return sortedValues[index];
-};
-
 const buildModelEfficiencyRadii = (values: number[]) => {
   const positiveValues = values.filter((value) => Number.isFinite(value) && value > 0);
   if (positiveValues.length === 0) {
     return values.map(() => MODEL_EFFICIENCY_MIN_RADIUS);
   }
-  const minValue = Math.min(...positiveValues);
   const maxValue = Math.max(...positiveValues);
-  if (minValue === maxValue) {
-    const radius = (MODEL_EFFICIENCY_MIN_RADIUS + MODEL_EFFICIENCY_MAX_RADIUS) / 2;
-    return values.map((value) => (value > 0 ? radius : MODEL_EFFICIENCY_MIN_RADIUS));
-  }
+  const minArea = MODEL_EFFICIENCY_MIN_RADIUS ** 2;
+  const maxArea = MODEL_EFFICIENCY_MAX_RADIUS ** 2;
+  const areaRange = Math.max(maxArea - minArea, Number.EPSILON);
 
-  // 用 log 压缩头部模型，并在明显离群时把参考上限拉回到头部和长尾之间。
-  const p90Value = getNearestRankPercentile(positiveValues, 0.9);
-  const referenceMax = p90Value > 0 && maxValue > p90Value * MODEL_EFFICIENCY_OUTLIER_RATIO
-    ? Math.sqrt(maxValue * p90Value)
-    : maxValue;
-  const logMin = Math.log(minValue + 1);
-  const logMax = Math.log(Math.max(referenceMax, minValue * 1.1) + 1);
-  const logRange = Math.max(logMax - logMin, Number.EPSILON);
+  // 面积按 Token 数线性增长，半径取平方根，既保留数量比例又让长尾模型保持可见。
   return values.map((value) => {
     if (!Number.isFinite(value) || value <= 0) return MODEL_EFFICIENCY_MIN_RADIUS;
-    const clampedValue = Math.min(value, referenceMax);
-    const normalized = Math.max(0, Math.min(1, (Math.log(clampedValue + 1) - logMin) / logRange));
-    const eased = Math.pow(normalized, MODEL_EFFICIENCY_RADIUS_EASING);
-    const radius = MODEL_EFFICIENCY_MIN_RADIUS + eased * (MODEL_EFFICIENCY_MAX_RADIUS - MODEL_EFFICIENCY_MIN_RADIUS);
+    const normalized = Math.max(0, Math.min(1, value / maxValue));
+    const radius = Math.sqrt(minArea + normalized * areaRange);
     return Number(radius.toFixed(2));
   });
 };
@@ -1900,7 +1878,7 @@ function ModelEfficiencyCard({ rows, loading, isDark, isMobile }: { rows: Analys
     costPerMillion: t('usage_stats.analysis_cost_per_million_tokens'),
     requests: t('usage_stats.requests_count'),
   }), [t]);
-  const pointRadii = useMemo(() => buildModelEfficiencyRadii(pricedRows.map((row) => toNumber(row.requests))), [pricedRows]);
+  const pointRadii = useMemo(() => buildModelEfficiencyRadii(pricedRows.map((row) => toNumber(row.total_tokens))), [pricedRows]);
   const chartData = useMemo<ChartData<'scatter', EfficiencyPoint[], string>>(() => ({
     labels: pricedRows.map((row) => row.model),
     datasets: [{

@@ -1081,10 +1081,10 @@ describe('AnalysisPanel token chart data', () => {
     expect(modelScatterOptions.scales?.x).not.toHaveProperty('beginAtZero');
     expect(modelScatterOptions.scales?.y).not.toHaveProperty('beginAtZero');
     const pointRadii = modelScatterData.datasets[0]?.pointRadius as number[];
-    expect(pointRadii[0]).toBe(5);
-    expect(pointRadii[1]).toBeGreaterThan(10);
+    expect(pointRadii[0]).toBeGreaterThan(10);
+    expect(pointRadii[1]).toBeGreaterThan(pointRadii[0]);
     expect(pointRadii[2]).toBe(24);
-    expect(pointRadii[2] - pointRadii[1]).toBeGreaterThan(4);
+    expect(pointRadii[2] - pointRadii[1]).toBeGreaterThan(2);
     expect(modelScatterData.datasets[0]?.clip).toBe(false);
     expect(modelScatterOptions.layout?.padding).toEqual({ top: 16, right: 24, bottom: 22, left: 18 });
     expect((modelScatterOptions.scales?.x as { min?: number }).min).toBeLessThan(2_000_000);

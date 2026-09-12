@@ -1242,7 +1242,7 @@ describe('UsagePage toolbar styles', () => {
     expect(analysisPanelSource).not.toContain("from 'recharts'")
     expect(analysisPanelStyles).toMatch(/\.insightGrid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/)
     expect(analysisPanelStyles).toMatch(/\.insightGrid\s*\{[\s\S]*?@include mobile\s*\{[\s\S]*?grid-template-columns:\s*1fr;/)
-    expect(analysisPanelStyles).toMatch(/\.efficiencyChartFrame\s*\{[\s\S]*?height:\s*300px;/)
+    expect(analysisPanelStyles).toMatch(/\.efficiencyChartFrame\s*\{[\s\S]*?height:\s*420px;/)
     expect(analysisPanelStyles).not.toContain('.efficiencyList')
     expect(analysisPanelStyles).not.toContain('.efficiencyRow')
     expect(analysisPanelStyles).toMatch(/\.compositionUsageItem\s*\{[\s\S]*?border-bottom:\s*1px solid var\(--border-color\);/)
