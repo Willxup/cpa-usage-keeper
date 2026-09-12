@@ -1,3 +1,4 @@
+import { UsageComparisonCharts } from '@/components/usage/UsageComparisonCharts';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, fetchKeyOverview, fetchKeyOverviewRealtime, isUsageRangeBoundsConflict } from '@/lib/api';
@@ -14,6 +15,7 @@ import {
   useRecentActivityWindow,
   useSparklines,
   useUsageActivityData,
+  useUsageComparisonsData,
 } from '@/components/usage';
 import type { UsageOverviewPayload } from '@/components/usage/hooks/useUsageData';
 import { getCurrentOverviewUsage, getDailyAverageCardUsage, getOverviewDisplayLoading, isDailyAverageRange } from '@/utils/usage/overview';
@@ -129,12 +131,13 @@ export const scheduleKeyOverviewAutoRefresh = ({
 };
 
 export interface KeyOverviewPageProps {
+  page?: 'overview' | 'realtime';
   apiKey?: AuthSessionAPIKeySummary;
   onNavigate: (path: KeyViewerPath) => void;
   onAuthRequired?: () => void;
 }
 
-export function KeyOverviewPage({ apiKey, onNavigate, onAuthRequired }: KeyOverviewPageProps) {
+export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthRequired }: KeyOverviewPageProps) {
   const { t } = useTranslation();
   const isMobile = useMediaQuery('(max-width: 768px)');
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
@@ -174,7 +177,7 @@ export function KeyOverviewPage({ apiKey, onNavigate, onAuthRequired }: KeyOverv
   } = useUsageActivityData({
     viewer: 'key',
     request: activityRangeRequest,
-    enabled: usageRangeQuery.valid,
+    enabled: page === 'overview' && usageRangeQuery.valid,
     onAuthRequired,
   });
   const activityWindow = manualActivityWindow ?? activity?.window ?? null;
@@ -193,6 +196,21 @@ export function KeyOverviewPage({ apiKey, onNavigate, onAuthRequired }: KeyOverv
     setTimeRangeState(nextState);
     return true;
   }, [rangeRecoveryTimeZone, timeRangeState]);
+  const {
+    comparisons: overviewComparisons,
+    loading: comparisonsLoading,
+    error: comparisonsError,
+    loadComparisons,
+  } = useUsageComparisonsData({
+    onAuthRequired,
+    onRangeBoundsConflict: recoverRangeBoundsConflict,
+    enabled: page === 'overview' && usageRangeQuery.valid,
+    keyViewer: true,
+    range: timeRange,
+    customUnit: customRange?.unit,
+    customStart: customRange?.start,
+    customEnd: customRange?.end,
+  });
   const handleTimeRangeChange = useCallback((range: UsageTimeRange, nextCustomRange?: UsageCustomRange) => {
     let nextState: StoredUsageRangeState;
     if (range === 'custom' && nextCustomRange) {
@@ -268,24 +286,30 @@ export function KeyOverviewPage({ apiKey, onNavigate, onAuthRequired }: KeyOverv
   }, [onAuthRequired, realtimeWindow]);
 
   useEffect(() => {
+    if (page !== 'overview') return;
     void loadOverview();
     return () => {
       overviewRequestControllerRef.current?.abort();
       overviewRequestControllerRef.current = null;
     };
-  }, [loadOverview]);
+  }, [loadOverview, page]);
 
   useEffect(() => {
+    if (page !== 'realtime') return;
     void loadRealtime();
     return () => {
       realtimeRequestControllerRef.current?.abort();
       realtimeRequestControllerRef.current = null;
     };
-  }, [loadRealtime]);
+  }, [loadRealtime, page]);
 
   const refreshKeyOverview = useCallback(async (options: KeyOverviewLoadOptions = {}) => {
-    await Promise.all([loadOverview(options), loadActivity(options), loadRealtime(options)]);
-  }, [loadActivity, loadOverview, loadRealtime]);
+    if (page === 'realtime') {
+      await loadRealtime(options);
+      return;
+    }
+    await Promise.all([loadOverview(options), loadActivity(options), loadComparisons({ skipIfInFlight: options.skipIfInFlight })]);
+  }, [loadActivity, loadComparisons, loadOverview, loadRealtime, page]);
 
   const handleAutoRefreshError = useCallback((nextError: unknown) => {
     if (nextError instanceof ApiError && nextError.status === 401) {
@@ -352,17 +376,18 @@ export function KeyOverviewPage({ apiKey, onNavigate, onAuthRequired }: KeyOverv
 
   return (
     <KeyViewerShell
-      activePage="overview"
+      activePage={page}
       apiKey={apiKey}
-      loading={loading && !usage}
-      filters={[<TimeRangeControl key="range" value={timeRange} customRange={customRange} timeZone={rangeTimeZone} onChange={handleTimeRangeChange} ariaLabel={t('usage_stats.range_filter')} labelInsideTrigger />]}
+      loading={page === 'overview' && loading && !usage}
+      filters={page === 'overview' ? [<TimeRangeControl key="range" value={timeRange} customRange={customRange} timeZone={rangeTimeZone} onChange={handleTimeRangeChange} ariaLabel={t('usage_stats.range_filter')} labelInsideTrigger />] : []}
       onRefresh={() => void handleManualRefresh()}
       refreshing={manualRefreshLoading}
       refreshDisabled={refreshDisabled}
       onNavigate={onNavigate}
       onAuthRequired={onAuthRequired}
     >
-      {displayError && <div className={styles.errorBox}>{displayError}</div>}
+      {page === 'overview' && <>
+      {(displayError || comparisonsError) && <div className={styles.errorBox}>{displayError || comparisonsError}</div>}
 
       <StatCards
         usage={usage}
@@ -389,7 +414,10 @@ export function KeyOverviewPage({ apiKey, onNavigate, onAuthRequired }: KeyOverv
         onWindowChange={setActivityWindow}
       />
 
-      <OverviewRealtimePanel
+      <UsageComparisonCharts comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading} keyViewer />
+      </>}
+
+      {page === 'realtime' && <OverviewRealtimePanel
         realtime={realtime?.window === realtimeWindow ? realtime : undefined}
         loading={realtimeLoading}
         error={displayRealtimeError}
@@ -399,7 +427,7 @@ export function KeyOverviewPage({ apiKey, onNavigate, onAuthRequired }: KeyOverv
         isMobile={isMobile}
         timezone={realtime?.timezone ?? usage?.timezone}
         visibleDimensions={KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS}
-      />
+      />}
     </KeyViewerShell>
   );
 }

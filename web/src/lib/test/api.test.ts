@@ -138,6 +138,14 @@ describe('fetchUsageEvents', () => {
     }
   });
 
+  it('preserves the realtime insight block for both admin and Key Viewer responses', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const insights = { summary: { requests: 12, failures: 2, cost: null }, outcomes: [{ bucket: '2026-09-12T12:00:00+08:00', requests: 12, failures: 2 }] };
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({ insights }) } as Response);
+    expect((await fetchUsageOverviewRealtime()).insights).toEqual(insights);
+    expect((await fetchKeyOverviewRealtime()).insights).toEqual(insights);
+  });
+
   it('loads realtime overview from dedicated endpoints', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({

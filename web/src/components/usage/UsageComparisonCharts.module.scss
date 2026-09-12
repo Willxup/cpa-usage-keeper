@@ -1,0 +1,15 @@
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--keeper-section-gap, 20px); }
+.card { min-width: 0; display: flex; flex-direction: column; }
+.card :global(.card-header) { margin-bottom: 10px; }
+.tile:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+.chartSurface { display: flex; flex-direction: column; min-width: 0; padding: 8px; border: 1px solid var(--border-color); border-radius: var(--keeper-card-radius); background: var(--bg-secondary); flex: 1; }
+.treemap { position: relative; flex: 1; min-height: 224px; }
+.tileSlot { position: absolute; padding: 2px; }
+.tile { display: flex; align-items: flex-start; width: 100%; height: 100%; min-width: 0; border: 0; border-radius: 7px; padding: 8px; overflow: hidden; text-align: left; font: inherit; cursor: pointer; color: #172033; background: linear-gradient(155deg, color-mix(in srgb, var(--usage-light) 70%, #fff), color-mix(in srgb, var(--usage-light) 90%, #fff)); transition: filter 160ms; }
+.tile:hover, .tile:focus-visible { filter: brightness(1.08); }
+.tileName { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; font-size: 12px; font-weight: 600; line-height: 1.35; }
+.tile[data-tiny='true'] { padding: 0; }
+.tile[data-tiny='true'] > span { display: none; }
+.empty { min-height: 224px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--text-secondary); font-size: 12px; }
+@media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { .tile { transition: none; } }

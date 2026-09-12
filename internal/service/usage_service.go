@@ -16,3 +16,8 @@ type UsageProvider interface {
 	GetAnalysis(context.Context, servicedto.UsageFilter) (*servicedto.AnalysisSnapshot, error)
 	GetAnalysisLatency(context.Context, servicedto.UsageFilter) (*servicedto.AnalysisLatencyDiagnostics, error)
 }
+
+// UsageComparisonProvider 提供 Overview 下方维度比较数据；单独拆出接口避免基础 Overview 调用方被强制增加查询。
+type UsageComparisonProvider interface {
+	GetUsageOverviewComparisons(context.Context, servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error)
+}

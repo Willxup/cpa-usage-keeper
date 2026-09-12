@@ -49,7 +49,7 @@ describe('i18n resources', () => {
     ]);
     expect(labels('zh')).toEqual([
       '时间', 'API Key', '来源', '模型', '推理强度', '速度模式', '结果', '请求', '延时', '生成速度',
-      'Tokens', '缓存', '成本', '执行器', '客户端 IP', 'X-Forwarded-For', '用户代理',
+      'Token', '缓存', '成本', '执行器', '客户端 IP', 'X-Forwarded-For', '用户代理',
     ]);
   });
 
@@ -142,8 +142,8 @@ describe('i18n resources', () => {
         overview_realtime_latency_empty: '暂无延迟样本',
         overview_realtime_tpm: 'Token/分钟',
         overview_realtime_rpm: '请求/分钟',
-        overview_realtime_tokens_label: 'Token 数',
-        avg_tokens: '平均 Token 数',
+        overview_realtime_tokens_label: 'Token',
+        avg_tokens: '平均 Token',
         analysis_model_efficiency_subtitle: '按模型比较每 1M 总 Token 的成本。',
         analysis_top_models_subtitle: '在所选时间范围内，比较各模型的总 Token 用量。',
         analysis_top_models_chart_aria: '各模型总 Token 用量随时间变化的堆叠图',
@@ -154,8 +154,8 @@ describe('i18n resources', () => {
         overview_realtime_latency_empty: '暫無延遲樣本',
         overview_realtime_tpm: 'Token/分鐘',
         overview_realtime_rpm: '請求/分鐘',
-        overview_realtime_tokens_label: 'Token 數',
-        avg_tokens: '平均 Token 數',
+        overview_realtime_tokens_label: 'Token',
+        avg_tokens: '平均 Token',
         analysis_model_efficiency_subtitle: '按模型比較每 1M 總 Token 的成本。',
         analysis_top_models_subtitle: '在所選時間範圍內，比較各模型的總 Token 用量。',
         analysis_top_models_chart_aria: '各模型總 Token 用量隨時間變化的堆疊圖',
@@ -264,8 +264,8 @@ describe('i18n resources', () => {
 
   it('describes request event speed using full output tokens and total latency', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.speed_hint')).toBe('Average output tokens per second over total latency');
-    expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_hint')).toBe('按总延迟计算的输出 token 平均速度');
-    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_hint')).toBe('按總延遲計算的輸出 token 平均速度');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.speed_hint')).toBe('按总延迟计算的输出 Token 平均速度');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.speed_hint')).toBe('按總延遲計算的輸出 Token 平均速度');
   });
 
   it('labels request event client metadata across languages', () => {

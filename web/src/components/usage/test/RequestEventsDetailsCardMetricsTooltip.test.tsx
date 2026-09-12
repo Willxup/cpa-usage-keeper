@@ -109,12 +109,12 @@ describe('RequestEventsDetailsCard token and cache tooltips', () => {
         },
         {
           language: 'zh',
-          tokenLines: ['Token 总数：200', '输入：100', '输出：60', '推理：20'],
+          tokenLines: ['总 Token：200', '输入：100', '输出：60', '推理：20'],
           cacheLines: ['缓存率：20.00%', '缓存读取：20', '缓存写入：5'],
         },
         {
           language: 'zh-TW',
-          tokenLines: ['Token 總數：200', '輸入：100', '輸出：60', '推理：20'],
+          tokenLines: ['總 Token：200', '輸入：100', '輸出：60', '推理：20'],
           cacheLines: ['快取率：20.00%', '快取讀取：20', '快取寫入：5'],
         },
       ] as const;

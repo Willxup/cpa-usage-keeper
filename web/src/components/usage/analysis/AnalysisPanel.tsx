@@ -6,7 +6,7 @@ import type { Chart, ChartData, ChartOptions, InteractionItem, InteractionModeFu
 import { Bar, Doughnut, Scatter } from 'react-chartjs-2';
 import type { AnalysisCompositionItem, AnalysisCostBreakdown, AnalysisHeatmapCell, AnalysisLatencyDiagnostics, AnalysisModelEfficiencyItem, AnalysisModelUsagePayload, AnalysisResponse, AnalysisTokenUsageBucket } from '@/lib/types';
 import { calculateDisplayInputTokens, calculateDisplayOutputTokens, formatCompactNumber, formatDurationMs, formatPerMinuteValue, formatUsd } from '@/utils/usage';
-import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill as toGradientFill, USAGE_CHART_REQUESTS_LINE_COLOR, type UsageChartGradientColor, type UsageChartTheme } from '@/utils/usage/chartConfig';
+import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill as toGradientFill, USAGE_CHART_REQUESTS_LINE_COLOR, USAGE_CHART_COMPOSITION_COLORS as CHART_COLORS, USAGE_CHART_TOKEN_COLORS as TOKEN_COLORS, type UsageChartGradientColor, type UsageChartTheme } from '@/utils/usage/chartConfig';
 import { createCompositionLabelsPlugin } from './compositionLabels';
 import styles from './AnalysisPanel.module.scss';
 
@@ -137,14 +137,6 @@ declare module 'chart.js' {
   }
 }
 
-const CHART_COLORS: GradientColor[] = [
-  { base: '#1d4ed8', light: '#60a5fa' },
-  { base: '#ca8a04', light: '#facc15' },
-  { base: '#15803d', light: '#22c55e' },
-  { base: '#7e22ce', light: '#c084fc' },
-  { base: '#b91c1c', light: '#ef4444' },
-  { base: '#0891b2', light: '#67e8f9' },
-];
 const TOP_MODEL_COLORS: GradientColor[] = [
   { base: '#db2777', light: '#f9a8d4' },
   { base: '#d97706', light: '#fcd34d' },
@@ -157,15 +149,6 @@ const TOP_MODELS_LIMIT = 5;
 const TOP_MODELS_MIN_SEGMENT_PX = 4;
 const TOP_MODELS_SCALE_HEADROOM_RATIO = 1.12;
 const TOP_MODELS_OTHERS_KEY = '__analysis_top_models_others__';
-const TOKEN_COLORS = {
-  input: { base: '#2563eb', light: '#93c5fd' },
-  output: { base: '#16a34a', light: '#86efac' },
-  cacheRead: { base: '#d97706', light: '#fde68a' },
-  cacheWrite: { base: '#e11d48', light: '#fda4af' },
-  reasoning: { base: '#8b5cf6', light: '#d8b4fe' },
-  requests: USAGE_CHART_REQUESTS_LINE_COLOR,
-  cost: '#14b8a6',
-};
 const LATENCY_COLORS = {
   light: {
     point: '#14b8a6',
@@ -217,7 +200,7 @@ const MODEL_EFFICIENCY_OUTLIER_RATIO = 8;
 const MODEL_EFFICIENCY_AXIS_PADDING_FACTOR = 2.5;
 const LATENCY_REFERENCE_HIT_RADIUS_PX = 8;
 const EMPTY_COMPOSITION_ITEMS: AnalysisCompositionItem[] = [];
-const modelEfficiencyTooltipPointers = new WeakMap<Chart, ChartTooltipPointer>();
+const modelEfficiencyTooltipPointers = new WeakMap<object, ChartTooltipPointer>();
 const latencyReferenceHoverStates = new WeakMap<Chart<'scatter'>, LatencyReferenceHover>();
 
 const analysisCompositionCursorPositioner: TooltipPositionerFunction<'doughnut'> = function (_items, eventPosition) {
