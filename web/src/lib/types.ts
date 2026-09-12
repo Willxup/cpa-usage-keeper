@@ -228,7 +228,27 @@ export interface OverviewRealtimeBlock {
   cache_level: RealtimeCacheLevelPoint[]
 }
 
+export interface UsageComparisonItem {
+  key: string
+  label: string
+  requests: number
+  failures: number
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  cache_creation_tokens: number
+  reasoning_tokens: number
+  total_tokens: number
+  cost: number | null
+}
+
+export interface UsageOverviewComparisons {
+  models: UsageComparisonItem[]
+  api_keys?: UsageComparisonItem[]
+}
+
 export interface UsageOverviewResponse {
+  comparisons?: UsageOverviewComparisons
   usage: UsageOverviewUsageSnapshot
   summary?: UsageOverviewSummary
   series?: UsageOverviewSeries

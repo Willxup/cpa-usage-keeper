@@ -129,7 +129,29 @@ type RealtimeCacheLevelPointRecord struct {
 
 // UsageOverviewRecord 是仓储层的完整 usage overview 结果。
 type UsageOverviewRecord struct {
-	Usage   *StatisticsSnapshot
-	Summary UsageOverviewSummaryRecord
-	Series  UsageOverviewSeriesRecord
+	Comparisons *UsageOverviewComparisonsRecord
+	Usage       *StatisticsSnapshot
+	Summary     UsageOverviewSummaryRecord
+	Series      UsageOverviewSeriesRecord
+}
+
+// UsageComparisonItemRecord 与顶部 Overview 共用请求、Token 和动态计费口径。
+type UsageComparisonItemRecord struct {
+	Key                 string
+	Requests            int64
+	Failures            int64
+	InputTokens         int64
+	OutputTokens        int64
+	CacheReadTokens     int64
+	CacheCreationTokens int64
+	ReasoningTokens     int64
+	TotalTokens         int64
+	CostUSD             float64
+	CostAvailable       bool
+}
+
+// UsageOverviewComparisonsRecord 在已有 rows / 边界事件遍历中按维度累计。
+type UsageOverviewComparisonsRecord struct {
+	Models  map[string]*UsageComparisonItemRecord
+	APIKeys map[string]*UsageComparisonItemRecord
 }

@@ -10,7 +10,9 @@ const DefaultUsageEventsLimit = 100
 
 // UsageFilter 是服务层的 usage 查询条件。
 type UsageFilter struct {
-	Range string
+	// IncludeComparisons 仅由管理员 Overview 路由启用，Viewer 保持原来的轻量查询。
+	IncludeComparisons bool
+	Range              string
 	// RangeUnit/RangeCount 是统一时间解析器给出的规范化选择跨度，供不读取历史边界的查询复用。
 	RangeUnit    string
 	RangeCount   int
@@ -213,7 +215,8 @@ type UsageOverviewRealtime struct {
 
 // UsageOverviewSnapshot 是 overview 的服务层结果。
 type UsageOverviewSnapshot struct {
-	Usage   *repodto.StatisticsSnapshot
-	Summary UsageOverviewSummary
-	Series  UsageOverviewSeries
+	Comparisons *repodto.UsageOverviewComparisonsRecord
+	Usage       *repodto.StatisticsSnapshot
+	Summary     UsageOverviewSummary
+	Series      UsageOverviewSeries
 }

@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
@@ -28,6 +27,7 @@ type usageOverviewStatProjection struct {
 	SuccessCount            int64
 	FailureCount            int64
 	InputTokens             int64
+	OutputTokens            int64
 	ReasoningTokens         int64
 	CacheReadTokens         int64
 	CacheCreationTokens     int64
@@ -44,6 +44,7 @@ const usageOverviewStatProjectionAggregateColumns = `
 	SUM(success_count) AS success_count,
 	SUM(failure_count) AS failure_count,
 	SUM(input_tokens) AS input_tokens,
+	SUM(output_tokens) AS output_tokens,
 	SUM(reasoning_tokens) AS reasoning_tokens,
 	SUM(cache_read_tokens) AS cache_read_tokens,
 	SUM(cache_creation_tokens) AS cache_creation_tokens,
@@ -61,19 +62,14 @@ const usageOverviewStatProjectionAggregateColumns = `
 	SUM(CASE WHEN cache_read_tokens > 0 THEN cache_read_tokens ELSE 0 END) AS cost_cache_read_tokens,
 	SUM(CASE WHEN cache_creation_tokens > 0 THEN cache_creation_tokens ELSE 0 END) AS cost_cache_creation_tokens`
 
-func loadUsageOverviewHourlyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, activeFields pricing.ActiveFields) ([]usageOverviewStatProjection, error) {
-	query := db.Model(&entities.UsageOverviewHourlyStat{})
-	return loadUsageOverviewStatProjection(query, filter, start, end, "hourly", activeFields)
-}
-
-func loadUsageOverviewDailyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, activeFields pricing.ActiveFields) ([]usageOverviewStatProjection, error) {
-	query := db.Model(&entities.UsageOverviewDailyStat{})
-	return loadUsageOverviewStatProjection(query, filter, start, end, "daily", activeFields)
-}
-
 func loadUsageOverviewStatProjection(query *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, grain string, activeFields pricing.ActiveFields) ([]usageOverviewStatProjection, error) {
 	rows := make([]usageOverviewStatProjection, 0)
-	dimensionColumns := append([]string{"bucket_start"}, UsagePricingDimensionColumns(activeFields)...)
+	dimensionColumns := UsagePricingDimensionColumns(activeFields)
+	if !filter.IncludeComparisons {
+		dimensionColumns = append([]string{"bucket_start"}, dimensionColumns...)
+	} else if !activeFields.Has(pricing.RuleFieldAPIGroupKey) {
+		dimensionColumns = append(dimensionColumns, "api_group_key")
+	}
 	selectColumns := strings.Join(dimensionColumns, ", ") + ", " + usageOverviewStatProjectionAggregateColumns
 	query = query.
 		Select(selectColumns).
@@ -81,7 +77,11 @@ func loadUsageOverviewStatProjection(query *gorm.DB, filter dto.UsageQueryFilter
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
 	}
-	if err := query.Group(strings.Join(dimensionColumns, ", ")).Order("bucket_start asc").Scan(&rows).Error; err != nil {
+	query = query.Group(strings.Join(dimensionColumns, ", "))
+	if !filter.IncludeComparisons {
+		query = query.Order("bucket_start asc")
+	}
+	if err := query.Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load usage overview %s projection: %w", grain, err)
 	}
 	return rows, nil

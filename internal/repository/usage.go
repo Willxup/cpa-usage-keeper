@@ -13,6 +13,7 @@ import (
 	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
+	"gorm.io/plugin/dbresolver"
 )
 
 // usageEventProjectionColumns 限制 usage_events 查询列，避免 Overview 和列表页把 RawJSON 等大字段读入内存。
@@ -827,6 +828,16 @@ func BuildUsageOverviewWithFilterAndRecentCache(db *gorm.DB, filter dto.UsageQue
 		return nil, fmt.Errorf("usage overview requires start_time and end_time")
 	}
 
+	// 比较视图的主序列与维度汇总必须读取同一个数据库快照，避免增量写入夹在两次读取之间。
+	if filter.IncludeComparisons {
+		var overview *dto.UsageOverviewRecord
+		err := db.Clauses(dbresolver.Read).Transaction(func(tx *gorm.DB) error {
+			var err error
+			overview, err = buildUsageOverviewFromStats(tx, filter, costResolver, recentCache)
+			return err
+		})
+		return overview, err
+	}
 	// stats 表不保存价格，所有 cost 都使用调用方固定的请求级 resolver 动态计算。
 	overview, err := buildUsageOverviewFromStats(db, filter, costResolver, recentCache)
 	if err != nil {
@@ -872,27 +883,22 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, costR
 	windowMinutes := computeWindowMinutes(effectiveFilter)
 	bucketByDay := shouldBucketUsageOverviewByDay(effectiveFilter, windowMinutes)
 	overview := newUsageOverviewRecord(windowMinutes)
+	if filter.IncludeComparisons {
+		overview.Comparisons = &dto.UsageOverviewComparisonsRecord{Models: map[string]*dto.UsageComparisonItemRecord{}, APIKeys: map[string]*dto.UsageComparisonItemRecord{}}
+	}
 	if strings.TrimSpace(filter.Range) == "custom" {
 		switch strings.TrimSpace(filter.CustomUnit) {
 		case "hour":
 			// Custom 小时的边界已由 API 对齐，包含当前小时也只读取增量 hourly 桶。
-			hourlyRows, err := loadUsageOverviewHourlyStatsWithFilter(db, filter, *filter.StartTime, *filter.EndTime, costResolver.ActiveFields())
-			if err != nil {
+			if err := loadAndApplyUsageOverviewStats(overview, db, filter, *filter.StartTime, *filter.EndTime, "hourly", false, costResolver); err != nil {
 				return nil, err
-			}
-			for _, row := range hourlyRows {
-				applyUsageOverviewStatToOverview(overview, row, false, costResolver)
 			}
 			finalizeUsageOverview(overview)
 			return overview, nil
 		case "day":
 			// Custom 天始终读取完整 daily 桶，当前日由后台增量汇总持续刷新。
-			dailyRows, err := loadUsageOverviewDailyStatsWithFilter(db, filter, *filter.StartTime, *filter.EndTime, costResolver.ActiveFields())
-			if err != nil {
+			if err := loadAndApplyUsageOverviewStats(overview, db, filter, *filter.StartTime, *filter.EndTime, "daily", true, costResolver); err != nil {
 				return nil, err
-			}
-			for _, row := range dailyRows {
-				applyUsageOverviewStatToOverview(overview, row, true, costResolver)
 			}
 			finalizeUsageOverview(overview)
 			return overview, nil
@@ -921,21 +927,13 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, costR
 		// 短窗口的主序列和 snapshot 小时图必须保持小时粒度，不能因为内部包含完整天就压成 daily bucket。
 		fullDayStart, fullDayEnd := usageOverviewFullDayWindow(fullStart, fullEnd)
 		if !bucketByDay || !fullDayEnd.After(fullDayStart) {
-			hourlyRows, err := loadUsageOverviewHourlyStatsWithFilter(db, effectiveFilter, fullStart, fullEnd, costResolver.ActiveFields())
-			if err != nil {
+			if err := loadAndApplyUsageOverviewStats(overview, db, effectiveFilter, fullStart, fullEnd, "hourly", bucketByDay, costResolver); err != nil {
 				return nil, err
-			}
-			for _, row := range hourlyRows {
-				applyUsageOverviewStatToOverview(overview, row, bucketByDay, costResolver)
 			}
 		} else {
 			// 长窗口中间的完整本地天用 daily stats，减少大量小时 row 累加。
-			dailyRows, err := loadUsageOverviewDailyStatsWithFilter(db, effectiveFilter, fullDayStart, fullDayEnd, costResolver.ActiveFields())
-			if err != nil {
+			if err := loadAndApplyUsageOverviewStats(overview, db, effectiveFilter, fullDayStart, fullDayEnd, "daily", bucketByDay, costResolver); err != nil {
 				return nil, err
-			}
-			for _, row := range dailyRows {
-				applyUsageOverviewStatToOverview(overview, row, bucketByDay, costResolver)
 			}
 
 			// 完整天两侧剩余的完整小时仍走 hourly stats，避免回退到大范围事件扫描。
@@ -943,12 +941,8 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, costR
 				if !window.end.After(window.start) {
 					continue
 				}
-				hourlyRows, err := loadUsageOverviewHourlyStatsWithFilter(db, effectiveFilter, window.start, window.end, costResolver.ActiveFields())
-				if err != nil {
+				if err := loadAndApplyUsageOverviewStats(overview, db, effectiveFilter, window.start, window.end, "hourly", bucketByDay, costResolver); err != nil {
 					return nil, err
-				}
-				for _, row := range hourlyRows {
-					applyUsageOverviewStatToOverview(overview, row, bucketByDay, costResolver)
 				}
 			}
 		}
@@ -2022,6 +2016,18 @@ func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities
 	}
 	cost := result.Cost.TotalCostUSD
 	overview.Summary.TotalCost += cost
+
+	if overview.Comparisons != nil {
+		failures := int64(0)
+		if event.Failed {
+			failures = 1
+		}
+		applyUsageOverviewComparison(overview.Comparisons, event.Model, event.APIGroupKey, dto.UsageComparisonItemRecord{
+			Requests: 1, Failures: failures, InputTokens: event.InputTokens, OutputTokens: event.OutputTokens,
+			CacheReadTokens: event.CacheReadTokens, CacheCreationTokens: event.CacheCreationTokens, ReasoningTokens: event.ReasoningTokens,
+			TotalTokens: event.TotalTokens, CostUSD: cost, CostAvailable: result.Available,
+		})
+	}
 
 	// 主序列使用页面当前粒度，缓存率同桶累计后即时刷新。
 	bucketKey, bucketMinutes := usageOverviewBucket(timeutil.NormalizeStorageTime(event.Timestamp), bucketByDay)

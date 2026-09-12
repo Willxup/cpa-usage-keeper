@@ -75,19 +75,21 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 		return nil, err
 	}
 	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		Range:        filter.Range,
-		CustomUnit:   filter.CustomUnit,
-		StartTime:    filter.StartTime,
-		EndTime:      filter.EndTime,
-		EndExclusive: filter.EndExclusive,
-		QueryNow:     filter.QueryNow,
-		APIGroupKey:  apiGroupKey,
+		Range:              filter.Range,
+		IncludeComparisons: filter.IncludeComparisons,
+		CustomUnit:         filter.CustomUnit,
+		StartTime:          filter.StartTime,
+		EndTime:            filter.EndTime,
+		EndExclusive:       filter.EndExclusive,
+		QueryNow:           filter.QueryNow,
+		APIGroupKey:        apiGroupKey,
 	}, s.recentUsage, s.pricing.NewResolver())
 	if err != nil {
 		return nil, err
 	}
 	return &servicedto.UsageOverviewSnapshot{
-		Usage: overview.Usage,
+		Usage:       overview.Usage,
+		Comparisons: overview.Comparisons,
 		Summary: servicedto.UsageOverviewSummary{
 			RPM:                   overview.Summary.RPM,
 			TPM:                   overview.Summary.TPM,

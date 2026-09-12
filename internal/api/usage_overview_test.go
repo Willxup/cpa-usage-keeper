@@ -662,7 +662,7 @@ func assertUsageOverviewResponseShape(t *testing.T, body string) {
 	if err := json.Unmarshal([]byte(body), &decoded); err != nil {
 		t.Fatalf("failed to decode overview response: %v\n%s", err, body)
 	}
-	assertAllowedJSONKeys(t, decoded, "overview response", body, "usage", "summary", "series", "timezone")
+	assertAllowedJSONKeys(t, decoded, "overview response", body, "usage", "summary", "series", "timezone", "comparisons")
 
 	usage, ok := decoded["usage"].(map[string]any)
 	if !ok {

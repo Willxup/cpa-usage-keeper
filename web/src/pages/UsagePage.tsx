@@ -1,3 +1,4 @@
+import { UsageComparisonCharts } from '@/components/usage/UsageComparisonCharts';
 import { useState, useMemo, useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, appPath, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentity, fetchVersion, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateAuthSessionAlias, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
@@ -2225,6 +2226,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   requestIdentity={activityRequestIdentity}
                   onWindowChange={setActivityWindow}
                 />
+                <UsageComparisonCharts comparisons={currentOverviewUsage?.comparisons} loading={loading} />
               </>
             )}
 

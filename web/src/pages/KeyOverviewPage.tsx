@@ -1,3 +1,4 @@
+import { UsageComparisonCharts } from '@/components/usage/UsageComparisonCharts';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, fetchKeyOverview, fetchKeyOverviewRealtime, isUsageRangeBoundsConflict } from '@/lib/api';
@@ -397,6 +398,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
         onWindowChange={setActivityWindow}
       />
 
+      <UsageComparisonCharts comparisons={currentOverviewUsage?.comparisons} loading={loading} keyViewer />
       </>}
 
       {page === 'realtime' && <OverviewRealtimePanel
