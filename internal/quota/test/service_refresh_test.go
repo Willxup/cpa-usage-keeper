@@ -552,6 +552,14 @@ func TestManualRefreshSkipsUnsupportedAuthFileWithoutCaching(t *testing.T) {
 	if len(cache.Items) != 0 {
 		t.Fatalf("expected unsupported auth file to stay out of page cache, got %+v", cache.Items)
 	}
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		t.Fatalf("marshal refresh response: %v", err)
+	}
+	body := string(encoded)
+	if !contains(body, `"tasks":[]`) || !contains(body, `"rejected":[]`) {
+		t.Fatalf("expected empty refresh lists to encode as arrays, got %s", body)
+	}
 }
 
 func TestRefreshRejectsInvalidEntriesAndIgnoresRunningTask(t *testing.T) {

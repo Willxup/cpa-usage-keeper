@@ -14,6 +14,7 @@ func NewDefaultProviderRegistry(caller ManagementClient, configs ProviderConfigs
 		"claude":      NewClaudeProvider(caller, configs.ClaudeUsage, configs.ClaudeProfile),
 		"kimi":        NewKimiProvider(caller, configs.Kimi),
 		"xai":         NewXAIProvider(caller, configs.XAIWeekly, configs.XAIMonthly),
+		"cursor":      NewCursorProvider(caller, configs.CursorPlan, configs.CursorPeriod, configs.CursorAgent),
 	})
 }
 
