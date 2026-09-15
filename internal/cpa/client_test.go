@@ -57,6 +57,76 @@ func TestFetchManagementAPIKeysSendsBearerTokenAndParsesKeys(t *testing.T) {
 	}
 }
 
+func TestFetchCPAKeyPolicyKeysMapsPublicMetadataOnly(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != cpaManagementCPAKeyPolicyKeysEndpoint {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
+			t.Fatalf("expected management Authorization header, got %q", got)
+		}
+		_, _ = w.Write([]byte(`{"keys":[{"id":"marketplace1","name":"белослудцев","key_preview":"cpa_mar...ce1","enabled":true},{"id":"task-dispatcher","name":"dispatcher","key_preview":"cpa_tas...her","enabled":false}]}`))
+	}))
+	defer server.Close()
+
+	result, err := NewClient(server.URL, "management-secret", 2*time.Second, false).FetchCPAKeyPolicyKeys(context.Background())
+	if err != nil {
+		t.Fatalf("FetchCPAKeyPolicyKeys returned error: %v", err)
+	}
+	if len(result.Payload.Keys) != 2 || result.Payload.Keys[0].ID != "marketplace1" || result.Payload.Keys[0].Name != "белослудцев" || result.Payload.Keys[1].Enabled {
+		t.Fatalf("unexpected cpa-key-policy payload: %#v", result.Payload)
+	}
+}
+
+func TestFetchCPAKeyPolicyKeysRejectsUnavailableAndMalformedResponses(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  int
+		body    string
+		timeout bool
+	}{
+		{name: "unauthorized", status: http.StatusUnauthorized, body: `{}`},
+		{name: "not found", status: http.StatusNotFound, body: `{}`},
+		{name: "server error", status: http.StatusInternalServerError, body: `{}`},
+		{name: "invalid json", status: http.StatusOK, body: `{`},
+		{name: "blank body", status: http.StatusOK, body: ` `},
+		{name: "missing keys", status: http.StatusOK, body: `{}`},
+		{name: "null keys", status: http.StatusOK, body: `{"keys":null}`},
+		{name: "empty id", status: http.StatusOK, body: `{"keys":[{"id":""}]}`},
+		{name: "timeout", status: http.StatusOK, body: `{"keys":[]}`, timeout: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if tc.timeout {
+					time.Sleep(50 * time.Millisecond)
+				}
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+			timeout := 2 * time.Second
+			if tc.timeout {
+				timeout = 5 * time.Millisecond
+			}
+			if _, err := NewClient(server.URL, "management-secret", timeout, false).FetchCPAKeyPolicyKeys(context.Background()); err == nil {
+				t.Fatal("expected cpa-key-policy response error")
+			}
+		})
+	}
+}
+
+func TestFetchCPAKeyPolicyKeysAcceptsExplicitEmptyArray(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"keys":[]}`))
+	}))
+	defer server.Close()
+	result, err := NewClient(server.URL, "management-secret", time.Second, false).FetchCPAKeyPolicyKeys(context.Background())
+	if err != nil || result.Payload.Keys == nil || len(result.Payload.Keys) != 0 {
+		t.Fatalf("expected explicit empty plugin snapshot, result=%#v err=%v", result, err)
+	}
+}
+
 func TestFetchRequestLogByIDDownloadsFileWithBearerToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != cpaManagementRequestLogByIDEndpoint+"/req-log-42" {

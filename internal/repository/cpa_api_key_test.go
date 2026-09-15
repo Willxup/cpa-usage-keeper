@@ -149,6 +149,66 @@ func TestSyncCPAAPIKeysDoesNotConsumeIDsForExistingKeys(t *testing.T) {
 	}
 }
 
+func TestSyncCPAAPIKeySnapshotsReconcilesOnlyIncludedSources(t *testing.T) {
+	db := openCPAAPIKeyTestDatabase(t)
+	firstSync := time.Date(2026, 8, 7, 10, 0, 0, 0, time.UTC)
+	if err := SyncCPAAPIKeySnapshots(db, []CPAAPIKeySourceSnapshot{
+		{Source: entities.CPAAPIKeySourceNative, Keys: []CPAAPIKeyMetadata{{APIKey: "sk-native-a"}, {APIKey: "sk-native-b"}}},
+		{Source: entities.CPAAPIKeySourceCPAKeyPolicy, Keys: []CPAAPIKeyMetadata{{APIKey: "marketplace1", DisplayKey: "cpa_mar...ce1", KeyAlias: "белослудцев"}, {APIKey: "task-dispatcher", DisplayKey: "cpa_tas...her", KeyAlias: "dispatcher"}}},
+	}, firstSync); err != nil {
+		t.Fatalf("initial source sync returned error: %v", err)
+	}
+
+	if err := SyncCPAAPIKeySnapshots(db, []CPAAPIKeySourceSnapshot{{Source: entities.CPAAPIKeySourceNative, Keys: []CPAAPIKeyMetadata{{APIKey: "sk-native-a"}}}}, firstSync.Add(time.Hour)); err != nil {
+		t.Fatalf("native-only sync returned error: %v", err)
+	}
+	rows, err := ListActiveCPAAPIKeys(db)
+	if err != nil {
+		t.Fatalf("list active keys: %v", err)
+	}
+	active := make(map[string]entities.CPAAPIKey, len(rows))
+	for _, row := range rows {
+		active[row.APIKey] = row
+	}
+	if len(active) != 3 || active["sk-native-a"].Source != entities.CPAAPIKeySourceNative || active["marketplace1"].KeyAlias != "белослудцев" || active["task-dispatcher"].Source != entities.CPAAPIKeySourceCPAKeyPolicy {
+		t.Fatalf("unexpected rows after native-only reconcile: %+v", active)
+	}
+	if _, ok := active["sk-native-b"]; ok {
+		t.Fatalf("missing native key was not deleted: %+v", active)
+	}
+
+	if err := SyncCPAAPIKeySnapshots(db, []CPAAPIKeySourceSnapshot{{Source: entities.CPAAPIKeySourceCPAKeyPolicy, Keys: []CPAAPIKeyMetadata{}}}, firstSync.Add(2*time.Hour)); err != nil {
+		t.Fatalf("explicit empty plugin sync returned error: %v", err)
+	}
+	rows, err = ListActiveCPAAPIKeys(db)
+	if err != nil {
+		t.Fatalf("list active keys after plugin empty: %v", err)
+	}
+	if len(rows) != 1 || rows[0].APIKey != "sk-native-a" || rows[0].Source != entities.CPAAPIKeySourceNative {
+		t.Fatalf("explicit empty plugin snapshot changed native rows: %+v", rows)
+	}
+}
+
+func TestSyncCPAAPIKeySnapshotsUpdatesPluginMetadataAndBlocksNativeLogin(t *testing.T) {
+	db := openCPAAPIKeyTestDatabase(t)
+	if err := SyncCPAAPIKeySnapshots(db, []CPAAPIKeySourceSnapshot{{
+		Source: entities.CPAAPIKeySourceCPAKeyPolicy,
+		Keys:   []CPAAPIKeyMetadata{{APIKey: "marketplace1", DisplayKey: "cpa_mar...ce1", KeyAlias: "белослудцев"}},
+	}}, time.Date(2026, 8, 7, 10, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("plugin sync returned error: %v", err)
+	}
+	rows, err := ListActiveCPAAPIKeys(db)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("list plugin metadata rows=%+v err=%v", rows, err)
+	}
+	if rows[0].APIKey != "marketplace1" || rows[0].DisplayKey != "cpa_mar...ce1" || rows[0].KeyAlias != "белослудцев" || rows[0].Source != entities.CPAAPIKeySourceCPAKeyPolicy {
+		t.Fatalf("unexpected plugin metadata row: %+v", rows[0])
+	}
+	if _, err := FindActiveCPAAPIKeyByValue(db, "marketplace1"); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("plugin id must not authenticate as native key: %v", err)
+	}
+}
+
 func openCPAAPIKeyTestDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "cpa-api-key.db")})

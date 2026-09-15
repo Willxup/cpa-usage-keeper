@@ -9,6 +9,7 @@ import (
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/cpa/dto/authfiles"
 	"cpa-usage-keeper/internal/cpa/dto/cpaapikeys"
+	"cpa-usage-keeper/internal/cpa/dto/keypolicy"
 	"cpa-usage-keeper/internal/cpa/dto/providerconfig"
 	"cpa-usage-keeper/internal/cpa/dto/response"
 	"cpa-usage-keeper/internal/entities"
@@ -36,6 +37,10 @@ type metadataTestFetcher struct {
 	managementAPIKeysResult *response.ManagementAPIKeysResult
 	// managementAPIKeysErr 注入管理 API Keys fetch failure。
 	managementAPIKeysErr error
+	// cpaKeyPolicyResult 保存 plugin-owned key metadata 响应。
+	cpaKeyPolicyResult *response.CPAKeyPolicyKeysResult
+	// cpaKeyPolicyErr 注入 plugin endpoint failure。
+	cpaKeyPolicyErr error
 	// standardResults 按 source 保存六类标准 API Key endpoint 响应。
 	standardResults map[string]*response.ProviderKeyConfigResult
 	// standardErrors 按 source 注入独立 fetch error。
@@ -60,6 +65,7 @@ func newMetadataTestFetcher() *metadataTestFetcher {
 		authFilesResult: &response.AuthFilesResult{StatusCode: 200, Payload: authfiles.AuthFilesResponse{Files: []authfiles.AuthFile{}}},
 		// 管理 API Keys 的 200 空列表会正常替换本地 key 状态。
 		managementAPIKeysResult: &response.ManagementAPIKeysResult{StatusCode: 200, Payload: cpaapikeys.ManagementAPIKeysResponse{APIKeys: []string{}}},
+		cpaKeyPolicyResult:      &response.CPAKeyPolicyKeysResult{StatusCode: 200, Payload: keypolicy.KeysResponse{Keys: []keypolicy.Key{}}},
 		// standardResults 为六个标准 provider source 预留独立结果。
 		standardResults: make(map[string]*response.ProviderKeyConfigResult),
 		// standardErrors 默认没有来源失败。
@@ -122,6 +128,11 @@ func (f *metadataTestFetcher) FetchManagementAPIKeys(context.Context) (*response
 	f.recordCall("management-api-keys")
 	// 返回预设结果与错误。
 	return f.managementAPIKeysResult, f.managementAPIKeysErr
+}
+
+func (f *metadataTestFetcher) FetchCPAKeyPolicyKeys(context.Context) (*response.CPAKeyPolicyKeysResult, error) {
+	f.recordCall("cpa-key-policy")
+	return f.cpaKeyPolicyResult, f.cpaKeyPolicyErr
 }
 
 // fetchStandardProvider 复用六类标准 API Key endpoint 的测试分派逻辑。
