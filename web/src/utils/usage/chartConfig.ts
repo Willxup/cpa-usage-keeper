@@ -21,11 +21,11 @@ export const USAGE_CHART_COMPOSITION_COLORS: UsageChartGradientColor[] = [
   { base: '#0891b2', light: '#67e8f9' },
 ];
 export const USAGE_CHART_TOKEN_COLORS = {
-  input: { base: '#2563eb', light: '#93c5fd' },
-  output: { base: '#16a34a', light: '#86efac' },
-  cacheRead: { base: '#d97706', light: '#fde68a' },
-  cacheWrite: { base: '#e11d48', light: '#fda4af' },
-  reasoning: { base: '#8b5cf6', light: '#d8b4fe' },
+  input: { base: '#2563eb', light: '#60a5fa' },
+  output: { base: '#16a34a', light: '#22c55e' },
+  cacheRead: { base: '#d97706', light: '#f59e0b' },
+  cacheWrite: { base: '#e11d48', light: '#fb7185' },
+  reasoning: { base: '#8b5cf6', light: '#a78bfa' },
   requests: USAGE_CHART_REQUESTS_LINE_COLOR,
   cost: '#14b8a6',
 };

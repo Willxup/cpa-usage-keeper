@@ -10,7 +10,7 @@ import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFi
 import usageStyles from '@/pages/UsagePage.module.scss';
 import styles from './RealtimeInsights.module.scss';
 
-const FAILURE_COLOR = { base: '#b91c1c', light: '#fca5a5' };
+const FAILURE_COLOR = { base: '#b91c1c', light: '#ef4444' };
 const CACHE_RATE_COLOR = '#14b8a6';
 const FAILURE_RATE_COLOR = '#f97316';
 const ratio = (value: number, denominator: number) => denominator > 0 ? value / denominator * 100 : null;
