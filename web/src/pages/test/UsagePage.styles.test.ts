@@ -1349,12 +1349,23 @@ describe('UsagePage toolbar styles', () => {
   })
 
   it('keeps Request Event Log headers visible while the table scrolls', () => {
+    const tableBlock = styleRuleBlock(usagePageStyles, '.table {')
+
     expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\s*\{[\s\S]*?height:\s*clamp\(520px,\s*68vh,\s*760px\);/)
     expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\s*\{[\s\S]*?overflow:\s*auto;/)
     expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\s*\{[\s\S]*?thead\s+th\s*\{[\s\S]*?position:\s*sticky;/)
     expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\s*\{[\s\S]*?thead\s+th\s*\{[\s\S]*?top:\s*0;/)
     expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\s*\{[\s\S]*?thead\s+th\s*\{[\s\S]*?z-index:\s*2;/)
     expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\s*\{[\s\S]*?\.table\s*\{[\s\S]*?border-collapse:\s*separate;/)
+    expect(tableBlock).toMatch(/th\s*\{[\s\S]*?font-size:\s*10px;/)
+  })
+
+  it('uses compact Request Event Log filter typography', () => {
+    const filterLabelBlock = styleRuleBlock(usagePageStyles, '.requestEventsFilterLabel')
+    const filterControlBlock = styleRuleBlock(usagePageStyles, '.requestEventsSelect input,')
+
+    expect(filterLabelBlock).toContain('font-size: 10px;')
+    expect(filterControlBlock).toContain('font-size: 12px;')
   })
 
   it('themes the WebKit scrollbar corner so intersecting scrollbars do not show a white square', () => {
@@ -1396,7 +1407,7 @@ describe('UsagePage toolbar styles', () => {
     expect(requestEventColumnDefinitionBlock('total_tokens')).toContain('styles.requestEventsNoWrapCell')
   })
 
-  it('caps Request Event Log long text columns without forcing short aliases wide', () => {
+  it('keeps the canonical masked API Key on one line while capping long text columns', () => {
     const apiKeyCellBlock = Array.from(
       usagePageStyles.matchAll(/\.requestEventsAPIKeyCell\s*\{([^}]*)\}/g),
       (match) => match[1],
@@ -1405,7 +1416,7 @@ describe('UsagePage toolbar styles', () => {
     const deletedTagBlock = styleRuleBlock(usagePageStyles, '.requestEventsDeletedTag')
 
     expect(apiKeyCellBlock).toMatch(/max-width:\s*240px;/)
-    expect(apiKeyCellBlock).not.toContain('min-width:')
+    expect(apiKeyCellBlock).toMatch(/min-width:\s*18ch;/)
     expect(sourceCellBlock).toMatch(/max-width:\s*280px;/)
     expect(sourceCellBlock).not.toContain('min-width:')
     expect(deletedTagBlock).toContain('white-space: nowrap;')

@@ -1637,6 +1637,7 @@
   }
 
   th {
+    font-size: 10px;
     font-weight: 600;
     color: var(--text-tertiary);
     background-color: var(--bg-secondary);
@@ -3092,7 +3093,7 @@
 }
 
 .requestEventsFilterLabel {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-tertiary);
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -3102,9 +3103,11 @@
   min-width: 170px;
 }
 
+.requestEventsSelect input,
 .requestEventsSelect button,
 .requestEventsResultSelect button {
   height: 40px;
+  font-size: 12px;
 }
 
 .requestEventsResultSelect {
@@ -3387,6 +3390,7 @@
 }
 
 .requestEventsAPIKeyCell {
+  min-width: 18ch;
   max-width: 240px;
 }
 
