@@ -305,35 +305,36 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	time.Local = location
 
 	provider := &usageEventsStub{events: []servicedto.UsageEventRecord{{
-		ID:                  42,
-		Timestamp:           time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
-		Model:               "claude-sonnet",
-		ModelAlias:          "sonnet-business",
-		ReasoningEffort:     "medium",
-		ServiceTier:         "auto",
-		ResponseServiceTier: "default",
-		ClientIP:            usageEventStringPtr("192.0.2.10"),
-		XForwardedFor:       usageEventStringPtr("203.0.113.5, 198.51.100.8"),
-		UserAgent:           usageEventStringPtr("test-client/1.0"),
-		ExecutorType:        "responses",
-		Endpoint:            "POST /v1/responses",
-		AuthType:            "apikey",
-		RequestID:           "req-log-42",
-		Provider:            "OpenAI Mirror",
-		Source:              "sk-provider-key",
-		AuthIndex:           "2",
-		Failed:              false,
-		LatencyMS:           2000,
-		TTFTMS:              usageEventInt64Ptr(45),
-		InputTokens:         10,
-		OutputTokens:        61,
-		ReasoningTokens:     2,
-		CacheReadTokens:     3,
-		CacheCreationTokens: 4,
-		TotalTokens:         18,
-		CostUSD:             0.1234,
-		CostAvailable:       true,
-		PricingStyle:        "claude",
+		ID:                    42,
+		Timestamp:             time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
+		Model:                 "claude-sonnet",
+		ModelAlias:            "sonnet-business",
+		UpstreamResponseModel: "actual-model",
+		ReasoningEffort:       "medium",
+		ServiceTier:           "auto",
+		ResponseServiceTier:   "default",
+		ClientIP:              usageEventStringPtr("192.0.2.10"),
+		XForwardedFor:         usageEventStringPtr("203.0.113.5, 198.51.100.8"),
+		UserAgent:             usageEventStringPtr("test-client/1.0"),
+		ExecutorType:          "responses",
+		Endpoint:              "POST /v1/responses",
+		AuthType:              "apikey",
+		RequestID:             "req-log-42",
+		Provider:              "OpenAI Mirror",
+		Source:                "sk-provider-key",
+		AuthIndex:             "2",
+		Failed:                false,
+		LatencyMS:             2000,
+		TTFTMS:                usageEventInt64Ptr(45),
+		InputTokens:           10,
+		OutputTokens:          61,
+		ReasoningTokens:       2,
+		CacheReadTokens:       3,
+		CacheCreationTokens:   4,
+		TotalTokens:           18,
+		CostUSD:               0.1234,
+		CostAvailable:         true,
+		PricingStyle:          "claude",
 	}}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h", nil)
@@ -350,6 +351,9 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	}
 	if !contains(body, `"model_alias":"sonnet-business"`) {
 		t.Fatalf("expected model alias in response body: %s", body)
+	}
+	if !contains(body, `"upstream_response_model":"actual-model"`) {
+		t.Fatalf("expected upstream response model in response body: %s", body)
 	}
 	if !contains(body, `"id":"42"`) || !contains(body, `"total_count":1`) || !contains(body, `"page":1`) || !contains(body, `"page_size":100`) || !contains(body, `"total_pages":1`) {
 		t.Fatalf("expected pagination metadata and event id in response body: %s", body)
@@ -791,34 +795,35 @@ func TestUsageEventRequestLogDownloadSanitizesAttachmentFilename(t *testing.T) {
 
 func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) {
 	provider := &usageEventsStub{exportEvents: []servicedto.UsageEventRecord{{
-		ID:                  52,
-		Timestamp:           time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
-		APIGroupKey:         "sk-export123456",
-		Model:               "claude-sonnet",
-		ModelAlias:          "sonnet-export",
-		ReasoningEffort:     "medium",
-		ServiceTier:         "auto",
-		ResponseServiceTier: "default",
-		ClientIP:            usageEventStringPtr("192.0.2.10"),
-		XForwardedFor:       usageEventStringPtr("203.0.113.5, 198.51.100.8"),
-		UserAgent:           usageEventStringPtr("test-client/1.0"),
-		ExecutorType:        "responses",
-		Endpoint:            "POST /v1/responses",
-		AuthType:            "apikey",
-		Provider:            "Provider Fallback",
-		AuthIndex:           "authidx-export-main",
-		Failed:              true,
-		LatencyMS:           2000,
-		TTFTMS:              usageEventInt64Ptr(45),
-		InputTokens:         10,
-		OutputTokens:        61,
-		ReasoningTokens:     2,
-		CacheReadTokens:     3,
-		CacheCreationTokens: 4,
-		TotalTokens:         18,
-		CostUSD:             0.1234,
-		CostAvailable:       true,
-		PricingStyle:        "claude",
+		ID:                    52,
+		Timestamp:             time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
+		APIGroupKey:           "sk-export123456",
+		Model:                 "claude-sonnet",
+		ModelAlias:            "sonnet-export",
+		UpstreamResponseModel: "actual-export-model",
+		ReasoningEffort:       "medium",
+		ServiceTier:           "auto",
+		ResponseServiceTier:   "default",
+		ClientIP:              usageEventStringPtr("192.0.2.10"),
+		XForwardedFor:         usageEventStringPtr("203.0.113.5, 198.51.100.8"),
+		UserAgent:             usageEventStringPtr("test-client/1.0"),
+		ExecutorType:          "responses",
+		Endpoint:              "POST /v1/responses",
+		AuthType:              "apikey",
+		Provider:              "Provider Fallback",
+		AuthIndex:             "authidx-export-main",
+		Failed:                true,
+		LatencyMS:             2000,
+		TTFTMS:                usageEventInt64Ptr(45),
+		InputTokens:           10,
+		OutputTokens:          61,
+		ReasoningTokens:       2,
+		CacheReadTokens:       3,
+		CacheCreationTokens:   4,
+		TotalTokens:           18,
+		CostUSD:               0.1234,
+		CostAvailable:         true,
+		PricingStyle:          "claude",
 	}}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{
 		CPAAPIKeys: &authCPAAPIKeyStub{row: entities.CPAAPIKey{
@@ -861,14 +866,14 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 	if !regexp.MustCompile(`filename="usage-events-\d{8}-\d{6}\.csv"`).MatchString(resp.Header().Get("Content-Disposition")) {
 		t.Fatalf("expected timestamped csv filename, got %q", resp.Header().Get("Content-Disposition"))
 	}
-	if !contains(body, "cpa_api_key_id") || !contains(body, "auth_index") || !contains(body, "model_alias") || !contains(body, "response_service_tier") || !contains(body, "executor_type") || !contains(body, "is_identity_deleted") {
-		t.Fatalf("expected cpa_api_key_id, auth_index, model_alias, response_service_tier, executor_type, and is_identity_deleted columns, got %s", body)
+	if !contains(body, "cpa_api_key_id") || !contains(body, "auth_index") || !contains(body, "model_alias") || !contains(body, "upstream_response_model") || !contains(body, "response_service_tier") || !contains(body, "executor_type") || !contains(body, "is_identity_deleted") {
+		t.Fatalf("expected cpa_api_key_id, auth_index, model_alias, upstream_response_model, response_service_tier, executor_type, and is_identity_deleted columns, got %s", body)
 	}
 	if !contains(body, "cache_read_tokens,cache_creation_tokens,cache_read_rate") || !contains(body, ",3,4,30,") || contains(body, "cached_tokens") {
 		t.Fatalf("expected canonical cache token fields in csv export, got %s", body)
 	}
-	if !regexp.MustCompile(`(?m)^id,timestamp,api_key,cpa_api_key_id,source,source_type,auth_index,is_identity_deleted,model,model_alias,reasoning_effort,`).MatchString(body) {
-		t.Fatalf("expected model_alias to follow model in csv header, got %s", body)
+	if !regexp.MustCompile(`(?m)^id,timestamp,api_key,cpa_api_key_id,source,source_type,auth_index,is_identity_deleted,model,model_alias,upstream_response_model,reasoning_effort,`).MatchString(body) {
+		t.Fatalf("expected upstream_response_model to follow model_alias in csv header, got %s", body)
 	}
 	if !contains(body, "speed_tps,client_ip,x_forwarded_for,user_agent,input_tokens") || !contains(body, ",30.5,192.0.2.10,\"203.0.113.5, 198.51.100.8\",test-client/1.0,10,") {
 		t.Fatalf("expected client metadata after speed in csv export, got %s", body)
@@ -882,7 +887,7 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 	if contains(body, "cost_available") || contains(body, "pricing_style") {
 		t.Fatalf("expected csv export to omit cost availability metadata, got %s", body)
 	}
-	if !contains(body, "Export Key") || !contains(body, ",7,") || !contains(body, "authidx-export-main") || !contains(body, "sonnet-export") || !contains(body, "responses") || !contains(body, "failed") {
+	if !contains(body, "Export Key") || !contains(body, ",7,") || !contains(body, "authidx-export-main") || !contains(body, "sonnet-export") || !contains(body, "actual-export-model") || !contains(body, "responses") || !contains(body, "failed") {
 		t.Fatalf("expected exported row values, got %s", body)
 	}
 }
@@ -1003,30 +1008,31 @@ func TestUsageEventsExportAllowsTwoConcurrentStreamsAndRejectsThird(t *testing.T
 
 func TestUsageEventsExportJSONIncludesAllExportFields(t *testing.T) {
 	provider := &usageEventsStub{events: []servicedto.UsageEventRecord{{
-		ID:                  53,
-		Timestamp:           time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
-		APIGroupKey:         "sk-json-export",
-		Model:               "gpt-5",
-		ModelAlias:          "gpt-json-alias",
-		ServiceTier:         "auto",
-		ResponseServiceTier: "default",
-		ClientIP:            usageEventStringPtr("192.0.2.11"),
-		XForwardedFor:       usageEventStringPtr("203.0.113.6"),
-		UserAgent:           usageEventStringPtr("json-client/1.0"),
-		ExecutorType:        "chat_completions",
-		Endpoint:            "GET /v1/responses",
-		AuthType:            "oauth",
-		Source:              "claude-code",
-		AuthIndex:           "auth-file-export",
-		Failed:              false,
-		LatencyMS:           500,
-		InputTokens:         9,
-		OutputTokens:        5,
-		CacheReadTokens:     3,
-		CacheCreationTokens: 4,
-		TotalTokens:         14,
-		CostAvailable:       true,
-		PricingStyle:        "openai",
+		ID:                    53,
+		Timestamp:             time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
+		APIGroupKey:           "sk-json-export",
+		Model:                 "gpt-5",
+		ModelAlias:            "gpt-json-alias",
+		UpstreamResponseModel: "actual-json-model",
+		ServiceTier:           "auto",
+		ResponseServiceTier:   "default",
+		ClientIP:              usageEventStringPtr("192.0.2.11"),
+		XForwardedFor:         usageEventStringPtr("203.0.113.6"),
+		UserAgent:             usageEventStringPtr("json-client/1.0"),
+		ExecutorType:          "chat_completions",
+		Endpoint:              "GET /v1/responses",
+		AuthType:              "oauth",
+		Source:                "claude-code",
+		AuthIndex:             "auth-file-export",
+		Failed:                false,
+		LatencyMS:             500,
+		InputTokens:           9,
+		OutputTokens:          5,
+		CacheReadTokens:       3,
+		CacheCreationTokens:   4,
+		TotalTokens:           14,
+		CostAvailable:         true,
+		PricingStyle:          "openai",
 	}}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{
 		CPAAPIKeys: &authCPAAPIKeyStub{row: entities.CPAAPIKey{
@@ -1053,7 +1059,7 @@ func TestUsageEventsExportJSONIncludesAllExportFields(t *testing.T) {
 	if !contains(body, `"total_count":1`) || contains(body, `"page"`) || contains(body, `"page_size"`) {
 		t.Fatalf("expected export metadata without pagination, got %s", body)
 	}
-	if !contains(body, `"auth_index":"auth-file-export"`) || !contains(body, `"model_alias":"gpt-json-alias"`) || !contains(body, `"executor_type":"chat_completions"`) || !contains(body, `"endpoint":"GET /v1/responses"`) || !contains(body, `"is_identity_deleted":true`) {
+	if !contains(body, `"auth_index":"auth-file-export"`) || !contains(body, `"model_alias":"gpt-json-alias"`) || !contains(body, `"upstream_response_model":"actual-json-model"`) || !contains(body, `"executor_type":"chat_completions"`) || !contains(body, `"endpoint":"GET /v1/responses"`) || !contains(body, `"is_identity_deleted":true`) {
 		t.Fatalf("expected raw export fields in json body, got %s", body)
 	}
 	if !contains(body, `"api_key":"Team <Ops> & Co"`) || contains(body, `\u003c`) || contains(body, `\u0026`) || contains(body, `\u003e`) {

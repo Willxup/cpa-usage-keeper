@@ -17,7 +17,7 @@ import (
 )
 
 // usageEventProjectionColumns 限制 usage_events 查询列，避免 Overview 和列表页把 RawJSON 等大字段读入内存。
-const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, request_id, client_ip, x_forwarded_for, user_agent, model, model_alias, reasoning_effort, service_tier, response_service_tier, executor_type, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, request_id, client_ip, x_forwarded_for, user_agent, model, model_alias, upstream_response_model, reasoning_effort, service_tier, response_service_tier, executor_type, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
 
 // usageOverviewBoundaryEventProjectionColumns 只包含非 Custom Overview 边界卡片计算需要的字段。
 const usageOverviewBoundaryEventProjectionColumns = "api_group_key, model, model_alias, timestamp, failed, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, auth_index"
@@ -27,34 +27,35 @@ const usageOverviewRealtimeEventProjectionColumns = "api_group_key, provider, au
 
 // usageEventProjection 是 usage_events 轻量投影，专门承接 select columns 的查询结果。
 type usageEventProjection struct {
-	ID                  int64
-	APIGroupKey         string
-	Provider            string
-	AuthType            string
-	RequestID           string
-	ClientIP            *string
-	XForwardedFor       *string
-	UserAgent           *string
-	Model               string
-	ModelAlias          *string `gorm:"column:model_alias"`
-	ReasoningEffort     string
-	ServiceTier         string
-	ResponseServiceTier string
-	ExecutorType        string
-	Endpoint            string
-	Timestamp           time.Time
-	Source              string
-	AuthIndex           string
-	Failed              bool
-	Generate            *bool
-	LatencyMS           int64
-	TTFTMS              *int64 `gorm:"column:ttft_ms"`
-	InputTokens         int64
-	OutputTokens        int64
-	ReasoningTokens     int64
-	CacheReadTokens     int64
-	CacheCreationTokens int64
-	TotalTokens         int64
+	ID                    int64
+	APIGroupKey           string
+	Provider              string
+	AuthType              string
+	RequestID             string
+	ClientIP              *string
+	XForwardedFor         *string
+	UserAgent             *string
+	Model                 string
+	ModelAlias            *string `gorm:"column:model_alias"`
+	UpstreamResponseModel string  `gorm:"column:upstream_response_model"`
+	ReasoningEffort       string
+	ServiceTier           string
+	ResponseServiceTier   string
+	ExecutorType          string
+	Endpoint              string
+	Timestamp             time.Time
+	Source                string
+	AuthIndex             string
+	Failed                bool
+	Generate              *bool
+	LatencyMS             int64
+	TTFTMS                *int64 `gorm:"column:ttft_ms"`
+	InputTokens           int64
+	OutputTokens          int64
+	ReasoningTokens       int64
+	CacheReadTokens       int64
+	CacheCreationTokens   int64
+	TotalTokens           int64
 }
 
 // Request Event Log Tab：先按列表条件统计总数，再加载当前页。
@@ -254,28 +255,29 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 			}
 			return strings.TrimSpace(*event.ModelAlias)
 		}(),
-		ReasoningEffort:     strings.TrimSpace(event.ReasoningEffort),
-		ServiceTier:         strings.TrimSpace(event.ServiceTier),
-		ResponseServiceTier: strings.TrimSpace(event.ResponseServiceTier),
-		ClientIP:            event.ClientIP,
-		XForwardedFor:       event.XForwardedFor,
-		UserAgent:           event.UserAgent,
-		ExecutorType:        strings.TrimSpace(event.ExecutorType),
-		Endpoint:            strings.TrimSpace(event.Endpoint),
-		AuthType:            strings.TrimSpace(event.AuthType),
-		RequestID:           strings.TrimSpace(event.RequestID),
-		Provider:            strings.TrimSpace(event.Provider),
-		Source:              strings.TrimSpace(event.Source),
-		AuthIndex:           strings.TrimSpace(event.AuthIndex),
-		Failed:              event.Failed,
-		LatencyMS:           event.LatencyMS,
-		TTFTMS:              event.TTFTMS,
-		InputTokens:         event.InputTokens,
-		OutputTokens:        event.OutputTokens,
-		ReasoningTokens:     event.ReasoningTokens,
-		CacheReadTokens:     event.CacheReadTokens,
-		CacheCreationTokens: event.CacheCreationTokens,
-		TotalTokens:         event.TotalTokens,
+		UpstreamResponseModel: strings.TrimSpace(event.UpstreamResponseModel),
+		ReasoningEffort:       strings.TrimSpace(event.ReasoningEffort),
+		ServiceTier:           strings.TrimSpace(event.ServiceTier),
+		ResponseServiceTier:   strings.TrimSpace(event.ResponseServiceTier),
+		ClientIP:              event.ClientIP,
+		XForwardedFor:         event.XForwardedFor,
+		UserAgent:             event.UserAgent,
+		ExecutorType:          strings.TrimSpace(event.ExecutorType),
+		Endpoint:              strings.TrimSpace(event.Endpoint),
+		AuthType:              strings.TrimSpace(event.AuthType),
+		RequestID:             strings.TrimSpace(event.RequestID),
+		Provider:              strings.TrimSpace(event.Provider),
+		Source:                strings.TrimSpace(event.Source),
+		AuthIndex:             strings.TrimSpace(event.AuthIndex),
+		Failed:                event.Failed,
+		LatencyMS:             event.LatencyMS,
+		TTFTMS:                event.TTFTMS,
+		InputTokens:           event.InputTokens,
+		OutputTokens:          event.OutputTokens,
+		ReasoningTokens:       event.ReasoningTokens,
+		CacheReadTokens:       event.CacheReadTokens,
+		CacheCreationTokens:   event.CacheCreationTokens,
+		TotalTokens:           event.TotalTokens,
 	}
 }
 
@@ -288,30 +290,31 @@ func usageEventRecordCost(record dto.UsageEventRecord, costResolver pricing.Reso
 func usageEventProjectionToEntity(event usageEventProjection) entities.UsageEvent {
 	// 这里不 trim 原始维度，后续聚合入口会按各自语义统一 normalize。
 	return entities.UsageEvent{
-		ID:                  event.ID,
-		APIGroupKey:         event.APIGroupKey,
-		Provider:            event.Provider,
-		AuthType:            event.AuthType,
-		Model:               event.Model,
-		ModelAlias:          event.ModelAlias,
-		ReasoningEffort:     event.ReasoningEffort,
-		ServiceTier:         event.ServiceTier,
-		ResponseServiceTier: event.ResponseServiceTier,
-		ExecutorType:        event.ExecutorType,
-		Endpoint:            event.Endpoint,
-		Timestamp:           event.Timestamp,
-		Source:              event.Source,
-		AuthIndex:           event.AuthIndex,
-		Failed:              event.Failed,
-		Generate:            event.Generate,
-		LatencyMS:           event.LatencyMS,
-		TTFTMS:              event.TTFTMS,
-		InputTokens:         event.InputTokens,
-		OutputTokens:        event.OutputTokens,
-		ReasoningTokens:     event.ReasoningTokens,
-		CacheReadTokens:     event.CacheReadTokens,
-		CacheCreationTokens: event.CacheCreationTokens,
-		TotalTokens:         event.TotalTokens,
+		ID:                    event.ID,
+		APIGroupKey:           event.APIGroupKey,
+		Provider:              event.Provider,
+		AuthType:              event.AuthType,
+		Model:                 event.Model,
+		ModelAlias:            event.ModelAlias,
+		UpstreamResponseModel: event.UpstreamResponseModel,
+		ReasoningEffort:       event.ReasoningEffort,
+		ServiceTier:           event.ServiceTier,
+		ResponseServiceTier:   event.ResponseServiceTier,
+		ExecutorType:          event.ExecutorType,
+		Endpoint:              event.Endpoint,
+		Timestamp:             event.Timestamp,
+		Source:                event.Source,
+		AuthIndex:             event.AuthIndex,
+		Failed:                event.Failed,
+		Generate:              event.Generate,
+		LatencyMS:             event.LatencyMS,
+		TTFTMS:                event.TTFTMS,
+		InputTokens:           event.InputTokens,
+		OutputTokens:          event.OutputTokens,
+		ReasoningTokens:       event.ReasoningTokens,
+		CacheReadTokens:       event.CacheReadTokens,
+		CacheCreationTokens:   event.CacheCreationTokens,
+		TotalTokens:           event.TotalTokens,
 	}
 }
 

@@ -18,6 +18,7 @@ func TestRepositoryQueriesAvoidKnownFullEntityReads(t *testing.T) {
 	assertFileContains(t, "usage.go",
 		"Select(usageEventProjectionColumns).Order(\"timestamp DESC, id DESC\")",
 		"Select(projection).\n\t\tOrder(\"timestamp asc\")",
+		"usageEventProjectionColumns = \"id, api_group_key, provider, auth_type, request_id, client_ip, x_forwarded_for, user_agent, model, model_alias, upstream_response_model, reasoning_effort, service_tier, response_service_tier, executor_type, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens\"",
 		"usageOverviewBoundaryEventProjectionColumns = \"api_group_key, model, model_alias, timestamp, failed, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, auth_index\"",
 		"usageOverviewRealtimeEventProjectionColumns = \"api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens\"",
 	)
