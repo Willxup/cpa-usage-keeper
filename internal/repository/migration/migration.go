@@ -96,6 +96,7 @@ const (
 	migrationAddUsageEventAPIGroupKeyTimestampIndex = "20260905_usage_event_api_group_key_timestamp_index"
 	migrationAddUsageIdentityStatsReset             = "20260910_usage_identity_stats_reset"
 	migrationAddUsageEventSessionFields             = "20260912_usage_event_session_fields"
+	migrationAddUsageEventUpstreamResponseModel     = "20260917_add_usage_event_upstream_response_model"
 )
 
 type schemaMigration struct {
@@ -243,6 +244,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageEventAPIGroupKeyTimestampIndex, run: addUsageEventAPIGroupKeyTimestampIndexMigration},
 		{version: migrationAddUsageIdentityStatsReset, run: addUsageIdentityStatsResetMigration},
 		{version: migrationAddUsageEventSessionFields, run: addUsageEventSessionFieldsMigration},
+		{version: migrationAddUsageEventUpstreamResponseModel, run: addUsageEventUpstreamResponseModelMigration},
 	}
 }
 
