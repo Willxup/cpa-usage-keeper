@@ -219,10 +219,24 @@ func TestNormalizeSubscriptionRejectsMissingOrUnregisteredValues(t *testing.T) {
 		{Provider: "claude", Result: quota.ClaudeResult{}},
 		{Provider: "gemini-cli", Result: quota.GeminiCLIResult{}},
 		{Provider: "xai", Result: quota.XAIResult{}},
+		{Provider: "cursor", Result: quota.CursorResult{}},
 	} {
 		if got := quota.NormalizeSubscription(output); got != nil {
 			t.Fatalf("NormalizeSubscription(%#v) = %#v, want nil", output, got)
 		}
+	}
+}
+
+func TestNormalizeCursorSubscription(t *testing.T) {
+	got := quota.NormalizeSubscription(quota.ProviderOutput{
+		Provider: "cursor",
+		Result: quota.CursorResult{Plan: &quota.CursorPlanPayload{PlanInfo: &quota.CursorPlanInfo{
+			PlanName: "Ultra",
+			Price:    "$200/mo",
+		}}},
+	})
+	if got == nil || got.Provider != "cursor" || got.Plan != "ultra" {
+		t.Fatalf("NormalizeSubscription() = %#v, want cursor ultra", got)
 	}
 }
 

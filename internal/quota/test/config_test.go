@@ -9,8 +9,8 @@ import (
 func TestDefaultProviderConfigsContainsAPICallTemplates(t *testing.T) {
 	configs := quota.DefaultProviderConfigs()
 	templates := configs.APICallTemplates()
-	if len(templates) != 13 {
-		t.Fatalf("expected 13 api-call templates, got %d", len(templates))
+	if len(templates) != 16 {
+		t.Fatalf("expected 16 api-call templates, got %d", len(templates))
 	}
 	if len(configs.Antigravity) != 3 {
 		t.Fatalf("expected 3 antigravity api-call templates, got %d", len(configs.Antigravity))
@@ -52,6 +52,15 @@ func TestDefaultProviderConfigsContainsAPICallTemplates(t *testing.T) {
 	if configs.XAIMonthly.Method != "GET" || configs.XAIMonthly.URL != "https://cli-chat-proxy.grok.com/v1/billing" {
 		t.Fatalf("unexpected xai monthly config: %+v", configs.XAIMonthly)
 	}
+	if configs.CursorPlan.Method != "POST" || configs.CursorPlan.URL != "https://api2.cursor.sh/aiserver.v1.DashboardService/GetPlanInfo" {
+		t.Fatalf("unexpected cursor plan config: %+v", configs.CursorPlan)
+	}
+	if configs.CursorPeriod.Method != "POST" || configs.CursorPeriod.URL != "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage" {
+		t.Fatalf("unexpected cursor period config: %+v", configs.CursorPeriod)
+	}
+	if configs.CursorAgent.Method != "POST" || configs.CursorAgent.URL != "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus" {
+		t.Fatalf("unexpected cursor agent config: %+v", configs.CursorAgent)
+	}
 
 	if configs.Antigravity[0].Headers["Authorization"] != "Bearer $TOKEN$" || configs.Antigravity[0].Headers["Content-Type"] != "application/json" || configs.Antigravity[0].Headers["User-Agent"] != "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)" {
 		t.Fatalf("unexpected antigravity headers: %+v", configs.Antigravity[0].Headers)
@@ -89,6 +98,11 @@ func TestDefaultProviderConfigsContainsAPICallTemplates(t *testing.T) {
 		}
 		if _, ok := config.Headers["x-userid"]; ok {
 			t.Fatalf("x-userid must not be fabricated without a reliable subject: %+v", config.Headers)
+		}
+	}
+	for _, config := range []quota.APICallConfig{configs.CursorPlan, configs.CursorPeriod, configs.CursorAgent} {
+		if config.Headers["Authorization"] != "Bearer $TOKEN$" || config.Headers["Content-Type"] != "application/json" {
+			t.Fatalf("unexpected cursor headers: %+v", config.Headers)
 		}
 	}
 }

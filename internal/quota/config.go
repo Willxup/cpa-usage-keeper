@@ -51,6 +51,9 @@ type ProviderConfigs struct {
 	Kimi                     APICallConfig
 	XAIWeekly                APICallConfig
 	XAIMonthly               APICallConfig
+	CursorPlan               APICallConfig
+	CursorPeriod             APICallConfig
+	CursorAgent              APICallConfig
 }
 
 func DefaultProviderConfigs() ProviderConfigs {
@@ -164,6 +167,28 @@ func DefaultProviderConfigs() ProviderConfigs {
 			URL:     "https://cli-chat-proxy.grok.com/v1/billing",
 			Headers: xaiRequestHeaders(),
 		},
+		CursorPlan: APICallConfig{
+			Method:  "POST",
+			URL:     "https://api2.cursor.sh/aiserver.v1.DashboardService/GetPlanInfo",
+			Headers: cursorRequestHeaders(),
+		},
+		CursorPeriod: APICallConfig{
+			Method:  "POST",
+			URL:     "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+			Headers: cursorRequestHeaders(),
+		},
+		CursorAgent: APICallConfig{
+			Method:  "POST",
+			URL:     "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus",
+			Headers: cursorRequestHeaders(),
+		},
+	}
+}
+
+func cursorRequestHeaders() map[string]string {
+	return map[string]string{
+		"Authorization": "Bearer $TOKEN$",
+		"Content-Type":  "application/json",
 	}
 }
 
@@ -179,7 +204,7 @@ func xaiRequestHeaders() map[string]string {
 }
 
 func (c ProviderConfigs) APICallTemplates() []APICallConfig {
-	templates := make([]APICallConfig, 0, len(c.Antigravity)+len(c.AntigravitySubscriptions)+8)
+	templates := make([]APICallConfig, 0, len(c.Antigravity)+len(c.AntigravitySubscriptions)+11)
 	templates = append(templates, c.Antigravity...)
 	templates = append(templates, c.AntigravitySubscriptions...)
 	templates = append(templates,
@@ -191,6 +216,9 @@ func (c ProviderConfigs) APICallTemplates() []APICallConfig {
 		c.Kimi,
 		c.XAIWeekly,
 		c.XAIMonthly,
+		c.CursorPlan,
+		c.CursorPeriod,
+		c.CursorAgent,
 	)
 	return templates
 }
