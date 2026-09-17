@@ -13,7 +13,7 @@ export const isSupportedLanguage = (language: string | null): language is Suppor
 
 const getInitialLanguage = (): SupportedLanguage => {
   if (typeof window === 'undefined') return DEFAULT_LANGUAGE;
-  const saved = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
+  const saved = window.localStorage?.getItem(LANGUAGE_STORAGE_KEY);
   return isSupportedLanguage(saved) ? saved : DEFAULT_LANGUAGE;
 };
 
@@ -333,6 +333,7 @@ const resources = {
         request_events_log_load_failed: 'Failed to load the CPA request log.',
         model_name: 'Model',
         model_alias: 'Model Alias',
+        upstream_response_model: 'Upstream response',
         source_name: 'Source',
         auth_index: 'Auth Index',
         result: 'Result',
@@ -1234,6 +1235,7 @@ const resources = {
         request_events_log_load_failed: '加载 CPA 请求日志失败。',
         model_name: '模型',
         model_alias: '模型别名',
+        upstream_response_model: '上游响应',
         source_name: '来源',
         auth_index: '认证索引',
         result: '结果',
@@ -2135,6 +2137,7 @@ const resources = {
         request_events_log_load_failed: '載入 CPA 請求日誌失敗。',
         model_name: '模型',
         model_alias: '模型別名',
+        upstream_response_model: '上游響應',
         source_name: '來源',
         auth_index: '認證索引',
         result: '結果',

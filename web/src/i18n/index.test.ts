@@ -77,6 +77,12 @@ describe('i18n resources', () => {
     expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.credentials_auth_files_display_mode_health')).toBe('健康');
   });
 
+  it('localizes the upstream response model label in every language', () => {
+    expect(i18n.getResource('en', 'translation', 'usage_stats.upstream_response_model')).toBe('Upstream response');
+    expect(i18n.getResource('zh', 'translation', 'usage_stats.upstream_response_model')).toBe('上游响应');
+    expect(i18n.getResource('zh-TW', 'translation', 'usage_stats.upstream_response_model')).toBe('上游響應');
+  });
+
   it('localizes the Auth Files inspection title in every language', () => {
     expect(i18n.getResource('en', 'translation', 'usage_stats.credentials_inspection_title')).toBe('Auth Files Inspection');
     expect(i18n.getResource('zh', 'translation', 'usage_stats.credentials_inspection_title')).toBe('认证文件巡检');

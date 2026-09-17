@@ -249,6 +249,40 @@ describe('CredentialRequestEventsList', () => {
     expect(container.textContent).not.toContain('usage_stats.request_events_filter_result')
   })
 
+  it('shows the upstream response model only when it mismatches the sent model', async () => {
+    await act(async () => root.render(
+      <CredentialRequestEventsList
+        events={[{ ...event, upstream_response_model: 'actual-model' }]}
+        loading={false}
+        hasMore={false}
+        loadingMore={false}
+        autoLoadMore
+        onLoadMore={() => undefined}
+      />,
+    ))
+
+    expect(container.querySelector('[data-credential-request-model="1"]')?.textContent)
+      .toContain('usage_stats.upstream_response_model')
+    expect(container.querySelector('[data-credential-request-model="1"]')?.textContent)
+      .toContain('actual-model')
+  })
+
+  it('hides the upstream response model when it matches the sent model', async () => {
+    await act(async () => root.render(
+      <CredentialRequestEventsList
+        events={[{ ...event, upstream_response_model: 'GPT-5.6' }]}
+        loading={false}
+        hasMore={false}
+        loadingMore={false}
+        autoLoadMore
+        onLoadMore={() => undefined}
+      />,
+    ))
+
+    expect(container.querySelector('[data-credential-request-model="1"]')?.textContent)
+      .not.toContain('usage_stats.upstream_response_model')
+  })
+
   it.each([undefined, 0, 3000])('shows the API speed independently of TTFT %s', async (ttft) => {
     await act(async () => root.render(
       <CredentialRequestEventsList

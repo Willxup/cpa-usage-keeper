@@ -117,6 +117,8 @@ type RequestEventRow = {
   apiKey: string;
   model: string;
   modelAlias: string;
+  upstreamResponseModel: string;
+  showUpstreamResponseModel: boolean;
   reasoningEffort: string;
   speedMode: string;
   speedModeRaw: string;
@@ -564,6 +566,10 @@ export function RequestEventsDetailsCard({
       const model = modelValue || '-';
       const modelAliasValue = String(event.model_alias ?? '').trim();
       const modelAlias = modelAliasValue && modelAliasValue !== modelValue ? modelAliasValue : '-';
+      const upstreamResponseModel = String(event.upstream_response_model ?? '').trim();
+      const showUpstreamResponseModel = Boolean(
+        upstreamResponseModel && upstreamResponseModel.toLowerCase() !== modelValue.toLowerCase(),
+      );
       const reasoningEffort = String(event.reasoning_effort ?? '').trim() || '-';
       const speedModeRaw = String(event.service_tier ?? '').trim() || '-';
       const responseSpeedModeRaw = String(event.response_service_tier ?? '').trim() || '-';
@@ -604,6 +610,8 @@ export function RequestEventsDetailsCard({
         apiKey,
         model,
         modelAlias,
+        upstreamResponseModel,
+        showUpstreamResponseModel,
         reasoningEffort,
         speedMode,
         speedModeRaw,
@@ -856,6 +864,11 @@ export function RequestEventsDetailsCard({
           <td className={`${styles.modelCell} ${styles.requestEventsStackedCell}`}>
             <span className={styles.requestEventsStackedPrimary} title={row.model}>{row.model}</span>
             <span className={styles.requestEventsStackedSecondary} title={row.modelAlias}>{row.modelAlias}</span>
+            {row.showUpstreamResponseModel ? (
+              <span className={styles.requestEventsStackedSecondary} title={row.upstreamResponseModel}>
+                {`${t('usage_stats.upstream_response_model')}: ${row.upstreamResponseModel}`}
+              </span>
+            ) : null}
           </td>
         ),
       },

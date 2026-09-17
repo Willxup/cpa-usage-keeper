@@ -99,6 +99,39 @@ describe('RequestEventsDetailsCard model stack', () => {
     expect(modelHeaderIndex).toBeGreaterThanOrEqual(0);
     expect(cells[modelHeaderIndex]).toBe('claude-sonnet-');
   });
+
+  it('shows upstream response on the third line when it mismatches the model', () => {
+    const html = renderCard({
+      events: [{ ...events[0], upstream_response_model: 'actual-model' }],
+    });
+    const headers = extractTableHeaders(html);
+    const cells = extractFirstTableRowCells(html);
+    const modelHeaderIndex = headers.indexOf('Model');
+
+    expect(cells[modelHeaderIndex]).toContain('Upstream response: actual-model');
+    expect(html).not.toContain('mismatch');
+    expect(html).not.toContain('不一致');
+  });
+
+  it('hides upstream response when it matches the model ignoring case', () => {
+    const html = renderCard({
+      events: [{ ...events[0], upstream_response_model: 'Claude-Sonnet' }],
+    });
+    const cells = extractFirstTableRowCells(html);
+    const modelHeaderIndex = extractTableHeaders(html).indexOf('Model');
+
+    expect(cells[modelHeaderIndex]).not.toContain('Upstream response');
+  });
+
+  it('hides upstream response when the value is empty', () => {
+    const html = renderCard({
+      events: [{ ...events[0], upstream_response_model: '' }],
+    });
+    const cells = extractFirstTableRowCells(html);
+    const modelHeaderIndex = extractTableHeaders(html).indexOf('Model');
+
+    expect(cells[modelHeaderIndex]).not.toContain('Upstream response');
+  });
 });
 
 describe('RequestEventsDetailsCard client metadata columns', () => {

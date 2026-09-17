@@ -60,6 +60,8 @@ interface CredentialRequestEventRow {
   responseTier: string
   model: string
   modelAlias: string
+  upstreamResponseModel: string
+  showUpstreamResponseModel: boolean
   reasoningEffort: string
   requestType: string
   endpoint: string
@@ -369,6 +371,10 @@ const buildRow = (
   const timestamp = String(event.timestamp ?? '')
   const model = String(event.model ?? '').trim() || '-'
   const modelAliasValue = String(event.model_alias ?? '').trim()
+  const upstreamResponseModel = String(event.upstream_response_model ?? '').trim()
+  const showUpstreamResponseModel = Boolean(
+    upstreamResponseModel && upstreamResponseModel.toLowerCase() !== model.toLowerCase(),
+  )
   const endpoint = parseRequestEndpoint(event.endpoint)
   const latencyMs = Number.isFinite(event.latency_ms) ? event.latency_ms : null
   const ttftMs = Number.isFinite(event.ttft_ms) ? event.ttft_ms as number : null
@@ -402,6 +408,8 @@ const buildRow = (
     responseTier,
     model,
     modelAlias: modelAliasValue && modelAliasValue !== model ? modelAliasValue : '-',
+    upstreamResponseModel,
+    showUpstreamResponseModel,
     reasoningEffort: optionalText(event.reasoning_effort),
     requestType: endpoint.requestType,
     endpoint: endpoint.endpoint,
@@ -654,6 +662,9 @@ export function CredentialRequestEventsList({
           >
             {renderOverflowText('strong', row.model)}
             {renderOverflowText('small', row.modelAlias)}
+            {row.showUpstreamResponseModel
+              ? renderLabeledOverflowText(t('usage_stats.upstream_response_model'), row.upstreamResponseModel)
+              : null}
             {renderLabeledOverflowText(t('usage_stats.reasoning_effort'), row.reasoningEffort)}
           </td>
           <td className={styles.stackedCell}>
