@@ -55,3 +55,10 @@ func TestCPAAPIKeyMaskedDisplayKeyFallsBackToStoredDisplayKeyWhenRawKeyIsMissing
 		t.Fatalf("expected stored display key fallback, got %q", got)
 	}
 }
+
+func TestCPAAPIKeyMaskedDisplayKeyUsesPluginPreview(t *testing.T) {
+	row := entities.CPAAPIKey{APIKey: "marketplace1", DisplayKey: "cpa_mar...place", Source: entities.CPAAPIKeySourceCPAKeyPolicy}
+	if got := CPAAPIKeyMaskedDisplayKey(row); got != "cpa_mar...place" {
+		t.Fatalf("expected plugin key preview, got %q", got)
+	}
+}
