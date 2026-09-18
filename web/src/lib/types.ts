@@ -293,6 +293,7 @@ export interface UsageEvent {
   api_key?: string
   model: string
   model_alias?: string
+  upstream_response_model?: string
   reasoning_effort?: string
   service_tier?: string
   response_service_tier?: string

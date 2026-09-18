@@ -36,31 +36,32 @@ func DecodeRedisUsageMessageWithHeaders(message string, fetchedAt time.Time) (en
 
 // queuedUsageDetail 对应 CPA Redis 队列中的单条 usage JSON payload。
 type queuedUsageDetail struct {
-	Timestamp           time.Time       `json:"timestamp"`
-	LatencyMS           int64           `json:"latency_ms"`
-	TTFTMS              *int64          `json:"ttft_ms"`
-	Source              string          `json:"source"`
-	AuthIndex           string          `json:"auth_index"`
-	ClientIP            *string         `json:"client_ip"`
-	XForwardedFor       *string         `json:"x_forwarded_for"`
-	UserAgent           *string         `json:"user_agent"`
-	Tokens              dto.TokenStats  `json:"tokens"`
-	Failed              bool            `json:"failed"`
-	Generate            *bool           `json:"generate"`
-	Provider            string          `json:"provider"`
-	Model               string          `json:"model"`
-	Alias               *string         `json:"alias"`
-	ReasoningEffort     string          `json:"reasoning_effort"`
-	ServiceTier         string          `json:"service_tier"`
-	ResponseServiceTier string          `json:"response_service_tier"`
-	ExecutorType        string          `json:"executor_type"`
-	Endpoint            string          `json:"endpoint"`
-	AuthType            string          `json:"auth_type"`
-	APIKey              string          `json:"api_key"`
-	RequestID           string          `json:"request_id"`
-	SessionID           string          `json:"session_id"`
-	ParentSessionID     string          `json:"parent_session_id"`
-	ResponseHeaders     json.RawMessage `json:"response_headers"`
+	Timestamp             time.Time       `json:"timestamp"`
+	LatencyMS             int64           `json:"latency_ms"`
+	TTFTMS                *int64          `json:"ttft_ms"`
+	Source                string          `json:"source"`
+	AuthIndex             string          `json:"auth_index"`
+	ClientIP              *string         `json:"client_ip"`
+	XForwardedFor         *string         `json:"x_forwarded_for"`
+	UserAgent             *string         `json:"user_agent"`
+	Tokens                dto.TokenStats  `json:"tokens"`
+	Failed                bool            `json:"failed"`
+	Generate              *bool           `json:"generate"`
+	Provider              string          `json:"provider"`
+	Model                 string          `json:"model"`
+	Alias                 *string         `json:"alias"`
+	ReasoningEffort       string          `json:"reasoning_effort"`
+	ServiceTier           string          `json:"service_tier"`
+	ResponseServiceTier   string          `json:"response_service_tier"`
+	UpstreamResponseModel string          `json:"upstream_response_model"`
+	ExecutorType          string          `json:"executor_type"`
+	Endpoint              string          `json:"endpoint"`
+	AuthType              string          `json:"auth_type"`
+	APIKey                string          `json:"api_key"`
+	RequestID             string          `json:"request_id"`
+	SessionID             string          `json:"session_id"`
+	ParentSessionID       string          `json:"parent_session_id"`
+	ResponseHeaders       json.RawMessage `json:"response_headers"`
 }
 
 func normalizeRedisAuthType(value string) string {
@@ -116,38 +117,39 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 	authIndex := strings.TrimSpace(d.AuthIndex)
 	eventKey := strings.TrimSpace(d.RequestID)
 	return entities.UsageEvent{
-		EventKey:            eventKey,
-		APIGroupKey:         apiGroupKey,
-		Provider:            strings.TrimSpace(d.Provider),
-		Endpoint:            strings.TrimSpace(d.Endpoint),
-		AuthType:            normalizeRedisAuthType(d.AuthType),
-		RequestID:           strings.TrimSpace(d.RequestID),
-		SessionID:           strings.TrimSpace(d.SessionID),
-		ParentSessionID:     strings.TrimSpace(d.ParentSessionID),
-		ClientIP:            d.ClientIP,
-		XForwardedFor:       d.XForwardedFor,
-		UserAgent:           d.UserAgent,
-		Model:               model,
-		ModelAlias:          trimRedisOptionalString(d.Alias),
-		ReasoningEffort:     strings.TrimSpace(d.ReasoningEffort),
-		ServiceTier:         strings.TrimSpace(d.ServiceTier),
-		ResponseServiceTier: strings.TrimSpace(d.ResponseServiceTier),
-		ExecutorType:        strings.TrimSpace(d.ExecutorType),
-		Timestamp:           timestamp,
-		Source:              source,
-		AuthIndex:           authIndex,
-		Failed:              d.Failed,
-		Generate:            normalizeRedisGenerate(d.Generate, d.Failed, d.ExecutorType, d.Tokens),
-		LatencyMS:           max(d.LatencyMS, 0),
-		TTFTMS:              d.TTFTMS,
-		InputTokens:         d.Tokens.InputTokens,
-		OutputTokens:        d.Tokens.OutputTokens,
-		ReasoningTokens:     d.Tokens.ReasoningTokens,
-		CachedTokens:        d.Tokens.CachedTokens,
-		CacheReadTokens:     d.Tokens.CacheReadTokens,
-		CacheReadPresent:    d.Tokens.CacheReadPresent,
-		CacheCreationTokens: d.Tokens.CacheCreationTokens,
-		TotalTokens:         d.Tokens.TotalTokens,
+		EventKey:              eventKey,
+		APIGroupKey:           apiGroupKey,
+		Provider:              strings.TrimSpace(d.Provider),
+		Endpoint:              strings.TrimSpace(d.Endpoint),
+		AuthType:              normalizeRedisAuthType(d.AuthType),
+		RequestID:             strings.TrimSpace(d.RequestID),
+		SessionID:             strings.TrimSpace(d.SessionID),
+		ParentSessionID:       strings.TrimSpace(d.ParentSessionID),
+		ClientIP:              d.ClientIP,
+		XForwardedFor:         d.XForwardedFor,
+		UserAgent:             d.UserAgent,
+		Model:                 model,
+		ModelAlias:            trimRedisOptionalString(d.Alias),
+		ReasoningEffort:       strings.TrimSpace(d.ReasoningEffort),
+		ServiceTier:           strings.TrimSpace(d.ServiceTier),
+		ResponseServiceTier:   strings.TrimSpace(d.ResponseServiceTier),
+		UpstreamResponseModel: strings.TrimSpace(d.UpstreamResponseModel),
+		ExecutorType:          strings.TrimSpace(d.ExecutorType),
+		Timestamp:             timestamp,
+		Source:                source,
+		AuthIndex:             authIndex,
+		Failed:                d.Failed,
+		Generate:              normalizeRedisGenerate(d.Generate, d.Failed, d.ExecutorType, d.Tokens),
+		LatencyMS:             max(d.LatencyMS, 0),
+		TTFTMS:                d.TTFTMS,
+		InputTokens:           d.Tokens.InputTokens,
+		OutputTokens:          d.Tokens.OutputTokens,
+		ReasoningTokens:       d.Tokens.ReasoningTokens,
+		CachedTokens:          d.Tokens.CachedTokens,
+		CacheReadTokens:       d.Tokens.CacheReadTokens,
+		CacheReadPresent:      d.Tokens.CacheReadPresent,
+		CacheCreationTokens:   d.Tokens.CacheCreationTokens,
+		TotalTokens:           d.Tokens.TotalTokens,
 	}
 }
 
