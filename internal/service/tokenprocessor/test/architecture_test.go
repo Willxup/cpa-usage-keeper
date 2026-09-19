@@ -32,6 +32,8 @@ func TestEachCPAExecutorHasAnIndependentDefinitionFile(t *testing.T) {
 		"xai_auto_executor.go",
 		"kimi_executor.go",
 		"openai_compat_executor.go",
+		"meta_executor.go",
+		"devin_executor.go",
 	}
 
 	_, currentFile, _, ok := runtime.Caller(0)

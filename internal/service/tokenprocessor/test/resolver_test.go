@@ -27,6 +27,8 @@ func TestResolveExecutorUsesCPAParserContracts(t *testing.T) {
 		{name: "xai auto", executor: "XAIAutoExecutor", handlerID: tokenprocessor.HandlerResponsesInclusive},
 		{name: "kimi", executor: "KimiExecutor", handlerID: tokenprocessor.HandlerStrictPassThrough},
 		{name: "openai compatibility", executor: "OpenAICompatExecutor", handlerID: tokenprocessor.HandlerOpenAICompatibility},
+		{name: "meta responses", executor: "MetaExecutor", handlerID: tokenprocessor.HandlerResponsesInclusive},
+		{name: "devin interactions strict", executor: "DevinExecutor", handlerID: tokenprocessor.HandlerStrictPassThrough},
 	}
 
 	for _, test := range tests {
@@ -67,6 +69,8 @@ func TestResolveIdentityUsesExistingFallbackAliases(t *testing.T) {
 		{identity: "antigravity", handlerID: tokenprocessor.HandlerGemini},
 		{identity: "codex", handlerID: tokenprocessor.HandlerResponsesInclusive},
 		{identity: "xai", handlerID: tokenprocessor.HandlerResponsesInclusive},
+		{identity: "meta", handlerID: tokenprocessor.HandlerResponsesInclusive},
+		{identity: "devin", handlerID: tokenprocessor.HandlerStrictPassThrough},
 		{identity: "kimi", handlerID: tokenprocessor.HandlerStrictPassThrough},
 		{identity: "moonshot", handlerID: tokenprocessor.HandlerStrictPassThrough},
 		{identity: "openai", handlerID: tokenprocessor.HandlerOpenAICompatibility},

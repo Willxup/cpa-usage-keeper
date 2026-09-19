@@ -78,6 +78,10 @@ var executorDefinitions = []executorDefinition{
 	kimiExecutorDefinition,
 	// 来源 openai_compat_executor.go / CPA OpenAICompatExecutor；私有规则链只执行已证兼容，Total 权限保持 zero-only。
 	openAICompatExecutorDefinition,
+	// 来源 meta_executor.go / CPA MetaExecutor；Responses input/output 已含 cache/reasoning，复用 Responses inclusive handler。
+	metaExecutorDefinition,
+	// 来源 devin_executor.go / CPA DevinExecutor；Interactions scalar 可表达分列 reasoning，但 partial/error 完整性未进入 Keeper DTO，保持 strict pass-through。
+	devinExecutorDefinition,
 }
 
 // identityAliasDefinitions 原样保留 Keeper 已验证的 identity 路由，但每一项都只有 identity_hint 强度。
@@ -106,6 +110,10 @@ var identityAliasDefinitions = []identityAliasDefinition{
 	{alias: "codex", handlerID: HandlerResponsesInclusive},
 	// xai identity 保留 Responses 格式的旧规则，但非零 Total 强纠错仍需 executor 合同。
 	{alias: "xai", handlerID: HandlerResponsesInclusive},
+	// meta Auth File type 与 CPA MetaExecutor 的 Responses 合同已核对；旧事件缺 executor 时可安全复用同一 handler，但仍只是 identity hint。
+	{alias: "meta", handlerID: HandlerResponsesInclusive},
+	// devin Auth File type 已核对，但旧事件缺 executor 仍保持 strict，避免 partial Total 被错误重算。
+	{alias: "devin", handlerID: HandlerStrictPassThrough},
 	// kimi identity 保持 strict，不因名称假设 reasoning 已包含在 Output。
 	{alias: "kimi", handlerID: HandlerStrictPassThrough},
 	// moonshot 是 Kimi 厂商别名，同样保持 strict。
