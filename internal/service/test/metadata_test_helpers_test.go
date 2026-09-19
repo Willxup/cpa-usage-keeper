@@ -22,7 +22,7 @@ type standardMetadataHook func(context.Context) (*response.ProviderKeyConfigResu
 // openAIMetadataHook 为 OpenAI Compatibility 的专属响应类型提供同样的测试控制能力。
 type openAIMetadataHook func(context.Context) (*response.OpenAICompatibilityResult, error)
 
-// metadataTestFetcher 是七来源并发安全的函数式测试 fetcher，默认所有 endpoint 成功返回空列表。
+// metadataTestFetcher 是八来源并发安全的函数式测试 fetcher，默认所有 endpoint 成功返回空列表。
 type metadataTestFetcher struct {
 	// callsMu 保护并发 provider goroutine 写入调用次数。
 	callsMu sync.Mutex
@@ -36,7 +36,7 @@ type metadataTestFetcher struct {
 	managementAPIKeysResult *response.ManagementAPIKeysResult
 	// managementAPIKeysErr 注入管理 API Keys fetch failure。
 	managementAPIKeysErr error
-	// standardResults 按 source 保存六类标准 API Key endpoint 响应。
+	// standardResults 按 source 保存七类标准 API Key endpoint 响应。
 	standardResults map[string]*response.ProviderKeyConfigResult
 	// standardErrors 按 source 注入独立 fetch error。
 	standardErrors map[string]error
@@ -50,7 +50,7 @@ type metadataTestFetcher struct {
 	openAIHook openAIMetadataHook
 }
 
-// newMetadataTestFetcher 创建默认全成功空列表 fetcher，避免每个测试复制七个空实现。
+// newMetadataTestFetcher 创建默认全成功空列表 fetcher，避免每个测试复制八个空实现。
 func newMetadataTestFetcher() *metadataTestFetcher {
 	// fetcher 初始化全部 endpoint 的显式成功响应。
 	fetcher := &metadataTestFetcher{
@@ -60,7 +60,7 @@ func newMetadataTestFetcher() *metadataTestFetcher {
 		authFilesResult: &response.AuthFilesResult{StatusCode: 200, Payload: authfiles.AuthFilesResponse{Files: []authfiles.AuthFile{}}},
 		// 管理 API Keys 的 200 空列表会正常替换本地 key 状态。
 		managementAPIKeysResult: &response.ManagementAPIKeysResult{StatusCode: 200, Payload: cpaapikeys.ManagementAPIKeysResponse{APIKeys: []string{}}},
-		// standardResults 为六个标准 provider source 预留独立结果。
+		// standardResults 为七个标准 provider source 预留独立结果。
 		standardResults: make(map[string]*response.ProviderKeyConfigResult),
 		// standardErrors 默认没有来源失败。
 		standardErrors: make(map[string]error),
@@ -69,8 +69,8 @@ func newMetadataTestFetcher() *metadataTestFetcher {
 		// OpenAI Compatibility 默认成功返回空 provider 列表。
 		openAIResult: &response.OpenAICompatibilityResult{StatusCode: 200, Payload: []providerconfig.OpenAICompatibilityConfig{}},
 	}
-	// 六个标准 endpoint 都显式设置为 200 空 payload。
-	for _, source := range []string{"codex", "xai", "gemini", "gemini-interactions", "claude", "vertex"} {
+	// 七个标准 endpoint 都显式设置为 200 空 payload。
+	for _, source := range []string{"codex", "xai", "gemini", "gemini-interactions", "claude", "vertex", "meta"} {
 		// 每个 source 使用独立 result 指针，测试可以只替换目标来源。
 		fetcher.standardResults[source] = &response.ProviderKeyConfigResult{StatusCode: 200, Payload: []providerconfig.ProviderKeyConfig{}}
 	}
@@ -124,7 +124,7 @@ func (f *metadataTestFetcher) FetchManagementAPIKeys(context.Context) (*response
 	return f.managementAPIKeysResult, f.managementAPIKeysErr
 }
 
-// fetchStandardProvider 复用六类标准 API Key endpoint 的测试分派逻辑。
+// fetchStandardProvider 复用七类标准 API Key endpoint 的测试分派逻辑。
 func (f *metadataTestFetcher) fetchStandardProvider(ctx context.Context, source string) (*response.ProviderKeyConfigResult, error) {
 	// 每个 provider endpoint 都独立记录调用次数。
 	f.recordCall(source)
@@ -171,6 +171,12 @@ func (f *metadataTestFetcher) FetchClaudeAPIKeys(ctx context.Context) (*response
 func (f *metadataTestFetcher) FetchVertexAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
 	// Vertex 使用标准 provider 分派。
 	return f.fetchStandardProvider(ctx, "vertex")
+}
+
+// FetchMetaAPIKeys 读取 Meta API Key 测试 endpoint。
+func (f *metadataTestFetcher) FetchMetaAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
+	// Meta 使用标准 provider 分派并保留独立 source 名。
+	return f.fetchStandardProvider(ctx, "meta")
 }
 
 // FetchOpenAICompatibility 返回 OpenAI Compatibility 专属结果。

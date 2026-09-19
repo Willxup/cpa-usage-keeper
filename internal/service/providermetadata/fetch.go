@@ -35,7 +35,7 @@ func Fetch(ctx context.Context, fetcher Fetcher) (Snapshot, error) {
 			results[resultIndex] = currentSource.fetch(ctx, fetcher)
 		}(index, item)
 	}
-	// 等待七个来源全部结束，不因单来源 warning 取消仍在执行的 sibling。
+	// 等待八个来源全部结束，不因单来源 warning 取消仍在执行的 sibling。
 	waitGroup.Wait()
 	// snapshot 只由当前 goroutine 按 registry 顺序写入。
 	snapshot := Snapshot{}

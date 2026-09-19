@@ -32,7 +32,7 @@ func persistProviderMetadata(ctx context.Context, db *gorm.DB, snapshot provider
 			AuthTypeName: "apikey",
 			// Identity 只接收 CPA auth-index，不接收 API Key、prefix 或展示名。
 			Identity: credential.AuthIndex,
-			// Type 保留 source 的原始 provider type，包括 gemini-interactions 与 xai。
+			// Type 保留 source 的原始 provider type，包括 gemini-interactions、xai 与 meta。
 			Type: credential.ProviderType,
 			// Provider 沿用既有行为，与最终展示名一致。
 			Provider: credential.DisplayName,

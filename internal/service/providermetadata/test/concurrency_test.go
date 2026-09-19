@@ -12,10 +12,10 @@ import (
 	"cpa-usage-keeper/internal/service/providermetadata"
 )
 
-// registrySourceOrder 复用用户指定的稳定七来源顺序。
-var registrySourceOrder = []string{"codex", "xai", "gemini", "gemini-interactions", "claude", "vertex", "openai"}
+// registrySourceOrder 复用用户指定的稳定八来源顺序。
+var registrySourceOrder = []string{"codex", "xai", "gemini", "gemini-interactions", "claude", "vertex", "meta", "openai"}
 
-// gatedProviderFetcher 用独立 gate 控制七个 endpoint 的进入和完成时序。
+// gatedProviderFetcher 用独立 gate 控制八个 endpoint 的进入和完成时序。
 type gatedProviderFetcher struct {
 	// entered 记录每个 endpoint 已开始执行。
 	entered chan string
@@ -29,13 +29,13 @@ type gatedProviderFetcher struct {
 	closeOnce map[string]*sync.Once
 }
 
-// newGatedProviderFetcher 为七个来源创建独立 gate 和足量事件缓冲。
+// newGatedProviderFetcher 为八个来源创建独立 gate 和足量事件缓冲。
 func newGatedProviderFetcher() *gatedProviderFetcher {
 	// fetcher 保存所有并发测试共享的 channel 状态。
 	fetcher := &gatedProviderFetcher{
-		// entered 缓冲七项，避免测试清理时发送阻塞。
+		// entered 缓冲八项，避免测试清理时发送阻塞。
 		entered: make(chan string, len(registrySourceOrder)),
-		// done 缓冲七项，避免 Fetch 等待测试接收。
+		// done 缓冲八项，避免 Fetch 等待测试接收。
 		done: make(chan string, len(registrySourceOrder)),
 		// gates 按来源名定位释放通道。
 		gates: make(map[string]chan struct{}, len(registrySourceOrder)),
@@ -155,6 +155,16 @@ func (f *gatedProviderFetcher) FetchVertexAPIKeys(ctx context.Context) (*respons
 	return standardSuccessResult("vertex"), nil
 }
 
+// FetchMetaAPIKeys 在 meta gate 释放后返回一条标准 Credential 输入。
+func (f *gatedProviderFetcher) FetchMetaAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
+	// 等待测试释放 Meta 或取消 context。
+	if err := f.wait(ctx, "meta"); err != nil {
+		return nil, err
+	}
+	// 返回带唯一 auth-index 的成功 Meta payload。
+	return standardSuccessResult("meta"), nil
+}
+
 // FetchOpenAICompatibility 在 openai gate 释放后返回一条专属 Credential 输入。
 func (f *gatedProviderFetcher) FetchOpenAICompatibility(ctx context.Context) (*response.OpenAICompatibilityResult, error) {
 	// 等待测试释放 OpenAI 或取消 context。
@@ -173,7 +183,7 @@ func standardSuccessResult(source string) *response.ProviderKeyConfigResult {
 
 // TestFetchStartsAllProviderEndpointsBeforeWaiting 通过同步屏障拒绝串行执行。
 func TestFetchStartsAllProviderEndpointsBeforeWaiting(t *testing.T) {
-	// fetcher 的七个方法都会先发送 entered 再等待各自 gate。
+	// fetcher 的八个方法都会先发送 entered 再等待各自 gate。
 	fetcher := newGatedProviderFetcher()
 	// 失败或成功退出时都释放全部 gate，避免遗留 goroutine。
 	t.Cleanup(fetcher.releaseAll)
@@ -187,17 +197,17 @@ func TestFetchStartsAllProviderEndpointsBeforeWaiting(t *testing.T) {
 		resultCh <- fetchOutcome{snapshot: snapshot, err: err}
 	}()
 
-	// 等待七个 endpoint 全部进入；串行实现只能进入第一个并触发超时失败。
+	// 等待八个 endpoint 全部进入；串行实现只能进入第一个并触发超时失败。
 	waitForSources(t, fetcher.entered, registrySourceOrder)
 	// 全部进入后一次性释放，证明 Fetch 等待所有结果而不是 fail-fast。
 	fetcher.releaseAll()
 	// 获取最终 Fetch 结果。
 	outcome := waitForFetchOutcome(t, resultCh)
-	// 七个成功来源不允许产生 warning。
+	// 八个成功来源不允许产生 warning。
 	if outcome.err != nil {
 		t.Fatalf("Fetch returned error: %v", outcome.err)
 	}
-	// 七个 endpoint 都必须贡献一条 Credential。
+	// 八个 endpoint 都必须贡献一条 Credential。
 	if len(outcome.snapshot.Credentials) != len(registrySourceOrder) {
 		t.Fatalf("Credentials = %#v", outcome.snapshot.Credentials)
 	}

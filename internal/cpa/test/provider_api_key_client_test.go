@@ -12,13 +12,13 @@ import (
 	"cpa-usage-keeper/internal/cpa/dto/providerconfig"
 )
 
-// providerEndpointResult 统一承载标准 API Key 与 OpenAI Compatibility 两种 client 返回，便于七来源共享黑盒断言。
+// providerEndpointResult 统一承载标准 API Key 与 OpenAI Compatibility 两种 client 返回，便于八来源共享黑盒断言。
 type providerEndpointResult struct {
 	// statusCode 保留 client 返回的 HTTP 状态码，供成功与 typed 404 场景共同验证。
 	statusCode int
 	// body 保留 client 捕获的原始响应体，证明现有 HTTP 包装合同没有丢失。
 	body []byte
-	// keys 只承载六类标准 API Key endpoint 的归一化条目。
+	// keys 承载八类标准 API Key endpoint 的归一化条目。
 	keys []providerconfig.ProviderKeyConfig
 	// compatibility 只承载 OpenAI Compatibility 的 provider 层与多 key 结构。
 	compatibility []providerconfig.OpenAICompatibilityConfig
@@ -34,11 +34,13 @@ type providerEndpointCase struct {
 	directBody string
 	// wrappedBody 验证当前 CPA 使用配置段字段包裹数组时仍可解码。
 	wrappedBody string
-	// wantOpenAI 区分 OpenAI 专属 DTO 与六类标准 key DTO。
+	// wantOpenAI 区分 OpenAI 专属 DTO 与标准 key DTO。
 	wantOpenAI bool
+	// wantMeta 让 Meta 子用例额外断言字段 alias 与 nullable optional 字段。
+	wantMeta bool
 }
 
-// TestProviderAPIKeyClientsUseDedicatedEndpointsAndDecodePayloads 锁定七来源路径、认证和两种 payload 形态。
+// TestProviderAPIKeyClientsUseDedicatedEndpointsAndDecodePayloads 锁定八来源路径、认证和两种 payload 形态。
 func TestProviderAPIKeyClientsUseDedicatedEndpointsAndDecodePayloads(t *testing.T) {
 	// cases 按用户指定 registry 顺序列出，避免测试结构重新引入旧顺序。
 	cases := []providerEndpointCase{
@@ -54,11 +56,13 @@ func TestProviderAPIKeyClientsUseDedicatedEndpointsAndDecodePayloads(t *testing.
 		{name: "claude", path: "/v0/management/claude-api-key", directBody: `[{"api-key":"claude-key","prefix":"claude-prefix","base-url":"https://claude.example/v1","name":"Claude","auth-index":"claude-auth"}]`, wrappedBody: `{"claude-api-key":[{"api-key":"claude-key","prefix":"claude-prefix","base-url":"https://claude.example/v1","name":"Claude","auth-index":"claude-auth"}]}`},
 		// Vertex 继续使用原有专属 management endpoint。
 		{name: "vertex", path: "/v0/management/vertex-api-key", directBody: `[{"api-key":"vertex-key","prefix":"vertex-prefix","base-url":"https://vertex.example/v1","name":"Vertex","auth-index":"vertex-auth"}]`, wrappedBody: `{"vertex-api-key":[{"api-key":"vertex-key","prefix":"vertex-prefix","base-url":"https://vertex.example/v1","name":"Vertex","auth-index":"vertex-auth"}]}`},
+		// Meta 使用独立配置段；direct 形态同时覆盖 apiKey/base_url/authIndex alias 与可选字段。
+		{name: "meta", path: "/v0/management/meta-api-key", directBody: `[{"apiKey":"meta-key","prefix":"meta-prefix","base_url":"https://meta.example/v1","name":"Meta Team","authIndex":"meta-auth","priority":3,"disabled":false,"note":"meta note"}]`, wrappedBody: `{"meta-api-key":[{"api-key":"meta-key","prefix":"meta-prefix","base-url":"https://meta.example/v1","name":"Meta Team","auth-index":"meta-auth","priority":3,"disabled":false,"note":"meta note"}]}`, wantMeta: true},
 		// OpenAI Compatibility 继续使用 provider 层字段加多 key entry 的专属 DTO。
 		{name: "openai", path: "/v0/management/openai-compatibility", directBody: `[{"name":"OpenRouter","prefix":"openrouter","base-url":"https://openrouter.ai/api/v1","api-key-entries":[{"api-key":"openai-key","auth-index":"openai-auth"}]}]`, wrappedBody: `{"openai-compatibility":[{"id":"OpenRouter","prefix":"openrouter","base-url":"https://openrouter.ai/api/v1","api-key-entries":[{"key":"openai-key","auth_index":"openai-auth"}]}]}`, wantOpenAI: true},
 	}
 
-	// 遍历七个来源，确保每个公开 fetch 方法都受到同一 HTTP 合同约束。
+	// 遍历八个来源，确保每个公开 fetch 方法都受到同一 HTTP 合同约束。
 	for _, tc := range cases {
 		// 复制循环变量，避免子测试闭包读取下一轮内容。
 		tc := tc
@@ -119,9 +123,15 @@ func TestProviderAPIKeyClientsUseDedicatedEndpointsAndDecodePayloads(t *testing.
 					// OpenAI 专属断言完成后不再检查标准 key slice。
 					return
 				}
-				// 六类标准来源都必须保留 key、prefix、base URL、name 与 auth-index。
+				// 所有标准来源都必须保留 key、prefix、base URL、name 与 auth-index。
 				if len(result.keys) != 1 || result.keys[0].APIKey == "" || result.keys[0].Prefix == "" || result.keys[0].BaseURL == "" || result.keys[0].Name == "" || result.keys[0].AuthIndex == "" {
 					t.Fatalf("provider payload = %#v", result.keys)
+				}
+				if tc.wantMeta {
+					entry := result.keys[0]
+					if entry.APIKey != "meta-key" || entry.BaseURL != "https://meta.example/v1" || entry.AuthIndex != "meta-auth" || entry.Priority == nil || *entry.Priority != 3 || entry.Disabled == nil || *entry.Disabled || entry.Note == nil || *entry.Note != "meta note" {
+						t.Fatalf("meta payload = %#v", entry)
+					}
 				}
 			})
 		}
@@ -188,9 +198,9 @@ func TestProviderAPIKeyClientClassifiesEmptyAndBlankBodies(t *testing.T) {
 	}
 }
 
-// TestOptionalProviderEndpointsReturnTyped404WithoutLeakingBody 验证两个新 endpoint 能由 source 层按状态码识别旧 CPA。
+// TestOptionalProviderEndpointsReturnTyped404WithoutLeakingBody 验证新增 endpoint 能由 source 层按状态码识别旧 CPA。
 func TestOptionalProviderEndpointsReturnTyped404WithoutLeakingBody(t *testing.T) {
-	// fetchers 只包含两个被定义为 optional 的新 endpoint。
+	// fetchers 包含新增且允许旧 CPA typed 404 的 endpoint。
 	fetchers := []struct {
 		// name 标识 optional 来源。
 		name string
@@ -208,6 +218,13 @@ func TestOptionalProviderEndpointsReturnTyped404WithoutLeakingBody(t *testing.T)
 		{name: "xai", fetch: func(ctx context.Context, client *cpa.Client) (providerEndpointResult, error) {
 			// 调用 xAI 专属 client 方法。
 			result, err := client.FetchXAIAPIKeys(ctx)
+			// 把真实 result 转成测试统一结构。
+			return providerEndpointResult{statusCode: result.StatusCode, body: result.Body, keys: result.Payload}, err
+		}},
+		// Meta 404 同样必须保留 typed result，供 provider source 做 stale scope 判断。
+		{name: "meta", fetch: func(ctx context.Context, client *cpa.Client) (providerEndpointResult, error) {
+			// 调用 Meta 专属 client 方法。
+			result, err := client.FetchMetaAPIKeys(ctx)
 			// 把真实 result 转成测试统一结构。
 			return providerEndpointResult{statusCode: result.StatusCode, body: result.Body, keys: result.Payload}, err
 		}},
@@ -245,9 +262,9 @@ func TestOptionalProviderEndpointsReturnTyped404WithoutLeakingBody(t *testing.T)
 	}
 }
 
-// fetchProviderEndpoint 只为黑盒测试调用七个公开 client 方法并统一返回结构。
+// fetchProviderEndpoint 只为黑盒测试调用八个公开 client 方法并统一返回结构。
 func fetchProviderEndpoint(ctx context.Context, client *cpa.Client, source string) (providerEndpointResult, error) {
-	// source 与测试表的七项稳定标识一一对应。
+	// source 与测试表的八项稳定标识一一对应。
 	switch source {
 	case "codex":
 		// Codex 使用标准 key result。
@@ -278,6 +295,11 @@ func fetchProviderEndpoint(ctx context.Context, client *cpa.Client, source strin
 		// Vertex 使用标准 key result。
 		result, err := client.FetchVertexAPIKeys(ctx)
 		// 返回 Vertex HTTP 元数据与 payload。
+		return providerEndpointResult{statusCode: result.StatusCode, body: result.Body, keys: result.Payload}, err
+	case "meta":
+		// Meta 使用新增标准 key result。
+		result, err := client.FetchMetaAPIKeys(ctx)
+		// 返回 Meta HTTP 元数据与 payload。
 		return providerEndpointResult{statusCode: result.StatusCode, body: result.Body, keys: result.Payload}, err
 	case "openai":
 		// OpenAI Compatibility 使用专属 result。

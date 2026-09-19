@@ -17,8 +17,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestProviderMetadataSyncPreservesExistingFiveSourceFields 锁定五类既有 provider 的字段来源与 OpenAI 多 key 语义。
-func TestProviderMetadataSyncPreservesExistingFiveSourceFields(t *testing.T) {
+// TestProviderMetadataSyncPreservesProviderFields 锁定既有 provider 与 Meta 的字段来源及 OpenAI 多 key 语义。
+func TestProviderMetadataSyncPreservesProviderFields(t *testing.T) {
 	// db 保存公开 SyncMetadata 的最终 AI Provider 行。
 	db := openMetadataTestDatabase(t, "existing-provider-fields.db")
 	// now 固定本轮新建身份时间。
@@ -29,7 +29,7 @@ func TestProviderMetadataSyncPreservesExistingFiveSourceFields(t *testing.T) {
 	disabled := true
 	// note 验证 provider 可选备注字段原样传递。
 	note := "provider note"
-	// fetcher 默认成功空列表，本测试为五类既有来源填入互不相等的字段值。
+	// fetcher 默认成功空列表，本测试为各类来源填入互不相等的字段值。
 	fetcher := newMetadataTestFetcher()
 	// Codex 的 api-key/auth-index/prefix/base-url/name 分别使用唯一值，拒绝字段混用。
 	fetcher.standardResults["codex"] = &response.ProviderKeyConfigResult{StatusCode: 200, Payload: []providerconfig.ProviderKeyConfig{{APIKey: "secret-codex", AuthIndex: "auth-codex", Prefix: "prefix-codex", BaseURL: "https://codex.example/v1", Name: "Codex Team", Priority: &priority, Disabled: &disabled, Note: &note}}}
@@ -43,11 +43,13 @@ func TestProviderMetadataSyncPreservesExistingFiveSourceFields(t *testing.T) {
 	fetcher.standardResults["claude"] = &response.ProviderKeyConfigResult{StatusCode: 200, Payload: []providerconfig.ProviderKeyConfig{{APIKey: "secret-claude", AuthIndex: "auth-claude", Prefix: "prefix-claude", BaseURL: "https://claude.example/v1", Name: "Claude Team"}}}
 	// Vertex 保留 CPA 正确 provider type。
 	fetcher.standardResults["vertex"] = &response.ProviderKeyConfigResult{StatusCode: 200, Payload: []providerconfig.ProviderKeyConfig{{APIKey: "secret-vertex", AuthIndex: "auth-vertex", Prefix: "prefix-vertex", BaseURL: "https://vertex.example/v1", Name: "Vertex Team"}}}
+	// Meta 缺 name 时使用固定展示名，并保留 nullable optional 字段。
+	fetcher.standardResults["meta"] = &response.ProviderKeyConfigResult{StatusCode: 200, Payload: []providerconfig.ProviderKeyConfig{{APIKey: "secret-meta", AuthIndex: "auth-meta", Prefix: "prefix-meta", BaseURL: "https://meta.example/v1", Priority: &priority, Disabled: &disabled, Note: &note}}}
 	// OpenAI Compatibility 在 provider 层保存共享 metadata，在 entry 层保存多个 key/auth-index。
 	fetcher.openAIResult = &response.OpenAICompatibilityResult{StatusCode: 200, Payload: []providerconfig.OpenAICompatibilityConfig{{Name: "OpenRouter", Prefix: "prefix-openai", BaseURL: "https://openrouter.example/v1", Priority: &priority, Disabled: &disabled, Note: &note, APIKeyEntries: []providerconfig.OpenAIApiKeyEntry{{APIKey: "secret-openai-a", AuthIndex: "auth-openai-a"}, {APIKey: "secret-openai-b", AuthIndex: "auth-openai-b"}}}}}
 	// syncer 注入固定时钟和完整 fetcher。
 	syncer := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com", MetadataFetcher: fetcher, Now: func() time.Time { return now }})
-	// 执行一轮五来源成功同步。
+	// 执行一轮全部来源成功同步。
 	if err := syncer.SyncMetadata(context.Background()); err != nil {
 		// 全部来源成功时不应返回 warning。
 		t.Fatalf("SyncMetadata returned error: %v", err)
@@ -101,6 +103,13 @@ func TestProviderMetadataSyncPreservesExistingFiveSourceFields(t *testing.T) {
 		// 输出完整行定位 provider type 错误。
 		t.Fatalf("vertex provider identity = %+v", vertexRow)
 	}
+	// Meta 必须形成独立 provider identity，不能混入 OAuth Auth File 或其它 API Key 类型。
+	metaRow := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, "auth-meta")]
+	// Meta 缺 name 时使用默认展示名，lookup/base/optional 字段保持原值。
+	if metaRow.Type != "meta" || metaRow.Name != "Meta" || metaRow.Provider != "Meta" || metaRow.Identity != "auth-meta" || metaRow.LookupKey != "secret-meta" || metaRow.Prefix != "prefix-meta" || metaRow.BaseURL != "https://meta.example/v1" || metaRow.IsDeleted || metaRow.Priority == nil || *metaRow.Priority != priority || metaRow.Disabled == nil || *metaRow.Disabled != disabled || metaRow.Note == nil || *metaRow.Note != note {
+		// 输出完整行定位 Meta source 映射或 nullable 字段错误。
+		t.Fatalf("meta provider identity = %+v", metaRow)
+	}
 	// OpenAI provider 的第一条 entry 接收共享 provider metadata。
 	openAIFirst := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, "auth-openai-a")]
 	// 多 key 展平后每条 identity 都必须保留 provider 层 name/prefix/base URL。
@@ -120,8 +129,8 @@ func TestProviderMetadataSyncPreservesExistingFiveSourceFields(t *testing.T) {
 		// 存在前缀 identity 表示旧 prefix-derived 逻辑回归。
 		t.Fatalf("provider prefix created an identity: %+v", identities)
 	}
-	// 七个 provider endpoint 每轮都必须恰好调用一次。
-	for _, source := range []string{"codex", "xai", "gemini", "gemini-interactions", "claude", "vertex", "openai"} {
+	// 八个 provider endpoint 每轮都必须恰好调用一次。
+	for _, source := range []string{"codex", "xai", "gemini", "gemini-interactions", "claude", "vertex", "meta", "openai"} {
 		// 单来源调用次数必须保持一，不能遗漏或重复读取。
 		if fetcher.callCount(source) != 1 {
 			// 输出来源与真实次数定位 service 编排错误。
@@ -142,6 +151,8 @@ func TestProviderMetadataSyncKeepsFailedSourcesAndStalesOnlySuccessfulTypes(t *t
 	seed := []entities.UsageIdentity{
 		// Gemini fetch error 后必须保持 active。
 		{Name: "Old Gemini", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "old-gemini", Type: "gemini", Provider: "Gemini", CreatedAt: oldTime, UpdatedAt: oldTime},
+		// Meta fetch error 后必须保持 active，且不能影响其它 provider 的 stale scope。
+		{Name: "Old Meta", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "old-meta", Type: "meta", Provider: "Meta", LookupKey: "old-meta-secret", CreatedAt: oldTime, UpdatedAt: oldTime},
 		// Claude 成功空列表后必须 stale。
 		{Name: "Old Claude", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "old-claude", Type: "claude", Provider: "Claude", CreatedAt: oldTime, UpdatedAt: oldTime},
 		// Codex nil result 后必须保持 active。
@@ -160,6 +171,9 @@ func TestProviderMetadataSyncKeepsFailedSourcesAndStalesOnlySuccessfulTypes(t *t
 	fetcher.standardResults["gemini"] = nil
 	// 注入 Gemini fetch failure。
 	fetcher.standardErrors["gemini"] = errors.New("gemini unavailable")
+	// Meta error 验证新增 endpoint 失败不会清除本地 Meta 或其它 provider。
+	fetcher.standardResults["meta"] = nil
+	fetcher.standardErrors["meta"] = errors.New("meta unavailable")
 	// Claude 保持默认 200 空列表。
 	fetcher.standardResults["claude"] = &response.ProviderKeyConfigResult{StatusCode: 200, Payload: []providerconfig.ProviderKeyConfig{}}
 	// Codex nil result 且 nil error 是独立 warning 状态。
@@ -184,6 +198,12 @@ func TestProviderMetadataSyncKeepsFailedSourcesAndStalesOnlySuccessfulTypes(t *t
 		// 输出完整行定位错误 stale。
 		t.Fatalf("failed Gemini identity = %+v", geminiRow)
 	}
+	// Meta 失败来源同样必须保持 active 和旧时间。
+	metaRow := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, "old-meta")]
+	if metaRow.IsDeleted || metaRow.DeletedAt != nil || !metaRow.UpdatedAt.Equal(oldTime) {
+		// 输出完整行定位 Meta failure 的 stale scope 错误。
+		t.Fatalf("failed Meta identity = %+v", metaRow)
+	}
 	// Codex nil result 同样必须保持 active 和旧时间。
 	codexRow := identities[metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, "old-codex")]
 	// nil response 不得误判为成功空列表。
@@ -207,9 +227,9 @@ func TestProviderMetadataSyncKeepsFailedSourcesAndStalesOnlySuccessfulTypes(t *t
 	}
 }
 
-// TestProviderMetadataSyncNewSourcesTreatOnlyTyped404AsOptional 验证新 endpoint 的 404 保留与成功空列表 stale 语义。
+// TestProviderMetadataSyncNewSourcesTreatOnlyTyped404AsOptional 验证新增 endpoint 的 404 保留与成功空列表 stale 语义。
 func TestProviderMetadataSyncNewSourcesTreatOnlyTyped404AsOptional(t *testing.T) {
-	// db 同时保存 xAI OAuth 与两个新 AI Provider，验证 auth_type 隔离。
+	// db 同时保存 xAI OAuth 与三个新 AI Provider，验证 auth_type 隔离。
 	db := openMetadataTestDatabase(t, "new-provider-optional-404.db")
 	// oldTime 是既有行时间。
 	oldTime := time.Date(2026, 7, 14, 10, 0, 0, 0, time.UTC)
@@ -225,8 +245,10 @@ func TestProviderMetadataSyncNewSourcesTreatOnlyTyped404AsOptional(t *testing.T)
 		{Name: "xAI API Key", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "shared-xai-auth", Type: "xai", Provider: "xAI", LookupKey: "old-xai-secret", CreatedAt: oldTime, UpdatedAt: oldTime},
 		// Gemini Interactions 在 typed 404 时必须保持 active。
 		{Name: "Interactions", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "old-interactions", Type: "gemini-interactions", Provider: "Gemini Interactions", LookupKey: "old-interactions-secret", CreatedAt: oldTime, UpdatedAt: oldTime},
+		// Meta 在 typed 404 时必须保持 active。
+		{Name: "Meta", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "old-meta", Type: "meta", Provider: "Meta", LookupKey: "old-meta-secret", CreatedAt: oldTime, UpdatedAt: oldTime},
 	}
-	// 写入三条既有身份。
+	// 写入四条既有身份。
 	if err := db.Create(&seed).Error; err != nil {
 		// seed 失败不属于 optional 404 合同。
 		t.Fatalf("seed new provider identities: %v", err)
@@ -243,6 +265,9 @@ func TestProviderMetadataSyncNewSourcesTreatOnlyTyped404AsOptional(t *testing.T)
 	fetcher.standardResults["gemini-interactions"] = &response.ProviderKeyConfigResult{StatusCode: 404}
 	// 独立 error 证明两个来源都被静默跳过。
 	fetcher.standardErrors["gemini-interactions"] = errors.New("interactions endpoint missing")
+	// typed Meta 404 同样必须静默跳过，避免旧 CPA 误清理 Meta identity。
+	fetcher.standardResults["meta"] = &response.ProviderKeyConfigResult{StatusCode: 404}
+	fetcher.standardErrors["meta"] = errors.New("meta endpoint missing")
 	// currentNow 支持同一 syncer 执行兼容轮和成功空列表轮。
 	currentNow := firstNow
 	// syncer 注入固定当前轮时间。
@@ -252,7 +277,7 @@ func TestProviderMetadataSyncNewSourcesTreatOnlyTyped404AsOptional(t *testing.T)
 		// optional endpoint 被错误分类时输出真实错误。
 		t.Fatalf("typed 404 SyncMetadata returned error: %v", err)
 	}
-	// firstRows 读取兼容轮后的三条状态。
+	// firstRows 读取兼容轮后的四条状态。
 	firstRows := loadMetadataIdentityMap(t, db)
 	// xAI API Key 必须保持 active 和旧时间，因为来源未加入 fetched types。
 	xAIProvider := firstRows[metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, "shared-xai-auth")]
@@ -268,6 +293,12 @@ func TestProviderMetadataSyncNewSourcesTreatOnlyTyped404AsOptional(t *testing.T)
 		// 输出完整行定位 optional 分类错误。
 		t.Fatalf("Interactions after typed 404 = %+v", interactions)
 	}
+	// Meta typed 404 不能 stale 既有 Meta API Key 行。
+	metaProvider := firstRows[metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, "old-meta")]
+	if metaProvider.IsDeleted || metaProvider.DeletedAt != nil || !metaProvider.UpdatedAt.Equal(oldTime) {
+		// 输出完整行定位 Meta optional 分类错误。
+		t.Fatalf("Meta provider after typed 404 = %+v", metaProvider)
+	}
 	// 第二轮把两个新 endpoint 改为真正的 200 成功空列表。
 	fetcher.standardResults["xai"] = &response.ProviderKeyConfigResult{StatusCode: 200, Payload: []providerconfig.ProviderKeyConfig{}}
 	// 清除 xAI fetch error。
@@ -276,6 +307,9 @@ func TestProviderMetadataSyncNewSourcesTreatOnlyTyped404AsOptional(t *testing.T)
 	fetcher.standardResults["gemini-interactions"] = &response.ProviderKeyConfigResult{StatusCode: 200, Payload: []providerconfig.ProviderKeyConfig{}}
 	// 清除 Interactions fetch error。
 	fetcher.standardErrors["gemini-interactions"] = nil
+	// Meta 改为真正成功的空列表，第二轮应只 stale Meta provider scope。
+	fetcher.standardResults["meta"] = &response.ProviderKeyConfigResult{StatusCode: 200, Payload: []providerconfig.ProviderKeyConfig{}}
+	fetcher.standardErrors["meta"] = nil
 	// 切换到第二轮统一时间。
 	currentNow = secondNow
 	// 成功空列表轮必须完成 stale 而无 warning。
@@ -298,6 +332,12 @@ func TestProviderMetadataSyncNewSourcesTreatOnlyTyped404AsOptional(t *testing.T)
 	if !interactions.IsDeleted || interactions.DeletedAt == nil || !interactions.DeletedAt.Equal(secondNow) || !interactions.UpdatedAt.Equal(secondNow) {
 		// 输出完整行定位 Interactions stale 错误。
 		t.Fatalf("Interactions after empty list = %+v", interactions)
+	}
+	// Meta 成功空列表必须清理旧 Meta identity。
+	metaProvider = secondRows[metadataIdentityKey(entities.UsageIdentityAuthTypeAIProvider, "old-meta")]
+	if !metaProvider.IsDeleted || metaProvider.DeletedAt == nil || !metaProvider.DeletedAt.Equal(secondNow) || !metaProvider.UpdatedAt.Equal(secondNow) {
+		// 输出完整行定位 Meta empty-list stale 错误。
+		t.Fatalf("Meta provider after empty list = %+v", metaProvider)
 	}
 	// 相同 auth-index 的 OAuth xAI 仍由 Auth Files 成功刷新并保持 active。
 	xAIOAuth := secondRows[metadataIdentityKey(entities.UsageIdentityAuthTypeAuthFile, "shared-xai-auth")]
@@ -329,7 +369,7 @@ type providerPersistenceProjection struct {
 // TestProviderMetadataSyncCompletionOrderDoesNotChangeDatabase 验证 provider 完成顺序不改变最终持久化业务数据。
 func TestProviderMetadataSyncCompletionOrderDoesNotChangeDatabase(t *testing.T) {
 	// registryOrder 是用户指定的稳定归并顺序。
-	registryOrder := []string{"codex", "xai", "gemini", "gemini-interactions", "claude", "vertex", "openai"}
+	registryOrder := []string{"codex", "xai", "gemini", "gemini-interactions", "claude", "vertex", "meta", "openai"}
 	// orders 覆盖正序、逆序和混合 endpoint 完成时序。
 	orders := []struct {
 		// name 用于标识当前完成时序。
@@ -338,11 +378,11 @@ func TestProviderMetadataSyncCompletionOrderDoesNotChangeDatabase(t *testing.T) 
 		completionOrder []string
 	}{
 		// 正序与 registry 完全一致。
-		{name: "forward", completionOrder: []string{"codex", "xai", "gemini", "gemini-interactions", "claude", "vertex", "openai"}},
+		{name: "forward", completionOrder: []string{"codex", "xai", "gemini", "gemini-interactions", "claude", "vertex", "meta", "openai"}},
 		// 逆序证明 fold 不依赖最快返回来源。
-		{name: "reverse", completionOrder: []string{"openai", "vertex", "claude", "gemini-interactions", "gemini", "xai", "codex"}},
+		{name: "reverse", completionOrder: []string{"openai", "meta", "vertex", "claude", "gemini-interactions", "gemini", "xai", "codex"}},
 		// 混合顺序覆盖相邻来源交错完成。
-		{name: "mixed", completionOrder: []string{"gemini", "openai", "codex", "claude", "xai", "vertex", "gemini-interactions"}},
+		{name: "mixed", completionOrder: []string{"gemini", "openai", "codex", "claude", "xai", "meta", "vertex", "gemini-interactions"}},
 	}
 	// baseline 保存第一种时序得到的业务字段集合。
 	var baseline map[string]providerPersistenceProjection
@@ -356,7 +396,7 @@ func TestProviderMetadataSyncCompletionOrderDoesNotChangeDatabase(t *testing.T) 
 			db := openMetadataTestDatabase(t, "completion-"+order.name+".db")
 			// fetcher 默认非 provider metadata 成功空列表。
 			fetcher := newMetadataTestFetcher()
-			// entered 记录七个 endpoint 已并发开始。
+			// entered 记录八个 endpoint 已并发开始。
 			entered := make(chan string, len(registryOrder))
 			// done 记录每个 endpoint 已真正返回。
 			done := make(chan string, len(registryOrder))
@@ -364,7 +404,7 @@ func TestProviderMetadataSyncCompletionOrderDoesNotChangeDatabase(t *testing.T) 
 			gates := make(map[string]chan struct{}, len(registryOrder))
 			// gateOnce 让正常释放与 Cleanup 可以幂等关闭通道。
 			gateOnce := make(map[string]*sync.Once, len(registryOrder))
-			// 为七个来源创建独立 gate。
+			// 为八个来源创建独立 gate。
 			for _, source := range registryOrder {
 				// 当前 source 使用独立无缓冲关闭信号。
 				gates[source] = make(chan struct{})
@@ -387,7 +427,7 @@ func TestProviderMetadataSyncCompletionOrderDoesNotChangeDatabase(t *testing.T) 
 					release(source)
 				}
 			})
-			// 六个标准 provider 使用相同 gate hook，但返回各自唯一业务字段。
+			// 七个标准 provider 使用相同 gate hook，但返回各自唯一业务字段。
 			for _, source := range registryOrder[:len(registryOrder)-1] {
 				// 固定当前 source 供 hook 闭包读取。
 				source := source
@@ -437,7 +477,7 @@ func TestProviderMetadataSyncCompletionOrderDoesNotChangeDatabase(t *testing.T) 
 				// 缓冲通道保证测试清理后发送不会阻塞。
 				resultCh <- syncer.SyncMetadata(context.Background())
 			}()
-			// 七个 endpoint 必须全部开始后才允许任一返回。
+			// 八个 endpoint 必须全部开始后才允许任一返回。
 			waitForMetadataSourceSet(t, entered, registryOrder)
 			// 按当前 case 指定顺序逐个完成 endpoint。
 			for _, source := range order.completionOrder {

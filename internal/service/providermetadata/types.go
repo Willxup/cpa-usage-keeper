@@ -6,7 +6,7 @@ import (
 	"cpa-usage-keeper/internal/cpa/dto/response"
 )
 
-// Fetcher 汇总七个 provider metadata endpoint，service 通过这一接口注入真实 CPA client 或测试替身。
+// Fetcher 汇总八个 provider metadata endpoint，service 通过这一接口注入真实 CPA client 或测试替身。
 type Fetcher interface {
 	// FetchCodexAPIKeys 读取 Codex API Key metadata。
 	FetchCodexAPIKeys(context.Context) (*response.ProviderKeyConfigResult, error)
@@ -20,6 +20,8 @@ type Fetcher interface {
 	FetchClaudeAPIKeys(context.Context) (*response.ProviderKeyConfigResult, error)
 	// FetchVertexAPIKeys 读取 Vertex API Key metadata。
 	FetchVertexAPIKeys(context.Context) (*response.ProviderKeyConfigResult, error)
+	// FetchMetaAPIKeys 读取 Meta API Key metadata。
+	FetchMetaAPIKeys(context.Context) (*response.ProviderKeyConfigResult, error)
 	// FetchOpenAICompatibility 读取 OpenAI Compatibility provider 与多 key metadata。
 	FetchOpenAICompatibility(context.Context) (*response.OpenAICompatibilityResult, error)
 }

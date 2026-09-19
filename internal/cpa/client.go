@@ -139,7 +139,7 @@ func (c *Client) doManagementJSONRequestWithBody(ctx context.Context, method str
 
 const (
 	defaultRequestLogStreamIdleTimeout = 30 * time.Second
-	// 同时覆盖七路 metadata 和默认十个 quota worker（部分每个发两次请求）的空闲连接复用。
+	// 同时覆盖八路 metadata 和默认十个 quota worker（部分每个发两次请求）的空闲连接复用。
 	defaultMaxIdleConnsPerHost = 32
 )
 
@@ -496,6 +496,12 @@ func (c *Client) FetchClaudeAPIKeys(ctx context.Context) (*response.ProviderKeyC
 
 func (c *Client) FetchCodexAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
 	return c.fetchProviderKeyConfig(ctx, cpaManagementCodexAPIKeyEndpoint, "codex-api-key", "codex api keys")
+}
+
+// FetchMetaAPIKeys 读取独立的 Meta API Key metadata endpoint，不经过 Auth File 或通用 quota 路径。
+func (c *Client) FetchMetaAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
+	// 复用标准 provider key 解码器，兼容 CPA 的 direct/wrapped 响应和字段别名。
+	return c.fetchProviderKeyConfig(ctx, cpaManagementMetaAPIKeyEndpoint, "meta-api-key", "meta api keys")
 }
 
 // FetchXAIAPIKeys 读取 xAI API Key metadata endpoint，不复用 OAuth Auth File 路径。

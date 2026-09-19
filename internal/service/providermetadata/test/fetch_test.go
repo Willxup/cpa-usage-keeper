@@ -11,7 +11,7 @@ import (
 
 // TestFetchFoldsReverseCompletionInRegistryOrder 验证完成顺序不会污染 snapshot。
 func TestFetchFoldsReverseCompletionInRegistryOrder(t *testing.T) {
-	// fetcher 用独立 gate 控制七个 endpoint 的完成顺序。
+	// fetcher 用独立 gate 控制八个 endpoint 的完成顺序。
 	fetcher := newGatedProviderFetcher()
 	// 任何失败路径都释放剩余 gate。
 	t.Cleanup(fetcher.releaseAll)
@@ -25,10 +25,10 @@ func TestFetchFoldsReverseCompletionInRegistryOrder(t *testing.T) {
 		resultCh <- fetchOutcome{snapshot: snapshot, err: err}
 	}()
 
-	// 先确认七个 endpoint 已全部并发进入。
+	// 先确认八个 endpoint 已全部并发进入。
 	waitForSources(t, fetcher.entered, registrySourceOrder)
 	// reverseOrder 与 registry 完全相反。
-	reverseOrder := []string{"openai", "vertex", "claude", "gemini-interactions", "gemini", "xai", "codex"}
+	reverseOrder := []string{"openai", "meta", "vertex", "claude", "gemini-interactions", "gemini", "xai", "codex"}
 	// 逐个释放并确认完成，确保真实完成顺序可控。
 	for _, source := range reverseOrder {
 		// 释放当前反向来源。
@@ -54,7 +54,7 @@ func TestFetchFoldsReverseCompletionInRegistryOrder(t *testing.T) {
 		gotAuthIndexes = append(gotAuthIndexes, credential.AuthIndex)
 	}
 	// wantAuthIndexes 是 registry/source entry 的稳定顺序。
-	wantAuthIndexes := []string{"codex-auth", "xai-auth", "gemini-auth", "gemini-interactions-auth", "claude-auth", "vertex-auth", "openai-auth"}
+	wantAuthIndexes := []string{"codex-auth", "xai-auth", "gemini-auth", "gemini-interactions-auth", "claude-auth", "vertex-auth", "meta-auth", "openai-auth"}
 	// 完成顺序不能改变 Credential 顺序。
 	if !reflect.DeepEqual(gotAuthIndexes, wantAuthIndexes) {
 		t.Fatalf("auth indexes = %#v, want %#v", gotAuthIndexes, wantAuthIndexes)
@@ -79,11 +79,11 @@ func TestFetchKeepsOtherSourcesWhenOneProviderFails(t *testing.T) {
 		resultCh <- fetchOutcome{snapshot: snapshot, err: err}
 	}()
 
-	// 七个 endpoint 必须在任一结果返回前全部进入。
+	// 八个 endpoint 必须在任一结果返回前全部进入。
 	waitForSources(t, fetcher.entered, registrySourceOrder)
 	// 一次释放全部来源，Gemini 返回错误，其余正常成功。
 	fetcher.releaseAll()
-	// 七个 endpoint 都必须报告完成。
+	// 八个 endpoint 都必须报告完成。
 	waitForSources(t, fetcher.done, registrySourceOrder)
 	// 读取部分成功结果。
 	outcome := waitForFetchOutcome(t, resultCh)
@@ -92,20 +92,20 @@ func TestFetchKeepsOtherSourcesWhenOneProviderFails(t *testing.T) {
 		t.Fatalf("error = %v", outcome.err)
 	}
 	// 失败 Gemini 不进入 fetched types，其余六来源保持 registry 相对顺序。
-	wantTypes := []string{"codex", "xai", "gemini-interactions", "claude", "vertex", "openai"}
+	wantTypes := []string{"codex", "xai", "gemini-interactions", "claude", "vertex", "meta", "openai"}
 	// 实际 fetched types 必须与成功来源一致。
 	if !reflect.DeepEqual(outcome.snapshot.FetchedProviderTypes, wantTypes) {
 		t.Fatalf("FetchedProviderTypes = %#v, want %#v", outcome.snapshot.FetchedProviderTypes, wantTypes)
 	}
-	// 其它六个来源的 Credential 必须全部保留。
-	if len(outcome.snapshot.Credentials) != 6 {
+	// 其它七个来源的 Credential 必须全部保留。
+	if len(outcome.snapshot.Credentials) != 7 {
 		t.Fatalf("Credentials = %#v", outcome.snapshot.Credentials)
 	}
 }
 
 // TestFetchPreservesCompletedSourcesAndWaitsForCancellation 验证 caller 取消时的部分结果和 goroutine 退出。
 func TestFetchPreservesCompletedSourcesAndWaitsForCancellation(t *testing.T) {
-	// fetcher 的七个 endpoint 先全部进入独立 gate。
+	// fetcher 的八个 endpoint 先全部进入独立 gate。
 	fetcher := newGatedProviderFetcher()
 	// 任何失败路径都释放剩余 gate。
 	t.Cleanup(fetcher.releaseAll)
@@ -123,16 +123,16 @@ func TestFetchPreservesCompletedSourcesAndWaitsForCancellation(t *testing.T) {
 		resultCh <- fetchOutcome{snapshot: snapshot, err: err}
 	}()
 
-	// 七个 endpoint 必须全部进入，证明取消不是由串行调度造成。
+	// 八个 endpoint 必须全部进入，证明取消不是由串行调度造成。
 	waitForSources(t, fetcher.entered, registrySourceOrder)
 	// 先释放 Codex，让一个来源在取消前真实成功。
 	fetcher.release("codex")
 	// 等待 Codex 报告完成，固定部分成功边界。
 	waitForSources(t, fetcher.done, []string{"codex"})
-	// 取消 caller context，使剩余六个 endpoint 返回 context warning。
+	// 取消 caller context，使剩余七个 endpoint 返回 context warning。
 	cancel()
-	// 剩余六个 endpoint 必须全部退出，不允许 goroutine 泄漏。
-	waitForSources(t, fetcher.done, []string{"xai", "gemini", "gemini-interactions", "claude", "vertex", "openai"})
+	// 剩余七个 endpoint 必须全部退出，不允许 goroutine 泄漏。
+	waitForSources(t, fetcher.done, []string{"xai", "gemini", "gemini-interactions", "claude", "vertex", "meta", "openai"})
 	// 读取 context 取消后的部分成功结果。
 	outcome := waitForFetchOutcome(t, resultCh)
 	// Codex 成功结果必须保留。
@@ -140,8 +140,8 @@ func TestFetchPreservesCompletedSourcesAndWaitsForCancellation(t *testing.T) {
 		t.Fatalf("snapshot = %#v", outcome.snapshot)
 	}
 	// 取消 warning 必须按剩余来源的 registry 顺序稳定归并。
-	wantError := "fetch xai api keys: context canceled; fetch gemini api keys: context canceled; fetch interactions api keys: context canceled; fetch claude api keys: context canceled; fetch vertex api keys: context canceled; fetch openai compatibility: context canceled"
-	// 实际 error 必须完整包含六个来源且顺序稳定。
+	wantError := "fetch xai api keys: context canceled; fetch gemini api keys: context canceled; fetch interactions api keys: context canceled; fetch claude api keys: context canceled; fetch vertex api keys: context canceled; fetch meta api keys: context canceled; fetch openai compatibility: context canceled"
+	// 实际 error 必须完整包含七个失败来源且顺序稳定。
 	if outcome.err == nil || outcome.err.Error() != wantError {
 		t.Fatalf("error = %v, want %q", outcome.err, wantError)
 	}

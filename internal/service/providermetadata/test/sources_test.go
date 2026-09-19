@@ -12,7 +12,7 @@ import (
 	"cpa-usage-keeper/internal/service/providermetadata"
 )
 
-// providerFetcherStub 为七个公开 endpoint 提供彼此独立的 result/error。
+// providerFetcherStub 为八个公开 endpoint 提供彼此独立的 result/error。
 type providerFetcherStub struct {
 	// codexResult 保存 Codex endpoint result。
 	codexResult *response.ProviderKeyConfigResult
@@ -38,6 +38,10 @@ type providerFetcherStub struct {
 	vertexResult *response.ProviderKeyConfigResult
 	// vertexErr 保存 Vertex endpoint error。
 	vertexErr error
+	// metaResult 保存 Meta endpoint result。
+	metaResult *response.ProviderKeyConfigResult
+	// metaErr 保存 Meta endpoint error。
+	metaErr error
 	// openAIResult 保存 OpenAI Compatibility endpoint result。
 	openAIResult *response.OpenAICompatibilityResult
 	// openAIErr 保存 OpenAI Compatibility endpoint error。
@@ -80,13 +84,19 @@ func (s *providerFetcherStub) FetchVertexAPIKeys(context.Context) (*response.Pro
 	return s.vertexResult, s.vertexErr
 }
 
+// FetchMetaAPIKeys 返回测试配置的 Meta 结果。
+func (s *providerFetcherStub) FetchMetaAPIKeys(context.Context) (*response.ProviderKeyConfigResult, error) {
+	// endpoint 间不共享状态，便于验证 Meta 独立 stale scope。
+	return s.metaResult, s.metaErr
+}
+
 // FetchOpenAICompatibility 返回测试配置的 OpenAI Compatibility 结果。
 func (s *providerFetcherStub) FetchOpenAICompatibility(context.Context) (*response.OpenAICompatibilityResult, error) {
 	// OpenAI 保留专属 result 类型，不压成标准 key result。
 	return s.openAIResult, s.openAIErr
 }
 
-// successfulProviderFetcher 构造七个 200 空列表，调用方只覆盖当前场景需要的来源。
+// successfulProviderFetcher 构造八个 200 空列表，调用方只覆盖当前场景需要的来源。
 func successfulProviderFetcher() *providerFetcherStub {
 	// 每个 result 都显式为 200，空 payload 仍表示来源成功抓取。
 	return &providerFetcherStub{
@@ -102,13 +112,15 @@ func successfulProviderFetcher() *providerFetcherStub {
 		claudeResult: &response.ProviderKeyConfigResult{StatusCode: http.StatusOK},
 		// Vertex 默认成功空列表。
 		vertexResult: &response.ProviderKeyConfigResult{StatusCode: http.StatusOK},
+		// Meta 默认成功空列表。
+		metaResult: &response.ProviderKeyConfigResult{StatusCode: http.StatusOK},
 		// OpenAI 默认成功空列表。
 		openAIResult: &response.OpenAICompatibilityResult{StatusCode: http.StatusOK},
 	}
 }
 
-// TestFetchNormalizesSevenSourcesInRegistryOrder 验证七来源字段和稳定顺序。
-func TestFetchNormalizesSevenSourcesInRegistryOrder(t *testing.T) {
+// TestFetchNormalizesEightSourcesInRegistryOrder 验证八来源字段和稳定顺序。
+func TestFetchNormalizesEightSourcesInRegistryOrder(t *testing.T) {
 	// priority 验证可选数值字段按指针原样传播。
 	priority := 7
 	// disabled 验证 false 指针不会被误当成缺失。
@@ -136,22 +148,24 @@ func TestFetchNormalizesSevenSourcesInRegistryOrder(t *testing.T) {
 	fetcher.claudeResult.Payload = []providerconfig.ProviderKeyConfig{{APIKey: "claude-key", Prefix: "claude-prefix", Name: "Claude Team", BaseURL: "https://claude.example/v1", AuthIndex: "claude-auth"}}
 	// Vertex 缺 name 时必须保持原默认名 vertex。
 	fetcher.vertexResult.Payload = []providerconfig.ProviderKeyConfig{{APIKey: "vertex-key", Prefix: "vertex-prefix", BaseURL: "https://vertex.example/v1", AuthIndex: "vertex-auth"}}
+	// Meta 缺 name 时必须使用固定展示名 Meta，并保留 nullable optional 字段。
+	fetcher.metaResult.Payload = []providerconfig.ProviderKeyConfig{{APIKey: "meta-key", Prefix: "meta-prefix", BaseURL: "https://meta.example/v1", AuthIndex: "meta-auth", Priority: &priority, Disabled: &disabled, Note: &note}}
 	// OpenAI provider 层字段必须传播到有效 key entry，空 key entry 必须跳过。
 	fetcher.openAIResult.Payload = []providerconfig.OpenAICompatibilityConfig{{Name: "OpenRouter", Prefix: "openrouter", BaseURL: "https://openrouter.ai/api/v1", APIKeyEntries: []providerconfig.OpenAIApiKeyEntry{{APIKey: "openai-key", AuthIndex: "openai-auth"}, {AuthIndex: "openai-invalid"}}}}
 
-	// 通过唯一公开入口执行七来源归一化。
+	// 通过唯一公开入口执行八来源归一化。
 	snapshot, err := providermetadata.Fetch(context.Background(), fetcher)
 	// 全成功输入不允许产生 warning。
 	if err != nil {
 		t.Fatalf("Fetch returned error: %v", err)
 	}
 	// wantTypes 锁定用户指定 registry 顺序。
-	wantTypes := []string{"codex", "xai", "gemini", "gemini-interactions", "claude", "vertex", "openai"}
+	wantTypes := []string{"codex", "xai", "gemini", "gemini-interactions", "claude", "vertex", "meta", "openai"}
 	// 实际 fetched types 必须与 registry 完全一致。
 	if !reflect.DeepEqual(snapshot.FetchedProviderTypes, wantTypes) {
 		t.Fatalf("FetchedProviderTypes = %#v, want %#v", snapshot.FetchedProviderTypes, wantTypes)
 	}
-	// wantCredentials 逐字段锁定七个有效 Credential 的来源和顺序。
+	// wantCredentials 逐字段锁定八个有效 Credential 的来源和顺序。
 	wantCredentials := []providermetadata.Credential{
 		// Codex 保留自带 name 和全部可选字段。
 		{LookupKey: "codex-key", Prefix: "codex-prefix", ProviderType: "codex", DisplayName: "Codex Team", AuthIndex: "codex-auth", BaseURL: "https://codex.example/v1", Priority: &priority, Disabled: &disabled, Note: &note},
@@ -165,6 +179,8 @@ func TestFetchNormalizesSevenSourcesInRegistryOrder(t *testing.T) {
 		{LookupKey: "claude-key", Prefix: "claude-prefix", ProviderType: "claude", DisplayName: "Claude Team", AuthIndex: "claude-auth", BaseURL: "https://claude.example/v1"},
 		// Vertex 保持 vertex 正确拼写。
 		{LookupKey: "vertex-key", Prefix: "vertex-prefix", ProviderType: "vertex", DisplayName: "vertex", AuthIndex: "vertex-auth", BaseURL: "https://vertex.example/v1"},
+		// Meta 缺 name 时使用默认展示名 Meta 并保留可选字段。
+		{LookupKey: "meta-key", Prefix: "meta-prefix", ProviderType: "meta", DisplayName: "Meta", AuthIndex: "meta-auth", BaseURL: "https://meta.example/v1", Priority: &priority, Disabled: &disabled, Note: &note},
 		// OpenAI entry 接收 provider 层字段。
 		{LookupKey: "openai-key", Prefix: "openrouter", ProviderType: "openai", DisplayName: "OpenRouter", AuthIndex: "openai-auth", BaseURL: "https://openrouter.ai/api/v1"},
 	}
@@ -222,7 +238,7 @@ func TestFetchPropagatesOpenAIProviderFieldsToEveryValidEntry(t *testing.T) {
 func TestFetchClassifiesOptionalFailuresAndSuccessfulEmptySources(t *testing.T) {
 	// optional typed 404 必须静默跳过且不进入 fetched types。
 	t.Run("optional typed 404", func(t *testing.T) {
-		// fetcher 默认七来源成功空列表。
+		// fetcher 默认八来源成功空列表。
 		fetcher := successfulProviderFetcher()
 		// xAI 返回带状态码的 typed 404。
 		fetcher.xaiResult = &response.ProviderKeyConfigResult{StatusCode: http.StatusNotFound}
@@ -240,7 +256,7 @@ func TestFetchClassifiesOptionalFailuresAndSuccessfulEmptySources(t *testing.T) 
 			t.Fatalf("Fetch returned error: %v", err)
 		}
 		// optional 来源不进入 fetched types，其余成功来源仍按 registry 顺序保留。
-		wantTypes := []string{"codex", "gemini", "claude", "vertex", "openai"}
+		wantTypes := []string{"codex", "gemini", "claude", "vertex", "meta", "openai"}
 		// fetched types 必须精确匹配剩余成功来源。
 		if !reflect.DeepEqual(snapshot.FetchedProviderTypes, wantTypes) {
 			t.Fatalf("FetchedProviderTypes = %#v, want %#v", snapshot.FetchedProviderTypes, wantTypes)
@@ -263,7 +279,7 @@ func TestFetchClassifiesOptionalFailuresAndSuccessfulEmptySources(t *testing.T) 
 			t.Fatalf("error = %v", err)
 		}
 		// 失败 xAI 不进入 fetched types。
-		if reflect.DeepEqual(snapshot.FetchedProviderTypes, []string{"codex", "xai", "gemini", "gemini-interactions", "claude", "vertex", "openai"}) {
+		if reflect.DeepEqual(snapshot.FetchedProviderTypes, []string{"codex", "xai", "gemini", "gemini-interactions", "claude", "vertex", "meta", "openai"}) {
 			t.Fatalf("xai unexpectedly marked fetched: %#v", snapshot.FetchedProviderTypes)
 		}
 	})
@@ -290,7 +306,7 @@ func TestFetchClassifiesOptionalFailuresAndSuccessfulEmptySources(t *testing.T) 
 			t.Fatalf("error = %v, want %q", err, wantError)
 		}
 		// 失败来源不进入 fetched types，成功来源继续保留。
-		wantTypes := []string{"xai", "gemini-interactions", "vertex", "openai"}
+		wantTypes := []string{"xai", "gemini-interactions", "vertex", "meta", "openai"}
 		// fetched types 必须精确匹配成功来源。
 		if !reflect.DeepEqual(snapshot.FetchedProviderTypes, wantTypes) {
 			t.Fatalf("FetchedProviderTypes = %#v, want %#v", snapshot.FetchedProviderTypes, wantTypes)
@@ -303,6 +319,8 @@ func TestFetchClassifiesOptionalFailuresAndSuccessfulEmptySources(t *testing.T) 
 		fetcher := successfulProviderFetcher()
 		// Gemini 返回非空但全部缺必填字段的 payload。
 		fetcher.geminiResult.Payload = []providerconfig.ProviderKeyConfig{{APIKey: "missing-auth"}, {AuthIndex: "missing-key"}}
+		// Meta 同样只返回无效条目，不能制造空 identity。
+		fetcher.metaResult.Payload = []providerconfig.ProviderKeyConfig{{APIKey: "meta-missing-auth"}, {AuthIndex: "meta-missing-key"}}
 
 		// 执行本轮来源状态归并。
 		snapshot, err := providermetadata.Fetch(context.Background(), fetcher)
@@ -310,8 +328,8 @@ func TestFetchClassifiesOptionalFailuresAndSuccessfulEmptySources(t *testing.T) 
 		if err != nil {
 			t.Fatalf("Fetch returned error: %v", err)
 		}
-		// 七个成功 endpoint 都必须进入 fetched types。
-		if len(snapshot.FetchedProviderTypes) != 7 {
+		// 八个成功 endpoint 都必须进入 fetched types。
+		if len(snapshot.FetchedProviderTypes) != 8 {
 			t.Fatalf("FetchedProviderTypes = %#v", snapshot.FetchedProviderTypes)
 		}
 		// 所有 payload 都为空或无效，因此不能生成 Credential。

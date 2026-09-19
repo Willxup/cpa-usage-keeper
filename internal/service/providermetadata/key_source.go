@@ -13,7 +13,7 @@ import (
 // providerKeyFetch 描述一个标准 API Key endpoint 的公开 Fetcher 方法。
 type providerKeyFetch func(context.Context, Fetcher) (*response.ProviderKeyConfigResult, error)
 
-// newProviderKeySource 组装六类标准 API Key source 的共同状态转换。
+// newProviderKeySource 组装七类标准 API Key source 的共同状态转换。
 func newProviderKeySource(id string, providerType string, defaultDisplayName string, warningName string, optionalNotFound bool, endpointFetch providerKeyFetch) source {
 	// item 先保存不随请求变化的来源合同。
 	item := source{id: id, providerType: providerType, defaultDisplayName: defaultDisplayName, warningName: warningName, optionalNotFound: optionalNotFound}

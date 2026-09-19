@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-// ProviderKeyConfig 是 gemini/claude/codex/vertex API key 配置的兼容归一化视图，支持 CPA 返回的多种 key 命名。
+// ProviderKeyConfig 是标准 API key provider 配置的兼容归一化视图，支持 CPA 返回的多种 key 命名。
 type ProviderKeyConfig struct {
 	APIKey         string
 	Prefix         string
