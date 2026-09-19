@@ -333,6 +333,8 @@ func inspectionQuotaLimitReached(identity entities.UsageIdentity, task *RefreshT
 		return kimiInspectionLimitReached(rows)
 	case "xai":
 		return xaiInspectionLimitReached(rows)
+	case "opencode-go":
+		return openCodeGoInspectionLimitReached(rows)
 	default:
 		return false
 	}
@@ -348,7 +350,7 @@ func inspectionQuotaProvider(identity entities.UsageIdentity, task *RefreshTaskR
 	for _, value := range []string{taskType, identity.Type} {
 		normalized := strings.ToLower(strings.TrimSpace(value))
 		switch normalized {
-		case "antigravity", "codex", "gemini-cli", "claude", "kimi", "xai":
+		case "antigravity", "codex", "gemini-cli", "claude", "kimi", "xai", "opencode-go":
 			return normalized
 		}
 	}
@@ -415,6 +417,22 @@ func xaiInspectionLimitReached(rows []QuotaRow) bool {
 			continue
 		}
 		if quotaRowUsedAtLimit(row) {
+			return true
+		}
+	}
+	return false
+}
+
+func openCodeGoInspectionLimitReached(rows []QuotaRow) bool {
+	// OpenCode Go 每个窗口只给百分比；显式标志优先，否则按百分比判断。
+	for _, row := range rows {
+		if row.LimitReached != nil {
+			if *row.LimitReached {
+				return true
+			}
+			continue
+		}
+		if quotaRowUsedPercentAtLeast(row, 100) {
 			return true
 		}
 	}

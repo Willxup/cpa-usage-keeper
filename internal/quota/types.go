@@ -342,6 +342,23 @@ type XAIResult struct {
 	Monthly *XAIBillingPayload `json:"monthly,omitempty"`
 }
 
+// OpenCodeGoWindow 对应 OpenCode Go usage 接口返回的单个配额窗口（percent 已是 0-100）。
+type OpenCodeGoWindow struct {
+	Status   string   `json:"status,omitempty"`
+	Percent  *float64 `json:"percent,omitempty"`
+	ResetsAt string   `json:"resetsAt,omitempty"`
+}
+
+type OpenCodeGoUsagePayload struct {
+	Rolling *OpenCodeGoWindow `json:"rolling,omitempty"`
+	Weekly  *OpenCodeGoWindow `json:"weekly,omitempty"`
+	Monthly *OpenCodeGoWindow `json:"monthly,omitempty"`
+}
+
+type OpenCodeGoResult struct {
+	Usage *OpenCodeGoUsagePayload `json:"usage"`
+}
+
 type ProviderHandler interface {
 	Check(context.Context, ProviderInput) (ProviderOutput, error)
 }

@@ -33,7 +33,7 @@ func TestProviderRegistrySupportsQuotaIdentityTypes(t *testing.T) {
 func TestDefaultProviderRegistrySupportsReferenceQuotaIdentityTypes(t *testing.T) {
 	registry := quota.NewDefaultProviderRegistry(&recordingManagementCaller{}, quota.DefaultProviderConfigs())
 
-	for _, identityType := range []string{"antigravity", "codex", "gemini-cli", "claude", "kimi", "xai"} {
+	for _, identityType := range []string{"antigravity", "codex", "gemini-cli", "claude", "kimi", "xai", "opencode-go"} {
 		if _, ok := registry.Provider(identityType); !ok {
 			t.Fatalf("expected default registry to support %q", identityType)
 		}

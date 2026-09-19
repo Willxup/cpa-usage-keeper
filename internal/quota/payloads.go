@@ -514,6 +514,42 @@ func parseCodexResetCreditsResponse(response *apicall.Response) (ProviderResetCr
 	return ProviderResetCreditsOutput{AvailableCount: availableCount, Credits: credits}, nil
 }
 
+func parseOpenCodeGoUsagePayload(response *apicall.Response) (*OpenCodeGoUsagePayload, error) {
+	object, err := parseResponseObject(response)
+	if err != nil {
+		return nil, err
+	}
+	usageObject := objectField(object, "usage")
+	if usageObject == nil {
+		return nil, fmt.Errorf("parse opencode-go usage payload")
+	}
+	payload := &OpenCodeGoUsagePayload{
+		Rolling: parseOpenCodeGoWindow(objectField(usageObject, "rolling")),
+		Weekly:  parseOpenCodeGoWindow(objectField(usageObject, "weekly")),
+		Monthly: parseOpenCodeGoWindow(objectField(usageObject, "monthly")),
+	}
+	// 没有任何可识别窗口说明上游契约变化；按失败返回，避免缓存一次空成功。
+	if payload.Rolling == nil && payload.Weekly == nil && payload.Monthly == nil {
+		return nil, fmt.Errorf("opencode-go usage payload has no quota window")
+	}
+	return payload, nil
+}
+
+func parseOpenCodeGoWindow(object map[string]json.RawMessage) *OpenCodeGoWindow {
+	if object == nil {
+		return nil
+	}
+	window := &OpenCodeGoWindow{
+		Status:   stringField(object, "status"),
+		Percent:  floatPtrField(object, "percent"),
+		ResetsAt: stringField(object, "resetsAt", "resets_at"),
+	}
+	if window.Status == "" && window.Percent == nil && window.ResetsAt == "" {
+		return nil
+	}
+	return window
+}
+
 func parseResponseObject(response *apicall.Response) (map[string]json.RawMessage, error) {
 	if response == nil {
 		return nil, fmt.Errorf("missing quota response")

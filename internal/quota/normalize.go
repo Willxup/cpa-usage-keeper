@@ -65,6 +65,13 @@ func NormalizeQuotaRows(output ProviderOutput) []QuotaRow {
 			return nil
 		}
 		return normalizeXAIQuotaRows(*result)
+	case OpenCodeGoResult:
+		return normalizeOpenCodeGoQuotaRows(result)
+	case *OpenCodeGoResult:
+		if result == nil {
+			return nil
+		}
+		return normalizeOpenCodeGoQuotaRows(*result)
 	default:
 		return nil
 	}
@@ -112,6 +119,42 @@ func appendClaudeWindowQuotaRow(rows []QuotaRow, key string, label string, scope
 		row.Window = &QuotaWindow{Seconds: intPtr(quotaWindowFiveHourSeconds)}
 	} else if strings.HasPrefix(key, "seven_day") {
 		row.Window = &QuotaWindow{Seconds: intPtr(quotaWindowSevenDaySeconds)}
+	}
+	return append(rows, row)
+}
+
+func normalizeOpenCodeGoQuotaRows(result OpenCodeGoResult) []QuotaRow {
+	// 上游三个窗口彼此独立；保持 rolling、weekly、monthly 的固定顺序。
+	if result.Usage == nil {
+		return nil
+	}
+	rows := make([]QuotaRow, 0, 3)
+	rows = appendOpenCodeGoWindowQuotaRow(rows, "rolling", "Rolling", result.Usage.Rolling)
+	rows = appendOpenCodeGoWindowQuotaRow(rows, "weekly", "Weekly", result.Usage.Weekly)
+	rows = appendOpenCodeGoWindowQuotaRow(rows, "monthly", "Monthly", result.Usage.Monthly)
+	return rows
+}
+
+func appendOpenCodeGoWindowQuotaRow(rows []QuotaRow, key string, label string, window *OpenCodeGoWindow) []QuotaRow {
+	if window == nil {
+		return rows
+	}
+	row := QuotaRow{
+		Key:         "opencode_go." + key,
+		Label:       label,
+		Scope:       "window",
+		UsedPercent: window.Percent,
+		ResetAt:     window.ResetsAt,
+	}
+	// "rolling" 上游未给出明确时长，只给语义明确的 weekly/monthly 补 seconds。
+	switch key {
+	case "weekly":
+		row.Window = &QuotaWindow{Seconds: intPtr(quotaWindowSevenDaySeconds)}
+	case "monthly":
+		row.Window = &QuotaWindow{Seconds: intPtr(quotaWindowThirtyDaySeconds)}
+	}
+	if window.Percent != nil {
+		row.LimitReached = boolPtr(*window.Percent >= 100)
 	}
 	return append(rows, row)
 }

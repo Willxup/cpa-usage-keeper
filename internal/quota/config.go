@@ -50,6 +50,7 @@ type ProviderConfigs struct {
 	ClaudeProfile            APICallConfig
 	Kimi                     APICallConfig
 	XAIWeekly                APICallConfig
+	OpenCodeGo               APICallConfig
 	XAIMonthly               APICallConfig
 }
 
@@ -164,6 +165,14 @@ func DefaultProviderConfigs() ProviderConfigs {
 			URL:     "https://cli-chat-proxy.grok.com/v1/billing",
 			Headers: xaiRequestHeaders(),
 		},
+		OpenCodeGo: APICallConfig{
+			Method: "GET",
+			URL:    "https://opencode.ai/zen/go/v1/usage",
+			Headers: map[string]string{
+				"Authorization": "Bearer $TOKEN$",
+				"Accept":        "application/json",
+			},
+		},
 	}
 }
 
@@ -179,7 +188,7 @@ func xaiRequestHeaders() map[string]string {
 }
 
 func (c ProviderConfigs) APICallTemplates() []APICallConfig {
-	templates := make([]APICallConfig, 0, len(c.Antigravity)+len(c.AntigravitySubscriptions)+8)
+	templates := make([]APICallConfig, 0, len(c.Antigravity)+len(c.AntigravitySubscriptions)+9)
 	templates = append(templates, c.Antigravity...)
 	templates = append(templates, c.AntigravitySubscriptions...)
 	templates = append(templates,
@@ -191,6 +200,7 @@ func (c ProviderConfigs) APICallTemplates() []APICallConfig {
 		c.Kimi,
 		c.XAIWeekly,
 		c.XAIMonthly,
+		c.OpenCodeGo,
 	)
 	return templates
 }
