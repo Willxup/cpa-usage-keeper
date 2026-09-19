@@ -1,9 +1,11 @@
 import antigravityIcon from '@/assets/icons/antigravity.svg'
 import claudeIcon from '@/assets/icons/claude.svg'
 import codexIcon from '@/assets/icons/codex.svg'
+import devinIcon from '@/assets/icons/devin.svg'
 import geminiIcon from '@/assets/icons/gemini.svg'
 import grokIcon from '@/assets/icons/grok.svg'
 import kimiIcon from '@/assets/icons/kimi.svg'
+import metaIcon from '@/assets/icons/meta.svg'
 import openaiIcon from '@/assets/icons/openai.svg'
 import vertexIcon from '@/assets/icons/vertex.svg'
 import styles from './ProviderBrandIcon.module.scss'
@@ -12,8 +14,10 @@ export const PROVIDER_BRAND_ICON_KEYS = [
   'antigravity',
   'claude',
   'codex',
+  'devin',
   'gemini',
   'kimi',
+  'meta',
   'openai',
   'vertex',
   'xai',
@@ -33,10 +37,12 @@ const providerBrandIconKeyByType: Readonly<Record<string, ProviderBrandIconKey>>
   antigravity: 'antigravity',
   claude: 'claude',
   codex: 'codex',
+  devin: 'devin',
   gemini: 'gemini',
   'gemini-cli': 'gemini',
   'gemini-interactions': 'gemini',
   kimi: 'kimi',
+  meta: 'meta',
   openai: 'openai',
   vertex: 'vertex',
   xai: 'xai',
@@ -47,8 +53,10 @@ const providerBrandIconUrlByKey: Readonly<Record<ProviderBrandIconKey, string>> 
   antigravity: antigravityIcon,
   claude: claudeIcon,
   codex: codexIcon,
+  devin: devinIcon,
   gemini: geminiIcon,
   kimi: kimiIcon,
+  meta: metaIcon,
   openai: openaiIcon,
   vertex: vertexIcon,
   xai: grokIcon,

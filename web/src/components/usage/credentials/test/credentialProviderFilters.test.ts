@@ -14,6 +14,8 @@ describe('credentialProviderFilters', () => {
       { type: 'claude', count: 2 },
       // Codex Auth File 应生成独立按钮。
       { type: 'codex', count: 3 },
+      // Devin Auth File 应生成独立按钮。
+      { type: 'devin', count: 9 },
       // 普通 Gemini Auth File 与 Gemini CLI 归入同一个品牌按钮。
       { type: 'gemini', count: 2 },
       // Kimi Auth File 应生成独立按钮。
@@ -26,6 +28,8 @@ describe('credentialProviderFilters', () => {
       { type: 'xai', count: 6 },
       // Vertex 导入凭证应生成独立按钮。
       { type: 'vertex', count: 7 },
+      // Meta 是 AI Provider 专属 type，只计入 Auth Files 的 All。
+      { type: 'meta', count: 10 },
       // Gemini Interactions 不是 Auth File 专用筛选项，只计入 All。
       { type: 'gemini-interactions', count: 3 },
       // 未知类型只计入 All。
@@ -36,16 +40,18 @@ describe('credentialProviderFilters', () => {
     // All 保留全部原始行计数，专用按钮只显示 CPA 内置 Auth File 品牌。
     expect(options.map((option) => [option.key, option.count])).toEqual([
       // All 不隐藏插件或未来类型的数据。
-      ['all', 45],
+      ['all', 64],
       ['antigravity', 1],
       ['claude', 2],
       ['codex', 3],
+      ['devin', 9],
       ['gemini', 6],
       ['kimi', 4],
       ['xai', 6],
       ['vertex', 7],
     ])
     expect(credentialProviderFilterTypes('auth-files', 'gemini')).toEqual(['gemini', 'gemini-cli'])
+    expect(credentialProviderFilterTypes('auth-files', 'devin')).toEqual(['devin'])
     expect(credentialProviderFilterTypes('auth-files', 'kimi')).toEqual(['kimi'])
     expect(credentialProviderFilterTypes('auth-files', 'xai')).toEqual(['xai'])
     expect(credentialProviderFilterTypes('auth-files', 'vertex')).toEqual(['vertex'])
@@ -68,6 +74,8 @@ describe('credentialProviderFilters', () => {
       { type: 'claude', count: 1 },
       // Vertex 使用独立按钮。
       { type: 'vertex', count: 3 },
+      // Meta API Key 使用独立 provider type 和品牌按钮。
+      { type: 'meta', count: 8 },
       // OpenAI Compatibility 保持既有 OpenAI 按钮。
       { type: 'openai', count: 5 },
       // 未知 provider 只进入 All。
@@ -77,12 +85,13 @@ describe('credentialProviderFilters', () => {
     const options = buildCredentialProviderFilterOptions('ai-provider', counts)
     // Gemini count 是两种原始 type 之和，其余来源按 CPA registry 顺序排列。
     expect(options.map((option) => [option.key, option.count, option.labelKey])).toEqual([
-      ['all', 35, 'usage_stats.credentials_filter_all'],
+      ['all', 43, 'usage_stats.credentials_filter_all'],
       ['codex', 6, 'usage_stats.credentials_filter_codex'],
       ['xai', 4, 'usage_stats.credentials_filter_xai'],
       ['gemini', 9, 'usage_stats.credentials_filter_gemini'],
       ['claude', 1, 'usage_stats.credentials_filter_claude'],
       ['vertex', 3, 'usage_stats.credentials_filter_vertex'],
+      ['meta', 8, 'usage_stats.credentials_filter_meta'],
       ['openai', 5, 'usage_stats.credentials_filter_openai'],
     ])
     // Gemini 品牌查询必须同时发送普通、CLI 与 Interactions 原始 type。
@@ -90,6 +99,7 @@ describe('credentialProviderFilters', () => {
     // xAI AI Provider 查询只发送 xai。
     expect(credentialProviderFilterTypes('ai-provider', 'xai')).toEqual(['xai'])
     expect(credentialProviderFilterTypes('ai-provider', 'vertex')).toEqual(['vertex'])
+    expect(credentialProviderFilterTypes('ai-provider', 'meta')).toEqual(['meta'])
     // OpenAI AI Provider 查询继续只发送 openai。
     expect(credentialProviderFilterTypes('ai-provider', 'openai')).toEqual(['openai'])
   })

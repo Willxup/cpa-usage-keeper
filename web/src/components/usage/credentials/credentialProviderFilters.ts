@@ -22,6 +22,7 @@ const AUTH_FILE_PROVIDER_FILTERS: KnownCredentialProviderFilter[] = [
   { key: 'antigravity', labelKey: 'usage_stats.credentials_filter_antigravity', types: ['antigravity'] },
   { key: 'claude', labelKey: 'usage_stats.credentials_filter_claude', types: ['claude'] },
   { key: 'codex', labelKey: 'usage_stats.credentials_filter_codex', types: ['codex'] },
+  { key: 'devin', labelKey: 'usage_stats.credentials_filter_devin', types: ['devin'] },
   // Gemini Auth File 兼容 CPA 的原始与 CLI type，并统一复用 Gemini 品牌筛选。
   { key: 'gemini', labelKey: 'usage_stats.credentials_filter_gemini', types: ['gemini', 'gemini-cli'] },
   { key: 'kimi', labelKey: 'usage_stats.credentials_filter_kimi', types: ['kimi'] },
@@ -36,6 +37,7 @@ const AI_PROVIDER_FILTERS: KnownCredentialProviderFilter[] = [
   { key: 'gemini', labelKey: 'usage_stats.credentials_filter_gemini', types: ['gemini', 'gemini-cli', 'gemini-interactions'] },
   { key: 'claude', labelKey: 'usage_stats.credentials_filter_claude', types: ['claude'] },
   { key: 'vertex', labelKey: 'usage_stats.credentials_filter_vertex', types: ['vertex'] },
+  { key: 'meta', labelKey: 'usage_stats.credentials_filter_meta', types: ['meta'] },
   { key: 'openai', labelKey: 'usage_stats.credentials_filter_openai', types: ['openai'] },
 ]
 

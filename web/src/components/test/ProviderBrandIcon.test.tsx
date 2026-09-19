@@ -9,8 +9,10 @@ const lobeProviderIconAssets = [
   ['antigravity.svg', 'Antigravity'],
   ['claude.svg', 'Claude'],
   ['codex.svg', 'Codex'],
+  ['devin.svg', 'Devin'],
   ['gemini.svg', 'Gemini'],
   ['kimi.svg', 'Kimi'],
+  ['meta.svg', 'Meta'],
   ['openai.svg', 'OpenAI'],
   ['vertex.svg', 'VertexAI'],
   ['grok.svg', 'Grok'],
@@ -22,8 +24,10 @@ describe('ProviderBrandIcon', () => {
       'antigravity',
       'claude',
       'codex',
+      'devin',
       'gemini',
       'kimi',
+      'meta',
       'openai',
       'vertex',
       'xai',
@@ -31,8 +35,10 @@ describe('ProviderBrandIcon', () => {
       'antigravity',
       'claude',
       'codex',
+      'devin',
       'gemini',
       'kimi',
+      'meta',
       'openai',
       'vertex',
       'xai',
@@ -72,7 +78,7 @@ describe('ProviderBrandIcon', () => {
     expect(html).toContain('style="width:100%;height:100%"')
   })
 
-  it('keeps all eight provider assets on the Lobe Icons 24px SVG canvas', () => {
+  it('keeps all ten provider assets on the Lobe Icons 24px SVG canvas', () => {
     for (const [fileName, title] of lobeProviderIconAssets) {
       const assetUrl = new URL(`../../assets/icons/${fileName}`, import.meta.url)
       expect(existsSync(assetUrl), fileName).toBe(true)
@@ -103,15 +109,18 @@ describe('ProviderBrandIcon', () => {
   })
 
   it('matches the Lobe Icons Avatar treatment for all shared providers', () => {
-    for (const providerType of ['antigravity', 'claude', 'codex', 'gemini', 'kimi', 'openai', 'vertex', 'xai']) {
+    for (const providerType of ['antigravity', 'claude', 'codex', 'devin', 'gemini', 'kimi', 'meta', 'openai', 'vertex', 'xai']) {
       const html = renderToStaticMarkup(<ProviderBrandIcon providerType={providerType} size={30} />)
       expect(html, providerType).toContain('data-provider-brand-icon-tone="avatar"')
     }
 
     expect(providerIconStyles).toMatch(/\.providerBrandIconAvatar\s*\{[\s\S]*?border-radius:\s*50%;[\s\S]*?overflow:\s*hidden;/)
-    expect(providerIconStyles.match(/--provider-brand-icon-avatar-scale:/g)).toHaveLength(8)
+    expect(providerIconStyles.match(/--provider-brand-icon-avatar-scale:/g)).toHaveLength(10)
     expect(providerIconStyles).toMatch(/data-provider-brand-icon='kimi'[\s\S]*?--provider-brand-icon-avatar-scale:\s*0\.6;[\s\S]*?background:\s*#000;/)
     expect(providerIconStyles).toMatch(/data-provider-brand-icon='antigravity'[\s\S]*?--provider-brand-icon-avatar-scale:\s*0\.7;[\s\S]*?background:\s*#fff;/)
+    expect(providerIconStyles).toMatch(/data-provider-brand-icon='devin'[\s\S]*?--provider-brand-icon-avatar-scale:\s*0\.75;[\s\S]*?background:\s*#000;/)
+    expect(providerIconStyles).toMatch(/data-provider-brand-icon='meta'[\s\S]*?--provider-brand-icon-avatar-scale:\s*0\.9;[\s\S]*?background:\s*#0866ff;/)
+    expect(providerIconStyles).toMatch(/:global\(\[data-theme='dark'\]\)[\s\S]*?data-provider-brand-icon='devin'[\s\S]*?data-provider-brand-icon='kimi'[\s\S]*?data-provider-brand-icon='openai'[\s\S]*?data-provider-brand-icon='xai'[\s\S]*?box-shadow:\s*0 0 0 1px rgba\(255, 255, 255, 0\.1\) inset;/)
   })
 
   it('renders nothing for a type outside the unified set', () => {

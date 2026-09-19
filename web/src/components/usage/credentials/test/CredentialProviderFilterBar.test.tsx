@@ -59,6 +59,21 @@ describe('CredentialProviderFilterBar', () => {
     expect(html).toContain('data-provider-brand-icon="xai"')
   })
 
+  // 新增 provider 类型必须使用官方 Lobe Icons 资源并进入对应分区的筛选栏。
+  it('renders Devin for Auth Files and Meta for AI Provider', () => {
+    const authFilesHtml = renderToStaticMarkup(
+      <CredentialProviderFilterBar scope="auth-files" typeCounts={[{ type: 'devin', count: 2 }]} value="all" onChange={() => undefined} />,
+    )
+    const aiProviderHtml = renderToStaticMarkup(
+      <CredentialProviderFilterBar scope="ai-provider" typeCounts={[{ type: 'meta', count: 3 }]} value="all" onChange={() => undefined} />,
+    )
+
+    expect(authFilesHtml).toContain('usage_stats.credentials_filter_devin')
+    expect(authFilesHtml).toContain('data-provider-brand-icon="devin"')
+    expect(aiProviderHtml).toContain('usage_stats.credentials_filter_meta')
+    expect(aiProviderHtml).toContain('data-provider-brand-icon="meta"')
+  })
+
   // Auth Files 显示 Kimi、Vertex 与 Gemini CLI 兼容品牌，同时不暴露 iFlow 按钮。
   it('renders Kimi, Vertex, and Gemini CLI branding without iFlow', () => {
     const html = renderToStaticMarkup(
