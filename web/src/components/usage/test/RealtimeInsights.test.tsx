@@ -3,16 +3,30 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { RealtimeWindowSummary } from '@/lib/types';
 import i18n from '@/i18n';
+import { USAGE_CHART_REALTIME_COLORS, USAGE_CHART_TOKEN_COLORS } from '@/utils/usage/chartConfig';
 
 const charts = vi.hoisted(() => ({ mixed: [] as Array<Record<string, unknown>>, doughnut: [] as Array<Record<string, unknown>> }));
 vi.mock('react-chartjs-2', () => ({
   Chart: (props: Record<string, unknown>) => { charts.mixed.push(props); return null; },
   Doughnut: (props: Record<string, unknown>) => { charts.doughnut.push(props); return null; },
 }));
-import { buildRealtimeCacheData, RealtimeDiagnostics, RealtimeWindowCards } from '../RealtimeInsights';
+import { buildRealtimeCacheData, RealtimeCacheChart, RealtimeDiagnostics, RealtimeWindowCards } from '../RealtimeInsights';
 
 const summary: RealtimeWindowSummary = { requests: 10, failures: 2, token_requests: 5, cached_requests: 2, total_tokens: 1000, input_tokens: 800, output_tokens: 200, cache_read_tokens: 400, cache_creation_tokens: 100, reasoning_tokens: 80, cost: null };
 beforeEach(async () => { await i18n.changeLanguage('en'); charts.mixed = []; charts.doughnut = []; });
+
+const gradientStops = (backgroundColor: unknown, dataIndex?: number): string[] => {
+  const stops: string[] = [];
+  const callback = backgroundColor as (context: unknown) => unknown;
+  callback({
+    dataIndex,
+    chart: {
+      chartArea: { top: 0, bottom: 100 },
+      ctx: { createLinearGradient: () => ({ addColorStop: (_offset: number, color: string) => stops.push(color) }) },
+    },
+  });
+  return stops;
+};
 
 it('shows cache reach and token cache share using their own denominators', () => {
   const html = renderToStaticMarkup(<><RealtimeWindowCards summary={summary} window="15m" /><RealtimeDiagnostics insights={{summary,outcomes:[]}} labels={[]} isDark={false} isMobile={false} /></>);
@@ -43,6 +57,24 @@ it('keeps request buckets non-overlapping and excludes reasoning from token comp
   expect(mix.datasets[0].data).toEqual([300,400,100,200]);
   expect(html).toContain('Reasoning');
   expect(html).toContain('80');
+});
+
+it('keeps the legacy Analysis palette separate from the dedicated realtime palette', () => {
+  expect(USAGE_CHART_TOKEN_COLORS.input.light).toBe('#93c5fd');
+  expect(USAGE_CHART_TOKEN_COLORS.output.light).toBe('#86efac');
+  expect(USAGE_CHART_REALTIME_COLORS.input.light).toBe('#60a5fa');
+  expect(USAGE_CHART_REALTIME_COLORS.output.light).toBe('#22c55e');
+
+  renderToStaticMarkup(<RealtimeDiagnostics insights={{ summary, outcomes: [{ bucket: 'a', requests: 4, failures: 1 }] }} labels={['a']} isDark={false} isMobile={false} />);
+  const outcomeData = charts.mixed[0].data as { datasets: Array<{ backgroundColor: unknown }> };
+  const mixData = charts.doughnut[0].data as { datasets: Array<{ backgroundColor: unknown }> };
+  expect(gradientStops(outcomeData.datasets[0].backgroundColor)).toEqual([USAGE_CHART_REALTIME_COLORS.output.light, USAGE_CHART_REALTIME_COLORS.output.base]);
+  expect(gradientStops(mixData.datasets[0].backgroundColor, 0)).toEqual([USAGE_CHART_REALTIME_COLORS.input.light, USAGE_CHART_REALTIME_COLORS.input.base]);
+
+  charts.mixed = [];
+  renderToStaticMarkup(<RealtimeCacheChart points={[{ bucket: 'a', input_tokens: 100, cache_read_tokens: 20, cache_creation_tokens: 10, cache_read_rate: 20 }]} labels={['a']} isDark={false} isMobile={false} />);
+  const cacheData = charts.mixed[0].data as { datasets: Array<{ backgroundColor: unknown }> };
+  expect(gradientStops(cacheData.datasets[0].backgroundColor)).toEqual([USAGE_CHART_TOKEN_COLORS.input.light, USAGE_CHART_TOKEN_COLORS.input.base]);
 });
 
 it('renders unavailable ratios as dashes for an empty window without NaN', () => {

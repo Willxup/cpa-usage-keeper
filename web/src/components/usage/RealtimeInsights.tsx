@@ -6,7 +6,7 @@ import { Chart as ChartJS, type ChartData, type ChartOptions, type Plugin } from
 import type { RealtimeCacheLevelPoint, RealtimeInsights, RealtimeWindowSummary } from '@/lib/types';
 import { Card } from '@/components/ui/Card';
 import { formatCompactNumber, formatUsd } from '@/utils/usage';
-import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill, USAGE_CHART_TOKEN_COLORS as COLORS } from '@/utils/usage/chartConfig';
+import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill, USAGE_CHART_REALTIME_COLORS as REALTIME_COLORS, USAGE_CHART_TOKEN_COLORS as COLORS } from '@/utils/usage/chartConfig';
 import usageStyles from '@/pages/UsagePage.module.scss';
 import styles from './RealtimeInsights.module.scss';
 
@@ -103,17 +103,17 @@ export function RealtimeDiagnostics({ insights, labels, isDark, isMobile }: { in
   const { t } = useTranslation();
   const { summary: s, outcomes } = insights;
   const outcomeData = useMemo<ChartData<'bar' | 'line', Array<number | null>, string>>(() => ({ labels, datasets: [
-    { type: 'bar', label: t('usage_stats.insights_successful'), data: outcomes.map(p => p.requests - p.failures), backgroundColor: context => toUsageChartGradientFill(context, COLORS.output), borderColor: COLORS.output.base, stack: 'requests', order: 2 },
+    { type: 'bar', label: t('usage_stats.insights_successful'), data: outcomes.map(p => p.requests - p.failures), backgroundColor: context => toUsageChartGradientFill(context, REALTIME_COLORS.output), borderColor: REALTIME_COLORS.output.base, stack: 'requests', order: 2 },
     { type: 'bar', label: t('usage_stats.comparison_failures'), data: outcomes.map(p => p.failures), backgroundColor: context => toUsageChartGradientFill(context, FAILURE_COLOR), borderColor: FAILURE_COLOR.base, stack: 'requests', order: 2 },
     { type: 'line', label: t('usage_stats.comparison_failure_rate'), data: outcomes.map(p => ratio(p.failures, p.requests)), yAxisID: 'rate', borderColor: FAILURE_RATE_COLOR, backgroundColor: FAILURE_RATE_COLOR, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2, borderDash: [5, 4], tension: .3, order: 1 },
   ] }), [outcomes, labels, t]);
   const outcomeOptions = useMemo(() => mixedOptions(isDark, isMobile, t('usage_stats.insights_requests_per_bucket'), t('usage_stats.comparison_failure_rate')), [isDark, isMobile, t]);
   // Reasoning 可能已包含在 Output；保留独立数值，不重复堆叠进构成图。
   const mix = useMemo(() => [
-    { label: t('usage_stats.insights_uncached'), value: Math.max(0, s.input_tokens - s.cache_read_tokens - s.cache_creation_tokens), color: COLORS.input },
-    { label: t('usage_stats.comparison_cache_read'), value: s.cache_read_tokens, color: COLORS.cacheRead },
-    { label: t('usage_stats.comparison_cache_write'), value: s.cache_creation_tokens, color: COLORS.cacheWrite },
-    { label: t('usage_stats.comparison_output'), value: s.output_tokens, color: COLORS.output },
+    { label: t('usage_stats.insights_uncached'), value: Math.max(0, s.input_tokens - s.cache_read_tokens - s.cache_creation_tokens), color: REALTIME_COLORS.input },
+    { label: t('usage_stats.comparison_cache_read'), value: s.cache_read_tokens, color: REALTIME_COLORS.cacheRead },
+    { label: t('usage_stats.comparison_cache_write'), value: s.cache_creation_tokens, color: REALTIME_COLORS.cacheWrite },
+    { label: t('usage_stats.comparison_output'), value: s.output_tokens, color: REALTIME_COLORS.output },
   ], [s.input_tokens, s.cache_read_tokens, s.cache_creation_tokens, s.output_tokens, t]);
   const mixTotal = mix.reduce((sum, item) => sum + item.value, 0);
   const mixData = useMemo<ChartData<'doughnut', number[], string>>(() => ({ labels: mix.map(item => item.label), datasets: [{ data: mix.map(item => item.value), backgroundColor: context => toUsageChartGradientFill(context, mix[context.dataIndex].color), borderWidth: 0, borderRadius: 8, hoverOffset: 6 }] }), [mix]);

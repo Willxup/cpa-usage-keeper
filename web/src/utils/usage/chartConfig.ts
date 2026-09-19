@@ -21,14 +21,23 @@ export const USAGE_CHART_COMPOSITION_COLORS: UsageChartGradientColor[] = [
   { base: '#0891b2', light: '#67e8f9' },
 ];
 export const USAGE_CHART_TOKEN_COLORS = {
+  input: { base: '#2563eb', light: '#93c5fd' },
+  output: { base: '#16a34a', light: '#86efac' },
+  cacheRead: { base: '#d97706', light: '#fde68a' },
+  cacheWrite: { base: '#e11d48', light: '#fda4af' },
+  reasoning: { base: '#8b5cf6', light: '#d8b4fe' },
+  requests: USAGE_CHART_REQUESTS_LINE_COLOR,
+  cost: '#14b8a6',
+};
+
+// Realtime 的新增结果图表使用更饱和的渐变；Analysis 的 Token Usage Over Time
+// 与既有通用图表继续使用上面的旧色板，避免新增图表的视觉调整相互影响。
+export const USAGE_CHART_REALTIME_COLORS = {
   input: { base: '#2563eb', light: '#60a5fa' },
   output: { base: '#16a34a', light: '#22c55e' },
   cacheRead: { base: '#d97706', light: '#f59e0b' },
   cacheWrite: { base: '#e11d48', light: '#fb7185' },
-  reasoning: { base: '#8b5cf6', light: '#a78bfa' },
-  requests: USAGE_CHART_REQUESTS_LINE_COLOR,
-  cost: '#14b8a6',
-};
+} as const;
 
 // 共用 Analysis 柱形图的纵向渐变，保证不同业务图表的柱体质感一致。
 export const toUsageChartGradientFill = (
