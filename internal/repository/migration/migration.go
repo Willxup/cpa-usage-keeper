@@ -97,6 +97,7 @@ const (
 	migrationAddUsageIdentityStatsReset             = "20260910_usage_identity_stats_reset"
 	migrationAddUsageEventSessionFields             = "20260912_usage_event_session_fields"
 	migrationAddUsageEventResponseModel             = "20260918_usage_event_response_model"
+	migrationAddUsageEventStreamStatusCode          = "20260919_usage_event_stream_status_code"
 )
 
 type schemaMigration struct {
@@ -245,6 +246,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageIdentityStatsReset, run: addUsageIdentityStatsResetMigration},
 		{version: migrationAddUsageEventSessionFields, run: addUsageEventSessionFieldsMigration},
 		{version: migrationAddUsageEventResponseModel, run: addUsageEventResponseModelMigration},
+		{version: migrationAddUsageEventStreamStatusCode, run: addUsageEventStreamStatusCodeMigration},
 	}
 }
 

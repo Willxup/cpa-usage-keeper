@@ -61,7 +61,14 @@ type queuedUsageDetail struct {
 	RequestID           string          `json:"request_id"`
 	SessionID           string          `json:"session_id"`
 	ParentSessionID     string          `json:"parent_session_id"`
+	Stream              *bool           `json:"stream"`
+	Fail                redisUsageFail  `json:"fail"`
 	ResponseHeaders     json.RawMessage `json:"response_headers"`
+}
+
+type redisUsageFail struct {
+	StatusCode *int   `json:"status_code"`
+	Body       string `json:"body"`
 }
 
 func normalizeRedisAuthType(value string) string {
@@ -139,7 +146,9 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 		Source:              source,
 		AuthIndex:           authIndex,
 		Failed:              d.Failed,
+		StatusCode:          d.Fail.StatusCode,
 		Generate:            normalizeRedisGenerate(d.Generate, d.Failed, d.ExecutorType, d.Tokens),
+		Stream:              d.Stream,
 		LatencyMS:           max(d.LatencyMS, 0),
 		TTFTMS:              d.TTFTMS,
 		InputTokens:         d.Tokens.InputTokens,

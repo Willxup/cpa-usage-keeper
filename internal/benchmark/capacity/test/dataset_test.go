@@ -149,6 +149,11 @@ func TestValidateDatasetAgainstManifestRejectsStaleOrMismatchedMetadata(t *testi
 	if err := capacity.ValidateDatasetAgainstManifest(actual, metadata, manifest); err != nil {
 		t.Fatalf("valid dataset rejected: %v", err)
 	}
+	staleGenerator := metadata
+	staleGenerator.GeneratorVersion = "production-v8-month-window-canonical"
+	if err := capacity.ValidateDatasetAgainstManifest(actual, staleGenerator, manifest); err == nil {
+		t.Fatal("dataset generated before stream/status-code dimensions must fail validation")
+	}
 
 	mismatched := actual
 	mismatched.OrphanAPIKeys = 1

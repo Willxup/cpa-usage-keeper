@@ -27,7 +27,7 @@ import (
 
 const usageEventInsertColumns = entities.UsageEventStorageColumns
 
-const DatasetGeneratorVersion = "production-v8-month-window-canonical"
+const DatasetGeneratorVersion = "production-v9-event-status-stream"
 
 type GenerateOptions struct {
 	Path              string
@@ -113,6 +113,8 @@ type generatedEvent struct {
 	Source              string
 	AuthIndex           string
 	Failed              bool
+	StatusCode          int
+	Stream              bool
 	LatencyMS           int64
 	TTFTMS              int64
 	InputTokens         int64
@@ -337,7 +339,7 @@ func insertGeneratedEvents(ctx context.Context, sqlDB *sql.DB, options GenerateO
 		if err != nil {
 			return fmt.Errorf("begin benchmark event batch: %w", err)
 		}
-		placeholders := strings.TrimSuffix(strings.Repeat("?,", 34), ",")
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", 36), ",")
 		statement, err := tx.PrepareContext(ctx, "INSERT INTO usage_events ("+usageEventInsertColumns+") VALUES ("+placeholders+")")
 		if err != nil {
 			tx.Rollback()
@@ -410,13 +412,17 @@ func makeGeneratedEvent(eventID int64, timestamp time.Time, options GenerateOpti
 		requestIDIndex = eventID - 1
 	}
 	endpoint, serviceTier, responseTier, reasoningEffort, executorType := correlatedDimensions(modelIndex, identityIndex, provider, random)
+	statusCode := 200
+	if failed {
+		statusCode = 500
+	}
 	return generatedEvent{
 		ID: eventID, EventKey: fmt.Sprintf("bench-event-%012d", eventKeyIndex), APIGroupKey: benchmarkAPIKey(apiIndex + 1),
 		Provider: provider, Endpoint: endpoint, AuthType: authType,
 		RequestID: fmt.Sprintf("bench-request-%012d", requestIDIndex), Model: fmt.Sprintf("bench-model-%03d", modelIndex+1),
 		ModelAlias: fmt.Sprintf("bench-alias-%03d", modelIndex+1), ReasoningEffort: reasoningEffort,
 		ServiceTier: serviceTier, ResponseServiceTier: responseTier, ExecutorType: executorType,
-		Timestamp: timestamp, Source: provider, AuthIndex: identity.Identity, Failed: failed,
+		Timestamp: timestamp, Source: provider, AuthIndex: identity.Identity, Failed: failed, StatusCode: statusCode, Stream: eventID%2 == 0,
 		LatencyMS: latencyMS, TTFTMS: ttftMS, InputTokens: input, OutputTokens: output, ReasoningTokens: reasoning,
 		CachedTokens: cached, CacheReadTokens: cacheRead, CacheCreationTokens: cacheCreation, TotalTokens: total,
 	}
@@ -517,7 +523,7 @@ func eventInsertArgs(event generatedEvent) []any {
 		event.ID, event.EventKey, event.APIGroupKey, event.Provider, event.Endpoint, event.AuthType, event.RequestID,
 		"", "",
 		nil, nil, nil, event.Model, event.ModelAlias, "", event.ReasoningEffort, event.ServiceTier, event.ResponseServiceTier,
-		event.ExecutorType, timestamp, event.Source, event.AuthIndex, event.Failed, true, event.LatencyMS, event.TTFTMS,
+		event.ExecutorType, timestamp, event.Source, event.AuthIndex, event.Failed, event.StatusCode, true, event.Stream, event.LatencyMS, event.TTFTMS,
 		event.InputTokens, event.OutputTokens, event.ReasoningTokens, event.CachedTokens, event.CacheReadTokens,
 		event.CacheCreationTokens, event.TotalTokens, timestamp,
 	}

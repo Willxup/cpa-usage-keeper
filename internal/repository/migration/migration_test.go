@@ -91,6 +91,7 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260910_usage_identity_stats_reset",
 		"20260912_usage_event_session_fields",
 		"20260918_usage_event_response_model",
+		"20260919_usage_event_stream_status_code",
 	}
 	assertStringSlicesEqual(t, want, got)
 }

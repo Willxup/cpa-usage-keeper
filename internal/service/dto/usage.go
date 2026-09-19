@@ -78,6 +78,8 @@ type UsageEventRecord struct {
 	Source              string
 	AuthIndex           string
 	Failed              bool
+	StatusCode          *int
+	Stream              *bool
 	LatencyMS           int64
 	TTFTMS              *int64
 	InputTokens         int64

@@ -63,6 +63,8 @@ type usageEventPayload struct {
 	RequestID           string                 `json:"request_id,omitempty"`
 	IsDelete            bool                   `json:"isDelete,omitempty"`
 	Failed              bool                   `json:"failed"`
+	StatusCode          *int                   `json:"status_code,omitempty"`
+	Stream              *bool                  `json:"stream,omitempty"`
 	LatencyMS           int64                  `json:"latency_ms"`
 	TTFTMS              *int64                 `json:"ttft_ms,omitempty"`
 	SpeedTPS            *float64               `json:"speed_tps,omitempty"`
@@ -121,6 +123,8 @@ type usageEventExportPayload struct {
 	UserAgent           *string  `json:"user_agent"`
 	ExecutorType        string   `json:"executor_type"`
 	Result              string   `json:"result"`
+	StatusCode          *int     `json:"status_code,omitempty"`
+	Stream              *bool    `json:"stream,omitempty"`
 	Endpoint            string   `json:"endpoint"`
 	TTFTMS              *int64   `json:"ttft_ms"`
 	LatencyMS           int64    `json:"latency_ms"`
@@ -448,6 +452,8 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 			RequestID:           strings.TrimSpace(row.RequestID),
 			IsDelete:            isDelete,
 			Failed:              row.Failed,
+			StatusCode:          row.StatusCode,
+			Stream:              row.Stream,
 			LatencyMS:           row.LatencyMS,
 			TTFTMS:              row.TTFTMS,
 			SpeedTPS:            usageEventSpeedTPS(row),
@@ -535,6 +541,8 @@ func buildUsageEventExportPayload(row servicedto.UsageEventRecord, resolver usag
 		UserAgent:           row.UserAgent,
 		ExecutorType:        strings.TrimSpace(row.ExecutorType),
 		Result:              result,
+		StatusCode:          row.StatusCode,
+		Stream:              row.Stream,
 		Endpoint:            strings.TrimSpace(row.Endpoint),
 		TTFTMS:              row.TTFTMS,
 		LatencyMS:           row.LatencyMS,
@@ -584,6 +592,8 @@ var usageEventsExportCSVHeader = []string{
 	"response_service_tier",
 	"executor_type",
 	"result",
+	"status_code",
+	"stream",
 	"endpoint",
 	"ttft_ms",
 	"latency_ms",
@@ -782,6 +792,8 @@ func usageEventExportCSVRecord(event usageEventExportPayload) []string {
 		event.ResponseServiceTier,
 		event.ExecutorType,
 		event.Result,
+		formatOptionalInt(event.StatusCode),
+		formatOptionalBool(event.Stream),
 		event.Endpoint,
 		formatOptionalInt64(event.TTFTMS),
 		strconv.FormatInt(event.LatencyMS, 10),
@@ -805,6 +817,20 @@ func formatOptionalInt64(value *int64) string {
 		return ""
 	}
 	return strconv.FormatInt(*value, 10)
+}
+
+func formatOptionalInt(value *int) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.Itoa(*value)
+}
+
+func formatOptionalBool(value *bool) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.FormatBool(*value)
 }
 
 func formatOptionalCSVText(value *string) string {

@@ -18,6 +18,8 @@ func TestUsageServicePreservesEventMetadataForListAndStream(t *testing.T) {
 	db := openUsageServiceTestDatabase(t)
 	modelAlias := " sonnet-business "
 	responseModel := " gpt-5.6-luna "
+	statusCode := 200
+	stream := true
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
 		EventKey:            "model-alias-event",
 		APIGroupKey:         "provider-a",
@@ -26,6 +28,8 @@ func TestUsageServicePreservesEventMetadataForListAndStream(t *testing.T) {
 		ResponseModel:       responseModel,
 		ServiceTier:         "auto",
 		ResponseServiceTier: "default",
+		StatusCode:          &statusCode,
+		Stream:              &stream,
 		Timestamp:           time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC),
 		InputTokens:         10,
 		TotalTokens:         10,
@@ -38,7 +42,7 @@ func TestUsageServicePreservesEventMetadataForListAndStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListUsageEvents returned error: %v", err)
 	}
-	if len(page.Events) != 1 || page.Events[0].ModelAlias != "sonnet-business" || page.Events[0].ResponseModel != "gpt-5.6-luna" || page.Events[0].ServiceTier != "auto" || page.Events[0].ResponseServiceTier != "default" {
+	if len(page.Events) != 1 || page.Events[0].ModelAlias != "sonnet-business" || page.Events[0].ResponseModel != "gpt-5.6-luna" || page.Events[0].ServiceTier != "auto" || page.Events[0].ResponseServiceTier != "default" || page.Events[0].StatusCode == nil || *page.Events[0].StatusCode != statusCode || page.Events[0].Stream == nil || !*page.Events[0].Stream {
 		t.Fatalf("expected list result to preserve event metadata, got %+v", page.Events)
 	}
 
@@ -49,7 +53,7 @@ func TestUsageServicePreservesEventMetadataForListAndStream(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("StreamUsageEvents returned error: %v", err)
 	}
-	if len(streamed) != 1 || streamed[0].ModelAlias != "sonnet-business" || streamed[0].ResponseModel != "gpt-5.6-luna" || streamed[0].ServiceTier != "auto" || streamed[0].ResponseServiceTier != "default" {
+	if len(streamed) != 1 || streamed[0].ModelAlias != "sonnet-business" || streamed[0].ResponseModel != "gpt-5.6-luna" || streamed[0].ServiceTier != "auto" || streamed[0].ResponseServiceTier != "default" || streamed[0].StatusCode == nil || *streamed[0].StatusCode != statusCode || streamed[0].Stream == nil || !*streamed[0].Stream {
 		t.Fatalf("expected stream result to preserve event metadata, got %+v", streamed)
 	}
 }

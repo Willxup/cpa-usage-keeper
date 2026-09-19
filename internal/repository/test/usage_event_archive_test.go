@@ -63,6 +63,8 @@ func TestArchiveExpiredUsageEventsPreservesOriginalRowAndHotSequence(t *testing.
 	db := openTestDatabase(t)
 	now := time.Date(2026, 7, 30, 4, 30, 0, 0, time.Local)
 	generate := false
+	stream := true
+	statusCode := 429
 	clientIP := "203.0.113.10"
 	ttft := int64(321)
 	events := []entities.UsageEvent{
@@ -70,7 +72,7 @@ func TestArchiveExpiredUsageEventsPreservesOriginalRowAndHotSequence(t *testing.
 			EventKey: "archive-me", APIGroupKey: "group-a", Provider: "openai", Endpoint: "/v1/responses",
 			AuthType: "oauth", RequestID: "request-a", SessionID: "session-child", ParentSessionID: "session-root", ClientIP: &clientIP, Model: "gpt-6-astra", ResponseModel: "gpt-5.6-luna", ReasoningEffort: "high",
 			ServiceTier: "priority", ResponseServiceTier: "priority", ExecutorType: "codex", Timestamp: now.AddDate(0, 0, -91),
-			Source: "auth-a", AuthIndex: "auth-a", Failed: true, Generate: &generate, LatencyMS: 999, TTFTMS: &ttft,
+			Source: "auth-a", AuthIndex: "auth-a", Failed: true, StatusCode: &statusCode, Generate: &generate, Stream: &stream, LatencyMS: 999, TTFTMS: &ttft,
 			InputTokens: 10, OutputTokens: 20, ReasoningTokens: 5, CachedTokens: 4, CacheReadTokens: 3, CacheCreationTokens: 2, TotalTokens: 35,
 		},
 		{EventKey: "recent", Model: "gpt-5", Timestamp: now.Add(-time.Hour), TotalTokens: 1},
@@ -97,7 +99,7 @@ func TestArchiveExpiredUsageEventsPreservesOriginalRowAndHotSequence(t *testing.
 	if err := db.Where("id = ?", original.ID).Take(&archived).Error; err != nil {
 		t.Fatalf("load archived usage event: %v", err)
 	}
-	if archived.ID != original.ID || archived.EventKey != original.EventKey || archived.RequestID != original.RequestID || archived.SessionID != original.SessionID || archived.ParentSessionID != original.ParentSessionID || archived.Model != original.Model || archived.ResponseModel != original.ResponseModel || archived.TotalTokens != original.TotalTokens {
+	if archived.ID != original.ID || archived.EventKey != original.EventKey || archived.RequestID != original.RequestID || archived.SessionID != original.SessionID || archived.ParentSessionID != original.ParentSessionID || archived.Model != original.Model || archived.ResponseModel != original.ResponseModel || archived.TotalTokens != original.TotalTokens || archived.StatusCode == nil || *archived.StatusCode != statusCode || archived.Stream == nil || *archived.Stream != stream {
 		t.Fatalf("archive row did not preserve original values: original=%+v archive=%+v", original, archived)
 	}
 	var oldHotCount int64

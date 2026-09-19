@@ -324,6 +324,8 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 		Source:              "sk-provider-key",
 		AuthIndex:           "2",
 		Failed:              false,
+		StatusCode:          usageEventIntPtr(200),
+		Stream:              usageEventBoolPtr(true),
 		LatencyMS:           2000,
 		TTFTMS:              usageEventInt64Ptr(45),
 		InputTokens:         10,
@@ -387,6 +389,9 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	}
 	if !contains(body, `"response_service_tier":"default"`) {
 		t.Fatalf("expected response_service_tier in response body: %s", body)
+	}
+	if !contains(body, `"status_code":200`) || !contains(body, `"stream":true`) {
+		t.Fatalf("expected status_code and stream in response body: %s", body)
 	}
 	if !contains(body, `"client_ip":"192.0.2.10"`) || !contains(body, `"x_forwarded_for":"203.0.113.5, 198.51.100.8"`) || !contains(body, `"user_agent":"test-client/1.0"`) {
 		t.Fatalf("expected client metadata in response body: %s", body)
@@ -813,6 +818,8 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 		Provider:            "Provider Fallback",
 		AuthIndex:           "authidx-export-main",
 		Failed:              true,
+		StatusCode:          usageEventIntPtr(429),
+		Stream:              usageEventBoolPtr(false),
 		LatencyMS:           2000,
 		TTFTMS:              usageEventInt64Ptr(45),
 		InputTokens:         10,
@@ -880,6 +887,9 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 	}
 	if !contains(body, "service_tier,response_service_tier,executor_type") || !contains(body, ",auto,default,responses,") {
 		t.Fatalf("expected separate request and response service tiers in csv export, got %s", body)
+	}
+	if !contains(body, "result,status_code,stream,endpoint") || !contains(body, "failed,429,false,POST /v1/responses") {
+		t.Fatalf("expected status_code and stream in csv export, got %s", body)
 	}
 	if contains(body, "is_deleted") {
 		t.Fatalf("expected export to use is_identity_deleted instead of is_deleted, got %s", body)
@@ -1024,6 +1034,8 @@ func TestUsageEventsExportJSONIncludesAllExportFields(t *testing.T) {
 		Source:              "claude-code",
 		AuthIndex:           "auth-file-export",
 		Failed:              false,
+		StatusCode:          usageEventIntPtr(200),
+		Stream:              usageEventBoolPtr(true),
 		LatencyMS:           500,
 		InputTokens:         9,
 		OutputTokens:        5,
@@ -1069,6 +1081,9 @@ func TestUsageEventsExportJSONIncludesAllExportFields(t *testing.T) {
 	}
 	if !contains(body, `"service_tier":"auto"`) || !contains(body, `"response_service_tier":"default"`) {
 		t.Fatalf("expected separate request and response service tiers in json export, got %s", body)
+	}
+	if !contains(body, `"status_code":200`) || !contains(body, `"stream":true`) {
+		t.Fatalf("expected status_code and stream in json export, got %s", body)
 	}
 	if !contains(body, `"client_ip":"192.0.2.11"`) || !contains(body, `"x_forwarded_for":"203.0.113.6"`) || !contains(body, `"user_agent":"json-client/1.0"`) {
 		t.Fatalf("expected client metadata in json export, got %s", body)
@@ -1716,6 +1731,14 @@ func TestUsageEventSourceFilterOptionsReturnsIdentitySources(t *testing.T) {
 }
 
 func usageEventInt64Ptr(value int64) *int64 {
+	return &value
+}
+
+func usageEventIntPtr(value int) *int {
+	return &value
+}
+
+func usageEventBoolPtr(value bool) *bool {
 	return &value
 }
 

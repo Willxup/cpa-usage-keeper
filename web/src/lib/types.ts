@@ -305,6 +305,8 @@ export interface UsageEvent {
   auth_index?: string
   isDelete?: boolean
   failed: boolean
+  status_code?: number | null
+  stream?: boolean | null
   latency_ms: number
   ttft_ms?: number
   speed_tps?: number

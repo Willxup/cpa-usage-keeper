@@ -3,7 +3,7 @@ package entities
 import "time"
 
 // UsageEventStorageColumns 是 hot/archive 原始事件复制使用的完整持久化列契约。
-const UsageEventStorageColumns = "id, event_key, api_group_key, provider, endpoint, auth_type, request_id, session_id, parent_session_id, client_ip, x_forwarded_for, user_agent, model, model_alias, response_model, reasoning_effort, service_tier, response_service_tier, executor_type, timestamp, source, auth_index, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, created_at"
+const UsageEventStorageColumns = "id, event_key, api_group_key, provider, endpoint, auth_type, request_id, session_id, parent_session_id, client_ip, x_forwarded_for, user_agent, model, model_alias, response_model, reasoning_effort, service_tier, response_service_tier, executor_type, timestamp, source, auth_index, failed, status_code, generate, stream, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, created_at"
 
 // UsageEventArchive 永久保存已经离开 hot usage_events 的原始事件。
 // 字段必须与 UsageEvent 的持久化列保持一致，但 archive 不承担在线查询，因此不复制二级索引。
@@ -31,7 +31,9 @@ type UsageEventArchive struct {
 	Source              string
 	AuthIndex           string
 	Failed              bool
+	StatusCode          *int  `gorm:"column:status_code"`
 	Generate            *bool `gorm:"column:generate;not null;default:true"`
+	Stream              *bool `gorm:"column:stream"`
 	LatencyMS           int64
 	TTFTMS              *int64 `gorm:"column:ttft_ms"`
 	InputTokens         int64
