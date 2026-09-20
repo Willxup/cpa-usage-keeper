@@ -9,8 +9,8 @@ import (
 func TestDefaultProviderConfigsContainsAPICallTemplates(t *testing.T) {
 	configs := quota.DefaultProviderConfigs()
 	templates := configs.APICallTemplates()
-	if len(templates) != 13 {
-		t.Fatalf("expected 13 api-call templates, got %d", len(templates))
+	if len(templates) != 14 {
+		t.Fatalf("expected 14 api-call templates, got %d", len(templates))
 	}
 	if len(configs.Antigravity) != 3 {
 		t.Fatalf("expected 3 antigravity api-call templates, got %d", len(configs.Antigravity))
@@ -51,6 +51,9 @@ func TestDefaultProviderConfigsContainsAPICallTemplates(t *testing.T) {
 	}
 	if configs.XAIMonthly.Method != "GET" || configs.XAIMonthly.URL != "https://cli-chat-proxy.grok.com/v1/billing" {
 		t.Fatalf("unexpected xai monthly config: %+v", configs.XAIMonthly)
+	}
+	if configs.OpenCodeGo.Method != "GET" || configs.OpenCodeGo.URL != "https://opencode.ai/zen/go/v1/usage" {
+		t.Fatalf("unexpected opencode go config: %+v", configs.OpenCodeGo)
 	}
 
 	if configs.Antigravity[0].Headers["Authorization"] != "Bearer $TOKEN$" || configs.Antigravity[0].Headers["Content-Type"] != "application/json" || configs.Antigravity[0].Headers["User-Agent"] != "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)" {
