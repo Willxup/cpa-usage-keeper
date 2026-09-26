@@ -285,7 +285,7 @@ func UpdateUsageIdentityDisabled(ctx context.Context, db *gorm.DB, authType enti
 	return nil
 }
 
-// UpdateUsageIdentityPriority 在 CPA 回读确认后写入单条凭证的即时优先级。
+// UpdateUsageIdentityPriority 写入单条凭证的即时优先级。
 func UpdateUsageIdentityPriority(ctx context.Context, db *gorm.DB, authType entities.UsageIdentityAuthType, identity string, priority int) error {
 	if db == nil {
 		return fmt.Errorf("database is nil")

@@ -69,9 +69,7 @@ export function CredentialEditModal({ selection, onClose, onSaveField, onSaved, 
         ? 'usage_stats.credentials_priority_stale_target'
         : cause instanceof ApiError && cause.status === 409
           ? selection.kind === 'auth-file' ? 'usage_stats.credentials_priority_conflict_auth_file' : 'usage_stats.credentials_edit_unsupported'
-          : cause instanceof ApiError && cause.status === 502
-            ? 'usage_stats.credentials_priority_not_applied'
-            : 'usage_stats.credentials_edit_failed'
+          : 'usage_stats.credentials_edit_failed'
       setError(t(key))
     } finally {
       busyRef.current = false

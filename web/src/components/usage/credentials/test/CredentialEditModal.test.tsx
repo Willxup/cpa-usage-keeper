@@ -3,6 +3,7 @@ import { act, useRef, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CredentialEditModal } from '../CredentialEditModal'
+import { ApiError } from '@/lib/api'
 import type { CredentialDetailSelection, CredentialEditChange } from '../credentialViewModels'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -70,6 +71,14 @@ describe('credential unified editor', () => {
       { field: 'priority', value: -2 }, { field: 'disabled', value: true },
     ])
     expect(onSaved).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the general edit error when priority saving returns HTTP 502', async () => {
+    const save = vi.fn(async () => { throw new ApiError('upstream failed', 502) })
+    await render(save)
+    await change(field('priority'), '6')
+    await act(async () => button('save').click())
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('usage_stats.credentials_edit_failed')
   })
 
   it('rejects invalid priority before saving any field and permits an explicit zero', async () => {

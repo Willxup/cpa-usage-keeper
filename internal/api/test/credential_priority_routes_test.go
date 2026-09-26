@@ -76,7 +76,6 @@ func TestCredentialPriorityRoutesMapUpstreamRejectionWithoutLeakingDetails(t *te
 		{service.ErrCredentialPriorityNotFound, http.StatusNotFound},
 		{service.ErrCredentialPriorityConflict, http.StatusConflict},
 		{service.ErrCredentialPriorityUnsupported, http.StatusConflict},
-		{service.ErrCredentialPriorityNotApplied, http.StatusBadGateway},
 		{errors.New("upstream secret-xyz"), http.StatusInternalServerError},
 	} {
 		response := priorityRouteRequest(t, &priorityProviderStub{err: tc.err}, "/api/v1/ai-providers/ai-1/priority", `{"priority":1}`)

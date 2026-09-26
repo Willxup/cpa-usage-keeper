@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"cpa-usage-keeper/internal/cpa/dto/authfiles"
 	"cpa-usage-keeper/internal/cpa/dto/providerconfig"
 	"cpa-usage-keeper/internal/cpa/dto/response"
 	"cpa-usage-keeper/internal/entities"
@@ -17,38 +16,22 @@ import (
 )
 
 type priorityClientStub struct {
-	files       []authfiles.AuthFile
-	providers   map[string][]providerconfig.ProviderKeyConfig
-	openAI      []providerconfig.OpenAICompatibilityConfig
-	patchIndex  int
-	patchType   string
-	patchName   string
-	ignorePatch bool
-	patchStatus int
-	onPatch     func()
-}
-
-func (s *priorityClientStub) FetchAuthFiles(context.Context) (*response.AuthFilesResult, error) {
-	return &response.AuthFilesResult{StatusCode: http.StatusOK, Payload: authfiles.AuthFilesResponse{Files: s.files}}, nil
+	providers       map[string][]providerconfig.ProviderKeyConfig
+	openAI          []providerconfig.OpenAICompatibilityConfig
+	patchIndex      int
+	patchType       string
+	patchName       string
+	patchStatus     int
+	providerFetches int
+	openAIFetches   int
+	onOpenAIFetch   func(int)
+	onPatch         func()
 }
 
 func (s *priorityClientStub) UpdateAuthFilePriority(_ context.Context, name string, priority int) (int, error) {
 	s.patchName = name
 	if s.patchStatus != 0 {
 		return s.patchStatus, errors.New("upstream rejected")
-	}
-	if !s.ignorePatch {
-		for i := range s.files {
-			if s.files[i].Name == name {
-				// CPA 的有效默认值 0 在 GET 中可能省略该字段。
-				if priority == 0 {
-					s.files[i].Priority = nil
-				} else {
-					s.files[i].Priority = &priority
-				}
-				break
-			}
-		}
 	}
 	if s.onPatch != nil {
 		s.onPatch()
@@ -57,6 +40,7 @@ func (s *priorityClientStub) UpdateAuthFilePriority(_ context.Context, name stri
 }
 
 func (s *priorityClientStub) FetchPriorityProviderConfig(_ context.Context, providerType string) (*response.ProviderKeyConfigResult, error) {
+	s.providerFetches++
 	return &response.ProviderKeyConfigResult{StatusCode: http.StatusOK, Payload: s.providers[providerType]}, nil
 }
 
@@ -65,9 +49,6 @@ func (s *priorityClientStub) UpdateProviderPriority(_ context.Context, providerT
 	if s.patchStatus != 0 {
 		return s.patchStatus, errors.New("upstream rejected")
 	}
-	if !s.ignorePatch {
-		s.providers[providerType][index].Priority = &priority
-	}
 	if s.onPatch != nil {
 		s.onPatch()
 	}
@@ -75,6 +56,10 @@ func (s *priorityClientStub) UpdateProviderPriority(_ context.Context, providerT
 }
 
 func (s *priorityClientStub) FetchOpenAICompatibility(context.Context) (*response.OpenAICompatibilityResult, error) {
+	s.openAIFetches++
+	if s.onOpenAIFetch != nil {
+		s.onOpenAIFetch(s.openAIFetches)
+	}
 	return &response.OpenAICompatibilityResult{StatusCode: http.StatusOK, Payload: s.openAI}, nil
 }
 
@@ -82,9 +67,6 @@ func (s *priorityClientStub) UpdateOpenAICompatibilityPriority(_ context.Context
 	s.patchType, s.patchIndex = "openai", index
 	if s.patchStatus != 0 {
 		return s.patchStatus, errors.New("upstream rejected")
-	}
-	if !s.ignorePatch {
-		s.openAI[index].Priority = &priority
 	}
 	if s.onPatch != nil {
 		s.onPatch()
@@ -108,10 +90,10 @@ func requirePriority(t *testing.T, got *int, want int) {
 	}
 }
 
-func TestAuthFilePriorityConfirmsOmittedZeroAndPersists(t *testing.T) {
+func TestAuthFilePriorityPersistsExplicitZero(t *testing.T) {
 	db := openMetadataTestDatabase(t, "priority-auth-file-zero.db")
 	seedAuthFileCredential(t, db, "auth.json", "auth-index")
-	client := &priorityClientStub{files: []authfiles.AuthFile{{Name: "auth.json", AuthIndex: "auth-index"}}}
+	client := &priorityClientStub{}
 	refresher := &credentialStatusRefresherStub{}
 	provider := service.NewCredentialPriorityService(db, client, refresher, &service.CredentialMutationLocks{})
 	result, err := provider.SetAuthFilePriority(context.Background(), "auth-index", 0)
@@ -124,30 +106,30 @@ func TestAuthFilePriorityConfirmsOmittedZeroAndPersists(t *testing.T) {
 	}
 }
 
-func TestAuthFilePriorityRejectsVirtualAuthAndIgnoredPatch(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		status int
-		ignore bool
-		want   error
-	}{
-		{"plugin conflict", http.StatusConflict, false, service.ErrCredentialPriorityConflict},
-		{"old CPA ignored priority", 0, true, service.ErrCredentialPriorityNotApplied},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			db := openMetadataTestDatabase(t, "priority-auth-file-"+tc.name+".db")
-			seedAuthFileCredential(t, db, "auth.json", "auth-index")
-			client := &priorityClientStub{files: []authfiles.AuthFile{{Name: "auth.json", AuthIndex: "auth-index"}}, patchStatus: tc.status, ignorePatch: tc.ignore}
-			provider := service.NewCredentialPriorityService(db, client, nil, &service.CredentialMutationLocks{})
-			_, err := provider.SetAuthFilePriority(context.Background(), "auth-index", 3)
-			if !errors.Is(err, tc.want) {
-				t.Fatalf("err=%v, want %v", err, tc.want)
-			}
-			if got := loadPriority(t, db, entities.UsageIdentityAuthTypeAuthFile, "auth-index"); got != nil {
-				t.Fatalf("unexpected local priority=%v", *got)
-			}
-		})
+func TestAuthFilePriorityRejectsUpstreamConflict(t *testing.T) {
+	db := openMetadataTestDatabase(t, "priority-auth-file-conflict.db")
+	seedAuthFileCredential(t, db, "auth.json", "auth-index")
+	client := &priorityClientStub{patchStatus: http.StatusConflict}
+	provider := service.NewCredentialPriorityService(db, client, nil, &service.CredentialMutationLocks{})
+	_, err := provider.SetAuthFilePriority(context.Background(), "auth-index", 3)
+	if !errors.Is(err, service.ErrCredentialPriorityConflict) {
+		t.Fatalf("err=%v, want conflict", err)
 	}
+	if got := loadPriority(t, db, entities.UsageIdentityAuthTypeAuthFile, "auth-index"); got != nil {
+		t.Fatalf("unexpected local priority=%v", *got)
+	}
+}
+
+func TestAuthFilePriorityPersistsSuccessfulPatch(t *testing.T) {
+	db := openMetadataTestDatabase(t, "priority-auth-file-patch-success.db")
+	seedAuthFileCredential(t, db, "auth.json", "auth-index")
+	client := &priorityClientStub{}
+	refresher := &credentialStatusRefresherStub{}
+	result, err := service.NewCredentialPriorityService(db, client, refresher, &service.CredentialMutationLocks{}).SetAuthFilePriority(context.Background(), "auth-index", 3)
+	if err != nil || result.Priority != 3 || refresher.count() != 1 {
+		t.Fatalf("result=%+v err=%v refresh=%d", result, err, refresher.count())
+	}
+	requirePriority(t, loadPriority(t, db, entities.UsageIdentityAuthTypeAuthFile, "auth-index"), 3)
 }
 
 func TestProviderPriorityUsesOriginalIndexForDuplicateKeysAndNegativeValue(t *testing.T) {
@@ -164,15 +146,12 @@ func TestProviderPriorityUsesOriginalIndexForDuplicateKeysAndNegativeValue(t *te
 		t.Fatalf("patch type=%s index=%d", client.patchType, client.patchIndex)
 	}
 	requirePriority(t, loadPriority(t, db, entities.UsageIdentityAuthTypeAIProvider, "target"), -8)
-	if client.providers["meta"][0].Priority != nil {
-		t.Fatal("updated duplicate key at wrong index")
-	}
 }
 
-func TestProviderPriorityConfirmsOmittedZeroAsEffectiveDefault(t *testing.T) {
+func TestProviderPriorityPersistsExplicitZero(t *testing.T) {
 	db := openMetadataTestDatabase(t, "priority-provider-zero.db")
 	seedProviderCredential(t, db, "vertex", "target", "secret")
-	client := &priorityClientStub{providers: map[string][]providerconfig.ProviderKeyConfig{"vertex": {{AuthIndex: "target"}}}, ignorePatch: true}
+	client := &priorityClientStub{providers: map[string][]providerconfig.ProviderKeyConfig{"vertex": {{AuthIndex: "target"}}}}
 	result, err := service.NewCredentialPriorityService(db, client, nil, &service.CredentialMutationLocks{}).SetAIProviderPriority(context.Background(), "target", 0)
 	if err != nil || result.Priority != 0 {
 		t.Fatalf("result=%+v err=%v", result, err)
@@ -180,20 +159,20 @@ func TestProviderPriorityConfirmsOmittedZeroAsEffectiveDefault(t *testing.T) {
 	requirePriority(t, loadPriority(t, db, entities.UsageIdentityAuthTypeAIProvider, "target"), 0)
 }
 
-func TestProviderPriorityDoesNotPersistMissingOrIgnoredTarget(t *testing.T) {
+func TestProviderPriorityDoesNotPersistMissingOrRejectedTarget(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		entries []providerconfig.ProviderKeyConfig
-		ignore  bool
+		status  int
 		want    error
 	}{
-		{"deleted", []providerconfig.ProviderKeyConfig{{AuthIndex: "another"}}, false, service.ErrCredentialPriorityNotFound},
-		{"ignored", []providerconfig.ProviderKeyConfig{{AuthIndex: "target"}}, true, service.ErrCredentialPriorityNotApplied},
+		{"deleted", []providerconfig.ProviderKeyConfig{{AuthIndex: "another"}}, 0, service.ErrCredentialPriorityNotFound},
+		{"rejected", []providerconfig.ProviderKeyConfig{{AuthIndex: "target"}}, http.StatusConflict, service.ErrCredentialPriorityConflict},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := openMetadataTestDatabase(t, "priority-provider-"+tc.name+".db")
 			seedProviderCredential(t, db, "codex", "target", "secret")
-			client := &priorityClientStub{providers: map[string][]providerconfig.ProviderKeyConfig{"codex": tc.entries}, ignorePatch: tc.ignore}
+			client := &priorityClientStub{providers: map[string][]providerconfig.ProviderKeyConfig{"codex": tc.entries}, patchStatus: tc.status}
 			_, err := service.NewCredentialPriorityService(db, client, nil, &service.CredentialMutationLocks{}).SetAIProviderPriority(context.Background(), "target", 10)
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("err=%v, want %v", err, tc.want)
@@ -203,6 +182,17 @@ func TestProviderPriorityDoesNotPersistMissingOrIgnoredTarget(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestProviderPriorityPersistsTargetPatch(t *testing.T) {
+	db := openMetadataTestDatabase(t, "priority-provider-patch-success.db")
+	seedProviderCredential(t, db, "codex", "target", "secret")
+	client := &priorityClientStub{providers: map[string][]providerconfig.ProviderKeyConfig{"codex": {{AuthIndex: "another"}, {AuthIndex: "target"}}}}
+	result, err := service.NewCredentialPriorityService(db, client, nil, &service.CredentialMutationLocks{}).SetAIProviderPriority(context.Background(), "target", -4)
+	if err != nil || result.Priority != -4 || client.providerFetches != 1 || client.patchIndex != 1 {
+		t.Fatalf("result=%+v err=%v fetches=%d index=%d", result, err, client.providerFetches, client.patchIndex)
+	}
+	requirePriority(t, loadPriority(t, db, entities.UsageIdentityAuthTypeAIProvider, "target"), -4)
 }
 
 func TestOpenAIProviderPriorityUpdatesAllItsKeysOnly(t *testing.T) {
@@ -226,6 +216,29 @@ func TestOpenAIProviderPriorityUpdatesAllItsKeysOnly(t *testing.T) {
 	}
 }
 
+func TestOpenAIProviderPriorityUsesLockedProviderKeys(t *testing.T) {
+	db := openMetadataTestDatabase(t, "priority-openai-patch-success.db")
+	for _, authIndex := range []string{"a", "b", "old"} {
+		seedProviderCredential(t, db, "openai", authIndex, "secret-"+authIndex)
+	}
+	client := &priorityClientStub{openAI: []providerconfig.OpenAICompatibilityConfig{{APIKeyEntries: []providerconfig.OpenAIApiKeyEntry{{AuthIndex: "a"}, {AuthIndex: "old"}}}}}
+	client.onOpenAIFetch = func(fetch int) {
+		if fetch == 2 {
+			client.openAI[0].APIKeyEntries = []providerconfig.OpenAIApiKeyEntry{{AuthIndex: "a"}, {AuthIndex: "b"}}
+		}
+	}
+	result, err := service.NewCredentialPriorityService(db, client, nil, &service.CredentialMutationLocks{}).SetAIProviderPriority(context.Background(), "a", 6)
+	if err != nil || result.Priority != 6 || client.openAIFetches != 2 || client.patchIndex != 0 {
+		t.Fatalf("result=%+v err=%v fetches=%d index=%d", result, err, client.openAIFetches, client.patchIndex)
+	}
+	for _, authIndex := range []string{"a", "b"} {
+		requirePriority(t, loadPriority(t, db, entities.UsageIdentityAuthTypeAIProvider, authIndex), 6)
+	}
+	if got := loadPriority(t, db, entities.UsageIdentityAuthTypeAIProvider, "old"); got != nil {
+		t.Fatalf("unrelated key priority=%v", *got)
+	}
+}
+
 func TestOpenAIProviderPriorityUnknownKeyDoesNotPatch(t *testing.T) {
 	db := openMetadataTestDatabase(t, "priority-openai-missing.db")
 	seedProviderCredential(t, db, "openai", "missing", "secret")
@@ -236,9 +249,24 @@ func TestOpenAIProviderPriorityUnknownKeyDoesNotPatch(t *testing.T) {
 	}
 }
 
+func TestOpenAIProviderPriorityRejectedPatchDoesNotPersist(t *testing.T) {
+	db := openMetadataTestDatabase(t, "priority-openai-rejected.db")
+	seedProviderCredential(t, db, "openai", "target", "secret")
+	client := &priorityClientStub{
+		openAI:      []providerconfig.OpenAICompatibilityConfig{{APIKeyEntries: []providerconfig.OpenAIApiKeyEntry{{AuthIndex: "target"}}}},
+		patchStatus: http.StatusConflict,
+	}
+	_, err := service.NewCredentialPriorityService(db, client, nil, &service.CredentialMutationLocks{}).SetAIProviderPriority(context.Background(), "target", 5)
+	if !errors.Is(err, service.ErrCredentialPriorityConflict) || client.openAIFetches != 2 {
+		t.Fatalf("err=%v fetches=%d", err, client.openAIFetches)
+	}
+	if got := loadPriority(t, db, entities.UsageIdentityAuthTypeAIProvider, "target"); got != nil {
+		t.Fatalf("unexpected local priority=%v", *got)
+	}
+}
+
 type concurrentOpenAIPriorityClient struct {
 	mu                 sync.Mutex
-	priority           *int
 	patches            int
 	fetches            int
 	firstPatchStarted  chan struct{}
@@ -246,9 +274,6 @@ type concurrentOpenAIPriorityClient struct {
 	secondInitialFetch chan struct{}
 }
 
-func (s *concurrentOpenAIPriorityClient) FetchAuthFiles(context.Context) (*response.AuthFilesResult, error) {
-	return nil, errors.New("unused")
-}
 func (s *concurrentOpenAIPriorityClient) UpdateAuthFilePriority(context.Context, string, int) (int, error) {
 	return 0, errors.New("unused")
 }
@@ -264,10 +289,8 @@ func (s *concurrentOpenAIPriorityClient) FetchOpenAICompatibility(context.Contex
 	if s.fetches == 3 {
 		close(s.secondInitialFetch)
 	}
-	priority := s.priority
 	s.mu.Unlock()
 	return &response.OpenAICompatibilityResult{StatusCode: http.StatusOK, Payload: []providerconfig.OpenAICompatibilityConfig{{
-		Priority:      priority,
 		APIKeyEntries: []providerconfig.OpenAIApiKeyEntry{{AuthIndex: "a"}, {AuthIndex: "b"}},
 	}}}, nil
 }
@@ -283,9 +306,6 @@ func (s *concurrentOpenAIPriorityClient) UpdateOpenAICompatibilityPriority(_ con
 		close(s.firstPatchStarted)
 		<-s.releaseFirstPatch
 	}
-	s.mu.Lock()
-	s.priority = &priority
-	s.mu.Unlock()
 	return http.StatusOK, nil
 }
 

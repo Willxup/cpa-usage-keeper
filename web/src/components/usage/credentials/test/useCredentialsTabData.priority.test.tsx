@@ -4,6 +4,7 @@ import { act, useEffect } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useCredentialsTabData } from '../useCredentialsTabData'
+import i18n from '@/i18n'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -68,6 +69,18 @@ describe('credential priority save data flow', () => {
     expect(onPrioritySaved).not.toHaveBeenCalled()
     expect(onNotice).toHaveBeenCalledWith('error', expect.any(String))
   })
+
+  it.each([500, 502])('shows the general save error for priority HTTP %i', async (status) => {
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input).includes('/priority')) return Response.json({ error: 'upstream failed' }, { status })
+      return Response.json({ identities: [], total_count: 0, total_pages: 1, type_counts: [] })
+    })
+    await act(async () => root.render(<Harness onNotice={onNotice} onPrioritySaved={onPrioritySaved} />))
+    await act(async () => { await expect(latest!.saveAiProviderPriority('local-id', 'idx/one', 3)).rejects.toThrow() })
+    expect(onNotice).toHaveBeenCalledWith('error', i18n.t('usage_stats.credentials_priority_save_failed'))
+    expect(onPrioritySaved).not.toHaveBeenCalled()
+  })
+
   it('routes modal fields to their own endpoints and refreshes after each successful field', async () => {
     await act(async () => root.render(<Harness onNotice={onNotice} onPrioritySaved={onPrioritySaved} />))
     await act(async () => {

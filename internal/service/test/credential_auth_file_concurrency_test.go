@@ -51,11 +51,6 @@ func (c *authFileReplacementClient) UpdateAuthFilePriority(_ context.Context, _ 
 func (c *authFileReplacementClient) UpdateAuthFileStatus(_ context.Context, _, _ string, disabled bool) (int, error) {
 	return c.patch("status", 0, disabled)
 }
-func (c *authFileReplacementClient) FetchAuthFiles(context.Context) (*response.AuthFilesResult, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return &response.AuthFilesResult{StatusCode: http.StatusOK, Payload: authfiles.AuthFilesResponse{Files: []authfiles.AuthFile{c.file}}}, nil
-}
 func (c *authFileReplacementClient) FetchProviderKeyConfig(context.Context, string) (*response.ProviderKeyConfigResult, error) {
 	return nil, fmt.Errorf("unused")
 }

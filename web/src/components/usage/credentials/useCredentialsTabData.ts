@@ -231,9 +231,7 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
         ? 'usage_stats.credentials_priority_stale_target'
         : error instanceof ApiError && error.status === 409 && kind === 'auth-file'
           ? 'usage_stats.credentials_priority_conflict_auth_file'
-          : error instanceof ApiError && error.status === 502
-            ? 'usage_stats.credentials_priority_not_applied'
-            : 'usage_stats.credentials_priority_save_failed'
+          : 'usage_stats.credentials_priority_save_failed'
       onNotice?.('error', i18n.t(key))
       throw error
     }
