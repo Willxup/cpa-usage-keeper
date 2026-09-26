@@ -253,7 +253,7 @@ func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageP
 func writeUsageOverviewComparisonsResponse(c *gin.Context, usageProvider service.UsageProvider, filter servicedto.UsageFilter, cpaAPIKeyProvider service.CPAAPIKeyProvider, keyViewer bool, viewerKey *entities.CPAAPIKey) {
 	comparisonProvider, ok := usageProvider.(service.UsageComparisonProvider)
 	if !ok {
-		c.JSON(http.StatusOK, usageOverviewComparisons{Models: []usageOverviewComparisonItem{}})
+		c.JSON(http.StatusOK, buildUsageOverviewComparisons(nil, nil))
 		return
 	}
 	overview, err := comparisonProvider.GetUsageOverviewComparisons(c.Request.Context(), filter)

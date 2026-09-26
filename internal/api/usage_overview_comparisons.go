@@ -4,12 +4,14 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"sort"
+	"time"
 
 	repodto "cpa-usage-keeper/internal/repository/dto"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 )
 
 type usageOverviewComparisonItem struct {
+	TokenSeries         []int64  `json:"token_series"`
 	Key                 string   `json:"key"`
 	Label               string   `json:"label"`
 	Requests            int64    `json:"requests"`
@@ -24,6 +26,9 @@ type usageOverviewComparisonItem struct {
 }
 
 type usageOverviewComparisons struct {
+	Buckets     []string                      `json:"buckets"`
+	Granularity string                        `json:"granularity"`
+	Timezone    string                        `json:"timezone"`
 	Models      []usageOverviewComparisonItem `json:"models"`
 	APIKeys     []usageOverviewComparisonItem `json:"api_keys,omitempty"`
 	AuthFiles   []usageOverviewComparisonItem `json:"auth_files,omitempty"`
@@ -31,18 +36,20 @@ type usageOverviewComparisons struct {
 }
 
 func buildUsageOverviewComparisons(overview *servicedto.UsageOverviewSnapshot, infos map[string]analysisAPIKeyInfo) *usageOverviewComparisons {
-	result := &usageOverviewComparisons{Models: []usageOverviewComparisonItem{}, APIKeys: []usageOverviewComparisonItem{}, AuthFiles: []usageOverviewComparisonItem{}, AIProviders: []usageOverviewComparisonItem{}}
+	result := &usageOverviewComparisons{Buckets: []string{}, Granularity: "hourly", Timezone: time.Local.String(), Models: []usageOverviewComparisonItem{}, APIKeys: []usageOverviewComparisonItem{}, AuthFiles: []usageOverviewComparisonItem{}, AIProviders: []usageOverviewComparisonItem{}}
 	if overview == nil || overview.Comparisons == nil {
 		return result
 	}
-	result.Models = mapUsageOverviewComparison(overview.Comparisons.Models, nil, false)
-	result.APIKeys = mapUsageOverviewComparison(overview.Comparisons.APIKeys, infos, true)
-	result.AuthFiles = mapUsageOverviewComparison(overview.Comparisons.AuthFiles, nil, false)
-	result.AIProviders = mapUsageOverviewComparison(overview.Comparisons.AIProviders, nil, false)
+	result.Buckets = overview.Comparisons.Buckets
+	result.Granularity = overview.Comparisons.Granularity
+	result.Models = mapUsageOverviewComparison(overview.Comparisons.Models, nil, false, result.Buckets)
+	result.APIKeys = mapUsageOverviewComparison(overview.Comparisons.APIKeys, infos, true, result.Buckets)
+	result.AuthFiles = mapUsageOverviewComparison(overview.Comparisons.AuthFiles, nil, false, result.Buckets)
+	result.AIProviders = mapUsageOverviewComparison(overview.Comparisons.AIProviders, nil, false, result.Buckets)
 	return result
 }
 
-func mapUsageOverviewComparison(items map[string]*repodto.UsageComparisonItemRecord, infos map[string]analysisAPIKeyInfo, apiKeys bool) []usageOverviewComparisonItem {
+func mapUsageOverviewComparison(items map[string]*repodto.UsageComparisonItemRecord, infos map[string]analysisAPIKeyInfo, apiKeys bool, buckets []string) []usageOverviewComparisonItem {
 	result := make([]usageOverviewComparisonItem, 0, len(items))
 	for _, item := range items {
 		key, label := item.Key, item.Label
@@ -63,8 +70,13 @@ func mapUsageOverviewComparison(items map[string]*repodto.UsageComparisonItemRec
 			value := item.CostUSD
 			cost = &value
 		}
+		series := make([]int64, len(buckets))
+		for index, bucket := range buckets {
+			series[index] = item.TokenBuckets[bucket]
+		}
 		result = append(result, usageOverviewComparisonItem{
-			Key: key, Label: label, Requests: item.Requests, Failures: item.Failures,
+			TokenSeries: series,
+			Key:         key, Label: label, Requests: item.Requests, Failures: item.Failures,
 			InputTokens: item.InputTokens, OutputTokens: item.OutputTokens,
 			CacheReadTokens: item.CacheReadTokens, CacheCreationTokens: item.CacheCreationTokens,
 			ReasoningTokens: item.ReasoningTokens, TotalTokens: item.TotalTokens, Cost: cost,

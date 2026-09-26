@@ -46,11 +46,17 @@ func TestOverviewComparisonsShareRollupsAndExactBoundaries(t *testing.T) {
 	if b.Requests != 2 || b.Failures != 1 || b.TotalTokens != 230 {
 		t.Fatalf("key totals: %+v", b)
 	}
+	if len(overview.Comparisons.Buckets) != 5 || overview.Comparisons.Granularity != "hourly" {
+		t.Fatalf("expected five hourly buckets including idle hours: %+v", overview.Comparisons)
+	}
+	if a.TokenBuckets[overview.Comparisons.Buckets[0]] != 120 || a.TokenBuckets[overview.Comparisons.Buckets[1]] != 230 || overview.Comparisons.Models["model-b"].TokenBuckets[overview.Comparisons.Buckets[4]] != 90 {
+		t.Fatal("boundary and rollup tokens must retain their original time buckets")
+	}
 	if overview.Usage.TotalRequests != 0 || len(overview.Series.Requests) != 0 {
 		t.Fatal("comparison-only query must not build overview totals or series")
 	}
-	if len(*queries) != 3 {
-		t.Fatalf("expected two boundary reads and one rollup read, got %d", len(*queries))
+	if len(*queries) != 6 {
+		t.Fatalf("expected two boundary reads, one summary and three token series reads, got %d", len(*queries))
 	}
 	filter.APIGroupKey = "key-a"
 	filtered, err := repository.BuildUsageOverviewWithFilter(db, filter, emptyPricingResolverForTest())
@@ -82,9 +88,15 @@ func TestOverviewComparisonsCustomDayNeverReadsRawEvents(t *testing.T) {
 	if overview.Comparisons.Models["model-a"].Requests != 8 || len(overview.Comparisons.APIKeys) != 2 {
 		t.Fatal("lost rollup dimensions")
 	}
+	if len(overview.Comparisons.Buckets) != 365 || overview.Comparisons.Granularity != "daily" {
+		t.Fatal("custom day series must include empty days")
+	}
+	if got := overview.Comparisons.Models["model-a"].TokenBuckets; got[start.Format(time.DateOnly)] != 100 || got[end.AddDate(0, 0, -1).Format(time.DateOnly)] != 300 {
+		t.Fatalf("daily rollup series lost tokens: %v", got)
+	}
 	assertOverviewQueryTables(t, *queries, false, true)
-	if len(*queries) != 1 {
-		t.Fatalf("expected one daily read, got %d", len(*queries))
+	if len(*queries) != 4 {
+		t.Fatalf("expected one daily summary and three token series reads, got %d", len(*queries))
 	}
 	if !strings.Contains((*queries)[0], "api_group_key") {
 		t.Fatal("missing comparison grouping")

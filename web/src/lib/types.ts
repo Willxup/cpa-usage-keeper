@@ -249,6 +249,7 @@ export interface OverviewRealtimeBlock {
 }
 
 export interface UsageComparisonItem {
+  token_series?: number[]
   key: string
   label: string
   requests: number
@@ -263,6 +264,9 @@ export interface UsageComparisonItem {
 }
 
 export interface UsageOverviewComparisons {
+  buckets?: string[]
+  granularity?: 'hourly' | 'daily'
+  timezone?: string
   models: UsageComparisonItem[]
   api_keys?: UsageComparisonItem[]
   auth_files?: UsageComparisonItem[]

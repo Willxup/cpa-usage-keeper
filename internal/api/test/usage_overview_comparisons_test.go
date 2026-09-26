@@ -28,11 +28,18 @@ func TestOverviewComparisonAPIUsesAliasesAndViewerScope(t *testing.T) {
 	if err := db.Create(&key).Error; err != nil {
 		t.Fatal(err)
 	}
+	identities := []entities.UsageIdentity{
+		{AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: "file-id", Name: "private-file.json"},
+		{AuthType: entities.UsageIdentityAuthTypeAIProvider, Identity: "provider-id", Name: "Private Provider"},
+	}
+	if err := db.Create(&identities).Error; err != nil {
+		t.Fatal(err)
+	}
 	now := time.Now().In(time.Local)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
 	rows := []entities.UsageOverviewDailyStat{
-		{BucketStart: today, APIGroupKey: key.APIKey, Model: "my-model", RequestCount: 2, SuccessCount: 2, InputTokens: 50, TotalTokens: 50},
-		{BucketStart: today, APIGroupKey: "sk-other654321", Model: "other-model", RequestCount: 5, SuccessCount: 5, TotalTokens: 100},
+		{BucketStart: today, APIGroupKey: key.APIKey, Model: "my-model", AuthIndex: "file-id", RequestCount: 2, SuccessCount: 2, InputTokens: 50, TotalTokens: 50},
+		{BucketStart: today, APIGroupKey: "sk-other654321", Model: "other-model", AuthIndex: "provider-id", RequestCount: 5, SuccessCount: 5, TotalTokens: 100},
 		{BucketStart: today, APIGroupKey: "sk-legacy-one-123456", Model: "legacy-model", RequestCount: 1, SuccessCount: 1},
 		{BucketStart: today, APIGroupKey: "sk-legacy-two-123456", Model: "legacy-model", RequestCount: 1, SuccessCount: 1},
 	}
@@ -49,17 +56,38 @@ func TestOverviewComparisonAPIUsesAliasesAndViewerScope(t *testing.T) {
 		t.Fatalf("admin status %d: %s", response.Code, response.Body.String())
 	}
 	var payload struct {
-		Models []struct {
-			Key  string
-			Cost *float64
+		Buckets     []string
+		Granularity string
+		Timezone    string
+		Models      []struct {
+			Key         string
+			Cost        *float64
+			TokenSeries []int64 `json:"token_series"`
 		}
-		APIKeys []struct{ Key, Label string } `json:"api_keys"`
+		APIKeys []struct {
+			Key, Label  string
+			TokenSeries []int64 `json:"token_series"`
+		} `json:"api_keys"`
+		AuthFiles []struct {
+			Key         string
+			TokenSeries []int64 `json:"token_series"`
+		} `json:"auth_files"`
+		AIProviders []struct {
+			Key         string
+			TokenSeries []int64 `json:"token_series"`
+		} `json:"ai_providers"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
 	if len(payload.APIKeys) != 4 {
 		t.Fatalf("key count: %d", len(payload.APIKeys))
+	}
+	if len(payload.Buckets) != 1 || payload.Buckets[0] != today.Format(time.DateOnly) || payload.Granularity != "daily" || payload.Timezone != time.Local.String() {
+		t.Fatalf("incorrect comparison time axis: %+v", payload)
+	}
+	if len(payload.AuthFiles) != 1 || payload.AuthFiles[0].TokenSeries[0] != 50 || len(payload.AIProviders) != 1 || payload.AIProviders[0].TokenSeries[0] != 100 {
+		t.Fatal("credential timeline did not preserve identity grouping")
 	}
 	seen := map[string]bool{}
 	foundAlias := false
@@ -70,6 +98,9 @@ func TestOverviewComparisonAPIUsesAliasesAndViewerScope(t *testing.T) {
 		seen[item.Key] = true
 		if item.Key == "42" && item.Label == "Viewer Key" {
 			foundAlias = true
+			if len(item.TokenSeries) != 1 || item.TokenSeries[0] != 50 {
+				t.Fatal("API Key series does not match its scoped total")
+			}
 		}
 	}
 	if !foundAlias {
@@ -100,5 +131,13 @@ func TestOverviewComparisonAPIUsesAliasesAndViewerScope(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), `"key":"42"`) || keys.listCalls != 0 {
 		t.Fatal("viewer should receive its own API Key data without listing keys")
+	}
+	for _, restricted := range []string{"auth_files", "ai_providers", "private-file.json", "file-id", "provider-id"} {
+		if strings.Contains(response.Body.String(), restricted) {
+			t.Fatalf("viewer received restricted dimension %s", restricted)
+		}
+	}
+	if !strings.Contains(response.Body.String(), `"token_series":[50]`) {
+		t.Fatal("viewer timeline is missing its own usage")
 	}
 }

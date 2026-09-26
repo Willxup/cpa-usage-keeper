@@ -889,10 +889,12 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, costR
 	bucketByDay := shouldBucketUsageOverviewByDay(effectiveFilter, windowMinutes)
 	overview := newUsageOverviewRecord(windowMinutes)
 	if filter.ComparisonOnly {
-		overview.Comparisons = &dto.UsageOverviewComparisonsRecord{
-			Models: map[string]*dto.UsageComparisonItemRecord{}, APIKeys: map[string]*dto.UsageComparisonItemRecord{},
-			AuthFiles: map[string]*dto.UsageComparisonItemRecord{}, AIProviders: map[string]*dto.UsageComparisonItemRecord{},
+		comparisonFilter := effectiveFilter
+		if filter.Range == "custom" {
+			comparisonFilter = filter
+			bucketByDay = filter.CustomUnit == "day"
 		}
+		overview.Comparisons = newUsageOverviewComparisons(comparisonFilter, bucketByDay)
 	}
 	if strings.TrimSpace(filter.Range) == "custom" {
 		switch strings.TrimSpace(filter.CustomUnit) {
@@ -940,12 +942,16 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, costR
 			return nil, err
 		}
 	}
+	comparisonSeriesEnd := *effectiveFilter.EndTime
 	for _, event := range boundaryEvents {
 		if usageOverviewEventInsideWindow(event, fullStart, fullEnd) {
 			continue
 		}
 		if filter.ComparisonOnly {
 			applyUsageEventToComparisonOnly(overview.Comparisons, event, costResolver, boundaryIdentityLookup)
+			if event.Timestamp.After(comparisonSeriesEnd) {
+				comparisonSeriesEnd = event.Timestamp
+			}
 		} else {
 			applyUsageEventToOverviewSnapshot(overview.Usage, event)
 			applyUsageEventToOverview(overview, event, bucketByDay, costResolver, boundaryIdentityLookup)
@@ -977,6 +983,13 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, costR
 		}
 	}
 
+	// 保留 Overview 最新缓存语义；仅比较图时间轴覆盖本次实际计入的跨桶事件，不扩大查询。
+	if filter.ComparisonOnly && comparisonSeriesEnd.After(*effectiveFilter.EndTime) {
+		seriesFilter := effectiveFilter
+		seriesFilter.EndTime = &comparisonSeriesEnd
+		seriesFilter.EndExclusive = false
+		overview.Comparisons.Buckets = usageOverviewComparisonBuckets(seriesFilter, bucketByDay)
+	}
 	// 顶部 summary 和 series 始终使用本次精确筛选窗口。
 	if !filter.ComparisonOnly {
 		finalizeUsageOverview(overview)

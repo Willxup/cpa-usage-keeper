@@ -138,6 +138,9 @@ type UsageOverviewRecord struct {
 
 // UsageComparisonItemRecord 与顶部 Overview 共用请求、Token 和动态计费口径。
 type UsageComparisonItemRecord struct {
+	// Bucket 是当前累加行的时间桶，TokenBuckets 保存该分类的时间序列。
+	Bucket              string
+	TokenBuckets        map[string]int64
 	Key                 string
 	Label               string
 	Requests            int64
@@ -154,6 +157,8 @@ type UsageComparisonItemRecord struct {
 
 // UsageOverviewComparisonsRecord 在压缩汇总行与边界事件遍历中按维度累计。
 type UsageOverviewComparisonsRecord struct {
+	Buckets     []string
+	Granularity string
 	Models      map[string]*UsageComparisonItemRecord
 	APIKeys     map[string]*UsageComparisonItemRecord
 	AuthFiles   map[string]*UsageComparisonItemRecord
