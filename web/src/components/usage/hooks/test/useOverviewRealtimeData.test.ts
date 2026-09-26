@@ -6,11 +6,7 @@ const realtimeForWindow = (window: OverviewRealtimeWindow): OverviewRealtimeBloc
   window,
   bucket_seconds: window === '60m' ? 120 : window === '30m' ? 60 : 30,
   token_velocity: [],
-  response_level: [],
-  response_distribution: {
-    ttft: { average_line: [], particles: [] },
-    latency: { average_line: [], particles: [] },
-  },
+  latency_scatter: { points: [], total_points: 0, p95_ttft_ms: 0, p95_latency_ms: 0, max_ttft_ms: 0, max_latency_ms: 0 },
   current_usage: {
     models: [],
     api_keys: [],

@@ -4,12 +4,11 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import '@/lib/chartjs';
 import type { ChartData, ChartOptions, Plugin } from 'chart.js';
-import { Chart, Line } from 'react-chartjs-2';
+import { Line } from 'react-chartjs-2';
+import { LatencyScatterChart } from './LatencyScatterChart';
 import type {
   OverviewRealtimeBlock,
   OverviewRealtimeWindow,
-  RealtimeResponseAveragePoint,
-  RealtimeResponseParticle,
   RealtimeUsageTopItem,
 } from '@/lib/types';
 import {
@@ -49,9 +48,6 @@ interface RealtimeThroughputPoint {
   requestsPerMinute: number | null;
 }
 
-type ResponseDistributionDatum = { x: number; y: number | null };
-type ResponseDistributionParticleDatum = { x: number; y: number; count: number };
-type ResponseDistributionXBounds = { min: number; max: number };
 
 interface OverviewRealtimePanelProps {
   realtime?: OverviewRealtimeBlock;
@@ -73,19 +69,15 @@ const THROUGHPUT_LEGEND_BOTTOM_GAP = 10;
 
 const CHART_COLORS = {
   token: '#3b82f6',
-  ttft: '#f59e0b',
-  latency: '#22c55e',
   request: '#f97316',
-  cache: '#14b8a6',
 } as const;
 
-const REALTIME_DURATION_UNITS = {
-  d: 'd',
-  h: 'h',
-  m: 'm',
-  s: 's',
-  ms: 'ms',
-} as const;
+const REALTIME_DURATION_UNITS = { d: 'd', h: 'h', m: 'm', s: 's', ms: 'ms' } as const;
+const formatRealtimeDuration = (value: number) => formatDurationMs(value, {
+  maxUnits: 2,
+  locale: 'en-US',
+  unitLabels: REALTIME_DURATION_UNITS,
+});
 
 const throughputLegendSpacingPlugin: Plugin<'line'> = {
   id: 'throughputLegendSpacing',
@@ -107,17 +99,7 @@ const emptyRealtime = (window: OverviewRealtimeWindow): OverviewRealtimeBlock =>
   window,
   bucket_seconds: window === '30m' ? 60 : window === '60m' ? 120 : 30,
   token_velocity: [],
-  response_level: [],
-  response_distribution: {
-    ttft: {
-      average_line: [],
-      particles: [],
-    },
-    latency: {
-      average_line: [],
-      particles: [],
-    },
-  },
+  latency_scatter: { points: [], total_points: 0, p95_ttft_ms: 0, p95_latency_ms: 0, max_ttft_ms: 0, max_latency_ms: 0 },
   current_usage: {
     models: [],
     api_keys: [],
@@ -211,12 +193,6 @@ function throughputRequestAxisMax(values: Array<number | null>): number {
   return integerStep * THROUGHPUT_Y_INTERVAL_COUNT;
 }
 
-const formatRealtimeDuration = (value: number) => formatDurationMs(value, {
-  maxUnits: 2,
-  locale: 'en-US',
-  unitLabels: REALTIME_DURATION_UNITS,
-});
-
 const latestNumber = (values: Array<number | null>): number | null => {
   for (let index = values.length - 1; index >= 0; index -= 1) {
     const value = values[index];
@@ -273,67 +249,6 @@ const metricChips = (
     trendMetric(values, formatter, trendLabel, options),
   ];
 };
-
-function buildRealtimeLineOptions(
-  isDark: boolean,
-  isMobile: boolean,
-  valueFormatter: (value: number) => string,
-  options: { yMaxTicksLimit?: number } = {},
-): ChartOptions<'line'> {
-  const gridColor = isDark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(17, 24, 39, 0.07)';
-  const tickColor = isDark ? 'rgba(255, 255, 255, 0.66)' : 'rgba(17, 24, 39, 0.66)';
-  const tooltipBg = isDark ? 'rgba(17, 24, 39, 0.94)' : 'rgba(255, 255, 255, 0.98)';
-  const tooltipText = isDark ? '#ffffff' : '#111827';
-  return {
-    responsive: true,
-    maintainAspectRatio: false,
-    interaction: { mode: 'index', intersect: false },
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        backgroundColor: tooltipBg,
-        titleColor: tooltipText,
-        bodyColor: tooltipText,
-        borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(17, 24, 39, 0.10)',
-        borderWidth: 1,
-        padding: 10,
-        displayColors: true,
-        callbacks: {
-          label: (context) => {
-            const label = context.dataset.label ? `${context.dataset.label}: ` : '';
-            return `${label}${valueFormatter(Number(context.parsed.y ?? 0))}`;
-          },
-        },
-      },
-    },
-    scales: {
-      x: {
-        grid: { display: false },
-        border: { color: gridColor },
-        ticks: {
-          color: tickColor,
-          maxTicksLimit: isMobile ? 5 : 8,
-          font: { size: isMobile ? 10 : 11 },
-        },
-      },
-      y: {
-        beginAtZero: true,
-        grid: { color: gridColor },
-        border: { color: gridColor },
-        ticks: {
-          color: tickColor,
-          font: { size: isMobile ? 10 : 11 },
-          ...(options.yMaxTicksLimit ? { maxTicksLimit: options.yMaxTicksLimit } : {}),
-          callback: (value) => valueFormatter(Number(value)),
-        },
-      },
-    },
-    elements: {
-      line: { tension: 0.35, borderWidth: isMobile ? 1.6 : 2 },
-      point: { radius: 0, hoverRadius: 3 },
-    },
-  };
-}
 
 function buildThroughputOptions(
   isDark: boolean,
@@ -493,220 +408,6 @@ function buildThroughputData(
   };
 }
 
-function responseDistributionAveragePoints(
-  points: RealtimeResponseAveragePoint[] | null | undefined,
-  fallbackPoints: Array<{ bucket: string; value?: number | null }>,
-): RealtimeResponseAveragePoint[] {
-  if (points && points.length > 0) return points;
-  return fallbackPoints.map((point) => ({
-    bucket: point.bucket,
-    avg_ms: point.value ?? null,
-  }));
-}
-
-function responseDistributionValues(points: RealtimeResponseAveragePoint[] | null | undefined): Array<number | null> {
-  return (points ?? []).filter(Boolean).map((point) => {
-    if (point.avg_ms == null) return null;
-    const value = safeNumber(point.avg_ms);
-    return value > 0 ? value : null;
-  });
-}
-
-function parseResponseDistributionTime(value: string | null | undefined): number | null {
-  const parsed = Date.parse(value ?? '');
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function responseDistributionAverageData(points: RealtimeResponseAveragePoint[] | null | undefined): ResponseDistributionDatum[] {
-  return (points ?? []).filter(Boolean).map((point) => {
-    const x = parseResponseDistributionTime(point.bucket);
-    if (x == null) return null;
-    if (point.avg_ms == null) return { x, y: null };
-    const value = safeNumber(point.avg_ms);
-    return { x, y: value > 0 ? value : null };
-  }).filter((point): point is ResponseDistributionDatum => point !== null);
-}
-
-function responseDistributionParticleData(particles: RealtimeResponseParticle[] | null | undefined): ResponseDistributionParticleDatum[] {
-  return (particles ?? []).filter(Boolean).map((point) => {
-    const x = parseResponseDistributionTime(point.timestamp ?? point.bucket);
-    if (x == null) return null;
-    return {
-      x,
-      y: safeNumber(point.ms),
-      count: Math.max(1, safeNumber(point.count)),
-    };
-  }).filter((point): point is ResponseDistributionParticleDatum => Boolean(point && point.y > 0));
-}
-
-function responseDistributionXBounds(data: OverviewRealtimeBlock): ResponseDistributionXBounds | undefined {
-  const min = parseResponseDistributionTime(data.window_start);
-  const max = parseResponseDistributionTime(data.window_end);
-  if (min != null && max != null && max > min) {
-    return { min, max };
-  }
-
-  const bucketSeconds = safeNumber(data.bucket_seconds);
-  if (bucketSeconds <= 0) return undefined;
-  const bucketStarts = [
-    ...data.token_velocity,
-    ...data.response_level,
-    ...data.request_level,
-    ...data.cache_level,
-    ...data.response_distribution.ttft.average_line,
-    ...data.response_distribution.latency.average_line,
-  ].map((point) => parseResponseDistributionTime(point.bucket))
-    .filter((value): value is number => value != null);
-  if (bucketStarts.length === 0) return undefined;
-  const minBucket = Math.min(...bucketStarts);
-  const maxBucket = Math.max(...bucketStarts) + bucketSeconds * 1000;
-  return maxBucket > minBucket ? { min: minBucket, max: maxBucket } : undefined;
-}
-
-function responseParticleRadius(count: number, isMobile: boolean): number {
-  // 分布点只表示样本位置，密度由点数体现，避免放大成气泡图。
-  const normalized = Math.min(Math.max(1, count), 6);
-  return (isMobile ? 1.15 : 1.35) + normalized * 0.08;
-}
-
-function buildResponseDistributionData(
-  averageLabel: string,
-  particleLabel: string,
-  averageData: ResponseDistributionDatum[],
-  particles: ResponseDistributionParticleDatum[],
-  color: string,
-  isMobile: boolean,
-): ChartData<'line', ResponseDistributionDatum[], number> {
-  return {
-    datasets: [
-      {
-        type: 'line',
-        label: averageLabel,
-        data: averageData,
-        borderColor: color,
-        backgroundColor: `${color}12`,
-        borderWidth: isMobile ? 1.8 : 2.2,
-        pointRadius: 0,
-        pointHoverRadius: 3,
-        tension: 0.35,
-        fill: false,
-        order: 1,
-      },
-      {
-        type: 'line',
-        label: particleLabel,
-        data: particles,
-        showLine: false,
-        borderColor: `${color}00`,
-        backgroundColor: `${color}66`,
-        pointRadius: (context) => {
-          const raw = context.raw as { count?: number } | undefined;
-          return responseParticleRadius(safeNumber(raw?.count ?? 1), isMobile);
-        },
-        pointHoverRadius: (context) => {
-          const raw = context.raw as { count?: number } | undefined;
-          return responseParticleRadius(safeNumber(raw?.count ?? 1), isMobile) + 1.1;
-        },
-        pointBorderWidth: 0,
-        order: 0,
-      },
-    ],
-  };
-}
-
-function buildResponseDistributionOptions(
-  isDark: boolean,
-  isMobile: boolean,
-  averageData: ResponseDistributionDatum[],
-  particles: RealtimeResponseParticle[] | null | undefined,
-  xBounds: ResponseDistributionXBounds | undefined,
-  timezone?: string,
-): ChartOptions<'line'> {
-  const options = buildRealtimeLineOptions(isDark, isMobile, formatRealtimeDuration, { yMaxTicksLimit: 5 });
-  const yBounds = responseDistributionLogAxisBounds(averageData, particles);
-  const baseXScale = options.scales?.x;
-  const baseYScale = options.scales?.y;
-  const responseScales = {
-    ...options.scales,
-    x: {
-      type: 'linear' as const,
-      min: xBounds?.min,
-      max: xBounds?.max,
-      grid: baseXScale?.grid,
-      border: baseXScale?.border,
-      ticks: {
-        ...baseXScale?.ticks,
-        callback: (value) => formatResponseDistributionTick(Number(value), timezone),
-      },
-    },
-    y: {
-      type: 'logarithmic' as const,
-      min: yBounds.min,
-      max: yBounds.max,
-      grid: baseYScale?.grid,
-      border: baseYScale?.border,
-      ticks: baseYScale?.ticks,
-    },
-  } as ChartOptions<'line'>['scales'];
-  return {
-    ...options,
-    animation: false,
-    interaction: { mode: 'nearest', intersect: false },
-    plugins: {
-      ...options.plugins,
-      tooltip: {
-        ...options.plugins?.tooltip,
-        callbacks: {
-          title: (items) => {
-            const x = Number(items[0]?.parsed.x ?? 0);
-            return Number.isFinite(x) ? formatResponseDistributionTick(x, timezone) : '';
-          },
-          label: (context) => {
-            const raw = context.raw as { count?: number } | undefined;
-            const label = context.dataset.label ? `${context.dataset.label}: ` : '';
-            const value = formatRealtimeDuration(Number(context.parsed.y ?? 0));
-            if (raw && typeof raw.count === 'number') {
-              return `${label}${value} (${formatCompactNumber(raw.count)})`;
-            }
-            return `${label}${value}`;
-          },
-        },
-      },
-    },
-    scales: responseScales,
-  };
-}
-
-function formatResponseDistributionTick(value: number, timezone?: string): string {
-  if (!Number.isFinite(value)) return '';
-  return formatBucketLabel(new Date(value).toISOString(), timezone);
-}
-
-function responseDistributionLogAxisBounds(averageData: ResponseDistributionDatum[] | null | undefined, particles: RealtimeResponseParticle[] | null | undefined): { min: number; max: number } {
-  let minValue = Number.POSITIVE_INFINITY;
-  let maxValue = 0;
-  for (const point of averageData ?? []) {
-    const value = point.y;
-    if (value == null || !Number.isFinite(value) || value <= 0) continue;
-    minValue = Math.min(minValue, value);
-    maxValue = Math.max(maxValue, value);
-  }
-  for (const particle of particles ?? []) {
-    if (!particle) continue;
-    const value = safeNumber(particle.ms);
-    if (!Number.isFinite(value) || value <= 0) continue;
-    minValue = Math.min(minValue, value);
-    maxValue = Math.max(maxValue, value);
-  }
-  if (!Number.isFinite(minValue) || maxValue <= 0) {
-    return { min: 1, max: 10 };
-  }
-  return {
-    min: Math.max(1, Math.floor(minValue / 1.35)),
-    max: Math.max(10, Math.ceil(maxValue * 1.18)),
-  };
-}
-
 function RealtimeMetricPills({ metrics, metricsTooltip, labelPrefix }: { metrics: RealtimeMetric[]; metricsTooltip?: string; labelPrefix?: string }) {
   return (
     <div className={styles.overviewRealtimeMetrics}>
@@ -782,7 +483,6 @@ function RealtimeCard({
   headerContent,
   children,
   full = false,
-  compact = false,
   className,
   metricsTooltip,
 }: {
@@ -791,7 +491,6 @@ function RealtimeCard({
   headerContent?: ReactNode;
   children: ReactNode;
   full?: boolean;
-  compact?: boolean;
   className?: string;
   metricsTooltip?: string;
 }) {
@@ -799,7 +498,6 @@ function RealtimeCard({
     styles.overviewRealtimeCard,
     'keeper-card-surface',
     full ? styles.overviewRealtimeCardFull : '',
-    compact ? styles.overviewRealtimeCardCompact : '',
     className ?? '',
   ].filter(Boolean).join(' ');
   return (
@@ -845,44 +543,12 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
   const tokenValues = useMemo(() => throughputPoints.map((point) => point.tokensPerMinute), [throughputPoints]);
   const requestValues = useMemo(() => throughputPoints.map((point) => point.requestsPerMinute), [throughputPoints]);
   const cacheValues = useMemo(() => data.cache_level.map((point) => point.cache_read_rate == null ? null : safeNumber(point.cache_read_rate)), [data.cache_level]);
-  const responseTimezone = data.timezone ?? timezone;
   const outcomeLabels = useMemo(() => (data.insights?.outcomes ?? []).map(point => formatBucketLabel(point.bucket, data.timezone ?? timezone)), [data.insights?.outcomes, data.timezone, timezone]);
-  const ttftAveragePoints = useMemo(() => responseDistributionAveragePoints(
-    data.response_distribution.ttft.average_line,
-    data.response_level.map((point) => ({ bucket: point.bucket, value: point.ttft_p95_ms })),
-  ), [data.response_distribution.ttft.average_line, data.response_level]);
-  const latencyAveragePoints = useMemo(() => responseDistributionAveragePoints(
-    data.response_distribution.latency.average_line,
-    data.response_level.map((point) => ({ bucket: point.bucket, value: point.latency_p95_ms })),
-  ), [data.response_distribution.latency.average_line, data.response_level]);
-  const ttftAverageValues = useMemo(() => responseDistributionValues(ttftAveragePoints), [ttftAveragePoints]);
-  const latencyAverageValues = useMemo(() => responseDistributionValues(latencyAveragePoints), [latencyAveragePoints]);
-  const ttftAverageChartData = useMemo(() => responseDistributionAverageData(ttftAveragePoints), [ttftAveragePoints]);
-  const latencyAverageChartData = useMemo(() => responseDistributionAverageData(latencyAveragePoints), [latencyAveragePoints]);
-  const ttftParticleValues = useMemo(() => responseDistributionParticleData(data.response_distribution.ttft.particles), [data.response_distribution.ttft.particles]);
-  const latencyParticleValues = useMemo(() => responseDistributionParticleData(data.response_distribution.latency.particles), [data.response_distribution.latency.particles]);
-  const distributionXBounds = useMemo(() => responseDistributionXBounds(data), [data]);
+  const latencyScatter = data.latency_scatter ?? { points: [], total_points: 0, p95_ttft_ms: 0, p95_latency_ms: 0, max_ttft_ms: 0, max_latency_ms: 0 };
   const throughputEmptyLabel = throughputPoints.length === 0 ? t('usage_stats.overview_realtime_throughput_empty') : undefined;
-  const ttftEmptyLabel = !hasFiniteNumber(ttftAverageValues) && ttftParticleValues.length === 0 ? t('usage_stats.overview_realtime_ttft_empty') : undefined;
-  const latencyEmptyLabel = !hasFiniteNumber(latencyAverageValues) && latencyParticleValues.length === 0 ? t('usage_stats.overview_realtime_latency_empty') : undefined;
+  const latencyEmptyLabel = latencyScatter.total_points === 0 ? t('usage_stats.no_data') : undefined;
   const cacheEmptyLabel = !hasFiniteNumber(cacheValues) && !data.cache_level.some(point => point.input_tokens > 0 || point.cache_read_tokens > 0 || point.cache_creation_tokens > 0) ? t('usage_stats.overview_realtime_cache_empty') : undefined;
 
-  const ttftDistributionOptions = useMemo(() => buildResponseDistributionOptions(
-    isDark,
-    isMobile,
-    ttftAverageChartData,
-    data.response_distribution.ttft.particles,
-    distributionXBounds,
-    responseTimezone,
-  ), [data.response_distribution.ttft.particles, distributionXBounds, isDark, isMobile, responseTimezone, ttftAverageChartData]);
-  const latencyDistributionOptions = useMemo(() => buildResponseDistributionOptions(
-    isDark,
-    isMobile,
-    latencyAverageChartData,
-    data.response_distribution.latency.particles,
-    distributionXBounds,
-    responseTimezone,
-  ), [data.response_distribution.latency.particles, distributionXBounds, isDark, isMobile, latencyAverageChartData, responseTimezone]);
   const latestLabel = t('usage_stats.overview_realtime_latest');
   const averageLabel = t('usage_stats.overview_realtime_average');
   const trendLabel = t('usage_stats.overview_realtime_trend');
@@ -895,28 +561,18 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
 
   const throughputOptions = useMemo(() => buildThroughputOptions(isDark, isMobile, tokenRateLabel, requestRateLabel, requestValues), [isDark, isMobile, requestRateLabel, requestValues, tokenRateLabel]);
   const throughputChartData = useMemo(() => buildThroughputData(labels, tokenRateLabel, requestRateLabel, tokenValues, requestValues), [labels, requestRateLabel, requestValues, tokenRateLabel, tokenValues]);
-  const ttftDistributionChartData = useMemo(() => buildResponseDistributionData(
-    t('usage_stats.overview_realtime_ttft_average'),
-    t('usage_stats.overview_realtime_ttft_distribution'),
-    ttftAverageChartData,
-    ttftParticleValues,
-    CHART_COLORS.ttft,
-    isMobile,
-  ), [isMobile, t, ttftAverageChartData, ttftParticleValues]);
-  const latencyDistributionChartData = useMemo(() => buildResponseDistributionData(
-    t('usage_stats.overview_realtime_latency_average'),
-    t('usage_stats.overview_realtime_latency_distribution'),
-    latencyAverageChartData,
-    latencyParticleValues,
-    CHART_COLORS.latency,
-    isMobile,
-  ), [isMobile, latencyAverageChartData, latencyParticleValues, t]);
-  const ttftMetrics = useMemo(() => metricChips(ttftAverageValues, formatRealtimeDuration, averageLabel, latestLabel, trendLabel, {
-      invertTone: true,
-    }), [averageLabel, latestLabel, trendLabel, ttftAverageValues]);
-  const latencyMetrics = useMemo(() => metricChips(latencyAverageValues, formatRealtimeDuration, averageLabel, latestLabel, trendLabel, {
-      invertTone: true,
-    }), [averageLabel, latencyAverageValues, latestLabel, trendLabel]);
+  const latencyLabels = useMemo(() => ({
+    ttft: t('usage_stats.ttft'),
+    latency: t('usage_stats.latency'),
+    p95TTFT: t('usage_stats.analysis_latency_p95_ttft'),
+    p95Latency: t('usage_stats.analysis_latency_p95_latency'),
+    samples: t('usage_stats.analysis_latency_samples'),
+  }), [t]);
+  const latencyMetrics = [
+    { label: latencyLabels.p95TTFT, value: latencyScatter.total_points ? formatRealtimeDuration(latencyScatter.p95_ttft_ms) : '--' },
+    { label: latencyLabels.p95Latency, value: latencyScatter.total_points ? formatRealtimeDuration(latencyScatter.p95_latency_ms) : '--' },
+    { label: t('usage_stats.analysis_latency_samples_count'), value: formatCompactNumber(latencyScatter.total_points) },
+  ];
   const throughputMetrics = useMemo<RealtimeMetricPair[]>(() => {
     const tokenMetrics = metricChips(tokenValues, formatCompactNumber, averageLabel, latestLabel, trendLabel);
     const requestMetrics = metricChips(requestValues, formatPerMinuteValue, averageLabel, latestLabel, trendLabel);
@@ -996,29 +652,15 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
           {data.insights && <RealtimeDiagnostics insights={data.insights} labels={outcomeLabels} isDark={isDark} isMobile={isMobile} />}
 
           <div className={styles.overviewRealtimeResponseUsageRow}>
-            <div className={styles.overviewRealtimeResponseStack}>
-              <RealtimeCard
-                title={t('usage_stats.overview_realtime_ttft_distribution')}
-                metrics={ttftMetrics}
-                metricsTooltip={rollingMetricHint}
-                compact
-              >
-                <RealtimeChartFrame loading={loading} emptyLabel={ttftEmptyLabel}>
-                  <Chart type="line" data={ttftDistributionChartData} options={ttftDistributionOptions} />
-                </RealtimeChartFrame>
-              </RealtimeCard>
-
-              <RealtimeCard
-                title={t('usage_stats.overview_realtime_latency_distribution')}
-                metrics={latencyMetrics}
-                metricsTooltip={rollingMetricHint}
-                compact
-              >
-                <RealtimeChartFrame loading={loading} emptyLabel={latencyEmptyLabel}>
-                  <Chart type="line" data={latencyDistributionChartData} options={latencyDistributionOptions} />
-                </RealtimeChartFrame>
-              </RealtimeCard>
-            </div>
+            <RealtimeCard
+              title={t('usage_stats.analysis_latency_title')}
+              metrics={latencyMetrics}
+              className={styles.overviewRealtimeLatencyScatterCard}
+            >
+              <RealtimeChartFrame loading={loading} emptyLabel={latencyEmptyLabel}>
+                <LatencyScatterChart diagnostics={latencyScatter} isDark={isDark} isMobile={isMobile} labels={latencyLabels} formatDuration={formatRealtimeDuration} />
+              </RealtimeChartFrame>
+            </RealtimeCard>
 
             <RealtimeCard title={t('usage_stats.overview_realtime_current_usage')} className={styles.overviewRealtimeCurrentUsageCard}>
               <div className={styles.overviewRealtimeDimensionTabs}>

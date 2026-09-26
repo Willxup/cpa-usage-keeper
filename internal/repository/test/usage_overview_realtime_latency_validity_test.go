@@ -11,7 +11,7 @@ import (
 	repodto "cpa-usage-keeper/internal/repository/dto"
 )
 
-func TestBuildUsageOverviewRealtimeWithFilterRequiresValidTTFTAndLatencyForBothDistributions(t *testing.T) {
+func TestBuildUsageOverviewRealtimeScatterRequiresValidTTFTAndLatency(t *testing.T) {
 	db := openTestDatabase(t)
 	now := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
 	validTTFT := int64(100)
@@ -36,11 +36,10 @@ func TestBuildUsageOverviewRealtimeWithFilterRequiresValidTTFTAndLatencyForBothD
 		t.Fatalf("BuildUsageOverviewRealtimeWithFilter returned error: %v", err)
 	}
 
-	assertRealtimeResponseDistributionUsesOnlyValidPairs(t, realtime.ResponseDistribution.TTFT, 100)
-	assertRealtimeResponseDistributionUsesOnlyValidPairs(t, realtime.ResponseDistribution.Latency, 500)
+	assertRealtimeLatencyScatterPair(t, realtime.LatencyScatter, 100, 500)
 }
 
-func TestBuildUsageOverviewRealtimeExcludesPrewarmFromResponseDistributions(t *testing.T) {
+func TestBuildUsageOverviewRealtimeScatterExcludesPrewarmAndNongenerate(t *testing.T) {
 	testCases := []struct {
 		name     string
 		useCache bool
@@ -83,8 +82,7 @@ func TestBuildUsageOverviewRealtimeExcludesPrewarmFromResponseDistributions(t *t
 				t.Fatalf("build realtime overview: %v", err)
 			}
 
-			assertRealtimeResponseDistributionUsesOnlyValidPairs(t, realtime.ResponseDistribution.TTFT, 100)
-			assertRealtimeResponseDistributionUsesOnlyValidPairs(t, realtime.ResponseDistribution.Latency, 500)
+			assertRealtimeLatencyScatterPair(t, realtime.LatencyScatter, 100, 500)
 			var maxRequestCount int64
 			for _, point := range realtime.RequestLevel {
 				maxRequestCount = max(maxRequestCount, point.Requests)
@@ -93,6 +91,16 @@ func TestBuildUsageOverviewRealtimeExcludesPrewarmFromResponseDistributions(t *t
 				t.Fatalf("expected prewarm to remain in rolling request counts, got max=%d", maxRequestCount)
 			}
 		})
+	}
+}
+
+func assertRealtimeLatencyScatterPair(t *testing.T, scatter repodto.RealtimeLatencyScatterRecord, ttftMS, latencyMS int64) {
+	t.Helper()
+	if scatter.TotalPoints != 1 || len(scatter.Points) != 1 ||
+		scatter.Points[0].TTFTMS != ttftMS || scatter.Points[0].LatencyMS != latencyMS ||
+		scatter.P95TTFTMS != ttftMS || scatter.P95LatencyMS != latencyMS ||
+		scatter.MaxTTFTMS != ttftMS || scatter.MaxLatencyMS != latencyMS {
+		t.Fatalf("expected one valid request pair with full summary, got %+v", scatter)
 	}
 }
 
@@ -126,28 +134,4 @@ func TestUsageRecentEventCacheTryAppendCopiesGeneratePointer(t *testing.T) {
 			t.Fatalf("expected async append to retain generate=false, got available=%v events=%+v", ok, events)
 		}
 	})
-}
-
-func assertRealtimeResponseDistributionUsesOnlyValidPairs(t *testing.T, series repodto.RealtimeResponseDistributionSeriesRecord, wantMS int64) {
-	t.Helper()
-	if series.TotalParticles != 1 || len(series.Particles) != 1 {
-		t.Fatalf("expected one valid response sample, got total=%d particles=%+v", series.TotalParticles, series.Particles)
-	}
-	if series.Particles[0].MS != wantMS {
-		t.Fatalf("expected valid response sample %dms, got %+v", wantMS, series.Particles[0])
-	}
-
-	nonEmptyAveragePoints := 0
-	for _, point := range series.AverageLine {
-		if point.AvgMS == nil {
-			continue
-		}
-		nonEmptyAveragePoints++
-		if *point.AvgMS != float64(wantMS) {
-			t.Fatalf("expected average line to use only %dms samples, got %+v", wantMS, point)
-		}
-	}
-	if nonEmptyAveragePoints == 0 {
-		t.Fatal("expected average line to contain the valid response sample")
-	}
 }

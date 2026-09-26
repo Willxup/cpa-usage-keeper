@@ -52,8 +52,8 @@ func usageOverviewRealtimeAggregationWindow(window time.Duration) time.Duration
 //go:linkname usageOverviewRealtimeAggregationBucketCount cpa-usage-keeper/internal/repository.usageOverviewRealtimeAggregationBucketCount
 func usageOverviewRealtimeAggregationBucketCount(span, aggregationWindow time.Duration) int
 
-//go:linkname usageOverviewRealtimeDistributionParticleRange cpa-usage-keeper/internal/repository.usageOverviewRealtimeDistributionParticleRange
-func usageOverviewRealtimeDistributionParticleRange(index, particleCount, maxParticles int) (int, int)
+//go:linkname usageOverviewRealtimeScatterPointRange cpa-usage-keeper/internal/repository.usageOverviewRealtimeScatterPointRange
+func usageOverviewRealtimeScatterPointRange(index, pointCount, maxPoints int) (int, int)
 
 //go:linkname newEmptyUsageRecentEventCache cpa-usage-keeper/internal/repository.newEmptyUsageRecentEventCache
 func newEmptyUsageRecentEventCache(opts UsageRecentEventCacheOptions) *UsageRecentEventCache

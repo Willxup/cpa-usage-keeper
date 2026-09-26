@@ -41,42 +41,19 @@ type RealtimeTokenVelocityPointRecord struct {
 	CostUSD         *float64
 }
 
-// RealtimeResponseLevelPointRecord 是 Overview 响应水平图的单个短窗口桶。
-type RealtimeResponseLevelPointRecord struct {
-	Bucket       string
-	TTFTP50MS    *int64
-	TTFTP95MS    *int64
-	LatencyP50MS *int64
-	LatencyP95MS *int64
+// RealtimeLatencyScatterRecord 保留同一请求的 TTFT/总耗时配对；摘要覆盖全部可见请求。
+type RealtimeLatencyScatterRecord struct {
+	Points       []RealtimeLatencyScatterPointRecord
+	TotalPoints  int64
+	P95TTFTMS    int64
+	P95LatencyMS int64
+	MaxTTFTMS    int64
+	MaxLatencyMS int64
 }
 
-// RealtimeResponseAveragePointRecord 是响应分布图的一条平均线点。
-type RealtimeResponseAveragePointRecord struct {
-	Bucket string
-	AvgMS  *float64
-}
-
-// RealtimeResponseParticleRecord 是响应分布图的一个聚合粒子点。
-type RealtimeResponseParticleRecord struct {
-	Bucket    string
-	Timestamp string
-	MS        int64
-	Count     int64
-}
-
-// RealtimeResponseDistributionSeriesRecord 是单个响应指标的平均线和粒子分布。
-type RealtimeResponseDistributionSeriesRecord struct {
-	AverageLine    []RealtimeResponseAveragePointRecord
-	Particles      []RealtimeResponseParticleRecord
-	TotalParticles int64
-	Sampled        bool
-	MaxParticles   int
-}
-
-// RealtimeResponseDistributionRecord 是 TTFT 和 Latency 的实时响应分布。
-type RealtimeResponseDistributionRecord struct {
-	TTFT    RealtimeResponseDistributionSeriesRecord
-	Latency RealtimeResponseDistributionSeriesRecord
+type RealtimeLatencyScatterPointRecord struct {
+	TTFTMS    int64
+	LatencyMS int64
 }
 
 // RealtimeUsageOtherKey 只标识 Top5 后聚合的第六项；真实对象即使同名仍按普通项处理。
@@ -102,17 +79,16 @@ type RealtimeCurrentUsageRecord struct {
 
 // UsageOverviewRealtimeRecord 是 Overview 页面实时图表区使用的数据块。
 type UsageOverviewRealtimeRecord struct {
-	Insights             RealtimeInsightsRecord
-	Window               string
-	BucketSeconds        int64
-	WindowStart          time.Time
-	WindowEnd            time.Time
-	TokenVelocity        []RealtimeTokenVelocityPointRecord
-	ResponseLevel        []RealtimeResponseLevelPointRecord
-	ResponseDistribution RealtimeResponseDistributionRecord
-	CurrentUsage         RealtimeCurrentUsageRecord
-	RequestLevel         []RealtimeRequestLevelPointRecord
-	CacheLevel           []RealtimeCacheLevelPointRecord
+	Insights       RealtimeInsightsRecord
+	Window         string
+	BucketSeconds  int64
+	WindowStart    time.Time
+	WindowEnd      time.Time
+	TokenVelocity  []RealtimeTokenVelocityPointRecord
+	LatencyScatter RealtimeLatencyScatterRecord
+	CurrentUsage   RealtimeCurrentUsageRecord
+	RequestLevel   []RealtimeRequestLevelPointRecord
+	CacheLevel     []RealtimeCacheLevelPointRecord
 }
 
 // RealtimeRequestLevelPointRecord 是 Overview 请求水平图的单个短窗口桶。

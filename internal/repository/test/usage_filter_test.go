@@ -960,8 +960,8 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 	if !realtime.WindowStart.Equal(now.Add(-15*time.Minute)) || !realtime.WindowEnd.Equal(now) {
 		t.Fatalf("expected realtime window bounds to match the selected range, got start=%s end=%s", realtime.WindowStart, realtime.WindowEnd)
 	}
-	if len(realtime.TokenVelocity) != 30 || len(realtime.ResponseLevel) != 30 || len(realtime.RequestLevel) != 30 || len(realtime.CacheLevel) != 30 {
-		t.Fatalf("expected 30 realtime buckets, got token=%d response=%d request=%d cache=%d", len(realtime.TokenVelocity), len(realtime.ResponseLevel), len(realtime.RequestLevel), len(realtime.CacheLevel))
+	if len(realtime.TokenVelocity) != 30 || len(realtime.RequestLevel) != 30 || len(realtime.CacheLevel) != 30 {
+		t.Fatalf("expected 30 realtime buckets, got token=%d request=%d cache=%d", len(realtime.TokenVelocity), len(realtime.RequestLevel), len(realtime.CacheLevel))
 	}
 
 	firstUsageBucket := realtime.TokenVelocity[20]
@@ -976,50 +976,11 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 	if expiredUsageBucket.Tokens != 0 || expiredUsageBucket.TokensPerMinute != 0 {
 		t.Fatalf("expected token velocity to expire after the 3m sliding window, got %+v", expiredUsageBucket)
 	}
-	if realtime.ResponseLevel[21].LatencyP50MS == nil || *realtime.ResponseLevel[21].LatencyP50MS != 500 ||
-		realtime.ResponseLevel[21].LatencyP95MS == nil || *realtime.ResponseLevel[21].LatencyP95MS != 700 ||
-		realtime.ResponseLevel[21].TTFTP50MS == nil || *realtime.ResponseLevel[21].TTFTP50MS != 100 ||
-		realtime.ResponseLevel[21].TTFTP95MS == nil || *realtime.ResponseLevel[21].TTFTP95MS != 200 {
-		t.Fatalf("expected response level to exclude failed latency samples from the sliding window, got %+v", realtime.ResponseLevel[21])
-	}
-	if realtime.ResponseLevel[26].LatencyP50MS != nil || realtime.ResponseLevel[26].LatencyP95MS != nil ||
-		realtime.ResponseLevel[26].TTFTP50MS != nil || realtime.ResponseLevel[26].TTFTP95MS != nil {
-		t.Fatalf("expected failed request latency samples to be excluded after successful samples expire, got %+v", realtime.ResponseLevel[26])
-	}
-	if realtime.ResponseLevel[27].LatencyP50MS != nil || realtime.ResponseLevel[27].LatencyP95MS != nil ||
-		realtime.ResponseLevel[27].TTFTP50MS != nil || realtime.ResponseLevel[27].TTFTP95MS != nil {
-		t.Fatalf("expected response level to expire after the sliding window, got %+v", realtime.ResponseLevel[27])
-	}
-	if len(realtime.ResponseDistribution.TTFT.AverageLine) != 30 || len(realtime.ResponseDistribution.Latency.AverageLine) != 30 {
-		t.Fatalf("expected response distribution average lines to use the realtime buckets, got ttft=%d latency=%d", len(realtime.ResponseDistribution.TTFT.AverageLine), len(realtime.ResponseDistribution.Latency.AverageLine))
-	}
-	if realtime.ResponseDistribution.TTFT.AverageLine[21].AvgMS == nil || math.Abs(*realtime.ResponseDistribution.TTFT.AverageLine[21].AvgMS-150) > 0.000000001 {
-		t.Fatalf("expected ttft average line to use sliding samples, got %+v", realtime.ResponseDistribution.TTFT.AverageLine[21])
-	}
-	if realtime.ResponseDistribution.Latency.AverageLine[21].AvgMS == nil || math.Abs(*realtime.ResponseDistribution.Latency.AverageLine[21].AvgMS-600) > 0.000000001 {
-		t.Fatalf("expected latency average line to exclude failed request latency, got %+v", realtime.ResponseDistribution.Latency.AverageLine[21])
-	}
-	if realtime.ResponseDistribution.TTFT.AverageLine[26].AvgMS != nil ||
-		realtime.ResponseDistribution.Latency.AverageLine[26].AvgMS != nil {
-		t.Fatalf("expected failed request distribution samples to be excluded after successful samples expire, got ttft=%+v latency=%+v", realtime.ResponseDistribution.TTFT.AverageLine[26], realtime.ResponseDistribution.Latency.AverageLine[26])
-	}
-	for _, tc := range []struct {
-		name string
-		got  []dto.RealtimeResponseParticleRecord
-		want []dto.RealtimeResponseParticleRecord
-	}{
-		{"TTFT", realtime.ResponseDistribution.TTFT.Particles, []dto.RealtimeResponseParticleRecord{
-			{Bucket: "2026-06-09T11:55:00Z", Timestamp: "2026-06-09T11:55:10Z", MS: 100, Count: 1},
-			{Bucket: "2026-06-09T11:55:00Z", Timestamp: "2026-06-09T11:55:15Z", MS: 200, Count: 1},
-		}},
-		{"latency", realtime.ResponseDistribution.Latency.Particles, []dto.RealtimeResponseParticleRecord{
-			{Bucket: "2026-06-09T11:55:00Z", Timestamp: "2026-06-09T11:55:10Z", MS: 500, Count: 1},
-			{Bucket: "2026-06-09T11:55:00Z", Timestamp: "2026-06-09T11:55:15Z", MS: 700, Count: 1},
-		}},
-	} {
-		if !reflect.DeepEqual(tc.got, tc.want) {
-			t.Fatalf("%s particles = %+v, want %+v", tc.name, tc.got, tc.want)
-		}
+	if scatter := realtime.LatencyScatter; scatter.TotalPoints != 2 ||
+		scatter.P95TTFTMS != 200 || scatter.P95LatencyMS != 700 ||
+		scatter.MaxTTFTMS != 200 || scatter.MaxLatencyMS != 700 ||
+		!reflect.DeepEqual(scatter.Points, []dto.RealtimeLatencyScatterPointRecord{{TTFTMS: 100, LatencyMS: 500}, {TTFTMS: 200, LatencyMS: 700}}) {
+		t.Fatalf("expected only two paired successful responses in visible window, got %+v", scatter)
 	}
 	if realtime.RequestLevel[21].Requests != 4 || math.Abs(realtime.RequestLevel[21].RequestsPerMinute-(4.0/3.0)) > 0.000000001 {
 		t.Fatalf("expected request level to use the 3m sliding window, got %+v", realtime.RequestLevel[21])
@@ -1063,66 +1024,10 @@ func TestBuildUsageOverviewRealtimeWithFilterBuildsRealtimeBlockFromRecentCache(
 	}
 }
 
-func TestBuildUsageOverviewRealtimeWithFilterCapsResponseDistributionParticles(t *testing.T) {
-	withRepositoryTestLocation(t, "UTC")
-	db := openTestDatabase(t)
-
-	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
-	windowStart := now.Add(-60 * time.Minute)
-	const sampleCount = 1205
-	events := make([]entities.UsageEvent, 0, sampleCount)
-	for index := 0; index < sampleCount; index++ {
-		ttft := int64(80 + index%40)
-		events = append(events, entities.UsageEvent{
-			APIGroupKey: "provider-a",
-			Model:       "gpt-5",
-			Timestamp:   windowStart.Add(time.Duration(index) * 2 * time.Second),
-			LatencyMS:   int64(300 + index%200),
-			TTFTMS:      &ttft,
-		})
-	}
-	cache := newEmptyUsageRecentEventCache(UsageRecentEventCacheOptions{Now: func() time.Time { return now }})
-	t.Cleanup(cache.Close)
-	appendRecentCacheEvents(cache, events)
-	if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
-		t.Fatalf("drop usage_events returned error: %v", err)
-	}
-
-	realtime, err := BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, dto.UsageQueryFilter{
-		APIGroupKey:     "provider-a",
-		RealtimeWindow:  "60m",
-		RealtimeEndTime: &now,
-	}, cache, emptyPricingResolverForTest())
-
-	if err != nil {
-		t.Fatalf("BuildUsageOverviewRealtimeWithFilterAndRecentCache returned error: %v", err)
-	}
-
-	assertRealtimeDistributionParticleCap(t, realtime.ResponseDistribution.TTFT, sampleCount)
-	assertRealtimeDistributionParticleCap(t, realtime.ResponseDistribution.Latency, sampleCount)
-}
-
-func TestUsageOverviewRealtimeDistributionParticleRangeUsesWideArithmetic(t *testing.T) {
-	start, end := usageOverviewRealtimeDistributionParticleRange(999, 2_200_000, 1000)
+func TestUsageOverviewRealtimeScatterPointRangeUsesWideArithmetic(t *testing.T) {
+	start, end := usageOverviewRealtimeScatterPointRange(999, 2_200_000, 1000)
 	if start != 2_197_800 || end != 2_200_000 {
-		t.Fatalf("expected wide particle range arithmetic, got start=%d end=%d", start, end)
-	}
-}
-
-func assertRealtimeDistributionParticleCap(t *testing.T, series dto.RealtimeResponseDistributionSeriesRecord, totalSamples int64) {
-	t.Helper()
-	if len(series.Particles) > 1000 {
-		t.Fatalf("expected response distribution particles to be capped at 1000, got %d", len(series.Particles))
-	}
-	var total int64
-	for _, particle := range series.Particles {
-		total += particle.Count
-	}
-	if total != totalSamples {
-		t.Fatalf("expected sampled particle counts to preserve %d real samples, got %d", totalSamples, total)
-	}
-	if series.TotalParticles != totalSamples || !series.Sampled || series.MaxParticles != 1000 {
-		t.Fatalf("unexpected sampling metadata: total=%d sampled=%t max=%d", series.TotalParticles, series.Sampled, series.MaxParticles)
+		t.Fatalf("expected wide scatter point range arithmetic, got start=%d end=%d", start, end)
 	}
 }
 

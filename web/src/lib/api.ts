@@ -39,21 +39,13 @@ function realtimeBucketSecondsForWindow(window: OverviewRealtimeWindow): number 
   return 30
 }
 
-function realtimeResponseParticleTotal(particles: OverviewRealtimeBlock['response_distribution']['ttft']['particles']): number {
-  return particles.reduce((total, particle) => total + Math.max(1, Number(particle.count) || 0), 0)
-}
-
 function normalizeOverviewRealtimeBlock(
   block: Partial<OverviewRealtimeBlock> & {
     current_usage?: Partial<OverviewRealtimeBlock['current_usage']>;
-    response_distribution?: Partial<OverviewRealtimeBlock['response_distribution']>;
   },
   fallbackWindow?: OverviewRealtimeWindow,
 ): OverviewRealtimeBlock {
   const currentUsage: Partial<OverviewRealtimeBlock['current_usage']> = block.current_usage ?? {}
-  const responseDistribution: Partial<OverviewRealtimeBlock['response_distribution']> = block.response_distribution ?? {}
-  const ttftParticles = responseDistribution.ttft?.particles ?? []
-  const latencyParticles = responseDistribution.latency?.particles ?? []
   const resolvedWindow = block.window ?? fallbackWindow ?? '15m'
   return {
     window: resolvedWindow,
@@ -63,22 +55,13 @@ function normalizeOverviewRealtimeBlock(
     window_start: block.window_start,
     window_end: block.window_end,
     token_velocity: block.token_velocity ?? [],
-    response_level: block.response_level ?? [],
-    response_distribution: {
-      ttft: {
-        average_line: responseDistribution.ttft?.average_line ?? [],
-        particles: ttftParticles,
-        total_particles: responseDistribution.ttft?.total_particles ?? realtimeResponseParticleTotal(ttftParticles),
-        sampled: responseDistribution.ttft?.sampled ?? false,
-        max_particles: responseDistribution.ttft?.max_particles ?? 1000,
-      },
-      latency: {
-        average_line: responseDistribution.latency?.average_line ?? [],
-        particles: latencyParticles,
-        total_particles: responseDistribution.latency?.total_particles ?? realtimeResponseParticleTotal(latencyParticles),
-        sampled: responseDistribution.latency?.sampled ?? false,
-        max_particles: responseDistribution.latency?.max_particles ?? 1000,
-      },
+    latency_scatter: {
+      points: block.latency_scatter?.points ?? [],
+      total_points: block.latency_scatter?.total_points ?? 0,
+      p95_ttft_ms: block.latency_scatter?.p95_ttft_ms ?? 0,
+      p95_latency_ms: block.latency_scatter?.p95_latency_ms ?? 0,
+      max_ttft_ms: block.latency_scatter?.max_ttft_ms ?? 0,
+      max_latency_ms: block.latency_scatter?.max_latency_ms ?? 0,
     },
     current_usage: {
       models: currentUsage.models ?? [],

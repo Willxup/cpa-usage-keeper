@@ -220,7 +220,11 @@ describe('fetchUsageEvents', () => {
       window: '30m',
       bucket_seconds: 60,
       token_velocity: [],
-      response_level: [],
+      latency_scatter: {
+        points: [{ ttft_ms: 120, latency_ms: 800 }],
+        total_points: 1, p95_ttft_ms: 120, p95_latency_ms: 800,
+        max_ttft_ms: 120, max_latency_ms: 800,
+      },
       current_usage: { models: [{ key: 'gpt-5', label: 'gpt-5', tokens: 20, requests: 1, share: 100 }] },
       request_level: [],
       cache_level: [],
@@ -234,13 +238,17 @@ describe('fetchUsageEvents', () => {
     expect(response.current_usage.api_keys).toEqual([]);
     expect(response.current_usage.auth_files).toEqual([]);
     expect(response.current_usage.ai_providers).toEqual([]);
+    expect(response.latency_scatter).toEqual({
+      points: [{ ttft_ms: 120, latency_ms: 800 }],
+      total_points: 1, p95_ttft_ms: 120, p95_latency_ms: 800,
+      max_ttft_ms: 120, max_latency_ms: 800,
+    });
   });
 
   it('derives realtime bucket seconds from the response window when omitted', async () => {
     mockJSON({
       window: '60m',
       token_velocity: [],
-      response_level: [],
       current_usage: { models: [] },
       request_level: [],
       cache_level: [],

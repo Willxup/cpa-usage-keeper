@@ -3879,16 +3879,8 @@
   }
 }
 
-.overviewRealtimeResponseStack {
-  min-width: 0;
-  display: grid;
-  grid-template-rows: repeat(2, minmax(250px, 1fr));
-  gap: 16px;
-}
-
-.overviewRealtimeCardCompact {
-  min-height: 250px;
-  gap: 10px;
+.overviewRealtimeLatencyScatterCard {
+  min-height: 396px;
 }
 
 .overviewRealtimeCurrentUsageCard {
@@ -4055,9 +4047,9 @@
   height: 240px;
 }
 
-.overviewRealtimeCardCompact .overviewRealtimeChartFrame {
-  min-height: 112px;
-  height: 112px;
+.overviewRealtimeLatencyScatterCard .overviewRealtimeChartFrame {
+  min-height: 300px;
+  height: 300px;
 }
 
 .overviewRealtimeEmptyOverlay {
