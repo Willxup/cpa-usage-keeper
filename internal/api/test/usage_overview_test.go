@@ -77,6 +77,10 @@ func TestKeyOverviewRealtimeIgnoresClientAPIKeyID(t *testing.T) {
 		realtime: &servicedto.UsageOverviewRealtime{
 			Window:        "60m",
 			BucketSeconds: 120,
+			LatencyScatter: servicedto.RealtimeLatencyScatter{
+				Points:      []servicedto.RealtimeLatencyScatterPoint{{TTFTMS: 120, LatencyMS: 800}},
+				TotalPoints: 1, P95TTFTMS: 120, P95LatencyMS: 800, MaxTTFTMS: 120, MaxLatencyMS: 800,
+			},
 			RequestLevel: []servicedto.RealtimeRequestLevelPoint{{
 				Bucket:            "2026-04-22T11:00:00Z",
 				RequestsPerMinute: 6,
@@ -96,6 +100,14 @@ func TestKeyOverviewRealtimeIgnoresClientAPIKeyID(t *testing.T) {
 	}
 	if !strings.Contains(realtimeResp.Body.String(), `"request_level":[{"bucket":"2026-04-22T11:00:00Z","requests_per_minute":6,"requests":12}]`) {
 		t.Fatalf("unexpected realtime response body: %s", realtimeResp.Body.String())
+	}
+	if !strings.Contains(realtimeResp.Body.String(), `"latency_scatter":{"points":[{"ttft_ms":120,"latency_ms":800}],"total_points":1,"p95_ttft_ms":120,"p95_latency_ms":800,"max_ttft_ms":120,"max_latency_ms":800}`) {
+		t.Fatalf("expected key viewer scatter with paired coordinates, got %s", realtimeResp.Body.String())
+	}
+	for _, legacyField := range []string{`"response_level":`, `"response_distribution":`} {
+		if strings.Contains(realtimeResp.Body.String(), legacyField) {
+			t.Fatalf("key viewer realtime must omit %s: %s", legacyField, realtimeResp.Body.String())
+		}
 	}
 	var realtimeBody map[string]any
 	if err := json.Unmarshal(realtimeResp.Body.Bytes(), &realtimeBody); err != nil {
@@ -283,25 +295,9 @@ func TestUsageOverviewRealtimeAcceptsWindowAndReturnsRealtimeBlock(t *testing.T)
 			Tokens:          20,
 			CostUSD:         new(float64(0.123)),
 		}},
-		ResponseLevel: []servicedto.RealtimeResponseLevelPoint{{
-			Bucket:       "2026-04-22T11:00:00Z",
-			TTFTP95MS:    new(int64(210)),
-			LatencyP95MS: new(int64(820)),
-		}},
-		ResponseDistribution: servicedto.RealtimeResponseDistribution{
-			TTFT: servicedto.RealtimeResponseDistributionSeries{
-				Particles: []servicedto.RealtimeResponseParticle{{
-					Bucket:    "2026-04-22T11:00:00Z",
-					Timestamp: "2026-04-22T11:00:15Z",
-					MS:        120,
-					Count:     1,
-				}},
-				TotalParticles: 1,
-				MaxParticles:   1000,
-			},
-			Latency: servicedto.RealtimeResponseDistributionSeries{
-				MaxParticles: 1000,
-			},
+		LatencyScatter: servicedto.RealtimeLatencyScatter{
+			Points:      []servicedto.RealtimeLatencyScatterPoint{{TTFTMS: 120, LatencyMS: 820}},
+			TotalPoints: 1, P95TTFTMS: 120, P95LatencyMS: 820, MaxTTFTMS: 120, MaxLatencyMS: 820,
 		},
 		CurrentUsage: servicedto.RealtimeCurrentUsage{
 			Models: []servicedto.RealtimeUsageTopItem{{
@@ -343,11 +339,15 @@ func TestUsageOverviewRealtimeAcceptsWindowAndReturnsRealtimeBlock(t *testing.T)
 	if provider.lastRealtime.RealtimeWindow != "30m" || provider.lastRealtime.RealtimeEndTime == nil {
 		t.Fatalf("expected realtime window and anchor to be passed through, got %+v", provider.lastRealtime)
 	}
+	for _, legacyField := range []string{`"response_level":`, `"response_distribution":`} {
+		if strings.Contains(body, legacyField) {
+			t.Fatalf("overview realtime must omit %s: %s", legacyField, body)
+		}
+	}
 	for _, expected := range []string{
 		`"window":"30m","timezone":"Asia/Shanghai","bucket_seconds":60,"window_start":"2026-04-22T11:00:00+08:00","window_end":"2026-04-22T11:30:00+08:00"`,
 		`"token_velocity":[{"bucket":"2026-04-22T11:00:00Z","tokens_per_minute":120,"tokens":20,"cost":0.123}]`,
-		`"response_level":[{"bucket":"2026-04-22T11:00:00Z","ttft_p95_ms":210,"latency_p95_ms":820}]`,
-		`"response_distribution":{"ttft":{"average_line":[],"particles":[{"bucket":"2026-04-22T11:00:00Z","timestamp":"2026-04-22T11:00:15Z","ms":120,"count":1}],"total_particles":1,"sampled":false,"max_particles":1000},"latency":{"average_line":[],"particles":[],"total_particles":0,"sampled":false,"max_particles":1000}}`,
+		`"latency_scatter":{"points":[{"ttft_ms":120,"latency_ms":820}],"total_points":1,"p95_ttft_ms":120,"p95_latency_ms":820,"max_ttft_ms":120,"max_latency_ms":820}`,
 		`"current_usage":{"models":[{"key":"gpt-5","label":"gpt-5","tokens":20,"requests":1,"cost":0.123,"share":100}],"api_keys":[{"key":"legacy:`,
 		`"request_level":[{"bucket":"2026-04-22T11:00:00Z","requests_per_minute":6,"requests":1}]`,
 		`"cache_level":[{"bucket":"2026-04-22T11:00:00Z","cache_read_rate":25,"cache_read_tokens":5,"cache_creation_tokens":2,"input_tokens":20}]`,

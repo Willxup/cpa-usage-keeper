@@ -17,11 +17,7 @@ const realtime: OverviewRealtimeBlock = {
   window: '15m',
   bucket_seconds: 30,
   token_velocity: [],
-  response_level: [],
-  response_distribution: {
-    ttft: { average_line: [], particles: [] },
-    latency: { average_line: [], particles: [] },
-  },
+  latency_scatter: { points: [], total_points: 0, p95_ttft_ms: 0, p95_latency_ms: 0, max_ttft_ms: 0, max_latency_ms: 0 },
   current_usage: { models: [], api_keys: [], auth_files: [], ai_providers: [] },
   request_level: [],
   cache_level: [],
