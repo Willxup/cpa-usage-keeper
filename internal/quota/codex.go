@@ -2,7 +2,9 @@ package quota
 
 import (
 	"context"
+	"net/url"
 	"strings"
+	"time"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
 	"cpa-usage-keeper/internal/entities"
@@ -57,6 +59,24 @@ func (p codexProvider) Check(ctx context.Context, input ProviderInput) (Provider
 		}
 	}
 	return ProviderOutput{Provider: "codex", Result: CodexResult{Usage: usage}}, nil
+}
+
+// FetchSubscriptionActiveUntil 是主动刷新附带的可选查询；失败不影响已取得的额度。
+func (p codexProvider) FetchSubscriptionActiveUntil(ctx context.Context, input ProviderInput) *time.Time {
+	accountID := optionalAccountID(input.Identity.AccountID)
+	if accountID == "" {
+		return nil
+	}
+	response, err := p.caller.CallManagementAPI(ctx, apicall.Request{
+		AuthIndex: input.Identity.Identity,
+		Method:    "GET",
+		URL:       CodexSubscriptionsURL + "?account_id=" + url.QueryEscape(accountID),
+		Header:    p.requestHeaders(input.Identity),
+	})
+	if err != nil {
+		return nil
+	}
+	return parseCodexSubscriptionActiveUntil(response)
 }
 
 func optionalAccountID(value *string) string {

@@ -24,6 +24,8 @@ const (
 	// CodexRateLimitResetCreditsURL 返回当前账号每次可用 reset credit 及其过期时间。
 	CodexRateLimitResetCreditsURL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
 
+	CodexSubscriptionsURL = "https://chatgpt.com/backend-api/subscriptions"
+
 	// xaiGrokClientVersion 与 CPA 当前 Grok CLI chat-proxy 请求保持一致。
 	xaiGrokClientVersion = "0.2.93"
 )

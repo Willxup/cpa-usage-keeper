@@ -400,7 +400,9 @@ func (s *Service) runRefreshTaskWithWorker(authIndex string) {
 	// 任务结束时释放 timeout timer，避免资源泄漏。
 	defer cancel()
 	// Check 会按 auth_index 读取身份、调用对应 provider，并标准化 quota rows。
-	response, upstreamResponses, err := s.checkWithUpstreamResponses(ctx, CheckRequest{AuthIndex: authIndex, Source: source})
+	response, upstreamResponses, statsAttached, err := s.checkWithUpstreamResponses(ctx, CheckRequest{AuthIndex: authIndex, Source: source}, func(response CheckResponse) CheckResponse {
+		return s.attachWindowUsageStats(ctx, authIndex, response, time.Now())
+	})
 	// provider 或身份校验失败时进入失败状态。
 	if err != nil {
 		if errors.Is(err, ErrUnsupportedType) {
@@ -414,7 +416,9 @@ func (s *Service) runRefreshTaskWithWorker(authIndex string) {
 		return
 	}
 	// provider 成功后立即把窗口内 token/cost 补进同一次缓存，前端读取缓存时不再触发额外统计请求。
-	response = s.attachWindowUsageStats(ctx, authIndex, response, time.Now())
+	if !statsAttached {
+		response = s.attachWindowUsageStats(ctx, authIndex, response, time.Now())
+	}
 	// quota rows 和 token/cost 都准备好后，把任务切到 completed 并写入长期成功缓存。
 	s.markRefreshTaskCompleted(authIndex, response, upstreamResponses)
 }

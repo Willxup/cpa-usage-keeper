@@ -294,43 +294,67 @@ func (s *Service) StopRefreshTasks() {
 }
 
 func (s *Service) Check(ctx context.Context, request CheckRequest) (CheckResponse, error) {
-	response, _, err := s.checkWithUpstreamResponses(ctx, request)
+	response, _, _, err := s.checkWithUpstreamResponses(ctx, request, nil)
 	return response, err
 }
 
-func (s *Service) checkWithUpstreamResponses(ctx context.Context, request CheckRequest) (CheckResponse, []UpstreamResponse, error) {
+// beforeSubscriptionDone 只用于刷新 worker：额度到达后先补窗口统计，再等待可选订阅查询收尾。
+func (s *Service) checkWithUpstreamResponses(ctx context.Context, request CheckRequest, beforeSubscriptionDone func(CheckResponse) CheckResponse) (CheckResponse, []UpstreamResponse, bool, error) {
 	if !s.quotaUpstreamResponsesEnabled {
-		response, err := s.check(ctx, request)
-		return response, nil, err
+		response, statsAttached, err := s.check(ctx, request, beforeSubscriptionDone)
+		return response, nil, statsAttached, err
 	}
 	collectorContext, collector := withUpstreamResponseCollector(ctx)
-	response, err := s.check(collectorContext, request)
-	return response, collector.snapshot(), err
+	response, statsAttached, err := s.check(collectorContext, request, beforeSubscriptionDone)
+	return response, collector.snapshot(), statsAttached, err
 }
 
-func (s *Service) check(ctx context.Context, request CheckRequest) (CheckResponse, error) {
+func (s *Service) check(ctx context.Context, request CheckRequest, beforeSubscriptionDone func(CheckResponse) CheckResponse) (CheckResponse, bool, error) {
 	// 单条查询以 auth_index 为唯一入口，前端不需要知道具体 provider 的 API 细节。
 	authIndex := strings.TrimSpace(request.AuthIndex)
 	if authIndex == "" {
-		return CheckResponse{}, fmt.Errorf("%w: auth_index is required", ErrValidation)
+		return CheckResponse{}, false, fmt.Errorf("%w: auth_index is required", ErrValidation)
 	}
 	// 只允许 auth files 身份查询限额，AI provider 身份不进入 provider 调用链路。
 	identity, err := repository.GetActiveAuthFileUsageIdentityByAuthIndex(ctx, s.db, authIndex)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return CheckResponse{}, fmt.Errorf("%w: %s", ErrNotFound, authIndex)
+			return CheckResponse{}, false, fmt.Errorf("%w: %s", ErrNotFound, authIndex)
 		}
-		return CheckResponse{}, err
+		return CheckResponse{}, false, err
 	}
 	// 按相邻项目规则先匹配 provider 再匹配 type，解析出实际要调用的 quota handler。
 	_, handler, ok := s.resolveQuotaHandlerForIdentity(identity)
 	if !ok {
-		return CheckResponse{}, fmt.Errorf("%w: %s", ErrUnsupportedType, normalizeIdentityType(identity.Provider))
+		return CheckResponse{}, false, fmt.Errorf("%w: %s", ErrUnsupportedType, normalizeIdentityType(identity.Provider))
+	}
+	var subscriptionDone <-chan *time.Time
+	var cancelSubscription context.CancelFunc
+	if (request.Source == RefreshSourceManual || request.Source == RefreshSourceScheduled) && usageHeaderIdentityIsCodex(identity) {
+		if codex, ok := handler.(interface {
+			FetchSubscriptionActiveUntil(context.Context, ProviderInput) *time.Time
+		}); ok && optionalAccountID(identity.AccountID) != "" {
+			// 两路沿用同一个任务 deadline；额度失败时取消并等待订阅 goroutine 退出。
+			subscriptionContext, cancel := context.WithCancel(ctx)
+			cancelSubscription = cancel
+			results := make(chan *time.Time, 1)
+			subscriptionDone = results
+			go func() {
+				results <- codex.FetchSubscriptionActiveUntil(subscriptionContext, ProviderInput{Identity: identity})
+			}()
+		}
+	}
+	if cancelSubscription != nil {
+		defer cancelSubscription()
 	}
 	// provider 返回各自原始结构后，再统一转换为前端可复用的 quota rows。
 	providerOutput, err := handler.Check(ctx, ProviderInput{Identity: identity})
 	if err != nil {
-		return CheckResponse{}, err
+		if subscriptionDone != nil {
+			cancelSubscription()
+			<-subscriptionDone
+		}
+		return CheckResponse{}, false, err
 	}
 	// 主动查询只从原始 CodexResult 提取 Primary/Secondary；Review/Additional 从结构上不参与遍历。
 	if usageHeaderIdentityIsCodex(identity) {
@@ -356,7 +380,20 @@ func (s *Service) check(ctx context.Context, request CheckRequest) (CheckRespons
 	if count, ok := rateLimitResetCreditsAvailableCount(providerOutput); ok {
 		response.RateLimitResetCreditsAvailableCount = count
 	}
-	return response, nil
+	statsAttached := false
+	if subscriptionDone != nil {
+		if beforeSubscriptionDone != nil {
+			response = beforeSubscriptionDone(response)
+			statsAttached = true
+		}
+		if activeUntil := <-subscriptionDone; activeUntil != nil && ctx.Err() == nil {
+			// 官方结果直接写入当前账号；在途请求若遇到账号切换则由 WHERE 保护。
+			if err := repository.UpdateCodexUsageIdentityActiveUntil(ctx, s.db, identity, *activeUntil); err != nil {
+				logrus.WithError(err).WithField("auth_index", authIndex).Warn("codex subscription expiry update skipped")
+			}
+		}
+	}
+	return response, statsAttached, nil
 }
 
 func (s *Service) resolveQuotaHandler(provider string, identityType string) (string, ProviderHandler, bool) {
