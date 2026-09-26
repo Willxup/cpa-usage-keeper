@@ -1,5 +1,5 @@
 import { RealtimeCacheChart, RealtimeDiagnostics, RealtimeWindowCards } from './RealtimeInsights';
-import { UsageShareList } from './UsageShareList';
+import { RealtimeTokenShareRibbons } from './RealtimeTokenShareRibbons';
 import { useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import '@/lib/chartjs';
@@ -1034,7 +1034,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
                   </button>
                 ))}
               </div>
-              <UsageShareList items={visibleDimension?.items ?? []} loading={loading} />
+              <RealtimeTokenShareRibbons key={visibleDimension?.key} items={visibleDimension?.items ?? []} loading={loading} />
             </RealtimeCard>
           </div>
 

@@ -166,7 +166,7 @@ type RealtimeResponseDistribution struct {
 	Latency RealtimeResponseDistributionSeries
 }
 
-// RealtimeUsageTopItem 是 Overview 当前使用 Top 列表项。
+// RealtimeUsageTopItem 是 Overview 当前使用 Top5+Other 列表项。
 type RealtimeUsageTopItem struct {
 	Key      string
 	Label    string
@@ -176,7 +176,7 @@ type RealtimeUsageTopItem struct {
 	Share    float64
 }
 
-// RealtimeCurrentUsage 是 Overview 当前使用按维度聚合的 Top 列表。
+// RealtimeCurrentUsage 是 Overview 当前使用按维度聚合的 Top5+Other 列表。
 type RealtimeCurrentUsage struct {
 	Models      []RealtimeUsageTopItem
 	APIKeys     []RealtimeUsageTopItem

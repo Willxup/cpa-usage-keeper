@@ -689,7 +689,15 @@ func mapUsageOverviewRealtimeTopItems(items []servicedto.RealtimeUsageTopItem, r
 
 func mapUsageOverviewRealtimeAPIKeyTopItems(items []servicedto.RealtimeUsageTopItem, apiKeyInfos map[string]analysisAPIKeyInfo) []usageOverviewRealtimeUsageTopItem {
 	result := make([]usageOverviewRealtimeUsageTopItem, 0, len(items))
-	for _, item := range items {
+	for index, item := range items {
+		if index == 5 && len(items) == 6 && item.Key == repodto.RealtimeUsageOtherKey {
+			// 合成余项不是 API Key，保留它的稳定标识和聚合值。
+			result = append(result, usageOverviewRealtimeUsageTopItem{
+				Key: item.Key, Label: item.Label, Tokens: item.Tokens,
+				Requests: item.Requests, Cost: item.CostUSD, Share: item.Share,
+			})
+			continue
+		}
 		key := analysisAPIKeyResponseKey(item.Key, apiKeyInfos)
 		if _, ok := apiKeyInfos[item.Key]; !ok {
 			key = fmt.Sprintf("legacy:%x", sha256.Sum256([]byte(item.Key)))

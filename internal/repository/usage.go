@@ -1394,13 +1394,13 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, costRe
 
 	// 无论数据来源是缓存还是 DB，都先创建完整 bucket 骨架，前端渲染结构保持一致。
 	buckets := newUsageOverviewRealtimeBuckets(readStart, span, usageOverviewRealtimeBucketCount+warmupBucketCount)
-	// 只有 current usage 的 Auth File / AI Provider 展示名需要身份表补全，隐藏预热事件不参与 Top5。
+	// 只有 current usage 的 Auth File / AI Provider 展示名需要身份表补全，隐藏预热事件不参与当前占比。
 	authIndexes := collectRealtimeAuthIndexes(events, start)
 	identityLookup, err := loadAnalysisIdentityLookup(db, authIndexes)
 	if err != nil {
 		return dto.UsageOverviewRealtimeRecord{}, err
 	}
-	// 四个 Top5 维度共用 accumulator，按 token 占比排序输出。
+	// 四个当前用量维度共用 accumulator，按 token 占比输出 Top5+Other。
 	modelUsage := map[string]*usageOverviewRealtimeTopAccumulator{}
 	apiKeyUsage := map[string]*usageOverviewRealtimeTopAccumulator{}
 	authFileUsage := map[string]*usageOverviewRealtimeTopAccumulator{}
@@ -1415,7 +1415,7 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, costRe
 		if index < 0 {
 			continue
 		}
-		// visibleEvent 控制 Top5/当前占比统计范围，避免预热事件进入当前窗口语义。
+		// visibleEvent 控制当前占比统计范围，避免预热事件进入当前窗口语义。
 		visibleEvent := !timestamp.Before(start)
 		// 请求水平包含成功和失败请求。
 		bucket := &buckets[index]
@@ -1461,7 +1461,7 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, costRe
 		}
 	}
 
-	// 最后统一把 bucket、percentile 和 Top5 accumulator 映射成 API DTO。
+	// 最后统一把 bucket、percentile 和当前用量 accumulator 映射成 API DTO。
 	return finalizeUsageOverviewRealtime(window, span, start, end, buckets, warmupBucketCount, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage), nil
 }
 
@@ -1652,7 +1652,7 @@ func applyUsageOverviewRealtimeTokenUsage(realtimeEvent usageOverviewRealtimeEve
 }
 
 func applyUsageOverviewRealtimeTokenUsageToTotals(totals map[string]*usageOverviewRealtimeTopAccumulator, key, label string, tokens int64, cost float64, costAvailable bool) {
-	// 同一个 key 的 token/cost 累加到同一 Top5 accumulator。
+	// 同一个 key 的 token/cost 累加到同一当前用量 accumulator。
 	item := usageOverviewRealtimeTopItem(totals, key, label)
 	item.tokens += tokens
 	item.costUSD += cost
@@ -1662,7 +1662,7 @@ func applyUsageOverviewRealtimeTokenUsageToTotals(totals map[string]*usageOvervi
 }
 
 func usageOverviewRealtimeTopItem(totals map[string]*usageOverviewRealtimeTopAccumulator, key, label string) *usageOverviewRealtimeTopAccumulator {
-	// key 已存在时直接复用，避免重复 item 影响 Top5 排序。
+	// key 已存在时直接复用，避免重复 item 影响 token 排序。
 	item, ok := totals[key]
 	if !ok {
 		// 新 item 默认 costAvailable=true，遇到缺价格事件时再置 false。
@@ -1685,7 +1685,7 @@ func applyUsageOverviewRealtimeIdentityRequest(realtimeEvent usageOverviewRealti
 
 func applyUsageOverviewRealtimeIdentityTokenUsage(realtimeEvent usageOverviewRealtimeEvent, authFileUsage, aiProviderUsage map[string]*usageOverviewRealtimeTopAccumulator, identityLookup analysisIdentityLookup, cost float64, costAvailable bool) {
 	event := realtimeEvent.event
-	// token 累计使用和 request 累计相同的身份解析结果，避免两张 Top5 对不上。
+	// token 累计使用和 request 累计相同的身份解析结果，避免两类统计对不上。
 	authFile, aiProvider := usageOverviewRealtimeIdentityTargets(realtimeEvent, identityLookup)
 	if authFile != nil {
 		applyUsageOverviewRealtimeTokenUsageToTotals(authFileUsage, authFile.identity, authFile.label, event.TotalTokens, cost, costAvailable)
@@ -1999,7 +1999,17 @@ func finalizeUsageOverviewRealtimeTopItems(totals map[string]*usageOverviewRealt
 		return items[i].tokens > items[j].tokens
 	})
 	if len(items) > 5 {
-		items = items[:5]
+		// 第六项保留余项的原始统计口径，费用有任一未知时仍保持未知。
+		other := &usageOverviewRealtimeTopAccumulator{key: dto.RealtimeUsageOtherKey, label: "Other", costAvailable: true}
+		for _, item := range items[5:] {
+			other.tokens += item.tokens
+			other.requests += item.requests
+			other.costUSD += item.costUSD
+			if !item.costAvailable {
+				other.costAvailable = false
+			}
+		}
+		items = append(items[:5], other)
 	}
 	result := make([]dto.RealtimeUsageTopItemRecord, 0, len(items))
 	for _, item := range items {

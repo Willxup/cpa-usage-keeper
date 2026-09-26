@@ -263,6 +263,38 @@ func TestUsageOverviewRealtimeKeepsLegacyAPIKeyIdentifiersDistinct(t *testing.T)
 	}
 }
 
+func TestUsageOverviewRealtimeKeepsSyntheticOtherApartFromRealAPIKey(t *testing.T) {
+	items := make([]servicedto.RealtimeUsageTopItem, 0, 6)
+	for _, key := range []string{"__realtime_others__", "key-b", "key-c", "key-d", "key-e"} {
+		items = append(items, servicedto.RealtimeUsageTopItem{Key: key, Label: key, Tokens: 10, Requests: 1, Share: 10})
+	}
+	items = append(items, servicedto.RealtimeUsageTopItem{Key: "__realtime_others__", Label: "Other", Tokens: 50, Requests: 5, Share: 50})
+	provider := &usageFilterStub{realtime: &servicedto.UsageOverviewRealtime{
+		CurrentUsage: servicedto.RealtimeCurrentUsage{APIKeys: items},
+	}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
+	resp := serveAPIGet(router, "/api/v1/usage/overview/realtime?window=15m")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", resp.Code, resp.Body.String())
+	}
+	var payload struct {
+		CurrentUsage struct {
+			APIKeys []struct {
+				Key    string `json:"key"`
+				Label  string `json:"label"`
+				Tokens int64  `json:"tokens"`
+			} `json:"api_keys"`
+		} `json:"current_usage"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode realtime response: %v", err)
+	}
+	got := payload.CurrentUsage.APIKeys
+	if len(got) != 6 || !strings.HasPrefix(got[0].Key, "legacy:") || got[5].Key != "__realtime_others__" || got[5].Label != "Other" || got[5].Tokens != 50 {
+		t.Fatalf("synthetic Other and real API key not kept distinct: %+v", got)
+	}
+}
+
 func TestUsageOverviewRealtimeAcceptsWindowAndReturnsRealtimeBlock(t *testing.T) {
 	previousLocal := time.Local
 	location, err := time.LoadLocation("Asia/Shanghai")

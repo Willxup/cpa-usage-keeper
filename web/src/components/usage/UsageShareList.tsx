@@ -22,7 +22,7 @@ function UsageMetaPill({ label, value }: { label: string; value: string }) {
   );
 }
 
-// Overview 与 Realtime 共用展示，数据来源与时间范围由各自页面负责。
+// Overview 对比图共用的占比列表；Realtime 的当前用量使用独立流带视图。
 export function UsageShareList({ items, loading, emptyContent }: { items: readonly UsageShareItem[]; loading: boolean; emptyContent?: ReactNode }) {
   const { t } = useTranslation();
   return (
