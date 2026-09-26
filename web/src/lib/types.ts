@@ -189,7 +189,7 @@ export interface RealtimeUsageTopItem {
   label: string
   tokens: number
   requests: number
-  cost?: number
+  cost?: number | null
   share: number
 }
 

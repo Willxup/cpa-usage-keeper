@@ -79,7 +79,10 @@ type RealtimeResponseDistributionRecord struct {
 	Latency RealtimeResponseDistributionSeriesRecord
 }
 
-// RealtimeUsageTopItemRecord 是 Overview 当前使用 Top 列表项。
+// RealtimeUsageOtherKey 只标识 Top5 后聚合的第六项；真实对象即使同名仍按普通项处理。
+const RealtimeUsageOtherKey = "__realtime_others__"
+
+// RealtimeUsageTopItemRecord 是 Overview 当前使用 Top5+Other 列表项。
 type RealtimeUsageTopItemRecord struct {
 	Key      string
 	Label    string
@@ -89,7 +92,7 @@ type RealtimeUsageTopItemRecord struct {
 	Share    float64
 }
 
-// RealtimeCurrentUsageRecord 是 Overview 当前使用按维度聚合的 Top 列表。
+// RealtimeCurrentUsageRecord 是 Overview 当前使用按维度聚合的 Top5+Other 列表。
 type RealtimeCurrentUsageRecord struct {
 	Models      []RealtimeUsageTopItemRecord
 	APIKeys     []RealtimeUsageTopItemRecord
