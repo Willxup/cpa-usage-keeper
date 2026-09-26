@@ -22,11 +22,9 @@ var (
 	ErrCredentialPriorityNotFound    = errors.New("credential priority target not found")
 	ErrCredentialPriorityUnsupported = errors.New("credential priority is not supported")
 	ErrCredentialPriorityConflict    = errors.New("credential priority target cannot be changed on its own")
-	ErrCredentialPriorityNotApplied  = errors.New("credential priority change was not confirmed upstream")
 )
 
 type CredentialPriorityClient interface {
-	FetchAuthFiles(context.Context) (*response.AuthFilesResult, error)
 	UpdateAuthFilePriority(context.Context, string, int) (int, error)
 	FetchPriorityProviderConfig(context.Context, string) (*response.ProviderKeyConfigResult, error)
 	UpdateProviderPriority(context.Context, string, int, int) (int, error)
@@ -78,25 +76,7 @@ func (s *credentialPriorityService) SetAuthFilePriority(ctx context.Context, aut
 	if err != nil {
 		return CredentialPriorityResponse{}, priorityWriteError(statusCode, err)
 	}
-	// CPA 可能返回成功却忽略 priority；只有回读确认后才更新本地。
 	defer s.requestRefresh()
-	files, err := s.client.FetchAuthFiles(ctx)
-	if err != nil || files == nil {
-		return CredentialPriorityResponse{}, fmt.Errorf("confirm auth file priority: %w", priorityFetchError(err))
-	}
-	confirmed := false
-	for _, file := range files.Payload.Files {
-		if strings.TrimSpace(file.AuthIndex) == authIndex && strings.TrimSpace(file.Name) == name {
-			confirmed = true
-			if effectivePriority(file.Priority) != priority {
-				return CredentialPriorityResponse{}, ErrCredentialPriorityNotApplied
-			}
-			break
-		}
-	}
-	if !confirmed {
-		return CredentialPriorityResponse{}, fmt.Errorf("%w: auth file", ErrCredentialPriorityNotFound)
-	}
 	if err := repository.UpdateUsageIdentityPriority(ctx, s.db, entities.UsageIdentityAuthTypeAuthFile, authIndex, priority); err != nil {
 		return CredentialPriorityResponse{}, fmt.Errorf("persist auth file priority: %w", err)
 	}
@@ -125,7 +105,7 @@ func (s *credentialPriorityService) SetAIProviderPriority(ctx context.Context, a
 	if err != nil || result == nil {
 		return CredentialPriorityResponse{}, fmt.Errorf("fetch %s priority target: %w", providerType, priorityFetchError(err))
 	}
-	index, _, found := findPriorityProviderEntry(result.Payload, authIndex)
+	index, found := findPriorityProviderIndex(result.Payload, authIndex)
 	if !found {
 		return CredentialPriorityResponse{}, fmt.Errorf("%w: %s credential", ErrCredentialPriorityNotFound, providerType)
 	}
@@ -134,17 +114,6 @@ func (s *credentialPriorityService) SetAIProviderPriority(ctx context.Context, a
 		return CredentialPriorityResponse{}, priorityWriteError(statusCode, err)
 	}
 	defer s.requestRefresh()
-	confirmedResult, err := s.client.FetchPriorityProviderConfig(ctx, providerType)
-	if err != nil || confirmedResult == nil {
-		return CredentialPriorityResponse{}, fmt.Errorf("confirm %s priority: %w", providerType, priorityFetchError(err))
-	}
-	_, entry, found := findPriorityProviderEntry(confirmedResult.Payload, authIndex)
-	if !found {
-		return CredentialPriorityResponse{}, fmt.Errorf("%w: %s credential", ErrCredentialPriorityNotFound, providerType)
-	}
-	if effectivePriority(entry.Priority) != priority {
-		return CredentialPriorityResponse{}, ErrCredentialPriorityNotApplied
-	}
 	if err := repository.UpdateUsageIdentityPriority(ctx, s.db, entities.UsageIdentityAuthTypeAIProvider, authIndex, priority); err != nil {
 		return CredentialPriorityResponse{}, fmt.Errorf("persist %s priority: %w", providerType, err)
 	}
@@ -167,7 +136,7 @@ func (s *credentialPriorityService) setOpenAIProviderPriority(ctx context.Contex
 	if err != nil || current == nil {
 		return CredentialPriorityResponse{}, fmt.Errorf("fetch locked openai priority target: %w", priorityFetchError(err))
 	}
-	index, _, found := findOpenAIProvider(current.Payload, authIndex)
+	index, lockedProvider, found := findOpenAIProvider(current.Payload, authIndex)
 	if !found {
 		return CredentialPriorityResponse{}, fmt.Errorf("%w: openai credential", ErrCredentialPriorityNotFound)
 	}
@@ -176,31 +145,20 @@ func (s *credentialPriorityService) setOpenAIProviderPriority(ctx context.Contex
 		return CredentialPriorityResponse{}, priorityWriteError(statusCode, err)
 	}
 	defer s.requestRefresh()
-	confirmed, err := s.client.FetchOpenAICompatibility(ctx)
-	if err != nil || confirmed == nil {
-		return CredentialPriorityResponse{}, fmt.Errorf("confirm openai priority: %w", priorityFetchError(err))
-	}
-	_, confirmedProvider, found := findOpenAIProvider(confirmed.Payload, authIndex)
-	if !found {
-		return CredentialPriorityResponse{}, fmt.Errorf("%w: openai credential", ErrCredentialPriorityNotFound)
-	}
-	if effectivePriority(confirmedProvider.Priority) != priority {
-		return CredentialPriorityResponse{}, ErrCredentialPriorityNotApplied
-	}
-	indexes := openAIProviderAuthIndexes(confirmedProvider)
+	indexes := openAIProviderAuthIndexes(lockedProvider)
 	if err := repository.UpdateOpenAIProviderPriority(ctx, s.db, indexes, priority); err != nil {
 		return CredentialPriorityResponse{}, fmt.Errorf("persist openai priority: %w", err)
 	}
 	return CredentialPriorityResponse{AuthIndex: authIndex, Priority: priority}, nil
 }
 
-func findPriorityProviderEntry(payload []providerconfig.ProviderKeyConfig, authIndex string) (int, providerconfig.ProviderKeyConfig, bool) {
+func findPriorityProviderIndex(payload []providerconfig.ProviderKeyConfig, authIndex string) (int, bool) {
 	for index, entry := range payload {
 		if strings.TrimSpace(entry.AuthIndex) == authIndex {
-			return index, entry, true
+			return index, true
 		}
 	}
-	return 0, providerconfig.ProviderKeyConfig{}, false
+	return 0, false
 }
 
 func findOpenAIProvider(payload []providerconfig.OpenAICompatibilityConfig, authIndex string) (int, providerconfig.OpenAICompatibilityConfig, bool) {
@@ -235,13 +193,6 @@ func openAIProviderLockKey(provider providerconfig.OpenAICompatibilityConfig) st
 	// 同组所有 key 产生同一把锁；外部重排仍无法在 CPA 的 GET/PATCH 之间保证原子性。
 	slices.Sort(indexes)
 	return strings.Join(indexes, "\x00")
-}
-
-func effectivePriority(priority *int) int {
-	if priority == nil {
-		return 0
-	}
-	return *priority
 }
 
 func (s *credentialPriorityService) validate(authIndex string) (string, error) {

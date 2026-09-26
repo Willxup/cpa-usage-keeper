@@ -76,8 +76,6 @@ func writeCredentialPriorityError(c *gin.Context, err error) {
 		c.JSON(http.StatusConflict, gin.H{"error": "credential priority is not supported"})
 	case errors.Is(err, service.ErrCredentialPriorityConflict):
 		c.JSON(http.StatusConflict, gin.H{"error": "credential priority target cannot be changed on its own"})
-	case errors.Is(err, service.ErrCredentialPriorityNotApplied):
-		c.JSON(http.StatusBadGateway, gin.H{"error": "upstream priority change was not confirmed"})
 	default:
 		writeInternalError(c, "credential priority update failed", err)
 	}
