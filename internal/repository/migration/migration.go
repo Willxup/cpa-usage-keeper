@@ -100,7 +100,8 @@ const (
 	migrationAddUsageEventStreamStatusCode          = "20260919_usage_event_stream_status_code"
 	migrationNormalizeUsageEventParentSessionNull   = "20260922_normalize_usage_event_parent_session_null"
 	// migrationLimitLatencySamplePoints 缩小已保存散点，事务前必须备份旧 BLOB。
-	migrationLimitLatencySamplePoints = "20260925_limit_latency_sample_points"
+	migrationLimitLatencySamplePoints         = "20260925_limit_latency_sample_points"
+	migrationRepairUsageEventStreamStatusCode = "20260928_repair_usage_event_stream_status_code"
 )
 
 type schemaMigration struct {
@@ -252,6 +253,8 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageEventStreamStatusCode, run: addUsageEventStreamStatusCodeMigration},
 		{version: migrationNormalizeUsageEventParentSessionNull, run: normalizeUsageEventParentSessionNullMigration},
 		{version: migrationLimitLatencySamplePoints, run: limitLatencySamplePointsMigration, destructive: true},
+		// Recheck physical columns even when the original migration was marked applied.
+		{version: migrationRepairUsageEventStreamStatusCode, run: addUsageEventStreamStatusCodeMigration},
 	}
 }
 

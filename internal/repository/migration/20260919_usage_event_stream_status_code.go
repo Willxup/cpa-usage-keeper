@@ -2,6 +2,7 @@ package migration
 
 import (
 	"fmt"
+	"strings"
 
 	"cpa-usage-keeper/internal/entities"
 	"gorm.io/gorm"
@@ -18,6 +19,16 @@ func addUsageEventStreamStatusCodeMigration(tx *gorm.DB) error {
 		if !tx.Migrator().HasTable(table.model) {
 			continue
 		}
+		// SQLite HasColumn matches SQL suffixes, so fail_status_code can be
+		// mistaken for status_code. Inspect the actual column names instead.
+		var columns []struct{ Name string }
+		if err := tx.Raw("PRAGMA table_info(" + table.name + ")").Scan(&columns).Error; err != nil {
+			return fmt.Errorf("inspect %s columns: %w", table.name, err)
+		}
+		existing := make(map[string]bool, len(columns))
+		for _, column := range columns {
+			existing[strings.ToLower(column.Name)] = true
+		}
 		for _, column := range []struct {
 			name  string
 			field string
@@ -25,7 +36,7 @@ func addUsageEventStreamStatusCodeMigration(tx *gorm.DB) error {
 			{name: "status_code", field: "StatusCode"},
 			{name: "stream", field: "Stream"},
 		} {
-			if tx.Migrator().HasColumn(table.model, column.name) {
+			if existing[column.name] {
 				continue
 			}
 			if err := tx.Migrator().AddColumn(table.model, column.field); err != nil {
