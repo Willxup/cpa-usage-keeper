@@ -57,6 +57,8 @@ type Config struct {
 	CPAManagementKey string
 	// CPARequestLogAccessEnabled 控制是否允许通过 Keeper 访问 CPA request log。
 	CPARequestLogAccessEnabled bool
+	// RankingEnabled 控制是否启用整个排行功能；关闭时不构造社区/本地排行服务、后台任务和路由。
+	RankingEnabled bool
 	// APIKeyViewerLocalRankingEnabled 控制 API Key Viewer 是否可只读查看本地排行。
 	APIKeyViewerLocalRankingEnabled bool
 	// RedisQueueAddr 是 CPA management data stream 的 TCP 地址，空值时按 CPA_BASE_URL 推导。
@@ -241,6 +243,10 @@ func Load(options LoadOptions) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	rankingEnabled, err := getBool("RANKING_ENABLED", true)
+	if err != nil {
+		return nil, err
+	}
 	apiKeyViewerLocalRankingEnabled, err := getBool("API_KEY_VIEWER_LOCAL_RANKING_ENABLED", false)
 	if err != nil {
 		return nil, err
@@ -265,6 +271,7 @@ func Load(options LoadOptions) (*Config, error) {
 		CPABaseURL:                      strings.TrimSpace(os.Getenv("CPA_BASE_URL")),
 		CPAManagementKey:                strings.TrimSpace(os.Getenv("CPA_MANAGEMENT_KEY")),
 		CPARequestLogAccessEnabled:      cpaRequestLogAccessEnabled,
+		RankingEnabled:                  rankingEnabled,
 		APIKeyViewerLocalRankingEnabled: apiKeyViewerLocalRankingEnabled,
 		RedisQueueAddr:                  strings.TrimSpace(os.Getenv("REDIS_QUEUE_ADDR")),
 		RedisQueueTLS:                   redisQueueTLS,

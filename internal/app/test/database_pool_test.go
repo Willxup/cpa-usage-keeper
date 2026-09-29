@@ -64,5 +64,6 @@ func databasePoolTestConfig(databasePath string) config.Config {
 		LogLevel:               "info",
 		LogFileEnabled:         false,
 		LogRetentionDays:       7,
+		RankingEnabled:         true,
 	}
 }

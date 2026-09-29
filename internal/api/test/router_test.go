@@ -428,6 +428,30 @@ func TestRootStaticRouteInjectsEmptyBasePath(t *testing.T) {
 	}
 }
 
+func TestIndexHTMLInjectsRankingAvailability(t *testing.T) {
+	staticFS := testStaticFS(t, map[string]string{
+		"index.html": `<html><head><script>window.__APP_RANKING_ENABLED__ = "__APP_RANKING_ENABLED__";</script></head><body>app</body></html>`,
+	})
+
+	for _, tc := range []struct {
+		name      string
+		providers OptionalProviders
+		want      string
+	}{
+		{"enabled", OptionalProviders{Ranking: &rankingRouteProviderStub{}, LocalRanking: &adminLocalRankingProviderStub{}}, `window.__APP_RANKING_ENABLED__ = true;`},
+		{"disabled", OptionalProviders{}, `window.__APP_RANKING_ENABLED__ = false;`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			router := NewRouter(staticFS, nil, nil, nil, AuthConfig{}, nil, "", tc.providers)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/", nil))
+			if resp.Code != http.StatusOK || !contains(resp.Body.String(), tc.want) {
+				t.Fatalf("expected %q, got status=%d body=%s", tc.want, resp.Code, resp.Body.String())
+			}
+		})
+	}
+}
+
 func TestStaticResponsesUseContentAppropriateCaching(t *testing.T) {
 	staticFS := testStaticFS(t, map[string]string{
 		"index.html":    `<html><body>app</body></html>`,

@@ -395,6 +395,7 @@ cp .env.example .env
 | `AUTH_ENABLED` | 否 | `true` | 是否启用登录保护 |
 | `LOGIN_PASSWORD` | 鉴权启用时必填 | - | 登录密码 |
 | `AUTH_SESSION_TTL` | 否 | `168h` | 登录 session 有效时长 |
+| `RANKING_ENABLED` | 否 | `true` | 是否启用排行功能。设为 `false` 时完全关闭社区排行与本地排行：不与排名中心同步、不聚合本地排行、不提供排行页面和接口，并忽略 `API_KEY_VIEWER_LOCAL_RANKING_ENABLED`。已有数据会保留；关闭不会退出已加入的社区排行 |
 | `API_KEY_VIEWER_LOCAL_RANKING_ENABLED` | 否 | `false` | 允许 API Key 登录用户只读查看本地排行；Community 排行始终只读 |
 
 ### 时区与请求行为

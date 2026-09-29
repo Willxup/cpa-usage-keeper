@@ -2,7 +2,7 @@ import { CredentialEditModal } from '@/components/usage/credentials/CredentialEd
 import { UsageComparisonCharts } from '@/components/usage/UsageComparisonCharts';
 import { useState, useMemo, useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError, appPath, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentity, fetchVersion, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateAuthSessionAlias, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
+import { ApiError, appPath, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentity, fetchVersion, isRankingEnabled, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateAuthSessionAlias, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
 import type { AnalysisLatencyDiagnostics, AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageCustomRange, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption, UsageTimeRange, VersionResponse } from '@/lib/types';
 import { DEFAULT_USAGE_TAB, getUsageTabPath, handleUsageTabKeyActivation, resolveInitialUsageTab, shouldHandleUsageNavigation, USAGE_TAB_OPTIONS, type UsageTab } from '@/lib/usageNavigation';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -746,13 +746,15 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const { t, i18n } = useTranslation();
   const isMobile = useMediaQuery('(max-width: 768px)');
   const isEmbeddedInCPAMC = isCPAMCEmbed();
+  // CPAMC 内嵌或 RANKING_ENABLED=false 时都不提供排行页签和请求。
+  const rankingAvailable = !isEmbeddedInCPAMC && isRankingEnabled();
   const theme = useThemeStore((state) => state.theme);
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const setTheme = useThemeStore((state) => state.setTheme);
   const isDark = resolvedTheme === 'dark';
   const [activeTab, setActiveTab] = useState<UsageTab>(() => {
     const loadedTab = loadUsageTab();
-    return isEmbeddedInCPAMC && loadedTab === 'ranking' ? DEFAULT_USAGE_TAB : loadedTab;
+    return !rankingAvailable && loadedTab === 'ranking' ? DEFAULT_USAGE_TAB : loadedTab;
   });
   const activateUsageTab = useCallback((tab: UsageTab) => {
     setActiveTab(tab);
@@ -978,13 +980,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     showTopNotice('error', t('ranking.refresh_failed'));
   }, [showTopNotice, t]);
   const rankingData = useRankingData({
-    enabled: activeTab === 'ranking' && !isEmbeddedInCPAMC && rankingScope === 'community',
+    enabled: activeTab === 'ranking' && rankingAvailable && rankingScope === 'community',
     onAuthRequired,
     onBackgroundRefreshError: handleRankingBackgroundRefreshError,
     api: RANKING_PREVIEW_API,
   });
   const localRankingData = useLocalRankingData({
-    enabled: activeTab === 'ranking' && !isEmbeddedInCPAMC && rankingScope === 'local',
+    enabled: activeTab === 'ranking' && rankingAvailable && rankingScope === 'local',
     period: rankingData.period,
     metric: rankingData.metric,
     onAuthRequired,
@@ -1030,8 +1032,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const analysisRequestControllerRef = useRef<AbortController | null>(null);
 
   const tabOptions = useMemo(
-    () => getUsageTabOptions(t, { includeRanking: !isEmbeddedInCPAMC }),
-    [isEmbeddedInCPAMC, t],
+    () => getUsageTabOptions(t, { includeRanking: rankingAvailable }),
+    [rankingAvailable, t],
   );
   const apiKeySelectOptions = useMemo(
     () => [
@@ -1989,7 +1991,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   // 只有需要时间范围的 tab 才渲染 Range 控件，避免 Credentials/Pricing 产生空白占位。
   const showRangeControls = shouldShowRangeControls(activeTab);
   const showApiKeyFilter = shouldShowApiKeyFilter(activeTab);
-  const showRankingScopeControl = activeTab === 'ranking' && !isEmbeddedInCPAMC;
+  const showRankingScopeControl = activeTab === 'ranking' && rankingAvailable;
   const {
     requestsSparkline,
     tokensSparkline,

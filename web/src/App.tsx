@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import './index.css';
 import './App.css';
 import './embed/cpamcEmbed.css';
-import { ApiError, appPath, clearEmbedSessionToken, getSession, login, loginWithCPAAPIKey } from './lib/api';
+import { ApiError, appPath, clearEmbedSessionToken, getSession, isRankingEnabled, login, loginWithCPAAPIKey } from './lib/api';
 import type { AuthRole, AuthSessionAPIKeySummary } from './lib/types';
 import { AppFooter } from './components/AppFooter';
 import { isKeyViewerPath, type KeyViewerPath } from './features/key-viewer';
@@ -20,7 +20,7 @@ type AuthState = 'checking' | 'authenticated' | 'unauthenticated';
 const getInitialKeyViewerPath = (): KeyViewerPath => {
   if (typeof window === 'undefined') return '/key-overview';
   const currentPath = stripAppBasePath(window.location.pathname, window.__APP_BASE_PATH__) ?? '/';
-  return isKeyViewerPath(currentPath) ? currentPath : '/key-overview';
+  return getRoleTargetPath('api_key_viewer', currentPath, false, isRankingEnabled()) as KeyViewerPath;
 };
 
 export const getRoleHomePath = (role: AuthRole): '/' | '/key-overview' => (
@@ -31,15 +31,17 @@ export const getRoleTargetPath = (
   role: AuthRole,
   currentPath: string,
   isEmbeddedInCPAMC = false,
+  rankingEnabled = true,
 ): string => {
   // 路径白名单与会话角色共同决定落点；未知路径只回到该角色自己的首页。
   if (role === 'api_key_viewer') {
-    return isKeyViewerPath(currentPath) ? currentPath : '/key-overview';
+    const allowed = isKeyViewerPath(currentPath) && (rankingEnabled || currentPath !== '/key-ranking');
+    return allowed ? currentPath : '/key-overview';
   }
   if (currentPath === '/') return '/';
 
   const usageTab = resolveUsageTabFromPath(currentPath);
-  if (!usageTab || (isEmbeddedInCPAMC && usageTab === 'ranking')) return '/';
+  if (!usageTab || ((isEmbeddedInCPAMC || !rankingEnabled) && usageTab === 'ranking')) return '/';
   return getUsageTabPath(usageTab);
 };
 
@@ -47,7 +49,8 @@ export const shouldNormalizeRolePath = (
   role: AuthRole,
   currentPath: string,
   isEmbeddedInCPAMC = false,
-): boolean => currentPath !== getRoleTargetPath(role, currentPath, isEmbeddedInCPAMC);
+  rankingEnabled = true,
+): boolean => currentPath !== getRoleTargetPath(role, currentPath, isEmbeddedInCPAMC, rankingEnabled);
 
 function App() {
   const { t } = useTranslation();
@@ -60,6 +63,7 @@ function App() {
   const [submitting, setSubmitting] = useState(false);
   const clearUsageStats = useUsageStatsStore((state) => state.clearUsageStats);
   const isEmbeddedInCPAMC = isCPAMCEmbed();
+  const rankingEnabled = isRankingEnabled();
 
   const clearSession = useCallback(() => {
     clearEmbedSessionToken();
@@ -98,13 +102,13 @@ function App() {
   useEffect(() => {
     if (authState !== 'authenticated' || !authRole) return;
     const strippedPath = stripAppBasePath(window.location.pathname, window.__APP_BASE_PATH__);
-    const targetPath = getRoleTargetPath(authRole, strippedPath ?? '/', isEmbeddedInCPAMC);
+    const targetPath = getRoleTargetPath(authRole, strippedPath ?? '/', isEmbeddedInCPAMC, rankingEnabled);
     if (authRole === 'api_key_viewer') {
       setKeyViewerPath(targetPath as KeyViewerPath);
     }
     if (strippedPath === targetPath) return;
     window.history.replaceState(null, '', appPath(targetPath) + cpamcEmbedSearch());
-  }, [authRole, authState, isEmbeddedInCPAMC]);
+  }, [authRole, authState, isEmbeddedInCPAMC, rankingEnabled]);
 
   const handlePasswordLogin = useCallback(async (password: string) => {
     setSubmitting(true);
@@ -118,7 +122,7 @@ function App() {
         return;
       }
       const currentPath = stripAppBasePath(window.location.pathname, window.__APP_BASE_PATH__) ?? '/';
-      const targetPath = getRoleTargetPath(session.role ?? 'admin', currentPath, isEmbeddedInCPAMC);
+      const targetPath = getRoleTargetPath(session.role ?? 'admin', currentPath, isEmbeddedInCPAMC, rankingEnabled);
       window.history.replaceState(null, '', appPath(targetPath) + cpamcEmbedSearch());
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
@@ -130,7 +134,7 @@ function App() {
     } finally {
       setSubmitting(false);
     }
-  }, [clearSession, isEmbeddedInCPAMC, loadSession, t]);
+  }, [clearSession, isEmbeddedInCPAMC, loadSession, rankingEnabled, t]);
 
   const handleAPIKeyLogin = useCallback(async (apiKey: string) => {
     setSubmitting(true);
@@ -144,7 +148,7 @@ function App() {
         return;
       }
       const currentPath = stripAppBasePath(window.location.pathname, window.__APP_BASE_PATH__) ?? '/';
-      const targetPath = getRoleTargetPath(session.role, currentPath, isEmbeddedInCPAMC) as KeyViewerPath;
+      const targetPath = getRoleTargetPath(session.role, currentPath, isEmbeddedInCPAMC, rankingEnabled) as KeyViewerPath;
       setKeyViewerPath(targetPath);
       window.history.replaceState(null, '', appPath(targetPath) + cpamcEmbedSearch());
     } catch (error) {
@@ -159,7 +163,7 @@ function App() {
     } finally {
       setSubmitting(false);
     }
-  }, [clearSession, isEmbeddedInCPAMC, loadSession, t]);
+  }, [clearSession, isEmbeddedInCPAMC, loadSession, rankingEnabled, t]);
 
   const handleKeyViewerNavigate = useCallback((path: KeyViewerPath) => {
     if (path === keyViewerPath) return;

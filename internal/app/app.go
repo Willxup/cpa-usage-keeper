@@ -19,6 +19,7 @@ import (
 	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/ranking"
+	rankinghttpapi "cpa-usage-keeper/internal/ranking/httpapi"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
 	webui "cpa-usage-keeper/web"
@@ -135,24 +136,33 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	if err != nil {
 		return nil, failInitialization(logCloser, err)
 	}
-	// Ranking 完全复用现有 app_settings 和统一 DB；构造阶段不访问中心，默认 disabled 没有外部请求。
-	rankingService, err := ranking.NewService(ranking.NewStore(db), ranking.NewAggregator(db), ranking.NewClient())
-	if err != nil {
-		if readDB != db {
-			_ = closeGormDB(readDB)
+	// RANKING_ENABLED=false 时完全不构造排行服务：不访问排名中心、不做本地排行聚合，也不注册任何排行路由。
+	// 这些变量保持接口零值，避免 typed nil 让 App.Run 和路由误判为已启用。
+	var rankingRunner, localRankingRunner Runner
+	var rankingProvider rankinghttpapi.Provider
+	var localRankingProvider rankinghttpapi.LocalProvider
+	if cfg.RankingEnabled {
+		// Ranking 完全复用现有 app_settings 和统一 DB；构造阶段不访问中心，默认 disabled 没有外部请求。
+		rankingService, err := ranking.NewService(ranking.NewStore(db), ranking.NewAggregator(db), ranking.NewClient())
+		if err != nil {
+			if readDB != db {
+				_ = closeGormDB(readDB)
+			}
+			_ = closeGormDB(db)
+			_ = logCloser.Close()
+			return nil, err
 		}
-		_ = closeGormDB(db)
-		_ = logCloser.Close()
-		return nil, err
-	}
-	rankingRunner, err := ranking.NewRunner(rankingService)
-	if err != nil {
-		if readDB != db {
-			_ = closeGormDB(readDB)
+		runner, err := ranking.NewRunner(rankingService)
+		if err != nil {
+			if readDB != db {
+				_ = closeGormDB(readDB)
+			}
+			_ = closeGormDB(db)
+			_ = logCloser.Close()
+			return nil, err
 		}
-		_ = closeGormDB(db)
-		_ = logCloser.Close()
-		return nil, err
+		rankingRunner = runner
+		rankingProvider = rankingService
 	}
 	// 最近事件缓存继续使用统一 DB；其 Query 会由 dbresolver 自动路由到 reader。
 	recentUsageCache, err := newUsageRecentEventCache(db, repository.UsageRecentEventCacheOptions{})
@@ -161,29 +171,33 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		logrus.WithError(err).Error("recent usage event cache initialization failed; falling back to database queries")
 		recentUsageCache = nil
 	}
-	localRankingService, err := ranking.NewLocalRankingService(db, ranking.LocalRankingServiceOptions{})
-	if err != nil {
-		if recentUsageCache != nil {
-			recentUsageCache.Close()
+	if cfg.RankingEnabled {
+		localRankingService, err := ranking.NewLocalRankingService(db, ranking.LocalRankingServiceOptions{})
+		if err != nil {
+			if recentUsageCache != nil {
+				recentUsageCache.Close()
+			}
+			if readDB != db {
+				_ = closeGormDB(readDB)
+			}
+			_ = closeGormDB(db)
+			_ = logCloser.Close()
+			return nil, err
 		}
-		if readDB != db {
-			_ = closeGormDB(readDB)
+		runner, err := ranking.NewLocalRankingRunner(localRankingService)
+		if err != nil {
+			if recentUsageCache != nil {
+				recentUsageCache.Close()
+			}
+			if readDB != db {
+				_ = closeGormDB(readDB)
+			}
+			_ = closeGormDB(db)
+			_ = logCloser.Close()
+			return nil, err
 		}
-		_ = closeGormDB(db)
-		_ = logCloser.Close()
-		return nil, err
-	}
-	localRankingRunner, err := ranking.NewLocalRankingRunner(localRankingService)
-	if err != nil {
-		if recentUsageCache != nil {
-			recentUsageCache.Close()
-		}
-		if readDB != db {
-			_ = closeGormDB(readDB)
-		}
-		_ = closeGormDB(db)
-		_ = logCloser.Close()
-		return nil, err
+		localRankingRunner = runner
+		localRankingProvider = localRankingService
 	}
 	pricingSnapshot, err := repository.LoadPricingSnapshot(context.Background(), db)
 	if err != nil {
@@ -319,6 +333,8 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		// Session Get/List 自动走 reader，Save/Delete 仍由写回调路由到唯一 writer。
 		sessionManager = auth.NewPersistentSessionManager(cfg.AuthSessionTTL, auth.NewGormSessionStore(db))
 	}
+	// 整体排行关闭时，API Key Viewer 的本地排行开关一并失效，会话也不再宣告可见。
+	apiKeyViewerLocalRankingEnabled := cfg.RankingEnabled && cfg.APIKeyViewerLocalRankingEnabled
 	authConfig := api.AuthConfig{
 		Enabled:                         cfg.AuthEnabled,
 		LoginPassword:                   cfg.LoginPassword,
@@ -326,7 +342,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		BasePath:                        cfg.AppBasePath,
 		FrameAncestorOrigins:            frameAncestorOrigins(cfg),
 		TrustedProxyCIDRs:               cfg.TrustedProxyCIDRs,
-		APIKeyViewerLocalRankingEnabled: cfg.APIKeyViewerLocalRankingEnabled,
+		APIKeyViewerLocalRankingEnabled: apiKeyViewerLocalRankingEnabled,
 	}
 	authHandler := api.NewAuthHandler(authConfig, sessionManager)
 
@@ -370,8 +386,8 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 				CredentialStatus:   credentialStatusService,
 				CredentialPriority: credentialPriorityService,
 				RequestLogs:        requestLogService,
-				Ranking:            rankingService,
-				LocalRanking:       localRankingService,
+				Ranking:            rankingProvider,
+				LocalRanking:       localRankingProvider,
 				Status: api.StatusRouteConfig{
 					CPAPublicURL:               cfg.CPAPublicURL,
 					CPARequestLogAccessEnabled: cfg.CPARequestLogAccessEnabled,
