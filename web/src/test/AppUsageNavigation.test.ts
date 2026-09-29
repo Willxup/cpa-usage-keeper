@@ -43,6 +43,15 @@ describe('App usage-page route authorization', () => {
     expect(getRoleTargetPath('admin', '/analysis', true)).toBe('/analysis');
   });
 
+  it('redirects Ranking routes when RANKING_ENABLED is off', () => {
+    expect(getRoleTargetPath('admin', '/ranking', false, false)).toBe('/');
+    expect(shouldNormalizeRolePath('admin', '/ranking', false, false)).toBe(true);
+    expect(getRoleTargetPath('admin', '/analysis', false, false)).toBe('/analysis');
+    expect(getRoleTargetPath('api_key_viewer', '/key-ranking', false, false)).toBe('/key-overview');
+    expect(shouldNormalizeRolePath('api_key_viewer', '/key-ranking', false, false)).toBe(true);
+    expect(getRoleTargetPath('api_key_viewer', '/key-analysis', false, false)).toBe('/key-analysis');
+  });
+
 
 
 });

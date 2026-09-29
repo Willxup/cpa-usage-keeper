@@ -395,6 +395,7 @@ For cross-origin CPAMC embedding, `CPA_PUBLIC_URL` must be a complete `http://` 
 | `AUTH_ENABLED` | No | `true` | Enable login protection |
 | `LOGIN_PASSWORD` | When auth is enabled | - | Login password |
 | `AUTH_SESSION_TTL` | No | `168h` | Login session lifetime |
+| `RANKING_ENABLED` | No | `true` | Enable the Ranking feature. When `false`, Community and Local Ranking are fully disabled: no ranking-center sync, no Local Ranking aggregation, no Ranking pages or APIs, and `API_KEY_VIEWER_LOCAL_RANKING_ENABLED` is ignored. Existing data is kept; this does not leave a joined Community Ranking |
 | `API_KEY_VIEWER_LOCAL_RANKING_ENABLED` | No | `false` | Allow API Key viewers to read Local Ranking; Community Ranking remains read-only |
 
 ### Timezone And Request Behavior

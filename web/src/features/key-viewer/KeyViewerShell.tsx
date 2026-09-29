@@ -1,7 +1,7 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AuthSessionAPIKeySummary } from '@/lib/types';
-import { appPath, logout } from '@/lib/api';
+import { appPath, isRankingEnabled, logout } from '@/lib/api';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { KEY_VIEWER_PAGE_PATHS, type KeyViewerPage, type KeyViewerPath } from './navigation';
 import styles from './KeyViewerShell.module.scss';
@@ -43,6 +43,8 @@ export function KeyViewerShell({
   const { t } = useTranslation();
   const [loggingOut, setLoggingOut] = useState(false);
   const identityLabel = apiKey?.display_key || t('key_overview.identity_unknown');
+  const pages = (Object.keys(KEY_VIEWER_PAGE_PATHS) as KeyViewerPage[])
+    .filter((page) => page !== 'ranking' || isRankingEnabled());
 
   const handleLogout = useCallback(async () => {
     setLoggingOut(true);
@@ -72,7 +74,7 @@ export function KeyViewerShell({
 
             <DashboardToolbar
               activeId={activePage}
-              items={(Object.keys(KEY_VIEWER_PAGE_PATHS) as KeyViewerPage[]).map((page) => ({ id: page, label: t(KEY_VIEWER_PAGE_LABEL_KEYS[page]), href: appPath(KEY_VIEWER_PAGE_PATHS[page]) }))}
+              items={pages.map((page) => ({ id: page, label: t(KEY_VIEWER_PAGE_LABEL_KEYS[page]), href: appPath(KEY_VIEWER_PAGE_PATHS[page]) }))}
               onNavigate={(page) => onNavigate(KEY_VIEWER_PAGE_PATHS[page])}
               filters={filters}
               onRefresh={onRefresh}
