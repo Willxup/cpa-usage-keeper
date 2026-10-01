@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { UsageIdentityTypeCount } from '@/lib/types'
-import { buildCredentialProviderFilterOptions, credentialProviderFilterTypes } from '../credentialProviderFilters'
+import {
+  buildCredentialProviderFilterOptions,
+  buildCredentialProviderSearch,
+  credentialProviderFilterTypes,
+  resolveCredentialProviderFilterFromSearch,
+} from '../credentialProviderFilters'
 describe('credentialProviderFilters', () => {
   // 未知类型计入 All；Gemini 合并兼容 type。
   it('keeps CPA built-in Auth Files filters and Gemini CLI compatibility', () => {
@@ -76,5 +81,33 @@ describe('credentialProviderFilters', () => {
     ]
     expect(buildCredentialProviderFilterOptions('ai-provider', counts)).toEqual([])
     expect(credentialProviderFilterTypes('ai-provider', 'all')).toEqual([])
+  })
+})
+
+describe('credential provider URL state', () => {
+  it('reads valid provider filters for each credential scope', () => {
+    expect(resolveCredentialProviderFilterFromSearch('auth-files', '?provider=codex')).toBe('codex')
+    expect(resolveCredentialProviderFilterFromSearch('ai-provider', '?provider=openai')).toBe('openai')
+  })
+
+  it('rejects providers that are invalid for the current scope', () => {
+    expect(resolveCredentialProviderFilterFromSearch('auth-files', '?provider=openai')).toBeNull()
+    expect(resolveCredentialProviderFilterFromSearch('ai-provider', '?provider=antigravity')).toBeNull()
+    expect(resolveCredentialProviderFilterFromSearch('auth-files', '?provider=unknown')).toBeNull()
+  })
+
+  it('distinguishes an explicit all filter from a missing provider', () => {
+    expect(resolveCredentialProviderFilterFromSearch('auth-files', '?provider=all')).toBe('all')
+    expect(resolveCredentialProviderFilterFromSearch('auth-files', '')).toBeNull()
+  })
+
+  it('updates only the provider query parameter', () => {
+    expect(buildCredentialProviderSearch('?foo=bar', 'codex')).toBe('?foo=bar&provider=codex')
+    expect(buildCredentialProviderSearch('?provider=claude&foo=bar', 'codex')).toBe('?provider=codex&foo=bar')
+  })
+
+  it('removes provider when All is selected', () => {
+    expect(buildCredentialProviderSearch('?provider=codex', 'all')).toBe('')
+    expect(buildCredentialProviderSearch('?foo=bar&provider=codex', 'all')).toBe('?foo=bar')
   })
 })

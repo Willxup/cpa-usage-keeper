@@ -67,6 +67,37 @@ export function normalizeCredentialProviderFilterKey(scope: CredentialProviderFi
     : 'all'
 }
 
+export function resolveCredentialProviderFilterFromSearch(
+  scope: CredentialProviderFilterScope,
+  search: string,
+): CredentialProviderFilterKey | null {
+  const raw = new URLSearchParams(search).get('provider')
+  if (raw === null) {
+    return null
+  }
+
+  const normalized = normalizeCredentialProviderFilterKey(scope, raw)
+  return normalized === 'all' && raw !== 'all'
+    ? null
+    : normalized
+}
+
+export function buildCredentialProviderSearch(
+  currentSearch: string,
+  provider: CredentialProviderFilterKey,
+): string {
+  const params = new URLSearchParams(currentSearch)
+
+  if (provider === 'all') {
+    params.delete('provider')
+  } else {
+    params.set('provider', provider)
+  }
+
+  const next = params.toString()
+  return next ? `?${next}` : ''
+}
+
 export function buildCredentialProviderFilterOptions(scope: CredentialProviderFilterScope, typeCounts: UsageIdentityTypeCount[]): CredentialProviderFilterOption[] {
   const countsByType = new Map<string, number>()
   let allCount = 0

@@ -55,6 +55,8 @@ export function resolveCredentialStatusFailure(kind: CredentialStatusKind, error
 interface UseCredentialsTabDataOptions {
   enabledAuthFiles: boolean
   enabledAiProviders: boolean
+  initialAuthFileProviderFilter?: CredentialProviderFilterKey
+  initialAiProviderProviderFilter?: CredentialProviderFilterKey
   onAuthRequired?: () => void
   onNotice?: (kind: 'success' | 'info' | 'error', message: string) => void
   onPrioritySaved?: () => void
@@ -113,8 +115,8 @@ export interface CredentialsTabData {
   startQuotaInspection: () => Promise<void>
 }
 
-export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, onAuthRequired, onNotice, onPrioritySaved }: UseCredentialsTabDataOptions): CredentialsTabData {
-  const credentialPages = useCredentialPages({ enabledAuthFiles, enabledAiProviders, onAuthRequired })
+export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, initialAuthFileProviderFilter, initialAiProviderProviderFilter, onAuthRequired, onNotice, onPrioritySaved }: UseCredentialsTabDataOptions): CredentialsTabData {
+  const credentialPages = useCredentialPages({ enabledAuthFiles, enabledAiProviders, initialAuthFileProviderFilter, initialAiProviderProviderFilter, onAuthRequired })
   const currentAuthIndexes = useMemo(
     () => selectQuotaEligibleAuthIndexes(credentialPages.authFileIdentities),
     [credentialPages.authFileIdentities],

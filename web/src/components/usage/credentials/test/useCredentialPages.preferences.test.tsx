@@ -10,8 +10,20 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 let latest: ReturnType<typeof useCredentialPages> | null = null
 
-function Harness() {
-  const result = useCredentialPages({ enabledAuthFiles: true, enabledAiProviders: true })
+function Harness({
+  initialAuthFileProviderFilter,
+  initialAiProviderProviderFilter,
+}: {
+  initialAuthFileProviderFilter?: 'all' | 'antigravity' | 'claude' | 'codex' | 'devin' | 'gemini' | 'kimi' | 'xai' | 'vertex'
+  initialAiProviderProviderFilter?: 'all' | 'codex' | 'xai' | 'gemini' | 'claude' | 'vertex' | 'meta' | 'openai'
+} = {}) {
+  const result = useCredentialPages({
+    enabledAuthFiles: true,
+    enabledAiProviders: true,
+    initialAuthFileProviderFilter,
+    initialAiProviderProviderFilter,
+  })
+
   useEffect(() => { latest = result }, [result])
   return null
 }
@@ -79,10 +91,30 @@ describe('credential list preferences wiring', () => {
     expect(aiProviderRequest?.get('page_size')).toBe('50')
     expect(aiProviderRequest?.get('type')).toBe('openai')
 
-    // Auth 文件分区没有存过任何偏好，必须保持自己的默认值。
     expect(latest?.authFileSort).toBe('priority')
     expect(latest?.authFilePageSize).toBe(10)
     expect(latest?.authFileProviderFilter).toBe('all')
+  })
+
+  it('lets an explicit initial provider override the stored preference', async () => {
+    window.localStorage.setItem(
+      CREDENTIAL_LIST_PREFERENCES_STORAGE_KEYS['ai-provider'],
+      JSON.stringify({
+        version: 1,
+        sort: 'total_requests',
+        pageSize: 10,
+        providerFilter: 'claude',
+      }),
+    )
+
+    await act(async () => root.render(
+      <Harness initialAiProviderProviderFilter="openai" />,
+    ))
+
+    expect(latest?.aiProviderProviderFilter).toBe('openai')
+
+    const request = requestFor(fetchMock, '2')
+    expect(request?.get('type')).toBe('openai')
   })
 
   it('persists each selection and returns to the first page', async () => {
