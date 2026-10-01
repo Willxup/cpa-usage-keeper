@@ -1062,8 +1062,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     [credentialsData],
   )
 
-
-
   const refreshCredentials = credentialsData.refresh;
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
