@@ -22,9 +22,18 @@ func FormatSortableStorageTime(t time.Time) string {
 
 // 旧库带 offset 的值按原 offset 解析；不带 offset 的值按项目 TZ 本地时间解析。
 func ParseStorageTime(value string) (time.Time, error) {
+	return ParseStorageTimeInLocation(value, time.Local)
+}
+
+// ParseStorageTimeInLocation is like ParseStorageTime, but lets migrations
+// interpret legacy wall-clock values using the timezone that wrote them.
+func ParseStorageTimeInLocation(value string, location *time.Location) (time.Time, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return time.Time{}, fmt.Errorf("storage time is empty")
+	}
+	if location == nil {
+		location = time.Local
 	}
 
 	// 先处理带明确时区的格式，保留原始 instant 后再交给格式化阶段转项目 TZ。
@@ -32,6 +41,8 @@ func ParseStorageTime(value string) (time.Time, error) {
 		time.RFC3339Nano,
 		"2006-01-02 15:04:05.999999999-07:00",
 		"2006-01-02 15:04:05-07:00",
+		"2006-01-02 15:04:05.999999999 -07:00",
+		"2006-01-02 15:04:05 -07:00",
 	} {
 		parsed, err := time.Parse(layout, trimmed)
 		if err == nil {
@@ -46,7 +57,7 @@ func ParseStorageTime(value string) (time.Time, error) {
 		"2006-01-02 15:04:05",
 		"2006-01-02T15:04:05",
 	} {
-		parsed, err := time.ParseInLocation(layout, trimmed, time.Local)
+		parsed, err := time.ParseInLocation(layout, trimmed, location)
 		if err == nil {
 			return parsed, nil
 		}
