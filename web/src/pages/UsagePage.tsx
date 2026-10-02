@@ -1,4 +1,8 @@
 import { CredentialEditModal } from '@/components/usage/credentials/CredentialEditModal';
+import {
+  buildCredentialProviderSearch,
+  resolveCredentialProviderFilterFromSearch,
+} from '@/components/usage/credentials/credentialProviderFilters'
 import { UsageComparisonCharts } from '@/components/usage/UsageComparisonCharts';
 import { useState, useMemo, useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -791,6 +795,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [versionInfo, setVersionInfo] = useState<VersionResponse | null>(null);
   const apiKeyOptionsRequestControllerRef = useRef<AbortController | null>(null);
   const credentialSectionVisibility = getCredentialSectionVisibility(activeTab);
+  const initialAuthFileProviderFilter = activeTab === 'auth-files'
+    ? resolveCredentialProviderFilterFromSearch('auth-files', window.location.search) ?? undefined
+    : undefined
+
+  const initialAiProviderProviderFilter = activeTab === 'ai-provider'
+    ? resolveCredentialProviderFilterFromSearch('ai-provider', window.location.search) ?? undefined
+    : undefined
   const activeCustomRange = useMemo(() => getUsageCustomRangeForTab(activeTab, customRange, {
     nowMs: Date.now(),
     timeZone: status?.timezone ?? timeRangeState.timeZone,
@@ -1016,10 +1027,41 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const credentialsData = useCredentialsTabData({
     enabledAuthFiles: credentialSectionVisibility.showAuthFiles && pageVisible,
     enabledAiProviders: credentialSectionVisibility.showAiProvider && pageVisible,
+    initialAuthFileProviderFilter,
+    initialAiProviderProviderFilter,
     onAuthRequired,
     onNotice: showTopNotice,
     onPrioritySaved: () => setCredentialPriorityRevision((current) => current + 1),
   });
+
+  const handleAuthFileProviderFilterChange = useCallback(
+    (provider: typeof credentialsData.authFileProviderFilter) => {
+      credentialsData.setAuthFileProviderFilter(provider)
+
+      const search = buildCredentialProviderSearch(window.location.search, provider)
+      window.history.replaceState(
+        null,
+        '',
+        `${appPath(getUsageTabPath('auth-files'))}${search}`,
+      )
+    },
+    [credentialsData],
+  )
+
+  const handleAiProviderProviderFilterChange = useCallback(
+    (provider: typeof credentialsData.aiProviderProviderFilter) => {
+      credentialsData.setAiProviderProviderFilter(provider)
+
+      const search = buildCredentialProviderSearch(window.location.search, provider)
+      window.history.replaceState(
+        null,
+        '',
+        `${appPath(getUsageTabPath('ai-provider'))}${search}`,
+      )
+    },
+    [credentialsData],
+  )
+
   const refreshCredentials = credentialsData.refresh;
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
@@ -1046,7 +1088,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     return [];
   }, [credentialSectionVisibility.showAiProvider, credentialSectionVisibility.showAuthFiles, credentialsData.aiProviderTypeCounts, credentialsData.authFileTypeCounts]);
   const activeCredentialProviderFilter = credentialSectionVisibility.showAiProvider ? credentialsData.aiProviderProviderFilter : credentialsData.authFileProviderFilter;
-  const setActiveCredentialProviderFilter = credentialSectionVisibility.showAiProvider ? credentialsData.setAiProviderProviderFilter : credentialsData.setAuthFileProviderFilter;
+  const setActiveCredentialProviderFilter = credentialSectionVisibility.showAiProvider ? handleAiProviderProviderFilterChange : handleAuthFileProviderFilterChange;
   const activeCredentialProviderFilterScope = credentialSectionVisibility.showAiProvider ? 'ai-provider' : 'auth-files';
   const themeOptions = useMemo(
     () =>

@@ -94,6 +94,35 @@ describe('UsagePage credential detail statistics', () => {
     await act(async () => root.render(<UsagePage />));
   };
 
+  it('writes the selected credential provider into the current URL', async () => {
+    window.history.replaceState(null, '', '/auth-files?foo=bar')
+
+    api.fetchUsageIdentitiesPage.mockResolvedValue({
+      identities: [identity(1, 10)],
+      total_count: 1,
+      total_pages: 1,
+      type_counts: [
+        { type: 'codex', count: 1 },
+        { type: 'claude', count: 1 },
+      ],
+    })
+
+    api.fetchUsageIdentity.mockResolvedValue(identity(1, 10))
+
+    await act(async () => root.render(<UsagePage />))
+
+    const codexButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('button'),
+    ).find((node) => node.textContent?.includes('Codex'))
+
+    expect(codexButton).toBeDefined()
+
+    await act(async () => codexButton!.click())
+
+    expect(window.location.pathname).toBe('/auth-files')
+    expect(window.location.search).toBe('?foo=bar&provider=codex')
+  })
+
   it.each([1, 2] as const)('keeps observing type %s after reset moves it off the list page and retains data on failure', async (authType) => {
     await render(authType);
     expect(api.fetchUsageIdentity).not.toHaveBeenCalled();

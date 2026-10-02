@@ -7,6 +7,8 @@ import { loadCredentialListPreferences, persistCredentialListPreferences } from 
 interface UseCredentialPagesOptions {
   enabledAuthFiles: boolean
   enabledAiProviders: boolean
+  initialAuthFileProviderFilter?: CredentialProviderFilterKey
+  initialAiProviderProviderFilter?: CredentialProviderFilterKey
   onAuthRequired?: () => void
 }
 
@@ -74,7 +76,7 @@ export interface CredentialPagesState {
   refresh: () => Promise<void>
 }
 
-export function useCredentialPages({ enabledAuthFiles, enabledAiProviders, onAuthRequired }: UseCredentialPagesOptions): CredentialPagesState {
+export function useCredentialPages({ enabledAuthFiles, enabledAiProviders, initialAuthFileProviderFilter, initialAiProviderProviderFilter, onAuthRequired }: UseCredentialPagesOptions): CredentialPagesState {
   const [authFileIdentities, setAuthFileIdentities] = useState<UsageIdentity[]>([])
   const [aiProviderIdentities, setAiProviderIdentities] = useState<UsageIdentity[]>([])
   const [authFileTypeCounts, setAuthFileTypeCounts] = useState<UsageIdentityTypeCount[]>([])
@@ -93,8 +95,15 @@ export function useCredentialPages({ enabledAuthFiles, enabledAiProviders, onAut
   const [aiProviderPageSize, setAiProviderPageSizeState] = useState(initialListPreferences.aiProvider.pageSize)
   const [authFileActiveOnly, setAuthFileActiveOnlyState] = useState(getInitialAuthFileActiveOnly)
   const [aiProviderActiveOnly, setAiProviderActiveOnlyState] = useState(getInitialAiProviderActiveOnly)
-  const [authFileProviderFilter, setAuthFileProviderFilterState] = useState<CredentialProviderFilterKey>(initialListPreferences.authFile.providerFilter)
-  const [aiProviderProviderFilter, setAiProviderProviderFilterState] = useState<CredentialProviderFilterKey>(initialListPreferences.aiProvider.providerFilter)
+  const [authFileProviderFilter, setAuthFileProviderFilterState] =
+    useState<CredentialProviderFilterKey>(
+      initialAuthFileProviderFilter ?? initialListPreferences.authFile.providerFilter,
+    )
+
+  const [aiProviderProviderFilter, setAiProviderProviderFilterState] =
+    useState<CredentialProviderFilterKey>(
+      initialAiProviderProviderFilter ?? initialListPreferences.aiProvider.providerFilter,
+    )
   const [authFileSort, setAuthFileSortState] = useState<UsageIdentityPageSort>(initialListPreferences.authFile.sort)
   const [aiProviderSort, setAiProviderSortState] = useState<UsageIdentityPageSort>(initialListPreferences.aiProvider.sort)
   const [authFilesLoading, setAuthFilesLoading] = useState(false)
