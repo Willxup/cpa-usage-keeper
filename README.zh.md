@@ -469,6 +469,8 @@ cp .env.example .env
 | `REQUEST_TIMEOUT` | 否 | `30s` | 请求 CPA HTTP 接口和 Redis 队列的超时时间 |
 | `TLS_SKIP_VERIFY` | 否 | `false` | 跳过 CPA HTTPS 和 Redis 队列 TLS 的证书验证；仅在使用自签名证书时启用 |
 
+修改 `TZ` 后，Keeper 会在启动时检测时区变化，先备份 SQLite 数据库，再按新的项目时区重写事件时间和派生统计。
+
 ### Auth Files 限额刷新
 
 Auth Files 定时限额刷新在 Auth Files 巡检弹窗的小齿轮中配置。设置保存在本地 SQLite，不依赖页面保持打开。

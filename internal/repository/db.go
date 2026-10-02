@@ -144,6 +144,9 @@ func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 		if err := migration.MarkAllAsApplied(db); err != nil {
 			return nil, fmt.Errorf("mark schema migrations applied: %w", err)
 		}
+		if err := RepairProjectTimezone(db, func(context.Context) error { return nil }); err != nil {
+			return nil, fmt.Errorf("initialize project timezone: %w", err)
+		}
 		// 新库初始化已完成，连接池开始由调用方负责生命周期。
 		closeOnError = false
 		return db, nil
@@ -162,6 +165,16 @@ func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 		return nil
 	}}); err != nil {
 		return nil, fmt.Errorf("run schema migrations: %w", err)
+	}
+	if err := RepairProjectTimezone(db, func(ctx context.Context) error {
+		backupPath, err := migrationBackupWriter.WriteDatabase(ctx, sqlDB, time.Now())
+		if err != nil {
+			return err
+		}
+		logrus.WithField("backup_path", backupPath).Info("database backed up before project timezone repair")
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("repair project timezone: %w", err)
 	}
 
 	// 旧库迁移已完成，连接池开始由调用方负责生命周期。
