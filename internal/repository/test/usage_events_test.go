@@ -19,13 +19,13 @@ func TestListUsageEventsWithFilterAppliesTimeBoundsAndPagination(t *testing.T) {
 		{EventKey: "event-2", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), Source: "source-b", AuthIndex: "2", TotalTokens: 20},
 		{EventKey: "event-3", APIGroupKey: "provider-b", Model: "claude-opus", ReasoningEffort: "high", Timestamp: time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC), Source: "source-c", AuthIndex: "3", TotalTokens: 30},
 	}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
+	if _, _, err := InsertUsageEvents(db, requestEventFixtureWithZeroFees(events)); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
 	start := time.Date(2026, 4, 16, 9, 30, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC)
-	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{StartTime: &start, EndTime: &end, Page: 1, PageSize: 1}, emptyPricingResolverForTest())
+	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{StartTime: &start, EndTime: &end, Page: 1, PageSize: 1}, emptyPricingSnapshotForTest())
 	if err != nil {
 		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
 	}
@@ -55,13 +55,13 @@ func TestListUsageEventsWithFilterFindsProjectTimezoneStorageTimestamp(t *testin
 	db := openTestDatabase(t)
 
 	eventTime := time.Date(2026, 5, 12, 21, 59, 18, 353569620, location)
-	if _, _, err := InsertUsageEvents(db, []entities.UsageEvent{{EventKey: "event-project-tz", Model: "claude-sonnet", Timestamp: eventTime, TotalTokens: 10}}); err != nil {
+	if _, _, err := InsertUsageEvents(db, requestEventFixtureWithZeroFees([]entities.UsageEvent{{EventKey: "event-project-tz", Model: "claude-sonnet", Timestamp: eventTime, TotalTokens: 10}})); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
 	start := time.Date(2026, 5, 12, 13, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 5, 12, 14, 0, 0, 0, time.UTC)
-	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{StartTime: &start, EndTime: &end, Page: 1, PageSize: 20}, emptyPricingResolverForTest())
+	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{StartTime: &start, EndTime: &end, Page: 1, PageSize: 20}, emptyPricingSnapshotForTest())
 	if err != nil {
 		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
 	}
@@ -78,13 +78,13 @@ func TestListUsageEventsWithFilterPagesByTimestampAndID(t *testing.T) {
 		{EventKey: "event-2", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: timestamp, Source: "source-b", AuthIndex: "2", TotalTokens: 20},
 		{EventKey: "event-3", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: timestamp.Add(-time.Hour), Source: "source-c", AuthIndex: "3", TotalTokens: 30},
 	}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
+	if _, _, err := InsertUsageEvents(db, requestEventFixtureWithZeroFees(events)); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
 	var firstID int64
 	for index, wantSource := range []string{"source-b", "source-a"} {
-		page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{Page: index + 1, PageSize: 1}, emptyPricingResolverForTest())
+		page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{Page: index + 1, PageSize: 1}, emptyPricingSnapshotForTest())
 		if err != nil {
 			t.Fatalf("load page %d: %v", index+1, err)
 		}
@@ -113,14 +113,14 @@ func TestListUsageEventsWithFilterCursorPaginatesWithoutDuplicates(t *testing.T)
 		{EventKey: "event-4", APIGroupKey: "provider-b", Model: "model-4", Timestamp: timestamp.Add(-2 * time.Second), Source: "source-d", AuthIndex: "4", TotalTokens: 40},
 		{EventKey: "event-5", APIGroupKey: "provider-b", Model: "model-5", Timestamp: timestamp.Add(-2 * time.Second), Source: "source-e", AuthIndex: "5", TotalTokens: 50},
 	}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
+	if _, _, err := InsertUsageEvents(db, requestEventFixtureWithZeroFees(events)); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
 	var loadedIDs []int64
 	filter := dto.UsageQueryFilter{CursorMode: true, PageSize: 2}
 	for batch := 0; ; batch++ {
-		page, err := ListUsageEventsWithFilter(db, filter, emptyPricingResolverForTest())
+		page, err := ListUsageEventsWithFilter(db, filter, emptyPricingSnapshotForTest())
 		if err != nil {
 			t.Fatalf("load cursor batch %d: %v", batch, err)
 		}
@@ -155,11 +155,11 @@ func TestListUsageEventsWithFilterAppliesModelAuthIndexAndResultFilters(t *testi
 		{EventKey: "event-3", APIGroupKey: "provider-b", Model: "claude-opus", Timestamp: time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC), Source: "source-a", AuthIndex: "auth-a", Failed: false, TotalTokens: 30},
 		{EventKey: "event-4", APIGroupKey: "provider-c", Model: "gpt-5", Timestamp: time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC), Source: "source-b", AuthIndex: "auth-b", Failed: false, TotalTokens: 40},
 	}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
+	if _, _, err := InsertUsageEvents(db, requestEventFixtureWithZeroFees(events)); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
-	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{Page: 1, PageSize: 20, Model: "claude-sonnet", AuthIndex: "auth-a", Result: "success"}, emptyPricingResolverForTest())
+	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{Page: 1, PageSize: 20, Model: "claude-sonnet", AuthIndex: "auth-a", Result: "success"}, emptyPricingSnapshotForTest())
 	if err != nil {
 		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestListUsageEventsWithFilterAppliesModelAuthIndexAndResultFilters(t *testi
 	}
 }
 
-func TestExportUsageEventsWithFilterAppliesFiltersWithoutPagination(t *testing.T) {
+func TestStreamUsageEventsWithFilterAppliesFiltersWithoutPagination(t *testing.T) {
 	db := openTestDatabase(t)
 	events := []entities.UsageEvent{
 		{EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet", ExecutorType: "responses", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), Source: "source-a", AuthIndex: "auth-a", Failed: false, TotalTokens: 10},
@@ -179,13 +179,13 @@ func TestExportUsageEventsWithFilterAppliesFiltersWithoutPagination(t *testing.T
 		{EventKey: "event-3", APIGroupKey: "provider-a", Model: "claude-sonnet", ExecutorType: "chat_completions", Timestamp: time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC), Source: "source-a", AuthIndex: "auth-b", Failed: false, TotalTokens: 30},
 		{EventKey: "event-4", APIGroupKey: "provider-a", Model: "claude-sonnet", ExecutorType: "responses", Timestamp: time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC), Source: "source-a", AuthIndex: "auth-a", Failed: true, TotalTokens: 40},
 	}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
+	if _, _, err := InsertUsageEvents(db, requestEventFixtureWithZeroFees(events)); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
-	rows, err := ExportUsageEventsWithFilter(db, dto.UsageQueryFilter{Model: "claude-sonnet", AuthIndex: "auth-a", Result: "success", Page: 1, PageSize: 1, Limit: 1}, emptyPricingResolverForTest())
+	rows, err := collectRequestEventsForTest(db, dto.UsageQueryFilter{Model: "claude-sonnet", AuthIndex: "auth-a", Result: "success", Page: 1, PageSize: 1, Limit: 1}, emptyPricingSnapshotForTest())
 	if err != nil {
-		t.Fatalf("ExportUsageEventsWithFilter returned error: %v", err)
+		t.Fatalf("StreamUsageEventsWithFilter returned error: %v", err)
 	}
 	if len(rows) != 2 {
 		t.Fatalf("expected export to ignore pagination and return two filtered rows, got %+v", rows)
@@ -200,8 +200,9 @@ func TestExportUsageEventsWithFilterAppliesFiltersWithoutPagination(t *testing.T
 	}
 }
 
-func TestListUsageEventsWithFilterAddsBackendCost(t *testing.T) {
+func TestListUsageEventsWithFilterReturnsPersistedCostAndCurrentStyle(t *testing.T) {
 	db := openTestDatabase(t)
+	wantCost, available := 21.45, true
 	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{
 		Model:                "claude-sonnet",
 		PricingStyle:         entities.ModelPricingStyleClaude,
@@ -223,11 +224,13 @@ func TestListUsageEventsWithFilterAddsBackendCost(t *testing.T) {
 		CacheReadTokens:     200_000,
 		CacheCreationTokens: 100_000,
 		TotalTokens:         1_800_000,
+		CostUSD:             &wantCost,
+		CostAvailable:       &available,
 	}}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
-	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{Page: 1, PageSize: 20}, newUsageCostResolverForTest(t, db))
+	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{Page: 1, PageSize: 20}, newUsageCostSnapshotForTest(t, db))
 	if err != nil {
 		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
 	}
@@ -235,26 +238,77 @@ func TestListUsageEventsWithFilterAddsBackendCost(t *testing.T) {
 		t.Fatalf("expected one event, got %+v", page)
 	}
 	event := page.Events[0]
-	wantCost := 1.0*10 + 0.5*20 + 0.2*1 + 0.1*12.5
-	if math.Abs(event.CostUSD-wantCost) > 0.000000001 || !event.CostAvailable || event.PricingStyle != entities.ModelPricingStyleClaude {
+	if event.CostUSD != wantCost || !event.CostAvailable || event.PricingStyle != entities.ModelPricingStyleClaude {
 		t.Fatalf("unexpected backend cost fields: %+v", event)
 	}
 }
 
-func TestListUsageEventsWithFilterMarksCostUnavailableWhenPriceMissing(t *testing.T) {
+func TestRequestEventsUsePersistedFeeAcrossListAndExport(t *testing.T) {
 	db := openTestDatabase(t)
+	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "priced-model", PromptPricePer1M: 10}); err != nil {
+		t.Fatal(err)
+	}
+	storedCost, available := 0.125, true
+	if err := db.Create(&entities.UsageEvent{
+		EventKey: "fixed-fee", Model: "priced-model", Timestamp: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: &storedCost, CostAvailable: &available,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	snapshot := newUsageCostSnapshotForTest(t, db)
+	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{PageSize: 10}, snapshot)
+	if err != nil || len(page.Events) != 1 || page.Events[0].CostUSD != storedCost || !page.Events[0].CostAvailable {
+		t.Fatalf("list must use persisted fee: page=%+v err=%v", page, err)
+	}
+	exported, err := collectRequestEventsForTest(db, dto.UsageQueryFilter{}, snapshot)
+	if err != nil || len(exported) != 1 || exported[0].CostUSD != storedCost || !exported[0].CostAvailable {
+		t.Fatalf("export must use persisted fee: rows=%+v err=%v", exported, err)
+	}
+}
+
+func TestRequestEventsRejectNullOrNonfinitePersistedFee(t *testing.T) {
+	zero, available, infinity := 0.0, true, math.Inf(1)
+	for _, test := range []struct {
+		name      string
+		cost      *float64
+		available *bool
+	}{
+		{"NULL cost", nil, &available},
+		{"NULL availability", &zero, nil},
+		{"nonfinite cost", &infinity, &available},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db := openTestDatabase(t)
+			if err := db.Create(&entities.UsageEvent{EventKey: "invalid-fee", Model: "unpriced", Timestamp: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), CostUSD: test.cost, CostAvailable: test.available}).Error; err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{PageSize: 10}, emptyPricingSnapshotForTest()); err == nil {
+				t.Fatal("list silently accepted invalid persisted fee")
+			}
+			if _, err := collectRequestEventsForTest(db, dto.UsageQueryFilter{}, emptyPricingSnapshotForTest()); err == nil {
+				t.Fatal("export silently accepted invalid persisted fee")
+			}
+		})
+	}
+}
+
+func TestListUsageEventsWithFilterReturnsStoredUnavailableCost(t *testing.T) {
+	db := openTestDatabase(t)
+	zeroCost, available := 0.0, false
 	if _, _, err := InsertUsageEvents(db, []entities.UsageEvent{{
-		EventKey:    "event-missing-cost",
-		APIGroupKey: "provider-a",
-		Model:       "missing-model",
-		Timestamp:   time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC),
-		InputTokens: 1,
-		TotalTokens: 1,
+		EventKey:      "event-missing-cost",
+		APIGroupKey:   "provider-a",
+		Model:         "missing-model",
+		Timestamp:     time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC),
+		InputTokens:   1,
+		TotalTokens:   1,
+		CostUSD:       &zeroCost,
+		CostAvailable: &available,
 	}}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
-	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{Page: 1, PageSize: 20}, emptyPricingResolverForTest())
+	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{Page: 1, PageSize: 20}, emptyPricingSnapshotForTest())
 	if err != nil {
 		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
 	}
@@ -271,11 +325,11 @@ func TestListUsageEventsWithFilterAppliesAuthIndexFilter(t *testing.T) {
 		{EventKey: "event-3", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC), Source: "other", AuthIndex: "other", TotalTokens: 30},
 		{EventKey: "event-4", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC), Source: "auth-1", AuthIndex: "auth-1", Provider: "Provider A", TotalTokens: 40},
 	}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
+	if _, _, err := InsertUsageEvents(db, requestEventFixtureWithZeroFees(events)); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
-	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{AuthIndex: "auth-1", Page: 1, PageSize: 20}, emptyPricingResolverForTest())
+	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{AuthIndex: "auth-1", Page: 1, PageSize: 20}, emptyPricingSnapshotForTest())
 	if err != nil {
 		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
 	}
@@ -295,11 +349,11 @@ func TestListUsageEventsWithFilterAppliesAuthTypeWithSharedAuthIndex(t *testing.
 		{EventKey: "oauth-shared", AuthType: "oauth", AuthIndex: "shared-auth", Model: "codex", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC)},
 		{EventKey: "apikey-shared", AuthType: "apikey", AuthIndex: "shared-auth", Model: "gpt-5", Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC)},
 	}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
+	if _, _, err := InsertUsageEvents(db, requestEventFixtureWithZeroFees(events)); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
-	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{AuthIndex: "shared-auth", AuthType: "oauth", Page: 1, PageSize: 20}, emptyPricingResolverForTest())
+	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{AuthIndex: "shared-auth", AuthType: "oauth", Page: 1, PageSize: 20}, emptyPricingSnapshotForTest())
 	if err != nil {
 		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
 	}
@@ -316,7 +370,7 @@ func TestListUsageEventFilterOptionsWithFilterReturnsStableModels(t *testing.T) 
 		{EventKey: "event-3", APIGroupKey: "provider-b", Model: "gpt-5", Timestamp: time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC), Source: "source-a", Failed: false, TotalTokens: 30},
 		{EventKey: "event-blank-model", APIGroupKey: "provider-c", Model: "   ", Timestamp: time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC), Source: "source-c", Failed: false, TotalTokens: 40},
 	}
-	if _, _, err := InsertUsageEvents(db, events); err != nil {
+	if _, _, err := InsertUsageEvents(db, requestEventFixtureWithZeroFees(events)); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 

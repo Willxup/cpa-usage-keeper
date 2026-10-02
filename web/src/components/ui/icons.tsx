@@ -178,17 +178,6 @@ export function IconCircleHelp({ size = 20, ...props }: IconProps) {
   );
 }
 
-export function IconCircleAlert({ size = 20, ...props }: IconProps) {
-  return (
-    <svg {...baseSvgProps} width={size} height={size} {...props}>
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" x2="12" y1="8" y2="12" />
-      <line x1="12" x2="12.01" y1="16" y2="16" />
-    </svg>
-  );
-}
-
-
 export function IconGaugeReset({ size = 20, ...props }: IconProps) {
   return (
     <svg {...baseSvgProps} width={size} height={size} {...props}>
@@ -652,4 +641,24 @@ export function IconSidebarSystem({ size = 20, ...props }: IconProps) {
       <path d="M14 21v-3" />
     </svg>
   );
+}
+
+// 模型价格工具栏沿用 Lucide 加号及历史记录图形，保持离线可用。
+export function IconPlus({ size = 20, ...props }: IconProps) {
+  return <svg {...baseSvgProps} width={size} height={size} {...props}><path d="M12 5v14M5 12h14" /></svg>;
+}
+
+export function IconHistory({ size = 20, ...props }: IconProps) {
+  return <svg {...baseSvgProps} width={size} height={size} {...props}>
+    <path d="M3 12a9 9 0 1 0 2.4-6.1L3 8M3 3v5h5M12 7v5l4 2" />
+  </svg>;
+}
+
+// 价格分支统一使用分支图形；具体匹配条件仍由旁边的文字表达。
+export function IconGitBranch({ size = 20, ...props }: IconProps) {
+  return <svg {...baseSvgProps} width={size} height={size} {...props}>
+    <path d="M6 3v12M18 9a9 9 0 0 1-9 9" />
+    <circle cx="6" cy="18" r="3" />
+    <circle cx="18" cy="6" r="3" />
+  </svg>;
 }

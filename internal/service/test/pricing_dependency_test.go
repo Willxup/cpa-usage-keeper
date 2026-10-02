@@ -24,11 +24,15 @@ func emptyPricingCatalogForTest() *pricing.Catalog {
 func TestPricingServiceRequiresExplicitPricingCatalog(t *testing.T) {
 	t.Parallel()
 
+	db := openUsageServiceTestDatabase(t)
 	catalog := pricing.NewCatalog(pricing.EmptySnapshot())
-	if provider := service.NewPricingService(nil, catalog); provider == nil {
+	deps, stop := newPricingTestDependencies(t, db, catalog)
+	provider := service.NewPricingServiceWithRecalculation(db, catalog, deps)
+	t.Cleanup(func() { stop(provider) })
+	if provider == nil {
 		t.Fatal("expected pricing provider")
 	}
-	assertPanics(t, func() { service.NewPricingService(nil, nil) })
+	assertPanics(t, func() { service.NewPricingServiceWithRecalculation(db, nil, deps) })
 }
 
 func assertPanics(t *testing.T, callback func()) {

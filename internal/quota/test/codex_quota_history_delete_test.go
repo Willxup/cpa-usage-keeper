@@ -48,7 +48,7 @@ func TestDeleteCodexQuotaHistoryCycleClearsActualDeferredCycle(t *testing.T) {
 	}
 	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{
 		UsageHeaderSnapshotFlushInterval: time.Hour, CodexQuotaHistoryFlushInterval: time.Hour,
-		CodexQuotaHistoryHeartbeatInterval: time.Hour, PricingCatalog: emptyPricingCatalogForTest(),
+		CodexQuotaHistoryHeartbeatInterval: time.Hour,
 	})
 	t.Cleanup(service.StopRefreshTasks)
 	timers := make(chan usageHeaderManualTimer, 4)
@@ -106,7 +106,6 @@ func TestDeleteCodexQuotaHistoryCycleAllowsObservationsReceivedAfterDeletion(t *
 	cycle := loadCodexQuotaCycles(t, db, auth)[0]
 	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{
 		UsageHeaderSnapshotFlushInterval: time.Hour, CodexQuotaHistoryFlushInterval: time.Hour,
-		PricingCatalog: emptyPricingCatalogForTest(),
 	})
 	t.Cleanup(service.StopRefreshTasks)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -146,7 +145,6 @@ func TestDeleteCodexQuotaHistoryCyclePreservesQueuedTrustedRefresh(t *testing.T)
 			}}}}
 			service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}), ServiceOptions{
 				UsageHeaderSnapshotFlushInterval: time.Hour, CodexQuotaHistoryFlushInterval: time.Hour,
-				PricingCatalog: emptyPricingCatalogForTest(),
 			})
 			t.Cleanup(service.StopRefreshTasks)
 			writes := make(chan error, 1)
@@ -218,7 +216,7 @@ func TestDeleteCodexQuotaHistoryCyclePreservesCalibratedNeighbor(t *testing.T) {
 			}
 			service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{
 				UsageHeaderSnapshotFlushInterval: time.Hour, CodexQuotaHistoryFlushInterval: time.Hour,
-				CodexQuotaHistoryHeartbeatInterval: time.Hour, PricingCatalog: emptyPricingCatalogForTest(),
+				CodexQuotaHistoryHeartbeatInterval: time.Hour,
 			})
 			t.Cleanup(service.StopRefreshTasks)
 			timers := make(chan usageHeaderManualTimer, 4)
@@ -281,7 +279,6 @@ func TestDeleteCodexQuotaHistoryCycleRestoresOldCycleWithoutRestart(t *testing.T
 	oldID, badID := cycles[0].ID, cycles[1].ID
 	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{
 		UsageHeaderSnapshotFlushInterval: time.Hour, CodexQuotaHistoryFlushInterval: time.Hour,
-		PricingCatalog: emptyPricingCatalogForTest(),
 	})
 	t.Cleanup(service.StopRefreshTasks)
 	timers := make(chan usageHeaderManualTimer, 10)
@@ -359,7 +356,7 @@ func TestDeleteCodexQuotaHistoryCycleRestoresOldCycleWithoutRestart(t *testing.T
 func TestDeleteCodexQuotaHistoryCycleValidatesIdentityAndShutdown(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, codexHistoryUsageIdentity("delete-auth"))
-	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{PricingCatalog: emptyPricingCatalogForTest()})
+	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{})
 	t.Cleanup(service.StopRefreshTasks)
 	if err := service.DeleteCodexQuotaHistoryCycle(context.Background(), "", 1); !errors.Is(err, ErrValidation) {
 		t.Fatalf("validation: %v", err)
@@ -390,7 +387,6 @@ func TestDeleteCodexQuotaHistoryCycleInterruptsHeaderWait(t *testing.T) {
 	cycle := loadCodexQuotaCycles(t, db, auth)[0]
 	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{
 		UsageHeaderSnapshotFlushInterval: time.Hour, CodexQuotaHistoryFlushInterval: time.Hour,
-		PricingCatalog: emptyPricingCatalogForTest(),
 	})
 	t.Cleanup(service.StopRefreshTasks)
 	timers := make(chan usageHeaderManualTimer, 1)

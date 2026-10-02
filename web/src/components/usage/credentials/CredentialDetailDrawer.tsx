@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { IconRefreshCw } from '@/components/ui/icons'
 import { ProviderBrandIcon } from '@/components/ProviderBrandIcon'
 import { RequestEventLogModal } from '@/components/usage/RequestEventLogModal'
-import { ApiError, fetchErrorEvents, fetchUsageEvents } from '@/lib/api'
+import { ApiError, fetchErrorEvents, fetchUsageEvents, isCostsBusy } from '@/lib/api'
 import type { ErrorEvent, UsageEvent, UsageEventRequestLogResponse } from '@/lib/types'
 import { AuthFileQuotaPanel } from './AuthFileCredentialsSection'
 import { CredentialErrorEventsList } from './CredentialErrorEventsList'
@@ -218,13 +218,17 @@ export function CredentialDetailDrawer({
       setEventsNextCursor(response.has_more === true ? response.next_cursor?.trim() || null : null)
     } catch (error) {
       if (controller.signal.aborted) return
-      setEvents([])
-      setEventsNextCursor(null)
+      // 同一凭证的费用请求暂缓时保留最后一页；切换凭证会由 selectionKey 清空旧数据。
+      if (!isCostsBusy(error)) {
+        setEvents([])
+        setEventsNextCursor(null)
+      }
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.()
         return
       }
-      setEventsError(error instanceof Error ? error.message : t('usage_stats.credentials_detail_requests_load_failed'))
+      setEventsError(isCostsBusy(error) ? t('usage_stats.costs_busy')
+        : error instanceof Error ? error.message : t('usage_stats.credentials_detail_requests_load_failed'))
     } finally {
       if (firstPageControllerRef.current === controller) {
         firstPageControllerRef.current = null
@@ -366,7 +370,8 @@ export function CredentialDetailDrawer({
         return
       }
       setEventsAutoLoadMore(false)
-      setEventsError(error instanceof Error ? error.message : t('usage_stats.credentials_detail_requests_load_failed'))
+      setEventsError(isCostsBusy(error) ? t('usage_stats.costs_busy')
+        : error instanceof Error ? error.message : t('usage_stats.credentials_detail_requests_load_failed'))
     } finally {
       if (loadMoreControllerRef.current === controller) {
         loadMoreControllerRef.current = null

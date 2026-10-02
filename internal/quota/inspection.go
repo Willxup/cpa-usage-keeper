@@ -61,10 +61,8 @@ func (s *Service) StartInspection(ctx context.Context) (InspectionStatus, error)
 	}
 	// now 作为本轮启动时间，后续清理过期任务和扫描 Auth Files 都复用同一时间点。
 	now := time.Now()
-	// 巡检开始前先清掉已完成/已失败的旧任务，避免上轮缓存立刻把本轮算成完成。
-	s.clearSettledRefreshTasks()
-	// 重置 completed_at 和本轮 auth_index 集合；只有这次按钮触发的任务能写回巡检完成时间。
-	s.resetInspectionRound()
+	// 清旧终态和开始新轮次必须同锁，避免清理代数插在两步之间。
+	generation := s.beginInspectionRound()
 	// 过期的短期失败任务可以在本轮重新入队，未过期的长期成功缓存已在上一步清掉。
 	s.cleanupExpiredRefreshTasks(now)
 	// 巡检复用 Auth Files 自动刷新扫描规则，但 source 必须标成 inspection 以便后续区分运行态。
@@ -73,12 +71,18 @@ func (s *Service) StartInspection(ctx context.Context) (InspectionStatus, error)
 		source: RefreshSourceInspection,
 		// 巡检是用户显式检查，401/402 这类缓存错误也要重新尝试，不能被自动刷新缓存拦住。
 		skipCachedHTTPError: false,
+		expectedGeneration:  &generation,
 	})
 	if err != nil {
 		return InspectionStatus{}, err
 	}
+	if summary.invalidated {
+		return s.GetInspectionStatus(ctx)
+	}
 	// 记录本轮参与巡检的 auth_index：包含新入队任务和同来源 inspection active 任务，不包含 manual/auto/unsupported。
-	s.setInspectionRoundAuthIndexes(summary.roundAuthIndexes)
+	if !s.setInspectionRoundAuthIndexes(generation, summary.roundAuthIndexes) {
+		return s.GetInspectionStatus(ctx)
+	}
 	// 没有新任务时也要返回状态；这可能代表全部 unsupported、或已有任务正在被本轮复用。
 	if len(summary.queuedTasks) > 0 {
 		// dispatcher 会按全局 worker 限制派发，避免一次巡检把所有 provider 同时打满。
@@ -206,39 +210,36 @@ func (s *Service) inspectionRoundActiveTaskLocked(authIndex string, task *Refres
 	return ok
 }
 
-func (s *Service) clearSettledRefreshTasks() {
+// beginInspectionRound 在同一锁内清理旧终态并固定本轮代数，避免清理穿过巡检启动。
+func (s *Service) beginInspectionRound() uint64 {
 	s.refreshMu.Lock()
 	defer s.refreshMu.Unlock()
+	// 新巡检不复用上轮完成/失败缓存，也不提前报告 completed_at。
 	for authIndex, task := range s.refreshTasks {
 		if task == nil || task.isActive() {
 			continue
 		}
 		delete(s.refreshTasks, authIndex)
 	}
-}
-
-func (s *Service) resetInspectionRound() {
-	s.refreshMu.Lock()
-	defer s.refreshMu.Unlock()
 	s.inspectionCompletedAt = time.Time{}
 	s.inspectionRoundActive = false
 	s.inspectionRoundAuthIndexSet = nil
+	return s.cacheGeneration
 }
 
-func (s *Service) resetInspectionCompletedAt() {
+// setInspectionRoundAuthIndexes 只激活未被费用清理淘汰的巡检轮次，防止旧扫描复活。
+func (s *Service) setInspectionRoundAuthIndexes(generation uint64, authIndexes []string) bool {
 	s.refreshMu.Lock()
 	defer s.refreshMu.Unlock()
-	s.inspectionCompletedAt = time.Time{}
-}
-
-func (s *Service) setInspectionRoundAuthIndexes(authIndexes []string) {
-	s.refreshMu.Lock()
-	defer s.refreshMu.Unlock()
+	if s.cacheGeneration != generation {
+		return false
+	}
 	s.inspectionRoundActive = true
 	s.inspectionRoundAuthIndexSet = make(map[string]struct{}, len(authIndexes))
 	for _, authIndex := range authIndexes {
 		s.inspectionRoundAuthIndexSet[authIndex] = struct{}{}
 	}
+	return true
 }
 
 func (s *Service) inspectionRoundCompletedLocked() bool {

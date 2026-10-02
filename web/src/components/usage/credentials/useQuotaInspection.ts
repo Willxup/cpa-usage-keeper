@@ -17,6 +17,7 @@ export interface QuotaInspectionState {
   quotaInspectionError: string
   refreshQuotaInspectionStatus: () => Promise<void>
   startQuotaInspection: () => Promise<void>
+  resetQuotaInspection: () => void
 }
 
 export function shouldContinueQuotaInspectionPolling(status: Pick<UsageQuotaInspectionStatusResponse, 'running' | 'completed'> | null): boolean {
@@ -33,8 +34,38 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
   const [quotaInspectionStarting, setQuotaInspectionStarting] = useState(false)
   const [quotaInspectionError, setQuotaInspectionError] = useState('')
   const [inspectionPollingActive, setInspectionPollingActive] = useState(false)
+  const [inspectionPollEpoch, setInspectionPollEpoch] = useState(0)
   const onAuthRequiredRef = useRef(onAuthRequired)
   const onInspectionCompletedRef = useRef(onInspectionCompleted)
+  const requestGenerationRef = useRef(0)
+  const statusControllerRef = useRef<AbortController | null>(null)
+  const retireStatusRequest = useCallback(() => {
+    statusControllerRef.current?.abort()
+    statusControllerRef.current = null
+  }, [])
+
+  const resetQuotaInspection = useCallback(() => {
+    // 清除旧轮次展示并取消状态 GET；已提交的巡检 POST 只丢弃晚到页面响应。
+    requestGenerationRef.current += 1
+    retireStatusRequest()
+    setQuotaInspectionStatus(null)
+    setQuotaInspectionLoading(false)
+    setQuotaInspectionStarting(false)
+    setQuotaInspectionError('')
+    setInspectionPollingActive(false)
+  }, [retireStatusRequest])
+
+  useEffect(() => {
+    if (!enabled) {
+      resetQuotaInspection()
+    }
+  }, [enabled, resetQuotaInspection])
+
+  useEffect(() => () => {
+    // 离开页面时退休旧 GET/POST 的响应归属，已受理的巡检后台工作继续运行。
+    requestGenerationRef.current += 1
+    retireStatusRequest()
+  }, [retireStatusRequest])
 
   useEffect(() => {
     onAuthRequiredRef.current = onAuthRequired
@@ -52,22 +83,28 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
     setQuotaInspectionError(error instanceof Error ? error.message : 'Failed to load quota inspection status')
   }, [])
 
-  const loadQuotaInspectionStatus = useCallback(async (signal?: AbortSignal): Promise<UsageQuotaInspectionStatusResponse | null> => {
+  const loadQuotaInspectionStatus = useCallback(async (controller = new AbortController()): Promise<UsageQuotaInspectionStatusResponse | null> => {
+    statusControllerRef.current?.abort()
+    statusControllerRef.current = controller
+    const generation = requestGenerationRef.current
+    const isCurrent = () => !controller.signal.aborted && statusControllerRef.current === controller && requestGenerationRef.current === generation
     setQuotaInspectionLoading(true)
     setQuotaInspectionError('')
     try {
-      const response = await fetchUsageQuotaInspectionStatus(signal)
+      const response = await fetchUsageQuotaInspectionStatus(controller.signal)
+      if (!isCurrent()) return null
       setQuotaInspectionStatus(response)
       return response
     } catch (error) {
-      if (signal?.aborted) {
+      if (!isCurrent()) {
         return null
       }
       handleInspectionError(error)
       return null
     } finally {
-      if (!signal?.aborted) {
+      if (isCurrent()) {
         setQuotaInspectionLoading(false)
+        statusControllerRef.current = null
       }
     }
   }, [handleInspectionError])
@@ -79,8 +116,9 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
     }
     const controller = new AbortController()
     const loadInitialInspectionStatus = async () => {
-      const response = await loadQuotaInspectionStatus(controller.signal)
-      if (!controller.signal.aborted) {
+      const generation = requestGenerationRef.current
+      const response = await loadQuotaInspectionStatus(controller)
+      if (!controller.signal.aborted && requestGenerationRef.current === generation) {
         setInspectionPollingActive(shouldContinueQuotaInspectionPolling(response))
       }
     }
@@ -98,8 +136,9 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
     let timer: number | undefined
     const controller = new AbortController()
     const pollQuotaInspectionStatus = async () => {
-      const response = await loadQuotaInspectionStatus(controller.signal)
-      if (cancelled) {
+      const generation = requestGenerationRef.current
+      const response = await loadQuotaInspectionStatus(controller)
+      if (cancelled || controller.signal.aborted || requestGenerationRef.current !== generation) {
         return
       }
       if (!shouldContinueQuotaInspectionPolling(response)) {
@@ -123,29 +162,48 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
         window.clearTimeout(timer)
       }
     }
-  }, [enabled, inspectionPollingActive, loadQuotaInspectionStatus])
+  }, [enabled, inspectionPollingActive, inspectionPollEpoch, loadQuotaInspectionStatus])
 
   const refreshQuotaInspectionStatus = useCallback(async () => {
+    if (!enabled) return
+    const generation = requestGenerationRef.current
+    // 手动读取会替换旧轮询 GET；即使本次读取失败，也应保留下一轮定时查询。
+    setInspectionPollEpoch((current) => current + 1)
     const response = await loadQuotaInspectionStatus()
+    if (requestGenerationRef.current !== generation || response === null) return
     setInspectionPollingActive(shouldContinueQuotaInspectionPolling(response))
-  }, [loadQuotaInspectionStatus])
+  }, [enabled, loadQuotaInspectionStatus])
 
   const startQuotaInspection = useCallback(async () => {
+    const generation = requestGenerationRef.current
+    const wasPolling = inspectionPollingActive
+    // 新轮次启动前使旧状态读取失效；POST 受理期间出现的 GET 也不能盖过启动响应。
+    retireStatusRequest()
+    setInspectionPollingActive(false)
     setQuotaInspectionStarting(true)
     setQuotaInspectionError('')
     try {
       const response = await startUsageQuotaInspection()
+      if (requestGenerationRef.current !== generation) return
+      retireStatusRequest()
       setQuotaInspectionStatus(response)
       setInspectionPollingActive(shouldContinueQuotaInspectionPolling(response))
+      setInspectionPollEpoch((current) => current + 1)
       if (shouldNotifyQuotaInspectionCompleted(response)) {
         onInspectionCompletedRef.current?.()
       }
     } catch (error) {
-      handleInspectionError(error)
+      if (requestGenerationRef.current === generation) {
+        handleInspectionError(error)
+        if (wasPolling) {
+          setInspectionPollingActive(true)
+          setInspectionPollEpoch((current) => current + 1)
+        }
+      }
     } finally {
-      setQuotaInspectionStarting(false)
+      if (requestGenerationRef.current === generation) setQuotaInspectionStarting(false)
     }
-  }, [handleInspectionError])
+  }, [handleInspectionError, inspectionPollingActive, retireStatusRequest])
 
   return {
     quotaInspectionStatus,
@@ -154,5 +212,6 @@ export function useQuotaInspection({ enabled, onAuthRequired, onInspectionComple
     quotaInspectionError,
     refreshQuotaInspectionStatus,
     startQuotaInspection,
+    resetQuotaInspection,
   }
 }

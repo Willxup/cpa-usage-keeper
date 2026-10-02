@@ -8,63 +8,70 @@ import (
 	"cpa-usage-keeper/internal/pricing"
 )
 
-func TestCompileSnapshotNormalizesRulesAndExcludesIdentityRulesFromActiveFields(t *testing.T) {
-	t.Parallel()
-
-	snapshot := compileSnapshot(t, pricing.ModelConfig{
-		Pricing: testPricing(" model-b ", 2),
-		Rules: []pricing.RuleConfig{
-			{Key: " SERVICE_TIER ", Value: " priority ", Multiplier: 2},
-			{Key: "reasoning_effort", Value: " xhigh ", Multiplier: 1},
-		},
-	}, pricing.ModelConfig{
-		Pricing: testPricing("model-a", 1),
-	})
-
-	active := snapshot.ActiveFields()
-	if !active.Has(pricing.RuleFieldServiceTier) {
-		t.Fatal("expected service_tier to be active")
+func TestSnapshotPricingStyleForModelUsesCurrentModelThenAlias(t *testing.T) {
+	primary := testPricingWithPrompt("primary", 10)
+	primary.PricingStyle = entities.ModelPricingStyleClaude
+	alias := testPricingWithPrompt("alias", 2)
+	unknown := testPricingWithPrompt("unknown", 1)
+	unknown.PricingStyle = entities.ModelPricingStyleClaude
+	snapshot := compileSnapshot(t, pricing.ModelConfig{Pricing: primary}, pricing.ModelConfig{Pricing: alias}, pricing.ModelConfig{Pricing: unknown})
+	for _, test := range []struct {
+		model, alias, want string
+	}{
+		{" primary ", " alias ", entities.ModelPricingStyleClaude},
+		{"  ", " alias ", entities.ModelPricingStyleClaude},
+		{"missing", " alias ", entities.ModelPricingStyleOpenAI},
+		{"missing", "also-missing", ""},
+	} {
+		if got := snapshot.PricingStyleForModel(test.model, test.alias); got != test.want {
+			t.Errorf("PricingStyleForModel(%q, %q) = %q, want %q", test.model, test.alias, got, test.want)
+		}
 	}
-	if active.Has(pricing.RuleFieldReasoningEffort) {
-		t.Fatal("expected multiplier-1 reasoning_effort rule to stay inactive")
-	}
-	configs := snapshot.ModelConfigs()
-	if len(configs) != 2 || configs[0].Pricing.Model != "model-a" || configs[1].Pricing.Model != "model-b" {
-		t.Fatalf("expected stable model-sorted configs, got %+v", configs)
-	}
-	rule := configs[1].Rules[0]
-	if rule.Key != "service_tier" || rule.Value != "priority" || rule.Multiplier != 2 {
-		t.Fatalf("expected normalized rule, got %+v", rule)
-	}
-	if len(configs[1].Rules) != 2 || configs[1].Rules[1].Multiplier != 1 {
-		t.Fatalf("expected multiplier-1 rule to remain visible, got %+v", configs[1].Rules)
+	var absent *pricing.Snapshot
+	if got := absent.PricingStyleForModel("primary", "alias"); got != "" {
+		t.Fatalf("nil snapshot style = %q", got)
 	}
 }
 
-func TestCompileSnapshotDefensivelyCopiesInputsAndOutputs(t *testing.T) {
+func TestCompleteSnapshotNormalizesRulesAndKeepsVisibleIdentityRules(t *testing.T) {
 	t.Parallel()
+	model := completePricing(" model-b ")
+	model.ModelMultiplier = 2
+	model.ConditionalMultipliers = []pricing.RuleConfig{
+		{Key: " SERVICE_TIER ", Value: " priority ", Multiplier: 2},
+		{Key: "reasoning_effort", Value: " xhigh ", Multiplier: 1},
+	}
+	snapshot := mustPricingSnapshot(t, "UTC", model, completePricing("model-a"))
+	configs := snapshot.PricingModelConfigs()
+	if len(configs) != 2 || configs[0].Model != "model-a" || configs[1].Model != "model-b" {
+		t.Fatalf("expected stable model-sorted configs, got %+v", configs)
+	}
+	rule := configs[1].ConditionalMultipliers[0]
+	if rule.Key != "service_tier" || rule.Value != "priority" || rule.Multiplier != 2 {
+		t.Fatalf("expected normalized rule, got %+v", rule)
+	}
+	if len(configs[1].ConditionalMultipliers) != 2 || configs[1].ConditionalMultipliers[1].Multiplier != 1 {
+		t.Fatalf("expected multiplier-1 rule to remain visible, got %+v", configs[1].ConditionalMultipliers)
+	}
+}
 
-	multiplier := 2.0
-	configs := []pricing.ModelConfig{{
-		Pricing: entities.ModelPriceSetting{
-			Model:            "model-a",
-			PromptPricePer1M: 3,
-			PriceMultiplier:  &multiplier,
-		},
-		Rules: []pricing.RuleConfig{{Key: "service_tier", Value: "priority", Multiplier: 2}},
-	}}
-	snapshot := compileSnapshot(t, configs...)
-
-	configs[0].Pricing.Model = "mutated"
-	multiplier = 100
-	configs[0].Rules[0].Value = "mutated"
-	first := snapshot.ModelConfigs()
-	first[0].Pricing.Model = "changed-output"
-	*first[0].Pricing.PriceMultiplier = 200
-	first[0].Rules[0].Value = "changed-output"
-
-	second := snapshot.ModelConfigs()
-	if second[0].Pricing.Model != "model-a" || *second[0].Pricing.PriceMultiplier != 2 || second[0].Rules[0].Value != "priority" {
+func TestCompleteSnapshotDefensivelyCopiesInputsAndListOutputs(t *testing.T) {
+	t.Parallel()
+	config := completePricing("model-a")
+	config.BasePrices.Input = 3
+	config.ModelMultiplier = 2
+	config.ConditionalMultipliers = []pricing.RuleConfig{{Key: "service_tier", Value: "priority", Multiplier: 2}}
+	configs := []pricing.ModelPricingConfig{config}
+	snapshot := mustPricingSnapshot(t, "UTC", configs...)
+	configs[0].Model = "mutated"
+	configs[0].ModelMultiplier = 100
+	configs[0].ConditionalMultipliers[0].Value = "mutated"
+	first := snapshot.PricingModelConfigs()
+	first[0].Model = "changed-output"
+	first[0].ModelMultiplier = 200
+	first[0].ConditionalMultipliers[0].Value = "changed-output"
+	second := snapshot.PricingModelConfigs()
+	if second[0].Model != "model-a" || second[0].ModelMultiplier != 2 || second[0].ConditionalMultipliers[0].Value != "priority" {
 		t.Fatalf("snapshot exposed mutable state: %+v", second)
 	}
 }

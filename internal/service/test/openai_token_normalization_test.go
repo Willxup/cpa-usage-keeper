@@ -203,7 +203,7 @@ func TestProcessRedisUsageInboxUsesDefaultTokensWhenUsageIdentityMissing(t *test
 
 func processOneTokenNormalizationEvent(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com"})
+	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{PricingCatalog: emptyPricingCatalogForTest(), BaseURL: "https://cpa.example.com"})
 	result, err := syncService.ProcessRedisUsageInbox(context.Background())
 	if err != nil {
 		t.Fatalf("ProcessRedisUsageInbox: %v", err)

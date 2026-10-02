@@ -1,19 +1,41 @@
-import { type AnalysisLatencyDiagnostics, type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CodexQuotaHistoryResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type ErrorEventsResponse, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingRulesResponse, type PricingSyncPreviewResponse, type PricingSyncSource, type QuotaAutoRefreshSettings, type ReplacePricingRulesRequest, type StatusResponse, type UpdateCheckResponse, type UsageActivityRequest, type UsageActivityResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewComparisons, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
+import { type AnalysisLatencyDiagnostics, type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CodexQuotaHistoryResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type ErrorEventsResponse, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingSyncSource, type QuotaAutoRefreshSettings, type StatusResponse, type UpdateCheckResponse, type UsageActivityRequest, type UsageActivityResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewComparisons, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
+import type { DeletePricingModelResponse, ModelPricingConfig, PricingErrorResponse, PricingFieldError, PricingModelOptionsResponse, PricingModelsResponse, PricingRecalculationOptions, PricingRecalculationTask, PricingSyncApplyRequest, PricingSyncApplyResponse, PricingSyncFetchResponse, SavePricingModelResponse, StartPricingRecalculationRequest, StartPricingRecalculationResponse } from './types'
 import { isCPAMCEmbed } from '@/embed/cpamcEmbed'
 import { resolveUsageRequestRange } from '@/utils/usage/rangeQuery'
 
 export class ApiError extends Error {
   status: number
+  code?: string
+  // 价格表单按字段路径标红，分支冲突用 branch_ids 指明双方。
+  fields?: PricingFieldError[]
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string, fields?: PricingFieldError[]) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.code = code
+    this.fields = fields
   }
 }
 
+export const MIGRATION_IN_PROGRESS_EVENT = 'keeper:migration-in-progress'
+
+export interface MigrationInProgressEventDetail {
+  requestSequence: number
+}
+
+let apiRequestSequence = 0
+
+// 标记最近发出的 API 请求，让启动门禁忽略恢复 ready 前发出的迁移晚响应。
+export const latestApiRequestSequence = (): number => apiRequestSequence
+
 export const isUsageRangeBoundsConflict = (error: unknown): error is ApiError => (
   error instanceof ApiError && error.status === 409
+)
+
+// 手工费用重算期间的普通暂缓响应不改变登录态，也不进入启动迁移门禁。
+export const isCostsBusy = (error: unknown): error is ApiError => (
+  error instanceof ApiError && error.status === 503 && error.code === 'costs_busy'
 )
 
 const APP_BASE_PATH_PLACEHOLDER = '__APP_BASE_PATH__'
@@ -99,15 +121,21 @@ export function apiPath(path: string): string {
 
 async function parseApiError(response: Response, fallback: string): Promise<never> {
   let message = fallback
+  let code: string | undefined
+  let fields: PricingFieldError[] | undefined
   try {
-    const payload = await response.json() as { error?: string }
+    const payload = await response.json() as Partial<PricingErrorResponse> & { error?: string }
     if (payload.error) {
       message = payload.error
+    } else if (payload.message) {
+      message = payload.message
     }
+    code = payload.code
+    fields = Array.isArray(payload.fields) ? payload.fields : undefined
   } catch {
     // ignore invalid error payloads
   }
-  throw new ApiError(message, response.status)
+  throw new ApiError(message, response.status, code, fields)
 }
 
 function isMutatingMethod(method: string | undefined): boolean {
@@ -158,6 +186,7 @@ export function clearEmbedSessionToken(): void {
 }
 
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const requestSequence = ++apiRequestSequence
   const headers = new Headers(init?.headers)
   if (isMutatingMethod(init?.method)) {
     headers.set('X-CPA-Usage-Keeper-Request', 'fetch')
@@ -174,6 +203,19 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     credentials: 'include',
     headers,
   })
+  if (response.status === 503 && typeof window !== 'undefined') {
+    try {
+      const payload = await response.clone().json() as { code?: string }
+      // 仅迁移专用错误会令已有页面退回启动页；costs_busy 仍由原业务处理。
+      if (payload.code === 'migration_in_progress') {
+        window.dispatchEvent(new CustomEvent<MigrationInProgressEventDetail>(MIGRATION_IN_PROGRESS_EVENT, {
+          detail: { requestSequence },
+        }))
+      }
+    } catch {
+      // 非标准 503 响应交由原请求调用方处理。
+    }
+  }
   if (response.status === 401) {
     clearEmbedSessionToken()
   }
@@ -904,14 +946,6 @@ export async function updateCpaApiKeyAlias(id: string, keyAlias: string): Promis
   return response.json()
 }
 
-export async function fetchUsedModels(signal?: AbortSignal): Promise<UsedModelsResponse> {
-  const response = await apiFetch(apiPath('/models/used'), { signal })
-  if (!response.ok) {
-    await parseApiError(response, `Failed to load used models: ${response.status}`)
-  }
-  return response.json()
-}
-
 export async function fetchStatus(signal?: AbortSignal): Promise<StatusResponse> {
   const response = await apiFetch(apiPath('/status'), { signal })
   if (!response.ok) {
@@ -958,86 +992,103 @@ export async function fetchUpdateCheck(signal?: AbortSignal): Promise<UpdateChec
   return response.json()
 }
 
-export async function fetchPricing(signal?: AbortSignal): Promise<PricingResponse> {
-  const response = await apiFetch(apiPath('/pricing'), { signal })
+// 列表同时返回完整配置与已保存修订，供编辑和重算确认使用。
+export async function fetchPricingModels(signal?: AbortSignal): Promise<PricingModelsResponse> {
+  const response = await apiFetch(apiPath('/pricing/models'), { signal, cache: 'no-store' })
   if (!response.ok) {
-    await parseApiError(response, `Failed to load pricing: ${response.status}`)
+    await parseApiError(response, `Failed to load pricing models: ${response.status}`)
   }
   return response.json()
 }
 
-export async function fetchPricingRules(model: string, signal?: AbortSignal): Promise<PricingRulesResponse> {
-  const params = new URLSearchParams({ model })
-  const response = await apiFetch(`${apiPath('/pricing/rules')}?${params.toString()}`, {
+// 候选模型沿用服务端的完整标识来源与去重结果。
+export async function fetchPricingModelOptions(signal?: AbortSignal): Promise<PricingModelOptionsResponse> {
+  const response = await apiFetch(apiPath('/pricing/model-options'), { signal, cache: 'no-store' })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load pricing model options: ${response.status}`)
+  }
+  return response.json()
+}
+
+// 一次保存完整配置；空倍率和分支数组表示清空，历史已存费用保持原值。
+export async function savePricingModel(config: ModelPricingConfig, signal?: AbortSignal): Promise<SavePricingModelResponse> {
+  const response = await apiFetch(apiPath('/pricing/models'), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
     signal,
-    cache: 'no-store',
   })
   if (!response.ok) {
-    await parseApiError(response, `Failed to load pricing rules: ${response.status}`)
+    await parseApiError(response, `Failed to save pricing model: ${response.status}`)
   }
   return response.json()
 }
 
-export async function replacePricingRules(
-  request: ReplacePricingRulesRequest,
-  signal?: AbortSignal,
-): Promise<PricingRulesResponse> {
-  const response = await apiFetch(apiPath('/pricing/rules'), {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+// 仅删除当前配置；模型名放在查询参数中，包含斜杠时仍可准确传递。
+export async function deletePricingModel(model: string, signal?: AbortSignal): Promise<DeletePricingModelResponse> {
+  const params = new URLSearchParams({ model })
+  const response = await apiFetch(`${apiPath('/pricing/models')}?${params.toString()}`, {
+    method: 'DELETE',
+    signal,
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to delete pricing model: ${response.status}`)
+  }
+  return response.json()
+}
+
+// 重算弹框读取部署时区、合法小时边界及本次需要确认的配置修订。
+export async function fetchPricingRecalculationOptions(signal?: AbortSignal): Promise<PricingRecalculationOptions> {
+  const response = await apiFetch(apiPath('/pricing/recalculations/options'), { signal, cache: 'no-store' })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load pricing recalculation options: ${response.status}`)
+  }
+  return response.json()
+}
+
+// 启动只提交用户确认的起点与修订；运行中服务端会返回现有任务而不另行排队。
+export async function startPricingRecalculation(request: StartPricingRecalculationRequest, signal?: AbortSignal): Promise<StartPricingRecalculationResponse> {
+  const response = await apiFetch(apiPath('/pricing/recalculations'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
     signal,
   })
   if (!response.ok) {
-    await parseApiError(response, `Failed to update pricing rules: ${response.status}`)
+    await parseApiError(response, `Failed to start pricing recalculation: ${response.status}`)
   }
   return response.json()
 }
 
-export async function fetchPricingSyncPreview(source: PricingSyncSource = 'models-dev', signal?: AbortSignal): Promise<PricingSyncPreviewResponse> {
-  const response = await apiFetch(apiPath('/pricing/sync/preview') + '?source=' + encodeURIComponent(source), { signal, cache: 'no-store' })
+// 当前任务是唯一进度入口；进程重启或从未启动时返回 null。
+export async function fetchCurrentPricingRecalculation(signal?: AbortSignal): Promise<PricingRecalculationTask | null> {
+  const response = await apiFetch(apiPath('/pricing/recalculations/current'), { signal, cache: 'no-store' })
   if (!response.ok) {
-    await parseApiError(response, `Failed to preview pricing sync: ${response.status}`)
+    await parseApiError(response, `Failed to load current pricing recalculation: ${response.status}`)
   }
   return response.json()
 }
 
-export async function updatePricing(model: string, pricing: Omit<PricingEntry, 'model'>): Promise<PricingEntry> {
-  const response = await apiFetch(apiPath('/pricing'), {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ model, ...pricing }),
+// 仅在用户明确拉取时请求选定来源；响应包含来源 ID、匹配提供商显示名和四项候选基础价。
+export async function fetchPricingSync(source: PricingSyncSource, signal?: AbortSignal): Promise<PricingSyncFetchResponse> {
+  const params = new URLSearchParams({ source })
+  const response = await apiFetch(`${apiPath('/pricing/sync/fetch')}?${params.toString()}`, { signal, cache: 'no-store' })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to fetch pricing sync: ${response.status}`)
+  }
+  return response.json()
+}
+
+// 整批应用所选基础价；请求不带倍率或分支，避免覆盖已有完整配置。
+export async function applyPricingSync(request: PricingSyncApplyRequest, signal?: AbortSignal): Promise<PricingSyncApplyResponse> {
+  const response = await apiFetch(apiPath('/pricing/sync/apply'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+    signal,
   })
   if (!response.ok) {
-    await parseApiError(response, `Failed to update pricing: ${response.status}`)
+    await parseApiError(response, `Failed to apply pricing sync: ${response.status}`)
   }
   return response.json()
-}
-
-export async function updatePricingBatch(pricing: PricingEntry[]): Promise<PricingResponse> {
-  const response = await apiFetch(apiPath('/pricing/batch'), {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ pricing }),
-  })
-  if (!response.ok) {
-    await parseApiError(response, `Failed to update pricing: ${response.status}`)
-  }
-  return response.json()
-}
-
-export async function deletePricing(model: string): Promise<void> {
-  const params = new URLSearchParams({ model })
-  const response = await apiFetch(`${apiPath('/pricing')}?${params.toString()}`, {
-    method: 'DELETE',
-  })
-  if (!response.ok) {
-    await parseApiError(response, `Failed to delete pricing: ${response.status}`)
-  }
 }

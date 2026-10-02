@@ -1,0 +1,9 @@
+.counts { color: var(--text-secondary); }
+.branches { color: #2563eb; font-weight: 600; }
+.conditions { color: #7c3aed; font-weight: 600; }
+.zero { color: inherit; font-weight: inherit; }
+
+:global([data-theme='dark']) {
+  .branches { color: #60a5fa; }
+  .conditions { color: #a78bfa; }
+}

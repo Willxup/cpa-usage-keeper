@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 
@@ -20,7 +19,6 @@ var analysisProjectionFixedColumns = []string{
 	"api_group_key",
 	"model",
 	"auth_index",
-	"model_alias",
 	"request_count",
 	"input_tokens",
 	"output_tokens",
@@ -28,6 +26,8 @@ var analysisProjectionFixedColumns = []string{
 	"cache_read_tokens",
 	"cache_creation_tokens",
 	"total_tokens",
+	"cost_usd",
+	"unavailable_cost_count",
 }
 
 func TestAnalysisProjectionSelectsOnlyFixedColumnsWithoutPricingRules(t *testing.T) {
@@ -56,7 +56,7 @@ func TestAnalysisProjectionSelectsOnlyFixedColumnsWithoutPricingRules(t *testing
 			queries := captureAnalysisRollupQueries(t, db)
 			if _, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{
 				Range: "custom", StartTime: &tt.start, EndTime: &tt.end, EndExclusive: true,
-			}, emptyPricingResolverForTest()); err != nil {
+			}); err != nil {
 				t.Fatalf("BuildAnalysisWithFilter: %v", err)
 			}
 
@@ -71,59 +71,10 @@ func TestAnalysisProjectionSelectsOnlyFixedColumnsWithoutPricingRules(t *testing
 	}
 }
 
-func TestAnalysisProjectionAddsOnlyActivePricingDimensions(t *testing.T) {
-	tests := []struct {
-		name         string
-		rules        []pricing.RuleConfig
-		wantOptional []string
-	}{
-		{
-			name: "service tier and endpoint",
-			rules: []pricing.RuleConfig{
-				{Key: "service_tier", Value: "priority", Multiplier: 2},
-				{Key: "endpoint", Value: "/responses", Multiplier: 3},
-			},
-			wantOptional: []string{"service_tier", "endpoint"},
-		},
-		{
-			name:         "response service tier",
-			rules:        []pricing.RuleConfig{{Key: "response_service_tier", Value: "batch", Multiplier: 2}},
-			wantOptional: []string{"response_service_tier"},
-		},
-		{
-			name:         "reasoning effort",
-			rules:        []pricing.RuleConfig{{Key: "reasoning_effort", Value: "xhigh", Multiplier: 2}},
-			wantOptional: []string{"reasoning_effort"},
-		},
-		{
-			name:         "executor type",
-			rules:        []pricing.RuleConfig{{Key: "executor_type", Value: "cli", Multiplier: 2}},
-			wantOptional: []string{"executor_type"},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			db := openTestDatabase(t)
-			queries := captureAnalysisRollupQueries(t, db)
-			start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.Local)
-			end := start.Add(time.Hour)
-			if _, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{
-				Range: "custom", StartTime: &start, EndTime: &end, EndExclusive: true,
-			}, repositoryPricingResolver(t, tt.rules)); err != nil {
-				t.Fatalf("BuildAnalysisWithFilter: %v", err)
-			}
-
-			query := requireSingleAnalysisRollupQuery(t, *queries, "usage_overview_hourly_stats")
-			want := slices.Concat(analysisProjectionFixedColumns, tt.wantOptional)
-			if got := analysisProjectionSelectColumns(t, query); !slices.Equal(got, want) {
-				t.Fatalf("selected columns = %#v, want %#v\nSQL: %s", got, want, query)
-			}
-		})
-	}
-}
-
 func TestAnalysisProjectionPreservesHourlyResultsAndAPIKeyFiltering(t *testing.T) {
 	db := openTestDatabase(t)
+	storedCost, unavailable, unknown := 9.3, int64(0), int64(1)
+	zeroCost := 0.0
 	bucket := time.Date(2026, 2, 1, 6, 0, 0, 0, time.Local)
 	end := bucket.Add(time.Hour)
 	if err := db.Create(&[]entities.CPAAPIKey{
@@ -138,21 +89,20 @@ func TestAnalysisProjectionPreservesHourlyResultsAndAPIKeyFiltering(t *testing.T
 			BucketStart: bucket, APIGroupKey: "group-a", Model: "model-a", AuthIndex: "identity-a", ModelAlias: "alias-a",
 			ServiceTier: "priority", Endpoint: "/responses", RequestCount: 2, InputTokens: 1_000_000, OutputTokens: 300_000,
 			ReasoningTokens: 100_000, CacheReadTokens: 200_000, CacheCreationTokens: 100_000, TotalTokens: 1_300_000,
+			CostUSD: &storedCost, UnavailableCostCount: &unavailable,
 		},
 		{
 			BucketStart: bucket, APIGroupKey: "group-deleted", Model: "model-a", RequestCount: 99,
 			InputTokens: 99_000_000, TotalTokens: 99_000_000,
+			CostUSD: &zeroCost, UnavailableCostCount: &unknown,
 		},
 	}).Error; err != nil {
 		t.Fatalf("seed hourly stats: %v", err)
 	}
-	resolver := analysisProjectionPricingResolver(t, []pricing.RuleConfig{
-		{Key: "service_tier", Value: "priority", Multiplier: 2},
-		{Key: "endpoint", Value: "/responses", Multiplier: 3},
-	})
+
 	analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{
 		Range: "custom", StartTime: &bucket, EndTime: &end, EndExclusive: true,
-	}, resolver)
+	})
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter: %v", err)
 	}
@@ -186,13 +136,9 @@ func TestAnalysisProjectionPreservesHourlyResultsAndAPIKeyFiltering(t *testing.T
 	assertFloatClose(t, efficiency.CostPerRequestUSD, 4.65)
 	assertFloatClose(t, efficiency.OutputTokensPerRequest, 150_000)
 	assertFloatClose(t, efficiency.CacheReadRate, 0.2)
-	assertFloatClose(t, analysis.CostBreakdown.UncachedInputCostUSD, 4.2)
-	assertFloatClose(t, analysis.CostBreakdown.CacheReadCostUSD, 0.6)
-	assertFloatClose(t, analysis.CostBreakdown.CacheWriteCostUSD, 0.9)
-	assertFloatClose(t, analysis.CostBreakdown.OutputCostUSD, 3.6)
-	assertFloatClose(t, analysis.CostBreakdown.TotalCostUSD, 9.3)
-	if !analysis.CostBreakdown.CostAvailable {
-		t.Fatalf("expected available cost breakdown: %+v", analysis.CostBreakdown)
+	assertFloatClose(t, analysis.CostSummary.TotalCostUSD, 9.3)
+	if !analysis.CostSummary.CostAvailable {
+		t.Fatalf("expected available cost summary: %+v", analysis.CostSummary)
 	}
 
 	if err := db.Create(&entities.CPAAPIKey{APIKey: "group-b", DisplayKey: "sk-***b"}).Error; err != nil {
@@ -200,12 +146,13 @@ func TestAnalysisProjectionPreservesHourlyResultsAndAPIKeyFiltering(t *testing.T
 	}
 	if err := db.Create(&entities.UsageOverviewHourlyStat{
 		BucketStart: bucket, APIGroupKey: "group-b", Model: "model-a", RequestCount: 7, InputTokens: 7_000, TotalTokens: 7_000,
+		CostUSD: &zeroCost, UnavailableCostCount: &unknown,
 	}).Error; err != nil {
 		t.Fatalf("seed filtered hourly stat: %v", err)
 	}
 	filtered, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{
 		Range: "custom", APIGroupKey: "group-a", StartTime: &bucket, EndTime: &end, EndExclusive: true,
-	}, resolver)
+	})
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter with API key: %v", err)
 	}
@@ -214,6 +161,7 @@ func TestAnalysisProjectionPreservesHourlyResultsAndAPIKeyFiltering(t *testing.T
 
 func TestAnalysisProjectionPreservesDailyResultsWithoutBoundaryHourlyRows(t *testing.T) {
 	db := openTestDatabase(t)
+	zeroCost, dayTwoCost, dayFourCost, unavailable := 0.0, 0.005, 0.0088, int64(0)
 	start := time.Date(2026, 2, 1, 5, 0, 0, 0, time.Local)
 	end := time.Date(2026, 2, 4, 8, 0, 0, 0, time.Local)
 	if err := db.Create(&entities.CPAAPIKey{APIKey: "group-a", DisplayKey: "sk-***a"}).Error; err != nil {
@@ -226,6 +174,7 @@ func TestAnalysisProjectionPreservesDailyResultsWithoutBoundaryHourlyRows(t *tes
 			ResponseServiceTier: "batch", ReasoningEffort: "xhigh", ExecutorType: "cli", RequestCount: requests,
 			InputTokens: input, OutputTokens: output, ReasoningTokens: reasoning, CacheReadTokens: cacheRead,
 			CacheCreationTokens: cacheCreation, TotalTokens: total,
+			CostUSD: &zeroCost, UnavailableCostCount: &unavailable,
 		}
 	}
 	if err := db.Create(&[]entities.UsageOverviewHourlyStat{
@@ -240,24 +189,22 @@ func TestAnalysisProjectionPreservesDailyResultsWithoutBoundaryHourlyRows(t *tes
 			AuthIndex: "identity-a", ModelAlias: "alias-a", ResponseServiceTier: "batch", ReasoningEffort: "xhigh", ExecutorType: "cli",
 			RequestCount: 2, InputTokens: 200, OutputTokens: 20, ReasoningTokens: 4, CacheReadTokens: 40,
 			CacheCreationTokens: 20, TotalTokens: 220,
+			CostUSD: &dayTwoCost, UnavailableCostCount: &unavailable,
 		},
 		{
 			BucketStart: time.Date(2026, 2, 4, 0, 0, 0, 0, time.Local), APIGroupKey: "group-a", Model: "model-a",
 			AuthIndex: "identity-a", ModelAlias: "alias-a", ResponseServiceTier: "batch", ReasoningEffort: "xhigh", ExecutorType: "cli",
 			RequestCount: 3, InputTokens: 300, OutputTokens: 30, ReasoningTokens: 6, CacheReadTokens: 60,
 			CacheCreationTokens: 30, TotalTokens: 330,
+			CostUSD: &dayFourCost, UnavailableCostCount: &unavailable,
 		},
 	}).Error; err != nil {
 		t.Fatalf("seed daily stat: %v", err)
 	}
-	resolver := analysisProjectionPricingResolver(t, []pricing.RuleConfig{
-		{Key: "response_service_tier", Value: "batch", Multiplier: 2},
-		{Key: "reasoning_effort", Value: "xhigh", Multiplier: 3},
-		{Key: "executor_type", Value: "cli", Multiplier: 4},
-	})
+
 	analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{
 		Range: "custom", StartTime: &start, EndTime: &end, EndExclusive: true,
-	}, resolver)
+	})
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter: %v", err)
 	}
@@ -291,15 +238,12 @@ func TestAnalysisProjectionPreservesDailyResultsWithoutBoundaryHourlyRows(t *tes
 		t.Fatalf("unexpected daily model efficiency: %+v", analysis.ModelEfficiency)
 	}
 	assertFloatClose(t, analysis.ModelEfficiency[0].CostUSD, 0.0138)
-	assertFloatClose(t, analysis.CostBreakdown.UncachedInputCostUSD, 0.0084)
-	assertFloatClose(t, analysis.CostBreakdown.CacheReadCostUSD, 0.0012)
-	assertFloatClose(t, analysis.CostBreakdown.CacheWriteCostUSD, 0.0018)
-	assertFloatClose(t, analysis.CostBreakdown.OutputCostUSD, 0.0024)
-	assertFloatClose(t, analysis.CostBreakdown.TotalCostUSD, 0.0138)
+	assertFloatClose(t, analysis.CostSummary.TotalCostUSD, 0.0138)
 }
 
 func TestBuildAnalysisWithoutUsageEventsUsesOnlyRollupTables(t *testing.T) {
 	db := openTestDatabase(t)
+	cost, unavailable := 0.0, int64(1)
 	bucket := time.Date(2026, 3, 1, 8, 0, 0, 0, time.Local)
 	end := bucket.Add(time.Hour)
 	if err := db.Create(&entities.CPAAPIKey{APIKey: "group-a", DisplayKey: "sk-***a"}).Error; err != nil {
@@ -307,6 +251,7 @@ func TestBuildAnalysisWithoutUsageEventsUsesOnlyRollupTables(t *testing.T) {
 	}
 	if err := db.Create(&entities.UsageOverviewHourlyStat{
 		BucketStart: bucket, APIGroupKey: "group-a", Model: "model-a", RequestCount: 1, InputTokens: 10, TotalTokens: 10,
+		CostUSD: &cost, UnavailableCostCount: &unavailable,
 	}).Error; err != nil {
 		t.Fatalf("seed hourly stat: %v", err)
 	}
@@ -316,7 +261,7 @@ func TestBuildAnalysisWithoutUsageEventsUsesOnlyRollupTables(t *testing.T) {
 	queries := captureAllAnalysisQueries(t, db)
 	analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{
 		Range: "custom", StartTime: &bucket, EndTime: &end, EndExclusive: true,
-	}, emptyPricingResolverForTest())
+	})
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter without usage_events: %v", err)
 	}
@@ -406,22 +351,6 @@ func seedAnalysisProjectionIdentities(t *testing.T, db *gorm.DB, identity string
 	}
 }
 
-func analysisProjectionPricingResolver(t *testing.T, rules []pricing.RuleConfig) pricing.Resolver {
-	t.Helper()
-	multiplier := 1.0
-	snapshot, err := pricing.CompileSnapshot([]pricing.ModelConfig{{
-		Pricing: entities.ModelPriceSetting{
-			Model: "model-a", PricingStyle: entities.ModelPricingStyleOpenAI, PromptPricePer1M: 1,
-			CompletionPricePer1M: 2, CacheReadPricePer1M: 0.5, CacheWritePricePer1M: 1.5, PriceMultiplier: &multiplier,
-		},
-		Rules: rules,
-	}})
-	if err != nil {
-		t.Fatalf("CompileSnapshot: %v", err)
-	}
-	return pricing.NewCatalog(snapshot).NewResolver()
-}
-
 func assertAnalysisProjectionComposition(t *testing.T, got []repodto.AnalysisCompositionRecord, key, label string, requests, totalTokens int64, cost float64) {
 	t.Helper()
 	if len(got) != 1 || got[0].Key != key || got[0].Label != label || got[0].Requests != requests || got[0].TotalTokens != totalTokens || !got[0].CostAvailable {
@@ -432,7 +361,7 @@ func assertAnalysisProjectionComposition(t *testing.T, got []repodto.AnalysisCom
 
 func assertFloatClose(t *testing.T, got, want float64) {
 	t.Helper()
-	if math.Abs(got-want) > 1e-12 {
+	if math.IsNaN(got) || math.IsInf(got, 0) || math.Abs(got-want) > 1e-12 {
 		t.Fatalf("got %.15f, want %.15f", got, want)
 	}
 }

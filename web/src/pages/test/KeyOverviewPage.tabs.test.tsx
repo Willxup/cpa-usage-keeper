@@ -5,7 +5,7 @@ import { expect, it, vi } from 'vitest';
 import i18n from '@/i18n';
 import { isKeyViewerPath, KEY_VIEWER_PAGE_PATHS } from '@/features/key-viewer/navigation';
 
-const api = vi.hoisted(() => ({ fetchKeyOverview: vi.fn(), fetchKeyOverviewRealtime: vi.fn(), fetchKeyActivity: vi.fn() }));
+const api = vi.hoisted(() => ({ fetchKeyOverview: vi.fn(), fetchKeyOverviewRealtime: vi.fn(), fetchKeyActivity: vi.fn(), fetchUsageOverviewComparisons: vi.fn() }));
 vi.mock('@/lib/api', async (original) => ({ ...await original<typeof import('@/lib/api')>(), ...api }));
 vi.mock('react-chartjs-2', () => ({ Bar: () => null, Chart: () => null, Doughnut: () => null, Line: () => null, Scatter: () => null }));
 import { KeyOverviewPage } from '../KeyOverviewPage';
@@ -24,17 +24,22 @@ it('routes and loads only the selected Key Viewer tab and cancels inactive reque
     expect(api.fetchKeyOverview).toHaveBeenCalledOnce();
     expect(api.fetchKeyOverviewRealtime).not.toHaveBeenCalled();
     expect(api.fetchKeyActivity).toHaveBeenCalledOnce();
+    expect(api.fetchUsageOverviewComparisons).toHaveBeenCalledOnce();
     const overviewSignal = api.fetchKeyOverview.mock.calls[0][1] as AbortSignal;
+    const comparisonSignal = api.fetchUsageOverviewComparisons.mock.calls[0][1].signal as AbortSignal;
     await act(async () => root.render(<KeyOverviewPage page="realtime" onNavigate={() => undefined} />));
     expect(overviewSignal.aborted).toBe(true);
+    expect(comparisonSignal.aborted).toBe(true);
     expect(api.fetchKeyOverviewRealtime).toHaveBeenCalledOnce();
     expect(api.fetchKeyOverview).toHaveBeenCalledOnce();
     expect(api.fetchKeyActivity).toHaveBeenCalledOnce();
+    expect(api.fetchUsageOverviewComparisons).toHaveBeenCalledOnce();
     expect(container.querySelector('[data-time-range-trigger]')).toBeNull();
     const realtimeSignal = api.fetchKeyOverviewRealtime.mock.calls[0][0].signal as AbortSignal;
     await act(async () => root.render(<KeyOverviewPage onNavigate={() => undefined} />));
     expect(realtimeSignal.aborted).toBe(true);
     expect(api.fetchKeyOverview).toHaveBeenCalledTimes(2);
+    expect(api.fetchUsageOverviewComparisons).toHaveBeenCalledTimes(2);
     expect(api.fetchKeyOverviewRealtime).toHaveBeenCalledOnce();
   } finally { await act(async () => root.unmount()); container.remove(); localStorage.clear(); }
 });

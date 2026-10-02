@@ -68,7 +68,7 @@ func TestModelPriceRulesCascadeWhenPriceIsDeleted(t *testing.T) {
 	if _, err := replaceModelPriceRulesInTransaction(db, "model-a", []repodto.ModelPriceRuleInput{{Key: "service_tier", Value: "priority", Multiplier: 2}}); err != nil {
 		t.Fatalf("seed model price rule: %v", err)
 	}
-	if err := repository.DeleteModelPriceSetting(db, "model-a"); err != nil {
+	if err := repository.DeleteModelPriceSettingRequired(db, "model-a"); err != nil {
 		t.Fatalf("DeleteModelPriceSetting: %v", err)
 	}
 	rules, err := repository.ListModelPriceRules(db)

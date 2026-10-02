@@ -50,11 +50,7 @@ const analysis: AnalysisResponse = {
       cost_available: true,
     },
   ],
-  cost_breakdown: {
-    uncached_input_cost_usd: 1,
-    cache_read_cost_usd: 1.5,
-    cache_write_cost_usd: 0.5,
-    output_cost_usd: 3,
+  cost_summary: {
     total_cost_usd: 6,
     cost_available: true,
   },
@@ -84,7 +80,7 @@ describe('AnalysisPanel token chart summary', () => {
 
   it('retains the pricing hint and avoids invalid rates for zero tokens', () => {
     const container = renderAnalysisPanel({
-      analysis: { ...analysis, token_usage: [], cost_breakdown: { ...analysis.cost_breakdown, cost_available: false } },
+      analysis: { ...analysis, token_usage: [], cost_summary: { ...analysis.cost_summary, cost_available: false } },
     });
     const tokenCard = container.querySelector('section')!;
     expect(tokenCard.textContent).toContain('usage_stats.cost_need_price');

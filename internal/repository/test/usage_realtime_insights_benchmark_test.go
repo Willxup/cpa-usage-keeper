@@ -22,10 +22,11 @@ func BenchmarkRealtimeCachedInsights(b *testing.B) {
 			sqlDB, _ := db.DB()
 			b.Cleanup(func() { _ = sqlDB.Close() })
 			end := time.Now().Truncate(time.Second)
+			zeroCost, unavailable := 0.0, false
 			events := make([]entities.UsageEvent, count)
 			for i := range events {
 				ttft := int64(200 + i%500)
-				events[i] = entities.UsageEvent{EventKey: fmt.Sprintf("event-%d", i), Timestamp: end.Add(-time.Duration(i%899+1) * time.Second), APIGroupKey: fmt.Sprintf("key-%d", i%12), Model: fmt.Sprintf("model-%d", i%4), Failed: i%20 == 0, InputTokens: 800, OutputTokens: 200, TotalTokens: 1000, CacheReadTokens: 400, TTFTMS: &ttft, LatencyMS: 2000 + int64(i%1000)}
+				events[i] = entities.UsageEvent{EventKey: fmt.Sprintf("event-%d", i), Timestamp: end.Add(-time.Duration(i%899+1) * time.Second), APIGroupKey: fmt.Sprintf("key-%d", i%12), Model: fmt.Sprintf("model-%d", i%4), Failed: i%20 == 0, InputTokens: 800, OutputTokens: 200, TotalTokens: 1000, CacheReadTokens: 400, TTFTMS: &ttft, LatencyMS: 2000 + int64(i%1000), CostUSD: &zeroCost, CostAvailable: &unavailable}
 			}
 			if err := db.CreateInBatches(events, 100).Error; err != nil {
 				b.Fatal(err)
@@ -35,11 +36,10 @@ func BenchmarkRealtimeCachedInsights(b *testing.B) {
 				b.Fatal(err)
 			}
 			b.Cleanup(cache.Close)
-			resolver := emptyPricingResolverForTest()
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				result, err := repository.BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, repodto.UsageQueryFilter{RealtimeWindow: "15m", RealtimeEndTime: &end}, cache, resolver)
+				result, err := repository.BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, repodto.UsageQueryFilter{RealtimeWindow: "15m", RealtimeEndTime: &end}, cache)
 				if err != nil {
 					b.Fatal(err)
 				}

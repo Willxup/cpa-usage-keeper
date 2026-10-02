@@ -57,13 +57,10 @@ type AnalysisHeatmapCell struct {
 	CostAvailable       bool
 }
 
-type AnalysisCostBreakdown struct {
-	UncachedInputCostUSD float64
-	CacheReadCostUSD     float64
-	CacheWriteCostUSD    float64
-	OutputCostUSD        float64
-	TotalCostUSD         float64
-	CostAvailable        bool
+// AnalysisCostSummary 只向服务调用方暴露已存总金额及其可用性。
+type AnalysisCostSummary struct {
+	TotalCostUSD  float64
+	CostAvailable bool
 }
 
 type AnalysisModelEfficiencyItem struct {
@@ -118,6 +115,6 @@ type AnalysisSnapshot struct {
 	AuthFilesComposition  []AnalysisCompositionItem
 	AIProviderComposition []AnalysisCompositionItem
 	Heatmap               []AnalysisHeatmapCell
-	CostBreakdown         AnalysisCostBreakdown
+	CostSummary           AnalysisCostSummary
 	ModelEfficiency       []AnalysisModelEfficiencyItem
 }

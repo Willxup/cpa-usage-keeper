@@ -33,6 +33,8 @@ interface SelectProps {
   dropdownClassName?: string;
   disabled?: boolean;
   ariaLabel?: string;
+  ariaInvalid?: boolean;
+  dataAttributes?: Record<`data-${string}`, string | boolean>;
   ariaLabelledBy?: string;
   ariaDescribedBy?: string;
   fullWidth?: boolean;
@@ -121,6 +123,8 @@ export function Select({
   dropdownClassName,
   disabled = false,
   ariaLabel,
+  ariaInvalid,
+  dataAttributes,
   ariaLabelledBy,
   ariaDescribedBy,
   fullWidth = true,
@@ -344,6 +348,8 @@ export function Select({
       className={`${styles.trigger} ${styles.searchInput} ${touchSearch ? styles.touchSearchInput : ''}`}
       type="text"
       role="combobox"
+      {...dataAttributes}
+      aria-invalid={ariaInvalid}
       aria-label={ariaLabel ?? search.placeholder}
       aria-labelledby={ariaLabelledBy}
       aria-describedby={ariaDescribedBy}
@@ -423,6 +429,8 @@ export function Select({
               ? `${selectId}-option-${resolvedHighlightedIndex}`
               : undefined
           }
+          {...dataAttributes}
+          aria-invalid={ariaInvalid}
           aria-label={ariaLabel ?? search?.placeholder}
           aria-labelledby={ariaLabelledBy}
           aria-describedby={ariaDescribedBy}

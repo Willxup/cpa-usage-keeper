@@ -11,7 +11,6 @@ import (
 
 	"cpa-usage-keeper/internal/cpa/dto/models"
 	"cpa-usage-keeper/internal/cpa/dto/response"
-	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 )
 
@@ -21,7 +20,7 @@ func (f pricingReviewTransport) RoundTrip(request *http.Request) (*http.Response
 	return f(request)
 }
 
-func previewReviewCatalog(t *testing.T, source, catalog string, names ...string) servicedto.PricingSyncPreview {
+func previewReviewCatalog(t *testing.T, source, catalog string, names ...string) servicedto.PricingSyncFetchResponse {
 	t.Helper()
 	original := http.DefaultTransport
 	http.DefaultTransport = pricingReviewTransport(func(*http.Request) (*http.Response, error) {
@@ -32,9 +31,9 @@ func previewReviewCatalog(t *testing.T, source, catalog string, names ...string)
 	for _, name := range names {
 		modelList = append(modelList, models.ModelInfo{ID: name})
 	}
-	provider := service.NewPricingService(openUsageServiceTestDatabase(t), emptyPricingCatalogForTest(),
+	provider := newPricingTestProvider(t, openUsageServiceTestDatabase(t), emptyPricingCatalogForTest(),
 		stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: modelList}}})
-	preview, err := provider.PreviewPricingSync(context.Background(), source)
+	preview, err := provider.FetchPricingSync(context.Background(), source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,8 +68,8 @@ func TestPricingSyncSeparatesFineTunedModelIdentity(t *testing.T) {
 		if strings.HasPrefix(want[match.Model], "ft:") {
 			price = 3
 		}
-		if math.Abs(match.PromptPricePer1M-price) > 1e-10 {
-			t.Errorf("%s input price=%v, want %v", match.Model, match.PromptPricePer1M, price)
+		if math.Abs(match.BasePrices.Input-price) > 1e-10 {
+			t.Errorf("%s input price=%v, want %v", match.Model, match.BasePrices.Input, price)
 		}
 	}
 }
@@ -110,7 +109,7 @@ func TestPricingSyncPrefersLiteLLMOfficialProviderAliases(t *testing.T) {
 				t.Fatalf("unexpected preview: %+v", preview)
 			}
 			for _, match := range preview.Matches {
-				if match.SourceProviderID != tc.officialID || math.Abs(match.PromptPricePer1M-tc.input) > 1e-10 || math.Abs(match.CompletionPricePer1M-tc.output) > 1e-10 {
+				if match.Provider != tc.officialID || math.Abs(match.BasePrices.Input-tc.input) > 1e-10 || math.Abs(match.BasePrices.Output-tc.output) > 1e-10 {
 					t.Errorf("expected official %s pricing: %+v", tc.provider, match)
 				}
 			}
@@ -134,8 +133,8 @@ func TestPricingSyncPrefersOpenAITextCompletionPrices(t *testing.T) {
 				t.Fatalf("unexpected preview: %+v", preview)
 			}
 			for _, match := range preview.Matches {
-				if match.SourceProviderID != tc.provider || match.MatchedModel != tc.matchedModel ||
-					math.Abs(match.PromptPricePer1M-1.5) > 1e-10 || math.Abs(match.CompletionPricePer1M-2) > 1e-10 {
+				if match.Provider != tc.provider || match.MatchedModel != tc.matchedModel ||
+					math.Abs(match.BasePrices.Input-1.5) > 1e-10 || math.Abs(match.BasePrices.Output-2) > 1e-10 {
 					t.Errorf("expected %s text completion pricing: %+v", tc.provider, match)
 				}
 			}
@@ -164,10 +163,10 @@ func TestPricingSyncOfficialPriceBeforeMatchFormatting(t *testing.T) {
 					t.Fatalf("unexpected preview: %+v", preview)
 				}
 				for _, match := range preview.Matches {
-					if match.SourceProviderID != tc.wantProvider || math.Abs(match.PromptPricePer1M-tc.wantInput) > 1e-10 {
+					if match.Provider != tc.wantProvider || math.Abs(match.BasePrices.Input-tc.wantInput) > 1e-10 {
 						t.Errorf("expected %s pricing: %+v", tc.wantProvider, match)
 					}
-					if match.CacheReadPricePer1M != 0 || match.CacheWritePricePer1M != 0 {
+					if match.BasePrices.CacheRead != 0 || match.BasePrices.CacheWrite != 0 {
 						t.Errorf("missing cache prices must remain zero: %+v", match)
 					}
 				}
@@ -190,7 +189,7 @@ func TestPricingSyncPreservesProviderFallbackOrder(t *testing.T) {
 			t.Run(source+"/"+tc.name, func(t *testing.T) {
 				catalog := reviewOfficialPriceCatalog(source, tc.provider, tc.officialModel, tc.fallback, tc.model, tc.input, tc.output, "null")
 				preview := previewReviewCatalog(t, source, catalog, "custom/"+tc.requested)
-				if len(preview.Matches) != 1 || preview.Matches[0].SourceProviderID != tc.want {
+				if len(preview.Matches) != 1 || preview.Matches[0].Provider != tc.want {
 					t.Fatalf("expected %s pricing: %+v", tc.want, preview)
 				}
 			})

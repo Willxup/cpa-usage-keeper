@@ -2,6 +2,7 @@ package test
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/url"
 	"testing"
@@ -30,10 +31,12 @@ func TestLongCustomDayOverviewCapsAlignedSeriesAtNinetyPoints(t *testing.T) {
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
 	start := today.AddDate(0, 0, -120)
 	rows := make([]entities.UsageOverviewDailyStat, 0, 121)
+	storedCost, unavailable := 0.125, int64(0)
 	for bucket := start; !bucket.After(today); bucket = bucket.AddDate(0, 0, 1) {
 		rows = append(rows, entities.UsageOverviewDailyStat{
 			BucketStart: bucket, APIGroupKey: "provider-a", Model: "model-a",
 			RequestCount: 1, SuccessCount: 1, InputTokens: 10, CacheReadTokens: 4, TotalTokens: 10,
+			CostUSD: &storedCost, UnavailableCostCount: &unavailable,
 		})
 	}
 	if err := db.Create(&rows).Error; err != nil {
@@ -51,14 +54,21 @@ func TestLongCustomDayOverviewCapsAlignedSeriesAtNinetyPoints(t *testing.T) {
 	}
 
 	var payload struct {
-		Usage  repositorydto.StatisticsSnapshot `json:"usage"`
-		Series overviewSeriesJSON               `json:"series"`
+		Usage   repositorydto.StatisticsSnapshot `json:"usage"`
+		Summary struct {
+			TotalCost     float64 `json:"total_cost"`
+			CostAvailable bool    `json:"cost_available"`
+		} `json:"summary"`
+		Series overviewSeriesJSON `json:"series"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode long Overview response: %v body=%s", err, response.Body.String())
 	}
 	if payload.Usage.TotalRequests != 121 || payload.Usage.TotalTokens != 1210 {
 		t.Fatalf("top totals must use the complete range, got %+v", payload.Usage)
+	}
+	if !overviewAPICostClose(payload.Summary.TotalCost, 15.125) || !payload.Summary.CostAvailable {
+		t.Fatalf("summary must use stored daily fees: %+v", payload.Summary)
 	}
 	if len(payload.Series.Buckets) != 90 {
 		t.Fatalf("expected exactly 90 merged points, got %d", len(payload.Series.Buckets))
@@ -73,15 +83,30 @@ func TestLongCustomDayOverviewCapsAlignedSeriesAtNinetyPoints(t *testing.T) {
 		}
 	}
 	var seriesRequests int64
+	var seriesCost float64
 	for _, requests := range payload.Series.Requests {
 		seriesRequests += requests
 	}
+	for _, cost := range payload.Series.Cost {
+		seriesCost += cost
+	}
 	if seriesRequests != 121 {
 		t.Fatalf("merged series lost requests: %d", seriesRequests)
+	}
+	if !overviewAPICostClose(seriesCost, 15.125) {
+		t.Fatalf("merged series lost persisted fee: %g", seriesCost)
 	}
 	for index, rate := range payload.Series.CacheReadRate {
 		if rate == nil || *rate != 40 {
 			t.Fatalf("merged cache rate[%d] = %v, want 40", index, rate)
 		}
 	}
+}
+
+// overviewAPICostClose 只比较有限金额，使用固定绝对及相对容差容纳正常 float64 求和尾差。
+func overviewAPICostClose(got, want float64) bool {
+	if math.IsNaN(got) || math.IsInf(got, 0) || math.IsNaN(want) || math.IsInf(want, 0) {
+		return false
+	}
+	return math.Abs(got-want) <= 1e-9+1e-12*math.Max(math.Abs(got), math.Abs(want))
 }

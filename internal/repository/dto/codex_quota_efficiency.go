@@ -18,7 +18,7 @@ type CodexQuotaEfficiencyQuery struct {
 
 // CodexQuotaEfficiencyHistory 是图表、周期摘要和完整周期列表共同复用的规范化查询结果。
 type CodexQuotaEfficiencyHistory struct {
-	// GeneratedAt 是本次 pricing snapshot 与当前周期截点共同绑定的生成时间。
+	// GeneratedAt 固定本次当前周期的查询截点和响应时间。
 	GeneratedAt time.Time
 	// RangeStart 是响应实际采用的历史下界，供调用层明确“最近 30 天”口径。
 	RangeStart time.Time
@@ -107,7 +107,7 @@ type CodexQuotaEfficiencyUsage struct {
 	SuccessfulRequests int64
 	// FailedRequests 是 Failed=true 的请求数量。
 	FailedRequests int64
-	// InputTokens 保留输入 Token 汇总，供当前 pricing snapshot 计算成本。
+	// InputTokens 保留输入 Token 原值汇总，供周期用量展示。
 	InputTokens int64
 	// OutputTokens 保留输出 Token 汇总。
 	OutputTokens int64
@@ -119,8 +119,8 @@ type CodexQuotaEfficiencyUsage struct {
 	CacheCreationTokens int64
 	// TotalTokens 是页面展示和每百分点效率计算使用的总 Token。
 	TotalTokens int64
-	// TotalCostUSD 是按本次响应固定的当前 pricing snapshot 动态回算值。
+	// TotalCostUSD 是事件已存美元费用在该周期或区间的总和。
 	TotalCostUSD float64
-	// CostAvailable 只有所有需要计价的分组都成功匹配价格时才为 true。
+	// CostAvailable 只有范围内每条事件的已存费用都标记可用时才为 true。
 	CostAvailable bool
 }

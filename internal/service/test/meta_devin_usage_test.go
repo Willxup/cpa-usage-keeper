@@ -75,7 +75,7 @@ func TestProcessRedisUsageInboxNormalizesMetaAndDevinAuthFileUsage(t *testing.T)
 		t.Fatalf("seed Meta/Devin Redis usage inbox rows: %v", err)
 	}
 
-	result, err := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com"}).ProcessRedisUsageInbox(context.Background())
+	result, err := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{PricingCatalog: emptyPricingCatalogForTest(), BaseURL: "https://cpa.example.com"}).ProcessRedisUsageInbox(context.Background())
 	if err != nil {
 		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
 	}

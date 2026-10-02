@@ -12,6 +12,15 @@ type maintenanceSyncStub struct {
 	cleanupCalls int
 }
 
+type canceledMaintenanceSyncStub struct {
+	cancel context.CancelFunc
+}
+
+func (s *canceledMaintenanceSyncStub) CleanupStorage(ctx context.Context) error {
+	s.cancel()
+	return ctx.Err()
+}
+
 func (s *maintenanceSyncStub) CleanupStorage(context.Context) error {
 	s.cleanupCalls++
 	return nil
@@ -84,5 +93,18 @@ func TestStorageCleanupRunnerRunsAtScheduledTime(t *testing.T) {
 
 	if syncer.cleanupCalls != 1 {
 		t.Fatalf("expected cleanup loop to run once, got %d", syncer.cleanupCalls)
+	}
+}
+
+func TestStorageCleanupRunnerDoesNotLogPausedWaitCancellationAsFailure(t *testing.T) {
+	logs := captureAppInfoLogs(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	runner := NewStorageCleanupRunner(&canceledMaintenanceSyncStub{cancel: cancel})
+	(*appTestField[func(context.Context, time.Duration) bool](runner, "sleep")) = func(ctx context.Context, _ time.Duration) bool { return ctx.Err() == nil }
+	if err := runner.Run(ctx); err != nil {
+		t.Fatalf("取消维护等待应正常结束 runner：%v", err)
+	}
+	if strings.Contains(logs.String(), "storage cleanup failed") {
+		t.Fatalf("暂停等待的生命周期取消不应记维护失败：%s", logs.String())
 	}
 }

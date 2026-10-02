@@ -33,7 +33,7 @@ func TestQuotaHistoryProviderKeyIsolationAcrossWriteReadAndDelete(t *testing.T) 
 	}
 	read, err := repository.BuildCodexQuotaEfficiencyHistory(context.Background(), db, repositorydto.CodexQuotaEfficiencyQuery{
 		Provider: "claude", AuthIndex: "shared-auth", Now: now.Add(time.Minute), RangeStart: now.Add(-30 * 24 * time.Hour),
-	}, codexQuotaEfficiencyPricingResolver(t))
+	})
 	if err != nil || len(read.Cycles) != 1 || read.Cycles[0].LastRemainingPercent == nil || *read.Cycles[0].LastRemainingPercent != 75 {
 		t.Fatalf("Claude history query crossed provider boundary: %+v err=%v", read, err)
 	}
@@ -68,7 +68,7 @@ func TestQuotaHistoryUsageIsolatedByProvider(t *testing.T) {
 		seedCodexQuotaEfficiencyUsage(t, db, event)
 	}
 	for i, provider := range []string{"codex", "claude"} {
-		result, err := repository.BuildCodexQuotaEfficiencyHistory(context.Background(), db, repositorydto.CodexQuotaEfficiencyQuery{Provider: provider, AuthIndex: "shared-auth", Now: now, RangeStart: now.Add(-24 * time.Hour)}, codexQuotaEfficiencyPricingResolver(t))
+		result, err := repository.BuildCodexQuotaEfficiencyHistory(context.Background(), db, repositorydto.CodexQuotaEfficiencyQuery{Provider: provider, AuthIndex: "shared-auth", Now: now, RangeStart: now.Add(-24 * time.Hour)})
 		if err != nil || len(result.Cycles) != 1 {
 			t.Fatalf("%s: %+v %v", provider, result, err)
 		}

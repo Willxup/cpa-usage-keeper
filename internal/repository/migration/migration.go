@@ -100,7 +100,8 @@ const (
 	migrationAddUsageEventStreamStatusCode          = "20260919_usage_event_stream_status_code"
 	migrationNormalizeUsageEventParentSessionNull   = "20260922_normalize_usage_event_parent_session_null"
 	// migrationLimitLatencySamplePoints 缩小已保存散点，事务前必须备份旧 BLOB。
-	migrationLimitLatencySamplePoints = "20260925_limit_latency_sample_points"
+	migrationLimitLatencySamplePoints   = "20260925_limit_latency_sample_points"
+	migrationAddPricingStorageStructure = "20261002_pricing_storage_structure"
 )
 
 type schemaMigration struct {
@@ -144,6 +145,64 @@ func Run(db *gorm.DB, optionValues ...RunOptions) error {
 		}
 	}
 	return nil
+}
+
+// RunPublished 只执行费用持久化改版之前的已发布迁移；各版本仍使用原事务、分批和备份合同。
+// 首次升级必须先在仓储层完成 M1 保护，再调用此入口，不能提前运行末尾费用结构版本。
+func RunPublished(db *gorm.DB, optionValues ...RunOptions) error {
+	if len(optionValues) > 1 {
+		return fmt.Errorf("run published schema migrations: expected at most one options value")
+	}
+	options := RunOptions{}
+	if len(optionValues) == 1 {
+		options = optionValues[0]
+	}
+	if err := createSchemaMigrationsTable(db); err != nil {
+		return err
+	}
+	migrations := orderedMigrations()
+	boundary, err := pricingStorageMigrationBoundary(migrations)
+	if err != nil {
+		return err
+	}
+	for _, item := range migrations[:boundary] {
+		if err := runSchemaMigration(db, item, options); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RunPricingStorageStructure 在 M3 旧价和 C/H 已持久化后单独添加费用列；缺旧版本时拒绝越序增列。
+func RunPricingStorageStructure(db *gorm.DB) error {
+	if err := createSchemaMigrationsTable(db); err != nil {
+		return err
+	}
+	migrations := orderedMigrations()
+	boundary, err := pricingStorageMigrationBoundary(migrations)
+	if err != nil {
+		return err
+	}
+	for _, item := range migrations[:boundary] {
+		applied, err := schemaMigrationApplied(db, item.version)
+		if err != nil {
+			return err
+		}
+		if !applied {
+			return fmt.Errorf("published schema migration %s must finish before pricing storage", item.version)
+		}
+	}
+	return runSchemaMigration(db, migrations[boundary])
+}
+
+// pricingStorageMigrationBoundary 只定位固定费用版本；以后新增版本不改变已发布旧迁移的边界。
+func pricingStorageMigrationBoundary(migrations []databaseMigration) (int, error) {
+	for index, item := range migrations {
+		if item.version == migrationAddPricingStorageStructure {
+			return index, nil
+		}
+	}
+	return 0, fmt.Errorf("pricing storage migration is not registered")
 }
 
 func MarkAllAsApplied(db *gorm.DB) error {
@@ -252,6 +311,8 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageEventStreamStatusCode, run: addUsageEventStreamStatusCodeMigration},
 		{version: migrationNormalizeUsageEventParentSessionNull, run: normalizeUsageEventParentSessionNullMigration},
 		{version: migrationLimitLatencySamplePoints, run: limitLatencySamplePointsMigration, destructive: true},
+		// 费用结构只在全部已发布旧迁移之后增列，旧数据回填由后续启动阶段控制。
+		{version: migrationAddPricingStorageStructure, run: addPricingStorageStructureMigration},
 	}
 }
 

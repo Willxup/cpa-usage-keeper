@@ -28,7 +28,7 @@ func BenchmarkResolver(b *testing.B) {
 
 			b.ReportAllocs()
 			for b.Loop() {
-				_ = resolver.Calculate(subject)
+				_ = resolver.CalculateFee(subject)
 			}
 		})
 	}

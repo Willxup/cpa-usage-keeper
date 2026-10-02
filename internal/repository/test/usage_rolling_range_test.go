@@ -19,7 +19,7 @@ func TestBuildAnalysisKeepsTwentyFourHourAndDirectOneDayRangesOnHourlyStats(t *t
 	if err := db.Create(&entities.CPAAPIKey{APIKey: "sk-target-key", DisplayKey: "sk-*********target"}).Error; err != nil {
 		t.Fatalf("insert CPA API key: %v", err)
 	}
-	if err := db.Create(&entities.UsageOverviewHourlyStat{
+	if err := db.Create(&entities.UsageOverviewHourlyStat{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1),
 		BucketStart: currentHour, APIGroupKey: "sk-target-key", Model: "claude-sonnet",
 		RequestCount: 6, InputTokens: 90, OutputTokens: 10, TotalTokens: 100,
 	}).Error; err != nil {
@@ -31,7 +31,7 @@ func TestBuildAnalysisKeepsTwentyFourHourAndDirectOneDayRangesOnHourlyStats(t *t
 
 	for _, rangeName := range []string{"24h", "1d"} {
 		t.Run(rangeName, func(t *testing.T) {
-			analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: rangeName, StartTime: &start, EndTime: &end}, emptyPricingResolverForTest())
+			analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: rangeName, StartTime: &start, EndTime: &end})
 			if err != nil {
 				t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 			}
@@ -78,13 +78,13 @@ func TestBuildAnalysisMatchesOverviewCustomRollupRouting(t *testing.T) {
 			if err := db.Create(&entities.CPAAPIKey{APIKey: "sk-target-key", DisplayKey: "sk-*********target"}).Error; err != nil {
 				t.Fatalf("insert CPA API key: %v", err)
 			}
-			if err := db.Create(&entities.UsageOverviewDailyStat{
+			if err := db.Create(&entities.UsageOverviewDailyStat{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1),
 				BucketStart: dayStart, APIGroupKey: "sk-target-key", Model: "claude-sonnet",
 				RequestCount: 1, InputTokens: 90, OutputTokens: 10, TotalTokens: 100,
 			}).Error; err != nil {
 				t.Fatalf("insert daily stat: %v", err)
 			}
-			if err := db.Create(&entities.UsageOverviewHourlyStat{
+			if err := db.Create(&entities.UsageOverviewHourlyStat{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1),
 				BucketStart: hourStart, APIGroupKey: "sk-target-key", Model: "claude-sonnet",
 				RequestCount: 9, InputTokens: 800, OutputTokens: 100, TotalTokens: 900,
 			}).Error; err != nil {
@@ -97,7 +97,7 @@ func TestBuildAnalysisMatchesOverviewCustomRollupRouting(t *testing.T) {
 			queries := captureAnalysisRollupQueries(t, db)
 			analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{
 				Range: "custom", CustomUnit: testCase.unit, StartTime: &testCase.start, EndTime: &testCase.end, EndExclusive: true,
-			}, emptyPricingResolverForTest())
+			})
 			if err != nil {
 				t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 			}
@@ -142,11 +142,11 @@ func TestBuildAnalysisUsesOnlyDailyStatsForRollingDayRanges(t *testing.T) {
 				t.Fatalf("insert CPA API key: %v", err)
 			}
 			if err := db.Create(&[]entities.UsageOverviewDailyStat{
-				{
+				{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1),
 					BucketStart: time.Date(2026, 7, 15, 0, 0, 0, 0, location), APIGroupKey: "sk-target-key", Model: "claude-sonnet",
 					RequestCount: 5_177, InputTokens: 668_642_798, OutputTokens: 2_761_835, TotalTokens: 671_404_633,
 				},
-				{
+				{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1),
 					BucketStart: time.Date(2026, 7, 27, 0, 0, 0, 0, location), APIGroupKey: "sk-target-key", Model: "claude-sonnet",
 					RequestCount: 2, InputTokens: 200, OutputTokens: 22, TotalTokens: 222,
 				},
@@ -154,11 +154,11 @@ func TestBuildAnalysisUsesOnlyDailyStatsForRollingDayRanges(t *testing.T) {
 				t.Fatalf("insert daily stats: %v", err)
 			}
 			if err := db.Create(&[]entities.UsageOverviewHourlyStat{
-				{
+				{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1),
 					BucketStart: time.Date(2026, 7, 15, 18, 0, 0, 0, location), APIGroupKey: "sk-target-key", Model: "claude-sonnet",
 					RequestCount: 2_724, InputTokens: 338_914_706, OutputTokens: 1_251_623, TotalTokens: 340_166_329,
 				},
-				{
+				{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1),
 					BucketStart: time.Date(2026, 7, 27, 17, 0, 0, 0, location), APIGroupKey: "sk-target-key", Model: "claude-sonnet",
 					RequestCount: 1, InputTokens: 100, OutputTokens: 11, TotalTokens: 111,
 				},
@@ -172,7 +172,7 @@ func TestBuildAnalysisUsesOnlyDailyStatsForRollingDayRanges(t *testing.T) {
 			queries := captureAnalysisRollupQueries(t, db)
 			analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{
 				Range: testCase.rangeName, StartTime: &start, EndTime: &end,
-			}, emptyPricingResolverForTest())
+			})
 			if err != nil {
 				t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 			}
@@ -211,7 +211,7 @@ func TestBuildAnalysisIncludesCurrentDailyStatsForRollingDayRange(t *testing.T) 
 	if err := db.Create(&entities.CPAAPIKey{APIKey: "sk-target-key", DisplayKey: "sk-*********target"}).Error; err != nil {
 		t.Fatalf("insert CPA API key: %v", err)
 	}
-	if err := db.Create(&entities.UsageOverviewDailyStat{
+	if err := db.Create(&entities.UsageOverviewDailyStat{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1),
 		BucketStart: currentDay, APIGroupKey: "sk-target-key", Model: "claude-sonnet",
 		RequestCount: 6, InputTokens: 90, OutputTokens: 10, TotalTokens: 100,
 	}).Error; err != nil {
@@ -221,7 +221,7 @@ func TestBuildAnalysisIncludesCurrentDailyStatsForRollingDayRange(t *testing.T) 
 		t.Fatalf("drop usage_events: %v", err)
 	}
 
-	analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "13d", StartTime: &start, EndTime: &end}, emptyPricingResolverForTest())
+	analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "13d", StartTime: &start, EndTime: &end})
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 	}

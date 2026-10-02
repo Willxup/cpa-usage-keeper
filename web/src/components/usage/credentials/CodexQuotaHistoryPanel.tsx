@@ -7,7 +7,7 @@ import quotaCostIcon from '@/assets/icons/quota-cost.svg'
 import quotaRequestIcon from '@/assets/icons/quota-request.svg'
 import quotaTokenIcon from '@/assets/icons/quota-token.svg'
 import quotaUnusedIcon from '@/assets/icons/quota-unused.svg'
-import { ApiError, deleteCodexQuotaHistoryCycle, fetchCodexQuotaHistory, type FetchCodexQuotaHistoryOptions } from '@/lib/api'
+import { ApiError, deleteCodexQuotaHistoryCycle, fetchCodexQuotaHistory, isCostsBusy, type FetchCodexQuotaHistoryOptions } from '@/lib/api'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { IconTrash2 } from '@/components/ui/icons'
@@ -102,7 +102,9 @@ export function CodexQuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuota
         onAuthRequired?.()
         return
       }
-      setError(loadError instanceof Error ? loadError.message : t('usage_stats.credentials_quota_history_load_failed'))
+      // 同一账号费用暂缓时继续显示上次成功的周期，保留原刷新入口重试。
+      setError(isCostsBusy(loadError) ? t('usage_stats.costs_busy')
+        : loadError instanceof Error ? loadError.message : t('usage_stats.credentials_quota_history_load_failed'))
     } finally {
       if (controllerRef.current === controller) {
         controllerRef.current = null

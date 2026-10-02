@@ -2,21 +2,19 @@ package test
 
 import (
 	"context"
-	"math"
 	"testing"
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/helper"
 	. "cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/repository"
 	repositorydto "cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
 )
 
-func TestQuotaWindowWithoutRulesMatchesLegacyTokenCostHelper(t *testing.T) {
+func TestQuotaWindowWithoutRulesReadsPersistedCost(t *testing.T) {
 	db := openQuotaTestDB(t)
-	setting, err := repository.UpsertModelPriceSetting(db, repositorydto.ModelPriceSettingInput{
+	_, err := repository.UpsertModelPriceSetting(db, repositorydto.ModelPriceSettingInput{
 		Model:                "priced-model",
 		PricingStyle:         entities.ModelPricingStyleOpenAI,
 		PromptPricePer1M:     3,
@@ -27,27 +25,23 @@ func TestQuotaWindowWithoutRulesMatchesLegacyTokenCostHelper(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertModelPriceSetting: %v", err)
 	}
-	service := NewServiceWithRegistry(db, NewProviderRegistry(nil), quotaUsagePricingCatalog(t, db))
+	service := NewServiceWithRegistry(db, NewProviderRegistry(nil))
 	defer service.StopRefreshTasks()
 
 	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
 	resetAt := now.Add(2 * time.Hour)
-	tokens := helper.UsageTokenCostInput{
-		InputTokens:         1_000_000,
-		OutputTokens:        500_000,
-		CacheReadTokens:     200_000,
-		CacheCreationTokens: 100_000,
-	}
 	if err := db.Create(&entities.UsageEvent{
 		EventKey:            "quota-no-rules",
 		AuthIndex:           "auth-no-rules",
 		Model:               "priced-model",
 		Timestamp:           now.Add(-time.Hour),
-		InputTokens:         tokens.InputTokens,
-		OutputTokens:        tokens.OutputTokens,
-		CacheReadTokens:     tokens.CacheReadTokens,
-		CacheCreationTokens: tokens.CacheCreationTokens,
-		TotalTokens:         tokens.InputTokens + tokens.OutputTokens,
+		InputTokens:         1_000_000,
+		OutputTokens:        500_000,
+		CacheReadTokens:     200_000,
+		CacheCreationTokens: 100_000,
+		TotalTokens:         1_500_000,
+		CostUSD:             floatPtr(4.125),
+		CostAvailable:       boolPtr(true),
 	}).Error; err != nil {
 		t.Fatalf("seed usage event: %v", err)
 	}
@@ -65,8 +59,5 @@ func TestQuotaWindowWithoutRulesMatchesLegacyTokenCostHelper(t *testing.T) {
 	}, now)
 
 	row := findQuotaRow(t, response.Quota, "rate_limit.primary_window")
-	want := helper.CalculateUsageTokenCostBreakdown(tokens, *setting).TotalCostUSD
-	if row.WindowUsageCost == nil || !(math.Abs(*row.WindowUsageCost-want) <= 1e-9) {
-		t.Fatalf("quota no-Rules cost = %#v, want %.12f", row.WindowUsageCost, want)
-	}
+	assertWindowUsage(t, row, 1_500_000, 4.125)
 }

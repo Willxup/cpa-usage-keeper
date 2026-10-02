@@ -3,10 +3,13 @@ package test
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +21,7 @@ import (
 func TestWriterWriteDatabaseBacksUpSQLiteDatabase(t *testing.T) {
 	root := t.TempDir()
 	source := newSourceDatabase(t)
+	source.SetMaxOpenConns(1) // 旧调用方仍可传入唯一 writer 池。
 	if _, err := source.Exec(`INSERT INTO records (name) VALUES (?)`, "saved"); err != nil {
 		t.Fatalf("insert row: %v", err)
 	}
@@ -110,6 +114,182 @@ func TestWriterWriteDatabaseHonorsCanceledContext(t *testing.T) {
 	}
 	if len(files) != 0 {
 		t.Fatalf("expected no finalized backup files after cancellation, got %+v", files)
+	}
+}
+
+func TestWriterWriteDatabaseFromReadOnlyPoolFinishesDuringWrites(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "source.db")
+	writerDB := openTestSQLiteDB(t, sourcePath)
+	if _, err := writerDB.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writerDB.Exec(`CREATE TABLE records (id INTEGER PRIMARY KEY, name TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writerDB.Exec(`INSERT INTO records (name) VALUES ('before')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writerDB.Exec(`CREATE TABLE padding (body BLOB NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writerDB.Exec(`INSERT INTO padding (body) VALUES (zeroblob(33554432))`); err != nil {
+		t.Fatal(err)
+	}
+	readerDB := openReadOnlySQLiteDB(t, sourcePath)
+	readerDB.SetMaxOpenConns(1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	type result struct {
+		path string
+		err  error
+	}
+	backupResult := make(chan result, 1)
+	backupDone := make(chan struct{})
+	go func() {
+		path, err := backup.NewWriter(filepath.Join(root, "backups")).WriteDatabase(ctx, readerDB, time.Now())
+		backupResult <- result{path, err}
+		close(backupDone)
+	}()
+
+	// 等备份实际占用只读池后持续提交小写入，验证复制不会被外部写入反复重启。
+	for readerDB.Stats().InUse == 0 {
+		select {
+		case <-backupDone:
+			t.Fatal("backup finished before read-only source connection was observed")
+		case <-ctx.Done():
+			t.Fatal("backup did not acquire the read-only connection")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	var committed atomic.Int64
+	stopWrites := make(chan struct{})
+	writesDone := make(chan struct{})
+	go func() {
+		defer close(writesDone)
+		for n := 0; ; n++ {
+			select {
+			case <-stopWrites:
+				return
+			default:
+			}
+			if _, err := writerDB.ExecContext(ctx, `INSERT INTO records (name) VALUES (?)`, fmt.Sprintf("during-%d", n)); err == nil {
+				committed.Add(1)
+			}
+			time.Sleep(250 * time.Microsecond)
+		}
+	}()
+	backupOutcome := <-backupResult
+	close(stopWrites)
+	<-writesDone
+	if backupOutcome.err != nil {
+		t.Fatalf("backup did not finish during concurrent writes: %v", backupOutcome.err)
+	}
+	if committed.Load() == 0 {
+		t.Fatal("writer did not commit while backup used the separate reader pool")
+	}
+	backupDB := openTestSQLiteDB(t, backupOutcome.path)
+	var count, paddingLength int
+	if err := backupDB.QueryRow(`SELECT count(*) FROM records`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if err := backupDB.QueryRow(`SELECT length(body) FROM padding`).Scan(&paddingLength); err != nil {
+		t.Fatal(err)
+	}
+	if count < 1 || count > int(committed.Load())+1 || paddingLength != 33554432 {
+		t.Fatalf("incomplete backup: count=%d, writes=%d, padding=%d", count, committed.Load(), paddingLength)
+	}
+	var integrity string
+	if err := backupDB.QueryRow(`PRAGMA integrity_check`).Scan(&integrity); err != nil || integrity != "ok" {
+		t.Fatalf("backup integrity = %q, %v", integrity, err)
+	}
+}
+
+func TestWriterWriteDatabaseReleasesReadSnapshotOnFailure(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "source.db")
+	writerDB := openTestSQLiteDB(t, sourcePath)
+	if _, err := writerDB.Exec(`CREATE TABLE records (id INTEGER PRIMARY KEY, name TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	readerDB := openReadOnlySQLiteDB(t, sourcePath)
+	readerDB.SetMaxOpenConns(1)
+	stamp := time.Date(2026, 4, 16, 12, 34, 56, 0, time.Local)
+	backupRoot := filepath.Join(root, "backups")
+	tempPath := filepath.Join(backupRoot, "2026-04-16", "database_20260416T123456.000000000.db.tmp")
+	if err := os.MkdirAll(tempPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tempPath, "keep"), []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backup.NewWriter(backupRoot).WriteDatabase(context.Background(), readerDB, stamp); err == nil {
+		t.Fatal("expected destination open failure")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	var count int
+	if err := readerDB.QueryRowContext(ctx, `SELECT count(*) FROM records`).Scan(&count); err != nil {
+		t.Fatalf("read-only connection was not released: %v", err)
+	}
+	if _, err := writerDB.ExecContext(ctx, `INSERT INTO records (name) VALUES ('after failure')`); err != nil {
+		t.Fatalf("read transaction was not released: %v", err)
+	}
+}
+
+func TestWriterWriteDatabaseCancellationReleasesReadConnection(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "source.db")
+	writerDB := openTestSQLiteDB(t, sourcePath)
+	if _, err := writerDB.Exec(`CREATE TABLE records (id INTEGER PRIMARY KEY, name TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	readerDB := openReadOnlySQLiteDB(t, sourcePath)
+	readerDB.SetMaxOpenConns(1)
+	writerConn, err := writerDB.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writerConn.Close()
+	if _, err := writerConn.ExecContext(context.Background(), `BEGIN EXCLUSIVE`); err != nil {
+		t.Fatal(err)
+	}
+	defer writerConn.ExecContext(context.Background(), `ROLLBACK`)
+	ctx, cancel := context.WithCancel(context.Background())
+	finished := make(chan error, 1)
+	backupRoot := filepath.Join(root, "backups")
+	go func() {
+		_, err := backup.NewWriter(backupRoot).WriteDatabase(ctx, readerDB, time.Now())
+		finished <- err
+	}()
+	deadline := time.After(2 * time.Second)
+	for readerDB.Stats().InUse == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("backup did not acquire read-only connection")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	cancel()
+	if _, err := writerConn.ExecContext(context.Background(), `ROLLBACK`); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-finished:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("backup cancellation = %v, want context canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("backup did not stop after cancellation")
+	}
+	checkCtx, checkCancel := context.WithTimeout(context.Background(), time.Second)
+	defer checkCancel()
+	var count int
+	if err := readerDB.QueryRowContext(checkCtx, `SELECT count(*) FROM records`).Scan(&count); err != nil {
+		t.Fatalf("read-only pool remained occupied after cancellation: %v", err)
 	}
 }
 
@@ -213,4 +393,9 @@ func newSourceDatabase(t *testing.T) *sql.DB {
 		t.Fatalf("create table: %v", err)
 	}
 	return db
+}
+
+func openReadOnlySQLiteDB(t *testing.T, path string) *sql.DB {
+	t.Helper()
+	return openTestSQLiteDB(t, "file:"+path+"?mode=ro&_query_only=1&_busy_timeout=5000")
 }

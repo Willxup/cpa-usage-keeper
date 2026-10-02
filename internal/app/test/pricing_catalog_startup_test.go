@@ -1,12 +1,10 @@
 package test
 
 import (
-	"io"
-	"os"
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	keeperapp "cpa-usage-keeper/internal/app"
 	"cpa-usage-keeper/internal/config"
@@ -41,64 +39,23 @@ func TestPricingCatalogStartupFailsWhenPersistedSnapshotIsInvalid(t *testing.T) 
 		t.Fatalf("close seed database: %v", err)
 	}
 
-	logDir := t.TempDir()
 	cfg := databasePoolTestConfig(databasePath)
-	cfg.LogFileEnabled = true
-	cfg.LogDir = logDir
-	previousStderr := os.Stderr
-	stderrReader, stderrWriter, pipeErr := os.Pipe()
-	if pipeErr != nil {
-		t.Fatalf("create stderr pipe: %v", pipeErr)
-	}
-	os.Stderr = stderrWriter
-	t.Cleanup(func() {
-		os.Stderr = previousStderr
-		_ = stderrReader.Close()
-		_ = stderrWriter.Close()
-	})
 	application, err := keeperapp.NewWithConfig(cfg)
-	if closeErr := stderrWriter.Close(); closeErr != nil {
-		t.Fatalf("close stderr writer: %v", closeErr)
+	if err != nil {
+		t.Fatal(err)
 	}
-	os.Stderr = previousStderr
-	console, consoleErr := io.ReadAll(stderrReader)
-	if consoleErr != nil {
-		t.Fatalf("read startup stderr: %v", consoleErr)
-	}
-	if application != nil {
-		_ = application.Close()
-		t.Fatal("expected invalid pricing snapshot to prevent App construction")
-	}
+	t.Cleanup(func() { _ = application.Close() })
+	err = application.Initialize(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "pricing snapshot") {
-		t.Fatalf("expected pricing snapshot startup error, got %v", err)
-	}
-	if !keeperapp.IsInitializationErrorLogged(err) {
-		t.Fatalf("expected initialization error to record that it was already logged, got %T", err)
-	}
-	for _, prefix := range []string{"cpa-usage-keeper-error-", "cpa-usage-keeper-"} {
-		logPath := filepath.Join(logDir, prefix+time.Now().Format("2006-01-02")+".log")
-		contents, err := os.ReadFile(logPath)
-		if err != nil {
-			t.Fatalf("read startup log %s: %v", logPath, err)
-		}
-		if !strings.Contains(string(contents), "| fatal | initialize app") || !strings.Contains(string(contents), "pricing snapshot") {
-			t.Fatalf("expected initialization failure before closing %s, got %q", logPath, contents)
-		}
-	}
-	if count := strings.Count(string(console), "initialize app"); count != 1 {
-		t.Fatalf("expected one initialization failure on stderr, got %d in %q", count, console)
+		t.Fatalf("expected pricing snapshot initialization error, got %v", err)
 	}
 
-	// 构造失败必须释放 reader/writer，随后应能立即重新打开同一个数据库。
-	verificationDB, openErr := repository.OpenDatabase(config.Config{SQLitePath: databasePath})
-	if openErr != nil {
-		t.Fatalf("expected failed App construction to release database pools: %v", openErr)
+	// 故障期间数据库继续可供启动接收写入；真正关闭由 App.Close 完成。
+	if application.DB == nil {
+		t.Fatal("initialization failure closed durable inbox database")
 	}
-	verificationSQL, sqlErr := verificationDB.DB()
-	if sqlErr != nil {
-		t.Fatalf("get verification SQL database: %v", sqlErr)
-	}
-	if err := verificationSQL.Close(); err != nil {
-		t.Fatalf("close verification database: %v", err)
+	verificationSQL, sqlErr := application.DB.DB()
+	if sqlErr != nil || verificationSQL.Ping() != nil {
+		t.Fatalf("failed startup database unavailable: %v", sqlErr)
 	}
 }

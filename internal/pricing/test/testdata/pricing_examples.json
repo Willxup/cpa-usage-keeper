@@ -1,0 +1,78 @@
+[
+  {
+    "name": "entire_request_above_context_threshold",
+    "config": {
+      "model": "sample-model",
+      "pricing_style": "openai",
+      "base_prices": {"input": 1, "output": 4, "cache_read": 0.1, "cache_write": 1.2},
+      "model_multiplier": 1,
+      "conditional_multipliers": [],
+      "branches": [{
+        "id": "large-context",
+        "name": "Large context",
+        "context": {"type": "gt", "threshold": 200000},
+        "period": {"type": "all"},
+        "prices": {"input": 2.5, "output": 15, "cache_read": 0.25, "cache_write": 3}
+      }]
+    },
+    "input": {"model": "sample-model", "timestamp": "2026-09-23T09:00:00+08:00", "input_tokens": 210000, "output_tokens": 1000, "cache_read_tokens": 0, "cache_creation_tokens": 0},
+    "want": {"total_cost_usd": 0.54, "cost_available": true}
+  },
+  {
+    "name": "default_price_at_threshold",
+    "config": {
+      "model": "sample-model",
+      "pricing_style": "openai",
+      "base_prices": {"input": 1, "output": 4, "cache_read": 0.1, "cache_write": 1.2},
+      "model_multiplier": 1,
+      "conditional_multipliers": [],
+      "branches": [{
+        "id": "large-context",
+        "name": "Large context",
+        "context": {"type": "gt", "threshold": 200000},
+        "period": {"type": "all"},
+        "prices": {"input": 2.5, "output": 15, "cache_read": 0.25, "cache_write": 3}
+      }]
+    },
+    "input": {"model": "sample-model", "timestamp": "2026-09-23T09:00:00+08:00", "input_tokens": 200000, "output_tokens": 0, "cache_read_tokens": 0, "cache_creation_tokens": 0},
+    "want": {"total_cost_usd": 0.2, "cost_available": true}
+  },
+  {
+    "name": "model_and_condition_multipliers",
+    "config": {
+      "model": "multiplied-model",
+      "pricing_style": "openai",
+      "base_prices": {"input": 1, "output": 0, "cache_read": 0, "cache_write": 0},
+      "model_multiplier": 1.5,
+      "conditional_multipliers": [{"key": "service_tier", "value": "priority", "multiplier": 2}],
+      "branches": []
+    },
+    "input": {"model": "multiplied-model", "service_tier": "priority", "timestamp": "2026-09-23T09:00:00+08:00", "input_tokens": 1000000, "output_tokens": 0, "cache_read_tokens": 0, "cache_creation_tokens": 0},
+    "want": {"total_cost_usd": 3, "cost_available": true}
+  },
+  {
+    "name": "zero_price_is_available",
+    "config": {
+      "model": "free-model",
+      "pricing_style": "claude",
+      "base_prices": {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0},
+      "model_multiplier": 1,
+      "conditional_multipliers": [],
+      "branches": []
+    },
+    "input": {"model": "free-model", "timestamp": "2026-09-23T09:00:00+08:00", "input_tokens": 1000, "output_tokens": 0, "cache_read_tokens": 0, "cache_creation_tokens": 0},
+    "want": {"total_cost_usd": 0, "cost_available": true}
+  },
+  {
+    "name": "missing_price_is_unavailable",
+    "config": null,
+    "input": {"model": "unknown-model", "timestamp": "2026-09-23T09:00:00+08:00", "input_tokens": 1000, "output_tokens": 0, "cache_read_tokens": 0, "cache_creation_tokens": 0},
+    "want": {"total_cost_usd": 0, "cost_available": false}
+  },
+  {
+    "name": "missing_price_without_billable_tokens_is_available",
+    "config": null,
+    "input": {"model": "unknown-model", "timestamp": "2026-09-23T09:00:00+08:00", "input_tokens": -1, "output_tokens": 0, "cache_read_tokens": 0, "cache_creation_tokens": 0},
+    "want": {"total_cost_usd": 0, "cost_available": true}
+  }
+]

@@ -81,6 +81,8 @@ export function useOverviewRealtimeData(options: UseOverviewRealtimeDataOptions 
       return;
     }
     void loadUsageStatsRealtime({
+      // 页面进入／恢复显示必须实际取数；跨页面不依赖费用标记或广播。
+      force: true,
       staleTimeMs: USAGE_STATS_STALE_TIME_MS,
       apiKeyId,
       realtimeWindow,

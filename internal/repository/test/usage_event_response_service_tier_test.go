@@ -23,7 +23,7 @@ func TestUsageEventsPersistAndListResponseServiceTier(t *testing.T) {
 		TotalTokens:         10,
 	}}
 
-	inserted, deduped, err := repository.InsertUsageEvents(db, events)
+	inserted, deduped, err := repository.InsertUsageEvents(db, requestEventFixtureWithZeroFees(events))
 	if err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestUsageEventsPersistAndListResponseServiceTier(t *testing.T) {
 		t.Fatalf("expected inserted=1 deduped=0, got inserted=%d deduped=%d", inserted, deduped)
 	}
 
-	page, err := repository.ListUsageEventsWithFilter(db, dto.UsageQueryFilter{Page: 1, PageSize: 10}, emptyPricingResolverForTest())
+	page, err := repository.ListUsageEventsWithFilter(db, dto.UsageQueryFilter{Page: 1, PageSize: 10}, emptyPricingSnapshotForTest())
 	if err != nil {
 		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
 	}

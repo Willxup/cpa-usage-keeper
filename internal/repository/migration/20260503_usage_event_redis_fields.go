@@ -92,6 +92,18 @@ func backfillUsageEventRedisFieldsMigration(tx *gorm.DB) error {
 		}).Error
 }
 
+// 只读取该旧迁移会修补的六个字段；以后加入事件实体的列不属于这次回填。
+type legacyUsageEventRedisBackfillRow struct {
+	ID        int64
+	EventKey  string
+	Provider  string
+	Endpoint  string
+	AuthType  string
+	RequestID string
+}
+
+func (legacyUsageEventRedisBackfillRow) TableName() string { return "usage_events" }
+
 func backfillUsageEventRedisFields(tx *gorm.DB, usageEventKey string, payload redisUsageBackfillPayload, allowRequestIDFallback bool) error {
 	if usageEventKey == "" {
 		if allowRequestIDFallback && payload.RequestID != "" {
@@ -100,8 +112,8 @@ func backfillUsageEventRedisFields(tx *gorm.DB, usageEventKey string, payload re
 		return nil
 	}
 
-	var event entities.UsageEvent
-	result := tx.Where("event_key = ?", usageEventKey).Limit(1).Find(&event)
+	var event legacyUsageEventRedisBackfillRow
+	result := tx.Select("id, event_key, provider, endpoint, auth_type, request_id").Where("event_key = ?", usageEventKey).Limit(1).Find(&event)
 	if result.Error != nil {
 		return fmt.Errorf("load usage event %q for redis backfill: %w", usageEventKey, result.Error)
 	}
@@ -128,7 +140,7 @@ func backfillUsageEventRedisFields(tx *gorm.DB, usageEventKey string, payload re
 	if len(updates) == 0 {
 		return nil
 	}
-	if err := tx.Model(&entities.UsageEvent{}).Where("id = ?", event.ID).Updates(updates).Error; err != nil {
+	if err := tx.Table("usage_events").Where("id = ?", event.ID).Updates(updates).Error; err != nil {
 		return fmt.Errorf("backfill usage event %q redis fields: %w", event.EventKey, err)
 	}
 	return nil

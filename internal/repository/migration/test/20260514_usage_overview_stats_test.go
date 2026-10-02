@@ -51,6 +51,9 @@ func TestCreateUsageOverviewStatsMigrationCreatesTablesAndIndexes(t *testing.T) 
 				t.Fatalf("expected %s.%s column to exist", tc.table, column)
 			}
 		}
+		if tc.table == "usage_overview_hourly_stats" || tc.table == "usage_overview_daily_stats" {
+			assertNoFuturePricingColumns(t, db, tc.table, "cost_usd", "unavailable_cost_count")
+		}
 	}
 
 	for _, index := range []string{

@@ -104,6 +104,7 @@ export interface CredentialsTabData {
   saveAuthFilePriority: (identityId: string, authIndex: string, priority: number) => Promise<void>
   saveAiProviderPriority: (identityId: string, authIndex: string, priority: number) => Promise<void>
   refresh: () => Promise<void>
+  refreshAfterRecalculation: () => Promise<void>
   saveCredentialField: (kind: CredentialStatusKind, id: string, authIndex: string, change: CredentialEditChange) => Promise<void>
   resetUsageIdentityStats: (id: string) => Promise<UsageIdentity>
   refreshQuotaForCurrentAuthFilePage: () => Promise<void>
@@ -119,7 +120,7 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
     () => selectQuotaEligibleAuthIndexes(credentialPages.authFileIdentities),
     [credentialPages.authFileIdentities],
   )
-  const { quotaResponseByAuthIndex, cachedQuotaStateByAuthIndex, setQuotaResponseByAuthIndex, refreshQuotaCache } = useQuotaCache({
+  const { quotaResponseByAuthIndex, cachedQuotaStateByAuthIndex, setQuotaResponseByAuthIndex, refreshQuotaCache, resetQuotaCache } = useQuotaCache({
     enabled: enabledAuthFiles,
     authIndexes: currentAuthIndexes,
     onAuthRequired,
@@ -130,7 +131,7 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
     setQuotaResponseByAuthIndex,
     onAuthRequired,
   })
-  const { refreshQuotaForAuthIndex } = quotaRefreshTasks
+  const { refreshQuotaForAuthIndex, resetQuotaRefreshTasks } = quotaRefreshTasks
   const [quotaResetStateByAuthIndex, setQuotaResetStateByAuthIndex] = useState<Record<string, CredentialResetState>>({})
   const [credentialStatusPending, setCredentialStatusPending] = useState<Record<string, boolean>>({})
   const quotaInspection = useQuotaInspection({
@@ -138,6 +139,7 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
     onAuthRequired,
     onInspectionCompleted: refreshQuotaCache,
   })
+  const { refreshQuotaInspectionStatus, resetQuotaInspection } = quotaInspection
 
   const quotaResponsesByAuthIndex = useMemo(() => new Map(Object.entries(quotaResponseByAuthIndex)), [quotaResponseByAuthIndex])
   const quotaStates = useMemo(
@@ -162,6 +164,16 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
   const refresh = useCallback(async () => {
     await Promise.all([refreshCredentialPages(), refreshQuotaCache()])
   }, [refreshCredentialPages, refreshQuotaCache])
+
+  const refreshAfterRecalculation = useCallback(async () => {
+    // 当前页观察到重算终态后，先清三类旧响应归属，再只读取 Keeper 缓存与巡检状态。
+    resetQuotaCache()
+    resetQuotaRefreshTasks()
+    resetQuotaInspection()
+    if (enabledAuthFiles) {
+      await Promise.all([refreshQuotaCache(), refreshQuotaInspectionStatus()])
+    }
+  }, [enabledAuthFiles, refreshQuotaCache, refreshQuotaInspectionStatus, resetQuotaCache, resetQuotaInspection, resetQuotaRefreshTasks])
 
   // 开关按钮改用 aria-disabled 后不再由浏览器拦截重复点击，这里用 ref 做与渲染时序无关的兜底。
   const credentialStatusInFlightRef = useRef<Set<string>>(new Set())
@@ -333,6 +345,7 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
     saveAuthFilePriority,
     saveAiProviderPriority,
     refresh: refresh,
+    refreshAfterRecalculation,
     saveCredentialField,
     resetUsageIdentityStats: credentialPages.resetStats,
     refreshQuotaForCurrentAuthFilePage: quotaRefreshTasks.refreshQuotaForCurrentAuthFilePage,

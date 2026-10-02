@@ -11,7 +11,6 @@ import (
 
 	"cpa-usage-keeper/internal/cpa/dto/models"
 	"cpa-usage-keeper/internal/cpa/dto/response"
-	"cpa-usage-keeper/internal/service"
 )
 
 type liteLLMCatalogTransport struct{ t *testing.T }
@@ -32,28 +31,28 @@ func TestPricingSyncLiteLLMUsesSharedMatchingAndZeroCacheDefaults(t *testing.T) 
 	transport := http.DefaultTransport
 	http.DefaultTransport = liteLLMCatalogTransport{t}
 	t.Cleanup(func() { http.DefaultTransport = transport })
-	provider := service.NewPricingService(openUsageServiceTestDatabase(t), emptyPricingCatalogForTest(), stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{
+	provider := newPricingTestProvider(t, openUsageServiceTestDatabase(t), emptyPricingCatalogForTest(), stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: []models.ModelInfo{
 		{ID: "custom/gpt-test"}, {ID: "claude-test"}, {ID: "overflow"},
 	}}}})
-	preview, err := provider.PreviewPricingSync(context.Background(), "litellm")
+	preview, err := provider.FetchPricingSync(context.Background(), "litellm")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preview.SourceID != "litellm" || preview.Source != "LiteLLM" || len(preview.Matches) != 2 || len(preview.UnmatchedModels) != 1 {
+	if preview.Source != "litellm" || len(preview.Matches) != 2 || len(preview.UnmatchedModels) != 1 {
 		t.Fatalf("unexpected preview: %+v", preview)
 	}
 	for _, match := range preview.Matches {
 		if match.Model == "custom/gpt-test" {
-			if match.SourceProviderID != "openai" || math.Abs(match.PromptPricePer1M-2.5) > 1e-10 || match.CacheWritePricePer1M != 0 {
+			if match.Provider != "openai" || math.Abs(match.BasePrices.Input-2.5) > 1e-10 || match.BasePrices.CacheWrite != 0 {
 				t.Errorf("unexpected OpenAI match: %+v", match)
 			}
-		} else if match.PricingStyle != "claude" || math.Abs(match.CacheWritePricePer1M-3.75) > 1e-10 || match.CacheReadPricePer1M != 0 {
+		} else if match.PricingStyle != "claude" || math.Abs(match.BasePrices.CacheWrite-3.75) > 1e-10 || match.BasePrices.CacheRead != 0 {
 			t.Errorf("unexpected Claude match: %+v", match)
 		}
 	}
-	prices, err := provider.ListPricing(context.Background())
-	if err != nil || len(prices) != 0 {
-		t.Fatalf("preview must not save prices: %+v, %v", prices, err)
+	prices, err := provider.ListPricingModels(context.Background())
+	if err != nil || len(prices.Models) != 0 {
+		t.Fatalf("fetch must not save prices: %+v, %v", prices, err)
 	}
 }
 
@@ -87,10 +86,10 @@ func TestPricingSyncLiteLLMCacheHitPriceFallback(t *testing.T) {
 				t.Fatalf("unexpected preview: %+v", preview)
 			}
 			for _, match := range preview.Matches {
-				if match.SourceProviderID != "deepseek" || math.Abs(match.CacheReadPricePer1M-tc.cacheRead) > 1e-10 {
+				if match.Provider != "deepseek" || math.Abs(match.BasePrices.CacheRead-tc.cacheRead) > 1e-10 {
 					t.Errorf("expected cache read price %v: %+v", tc.cacheRead, match)
 				}
-				if math.Abs(match.PromptPricePer1M-0.28) > 1e-10 || math.Abs(match.CompletionPricePer1M-0.4) > 1e-10 || match.CacheWritePricePer1M != 0 {
+				if math.Abs(match.BasePrices.Input-0.28) > 1e-10 || math.Abs(match.BasePrices.Output-0.4) > 1e-10 || match.BasePrices.CacheWrite != 0 {
 					t.Errorf("unexpected other base prices: %+v", match)
 				}
 			}

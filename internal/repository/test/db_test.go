@@ -31,6 +31,35 @@ func emptyPricingResolverForTest() pricing.Resolver {
 	return pricing.NewCatalog(pricing.EmptySnapshot()).NewResolver()
 }
 
+func emptyPricingSnapshotForTest() *pricing.Snapshot {
+	return pricing.EmptySnapshot()
+}
+
+// requestEventFixtureWithZeroFees 仅为不验证金额的请求测试明确赋予已结算零费用，不改全局入库行为。
+func requestEventFixtureWithZeroFees(events []entities.UsageEvent) []entities.UsageEvent {
+	for index := range events {
+		if events[index].CostUSD == nil {
+			zero := 0.0
+			events[index].CostUSD = &zero
+		}
+		if events[index].CostAvailable == nil {
+			available := true
+			events[index].CostAvailable = &available
+		}
+	}
+	return events
+}
+
+// collectRequestEventsForTest 只在测试里把真实流式导出收集成切片，生产路径保持逐行写出。
+func collectRequestEventsForTest(db *gorm.DB, filter dto.UsageQueryFilter, snapshot *pricing.Snapshot) ([]dto.UsageEventRecord, error) {
+	var records []dto.UsageEventRecord
+	err := repository.StreamUsageEventsWithFilter(db, filter, func(record dto.UsageEventRecord) error {
+		records = append(records, record)
+		return nil
+	}, snapshot)
+	return records, err
+}
+
 func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigrations(t *testing.T) {
 	logs := captureRepositoryLogs(t)
 	db := openTestDatabase(t)
@@ -371,20 +400,6 @@ func TestOpenReadDatabaseDoesNotCreateMissingFile(t *testing.T) {
 	}
 }
 
-func TestBuildSQLiteFileURIKeepsWindowsDriveInsideURIPath(t *testing.T) {
-	// 准备：传入 filepath.ToSlash 在 Windows 上产生的盘符路径，并包含必须转义的特殊字符。
-	filename := "C:/data/app #reader.db"
-
-	// 执行：统一 URI helper 必须把盘符保留在 path，而不能让 net/url 把 C: 解释成 authority。
-	got := repository.BuildSQLiteFileURI(filename)
-
-	// 断言：SQLite 官方支持的本地盘符形式固定为 file:///C:/...，且文件名经过 URI 转义。
-	const want = "file:///C:/data/app%20%23reader.db"
-	if got != want {
-		t.Fatalf("expected Windows drive URI %q, got %q", want, got)
-	}
-}
-
 func TestInsertUsageEventsPersistsDuplicateEventKeys(t *testing.T) {
 	db := openTestDatabase(t)
 	events := []entities.UsageEvent{
@@ -669,12 +684,12 @@ func TestCleanupStorageRetainsNinetyLocalDays(t *testing.T) {
 	now := time.Date(2026, 6, 16, 15, 0, 0, 0, time.Local)
 	cutoff := time.Date(2026, 3, 18, 0, 0, 0, 0, time.Local)
 
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+	if _, _, err := repository.InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, []entities.UsageEvent{
 		{EventKey: "before-cutoff", Model: "claude-sonnet", Timestamp: cutoff.Add(-time.Nanosecond), TotalTokens: 1},
 		{EventKey: "at-cutoff", Model: "claude-sonnet", Timestamp: cutoff, TotalTokens: 2},
 		{EventKey: "after-cutoff", Model: "claude-sonnet", Timestamp: cutoff.Add(time.Nanosecond), TotalTokens: 3},
 		{EventKey: "current-day", Model: "claude-sonnet", Timestamp: time.Date(2026, 6, 16, 9, 0, 0, 0, time.Local), TotalTokens: 4},
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 	// 准备：只有 Overview 与 Activity 都追平后，旧 raw events 才具备归档安全水位。
@@ -722,11 +737,11 @@ func TestCleanupStorageUsesLocalCalendarDaysAcrossDST(t *testing.T) {
 		t.Fatalf("expected fixture to cross spring DST in 2159 hours, got %s", elapsed)
 	}
 
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+	if _, _, err := repository.InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, []entities.UsageEvent{
 		{EventKey: "before-dst-cutoff", Model: "claude-sonnet", Timestamp: cutoff.Add(-time.Nanosecond), TotalTokens: 1},
 		{EventKey: "at-dst-cutoff", Model: "claude-sonnet", Timestamp: cutoff, TotalTokens: 2},
 		{EventKey: "after-dst-cutoff", Model: "claude-sonnet", Timestamp: cutoff.Add(time.Nanosecond), TotalTokens: 3},
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 	if err := repository.AggregateUsageOverviewStats(context.Background(), db, now); err != nil {
@@ -795,10 +810,10 @@ func TestCleanupStorageDefersUsageEventsUntilLatencyCatchUp(t *testing.T) {
 	db := openTestDatabase(t)
 	now := time.Date(2026, 6, 16, 9, 0, 0, 0, time.Local)
 
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+	if _, _, err := repository.InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, []entities.UsageEvent{
 		{EventKey: "latency-aggregated-old", Model: "claude-sonnet", Timestamp: now.AddDate(0, 0, -92), TotalTokens: 1},
 		{EventKey: "latency-pending-old", Model: "claude-sonnet", Timestamp: now.AddDate(0, 0, -91), TotalTokens: 2},
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 	if err := repository.AggregateUsageOverviewStats(context.Background(), db, now); err != nil {

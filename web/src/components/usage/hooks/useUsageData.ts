@@ -75,6 +75,8 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
       return;
     }
     void loadUsageStats({
+      // 进入页面或重新启用时读取服务端最新已存费用，不以本地60秒缓存代替刷新。
+      force: true,
       staleTimeMs: USAGE_STATS_STALE_TIME_MS,
       range: rangeQuery.range,
       unit: rangeQuery.unit,

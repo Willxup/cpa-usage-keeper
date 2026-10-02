@@ -25,6 +25,9 @@ type UsageOverviewHourlyStat struct {
 	CacheReadTokens     int64     `gorm:"not null;default:0"`
 	CacheCreationTokens int64     `gorm:"not null;default:0"`
 	TotalTokens         int64     `gorm:"not null;default:0"`
-	CreatedAt           time.Time `gorm:"serializer:storageTime;not null"`
-	UpdatedAt           time.Time `gorm:"serializer:storageTime;not null"`
+	// 旧桶在费用回填前为 NULL，零费用桶由完成阶段写成明确的零。
+	CostUSD              *float64  `gorm:"column:cost_usd;type:real"`
+	UnavailableCostCount *int64    `gorm:"column:unavailable_cost_count"`
+	CreatedAt            time.Time `gorm:"serializer:storageTime;not null"`
+	UpdatedAt            time.Time `gorm:"serializer:storageTime;not null"`
 }

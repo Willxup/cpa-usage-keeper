@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	// usageLatencyMigrationBatchSize 与运行时事件页上限一致，避免回填长时间占用唯一 writer。
-	usageLatencyMigrationBatchSize = 1000
+	// usageLatencyMigrationBatchSize 缩短旧 Latency 回放的单页事务，让持续接收的 inbox 在页间取得唯一 writer。
+	usageLatencyMigrationBatchSize = 100
 )
 
 // usageLatencyStatsMigration 从当前仍保留的 usage_events 回填 hour/day Latency 聚合。
@@ -62,9 +62,9 @@ func migrateUsageLatencyBatch(db *gorm.DB, now time.Time, targetEventID int64) (
 			return nil
 		}
 
-		// migration 与运行时共享同一固定字段投影，避免历史回填悄悄形成第二套数据契约。
+		// 读取费用持久化前已发布的固定事件投影，未来运行时新增费用字段不能提前进入旧迁移。
 		var events []entities.UsageEvent
-		if err := tx.Select(entities.UsageAggregationEventProjectionColumns).
+		if err := tx.Select(legacyUsageLatencyEventProjectionColumns).
 			Where("id > ? AND id <= ?", checkpoint.LastAggregatedUsageEventID, targetEventID).
 			Order("id asc").
 			Limit(usageLatencyMigrationBatchSize).

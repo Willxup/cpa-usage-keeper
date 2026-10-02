@@ -23,7 +23,7 @@ func TestAttachWindowUsageStatsBackfillsOnlyXAIWeeklyBilling(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting: %v", err)
 	}
-	service := NewServiceWithRegistry(db, NewProviderRegistry(nil), quotaUsagePricingCatalog(t, db))
+	service := NewServiceWithRegistry(db, NewProviderRegistry(nil))
 	defer service.StopRefreshTasks()
 
 	now := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
@@ -31,31 +31,37 @@ func TestAttachWindowUsageStatsBackfillsOnlyXAIWeeklyBilling(t *testing.T) {
 	weeklyStart := weeklyResetAt.Add(-7 * 24 * time.Hour)
 	for _, event := range []entities.UsageEvent{
 		{
-			EventKey:     "xai-weekly-current",
-			AuthIndex:    "xai-auth",
-			Model:        "grok-priced",
-			Timestamp:    now.Add(-30 * time.Minute),
-			InputTokens:  1_000_000,
-			OutputTokens: 500_000,
-			TotalTokens:  1_500_000,
+			EventKey:      "xai-weekly-current",
+			AuthIndex:     "xai-auth",
+			Model:         "grok-priced",
+			Timestamp:     now.Add(-30 * time.Minute),
+			InputTokens:   1_000_000,
+			OutputTokens:  500_000,
+			TotalTokens:   1_500_000,
+			CostUSD:       floatPtr(2.25),
+			CostAvailable: boolPtr(true),
 		},
 		{
-			EventKey:     "xai-weekly-expired",
-			AuthIndex:    "xai-auth",
-			Model:        "grok-priced",
-			Timestamp:    weeklyStart.Add(-time.Minute),
-			InputTokens:  2_000_000,
-			OutputTokens: 1_000_000,
-			TotalTokens:  3_000_000,
+			EventKey:      "xai-weekly-expired",
+			AuthIndex:     "xai-auth",
+			Model:         "grok-priced",
+			Timestamp:     weeklyStart.Add(-time.Minute),
+			InputTokens:   2_000_000,
+			OutputTokens:  1_000_000,
+			TotalTokens:   3_000_000,
+			CostUSD:       floatPtr(99),
+			CostAvailable: boolPtr(true),
 		},
 		{
-			EventKey:     "xai-weekly-other-auth",
-			AuthIndex:    "other-xai-auth",
-			Model:        "grok-priced",
-			Timestamp:    now.Add(-30 * time.Minute),
-			InputTokens:  4_000_000,
-			OutputTokens: 2_000_000,
-			TotalTokens:  6_000_000,
+			EventKey:      "xai-weekly-other-auth",
+			AuthIndex:     "other-xai-auth",
+			Model:         "grok-priced",
+			Timestamp:     now.Add(-30 * time.Minute),
+			InputTokens:   4_000_000,
+			OutputTokens:  2_000_000,
+			TotalTokens:   6_000_000,
+			CostUSD:       floatPtr(88),
+			CostAvailable: boolPtr(true),
 		},
 	} {
 		if err := db.Create(&event).Error; err != nil {
@@ -106,10 +112,13 @@ func TestAttachWindowUsageStatsBackfillsOnlyXAIWeeklyBilling(t *testing.T) {
 	}, now)
 
 	weekly := findQuotaRow(t, response.Quota, "billing.weekly")
+	if weekly.UsedPercent == nil || *weekly.UsedPercent != 25 {
+		t.Fatalf("xAI provider usage denominator changed with local fee: %+v", weekly)
+	}
 	if weekly.WindowUsageTokens == nil || *weekly.WindowUsageTokens != 1_500_000 {
 		t.Fatalf("xAI weekly tokens = %#v, want 1500000", weekly.WindowUsageTokens)
 	}
-	const wantWeeklyCost = 7.0
+	const wantWeeklyCost = 2.25
 	if weekly.WindowUsageCost == nil || !(math.Abs(*weekly.WindowUsageCost-wantWeeklyCost) <= 1e-9) {
 		t.Fatalf("xAI weekly cost = %#v, want %.2f", weekly.WindowUsageCost, wantWeeklyCost)
 	}

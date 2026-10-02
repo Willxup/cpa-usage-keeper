@@ -741,7 +741,6 @@ func TestCodexQuotaHistoryQueueFullDoesNotBlockOrDiscardCacheSnapshot(t *testing
 		UsageHeaderSnapshotFlushInterval: time.Hour,
 		CodexQuotaHistoryFlushInterval:   time.Hour,
 		CodexQuotaHistoryQueueSize:       1,
-		PricingCatalog:                   emptyPricingCatalogForTest(),
 	})
 	timers := newCodexHistoryManualTimers(service, 1)
 	base := time.Date(2026, 8, 20, 8, 0, 0, 0, time.UTC)
@@ -809,7 +808,6 @@ func TestCodexQuotaHistoryQueueFullKeepsLatestArrival(t *testing.T) {
 		UsageHeaderSnapshotFlushInterval: time.Hour,
 		CodexQuotaHistoryFlushInterval:   time.Hour,
 		CodexQuotaHistoryQueueSize:       1,
-		PricingCatalog:                   emptyPricingCatalogForTest(),
 	})
 	base := time.Date(2026, 8, 20, 8, 0, 0, 0, time.UTC)
 	resetAt := base.Add(5 * time.Hour)
@@ -857,7 +855,6 @@ func TestCodexQuotaHistoryRunnerSnapshotsQueueOnlyWhenTimerExpires(t *testing.T)
 
 	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{
 		UsageHeaderSnapshotFlushInterval: time.Hour,
-		PricingCatalog:                   emptyPricingCatalogForTest(),
 	})
 	// 任一断言提前结束测试时先解除查询，再让 shutdown drain 等待 runner 完成。
 	defer func() {
@@ -934,7 +931,6 @@ func TestCodexQuotaHistoryRunnerUsesDefaultWindowWithoutCountBasedEarlyFlush(t *
 
 		service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{
 			UsageHeaderSnapshotFlushInterval: time.Hour,
-			PricingCatalog:                   emptyPricingCatalogForTest(),
 		})
 		defer service.StopRefreshTasks()
 		timers := newCodexHistoryManualTimers(service, 2)
@@ -984,7 +980,6 @@ func TestCodexQuotaHistoryRunnerMaterializesBothHeaderWindowsWhenOneChanges(t *t
 		UsageHeaderSnapshotFlushInterval:   time.Hour,
 		CodexQuotaHistoryFlushInterval:     time.Hour,
 		CodexQuotaHistoryHeartbeatInterval: time.Hour,
-		PricingCatalog:                     emptyPricingCatalogForTest(),
 	})
 	defer service.StopRefreshTasks()
 	timers := newCodexHistoryManualTimers(service, 4)
@@ -1049,7 +1044,6 @@ func TestCodexQuotaHistoryRunnerMaterializesStablePercentOnNextHeaderAfterHeartb
 			UsageHeaderSnapshotFlushInterval:   time.Hour,
 			CodexQuotaHistoryFlushInterval:     time.Hour,
 			CodexQuotaHistoryHeartbeatInterval: heartbeatInterval,
-			PricingCatalog:                     emptyPricingCatalogForTest(),
 		})
 		defer service.StopRefreshTasks()
 		timers := newCodexHistoryManualTimers(service, 6)
@@ -1134,7 +1128,6 @@ func TestCodexQuotaHistoryRunnerSkipsRepeatedRecoveryAfterSameBatchFailure(t *te
 	seedUsageIdentity(t, db, codexHistoryUsageIdentity("recovery-failure-auth"))
 	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{
 		UsageHeaderSnapshotFlushInterval: time.Hour,
-		PricingCatalog:                   emptyPricingCatalogForTest(),
 	})
 	defer service.StopRefreshTasks()
 	timers := newCodexHistoryManualTimers(service, 2)
@@ -1220,7 +1213,6 @@ func TestCodexQuotaHistoryWriteFailureInvalidatesStateBeforeNextObservation(t *t
 		service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{
 			UsageHeaderSnapshotFlushInterval: time.Hour,
 			CodexQuotaHistoryFlushInterval:   10 * time.Millisecond,
-			PricingCatalog:                   emptyPricingCatalogForTest(),
 		})
 		defer service.StopRefreshTasks()
 		base := time.Date(2026, 8, 20, 8, 0, 0, 0, time.UTC)
@@ -1271,7 +1263,6 @@ func TestCodexQuotaHistoryRunnerRecoversAfterPartialRepositoryCommit(t *testing.
 	service := NewServiceWithRegistryAndOptions(db, NewProviderRegistry(nil), ServiceOptions{
 		UsageHeaderSnapshotFlushInterval: time.Hour,
 		CodexQuotaHistoryFlushInterval:   10 * time.Millisecond,
-		PricingCatalog:                   emptyPricingCatalogForTest(),
 	})
 	defer service.StopRefreshTasks()
 	setCodexQuotaHistoryWriter(service, func(ctx context.Context, writerDB *gorm.DB, observations []repositorydto.CodexMainQuotaObservation) error {
@@ -1453,7 +1444,6 @@ func newCodexHistoryService(db *gorm.DB, handler ProviderHandler) *Service {
 	return NewServiceWithRegistryAndOptions(db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}), ServiceOptions{
 		UsageHeaderSnapshotFlushInterval: time.Hour,
 		CodexQuotaHistoryFlushInterval:   time.Hour,
-		PricingCatalog:                   emptyPricingCatalogForTest(),
 	})
 }
 

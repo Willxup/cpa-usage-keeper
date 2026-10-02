@@ -662,7 +662,7 @@ export function RequestEventsDetailsCard({
       const xForwardedFor = String(event.x_forwarded_for ?? '').trim() || '-';
       const userAgent = String(event.user_agent ?? '').trim() || '-';
       const executorType = String(event.executor_type ?? '').trim() || '-';
-      // 费用由后端按当前价格配置运行时计算，前端只负责展示可用/不可用状态。
+      // 费用及可用状态来自后端持久化结果；前端只展示，不按当前价格重新计算。
       const costAvailable = event.cost_available === true;
       const cost = costAvailable ? Math.max(toNumber(event.cost_usd), 0) : null;
       const pricingStyle = event.pricing_style === 'claude'

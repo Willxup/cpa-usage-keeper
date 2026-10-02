@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository"
 	repositorydto "cpa-usage-keeper/internal/repository/dto"
 
@@ -45,7 +44,7 @@ func TestBuildCodexQuotaEfficiencyHistoryClassifiesCycleAndTransitionUsageOnce(t
 
 	streamQueryCount := 0
 	queryDB := db.Session(&gorm.Session{Logger: codexQuotaEfficiencyQueryLogger{Interface: logger.Default.LogMode(logger.Silent), streamQueries: &streamQueryCount}})
-	result := buildCodexQuotaEfficiencyForTest(t, queryDB, "codex-auth", now, codexQuotaEfficiencyPricingResolver(t))
+	result := buildCodexQuotaEfficiencyForTest(t, queryDB, "codex-auth", now)
 
 	if len(result.Windows) != 1 || result.SelectedWindow == nil {
 		t.Fatalf("expected one selected Weekly window, got %+v", result.Windows)
@@ -118,7 +117,7 @@ func TestBuildCodexQuotaEfficiencyHistoryUsesNewCycleStartForOverlappingWeeklyCy
 		usageEventForQuotaEfficiency("before-new-cycle-observed", "oauth", "codex-auth", newStart.Add(30*time.Minute), 300),
 	)
 
-	result := buildCodexQuotaEfficiencyForTest(t, db, "codex-auth", now, codexQuotaEfficiencyPricingResolver(t))
+	result := buildCodexQuotaEfficiencyForTest(t, db, "codex-auth", now)
 	if len(result.Cycles) != 2 || result.Cycles[0].ID != newCycle.ID || result.Cycles[1].ID != oldCycle.ID {
 		t.Fatalf("expected current and completed Weekly cycles, got %+v", result.Cycles)
 	}
@@ -153,7 +152,7 @@ func TestBuildCodexQuotaEfficiencyHistoryUsesLatestWindowPerRoleAndCutsOverlappi
 		usageEventForQuotaEfficiency("after-switch", "oauth", "codex-auth", switchedAt.Add(30*time.Minute), 200),
 	)
 
-	result := buildCodexQuotaEfficiencyForTest(t, db, "codex-auth", now, codexQuotaEfficiencyPricingResolver(t))
+	result := buildCodexQuotaEfficiencyForTest(t, db, "codex-auth", now)
 	if len(result.Windows) != 2 || result.SelectedWindow == nil {
 		t.Fatalf("expected both current and historical roles to remain selectable, got %+v", result.Windows)
 	}
@@ -193,7 +192,7 @@ func TestBuildCodexQuotaEfficiencyHistoryMarksReusedWeeklyCurrentAfterMultipleFi
 		usageEventForQuotaEfficiency("during-second-detour", "oauth", "codex-auth", now.Add(-9*time.Hour/2), 200),
 	)
 
-	result := buildCodexQuotaEfficiencyForTest(t, db, "codex-auth", now, codexQuotaEfficiencyPricingResolver(t))
+	result := buildCodexQuotaEfficiencyForTest(t, db, "codex-auth", now)
 	if result.SelectedWindow == nil || result.SelectedWindow.WindowSeconds != int64((7*24*time.Hour)/time.Second) || !result.SelectedWindow.HasCurrentCycle {
 		t.Fatalf("expected restored Weekly window selection, got %+v", result.SelectedWindow)
 	}
@@ -226,7 +225,7 @@ func TestBuildCodexQuotaEfficiencyHistoryClassifiesSingleWindowKindsByDuration(t
 				{remaining: 100, first: now.Add(-time.Minute), last: now.Add(-time.Minute)},
 			})
 
-			result := buildCodexQuotaEfficiencyForTest(t, db, "free-codex-auth", now, codexQuotaEfficiencyPricingResolver(t))
+			result := buildCodexQuotaEfficiencyForTest(t, db, "free-codex-auth", now)
 			if len(result.Windows) != 1 || result.SelectedWindow == nil || result.SelectedWindow.WindowRole != string(test.role) || !result.SelectedWindow.HasCurrentCycle {
 				t.Fatalf("expected one current %s window, got %+v", test.role, result)
 			}
@@ -264,7 +263,7 @@ func TestBuildCodexQuotaEfficiencyHistoryRestoresFiveHourPrimaryWithWeeklySecond
 		usageEventForQuotaEfficiency("after-five-hour-observed", "oauth", "codex-auth", now.Add(-30*time.Minute), 300),
 	)
 
-	result := buildCodexQuotaEfficiencyForTest(t, db, "codex-auth", now, codexQuotaEfficiencyPricingResolver(t))
+	result := buildCodexQuotaEfficiencyForTest(t, db, "codex-auth", now)
 	if len(result.Windows) != 2 || result.SelectedWindow == nil || result.SelectedWindow.WindowRole != "primary" || result.SelectedWindow.WindowSeconds != int64((5*time.Hour)/time.Second) || !result.SelectedWindow.HasCurrentCycle {
 		t.Fatalf("expected restored Primary 5h selection, got %+v", result)
 	}
@@ -328,11 +327,13 @@ func TestBuildCodexQuotaEfficiencyHistoryMarksMissingPricingUnavailable(t *testi
 	})
 	event := usageEventForQuotaEfficiency("missing-price", "oauth", "codex-auth", now.Add(-75*time.Minute), 1234)
 	event.Model = "unpriced-model"
-	// 模拟旧数据只有 total_tokens、没有计价分项；有 Token 且无模型价格仍必须明确标记不可计价。
+	// 已存缺价状态优先于 Token 形状；旧数据只有 total_tokens 时同样传播该状态。
 	event.InputTokens = 0
+	cost, available := 0.0, false
+	event.CostUSD, event.CostAvailable = &cost, &available
 	seedCodexQuotaEfficiencyUsage(t, db, event)
 
-	result := buildCodexQuotaEfficiencyForTest(t, db, "codex-auth", now, codexQuotaEfficiencyPricingResolver(t))
+	result := buildCodexQuotaEfficiencyForTest(t, db, "codex-auth", now)
 	if len(result.Cycles) != 1 || result.Cycles[0].Status != "current" || result.Cycles[0].ID != cycle.ID || len(result.Cycles[0].Transitions) != 1 {
 		t.Fatalf("unexpected current cycle: %+v", result.Cycles)
 	}
@@ -343,7 +344,81 @@ func TestBuildCodexQuotaEfficiencyHistoryMarksMissingPricingUnavailable(t *testi
 	}
 }
 
-func TestBuildCodexQuotaEfficiencyHistoryKeepsPricingRuleDimensionsSeparate(t *testing.T) {
+func TestCodexQuotaEfficiencyReadsStoredCostForCycleAndTransition(t *testing.T) {
+	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	db := openTestDatabase(t)
+	seedCodexQuotaEfficiencyCycle(t, db, "codex-auth", now.Add(-5*time.Hour), now.Add(time.Hour), []codexQuotaEfficiencySegmentSeed{
+		{remaining: 90, first: now.Add(-3 * time.Hour), last: now.Add(-3 * time.Hour)},
+		{remaining: 89, first: now.Add(-time.Hour), last: now.Add(-time.Hour)},
+	})
+	event := usageEventForQuotaEfficiency("stored-cost", "oauth", "codex-auth", now.Add(-2*time.Hour), 1_000_000)
+	cost, available := 7.25, true
+	event.CostUSD, event.CostAvailable = &cost, &available
+	seedCodexQuotaEfficiencyUsage(t, db, event)
+	setting := entities.ModelPriceSetting{Model: "priced-model", PromptPricePer1M: 99}
+	if err := db.Create(&setting).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	for _, changePrice := range []func() error{
+		func() error { return nil },
+		func() error { return db.Model(&setting).Update("prompt_price_per1_m", 199).Error },
+		func() error { return db.Delete(&setting).Error },
+	} {
+		if err := changePrice(); err != nil {
+			t.Fatal(err)
+		}
+		result := buildCodexQuotaEfficiencyForTest(t, db, "codex-auth", now)
+		assertCodexQuotaEfficiencyUsage(t, result.Cycles[0].Usage, 1_000_000, cost, true)
+		assertCodexQuotaEfficiencyUsage(t, result.Cycles[0].Transitions[0].Usage, 1_000_000, cost, true)
+	}
+}
+
+func TestCodexQuotaEfficiencyRejectsUnbackfilledCostAndPreservesZeroAvailability(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		cost      *float64
+		available *bool
+		wantError bool
+	}{
+		{name: "cost NULL", available: codexQuotaEfficiencyBool(true), wantError: true},
+		{name: "availability NULL", cost: codexQuotaEfficiencyFloat(0), wantError: true},
+		{name: "free", cost: codexQuotaEfficiencyFloat(0), available: codexQuotaEfficiencyBool(true)},
+		{name: "unavailable", cost: codexQuotaEfficiencyFloat(0), available: codexQuotaEfficiencyBool(false)},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+			db := openTestDatabase(t)
+			seedCodexQuotaEfficiencyCycle(t, db, "codex-auth", now.Add(-5*time.Hour), now.Add(time.Hour), []codexQuotaEfficiencySegmentSeed{
+				{remaining: 90, first: now.Add(-3 * time.Hour), last: now.Add(-3 * time.Hour)},
+				{remaining: 89, first: now.Add(-time.Hour), last: now.Add(-time.Hour)},
+			})
+			event := usageEventForQuotaEfficiency("stored-state", "oauth", "codex-auth", now.Add(-2*time.Hour), 1_000_000)
+			event.CostUSD, event.CostAvailable = testCase.cost, testCase.available
+			seedCodexQuotaEfficiencyUsage(t, db, event)
+			result, err := repository.BuildCodexQuotaEfficiencyHistory(context.Background(), db, repositorydto.CodexQuotaEfficiencyQuery{
+				AuthIndex: "codex-auth", Now: now, RangeStart: now.Add(-30 * 24 * time.Hour),
+			})
+			if testCase.wantError {
+				if err == nil {
+					t.Fatalf("unbackfilled fee returned a usable history: %+v", result.Cycles)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, usage := range []repositorydto.CodexQuotaEfficiencyUsage{result.Cycles[0].Usage, result.Cycles[0].Transitions[0].Usage} {
+				assertCodexQuotaEfficiencyUsage(t, usage, 1_000_000, 0, *testCase.available)
+			}
+		})
+	}
+}
+
+func codexQuotaEfficiencyFloat(value float64) *float64 { return &value }
+func codexQuotaEfficiencyBool(value bool) *bool        { return &value }
+
+func TestBuildCodexQuotaEfficiencyHistorySumsDistinctStoredCosts(t *testing.T) {
 	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
 	db := openTestDatabase(t)
 	seedCodexQuotaEfficiencyCycle(t, db, "codex-auth", now.Add(-24*time.Hour), now.Add(24*time.Hour), []codexQuotaEfficiencySegmentSeed{
@@ -353,11 +428,11 @@ func TestBuildCodexQuotaEfficiencyHistoryKeepsPricingRuleDimensionsSeparate(t *t
 	defaultTier := usageEventForQuotaEfficiency("default-tier", "oauth", "codex-auth", now.Add(-90*time.Minute), 1_000_000)
 	priorityTier := usageEventForQuotaEfficiency("priority-tier", "oauth", "codex-auth", now.Add(-time.Hour), 1_000_000)
 	priorityTier.ServiceTier = "priority"
+	priorityCost := 2.0
+	priorityTier.CostUSD = &priorityCost
 	seedCodexQuotaEfficiencyUsage(t, db, defaultTier, priorityTier)
 
-	result := buildCodexQuotaEfficiencyForTest(t, db, "codex-auth", now, codexQuotaEfficiencyPricingResolverWithRules(t, []pricing.RuleConfig{{
-		Key: "service_tier", Value: "priority", Multiplier: 2,
-	}}))
+	result := buildCodexQuotaEfficiencyForTest(t, db, "codex-auth", now)
 	if len(result.Cycles) != 1 || result.Cycles[0].Status != "current" || len(result.Cycles[0].Transitions) != 1 {
 		t.Fatalf("unexpected current cycle: %+v", result.Cycles)
 	}
@@ -415,16 +490,20 @@ func seedCodexQuotaEfficiencyRoleCycle(t testing.TB, db *gorm.DB, authIndex stri
 }
 
 func usageEventForQuotaEfficiency(key, authType, authIndex string, timestamp time.Time, inputTokens int64) entities.UsageEvent {
+	// 合成事件采用固定每百万输入 Token 一美元的已存费用；个别测试显式覆盖免费或缺价。
+	cost, available := float64(inputTokens)/1_000_000, true
 	return entities.UsageEvent{
-		EventKey:    key,
-		Provider:    "codex",
-		Model:       "priced-model",
-		AuthType:    authType,
-		AuthIndex:   authIndex,
-		Timestamp:   timestamp,
-		InputTokens: inputTokens,
-		TotalTokens: inputTokens,
-		CreatedAt:   timestamp,
+		Provider:      "codex",
+		EventKey:      key,
+		Model:         "priced-model",
+		AuthType:      authType,
+		AuthIndex:     authIndex,
+		Timestamp:     timestamp,
+		InputTokens:   inputTokens,
+		TotalTokens:   inputTokens,
+		CostUSD:       &cost,
+		CostAvailable: &available,
+		CreatedAt:     timestamp,
 	}
 }
 
@@ -435,39 +514,18 @@ func seedCodexQuotaEfficiencyUsage(t testing.TB, db *gorm.DB, events ...entities
 	}
 }
 
-func codexQuotaEfficiencyPricingResolver(t testing.TB) pricing.Resolver {
-	return codexQuotaEfficiencyPricingResolverWithRules(t, nil)
-}
-
-func codexQuotaEfficiencyPricingResolverWithRules(t testing.TB, rules []pricing.RuleConfig) pricing.Resolver {
-	t.Helper()
-	multiplier := 1.0
-	snapshot, err := pricing.CompileSnapshot([]pricing.ModelConfig{{
-		Pricing: entities.ModelPriceSetting{
-			Model:            "priced-model",
-			PromptPricePer1M: 1,
-			PriceMultiplier:  &multiplier,
-		},
-		Rules: rules,
-	}})
-	if err != nil {
-		t.Fatalf("compile quota efficiency pricing snapshot: %v", err)
-	}
-	return pricing.NewCatalog(snapshot).NewResolver()
-}
-
 func assertCodexQuotaEfficiencyUsage(t *testing.T, usage repositorydto.CodexQuotaEfficiencyUsage, tokens int64, cost float64, available bool) {
 	t.Helper()
-	if usage.TotalTokens != tokens || math.Abs(usage.TotalCostUSD-cost) > 1e-9 || usage.CostAvailable != available {
+	if usage.TotalTokens != tokens || math.IsNaN(usage.TotalCostUSD) || math.IsInf(usage.TotalCostUSD, 0) || math.Abs(usage.TotalCostUSD-cost) > 1e-9 || usage.CostAvailable != available {
 		t.Fatalf("unexpected quota efficiency usage: got %+v, want tokens=%d cost=%f available=%v", usage, tokens, cost, available)
 	}
 }
 
-func buildCodexQuotaEfficiencyForTest(t *testing.T, db *gorm.DB, authIndex string, now time.Time, resolver pricing.Resolver) repositorydto.CodexQuotaEfficiencyHistory {
+func buildCodexQuotaEfficiencyForTest(t *testing.T, db *gorm.DB, authIndex string, now time.Time) repositorydto.CodexQuotaEfficiencyHistory {
 	t.Helper()
 	result, err := repository.BuildCodexQuotaEfficiencyHistory(context.Background(), db, repositorydto.CodexQuotaEfficiencyQuery{
 		AuthIndex: authIndex, Now: now, RangeStart: now.Add(-30 * 24 * time.Hour),
-	}, resolver)
+	})
 	if err != nil {
 		t.Fatalf("BuildCodexQuotaEfficiencyHistory: %v", err)
 	}

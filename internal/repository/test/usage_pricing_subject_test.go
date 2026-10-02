@@ -3,16 +3,17 @@ package test
 import (
 	"math"
 	"testing"
+	"time"
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository"
-	repodto "cpa-usage-keeper/internal/repository/dto"
 )
 
-func TestPricingDimensionSubjectsMapAllNineFieldsAndFourTokenSegments(t *testing.T) {
+func TestUsageEventPricingSubjectMapsAllNineFieldsAndFourTokenSegments(t *testing.T) {
 	alias := " alias-a "
 	event := entities.UsageEvent{
+		Timestamp:           time.Date(2026, 9, 23, 13, 0, 0, 0, time.UTC),
 		APIGroupKey:         " group-a ",
 		Model:               " model-a ",
 		AuthIndex:           " auth-a ",
@@ -27,72 +28,22 @@ func TestPricingDimensionSubjectsMapAllNineFieldsAndFourTokenSegments(t *testing
 		CacheReadTokens:     3,
 		CacheCreationTokens: 4,
 	}
-	hourly := entities.UsageOverviewHourlyStat{
-		APIGroupKey:         event.APIGroupKey,
-		Model:               event.Model,
-		AuthIndex:           event.AuthIndex,
-		ModelAlias:          alias,
-		ServiceTier:         event.ServiceTier,
-		ResponseServiceTier: event.ResponseServiceTier,
-		ReasoningEffort:     event.ReasoningEffort,
-		Endpoint:            event.Endpoint,
-		ExecutorType:        event.ExecutorType,
-		InputTokens:         event.InputTokens,
-		OutputTokens:        event.OutputTokens,
-		CacheReadTokens:     event.CacheReadTokens,
-		CacheCreationTokens: event.CacheCreationTokens,
-	}
-	daily := entities.UsageOverviewDailyStat{
-		APIGroupKey:         hourly.APIGroupKey,
-		Model:               hourly.Model,
-		AuthIndex:           hourly.AuthIndex,
-		ModelAlias:          hourly.ModelAlias,
-		ServiceTier:         hourly.ServiceTier,
-		ResponseServiceTier: hourly.ResponseServiceTier,
-		ReasoningEffort:     hourly.ReasoningEffort,
-		Endpoint:            hourly.Endpoint,
-		ExecutorType:        hourly.ExecutorType,
-		InputTokens:         hourly.InputTokens,
-		OutputTokens:        hourly.OutputTokens,
-		CacheReadTokens:     hourly.CacheReadTokens,
-		CacheCreationTokens: hourly.CacheCreationTokens,
-	}
-	record := repodto.UsageEventRecord{
-		APIGroupKey:         event.APIGroupKey,
-		Model:               event.Model,
-		AuthIndex:           event.AuthIndex,
-		ModelAlias:          alias,
-		ServiceTier:         event.ServiceTier,
-		ResponseServiceTier: event.ResponseServiceTier,
-		ReasoningEffort:     event.ReasoningEffort,
-		Endpoint:            event.Endpoint,
-		ExecutorType:        event.ExecutorType,
-		InputTokens:         event.InputTokens,
-		OutputTokens:        event.OutputTokens,
-		CacheReadTokens:     event.CacheReadTokens,
-		CacheCreationTokens: event.CacheCreationTokens,
-	}
-
-	subjects := []pricing.CostSubject{
-		repository.UsageEventCostSubject(event),
-		repository.UsageEventRecordCostSubject(record),
-		repository.UsageOverviewHourlyCostSubject(hourly),
-		repository.UsageOverviewDailyCostSubject(daily),
+	subject := repository.UsageEventCostSubject(event)
+	if !subject.Timestamp.Equal(event.Timestamp) {
+		t.Fatalf("event pricing subject lost CPA timestamp: got %s want %s", subject.Timestamp, event.Timestamp)
 	}
 	resolver := repositoryPricingResolver(t, []pricing.RuleConfig{
 		{Key: "service_tier", Value: "priority", Multiplier: 2},
 		{Key: "reasoning_effort", Value: "xhigh", Multiplier: 3},
 	})
-	for index, subject := range subjects {
-		assertPricingSubject(t, index, subject)
-		result := resolver.Calculate(subject)
-		if !result.Available || result.RuleMultiplier != 6 || math.Abs(result.Cost.TotalCostUSD-0.000018) > 1e-12 {
-			t.Errorf("subject %d pricing mismatch: %+v", index, result)
-		}
+	assertPricingSubject(t, subject)
+	result := resolver.CalculateFee(subject)
+	if !result.Available || math.Abs(result.TotalCostUSD-0.000018) > 1e-12 {
+		t.Errorf("event subject pricing mismatch: %+v", result)
 	}
 }
 
-func assertPricingSubject(t *testing.T, index int, subject pricing.CostSubject) {
+func assertPricingSubject(t *testing.T, subject pricing.CostSubject) {
 	t.Helper()
 	wants := map[pricing.RuleField]string{
 		pricing.RuleFieldAPIGroupKey:         "group-a",
@@ -107,10 +58,10 @@ func assertPricingSubject(t *testing.T, index int, subject pricing.CostSubject) 
 	}
 	for field, want := range wants {
 		if got := subject.Dimensions.Value(field); got != want {
-			t.Errorf("subject %d field %s = %q, want %q", index, field, got, want)
+			t.Errorf("event subject field %s = %q, want %q", field, got, want)
 		}
 	}
 	if subject.Tokens.InputTokens != 10 || subject.Tokens.OutputTokens != 20 || subject.Tokens.CacheReadTokens != 3 || subject.Tokens.CacheCreationTokens != 4 {
-		t.Errorf("subject %d token mapping mismatch: %+v", index, subject.Tokens)
+		t.Errorf("event subject token mapping mismatch: %+v", subject.Tokens)
 	}
 }

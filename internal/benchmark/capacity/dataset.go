@@ -18,8 +18,10 @@ import (
 	"cpa-usage-keeper/internal/activity"
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/latency"
 	"cpa-usage-keeper/internal/overview"
+	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
@@ -27,7 +29,7 @@ import (
 
 const usageEventInsertColumns = entities.UsageEventStorageColumns
 
-const DatasetGeneratorVersion = "production-v9-event-status-stream"
+const DatasetGeneratorVersion = "production-v10-pricing-storage"
 
 type GenerateOptions struct {
 	Path              string
@@ -124,6 +126,8 @@ type generatedEvent struct {
 	CacheReadTokens     int64
 	CacheCreationTokens int64
 	TotalTokens         int64
+	CostUSD             float64
+	CostAvailable       bool
 }
 
 type identityProfile struct {
@@ -193,7 +197,20 @@ func GenerateDataset(ctx context.Context, options GenerateOptions) (DatasetResul
 	if err != nil {
 		return DatasetResult{}, err
 	}
-	if err := insertGeneratedEvents(ctx, sqlDB, options, identities); err != nil {
+	// 合成事件按同一批已保存模型单价计算；基准费用不是未回填占位或任意零值。
+	settings, err := repository.ListModelPriceSettings(db)
+	if err != nil {
+		return DatasetResult{}, fmt.Errorf("load benchmark model prices: %w", err)
+	}
+	configs := make([]pricing.ModelConfig, len(settings))
+	for index, setting := range settings {
+		configs[index] = pricing.ModelConfig{Pricing: setting}
+	}
+	snapshot, err := pricing.CompileSnapshot(configs)
+	if err != nil {
+		return DatasetResult{}, fmt.Errorf("compile benchmark model prices: %w", err)
+	}
+	if err := insertGeneratedEvents(ctx, sqlDB, options, identities, pricing.NewCatalog(snapshot).NewResolver()); err != nil {
 		return DatasetResult{}, err
 	}
 	if err := restoreIndexes(ctx, sqlDB, indexes); err != nil {
@@ -307,7 +324,8 @@ func seedDatasetMetadata(db *gorm.DB, options GenerateOptions) ([]identityProfil
 			ID: int64(index), Model: fmt.Sprintf("bench-model-%03d", index), PricingStyle: entities.ModelPricingStyleOpenAI,
 			PromptPricePer1M: 1 + float64(index%7)/10, CompletionPricePer1M: 4 + float64(index%11)/10,
 			CacheReadPricePer1M: 0.1, CacheWritePricePer1M: 1.25, PriceMultiplier: &multiplier,
-			CreatedAt: now, UpdatedAt: now,
+			BranchesJSON: "[]",
+			CreatedAt:    now, UpdatedAt: now,
 		})
 	}
 	if err := db.CreateInBatches(prices, 100).Error; err != nil {
@@ -316,7 +334,7 @@ func seedDatasetMetadata(db *gorm.DB, options GenerateOptions) ([]identityProfil
 	return identityProfiles, nil
 }
 
-func insertGeneratedEvents(ctx context.Context, sqlDB *sql.DB, options GenerateOptions, identities []identityProfile) error {
+func insertGeneratedEvents(ctx context.Context, sqlDB *sql.DB, options GenerateOptions, identities []identityProfile, resolver pricing.Resolver) error {
 	total := options.HotEvents + options.ArchiveEvents
 	apiProfiles, err := BuildAPIKeyProfiles(options.Cardinality.APIKeys, options.TrafficTiers, options.Seed)
 	if err != nil {
@@ -339,7 +357,7 @@ func insertGeneratedEvents(ctx context.Context, sqlDB *sql.DB, options GenerateO
 		if err != nil {
 			return fmt.Errorf("begin benchmark event batch: %w", err)
 		}
-		placeholders := strings.TrimSuffix(strings.Repeat("?,", 36), ",")
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", 38), ",")
 		statement, err := tx.PrepareContext(ctx, "INSERT INTO usage_events ("+usageEventInsertColumns+") VALUES ("+placeholders+")")
 		if err != nil {
 			tx.Rollback()
@@ -353,6 +371,22 @@ func insertGeneratedEvents(ctx context.Context, sqlDB *sql.DB, options GenerateO
 				return fmt.Errorf("benchmark timeline ended before event %d", eventID)
 			}
 			event := makeGeneratedEvent(eventID, timestamp, options, identities, apiTraffic, &random)
+			subject := pricing.NewCostSubject(pricing.UsageDimensions{
+				APIGroupKey: event.APIGroupKey, Model: event.Model, ModelAlias: event.ModelAlias, AuthIndex: event.AuthIndex,
+				ServiceTier: event.ServiceTier, ResponseServiceTier: event.ResponseServiceTier,
+				ReasoningEffort: event.ReasoningEffort, Endpoint: event.Endpoint, ExecutorType: event.ExecutorType,
+			}, helper.UsageTokenCostInput{
+				InputTokens: event.InputTokens, OutputTokens: event.OutputTokens,
+				CacheReadTokens: event.CacheReadTokens, CacheCreationTokens: event.CacheCreationTokens,
+			})
+			subject.Timestamp = event.Timestamp
+			fee := resolver.CalculateFee(subject)
+			if !fee.Available {
+				statement.Close()
+				tx.Rollback()
+				return fmt.Errorf("benchmark model %q is missing a price", event.Model)
+			}
+			event.CostUSD, event.CostAvailable = fee.TotalCostUSD, fee.Available
 			if _, err := statement.ExecContext(ctx, eventInsertArgs(event)...); err != nil {
 				statement.Close()
 				tx.Rollback()
@@ -525,7 +559,7 @@ func eventInsertArgs(event generatedEvent) []any {
 		nil, nil, nil, event.Model, event.ModelAlias, "", event.ReasoningEffort, event.ServiceTier, event.ResponseServiceTier,
 		event.ExecutorType, timestamp, event.Source, event.AuthIndex, event.Failed, event.StatusCode, true, event.Stream, event.LatencyMS, event.TTFTMS,
 		event.InputTokens, event.OutputTokens, event.ReasoningTokens, event.CachedTokens, event.CacheReadTokens,
-		event.CacheCreationTokens, event.TotalTokens, timestamp,
+		event.CacheCreationTokens, event.TotalTokens, event.CostUSD, event.CostAvailable, timestamp,
 	}
 }
 
@@ -697,7 +731,10 @@ func buildDerivedDataset(ctx context.Context, db *gorm.DB, options GenerateOptio
 			nextCursor := events[len(events)-1].ID
 			switch kind {
 			case entities.UsageAggregationCheckpointOverview:
-				hourly, daily, _ := overview.BuildRows(events)
+				hourly, daily, _, buildErr := overview.BuildRows(events)
+				if buildErr != nil {
+					return fmt.Errorf("build overview benchmark aggregation: %w", buildErr)
+				}
 				if err := repository.ApplyUsageOverviewAggregationPage(ctx, db, cursor, nextCursor, hourly, daily, options.Now); err != nil {
 					return fmt.Errorf("apply overview benchmark aggregation: %w", err)
 				}

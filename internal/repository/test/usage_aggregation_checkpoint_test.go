@@ -77,8 +77,9 @@ func TestApplyUsageOverviewAggregationPageRollsBackRowsOnCursorConflict(t *testi
 	}
 
 	// 调用方构建出的 rows 本身有效，但 expected=0 已经过期。
-	hourly := []entities.UsageOverviewHourlyStat{{BucketStart: now, APIGroupKey: "key-a", Model: "model-a", RequestCount: 1}}
-	daily := []entities.UsageOverviewDailyStat{{BucketStart: now, APIGroupKey: "key-a", Model: "model-a", RequestCount: 1}}
+	zeroUnavailable := int64(0)
+	hourly := []entities.UsageOverviewHourlyStat{{BucketStart: now, APIGroupKey: "key-a", Model: "model-a", RequestCount: 1, CostUSD: overviewCostPtr(0.75), UnavailableCostCount: &zeroUnavailable}}
+	daily := []entities.UsageOverviewDailyStat{{BucketStart: now, APIGroupKey: "key-a", Model: "model-a", RequestCount: 1, CostUSD: overviewCostPtr(0.75), UnavailableCostCount: &zeroUnavailable}}
 	err := repository.ApplyUsageOverviewAggregationPage(context.Background(), db, 0, 1, hourly, daily, now)
 	if err == nil {
 		t.Fatal("expected overview apply to fail on stale cursor")
@@ -93,7 +94,11 @@ func TestApplyUsageOverviewAggregationPageRollsBackRowsOnCursorConflict(t *testi
 		t.Fatalf("count overview daily rows: %v", err)
 	}
 	if hourlyCount != 0 || dailyCount != 0 {
-		t.Fatalf("stale overview apply committed rows: hourly=%d daily=%d", hourlyCount, dailyCount)
+		t.Fatalf("stale overview apply committed fee rows: hourly=%d daily=%d", hourlyCount, dailyCount)
+	}
+	var checkpoint entities.UsageAggregationCheckpoint
+	if err := db.Where("name = ?", entities.UsageAggregationCheckpointOverview).Take(&checkpoint).Error; err != nil || checkpoint.LastAggregatedUsageEventID != 5 {
+		t.Fatalf("fee rollback changed checkpoint: %+v err=%v", checkpoint, err)
 	}
 }
 

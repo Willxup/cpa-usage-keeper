@@ -52,33 +52,6 @@ func (f RuleField) String() string {
 	return ruleFieldNames[f]
 }
 
-// ActiveFields 是编译后的字段位图，仅包含确实会改变价格的规则字段。
-type ActiveFields uint16
-
-func (f ActiveFields) Has(field RuleField) bool {
-	if field <= RuleFieldInvalid || field >= ruleFieldCount {
-		return false
-	}
-	return f&(1<<uint(field-1)) != 0
-}
-
-func (f ActiveFields) Len() int {
-	count := 0
-	for field := RuleFieldAPIGroupKey; field < ruleFieldCount; field++ {
-		if f.Has(field) {
-			count++
-		}
-	}
-	return count
-}
-
-func (f ActiveFields) with(field RuleField) ActiveFields {
-	if field <= RuleFieldInvalid || field >= ruleFieldCount {
-		return f
-	}
-	return f | (1 << uint(field-1))
-}
-
 // UsageDimensions 是所有计价来源共享的固定字段映射，不使用反射或动态 map。
 type UsageDimensions struct {
 	APIGroupKey         string

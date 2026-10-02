@@ -1,0 +1,24 @@
+{
+  "product_revision": "4e41adc293f10469e4523a300432ace8b90dfc05",
+  "comparison_baseline_revision": "54a43cb324f33c1039c7622d842e005257a68466",
+  "comparison_script_sha256": "f58ad822d8151dd92da06afe732cc04d9dcf28298f07df8bdf043c50649a2130",
+  "go_version": "go1.26.2 linux/amd64",
+  "sqlite_driver": "github.com/mattn/go-sqlite3 v1.14.48",
+  "benchmark_build_tags": [
+    "sqlite_trace"
+  ],
+  "benchmark_binary_sha256": "972ad692b805e6cbd07ad8de85ab05f14ae404c2fda4def5b98f410fe3392d2e",
+  "logical_cpus": 6,
+  "cpu_quota": "unlimited",
+  "cgroup_memory_max_bytes": 7516192768,
+  "cgroup_swap_max_bytes": 536870912,
+  "go_memory_limit_bytes": 5368709120,
+  "timezone": "UTC",
+  "latest_1000000_cgroup_memory_peak_bytes": 2993217536,
+  "query_comparison_1000000_cgroup_memory_peak_bytes": 2196881408,
+  "memory_note": "cgroup peaks include preparation and charged file cache; per-phase RSS is reported separately in each benchmark JSON",
+  "latest_10000000_cgroup_memory_peak_bytes": 7349907456,
+  "five_dim_1000000_cgroup_memory_peak_bytes": 2981462016,
+  "five_dim_fixed_binary_sha256": "b13fd8a21aef71175cd3ee8445e4fc2367e1d78ebc681acd6525e3aa49f74012",
+  "five_dim_fixed_source_note": "Exact measured migration source hashes are recorded in five-dim-1000000-source.sha256; migration implementation committed in 94eef02c."
+}

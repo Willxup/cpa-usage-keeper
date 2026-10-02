@@ -12,6 +12,7 @@ const api = vi.hoisted(() => ({
   fetchUsageEvents: vi.fn(),
   exportUsageEvents: vi.fn(),
   fetchUsageOverview: vi.fn(),
+  fetchUsageOverviewComparisons: vi.fn(),
   fetchUsageOverviewRealtime: vi.fn(),
   fetchUsageActivity: vi.fn(),
   fetchAnalysis: vi.fn(),
@@ -63,7 +64,7 @@ describe('UsagePage top API Key request event filter', () => {
       version: 9, filters: { model: 'gpt-5', apiKeyId: '22', source: 'source-1', result: 'failed' },
     }));
     localStorage.setItem('cli-proxy-usage-time-range-v1', '24h');
-    for (const mock of [api.fetchUsageOverview, api.fetchUsageOverviewRealtime, api.fetchUsageActivity, api.fetchAnalysis, api.fetchAnalysisLatency]) {
+    for (const mock of [api.fetchUsageOverview, api.fetchUsageOverviewComparisons, api.fetchUsageOverviewRealtime, api.fetchUsageActivity, api.fetchAnalysis, api.fetchAnalysisLatency]) {
       mock.mockReset().mockReturnValue(new Promise(() => undefined));
     }
     api.fetchCpaApiKeyOptions.mockReset().mockResolvedValue(keyOptions);

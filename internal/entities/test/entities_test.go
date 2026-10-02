@@ -21,6 +21,8 @@ func TestAllIncludesCoreModels(t *testing.T) {
 		&RedisUsageInbox{},
 		&ModelPriceSetting{},
 		&ModelPriceRule{},
+		&PricingState{},
+		&PricingMigrationState{},
 		&UsageIdentity{},
 		&CPAAPIKey{},
 		&UsageOverviewHourlyStat{},

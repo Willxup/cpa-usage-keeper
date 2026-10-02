@@ -55,8 +55,13 @@ func TestProcessRedisUsageInboxKnownExecutorBypassesIdentityLookup(t *testing.T)
 	if err := db.Create(&entities.ModelPriceSetting{Model: "gpt-5.6", PricingStyle: entities.ModelPricingStyleOpenAI, PromptPricePer1M: 1, CompletionPricePer1M: 2, PriceMultiplier: &multiplier}).Error; err != nil {
 		t.Fatalf("seed model price: %v", err)
 	}
+	pricingSnapshot, err := repository.LoadPricingSnapshot(context.Background(), db)
+	if err != nil {
+		t.Fatalf("load pricing snapshot before processing: %v", err)
+	}
+	pricingCatalog := pricing.NewCatalog(pricingSnapshot)
 	lookupCount := registerTokenIdentityTypeLookupCallback(t, db, nil)
-	_, err := repository.InsertRedisUsageInboxMessages(db, []repodto.RedisInboxInsert{{
+	_, err = repository.InsertRedisUsageInboxMessages(db, []repodto.RedisInboxInsert{{
 		Source: "usage",
 		RawMessage: `{
 			"provider":"OpenAI",
@@ -73,7 +78,7 @@ func TestProcessRedisUsageInboxKnownExecutorBypassesIdentityLookup(t *testing.T)
 		t.Fatalf("seed inbox row: %v", err)
 	}
 
-	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com"})
+	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{PricingCatalog: pricingCatalog, BaseURL: "https://cpa.example.com"})
 	result, err := syncService.ProcessRedisUsageInbox(context.Background())
 	if err != nil {
 		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
@@ -102,15 +107,14 @@ func TestProcessRedisUsageInboxKnownExecutorBypassesIdentityLookup(t *testing.T)
 		t.Fatalf("expected Overview rollup Total=120, got %+v", hourly)
 	}
 
-	// quota window 读取 usage_events 的 corrected Total，但成本仍按 Input=100、Output=20 计算为 0.00014。
+	// quota window 读取 usage_events 的 corrected Total 与同批已存费用 0.00014。
 	windowStart := event.Timestamp.Add(-time.Minute)
 	windowEnd := event.Timestamp.Add(time.Minute)
-	pricingSnapshot, err := repository.LoadPricingSnapshot(context.Background(), db)
+	calculator, err := repository.NewUsageWindowStatsCalculator(db)
 	if err != nil {
-		t.Fatalf("load pricing snapshot: %v", err)
+		t.Fatalf("create usage window calculator: %v", err)
 	}
-	pricingCatalog := pricing.NewCatalog(pricingSnapshot)
-	window, err := repository.SumUsageWindowStatsByAuthIndex(context.Background(), db, "missing-but-not-needed", windowStart, &windowEnd, pricingCatalog.NewResolver())
+	window, err := calculator.SumByAuthIndex(context.Background(), "missing-but-not-needed", windowStart, &windowEnd)
 	if err != nil {
 		t.Fatalf("sum usage window stats: %v", err)
 	}
@@ -169,7 +173,7 @@ func TestProcessRedisUsageInboxCommitsReadyItemsWhenIdentityLookupFails(t *testi
 	}
 	recent := &tokenProcessorRecentRecorder{}
 	headers := &tokenProcessorHeaderRecorder{}
-	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
+	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{PricingCatalog: emptyPricingCatalogForTest(),
 		BaseURL:                  "https://cpa.example.com",
 		RecentUsageEvents:        recent,
 		UsageAggregationNotifier: headers,
@@ -270,7 +274,7 @@ func TestProcessRedisUsageInboxWaitsWhenFailureStatusCannotBeConfirmed(t *testin
 			}
 
 			logs := captureTokenProcessorLogs(t)
-			result, processErr := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com"}).ProcessRedisUsageInbox(context.Background())
+			result, processErr := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{PricingCatalog: emptyPricingCatalogForTest(), BaseURL: "https://cpa.example.com"}).ProcessRedisUsageInbox(context.Background())
 			if processErr == nil || !strings.Contains(processErr.Error(), lookupErr.Error()) {
 				t.Fatalf("expected identity lookup warning, got result=%+v err=%v", result, processErr)
 			}

@@ -17,6 +17,7 @@ import (
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/poller"
+	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
@@ -135,7 +136,7 @@ func TestUsageEventExportBypassesOccupiedFileWriter(t *testing.T) {
 	// 导出属于纯查询；先写入一条当前事件，再独占唯一 writer。
 	cfg := databasePoolTestConfig(filepath.Join(t.TempDir(), "app.db"))
 	application := newDatabasePoolTestApp(t, cfg)
-	event := entities.UsageEvent{EventKey: "reader-export-event", Model: "reader-export-model", Timestamp: time.Now()}
+	event := storedAppUsageEventFee(entities.UsageEvent{EventKey: "reader-export-event", Model: "reader-export-model", Timestamp: time.Now()}, 0, true)
 	if err := application.DB.Create(&event).Error; err != nil {
 		t.Fatalf("seed usage event: %v", err)
 	}
@@ -228,6 +229,7 @@ func TestRedisUsageProcessingStaysOnWriterWhenReadersAreOccupied(t *testing.T) {
 	notifier := &databasePoolUsageAggregationNotifier{}
 	syncService := service.NewSyncServiceWithOptions(application.DB, service.SyncServiceOptions{
 		BaseURL: "https://cpa.example.com", Now: func() time.Time { return now }, UsageAggregationNotifier: notifier,
+		PricingCatalog: pricing.NewCatalog(pricing.EmptySnapshot()),
 	})
 	readers, releaseReaders := holdDatabasePoolReaders(t, application.ReadDB)
 	defer releaseReaders()
@@ -272,10 +274,10 @@ func TestUsageAggregationReadsWaitForOccupiedReadersBeforeWriting(t *testing.T) 
 	cfg := databasePoolTestConfig(filepath.Join(t.TempDir(), "app.db"))
 	application := newDatabasePoolTestApp(t, cfg)
 	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
-	event := entities.UsageEvent{
+	event := storedAppUsageEventFee(entities.UsageEvent{
 		EventKey: "writer-aggregation-event", APIGroupKey: "provider-a", Model: "gpt-5.5",
 		AuthType: "oauth", AuthIndex: "writer-aggregation-identity", Timestamp: now.Add(-time.Minute), TotalTokens: 12,
-	}
+	}, 0, true)
 	if err := application.DB.Create(&event).Error; err != nil {
 		t.Fatalf("seed aggregation usage event: %v", err)
 	}
@@ -323,7 +325,7 @@ func TestDatabaseBackupWaitsForFileWriterAndPreservesCommittedData(t *testing.T)
 	if application.BackupMaintenance == nil {
 		t.Fatal("expected backup maintenance runner")
 	}
-	event := entities.UsageEvent{EventKey: "writer-backup-event", Model: "model-a", Timestamp: time.Now()}
+	event := storedAppUsageEventFee(entities.UsageEvent{EventKey: "writer-backup-event", Model: "model-a", Timestamp: time.Now()}, 0, true)
 	if err := application.DB.Create(&event).Error; err != nil {
 		t.Fatalf("seed usage event: %v", err)
 	}
@@ -470,10 +472,12 @@ func closeDatabasePoolTestDB(t *testing.T, db interface{ DB() (*sql.DB, error) }
 
 func newDatabasePoolTestApp(t *testing.T, cfg config.Config) *keeperapp.App {
 	t.Helper()
-	application, err := keeperapp.NewWithConfig(cfg)
-	if err != nil {
-		t.Fatalf("NewWithConfig returned error: %v", err)
-	}
-	t.Cleanup(func() { _ = application.Close() })
-	return application
+	return newInitializedApp(t, cfg)
+}
+
+// storedAppUsageEventFee 明确保留直插事件当时的费用结果，不修改待迁移的 NULL 语义。
+func storedAppUsageEventFee(event entities.UsageEvent, costUSD float64, available bool) entities.UsageEvent {
+	event.CostUSD = &costUSD
+	event.CostAvailable = &available
+	return event
 }

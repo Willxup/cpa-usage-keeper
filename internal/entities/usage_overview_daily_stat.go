@@ -25,6 +25,9 @@ type UsageOverviewDailyStat struct {
 	CacheReadTokens     int64     `gorm:"not null;default:0"`
 	CacheCreationTokens int64     `gorm:"not null;default:0"`
 	TotalTokens         int64     `gorm:"not null;default:0"`
-	CreatedAt           time.Time `gorm:"serializer:storageTime;not null"`
-	UpdatedAt           time.Time `gorm:"serializer:storageTime;not null"`
+	// 日桶与小时桶保持相同的待回填 NULL 语义。
+	CostUSD              *float64  `gorm:"column:cost_usd;type:real"`
+	UnavailableCostCount *int64    `gorm:"column:unavailable_cost_count"`
+	CreatedAt            time.Time `gorm:"serializer:storageTime;not null"`
+	UpdatedAt            time.Time `gorm:"serializer:storageTime;not null"`
 }

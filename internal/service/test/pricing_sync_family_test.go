@@ -28,7 +28,7 @@ func TestPricingSyncRecognizesOfficialModelFamilies(t *testing.T) {
 					t.Fatalf("unexpected preview: %+v", preview)
 				}
 				for _, match := range preview.Matches {
-					if match.SourceProviderID != wantProvider || math.Abs(match.PromptPricePer1M-0.1) > 1e-10 || math.Abs(match.CompletionPricePer1M-0.3) > 1e-10 {
+					if match.Provider != wantProvider || math.Abs(match.BasePrices.Input-0.1) > 1e-10 || math.Abs(match.BasePrices.Output-0.3) > 1e-10 {
 						t.Errorf("expected %s pricing: %+v", wantProvider, match)
 					}
 				}
@@ -47,7 +47,7 @@ func TestPricingSyncNewOfficialFamiliesStillAllowFallback(t *testing.T) {
 				if input == "0" {
 					want = "mistral"
 				}
-				if len(preview.Matches) != 1 || preview.Matches[0].SourceProviderID != want {
+				if len(preview.Matches) != 1 || preview.Matches[0].Provider != want {
 					t.Fatalf("expected %s pricing: %+v", want, preview)
 				}
 			})

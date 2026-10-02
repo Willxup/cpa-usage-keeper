@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 )
@@ -23,6 +22,8 @@ func TestUsageRealtimeTopItemsIncludeExactOtherTotals(t *testing.T) {
 			APIGroupKey: model, AuthType: "oauth", AuthIndex: model,
 			InputTokens: tokens[index], TotalTokens: tokens[index],
 		}
+		cost, available := 0.0, false
+		event.CostUSD, event.CostAvailable = &cost, &available
 		if err := db.Create(&event).Error; err != nil {
 			t.Fatalf("seed event %s: %v", model, err)
 		}
@@ -34,9 +35,9 @@ func TestUsageRealtimeTopItemsIncludeExactOtherTotals(t *testing.T) {
 			t.Fatalf("seed identity %s: %v", model, err)
 		}
 	}
-	realtime, err := repository.BuildUsageOverviewRealtimeWithFilter(db, repodto.UsageQueryFilter{
+	realtime, err := repository.BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, repodto.UsageQueryFilter{
 		RealtimeWindow: "15m", RealtimeEndTime: &end,
-	}, emptyPricingResolverForTest())
+	}, nil)
 	if err != nil {
 		t.Fatalf("build realtime: %v", err)
 	}
@@ -82,28 +83,23 @@ func TestUsageRealtimeOtherCostPreservesKnownAndUnknownSemantics(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			db := openTestDatabase(t)
 			end := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
-			configs := make([]pricing.ModelConfig, 0, 7)
 			for index, tokens := range []int64{700, 600, 500, 400, 300, 200, 100} {
 				model := string(rune('a' + index))
+				cost, available := float64(tokens)/1e6, index < 6 || test.priceLast
+				if !available {
+					cost = 0
+				}
 				if err := db.Create(&entities.UsageEvent{
 					EventKey: model, Timestamp: end.Add(-time.Minute), Model: model,
+					CostUSD: &cost, CostAvailable: &available,
 					APIGroupKey: model, InputTokens: tokens, TotalTokens: tokens,
 				}).Error; err != nil {
 					t.Fatalf("seed event %s: %v", model, err)
 				}
-				if index < 6 || test.priceLast {
-					configs = append(configs, pricing.ModelConfig{Pricing: entities.ModelPriceSetting{
-						Model: model, PricingStyle: entities.ModelPricingStyleOpenAI, PromptPricePer1M: 1,
-					}})
-				}
 			}
-			snapshot, err := pricing.CompileSnapshot(configs)
-			if err != nil {
-				t.Fatalf("compile prices: %v", err)
-			}
-			realtime, err := repository.BuildUsageOverviewRealtimeWithFilter(db, repodto.UsageQueryFilter{
+			realtime, err := repository.BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, repodto.UsageQueryFilter{
 				RealtimeWindow: "15m", RealtimeEndTime: &end,
-			}, pricing.NewCatalog(snapshot).NewResolver())
+			}, nil)
 			if err != nil {
 				t.Fatalf("build realtime: %v", err)
 			}

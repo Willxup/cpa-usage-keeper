@@ -9,6 +9,8 @@ func All() []any {
 		&RedisUsageInbox{},
 		&ModelPriceSetting{},
 		&ModelPriceRule{},
+		&PricingState{},
+		&PricingMigrationState{},
 		&UsageIdentity{},
 		&CPAAPIKey{},
 		&UsageOverviewHourlyStat{},

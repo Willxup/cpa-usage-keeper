@@ -4,6 +4,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { BasicPlatform, Chart as ChartJS, type ChartData, type ChartOptions } from 'chart.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError } from '@/lib/api'
 import type { CodexQuotaHistoryResponse } from '@/lib/types'
 import { useThemeStore } from '@/stores'
 import { CodexQuotaHistoryPanel } from '../CodexQuotaHistoryPanel'
@@ -618,6 +619,22 @@ describe('CodexQuotaHistoryPanel', () => {
       { windowRole: 'secondary' },
       expect.any(AbortSignal),
     )
+  })
+
+  it('keeps the previous stored-cost cycle and retry action during costs_busy', async () => {
+    fetchCodexQuotaHistory.mockReset()
+      .mockResolvedValueOnce(response)
+      .mockRejectedValueOnce(new ApiError('busy', 503, 'costs_busy'))
+      .mockResolvedValueOnce(response)
+    await renderPanel()
+    expect(container.querySelector('[data-codex-quota-cycle-id="2"]')).not.toBeNull()
+    const secondary = [...document.body.querySelectorAll<HTMLButtonElement>('[aria-label="usage_stats.credentials_quota_history_window_selector"] button')]
+      .find((button) => button.textContent === 'usage_stats.credentials_quota_history_window_five_hour')!
+    await act(async () => secondary.click())
+    expect(container.querySelector('[data-codex-quota-cycle-id="2"]')).not.toBeNull()
+    expect(document.body.textContent).toContain('usage_stats.costs_busy')
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[role="status"] button')!.click())
+    expect(fetchCodexQuotaHistory).toHaveBeenCalledTimes(3)
   })
 
   it('draws an isolated Cost sample without adding points to a continuous line', async () => {

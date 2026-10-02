@@ -5,16 +5,14 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/overview"
-	"cpa-usage-keeper/internal/repository/overviewstore"
 	"cpa-usage-keeper/internal/timeutil"
 
 	"gorm.io/gorm"
 )
 
 const (
-	// usageOverviewFiveDimensionsBatchSize 用短事务重放 raw events，避免长期占用 SQLite writer。
-	usageOverviewFiveDimensionsBatchSize = 1000
+	// usageOverviewFiveDimensionsBatchSize 缩短旧五维回放的单页事务，让持续接收的 inbox 在页间取得唯一 writer。
+	usageOverviewFiveDimensionsBatchSize = 100
 	// usageOverviewMigrationCheckpointName 与运行时继续共享既有 Overview cursor。
 	usageOverviewMigrationCheckpointName = "overview"
 )
@@ -75,26 +73,26 @@ func prepareUsageOverviewFiveDimensions(db *gorm.DB) error {
 			}
 		}
 		// checkpoint schema 本次没有变化；只为异常缺表的旧库补建，避免无关表重建。
-		if !tx.Migrator().HasTable(&entities.UsageOverviewAggregationCheckpoint{}) {
-			if err := tx.AutoMigrate(&entities.UsageOverviewAggregationCheckpoint{}); err != nil {
+		if !tx.Migrator().HasTable(&legacyUsageOverviewAggregationCheckpoint{}) {
+			if err := tx.AutoMigrate(&legacyUsageOverviewAggregationCheckpoint{}); err != nil {
 				return fmt.Errorf("create usage overview aggregation checkpoint schema: %w", err)
 			}
 		}
 
 		// 已有 rollup 不含五维信息，不能保留或与重建结果混合。
-		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&entities.UsageOverviewHourlyStat{}).Error; err != nil {
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&legacyUsageOverviewHourlyStat{}).Error; err != nil {
 			return fmt.Errorf("clear usage overview hourly stats: %w", err)
 		}
-		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&entities.UsageOverviewDailyStat{}).Error; err != nil {
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&legacyUsageOverviewDailyStat{}).Error; err != nil {
 			return fmt.Errorf("clear usage overview daily stats: %w", err)
 		}
 
 		// checkpoint 与空 rollup 同事务归零，禁止页面看到新 schema 配旧 cursor。
-		checkpoint := entities.UsageOverviewAggregationCheckpoint{Name: usageOverviewMigrationCheckpointName}
+		checkpoint := legacyUsageOverviewAggregationCheckpoint{Name: usageOverviewMigrationCheckpointName}
 		if err := tx.Where("name = ?", usageOverviewMigrationCheckpointName).FirstOrCreate(&checkpoint).Error; err != nil {
 			return fmt.Errorf("get usage overview migration checkpoint: %w", err)
 		}
-		if err := tx.Model(&entities.UsageOverviewAggregationCheckpoint{}).
+		if err := tx.Model(&legacyUsageOverviewAggregationCheckpoint{}).
 			Where("id = ?", checkpoint.ID).
 			Updates(map[string]any{
 				"last_aggregated_usage_event_id": 0,
@@ -126,13 +124,13 @@ type usageOverviewFiveDimensionRollup struct {
 func usageOverviewFiveDimensionRollups() []usageOverviewFiveDimensionRollup {
 	return []usageOverviewFiveDimensionRollup{
 		{
-			model:       &entities.UsageOverviewHourlyStat{},
+			model:       &legacyUsageOverviewHourlyStat{},
 			table:       "usage_overview_hourly_stats",
 			legacyIndex: "uniq_usage_overview_hourly_stats_bucket_api_model_auth_alias",
 			finalIndex:  "uniq_usage_overview_hourly_stats_dimensions",
 		},
 		{
-			model:       &entities.UsageOverviewDailyStat{},
+			model:       &legacyUsageOverviewDailyStat{},
 			table:       "usage_overview_daily_stats",
 			legacyIndex: "uniq_usage_overview_daily_stats_bucket_api_model_auth_alias",
 			finalIndex:  "uniq_usage_overview_daily_stats_dimensions",
@@ -164,7 +162,7 @@ func addUsageOverviewFiveDimensionColumns(tx *gorm.DB, rollup usageOverviewFiveD
 func migrateUsageOverviewFiveDimensionsBatch(db *gorm.DB, now time.Time, targetEventID int64) (int, error) {
 	processed := 0
 	err := db.Transaction(func(tx *gorm.DB) error {
-		var checkpoint entities.UsageOverviewAggregationCheckpoint
+		var checkpoint legacyUsageOverviewAggregationCheckpoint
 		if err := tx.Where("name = ?", usageOverviewMigrationCheckpointName).Take(&checkpoint).Error; err != nil {
 			return fmt.Errorf("load usage overview migration checkpoint: %w", err)
 		}
@@ -172,8 +170,8 @@ func migrateUsageOverviewFiveDimensionsBatch(db *gorm.DB, now time.Time, targetE
 			return nil
 		}
 
-		// 迁移与运行时读取完全相同的旧计数列和五个新增维度。
-		var events []entities.UsageEvent
+		// 固定费用持久化前的旧计数列和五个新增维度，避免运行时投影扩展改变回放。
+		var events []legacyUsageOverviewEvent
 		if err := tx.Select("id, api_group_key, model, model_alias, auth_index, service_tier, response_service_tier, reasoning_effort, endpoint, executor_type, timestamp, failed, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens").
 			Where("id > ? AND id <= ?", checkpoint.LastAggregatedUsageEventID, targetEventID).
 			Order("id asc").
@@ -185,11 +183,14 @@ func migrateUsageOverviewFiveDimensionsBatch(db *gorm.DB, now time.Time, targetE
 			return nil
 		}
 
-		hourlyRows, dailyRows, maxEventID := overview.BuildRows(events)
-		if err := overviewstore.ApplyRows(tx, hourlyRows, dailyRows, now); err != nil {
+		hourlyRows, dailyRows, maxEventID := buildLegacyUsageOverviewRows(events)
+		if err := applyLegacyUsageOverviewRows(tx, "usage_overview_hourly_stats", hourlyRows, now); err != nil {
 			return err
 		}
-		if err := tx.Model(&entities.UsageOverviewAggregationCheckpoint{}).
+		if err := applyLegacyUsageOverviewRows(tx, "usage_overview_daily_stats", dailyRows, now); err != nil {
+			return err
+		}
+		if err := tx.Model(&legacyUsageOverviewAggregationCheckpoint{}).
 			Where("id = ?", checkpoint.ID).
 			Updates(map[string]any{
 				"last_aggregated_usage_event_id": maxEventID,
@@ -204,7 +205,7 @@ func migrateUsageOverviewFiveDimensionsBatch(db *gorm.DB, now time.Time, targetE
 }
 
 func verifyUsageOverviewFiveDimensionsTarget(db *gorm.DB, targetEventID int64) error {
-	var checkpoint entities.UsageOverviewAggregationCheckpoint
+	var checkpoint legacyUsageOverviewAggregationCheckpoint
 	if err := db.Where("name = ?", usageOverviewMigrationCheckpointName).Take(&checkpoint).Error; err != nil {
 		return fmt.Errorf("verify usage overview five-dimension checkpoint: %w", err)
 	}

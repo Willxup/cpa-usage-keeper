@@ -4,7 +4,7 @@ import '@/lib/chartjs';
 import { Interaction, Tooltip } from 'chart.js';
 import type { Chart, ChartData, ChartOptions, InteractionItem, InteractionModeFunction, Plugin, ScriptableContext, TooltipModel, TooltipPositionerFunction } from 'chart.js';
 import { Bar, Doughnut, Scatter } from 'react-chartjs-2';
-import type { AnalysisCompositionItem, AnalysisCostBreakdown, AnalysisHeatmapCell, AnalysisLatencyDiagnostics, AnalysisModelEfficiencyItem, AnalysisModelUsagePayload, AnalysisResponse, AnalysisTokenUsageBucket } from '@/lib/types';
+import type { AnalysisCompositionItem, AnalysisCostSummary, AnalysisHeatmapCell, AnalysisLatencyDiagnostics, AnalysisModelEfficiencyItem, AnalysisModelUsagePayload, AnalysisResponse, AnalysisTokenUsageBucket } from '@/lib/types';
 import { calculateDisplayInputTokens, calculateDisplayOutputTokens, formatCompactNumber, formatDurationMs, formatUsd } from '@/utils/usage';
 import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill as toGradientFill, USAGE_CHART_REQUESTS_LINE_COLOR, USAGE_CHART_COMPOSITION_COLORS as CHART_COLORS, USAGE_CHART_TOKEN_COLORS as TOKEN_COLORS, type UsageChartGradientColor, type UsageChartTheme } from '@/utils/usage/chartConfig';
 import { createCompositionLabelsPlugin } from './compositionLabels';
@@ -926,7 +926,8 @@ function buildCompositionChartOptions(chartTheme: ChartTheme, labels: Compositio
   };
 }
 
-function TokenUsageChart({ rows, breakdown, loading, isDark, isMobile }: { rows: ChartRow[]; breakdown: AnalysisCostBreakdown | undefined; loading: boolean; isDark: boolean; isMobile: boolean }) {
+// 总费用读取接口已存汇总；每百万 Token 成本沿用当前图表的 Token 分母，不重新匹配单价。
+function TokenUsageChart({ rows, summary, loading, isDark, isMobile }: { rows: ChartRow[]; summary: AnalysisCostSummary | undefined; loading: boolean; isDark: boolean; isMobile: boolean }) {
   const { t } = useTranslation();
   const tokenLabels = useMemo(() => ({
     input: t('usage_stats.input_tokens'),
@@ -950,9 +951,9 @@ function TokenUsageChart({ rows, breakdown, loading, isDark, isMobile }: { rows:
     averageTokenTotal,
   }), [averageTokenTotal, chartTheme, isMobile, rows, tokenLabels.total]);
   const legendItems = useMemo(() => buildTokenLegendItems(tokenLabels, averageTokenTotal, chartTheme.averageLine), [averageTokenTotal, chartTheme.averageLine, tokenLabels]);
-  const hasUnavailableCost = breakdown?.cost_available === false || rows.some((row) => !row.costAvailable);
+  const hasUnavailableCost = summary?.cost_available === false || rows.some((row) => !row.costAvailable);
   const totalTokens = rows.reduce((sum, row) => sum + row.total, 0);
-  const totalCost = toNumber(breakdown?.total_cost_usd);
+  const totalCost = toNumber(summary?.total_cost_usd);
   return (
     <section className={`${styles.analysisCard} keeper-card-surface`}>
       <AnalysisCardHeader
@@ -1711,7 +1712,7 @@ export function AnalysisPanel({
 
   return (
     <div className={styles.analysisPanel}>
-      <TokenUsageChart rows={tokenRows} breakdown={analysis?.cost_breakdown} loading={loading} isDark={isDark} isMobile={isMobile} />
+      <TokenUsageChart rows={tokenRows} summary={analysis?.cost_summary} loading={loading} isDark={isDark} isMobile={isMobile} />
       <div className={styles.insightGrid}>
         <CompositionPanel tabs={compositionTabs} loading={loading} isDark={isDark} windowMinutes={analysisWindowMinutes} />
         <TopModelsCard

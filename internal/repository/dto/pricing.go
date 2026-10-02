@@ -9,4 +9,6 @@ type ModelPriceSettingInput struct {
 	CacheReadPricePer1M  float64
 	CacheWritePricePer1M float64
 	PriceMultiplier      *float64
+	// nil 表示旧基础价写入保留分支；完整配置保存传入非 nil 的 JSON 数组。
+	BranchesJSON *string
 }

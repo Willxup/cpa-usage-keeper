@@ -739,12 +739,9 @@ export interface AnalysisHeatmapPayload {
   cells: AnalysisHeatmapCell[]
 }
 
-export interface AnalysisCostBreakdown {
-	uncached_input_cost_usd: number
-	cache_read_cost_usd: number
-	cache_write_cost_usd: number
-	output_cost_usd: number
-	total_cost_usd: number
+/** 分析范围内已存总费用（USD）与可用性，不包含按 Token 类别拆分的金额。 */
+export interface AnalysisCostSummary {
+  total_cost_usd: number
   cost_available: boolean
 }
 
@@ -803,7 +800,7 @@ export interface AnalysisResponse {
   auth_files_composition: AnalysisCompositionItem[]
   ai_provider_composition: AnalysisCompositionItem[]
   heatmap: AnalysisHeatmapPayload
-  cost_breakdown: AnalysisCostBreakdown
+  cost_summary: AnalysisCostSummary
   model_efficiency: AnalysisModelEfficiencyItem[]
 }
 
@@ -838,88 +835,146 @@ export interface CpaApiKeyOptionsResponse {
 
 export type PricingStyle = 'openai' | 'claude'
 
-export interface ModelPrice {
-	style: PricingStyle
-	prompt: number
-	completion: number
-	cacheRead: number
-	cacheWrite: number
-	multiplier: number
+// 完整模型配置与后端保存合同一致；条件只携带当前 type 允许的字段。
+export interface PricingBasePrices {
+  input: number
+  output: number
+  cache_read: number
+  cache_write: number
 }
 
-export interface PricingSaveFailure {
-  model: string
-  message: string
-  error?: unknown
-}
-
-export interface PricingSaveResult {
-  successModels: string[]
-  failures: PricingSaveFailure[]
-}
-
-export interface PricingEntry {
-  model: string
-	pricing_style: PricingStyle
-	prompt_price_per_1m: number
-	completion_price_per_1m: number
-	cache_read_price_per_1m: number
-	cache_write_price_per_1m: number
-	price_multiplier: number
-}
-
-export interface UsedModelsResponse {
-  models: string[]
-}
-
-export interface PricingResponse {
-  pricing: PricingEntry[]
-}
-
-export interface PricingRule {
+export interface PricingConditionalMultiplier {
   key: string
   value: string
   multiplier: number
 }
 
-export interface ReplacePricingRuleInput {
-  key: string
-  value: string
-  multiplier?: number
+export type PricingContextCondition =
+  | { type: 'all' }
+  | { type: 'gt' | 'lte'; threshold: number }
+  | { type: 'range'; min: number; max: number }
+
+export type PricingPeriodCondition =
+  | { type: 'all' }
+  | { type: 'window'; start: string; end: string }
+
+export type PricingDaysCondition = 'all' | 'weekday' | 'weekend'
+
+export interface PricingPriceBranch {
+  id: string
+  name: string
+  days?: PricingDaysCondition
+  context: PricingContextCondition
+  period: PricingPeriodCondition
+  prices: PricingBasePrices
 }
 
-export interface PricingRulesResponse {
+export interface ModelPricingConfig {
   model: string
-  rules: PricingRule[]
+  pricing_style: PricingStyle
+  base_prices: PricingBasePrices
+  model_multiplier: number
+  conditional_multipliers: PricingConditionalMultiplier[]
+  branches: PricingPriceBranch[]
 }
 
-export interface ReplacePricingRulesRequest {
-  model: string
-  rules: ReplacePricingRuleInput[]
+export interface PricingModelsResponse {
+  models: ModelPricingConfig[]
+  config_revision: number
 }
 
-export interface PricingSyncMatch {
+export interface PricingModelOptionsResponse {
+  models: string[]
+}
+
+export interface SavePricingModelResponse {
   model: string
-  matched_model: string
-  match_type: string
-  source_provider_id: string
-  source_provider_name: string
-	pricing_style: PricingStyle
-	prompt_price_per_1m: number
-	completion_price_per_1m: number
-	cache_read_price_per_1m: number
-	cache_write_price_per_1m: number
+  config_revision: number
+}
+
+export interface DeletePricingModelResponse {
+  config_revision: number
+}
+
+export interface PricingFieldError {
+  path: string
+  code: string
+  branch_ids?: string[]
+}
+
+export interface PricingErrorResponse {
+  code: string
+  message: string
+  fields?: PricingFieldError[]
+}
+
+export type PricingRecalculationStatus = 'running' | 'completed' | 'failed'
+export type PricingRecalculationStage = 'preparing' | 'events' | 'updating_stats' | 'finalizing'
+
+export interface PricingRecalculationTask {
+  task_id: string
+  status: PricingRecalculationStatus
+  stage: PricingRecalculationStage
+  start_at: string
+  end_at: string
+  config_revision: number
+  processed_count: number
+  total_count: number | null
+  updated_at: string
+  error: { code: string; message: string } | null
+}
+
+// 后端按部署时区给出可选小时边界；前端不自行按浏览器时区重算。
+export interface PricingRecalculationOptions {
+  timezone: string
+  earliest_start: string | null
+  latest_start: string | null
+  step_seconds: number
+  max_days: number
+  config_revision: number
+}
+
+export interface StartPricingRecalculationRequest {
+  start_at: string
+  config_revision: number
+}
+
+export interface StartPricingRecalculationResponse {
+  started: boolean
+  task: PricingRecalculationTask
 }
 
 export type PricingSyncSource = 'models-dev' | 'litellm'
 
-export interface PricingSyncPreviewResponse {
-  source_id: PricingSyncSource
-  source: string
-  source_url: string
-  metadata_models: number
-  matches: PricingSyncMatch[]
+export interface PricingSyncFetchMatch {
+  model: string
+  matched_model: string
+  provider: string
+  pricing_style: PricingStyle
+  base_prices: PricingBasePrices
+}
+
+export interface PricingSyncFetchResponse {
+  source: PricingSyncSource
+  matches: PricingSyncFetchMatch[]
   unmatched_models: string[]
+}
+
+// 同步只提交四项默认价及来源风格，已存倍率和分支由服务端保留。
+export interface PricingSyncApplyItem {
+  model: string
+  base_prices: PricingBasePrices
+  pricing_style: PricingStyle
+}
+
+export interface PricingSyncApplyRequest {
+  source: PricingSyncSource
+  items: PricingSyncApplyItem[]
+}
+
+export interface PricingSyncApplyResponse {
+  models: ModelPricingConfig[]
+  config_revision: number
 }
 
 export type UsageRollingHourTimeRange = `${number}h`

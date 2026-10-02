@@ -84,7 +84,8 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
     }
 
     if (loading && activeOverviewRequest) {
-      if (activeOverviewRequestKey === queryKey) {
+      // 显式刷新必须取消旧请求并重新取数，不能复用重算前同范围的在途结果。
+      if (!force && activeOverviewRequestKey === queryKey) {
         return activeOverviewRequest;
       }
       activeOverviewRequestController?.abort();
@@ -156,7 +157,8 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
     }
 
     if (realtimeLoading && activeRealtimeRequest) {
-      if (activeRealtimeRequestKey === realtimeQueryKey) {
+      // 与总览保持同一刷新语义；旧请求即使晚到，也受下方 controller 身份检查约束。
+      if (!force && activeRealtimeRequestKey === realtimeQueryKey) {
         return activeRealtimeRequest;
       }
       activeRealtimeRequestController?.abort();

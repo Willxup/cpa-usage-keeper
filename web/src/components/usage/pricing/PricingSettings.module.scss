@@ -1,0 +1,859 @@
+.settings {
+  container: pricing-list / inline-size;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  max-height: 780px;
+  // 外层宽度跟随设置页，与会话及 API Key 卡片共用左右边界。
+  width: 100%;
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 24px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+
+  > * {
+    flex-shrink: 0;
+  }
+}
+
+.listHeader,
+.headerActions,
+.listLabel,
+.modelActions,
+.sectionHeading,
+.editorFooter,
+.deleteFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.listHeader h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.headerActions {
+  justify-content: flex-end;
+}
+
+.listLabel {
+  margin: 18px 0 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.recalculationBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--primary-color) 8%, var(--bg-primary));
+  font-size: 12px;
+}
+
+.listLabel strong {
+  color: var(--text-primary);
+}
+
+.modelList {
+  display: grid;
+  gap: 8px;
+  // 仅列表滚动，标题及操作留在卡片顶部；少量模型按内容自然收缩。
+  flex-shrink: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.modelCard {
+  display: grid;
+  grid-template-columns: minmax(118px, 1.1fr) minmax(220px, 2.5fr) minmax(110px, .8fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  background: var(--bg-secondary);
+}
+
+.modelName,
+.modelMeta {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.modelName strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.modelName span,
+.modelMeta span,
+.modelPrices span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.modelPrices {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.modelPrices div {
+  min-width: 0;
+}
+
+.modelPrices strong {
+  display: block;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.modelMeta strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.modelActions {
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+}
+
+.empty,
+.notice,
+.listError {
+  margin: 12px 0 0;
+  padding: 12px;
+  border-radius: 14px;
+  font-size: 12px;
+}
+
+.empty {
+  color: var(--text-secondary);
+}
+
+.notice {
+  padding: 0;
+  color: var(--success-color);
+}
+
+.listError {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--bg-error-light);
+  color: var(--danger-color);
+}
+
+.editorModal :global(.modal-body) {
+  padding: 0;
+}
+
+.editorBody {
+  container: pricing-editor / inline-size;
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  padding: 20px 24px 0;
+  color: var(--text-primary);
+}
+
+.settingsLayout,
+.configColumn,
+.branchBody,
+.previewBody,
+.branchEditorForm {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.previewColumn {
+  min-width: 0;
+}
+
+.previewDetails,
+.branchSection {
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.previewBody,
+.branchBody {
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.branchBody > :global(.btn) {
+  justify-self: start;
+}
+
+.branchCard {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  background: var(--bg-secondary);
+}
+
+.branchIdentity,
+.branchRates {
+  min-width: 0;
+}
+
+.branchIdentity strong,
+.previewPlan h4 {
+  font-size: 12px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.branchChips,
+.branchActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.branchChips {
+  margin-top: 6px;
+}
+
+.branchChips span {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border-color) 48%, transparent);
+  color: var(--text-secondary);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.branchRates {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.branchRates span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.branchRates strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.branchActions {
+  justify-content: flex-end;
+}
+
+.previewIntro,
+.previewCondition {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.previewPlan + .previewPlan {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.previewPlan h4,
+.previewConditions h4 {
+  margin: 0 0 6px;
+}
+
+.previewTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.previewTable th,
+.previewTable td {
+  padding: 5px 0;
+  text-align: right;
+}
+
+.previewTable th:first-child,
+.previewTable td:first-child {
+  text-align: left;
+}
+
+.previewTable th {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.previewTable td:last-child {
+  font-weight: 600;
+}
+
+.previewConditions {
+  display: grid;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-color);
+}
+
+.previewCondition span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.previewCondition strong {
+  flex-shrink: 0;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.branchEditor {
+  container: pricing-editor / inline-size;
+  padding: 20px 24px 0;
+  color: var(--text-primary);
+}
+
+.branchEditorHeading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.branchEditorHeading h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.branchEditorGrid {
+  display: grid;
+  gap: 18px;
+}
+
+.branchEditorSection {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.branchEditorSection legend {
+  margin-bottom: 10px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.daysField {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 12px;
+
+  > span {
+    font-weight: 600;
+  }
+}
+
+.daysSwitcher {
+  display: flex;
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
+
+  > button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+}
+
+.branchEditorPair,
+.branchPriceGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.modelField,
+.styleField,
+.field {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.modelField {
+  width: min(340px, 100%);
+}
+
+.styleField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  white-space: nowrap;
+}
+
+.sectionHeading h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sectionHeading > span {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border-color) 48%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.field input,
+.field select,
+.modelField select,
+.styleField select {
+  box-sizing: border-box;
+  width: 100%;
+  height: 38px;
+  min-height: 38px;
+  min-width: 0;
+  padding: 7px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  outline: none;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+}
+
+.styleField select {
+  flex: 0 0 120px;
+  width: 120px;
+}
+
+.field input:focus-visible,
+.field select:focus-visible,
+.modelField select:focus-visible,
+.styleField select:focus-visible {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 18%, transparent);
+}
+
+.invalid input,
+.invalid select,
+.field input[aria-invalid='true'],
+.field select[aria-invalid='true'],
+.modelField select[aria-invalid='true'],
+.styleField select[aria-invalid='true'] {
+  border-color: var(--danger-color);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger-color) 13%, transparent);
+}
+
+.priceGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.multiplierRow {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+}
+
+.multiplierRow .field {
+  width: calc((100% - 36px) / 4);
+  flex: 0 0 calc((100% - 36px) / 4);
+}
+
+.multiplierRow > span,
+.hint,
+.historyNotice {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.multiplierRow > span {
+  padding-bottom: 9px;
+}
+
+.conditionSection {
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.conditionSummary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.conditionSummary strong {
+  font-weight: 700;
+}
+
+.conditionSummary span {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border-color) 48%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.conditionBody {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.conditionBody > :global(.btn) {
+  justify-self: start;
+}
+
+.conditionRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(120px, .55fr) auto;
+  gap: 10px;
+  align-items: end;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  background: var(--bg-secondary);
+}
+
+.historyNotice {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--bg-primary);
+}
+
+.requestError {
+  margin: 0;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--bg-error-light);
+  color: var(--danger-color);
+  font-size: 12px;
+}
+
+.editorFooter {
+  justify-content: flex-end;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.deleteFooter {
+  justify-content: flex-end;
+}
+
+.screenReaderOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes priceInvalidOdd {
+  0%, 100% { transform: translateX(0); }
+  35% { transform: translateX(-3px); }
+  70% { transform: translateX(3px); }
+}
+
+@keyframes priceInvalidEven {
+  0%, 100% { transform: translateX(0); }
+  35% { transform: translateX(-3px); }
+  70% { transform: translateX(3px); }
+}
+
+.invalid[data-shake='odd'] input,
+.invalid[data-shake='odd'] select {
+  animation: priceInvalidOdd 200ms ease;
+}
+
+.invalid[data-shake='even'] input,
+.invalid[data-shake='even'] select {
+  animation: priceInvalidEven 200ms ease;
+}
+
+@container pricing-editor (max-width: 599px) {
+  .daysSwitcher {
+    width: 100%;
+
+    > button {
+      flex: 1 1 0;
+      min-width: 0;
+      padding-inline: 4px;
+    }
+  }
+
+  .priceGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .multiplierRow .field {
+    width: calc((100% - 12px) / 2);
+    flex-basis: calc((100% - 12px) / 2);
+  }
+
+  .conditionRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .conditionRow :global(.btn) {
+    justify-self: end;
+  }
+
+  .branchRates {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container pricing-editor (min-width: 600px) {
+  .branchEditorGrid {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    gap: 28px;
+  }
+
+  .branchEditorSection + .branchEditorSection {
+    padding-left: 28px;
+    border-left: 1px solid var(--border-color);
+  }
+}
+
+@container pricing-editor (min-width: 880px) {
+  .settingsLayout {
+    grid-template-columns: minmax(0, 1fr) 290px;
+    gap: 24px;
+  }
+
+  .previewColumn {
+    padding-left: 22px;
+    border-left: 1px solid var(--border-color);
+  }
+
+  .previewDetails {
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .branchCard {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .branchRates { grid-column: 1 / -1; grid-row: 2; }
+  .branchActions { grid-column: 2; grid-row: 1; gap: 3px; }
+  .branchActions :global(.btn) { padding: 4px 7px; min-height: 30px; }
+
+  .branchActions {
+    flex-wrap: nowrap;
+  }
+}
+
+@container pricing-editor (max-width: 399px) {
+  // 条件字段保留完整输入宽度；倍率与删除共用末行，减少手机上的滚动。
+  .conditionRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .conditionRow > label:nth-child(-n + 2) {
+    grid-column: 1 / -1;
+  }
+
+  .conditionRow :global(.btn) {
+    justify-self: end;
+  }
+
+  .branchEditorPair:has(.clockFields) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container pricing-list (max-width: 679px) {
+  .modelCard {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .modelPrices,
+  .modelMeta {
+    grid-column: 1 / -1;
+  }
+
+  .modelActions {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
+
+@media (max-width: 480px) {
+  .settings {
+    padding: 14px;
+  }
+
+
+
+  .modelActions {
+    justify-content: flex-start;
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+
+  .editorBody {
+    padding-inline: 16px;
+  }
+
+  .branchEditor {
+    padding-inline: 16px;
+  }
+
+
+
+  .multiplierRow {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .multiplierRow .field {
+    width: calc((100% - 12px) / 2);
+    flex-basis: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .invalid[data-shake] input,
+  .invalid[data-shake] select {
+    animation: none;
+  }
+}
+
+// 标题、图标和底部操作与确认原型一致，提示不改变草稿保存行为。
+.editorTitle { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dirtyBadge { padding: 2px 8px; border-radius: 999px; background: var(--bg-primary); color: var(--text-secondary); font-size: 12px; font-weight: 400; }
+.iconDelete:global(.btn.btn-ghost.btn-action) { color: var(--danger-color); padding: 7px; background: transparent; border-color: transparent; box-shadow: none; }
+.conditionSummary { list-style: none; }
+.conditionSummary::-webkit-details-marker { display: none; }
+.conditionSummary > svg { margin-left: auto; transition: transform 150ms ease; }
+details[open] > .conditionSummary > svg { transform: rotate(180deg); }
+.historyNotice { display: flex; align-items: start; gap: 8px; padding: 12px 0; background: none; }
+.historyNotice > svg { flex-shrink: 0; }
+.deleteFooter { justify-content: space-between; }
+@container pricing-list (max-width: 399px) {
+  .modelPrices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (pointer: coarse) {
+  .settings :global(.btn.btn-action), .editorModal :global(.btn.btn-action) { min-height: 44px; }
+  .iconDelete { min-width: 44px; }
+  .field input, .field select, .modelField select, .styleField select { min-height: 44px; font-size: 16px; }
+}
+
+.modelActions :global(.btn) { flex-shrink: 0; white-space: nowrap; }
+.conditionFooter { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-direction: row; }
+@container pricing-editor (max-width: 599px) {
+  .conditionFooter { flex-wrap: wrap; }
+  .conditionFooter > :global(.btn) { margin-left: auto; }
+}
+
+// 条件说明与新增按钮共用一行；窄屏允许换行但操作始终靠右。
+.conditionFooter .hint { flex: 1; min-width: 140px; }
+.conditionFooter > :global(.btn) { flex-shrink: 0; }
+.conditionRow > .iconDelete { align-self: end; margin-bottom: 3px; }
+.footerActions { display: flex; justify-content: flex-end; gap: 12px; margin-left: auto; }
+.editorFooter > .historyNotice { flex: 1; min-width: 180px; padding: 0; }
+.field > div, .modelField > div { min-width: 0; }
+.styleField > div { width: 120px; }
+.invalid button[aria-haspopup='listbox'] { border-color: var(--danger-color); }
+.invalid[data-shake='odd'] button[aria-haspopup='listbox'] { animation: priceInvalidOdd 200ms ease; }
+.invalid[data-shake='even'] button[aria-haspopup='listbox'] { animation: priceInvalidEven 200ms ease; }
+@media (prefers-reduced-motion: reduce) {
+ .invalid[data-shake] button[aria-haspopup='listbox'] { animation: none; }
+}
+@media (pointer: coarse) {
+ .editorModal button[aria-haspopup='listbox'] { min-height: 44px; }
+}
+
+.clockFields { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 6px; }
+
+// 下拉触发器沿用请求日志的胶囊轮廓，桌面与输入框统一为 38px；触屏保留 44px。
+.editorModal button[aria-haspopup='listbox'] { height: 38px; border-radius: 999px; box-shadow: none; }
+.modelHeading { display: flex; align-items: end; justify-content: space-between; flex-wrap: wrap; gap: 12px 20px; }
+.modelHeading h3 { margin: 0; font-size: 13px; }
+.modelHeading .modelField { flex: 1 1 180px; max-width: 340px; }
+.modelHeading .styleField { flex-shrink: 0; }
+.modelMeta { padding-right: 12px; }
+.modelMeta span { overflow-wrap: anywhere; }
+@media (pointer: coarse) { .conditionRow > .iconDelete { margin-bottom: 0; } }
+
+.branchName { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.branchName > svg { flex-shrink: 0; color: var(--text-secondary); }
+.branchName > span { min-width: 0; overflow-wrap: anywhere; }
+
+.modelHeading:has(> h3) { align-items: center; }
+.editorModal :global(.modal-body) { min-height: 0; padding-bottom: 20px; }
+.editorModal :global(.modal-footer) { flex: 0 0 auto; }
+.editorModal :global(.modal-footer) .editorFooter :global(.btn) { width: auto; }
+.editorTitle { display: flex; min-width: 0; }
+.modelTitleName { display: block; overflow: hidden; overflow-wrap: anywhere; min-width: 0; max-width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; line-height: 1.35; text-align: left; cursor: pointer; }
+.modelTitleName:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+
+.modelTitleName > span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; max-height: 2.7em; }

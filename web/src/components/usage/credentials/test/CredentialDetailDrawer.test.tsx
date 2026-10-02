@@ -3,6 +3,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError } from '@/lib/api'
 import type { UsageCredentialHealth } from '@/lib/types'
 import type { AiProviderCredentialRow, AuthFileCredentialRow, CredentialDetailSelection } from '../credentialViewModels'
 import { CredentialDetailDrawer } from '../CredentialDetailDrawer'
@@ -277,6 +278,52 @@ describe('CredentialDetailDrawer', () => {
     expect(document.body.querySelector('[data-credential-detail-tab="overview"]')?.getAttribute('aria-selected')).toBe('true')
   })
 
+  it('loads stored cycle cost again when the Codex history tab is reopened', async () => {
+    const historyWithCost = (cost: number) => ({
+      ...quotaHistoryResponse,
+      cycles: [{
+        id: 1,
+        status: 'current',
+        window_seconds: 604800,
+        window_started_at: '2026-08-17T00:00:00Z',
+        reset_at: '2026-08-24T00:00:00Z',
+        effective_started_at: '2026-08-17T00:00:00Z',
+        effective_ended_at: '2026-08-24T00:00:00Z',
+        first_observed_at: '2026-08-17T02:00:00Z',
+        last_observed_at: '2026-08-21T11:50:00Z',
+        first_remaining_percent: 90,
+        last_remaining_percent: 86,
+        observation_count: 2,
+        usage: {
+          requests: 1, successful_requests: 1, failed_requests: 0,
+          input_tokens: 100, output_tokens: 0, reasoning_tokens: 0,
+          cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 100,
+          total_cost_usd: cost, cost_available: true,
+        },
+        transitions: [],
+      }],
+    })
+    fetchCodexQuotaHistory.mockReset()
+      .mockResolvedValueOnce(historyWithCost(1.25))
+      .mockResolvedValueOnce(historyWithCost(2.75))
+    await renderDrawer({ selection: authFileSelection })
+    const costText = () => document.body.querySelector(
+      '[data-codex-quota-current-cycle] [data-codex-quota-summary="used"] [data-codex-quota-summary-metric="cost"]',
+    )?.textContent
+    expect(fetchCodexQuotaHistory).not.toHaveBeenCalled()
+
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="quota-history"]')!.click())
+    expect(fetchCodexQuotaHistory).toHaveBeenCalledTimes(1)
+    expect(costText()).toBe('$1.25')
+
+    // 离开再进入沿原标签挂载流程发起新请求，展示服务端最新的已存费用。
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="overview"]')!.click())
+    expect(document.body.querySelector('[data-codex-quota-history-panel]')).toBeNull()
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="quota-history"]')!.click())
+    expect(fetchCodexQuotaHistory).toHaveBeenCalledTimes(2)
+    expect(costText()).toBe('$2.75')
+  })
+
   it('reloads quota history when the same Auth File changes provider type', async () => {
     await renderDrawer({ selection: authFileSelection })
     await act(async () => { document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="quota-history"]')!.click() })
@@ -390,6 +437,20 @@ describe('CredentialDetailDrawer', () => {
       },
     )
     expect(document.body.textContent).toContain('model-2')
+  })
+
+  it('keeps the same credential request rows visible while stored costs are busy', async () => {
+    fetchUsageEvents.mockReset()
+      .mockResolvedValueOnce(response('1'))
+      .mockRejectedValueOnce(new ApiError('busy', 503, 'costs_busy'))
+    await renderDrawer()
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')!.click())
+    expect(document.body.textContent).toContain('model-1')
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="overview"]')!.click())
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')!.click())
+    expect(fetchUsageEvents).toHaveBeenCalledTimes(2)
+    expect(document.body.textContent).toContain('model-1')
+    expect(document.body.textContent).toContain('usage_stats.costs_busy')
   })
 
   it('clears the previous credential request state before the drawer reopens', async () => {

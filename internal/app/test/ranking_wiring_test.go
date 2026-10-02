@@ -4,10 +4,8 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
-	"time"
 
 	keeperapp "cpa-usage-keeper/internal/app"
-	"github.com/gin-gonic/gin"
 )
 
 type rankingRunnerStub struct {
@@ -22,11 +20,7 @@ func (s *rankingRunnerStub) Run(ctx context.Context) error {
 
 func TestAppConstructsAndStartsRankingRunner(t *testing.T) {
 	cfg := databasePoolTestConfig(filepath.Join(t.TempDir(), "ranking-wiring.db"))
-	application, err := keeperapp.NewWithConfig(cfg)
-	if err != nil {
-		t.Fatalf("NewWithConfig returned error: %v", err)
-	}
-	t.Cleanup(func() { _ = application.Close() })
+	application := newInitializedApp(t, cfg)
 	if application.Ranking == nil {
 		t.Fatal("expected App to construct ranking runner")
 	}
@@ -36,13 +30,18 @@ func TestAppConstructsAndStartsRankingRunner(t *testing.T) {
 
 	started := make(chan struct{})
 	runner := &rankingRunnerStub{started: started}
-	appWithStub := &keeperapp.App{Config: &cfg, Router: gin.New(), Ranking: runner}
+	appWithStub, err := keeperapp.NewWithConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = appWithStub.Close() })
+	appWithStub.Ranking = runner
 	if err := appWithStub.Run(); err == nil {
 		t.Fatal("expected invalid port error")
 	}
 	select {
 	case <-started:
-	case <-time.After(time.Second):
-		t.Fatal("expected App.Run to start ranking runner")
+		t.Fatal("ranking runner started before the HTTP shell could listen")
+	default:
 	}
 }

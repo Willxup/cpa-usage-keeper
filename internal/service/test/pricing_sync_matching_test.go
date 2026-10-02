@@ -7,7 +7,6 @@ import (
 
 	"cpa-usage-keeper/internal/cpa/dto/models"
 	"cpa-usage-keeper/internal/cpa/dto/response"
-	"cpa-usage-keeper/internal/service"
 )
 
 func TestPricingSyncPreservesModelVersionSuffixes(t *testing.T) {
@@ -31,9 +30,9 @@ func TestPricingSyncPreservesModelVersionSuffixes(t *testing.T) {
 	for model := range cases {
 		modelList = append(modelList, models.ModelInfo{ID: model})
 	}
-	provider := service.NewPricingService(openUsageServiceTestDatabase(t), emptyPricingCatalogForTest(),
+	provider := newPricingTestProvider(t, openUsageServiceTestDatabase(t), emptyPricingCatalogForTest(),
 		stubModelsFetcher{result: &response.ModelsResult{Payload: models.ModelsResponse{Data: modelList}}})
-	preview, err := provider.PreviewPricingSync(context.Background(), "")
+	preview, err := provider.FetchPricingSync(context.Background(), "models-dev")
 	if err != nil {
 		t.Fatal(err)
 	}

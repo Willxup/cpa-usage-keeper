@@ -64,12 +64,29 @@ func (w *Writer) WriteDatabase(ctx context.Context, db *sql.DB, backupAt time.Ti
 	return fullPath, nil
 }
 
-func copySQLiteDatabase(ctx context.Context, sourceDB *sql.DB, destPath string) error {
+// copySQLiteDatabase 在源连接上固定读快照，避免并发 inbox 写入使分步备份反复从头复制。
+// 备份句柄先关闭，随后回滚只读事务并归还源连接；writer 池调用也沿用同一路径。
+func copySQLiteDatabase(ctx context.Context, sourceDB *sql.DB, destPath string) (copyErr error) {
 	sourceConn, err := sourceDB.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("open source database connection: %w", err)
 	}
 	defer sourceConn.Close()
+
+	readTx, err := sourceConn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return fmt.Errorf("begin source backup snapshot: %w", err)
+	}
+	defer func() {
+		if err := readTx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			copyErr = errors.Join(copyErr, fmt.Errorf("release source backup snapshot: %w", err))
+		}
+	}()
+	// SQLite 的 BEGIN 是延迟事务；先读 schema 才会在 WAL 上钉住同一时刻的版本。
+	var tableCount int
+	if err := readTx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master`).Scan(&tableCount); err != nil {
+		return fmt.Errorf("pin source backup snapshot: %w", err)
+	}
 
 	destDB, err := sql.Open("sqlite3", destPath)
 	if err != nil {

@@ -62,9 +62,8 @@ const analysisWith = (items: AnalysisCompositionItem[]): AnalysisResponse => ({
   granularity: 'hourly', timezone: 'UTC', token_usage: [],
   api_key_composition: items, model_composition: items,
   auth_files_composition: [], ai_provider_composition: [], model_efficiency: [],
-  cost_breakdown: {
-    uncached_input_cost_usd: 0, cache_read_cost_usd: 0, cache_write_cost_usd: 0,
-    output_cost_usd: 0, total_cost_usd: 0, cost_available: true,
+  cost_summary: {
+    total_cost_usd: 0, cost_available: true,
   },
   heatmap: { api_keys: [], api_key_labels: {}, models: [], cells: [] },
 });

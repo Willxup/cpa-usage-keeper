@@ -12,8 +12,8 @@ const (
 	UsageAggregationCheckpointActivity UsageAggregationCheckpointName = "activity"
 	// UsageAggregationCheckpointLatency 对应 Latency hour/day 的已提交水位。
 	UsageAggregationCheckpointLatency UsageAggregationCheckpointName = "latency"
-	// UsageAggregationEventProjectionColumns 是运行时和 Latency migration 共用的事件读取契约。
-	UsageAggregationEventProjectionColumns = "id, api_group_key, model, model_alias, auth_index, service_tier, response_service_tier, reasoning_effort, endpoint, executor_type, timestamp, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+	// UsageAggregationEventProjectionColumns 是当前运行时聚合的事件读取契约；历史 Latency 迁移保留独立冻结投影。
+	UsageAggregationEventProjectionColumns = "id, api_group_key, model, model_alias, auth_index, service_tier, response_service_tier, reasoning_effort, endpoint, executor_type, timestamp, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, cost_usd, cost_available"
 )
 
 // UsageAggregationCheckpoint 用一张表保存三个独立 cursor，避免同构 checkpoint 表继续增长。

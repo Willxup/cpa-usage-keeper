@@ -29,10 +29,23 @@ func newUsageHeaderTimer(delay time.Duration) (<-chan time.Time, func()) {
 	return timer.C, func() { timer.Stop() }
 }
 
+// TryAppendUsageHeaderSnapshots 在接收时为 cache 浅复制快照并固定代数；原始快照继续供历史处理。
 func (s *Service) TryAppendUsageHeaderSnapshots(snapshots []*UsageHeaderSnapshot) bool {
 	// nil service 或空快照没有需要排队的工作，按成功 no-op 处理。
 	if s == nil || len(snapshots) == 0 {
 		return true
+	}
+	// 在开始接收 Header 时固定清理代数，不能等一分钟 flush 后才把旧快照算成新结果。
+	generation := s.quotaCacheGeneration()
+	cacheSnapshots := make([]*UsageHeaderSnapshot, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		if snapshot == nil {
+			continue
+		}
+		copyForCache := *snapshot
+		copyForCache.cacheGeneration = generation
+		copyForCache.cacheGenerationCaptured = true
+		cacheSnapshots = append(cacheSnapshots, &copyForCache)
 	}
 	// 输入快照在 BuildUsageHeaderSnapshot 发布后不可修改；同身份合并可以创建新的派生快照，但不会改写输入对象。
 	// usageHeaderMu 同时保护关闭标记和有界 latest map，避免 Stop 与 Append 并发竞态。
@@ -45,7 +58,7 @@ func (s *Service) TryAppendUsageHeaderSnapshots(snapshots []*UsageHeaderSnapshot
 		s.usageHeaderPending = make(map[string]*UsageHeaderSnapshot, usageHeaderPendingIdentityLimit)
 	}
 	// 同身份合并一分钟内最新的 cache 事实；不同身份总量由同一个 map 的 1000 上限统一约束。
-	mergePendingUsageHeaderSnapshotPointers(s.usageHeaderPending, snapshots)
+	mergePendingUsageHeaderSnapshotPointers(s.usageHeaderPending, cacheSnapshots)
 	hasPending := len(s.usageHeaderPending) > 0
 	s.usageHeaderMu.Unlock()
 	// history fan-out 只复制同一快照指针；满载淘汰旧候选，不影响已经接收的 cache latest-map。
@@ -178,12 +191,18 @@ func mergePendingUsageHeaderSnapshotPointers(pending map[string]*UsageHeaderSnap
 	}
 }
 
-// mergePendingUsageHeaderCacheSnapshot 把同一账号一分钟内观察到的主额度和 Additional 收敛成一份 cache 快照。
+// mergePendingUsageHeaderCacheSnapshot 只合并同代数的一分钟观察；清理前快照不能污染新批次。
 func mergePendingUsageHeaderCacheSnapshot(existing *UsageHeaderSnapshot, candidate *UsageHeaderSnapshot) *UsageHeaderSnapshot {
 	if existing == nil {
 		return candidate
 	}
 	if candidate == nil {
+		return existing
+	}
+	if existing.cacheGenerationCaptured && candidate.cacheGenerationCaptured && existing.cacheGeneration != candidate.cacheGeneration {
+		if candidate.cacheGeneration > existing.cacheGeneration {
+			return candidate
+		}
 		return existing
 	}
 	if strings.ToLower(strings.TrimSpace(existing.Provider)) != strings.ToLower(strings.TrimSpace(candidate.Provider)) {
@@ -414,20 +433,14 @@ func (s *Service) stopUsageHeaderSnapshotWorker() {
 	})
 }
 
-func (s *Service) applyUsageHeaderSnapshots(ctx context.Context, snapshots []UsageHeaderSnapshot) {
-	// 值批次只保留给现有定向测试和同步 helper；生产 worker 使用不可变指针版本。
-	pointers := make([]*UsageHeaderSnapshot, 0, len(snapshots))
-	for index := range snapshots {
-		pointers = append(pointers, &snapshots[index])
-	}
-	s.applyUsageHeaderSnapshotPointers(ctx, pointers)
-}
-
+// applyUsageHeaderSnapshotPointers 为批次固定各快照的清理代数，身份和窗口查询在锁外并行完成。
 func (s *Service) applyUsageHeaderSnapshotPointers(ctx context.Context, snapshots []*UsageHeaderSnapshot) {
 	// nil service 或没有快照时直接返回，保持批量 apply 和 flush 空批语义一致。
 	if s == nil || len(snapshots) == 0 {
 		return
 	}
+	// 直接调用的快照在本次工作启动时捕获；生产 pending 快照沿用入队时固定的代数。
+	workGeneration := s.quotaCacheGeneration()
 	// 批量查询活跃 Auth File 身份，避免每个 snapshot 单独查一次 usage_identities。
 	identityByAuthIndex, err := s.usageHeaderIdentityLookup(ctx, snapshots)
 	// 身份查询失败时整批跳过，避免在身份状态不确定时写入错误账号的 quota cache。
@@ -436,7 +449,7 @@ func (s *Service) applyUsageHeaderSnapshotPointers(ctx context.Context, snapshot
 		return
 	}
 	// header quota 还要补本地窗口 token/cost，因此每批复用一个窗口统计 provider。
-	statsProvider := s.usageHeaderWindowStatsProvider(ctx)
+	statsProvider := s.usageHeaderWindowStatsProvider()
 	if statsProvider == nil {
 		// 批量 header 更新必须与窗口 token/cost 使用同一统计基础；统计器不可用时整批跳过，避免写入半套 cache。
 		return
@@ -446,7 +459,8 @@ func (s *Service) applyUsageHeaderSnapshotPointers(ctx context.Context, snapshot
 		// snapshot 是 Build 阶段冻结的只读对象，两个临时 worker 都不能修改其内部投影。
 		snapshot *UsageHeaderSnapshot
 		// identity 是当前 auth_index 对应的活跃 Auth File 数据库事实。
-		identity entities.UsageIdentity
+		identity   entities.UsageIdentity
+		generation uint64
 	}
 	jobs := make([]usageHeaderSnapshotJob, 0, len(snapshots))
 	for _, snapshot := range snapshots {
@@ -462,7 +476,11 @@ func (s *Service) applyUsageHeaderSnapshotPointers(ctx context.Context, snapshot
 			logUsageHeaderSnapshotIgnored(snapshot)
 			continue
 		}
-		jobs = append(jobs, usageHeaderSnapshotJob{snapshot: snapshot, identity: identity})
+		generation := workGeneration
+		if snapshot.cacheGenerationCaptured {
+			generation = snapshot.cacheGeneration
+		}
+		jobs = append(jobs, usageHeaderSnapshotJob{snapshot: snapshot, identity: identity, generation: generation})
 	}
 	if len(jobs) == 0 {
 		return
@@ -478,7 +496,7 @@ func (s *Service) applyUsageHeaderSnapshotPointers(ctx context.Context, snapshot
 			defer workers.Done()
 			for job := range jobCh {
 				// 单账号失败只留下 debug，不取消或阻塞同批其它身份。
-				if !s.applyUsageHeaderSnapshotWithIdentity(ctx, job.snapshot, job.identity, statsProvider) {
+				if !s.applyUsageHeaderSnapshotWithIdentity(ctx, job.snapshot, job.identity, statsProvider, job.generation) {
 					logUsageHeaderSnapshotIgnored(job.snapshot)
 				}
 			}
@@ -563,8 +581,9 @@ func usageHeaderSnapshotAuthIndexes(snapshots []*UsageHeaderSnapshot) []string {
 	return authIndexes
 }
 
-func (s *Service) usageHeaderWindowStatsProvider(ctx context.Context) usageWindowStatsProvider {
-	calculator, err := repository.NewUsageWindowStatsCalculator(ctx, s.db, s.pricing.NewResolver())
+// usageHeaderWindowStatsProvider 给 Header 配额补充入口提供只读已存窗口费用，不查询当前模型价。
+func (s *Service) usageHeaderWindowStatsProvider() usageWindowStatsProvider {
+	calculator, err := repository.NewUsageWindowStatsCalculator(s.db)
 	if err != nil {
 		logrus.WithError(err).Debug("usage header quota window stats calculator unavailable")
 		return nil
@@ -572,11 +591,13 @@ func (s *Service) usageHeaderWindowStatsProvider(ctx context.Context) usageWindo
 	return calculator
 }
 
+// applyUsageHeaderSnapshot 为单条 Header 工作固定启动代数，随后按当前身份补齐窗口统计。
 func (s *Service) applyUsageHeaderSnapshot(ctx context.Context, snapshot UsageHeaderSnapshot) bool {
 	// nil service 不能查身份或写 cache，直接视为未应用。
 	if s == nil {
 		return false
 	}
+	generation := s.quotaCacheGeneration()
 	// 单条 apply 入口同样只接受 OAuth Auth File 快照。
 	authType := strings.ToLower(strings.TrimSpace(snapshot.AuthType))
 	// auth_index 是后续查身份和写 refreshTasks 的唯一键。
@@ -597,7 +618,7 @@ func (s *Service) applyUsageHeaderSnapshot(ctx context.Context, snapshot UsageHe
 		return false
 	}
 	// 身份确认后进入共享 apply 逻辑，单条路径按需自行构造窗口统计。
-	return s.applyUsageHeaderSnapshotWithIdentity(ctx, &snapshot, identity, nil)
+	return s.applyUsageHeaderSnapshotWithIdentity(ctx, &snapshot, identity, nil, generation)
 }
 
 func logUsageHeaderIdentityLookupError(authIndex string, err error) {
@@ -609,7 +630,8 @@ func logUsageHeaderIdentityLookupError(authIndex string, err error) {
 	logrus.WithError(err).WithField("auth_index", authIndex).Warn("usage header quota identity lookup failed")
 }
 
-func (s *Service) applyUsageHeaderSnapshotWithIdentity(ctx context.Context, snapshot *UsageHeaderSnapshot, identity entities.UsageIdentity, statsProvider usageWindowStatsProvider) bool {
+// applyUsageHeaderSnapshotWithIdentity 在统计前后检查代数；最终发布仍由锁内 merge 决定。
+func (s *Service) applyUsageHeaderSnapshotWithIdentity(ctx context.Context, snapshot *UsageHeaderSnapshot, identity entities.UsageIdentity, statsProvider usageWindowStatsProvider, generation uint64) bool {
 	// nil service 不能继续解析、统计或写入 cache。
 	if s == nil || snapshot == nil {
 		return false
@@ -649,10 +671,10 @@ func (s *Service) applyUsageHeaderSnapshotWithIdentity(ctx context.Context, snap
 		observedAt = timeutil.NormalizeStorageTime(time.Now())
 	}
 	// active task 或更新的 completed cache 已存在时，当前 header snapshot 不应覆盖它。
-	if !s.shouldProcessUsageHeaderQuotaSnapshot(authIndex, identity.Type, observedAt) {
+	if !s.shouldProcessUsageHeaderQuotaSnapshot(authIndex, identity.Type, observedAt, generation) {
 		return false
 	}
-	// 批量路径传入 statsProvider，用同一统计器复用 price/settings 查询。
+	// 批量路径传入 statsProvider，复用窗口统计器汇总已存 Token 与费用，不查询价格配置。
 	if statsProvider != nil {
 		response = s.attachWindowUsageStatsWithProvider(ctx, authIndex, response, observedAt, statsProvider)
 	} else {
@@ -660,7 +682,7 @@ func (s *Service) applyUsageHeaderSnapshotWithIdentity(ctx context.Context, snap
 		response = s.attachWindowUsageStats(ctx, authIndex, response, observedAt)
 	}
 	// 最后把 header quota 与已有 cache 合并，并写回 refreshTasks。
-	return s.mergeUsageHeaderQuotaCache(authIndex, response, observedAt, identity)
+	return s.mergeUsageHeaderQuotaCache(authIndex, response, observedAt, identity, generation)
 }
 
 func usageHeaderIdentityIsCodex(identity entities.UsageIdentity) bool {
@@ -693,11 +715,15 @@ func usageHeaderIdentityMatchesSnapshot(identity entities.UsageIdentity, snapsho
 	return false
 }
 
-func (s *Service) shouldProcessUsageHeaderQuotaSnapshot(authIndex string, identityType string, observedAt time.Time) bool {
+// shouldProcessUsageHeaderQuotaSnapshot 在查本地窗口前排除过期批次与已有主动刷新。
+func (s *Service) shouldProcessUsageHeaderQuotaSnapshot(authIndex string, identityType string, observedAt time.Time, generation uint64) bool {
 	// refreshTasks 与手动/自动刷新任务共享，读写前必须持有 refreshMu。
 	s.refreshMu.Lock()
 	// 函数退出时释放任务锁，避免阻塞前端查询或刷新调度。
 	defer s.refreshMu.Unlock()
+	if generation != s.cacheGeneration {
+		return false
+	}
 	// 查找当前 auth_index 已有的 quota refresh/cache 记录。
 	existing, ok := s.refreshTasks[authIndex]
 	// 没有任何 cache 或任务时，header snapshot 可以创建第一份 cache。
@@ -716,11 +742,15 @@ func (s *Service) shouldProcessUsageHeaderQuotaSnapshot(authIndex string, identi
 	return true
 }
 
-func (s *Service) mergeUsageHeaderQuotaCache(authIndex string, response CheckResponse, observedAt time.Time, identity entities.UsageIdentity) bool {
+// mergeUsageHeaderQuotaCache 将代数复验和缓存发布合并在 refreshMu 下，阻止查询中的旧结果晚到回写。
+func (s *Service) mergeUsageHeaderQuotaCache(authIndex string, response CheckResponse, observedAt time.Time, identity entities.UsageIdentity, generation uint64) bool {
 	// 写 refreshTasks 前加锁，和主动刷新任务状态切换保持同一同步边界。
 	s.refreshMu.Lock()
 	// 函数退出时释放锁。
 	defer s.refreshMu.Unlock()
+	if generation != s.cacheGeneration {
+		return false
+	}
 	// 读取当前 auth_index 已有任务或 cache，用于防覆盖和合并。
 	existing, ok := s.refreshTasks[authIndex]
 	var upstreamResponses []UpstreamResponse

@@ -3,6 +3,7 @@ package capacity_test
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/benchmark/capacity"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestDatasetResultJSONOmitsLocalPath(t *testing.T) {
@@ -74,6 +77,74 @@ func TestGenerateDatasetBuildsValidatedSteadyState(t *testing.T) {
 	if result.QuickCheck != "ok" {
 		t.Fatalf("quick check=%q", result.QuickCheck)
 	}
+	// 合成事件使用已存模型报价，热表和归档各抽样核对一次独立算式。
+	db, err := gorm.Open(sqlite.Open(options.Path), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open generated dataset: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("load generated database handle: %v", err)
+	}
+	defer sqlDB.Close()
+	var invalidEventCosts int64
+	if err := db.Raw(`SELECT COUNT(*) FROM (
+		SELECT cost_usd, cost_available FROM usage_events
+		UNION ALL SELECT cost_usd, cost_available FROM usage_events_archive
+	) WHERE cost_usd IS NULL OR cost_usd <= 0 OR cost_available IS NULL OR cost_available <> 1`).Scan(&invalidEventCosts).Error; err != nil {
+		t.Fatalf("inspect generated event costs: %v", err)
+	}
+	if invalidEventCosts != 0 {
+		t.Fatalf("generated dataset has %d events without an explicit positive price", invalidEventCosts)
+	}
+	assertGeneratedEventMatchesStoredPrice(t, db, "usage_events")
+	assertGeneratedEventMatchesStoredPrice(t, db, "usage_events_archive")
+	assertGeneratedOverviewMatchesStoredEventFees(t, db)
+}
+
+// assertGeneratedOverviewMatchesStoredEventFees 验证合成桶已写明细费用，而非仅填请求数与 Token。
+func assertGeneratedOverviewMatchesStoredEventFees(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	var eventCost float64
+	if err := db.Raw(`SELECT SUM(cost_usd) FROM (SELECT cost_usd FROM usage_events UNION ALL SELECT cost_usd FROM usage_events_archive)`).Scan(&eventCost).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+		var result struct {
+			Cost        float64
+			Unavailable int64
+			NullRows    int64
+		}
+		query := `SELECT SUM(cost_usd) AS cost, SUM(unavailable_cost_count) AS unavailable,
+			SUM(CASE WHEN cost_usd IS NULL OR unavailable_cost_count IS NULL THEN 1 ELSE 0 END) AS null_rows FROM ` + table
+		if err := db.Raw(query).Scan(&result).Error; err != nil {
+			t.Fatalf("read %s generated fees: %v", table, err)
+		}
+		if result.NullRows != 0 || result.Unavailable != 0 || math.IsNaN(result.Cost) || math.IsInf(result.Cost, 0) || math.Abs(result.Cost-eventCost) > 1e-7 {
+			t.Fatalf("%s fees differ from stored events: %+v event_cost=%v", table, result, eventCost)
+		}
+	}
+}
+
+func assertGeneratedEventMatchesStoredPrice(t *testing.T, db *gorm.DB, table string) {
+	t.Helper()
+	var input, output, cacheRead, cacheCreation int64
+	var inputPrice, outputPrice, readPrice, writePrice, multiplier, storedCost float64
+	var available bool
+	query := `SELECT e.input_tokens, e.output_tokens, e.cache_read_tokens, e.cache_creation_tokens,
+		p.prompt_price_per1_m, p.completion_price_per1_m, p.cache_read_price_per1_m,
+		p.cache_creation_price_per1_m, p.price_multiplier, e.cost_usd, e.cost_available
+		FROM ` + table + ` e JOIN model_price_settings p ON p.model = e.model ORDER BY e.id LIMIT 1`
+	if err := db.Raw(query).Row().Scan(&input, &output, &cacheRead, &cacheCreation,
+		&inputPrice, &outputPrice, &readPrice, &writePrice, &multiplier, &storedCost, &available); err != nil {
+		t.Fatalf("sample %s price: %v", table, err)
+	}
+	// 固定合成 Token 范围保证两类缓存总量不超过输入，因此按四段单价直接核对。
+	want := (float64(input-cacheRead-cacheCreation)*inputPrice + float64(output)*outputPrice +
+		float64(cacheRead)*readPrice + float64(cacheCreation)*writePrice) / 1_000_000 * multiplier
+	if !available || math.Abs(storedCost-want) > 1e-12 {
+		t.Fatalf("%s stored cost=%g available=%t, want %g", table, storedCost, available, want)
+	}
 }
 
 func TestGenerateDatasetIsSemanticallyDeterministic(t *testing.T) {
@@ -134,9 +205,9 @@ func TestValidateDatasetAgainstManifestRejectsStaleOrMismatchedMetadata(t *testi
 		t.Fatalf("valid dataset rejected: %v", err)
 	}
 	staleGenerator := metadata
-	staleGenerator.GeneratorVersion = "production-v8-month-window-canonical"
+	staleGenerator.GeneratorVersion = "production-v9-event-status-stream"
 	if err := capacity.ValidateDatasetAgainstManifest(actual, staleGenerator, manifest); err == nil {
-		t.Fatal("dataset generated before stream/status-code dimensions must fail validation")
+		t.Fatal("dataset generated before pricing storage must fail validation")
 	}
 
 	mismatched := actual

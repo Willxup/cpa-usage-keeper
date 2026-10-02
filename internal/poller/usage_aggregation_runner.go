@@ -63,6 +63,8 @@ type UsageAggregationRunner struct {
 	db               *gorm.DB
 	now              func() time.Time
 	debounceInterval time.Duration
+	// workGate 保护普通 turn 的完整 Reader 预读、计算、事务提交和内存状态更新。
+	workGate aggregationWorkGate
 
 	// mu 只保护轻量内存目标和 Identity 分页状态，锁内不执行数据库操作。
 	mu sync.Mutex
@@ -332,6 +334,11 @@ func (r *UsageAggregationRunner) identityWorkPendingLocked() bool {
 }
 
 func (r *UsageAggregationRunner) runPreparedOnce(ctx context.Context) (UsageAggregationRunResult, error) {
+	leave, err := r.workGate.enter(ctx)
+	if err != nil {
+		return UsageAggregationRunResult{}, err
+	}
+	defer leave()
 	r.mu.Lock()
 	// 只有两类工作都存在时才遵循公平轮转；其中一类已经追平时直接执行另一类，避免空 turn 查询数据库。
 	kind, runnable := r.nextRunnableKindLocked()
@@ -454,7 +461,9 @@ func (r *UsageAggregationRunner) runSharedRollupsPage(ctx context.Context, write
 	}
 
 	// 三类纯计算复用同一份只读事件；各自错误只跳过自己，成功结果仍可用独立事务提交。
-	overviewHourly, overviewDaily, nextCursor := overview.BuildRows(events)
+	// 三类聚合共享同一实际事件页终点；Overview 费用缺失不能把其它独立水位误推到 0。
+	nextCursor := events[len(events)-1].ID
+	overviewHourly, overviewDaily, _, overviewErr := overview.BuildRows(events)
 	activityRows, activityErr := activity.BuildRows(events, now)
 	latencyRows, latencyErr := latency.BuildRows(events, now)
 
@@ -466,7 +475,9 @@ func (r *UsageAggregationRunner) runSharedRollupsPage(ctx context.Context, write
 		}
 		return processed, deferred, false, errors.Join(pageErrors...)
 	}
-	if err := repository.ApplyUsageOverviewAggregationPage(ctx, writeDB, cursor, nextCursor, overviewHourly, overviewDaily, now); err != nil {
+	if overviewErr != nil {
+		pageErrors = append(pageErrors, overviewErr)
+	} else if err := repository.ApplyUsageOverviewAggregationPage(ctx, writeDB, cursor, nextCursor, overviewHourly, overviewDaily, now); err != nil {
 		pageErrors = append(pageErrors, err)
 	} else {
 		processed = true
@@ -513,18 +524,22 @@ func (r *UsageAggregationRunner) runFallbackRollupsPages(ctx context.Context, wr
 		} else if len(events) == 0 {
 			pageErrors = append(pageErrors, fmt.Errorf("overview fallback page is empty before target %d", targetEventID))
 		} else {
-			hourly, daily, nextCursor := overview.BuildRows(events)
-			if deferred, deferErr := r.deferForInbox(ctx, writeDB); deferErr != nil || deferred {
-				if deferErr != nil {
-					pageErrors = append(pageErrors, deferErr)
-				}
-				return processed, deferred, false, errors.Join(pageErrors...)
-			}
-			if applyErr := repository.ApplyUsageOverviewAggregationPage(ctx, writeDB, snapshot.OverviewCursor, nextCursor, hourly, daily, now); applyErr != nil {
-				pageErrors = append(pageErrors, applyErr)
+			hourly, daily, nextCursor, buildErr := overview.BuildRows(events)
+			if buildErr != nil {
+				pageErrors = append(pageErrors, buildErr)
 			} else {
-				snapshot.OverviewCursor = nextCursor
-				processed = true
+				if deferred, deferErr := r.deferForInbox(ctx, writeDB); deferErr != nil || deferred {
+					if deferErr != nil {
+						pageErrors = append(pageErrors, deferErr)
+					}
+					return processed, deferred, false, errors.Join(pageErrors...)
+				}
+				if applyErr := repository.ApplyUsageOverviewAggregationPage(ctx, writeDB, snapshot.OverviewCursor, nextCursor, hourly, daily, now); applyErr != nil {
+					pageErrors = append(pageErrors, applyErr)
+				} else {
+					snapshot.OverviewCursor = nextCursor
+					processed = true
+				}
 			}
 		}
 	}

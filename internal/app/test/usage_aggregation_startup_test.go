@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	keeperapp "cpa-usage-keeper/internal/app"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 
@@ -26,19 +25,16 @@ func TestAppWiredUsageAggregationRunnerCatchesUpExistingEventsAndStops(t *testin
 	if err := seedDB.Create(&identity).Error; err != nil {
 		t.Fatalf("seed startup identity: %v", err)
 	}
-	if _, _, err := repository.InsertUsageEvents(seedDB, []entities.UsageEvent{{
+	if _, _, err := repository.InsertUsageEvents(seedDB, []entities.UsageEvent{storedAppUsageEventFee(entities.UsageEvent{
 		EventKey: "app-startup-activity", APIGroupKey: "provider-a", Model: "model-a",
 		AuthType: "oauth", AuthIndex: identity.Identity, Timestamp: eventTime, InputTokens: 10, TotalTokens: 10,
-	}}); err != nil {
+	}, 0, false)}); err != nil {
 		t.Fatalf("seed startup usage event: %v", err)
 	}
 	closeDatabasePoolTestDB(t, seedDB)
 
 	// 执行：通过真实 App 构造拿到生产 wiring 的 Runner，并启动其 startup wake 生命周期。
-	application, err := keeperapp.NewWithConfig(cfg)
-	if err != nil {
-		t.Fatalf("NewWithConfig returned error: %v", err)
-	}
+	application := newInitializedApp(t, cfg)
 	if application.UsageAggregation == nil {
 		application.Close()
 		t.Fatal("expected App to wire a usage aggregation runner")

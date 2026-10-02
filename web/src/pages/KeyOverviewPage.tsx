@@ -1,7 +1,7 @@
 import { UsageComparisonCharts } from '@/components/usage/UsageComparisonCharts';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError, fetchKeyOverview, fetchKeyOverviewRealtime, isUsageRangeBoundsConflict } from '@/lib/api';
+import { ApiError, fetchKeyOverview, fetchKeyOverviewRealtime, isCostsBusy, isUsageRangeBoundsConflict } from '@/lib/api';
 import type { AuthSessionAPIKeySummary, OverviewRealtimeBlock, OverviewRealtimeWindow, UsageCustomRange, UsageOverviewResponse, UsageTimeRange } from '@/lib/types';
 import { KeyViewerShell } from '@/features/key-viewer/KeyViewerShell';
 import type { KeyViewerPath } from '@/features/key-viewer/navigation';
@@ -155,6 +155,8 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
   const overviewRequestControllerRef = useRef<AbortController | null>(null);
   const realtimeRequestControllerRef = useRef<AbortController | null>(null);
+  const loadedUsageAPIKeyRef = useRef<AuthSessionAPIKeySummary | undefined>(undefined);
+  const loadedRealtimeAPIKeyRef = useRef<AuthSessionAPIKeySummary | undefined>(undefined);
   const usageRangeQuery = useMemo(() => buildUsageRangeQuery({
     range: timeRange,
     customUnit: customRange?.unit,
@@ -162,6 +164,11 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
     customEnd: customRange?.end,
   }), [customRange?.end, customRange?.start, customRange?.unit, timeRange]);
   const usageRangeQueryKey = usageRangeQuery.valid ? buildUsageStatsQueryKey(usageRangeQuery) : null;
+  // 暂缓期间仅保留同范围、同 Viewer 的已提交费用，避免旧范围或旧账号显示为当前结果。
+  const visibleUsage = loadedUsageAPIKeyRef.current === apiKey
+    ? getCurrentOverviewUsage(usage, usageRangeQueryKey, loadedUsageRange)
+    : null;
+  const visibleRealtime = loadedRealtimeAPIKeyRef.current === apiKey && realtime?.window === realtimeWindow ? realtime : null;
   const {
     request: activityRangeRequest,
     manualWindow: manualActivityWindow,
@@ -182,8 +189,8 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
   });
   const activityWindow = manualActivityWindow ?? activity?.window ?? null;
   const activityWindowIsCurrent = manualActivityWindow !== null || activityMatchesRequest;
-  const rangeTimeZone = usage?.timezone ?? timeRangeState.timeZone;
-  const rangeRecoveryTimeZone = resolveUsageRangeRecoveryTimeZone(timeRangeState, usage?.timezone);
+  const rangeTimeZone = visibleUsage?.timezone ?? timeRangeState.timeZone;
+  const rangeRecoveryTimeZone = resolveUsageRangeRecoveryTimeZone(timeRangeState, visibleUsage?.timezone);
   const recoverRangeBoundsConflict = useCallback((error: unknown) => {
     if (!isUsageRangeBoundsConflict(error)) return false;
     const timeZone = rangeRecoveryTimeZone?.trim();
@@ -206,6 +213,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
     onRangeBoundsConflict: recoverRangeBoundsConflict,
     enabled: page === 'overview' && usageRangeQuery.valid,
     keyViewer: true,
+    viewerIdentity: apiKey,
     range: timeRange,
     customUnit: customRange?.unit,
     customStart: customRange?.start,
@@ -236,6 +244,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
     try {
       const overview = await fetchKeyOverview(usageRangeQuery, controller.signal);
       if (overviewRequestControllerRef.current !== controller) return;
+      loadedUsageAPIKeyRef.current = apiKey;
       setUsage(overview as UsageOverviewResponse as UsageOverviewPayload);
       setLoadedUsageRange(usageRangeQueryKey);
     } catch (nextError) {
@@ -245,14 +254,14 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
         onAuthRequired?.();
         return;
       }
-      setError(nextError instanceof Error ? nextError.message : 'KEY_OVERVIEW_LOAD_FAILED');
+      setError(isCostsBusy(nextError) ? 'COSTS_BUSY' : nextError instanceof Error ? nextError.message : 'KEY_OVERVIEW_LOAD_FAILED');
     } finally {
       if (overviewRequestControllerRef.current === controller) {
         setLoading(false);
         overviewRequestControllerRef.current = null;
       }
     }
-  }, [onAuthRequired, recoverRangeBoundsConflict, usageRangeQuery, usageRangeQueryKey]);
+  }, [apiKey, onAuthRequired, recoverRangeBoundsConflict, usageRangeQuery, usageRangeQueryKey]);
 
   const loadRealtime = useCallback(async (options: KeyOverviewLoadOptions = {}) => {
     const { controller, skipped } = startKeyOverviewRequest({
@@ -269,6 +278,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
         signal: controller.signal,
       });
       if (realtimeRequestControllerRef.current !== controller) return;
+      loadedRealtimeAPIKeyRef.current = apiKey;
       setRealtime(nextRealtime);
     } catch (nextError) {
       if (controller.signal.aborted) return;
@@ -276,14 +286,14 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
         onAuthRequired?.();
         return;
       }
-      setRealtimeError('KEY_OVERVIEW_REALTIME_LOAD_FAILED');
+      setRealtimeError(isCostsBusy(nextError) ? 'COSTS_BUSY' : 'KEY_OVERVIEW_REALTIME_LOAD_FAILED');
     } finally {
       if (realtimeRequestControllerRef.current === controller) {
         setRealtimeLoading(false);
         realtimeRequestControllerRef.current = null;
       }
     }
-  }, [onAuthRequired, realtimeWindow]);
+  }, [apiKey, onAuthRequired, realtimeWindow]);
 
   useEffect(() => {
     if (page !== 'overview') return;
@@ -316,7 +326,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
       onAuthRequired?.();
       return;
     }
-    setError('KEY_OVERVIEW_LOAD_FAILED');
+    setError(isCostsBusy(nextError) ? 'COSTS_BUSY' : 'KEY_OVERVIEW_LOAD_FAILED');
   }, [onAuthRequired]);
 
   useEffect(() => scheduleKeyOverviewAutoRefresh({
@@ -337,15 +347,15 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
     }
   }, [realtimeWindow]);
 
-  const overviewDisplayLoading = getOverviewDisplayLoading({ loading, hasUsage: Boolean(usage) });
-  const currentOverviewUsage = getCurrentOverviewUsage(usage, usageRangeQueryKey, loadedUsageRange);
+  const overviewDisplayLoading = getOverviewDisplayLoading({ loading: loading || error === 'COSTS_BUSY', hasUsage: Boolean(visibleUsage) });
+  const currentOverviewUsage = visibleUsage;
   const reserveDailyAverageCard = isDailyAverageRange({
     range: timeRange,
     customUnit: customRange?.unit,
     customStart: customRange?.start,
     customEnd: customRange?.end,
   });
-  const dailyAverageCardUsage = getDailyAverageCardUsage(currentOverviewUsage, usage, reserveDailyAverageCard, loading);
+  const dailyAverageCardUsage = getDailyAverageCardUsage(currentOverviewUsage, visibleUsage, reserveDailyAverageCard, loading);
   const {
     requestsSparkline,
     tokensSparkline,
@@ -353,7 +363,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
     tpmSparkline,
     cacheReadRateSparkline,
     costSparkline,
-  } = useSparklines({ usage, loading });
+  } = useSparklines({ usage: visibleUsage, loading });
 
   const refreshDisabled = manualRefreshLoading;
   const handleManualRefresh = useCallback(async () => {
@@ -366,19 +376,23 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
     }
   }, [refreshDisabled, refreshKeyOverview]);
 
-  const displayError = error === 'KEY_OVERVIEW_LOAD_FAILED'
+  const displayError = error === 'COSTS_BUSY'
+    ? t('key_overview.costs_busy')
+    : error === 'KEY_OVERVIEW_LOAD_FAILED'
     ? t('key_overview.load_failed')
     : error;
-  const displayRealtimeError = realtimeError
-    ? t('usage_stats.overview_realtime_load_failed')
+  const displayRealtimeError = realtimeError === 'COSTS_BUSY'
+    ? t('key_overview.costs_busy')
+    : realtimeError ? t('usage_stats.overview_realtime_load_failed')
     : '';
+  const displayComparisonsError = comparisonsError === 'COSTS_BUSY' ? t('key_overview.costs_busy') : comparisonsError;
 
 
   return (
     <KeyViewerShell
       activePage={page}
       apiKey={apiKey}
-      loading={page === 'overview' && loading && !usage}
+      loading={page === 'overview' && loading && !visibleUsage}
       filters={page === 'overview' ? [<TimeRangeControl key="range" value={timeRange} customRange={customRange} timeZone={rangeTimeZone} onChange={handleTimeRangeChange} ariaLabel={t('usage_stats.range_filter')} labelInsideTrigger />] : []}
       onRefresh={() => void handleManualRefresh()}
       refreshing={manualRefreshLoading}
@@ -387,10 +401,10 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
       onAuthRequired={onAuthRequired}
     >
       {page === 'overview' && <>
-      {(displayError || comparisonsError) && <div className={styles.errorBox}>{displayError || comparisonsError}</div>}
+      {(displayError || displayComparisonsError) && <div className={styles.errorBox}>{displayError || displayComparisonsError}</div>}
 
       <StatCards
-        usage={usage}
+        usage={visibleUsage}
         loading={overviewDisplayLoading}
         dailyAverageUsage={dailyAverageCardUsage}
         reserveDailyAverage={reserveDailyAverageCard}
@@ -414,18 +428,18 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
         onWindowChange={setActivityWindow}
       />
 
-      <UsageComparisonCharts isDark={resolvedTheme === 'dark'} isMobile={isMobile} comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading} keyViewer />
+      <UsageComparisonCharts isDark={resolvedTheme === 'dark'} isMobile={isMobile} comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading || (comparisonsError === 'COSTS_BUSY' && !overviewComparisons)} keyViewer />
       </>}
 
       {page === 'realtime' && <OverviewRealtimePanel
-        realtime={realtime?.window === realtimeWindow ? realtime : undefined}
-        loading={realtimeLoading}
+        realtime={visibleRealtime ?? undefined}
+        loading={realtimeLoading || (realtimeError === 'COSTS_BUSY' && !visibleRealtime)}
         error={displayRealtimeError}
         window={realtimeWindow}
         onWindowChange={setRealtimeWindow}
         isDark={isDark}
         isMobile={isMobile}
-        timezone={realtime?.timezone ?? usage?.timezone}
+        timezone={visibleRealtime?.timezone ?? visibleUsage?.timezone}
         visibleDimensions={KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS}
       />}
     </KeyViewerShell>

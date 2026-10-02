@@ -20,12 +20,13 @@ func BenchmarkOverviewComparisons(b *testing.B) {
 	sqlDB, _ := db.DB()
 	b.Cleanup(func() { _ = sqlDB.Close() })
 	end := time.Date(2026, 9, 12, 0, 0, 0, 0, time.Local)
+	fee, unavailable := 1.0, int64(0)
 	rows := make([]entities.UsageOverviewDailyStat, 0, 365*12*4*2)
 	for day := 1; day <= 365; day++ {
 		for key := 0; key < 12; key++ {
 			for model := 0; model < 4; model++ {
 				for identity := 0; identity < 2; identity++ {
-					rows = append(rows, entities.UsageOverviewDailyStat{BucketStart: end.AddDate(0, 0, -day), APIGroupKey: fmt.Sprintf("key-%d", key), Model: fmt.Sprintf("model-%d", model), AuthIndex: fmt.Sprintf("auth-%d", identity), RequestCount: 10000, SuccessCount: 9900, FailureCount: 100, InputTokens: 800000, OutputTokens: 200000, CacheReadTokens: 400000, TotalTokens: 1000000})
+					rows = append(rows, entities.UsageOverviewDailyStat{BucketStart: end.AddDate(0, 0, -day), APIGroupKey: fmt.Sprintf("key-%d", key), Model: fmt.Sprintf("model-%d", model), AuthIndex: fmt.Sprintf("auth-%d", identity), RequestCount: 10000, SuccessCount: 9900, FailureCount: 100, InputTokens: 800000, OutputTokens: 200000, CacheReadTokens: 400000, TotalTokens: 1000000, CostUSD: &fee, UnavailableCostCount: &unavailable})
 				}
 			}
 		}
@@ -38,11 +39,16 @@ func BenchmarkOverviewComparisons(b *testing.B) {
 			b.Run(fmt.Sprintf("days_%d/comparisons_%t", days, enabled), func(b *testing.B) {
 				start := end.AddDate(0, 0, -days)
 				filter := repodto.UsageQueryFilter{Range: "custom", CustomUnit: "day", StartTime: &start, EndTime: &end, EndExclusive: true, ComparisonOnly: enabled}
-				resolver := emptyPricingResolverForTest()
 				b.ReportAllocs()
 				b.ResetTimer()
 				for i := 0; i < b.N; i++ {
-					result, err := repository.BuildUsageOverviewWithFilter(db, filter, resolver)
+					var result *repodto.UsageOverviewRecord
+					var err error
+					if enabled {
+						result, err = repository.BuildUsageOverviewComparisonsWithFilterAndRecentCache(db, filter, nil)
+					} else {
+						result, err = repository.BuildUsageOverviewWithFilterAndRecentCache(db, filter, nil)
+					}
 					if err != nil {
 						b.Fatal(err)
 					}

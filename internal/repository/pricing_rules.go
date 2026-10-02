@@ -3,6 +3,7 @@ package repository
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository/dto"
@@ -20,6 +21,20 @@ var modelPriceRuleColumns = []string{
 	"created_at",
 	"updated_at",
 }
+
+// modelPriceRuleInsert 只用于写入已验证的完整规则；去掉实体的 default:1 标签，
+// 让合法倍率 0 作为明确列值插入，同时继续由 GORM 填充 ID 与时间戳。
+type modelPriceRuleInsert struct {
+	ID                  int64 `gorm:"primaryKey"`
+	ModelPriceSettingID int64
+	Key                 string
+	Value               string
+	Multiplier          float64
+	CreatedAt           time.Time `gorm:"serializer:storageTime"`
+	UpdatedAt           time.Time `gorm:"serializer:storageTime"`
+}
+
+func (modelPriceRuleInsert) TableName() string { return "model_price_rules" }
 
 func ListModelPriceRules(db *gorm.DB) ([]entities.ModelPriceRule, error) {
 	if db == nil {
@@ -59,20 +74,28 @@ func ReplaceModelPriceRules(db *gorm.DB, model string, inputs []dto.ModelPriceRu
 		return nil, fmt.Errorf("delete model price rules for %q: %w", model, err)
 	}
 
-	rules := make([]entities.ModelPriceRule, len(inputs))
+	inserts := make([]modelPriceRuleInsert, len(inputs))
 	for index := range inputs {
-		rules[index] = entities.ModelPriceRule{
+		inserts[index] = modelPriceRuleInsert{
 			ModelPriceSettingID: setting.ID,
 			Key:                 inputs[index].Key,
 			Value:               inputs[index].Value,
 			Multiplier:          inputs[index].Multiplier,
 		}
 	}
-	if len(rules) == 0 {
-		return rules, nil
+	if len(inserts) == 0 {
+		return []entities.ModelPriceRule{}, nil
 	}
-	if err := db.CreateInBatches(&rules, insertBatchSize(entities.ModelPriceRule{})).Error; err != nil {
+	if err := db.CreateInBatches(&inserts, insertBatchSize(entities.ModelPriceRule{})).Error; err != nil {
 		return nil, fmt.Errorf("create model price rules for %q: %w", model, err)
+	}
+	rules := make([]entities.ModelPriceRule, len(inserts))
+	for index, inserted := range inserts {
+		rules[index] = entities.ModelPriceRule{
+			ID: inserted.ID, ModelPriceSettingID: inserted.ModelPriceSettingID,
+			Key: inserted.Key, Value: inserted.Value, Multiplier: inserted.Multiplier,
+			CreatedAt: inserted.CreatedAt, UpdatedAt: inserted.UpdatedAt,
+		}
 	}
 	return rules, nil
 }

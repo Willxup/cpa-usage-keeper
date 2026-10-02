@@ -24,11 +24,12 @@ type usageWindowStatsProvider interface {
 	SumGroupsByAuthIndex(context.Context, string, time.Time, *time.Time, repository.UsageWindowStatsGrouper) (repository.UsageWindowGroupedStats, error)
 }
 
+// attachWindowUsageStats 用已存费用补明确窗口，查询失败沿原规则保留上游配额响应。
 func (s *Service) attachWindowUsageStats(ctx context.Context, authIndex string, response CheckResponse, now time.Time) CheckResponse {
 	if s == nil {
 		return response
 	}
-	calculator, err := repository.NewUsageWindowStatsCalculator(ctx, s.db, s.pricing.NewResolver())
+	calculator, err := repository.NewUsageWindowStatsCalculator(s.db)
 	if err != nil {
 		return response
 	}

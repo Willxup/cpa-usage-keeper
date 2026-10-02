@@ -143,7 +143,7 @@ func seedUsageAggregationParityDatabase(t *testing.T, db *gorm.DB, now time.Time
 		t.Fatalf("seed parity identities: %v", err)
 	}
 	// 准备：再写 usage events，确保两个数据库自增 ID 完全一致。
-	if _, _, err := repository.InsertUsageEvents(db, events); err != nil {
+	if _, _, err := repository.InsertUsageEvents(db, priceRunnerFixtureEvents(events)); err != nil {
 		t.Fatalf("seed parity usage events: %v", err)
 	}
 }

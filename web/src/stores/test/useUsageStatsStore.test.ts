@@ -116,4 +116,42 @@ describe('useUsageStatsStore', () => {
     expect(state.realtime?.window).toBe('15m')
     expect(state.realtimeError).toBe('')
   })
+
+  it('forces a new overview request and ignores the late pre-recalculation response', async () => {
+    const old = Promise.withResolvers<unknown>()
+    const fresh = Promise.withResolvers<unknown>()
+    apiMocks.fetchUsageOverview.mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise)
+    const oldLoad = useUsageStatsStore.getState().loadUsageStats({ range: '24h' })
+    const oldSignal = apiMocks.fetchUsageOverview.mock.calls[0][1] as AbortSignal
+    const freshLoad = useUsageStatsStore.getState().loadUsageStats({ range: '24h', force: true })
+
+    expect(apiMocks.fetchUsageOverview).toHaveBeenCalledTimes(2)
+    expect(oldSignal.aborted).toBe(true)
+    fresh.resolve({ usage: { total_requests: 1, total_cost: 2 } })
+    await freshLoad
+    // 模拟传输层没有响应 abort：旧成功响应也不得覆盖新费用。
+    old.resolve({ usage: { total_requests: 1, total_cost: 1 } })
+    await oldLoad
+    expect(useUsageStatsStore.getState().usage?.usage.total_cost).toBe(2)
+    expect(useUsageStatsStore.getState().loading).toBe(false)
+  })
+
+  it('forces a new realtime request without accepting the late previous result', async () => {
+    const old = Promise.withResolvers<OverviewRealtimeBlock>()
+    const fresh = Promise.withResolvers<OverviewRealtimeBlock>()
+    apiMocks.fetchUsageOverviewRealtime.mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise)
+    const oldLoad = useUsageStatsStore.getState().loadUsageStatsRealtime({ realtimeWindow: '15m' })
+    const oldSignal = apiMocks.fetchUsageOverviewRealtime.mock.calls[0][0].signal as AbortSignal
+    const freshLoad = useUsageStatsStore.getState().loadUsageStatsRealtime({ realtimeWindow: '15m', force: true })
+
+    expect(apiMocks.fetchUsageOverviewRealtime).toHaveBeenCalledTimes(2)
+    expect(oldSignal.aborted).toBe(true)
+    const freshValue = { ...realtime, bucket_seconds: 60 }
+    fresh.resolve(freshValue)
+    await freshLoad
+    old.resolve(realtime)
+    await oldLoad
+    expect(useUsageStatsStore.getState().realtime).toEqual(freshValue)
+    expect(useUsageStatsStore.getState().realtimeLoading).toBe(false)
+  })
 })

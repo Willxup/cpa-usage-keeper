@@ -15,8 +15,10 @@ type ModelPriceSetting struct {
 	PromptPricePer1M     float64
 	CompletionPricePer1M float64
 	CacheReadPricePer1M  float64
-	CacheWritePricePer1M float64   `gorm:"column:cache_creation_price_per1_m;not null;default:0"`
-	PriceMultiplier      *float64  `gorm:"not null;default:1"`
-	CreatedAt            time.Time `gorm:"serializer:storageTime"`
-	UpdatedAt            time.Time `gorm:"serializer:storageTime"`
+	CacheWritePricePer1M float64  `gorm:"column:cache_creation_price_per1_m;not null;default:0"`
+	PriceMultiplier      *float64 `gorm:"not null;default:1"`
+	// 条件分支在后续完整配置保存中写入；旧配置升级为明确的空数组。
+	BranchesJSON string    `gorm:"column:branches_json;type:text;not null;default:'[]'"`
+	CreatedAt    time.Time `gorm:"serializer:storageTime"`
+	UpdatedAt    time.Time `gorm:"serializer:storageTime"`
 }

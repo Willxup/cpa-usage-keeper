@@ -162,6 +162,10 @@ func (r *RedisProcessRunner) ProcessOnce(ctx context.Context) (*servicedto.Redis
 		// 部分成功/带 warning 的场景对外包装成 ErrSyncCompletedWithWarnings。
 		returnErr = fmt.Errorf("%w: %v", ErrSyncCompletedWithWarnings, err)
 	}
+	if result == nil && ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+		// 暂停许可尚未允许读取 inbox 时，调用方取消只结束等待，不产生批次失败状态。
+		return nil, err
+	}
 	// 无论成功失败，都记录状态供 Status 展示。
 	r.recordProcessResult(result, err)
 	return result, returnErr

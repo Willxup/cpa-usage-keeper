@@ -69,6 +69,7 @@ func TestUsageOverviewFiveDimensionsMigrationRebuildsFromCurrentUsageEvents(t *t
 	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
 		index := "uniq_" + table + "_dimensions"
 		assertUsageOverviewFiveDimensionMigrationRows(t, db, table)
+		assertNoFuturePricingColumns(t, db, table, "cost_usd", "unavailable_cost_count")
 		assertUsageOverviewFiveDimensionIndex(t, db, table, index)
 		assertUsageOverviewIndexCreatedAfterClear(t, statements.String(), table, index)
 		oldIndex := "uniq_" + table + "_bucket_api_model_auth_alias"
@@ -85,12 +86,12 @@ func TestUsageOverviewFiveDimensionsMigrationRestartsCleanlyAfterBatchFailure(t 
 	db := openUnmigratedTestDatabase(t)
 	db.NowFunc = func() time.Time { return timeutil.NormalizeStorageTime(time.Now()) }
 	createLegacyUsageOverviewFiveDimensionSchema(t, db)
-	seedUsageOverviewFiveDimensionBatchEvents(t, db, 1001)
+	seedUsageOverviewFiveDimensionBatchEvents(t, db, 101)
 
-	// 最后一条事件单独形成第二批 row，并由 trigger 强制让该事务失败。
+	// 最后一条事件单独形成第二页，并由 trigger 强制让该事务失败。
 	if err := db.Exec(`CREATE TRIGGER fail_usage_overview_second_batch
 		BEFORE UPDATE ON usage_overview_aggregation_checkpoints
-		WHEN NEW.last_aggregated_usage_event_id > 1000
+		WHEN NEW.last_aggregated_usage_event_id > 100
 		BEGIN
 			SELECT RAISE(FAIL, 'forced usage overview second batch failure');
 		END`).Error; err != nil {
@@ -106,10 +107,12 @@ func TestUsageOverviewFiveDimensionsMigrationRestartsCleanlyAfterBatchFailure(t 
 	if err := migration.Run(db); err == nil {
 		t.Fatal("expected second five-dimension batch to fail")
 	}
-	assertUsageOverviewMigrationCheckpoint(t, db, 1000)
+	assertUsageOverviewMigrationCheckpoint(t, db, 100)
 	assertUsageOverviewMigrationVersionCount(t, db, 0)
-	assertUsageOverviewMigrationRequestCount(t, db, "usage_overview_hourly_stats", 1000)
-	assertUsageOverviewMigrationRequestCount(t, db, "usage_overview_daily_stats", 1000)
+	assertUsageOverviewMigrationRequestCount(t, db, "usage_overview_hourly_stats", 100)
+	assertUsageOverviewMigrationRequestCount(t, db, "usage_overview_daily_stats", 100)
+	assertNoFuturePricingColumns(t, db, "usage_overview_hourly_stats", "cost_usd", "unavailable_cost_count")
+	assertNoFuturePricingColumns(t, db, "usage_overview_daily_stats", "cost_usd", "unavailable_cost_count")
 
 	// version 缺失时重跑会再次执行 setup：清空首批结果、checkpoint 归零后完整重建。
 	if err := db.Exec("DROP TRIGGER fail_usage_overview_second_batch").Error; err != nil {
@@ -118,10 +121,27 @@ func TestUsageOverviewFiveDimensionsMigrationRestartsCleanlyAfterBatchFailure(t 
 	if err := migration.Run(db); err != nil {
 		t.Fatalf("rerun five-dimension migration: %v", err)
 	}
-	assertUsageOverviewMigrationCheckpoint(t, db, 1001)
+	assertUsageOverviewMigrationCheckpoint(t, db, 101)
 	assertUsageOverviewMigrationVersionCount(t, db, 1)
-	assertUsageOverviewMigrationRequestCount(t, db, "usage_overview_hourly_stats", 1001)
-	assertUsageOverviewMigrationRequestCount(t, db, "usage_overview_daily_stats", 1001)
+	assertUsageOverviewMigrationRequestCount(t, db, "usage_overview_hourly_stats", 101)
+	assertUsageOverviewMigrationRequestCount(t, db, "usage_overview_daily_stats", 101)
+	assertNoFuturePricingColumns(t, db, "usage_overview_hourly_stats", "cost_usd", "unavailable_cost_count")
+	assertNoFuturePricingColumns(t, db, "usage_overview_daily_stats", "cost_usd", "unavailable_cost_count")
+}
+
+func TestUsageOverviewFiveDimensionsMigrationCreatesMissingDailyTableWithoutFutureColumns(t *testing.T) {
+	db := openUnmigratedTestDatabase(t)
+	createLegacyUsageOverviewFiveDimensionSchema(t, db)
+	seedUsageOverviewFiveDimensionMigrationData(t, db)
+	if err := db.Exec("DROP TABLE usage_overview_daily_stats").Error; err != nil {
+		t.Fatalf("drop missing daily fixture table: %v", err)
+	}
+	runOnlyMigration(t, db, usageOverviewFiveDimensionsMigrationVersion)
+	assertUsageOverviewMigrationCheckpoint(t, db, 4)
+	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+		assertUsageOverviewFiveDimensionMigrationRows(t, db, table)
+		assertNoFuturePricingColumns(t, db, table, "cost_usd", "unavailable_cost_count")
+	}
 }
 
 func seedUsageOverviewFiveDimensionBatchEvents(t *testing.T, db *gorm.DB, count int) {

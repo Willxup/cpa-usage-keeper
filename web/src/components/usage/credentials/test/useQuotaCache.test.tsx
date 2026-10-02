@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act } from 'react'
+import { act, useEffect } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fetchUsageQuotaCache } from '@/lib/api'
@@ -11,8 +11,10 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   fetchUsageQuotaCache: vi.fn(),
 }))
 
-function Harness({ enabled }: { enabled: boolean }) {
-  useQuotaCache({ enabled, authIndexes: ['auth-1'] })
+let latest: ReturnType<typeof useQuotaCache> | null = null
+function Harness({ enabled, authIndexes = ['auth-1'] }: { enabled: boolean; authIndexes?: string[] }) {
+  const result = useQuotaCache({ enabled, authIndexes })
+  useEffect(() => { latest = result }, [result])
   return null
 }
 
@@ -32,6 +34,7 @@ describe('quota cache polling', () => {
   afterEach(() => {
     act(() => root.unmount())
     container.remove()
+    latest = null
     vi.useRealTimers()
   })
 
@@ -53,5 +56,44 @@ describe('quota cache polling', () => {
     expect(vi.getTimerCount()).toBe(0)
     await act(async () => vi.advanceTimersByTimeAsync(60_000))
     expect(fetchUsageQuotaCache).toHaveBeenCalledTimes(2)
+  })
+
+  it('drops old GET results after reset and replaces completed quota with a failed or empty cache result', async () => {
+    const oldQuota = { id: 'old', quota: [] }
+    let resolveOld!: (value: { items: { auth_index: string; status: 'completed'; quota: typeof oldQuota }[] }) => void
+    vi.mocked(fetchUsageQuotaCache)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve }))
+      .mockResolvedValueOnce({ items: [{ auth_index: 'auth-1', status: 'failed', error: 'expired' }] })
+      .mockResolvedValueOnce({ items: [] })
+    await act(async () => root.render(<Harness enabled />))
+    const oldSignal = vi.mocked(fetchUsageQuotaCache).mock.calls[0][1]!
+    await act(async () => {
+      latest!.resetQuotaCache()
+      await latest!.refreshQuotaCache()
+    })
+    expect(oldSignal.aborted).toBe(true)
+    expect(latest!.quotaResponseByAuthIndex).toEqual({})
+    expect(latest!.cachedQuotaStateByAuthIndex['auth-1']?.refreshStatus).toBe('failed')
+    await act(async () => resolveOld({ items: [{ auth_index: 'auth-1', status: 'completed', quota: oldQuota }] }))
+    expect(latest!.quotaResponseByAuthIndex).toEqual({})
+
+    await act(async () => latest!.refreshQuotaCache())
+    expect(latest!.cachedQuotaStateByAuthIndex).toEqual({})
+    await act(async () => root.render(<Harness enabled authIndexes={[]} />))
+    expect(latest!.quotaResponseByAuthIndex).toEqual({})
+  })
+
+  it('removes a previously completed quota when the same auth index fails or leaves the current page', async () => {
+    const oldQuota = { id: 'old', quota: [] }
+    vi.mocked(fetchUsageQuotaCache)
+      .mockResolvedValueOnce({ items: [{ auth_index: 'auth-1', status: 'completed', quota: oldQuota }] })
+      .mockResolvedValueOnce({ items: [{ auth_index: 'auth-1', status: 'failed', error: 'expired' }] })
+    await act(async () => root.render(<Harness enabled />))
+    expect(latest!.quotaResponseByAuthIndex['auth-1']?.id).toBe('old')
+    await act(async () => latest!.refreshQuotaCache())
+    expect(latest!.quotaResponseByAuthIndex).toEqual({})
+    expect(latest!.cachedQuotaStateByAuthIndex['auth-1']?.refreshStatus).toBe('failed')
+    await act(async () => root.render(<Harness enabled authIndexes={[]} />))
+    expect(latest!.cachedQuotaStateByAuthIndex).toEqual({})
   })
 })

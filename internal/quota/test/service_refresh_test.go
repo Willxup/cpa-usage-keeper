@@ -407,7 +407,7 @@ func TestRefreshTaskStoresUsageIdentityDisplayName(t *testing.T) {
 }
 
 func TestUpdateUsageIdentityDisplayNameSnapshotUpdatesExistingRefreshTask(t *testing.T) {
-	service := NewServiceWithRegistry(openQuotaTestDatabase(t), NewProviderRegistry(nil), emptyPricingCatalogForTest())
+	service := NewServiceWithRegistry(openQuotaTestDatabase(t), NewProviderRegistry(nil))
 	defer service.StopRefreshTasks()
 	setRefreshTasks(service, map[string]*RefreshTaskRecord{
 		"auth-1": {AuthIndex: "auth-1", Name: "Original Name", Status: RefreshTaskStatusCompleted},
@@ -1277,8 +1277,13 @@ func TestInspectionStatusCachesCompletedAtWhenExplicitInspectionRoundSettles(t *
 	if second.CompletedAt == nil || !second.CompletedAt.Equal(*first.CompletedAt) {
 		t.Fatalf("expected completed_at to stay cached, first=%v second=%v", first.CompletedAt, second.CompletedAt)
 	}
-	resetInspectionCompletedAt(service)
+	// 通过真实的新一轮巡检验证完成时间重置，而不是直接修改内部字段。
 	time.Sleep(time.Millisecond)
+	if _, err := service.StartInspection(context.Background()); err != nil {
+		t.Fatalf("second StartInspection returned error: %v", err)
+	}
+	waitForRefreshTask(t, service, "auth-1", RefreshTaskStatusCompleted)
+	waitForRefreshTask(t, service, "auth-2", RefreshTaskStatusCompleted)
 	reset, err := service.GetInspectionStatus(context.Background())
 	if err != nil {
 		t.Fatalf("reset GetInspectionStatus returned error: %v", err)

@@ -111,7 +111,7 @@ func TestUpsertModelPriceSettingRejectsUnknownPricingStyle(t *testing.T) {
 	}
 }
 
-func TestDeleteModelPriceSettingDeletesOnlyTheTargetModel(t *testing.T) {
+func TestDeleteModelPriceSettingRequiredDeletesOnlyTheTargetModel(t *testing.T) {
 	db := openTestDatabase(t)
 
 	if _, err := repository.UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{
@@ -131,8 +131,8 @@ func TestDeleteModelPriceSettingDeletesOnlyTheTargetModel(t *testing.T) {
 		t.Fatalf("seed preserved pricing setting: %v", err)
 	}
 
-	if err := repository.DeleteModelPriceSetting(db, " claude-sonnet "); err != nil {
-		t.Fatalf("DeleteModelPriceSetting returned error: %v", err)
+	if err := repository.DeleteModelPriceSettingRequired(db, " claude-sonnet "); err != nil {
+		t.Fatalf("DeleteModelPriceSettingRequired returned error: %v", err)
 	}
 	settings, err := repository.ListModelPriceSettings(db)
 	if err != nil {
@@ -141,8 +141,8 @@ func TestDeleteModelPriceSettingDeletesOnlyTheTargetModel(t *testing.T) {
 	if len(settings) != 1 || settings[0].Model != "openai/gpt-4.1" {
 		t.Fatalf("expected only openai/gpt-4.1 pricing to remain, got %#v", settings)
 	}
-	if err := repository.DeleteModelPriceSetting(db, "openai/gpt-4.1"); err != nil {
-		t.Fatalf("DeleteModelPriceSetting returned error for slash model: %v", err)
+	if err := repository.DeleteModelPriceSettingRequired(db, "openai/gpt-4.1"); err != nil {
+		t.Fatalf("DeleteModelPriceSettingRequired returned error for slash model: %v", err)
 	}
 	settings, err = repository.ListModelPriceSettings(db)
 	if err != nil {
@@ -152,7 +152,7 @@ func TestDeleteModelPriceSettingDeletesOnlyTheTargetModel(t *testing.T) {
 		t.Fatalf("expected slash model pricing to be deleted, got %#v", settings)
 	}
 
-	if err := repository.DeleteModelPriceSetting(db, " "); err == nil || !strings.Contains(err.Error(), "model is required") {
+	if err := repository.DeleteModelPriceSettingRequired(db, " "); err == nil || !strings.Contains(err.Error(), "model is required") {
 		t.Fatalf("expected empty model validation error, got %v", err)
 	}
 }

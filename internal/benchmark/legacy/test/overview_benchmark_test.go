@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository"
 	repositorydto "cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
@@ -22,8 +21,8 @@ func BenchmarkUsageOverviewStatsBacked(b *testing.B) {
 				db := openOverviewBenchmarkDB(b, size)
 				filter := repositorydto.UsageQueryFilter{Range: window.name, StartTime: &window.start, EndTime: &window.end}
 				for b.Loop() {
-					if _, err := repository.BuildUsageOverviewWithFilter(db, filter, pricing.NewCatalog(pricing.EmptySnapshot()).NewResolver()); err != nil {
-						b.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
+					if _, err := repository.BuildUsageOverviewWithFilterAndRecentCache(db, filter, nil); err != nil {
+						b.Fatalf("BuildUsageOverviewWithFilterAndRecentCache returned error: %v", err)
 					}
 				}
 			})
@@ -122,6 +121,8 @@ func openOverviewBenchmarkDBWithoutStats(b *testing.B, eventCount int) *gorm.DB 
 	events := make([]entities.UsageEvent, 0, eventCount)
 	base := time.Date(2026, 5, 14, 12, 0, 0, 0, time.UTC).Add(-time.Duration(eventCount) * time.Minute)
 	for i := 0; i < eventCount; i++ {
+		// 合成费用在准备数据时确定，查询与 catch-up 只读取或累加，不依赖价格配置。
+		cost, available := float64(140+i%82)/1_000_000, true
 		events = append(events, entities.UsageEvent{
 			EventKey:            fmt.Sprintf("bench-%d", i),
 			APIGroupKey:         fmt.Sprintf("api-%d", i%8),
@@ -135,6 +136,8 @@ func openOverviewBenchmarkDBWithoutStats(b *testing.B, eventCount int) *gorm.DB 
 			CacheReadTokens:     int64(i % 9),
 			CacheCreationTokens: int64(i % 5),
 			TotalTokens:         int64(140 + i%82),
+			CostUSD:             &cost,
+			CostAvailable:       &available,
 		})
 	}
 	if _, _, err := repository.InsertUsageEvents(db, events); err != nil {

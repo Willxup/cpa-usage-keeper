@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/pricing"
-	"cpa-usage-keeper/internal/repository"
 )
 
 func TestUsageWindowStatsCalculatorGroupsAggregatedRowsByRealModel(t *testing.T) {
@@ -18,18 +16,13 @@ func TestUsageWindowStatsCalculatorGroupsAggregatedRowsByRealModel(t *testing.T)
 	end := start.Add(5 * time.Hour)
 	alias := "gemini-user-alias"
 	if err := db.Create(&[]entities.UsageEvent{
-		{EventKey: "gemini", AuthIndex: "antigravity-auth", Model: "gemini-3-flash", Timestamp: start.Add(time.Hour), InputTokens: 1_000_000, TotalTokens: 1_000_000},
-		{EventKey: "claude", AuthIndex: "antigravity-auth", Model: "claude-sonnet-4-6", ModelAlias: &alias, Timestamp: start.Add(2 * time.Hour), InputTokens: 1_000_000, TotalTokens: 1_000_000},
-		{EventKey: "gpt", AuthIndex: "antigravity-auth", Model: "gpt-oss-120b-medium", Timestamp: start.Add(3 * time.Hour), InputTokens: 500_000, TotalTokens: 500_000},
+		{EventKey: "gemini", AuthIndex: "antigravity-auth", Model: "gemini-3-flash", Timestamp: start.Add(time.Hour), InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: windowCostPtr(1), CostAvailable: windowAvailablePtr(true)},
+		{EventKey: "claude", AuthIndex: "antigravity-auth", Model: "claude-sonnet-4-6", ModelAlias: &alias, Timestamp: start.Add(2 * time.Hour), InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: windowCostPtr(2), CostAvailable: windowAvailablePtr(true)},
+		{EventKey: "gpt", AuthIndex: "antigravity-auth", Model: "gpt-oss-120b-medium", Timestamp: start.Add(3 * time.Hour), InputTokens: 500_000, TotalTokens: 500_000, CostUSD: windowCostPtr(1), CostAvailable: windowAvailablePtr(true)},
 	}).Error; err != nil {
 		t.Fatalf("seed grouped usage events: %v", err)
 	}
-
-	resolver := usageWindowGroupPricingResolver(t)
-	calculator, err := repository.NewUsageWindowStatsCalculator(context.Background(), db, resolver)
-	if err != nil {
-		t.Fatalf("NewUsageWindowStatsCalculator: %v", err)
-	}
+	calculator := newUsageWindowCalculatorForTest(t, db)
 	result, err := calculator.SumGroupsByAuthIndex(context.Background(), "antigravity-auth", start, &end, antigravityUsageWindowTestGroup)
 	if err != nil {
 		t.Fatalf("SumGroupsByAuthIndex: %v", err)
@@ -47,38 +40,45 @@ func TestUsageWindowStatsCalculatorGroupsAggregatedRowsByRealModel(t *testing.T)
 	}
 }
 
-func TestUsageWindowStatsCalculatorMarksUnknownGroupsAndMissingPricesIncomplete(t *testing.T) {
+// 未知模型只有全部 Token 字段为零才不影响归组完整性；已知组沿事件已存可用性。
+func TestUsageWindowStatsCalculatorKeepsUnknownGroupsAndStoredAvailability(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		model     string
-		resolver  pricing.Resolver
+		total     int64
+		input     int64
+		available bool
 		wantGroup string
+		complete  bool
 	}{
-		{name: "unknown model group", model: "future-model", resolver: usageWindowGroupPricingResolver(t)},
-		{name: "missing group price", model: "gpt-unpriced", resolver: emptyPricingResolverForTest(), wantGroup: "claude-gpt"},
+		{name: "unknown positive total", model: "future-model", total: 10},
+		{name: "unknown zero total positive input", model: "future-model", input: 10},
+		{name: "unknown zero token", model: "future-model", complete: true, available: true},
+		{name: "known unavailable cost", model: "gpt-unpriced", total: 10, wantGroup: "claude-gpt", complete: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := openTestDatabase(t)
 			start := time.Date(2026, 9, 2, 8, 0, 0, 0, time.Local)
 			end := start.Add(5 * time.Hour)
 			if err := db.Create(&entities.UsageEvent{
-				EventKey: "incomplete", AuthIndex: "antigravity-auth", Model: tc.model, Timestamp: start.Add(time.Hour), InputTokens: 10, TotalTokens: 10,
+				EventKey: "group-case", AuthIndex: "antigravity-auth", Model: tc.model, Timestamp: start.Add(time.Hour),
+				InputTokens: tc.input, TotalTokens: tc.total, CostUSD: windowCostPtr(0), CostAvailable: windowAvailablePtr(tc.available),
 			}).Error; err != nil {
 				t.Fatalf("seed grouped event: %v", err)
 			}
-			calculator, err := repository.NewUsageWindowStatsCalculator(context.Background(), db, tc.resolver)
-			if err != nil {
-				t.Fatalf("NewUsageWindowStatsCalculator: %v", err)
-			}
+			calculator := newUsageWindowCalculatorForTest(t, db)
 			result, err := calculator.SumGroupsByAuthIndex(context.Background(), "antigravity-auth", start, &end, antigravityUsageWindowTestGroup)
 			if err != nil {
 				t.Fatalf("SumGroupsByAuthIndex: %v", err)
 			}
+			if result.Complete != tc.complete {
+				t.Fatalf("complete=%v, want %v: %+v", result.Complete, tc.complete, result)
+			}
 			if tc.wantGroup == "" {
-				if result.Complete {
-					t.Fatalf("expected unknown positive-token model to make attribution incomplete: %+v", result)
+				if len(result.Groups) != 0 {
+					t.Fatalf("unknown model entered a known group: %+v", result)
 				}
-			} else if stats := result.Groups[tc.wantGroup]; stats.Tokens != 10 || stats.CostAvailable {
+			} else if stats := result.Groups[tc.wantGroup]; stats.Tokens != tc.total || stats.CostAvailable {
 				t.Fatalf("expected known tokens with unavailable cost, got %+v", stats)
 			}
 		})
@@ -95,17 +95,4 @@ func antigravityUsageWindowTestGroup(model string) (string, bool) {
 	default:
 		return "", false
 	}
-}
-
-func usageWindowGroupPricingResolver(t *testing.T) pricing.Resolver {
-	t.Helper()
-	snapshot, err := pricing.CompileSnapshot([]pricing.ModelConfig{
-		{Pricing: entities.ModelPriceSetting{Model: "gemini-3-flash", PricingStyle: entities.ModelPricingStyleOpenAI, PromptPricePer1M: 1}},
-		{Pricing: entities.ModelPriceSetting{Model: "claude-sonnet-4-6", PricingStyle: entities.ModelPricingStyleClaude, PromptPricePer1M: 2}},
-		{Pricing: entities.ModelPriceSetting{Model: "gpt-oss-120b-medium", PricingStyle: entities.ModelPricingStyleOpenAI, PromptPricePer1M: 2}},
-	})
-	if err != nil {
-		t.Fatalf("CompileSnapshot: %v", err)
-	}
-	return pricing.NewCatalog(snapshot).NewResolver()
 }

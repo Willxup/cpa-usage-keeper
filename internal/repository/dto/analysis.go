@@ -57,13 +57,10 @@ type AnalysisHeatmapRecord struct {
 	CostAvailable       bool
 }
 
-type AnalysisCostBreakdownRecord struct {
-	UncachedInputCostUSD float64
-	CacheReadCostUSD     float64
-	CacheWriteCostUSD    float64
-	OutputCostUSD        float64
-	TotalCostUSD         float64
-	CostAvailable        bool
+// AnalysisCostSummaryRecord 只承载已存汇总的总 USD 金额及可用性，不虚构费用分项。
+type AnalysisCostSummaryRecord struct {
+	TotalCostUSD  float64
+	CostAvailable bool
 }
 
 type AnalysisModelEfficiencyRecord struct {
@@ -118,6 +115,6 @@ type AnalysisRecord struct {
 	AuthFilesComposition  []AnalysisCompositionRecord
 	AIProviderComposition []AnalysisCompositionRecord
 	Heatmap               []AnalysisHeatmapRecord
-	CostBreakdown         AnalysisCostBreakdownRecord
+	CostSummary           AnalysisCostSummaryRecord
 	ModelEfficiency       []AnalysisModelEfficiencyRecord
 }

@@ -67,7 +67,7 @@ func (s *usageService) resolveAPIGroupKey(ctx context.Context, apiKeyID string) 
 	return apiKey.APIKey, nil
 }
 
-// Usage 页面里的 Overview tab 下传时间窗口和全局 API-Key，仓储层负责构建 overview 聚合。
+// GetUsageOverview 解析请求的 Key 范围后读取完整汇总桶与窄边界事件的已存费用，不重新计价。
 func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
 	ctx = usageServiceContext(ctx)
 	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
@@ -82,7 +82,7 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 		EndExclusive: filter.EndExclusive,
 		QueryNow:     filter.QueryNow,
 		APIGroupKey:  apiGroupKey,
-	}, s.recentUsage, s.pricing.NewResolver())
+	}, s.recentUsage)
 	if err != nil {
 		return nil, err
 	}
@@ -107,14 +107,14 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 	}, nil
 }
 
-// GetUsageOverviewComparisons 为 Overview 比较图单独构建维度汇总，不拖慢基础 Overview 查询。
+// GetUsageOverviewComparisons 按请求 Key 范围读取已存四维费用，比较与普通总览共用时间边界。
 func (s *usageService) GetUsageOverviewComparisons(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
 	ctx = usageServiceContext(ctx)
 	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
 	if err != nil {
 		return nil, err
 	}
-	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
+	overview, err := repository.BuildUsageOverviewComparisonsWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
 		Range:          filter.Range,
 		ComparisonOnly: true,
 		CustomUnit:     filter.CustomUnit,
@@ -123,7 +123,7 @@ func (s *usageService) GetUsageOverviewComparisons(ctx context.Context, filter s
 		EndExclusive:   filter.EndExclusive,
 		QueryNow:       filter.QueryNow,
 		APIGroupKey:    apiGroupKey,
-	}, s.recentUsage, s.pricing.NewResolver())
+	}, s.recentUsage)
 	if err != nil {
 		return nil, err
 	}
@@ -262,6 +262,7 @@ func usageActivityGrain(window servicedto.UsageActivityWindow) (entities.UsageAc
 	}
 }
 
+// GetUsageOverviewRealtime 从近期缓存或窄窗事件读取已存费用，并保留实时请求与 Token 的原筛选口径。
 func (s *usageService) GetUsageOverviewRealtime(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewRealtime, error) {
 	ctx = usageServiceContext(ctx)
 	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
@@ -272,7 +273,7 @@ func (s *usageService) GetUsageOverviewRealtime(ctx context.Context, filter serv
 		RealtimeWindow:  filter.RealtimeWindow,
 		RealtimeEndTime: filter.RealtimeEndTime,
 		APIGroupKey:     apiGroupKey,
-	}, s.recentUsage, s.pricing.NewResolver())
+	}, s.recentUsage)
 	if err != nil {
 		return nil, err
 	}
@@ -456,6 +457,7 @@ func mapRealtimeCacheLevel(points []repodto.RealtimeCacheLevelPointRecord) []ser
 	return result
 }
 
+// GetAnalysis 在授权 Key 范围内读取已存小时／日费用；映射沿用原自然日、Token和身份视图。
 func (s *usageService) GetAnalysis(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.AnalysisSnapshot, error) {
 	ctx = usageServiceContext(ctx)
 	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
@@ -469,7 +471,7 @@ func (s *usageService) GetAnalysis(ctx context.Context, filter servicedto.UsageF
 		EndTime:      filter.EndTime,
 		EndExclusive: filter.EndExclusive,
 		APIGroupKey:  apiGroupKey,
-	}, s.pricing.NewResolver())
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -497,6 +499,7 @@ func (s *usageService) GetAnalysisLatency(ctx context.Context, filter servicedto
 	return &result, nil
 }
 
+// mapAnalysisRecord 将仓储的已存总费用及可用性映射到服务快照，不重新读取价格。
 func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnapshot {
 	if record == nil {
 		return &servicedto.AnalysisSnapshot{}
@@ -586,13 +589,9 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 		AuthFilesComposition:  authFiles,
 		AIProviderComposition: aiProviders,
 		Heatmap:               heatmap,
-		CostBreakdown: servicedto.AnalysisCostBreakdown{
-			UncachedInputCostUSD: record.CostBreakdown.UncachedInputCostUSD,
-			CacheReadCostUSD:     record.CostBreakdown.CacheReadCostUSD,
-			CacheWriteCostUSD:    record.CostBreakdown.CacheWriteCostUSD,
-			OutputCostUSD:        record.CostBreakdown.OutputCostUSD,
-			TotalCostUSD:         record.CostBreakdown.TotalCostUSD,
-			CostAvailable:        record.CostBreakdown.CostAvailable,
+		CostSummary: servicedto.AnalysisCostSummary{
+			TotalCostUSD:  record.CostSummary.TotalCostUSD,
+			CostAvailable: record.CostSummary.CostAvailable,
 		},
 		ModelEfficiency: modelEfficiency,
 	}
@@ -645,7 +644,8 @@ func mapAnalysisCompositionRecord(item repodto.AnalysisCompositionRecord) servic
 	}
 }
 
-// Usage 页面里的 Request Event Log tab 下传分页、列表筛选条件和全局 API-Key。
+// ListUsageEvents 保留请求页的筛选、cursor 与 API-Key 权限，并转发已存 USD 费用及可用性。
+// 每次调用固定当前价格 Snapshot 只显示风格，不按现价重算；NULL／非法费用错误向上返回。
 func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageEventsPage, error) {
 	ctx = usageServiceContext(ctx)
 	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
@@ -671,7 +671,7 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 		AuthType:        filter.AuthType,
 		APIGroupKey:     apiGroupKey,
 		Result:          filter.Result,
-	}, s.pricing.NewResolver())
+	}, s.pricing.Snapshot())
 	if err != nil {
 		return nil, err
 	}
@@ -716,7 +716,8 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 	return &servicedto.UsageEventsPage{Events: result, TotalCount: page.TotalCount, Page: page.Page, PageSize: page.PageSize, TotalPages: page.TotalPages, HasMore: page.HasMore}, nil
 }
 
-// StreamUsageEvents 使用 Request Event Log 相同筛选条件逐行导出，不应用分页。
+// StreamUsageEvents 使用请求页相同筛选逐行导出已存费用，不应用分页。
+// 每次导出固定当前 Snapshot 只显示风格；NULL／非法费用及 emit 错误向上返回。
 func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.UsageFilter, emit func(servicedto.UsageEventRecord) error) error {
 	ctx = usageServiceContext(ctx)
 	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
@@ -770,7 +771,7 @@ func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.
 			CostAvailable:       row.CostAvailable,
 			PricingStyle:        row.PricingStyle,
 		})
-	}, s.pricing.NewResolver())
+	}, s.pricing.Snapshot())
 }
 
 // Request Event Log 的 model 筛选项只应用调用方传入的时间窗口；独立筛选项接口当前传空 filter。

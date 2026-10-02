@@ -1,0 +1,37 @@
+.shell {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: 28px 20px 48px;
+  background: radial-gradient(800px 480px at 10% 0%, color-mix(in srgb, var(--primary-color) 15%, transparent), transparent 65%), var(--bg-secondary);
+}
+
+.frame { width: min(960px, 100%); }
+.header { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.brand { color: var(--text-primary); font-size: 20px; font-weight: 800; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.themes { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid var(--border-color); border-radius: 999px; background: var(--bg-primary); }
+.themeButton { min-height: 32px; border: 0; border-radius: 999px; padding: 6px 10px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
+.themeButton[aria-pressed='true'] { color: var(--text-primary); background: var(--bg-secondary); }
+.themeButton:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+.card { width: min(620px, 100%); box-sizing: border-box; margin: clamp(48px, 11vh, 120px) auto 0; padding: clamp(24px, 5vw, 44px); border: 1px solid var(--border-color); border-radius: 28px; background: var(--bg-primary); box-shadow: var(--floating-shadow); }
+.eyebrow { display: block; color: var(--primary-color); font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.phase { display: inline-flex; align-items: center; gap: 9px; margin-top: 18px; color: var(--text-secondary); font-size: 13px; font-weight: 700; }
+.indicator { width: 9px; height: 9px; border-radius: 50%; background: var(--primary-color); }
+.phase[data-phase='failed'] .indicator { background: var(--failure-badge-text, #c74646); }
+.card h1 { margin: 12px 0 0; color: var(--text-primary); font-size: clamp(26px, 5vw, 38px); line-height: 1.2; }
+.description, .nextStep, .connection { margin: 16px 0 0; color: var(--text-secondary); line-height: 1.7; }
+.progress { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 28px 0 0; color: var(--text-primary); font-size: 13px; font-weight: 600; }
+.track { flex: 1 0 180px; height: 8px; overflow: hidden; border-radius: 999px; background: var(--bg-secondary); }
+.track span { display: block; height: 100%; border-radius: inherit; background: var(--primary-color); }
+.connection { color: var(--failure-badge-text, #c74646); }
+.card > button { margin-top: 24px; }
+
+@media (max-width: 480px) {
+  .shell { padding: 20px 16px 32px; }
+  .header { align-items: flex-start; }
+  .controls { width: 100%; }
+  .card { margin-top: 42px; }
+}
+
+:global(.app-frame[data-embed='cpamc']) .shell { min-height: auto; background: var(--bg); }

@@ -12,7 +12,7 @@ import { KeyOverviewPage } from './pages/KeyOverviewPage';
 import { KeyRankingPage } from './pages/KeyRankingPage';
 import { LoginPage } from './pages/LoginPage';
 import { UsagePage } from './pages/UsagePage';
-import { cpamcEmbedSearch, isCPAMCEmbed, notifyCPAMCEmbedReady } from './embed/cpamcEmbed';
+import { cpamcEmbedSearch, isCPAMCEmbed } from './embed/cpamcEmbed';
 import { getUsageTabPath, resolveUsageTabFromPath, stripAppBasePath } from './lib/usageNavigation';
 import { useUsageStatsStore } from './stores/useUsageStatsStore';
 
@@ -90,10 +90,6 @@ function App() {
       clearSession();
     });
   }, [clearSession, loadSession]);
-
-  useEffect(() => {
-    notifyCPAMCEmbedReady();
-  }, []);
 
   useEffect(() => {
     if (authState !== 'authenticated' || !authRole) return;

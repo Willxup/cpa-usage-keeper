@@ -17,7 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"cpa-usage-keeper/internal/repository"
+	"cpa-usage-keeper/internal/helper"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -352,7 +352,7 @@ func openProbeDatabase(path string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve probe database path: %w", err)
 	}
-	dsn := repository.BuildSQLiteFileURI(absolute) + "?mode=ro&_query_only=on&_busy_timeout=5000"
+	dsn := helper.BuildSQLiteFileURI(absolute) + "?mode=ro&_query_only=on&_busy_timeout=5000"
 	database, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open probe database: %w", err)

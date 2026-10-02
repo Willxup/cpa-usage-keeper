@@ -845,11 +845,7 @@ describe('AnalysisPanel token chart data', () => {
         output_tokens_per_request: 33.33,
         cache_read_rate: 0,
       })],
-      cost_breakdown: {
-        uncached_input_cost_usd: 0,
-        output_cost_usd: 0,
-        cache_read_cost_usd: 0,
-        cache_write_cost_usd: 0,
+      cost_summary: {
         total_cost_usd: 0,
         cost_available: false,
       },
@@ -895,11 +891,7 @@ describe('AnalysisPanel token chart data', () => {
         cost_usd: 9,
         cost_available: false,
       })],
-      cost_breakdown: {
-        uncached_input_cost_usd: 9,
-        output_cost_usd: 0,
-        cache_read_cost_usd: 0,
-        cache_write_cost_usd: 0,
+      cost_summary: {
         total_cost_usd: 9,
         cost_available: false,
       },

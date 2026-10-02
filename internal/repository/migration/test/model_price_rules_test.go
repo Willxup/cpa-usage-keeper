@@ -39,6 +39,7 @@ func TestModelPriceRulesFreshAndUpgradeSchemasMatch(t *testing.T) {
 	if err := migration.Run(upgrade); err != nil {
 		t.Fatalf("run model price rules migration: %v", err)
 	}
+	assertNoFuturePricingColumns(t, upgrade, "model_price_settings", "branches_json")
 
 	want := assertModelPriceRuleSchema(t, fresh)
 	got := assertModelPriceRuleSchema(t, upgrade)
@@ -176,8 +177,23 @@ func openLegacyModelPriceRulesDatabase(t *testing.T) *gorm.DB {
 		t.Fatalf("open legacy database: %v", err)
 	}
 	closeMigrationTestDatabase(t, db)
-	if err := db.AutoMigrate(&entities.ModelPriceSetting{}); err != nil {
+	// 用实际旧物理列建立父表，避免新实体经规则关联提前添加分支配置列。
+	if err := db.Exec(`CREATE TABLE model_price_settings (
+		id integer PRIMARY KEY AUTOINCREMENT,
+		model text,
+		pricing_style text NOT NULL DEFAULT 'openai',
+		prompt_price_per1_m real,
+		completion_price_per1_m real,
+		cache_read_price_per1_m real,
+		cache_creation_price_per1_m real NOT NULL DEFAULT 0,
+		price_multiplier real NOT NULL DEFAULT 1,
+		created_at datetime,
+		updated_at datetime
+	)`).Error; err != nil {
 		t.Fatalf("create legacy pricing schema: %v", err)
+	}
+	if err := db.Exec("CREATE UNIQUE INDEX uniq_model_price_settings_model ON model_price_settings(model)").Error; err != nil {
+		t.Fatalf("create legacy pricing index: %v", err)
 	}
 	if err := migration.MarkAllAsApplied(db); err != nil {
 		t.Fatalf("mark historical migrations applied: %v", err)

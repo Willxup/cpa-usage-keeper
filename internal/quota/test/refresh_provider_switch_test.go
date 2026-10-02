@@ -59,12 +59,22 @@ func TestHeaderProviderSwitchSurvivesOldRefreshCompletion(t *testing.T) {
 			}
 			release()
 			releaseSlot()
-			select {
-			case <-finished:
-			case <-time.After(3 * time.Second):
-				t.Fatal("old worker did not finish")
+			// 真正调用上游的旧任务仍有冷却；已失效的排队任务直接退出，不等待不存在的冷却信号。
+			if !tc.queued {
+				select {
+				case <-finished:
+				case <-time.After(3 * time.Second):
+					t.Fatal("old running worker did not finish")
+				}
 			}
 			service.StopRefreshTasks()
+			if tc.queued {
+				select {
+				case <-finished:
+					t.Fatal("obsolete queued task used provider cooldown")
+				default:
+				}
+			}
 			cached, err := service.GetRefreshTaskByAuthIndex(context.Background(), "shared-auth")
 			if err != nil || cached.Status != quota.RefreshTaskStatusCompleted || cached.Quota == nil || len(cached.Quota.Quota) != 1 || cached.Quota.Quota[0].Key != "five_hour" {
 				t.Fatalf("old task changed new provider cache: %+v err=%v", cached, err)

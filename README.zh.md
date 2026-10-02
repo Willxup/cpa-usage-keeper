@@ -125,6 +125,10 @@ Docker Compose 是推荐部署方式：首次部署可同时运行 CPA + Keeper�
 
 登录保护默认启用。启动 Keeper 前请配置 `LOGIN_PASSWORD`；只有部署环境已可靠隔离访问时，才显式设置 `AUTH_ENABLED=false`。
 
+## Benchmark
+
+`linux/amd64` 生产型容量测试覆盖持续 ingestion、Dashboard 延迟、CPU 利用率和 Keeper cgroup 峰值内存，完整结果见 [容量 Benchmark 报告](./internal/benchmark/reports/capacity/README.zh.md)。
+
 <details>
 <summary>开发者参考：项目结构、本地运行与测试</summary>
 

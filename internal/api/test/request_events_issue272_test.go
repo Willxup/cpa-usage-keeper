@@ -36,7 +36,7 @@ func TestIssue272RedisIngressKeepsRequestEventSpeedTPS(t *testing.T) {
 		t.Fatalf("seed issue #272 inbox row: %v", err)
 	}
 
-	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com"})
+	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com", PricingCatalog: emptyPricingCatalogForTest()})
 	result, err := syncService.ProcessRedisUsageInbox(context.Background())
 	if err != nil {
 		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)

@@ -9,9 +9,9 @@ import (
 
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
-	servicedto "cpa-usage-keeper/internal/service/dto"
 	"gorm.io/gorm"
 )
 
@@ -54,15 +54,16 @@ func TestUsageIdentityAliasUpdateDoesNotDependOnReaderAvailability(t *testing.T)
 func TestPricingUpdateDoesNotDependOnReaderAvailability(t *testing.T) {
 	// 准备：定价 upsert 内部会先查旧记录再 Save，占满 reader 可验证整个写命令的路由。
 	db, reader := openResolverServiceTestPools(t)
+	provider := newPricingTestProvider(t, db, emptyPricingCatalogForTest())
 	releaseReaders := holdResolverServiceTestReaders(t, reader)
 
 	// 执行：更新定价时的存在性查询和 Save 都必须使用 writer。
 	result := make(chan error, 1)
 	go func() {
-		_, err := service.NewPricingService(db, emptyPricingCatalogForTest()).UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
-			Model:                "writer-pricing-model",
-			PromptPricePer1M:     1,
-			CompletionPricePer1M: 2,
+		_, err := provider.SavePricingModel(context.Background(), pricing.ModelPricingConfig{
+			Model: "writer-pricing-model", PricingStyle: "openai",
+			BasePrices: pricing.BasePrices{Input: 1, Output: 2}, ModelMultiplier: 1,
+			ConditionalMultipliers: []pricing.RuleConfig{}, Branches: []pricing.PriceBranch{},
 		})
 		result <- err
 	}()

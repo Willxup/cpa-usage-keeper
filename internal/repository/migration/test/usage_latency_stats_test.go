@@ -52,12 +52,12 @@ func TestUsageLatencyStatsMigrationMatchesRuntimeAggregation(t *testing.T) {
 }
 
 func TestUsageLatencyStatsMigrationResumesAfterCommittedPage(t *testing.T) {
-	// 1001 条事件强制形成 1000+1 两页，第二页 trigger 失败时第一页必须已经独立提交。
+	// 101 条事件跨两个旧回放页，第二页 trigger 失败时第一页必须已经独立提交。
 	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.Local)
-	events := make([]entities.UsageEvent, 0, 1001)
-	for id := int64(1); id <= 1001; id++ {
+	events := make([]entities.UsageEvent, 0, 101)
+	for id := int64(1); id <= 101; id++ {
 		apiGroupKey := "ok-key"
-		if id == 1001 {
+		if id == 101 {
 			apiGroupKey = "fail-key"
 		}
 		events = append(events, latencyMigrationEvent(id, apiGroupKey, now.Add(-time.Minute), 100, 900))
@@ -80,21 +80,21 @@ func TestUsageLatencyStatsMigrationResumesAfterCommittedPage(t *testing.T) {
 	if err := migration.Run(db); err == nil {
 		t.Fatal("expected forced latency migration failure")
 	}
-	assertUsageLatencyMigrationCursor(t, db, 1000)
+	assertUsageLatencyMigrationCursor(t, db, 100)
 	assertUsageLatencyMigrationApplied(t, db, false)
 	rowsAfterFailure := loadUsageLatencyMigrationRows(t, db)
-	if len(rowsAfterFailure) != 2 || rowsAfterFailure[0].SampleCount != 1000 || rowsAfterFailure[1].SampleCount != 1000 {
+	if len(rowsAfterFailure) != 2 || rowsAfterFailure[0].SampleCount != 100 || rowsAfterFailure[1].SampleCount != 100 {
 		t.Fatalf("expected committed first-page hour/day rows, got %+v", rowsAfterFailure)
 	}
 
-	// 移除故障后从 cursor=1000 继续，不能再次累计前 1000 条。
+	// 移除故障后从已提交的第一页 cursor 继续，不能再次累计首批事件。
 	if err := db.Exec("DROP TRIGGER fail_latency_second_page").Error; err != nil {
 		t.Fatalf("drop latency failure trigger: %v", err)
 	}
 	if err := migration.Run(db); err != nil {
 		t.Fatalf("resume latency migration: %v", err)
 	}
-	assertUsageLatencyMigrationCursor(t, db, 1001)
+	assertUsageLatencyMigrationCursor(t, db, 101)
 	assertUsageLatencyMigrationApplied(t, db, true)
 	var totalSamples int64
 	for _, row := range loadUsageLatencyMigrationRows(t, db) {
@@ -102,8 +102,8 @@ func TestUsageLatencyStatsMigrationResumesAfterCommittedPage(t *testing.T) {
 			totalSamples += row.SampleCount
 		}
 	}
-	if totalSamples != 1001 {
-		t.Fatalf("expected exactly 1001 hourly samples after resume, got %d", totalSamples)
+	if totalSamples != 101 {
+		t.Fatalf("expected exactly 101 hourly samples after resume, got %d", totalSamples)
 	}
 }
 

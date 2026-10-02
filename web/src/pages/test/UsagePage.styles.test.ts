@@ -5,7 +5,6 @@ const readSource = (url: URL) => readFileSync(url, 'utf8').replace(/\r\n/g, '\n'
 
 const usagePageStyles = readSource(new URL('../UsagePage.module.scss', import.meta.url))
 const keyOverviewPageStyles = readSource(new URL('../../features/key-viewer/KeyViewerShell.module.scss', import.meta.url))
-const priceRulesStyles = readSource(new URL('../../components/usage/pricing/PriceRulesModal.module.scss', import.meta.url))
 const credentialStyles = readSource(new URL('../../components/usage/credentials/CredentialSections.module.scss', import.meta.url))
 const analysisPanelStyles = readSource(new URL('../../components/usage/analysis/AnalysisPanel.module.scss', import.meta.url))
 const timeRangeControlStyles = readSource(new URL('../../components/usage/TimeRangeControl.module.scss', import.meta.url))
@@ -60,10 +59,10 @@ describe('UsagePage responsive layout and accessibility', () => {
     }
   })
 
-  it('lets short request, credential, and settings cards reach the common bottom gutter', () => {
+  it('lets short request and credential cards reach the common bottom gutter', () => {
     expect(usagePageStyles).toMatch(/\.requestEventsCard:global\(\.card\)\s*\{[\s\S]*?flex:\s*1 0 auto;/)
     expect(usagePageStyles).toMatch(/\.credentialsSections,\s*\n\.settingsSections\s*\{[\s\S]*?flex:\s*1 0 auto;/)
-    expect(usagePageStyles).toMatch(/\.credentialsSections\s*>\s*:last-child,\s*\n\.settingsSections\s*>\s*:last-child\s*\{[\s\S]*?flex:\s*1 0 auto;/)
+    expect(usagePageStyles).toMatch(/\.credentialsSections\s*>\s*:last-child\s*\{[\s\S]*?flex:\s*1 0 auto;/)
     expect(credentialStyles).toMatch(/\.credentialSectionCard\s*\{[\s\S]*?display:\s*flex;[\s\S]*?flex-direction:\s*column;/)
     expect(credentialStyles).toMatch(/\.credentialEmptyState\s*\{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?align-items:\s*center;[\s\S]*?justify-content:\s*center;/)
   })
@@ -273,51 +272,10 @@ describe('UsagePage responsive layout and accessibility', () => {
   })
 
   it('contains wheel scrolling at overflowing card boundaries without trapping short lists', () => {
-    expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\[data-scroll-boundary-contained='true'\],[\s\S]*?\.requestEventsLogSectionPanelInner\[data-scroll-boundary-contained='true'\],[\s\S]*?\.apiKeySettingsBody\[data-scroll-boundary-contained='true'\],[\s\S]*?\.sessionSettingsBody\[data-scroll-boundary-contained='true'\],[\s\S]*?\.pricesGrid\[data-scroll-boundary-contained='true'\]\s*\{[\s\S]*?overscroll-behavior-y:\s*contain;/)
+    expect(usagePageStyles).toMatch(/\.requestEventsTableWrapper\[data-scroll-boundary-contained='true'\],[\s\S]*?\.requestEventsLogSectionPanelInner\[data-scroll-boundary-contained='true'\],[\s\S]*?\.apiKeySettingsBody\[data-scroll-boundary-contained='true'\],[\s\S]*?\.sessionSettingsBody\[data-scroll-boundary-contained='true'\]\s*\{[\s\S]*?overscroll-behavior-y:\s*contain;/)
   })
 
-  it('keeps Model Pricing Settings list viewport aligned with API Key Settings without shrinking it behind the form', () => {
-    const settingsSectionsBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.settingsSections {'),
-      usagePageStyles.indexOf('// Pricing Section')
-    )
-    const pricingBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.pricingFixedCard {'),
-      usagePageStyles.indexOf('.priceForm')
-    )
-    const apiKeyBodyBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.apiKeySettingsBody {'),
-      usagePageStyles.indexOf('.apiKeySettingsList')
-    )
-    const apiKeySettingsMobileBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('@include mobile {\n  .apiKeySettingsCard:global(.card)'),
-      usagePageStyles.indexOf('.pricesList')
-    )
-    const pricingGridBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.pricesGrid {'),
-      usagePageStyles.indexOf('.priceItem')
-    )
 
-    expect(settingsSectionsBlock).toMatch(/--settings-list-scroll-height:\s*480px;/)
-    expect(pricingBlock).toMatch(/\.pricingFixedCard\s*\{[\s\S]*?height:\s*auto;/)
-    expect(pricingBlock).not.toMatch(/\.pricingSection\s*\{[\s\S]*?height:\s*480px;/)
-    expect(apiKeyBodyBlock).toMatch(/height:\s*var\(--settings-list-scroll-height\);/)
-    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?height:\s*var\(--settings-list-scroll-height\);/)
-    expect(pricingGridBlock).toMatch(/height:\s*var\(--settings-list-scroll-height\);/)
-    expect(pricingGridBlock).toMatch(/\.pricesGrid\s*\{[\s\S]*?overflow-y:\s*auto;/)
-    expect(pricingGridBlock).toMatch(/\.pricesGrid\s*\{[\s\S]*?overflow-x:\s*hidden;/)
-    expect(pricingGridBlock).not.toMatch(/@include mobile\s*\{[\s\S]*?overflow:\s*visible;/)
-  })
-
-  it('reflows the model pricing form from four to two to one column based on its container width', () => {
-    expect(usagePageStyles).toMatch(/\.priceForm\s*\{[\s\S]*?container-name:\s*model-pricing-form;/)
-    expect(usagePageStyles).toMatch(/\.priceForm\s*\{[\s\S]*?container-type:\s*inline-size;/)
-    expect(usagePageStyles).toMatch(/\.formRow\s*\{[\s\S]*?display:\s*grid;/)
-    expect(usagePageStyles).toMatch(/\.formRow\s*\{[\s\S]*?grid-template-columns:\s*minmax\(180px, 1\.4fr\) minmax\(130px, 0\.85fr\) repeat\(5, minmax\(120px, 1fr\)\) auto;/)
-    expect(usagePageStyles).toMatch(/@container model-pricing-form \(max-width:\s*1120px\)\s*\{[\s\S]*?grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\);/)
-    expect(usagePageStyles).toMatch(/@container model-pricing-form \(max-width:\s*720px\)\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);[\s\S]*?\.priceFormModelField,[\s\S]*?\.priceFormAction\s*\{[\s\S]*?grid-column:\s*1 \/ -1;/)
-    expect(usagePageStyles).toMatch(/@container model-pricing-form \(max-width:\s*480px\)\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
-  })
 
   it('keeps Analysis tooltips and heatmap labels accessible', () => {
     expect(styleRuleBlock(analysisPanelStyles, '.heatmapCell:focus-visible')).toMatch(/box-shadow:\s*0 0 0 2px/)
@@ -370,10 +328,4 @@ describe('UsagePage responsive layout and accessibility', () => {
     )
   })
 
-  it('keeps pricing help within the viewport and scrollable', () => {
-    const tooltip = styleRuleBlock(priceRulesStyles, '.helpTooltip')
-    expect(tooltip).toContain('box-sizing: border-box;')
-    expect(tooltip).toContain('position: fixed;')
-    expect(tooltip).toContain('overflow-y: auto;')
-  })
 })

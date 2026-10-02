@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -49,6 +50,10 @@ func (r *StorageCleanupRunner) Run(ctx context.Context) error {
 			return nil
 		}
 		if err := r.syncer.CleanupStorage(ctx); err != nil {
+			if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+				// 暂停许可等待中遇到应用关停只终止调度，不把未执行的维护记为失败。
+				return nil
+			}
 			logrus.WithError(err).Error("storage cleanup failed")
 		}
 	}

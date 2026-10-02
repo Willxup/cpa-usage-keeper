@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	keeperapp "cpa-usage-keeper/internal/app"
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 )
@@ -18,11 +17,7 @@ func TestNewWithConfigKeepsMemoryDatabaseOnOriginalSinglePool(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := databasePoolTestConfig(databasePath)
-			application, err := keeperapp.NewWithConfig(cfg)
-			if err != nil {
-				t.Fatalf("NewWithConfig returned error: %v", err)
-			}
-			t.Cleanup(func() { _ = application.Close() })
+			application := newInitializedApp(t, cfg)
 
 			// 断言：内存库不能打开第二个 reader，避免产生独立空库或引入 shared-cache 锁语义。
 			if application.ReadDB == nil || application.ReadDB != application.DB {

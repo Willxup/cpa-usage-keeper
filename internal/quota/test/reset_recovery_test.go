@@ -64,7 +64,7 @@ func TestCodexResetRecoversCPARoutingAfterOfficialSuccess(t *testing.T) {
 			disabled := true
 			seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile, Disabled: &disabled})
 			service := quota.NewServiceWithOptions(db, cpa.NewClient(server.URL, "test-management-key", time.Second, false), quota.ServiceOptions{
-				PricingCatalog: emptyPricingCatalogForTest(), QuotaUpstreamResponsesEnabled: tc.recordResponses,
+				QuotaUpstreamResponsesEnabled: tc.recordResponses,
 			})
 			t.Cleanup(service.StopRefreshTasks)
 
@@ -126,7 +126,7 @@ func TestCodexResetBlocksDuplicateConsumptionDuringCPARecovery(t *testing.T) {
 		recordingManagementCaller: recordingManagementCaller{responses: []*apicall.Response{{StatusCode: 200, BodyText: `{"code":"reset","windows_reset":2}`}}},
 		entered:                   make(chan struct{}), release: make(chan struct{}),
 	}
-	service := quota.NewService(db, caller, emptyPricingCatalogForTest())
+	service := quota.NewService(db, caller)
 	t.Cleanup(service.StopRefreshTasks)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

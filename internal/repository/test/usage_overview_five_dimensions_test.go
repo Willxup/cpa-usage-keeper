@@ -69,7 +69,7 @@ func TestUsageOverviewAggregationSeparatesFiveDimensionCombinations(t *testing.T
 			Timestamp: now.Add(-time.Minute), InputTokens: 70, OutputTokens: 8, TotalTokens: 78,
 		},
 	}
-	if _, _, err := repository.InsertUsageEvents(db, events); err != nil {
+	if _, _, err := repository.InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, events)); err != nil {
 		t.Fatalf("insert five-dimension events: %v", err)
 	}
 	if err := repository.AggregateUsageOverviewStats(context.Background(), db, now); err != nil {

@@ -19,8 +19,8 @@ func TestCatalogResolverKeepsOneImmutableSnapshot(t *testing.T) {
 	newResolver := catalog.NewResolver()
 	subject := pricing.NewCostSubject(pricing.UsageDimensions{Model: "model-a"}, helper.UsageTokenCostInput{InputTokens: 1_000_000})
 
-	assertResultCost(t, oldResolver.Calculate(subject), 1)
-	assertResultCost(t, newResolver.Calculate(subject), 2)
+	assertResultCost(t, oldResolver.CalculateFee(subject), 1)
+	assertResultCost(t, newResolver.CalculateFee(subject), 2)
 	if catalog.Snapshot() != newSnapshot {
 		t.Fatal("expected catalog to publish the replacement snapshot")
 	}
@@ -36,7 +36,7 @@ func TestCatalogConcurrentReadersObserveWholeSnapshots(t *testing.T) {
 	for reader := 0; reader < 8; reader++ {
 		wg.Go(func() {
 			for index := 0; index < 1000; index++ {
-				got := catalog.NewResolver().Calculate(subject).Cost.TotalCostUSD
+				got := catalog.NewResolver().CalculateFee(subject).TotalCostUSD
 				if got != 1 && got != 2 {
 					t.Errorf("reader observed partial snapshot cost %v", got)
 					return

@@ -25,7 +25,7 @@ type analysisResponse struct {
 	AuthFilesComposition  []analysisCompositionItem `json:"auth_files_composition"`
 	AIProviderComposition []analysisCompositionItem `json:"ai_provider_composition"`
 	Heatmap               analysisHeatmap           `json:"heatmap"`
-	CostBreakdown         analysisCostBreakdown     `json:"cost_breakdown"`
+	CostSummary           analysisCostSummary       `json:"cost_summary"`
 	ModelEfficiency       []analysisModelEfficiency `json:"model_efficiency"`
 }
 
@@ -90,13 +90,10 @@ type analysisHeatmapCell struct {
 	Intensity           float64 `json:"intensity"`
 }
 
-type analysisCostBreakdown struct {
-	UncachedInputCostUSD float64 `json:"uncached_input_cost_usd"`
-	CacheReadCostUSD     float64 `json:"cache_read_cost_usd"`
-	CacheWriteCostUSD    float64 `json:"cache_write_cost_usd"`
-	OutputCostUSD        float64 `json:"output_cost_usd"`
-	TotalCostUSD         float64 `json:"total_cost_usd"`
-	CostAvailable        bool    `json:"cost_available"`
+// analysisCostSummary 仅传递已存总费用及可用性；Token 分项在原图表字段中继续提供。
+type analysisCostSummary struct {
+	TotalCostUSD  float64 `json:"total_cost_usd"`
+	CostAvailable bool    `json:"cost_available"`
 }
 
 type analysisModelEfficiency struct {
@@ -260,6 +257,7 @@ func registerKeyUsageAnalysisRoute(router gin.IRoutes, usageProvider service.Usa
 	})
 }
 
+// emptyAnalysisResponse 保持无数据时总费用为零且可用，返回稳定的图表空数组。
 func emptyAnalysisResponse() analysisResponse {
 	return analysisResponse{
 		Granularity:           string(servicedto.AnalysisGranularityHourly),
@@ -271,7 +269,7 @@ func emptyAnalysisResponse() analysisResponse {
 		AuthFilesComposition:  []analysisCompositionItem{},
 		AIProviderComposition: []analysisCompositionItem{},
 		Heatmap:               analysisHeatmap{APIKeys: []string{}, APIKeyLabels: map[string]string{}, Models: []string{}, Cells: []analysisHeatmapCell{}},
-		CostBreakdown:         analysisCostBreakdown{CostAvailable: true},
+		CostSummary:           analysisCostSummary{CostAvailable: true},
 		ModelEfficiency:       []analysisModelEfficiency{},
 	}
 }
@@ -299,6 +297,7 @@ func loadCPAAPIKeyInfos(c *gin.Context, provider service.CPAAPIKeyProvider) (map
 	return infos, nil
 }
 
+// buildAnalysisPayload 透传已存总费用与可用性，保留原 Token、身份和 Key 脱敏响应合同。
 func buildAnalysisPayload(snapshot *servicedto.AnalysisSnapshot, apiKeyInfos map[string]analysisAPIKeyInfo) analysisResponse {
 	if snapshot == nil {
 		return emptyAnalysisResponse()
@@ -334,13 +333,9 @@ func buildAnalysisPayload(snapshot *servicedto.AnalysisSnapshot, apiKeyInfos map
 		AuthFilesComposition:  authFilesComposition,
 		AIProviderComposition: aiProviderComposition,
 		Heatmap:               buildAnalysisHeatmapPayload(snapshot.Heatmap, apiKeyInfos),
-		CostBreakdown: analysisCostBreakdown{
-			UncachedInputCostUSD: snapshot.CostBreakdown.UncachedInputCostUSD,
-			CacheReadCostUSD:     snapshot.CostBreakdown.CacheReadCostUSD,
-			CacheWriteCostUSD:    snapshot.CostBreakdown.CacheWriteCostUSD,
-			OutputCostUSD:        snapshot.CostBreakdown.OutputCostUSD,
-			TotalCostUSD:         snapshot.CostBreakdown.TotalCostUSD,
-			CostAvailable:        snapshot.CostBreakdown.CostAvailable,
+		CostSummary: analysisCostSummary{
+			TotalCostUSD:  snapshot.CostSummary.TotalCostUSD,
+			CostAvailable: snapshot.CostSummary.CostAvailable,
 		},
 		ModelEfficiency: buildAnalysisModelEfficiencyPayload(snapshot.ModelEfficiency),
 	}

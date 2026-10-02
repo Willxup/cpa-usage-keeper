@@ -163,16 +163,13 @@ func TestServiceAllowsCodexQuotaWithoutAccountID(t *testing.T) {
 
 func newQuotaServiceWithRegistry(t *testing.T, db *gorm.DB, registry quota.ProviderRegistry) *quota.Service {
 	t.Helper()
-	service := quota.NewServiceWithRegistry(db, registry, emptyPricingCatalogForTest())
+	service := quota.NewServiceWithRegistry(db, registry)
 	t.Cleanup(service.StopRefreshTasks)
 	return service
 }
 
 func newQuotaServiceWithRegistryAndOptions(t *testing.T, db *gorm.DB, registry quota.ProviderRegistry, options quota.ServiceOptions) *quota.Service {
 	t.Helper()
-	if options.PricingCatalog == nil {
-		options.PricingCatalog = emptyPricingCatalogForTest()
-	}
 	service := quota.NewServiceWithRegistryAndOptions(db, registry, options)
 	t.Cleanup(service.StopRefreshTasks)
 	return service

@@ -45,7 +45,7 @@ func LoadUsageAggregationReplayEventPage(db *gorm.DB, afterID, targetID int64, l
 	}
 
 	// 两个分支都按 INTEGER PRIMARY KEY 范围读取，SQLite 会用 MERGE UNION 恢复全局入库顺序。
-	columns := entities.UsageEventStorageColumns
+	columns := legacyUsageEventReplayColumns
 	query := fmt.Sprintf(`
 		SELECT %s FROM (
 			SELECT %s FROM usage_events_archive WHERE id > ? AND id <= ?

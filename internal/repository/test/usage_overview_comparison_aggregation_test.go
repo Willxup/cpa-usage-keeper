@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/repository/dto"
 )
@@ -48,18 +47,21 @@ func TestOverviewComparisonSplitAggregationMatchesEvents(t *testing.T) {
 						}
 					}
 				}
-				// 非可加的历史计费值也必须继续逐行归一化，不能以总 Token 推导价格。
+				// 非可加的历史 Token 不影响已存费用，统计不得重新按 Token 推导价格。
 				events[0].InputTokens = -3
 				events[1].CacheReadTokens = 999
+				for i := range events {
+					cost, available := float64(i+1)/100, i%7 != 0
+					events[i].CostUSD, events[i].CostAvailable = &cost, &available
+				}
 				if err := db.Create(&events).Error; err != nil {
 					t.Fatal(err)
 				}
 				if err := repository.AggregateUsageOverviewStats(context.Background(), db, end); err != nil {
 					t.Fatal(err)
 				}
-				resolver := repositoryPricingResolver(t, []pricing.RuleConfig{{Key: "api_group_key", Value: "key-a", Multiplier: 2}, {Key: "service_tier", Value: "priority", Multiplier: 3}})
 				filter := dto.UsageQueryFilter{Range: "custom", CustomUnit: unit, StartTime: &start, EndTime: &end, EndExclusive: true, QueryNow: &end, ComparisonOnly: true, APIGroupKey: scope}
-				got, err := repository.BuildUsageOverviewWithFilter(db, filter, resolver)
+				got, err := repository.BuildUsageOverviewComparisonsWithFilterAndRecentCache(db, filter, nil)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -100,9 +102,8 @@ func TestOverviewComparisonSplitAggregationMatchesEvents(t *testing.T) {
 						item.CacheCreationTokens += e.CacheCreationTokens
 						item.ReasoningTokens += e.ReasoningTokens
 						item.TotalTokens += e.TotalTokens
-						price := resolver.Calculate(repository.UsageEventCostSubject(e))
-						item.CostUSD += price.Cost.TotalCostUSD
-						item.CostAvailable = item.CostAvailable && price.Available
+						item.CostUSD += *e.CostUSD
+						item.CostAvailable = item.CostAvailable && *e.CostAvailable
 						bucket := e.Timestamp.Truncate(time.Hour).Format(time.RFC3339Nano)
 						if unit == "day" {
 							bucket = e.Timestamp.Format(time.DateOnly)

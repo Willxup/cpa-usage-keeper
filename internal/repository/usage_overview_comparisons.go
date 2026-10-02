@@ -1,13 +1,15 @@
 package repository
 
 import (
+	"fmt"
+	"math"
+	"strings"
+	"time"
+
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
-	"strings"
-	"time"
 )
 
 // 时间轴和数据共用项目时区，空桶保留为零；完整天用 AddDate 避免 DST 导致日期漂移。
@@ -31,7 +33,7 @@ func usageOverviewComparisonBuckets(filter dto.UsageQueryFilter, byDay bool) []s
 		cursor = time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
 	}
 	for cursor.Before(end) || (!filter.EndExclusive && cursor.Equal(end)) {
-		bucket, _ := usageOverviewBucket(cursor, byDay)
+		bucket := usageOverviewBucket(cursor, byDay)
 		buckets = append(buckets, bucket)
 		if byDay {
 			cursor = cursor.AddDate(0, 0, 1)
@@ -42,19 +44,24 @@ func usageOverviewComparisonBuckets(filter dto.UsageQueryFilter, byDay bool) []s
 	return buckets
 }
 
-func applyUsageEventToComparisonOnly(comparisons *dto.UsageOverviewComparisonsRecord, event entities.UsageEvent, resolver pricing.Resolver, identityLookup analysisIdentityLookup) {
+// applyUsageEventToComparisonOnly 把窄边界事件的已存费用同时归到模型、Key 与已知身份。
+func applyUsageEventToComparisonOnly(comparisons *dto.UsageOverviewComparisonsRecord, event entities.UsageEvent, identityLookup analysisIdentityLookup) error {
+	cost, available, err := usageOverviewStoredEventCost(event)
+	if err != nil {
+		return err
+	}
 	failed := int64(0)
 	if event.Failed {
 		failed = 1
 	}
-	result := resolver.Calculate(UsageEventCostSubject(event))
-	row := dto.UsageComparisonItemRecord{Requests: 1, Failures: failed, InputTokens: event.InputTokens, OutputTokens: event.OutputTokens, CacheReadTokens: event.CacheReadTokens, CacheCreationTokens: event.CacheCreationTokens, ReasoningTokens: event.ReasoningTokens, TotalTokens: event.TotalTokens, CostUSD: result.Cost.TotalCostUSD, CostAvailable: result.Available}
-	row.Bucket, _ = usageOverviewBucket(event.Timestamp, comparisons.Granularity == "daily")
+	row := dto.UsageComparisonItemRecord{Requests: 1, Failures: failed, InputTokens: event.InputTokens, OutputTokens: event.OutputTokens, CacheReadTokens: event.CacheReadTokens, CacheCreationTokens: event.CacheCreationTokens, ReasoningTokens: event.ReasoningTokens, TotalTokens: event.TotalTokens, CostUSD: cost, CostAvailable: available}
+	row.Bucket = usageOverviewBucket(event.Timestamp, comparisons.Granularity == "daily")
 	applyUsageOverviewComparison(comparisons, event.Model, event.APIGroupKey, row)
 	applyUsageOverviewIdentityComparison(comparisons, identityLookup, event.AuthIndex, row)
+	return nil
 }
 
-// 同一比较行的费用只计算一次，再累计到模型和 API Key 两个维度。
+// 同一比较行的已存费用同时归入模型和 API Key 两个维度。
 func applyUsageOverviewComparison(comparisons *dto.UsageOverviewComparisonsRecord, model, apiKey string, row dto.UsageComparisonItemRecord) {
 	addUsageOverviewComparison(comparisons.Models, normalizeUsageOverviewDimension(model), row)
 	addUsageOverviewComparison(comparisons.APIKeys, normalizeUsageOverviewDimension(apiKey), row)
@@ -95,15 +102,11 @@ func addUsageOverviewComparison(items map[string]*dto.UsageComparisonItemRecord,
 	item.CostAvailable = item.CostAvailable && row.CostAvailable
 }
 
-func calculateUsageOverviewComparisonProjectionCost(costResolver pricing.Resolver, row usageOverviewComparisonProjection) pricing.CostResult {
-	return costResolver.Calculate(newUsagePricingCostSubject(row.APIGroupKey, row.Model, row.AuthIndex, row.ModelAlias, row.ServiceTier, row.ResponseServiceTier, row.ReasoningEffort, row.Endpoint, row.ExecutorType, row.CostUncachedInputTokens+row.CostCacheReadTokens+row.CostCacheCreationTokens, row.CostOutputTokens, row.CostCacheReadTokens, row.CostCacheCreationTokens))
-}
-
-// 区间汇总保留定价维度，Token 趋势单独按时间和分类聚合，避免将费用明细按时间展开。
+// 区间汇总直接读取已存费用，Token 趋势单独按时间和分类聚合。
 // 比较查询复用范围规划，边界事件由调用方读取一次并补入比较结果。
-func loadAndApplyUsageOverviewStats(overview *dto.UsageOverviewRecord, db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, grain string, bucketByDay bool, resolver pricing.Resolver) error {
+func loadAndApplyUsageOverviewStats(overview *dto.UsageOverviewRecord, db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, grain string, bucketByDay bool) error {
 	if filter.ComparisonOnly {
-		rows, err := loadUsageOverviewComparisonProjection(db, filter, start, end, grain, resolver.ActiveFields())
+		rows, err := loadUsageOverviewComparisonProjection(db, filter, start, end, grain)
 		if err != nil {
 			return err
 		}
@@ -123,8 +126,13 @@ func loadAndApplyUsageOverviewStats(overview *dto.UsageOverviewRecord, db *gorm.
 			return err
 		}
 		for _, row := range rows {
-			result := calculateUsageOverviewComparisonProjectionCost(resolver, row)
-			comparison := dto.UsageComparisonItemRecord{Requests: row.RequestCount, Failures: row.FailureCount, InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CacheReadTokens: row.CacheReadTokens, CacheCreationTokens: row.CacheCreationTokens, ReasoningTokens: row.ReasoningTokens, TotalTokens: row.TotalTokens, CostUSD: result.Cost.TotalCostUSD, CostAvailable: result.Available}
+			if row.MissingCostCount != 0 || row.CostUSD == nil || row.UnavailableCostCount == nil {
+				return fmt.Errorf("usage overview %s comparison has unbackfilled cost", grain)
+			}
+			if math.IsNaN(*row.CostUSD) || math.IsInf(*row.CostUSD, 0) {
+				return fmt.Errorf("usage overview %s comparison has non-finite cost", grain)
+			}
+			comparison := dto.UsageComparisonItemRecord{Requests: row.RequestCount, Failures: row.FailureCount, InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CacheReadTokens: row.CacheReadTokens, CacheCreationTokens: row.CacheCreationTokens, ReasoningTokens: row.ReasoningTokens, TotalTokens: row.TotalTokens, CostUSD: *row.CostUSD, CostAvailable: *row.UnavailableCostCount == 0}
 			applyUsageOverviewComparison(overview.Comparisons, row.Model, row.APIGroupKey, comparison)
 			applyUsageOverviewIdentityComparison(overview.Comparisons, identityLookup, row.AuthIndex, comparison)
 		}
@@ -134,12 +142,14 @@ func loadAndApplyUsageOverviewStats(overview *dto.UsageOverviewRecord, db *gorm.
 	if grain == "daily" {
 		model = &entities.UsageOverviewDailyStat{}
 	}
-	rows, err := loadUsageOverviewStatProjection(db.Model(model), filter, start, end, grain, resolver.ActiveFields())
+	rows, err := loadUsageOverviewStatProjection(db.Model(model), filter, start, end, grain)
 	if err != nil {
 		return err
 	}
 	for _, row := range rows {
-		applyUsageOverviewStatToOverview(overview, row, bucketByDay, resolver)
+		if err := applyUsageOverviewStatToOverview(overview, row, bucketByDay); err != nil {
+			return err
+		}
 	}
 	return nil
 }

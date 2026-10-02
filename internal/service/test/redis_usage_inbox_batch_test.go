@@ -29,7 +29,7 @@ func TestProcessRedisUsageInboxBatchesProcessedMarks(t *testing.T) {
 	var queries strings.Builder
 	loggedDB := db.Session(&gorm.Session{Logger: gormlogger.New(log.New(&queries, "", 0), gormlogger.Config{LogLevel: gormlogger.Info})})
 	notifier := &recordingUsageAggregationNotifier{}
-	syncService := service.NewSyncServiceWithOptions(loggedDB, service.SyncServiceOptions{
+	syncService := service.NewSyncServiceWithOptions(loggedDB, service.SyncServiceOptions{PricingCatalog: emptyPricingCatalogForTest(),
 		BaseURL:                  "https://cpa.example.com",
 		Now:                      func() time.Time { return now },
 		UsageAggregationNotifier: notifier,
@@ -87,7 +87,7 @@ func TestProcessRedisUsageInboxRollsBackAllChunksWhenLaterProcessedMarkFails(t *
 	}
 
 	notifier := &recordingUsageAggregationNotifier{}
-	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
+	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{PricingCatalog: emptyPricingCatalogForTest(),
 		BaseURL:                  "https://cpa.example.com",
 		Now:                      func() time.Time { return now },
 		UsageAggregationNotifier: notifier,

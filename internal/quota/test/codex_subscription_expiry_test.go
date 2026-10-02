@@ -29,7 +29,7 @@ func TestCodexRefreshWritesOfficialSubscriptionExpiry(t *testing.T) {
 			caller := newCodexSubscriptionRouteCaller(
 				quotaAPIResponse(200, `{"plan_type":"plus","rate_limit":{"allowed":true},"rate_limit_reset_credits":{"available_count":0}}`),
 				quotaAPIResponse(200, `{"active_until":"2026-11-01T00:00:00Z"}`), nil)
-			service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{PricingCatalog: emptyPricingCatalogForTest()})
+			service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{})
 			t.Cleanup(service.StopRefreshTasks)
 			setRefreshCooldown(service, func(time.Duration) {})
 			refresh, err := service.Refresh(context.Background(), quota.RefreshRequest{AuthIndexes: []string{"codex-auth"}, Source: source})
@@ -76,7 +76,7 @@ func TestCodexSubscriptionFailureKeepsQuotaAndStoredExpiry(t *testing.T) {
 			caller := newCodexSubscriptionRouteCaller(
 				quotaAPIResponse(200, `{"plan_type":"plus","rate_limit":{"allowed":true},"rate_limit_reset_credits":{"available_count":0}}`),
 				tc.response, nil)
-			service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{PricingCatalog: emptyPricingCatalogForTest()})
+			service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{})
 			t.Cleanup(service.StopRefreshTasks)
 			setRefreshCooldown(service, func(time.Duration) {})
 			if _, err := service.Refresh(context.Background(), quota.RefreshRequest{AuthIndexes: []string{"codex-auth"}, Source: quota.RefreshSourceManual}); err != nil {
@@ -96,7 +96,7 @@ func TestCodexSubscriptionTransportFailureDoesNotFailQuota(t *testing.T) {
 	expiry := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile, AccountID: &accountID, ActiveUntil: &expiry})
 	caller := newCodexSubscriptionRouteCaller(quotaAPIResponse(200, `{"rate_limit":{"allowed":true},"rate_limit_reset_credits":{"available_count":0}}`), nil, errors.New("subscription transport unavailable"))
-	service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{PricingCatalog: emptyPricingCatalogForTest()})
+	service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{})
 	t.Cleanup(service.StopRefreshTasks)
 	setRefreshCooldown(service, func(time.Duration) {})
 	if _, err := service.Refresh(context.Background(), quota.RefreshRequest{AuthIndexes: []string{"codex-auth"}, Source: quota.RefreshSourceManual}); err != nil {
@@ -121,7 +121,7 @@ func TestCodexSubscriptionOnlyFollowsManualOrScheduledRefreshWithAccount(t *test
 			db := openQuotaTestDatabase(t)
 			seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile, AccountID: tc.accountID})
 			caller := newCodexSubscriptionRouteCaller(quotaAPIResponse(200, `{"rate_limit":{"allowed":true},"rate_limit_reset_credits":{"available_count":0}}`), nil, nil)
-			service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{PricingCatalog: emptyPricingCatalogForTest()})
+			service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{})
 			t.Cleanup(service.StopRefreshTasks)
 			if _, err := service.Check(context.Background(), quota.CheckRequest{AuthIndex: "codex-auth", Source: tc.source}); err != nil {
 				t.Fatal(err)

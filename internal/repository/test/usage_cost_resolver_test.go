@@ -21,32 +21,29 @@ func TestUsageCostResolverPrefersModelPricingOverAliasWhenBothPriced(t *testing.
 
 	resolver := newUsageCostResolverForTest(t, db)
 
-	result := resolver.Calculate(pricing.NewCostSubject(
+	result := resolver.CalculateFee(pricing.NewCostSubject(
 		pricing.UsageDimensions{Model: "base-model", ModelAlias: "alias-model"},
 		helper.UsageTokenCostInput{InputTokens: 1_000_000},
 	))
 	assertUsageCostResolverResult(t, result, 10, true)
-	if result.MatchedModel != "base-model" || result.MatchedBy != "model" {
-		t.Fatalf("expected resolver to match real model pricing, got %+v", result)
-	}
 }
 
 func TestUsageCostResolverCostAvailabilityForMissingPrices(t *testing.T) {
 	db := openTestDatabase(t)
 	resolver := newUsageCostResolverForTest(t, db)
 
-	billable := resolver.Calculate(pricing.NewCostSubject(
+	billable := resolver.CalculateFee(pricing.NewCostSubject(
 		pricing.UsageDimensions{Model: "missing-model"},
 		helper.UsageTokenCostInput{InputTokens: 1},
 	))
 	if billable.Available {
 		t.Fatalf("expected missing billable price to be unavailable, got %+v", billable)
 	}
-	if billable.Cost.TotalCostUSD != 0 {
-		t.Fatalf("expected missing billable price to cost 0, got %+v", billable.Cost)
+	if billable.TotalCostUSD != 0 {
+		t.Fatalf("expected missing billable price to cost 0, got %+v", billable)
 	}
 
-	empty := resolver.Calculate(pricing.NewCostSubject(pricing.UsageDimensions{Model: "missing-model"}, helper.UsageTokenCostInput{}))
+	empty := resolver.CalculateFee(pricing.NewCostSubject(pricing.UsageDimensions{Model: "missing-model"}, helper.UsageTokenCostInput{}))
 	assertUsageCostResolverResult(t, empty, 0, true)
 }
 
@@ -55,15 +52,12 @@ func TestUsageCostResolverFallsBackToAliasWhenModelPriceIsMissing(t *testing.T) 
 	upsertUsageCostResolverPrice(t, db, "alias-model", 2)
 
 	resolver := newUsageCostResolverForTest(t, db)
-	result := resolver.Calculate(pricing.NewCostSubject(
+	result := resolver.CalculateFee(pricing.NewCostSubject(
 		pricing.UsageDimensions{Model: "missing-model", ModelAlias: "alias-model"},
 		helper.UsageTokenCostInput{InputTokens: 1_000_000},
 	))
 
 	assertUsageCostResolverResult(t, result, 2, true)
-	if result.MatchedModel != "alias-model" || result.MatchedBy != "model_alias" {
-		t.Fatalf("expected resolver to fall back to alias pricing, got %+v", result)
-	}
 }
 
 func TestUsageCostResolverTreatsZeroMultiplierAsMatchedAvailableCost(t *testing.T) {
@@ -76,7 +70,7 @@ func TestUsageCostResolverTreatsZeroMultiplierAsMatchedAvailableCost(t *testing.
 		model     string
 		available bool
 	}{{"free-model", true}, {"missing-model", false}} {
-		result := resolver.Calculate(pricing.NewCostSubject(pricing.UsageDimensions{Model: test.model}, helper.UsageTokenCostInput{InputTokens: 1_000_000}))
+		result := resolver.CalculateFee(pricing.NewCostSubject(pricing.UsageDimensions{Model: test.model}, helper.UsageTokenCostInput{InputTokens: 1_000_000}))
 		assertUsageCostResolverResult(t, result, 0, test.available)
 	}
 }
@@ -95,7 +89,7 @@ func TestUsageCostResolverChargesOpenAICacheReadAndWritePrices(t *testing.T) {
 	}
 
 	resolver := newUsageCostResolverForTest(t, db)
-	result := resolver.Calculate(pricing.NewCostSubject(
+	result := resolver.CalculateFee(pricing.NewCostSubject(
 		pricing.UsageDimensions{Model: "gpt-5.6-terra"},
 		helper.UsageTokenCostInput{
 			InputTokens:         1_000_000,
@@ -105,17 +99,13 @@ func TestUsageCostResolverChargesOpenAICacheReadAndWritePrices(t *testing.T) {
 		},
 	))
 
-	if !result.Available || result.PricingStyle != entities.ModelPricingStyleOpenAI {
+	if !result.Available {
 		t.Fatalf("expected available OpenAI pricing result, got %+v", result)
 	}
-	assertUsageCostClose(t, result.Cost.UncachedInputCostUSD, 0.7*3)
-	assertUsageCostClose(t, result.Cost.CacheReadCostUSD, 0.2*0.3)
-	assertUsageCostClose(t, result.Cost.CacheWriteCostUSD, 0.1*3.75)
-	assertUsageCostClose(t, result.Cost.OutputCostUSD, 0.5*15)
-	assertUsageCostClose(t, result.Cost.TotalCostUSD, 0.7*3+0.5*15+0.2*0.3+0.1*3.75)
+	assertUsageCostClose(t, result.TotalCostUSD, 0.7*3+0.5*15+0.2*0.3+0.1*3.75)
 }
 
-func TestListUsageEventsWithFilterResolvesModelAndAliasPrices(t *testing.T) {
+func TestListUsageEventsWithFilterPreservesStoredModelAndAliasCosts(t *testing.T) {
 	for _, test := range []struct {
 		model string
 		cost  float64
@@ -128,21 +118,24 @@ func TestListUsageEventsWithFilterResolvesModelAndAliasPrices(t *testing.T) {
 			upsertUsageCostResolverPrice(t, db, "base-model", 10)
 			upsertUsageCostResolverPrice(t, db, "alias-model", 2)
 			alias := "alias-model"
+			storedCost, available := test.cost, true
 			eventTime := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
 			if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
-				EventKey:    "event-alias-cost",
-				Model:       test.model,
-				ModelAlias:  &alias,
-				Timestamp:   eventTime,
-				InputTokens: 1_000_000,
-				TotalTokens: 1_000_000,
+				EventKey:      "event-alias-cost",
+				Model:         test.model,
+				ModelAlias:    &alias,
+				Timestamp:     eventTime,
+				InputTokens:   1_000_000,
+				TotalTokens:   1_000_000,
+				CostUSD:       &storedCost,
+				CostAvailable: &available,
 			}}); err != nil {
 				t.Fatalf("InsertUsageEvents returned error: %v", err)
 			}
 
 			start := eventTime.Add(-time.Minute)
 			end := eventTime.Add(time.Minute)
-			page, err := repository.ListUsageEventsWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end}, newUsageCostResolverForTest(t, db))
+			page, err := repository.ListUsageEventsWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end}, newUsageCostSnapshotForTest(t, db))
 			if err != nil {
 				t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
 			}
@@ -160,7 +153,7 @@ func TestListUsageEventsWithFilterResolvesModelAndAliasPrices(t *testing.T) {
 	}
 }
 
-func TestBuildUsageOverviewWithFilterResolvesHourlyModelAndAliasPrices(t *testing.T) {
+func TestBuildUsageOverviewWithFilterReadsStoredHourlyModelAndAliasCosts(t *testing.T) {
 	for _, test := range []struct {
 		model string
 		cost  float64
@@ -173,6 +166,7 @@ func TestBuildUsageOverviewWithFilterResolvesHourlyModelAndAliasPrices(t *testin
 			upsertUsageCostResolverPrice(t, db, "base-model", 10)
 			upsertUsageCostResolverPrice(t, db, "alias-model", 2)
 			bucket := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+			storedCost, unavailable := test.cost, int64(0)
 			if err := db.Create(&entities.UsageOverviewHourlyStat{
 				BucketStart: bucket,
 				APIGroupKey: "api-key",
@@ -180,15 +174,16 @@ func TestBuildUsageOverviewWithFilterResolvesHourlyModelAndAliasPrices(t *testin
 				ModelAlias:  "alias-model",
 				InputTokens: 1_000_000,
 				TotalTokens: 1_000_000,
-				CreatedAt:   bucket,
-				UpdatedAt:   bucket,
+				CostUSD:     &storedCost, UnavailableCostCount: &unavailable,
+				CreatedAt: bucket,
+				UpdatedAt: bucket,
 			}).Error; err != nil {
 				t.Fatalf("seed hourly stat: %v", err)
 			}
 
 			start := bucket
 			end := bucket.Add(time.Hour)
-			overview, err := repository.BuildUsageOverviewWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end}, newUsageCostResolverForTest(t, db))
+			overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end}, nil)
 			if err != nil {
 				t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 			}
@@ -200,7 +195,7 @@ func TestBuildUsageOverviewWithFilterResolvesHourlyModelAndAliasPrices(t *testin
 	}
 }
 
-func TestBuildUsageOverviewWithFilterResolvesDailyModelAndAliasPrices(t *testing.T) {
+func TestBuildUsageOverviewWithFilterReadsStoredDailyModelAndAliasCosts(t *testing.T) {
 	for _, test := range []struct {
 		model string
 		cost  float64
@@ -213,6 +208,7 @@ func TestBuildUsageOverviewWithFilterResolvesDailyModelAndAliasPrices(t *testing
 			upsertUsageCostResolverPrice(t, db, "base-model", 10)
 			upsertUsageCostResolverPrice(t, db, "alias-model", 2)
 			bucket := time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC)
+			storedCost, unavailable := test.cost, int64(0)
 			if err := db.Create(&entities.UsageOverviewDailyStat{
 				BucketStart: bucket,
 				APIGroupKey: "api-key",
@@ -220,15 +216,16 @@ func TestBuildUsageOverviewWithFilterResolvesDailyModelAndAliasPrices(t *testing
 				ModelAlias:  "alias-model",
 				InputTokens: 1_000_000,
 				TotalTokens: 1_000_000,
-				CreatedAt:   bucket,
-				UpdatedAt:   bucket,
+				CostUSD:     &storedCost, UnavailableCostCount: &unavailable,
+				CreatedAt: bucket,
+				UpdatedAt: bucket,
 			}).Error; err != nil {
 				t.Fatalf("seed daily stat: %v", err)
 			}
 
 			start := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 			end := time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC)
-			overview, err := repository.BuildUsageOverviewWithFilter(db, repodto.UsageQueryFilter{Range: "custom", StartTime: &start, EndTime: &end}, newUsageCostResolverForTest(t, db))
+			overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(db, repodto.UsageQueryFilter{Range: "custom", StartTime: &start, EndTime: &end}, nil)
 			if err != nil {
 				t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 			}
@@ -240,7 +237,7 @@ func TestBuildUsageOverviewWithFilterResolvesDailyModelAndAliasPrices(t *testing
 	}
 }
 
-func TestBuildAnalysisWithFilterResolvesHourlyModelAndAliasPrices(t *testing.T) {
+func TestBuildAnalysisWithFilterPreservesHourlyModelAndAliasStoredCosts(t *testing.T) {
 	for _, test := range []struct {
 		model string
 		cost  float64
@@ -256,7 +253,7 @@ func TestBuildAnalysisWithFilterResolvesHourlyModelAndAliasPrices(t *testing.T) 
 			if err := db.Create(&entities.CPAAPIKey{APIKey: "api-key", DisplayKey: "sk-*********alias"}).Error; err != nil {
 				t.Fatalf("seed CPA API key: %v", err)
 			}
-			if err := db.Create(&entities.UsageOverviewHourlyStat{
+			if err := db.Create(&entities.UsageOverviewHourlyStat{CostUSD: analysisCostPtr(test.cost), UnavailableCostCount: analysisCountPtr(0),
 				BucketStart:  bucket,
 				APIGroupKey:  "api-key",
 				Model:        test.model,
@@ -272,13 +269,13 @@ func TestBuildAnalysisWithFilterResolvesHourlyModelAndAliasPrices(t *testing.T) 
 
 			start := bucket
 			end := bucket.Add(time.Hour)
-			analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end}, newUsageCostResolverForTest(t, db))
+			analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end})
 			if err != nil {
 				t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 			}
-			assertUsageCostClose(t, analysis.CostBreakdown.TotalCostUSD, test.cost)
-			if !analysis.CostBreakdown.CostAvailable {
-				t.Fatalf("expected analysis model cost to be available, got %+v", analysis.CostBreakdown)
+			assertUsageCostClose(t, analysis.CostSummary.TotalCostUSD, test.cost)
+			if !analysis.CostSummary.CostAvailable {
+				t.Fatalf("expected analysis model cost to be available, got %+v", analysis.CostSummary)
 			}
 			if len(analysis.ModelEfficiency) != 1 {
 				t.Fatalf("expected one model efficiency row, got %+v", analysis.ModelEfficiency)
@@ -291,7 +288,7 @@ func TestBuildAnalysisWithFilterResolvesHourlyModelAndAliasPrices(t *testing.T) 
 	}
 }
 
-func TestBuildAnalysisWithFilterResolvesDailyModelAndAliasPrices(t *testing.T) {
+func TestBuildAnalysisWithFilterPreservesDailyModelAndAliasStoredCosts(t *testing.T) {
 	for _, test := range []struct {
 		model string
 		cost  float64
@@ -307,7 +304,7 @@ func TestBuildAnalysisWithFilterResolvesDailyModelAndAliasPrices(t *testing.T) {
 			if err := db.Create(&entities.CPAAPIKey{APIKey: "api-key", DisplayKey: "sk-*********alias"}).Error; err != nil {
 				t.Fatalf("seed CPA API key: %v", err)
 			}
-			if err := db.Create(&entities.UsageOverviewDailyStat{
+			if err := db.Create(&entities.UsageOverviewDailyStat{CostUSD: analysisCostPtr(test.cost), UnavailableCostCount: analysisCountPtr(0),
 				BucketStart:  bucket,
 				APIGroupKey:  "api-key",
 				Model:        test.model,
@@ -323,13 +320,13 @@ func TestBuildAnalysisWithFilterResolvesDailyModelAndAliasPrices(t *testing.T) {
 
 			start := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 			end := time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC)
-			analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "custom", StartTime: &start, EndTime: &end}, newUsageCostResolverForTest(t, db))
+			analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "custom", StartTime: &start, EndTime: &end})
 			if err != nil {
 				t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 			}
-			assertUsageCostClose(t, analysis.CostBreakdown.TotalCostUSD, test.cost)
-			if !analysis.CostBreakdown.CostAvailable {
-				t.Fatalf("expected analysis daily model cost to be available, got %+v", analysis.CostBreakdown)
+			assertUsageCostClose(t, analysis.CostSummary.TotalCostUSD, test.cost)
+			if !analysis.CostSummary.CostAvailable {
+				t.Fatalf("expected analysis daily model cost to be available, got %+v", analysis.CostSummary)
 			}
 			if len(analysis.ModelEfficiency) != 1 {
 				t.Fatalf("expected one model efficiency row, got %+v", analysis.ModelEfficiency)
@@ -342,7 +339,7 @@ func TestBuildAnalysisWithFilterResolvesDailyModelAndAliasPrices(t *testing.T) {
 	}
 }
 
-func TestBuildUsageOverviewRealtimeWithFilterResolvesRawModelAndAliasPrices(t *testing.T) {
+func TestBuildUsageOverviewRealtimeWithFilterReadsStoredRawModelAndAliasCosts(t *testing.T) {
 	for _, test := range []struct {
 		model string
 		cost  float64
@@ -356,6 +353,7 @@ func TestBuildUsageOverviewRealtimeWithFilterResolvesRawModelAndAliasPrices(t *t
 			upsertUsageCostResolverPrice(t, db, "alias-model", 2)
 			alias := "alias-model"
 			now := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+			storedCost, available := test.cost, true
 			if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
 				EventKey:    "realtime-alias-cost",
 				APIGroupKey: "api-key",
@@ -364,14 +362,15 @@ func TestBuildUsageOverviewRealtimeWithFilterResolvesRawModelAndAliasPrices(t *t
 				Timestamp:   now.Add(-time.Minute),
 				InputTokens: 1_000_000,
 				TotalTokens: 1_000_000,
+				CostUSD:     &storedCost, CostAvailable: &available,
 			}}); err != nil {
 				t.Fatalf("InsertUsageEvents returned error: %v", err)
 			}
 
-			realtime, err := repository.BuildUsageOverviewRealtimeWithFilter(db, repodto.UsageQueryFilter{
+			realtime, err := repository.BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, repodto.UsageQueryFilter{
 				RealtimeWindow:  "15m",
 				RealtimeEndTime: &now,
-			}, newUsageCostResolverForTest(t, db))
+			}, nil)
 			if err != nil {
 				t.Fatalf("BuildUsageOverviewRealtimeWithFilter returned error: %v", err)
 			}
@@ -389,7 +388,7 @@ func TestBuildUsageOverviewRealtimeWithFilterResolvesRawModelAndAliasPrices(t *t
 	}
 }
 
-func TestBuildUsageOverviewRealtimeWithRecentCacheResolvesModelAndAliasPrices(t *testing.T) {
+func TestBuildUsageOverviewRealtimeWithRecentCacheReadsStoredModelAndAliasCosts(t *testing.T) {
 	for _, test := range []struct {
 		model string
 		cost  float64
@@ -403,6 +402,7 @@ func TestBuildUsageOverviewRealtimeWithRecentCacheResolvesModelAndAliasPrices(t 
 			upsertUsageCostResolverPrice(t, db, "alias-model", 2)
 			alias := "alias-model"
 			now := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+			storedCost, available := test.cost, true
 			if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
 				EventKey:    "realtime-cache-alias-cost",
 				APIGroupKey: "api-key",
@@ -411,6 +411,7 @@ func TestBuildUsageOverviewRealtimeWithRecentCacheResolvesModelAndAliasPrices(t 
 				Timestamp:   now.Add(-time.Minute),
 				InputTokens: 1_000_000,
 				TotalTokens: 1_000_000,
+				CostUSD:     &storedCost, CostAvailable: &available,
 			}}); err != nil {
 				t.Fatalf("InsertUsageEvents returned error: %v", err)
 			}
@@ -425,7 +426,7 @@ func TestBuildUsageOverviewRealtimeWithRecentCacheResolvesModelAndAliasPrices(t 
 			realtime, err := repository.BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, repodto.UsageQueryFilter{
 				RealtimeWindow:  "15m",
 				RealtimeEndTime: &now,
-			}, recentCache, newUsageCostResolverForTest(t, db))
+			}, recentCache)
 			if err != nil {
 				t.Fatalf("BuildUsageOverviewRealtimeWithFilterAndRecentCache returned error: %v", err)
 			}
@@ -443,7 +444,7 @@ func TestBuildUsageOverviewRealtimeWithRecentCacheResolvesModelAndAliasPrices(t 
 	}
 }
 
-func TestSumUsageWindowStatsByAuthIndexResolvesRawAndHourlyModelAndAliasPrices(t *testing.T) {
+func TestUsageWindowPreservesRawAndHourlyStoredModelCosts(t *testing.T) {
 	for _, test := range []struct {
 		model string
 		cost  float64
@@ -466,12 +467,13 @@ func TestSumUsageWindowStatsByAuthIndexResolvesRawAndHourlyModelAndAliasPrices(t
 				Timestamp:   rawStart.Add(10 * time.Minute),
 				InputTokens: 1_000_000,
 				TotalTokens: 1_000_000,
+				CostUSD:     windowCostPtr(test.cost), CostAvailable: windowAvailablePtr(true),
 			}).Error; err != nil {
 				t.Fatalf("seed raw usage event: %v", err)
 			}
-			rawStats, err := repository.SumUsageWindowStatsByAuthIndex(context.Background(), db, "auth-raw", rawStart, &rawEnd, newUsageCostResolverForTest(t, db))
+			rawStats, err := newUsageWindowCalculatorForTest(t, db).SumByAuthIndex(context.Background(), "auth-raw", rawStart, &rawEnd)
 			if err != nil {
-				t.Fatalf("SumUsageWindowStatsByAuthIndex raw returned error: %v", err)
+				t.Fatalf("SumByAuthIndex raw returned error: %v", err)
 			}
 			assertUsageCostClose(t, rawStats.Cost, test.cost)
 
@@ -485,21 +487,22 @@ func TestSumUsageWindowStatsByAuthIndexResolvesRawAndHourlyModelAndAliasPrices(t
 				ModelAlias:  "alias-model",
 				InputTokens: 1_000_000,
 				TotalTokens: 1_000_000,
-				CreatedAt:   hourlyBucket,
-				UpdatedAt:   hourlyBucket,
+				CostUSD:     windowCostPtr(test.cost), UnavailableCostCount: windowUnavailablePtr(0),
+				CreatedAt: hourlyBucket,
+				UpdatedAt: hourlyBucket,
 			}).Error; err != nil {
 				t.Fatalf("seed hourly stat: %v", err)
 			}
-			hourlyStats, err := repository.SumUsageWindowStatsByAuthIndex(context.Background(), db, "auth-hourly", hourlyStart, &hourlyEnd, newUsageCostResolverForTest(t, db))
+			hourlyStats, err := newUsageWindowCalculatorForTest(t, db).SumByAuthIndex(context.Background(), "auth-hourly", hourlyStart, &hourlyEnd)
 			if err != nil {
-				t.Fatalf("SumUsageWindowStatsByAuthIndex hourly returned error: %v", err)
+				t.Fatalf("SumByAuthIndex hourly returned error: %v", err)
 			}
 			assertUsageCostClose(t, hourlyStats.Cost, test.cost)
 		})
 	}
 }
 
-func TestSumUsageWindowStatsByAuthIndexMergesRawAndHourlyByModelAliasAndModelButPricesByModel(t *testing.T) {
+func TestUsageWindowAddsStoredRawAndHourlyCostsWithoutAliasRepricing(t *testing.T) {
 	db := openTestDatabase(t)
 	upsertUsageCostResolverPrice(t, db, "base-model", 10)
 	upsertUsageCostResolverPrice(t, db, "alias-model", 2)
@@ -509,23 +512,23 @@ func TestSumUsageWindowStatsByAuthIndexMergesRawAndHourlyByModelAliasAndModelBut
 	end := time.Date(2026, 6, 1, 18, 45, 0, 0, time.UTC)
 
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
-		{EventKey: "left-raw-alias", AuthIndex: authIndex, Model: "base-model", ModelAlias: &alias, Timestamp: time.Date(2026, 6, 1, 10, 30, 0, 0, time.UTC), InputTokens: 1_000_000, TotalTokens: 1_000_000},
-		{EventKey: "left-raw-model", AuthIndex: authIndex, Model: "base-model", Timestamp: time.Date(2026, 6, 1, 10, 35, 0, 0, time.UTC), InputTokens: 500_000, TotalTokens: 500_000},
-		{EventKey: "right-raw-alias", AuthIndex: authIndex, Model: "base-model", ModelAlias: &alias, Timestamp: time.Date(2026, 6, 1, 17, 30, 0, 0, time.UTC), InputTokens: 1_000_000, TotalTokens: 1_000_000},
-		{EventKey: "right-raw-model", AuthIndex: authIndex, Model: "base-model", Timestamp: time.Date(2026, 6, 1, 17, 35, 0, 0, time.UTC), InputTokens: 500_000, TotalTokens: 500_000},
+		{EventKey: "left-raw-alias", AuthIndex: authIndex, Model: "base-model", ModelAlias: &alias, Timestamp: time.Date(2026, 6, 1, 10, 30, 0, 0, time.UTC), InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: windowCostPtr(10), CostAvailable: windowAvailablePtr(true)},
+		{EventKey: "left-raw-model", AuthIndex: authIndex, Model: "base-model", Timestamp: time.Date(2026, 6, 1, 10, 35, 0, 0, time.UTC), InputTokens: 500_000, TotalTokens: 500_000, CostUSD: windowCostPtr(5), CostAvailable: windowAvailablePtr(true)},
+		{EventKey: "right-raw-alias", AuthIndex: authIndex, Model: "base-model", ModelAlias: &alias, Timestamp: time.Date(2026, 6, 1, 17, 30, 0, 0, time.UTC), InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: windowCostPtr(10), CostAvailable: windowAvailablePtr(true)},
+		{EventKey: "right-raw-model", AuthIndex: authIndex, Model: "base-model", Timestamp: time.Date(2026, 6, 1, 17, 35, 0, 0, time.UTC), InputTokens: 500_000, TotalTokens: 500_000, CostUSD: windowCostPtr(5), CostAvailable: windowAvailablePtr(true)},
 	}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 	if err := db.Create(&[]entities.UsageOverviewHourlyStat{
-		{BucketStart: time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC), AuthIndex: authIndex, Model: "base-model", ModelAlias: "alias-model", InputTokens: 1_000_000, TotalTokens: 1_000_000},
-		{BucketStart: time.Date(2026, 6, 1, 13, 0, 0, 0, time.UTC), AuthIndex: authIndex, Model: "base-model", InputTokens: 1_000_000, TotalTokens: 1_000_000},
+		{BucketStart: time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC), AuthIndex: authIndex, Model: "base-model", ModelAlias: "alias-model", InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: windowCostPtr(10), UnavailableCostCount: windowUnavailablePtr(0)},
+		{BucketStart: time.Date(2026, 6, 1, 13, 0, 0, 0, time.UTC), AuthIndex: authIndex, Model: "base-model", InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: windowCostPtr(10), UnavailableCostCount: windowUnavailablePtr(0)},
 	}).Error; err != nil {
 		t.Fatalf("seed hourly stats: %v", err)
 	}
 
-	stats, err := repository.SumUsageWindowStatsByAuthIndex(context.Background(), db, authIndex, start, &end, newUsageCostResolverForTest(t, db))
+	stats, err := newUsageWindowCalculatorForTest(t, db).SumByAuthIndex(context.Background(), authIndex, start, &end)
 	if err != nil {
-		t.Fatalf("SumUsageWindowStatsByAuthIndex returned error: %v", err)
+		t.Fatalf("SumByAuthIndex returned error: %v", err)
 	}
 	if stats.Tokens != 5_000_000 {
 		t.Fatalf("expected raw and hourly tokens to merge by model_alias/model, got %+v", stats)
@@ -540,6 +543,15 @@ func newUsageCostResolverForTest(t *testing.T, db *gorm.DB) pricing.Resolver {
 		t.Fatalf("LoadPricingSnapshot returned error: %v", err)
 	}
 	return pricing.NewCatalog(snapshot).NewResolver()
+}
+
+func newUsageCostSnapshotForTest(t *testing.T, db *gorm.DB) *pricing.Snapshot {
+	t.Helper()
+	snapshot, err := repository.LoadPricingSnapshot(context.Background(), db)
+	if err != nil {
+		t.Fatalf("LoadPricingSnapshot returned error: %v", err)
+	}
+	return snapshot
 }
 
 func upsertUsageCostResolverPrice(t *testing.T, db *gorm.DB, model string, promptPrice float64) {
@@ -560,17 +572,17 @@ func upsertUsageCostResolverPriceWithMultiplier(t *testing.T, db *gorm.DB, model
 	}
 }
 
-func assertUsageCostResolverResult(t *testing.T, result pricing.CostResult, wantCost float64, wantAvailable bool) {
+func assertUsageCostResolverResult(t *testing.T, result pricing.FeeResult, wantCost float64, wantAvailable bool) {
 	t.Helper()
 	if result.Available != wantAvailable {
 		t.Fatalf("expected available=%v, got %+v", wantAvailable, result)
 	}
-	assertUsageCostClose(t, result.Cost.TotalCostUSD, wantCost)
+	assertUsageCostClose(t, result.TotalCostUSD, wantCost)
 }
 
 func assertUsageCostClose(t *testing.T, got, want float64) {
 	t.Helper()
-	if math.Abs(got-want) > 0.000000001 {
+	if !(math.Abs(got-want) <= 0.000000001) {
 		t.Fatalf("expected cost %.8f, got %.8f", want, got)
 	}
 }

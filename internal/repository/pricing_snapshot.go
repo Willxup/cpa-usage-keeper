@@ -2,8 +2,10 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"cpa-usage-keeper/internal/pricing"
 
@@ -31,9 +33,25 @@ func LoadPricingSnapshot(ctx context.Context, db *gorm.DB) (*pricing.Snapshot, e
 	}
 
 	configIndexByID := make(map[int64]int, len(settings))
-	configs := make([]pricing.ModelConfig, len(settings))
+	configs := make([]pricing.ModelPricingConfig, len(settings))
 	for index := range settings {
-		configs[index].Pricing = settings[index]
+		setting := settings[index]
+		multiplier := 1.0
+		if setting.PriceMultiplier != nil {
+			multiplier = *setting.PriceMultiplier
+		}
+		branches := make([]pricing.PriceBranch, 0)
+		if err := json.Unmarshal([]byte(setting.BranchesJSON), &branches); err != nil {
+			return nil, fmt.Errorf("%w: decode branches for model %q: %w", ErrInvalidPricingSnapshot, setting.Model, err)
+		}
+		configs[index] = pricing.ModelPricingConfig{
+			Model: setting.Model, PricingStyle: setting.PricingStyle,
+			BasePrices: pricing.BasePrices{
+				Input: setting.PromptPricePer1M, Output: setting.CompletionPricePer1M,
+				CacheRead: setting.CacheReadPricePer1M, CacheWrite: setting.CacheWritePricePer1M,
+			},
+			ModelMultiplier: multiplier, ConditionalMultipliers: make([]pricing.RuleConfig, 0), Branches: branches,
+		}
 		configIndexByID[settings[index].ID] = index
 	}
 	for index := range rules {
@@ -41,15 +59,16 @@ func LoadPricingSnapshot(ctx context.Context, db *gorm.DB) (*pricing.Snapshot, e
 		if !ok {
 			return nil, fmt.Errorf("model price rule %d references missing price %d", rules[index].ID, rules[index].ModelPriceSettingID)
 		}
-		configs[configIndex].Rules = append(configs[configIndex].Rules, pricing.RuleConfig{
+		configs[configIndex].ConditionalMultipliers = append(configs[configIndex].ConditionalMultipliers, pricing.RuleConfig{
 			Key:        rules[index].Key,
 			Value:      rules[index].Value,
 			Multiplier: rules[index].Multiplier,
 		})
 	}
-	snapshot, err := pricing.CompileSnapshot(configs)
+	// config.Load 在应用启动加载价格前固定 time.Local；事务内编译与普通读取使用同一部署时区。
+	snapshot, err := pricing.CompilePricingSnapshot(configs, time.Local)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidPricingSnapshot, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidPricingSnapshot, err)
 	}
 	return snapshot, nil
 }

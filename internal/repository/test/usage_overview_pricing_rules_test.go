@@ -10,21 +10,21 @@ import (
 	repodto "cpa-usage-keeper/internal/repository/dto"
 )
 
-func TestUsageOverviewHourlyAppliesActiveRuleDimensionsBeforePricing(t *testing.T) {
+func TestUsageOverviewHourlySumsStoredCostsAcrossRuleDimensions(t *testing.T) {
 	db := openTestDatabase(t)
 	bucket := time.Date(2026, 7, 20, 12, 0, 0, 0, time.Local)
+	priorityCost, defaultCost, unavailable := 2.0, 1.0, int64(0)
 	rows := []entities.UsageOverviewHourlyStat{
-		{BucketStart: bucket, APIGroupKey: "group-a", Model: "model-a", ServiceTier: "priority", InputTokens: 1_000_000, TotalTokens: 1_000_000},
-		{BucketStart: bucket, APIGroupKey: "group-a", Model: "model-a", ServiceTier: "default", InputTokens: 1_000_000, TotalTokens: 1_000_000},
+		{BucketStart: bucket, APIGroupKey: "group-a", Model: "model-a", ServiceTier: "priority", InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: &priorityCost, UnavailableCostCount: &unavailable},
+		{BucketStart: bucket, APIGroupKey: "group-a", Model: "model-a", ServiceTier: "default", InputTokens: 1_000_000, TotalTokens: 1_000_000, CostUSD: &defaultCost, UnavailableCostCount: &unavailable},
 	}
 	if err := db.Create(&rows).Error; err != nil {
 		t.Fatalf("seed hourly pricing rows: %v", err)
 	}
 	end := bucket.Add(time.Hour)
-	resolver := repositoryPricingResolver(t, []pricing.RuleConfig{{Key: "service_tier", Value: "priority", Multiplier: 2}})
-	overview, err := repository.BuildUsageOverviewWithFilter(db, repodto.UsageQueryFilter{
+	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(db, repodto.UsageQueryFilter{
 		Range: "custom", CustomUnit: "hour", StartTime: &bucket, EndTime: &end, EndExclusive: true,
-	}, resolver)
+	}, nil)
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter: %v", err)
 	}
@@ -33,22 +33,20 @@ func TestUsageOverviewHourlyAppliesActiveRuleDimensionsBeforePricing(t *testing.
 	}
 }
 
-func TestUsageOverviewDailyAppliesTwoMatchingRulesContinuously(t *testing.T) {
+func TestUsageOverviewDailyReadsStoredCostAcrossFormerRuleDimensions(t *testing.T) {
 	db := openTestDatabase(t)
 	bucket := time.Date(2026, 7, 20, 0, 0, 0, 0, time.Local)
+	cost, unavailable := 6.0, int64(0)
 	if err := db.Create(&entities.UsageOverviewDailyStat{
 		BucketStart: bucket, APIGroupKey: "group-a", Model: "model-a", ServiceTier: "priority", ReasoningEffort: "xhigh", InputTokens: 1_000_000, TotalTokens: 1_000_000,
+		CostUSD: &cost, UnavailableCostCount: &unavailable,
 	}).Error; err != nil {
 		t.Fatalf("seed daily pricing row: %v", err)
 	}
 	end := bucket.Add(24 * time.Hour)
-	resolver := repositoryPricingResolver(t, []pricing.RuleConfig{
-		{Key: "service_tier", Value: "priority", Multiplier: 2},
-		{Key: "reasoning_effort", Value: "xhigh", Multiplier: 3},
-	})
-	overview, err := repository.BuildUsageOverviewWithFilter(db, repodto.UsageQueryFilter{
+	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(db, repodto.UsageQueryFilter{
 		Range: "custom", CustomUnit: "day", StartTime: &bucket, EndTime: &end, EndExclusive: true,
-	}, resolver)
+	}, nil)
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter: %v", err)
 	}

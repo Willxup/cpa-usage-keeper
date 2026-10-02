@@ -3,19 +3,17 @@ package migration
 import (
 	"fmt"
 
-	"cpa-usage-keeper/internal/entities"
-
 	"gorm.io/gorm"
 )
 
 // createUsageOverviewStatsMigration 重放 2026-05-14 的历史 Overview schema；其中旧 Health 表会由后续 Activity migration 迁移并删除。
 func createUsageOverviewStatsMigration(tx *gorm.DB) error {
 	if err := tx.AutoMigrate(
-		&entities.UsageOverviewHourlyStat{},
-		&entities.UsageOverviewDailyStat{},
+		&legacyUsageOverviewHourlyStat{},
+		&legacyUsageOverviewDailyStat{},
 		// 历史 migration 使用包内 legacy 结构，避免最终业务 entity 继续暴露旧 Health 表。
 		&legacyUsageOverviewHealthStat{},
-		&entities.UsageOverviewAggregationCheckpoint{},
+		&legacyUsageOverviewAggregationCheckpoint{},
 	); err != nil {
 		return fmt.Errorf("auto migrate usage overview stats: %w", err)
 	}

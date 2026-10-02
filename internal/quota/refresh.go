@@ -105,6 +105,8 @@ type RefreshTaskRecord struct {
 	RefreshedAt       time.Time
 	ExpiresAt         time.Time
 	UpstreamResponses []UpstreamResponse
+	// cacheGeneration 使清理前入队的 dispatcher/worker 不能接管同 auth_index 的新任务。
+	cacheGeneration uint64
 }
 
 func (s *Service) GetCachedQuota(ctx context.Context, request CacheRequest) (CacheResponse, error) {
@@ -162,7 +164,7 @@ func (s *Service) Refresh(ctx context.Context, request RefreshRequest) (RefreshR
 	response := RefreshResponse{Limit: limit}
 	// seen 记录本次请求内已经处理过的 auth_index，避免一个请求内重复入队。
 	seen := make(map[string]struct{}, len(request.AuthIndexes))
-	// queuedTasks 收集本次真正入队的任务，循环结束后交给单个 dispatcher 派发。
+	// queuedTasks 收集本次真正入队的任务实例，循环结束后交给单个 dispatcher 派发。
 	queuedTasks := make([]*RefreshTaskRecord, 0, len(request.AuthIndexes))
 	// unsupported 只代表这个 Auth File 类型暂不支持限额查询，不需要写任务缓存或前端错误。
 	skippedUnsupported := 0
@@ -318,6 +320,11 @@ func (s *Service) UpdateUsageIdentityDisplayNameSnapshot(identity entities.Usage
 }
 
 func (s *Service) ensureRefreshTaskWithIdentity(authIndex string, source RefreshSource, identity entities.UsageIdentity) (*RefreshTaskRecord, bool) {
+	return s.ensureRefreshTaskWithIdentityAtGeneration(authIndex, source, identity, nil)
+}
+
+// ensureRefreshTaskWithIdentityAtGeneration 在入队锁内校验巡检/自动刷新代数，旧扫描不得生成新任务。
+func (s *Service) ensureRefreshTaskWithIdentityAtGeneration(authIndex string, source RefreshSource, identity entities.UsageIdentity, expectedGeneration *uint64) (*RefreshTaskRecord, bool) {
 	// auth_index 本身就是任务唯一标识；queued/running 时直接拒绝重复入队，避免重复打到上游接口。
 	// now 使用 storage time 归一化，保证任务时间字段和数据库/前端时间口径一致。
 	now := timeutil.NormalizeStorageTime(time.Now())
@@ -325,6 +332,9 @@ func (s *Service) ensureRefreshTaskWithIdentity(authIndex string, source Refresh
 	s.refreshMu.Lock()
 	// 函数退出时释放锁，确保创建任务和重复检查是原子操作。
 	defer s.refreshMu.Unlock()
+	if expectedGeneration != nil && s.cacheGeneration != *expectedGeneration {
+		return nil, false
+	}
 	// 如果同一个 auth_index 已经 queued/running，就复用现有记录并告知调用方未创建。
 	if task, ok := s.refreshTasks[authIndex]; ok && task.isActive() {
 		// 返回 false 表示当前请求不应该再启动 goroutine。
@@ -344,7 +354,8 @@ func (s *Service) ensureRefreshTaskWithIdentity(authIndex string, source Refresh
 		// Source 记录任务来源，便于区分手动刷新和自动刷新。
 		Source: source,
 		// CreatedAt 记录入队时间，便于前端和清理逻辑判断任务生命周期。
-		CreatedAt: now,
+		CreatedAt:       now,
+		cacheGeneration: s.cacheGeneration,
 	}
 	// 把任务写入 auth_index keyed map，后续轮询和 cache 都从这里读取。
 	s.refreshTasks[authIndex] = task
@@ -352,6 +363,7 @@ func (s *Service) ensureRefreshTaskWithIdentity(authIndex string, source Refresh
 	return task, true
 }
 
+// dispatchRefreshTasks 按入队时的任务实例派发，旧轮次不能借同 auth_index 接管新任务。
 func (s *Service) dispatchRefreshTasks(tasks []*RefreshTaskRecord) {
 	// dispatcher 顺序处理本次入队列表，避免为每个 queued 任务创建一个等待 token 的 goroutine。
 	refreshDone := s.refreshContextSnapshot().Done()
@@ -379,22 +391,27 @@ func (s *Service) dispatchRefreshTasks(tasks []*RefreshTaskRecord) {
 	}
 }
 
-func (s *Service) runRefreshTaskWithWorker(expected *RefreshTaskRecord) {
-	// defer 保证无论成功、失败还是提前返回都会冷却并释放 worker slot。
+// runRefreshTaskWithWorker 仅让当前有效任务查询上游；失效任务直接归还 slot 且不冷却。
+func (s *Service) runRefreshTaskWithWorker(task *RefreshTaskRecord) {
+	started := false
+	// 已失效的排队任务只归还 slot；只有实际开始查询上游的任务才占用 provider 冷却时间。
 	defer func() {
-		// 冷却必须发生在释放 worker slot 之前，否则队列会立刻补进下一条任务，无法形成“每个 worker 完成后停 1 秒”的节流效果。
-		s.refreshCooldown(RefreshTaskCooldown)
+		if started {
+			// 冷却在释放 slot 之前，维持每个实际刷新任务结束后的节流。
+			s.refreshCooldown(RefreshTaskCooldown)
+		}
 		// 释放 worker token，让队列中的下一个任务可以继续执行。
 		<-s.refreshWorkerTokens
 	}()
 
 	// 把任务从 queued 切到 running，并拿到锁内确认后的 auth_index。
-	authIndex, source, ok := s.markRefreshTaskRunning(expected)
+	authIndex, source, ok := s.markRefreshTaskRunning(task)
 	// 如果任务不存在或状态已经不是 queued，说明它被清理或状态异常，直接结束 goroutine。
 	if !ok {
 		// 不再调用 provider，避免无任务记录时产生不可见结果。
 		return
 	}
+	started = true
 	// 每个任务独立设置超时；超时或 provider 错误都会沉淀到任务状态里给前端展示。
 	ctx, cancel := context.WithTimeout(s.refreshContextSnapshot(), RefreshTaskTimeout)
 	// 任务结束时释放 timeout timer，避免资源泄漏。
@@ -407,11 +424,11 @@ func (s *Service) runRefreshTaskWithWorker(expected *RefreshTaskRecord) {
 	if err != nil {
 		if errors.Is(err, ErrUnsupportedType) {
 			// 任务创建后身份类型可能变化为不支持；直接移除任务，避免缓存无意义错误。
-			s.deleteRefreshTask(expected)
+			s.deleteRefreshTask(task)
 			return
 		}
 		// markRefreshTaskFailed 会把友好错误、HTTP 状态和缓存 TTL 写入任务记录。
-		s.markRefreshTaskFailed(expected, err, upstreamResponses)
+		s.markRefreshTaskFailed(task, err, upstreamResponses)
 		// 失败任务不再计算 token/cost，也不会写 completed quota 缓存。
 		return
 	}
@@ -420,14 +437,14 @@ func (s *Service) runRefreshTaskWithWorker(expected *RefreshTaskRecord) {
 		response = s.attachWindowUsageStats(ctx, authIndex, response, time.Now())
 	}
 	// quota rows 和 token/cost 都准备好后，把任务切到 completed 并写入长期成功缓存。
-	s.markRefreshTaskCompleted(expected, response, upstreamResponses)
+	s.markRefreshTaskCompleted(task, response, upstreamResponses)
 }
 
-func (s *Service) deleteRefreshTask(expected *RefreshTaskRecord) {
+func (s *Service) deleteRefreshTask(task *RefreshTaskRecord) {
 	s.refreshMu.Lock()
 	defer s.refreshMu.Unlock()
-	if s.refreshTasks[expected.AuthIndex] == expected {
-		delete(s.refreshTasks, expected.AuthIndex)
+	if s.refreshTaskCurrentLocked(task) {
+		delete(s.refreshTasks, task.AuthIndex)
 	}
 }
 
@@ -462,17 +479,33 @@ func isRefreshCacheableHTTPStatus(statusCode int) bool {
 	return ok
 }
 
-func (s *Service) markRefreshTaskRunning(expected *RefreshTaskRecord) (string, RefreshSource, bool) {
+// refreshTaskCurrentLocked 的调用方已持有 refreshMu；指针和代数共同绑定入队实例。
+func (s *Service) refreshTaskCurrentLocked(task *RefreshTaskRecord) bool {
+	if task == nil || task.cacheGeneration != s.cacheGeneration {
+		return false
+	}
+	return s.refreshTasks[task.AuthIndex] == task
+}
+
+// refreshTaskActiveSource 在刷新锁内读取当前实例的状态与来源，供巡检/自动刷新安全复用。
+func (s *Service) refreshTaskActiveSource(task *RefreshTaskRecord) (RefreshSource, bool) {
+	s.refreshMu.Lock()
+	defer s.refreshMu.Unlock()
+	if !s.refreshTaskCurrentLocked(task) || !task.isActive() {
+		return "", false
+	}
+	return task.Source, true
+}
+
+func (s *Service) markRefreshTaskRunning(task *RefreshTaskRecord) (string, RefreshSource, bool) {
 	// now 记录任务真正开始执行的时间。
 	now := timeutil.NormalizeStorageTime(time.Now())
 	// refreshTasks 是共享 map，状态切换前必须加锁。
 	s.refreshMu.Lock()
 	// 函数退出时释放锁，保证状态检查和写入原子完成。
 	defer s.refreshMu.Unlock()
-	// 比较入队时的任务对象，避免旧 dispatcher 启动同索引的新任务。
-	task, ok := s.refreshTasks[expected.AuthIndex]
-	// 只有 queued 任务可以切到 running，避免重复 goroutine 改写已完成任务。
-	if !ok || task != expected || task.Status != RefreshTaskStatusQueued {
+	// 只有当前代数的这一条 queued 记录可以切到 running，旧 dispatcher 不能接管新同名任务。
+	if !s.refreshTaskCurrentLocked(task) || task.Status != RefreshTaskStatusQueued {
 		// 返回 false 告诉 worker 当前任务不应继续执行。
 		return "", "", false
 	}
@@ -484,17 +517,15 @@ func (s *Service) markRefreshTaskRunning(expected *RefreshTaskRecord) (string, R
 	return task.AuthIndex, task.Source, true
 }
 
-func (s *Service) markRefreshTaskCompleted(expected *RefreshTaskRecord, response CheckResponse, upstreamResponses []UpstreamResponse) {
+func (s *Service) markRefreshTaskCompleted(task *RefreshTaskRecord, response CheckResponse, upstreamResponses []UpstreamResponse) {
 	// now 同时作为完成时间和成功缓存写入时间。
 	now := timeutil.NormalizeStorageTime(time.Now())
 	// refreshTasks 是共享 map，写 completed 状态前必须加锁。
 	s.refreshMu.Lock()
 	// 函数退出时释放锁，保证 quota 缓存和状态一起写入。
 	defer s.refreshMu.Unlock()
-	// 只允许原任务写回；Header 替换后，迟到结果不能覆盖新缓存。
-	task, ok := s.refreshTasks[expected.AuthIndex]
-	// 如果任务已经被清理，就没有地方写结果，直接返回。
-	if !ok || task != expected {
+	// 同锁比较代数和具体任务后发布，清理前的响应不能复活旧缓存或覆盖新任务。
+	if !s.refreshTaskCurrentLocked(task) || task.Status != RefreshTaskStatusRunning {
 		// 不再创建新记录，避免后台结果复活已清理任务。
 		return
 	}
@@ -516,7 +547,7 @@ func (s *Service) markQueuedRefreshTasksFailed(tasks []*RefreshTaskRecord, err e
 	}
 }
 
-func (s *Service) markRefreshTaskFailed(expected *RefreshTaskRecord, err error, upstreamResponses []UpstreamResponse) {
+func (s *Service) markRefreshTaskFailed(task *RefreshTaskRecord, err error, upstreamResponses []UpstreamResponse) {
 	// now 同时作为失败完成时间和失败缓存写入时间。
 	now := timeutil.NormalizeStorageTime(time.Now())
 	// 把底层错误转换成前端可展示的友好信息。
@@ -527,10 +558,8 @@ func (s *Service) markRefreshTaskFailed(expected *RefreshTaskRecord, err error, 
 	s.refreshMu.Lock()
 	// 函数退出时释放锁，保证错误信息和 TTL 一起写入。
 	defer s.refreshMu.Unlock()
-	// 只允许原任务写回，旧失败不能污染替换后的缓存。
-	task, ok := s.refreshTasks[expected.AuthIndex]
-	// 如果任务已经被清理，就没有地方写失败结果，直接返回。
-	if !ok || task != expected {
+	// 旧 worker 的错误也不能改写清理后新建的同名任务。
+	if !s.refreshTaskCurrentLocked(task) || !task.isActive() {
 		// 不再创建新记录，避免后台失败复活已清理任务。
 		return
 	}

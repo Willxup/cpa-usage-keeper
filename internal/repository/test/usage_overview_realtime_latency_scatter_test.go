@@ -37,16 +37,16 @@ func TestRealtimeLatencyScatterKeepsPairsAndFullWindowSummary(t *testing.T) {
 				if useCache {
 					cache = newEmptyUsageRecentEventCache(repository.UsageRecentEventCacheOptions{Now: func() time.Time { return now }})
 					t.Cleanup(cache.Close)
-					appendRecentCacheEvents(cache, events)
+					appendRecentCacheEvents(cache, priceOverviewFixtureEvents(t, db, events))
 					if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
 						t.Fatal(err)
 					}
-				} else if _, _, err := repository.InsertUsageEvents(db, events); err != nil {
+				} else if _, _, err := repository.InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, events)); err != nil {
 					t.Fatal(err)
 				}
 				realtime, err := repository.BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, repodto.UsageQueryFilter{
 					APIGroupKey: "viewer-key", RealtimeWindow: window, RealtimeEndTime: &now,
-				}, cache, emptyPricingResolverForTest())
+				}, cache)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -68,10 +68,10 @@ func TestRealtimeLatencyScatterKeepsEveryPointBelowCap(t *testing.T) {
 	db := openTestDatabase(t)
 	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
 	ttft := int64(120)
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{EventKey: "one", Timestamp: now.Add(-time.Minute), TTFTMS: &ttft, LatencyMS: 800}}); err != nil {
+	if _, _, err := repository.InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, []entities.UsageEvent{{EventKey: "one", Timestamp: now.Add(-time.Minute), TTFTMS: &ttft, LatencyMS: 800}})); err != nil {
 		t.Fatal(err)
 	}
-	realtime, err := repository.BuildUsageOverviewRealtimeWithFilter(db, repodto.UsageQueryFilter{RealtimeWindow: "15m", RealtimeEndTime: &now}, emptyPricingResolverForTest())
+	realtime, err := repository.BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, repodto.UsageQueryFilter{RealtimeWindow: "15m", RealtimeEndTime: &now}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

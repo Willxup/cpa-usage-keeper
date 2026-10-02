@@ -17,6 +17,8 @@ func TestUsageServicePreservesEventMetadataForListAndStream(t *testing.T) {
 	responseModel := " gpt-5.6-luna "
 	statusCode := 200
 	stream := true
+	// 此用例只验证请求元数据；空价格配置下仍需明示已存缺价费用。
+	costUSD, costAvailable := 0.0, false
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
 		EventKey:            "model-alias-event",
 		APIGroupKey:         "provider-a",
@@ -30,6 +32,8 @@ func TestUsageServicePreservesEventMetadataForListAndStream(t *testing.T) {
 		Timestamp:           time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC),
 		InputTokens:         10,
 		TotalTokens:         10,
+		CostUSD:             &costUSD,
+		CostAvailable:       &costAvailable,
 	}}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}

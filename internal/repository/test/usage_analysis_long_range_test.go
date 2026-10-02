@@ -17,7 +17,7 @@ func TestBuildAnalysisUsesLongCustomDayRollupsWithoutUsageEvents(t *testing.T) {
 	if err := db.Create(&entities.CPAAPIKey{APIKey: "sk-long-custom", DisplayKey: "sk-*********custom"}).Error; err != nil {
 		t.Fatalf("insert CPA API key: %v", err)
 	}
-	if err := db.Create(&entities.UsageOverviewDailyStat{
+	if err := db.Create(&entities.UsageOverviewDailyStat{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1),
 		BucketStart: bucket, APIGroupKey: "sk-long-custom", Model: "gpt-5",
 		RequestCount: 3, InputTokens: 120, OutputTokens: 30, TotalTokens: 150,
 	}).Error; err != nil {
@@ -29,7 +29,7 @@ func TestBuildAnalysisUsesLongCustomDayRollupsWithoutUsageEvents(t *testing.T) {
 
 	analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{
 		Range: "custom", CustomUnit: "day", StartTime: &start, EndTime: &end, EndExclusive: true,
-	}, emptyPricingResolverForTest())
+	})
 
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)

@@ -3,12 +3,14 @@ package service
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/repository"
 	repositorydto "cpa-usage-keeper/internal/repository/dto"
@@ -24,6 +26,11 @@ import (
 // RecentUsageEventAppender 接收已提交入库的 usage_events，供最近窗口纯内存缓存异步维护。
 type RecentUsageEventAppender interface {
 	TryAppend([]entities.UsageEvent) bool
+}
+
+// recentUsageAcceptedDrainer 只等待停稳前已接受的异步缓存追加完成，不关闭共享缓存或清理健康桶。
+type recentUsageAcceptedDrainer interface {
+	DrainAcceptedAppends(context.Context) error
 }
 
 // UsageAggregationNotifier 把已提交 usage 或 identity 变化转成后台 runner 的非阻塞唤醒。
@@ -52,19 +59,22 @@ const (
 
 // SyncService 负责同步 CPA metadata，并处理已经落入本地 inbox 的 usage 原始消息。
 type SyncService struct {
+	usageWork       usageWorkGate
 	db              *gorm.DB
 	client          CPAClientFetcher
 	metadataFetcher MetadataFetcher
 	baseURL         string
 	now             func() time.Time
 	recentUsage     RecentUsageEventAppender
+	pricingCatalog  *pricing.Catalog
 	// usageAggregation 只接收提交后通知，不允许热路径同步调用聚合仓储函数。
 	usageAggregation UsageAggregationNotifier
 	// usageHeaderQuota 与聚合 runner 解耦，在 Quota worker 内按一分钟窗口自行合并。
 	usageHeaderQuota UsageHeaderSnapshotAppender
 }
 
-// NewSyncService 按生产配置组装 CPA metadata client；远端 usage 拉取由 poller 独立负责。
+// NewSyncService 按配置组装 metadata／维护服务；远端 usage 拉取由 poller 独立负责。
+// 需要消费 inbox 的调用方使用 NewSyncServiceWithOptions 显式注入共享 PricingCatalog。
 func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 	return NewSyncServiceWithOptions(db, SyncServiceOptions{
 		BaseURL: cfg.CPABaseURL,
@@ -79,6 +89,8 @@ type SyncServiceOptions struct {
 	MetadataFetcher   MetadataFetcher
 	Now               func() time.Time
 	RecentUsageEvents RecentUsageEventAppender
+	// PricingCatalog 与价格保存服务共享，消费批次只从中固定一次只读快照。
+	PricingCatalog *pricing.Catalog
 	// UsageAggregationNotifier 注入 App 唯一的单 writer runner。
 	UsageAggregationNotifier UsageAggregationNotifier
 	// UsageHeaderQuota 独立接收原始 Header；是否配置聚合 notifier 不影响它。
@@ -86,6 +98,7 @@ type SyncServiceOptions struct {
 }
 
 // NewSyncServiceWithOptions 是统一构造入口，负责填充默认时钟和 metadata fetcher。
+// 仅 metadata／维护调用可不注入价格；事件消费必须与价格保存服务共享同一个 Catalog。
 func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncService {
 	now := opts.Now
 	if now == nil {
@@ -102,6 +115,7 @@ func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncServic
 		baseURL:         strings.TrimSpace(opts.BaseURL),
 		now:             now,
 		recentUsage:     opts.RecentUsageEvents,
+		pricingCatalog:  opts.PricingCatalog,
 		// 构造时只保存 notifier 接口，不启动额外 goroutine。
 		usageAggregation: opts.UsageAggregationNotifier,
 		// Header appender 始终独立于聚合 notifier，生产 App 会同时注入两个接收方。
@@ -119,10 +133,21 @@ func NewSyncServiceWithClient(db *gorm.DB, baseURL string, client CPAClientFetch
 
 // ProcessRedisUsageInbox 是 Redis 同步的本地处理阶段：只读取 pending/process_failed inbox 行并写入 usage_events。
 // 成功处理后仅用 usage_event_key 记录 inbox 与最终事件的关联。
+// 每批归一化后固定价格快照，USD 总费用／可用性随事件与 processed 标记原子提交，通知仅在提交后发送。
+// 未注入 Catalog 属于装配错误，在读取 inbox 前返回，不把它当作缺价或消耗消息重试次数。
 func (s *SyncService) ProcessRedisUsageInbox(ctx context.Context) (*servicedto.RedisBatchSyncResult, error) {
 	if err := s.validate(syncMetadataOptional); err != nil {
 		return nil, err
 	}
+	if s.pricingCatalog == nil {
+		return nil, fmt.Errorf("sync service pricing catalog is nil")
+	}
+	// 许可从读待处理 inbox 前持有到事务提交后的 recent、聚合和 Header 通知返回；暂停不会改写重试状态。
+	leave, err := s.usageWork.enter(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer leave()
 	// 本操作虽然从 SELECT pending inbox 开始，但它决定随后 usage_events 与 processed 状态的原子写入。
 	// 使用局部 Write scope 让列表、identity 解析、失败回读和事务都只依赖唯一 writer；普通页面查询仍自动走 reader。
 	// Write clause 后重新创建 session，既保留 writer 选择，又保证每个仓储调用从干净 Statement 开始，不继承上一条查询条件。
@@ -177,12 +202,40 @@ func (s *SyncService) ProcessRedisUsageInbox(ctx context.Context) (*servicedto.R
 	return s.processRedisInboxRows(ctx, writeDB, processableRows, fetchedAt)
 }
 
+// PauseUsageWork 停稳本服务的事件处理和存储维护，并排空此前已接受的 recent 缓存追加。
+// 返回的 resume 必须在重算结束或失败后调用；取消等待会自动恢复许可，不留下跨任务暂停状态。
+func (s *SyncService) PauseUsageWork(ctx context.Context) (func(), error) {
+	if err := s.validate(syncMetadataOptional); err != nil {
+		return nil, err
+	}
+	resume, err := s.usageWork.pause(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if drainer, ok := s.recentUsage.(recentUsageAcceptedDrainer); ok {
+		if err := drainer.DrainAcceptedAppends(ctx); err != nil {
+			resume()
+			return nil, fmt.Errorf("drain accepted recent usage appends: %w", err)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		resume()
+		return nil, err
+	}
+	return resume, nil
+}
+
 // CleanupRedisUsageInbox 只清理 Redis inbox 表，供测试和单独维护入口使用；每日任务使用 CleanupStorage 统一执行。
 func (s *SyncService) CleanupRedisUsageInbox(ctx context.Context) error {
 	if err := s.validate(syncMetadataOptional); err != nil {
 		return err
 	}
-	_, err := repository.CleanupRedisUsageInbox(s.db, s.now())
+	leave, err := s.usageWork.enter(ctx)
+	if err != nil {
+		return err
+	}
+	defer leave()
+	_, err = repository.CleanupRedisUsageInbox(s.db.WithContext(ctx), s.now())
 	return err
 }
 
@@ -191,6 +244,11 @@ func (s *SyncService) CleanupStorage(ctx context.Context) error {
 	if err := s.validate(syncMetadataOptional); err != nil {
 		return err
 	}
+	leave, err := s.usageWork.enter(ctx)
+	if err != nil {
+		return err
+	}
+	defer leave()
 	result, err := repository.CleanupStorage(s.db.WithContext(ctx), s.now())
 	entry := logrus.WithFields(logrus.Fields{
 		"redis_processed_deleted":     result.RedisInbox.ProcessedDeleted,
@@ -296,6 +354,22 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.D
 	// 后续事务只处理 ready 子集；成功行一旦提交就不会在 unresolved 重试时重复入库。
 	validRows = readyRows
 	events = readyEvents
+	// 单批只固定一个已编译价格快照；普通改价可并发发布下一份，当前批次仍按原价写完。
+	feeResolver := s.pricingCatalog.NewResolver()
+	for index := range events {
+		fee := feeResolver.CalculateFee(repository.UsageEventCostSubject(events[index]))
+		if math.IsNaN(fee.TotalCostUSD) || math.IsInf(fee.TotalCostUSD, 0) {
+			feeErr := fmt.Errorf("calculate usage event fee: non-finite amount")
+			readyFailures := markRedisInboxRowsProcessFailed(writeDB, validRows, feeErr)
+			failureCounts = failureCounts.add(readyFailures)
+			failureResult := newRedisBatchSyncResult("failed", processedRows)
+			failureResult.RetryPending = failureCounts.requiresRetryWait()
+			failureResult.DiscardedRows = failureCounts.discarded
+			return failureResult, joinErrors(decodeErr, typeErr, feeErr)
+		}
+		events[index].CostUSD = &fee.TotalCostUSD
+		events[index].CostAvailable = &fee.Available
+	}
 
 	// usage_events 入库和 inbox processed 标记必须同事务提交，避免标记失败后同一 inbox 重试造成重复事件。
 	logrus.WithField("event_count", len(events)).Debug("redis usage events persistence started")

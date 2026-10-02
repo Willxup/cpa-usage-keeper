@@ -1,7 +1,7 @@
 import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { I18nextProvider } from 'react-i18next';
-import App from './App';
+import { StartupGate } from './StartupGate';
 import i18n from './i18n';
 import faviconUrl from './assets/keeper-icon.svg';
 import './styles/reset.scss';
@@ -25,7 +25,7 @@ function Root() {
 
   useEffect(() => initializeTheme(), [initializeTheme]);
 
-  return <App />;
+  return <StartupGate />;
 }
 
 createRoot(document.getElementById('root')!).render(

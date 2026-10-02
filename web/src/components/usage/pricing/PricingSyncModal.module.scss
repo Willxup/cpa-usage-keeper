@@ -1,0 +1,232 @@
+.body {
+  display: grid;
+  gap: 14px;
+  container: pricing-sync / inline-size;
+  color: var(--text-primary);
+}
+
+.toolbar,
+.selection,
+.actions,
+.draftHeader,
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.toolbar select,
+.priceField input {
+  box-sizing: border-box;
+  min-height: 38px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.toolbar select {
+  min-width: 142px;
+}
+
+.note,
+.unit,
+.empty,
+.match,
+.unmatched,
+.selection {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.note {
+  margin: 0;
+  padding: 0;
+  line-height: 1.5;
+}
+
+.unit {
+  margin: 0;
+}
+
+.empty {
+  margin: 0;
+  padding: 24px 0;
+  text-align: center;
+}
+
+.selection {
+  margin: 4px 0 0;
+}
+
+.draftList {
+  display: grid;
+  gap: 10px;
+}
+
+.draft {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  background: var(--bg-secondary);
+}
+
+.draftHeader strong {
+  overflow-wrap: anywhere;
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.checkbox input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  accent-color: var(--primary-color);
+}
+
+.status {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.match {
+  margin: 8px 0 12px;
+  overflow-wrap: anywhere;
+}
+
+.priceGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.priceField {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.priceField input {
+  width: 100%;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.priceField input:focus-visible,
+.toolbar select:focus-visible {
+  border-color: var(--primary-color);
+  outline: 2px solid color-mix(in srgb, var(--primary-color) 18%, transparent);
+}
+
+.priceField input[aria-invalid='true'] {
+  border-color: var(--danger-color);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger-color) 13%, transparent);
+  animation: syncInvalid 200ms ease;
+}
+
+.priceField small {
+  overflow-wrap: anywhere;
+}
+
+.unmatched {
+  padding: 8px 0 0;
+  border-top: 1px solid var(--border-color);
+}
+
+.unmatched summary {
+  cursor: pointer;
+}
+
+.unmatched p {
+  margin: 9px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.error {
+  margin: 0;
+  padding: 11px 12px;
+  border-radius: 12px;
+  background: var(--bg-error-light);
+  color: var(--danger-color);
+  font-size: 12px;
+}
+
+.footer {
+  justify-content: space-between;
+}
+
+.screenReaderOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+@keyframes syncInvalid {
+  0%, 100% { transform: translateX(0); }
+  35% { transform: translateX(-3px); }
+  70% { transform: translateX(3px); }
+}
+
+@container pricing-sync (max-width: 599px) {
+  .priceGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@container pricing-sync (max-width: 399px) {
+  // 来源与拉取仍在同一行；标签在上方，避免挤压原生下拉框。
+  .toolbar { align-items: flex-end; flex-wrap: nowrap; gap: 8px; }
+  .toolbar label { display: grid; flex: 1; min-width: 0; }
+
+  .toolbar > :global(.btn) { flex-shrink: 0; }
+  .draft { padding: 10px; }
+  .priceGrid { gap: 10px 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .priceField input[aria-invalid='true'] { animation: none; }
+}
+
+.toolbar { justify-content: flex-start; }
+@media (pointer: coarse) {
+  .body :global(.btn.btn-action), .footer :global(.btn.btn-action) { min-height: 44px; }
+  .priceField input, .toolbar select { min-height: 44px; font-size: 16px; }
+}
+
+
+@media (pointer: coarse) { .toolbar button[aria-haspopup="listbox"] { min-height: 44px; } }
+
+.toolbar button[aria-haspopup="listbox"] { height: 38px; border-radius: 999px; box-shadow: none; }
+
+// 来源按最长选项 Models.dev 的文本宽度预留，标签不参与压缩换行。
+.toolbar label { flex: 0 0 auto; white-space: nowrap; }
+.sourceSelect { font-size: 13px; width: calc(10ch + 64px); min-width: 0; flex: 0 0 auto; }
+.sourceSelect button { font-size: 13px; }
+@container pricing-sync (max-width: 399px) {
+  .toolbar label { flex: 0 1 auto; }
+}

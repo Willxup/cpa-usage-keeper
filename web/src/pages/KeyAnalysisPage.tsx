@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError, fetchKeyAnalysis, fetchKeyAnalysisLatency, isUsageRangeBoundsConflict } from '@/lib/api';
+import { ApiError, fetchKeyAnalysis, fetchKeyAnalysisLatency, isCostsBusy, isUsageRangeBoundsConflict } from '@/lib/api';
 import type { AnalysisLatencyDiagnostics, AnalysisResponse, AuthSessionAPIKeySummary, UsageCustomRange, UsageTimeRange } from '@/lib/types';
 import { AnalysisPanel, TimeRangeControl } from '@/components/usage';
 import { KeyViewerShell } from '@/features/key-viewer/KeyViewerShell';
 import type { KeyViewerPath } from '@/features/key-viewer/navigation';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
-import { useThemeStore } from '@/stores';
+import { buildUsageStatsQueryKey, useThemeStore } from '@/stores';
 import {
   clampStoredUsageRangeStateToCurrentBounds,
   resolveUsageRangeRecoveryTimeZone,
@@ -41,6 +41,7 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
   const [latencyError, setLatencyError] = useState('');
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
   const requestControllerRef = useRef<AbortController | null>(null);
+  const loadedAnalysisScopeRef = useRef<{ rangeKey: string; apiKey?: AuthSessionAPIKeySummary } | null>(null);
   const analysisTimeZoneRef = useRef(timeRangeState.timeZone);
   const usageRangeQuery = useMemo(() => buildUsageRangeQuery({
     range: timeRange,
@@ -48,7 +49,10 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
     customStart: customRange?.start,
     customEnd: customRange?.end,
   }), [customRange?.end, customRange?.start, customRange?.unit, timeRange]);
-  const rangeTimeZone = analysis?.timezone ?? timeRangeState.timeZone;
+  const rangeKey = usageRangeQuery.valid ? buildUsageStatsQueryKey(usageRangeQuery) : null;
+  // 同范围、同 Viewer 的刷新可保留已展示金额；切换范围或账号时立即隐藏旧结果。
+  const currentAnalysis = rangeKey && loadedAnalysisScopeRef.current?.rangeKey === rangeKey && loadedAnalysisScopeRef.current.apiKey === apiKey ? analysis : null;
+  const rangeTimeZone = currentAnalysis?.timezone ?? timeRangeState.timeZone;
 
   const recoverRangeBoundsConflict = useCallback((error: unknown) => {
     if (!isUsageRangeBoundsConflict(error)) return false;
@@ -82,7 +86,6 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
     requestControllerRef.current = controller;
     setAnalysisLoading(true);
     setAnalysisError('');
-    setAnalysis(null);
     setLatencyLoading(true);
     setLatencyError('');
     setLatency(null);
@@ -92,6 +95,7 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
       if (requestControllerRef.current !== controller) return;
       // 项目时区只作为后续 409 恢复依据，不参与当前请求 callback 身份，避免响应触发重复加载。
       analysisTimeZoneRef.current = response.timezone;
+      loadedAnalysisScopeRef.current = { rangeKey: rangeKey!, apiKey };
       setAnalysis(response);
       setAnalysisLoading(false);
     }, (error: unknown) => {
@@ -102,7 +106,7 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
         onAuthRequired?.();
         return;
       }
-      setAnalysisError('KEY_ANALYSIS_LOAD_FAILED');
+      setAnalysisError(isCostsBusy(error) ? 'COSTS_BUSY' : 'KEY_ANALYSIS_LOAD_FAILED');
     });
     const latencyRequest = fetchKeyAnalysisLatency(usageRangeQuery, controller.signal).then((response) => {
       if (requestControllerRef.current !== controller) return;
@@ -122,7 +126,7 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
     if (requestControllerRef.current === controller) {
       requestControllerRef.current = null;
     }
-  }, [onAuthRequired, recoverRangeBoundsConflict, usageRangeQuery]);
+  }, [apiKey, onAuthRequired, rangeKey, recoverRangeBoundsConflict, usageRangeQuery]);
 
   useEffect(() => {
     void loadAnalysis();
@@ -146,14 +150,17 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
     }
   }, [loadAnalysis, manualRefreshLoading]);
 
-  const displayAnalysisError = analysisError ? t('key_analysis.load_failed') : '';
+  const displayAnalysisError = analysisError === 'COSTS_BUSY'
+    ? t('key_analysis.costs_busy')
+    : analysisError ? t('key_analysis.load_failed') : '';
   const displayLatencyError = latencyError ? t('key_analysis.latency_load_failed') : '';
+  const panelLoading = analysisLoading || (analysisError === 'COSTS_BUSY' && !currentAnalysis);
 
   return (
     <KeyViewerShell
       activePage="analysis"
       apiKey={apiKey}
-      loading={analysisLoading && !analysis}
+      loading={analysisLoading && !currentAnalysis}
       filters={[<TimeRangeControl key="range" value={timeRange} customRange={customRange} timeZone={rangeTimeZone} onChange={handleTimeRangeChange} ariaLabel={t('usage_stats.range_filter')} labelInsideTrigger />]}
       onRefresh={() => void handleManualRefresh()}
       refreshing={manualRefreshLoading}
@@ -169,8 +176,8 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
         </div>
       )}
       <AnalysisPanel
-        analysis={analysis}
-        loading={analysisLoading}
+        analysis={currentAnalysis}
+        loading={panelLoading}
         latencyDiagnostics={latency}
         latencyLoading={latencyLoading}
         latencyError={displayLatencyError}

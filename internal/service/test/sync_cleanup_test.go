@@ -78,8 +78,8 @@ func TestSyncServiceCleanupStorageArchivesOnlyAfterAggregationsCatchUp(t *testin
 func seedSyncCleanupUsageEventsAt(t *testing.T, db *gorm.DB, oldAt, recentAt time.Time) {
 	t.Helper()
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
-		{EventKey: "old", Model: "claude-sonnet", Timestamp: oldAt, TotalTokens: 1},
-		{EventKey: "recent", Model: "claude-sonnet", Timestamp: recentAt, TotalTokens: 2},
+		storedUsageEventFee(entities.UsageEvent{EventKey: "old", Model: "claude-sonnet", Timestamp: oldAt, TotalTokens: 1}, 0, true),
+		storedUsageEventFee(entities.UsageEvent{EventKey: "recent", Model: "claude-sonnet", Timestamp: recentAt, TotalTokens: 2}, 0, true),
 	}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}

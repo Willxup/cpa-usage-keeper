@@ -1,0 +1,284 @@
+.modal :global(.modal-body) {
+  padding: 0;
+}
+
+.body {
+  padding: 24px 24px 0;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.intro {
+  margin: 0 0 20px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.range,
+.startFields,
+.progressTitle,
+.footer,
+.connection {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.range {
+  display: grid;
+  grid-template-columns: minmax(0, 320px) 20px max-content;
+  align-items: end;
+  min-width: 0;
+}
+
+.startFields {
+  align-items: end;
+  min-width: 0;
+  flex: 0 1 320px;
+}
+
+.startFields label {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.startFields button { font-variant-numeric: tabular-nums; }
+
+.rangeEnd {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-primary);
+  white-space: nowrap;
+}
+
+.rangeEnd strong {
+  font-weight: 600;
+}
+
+.muted {
+  margin: 10px 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.impact {
+  margin: 18px 0;
+  padding: 12px 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.savedPricing {
+  padding: 14px 0;
+  border-top: 1px solid var(--border-color);
+}
+
+.savedPricing summary {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.savedPricing summary span {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.modelList {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--bg-secondary);
+}
+
+.modelList > .muted {
+  margin: 0;
+}
+
+.model {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding-top: 0;
+}
+
+.model strong {
+  overflow-wrap: anywhere;
+}
+
+.model small {
+  color: var(--text-secondary);
+}
+
+.modelPrices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.modelPrices span { overflow-wrap: anywhere; min-width: 0; }
+
+.footer {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.progressTitle {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.progressTitle h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.progressTitle strong {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--bg-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.stages {
+  display: flex;
+  gap: 10px;
+  margin: 24px 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+.stages li { position: relative; display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; color: var(--text-secondary); transition: color 180ms ease; }
+.stages li:last-child { flex: 0 0 auto; }
+.stages li > span:nth-child(2) { white-space: nowrap; }
+.stages li[data-state='done'] { color: var(--success-color); }
+.stages li[data-state='active'] { color: var(--primary-color); font-weight: 600; }
+.stages li[data-state='failed'] { color: var(--danger-color); font-weight: 600; }
+.stageIcon { display: flex; align-items: center; justify-content: center; flex: 0 0 24px; width: 24px; height: 24px; transition: color 180ms ease; }
+.stageIcon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.stageDot { width: 4px; height: 4px; background: currentColor; border-radius: 50%; }
+.stageSpinner { width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: stageSpin 900ms linear infinite; }
+.stageConnector { position: relative; flex: 1; min-width: 12px; height: 1px; margin: 0 3px; background: var(--border-color); transition: background-color 180ms ease; }
+.stageConnector::after { content: ''; position: absolute; right: 0; top: -3px; width: 6px; height: 6px; border-top: 1px solid var(--border-color); border-right: 1px solid var(--border-color); transform: rotate(45deg); transition: border-color 180ms ease; }
+.stages li[data-state='done'] .stageConnector { background: var(--success-color); }
+.stages li[data-state='done'] .stageConnector::after { border-color: var(--success-color); }
+.runningModal :global(.modal-close-floating) { display: none; }
+@keyframes stageSpin { to { transform: rotate(360deg); } }
+@media (max-width: 600px) {
+  .stages { flex-direction: column; gap: 0; }
+  .stages li { flex: auto; min-height: 44px; padding-bottom: 20px; align-items: flex-start; }
+  .stages li > span:nth-child(2) { line-height: 24px; }
+  .stages li:last-child { padding-bottom: 0; min-height: 24px; }
+  .stageConnector { position: absolute; left: 11px; top: 29px; bottom: 5px; width: 1px; height: auto; min-width: 0; margin: 0; }
+  .stageConnector::after { top: auto; bottom: 0; right: -3px; transform: rotate(135deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stageSpinner { animation: none; }
+  .stages li, .stageIcon, .stageConnector, .stageConnector::after { transition: none; }
+}
+
+.success,
+.failure,
+.connection {
+  margin: 12px 0 0;
+  padding: 12px;
+  border-radius: 14px;
+}
+
+.success {
+  background: color-mix(in srgb, var(--success-color) 9%, var(--bg-primary));
+  color: var(--success-color);
+}
+
+.failure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: var(--bg-error-light);
+  color: var(--danger-color);
+}
+
+.connection {
+  justify-content: space-between;
+  background: var(--bg-primary);
+}
+
+@media (max-width: 620px) {
+  .range { min-width: 0; }
+}
+
+@media (max-width: 399px) {
+  .body {
+    padding-inline: 16px;
+  }
+
+
+  .modelPrices {
+    gap: 4px 10px;
+  }
+
+
+}
+
+
+// 时间输入保留两个字段；箭头按控件高度居中，不参与标签高度计算。
+.startFields label:first-child { flex: 1.55; }
+.startFields label:last-child { flex: 1; }
+.rangeArrow { display: flex; align-items: center; justify-content: center; height: 38px; flex: 0 0 20px; color: var(--text-secondary); font-size: 18px; }
+.impact { display: flex; align-items: start; gap: 8px; }
+.impact svg { flex-shrink: 0; }
+.savedPricing summary { list-style: none; }
+.savedPricing summary::-webkit-details-marker { display: none; }
+.savedPricing summary > svg { margin-left: auto; }
+.savedPricing[open] > summary > svg { transform: rotate(180deg); }
+.model + .model { padding-top: 10px; border-top: 1px solid var(--border-color); }
+// 窄屏将范围说明与终点放在同一行，避免终点单独占一行后再出现说明。
+.rangeHint { grid-column: 1 / -1; margin: 0; color: var(--text-secondary); font-size: 12px; }
+@media (max-width: 620px) {
+  .range { grid-template-columns: minmax(0, 1fr) 20px max-content; gap: 10px 8px; align-items: center; }
+  .startFields { grid-column: 1 / -1; flex-basis: auto; }
+  .rangeHint { grid-column: 1; grid-row: 2; }
+  .rangeArrow { grid-column: 2; grid-row: 2; }
+  .rangeEnd { grid-column: 3; grid-row: 2; }
+}
+@media (pointer: coarse) {
+  .startFields button { min-height: 44px; font-size: 14px; }
+  .rangeArrow, .rangeEnd { min-height: 44px; }
+  .footer :global(.btn.btn-action) { min-height: 44px; }
+}
+
+@media (max-width: 479px) and (pointer: coarse) {
+  // 手机日期至少容纳完整 YYYY-MM-DD；小时仅需 HH:mm。
+  .startFields { gap: 8px; }
+  .startFields label:first-child { flex: 1.75; }
+  .startFields button { padding-inline: 8px; gap: 4px; }
+
+}
+
+.startFields button[aria-haspopup="listbox"] { height: 38px; border-radius: 999px; box-shadow: none; }
+
+.modal :global(.modal-body) { min-height: 0; padding-bottom: 20px; }
+.modal :global(.modal-footer) { flex: 0 0 auto; }
+.modal :global(.modal-footer) .footer :global(.btn) { width: auto; }

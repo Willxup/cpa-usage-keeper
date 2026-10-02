@@ -50,7 +50,7 @@ func scanUsageOverviewComparisonTokenSeries(query *gorm.DB, dimension string, by
 			return err
 		}
 		if bucket == "" || !timestamp.Equal(previous) {
-			bucket, _ = usageOverviewBucket(timeutil.NormalizeStorageTime(timestamp), byDay)
+			bucket = usageOverviewBucket(timeutil.NormalizeStorageTime(timestamp), byDay)
 			previous = timestamp
 		}
 		switch dimension {

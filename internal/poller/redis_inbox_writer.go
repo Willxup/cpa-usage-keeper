@@ -14,6 +14,27 @@ type RepositoryRedisInboxWriter struct {
 	db *gorm.DB
 }
 
+// PricingBootstrapInboxWriter 仅供首次升级接收使用，按物理 inbox 列写原始消息。
+// 业务就绪后必须改用标准 RepositoryRedisInboxWriter，不把旧 queue_key 路径带到日常处理。
+type PricingBootstrapInboxWriter struct {
+	db *gorm.DB
+}
+
+func NewPricingBootstrapInboxWriter(db *gorm.DB) *PricingBootstrapInboxWriter {
+	return &PricingBootstrapInboxWriter{db: db}
+}
+
+// Insert 只持久化原消息；列切换与历史 migration 使用同一个 writer 池串行执行。
+func (w *PricingBootstrapInboxWriter) Insert(ctx context.Context, source string, messages []string, receivedAt time.Time) (int, error) {
+	if len(messages) == 0 {
+		return 0, nil
+	}
+	if w == nil || w.db == nil {
+		return 0, fmt.Errorf("pricing bootstrap inbox writer database is nil")
+	}
+	return repository.InsertPricingBootstrapInboxRawMessages(ctx, w.db, source, messages, receivedAt)
+}
+
 func NewRedisInboxWriter(db *gorm.DB) *RepositoryRedisInboxWriter {
 	// writer 只保存依赖，不主动访问数据库。
 	return &RepositoryRedisInboxWriter{db: db}

@@ -12,6 +12,7 @@ import (
 	"cpa-usage-keeper/internal/backup"
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/logging"
 	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/repository/migration"
@@ -40,6 +41,21 @@ func OpenDatabasePools(cfg config.Config) (*gorm.DB, *gorm.DB, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	return openReadPoolForWriter(cfg, db)
+}
+
+// OpenUnmigratedDatabasePools 只准备 writer/WAL 和只读池，供启动引导先保护旧库再执行 migration。
+// 调用方负责先持久化初始化身份，并在旧库完成备份之前避免运行任何业务 migration。
+func OpenUnmigratedDatabasePools(cfg config.Config) (*gorm.DB, *gorm.DB, error) {
+	db, err := OpenDatabaseConnection(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	return openReadPoolForWriter(cfg, db)
+}
+
+// openReadPoolForWriter 给文件库配独立只读池，内存库复用 writer；失败关闭已打开的池，成功交调用方管理。
+func openReadPoolForWriter(cfg config.Config, db *gorm.DB) (*gorm.DB, *gorm.DB, error) {
 	// :memory: 和临时内存 URI 按连接隔离，必须复用 writer 才能保持原来同一份数据库。
 	if sqliteDatabaseRequiresSinglePool(cfg.SQLitePath) {
 		return db, db, nil
@@ -88,6 +104,65 @@ func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	db, err := OpenDatabaseConnection(cfg)
+	if err != nil {
+		return nil, err
+	}
+	closeOnError := true
+	defer func() {
+		if closeOnError {
+			closeDatabasePool(db)
+		}
+	}()
+	// 空文件和新文件先固定 fresh 身份，再沿与 App 相同的建表完成合同初始化。
+	hasTables, err := sqliteDatabaseHasTables(db)
+	if err != nil {
+		return nil, err
+	}
+	if !databaseExists || !hasTables {
+		if _, err := BootstrapPricingInitialization(context.Background(), db); err != nil {
+			return nil, err
+		}
+		if err := EnsurePricingBootstrapInbox(context.Background(), db); err != nil {
+			return nil, err
+		}
+		if err := InitializeFreshPricingDatabase(context.Background(), db); err != nil {
+			return nil, err
+		}
+		closeOnError = false
+		return db, nil
+	}
+	// 现有同步入口维持原行为；App 的未迁移入口必须先完成 M1 再调用同一 migration helper。
+	if err := RunDatabaseMigrationsWithBackup(context.Background(), db, db, cfg.BackupDir); err != nil {
+		return nil, fmt.Errorf("run schema migrations: %w", err)
+	}
+	closeOnError = false
+	return db, nil
+}
+
+// RunDatabaseMigrationsWithBackup 在旧数据保护完成后补齐仍 pending 的已注册版本。
+// 文件库 App 传独立 reader 生成一致备份；原同步入口保持单池备份合同。
+func RunDatabaseMigrationsWithBackup(ctx context.Context, writer, backupSource *gorm.DB, backupDir string) error {
+	if writer == nil || backupSource == nil {
+		return fmt.Errorf("database migration pools are missing")
+	}
+	sqlDB, err := backupSource.DB()
+	if err != nil {
+		return fmt.Errorf("open database migration backup source: %w", err)
+	}
+	migrationBackupWriter := backup.NewWriter(backupDir)
+	return migration.Run(writer.WithContext(ctx), migration.RunOptions{BeforeDestructiveMigration: func(hookCtx context.Context, version string) error {
+		backupPath, err := migrationBackupWriter.WriteDatabase(hookCtx, sqlDB, time.Now())
+		if err != nil {
+			return err
+		}
+		logrus.WithFields(logrus.Fields{"version": version, "backup_path": backupPath}).Info("database backed up before destructive migration")
+		return nil
+	}})
+}
+
+// OpenDatabaseConnection 只打开唯一 writer 并设置连接级 SQLite 约束，不执行建表或业务迁移。
+func OpenDatabaseConnection(cfg config.Config) (*gorm.DB, error) {
 	// SQLite DSN 统一补齐 busy_timeout/foreign_keys，调用方只需要传项目配置里的路径。
 	dsn := sqliteDSN(cfg.SQLitePath)
 	// GORM 自动时间也先落到项目 TZ，再由 storageTime serializer 输出统一字符串。
@@ -132,46 +207,14 @@ func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 		return nil, fmt.Errorf("enable sqlite foreign keys: %w", err)
 	}
 
-	// 空文件和新文件都按新库处理，直接 AutoMigrate 到当前 schema 后标记历史迁移已完成。
-	hasTables, err := sqliteDatabaseHasTables(db)
-	if err != nil {
-		return nil, err
-	}
-	if !databaseExists || !hasTables {
-		if err := db.AutoMigrate(entities.All()...); err != nil {
-			return nil, fmt.Errorf("auto migrate fresh database: %w", err)
-		}
-		if err := migration.MarkAllAsApplied(db); err != nil {
-			return nil, fmt.Errorf("mark schema migrations applied: %w", err)
-		}
-		// 新库初始化已完成，连接池开始由调用方负责生命周期。
-		closeOnError = false
-		return db, nil
-	}
-
-	// 已有业务表的数据库必须走显式迁移，确保旧库按版本顺序补齐结构和索引。
-	// 破坏性 migration 直接复用定时任务的 Writer，生成相同目录和 database_*.db 文件名。
-	migrationBackupWriter := backup.NewWriter(cfg.BackupDir)
-	if err := migration.Run(db, migration.RunOptions{BeforeDestructiveMigration: func(ctx context.Context, version string) error {
-		// 在线 SQLite backup 读取唯一 writer 的一致快照；失败会原样返回并阻止 migration 进入清表事务。
-		backupPath, err := migrationBackupWriter.WriteDatabase(ctx, sqlDB, time.Now())
-		if err != nil {
-			return err
-		}
-		logrus.WithFields(logrus.Fields{"version": version, "backup_path": backupPath}).Info("database backed up before destructive migration")
-		return nil
-	}}); err != nil {
-		return nil, fmt.Errorf("run schema migrations: %w", err)
-	}
-
-	// 旧库迁移已完成，连接池开始由调用方负责生命周期。
+	// 未迁移连接交给调用方；初始化身份、备份和历史 schema 均由后续阶段显式控制。
 	closeOnError = false
 	return db, nil
 }
 
-// OpenReadDatabase 为纯查询路径创建独立只读池；schema 初始化和所有写事务仍只由 OpenDatabase 负责。
+// OpenReadDatabase 为文件库创建独立只读池；既可用于未迁移引导，也可在完整 schema 初始化后服务业务查询。
 func OpenReadDatabase(cfg config.Config) (*gorm.DB, error) {
-	// writer 必须先完成 WAL 与 schema 初始化，这里只基于同一路径构造只读 DSN。
+	// writer 必须先开启 WAL；业务 schema 是否已初始化由调用方的启动阶段决定。
 	dsn, err := sqliteReadDSN(cfg.SQLitePath)
 	// 内存库或非法 query 参数无法形成独立硬只读 URI，必须在打开连接前明确失败。
 	if err != nil {
@@ -250,21 +293,10 @@ func sqliteReadDSN(path string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("resolve sqlite file path: %w", err)
 		}
-		uriFilename = BuildSQLiteFileURI(absoluteFilename)
+		uriFilename = helper.BuildSQLiteFileURI(absoluteFilename)
 	}
 	// 返回唯一 query string；SQLite core 处理 mode=ro，驱动处理下划线开头的 PRAGMA 参数。
 	return uriFilename + "?" + query.Encode(), nil
-}
-
-// BuildSQLiteFileURI 把已经绝对化的本地文件名转换成 SQLite file URI，并保留跨平台路径语义。
-func BuildSQLiteFileURI(filename string) string {
-	// Windows 盘符必须位于 URI path 的 /C:/... 中；缺少前导斜杠会被 net/url 误写成 authority。
-	uriPath := filepath.ToSlash(filename)
-	if len(uriPath) >= 2 && uriPath[1] == ':' && ((uriPath[0] >= 'A' && uriPath[0] <= 'Z') || (uriPath[0] >= 'a' && uriPath[0] <= 'z')) {
-		uriPath = "/" + uriPath
-	}
-	// url.URL 继续负责空格、# 等字符的标准转义；Unix 绝对路径和 UNC 路径保持原样。
-	return (&url.URL{Scheme: "file", Path: uriPath}).String()
 }
 
 // sqliteDatabaseRequiresSinglePool 判断路径是否创建连接私有的内存/临时数据库。

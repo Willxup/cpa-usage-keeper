@@ -110,7 +110,7 @@ func usageOverviewAggregationDayBucket(year int, month time.Month, day int) time
 
 func insertUsageOverviewAggregationEvents(t *testing.T, db *gorm.DB, events []entities.UsageEvent) {
 	t.Helper()
-	inserted, deduped, err := repository.InsertUsageEvents(db, events)
+	inserted, deduped, err := repository.InsertUsageEvents(db, priceOverviewFixtureEvents(t, db, events))
 	if err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}

@@ -125,6 +125,10 @@ Docker deployment requires Docker and Docker Compose; you do not need Go, Node.j
 
 Login protection is enabled by default. Configure `LOGIN_PASSWORD` before starting Keeper, or explicitly set `AUTH_ENABLED=false` only when access is reliably isolated by the deployment environment.
 
+## Benchmark
+
+Production-style `linux/amd64` capacity measurements for sustained ingestion, Dashboard latency, CPU utilization, and Keeper cgroup peak memory are available in the [Capacity Benchmark Report](./internal/benchmark/reports/capacity/README.md).
+
 <details>
 <summary>Developer reference: project structure, local setup, and tests</summary>
 

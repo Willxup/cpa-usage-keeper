@@ -28,10 +28,10 @@ func TestPricingSyncSkipsExplicitNonTextOutputModels(t *testing.T) {
 	}
 	for _, match := range preview.Matches {
 		price, ok := want[match.Model]
-		if !ok || math.Abs(match.PromptPricePer1M-price) > 1e-10 {
+		if !ok || math.Abs(match.BasePrices.Input-price) > 1e-10 {
 			t.Errorf("unexpected text price: %+v", match)
 		}
-		if match.CacheReadPricePer1M != 0 || match.CacheWritePricePer1M != 0 {
+		if match.BasePrices.CacheRead != 0 || match.BasePrices.CacheWrite != 0 {
 			t.Errorf("missing cache prices must remain zero: %+v", match)
 		}
 	}

@@ -27,10 +27,10 @@ func TestBuildUsageOverviewRealtimeScatterRequiresValidTTFTAndLatency(t *testing
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
-	realtime, err := repository.BuildUsageOverviewRealtimeWithFilter(db, repodto.UsageQueryFilter{
+	realtime, err := repository.BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, repodto.UsageQueryFilter{
 		RealtimeWindow:  "15m",
 		RealtimeEndTime: &now,
-	}, emptyPricingResolverForTest())
+	}, nil)
 
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewRealtimeWithFilter returned error: %v", err)
@@ -74,9 +74,9 @@ func TestBuildUsageOverviewRealtimeScatterExcludesPrewarmAndNongenerate(t *testi
 					t.Fatalf("NewUsageRecentEventCache returned error: %v", cacheErr)
 				}
 				t.Cleanup(cache.Close)
-				realtime, err = repository.BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, filter, cache, emptyPricingResolverForTest())
+				realtime, err = repository.BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, filter, cache)
 			} else {
-				realtime, err = repository.BuildUsageOverviewRealtimeWithFilter(db, filter, emptyPricingResolverForTest())
+				realtime, err = repository.BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, filter, nil)
 			}
 			if err != nil {
 				t.Fatalf("build realtime overview: %v", err)

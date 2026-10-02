@@ -34,6 +34,9 @@ type UsageHeaderSnapshot struct {
 	ObservedAt time.Time
 	// CacheOutput 是现有 quota cache 合同的完整只读解析结果，worker 不再解析 Header。
 	CacheOutput ProviderOutput
+	// cacheGeneration 只附在服务内浅复制的 cache 快照上；原始 Header/历史投影保持不可变。
+	cacheGeneration         uint64
+	cacheGenerationCaptured bool
 	// MainQuotaObservations 只包含已选 provider 的账号主窗口；Codex 排除 Additional，Claude 只收 5h/7d。
 	MainQuotaObservations []repositorydto.CodexMainQuotaObservation
 	// pendingMainObservedAt 只供一分钟 cache 合并记录主额度自身的新鲜度；零值表示回退 ObservedAt。

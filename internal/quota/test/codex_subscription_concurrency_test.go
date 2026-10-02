@@ -90,7 +90,7 @@ func TestCodexRefreshQueriesSubscriptionInParallelAndCalculatesStatsBeforeItFini
 	if err := db.Callback().Row().After("gorm:row").Register("test:codex_subscription_row_stats", statsCallback); err != nil {
 		t.Fatal(err)
 	}
-	service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{PricingCatalog: emptyPricingCatalogForTest(), QuotaUpstreamResponsesEnabled: true})
+	service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{QuotaUpstreamResponsesEnabled: true})
 	t.Cleanup(service.StopRefreshTasks)
 	setRefreshCooldown(service, func(time.Duration) {})
 	if _, err := service.Refresh(context.Background(), quota.RefreshRequest{AuthIndexes: []string{"codex-auth"}, Source: quota.RefreshSourceManual}); err != nil {
@@ -141,7 +141,7 @@ func TestCodexSubscriptionDeadlineKeepsCompletedQuota(t *testing.T) {
 			return nil, fmt.Errorf("unexpected URL %s", request.URL)
 		}
 	}}
-	service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{PricingCatalog: emptyPricingCatalogForTest()})
+	service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{})
 	t.Cleanup(service.StopRefreshTasks)
 	setRefreshCooldown(service, func(time.Duration) {})
 	refreshContext, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -190,7 +190,7 @@ func TestCodexQuotaFailureCancelsSubscriptionGoroutine(t *testing.T) {
 			return nil, fmt.Errorf("unexpected URL %s", request.URL)
 		}
 	}}
-	service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{PricingCatalog: emptyPricingCatalogForTest()})
+	service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{})
 	t.Cleanup(service.StopRefreshTasks)
 	setRefreshCooldown(service, func(time.Duration) {})
 	if _, err := service.Refresh(context.Background(), quota.RefreshRequest{AuthIndexes: []string{"codex-auth"}, Source: quota.RefreshSourceManual}); err != nil {
@@ -216,7 +216,7 @@ func TestCodexTaskCancellationStopsBothRequests(t *testing.T) {
 		exited <- struct{}{}
 		return nil, ctx.Err()
 	}}
-	service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{PricingCatalog: emptyPricingCatalogForTest()})
+	service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{})
 	t.Cleanup(service.StopRefreshTasks)
 	setRefreshCooldown(service, func(time.Duration) {})
 	refreshContext, cancel := context.WithCancel(context.Background())

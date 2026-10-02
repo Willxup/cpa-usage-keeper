@@ -37,7 +37,7 @@ func TestPricingSyncKeepsFullModelIDBeforeRegionalAliases(t *testing.T) {
 						if want[match.Model] == regional {
 							price = 3.18
 						}
-						if match.MatchedModel != want[match.Model] || math.Abs(match.PromptPricePer1M-price) > 1e-10 {
+						if match.MatchedModel != want[match.Model] || math.Abs(match.BasePrices.Input-price) > 1e-10 {
 							t.Errorf("expected %s pricing: %+v", want[match.Model], match)
 						}
 					}

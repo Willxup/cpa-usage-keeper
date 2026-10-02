@@ -6,7 +6,6 @@ import (
 	"unsafe"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/pricing"
 	. "cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/repository/dto"
 	"gorm.io/gorm"
@@ -26,19 +25,16 @@ func newUsageOverviewRecord(windowMinutes int64) *dto.UsageOverviewRecord
 //go:linkname applyUsageEventToOverviewSnapshot cpa-usage-keeper/internal/repository.applyUsageEventToOverviewSnapshot
 func applyUsageEventToOverviewSnapshot(snapshot *dto.StatisticsSnapshot, event entities.UsageEvent)
 
-// 生产辅助函数增加了可选的身份查询切片，此处保持可变参数声明以匹配调用约定。
+// 测试 oracle 仅传入已存费用，签名与普通总览的边界累加入口保持一致。
 //
 //go:linkname applyUsageEventToOverview cpa-usage-keeper/internal/repository.applyUsageEventToOverview
-func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities.UsageEvent, bucketByDay bool, costResolver pricing.Resolver, identityLookups ...any)
+func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities.UsageEvent, bucketByDay bool, cost float64, costAvailable bool)
 
 //go:linkname finalizeUsageOverview cpa-usage-keeper/internal/repository.finalizeUsageOverview
 func finalizeUsageOverview(overview *dto.UsageOverviewRecord)
 
-//go:linkname applyUsageOverviewQuery cpa-usage-keeper/internal/repository.applyUsageOverviewQuery
-func applyUsageOverviewQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB
-
 //go:linkname usageOverviewBucket cpa-usage-keeper/internal/repository.usageOverviewBucket
-func usageOverviewBucket(timestamp time.Time, byDay bool) (string, int64)
+func usageOverviewBucket(timestamp time.Time, byDay bool) string
 
 //go:linkname usageOverviewRealtimeWindow cpa-usage-keeper/internal/repository.usageOverviewRealtimeWindow
 func usageOverviewRealtimeWindow(value string) (time.Duration, time.Duration)
@@ -78,14 +74,14 @@ func hasCachedCredentialHealthKey(cache *UsageRecentEventCache, authType, authIn
 
 // 只传递切片头，不读写、遍历或重新分配元素，避免复制生产私有行结构的内存布局。
 // 窗口行交回原生产聚合函数；健康行仅统计批次长度，字段值经公开健康快照验证。
-type opaqueWindowTokenRows []struct{}
+type opaqueWindowStoredRows []struct{}
 type opaqueCredentialHealthRows []struct{}
 
-//go:linkname sumLongUsageWindowTokenStats cpa-usage-keeper/internal/repository.sumLongUsageWindowTokenStats
-func sumLongUsageWindowTokenStats(db *gorm.DB, authIndex string, start, end time.Time, activeFields pricing.ActiveFields) (opaqueWindowTokenRows, error)
+//go:linkname sumLongUsageWindowStoredStats cpa-usage-keeper/internal/repository.sumLongUsageWindowStoredStats
+func sumLongUsageWindowStoredStats(db *gorm.DB, authIndex string, start, end time.Time) (opaqueWindowStoredRows, error)
 
-//go:linkname usageWindowStatsFromTokenStats cpa-usage-keeper/internal/repository.usageWindowStatsFromTokenStats
-func usageWindowStatsFromTokenStats(rows opaqueWindowTokenRows, costResolver pricing.Resolver) UsageWindowStats
+//go:linkname usageWindowStatsFromStoredRows cpa-usage-keeper/internal/repository.usageWindowStatsFromStoredRows
+func usageWindowStatsFromStoredRows(rows opaqueWindowStoredRows) (UsageWindowStats, error)
 
 //go:linkname loadCredentialHealthCacheRowsBatched cpa-usage-keeper/internal/repository.loadCredentialHealthCacheRowsBatched
 func loadCredentialHealthCacheRowsBatched(db *gorm.DB, start time.Time, batchSize int, handle func(opaqueCredentialHealthRows) error) error

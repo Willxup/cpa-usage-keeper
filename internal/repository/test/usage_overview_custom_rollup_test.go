@@ -19,10 +19,12 @@ func TestCustomHourOverviewReadsCompleteHourlyBucketsWithoutUsageEvents(t *testi
 	start := time.Date(2026, 7, 22, 6, 0, 0, 0, time.Local)
 	end := time.Date(2026, 7, 22, 11, 0, 0, 0, time.Local)
 	rows := make([]entities.UsageOverviewHourlyStat, 0, 5)
+	zeroCost, unavailable := 0.0, int64(1)
 	for bucket := start; bucket.Before(end); bucket = bucket.Add(time.Hour) {
 		rows = append(rows, entities.UsageOverviewHourlyStat{
 			BucketStart: bucket, APIGroupKey: "provider-a", Model: "model-a",
 			RequestCount: 1, SuccessCount: 1, InputTokens: 10, TotalTokens: 10,
+			CostUSD: &zeroCost, UnavailableCostCount: &unavailable,
 		})
 	}
 	if err := db.Create(&rows).Error; err != nil {
@@ -30,9 +32,9 @@ func TestCustomHourOverviewReadsCompleteHourlyBucketsWithoutUsageEvents(t *testi
 	}
 
 	queries := captureOverviewDataQueries(t, db)
-	overview, err := repository.BuildUsageOverviewWithFilter(db, repositorydto.UsageQueryFilter{
+	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(db, repositorydto.UsageQueryFilter{
 		Range: "custom", CustomUnit: "hour", StartTime: &start, EndTime: &end, EndExclusive: true, QueryNow: &queryNow,
-	}, emptyPricingResolverForTest())
+	}, nil)
 
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
@@ -48,17 +50,19 @@ func TestCustomOverviewRollupQueryProjectsAndGroupsOnlyCardDimensions(t *testing
 	db := openTestDatabase(t)
 	start := time.Date(2026, 7, 22, 6, 0, 0, 0, time.Local)
 	end := start.Add(5 * time.Hour)
+	zeroCost, unavailable := 0.0, int64(1)
 	if err := db.Create(&entities.UsageOverviewHourlyStat{
 		BucketStart: start, APIGroupKey: "provider-a", Model: "model-a", AuthIndex: "auth-a",
 		RequestCount: 1, SuccessCount: 1, InputTokens: 10, TotalTokens: 10,
+		CostUSD: &zeroCost, UnavailableCostCount: &unavailable,
 	}).Error; err != nil {
 		t.Fatalf("seed hourly rollup: %v", err)
 	}
 
 	queries := captureOverviewDataQueries(t, db)
-	if _, err := repository.BuildUsageOverviewWithFilter(db, repositorydto.UsageQueryFilter{
+	if _, err := repository.BuildUsageOverviewWithFilterAndRecentCache(db, repositorydto.UsageQueryFilter{
 		Range: "custom", CustomUnit: "hour", StartTime: &start, EndTime: &end, EndExclusive: true, QueryNow: &end,
-	}, emptyPricingResolverForTest()); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 	}
 
@@ -68,12 +72,12 @@ func TestCustomOverviewRollupQueryProjectsAndGroupsOnlyCardDimensions(t *testing
 			t.Fatalf("rollup projection should exclude %q:\n%s", unwanted, query)
 		}
 	}
-	if !strings.Contains(query, "group by") || !strings.Contains(query, "bucket_start") || !strings.Contains(query, "model_alias") {
-		t.Fatalf("expected rollup query to group by bucket and pricing dimensions:\n%s", query)
+	if !strings.Contains(query, "group by") || !strings.Contains(query, "bucket_start") || strings.Contains(query, "model_alias") {
+		t.Fatalf("expected ordinary rollup query to group only by bucket:\n%s", query)
 	}
 }
 
-func TestCustomOverviewGroupedProjectionPreservesPerRowCostNormalization(t *testing.T) {
+func TestCustomOverviewGroupedProjectionSumsStoredCostAcrossRows(t *testing.T) {
 	db := openTestDatabase(t)
 	if _, err := repository.UpsertModelPriceSetting(db, repositorydto.ModelPriceSettingInput{
 		Model: "model-a", PromptPricePer1M: 1, CompletionPricePer1M: 0, CacheReadPricePer1M: 0,
@@ -82,30 +86,33 @@ func TestCustomOverviewGroupedProjectionPreservesPerRowCostNormalization(t *test
 	}
 	start := time.Date(2026, 7, 22, 6, 0, 0, 0, time.Local)
 	end := start.Add(5 * time.Hour)
+	firstCost, secondCost, unavailable := 0.0, 20.0/1_000_000.0, int64(0)
 	rows := []entities.UsageOverviewHourlyStat{
 		{
 			BucketStart: start, APIGroupKey: "provider-a", Model: "model-a", AuthIndex: "auth-a",
 			RequestCount: 1, SuccessCount: 1, InputTokens: 10, CacheReadTokens: 20, TotalTokens: 30,
+			CostUSD: &firstCost, UnavailableCostCount: &unavailable,
 		},
 		{
 			BucketStart: start, APIGroupKey: "provider-a", Model: "model-a", AuthIndex: "auth-b",
 			RequestCount: 1, SuccessCount: 1, InputTokens: 20, TotalTokens: 20,
+			CostUSD: &secondCost, UnavailableCostCount: &unavailable,
 		},
 	}
 	if err := db.Create(&rows).Error; err != nil {
 		t.Fatalf("seed adversarial hourly rollups: %v", err)
 	}
 
-	overview, err := repository.BuildUsageOverviewWithFilter(db, repositorydto.UsageQueryFilter{
+	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(db, repositorydto.UsageQueryFilter{
 		Range: "custom", CustomUnit: "hour", StartTime: &start, EndTime: &end, EndExclusive: true, QueryNow: &end,
-	}, newUsageCostResolverForTest(t, db))
+	}, nil)
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 	}
 
 	wantCost := 20.0 / 1_000_000.0
 	if math.Abs(overview.Summary.TotalCost-wantCost) > 0.000000001 {
-		t.Fatalf("expected per-row normalized cost %.12f, got %.12f", wantCost, overview.Summary.TotalCost)
+		t.Fatalf("expected stored row cost sum %.12f, got %.12f", wantCost, overview.Summary.TotalCost)
 	}
 	if overview.Usage.TotalRequests != 2 || overview.Summary.InputTokens != 30 || overview.Summary.CacheReadTokens != 20 {
 		t.Fatalf("expected grouped display totals to preserve raw sums, usage=%+v summary=%+v", overview.Usage, overview.Summary)
@@ -122,9 +129,9 @@ func TestPresetOverviewRawBoundaryUsesCardOnlyProjection(t *testing.T) {
 	start := end.Add(-4 * time.Hour)
 	queries := captureOverviewDataQueries(t, db)
 
-	if _, err := repository.BuildUsageOverviewWithFilter(db, repositorydto.UsageQueryFilter{
+	if _, err := repository.BuildUsageOverviewWithFilterAndRecentCache(db, repositorydto.UsageQueryFilter{
 		Range: "4h", StartTime: &start, EndTime: &end, QueryNow: &end,
-	}, emptyPricingResolverForTest()); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 	}
 
@@ -147,10 +154,12 @@ func TestCustomDayOverviewReadsCompleteDailyBucketsWithoutUsageEvents(t *testing
 	start := time.Date(2026, 7, 20, 0, 0, 0, 0, time.Local)
 	end := time.Date(2026, 7, 23, 0, 0, 0, 0, time.Local)
 	rows := make([]entities.UsageOverviewDailyStat, 0, 3)
+	zeroCost, unavailable := 0.0, int64(1)
 	for bucket := start; bucket.Before(end); bucket = bucket.AddDate(0, 0, 1) {
 		rows = append(rows, entities.UsageOverviewDailyStat{
 			BucketStart: bucket, APIGroupKey: "provider-a", Model: "model-a",
 			RequestCount: 1, SuccessCount: 1, InputTokens: 10, TotalTokens: 10,
+			CostUSD: &zeroCost, UnavailableCostCount: &unavailable,
 		})
 	}
 	if err := db.Create(&rows).Error; err != nil {
@@ -158,9 +167,9 @@ func TestCustomDayOverviewReadsCompleteDailyBucketsWithoutUsageEvents(t *testing
 	}
 
 	queries := captureOverviewDataQueries(t, db)
-	overview, err := repository.BuildUsageOverviewWithFilter(db, repositorydto.UsageQueryFilter{
+	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(db, repositorydto.UsageQueryFilter{
 		Range: "custom", CustomUnit: "day", StartTime: &start, EndTime: &end, EndExclusive: true, QueryNow: &queryNow,
-	}, emptyPricingResolverForTest())
+	}, nil)
 
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
@@ -176,7 +185,9 @@ func captureOverviewDataQueries(t *testing.T, db *gorm.DB, suffix ...string) *[]
 	t.Helper()
 	queries := make([]string, 0, 3)
 	callbackName := "test:capture_overview_data_queries"
-	if len(suffix) > 0 && suffix[0] != "" { callbackName += "_" + suffix[0] }
+	if len(suffix) > 0 && suffix[0] != "" {
+		callbackName += "_" + suffix[0]
+	}
 	capture := func(tx *gorm.DB) {
 		queries = append(queries, strings.ToLower(tx.Statement.SQL.String()))
 	}

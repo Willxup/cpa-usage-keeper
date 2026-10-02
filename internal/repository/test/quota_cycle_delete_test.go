@@ -27,7 +27,7 @@ func TestDeleteCodexQuotaCycleKeepsRemainingRoleHistoryVisible(t *testing.T) {
 	}
 	role := "primary"
 	query := repositorydto.CodexQuotaEfficiencyQuery{AuthIndex: "delete-auth", WindowRole: &role, Now: now, RangeStart: now.Add(-30 * 24 * time.Hour)}
-	history, err := repository.BuildCodexQuotaEfficiencyHistory(context.Background(), db, query, codexQuotaEfficiencyPricingResolver(t))
+	history, err := repository.BuildCodexQuotaEfficiencyHistory(context.Background(), db, query)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,20 +36,20 @@ func TestDeleteCodexQuotaCycleKeepsRemainingRoleHistoryVisible(t *testing.T) {
 	}
 	defaultQuery := query
 	defaultQuery.WindowRole = nil
-	defaultHistory, err := repository.BuildCodexQuotaEfficiencyHistory(context.Background(), db, defaultQuery, codexQuotaEfficiencyPricingResolver(t))
+	defaultHistory, err := repository.BuildCodexQuotaEfficiencyHistory(context.Background(), db, defaultQuery)
 	if err != nil || defaultHistory.SelectedWindow == nil || defaultHistory.SelectedWindow.WindowRole != "secondary" {
 		t.Fatalf("older history replaced the latest default role: %+v, %v", defaultHistory, err)
 	}
 	// 最新角色自然到期后，仍保留它作为默认历史；旧角色较远的 reset 不能抢回默认选择。
 	defaultQuery.Now = now.Add(5 * time.Hour)
-	defaultHistory, err = repository.BuildCodexQuotaEfficiencyHistory(context.Background(), db, defaultQuery, codexQuotaEfficiencyPricingResolver(t))
+	defaultHistory, err = repository.BuildCodexQuotaEfficiencyHistory(context.Background(), db, defaultQuery)
 	if err != nil || defaultHistory.SelectedWindow == nil || defaultHistory.SelectedWindow.WindowRole != "secondary" || len(defaultHistory.Cycles) != 1 || defaultHistory.Cycles[0].Status != "completed" {
 		t.Fatalf("expired latest role lost its default selection: %+v, %v", defaultHistory, err)
 	}
 	if _, err := repository.DeleteCodexQuotaCycle(context.Background(), db, "delete-auth", old.ID); err != nil {
 		t.Fatal(err)
 	}
-	history, err = repository.BuildCodexQuotaEfficiencyHistory(context.Background(), db, query, codexQuotaEfficiencyPricingResolver(t))
+	history, err = repository.BuildCodexQuotaEfficiencyHistory(context.Background(), db, query)
 	if err != nil || len(history.Windows) != 1 || history.SelectedWindow != nil {
 		t.Fatalf("empty primary role still selectable: %+v, %v", history, err)
 	}

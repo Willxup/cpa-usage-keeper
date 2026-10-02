@@ -29,9 +29,10 @@ func TestRealtimeInsightsAPIMapsCachedTotalsAndScopesViewer(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
+	ownCost, otherFailedCost, available := 4.25, 99.0, true
 	if err := db.Create(&[]entities.UsageEvent{
-		{EventKey: "own", Timestamp: now.Add(-time.Minute), APIGroupKey: key.APIKey, Model: "own-model", InputTokens: 100, OutputTokens: 20, TotalTokens: 120, CacheReadTokens: 40},
-		{EventKey: "other", Timestamp: now.Add(-time.Minute), APIGroupKey: "sk-other654321", Model: "other-model", Failed: true},
+		{EventKey: "own", Timestamp: now.Add(-time.Minute), APIGroupKey: key.APIKey, Model: "own-model", InputTokens: 100, OutputTokens: 20, TotalTokens: 120, CacheReadTokens: 40, CostUSD: &ownCost, CostAvailable: &available},
+		{EventKey: "other", Timestamp: now.Add(-time.Minute), APIGroupKey: "sk-other654321", Model: "other-model", Failed: true, CostUSD: &otherFailedCost, CostAvailable: &available},
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -81,8 +82,8 @@ func TestRealtimeInsightsAPIMapsCachedTotalsAndScopesViewer(t *testing.T) {
 		if viewer {
 			wantRequests, wantFailures = 1, 0
 		}
-		if payload.Insights.Summary.Requests != wantRequests || payload.Insights.Summary.Failures != wantFailures || payload.Insights.Summary.TotalTokens != 120 || payload.Insights.Summary.Cost != nil || len(payload.Insights.Outcomes) != 30 {
-			t.Fatalf("incorrect insights: %+v", payload.Insights)
+		if payload.Insights.Summary.Requests != wantRequests || payload.Insights.Summary.Failures != wantFailures || payload.Insights.Summary.TotalTokens != 120 || payload.Insights.Summary.Cost == nil || !overviewAPICostClose(*payload.Insights.Summary.Cost, ownCost) || len(payload.Insights.Outcomes) != 30 {
+			t.Fatalf("incorrect insights: requests=%d failures=%d tokens=%d cost=%v outcomes=%d", payload.Insights.Summary.Requests, payload.Insights.Summary.Failures, payload.Insights.Summary.TotalTokens, payload.Insights.Summary.Cost, len(payload.Insights.Outcomes))
 		}
 		if strings.Contains(response.Body.String(), key.APIKey) || (viewer && strings.Contains(response.Body.String(), "other-model")) {
 			t.Fatal("realtime scope leaked")

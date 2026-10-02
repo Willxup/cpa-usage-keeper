@@ -45,7 +45,7 @@ func TestMixedBatchDoesNotWarnBeforeUnknownExecutorIsDiscarded(t *testing.T) {
 	}
 
 	logs := captureTokenProcessorLogs(t)
-	result, processErr := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com"}).ProcessRedisUsageInbox(context.Background())
+	result, processErr := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{PricingCatalog: emptyPricingCatalogForTest(), BaseURL: "https://cpa.example.com"}).ProcessRedisUsageInbox(context.Background())
 	if processErr == nil || !strings.Contains(processErr.Error(), lookupErr.Error()) || result == nil || result.InsertedEvents != 1 {
 		t.Fatalf("expected one ready event plus identity warning, got result=%+v err=%v", result, processErr)
 	}
@@ -74,7 +74,7 @@ func TestUnknownExecutorOnlyWarnsAfterConfirmedDiscard(t *testing.T) {
 	}
 
 	logs := captureTokenProcessorLogs(t)
-	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com"})
+	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{PricingCatalog: emptyPricingCatalogForTest(), BaseURL: "https://cpa.example.com"})
 	for attempt := 1; attempt <= 5; attempt++ {
 		if _, processErr := syncService.ProcessRedisUsageInbox(context.Background()); processErr == nil || !strings.Contains(processErr.Error(), lookupErr.Error()) {
 			t.Fatalf("attempt %d expected identity lookup failure, got %v", attempt, processErr)
@@ -106,7 +106,7 @@ func TestTokenAttentionLogsOnlyAfterCommittedTransaction(t *testing.T) {
 	persistErr := errors.New("injected usage event persistence failure")
 	registerTokenUsageInsertErrorCallback(t, db, persistErr)
 	logs := captureTokenProcessorLogs(t)
-	result, processErr := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com"}).ProcessRedisUsageInbox(context.Background())
+	result, processErr := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{PricingCatalog: emptyPricingCatalogForTest(), BaseURL: "https://cpa.example.com"}).ProcessRedisUsageInbox(context.Background())
 	if processErr == nil || !strings.Contains(processErr.Error(), persistErr.Error()) || result == nil || !result.RetryPending {
 		t.Fatalf("expected retryable persistence failure, got result=%+v err=%v", result, processErr)
 	}
@@ -141,7 +141,7 @@ func TestSuccessfulMissingIdentityFallbackKeepsOneWarningPerEvent(t *testing.T) 
 	}
 
 	logs := captureTokenProcessorLogs(t)
-	result, processErr := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com"}).ProcessRedisUsageInbox(context.Background())
+	result, processErr := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{PricingCatalog: emptyPricingCatalogForTest(), BaseURL: "https://cpa.example.com"}).ProcessRedisUsageInbox(context.Background())
 	if processErr != nil || result == nil || result.InsertedEvents != 3 {
 		t.Fatalf("expected three successful strict fallback events, got result=%+v err=%v", result, processErr)
 	}
@@ -191,7 +191,7 @@ func TestProcessRedisUsageInboxLogsTokenSummaryAndOnlyExceptionalEvents(t *testi
 	}
 
 	logs := captureTokenProcessorLogs(t)
-	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com"})
+	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{PricingCatalog: emptyPricingCatalogForTest(), BaseURL: "https://cpa.example.com"})
 	result, err := syncService.ProcessRedisUsageInbox(context.Background())
 	if err != nil {
 		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
@@ -240,7 +240,7 @@ func TestTokenBatchSummaryRemainsDebugOnly(t *testing.T) {
 	}
 
 	logs := captureTokenProcessorLogsAtLevel(t, logrus.InfoLevel)
-	result, processErr := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com"}).ProcessRedisUsageInbox(context.Background())
+	result, processErr := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{PricingCatalog: emptyPricingCatalogForTest(), BaseURL: "https://cpa.example.com"}).ProcessRedisUsageInbox(context.Background())
 	if processErr != nil || result == nil || result.InsertedEvents != 1 {
 		t.Fatalf("expected one normal event, got result=%+v err=%v", result, processErr)
 	}

@@ -30,8 +30,8 @@ func TestUsageServiceGetUsageOverviewDelegatesToFilteredOverview(t *testing.T) {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
-		{EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), InputTokens: 1000, OutputTokens: 500, CachedTokens: 100, CacheReadTokens: 100, ReasoningTokens: 50, TotalTokens: 1650},
-		{EventKey: "event-2", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), InputTokens: 500, OutputTokens: 250, CachedTokens: 0, ReasoningTokens: 25, TotalTokens: 775},
+		storedUsageEventFee(entities.UsageEvent{EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), InputTokens: 1000, OutputTokens: 500, CachedTokens: 100, CacheReadTokens: 100, ReasoningTokens: 50, TotalTokens: 1650}, 0.75, true),
+		storedUsageEventFee(entities.UsageEvent{EventKey: "event-2", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), InputTokens: 500, OutputTokens: 250, CachedTokens: 0, ReasoningTokens: 25, TotalTokens: 775}, 0.25, true),
 	}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
@@ -60,9 +60,64 @@ func TestUsageServiceGetUsageOverviewDelegatesToFilteredOverview(t *testing.T) {
 		overview.Series.Requests[0] != 1 || overview.Series.Requests[1] != 1 {
 		t.Fatalf("expected hourly request series values, got %+v", overview.Series)
 	}
-	if math.Abs(overview.Series.Cost[0]-0.01023) > 0.000000001 || math.Abs(overview.Series.Cost[1]-0.00525) > 0.000000001 {
+	if !usageFilterCostClose(overview.Series.Cost[0], 0.75) || !usageFilterCostClose(overview.Series.Cost[1], 0.25) || !usageFilterCostClose(overview.Summary.TotalCost, 1) || !overview.Summary.CostAvailable {
 		t.Fatalf("expected hourly cost series values, got %+v", overview.Series)
 	}
+}
+
+func TestUsageServiceOverviewDailyAverageChangesOnlyAfterStoredFeeWriteback(t *testing.T) {
+	withUsageServiceLocation(t, "UTC")
+	db := openUsageServiceTestDatabase(t)
+	if _, err := repository.UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "model-a", PromptPricePer1M: 9}); err != nil {
+		t.Fatal(err)
+	}
+	eventTime := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{storedUsageEventFee(entities.UsageEvent{
+		EventKey: "daily-fee", Model: "model-a", Timestamp: eventTime, InputTokens: 1_000_000, TotalTokens: 1_000_000,
+	}, 4, true)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.AggregateUsageOverviewStats(context.Background(), db, eventTime.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := repository.LoadPricingSnapshot(context.Background(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := pricing.NewCatalog(snapshot)
+	provider := service.NewUsageService(db, catalog)
+	start, end := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC)
+	filter := servicedto.UsageFilter{Range: "custom", CustomUnit: "day", RangeCount: 2, StartTime: &start, EndTime: &end, EndExclusive: true}
+	assertStoredDailyFee := func(wantCost, wantDaily float64) {
+		t.Helper()
+		result, err := provider.GetUsageOverview(context.Background(), filter)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !usageFilterCostClose(result.Summary.TotalCost, wantCost) || !result.Summary.CostAvailable || result.Summary.DailyAverageCost == nil || !usageFilterCostClose(*result.Summary.DailyAverageCost, wantDaily) ||
+			len(result.Series.Cost) != 1 || !usageFilterCostClose(result.Series.Cost[0], wantCost) {
+			t.Fatalf("daily stored fee mismatch: summary=%+v series=%+v", result.Summary, result.Series)
+		}
+	}
+	assertStoredDailyFee(4, 2)
+	// 当前报价从 9 改为 90 后重发快照，旧事件和聚合费用仍必须固定。
+	if _, err := repository.UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "model-a", PromptPricePer1M: 90}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = repository.LoadPricingSnapshot(context.Background(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog.Replace(snapshot)
+	assertStoredDailyFee(4, 2)
+	// 显式写回事件及完整小时／日桶后，新查询才展示新的金额。
+	for _, table := range []string{"usage_events", "usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+		result := db.Table(table).Where("id > 0").Update("cost_usd", 7)
+		if result.Error != nil || result.RowsAffected != 1 {
+			t.Fatalf("write back %s fee: affected=%d err=%v", table, result.RowsAffected, result.Error)
+		}
+	}
+	assertStoredDailyFee(7, 3.5)
 }
 
 func TestUsageServiceGetUsageOverviewUsesRecentCacheForBoundaries(t *testing.T) {
@@ -73,7 +128,7 @@ func TestUsageServiceGetUsageOverviewUsesRecentCacheForBoundaries(t *testing.T) 
 	now := time.Date(2026, 6, 10, 12, 30, 0, 0, time.UTC)
 	start := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 6, 10, 12, 20, 0, 0, time.UTC)
-	cache := newServiceRecentCacheFromEvents(t, db, now, []entities.UsageEvent{{
+	cache := newServiceRecentCacheFromEvents(t, db, now, []entities.UsageEvent{storedUsageEventFee(entities.UsageEvent{
 		APIGroupKey:  "provider-a",
 		Model:        "gpt-5",
 		AuthType:     "oauth",
@@ -83,7 +138,7 @@ func TestUsageServiceGetUsageOverviewUsesRecentCacheForBoundaries(t *testing.T) 
 		InputTokens:  40,
 		OutputTokens: 60,
 		TotalTokens:  100,
-	}})
+	}, 0.625, true)})
 
 	provider := service.NewUsageServiceWithRecentCache(db, cache, emptyPricingCatalogForTest())
 	overview, err := provider.GetUsageOverview(context.Background(), servicedto.UsageFilter{Range: "custom", StartTime: &start, EndTime: &end, QueryNow: &now})
@@ -93,22 +148,21 @@ func TestUsageServiceGetUsageOverviewUsesRecentCacheForBoundaries(t *testing.T) 
 	if overview.Usage == nil || overview.Usage.TotalRequests != 1 || overview.Usage.TotalTokens != 100 {
 		t.Fatalf("expected overview service to use recent cache boundary event, got %+v", overview.Usage)
 	}
+	if !usageFilterCostClose(overview.Summary.TotalCost, 0.625) || !overview.Summary.CostAvailable || len(overview.Series.Cost) != 1 || !usageFilterCostClose(overview.Series.Cost[0], 0.625) {
+		t.Fatalf("recent boundary fee must come from stored cache event: summary=%+v series=%+v", overview.Summary, overview.Series)
+	}
 }
 
 func TestUsageServiceGetUsageOverviewRealtimeUsesRecentCache(t *testing.T) {
 	db := openUsageServiceTestDatabase(t)
 
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
-	cache := newServiceRecentCacheFromEvents(t, db, now, []entities.UsageEvent{{
-		APIGroupKey: "provider-a",
-		Model:       "gpt-5",
-		AuthType:    "oauth",
-		Source:      "auth-user@example.com",
-		AuthIndex:   "auth-1",
-		Timestamp:   now.Add(-2 * time.Minute),
-		InputTokens: 40,
-		TotalTokens: 100,
-	}})
+	cache := newServiceRecentCacheFromEvents(t, db, now, []entities.UsageEvent{
+		storedUsageEventFee(entities.UsageEvent{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", Source: "auth-user@example.com", AuthIndex: "auth-1", Timestamp: now.Add(-2 * time.Minute), InputTokens: 40, TotalTokens: 100}, 5.75, true),
+		storedUsageEventFee(entities.UsageEvent{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "apikey", Provider: "AI Provider", AuthIndex: "provider-1", Timestamp: now.Add(-time.Minute), InputTokens: 20, TotalTokens: 50}, 2.25, true),
+		storedUsageEventFee(entities.UsageEvent{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", Source: "auth-user@example.com", AuthIndex: "auth-1", Timestamp: now.Add(-30 * time.Second), Failed: true, InputTokens: 200, TotalTokens: 200}, 99, true),
+		storedUsageEventFee(entities.UsageEvent{APIGroupKey: "provider-a", Model: "gpt-5", AuthType: "oauth", Source: "auth-user@example.com", AuthIndex: "auth-1", Timestamp: now.Add(-15 * time.Second), TotalTokens: 0}, 88, true),
+	})
 	if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
 		t.Fatalf("drop usage_events returned error: %v", err)
 	}
@@ -123,8 +177,58 @@ func TestUsageServiceGetUsageOverviewRealtimeUsesRecentCache(t *testing.T) {
 	}
 	if len(realtime.CurrentUsage.Models) != 1 ||
 		realtime.CurrentUsage.Models[0].Key != "gpt-5" ||
-		realtime.CurrentUsage.Models[0].Tokens != 100 {
+		realtime.CurrentUsage.Models[0].Tokens != 150 || realtime.CurrentUsage.Models[0].Requests != 4 {
 		t.Fatalf("expected realtime service to use recent cache, got %+v", realtime.CurrentUsage.Models)
+	}
+	if realtime.CurrentUsage.Models[0].CostUSD == nil || !usageFilterCostClose(*realtime.CurrentUsage.Models[0].CostUSD, 8) || realtime.Insights == nil ||
+		realtime.Insights.Summary.Requests != 4 || realtime.Insights.Summary.Failures != 1 || realtime.Insights.Summary.TotalTokens != 150 ||
+		!usageFilterCostClose(realtime.Insights.Summary.CostUSD, 8) || !realtime.Insights.Summary.CostAvailable {
+		t.Fatalf("realtime cache lost stored fee: current=%+v insights=%+v", realtime.CurrentUsage, realtime.Insights)
+	}
+	if len(realtime.CurrentUsage.APIKeys) != 1 || realtime.CurrentUsage.APIKeys[0].CostUSD == nil || !usageFilterCostClose(*realtime.CurrentUsage.APIKeys[0].CostUSD, 8) ||
+		len(realtime.CurrentUsage.AuthFiles) != 1 || realtime.CurrentUsage.AuthFiles[0].CostUSD == nil || !usageFilterCostClose(*realtime.CurrentUsage.AuthFiles[0].CostUSD, 5.75) ||
+		len(realtime.CurrentUsage.AIProviders) != 1 || realtime.CurrentUsage.AIProviders[0].CostUSD == nil || !usageFilterCostClose(*realtime.CurrentUsage.AIProviders[0].CostUSD, 2.25) {
+		t.Fatalf("realtime four dimensions lost stored fees: %+v", realtime.CurrentUsage)
+	}
+	seenTrendCost := false
+	for _, point := range realtime.TokenVelocity {
+		seenTrendCost = seenTrendCost || point.CostUSD != nil && usageFilterCostClose(*point.CostUSD, 8)
+	}
+	if !seenTrendCost {
+		t.Fatalf("realtime trend did not include stored success fee: %+v", realtime.TokenVelocity)
+	}
+}
+
+func TestUsageServiceRealtimeCacheAndDBFallbackAgreeOnPersistedFees(t *testing.T) {
+	withUsageServiceLocation(t, "UTC")
+	db := openUsageServiceTestDatabase(t)
+	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	events := []entities.UsageEvent{
+		storedUsageEventFee(entities.UsageEvent{EventKey: "billable", APIGroupKey: "provider-a", Model: "model-a", Timestamp: now.Add(-2 * time.Minute), InputTokens: 70, TotalTokens: 100}, 2.5, true),
+		storedUsageEventFee(entities.UsageEvent{EventKey: "failed", APIGroupKey: "provider-a", Model: "model-a", Timestamp: now.Add(-time.Minute), Failed: true, InputTokens: 500, TotalTokens: 500}, 99, true),
+		storedUsageEventFee(entities.UsageEvent{EventKey: "zero-token", APIGroupKey: "provider-a", Model: "model-a", Timestamp: now.Add(-30 * time.Second)}, 88, true),
+	}
+	cache := newServiceRecentCacheFromEvents(t, db, now, events)
+	filter := servicedto.UsageFilter{RealtimeWindow: "15m", RealtimeEndTime: &now}
+	for _, test := range []struct {
+		name     string
+		provider service.UsageProvider
+	}{
+		{"cache", service.NewUsageServiceWithRecentCache(db, cache, emptyPricingCatalogForTest())},
+		{"DB fallback", service.NewUsageService(db, emptyPricingCatalogForTest())},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			realtime, err := test.provider.GetUsageOverviewRealtime(context.Background(), filter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if realtime.Insights == nil || realtime.Insights.Summary.Requests != 3 || realtime.Insights.Summary.Failures != 1 ||
+				realtime.Insights.Summary.TotalTokens != 100 || !usageFilterCostClose(realtime.Insights.Summary.CostUSD, 2.5) || !realtime.Insights.Summary.CostAvailable ||
+				len(realtime.CurrentUsage.Models) != 1 || realtime.CurrentUsage.Models[0].Requests != 3 || realtime.CurrentUsage.Models[0].Tokens != 100 ||
+				realtime.CurrentUsage.Models[0].CostUSD == nil || !usageFilterCostClose(*realtime.CurrentUsage.Models[0].CostUSD, 2.5) {
+				t.Fatalf("%s changed realtime stored fee/filter: insights=%+v models=%+v", test.name, realtime.Insights, realtime.CurrentUsage.Models)
+			}
+		})
 	}
 }
 
@@ -134,8 +238,8 @@ func TestUsageServiceGetUsageOverviewRealtimeResolvesAPIKeyIDForRecentCache(t *t
 
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 	cache := newServiceRecentCacheFromEvents(t, db, now, []entities.UsageEvent{
-		{APIGroupKey: "sk-target-key", Model: "gpt-5", AuthType: "oauth", Source: "target@example.com", AuthIndex: "target-auth", Timestamp: now.Add(-2 * time.Minute), InputTokens: 10, TotalTokens: 30},
-		{APIGroupKey: "sk-other-key", Model: "gpt-5", AuthType: "oauth", Source: "other@example.com", AuthIndex: "other-auth", Timestamp: now.Add(-1 * time.Minute), InputTokens: 100, TotalTokens: 300},
+		storedUsageEventFee(entities.UsageEvent{APIGroupKey: "sk-target-key", Model: "gpt-5", AuthType: "oauth", Source: "target@example.com", AuthIndex: "target-auth", Timestamp: now.Add(-2 * time.Minute), InputTokens: 10, TotalTokens: 30}, 0, false),
+		storedUsageEventFee(entities.UsageEvent{APIGroupKey: "sk-other-key", Model: "gpt-5", AuthType: "oauth", Source: "other@example.com", AuthIndex: "other-auth", Timestamp: now.Add(-1 * time.Minute), InputTokens: 100, TotalTokens: 300}, 0, false),
 	})
 
 	provider := service.NewUsageServiceWithRecentCache(db, cache, emptyPricingCatalogForTest())
@@ -158,9 +262,9 @@ func TestUsageServiceResolvesAPIKeyIDForUsageQueries(t *testing.T) {
 	db := openUsageServiceTestDatabase(t)
 	targetID := seedUsageFilterAPIKeys(t, db)
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
-		{EventKey: "target-1", APIGroupKey: "sk-target-key", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), TotalTokens: 10},
-		{EventKey: "target-2", APIGroupKey: "sk-target-key", Model: "claude-opus", Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), TotalTokens: 20},
-		{EventKey: "other-1", APIGroupKey: "sk-other-key", Model: "claude-other", Timestamp: time.Date(2026, 4, 16, 10, 30, 0, 0, time.UTC), TotalTokens: 300},
+		storedUsageEventFee(entities.UsageEvent{EventKey: "target-1", APIGroupKey: "sk-target-key", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), TotalTokens: 10}, 0.25, true),
+		storedUsageEventFee(entities.UsageEvent{EventKey: "target-2", APIGroupKey: "sk-target-key", Model: "claude-opus", Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), TotalTokens: 20}, 0.75, true),
+		storedUsageEventFee(entities.UsageEvent{EventKey: "other-1", APIGroupKey: "sk-other-key", Model: "claude-other", Timestamp: time.Date(2026, 4, 16, 10, 30, 0, 0, time.UTC), TotalTokens: 300}, 999, true),
 	}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
@@ -176,8 +280,8 @@ func TestUsageServiceResolvesAPIKeyIDForUsageQueries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetUsageOverview returned error: %v", err)
 	}
-	if overview.Usage == nil || overview.Usage.TotalRequests != 2 || overview.Usage.TotalTokens != 30 {
-		t.Fatalf("expected overview to use resolved API key, got %+v", overview.Usage)
+	if overview.Usage == nil || overview.Usage.TotalRequests != 2 || overview.Usage.TotalTokens != 30 || !usageFilterCostClose(overview.Summary.TotalCost, 1) || !overview.Summary.CostAvailable {
+		t.Fatalf("expected overview to use resolved API key and only its stored fees, got usage=%+v summary=%+v", overview.Usage, overview.Summary)
 	}
 	analysis, err := provider.GetAnalysis(context.Background(), servicedto.UsageFilter{APIKeyID: targetID, Range: "custom", StartTime: &start, EndTime: &end})
 	if err != nil {
@@ -230,4 +334,12 @@ func newServiceRecentCacheFromEvents(t *testing.T, db *gorm.DB, now time.Time, e
 	}
 	t.Cleanup(cache.Close)
 	return cache
+}
+
+// usageFilterCostClose 只给测试金额使用普通固定浮点容差；NaN／无穷大不能通过近似断言。
+func usageFilterCostClose(got, want float64) bool {
+	if math.IsNaN(got) || math.IsInf(got, 0) || math.IsNaN(want) || math.IsInf(want, 0) {
+		return false
+	}
+	return math.Abs(got-want) <= 1e-9+1e-12*math.Max(math.Abs(got), math.Abs(want))
 }

@@ -28,7 +28,7 @@ type CodexQuotaHistoryRequest struct {
 
 // CodexQuotaHistoryResponse 是额度历史标签一次请求即可复用的完整响应。
 type CodexQuotaHistoryResponse struct {
-	// GeneratedAt 固定当前周期统计截点和 pricing snapshot 的响应生成时间。
+	// GeneratedAt 固定当前周期统计截点。
 	GeneratedAt time.Time `json:"generated_at"`
 	// RangeStart 明确已结束周期只回溯最近三十天。
 	RangeStart time.Time `json:"range_start"`
@@ -79,7 +79,7 @@ type CodexQuotaHistoryCycle struct {
 	LastRemainingPercent  *int `json:"last_remaining_percent"`
 	// ObservationCount 是周期内所有百分比段的累计采样次数。
 	ObservationCount int64 `json:"observation_count"`
-	// Usage 包含稳定段在内的整个周期 UsageEvent 动态回溯总量。
+	// Usage 包含稳定段在内的整个周期 UsageEvent 已存费用与 Token 总量。
 	Usage CodexQuotaHistoryUsage `json:"usage"`
 	// Transitions 只列真实相邻剩余百分比变化，不补造跨档中间点。
 	Transitions []CodexQuotaHistoryTransition `json:"transitions"`
@@ -99,17 +99,17 @@ type CodexQuotaHistoryTransition struct {
 	IntervalStartedAt time.Time `json:"interval_started_at"`
 	// IntervalEndedAt 是后一百分比首次出现时间，属于统计区间且只归前一次下降。
 	IntervalEndedAt time.Time `json:"interval_ended_at"`
-	// Usage 是该观察间隔内的请求、Token 与动态 Cost。
+	// Usage 是该观察间隔内的请求、Token 与已存费用。
 	Usage CodexQuotaHistoryUsage `json:"usage"`
 	// TokensPerPoint 是区间总 Token 除以真实下降百分点。
 	TokensPerPoint float64 `json:"tokens_per_point"`
-	// CostPerPoint 是区间动态 Cost 除以真实下降百分点。
+	// CostPerPoint 是区间已存费用总量除以真实下降百分点。
 	CostPerPoint float64 `json:"cost_per_point"`
 	// CostPerPointAvailable 为 false 时前端不得把 CostPerPoint 显示成零成本。
 	CostPerPointAvailable bool `json:"cost_per_point_available"`
 }
 
-// CodexQuotaHistoryUsage 是前端周期摘要和变化区间列表共享的动态聚合事实。
+// CodexQuotaHistoryUsage 是前端周期摘要和变化区间列表共享的已存费用聚合事实。
 type CodexQuotaHistoryUsage struct {
 	// Requests 是匹配请求总数。
 	Requests int64 `json:"requests"`
@@ -129,13 +129,13 @@ type CodexQuotaHistoryUsage struct {
 	CacheCreationTokens int64 `json:"cache_creation_tokens"`
 	// TotalTokens 是页面效率对比采用的总 Token。
 	TotalTokens int64 `json:"total_tokens"`
-	// TotalCostUSD 是按响应生成时当前定价动态回算的美元成本。
+	// TotalCostUSD 是事件已存美元费用之和。
 	TotalCostUSD float64 `json:"total_cost_usd"`
-	// CostAvailable 只有全部有 Token 的定价分组均可计价时才为 true。
+	// CostAvailable 只有全部事件费用可用时才为 true。
 	CostAvailable bool `json:"cost_available"`
 }
 
-// GetCodexQuotaHistory 校验 Auth File 身份后，用单个 pricing snapshot 动态生成额度效率响应。
+// GetCodexQuotaHistory 校验 Auth File 身份后，按原周期边界归属已存事件费用。
 func (s *Service) GetCodexQuotaHistory(ctx context.Context, request CodexQuotaHistoryRequest) (CodexQuotaHistoryResponse, error) {
 	response := CodexQuotaHistoryResponse{}
 	if s == nil || s.db == nil {
@@ -168,7 +168,7 @@ func (s *Service) GetCodexQuotaHistory(ctx context.Context, request CodexQuotaHi
 		return response, fmt.Errorf("%w: %s", ErrUnsupportedType, normalizeIdentityType(identity.Type))
 	}
 
-	// now 在方法入口固定一次；单个 resolver 同样固定一个 snapshot，响应不会混用新旧价格。
+	// now 在方法入口固定一次，当前周期截点和响应时间保持一致。
 	now := request.Now
 	if now.IsZero() {
 		now = time.Now()
@@ -179,7 +179,7 @@ func (s *Service) GetCodexQuotaHistory(ctx context.Context, request CodexQuotaHi
 		Now:        now,
 		RangeStart: now.Add(-codexQuotaHistoryRange),
 		WindowRole: request.WindowRole,
-	}, s.pricing.NewResolver())
+	})
 	if err != nil {
 		return response, fmt.Errorf("get codex quota history: %w", err)
 	}

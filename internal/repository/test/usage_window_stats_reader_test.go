@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository"
 
 	"gorm.io/plugin/dbresolver"
@@ -20,21 +19,21 @@ func TestUsageWindowStatsCalculatorReadsRawAndHourlyWhileWriterIsOccupied(t *tes
 	start := time.Date(2026, 7, 20, 10, 30, 0, 0, time.Local)
 	end := time.Date(2026, 7, 20, 18, 20, 0, 0, time.Local)
 	events := []entities.UsageEvent{
-		{EventKey: "quota-reader-left", AuthIndex: "reader-auth", Model: "unpriced", Timestamp: start.Add(15 * time.Minute), TotalTokens: 10},
-		{EventKey: "quota-reader-right", AuthIndex: "reader-auth", Model: "unpriced", Timestamp: time.Date(2026, 7, 20, 17, 30, 0, 0, time.Local), TotalTokens: 30},
+		{EventKey: "quota-reader-left", AuthIndex: "reader-auth", Model: "unpriced", Timestamp: start.Add(15 * time.Minute), TotalTokens: 10, CostUSD: windowCostPtr(0), CostAvailable: windowAvailablePtr(false)},
+		{EventKey: "quota-reader-right", AuthIndex: "reader-auth", Model: "unpriced", Timestamp: time.Date(2026, 7, 20, 17, 30, 0, 0, time.Local), TotalTokens: 30, CostUSD: windowCostPtr(0), CostAvailable: windowAvailablePtr(false)},
 	}
 	if err := db.Create(&events).Error; err != nil {
 		t.Fatalf("seed quota raw events: %v", err)
 	}
 	if err := db.Create(&entities.UsageOverviewHourlyStat{
-		BucketStart: time.Date(2026, 7, 20, 12, 0, 0, 0, time.Local), AuthIndex: "reader-auth", Model: "unpriced", TotalTokens: 20,
+		BucketStart: time.Date(2026, 7, 20, 12, 0, 0, 0, time.Local), AuthIndex: "reader-auth", Model: "unpriced", TotalTokens: 20, CostUSD: windowCostPtr(0), UnavailableCostCount: windowUnavailablePtr(1),
 		CreatedAt: start, UpdatedAt: start,
 	}).Error; err != nil {
 		t.Fatalf("seed quota hourly row: %v", err)
 	}
 
 	// 即使调用方传入 Write scope，calculator 也必须为每次统计显式覆盖到 Reader。
-	calculator, err := repository.NewUsageWindowStatsCalculator(context.Background(), db.Clauses(dbresolver.Write), pricing.NewCatalog(pricing.EmptySnapshot()).NewResolver())
+	calculator, err := repository.NewUsageWindowStatsCalculator(db.Clauses(dbresolver.Write))
 	if err != nil {
 		t.Fatalf("create quota usage calculator: %v", err)
 	}

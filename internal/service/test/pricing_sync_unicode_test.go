@@ -46,7 +46,7 @@ func TestPricingSyncPreservesFineTuningWithUnicodePrefixes(t *testing.T) {
 					}
 				}()
 				preview := previewReviewCatalog(t, source, catalog, tc.name)
-				if len(preview.Matches) != 1 || preview.Matches[0].MatchedModel != tc.want || math.Abs(preview.Matches[0].PromptPricePer1M-tc.price) > 1e-10 {
+				if len(preview.Matches) != 1 || preview.Matches[0].MatchedModel != tc.want || math.Abs(preview.Matches[0].BasePrices.Input-tc.price) > 1e-10 {
 					t.Fatalf("expected %s pricing: %+v", tc.want, preview)
 				}
 			})
