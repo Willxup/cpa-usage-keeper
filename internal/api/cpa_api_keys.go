@@ -212,7 +212,7 @@ func validateCPAAPIKeyAlias(value string) error {
 		return errors.New("keyAlias is too long")
 	}
 	for _, r := range value {
-		if unicode.IsControl(r) {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
 			return errors.New("keyAlias cannot contain control characters")
 		}
 	}

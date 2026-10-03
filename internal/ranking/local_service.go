@@ -37,6 +37,9 @@ type LocalRankingServiceOptions struct {
 
 // LocalRankingService 以完整自然日快照维护本地 API Key 排行。
 type LocalRankingService struct {
+	nameWriter interface {
+		UpdateAPIKeyName(context.Context, string, string) error
+	}
 	db  *gorm.DB
 	now func() time.Time
 

@@ -21,8 +21,16 @@ type CPAAPIKeyProvider interface {
 	UpdateCPAAPIKeyAlias(ctx context.Context, id int64, keyAlias string) (entities.CPAAPIKey, error)
 }
 
+type APIKeyNameWriter interface {
+	UpdateAPIKeyName(context.Context, string, string) error
+}
 type cpaAPIKeyService struct {
-	db *gorm.DB
+	db         *gorm.DB
+	nameWriter APIKeyNameWriter
+}
+
+func NewSharedCPAAPIKeyService(db *gorm.DB, writer APIKeyNameWriter) CPAAPIKeyProvider {
+	return &cpaAPIKeyService{db: db, nameWriter: writer}
 }
 
 func NewCPAAPIKeyService(db *gorm.DB) CPAAPIKeyProvider {
@@ -48,9 +56,18 @@ func (s *cpaAPIKeyService) FindActiveCPAAPIKeyByID(_ context.Context, id int64) 
 	return repository.FindActiveCPAAPIKeyByID(s.db, id)
 }
 
-func (s *cpaAPIKeyService) UpdateCPAAPIKeyAlias(_ context.Context, id int64, keyAlias string) (entities.CPAAPIKey, error) {
+func (s *cpaAPIKeyService) UpdateCPAAPIKeyAlias(ctx context.Context, id int64, keyAlias string) (entities.CPAAPIKey, error) {
 	if id <= 0 {
 		return entities.CPAAPIKey{}, ErrInvalidID
+	}
+	if s.nameWriter != nil {
+		row, err := repository.FindActiveCPAAPIKeyByID(s.db.WithContext(ctx).Clauses(dbresolver.Write), id)
+		if err != nil {
+			return entities.CPAAPIKey{}, err
+		}
+		if err = s.nameWriter.UpdateAPIKeyName(ctx, row.APIKey, strings.TrimSpace(keyAlias)); err != nil {
+			return entities.CPAAPIKey{}, err
+		}
 	}
 	// UPDATE 由 dbresolver 自动路由 writer；结果回读再用官方 Write clause 固定到同一物理池。
 	if err := repository.UpdateCPAAPIKeyAlias(s.db, id, keyAlias); err != nil {
