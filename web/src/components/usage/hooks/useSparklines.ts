@@ -11,6 +11,7 @@ export interface SparklineData {
       fill: boolean;
       tension: number;
       pointRadius: number;
+      pointBackgroundColor: string;
       borderWidth: number;
     }
   ];
@@ -111,7 +112,9 @@ export function useSparklines({ usage, loading }: UseSparklinesOptions): UseSpar
               backgroundColor,
               fill: true,
               tension: 0.45,
-              pointRadius: 0,
+              // A lone observed bucket has no line segment; keep its real value visible.
+              pointRadius: input.data.filter((value) => value !== null).length === 1 ? 2 : 0,
+              pointBackgroundColor: color,
               borderWidth: 2
             }
           ]

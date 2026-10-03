@@ -1,5 +1,8 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { buildUsageSparklineSeries } from '../useSparklines';
+import { act, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import { buildUsageSparklineSeries, useSparklines } from '../useSparklines';
 import type { UsageOverviewPayload } from '../useUsageData';
 
 const usageWithBackendSeries: UsageOverviewPayload = {
@@ -85,5 +88,45 @@ describe('buildUsageSparklineSeries', () => {
     expect(series.tpm).toEqual([0]);
     expect(series.cost).toEqual([0]);
     expect(series.cacheReadRate).toEqual([0]);
+  });
+});
+
+async function renderSparklines(usage: UsageOverviewPayload) {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  function Harness() {
+    const result = useSparklines({ usage, loading: false });
+    return createElement('pre', null, JSON.stringify(result));
+  }
+  try {
+    await act(async () => root.render(createElement(Harness)));
+    return JSON.parse(container.textContent!) as ReturnType<typeof useSparklines>;
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+}
+
+describe('useSparklines', () => {
+  it('shows a marker for a single bucket without inventing historical samples', async () => {
+    const usage = {
+      ...usageWithBackendSeries,
+      series: { ...usageWithBackendSeries.series!, buckets: ['2026-04-23T10:00:00Z'] },
+    };
+    const result = await renderSparklines(usage);
+    const requests = result.requestsSparkline!.data;
+    expect(requests.labels).toEqual(['2026-04-23T10:00:00Z']);
+    expect(requests.datasets[0].data).toEqual([2]);
+    expect(requests.datasets[0].pointRadius).toBe(2);
+    expect(requests.datasets[0].pointBackgroundColor).toBe(requests.datasets[0].borderColor);
+  });
+
+  it('shows an isolated known cache-rate point while keeping full series as lines', async () => {
+    const result = await renderSparklines(usageWithBackendSeries);
+    expect(result.cacheReadRateSparkline!.data.datasets[0].data).toEqual([25, null]);
+    expect(result.cacheReadRateSparkline!.data.datasets[0].pointRadius).toBe(2);
+    expect(result.requestsSparkline!.data.datasets[0].pointRadius).toBe(0);
   });
 });
