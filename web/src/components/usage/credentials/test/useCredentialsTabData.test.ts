@@ -11,8 +11,8 @@ describe('Credentials polling intervals', () => {
     expect(CREDENTIAL_PAGES_REFRESH_INTERVAL_MS).toBe(60 * 1000)
   })
 
-  it('keeps quota cache on a 1 minute refresh interval', () => {
-    expect(QUOTA_CACHE_REFRESH_INTERVAL_MS).toBe(60 * 1000)
+  it('keeps quota cache on a 10 second refresh interval', () => {
+    expect(QUOTA_CACHE_REFRESH_INTERVAL_MS).toBe(10 * 1000)
   })
 })
 

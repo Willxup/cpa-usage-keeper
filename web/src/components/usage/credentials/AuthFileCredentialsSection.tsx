@@ -1,3 +1,4 @@
+import { QuotaFreshness } from '@/components/usage/QuotaFreshness';
 import { useCallback, useEffect, useId, useRef, useState, type Ref } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
@@ -1997,6 +1998,7 @@ function QuotaBar({ quota, quotaUsageMode, timeZone, showGroupMetadata = true, t
           <span className={styles.credentialQuotaValueGroup}>
             {resetDuration && <span className={styles.credentialQuotaResetDuration}>{resetDuration}</span>}
             {percentLabel && <strong>{percentLabel}</strong>}
+            <QuotaFreshness capturedAt={quota.capturedAt} source={quota.source} account={"Provider account"} resetAt={quota.resetText} />
           </span>
         )}
       </div>

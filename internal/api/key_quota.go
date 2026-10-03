@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -16,13 +17,16 @@ import (
 // Deliberately separate DTOs: never serialize identities, raw provider payloads,
 // auth indexes, upstream errors, reset credits or local billing statistics.
 type viewerQuotaRow struct {
-	Label            string   `json:"label"`
-	Metric           string   `json:"metric,omitempty"`
-	Remaining        *float64 `json:"remaining,omitempty"`
-	Limit            *float64 `json:"limit,omitempty"`
-	RemainingPercent *float64 `json:"remaining_percent,omitempty"`
-	ResetAt          string   `json:"reset_at,omitempty"`
-	LimitReached     *bool    `json:"limit_reached,omitempty"`
+	CapturedAt       *time.Time          `json:"captured_at,omitempty"`
+	Source           quota.RefreshSource `json:"source,omitempty"`
+	Stale            bool                `json:"stale,omitempty"`
+	Label            string              `json:"label"`
+	Metric           string              `json:"metric,omitempty"`
+	Remaining        *float64            `json:"remaining,omitempty"`
+	Limit            *float64            `json:"limit,omitempty"`
+	RemainingPercent *float64            `json:"remaining_percent,omitempty"`
+	ResetAt          string              `json:"reset_at,omitempty"`
+	LimitReached     *bool               `json:"limit_reached,omitempty"`
 }
 type viewerQuotaAccount struct {
 	Label     string           `json:"label"`
@@ -118,7 +122,16 @@ func registerViewerQuotaRoute(router gin.IRoutes, path string, identities servic
 					if label == "" {
 						label = "Quota window"
 					}
+					capture := row.CapturedAt
+					if capture.IsZero() && item.RefreshedAt != nil {
+						capture = *item.RefreshedAt
+					}
 					safe := viewerQuotaRow{Label: label, Metric: row.Metric, Remaining: row.Remaining, Limit: row.Limit, ResetAt: row.ResetAt, LimitReached: row.LimitReached}
+					if !capture.IsZero() {
+						safe.CapturedAt = &capture
+					}
+					safe.Source = safeQuotaSource(row.Source)
+					safe.Stale = capture.IsZero() || now.Sub(capture) > 15*time.Minute
 					if row.RemainingFraction != nil {
 						value := *row.RemainingFraction * 100
 						safe.RemainingPercent = &value
@@ -126,10 +139,14 @@ func registerViewerQuotaRoute(router gin.IRoutes, path string, identities servic
 						value := 100 - *row.UsedPercent
 						safe.RemainingPercent = &value
 					}
-					if safe.ResetAt == "" && row.ResetAfterSeconds != nil && item.RefreshedAt != nil {
-						safe.ResetAt = item.RefreshedAt.Add(time.Duration(*row.ResetAfterSeconds) * time.Second).UTC().Format(time.RFC3339)
+					if safe.ResetAt == "" && row.ResetAfterSeconds != nil && *row.ResetAfterSeconds >= 0 && *row.ResetAfterSeconds <= math.MaxInt64/int64(time.Second) && !capture.IsZero() {
+						safe.ResetAt = capture.Add(time.Duration(*row.ResetAfterSeconds) * time.Second).UTC().Format(time.RFC3339)
 					}
 					if reset, err := time.Parse(time.RFC3339, safe.ResetAt); err == nil && !reset.After(now) {
+						account.Status = "stale"
+						safe.Stale = true
+					}
+					if safe.Stale {
 						account.Status = "stale"
 					}
 					account.Rows = append(account.Rows, safe)
@@ -139,4 +156,13 @@ func registerViewerQuotaRoute(router gin.IRoutes, path string, identities servic
 		}
 		c.JSON(http.StatusOK, gin.H{"accounts": accounts})
 	})
+}
+
+func safeQuotaSource(source quota.RefreshSource) quota.RefreshSource {
+	switch source {
+	case "api_response_headers", "usage_header", "websocket_event", "scheduled", "scheduled_provider_query", "manual", "manual_provider_query", "inspection", "cache_backfill":
+		return source
+	default:
+		return ""
+	}
 }

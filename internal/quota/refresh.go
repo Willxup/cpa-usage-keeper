@@ -416,6 +416,7 @@ func (s *Service) runRefreshTaskWithWorker(expected *RefreshTaskRecord) {
 		return
 	}
 	// provider 成功后立即把窗口内 token/cost 补进同一次缓存，前端读取缓存时不再触发额外统计请求。
+	stampQuotaRows(response.Quota, time.Now(), source)
 	if !statsAttached {
 		response = s.attachWindowUsageStats(ctx, authIndex, response, time.Now())
 	}
@@ -503,6 +504,11 @@ func (s *Service) markRefreshTaskCompleted(expected *RefreshTaskRecord, response
 	// RefreshedAt 是对外唯一的刷新时间口径，成功缓存不设置 ExpiresAt。
 	task.RefreshedAt = now
 	// 保存包含 token/cost 的 quota 响应，后续 cache 接口直接复用。
+	for i := range response.Quota {
+		if response.Quota[i].CapturedAt.IsZero() {
+			stampQuotaRows(response.Quota[i:i+1], now, task.Source)
+		}
+	}
 	task.Quota = &response
 	// raw 响应与当前 quota 同生命周期；同 auth_index 的下一次刷新会整体覆盖任务记录。
 	task.UpstreamResponses = cloneUpstreamResponses(upstreamResponses)

@@ -1,13 +1,24 @@
 package apicall
 
-import "encoding/json"
+import (
+	"context"
+	"encoding/json"
+)
+
+type quotaSourceKey struct{}
+
+func WithQuotaSource(ctx context.Context, source string) context.Context {
+	return context.WithValue(ctx, quotaSourceKey{}, source)
+}
+func QuotaSource(ctx context.Context) string { v, _ := ctx.Value(quotaSourceKey{}).(string); return v }
 
 type Request struct {
-	AuthIndex string            `json:"authIndex"`
-	Method    string            `json:"method"`
-	URL       string            `json:"url"`
-	Header    map[string]string `json:"header,omitempty"`
-	Data      any               `json:"data,omitempty"`
+	QuotaSource string            `json:"quota_source,omitempty"`
+	AuthIndex   string            `json:"authIndex"`
+	Method      string            `json:"method"`
+	URL         string            `json:"url"`
+	Header      map[string]string `json:"header,omitempty"`
+	Data        any               `json:"data,omitempty"`
 }
 
 func (r Request) MarshalJSON() ([]byte, error) {

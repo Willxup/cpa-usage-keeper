@@ -268,7 +268,7 @@ func registerReadOnlyReportingRoutes(router *gin.RouterGroup, usage service.Usag
 			windows := []quota.QuotaRow{}
 			if item.Quota != nil {
 				for i, row := range item.Quota.Quota {
-					windows = append(windows, quota.QuotaRow{Key: fmt.Sprintf("window-%d", i), Label: row.Label, Metric: row.Metric, Used: row.Used, Limit: row.Limit, Remaining: row.Remaining, UsedPercent: row.UsedPercent, RemainingFraction: row.RemainingFraction, Allowed: row.Allowed, LimitReached: row.LimitReached, Window: row.Window, ResetAt: row.ResetAt, ResetAfterSeconds: row.ResetAfterSeconds})
+					windows = append(windows, quota.QuotaRow{Key: fmt.Sprintf("window-%d", i), Label: row.Label, Metric: row.Metric, Used: row.Used, Limit: row.Limit, Remaining: row.Remaining, UsedPercent: row.UsedPercent, RemainingFraction: row.RemainingFraction, Allowed: row.Allowed, LimitReached: row.LimitReached, Window: row.Window, CapturedAt: row.CapturedAt, Source: safeQuotaSource(row.Source), ResetAt: row.ResetAt, ResetAfterSeconds: row.ResetAfterSeconds})
 				}
 			}
 			items = append(items, gin.H{"auth_index": safe, "status": item.Status, "refreshed_at": item.RefreshedAt, "quota": gin.H{"quota": windows}})

@@ -1,3 +1,4 @@
+import { QuotaFreshness } from '@/components/usage/QuotaFreshness';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { KeyViewerShell } from '@/features/key-viewer/KeyViewerShell';
@@ -111,6 +112,7 @@ export function KeyQuotaPage({
                   {row.remaining_percent == null &&
                     row.limit != null &&
                     ` / ${row.limit.toLocaleString()}`}
+                  <QuotaFreshness capturedAt={row.captured_at ?? account.updated_at} source={row.source} account={account.label} resetAt={row.reset_at} stale={row.stale} />
                 </div>
                 {row.remaining_percent != null && (
                   <progress

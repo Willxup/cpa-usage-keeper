@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"cpa-usage-keeper/internal/cpa/dto/apicall"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository"
@@ -31,9 +32,10 @@ type ServiceOptions struct {
 }
 
 type Service struct {
-	db       *gorm.DB
-	registry ProviderRegistry
-	pricing  *pricing.Catalog
+	trafficSyncOnce sync.Once
+	db              *gorm.DB
+	registry        ProviderRegistry
+	pricing         *pricing.Catalog
 	// quotaUpstreamResponsesEnabled 控制刷新任务是否把 CPA 转发的完整上游响应写入最新限额缓存。
 	quotaUpstreamResponsesEnabled bool
 
@@ -139,7 +141,8 @@ func NewServiceWithOptions(db *gorm.DB, caller ManagementClient, options Service
 	if options.QuotaUpstreamResponsesEnabled {
 		caller = upstreamResponseRecordingCaller{ManagementClient: caller}
 	}
-	return NewServiceWithRegistryAndOptions(db, NewDefaultProviderRegistry(caller, DefaultProviderConfigs()), options)
+	service := NewServiceWithRegistryAndOptions(db, NewDefaultProviderRegistry(caller, DefaultProviderConfigs()), options)
+	return service
 }
 
 func NewServiceWithRegistry(db *gorm.DB, registry ProviderRegistry, pricingCatalog *pricing.Catalog) *Service {
@@ -310,6 +313,7 @@ func (s *Service) checkWithUpstreamResponses(ctx context.Context, request CheckR
 }
 
 func (s *Service) check(ctx context.Context, request CheckRequest, beforeSubscriptionDone func(CheckResponse) CheckResponse) (CheckResponse, bool, error) {
+	ctx = apicall.WithQuotaSource(ctx, string(request.Source))
 	// 单条查询以 auth_index 为唯一入口，前端不需要知道具体 provider 的 API 细节。
 	authIndex := strings.TrimSpace(request.AuthIndex)
 	if authIndex == "" {

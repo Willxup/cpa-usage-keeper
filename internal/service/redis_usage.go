@@ -189,6 +189,7 @@ func (d queuedUsageDetail) toUsageHeaderSnapshot(event entities.UsageEvent) *quo
 		}
 	}
 	snapshot, ok := quota.BuildUsageHeaderSnapshot(quota.UsageHeaderSnapshotInput{
+		Source:     quota.RefreshSourceUsageHeader,
 		AuthType:   event.AuthType,
 		AuthIndex:  event.AuthIndex,
 		Provider:   event.Provider,
