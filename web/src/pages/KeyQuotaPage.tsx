@@ -6,6 +6,7 @@ import type { AuthSessionAPIKeySummary } from '@/lib/types';
 import {
   ApiError,
   fetchKeyQuota,
+  fetchReadOnlyQuota,
   type ViewerQuotaAccount,
   type ViewerQuotaRow,
 } from '@/lib/api';
@@ -24,10 +25,12 @@ export function quotaRemaining(row: ViewerQuotaRow): string {
 }
 
 export function KeyQuotaPage({
+  readOnly = false,
   apiKey,
   onNavigate,
   onAuthRequired,
 }: {
+  readOnly?: boolean;
   apiKey?: AuthSessionAPIKeySummary;
   onNavigate: (path: KeyViewerPath) => void;
   onAuthRequired?: () => void;
@@ -43,7 +46,7 @@ export function KeyQuotaPage({
       inFlight.current = true;
       setLoading(true);
       try {
-        const data = await fetchKeyQuota(signal);
+        const data = await (readOnly ? fetchReadOnlyQuota(signal) : fetchKeyQuota(signal));
         if (!signal?.aborted) {
           setAccounts(data.accounts);
           setError(false);
@@ -58,11 +61,12 @@ export function KeyQuotaPage({
         setLoading(false);
       }
     },
-    [onAuthRequired],
+    [onAuthRequired, readOnly],
   );
   useEffect(() => startQuotaPolling(refresh), [refresh]);
   return (
     <KeyViewerShell
+      readOnly={readOnly}
       activePage="quota"
       apiKey={apiKey}
       onNavigate={onNavigate}

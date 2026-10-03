@@ -200,9 +200,9 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 
 	cpaClient := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)
 	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{
-		RefreshWorkerLimit:            cfg.QuotaRefreshWorkerLimit,
-		QuotaUpstreamResponsesEnabled: cfg.QuotaUpstreamResponsesEnabled,
-		PricingCatalog:                pricingCatalog,
+		RefreshWorkerLimit:               cfg.QuotaRefreshWorkerLimit,
+		QuotaUpstreamResponsesEnabled:    cfg.QuotaUpstreamResponsesEnabled,
+		PricingCatalog:                   pricingCatalog,
 	})
 	// 单 writer aggregation runner 只维护 rollups/Identity，并在 App.Run 时主动追平。
 	usageAggregationRunner := poller.NewUsageAggregationRunner(db)
@@ -322,6 +322,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	authConfig := api.AuthConfig{
 		Enabled:                         cfg.AuthEnabled,
 		LoginPassword:                   cfg.LoginPassword,
+		ReadOnlyPassword:                cfg.ReadOnlyPassword,
 		SessionTTL:                      cfg.AuthSessionTTL,
 		BasePath:                        cfg.AppBasePath,
 		FrameAncestorOrigins:            frameAncestorOrigins(cfg),

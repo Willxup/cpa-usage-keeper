@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { AuthSessionAPIKeySummary } from '@/lib/types';
 import { appPath, logout } from '@/lib/api';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { KEY_VIEWER_PAGE_PATHS, type KeyViewerPage, type KeyViewerPath } from './navigation';
+import { KEY_VIEWER_PAGE_PATHS, READ_ONLY_PAGE_PATHS, type KeyViewerPage, type KeyViewerPath } from './navigation';
 import styles from './KeyViewerShell.module.scss';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { DashboardToolbar } from '@/components/dashboard/DashboardToolbar';
@@ -13,12 +13,13 @@ const KEY_VIEWER_PAGE_LABEL_KEYS: Record<KeyViewerPage, string> = {
   realtime: 'usage_stats.tab_realtime',
   analysis: 'usage_stats.tab_analysis',
   ranking: 'usage_stats.tab_ranking',
-  quota: 'key_quota.tab',
+  quota: 'key_quota.tab', events: 'usage_stats.tab_events', 'auth-files': 'usage_stats.tab_auth_files', 'ai-provider': 'usage_stats.tab_ai_provider',
 };
 
 interface KeyViewerShellProps {
   activePage: KeyViewerPage;
   apiKey?: AuthSessionAPIKeySummary;
+  readOnly?: boolean;
   loading?: boolean;
   filters?: ReactNode[];
   onRefresh: () => void;
@@ -32,6 +33,7 @@ interface KeyViewerShellProps {
 export function KeyViewerShell({
   activePage,
   apiKey,
+  readOnly = false,
   loading = false,
   filters,
   onRefresh,
@@ -43,7 +45,7 @@ export function KeyViewerShell({
 }: KeyViewerShellProps) {
   const { t } = useTranslation();
   const [loggingOut, setLoggingOut] = useState(false);
-  const identityLabel = apiKey?.display_key || t('key_overview.identity_unknown');
+  const identityLabel = readOnly ? t('read_only.title') : apiKey?.display_key || t('key_overview.identity_unknown');
 
   const handleLogout = useCallback(async () => {
     setLoggingOut(true);
@@ -73,7 +75,7 @@ export function KeyViewerShell({
 
             <DashboardToolbar
               activeId={activePage}
-              items={(Object.keys(KEY_VIEWER_PAGE_PATHS) as KeyViewerPage[]).filter((page) => page !== 'quota' || apiKey?.quota_enabled === true).map((page) => ({ id: page, label: t(KEY_VIEWER_PAGE_LABEL_KEYS[page]), href: appPath(KEY_VIEWER_PAGE_PATHS[page]) }))}
+              items={(Object.keys(KEY_VIEWER_PAGE_PATHS) as KeyViewerPage[]).filter((page) => (readOnly || !['events','auth-files','ai-provider'].includes(page)) && (page !== 'quota' || readOnly || apiKey?.quota_enabled === true)).map((page) => ({ id: page, label: t(KEY_VIEWER_PAGE_LABEL_KEYS[page]), href: appPath(readOnly ? READ_ONLY_PAGE_PATHS[page] : KEY_VIEWER_PAGE_PATHS[page]) }))}
               onNavigate={(page) => onNavigate(KEY_VIEWER_PAGE_PATHS[page])}
               filters={filters}
               onRefresh={onRefresh}

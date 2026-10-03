@@ -3,12 +3,17 @@ import { isCPAMCEmbed } from '@/embed/cpamcEmbed'
 import { resolveUsageRequestRange } from '@/utils/usage/rangeQuery'
 
 export interface ViewerQuotaRow {
+ captured_at?: string; source?: string; stale?: boolean;
   label: string; metric?: string; remaining?: number; limit?: number;
   remaining_percent?: number; reset_at?: string; limit_reached?: boolean;
 }
 export interface ViewerQuotaAccount {
+ kind?: "oauth" | "api";
   label: string; provider: string; status: 'available' | 'stale' | 'unavailable';
   updated_at?: string; rows: ViewerQuotaRow[];
+}
+export async function fetchAdminProviderQuota(signal?:AbortSignal):Promise<{accounts:ViewerQuotaAccount[]}> {
+ const response=await apiFetch(apiPath("/usage/provider-quota"),{signal});if(!response.ok)return parseApiError(response,"Unable to load quota");return response.json();
 }
 export async function fetchKeyQuota(signal?: AbortSignal): Promise<{accounts: ViewerQuotaAccount[]}> {
   const response = await apiFetch(apiPath('/key-quota'), {signal});
@@ -89,6 +94,8 @@ function normalizeOverviewRealtimeBlock(
 }
 
 export interface FetchKeyOverviewRealtimeOptions {
+  apiKeyId?: string
+  readOnly?: boolean
   window?: OverviewRealtimeWindow
   signal?: AbortSignal
 }
@@ -224,7 +231,7 @@ async function activateEmbedSessionFallback(response: Response): Promise<void> {
   }
 }
 
-export async function login(password: string): Promise<void> {
+export async function login(password: string, rememberMe = true): Promise<void> {
   if (isCPAMCEmbed()) {
     clearEmbedSessionToken()
   }
@@ -233,7 +240,7 @@ export async function login(password: string): Promise<void> {
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ password, rememberMe }),
   })
   if (!response.ok) {
     await parseApiError(response, `Failed to login: ${response.status}`)
@@ -241,7 +248,32 @@ export async function login(password: string): Promise<void> {
   await activateEmbedSessionFallback(response)
 }
 
-export async function loginWithCPAAPIKey(apiKey: string): Promise<void> {
+export async function loginReadOnly(password: string, rememberMe = true): Promise<void> {
+  const response = await apiFetch(apiPath('/auth/read-only-login'), {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({password,rememberMe}),
+  });
+  if (!response.ok) return parseApiError(response, 'Unable to sign in');
+  await activateEmbedSessionFallback(response);
+}
+
+export interface ReadOnlyKeyUsage {
+  label: string; requests: number; failures: number; total_tokens: number; cost: number | null;
+}
+export interface ReadOnlyOverview {
+  overview: UsageOverviewResponse; keys: ReadOnlyKeyUsage[];
+}
+export async function fetchReadOnlyOverview(range: string, signal?: AbortSignal): Promise<ReadOnlyOverview> {
+  const response = await apiFetch(apiPath('/read-only/overview') + '?range=' + encodeURIComponent(range), {signal});
+  if (!response.ok) return parseApiError(response, 'Unable to load overview');
+  return response.json();
+}
+export async function fetchReadOnlyQuota(signal?: AbortSignal): Promise<{accounts: ViewerQuotaAccount[]}> {
+  const response = await apiFetch(apiPath('/read-only/key-quota'), {signal});
+  if (!response.ok) return parseApiError(response, 'Unable to load quota');
+  return response.json();
+}
+
+export async function loginWithCPAAPIKey(apiKey: string, rememberMe = true): Promise<void> {
   if (isCPAMCEmbed()) {
     clearEmbedSessionToken()
   }
@@ -250,7 +282,7 @@ export async function loginWithCPAAPIKey(apiKey: string): Promise<void> {
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ apiKey }),
+    body: JSON.stringify({ apiKey, rememberMe }),
   })
   if (!response.ok) {
     await parseApiError(response, `Failed to login with CPA API key: ${response.status}`)
@@ -317,27 +349,30 @@ const buildUsageRangeParams = (request: UsageRangeRequest): URLSearchParams => {
   return params
 }
 
-export async function fetchKeyOverview(request: UsageRangeRequest, signal?: AbortSignal): Promise<UsageOverviewResponse> {
+export async function fetchKeyOverview(request: UsageRangeRequest, signal?: AbortSignal, readOnly = false, apiKeyId?: string): Promise<UsageOverviewResponse> {
   const params = buildUsageRangeParams(request)
-  const response = await apiFetch(`${apiPath('/key-overview')}?${params.toString()}`, { signal })
+  if (readOnly && apiKeyId?.trim()) params.set('api_key_id', apiKeyId.trim())
+  const response = await apiFetch(`${apiPath(readOnly ? '/read-only/key-overview' : '/key-overview')}?${params.toString()}`, { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load key overview: ${response.status}`)
   }
   return response.json()
 }
 
-export async function fetchKeyAnalysis(request: UsageRangeRequest, signal?: AbortSignal): Promise<AnalysisResponse> {
+export async function fetchKeyAnalysis(request: UsageRangeRequest, signal?: AbortSignal, readOnly = false, apiKeyId?: string): Promise<AnalysisResponse> {
   const params = buildUsageRangeParams(request)
-  const response = await apiFetch(`${apiPath('/key-analysis')}?${params.toString()}`, { signal })
+  if (readOnly && apiKeyId?.trim()) params.set('api_key_id', apiKeyId.trim())
+  const response = await apiFetch(`${apiPath(readOnly ? '/read-only/key-analysis' : '/key-analysis')}?${params.toString()}`, { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load key analysis: ${response.status}`)
   }
   return response.json()
 }
 
-export async function fetchKeyAnalysisLatency(request: UsageRangeRequest, signal?: AbortSignal): Promise<AnalysisLatencyDiagnostics> {
+export async function fetchKeyAnalysisLatency(request: UsageRangeRequest, signal?: AbortSignal, readOnly = false, apiKeyId?: string): Promise<AnalysisLatencyDiagnostics> {
   const params = buildUsageRangeParams(request)
-  const response = await apiFetch(`${apiPath('/key-analysis/latency')}?${params.toString()}`, { signal })
+  if (readOnly && apiKeyId?.trim()) params.set('api_key_id', apiKeyId.trim())
+  const response = await apiFetch(`${apiPath(readOnly ? '/read-only/key-analysis/latency' : '/key-analysis/latency')}?${params.toString()}`, { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load key analysis latency: ${response.status}`)
   }
@@ -346,6 +381,7 @@ export async function fetchKeyAnalysisLatency(request: UsageRangeRequest, signal
 
 export interface FetchUsageActivityOptions {
   request: UsageActivityRequest
+  readOnly?: boolean
   apiKeyId?: string
   signal?: AbortSignal
 }
@@ -360,9 +396,10 @@ const buildUsageActivityParams = (request: UsageActivityRequest): URLSearchParam
   return buildUsageRangeParams(request)
 }
 
-export async function fetchKeyActivity({ request, signal }: FetchUsageActivityOptions): Promise<UsageActivityResponse> {
+export async function fetchKeyActivity({ request, signal, readOnly = false, apiKeyId }: FetchUsageActivityOptions): Promise<UsageActivityResponse> {
   const params = buildUsageActivityParams(request)
-  const response = await apiFetch(`${apiPath('/key-activity')}?${params.toString()}`, { signal })
+  if (readOnly && apiKeyId?.trim()) params.set('api_key_id', apiKeyId.trim())
+  const response = await apiFetch(`${apiPath(readOnly ? '/read-only/key-activity' : '/key-activity')}?${params.toString()}`, { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load key activity: ${response.status}`)
   }
@@ -370,13 +407,14 @@ export async function fetchKeyActivity({ request, signal }: FetchUsageActivityOp
 }
 
 export async function fetchKeyOverviewRealtime(options: FetchKeyOverviewRealtimeOptions = {}): Promise<OverviewRealtimeBlock> {
-  const { window, signal } = options
+  const { window, signal, readOnly = false, apiKeyId } = options
   const params = new URLSearchParams()
   if (window) {
     params.set('window', window)
   }
+  if (readOnly && apiKeyId?.trim()) params.set('api_key_id', apiKeyId.trim())
   const query = params.toString()
-  const response = await apiFetch(`${apiPath('/key-overview/realtime')}${query ? `?${query}` : ''}`, { signal })
+  const response = await apiFetch(`${apiPath(readOnly ? '/read-only/key-overview/realtime' : '/key-overview/realtime')}${query ? `?${query}` : ''}`, { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load key overview realtime: ${response.status}`)
   }
@@ -400,11 +438,11 @@ export async function fetchUsageOverview(request: UsageRangeRequest, signal?: Ab
   return response.json()
 }
 
-export async function fetchUsageOverviewComparisons(request: UsageRangeRequest, options: { signal?: AbortSignal; apiKeyId?: string; keyViewer?: boolean } = {}): Promise<UsageOverviewComparisons> {
+export async function fetchUsageOverviewComparisons(request: UsageRangeRequest, options: { signal?: AbortSignal; apiKeyId?: string; keyViewer?: boolean; readOnly?: boolean } = {}): Promise<UsageOverviewComparisons> {
   const params = buildUsageRangeParams(request)
   const selectedAPIKeyId = options.apiKeyId?.trim()
   if (selectedAPIKeyId) params.set('api_key_id', selectedAPIKeyId)
-  const path = options.keyViewer ? '/key-overview/comparisons' : '/usage/overview/comparisons'
+  const path = options.readOnly ? '/read-only/key-overview/comparisons' : options.keyViewer ? '/key-overview/comparisons' : '/usage/overview/comparisons'
   const query = params.toString()
   const response = await apiFetch(`${apiPath(path)}${query ? `?${query}` : ''}`, { signal: options.signal })
   if (!response.ok) {
@@ -448,6 +486,7 @@ export async function fetchUsageOverviewRealtime(options: FetchUsageOverviewReal
 }
 
 export interface FetchUsageEventsOptions {
+  readOnly?: boolean
   page?: number
   pageSize?: number
   cursorMode?: boolean
@@ -533,7 +572,7 @@ export async function fetchUsageEventSourceFilterOptions(signal?: AbortSignal): 
 export async function fetchUsageEvents(request: UsageRangeRequest | undefined, signal?: AbortSignal, options?: FetchUsageEventsOptions): Promise<UsageEventsResponse> {
   const params = buildUsageEventsParams(request, options)
   const query = params.toString()
-  const response = await apiFetch(`${apiPath('/usage/events')}${query ? `?${query}` : ''}`, { signal })
+  const response = await apiFetch(`${apiPath(options?.readOnly ? '/read-only/events' : '/usage/events')}${query ? `?${query}` : ''}`, { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load usage events: ${response.status}`)
   }
@@ -578,7 +617,7 @@ export async function exportUsageEvents(request: UsageRangeRequest, format: Usag
   const params = buildUsageEventsParams(request, options, false)
   params.set('format', format)
   const query = params.toString()
-  const response = await apiFetch(`${apiPath('/usage/events/export')}${query ? `?${query}` : ''}`)
+  const response = await apiFetch(`${apiPath(options?.readOnly ? '/read-only/events/export' : '/usage/events/export')}${query ? `?${query}` : ''}`)
   if (!response.ok) {
     await parseApiError(response, `Failed to export usage events: ${response.status}`)
   }
@@ -1054,4 +1093,15 @@ export async function deletePricing(model: string): Promise<void> {
   if (!response.ok) {
     await parseApiError(response, `Failed to delete pricing: ${response.status}`)
   }
+}
+
+export async function fetchReadOnlyKeys(signal?: AbortSignal): Promise<{keys: {id: string; label: string}[]}> {
+  const response = await apiFetch(apiPath('/read-only/keys'), {signal})
+  if (!response.ok) await parseApiError(response, 'Failed to load API key filter')
+  return response.json()
+}
+
+export async function fetchReadOnlyReport<T>(path: string, params = new URLSearchParams(), signal?: AbortSignal): Promise<T> {
+ const response=await apiFetch(apiPath('/read-only/'+path)+'?'+params.toString(),{signal,cache:'no-store'});
+ if(!response.ok) await parseApiError(response,'Unable to load reporting data');return response.json();
 }

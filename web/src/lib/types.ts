@@ -1,4 +1,4 @@
-export type AuthRole = 'admin' | 'api_key_viewer'
+export type AuthRole = 'admin' | 'api_key_viewer' | 'read_only'
 
 export interface AuthSessionAPIKeySummary {
   display_key: string
@@ -9,11 +9,12 @@ export interface AuthSessionAPIKeySummary {
 
 export interface AuthSessionResponse {
   authenticated: boolean
+  read_only_enabled?: boolean
   role?: AuthRole
   api_key?: AuthSessionAPIKeySummary
 }
 
-export type AuthManagedSessionKind = 'admin' | 'api_key'
+export type AuthManagedSessionKind = 'admin' | 'api_key' | 'read_only'
 export type AuthManagedSessionSource = 'standard' | 'embed'
 
 export interface AuthManagedSessionItem {
@@ -479,6 +480,7 @@ export interface UsageQuotaWindow {
 }
 
 export interface UsageQuotaRow {
+ captured_at?: string; source?: string;
   key: string
   label?: string
   scope?: string

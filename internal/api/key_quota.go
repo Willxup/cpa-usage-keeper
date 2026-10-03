@@ -57,7 +57,11 @@ func viewerProviderName(identity entities.UsageIdentity) string {
 }
 
 func registerKeyQuotaRoute(router gin.IRoutes, identities service.UsageIdentityProvider, provider QuotaProvider) {
-	router.GET("/key-quota", func(c *gin.Context) {
+	registerViewerQuotaRoute(router, "/key-quota", identities, provider)
+}
+
+func registerViewerQuotaRoute(router gin.IRoutes, path string, identities service.UsageIdentityProvider, provider QuotaProvider) {
+	router.GET(path, func(c *gin.Context) {
 		setNoStoreHeaders(c)
 		if identities == nil || provider == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Quota data is unavailable"})

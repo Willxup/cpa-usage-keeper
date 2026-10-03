@@ -163,9 +163,9 @@ func authSessionFromRow(row entities.AuthSession) (Session, error) {
 		lastSeenAt = *row.LastSeenAt
 	}
 	switch Role(row.Role) {
-	case RoleAdmin:
+	case RoleAdmin, RoleReadOnly:
 		return Session{
-			Role: RoleAdmin, Source: source, Alias: row.Alias, LoginIP: row.LoginIP, LastSeenIP: row.LastSeenIP,
+			Role: Role(row.Role), Source: source, Alias: row.Alias, LoginIP: row.LoginIP, LastSeenIP: row.LastSeenIP,
 			UserAgent: row.UserAgent, LastSeenAt: lastSeenAt, ExpiresAt: row.ExpiresAt, CreatedAt: row.CreatedAt,
 		}, nil
 	case RoleAPIKeyViewer:
@@ -213,6 +213,7 @@ type Role string
 const (
 	RoleAdmin        Role = "admin"
 	RoleAPIKeyViewer Role = "api_key_viewer"
+	RoleReadOnly     Role = "read_only"
 )
 
 type SessionSource string
@@ -272,10 +273,11 @@ type sessionActivityUpdate struct {
 }
 
 type SessionManager struct {
-	ttl      time.Duration
-	now      func() time.Time
-	generate func() (string, error)
-	store    SessionStore
+	readOnlyCredential string
+	ttl                time.Duration
+	now                func() time.Time
+	generate           func() (string, error)
+	store              SessionStore
 
 	mu                    sync.RWMutex
 	sessions              map[string]Session
@@ -311,6 +313,10 @@ func (m *SessionManager) CreateWithSource(source SessionSource) (string, time.Ti
 
 func (m *SessionManager) CreateWithSourceAndMetadata(source SessionSource, metadata SessionClientMetadata) (string, time.Time, error) {
 	return m.create(Session{Role: RoleAdmin, Source: NormalizeSessionSource(source)}, metadata)
+}
+
+func (m *SessionManager) CreateReadOnlyWithSourceAndMetadata(source SessionSource, metadata SessionClientMetadata) (string, time.Time, error) {
+	return m.create(Session{Role: RoleReadOnly, Source: NormalizeSessionSource(source)}, metadata)
 }
 
 func (m *SessionManager) CreateAPIKeyViewer(cpaAPIKeyID int64) (string, time.Time, error) {

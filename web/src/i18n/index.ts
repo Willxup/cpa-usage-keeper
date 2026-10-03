@@ -20,6 +20,7 @@ const getInitialLanguage = (): SupportedLanguage => {
 const resources = {
   en: {
     translation: {
+      read_only: {password_placeholder: 'Enter read-only password', sign_out_title: 'Sign out read-only session?', sign_out_body: 'This session will lose access to the overview.',"title": "Read-only overview", "login_tab": "Read-only overview", "login_submit": "Open overview", "password": "Read-only password", "scope": "Usage across all client keys. Estimated API costs are not subscription charges.", "keys": "Client key usage", "requests": "Requests", "tokens": "Tokens", "failures": "Failures", "cost": "Estimated API cost", "range": "Time range", "empty": "No client key usage in this period.", "error": "Usage data is unavailable. Try refreshing.", "trend": "Requests over time", "hours": "Last 24 hours", "week": "Last 7 days", "month": "Last 30 days"},
       common: {
         loading: 'Loading...',
         save: 'Save',
@@ -44,6 +45,9 @@ const resources = {
       },
       auth: {
         login_title: 'CPA USAGE KEEPER',
+        stay_signed_in: 'Stay signed in',
+        stay_signed_in_help: 'Keep this browser signed in for 7 days.',
+        temporary_session_help: 'For this browser session. Reloads and additional tabs keep you signed in.',
         login_subtitle: 'Every flow leaves a trace.',
         console_kicker: 'Access control',
         console_title: 'Choose your console',
@@ -961,6 +965,7 @@ const resources = {
   },
   zh: {
     translation: {
+      read_only: {password_placeholder: 'Enter read-only password', sign_out_title: 'Sign out read-only session?', sign_out_body: 'This session will lose access to the overview.',"title": "Read-only overview", "login_tab": "Read-only overview", "login_submit": "Open overview", "password": "Read-only password", "scope": "Usage across all client keys. Estimated API costs are not subscription charges.", "keys": "Client key usage", "requests": "Requests", "tokens": "Tokens", "failures": "Failures", "cost": "Estimated API cost", "range": "Time range", "empty": "No client key usage in this period.", "error": "Usage data is unavailable. Try refreshing.", "trend": "Requests over time", "hours": "Last 24 hours", "week": "Last 7 days", "month": "Last 30 days"},
       common: {
         loading: '加载中...',
         save: '保存',
@@ -985,6 +990,9 @@ const resources = {
       },
       auth: {
         login_title: 'CPA USAGE KEEPER',
+        stay_signed_in: '保持登录',
+        stay_signed_in_help: '在此浏览器中保持登录 7 天。',
+        temporary_session_help: '仅在此浏览器会话中登录。刷新和打开新标签页不会退出。',
         login_subtitle: '万千流转，皆有迹可循。',
         console_kicker: '访问控制',
         console_title: '选择访问方式',
@@ -1902,6 +1910,7 @@ const resources = {
   },
   'zh-TW': {
     translation: {
+      read_only: {password_placeholder: 'Enter read-only password', sign_out_title: 'Sign out read-only session?', sign_out_body: 'This session will lose access to the overview.',"title": "Read-only overview", "login_tab": "Read-only overview", "login_submit": "Open overview", "password": "Read-only password", "scope": "Usage across all client keys. Estimated API costs are not subscription charges.", "keys": "Client key usage", "requests": "Requests", "tokens": "Tokens", "failures": "Failures", "cost": "Estimated API cost", "range": "Time range", "empty": "No client key usage in this period.", "error": "Usage data is unavailable. Try refreshing.", "trend": "Requests over time", "hours": "Last 24 hours", "week": "Last 7 days", "month": "Last 30 days"},
       common: {
         loading: '載入中...',
         save: '儲存',
@@ -1926,6 +1935,9 @@ const resources = {
       },
       auth: {
         login_title: 'CPA USAGE KEEPER',
+        stay_signed_in: '保持登入',
+        stay_signed_in_help: '在此瀏覽器中保持登入 7 天。',
+        temporary_session_help: '僅在此瀏覽器工作階段中登入。重新整理和開啟新分頁不會登出。',
         login_subtitle: '萬千流轉，皆有跡可循。',
         console_kicker: '存取控制',
         console_title: '選擇存取方式',
