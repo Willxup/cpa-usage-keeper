@@ -382,17 +382,18 @@ function buildLatencyDiagnosticsChartOptions({
   };
 }
 
-export function LatencyScatterChart({ diagnostics, isDark, isMobile, labels, formatDuration = formatDurationMs }: {
+export function LatencyScatterChart({ diagnostics, isDark, isMobile, labels, animate = true, formatDuration = formatDurationMs }: {
   diagnostics: LatencyScatterData;
   isDark: boolean;
   isMobile: boolean;
   labels: LatencyScatterLabels;
+  animate?: boolean;
   formatDuration?: (value: number) => string;
 }) {
   const chartTheme = useMemo(() => getUsageChartTheme(isDark), [isDark]);
   const colors = useMemo(() => getLatencyColors(isDark), [isDark]);
   const chartData = useMemo(() => buildLatencyDiagnosticsChartData(diagnostics, labels.samples, colors), [diagnostics, labels.samples, colors]);
-  const chartOptions = useMemo(() => buildLatencyDiagnosticsChartOptions({ diagnostics, chartTheme, isMobile, labels, colors, formatDuration }), [diagnostics, chartTheme, isMobile, labels, colors, formatDuration]);
+  const chartOptions = useMemo(() => ({ ...buildLatencyDiagnosticsChartOptions({ diagnostics, chartTheme, isMobile, labels, colors, formatDuration }), animation: animate ? undefined : false as const }), [diagnostics, chartTheme, isMobile, labels, colors, formatDuration, animate]);
   const plugin = useMemo(() => createLatencyDiagnosticsPlugin(formatDuration), [formatDuration]);
   return <Scatter data={chartData} options={chartOptions} plugins={[plugin]} />;
 }

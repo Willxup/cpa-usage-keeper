@@ -149,6 +149,12 @@ func buildAuthSessionItems(records []auth.SessionRecord, apiKeysByID map[int64]e
 			items = append(items, base)
 			continue
 		}
+		if record.Role == auth.RoleReadOnly {
+			base.Kind = "read_only"
+			base.Label = "Read-only overview"
+			items = append(items, base)
+			continue
+		}
 		if record.Role != auth.RoleAPIKeyViewer {
 			continue
 		}

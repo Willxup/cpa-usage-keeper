@@ -49,6 +49,8 @@ const requestRankingJSON = async <T>(path: string, init: RequestInit = {}): Prom
   return response.json() as Promise<T>;
 };
 
+export const fetchReadOnlyLocalRankingLeaderboard = (period: RankingPeriod, metric: RankingMetric, signal?: AbortSignal) => requestRankingJSON<RankingLeaderboardResponse>(`/read-only/ranking/local/leaderboards?period=${period}&metric=${metric}`, {signal});
+
 export const fetchRankingStatus = (signal?: AbortSignal) => requestRankingJSON<RankingStatusResponse>(
   '/ranking/status',
   { signal },

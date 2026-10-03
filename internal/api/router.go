@@ -127,8 +127,15 @@ func NewRouter(
 	registerUsageEventRequestLogDownloadTokenRoutes(apiV1, requestLogProvider, requestLogDownloadTokens, statusConfig.CPARequestLogAccessEnabled)
 
 	versionProtected := apiV1.Group("")
-	versionProtected.Use(authHandler.roleMiddleware(auth.RoleAdmin, auth.RoleAPIKeyViewer))
+	versionProtected.Use(authHandler.roleMiddleware(auth.RoleAdmin, auth.RoleAPIKeyViewer, auth.RoleReadOnly))
 	registerVersionRoutes(versionProtected)
+
+	readOnlyProtected := apiV1.Group("")
+	readOnlyProtected.Use(authHandler.readOnlyMiddleware())
+	registerReadOnlyOverviewRoute(readOnlyProtected, usageProvider, cpaAPIKeyProvider)
+	registerReadOnlyDashboardRoutes(readOnlyProtected, usageProvider, cpaAPIKeyProvider, usageIdentityProvider)
+	registerReadOnlyReportingRoutes(readOnlyProtected, usageProvider, cpaAPIKeyProvider, usageIdentityProvider, quotaProvider, localRankingProvider)
+	registerViewerQuotaRoute(readOnlyProtected, "/read-only/key-quota", usageIdentityProvider, quotaProvider)
 
 	adminProtected := apiV1.Group("")
 	adminProtected.Use(authHandler.adminMiddleware())
@@ -147,6 +154,7 @@ func NewRouter(
 	registerCPAAPIKeyRoutes(adminProtected, cpaAPIKeyProvider)
 	registerPricingRoutes(adminProtected, pricingProvider)
 	registerQuotaRoutes(adminProtected, quotaProvider)
+	registerViewerQuotaRoute(adminProtected, "/usage/provider-quota", usageIdentityProvider, quotaProvider)
 	if rankingProvider != nil {
 		rankinghttpapi.RegisterRoutes(adminProtected, rankingProvider)
 	}
@@ -157,6 +165,9 @@ func NewRouter(
 	keyViewerProtected := apiV1.Group("")
 	keyViewerProtected.Use(authHandler.apiKeyViewerMiddleware())
 	keyViewerProtected.Use(authHandler.activeAPIKeyViewerMiddleware())
+	if authConfig.APIKeyViewerQuotaEnabled {
+		registerKeyQuotaRoute(keyViewerProtected, usageIdentityProvider, quotaProvider)
+	}
 	registerKeyOverviewRoute(keyViewerProtected, usageProvider)
 	registerKeyActivityRoute(keyViewerProtected, usageProvider)
 	registerKeyUsageAnalysisRoute(keyViewerProtected, usageProvider)

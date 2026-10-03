@@ -38,7 +38,9 @@ type UsageFilter struct {
 	AuthIndex       string
 	AuthType        string
 	APIKeyID        string
-	Result          string
+	// ReportingAPIGroupKey is assigned only by authenticated reporting handlers.
+	ReportingAPIGroupKey string
+	Result               string
 }
 
 // UsageEventsPage 是 usage events 列表的服务层结果。

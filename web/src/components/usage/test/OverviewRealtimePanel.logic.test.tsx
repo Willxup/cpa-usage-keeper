@@ -130,6 +130,8 @@ describe('OverviewRealtimePanel', () => {
         borderDash: [6, 4],
       },
     ]);
+    expect(chartCapture.lineCalls[0].options.animation).toBe(false);
+    expect(chartCapture.scatterCalls[0].options.animation).toBe(false);
     expect(chartCapture.lineCalls[0].options).toMatchObject({
       plugins: {
         legend: {

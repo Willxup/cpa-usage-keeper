@@ -134,11 +134,11 @@
 .filter [data-ranking-scope-switch] button[aria-pressed='true'] { color: var(--text-primary); font-weight: 650; }
 
 .host[data-flow='split'] {
-  .dock { display: grid; width: 100%; grid-template-columns: 44px minmax(0, 1fr) 44px; grid-template-areas: 'collapse navigation refresh' 'filters filters filters'; gap: 4px var(--toolbar-gap); border-radius: 24px; }
+  .dock { display: grid; width: 100%; grid-template-columns: 44px minmax(0, 1fr) auto; grid-template-areas: 'collapse navigation refresh' 'filters filters filters'; gap: 4px var(--toolbar-gap); border-radius: 24px; }
   .collapse { grid-area: collapse; }
   .tabs, .pageTrigger { grid-area: navigation; }
   .pageTrigger { justify-self: start; }
-  .refresh { grid-area: refresh; }
+  .refreshControls { grid-area: refresh; }
   .filters {
     grid-area: filters;
     display: grid;
@@ -182,9 +182,11 @@
   .collapse { display: none; }
   .filter [data-time-range-trigger] > svg:not(:last-child) { display: none; }
   .filters { gap: 8px; }
-  .host[data-flow='split'] .dock { grid-template-columns: minmax(0, 1fr) 44px; grid-template-areas: 'navigation refresh' 'filters filters'; }
+  .host[data-flow='split'] .dock { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'navigation refresh' 'filters filters'; }
 }
 @container (max-width: 330px) { .dock { --toolbar-gap: 6px; } }
 
 :global([data-theme='dark']) .host .dock { box-shadow: 0 8px 24px rgb(0 0 0 / 35%), 0 1px 3px rgb(0 0 0 / 25%); }
 @media (prefers-reduced-motion: reduce) { .selection, .pageTrigger > svg { transition: none; } }
+
+.refreshControls { display: flex; align-items: center; flex: 0 0 auto; position: relative; z-index: 1; }

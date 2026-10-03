@@ -39,7 +39,7 @@ describe('fetchUsageEvents', () => {
     expect(new URL(String(url), 'http://localhost').pathname).toBe('/api/v1/auth/api-key-login');
     expect(init).toMatchObject({ credentials: 'include', method: 'POST' });
     expect(headerValue(init, 'Content-Type')).toBe('application/json');
-    expect(init?.body).toBe(JSON.stringify({ apiKey: 'sk-cpa-viewer' }));
+    expect(init?.body).toBe(JSON.stringify({ apiKey: 'sk-cpa-viewer', rememberMe: true }));
   });
 
   it('loads key overview with only the viewer range query', async () => {

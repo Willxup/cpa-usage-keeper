@@ -96,6 +96,7 @@ export const buildUsageChartTooltipStyle = (chartTheme: UsageChartTheme) => ({
  * Static sparkline chart options (no dependencies on theme/mobile)
  */
 export const sparklineOptions: ChartOptions<'line'> = {
+  animation: false,
   responsive: true,
   maintainAspectRatio: false,
   plugins: { legend: { display: false }, tooltip: { enabled: false } },

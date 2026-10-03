@@ -11,6 +11,7 @@ import { CredentialStatusToggle, CredentialStatusUnsupportedIcon, isCredentialSt
 import { QuestionMarkHelp } from '@/components/ui/QuestionMarkHelp'
 
 interface AiProviderCredentialsSectionProps {
+  reportingOnly?: boolean
   rows: AiProviderCredentialRow[]
   total: number
   page: number
@@ -33,7 +34,7 @@ interface AiProviderCredentialsSectionProps {
   onSortChange: (sort: UsageIdentityPageSort) => void
 }
 
-export function AiProviderCredentialsSection({ rows, total, page, totalPages, pageSize, activeOnly, sort, loading, editFallbackRef, onEdit, onOpenDetails, statusPendingIdentityIds, onToggleStatus, onSavePriority, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange }: AiProviderCredentialsSectionProps) {
+export function AiProviderCredentialsSection({ reportingOnly = false, rows, total, page, totalPages, pageSize, activeOnly, sort, loading, editFallbackRef, onEdit, onOpenDetails, statusPendingIdentityIds, onToggleStatus, onSavePriority, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange }: AiProviderCredentialsSectionProps) {
   const { t } = useTranslation()
   const helpText = t('usage_stats.credentials_ai_providers_active_only_help')
 
@@ -89,7 +90,7 @@ export function AiProviderCredentialsSection({ rows, total, page, totalPages, pa
               displayName={row.displayName}
               disabled={row.identity.disabled}
               pending={statusPendingIdentityIds?.has(row.identity.id || row.identity.identity) ?? false}
-              readOnly={row.identity.is_deleted}
+              readOnly={reportingOnly || row.identity.is_deleted}
               onToggle={(disabled) => onToggleStatus?.(row.identity.id || row.identity.identity, row.identity.identity, disabled)}
             />
           ) : (
@@ -121,13 +122,13 @@ export function AiProviderCredentialsSection({ rows, total, page, totalPages, pa
               <CredentialPriorityEditor
                 priority={row.identity.priority}
                 displayName={row.displayName}
-                readOnly={row.identity.is_deleted}
+                readOnly={reportingOnly || row.identity.is_deleted}
                 openAIShared={row.identity.type.trim().toLowerCase() === 'openai'}
                 onSave={onSavePriority ? (priority) => onSavePriority(row.identity.id || row.identity.identity, row.identity.identity, priority) : undefined}
               />
             </span>
           ) : undefined}
-          badges={null}
+          badges={reportingOnly ? <span>{t(row.identity.disabled ? 'usage_stats.credentials_detail_disabled' : 'usage_stats.credentials_detail_enabled')}</span> : null}
           metricsTitle={row.identity.stats_reset_at ? t('usage_stats.credentials_stats_since', { time: formatCredentialTimestamp(row.identity.stats_reset_at) ?? row.identity.stats_reset_at }) : undefined}
           metrics={(
             <>

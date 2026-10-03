@@ -3,7 +3,7 @@ import { ApiError, fetchKeyActivity, fetchUsageActivity } from '@/lib/api';
 import type { UsageActivityRequest, UsageActivityResponse, UsageTimeRange } from '@/lib/types';
 
 export interface UseUsageActivityDataOptions {
-  viewer: 'admin' | 'key';
+  viewer: 'admin' | 'key' | 'read_only';
   request: UsageActivityRequest;
   apiKeyId?: string;
   enabled?: boolean;
@@ -36,7 +36,7 @@ export function useUsageActivityData({
   enabled = true,
   onAuthRequired,
 }: UseUsageActivityDataOptions): UseUsageActivityDataReturn {
-  const normalizedAPIKeyID = viewer === 'admin' ? apiKeyId?.trim() ?? '' : '';
+  const normalizedAPIKeyID = viewer !== 'key' ? apiKeyId?.trim() ?? '' : '';
   const requestWindow = 'window' in request ? request.window : undefined;
   const requestRange = 'range' in request ? request.range : undefined;
   const requestUnit = 'range' in request ? request.unit : undefined;
@@ -83,8 +83,8 @@ export function useUsageActivityData({
     setErrorQueryKey('');
     activeRequest.promise = (async () => {
       try {
-        const next = viewer === 'key'
-          ? await fetchKeyActivity({ request: normalizedRequest, signal: controller.signal })
+        const next = viewer !== 'admin'
+          ? await fetchKeyActivity({ request: normalizedRequest, signal: controller.signal, readOnly: viewer === 'read_only', apiKeyId: viewer === 'read_only' ? normalizedAPIKeyID : undefined })
           : await fetchUsageActivity({ request: normalizedRequest, apiKeyId: normalizedAPIKeyID, signal: controller.signal });
         if (activeRequestRef.current !== activeRequest) return;
         setResponse(next);

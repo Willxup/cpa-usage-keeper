@@ -54,6 +54,7 @@ import type { Theme } from '@/types';
 import { BrandLink } from '@/components/BrandLink';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { DashboardToolbar } from '@/components/dashboard/DashboardToolbar';
+import { AutoRefreshControl } from '@/components/dashboard/AutoRefreshControl';
 import { cpamcEmbedSearch, isCPAMCEmbed } from '@/embed/cpamcEmbed';
 import { RankingPage } from '@/features/ranking/RankingPage';
 import { RankingScopeSwitch } from '@/features/ranking/components/RankingScopeSwitch';
@@ -1866,11 +1867,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [onAuthRequired, showTopNotice, t]);
 
-  useEffect(() => scheduleOverviewAutoRefresh({
-    enabled: autoRefreshEnabled,
-    refreshOverview: refreshAutoRefreshTab,
-    onRefreshError: handleAutoRefreshError,
-  }), [autoRefreshEnabled, handleAutoRefreshError, refreshAutoRefreshTab]);
+  const autoRefreshControl = <AutoRefreshControl enabled={autoRefreshEnabled} busy={manualRefreshLoading} onRefresh={refreshAutoRefreshTab} onError={handleAutoRefreshError} />;
 
 	  useHeaderRefresh(refreshActiveTab);
 
@@ -2199,6 +2196,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                         </>
                       )}
                     </MainActionButton>
+                    {autoRefreshControl}
                   </div>
                 </div>
               </div>
@@ -2223,6 +2221,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               ] : showRankingScopeControl ? [<RankingScopeSwitch key="ranking-scope" value={rankingScope} onChange={handleRankingScopeChange} />] : []}
               onRefresh={() => void handleManualRefresh().catch(() => {})}
               refreshing={manualRefreshLoading}
+              autoRefreshControl={autoRefreshControl}
             />}
 
             {activeTab === 'overview' && (error || comparisonsError) && <div className={styles.errorBox}>{(error || comparisonsError) === 'AUTH_REQUIRED' ? t('auth.session_expired') : (error || comparisonsError)}</div>}

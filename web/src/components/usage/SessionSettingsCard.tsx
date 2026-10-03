@@ -19,6 +19,9 @@ export interface SessionSettingsCardProps {
 }
 
 export function getSessionLogoutConfirmationKeys(session: AuthManagedSessionItem) {
+  if (session.kind === 'read_only') return {
+    titleKey: 'read_only.sign_out_title', bodyKey: 'read_only.sign_out_body', confirmKey: 'usage_stats.session_settings_logout_confirm',
+  };
   if (session.kind === 'admin') {
     return {
       titleKey: 'usage_stats.session_settings_admin_logout_title',
@@ -34,6 +37,7 @@ export function getSessionLogoutConfirmationKeys(session: AuthManagedSessionItem
 }
 
 function getSessionDisplayName(session: AuthManagedSessionItem, t: (key: string) => string) {
+  if (session.kind === 'read_only') return t('read_only.title');
   if (session.kind === 'admin') {
     return session.alias || t('usage_stats.session_settings_admin_label');
   }
