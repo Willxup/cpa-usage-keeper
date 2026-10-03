@@ -14,29 +14,37 @@ type trafficQuotaReader interface {
 	FetchQuotaObservations(context.Context) ([]cpa.QuotaObservation, error)
 }
 
-// StartTrafficQuotaSync reads CPA's local cache, never a provider endpoint.
-// The existing worker revalidates identities and applies cache/history protections.
-func (s *Service) StartTrafficQuotaSync(reader trafficQuotaReader) {
-	if s == nil || reader == nil {
-		return
+// TrafficQuotaSyncRunner reads CPA's local cache, never a provider endpoint.
+// App starts it after installing the quota service's runtime context.
+type TrafficQuotaSyncRunner struct {
+	service *Service
+	reader  trafficQuotaReader
+}
+
+func NewTrafficQuotaSyncRunner(service *Service, reader trafficQuotaReader) *TrafficQuotaSyncRunner {
+	return &TrafficQuotaSyncRunner{service: service, reader: reader}
+}
+
+func (r *TrafficQuotaSyncRunner) Run(ctx context.Context) error {
+	if r == nil || r.service == nil || r.reader == nil {
+		return nil
 	}
-	s.trafficSyncOnce.Do(func() {
-		s.startRefreshGoroutine(func() {
-			timer := time.NewTicker(5 * time.Second)
-			defer timer.Stop()
-			seen := map[string]time.Time{}
-			for {
-				ctx, cancel := context.WithTimeout(s.refreshContextSnapshot(), 4*time.Second)
-				seen, _ = s.syncTrafficQuota(ctx, reader, seen)
-				cancel()
-				select {
-				case <-s.refreshContextSnapshot().Done():
-					return
-				case <-timer.C:
-				}
-			}
-		})
-	})
+	timer := time.NewTicker(5 * time.Second)
+	defer timer.Stop()
+	seen := map[string]time.Time{}
+	for {
+		if ctx.Err() != nil {
+			return nil
+		}
+		requestCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		seen, _ = r.service.syncTrafficQuota(requestCtx, r.reader, seen)
+		cancel()
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-timer.C:
+		}
+	}
 }
 
 func (s *Service) syncTrafficQuota(ctx context.Context, reader trafficQuotaReader, seen map[string]time.Time) (map[string]time.Time, error) {

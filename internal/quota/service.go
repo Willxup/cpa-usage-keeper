@@ -32,10 +32,9 @@ type ServiceOptions struct {
 }
 
 type Service struct {
-	trafficSyncOnce sync.Once
-	db              *gorm.DB
-	registry        ProviderRegistry
-	pricing         *pricing.Catalog
+	db       *gorm.DB
+	registry ProviderRegistry
+	pricing  *pricing.Catalog
 	// quotaUpstreamResponsesEnabled 控制刷新任务是否把 CPA 转发的完整上游响应写入最新限额缓存。
 	quotaUpstreamResponsesEnabled bool
 

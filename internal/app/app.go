@@ -69,6 +69,7 @@ type App struct {
 	MetadataSync      *MetadataSyncRunner
 	QuotaService      QuotaRunner
 	QuotaAutoRefresh  QuotaRunner
+	QuotaTrafficSync  Runner
 	BackupMaintenance *DatabaseBackupRunner
 	RecentUsageCache  *repository.UsageRecentEventCache
 	PricingCatalog    *pricing.Catalog
@@ -205,7 +206,6 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		QuotaUpstreamResponsesEnabled:    cfg.QuotaUpstreamResponsesEnabled,
 		PricingCatalog:                   pricingCatalog,
 	})
-	quotaService.StartTrafficQuotaSync(cpaClient)
 	// 单 writer aggregation runner 只维护 rollups/Identity，并在 App.Run 时主动追平。
 	usageAggregationRunner := poller.NewUsageAggregationRunner(db)
 	// syncService 仍然是 metadata 和 usage 处理共享的业务服务入口。
@@ -352,6 +352,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		MetadataSync:      metadataSyncRunner,
 		QuotaService:      quotaService,
 		QuotaAutoRefresh:  quotaService,
+		QuotaTrafficSync:  quota.NewTrafficQuotaSyncRunner(quotaService, cpaClient),
 		BackupMaintenance: backupMaintenance,
 		RecentUsageCache:  recentUsageCache,
 		PricingCatalog:    pricingCatalog,
@@ -465,6 +466,16 @@ func (a *App) Run() error {
 
 	ctx := a.startBackgroundContext()
 	defer a.stopBackgroundTasks()
+	if a.QuotaService != nil {
+		a.QuotaService.SetRefreshContext(ctx)
+	}
+	if a.QuotaTrafficSync != nil {
+		a.startBackgroundTask(func() {
+			if err := a.QuotaTrafficSync.Run(ctx); err != nil {
+				logrus.Errorf("quota traffic synchronization stopped: %v", err)
+			}
+		})
+	}
 	if a.RedisIngest != nil {
 		a.startBackgroundTask(func() {
 			if err := a.RedisIngest.Run(ctx); err != nil {
@@ -525,9 +536,6 @@ func (a *App) Run() error {
 				logrus.Errorf("local ranking aggregation stopped: %v", err)
 			}
 		})
-	}
-	if a.QuotaService != nil {
-		a.QuotaService.SetRefreshContext(ctx)
 	}
 	if a.QuotaAutoRefresh != nil {
 		a.startBackgroundTask(func() {
