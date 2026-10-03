@@ -8,8 +8,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/repository"
+	"gorm.io/plugin/dbresolver"
 )
 
 const maxLocalRankingKeyAliasRunes = 128
@@ -34,12 +36,21 @@ func (s *LocalRankingService) UpdateProfile(ctx context.Context, apiKeyID int64,
 		return LocalProfile{}, ErrInvalidLocalProfile
 	}
 	for _, char := range keyAlias {
-		if unicode.IsControl(char) {
+		if unicode.IsControl(char) || unicode.Is(unicode.Cf, char) {
 			return LocalProfile{}, ErrInvalidLocalProfile
 		}
 	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if s.nameWriter != nil {
+		var key entities.CPAAPIKey
+		if err := s.db.WithContext(ctx).Clauses(dbresolver.Write).First(&key, apiKeyID).Error; err != nil {
+			return LocalProfile{}, err
+		}
+		if err := s.nameWriter.UpdateAPIKeyName(ctx, key.APIKey, keyAlias); err != nil {
+			return LocalProfile{}, err
+		}
 	}
 	row, err := repository.UpdateCPAAPIKeyLocalRankingProfile(s.db.WithContext(ctx), apiKeyID, keyAlias, avatarID)
 	if err != nil {
@@ -51,4 +62,10 @@ func (s *LocalRankingService) UpdateProfile(ctx context.Context, apiKeyID int64,
 		DisplayName:   helper.CPAAPIKeyDisplayName(row),
 		AvatarID:      *row.LocalRankingAvatarID,
 	}, nil
+}
+
+func (s *LocalRankingService) SetAPIKeyNameWriter(writer interface {
+	UpdateAPIKeyName(context.Context, string, string) error
+}) {
+	s.nameWriter = writer
 }

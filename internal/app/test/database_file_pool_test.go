@@ -167,7 +167,15 @@ func TestUsageEventExportBypassesOccupiedFileWriter(t *testing.T) {
 
 func TestAPIKeyAliasUpdateStaysOnWriterWhenReadersAreOccupied(t *testing.T) {
 	// 写命令会先 UPDATE 再回读最新 API Key；整个命令必须固定使用 writer。
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/v8/management/access/api-key-names" {
+			t.Errorf("unexpected shared name request: %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer remote.Close()
 	cfg := databasePoolTestConfig(filepath.Join(t.TempDir(), "app.db"))
+	cfg.CPABaseURL = remote.URL
 	application := newDatabasePoolTestApp(t, cfg)
 	apiKey := entities.CPAAPIKey{APIKey: "sk-writer-command", DisplayKey: "sk-*********command"}
 	if err := application.DB.Create(&apiKey).Error; err != nil {

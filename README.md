@@ -550,3 +550,9 @@ Production-style `linux/amd64` capacity measurements for sustained ingestion, Da
 ## License
 
 This project is open source under the [MIT License](./LICENSE).
+
+### Shared API Key display names
+
+Keeper synchronizes optional client-key display names from CPA's `/v8/management/access/api-key-names` API. Names are indexed by SHA-256 fingerprints; this metadata does not enable keys or change authentication. Missing names preserve local aliases, and explicit empty names clear them. Historical keys retain their names. The first replaced local alias is retained in application settings for recovery.
+
+Administrator alias edits and Local Ranking profile edits write the shared name before updating Keeper. A remote error leaves the local alias unchanged. If the local database write fails after a remote success, the next metadata synchronization reconciles it. CPA versions without the endpoint (404) continue to use Keeper's local aliases. Shared synchronization requires the CPA implementation in router-for-me/CLIProxyAPI#6334.

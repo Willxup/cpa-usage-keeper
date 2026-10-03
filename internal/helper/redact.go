@@ -31,8 +31,16 @@ func CPAAPIKeyMaskedDisplayKey(row entities.CPAAPIKey) string {
 
 // CPAAPIKeyDisplayName 返回 CPA API Key 的前端展示名：优先别名，其次使用统一脱敏 key。
 func CPAAPIKeyDisplayName(row entities.CPAAPIKey) string {
-	if strings.TrimSpace(row.KeyAlias) != "" {
-		return strings.TrimSpace(row.KeyAlias)
+	if name := APIKeyAlias(row.KeyAlias, row.APIKey); name != "" {
+		return name
 	}
 	return CPAAPIKeyMaskedDisplayKey(row)
+}
+
+func APIKeyAlias(name, key string) string {
+	name = strings.TrimSpace(name)
+	if key != "" && strings.Contains(name, key) {
+		return ""
+	}
+	return name
 }

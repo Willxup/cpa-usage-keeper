@@ -199,6 +199,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	pricingCatalog := pricing.NewCatalog(pricingSnapshot)
 
 	cpaClient := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)
+	localRankingService.SetAPIKeyNameWriter(cpaClient)
 	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{
 		RefreshWorkerLimit:            cfg.QuotaRefreshWorkerLimit,
 		QuotaUpstreamResponsesEnabled: cfg.QuotaUpstreamResponsesEnabled,
@@ -304,7 +305,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	usageIdentityService := service.NewUsageIdentityServiceWithOptions(db, recentUsageCache, service.UsageIdentityServiceOptions{
 		OnDisplayNameChanged: quotaService.UpdateUsageIdentityDisplayNameSnapshot,
 	})
-	cpaAPIKeyService := service.NewCPAAPIKeyService(db)
+	cpaAPIKeyService := service.NewSharedCPAAPIKeyService(db, cpaClient)
 	// 单条凭证开关成功后立即与 CPA 对齐；runner 自带合并窗口和 nil 保护。
 	credentialMutationLocks := &service.CredentialMutationLocks{}
 	authFilesManagementService := service.NewAuthFilesManagementService(cpaClient, credentialMutationLocks)

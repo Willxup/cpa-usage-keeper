@@ -32,5 +32,5 @@ func syncManagementAPIKeys(db *gorm.DB, result *response.ManagementAPIKeysResult
 		return fmt.Errorf("sync management api keys: %w", err)
 	}
 	// 成功空列表和非空列表都完成本轮同步。
-	return nil
+	return repository.SyncCPAAPIKeyNames(db, result.Payload.Names)
 }

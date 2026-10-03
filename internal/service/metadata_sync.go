@@ -25,6 +25,12 @@ func (s *SyncService) SyncMetadata(ctx context.Context) error {
 	authFilesResult, authFilesErr := s.metadataFetcher.FetchAuthFiles(ctx)
 	// 管理 API Keys 保持第二个读取位置，失败同样不阻止 provider。
 	apiKeysResult, apiKeysErr := s.metadataFetcher.FetchManagementAPIKeys(ctx)
+	var keyNamesErr error
+	if reader, ok := s.metadataFetcher.(interface {
+		FetchAPIKeyNames(context.Context) (map[string]string, error)
+	}); ok && apiKeysErr == nil && apiKeysResult != nil {
+		apiKeysResult.Payload.Names, keyNamesErr = reader.FetchAPIKeyNames(ctx)
+	}
 	// 八个 provider endpoint 只在纯包内并发，返回按 registry 确定性归并的 snapshot。
 	providerSnapshot, providerFetchErr := providermetadata.Fetch(ctx, s.metadataFetcher)
 	// Auth Files 先进入自己的 repository 事务，保持原有写入顺序。
@@ -53,7 +59,7 @@ func (s *SyncService) SyncMetadata(ctx context.Context) error {
 		}
 	}
 	// 最终顺序保持 persistence、兼容 aggregate、provider warning；生产后台聚合仍有独立生命周期。
-	err := joinErrors(upsertErr, aggregateErr, providerWarningErr)
+	err := joinErrors(upsertErr, aggregateErr, providerWarningErr, keyNamesErr)
 	// 完成日志默认沿用 completed 状态。
 	fields := logrus.Fields{
 		// status 字段保持现有 dashboard/runtime 观察语义。
