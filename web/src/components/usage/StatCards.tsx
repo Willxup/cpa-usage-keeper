@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useMemo, type CSSProperties, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Line } from 'react-chartjs-2';
 import {
@@ -6,7 +6,6 @@ import {
   IconDollarSign,
   IconPercent,
   IconSatellite,
-  IconTimer,
   IconTrendingUp,
 } from '@/components/ui/icons';
 import {
@@ -19,7 +18,7 @@ import {
 import { sparklineOptions } from '@/utils/usage/chartConfig';
 import type { UsageOverviewPayload, UsagePayload } from './hooks/useUsageData';
 import type { SparklineBundle } from './hooks/useSparklines';
-import { buildDailyAverageMetrics, DailyAverageCard } from './DailyAverageCard';
+import { OverviewQuotaPanel, type QuotaScope } from './OverviewQuotaPanel';
 import styles from '@/pages/UsagePage.module.scss';
 
 interface StatCardData {
@@ -37,8 +36,8 @@ interface StatCardData {
 export interface StatCardsProps {
   usage: UsageOverviewPayload | null;
   loading: boolean;
-  dailyAverageUsage: UsageOverviewPayload | null;
-  reserveDailyAverage: boolean;
+  quotaScope?: QuotaScope;
+  onAuthRequired?: () => void;
   sparklines: {
     requests: SparklineBundle | null;
     tokens: SparklineBundle | null;
@@ -117,24 +116,16 @@ export function buildStatCardMetrics({ usage }: { usage: UsageOverviewPayload | 
 export function StatCards({
   usage,
   loading,
-  dailyAverageUsage,
-  reserveDailyAverage,
+  quotaScope,
+  onAuthRequired,
   sparklines,
 }: StatCardsProps) {
   const { t } = useTranslation();
   const usageSnapshot = usage?.usage ?? null;
-  const shouldExpandDailyAverage = Boolean(buildDailyAverageMetrics(dailyAverageUsage)) || reserveDailyAverage;
-  const [dailyAverageExpanded, setDailyAverageExpanded] = useState(false);
   const { requestStats, tokenBreakdown, rateStats, cacheReadRateStats, totalCost, costAvailable } = useMemo(
     () => buildStatCardMetrics({ usage }),
     [usage]
   );
-
-  useEffect(() => {
-    // 等浏览器完成当前布局后再切换展开态，让首次出现和范围切换都能触发卡片布局动画。
-    const frame = window.requestAnimationFrame(() => setDailyAverageExpanded(shouldExpandDailyAverage));
-    return () => window.cancelAnimationFrame(frame);
-  }, [shouldExpandDailyAverage]);
 
   const statsCards: StatCardData[] = [
     {
@@ -188,22 +179,6 @@ export function StatCards({
         </>
       ),
       trend: sparklines.tokens,
-    },
-    {
-      key: 'rpm',
-      label: t('usage_stats.rpm'),
-      icon: <IconTimer size={16} />,
-      accent: '#22c55e',
-      accentSoft: 'rgba(34, 197, 94, 0.18)',
-      accentBorder: 'rgba(34, 197, 94, 0.32)',
-      value: loading ? '-' : formatPerMinuteValue(rateStats.rpm),
-      meta: (
-        <span className={styles.statMetaItem}>
-          {t('usage_stats.total_requests')}:{' '}
-          {loading ? '-' : rateStats.requestCount.toLocaleString()}
-        </span>
-      ),
-      trend: sparklines.rpm,
     },
     {
       key: 'tpm',
@@ -268,12 +243,11 @@ export function StatCards({
     },
   ];
 
-  const primaryCards = statsCards.slice(0, 2);
-  const secondaryCards = statsCards.slice(2);
+  const secondaryCards = ['tpm', 'tokens', 'cache-read-rate', 'cost'].map(key => statsCards.find(card => card.key === key)!);
   const renderStatCard = (card: StatCardData) => (
     <div
       key={card.key}
-      className={styles.statCard}
+      className={`${styles.statCard} ${card.key === 'requests' ? styles.overviewRequestCard : ''}`}
       style={
         {
           '--accent': card.accent,
@@ -288,7 +262,9 @@ export function StatCards({
         </div>
         <span className={styles.statIconBadge}>{card.icon}</span>
       </div>
-      <div className={styles.statValue}>{card.value}</div>
+      <div className={styles.overviewValueRow}><div className={styles.statValue}>{card.value}</div>
+        {card.key === 'requests' && <span className={styles.overviewRpm}><strong>{loading ? '-' : formatPerMinuteValue(rateStats.rpm)}</strong> <span>{t('overview_limits.rpm_avg')}</span></span>}
+      </div>
       {card.meta && <div className={styles.statMetaRow}>{card.meta}</div>}
       <div className={styles.statTrend}>
         {card.trend ? (
@@ -306,17 +282,9 @@ export function StatCards({
 
   return (
     <div className={styles.statsSection}>
-      <div
-        className={`${styles.primaryStatsRow} ${dailyAverageExpanded ? styles.primaryStatsRowExpanded : ''}`.trim()}
-      >
-        <div className={styles.dailyAverageSlot} aria-hidden={!dailyAverageExpanded}>
-          <DailyAverageCard usage={dailyAverageUsage} loading={loading} />
-        </div>
-        {primaryCards.map((card) => (
-          <div key={card.key} className={styles.primaryStatSlot}>
-            {renderStatCard(card)}
-          </div>
-        ))}
+      <div className={styles.overviewPrimaryRow}>
+        {renderStatCard(statsCards[0])}
+        <OverviewQuotaPanel scope={quotaScope} onAuthRequired={onAuthRequired} />
       </div>
       <div className={styles.secondaryStatsGrid}>
         {secondaryCards.map(renderStatCard)}

@@ -18,7 +18,7 @@ import {
   useUsageComparisonsData,
 } from '@/components/usage';
 import type { UsageOverviewPayload } from '@/components/usage/hooks/useUsageData';
-import { getCurrentOverviewUsage, getDailyAverageCardUsage, getOverviewDisplayLoading, isDailyAverageRange } from '@/utils/usage/overview';
+import { getCurrentOverviewUsage, getOverviewDisplayLoading } from '@/utils/usage/overview';
 import { clampStoredUsageRangeStateToCurrentBounds, resolveUsageRangeRecoveryTimeZone, type StoredUsageRangeState } from '@/utils/usage/customRange';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import { loadKeyViewerTimeRange, persistKeyViewerTimeRange } from '@/features/key-viewer/timeRange';
@@ -347,13 +347,6 @@ export function KeyOverviewPage({ page = 'overview', apiKey, readOnly = false, s
 
   const overviewDisplayLoading = getOverviewDisplayLoading({ loading, hasUsage: Boolean(usage) });
   const currentOverviewUsage = getCurrentOverviewUsage(usage, usageRangeQueryKey, loadedUsageRange);
-  const reserveDailyAverageCard = isDailyAverageRange({
-    range: timeRange,
-    customUnit: customRange?.unit,
-    customStart: customRange?.start,
-    customEnd: customRange?.end,
-  });
-  const dailyAverageCardUsage = getDailyAverageCardUsage(currentOverviewUsage, usage, reserveDailyAverageCard, loading);
   const {
     requestsSparkline,
     tokensSparkline,
@@ -401,8 +394,8 @@ export function KeyOverviewPage({ page = 'overview', apiKey, readOnly = false, s
       <StatCards
         usage={currentOverviewUsage}
         loading={overviewDisplayLoading}
-        dailyAverageUsage={dailyAverageCardUsage}
-        reserveDailyAverage={reserveDailyAverageCard}
+        quotaScope={readOnly ? 'readOnly' : 'key'}
+        onAuthRequired={onAuthRequired}
         sparklines={{
           requests: requestsSparkline,
           tokens: tokensSparkline,
@@ -413,6 +406,9 @@ export function KeyOverviewPage({ page = 'overview', apiKey, readOnly = false, s
         }}
       />
 
+
+
+      <UsageComparisonCharts isDark={resolvedTheme === 'dark'} isMobile={isMobile} comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading} keyViewer={!readOnly} />
       <RecentActivityPanel
         activity={activity}
         loading={activityLoading}
@@ -422,8 +418,6 @@ export function KeyOverviewPage({ page = 'overview', apiKey, readOnly = false, s
         requestIdentity={activityRequestIdentity}
         onWindowChange={setActivityWindow}
       />
-
-      <UsageComparisonCharts isDark={resolvedTheme === 'dark'} isMobile={isMobile} comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading} keyViewer={!readOnly} />
       </>}
 
       {page === 'realtime' && <OverviewRealtimePanel

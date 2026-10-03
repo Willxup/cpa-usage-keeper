@@ -20,6 +20,7 @@ const getInitialLanguage = (): SupportedLanguage => {
 const resources = {
   en: {
     translation: {
+      overview_limits: { window: 'Window', observed_ago: '{{minutes}}m {{seconds}}s ago', title: 'Usage Limits', account: 'Provider / account', remaining: 'Remaining', resets: 'Resets in', unavailable: 'Quota unavailable', capture_unknown: 'Capture time unavailable', stale: 'Stale observation', awaiting: 'Awaiting update', info: 'Quota details', rpm_avg: 'RPM avg' },
       read_only: {password_placeholder: 'Enter read-only password', sign_out_title: 'Sign out read-only session?', sign_out_body: 'This session will lose access to the overview.',"title": "Read-only overview", "login_tab": "Read-only overview", "login_submit": "Open overview", "password": "Read-only password", "scope": "Usage across all client keys. Estimated API costs are not subscription charges.", "keys": "Client key usage", "requests": "Requests", "tokens": "Tokens", "failures": "Failures", "cost": "Estimated API cost", "range": "Time range", "empty": "No client key usage in this period.", "error": "Usage data is unavailable. Try refreshing.", "trend": "Requests over time", "hours": "Last 24 hours", "week": "Last 7 days", "month": "Last 30 days"},
       common: {
         loading: 'Loading...',
@@ -966,6 +967,7 @@ const resources = {
   },
   zh: {
     translation: {
+      overview_limits: { window: '窗口', observed_ago: '{{minutes}}分 {{seconds}}秒前', title: '用量限额', account: '提供商 / 账号', remaining: '剩余', resets: '重置倒计时', unavailable: '限额不可用', capture_unknown: '采集时间不可用', stale: '数据已过期', awaiting: '等待更新', info: '限额详情', rpm_avg: 'RPM 平均' },
       read_only: {password_placeholder: 'Enter read-only password', sign_out_title: 'Sign out read-only session?', sign_out_body: 'This session will lose access to the overview.',"title": "Read-only overview", "login_tab": "Read-only overview", "login_submit": "Open overview", "password": "Read-only password", "scope": "Usage across all client keys. Estimated API costs are not subscription charges.", "keys": "Client key usage", "requests": "Requests", "tokens": "Tokens", "failures": "Failures", "cost": "Estimated API cost", "range": "Time range", "empty": "No client key usage in this period.", "error": "Usage data is unavailable. Try refreshing.", "trend": "Requests over time", "hours": "Last 24 hours", "week": "Last 7 days", "month": "Last 30 days"},
       common: {
         loading: '加载中...',
@@ -1912,6 +1914,7 @@ const resources = {
   },
   'zh-TW': {
     translation: {
+      overview_limits: { window: '時段', observed_ago: '{{minutes}}分 {{seconds}}秒前', title: '用量限額', account: '供應商 / 帳號', remaining: '剩餘', resets: '重置倒數', unavailable: '限額不可用', capture_unknown: '擷取時間不可用', stale: '資料已過期', awaiting: '等待更新', info: '限額詳情', rpm_avg: 'RPM 平均' },
       read_only: {password_placeholder: 'Enter read-only password', sign_out_title: 'Sign out read-only session?', sign_out_body: 'This session will lose access to the overview.',"title": "Read-only overview", "login_tab": "Read-only overview", "login_submit": "Open overview", "password": "Read-only password", "scope": "Usage across all client keys. Estimated API costs are not subscription charges.", "keys": "Client key usage", "requests": "Requests", "tokens": "Tokens", "failures": "Failures", "cost": "Estimated API cost", "range": "Time range", "empty": "No client key usage in this period.", "error": "Usage data is unavailable. Try refreshing.", "trend": "Requests over time", "hours": "Last 24 hours", "week": "Last 7 days", "month": "Last 30 days"},
       common: {
         loading: '載入中...',

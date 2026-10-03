@@ -1,0 +1,36 @@
+.panel {
+  --accent: #8b5cf6;
+  --accent-soft: rgba(139, 92, 246, 0.12);
+  --accent-border: rgba(139, 92, 246, 0.35);
+  height: 234px;
+  min-height: 234px;
+  padding: 18px 16px 12px;
+  gap: 8px;
+}
+.scroll { flex: 1; min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: var(--border-color) transparent; }
+.scroll table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12px; font-variant-numeric: tabular-nums; }
+.scroll th { text-align: left; font-size: 11px; font-weight: 500; color: var(--text-tertiary); position: sticky; top: 0; background: var(--bg-primary); z-index: 1; padding: 3px 0 7px; }
+.scroll th:first-child { width: 30%; }
+.scroll th:nth-child(2) { width: 48%; }
+.scroll th:last-child { width: 22%; padding-left: 12px; }
+.scroll td { vertical-align: top; border-top: 1px solid var(--border-color); padding: 9px 10px 9px 0; }
+.scroll td:last-child { padding-right: 0; padding-left: 12px; }
+.account { display: block; overflow-wrap: anywhere; font-weight: 650; }
+.scroll tr.continuation td { border-top: 0; padding-top: 0; }
+.limit, .reset { min-height: 22px; }
+.limit { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.quotaHeading { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 6px; }
+.window { color: var(--text-secondary); font-size: 11px; overflow-wrap: anywhere; }
+.metric { font-size: 10px; }
+.value { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.info { border: 0; padding: 0; background: transparent; color: var(--text-tertiary); font: inherit; cursor: pointer; }
+.stale { color: var(--warning-color, #d97706); }
+.limit progress { display: block; width: 100%; min-width: 0; height: 4px; margin: 0; border: 0; border-radius: 3px; overflow: hidden; appearance: none; background: var(--bg-tertiary); }
+.limit progress::-webkit-progress-bar { background: var(--bg-tertiary); }
+.limit progress::-webkit-progress-value { background: #22c55e; border-radius: 3px; }
+.limit progress::-moz-progress-bar { background: #22c55e; border-radius: 3px; }
+.limit progress.low::-webkit-progress-value { background: #f97316; }
+.limit progress.low::-moz-progress-bar { background: #f97316; }
+.reset { display: flex; align-items: center; color: var(--text-secondary); font-size: 12px; }
+.notice { color: var(--text-tertiary); font-size: 11px; }
+@media (max-width: 820px) { .panel { height: 234px; } }
