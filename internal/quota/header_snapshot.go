@@ -11,6 +11,7 @@ import (
 const codexHeaderSnapshotValueMaxLength = 4096
 
 type UsageHeaderSnapshotInput struct {
+	Source RefreshSource
 	// AuthType 是 UsageEvent 的标准化身份来源；只有 oauth 才能对应支持的 Auth File。
 	AuthType string
 	// AuthIndex 是 UsageEvent 携带的 CPA auth-index，空值不能建立 cache 或历史归属。
@@ -23,7 +24,14 @@ type UsageHeaderSnapshotInput struct {
 	Headers http.Header
 }
 
+type quotaCapture struct {
+	At     time.Time
+	Source RefreshSource
+}
 type UsageHeaderSnapshot struct {
+	cacheRows  []QuotaRow
+	rowCapture map[string]quotaCapture
+	Source     RefreshSource
 	// AuthType 是标准化身份来源；Header 快照只接受 oauth。
 	AuthType string
 	// AuthIndex 是 CPA Auth File 稳定账号键，供 cache 身份匹配和历史回溯使用。
@@ -61,13 +69,22 @@ func BuildUsageHeaderSnapshot(input UsageHeaderSnapshotInput) (*UsageHeaderSnaps
 		return nil, false
 	}
 	// 协议仅由已归一化的身份字段决定；未知 provider 不推测 Header 命名空间。
+	var snapshot *UsageHeaderSnapshot
+	var ok bool
 	switch input.Provider {
 	case "codex":
-		return codexUsageHeaderSnapshotProcessor{}.TryBuildUsageHeaderSnapshot(input)
+		snapshot, ok = codexUsageHeaderSnapshotProcessor{}.TryBuildUsageHeaderSnapshot(input)
 	case "claude":
-		return claudeUsageHeaderSnapshotProcessor{}.TryBuildUsageHeaderSnapshot(input)
+		snapshot, ok = claudeUsageHeaderSnapshotProcessor{}.TryBuildUsageHeaderSnapshot(input)
 	}
-	return nil, false
+	if ok {
+		snapshot.Source = input.Source
+		snapshot.rowCapture = make(map[string]quotaCapture)
+		for _, row := range NormalizeQuotaRows(snapshot.CacheOutput) {
+			snapshot.rowCapture[row.Key] = quotaCapture{input.ObservedAt, input.Source}
+		}
+	}
+	return snapshot, ok
 }
 
 type codexUsageHeaderSnapshotProcessor struct{}

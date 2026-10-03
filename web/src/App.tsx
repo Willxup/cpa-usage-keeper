@@ -3,13 +3,16 @@ import { useTranslation } from 'react-i18next';
 import './index.css';
 import './App.css';
 import './embed/cpamcEmbed.css';
-import { ApiError, appPath, clearEmbedSessionToken, getSession, login, loginWithCPAAPIKey } from './lib/api';
+import { ApiError, appPath, clearEmbedSessionToken, getSession, login, loginReadOnly, loginWithCPAAPIKey } from './lib/api';
 import type { AuthRole, AuthSessionAPIKeySummary } from './lib/types';
 import { AppFooter } from './components/AppFooter';
 import { isKeyViewerPath, type KeyViewerPath } from './features/key-viewer';
 import { KeyAnalysisPage } from './pages/KeyAnalysisPage';
 import { KeyOverviewPage } from './pages/KeyOverviewPage';
+import { KeyQuotaPage } from './pages/KeyQuotaPage';
 import { KeyRankingPage } from './pages/KeyRankingPage';
+import { getReadOnlyPage } from './features/key-viewer/navigation';
+import { ReadOnlyPage } from './pages/ReadOnlyPage';
 import { LoginPage } from './pages/LoginPage';
 import { UsagePage } from './pages/UsagePage';
 import { cpamcEmbedSearch, isCPAMCEmbed, notifyCPAMCEmbedReady } from './embed/cpamcEmbed';
@@ -23,8 +26,8 @@ const getInitialKeyViewerPath = (): KeyViewerPath => {
   return isKeyViewerPath(currentPath) ? currentPath : '/key-overview';
 };
 
-export const getRoleHomePath = (role: AuthRole): '/' | '/key-overview' => (
-  role === 'api_key_viewer' ? '/key-overview' : '/'
+export const getRoleHomePath = (role: AuthRole): '/' | '/key-overview' | '/read-only' => (
+  role === 'api_key_viewer' ? '/key-overview' : role === 'read_only' ? '/read-only' : '/'
 );
 
 export const getRoleTargetPath = (
@@ -36,6 +39,7 @@ export const getRoleTargetPath = (
   if (role === 'api_key_viewer') {
     return isKeyViewerPath(currentPath) ? currentPath : '/key-overview';
   }
+  if (role === 'read_only') return getReadOnlyPage(currentPath) ? currentPath : '/read-only';
   if (currentPath === '/') return '/';
 
   const usageTab = resolveUsageTabFromPath(currentPath);
@@ -57,6 +61,8 @@ function App() {
   const [keyViewerPath, setKeyViewerPath] = useState<KeyViewerPath>(getInitialKeyViewerPath);
   const [adminLoginError, setAdminLoginError] = useState('');
   const [apiKeyLoginError, setAPIKeyLoginError] = useState('');
+  const [readOnlyEnabled, setReadOnlyEnabled] = useState(false);
+  const [readOnlyLoginError, setReadOnlyLoginError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const clearUsageStats = useUsageStatsStore((state) => state.clearUsageStats);
   const isEmbeddedInCPAMC = isCPAMCEmbed();
@@ -70,6 +76,7 @@ function App() {
   }, [clearUsageStats]);
 
   const applySession = useCallback((session: Awaited<ReturnType<typeof getSession>>) => {
+    setReadOnlyEnabled(session.read_only_enabled === true);
     if (!session.authenticated) {
       clearSession();
       return;
@@ -106,11 +113,11 @@ function App() {
     window.history.replaceState(null, '', appPath(targetPath) + cpamcEmbedSearch());
   }, [authRole, authState, isEmbeddedInCPAMC]);
 
-  const handlePasswordLogin = useCallback(async (password: string) => {
+  const handlePasswordLogin = useCallback(async (password: string, rememberMe = true) => {
     setSubmitting(true);
     setAdminLoginError('');
     try {
-      await login(password);
+      await login(password,rememberMe);
       const session = await loadSession();
       if (!session.authenticated) {
         setAdminLoginError(t('auth.login_failed'));
@@ -132,11 +139,24 @@ function App() {
     }
   }, [clearSession, isEmbeddedInCPAMC, loadSession, t]);
 
-  const handleAPIKeyLogin = useCallback(async (apiKey: string) => {
+  const handleReadOnlyLogin = useCallback(async (password: string, rememberMe = true) => {
+    setSubmitting(true); setReadOnlyLoginError('');
+    try {
+      await loginReadOnly(password,rememberMe);
+      const session = await loadSession();
+      if (!session.authenticated || session.role !== 'read_only') throw new Error('Invalid session');
+      window.history.replaceState(null, '', appPath('/read-only'));
+    } catch (error) {
+      setReadOnlyLoginError(t(error instanceof ApiError && error.status === 429 ? 'auth.login_rate_limited' : 'auth.invalid_password'));
+      clearSession();
+    } finally {setSubmitting(false);}
+  }, [clearSession, loadSession, t]);
+
+  const handleAPIKeyLogin = useCallback(async (apiKey: string, rememberMe = true) => {
     setSubmitting(true);
     setAPIKeyLoginError('');
     try {
-      await loginWithCPAAPIKey(apiKey);
+      await loginWithCPAAPIKey(apiKey,rememberMe);
       const session = await loadSession();
       if (!session.authenticated || session.role !== 'api_key_viewer') {
         setAPIKeyLoginError(t('auth.api_key_login_failed'));
@@ -171,9 +191,13 @@ function App() {
   if (authState === 'checking') {
     page = <div className="app-checking" aria-busy="true" />;
   } else if (authState === 'unauthenticated') {
-    page = <LoginPage loading={submitting} adminError={adminLoginError} apiKeyError={apiKeyLoginError} onPasswordSubmit={handlePasswordLogin} onAPIKeySubmit={handleAPIKeyLogin} />;
+    page = <LoginPage loading={submitting} adminError={adminLoginError} apiKeyError={apiKeyLoginError} onPasswordSubmit={handlePasswordLogin} onAPIKeySubmit={handleAPIKeyLogin} readOnlyEnabled={readOnlyEnabled} readOnlyError={readOnlyLoginError} onReadOnlySubmit={handleReadOnlyLogin} />;
+  } else if (authRole === 'read_only') {
+    page = <ReadOnlyPage onAuthRequired={clearSession} />;
   } else if (authRole === 'api_key_viewer') {
-    page = keyViewerPath === '/key-analysis'
+    page = keyViewerPath === '/key-quota' && sessionAPIKey?.quota_enabled
+      ? <KeyQuotaPage apiKey={sessionAPIKey} onNavigate={handleKeyViewerNavigate} onAuthRequired={clearSession} />
+      : keyViewerPath === '/key-analysis'
       ? <KeyAnalysisPage apiKey={sessionAPIKey} onNavigate={handleKeyViewerNavigate} onAuthRequired={clearSession} />
       : keyViewerPath === '/key-ranking'
         ? <KeyRankingPage apiKey={sessionAPIKey} onNavigate={handleKeyViewerNavigate} onAuthRequired={clearSession} />

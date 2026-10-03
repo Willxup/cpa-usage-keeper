@@ -182,11 +182,18 @@ func (d queuedUsageDetail) toUsageHeaderSnapshot(event entities.UsageEvent) *quo
 	if !ok {
 		return nil
 	}
+	observedAt := event.Timestamp
+	if value := headers.Get("X-CPA-Quota-Captured-At"); value != "" {
+		if at, e := time.Parse(time.RFC3339Nano, value); e == nil {
+			observedAt = at
+		}
+	}
 	snapshot, ok := quota.BuildUsageHeaderSnapshot(quota.UsageHeaderSnapshotInput{
+		Source:     quota.RefreshSourceUsageHeader,
 		AuthType:   event.AuthType,
 		AuthIndex:  event.AuthIndex,
 		Provider:   event.Provider,
-		ObservedAt: event.Timestamp,
+		ObservedAt: observedAt,
 		Headers:    headers,
 	})
 	if !ok {

@@ -69,6 +69,7 @@ type App struct {
 	MetadataSync      *MetadataSyncRunner
 	QuotaService      QuotaRunner
 	QuotaAutoRefresh  QuotaRunner
+	QuotaTrafficSync  Runner
 	BackupMaintenance *DatabaseBackupRunner
 	RecentUsageCache  *repository.UsageRecentEventCache
 	PricingCatalog    *pricing.Catalog
@@ -200,9 +201,10 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 
 	cpaClient := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)
 	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{
-		RefreshWorkerLimit:            cfg.QuotaRefreshWorkerLimit,
-		QuotaUpstreamResponsesEnabled: cfg.QuotaUpstreamResponsesEnabled,
-		PricingCatalog:                pricingCatalog,
+		UsageHeaderSnapshotFlushInterval: time.Second,
+		RefreshWorkerLimit:               cfg.QuotaRefreshWorkerLimit,
+		QuotaUpstreamResponsesEnabled:    cfg.QuotaUpstreamResponsesEnabled,
+		PricingCatalog:                   pricingCatalog,
 	})
 	// 单 writer aggregation runner 只维护 rollups/Identity，并在 App.Run 时主动追平。
 	usageAggregationRunner := poller.NewUsageAggregationRunner(db)
@@ -322,11 +324,13 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	authConfig := api.AuthConfig{
 		Enabled:                         cfg.AuthEnabled,
 		LoginPassword:                   cfg.LoginPassword,
+		ReadOnlyPassword:                cfg.ReadOnlyPassword,
 		SessionTTL:                      cfg.AuthSessionTTL,
 		BasePath:                        cfg.AppBasePath,
 		FrameAncestorOrigins:            frameAncestorOrigins(cfg),
 		TrustedProxyCIDRs:               cfg.TrustedProxyCIDRs,
 		APIKeyViewerLocalRankingEnabled: cfg.APIKeyViewerLocalRankingEnabled,
+		APIKeyViewerQuotaEnabled:        cfg.APIKeyViewerQuotaEnabled,
 	}
 	authHandler := api.NewAuthHandler(authConfig, sessionManager)
 
@@ -348,6 +352,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		MetadataSync:      metadataSyncRunner,
 		QuotaService:      quotaService,
 		QuotaAutoRefresh:  quotaService,
+		QuotaTrafficSync:  quota.NewTrafficQuotaSyncRunner(quotaService, cpaClient),
 		BackupMaintenance: backupMaintenance,
 		RecentUsageCache:  recentUsageCache,
 		PricingCatalog:    pricingCatalog,
@@ -461,6 +466,16 @@ func (a *App) Run() error {
 
 	ctx := a.startBackgroundContext()
 	defer a.stopBackgroundTasks()
+	if a.QuotaService != nil {
+		a.QuotaService.SetRefreshContext(ctx)
+	}
+	if a.QuotaTrafficSync != nil {
+		a.startBackgroundTask(func() {
+			if err := a.QuotaTrafficSync.Run(ctx); err != nil {
+				logrus.Errorf("quota traffic synchronization stopped: %v", err)
+			}
+		})
+	}
 	if a.RedisIngest != nil {
 		a.startBackgroundTask(func() {
 			if err := a.RedisIngest.Run(ctx); err != nil {
@@ -521,9 +536,6 @@ func (a *App) Run() error {
 				logrus.Errorf("local ranking aggregation stopped: %v", err)
 			}
 		})
-	}
-	if a.QuotaService != nil {
-		a.QuotaService.SetRefreshContext(ctx)
 	}
 	if a.QuotaAutoRefresh != nil {
 		a.startBackgroundTask(func() {

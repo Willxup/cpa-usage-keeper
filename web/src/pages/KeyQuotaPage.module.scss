@@ -1,0 +1,5 @@
+.accounts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; }
+.row { padding: 12px 0; border-top: 1px solid var(--border-color, #8884); }
+.row progress { width: 100%; height: 12px; accent-color: #22a58a; margin-top: 8px; }
+.notice { color: var(--warning-color, #b56a00); }
+.metric { margin-left: 8px; opacity: .7; font-size: .85em; }

@@ -179,7 +179,53 @@ func mergePendingUsageHeaderSnapshotPointers(pending map[string]*UsageHeaderSnap
 }
 
 // mergePendingUsageHeaderCacheSnapshot 把同一账号一分钟内观察到的主额度和 Additional 收敛成一份 cache 快照。
-func mergePendingUsageHeaderCacheSnapshot(existing *UsageHeaderSnapshot, candidate *UsageHeaderSnapshot) *UsageHeaderSnapshot {
+func mergePendingUsageHeaderCacheSnapshot(existing, candidate *UsageHeaderSnapshot) *UsageHeaderSnapshot {
+	result := mergePendingUsageHeaderCachePayload(existing, candidate)
+
+	if result == nil || existing == nil || candidate == nil || existing.Provider != candidate.Provider {
+		return result
+	}
+	merged := *result
+	merged.rowCapture = map[string]quotaCapture{}
+	merged.cacheRows = nil
+	positions := map[string]int{}
+	for _, part := range []*UsageHeaderSnapshot{existing, candidate} {
+		rows := part.cacheRows
+		if rows == nil {
+			rows = NormalizeQuotaRows(part.CacheOutput)
+		}
+		for _, row := range rows {
+			capture, ok := part.rowCapture[row.Key]
+			if !ok {
+				capture = quotaCapture{part.ObservedAt, part.Source}
+			}
+			if old, found := merged.rowCapture[row.Key]; found && !capture.At.After(old.At) {
+				continue
+			}
+			merged.rowCapture[row.Key] = capture
+			if i, found := positions[row.Key]; found {
+				merged.cacheRows[i] = row
+			} else {
+				positions[row.Key] = len(merged.cacheRows)
+				merged.cacheRows = append(merged.cacheRows, row)
+			}
+		}
+	}
+	sort.SliceStable(merged.cacheRows, func(i, j int) bool {
+		a, b := merged.cacheRows[i], merged.cacheRows[j]
+		if a.Scope == "window" && b.Scope != "window" {
+			return true
+		}
+		if b.Scope == "window" && a.Scope != "window" {
+			return false
+		}
+		return a.Key < b.Key
+	})
+	result = &merged
+	return result
+}
+
+func mergePendingUsageHeaderCachePayload(existing, candidate *UsageHeaderSnapshot) *UsageHeaderSnapshot {
 	if existing == nil {
 		return candidate
 	}
@@ -330,6 +376,7 @@ func (s *Service) applyPendingClaudeUsageHeaderSnapshot(ctx context.Context, sna
 			copy := *snapshot
 			copy.ObservedAt = at
 			copy.pendingClaudeObservedAt = nil
+			copy.cacheRows = nil
 			windowUsage = &ClaudeUsagePayload{}
 			copy.CacheOutput = ProviderOutput{Provider: snapshot.CacheOutput.Provider, Result: ClaudeResult{Usage: windowUsage}}
 			windows = append(windows, &copy)
@@ -735,6 +782,17 @@ func (s *Service) applyUsageHeaderSnapshotWithIdentity(ctx context.Context, snap
 		Quota:        NormalizeQuotaRows(output),
 		Subscription: NormalizeSubscription(output),
 	}
+	if snapshot.cacheRows != nil {
+		response.Quota = append([]QuotaRow(nil), snapshot.cacheRows...)
+	}
+	for i := range response.Quota {
+		capture, ok := snapshot.rowCapture[response.Quota[i].Key]
+		if !ok {
+			capture = quotaCapture{snapshot.ObservedAt, snapshot.Source}
+		}
+		stampQuotaRows(response.Quota[i:i+1], capture.At, capture.Source)
+	}
+
 	// 没有可展示 quota row 时不写空 cache，避免覆盖已有有效结果。
 	if len(response.Quota) == 0 {
 		return false
@@ -810,9 +868,7 @@ func (s *Service) shouldProcessUsageHeaderQuotaSnapshot(authIndex string, identi
 		return false
 	}
 	// 已有 completed cache 时间不早于当前 header 时，跳过旧 snapshot。
-	if usageHeaderCompletedCacheIsCurrentOrNewer(existing, identityType, observedAt) {
-		return false
-	}
+
 	// 已有 cache 更旧或失败时，允许当前 header snapshot 修复/更新 cache。
 	return true
 }
@@ -832,13 +888,35 @@ func (s *Service) mergeUsageHeaderQuotaCache(authIndex string, response CheckRes
 			return false
 		}
 		// completed cache 可能在前置检查后更新，二次检查避免旧 header 回写。
-		if usageHeaderCompletedCacheIsCurrentOrNewer(existing, identity.Type, observedAt) {
-			return false
-		}
+
 		// Auth File 的真实 type 变化后，旧 provider 的 row、套餐和 credits 不能混进新 cache。
 		if normalizeIdentityType(existing.Type) == normalizeIdentityType(identity.Type) {
 			if existing.Quota != nil {
+				fresh := response.Quota[:0]
+				for _, candidate := range response.Quota {
+					accept := true
+					for _, old := range existing.Quota.Quota {
+						at := old.CapturedAt
+						if at.IsZero() {
+							at = existing.RefreshedAt
+						}
+						if old.Key == candidate.Key && !candidate.CapturedAt.After(at) {
+							accept = false
+							break
+						}
+					}
+					if accept {
+						fresh = append(fresh, candidate)
+					}
+				}
+				if len(fresh) == 0 {
+					return false
+				}
+				response.Quota = fresh
 				response = mergeUsageHeaderQuotaResponse(*existing.Quota, response)
+				if observedAt.Before(existing.RefreshedAt) {
+					observedAt = existing.RefreshedAt
+				}
 			}
 			// Header 无 management api-call，同一 provider 才保留最近主动刷新响应，包括失败任务。
 			upstreamResponses = cloneUpstreamResponses(existing.UpstreamResponses)
@@ -944,6 +1022,8 @@ func mergeUsageHeaderQuotaRows(existing []QuotaRow, header []QuotaRow) []QuotaRo
 func mergeUsageHeaderQuotaRow(existing QuotaRow, header QuotaRow) QuotaRow {
 	// 以旧 row 为基底，保留 header 没有携带的人工/官方完整字段。
 	merged := existing
+	merged.CapturedAt = header.CapturedAt
+	merged.Source = header.Source
 	// header key 非空时覆盖 key，正常情况下与 existing key 相同。
 	if strings.TrimSpace(header.Key) != "" {
 		merged.Key = header.Key

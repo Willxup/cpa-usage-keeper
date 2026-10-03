@@ -9,7 +9,7 @@ import type { Theme } from '@/types';
 import { BrandLink } from '@/components/BrandLink';
 import styles from './LoginPage.module.scss';
 
-type LoginMode = 'admin' | 'api_key';
+type LoginMode = 'admin' | 'api_key' | 'read_only';
 
 const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'white', labelKey: 'usage_stats.theme_light' },
@@ -20,26 +20,30 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
 type LoginErrors = {
   adminError?: string;
   apiKeyError?: string;
+  readOnlyError?: string;
 };
 
 interface LoginPageProps extends LoginErrors {
   loading?: boolean;
-  onPasswordSubmit: (password: string) => Promise<void>;
-  onAPIKeySubmit: (apiKey: string) => Promise<void>;
+  readOnlyEnabled?: boolean;
+  onReadOnlySubmit?: (password: string, rememberMe?: boolean) => Promise<void>;
+  onPasswordSubmit: (password: string, rememberMe?: boolean) => Promise<void>;
+  onAPIKeySubmit: (apiKey: string, rememberMe?: boolean) => Promise<void>;
 }
 
-export const getLoginErrorForMode = (mode: LoginMode, { adminError = '', apiKeyError = '' }: LoginErrors) => (
-  mode === 'api_key' ? apiKeyError : adminError
+export const getLoginErrorForMode = (mode: LoginMode, { adminError = '', apiKeyError = '', readOnlyError = '' }: LoginErrors) => (
+  mode === 'api_key' ? apiKeyError : mode === 'read_only' ? readOnlyError : adminError
 );
 
-export function LoginPage({ loading = false, adminError = '', apiKeyError = '', onPasswordSubmit, onAPIKeySubmit }: LoginPageProps) {
+export function LoginPage({ loading = false, adminError = '', apiKeyError = '', onPasswordSubmit, onAPIKeySubmit, readOnlyEnabled = false, readOnlyError = "", onReadOnlySubmit }: LoginPageProps) {
   const { t } = useTranslation();
   const theme = useThemeStore((state) => state.theme);
   const setTheme = useThemeStore((state) => state.setTheme);
   const [mode, setMode] = useState<LoginMode>('admin');
+  const [rememberMe, setRememberMe] = useState(false);
   const [password, setPassword] = useState('');
   const [apiKey, setApiKey] = useState('');
-  const activeError = getLoginErrorForMode(mode, { adminError, apiKeyError });
+  const activeError = getLoginErrorForMode(mode, { adminError, apiKeyError, readOnlyError });
   const themeOptions = useMemo(
     () => THEME_OPTIONS.map((option) => ({ ...option, label: t(option.labelKey) })),
     [t]
@@ -48,10 +52,11 @@ export function LoginPage({ loading = false, adminError = '', apiKeyError = '', 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (mode === 'api_key') {
-      await onAPIKeySubmit(apiKey);
+      await onAPIKeySubmit(apiKey,rememberMe);
       return;
     }
-    await onPasswordSubmit(password);
+    if (mode === 'read_only') { await onReadOnlySubmit?.(password,rememberMe); return; }
+    await onPasswordSubmit(password,rememberMe);
   };
 
   const canSubmit = mode === 'api_key' ? Boolean(apiKey.trim()) : Boolean(password.trim());
@@ -112,6 +117,11 @@ export function LoginPage({ loading = false, adminError = '', apiKeyError = '', 
             >
               {t('auth.api_key_tab')}
             </button>
+            {readOnlyEnabled && <button type="button" role="tab" aria-selected={mode === 'read_only'}
+              className={`${styles.tab} ${mode === 'read_only' ? styles.tabActive : ''}`.trim()}
+              onClick={() => {setMode('read_only'); setPassword('');}} disabled={loading}>
+              {t('read_only.login_tab')}
+            </button>}
           </div>
 
           <form className={styles.form} onSubmit={(event) => void handleSubmit(event)}>
@@ -130,16 +140,20 @@ export function LoginPage({ loading = false, adminError = '', apiKeyError = '', 
               <Input
                 type="password"
                 autoComplete="current-password"
-                label={t('auth.password_label')}
-                placeholder={t('auth.password_placeholder')}
+                label={t(mode === 'read_only' ? 'read_only.password' : 'auth.password_label')}
+                placeholder={t(mode === 'read_only' ? 'read_only.password_placeholder' : 'auth.password_placeholder')}
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 error={activeError || undefined}
                 disabled={loading}
               />
             )}
+            <div className={styles.sessionChoice}>
+              <label><input type="checkbox" checked={rememberMe} onChange={(event)=>setRememberMe(event.target.checked)} disabled={loading} aria-describedby="session-choice-help" />{t('auth.stay_signed_in')}</label>
+              <p id="session-choice-help">{t(rememberMe ? 'auth.stay_signed_in_help' : 'auth.temporary_session_help')}</p>
+            </div>
             <Button type="submit" fullWidth loading={loading} disabled={!canSubmit}>
-              {mode === 'api_key' ? t('auth.api_key_login_submit') : t('auth.login_submit')}
+              {mode === 'api_key' ? t('auth.api_key_login_submit') : mode === 'read_only' ? t('read_only.login_submit') : t('auth.login_submit')}
             </Button>
           </form>
         </Card>
