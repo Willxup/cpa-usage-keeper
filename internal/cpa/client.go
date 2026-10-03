@@ -465,6 +465,7 @@ func (c *Client) DeleteAuthFiles(ctx context.Context, names []string) error {
 }
 
 func (c *Client) CallManagementAPI(ctx context.Context, request apicall.Request) (*apicall.Response, error) {
+	request.QuotaSource = apicall.QuotaSource(ctx)
 	result := &apicall.Response{}
 	_, _, err := c.doManagementJSONPostRequest(ctx, cpaManagementAPICallEndpoint, request, result, "api call")
 	if err != nil {

@@ -4673,3 +4673,19 @@
   }
   @media (max-width: 360px) { padding-inline: 16px; }
 }
+
+.overviewPrimaryRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  > .statCard { min-width: 0; height: 234px; min-height: 234px; box-sizing: border-box; }
+  @media (max-width: 820px) { grid-template-columns: minmax(0, 1fr); }
+}
+.overviewValueRow { display: flex; align-items: baseline; flex-wrap: wrap; gap: 18px; }
+.overviewRequestCard {
+  > :not(.statTrend) { flex-shrink: 0; }
+  .statValue { font-size: 32px; }
+  .statTrend { flex: 1; min-height: 68px; height: auto; margin-top: 0; position: relative; }
+}
+.overviewRpm { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; color: var(--text-secondary); font-size: 12px; }
+.overviewRpm strong { font-size: 22px; color: var(--text-primary); }

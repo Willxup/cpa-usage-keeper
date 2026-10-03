@@ -4,6 +4,7 @@ import { KeyViewerShell } from '@/features/key-viewer/KeyViewerShell';
 import type { KeyViewerPath } from '@/features/key-viewer/navigation';
 import {
   fetchKeyLocalRankingLeaderboard,
+  fetchReadOnlyLocalRankingLeaderboard,
   fetchKeyRankingLeaderboard,
   RankingApiError,
 } from '@/features/ranking/api';
@@ -35,16 +36,17 @@ const formatDateTime = (value: string, language: string): string => {
 };
 
 export interface KeyRankingPageProps {
+  readOnly?: boolean;
   apiKey?: AuthSessionAPIKeySummary;
   onNavigate: (path: KeyViewerPath) => void;
   onAuthRequired?: () => void;
 }
 
-export function KeyRankingPage({ apiKey, onNavigate, onAuthRequired }: KeyRankingPageProps) {
+export function KeyRankingPage({ apiKey, readOnly = false, onNavigate, onAuthRequired }: KeyRankingPageProps) {
   const { t, i18n } = useTranslation();
-  const localRankingEnabled = apiKey?.local_ranking_enabled === true;
+  const localRankingEnabled = readOnly || apiKey?.local_ranking_enabled === true;
   const [scope, setScope] = useState<RankingScope>('community');
-  const effectiveScope: RankingScope = localRankingEnabled && scope === 'local' ? 'local' : 'community';
+  const effectiveScope: RankingScope = readOnly || localRankingEnabled && scope === 'local' ? 'local' : 'community';
   const [period, setPeriod] = useState<RankingPeriod>('today');
   const [metric, setMetric] = useState<RankingMetric>('overall');
   const [leaderboard, setLeaderboard] = useState<RankingLeaderboardResponse | null>(null);
@@ -87,7 +89,7 @@ export function KeyRankingPage({ apiKey, onNavigate, onAuthRequired }: KeyRankin
 
     try {
       const nextLeaderboard = effectiveScope === 'local'
-        ? await fetchKeyLocalRankingLeaderboard(period, metric, controller.signal)
+        ? await (readOnly ? fetchReadOnlyLocalRankingLeaderboard : fetchKeyLocalRankingLeaderboard)(period, metric, controller.signal)
         : await fetchKeyRankingLeaderboard(period, metric, controller.signal);
       if (requestControllerRef.current !== controller) return;
       setLeaderboard(nextLeaderboard);
@@ -112,7 +114,7 @@ export function KeyRankingPage({ apiKey, onNavigate, onAuthRequired }: KeyRankin
         setLoading(false);
       }
     }
-  }, [effectiveScope, metric, onAuthRequired, period]);
+  }, [effectiveScope, metric, onAuthRequired, period, readOnly]);
 
   useEffect(() => {
     void loadLeaderboard();
@@ -145,9 +147,10 @@ export function KeyRankingPage({ apiKey, onNavigate, onAuthRequired }: KeyRankin
   return (
     <KeyViewerShell
       activePage="ranking"
+      readOnly={readOnly}
       apiKey={apiKey}
       loading={loading && !leaderboard}
-      filters={localRankingEnabled ? [<RankingScopeSwitch key="scope" value={effectiveScope} onChange={handleScopeChange} />] : []}
+      filters={localRankingEnabled && !readOnly ? [<RankingScopeSwitch key="scope" value={effectiveScope} onChange={handleScopeChange} />] : []}
       onRefresh={() => void handleManualRefresh()}
       refreshing={manualRefreshLoading}
       onNavigate={onNavigate}

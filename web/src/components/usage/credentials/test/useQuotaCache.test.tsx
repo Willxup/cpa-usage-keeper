@@ -35,7 +35,7 @@ describe('quota cache polling', () => {
     vi.useRealTimers()
   })
 
-  it('polls every minute only while enabled and ignores fresh references to equal auth indexes', async () => {
+  it('polls every ten seconds only while enabled and ignores fresh references to equal auth indexes', async () => {
     await act(async () => root.render(<Harness enabled={false} />))
     expect(vi.getTimerCount()).toBe(0)
     expect(fetchUsageQuotaCache).not.toHaveBeenCalled()
@@ -44,7 +44,7 @@ describe('quota cache polling', () => {
     await act(async () => root.render(<Harness enabled />))
     expect(fetchUsageQuotaCache).toHaveBeenCalledOnce()
     expect(fetchUsageQuotaCache).toHaveBeenCalledWith(['auth-1'], expect.any(AbortSignal))
-    await act(async () => vi.advanceTimersByTimeAsync(59_999))
+    await act(async () => vi.advanceTimersByTimeAsync(9_999))
     expect(fetchUsageQuotaCache).toHaveBeenCalledOnce()
     await act(async () => vi.advanceTimersByTimeAsync(1))
     expect(fetchUsageQuotaCache).toHaveBeenCalledTimes(2)

@@ -23,6 +23,8 @@ export interface QuotaBillingUsageDisplay {
 }
 
 export interface DisplayQuota {
+  capturedAt?: string
+  source?: string
   key: string
   label: string
   scope?: string
@@ -217,6 +219,8 @@ function toDisplayQuota(row: UsageQuotaRow): DisplayQuota | undefined {
 
   return {
     key: row.key,
+    capturedAt: row.captured_at,
+    source: row.source,
     label,
     scope: row.scope,
     groupKey: row.groupKey,

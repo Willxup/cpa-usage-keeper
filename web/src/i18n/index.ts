@@ -20,6 +20,8 @@ const getInitialLanguage = (): SupportedLanguage => {
 const resources = {
   en: {
     translation: {
+      overview_limits: { window: 'Window', observed_ago: '{{minutes}}m {{seconds}}s ago', title: 'Usage Limits', account: 'Provider / account', remaining: 'Remaining', resets: 'Resets in', unavailable: 'Quota unavailable', capture_unknown: 'Capture time unavailable', stale: 'Stale observation', awaiting: 'Awaiting update', info: 'Quota details', rpm_avg: 'RPM avg' },
+      read_only: {password_placeholder: 'Enter read-only password', sign_out_title: 'Sign out read-only session?', sign_out_body: 'This session will lose access to the overview.',"title": "Read-only overview", "login_tab": "Read-only overview", "login_submit": "Open overview", "password": "Read-only password", "scope": "Usage across all client keys. Estimated API costs are not subscription charges.", "keys": "Client key usage", "requests": "Requests", "tokens": "Tokens", "failures": "Failures", "cost": "Estimated API cost", "range": "Time range", "empty": "No client key usage in this period.", "error": "Usage data is unavailable. Try refreshing.", "trend": "Requests over time", "hours": "Last 24 hours", "week": "Last 7 days", "month": "Last 30 days"},
       common: {
         loading: 'Loading...',
         save: 'Save',
@@ -44,6 +46,9 @@ const resources = {
       },
       auth: {
         login_title: 'CPA USAGE KEEPER',
+        stay_signed_in: 'Stay signed in',
+        stay_signed_in_help: 'Keep this browser signed in for 7 days.',
+        temporary_session_help: 'For this browser session. Reloads and additional tabs keep you signed in.',
         login_subtitle: 'Every flow leaves a trace.',
         console_kicker: 'Access control',
         console_title: 'Choose your console',
@@ -67,6 +72,15 @@ const resources = {
         login_failed: 'Unable to complete login right now',
         api_key_login_failed: 'Unable to open the API Key dashboard right now',
         session_expired: 'Your session expired. Please sign in again.'
+      },
+      key_quota: {
+        tab: 'Provider quota',
+        shared: 'Shared provider quota across all users. Accounts and windows are shown separately. Reload reads the latest stored observations.',
+        available: 'Available', stale: 'Stale observation - current quota may differ',
+        unavailable: 'Quota unavailable - no supported observation yet',
+        updated: 'Last observed', remaining: 'Remaining', resets: 'Resets',
+        exhausted: 'Limit reached', empty: 'No active providers configured',
+        error: 'Unable to load quota. Previously loaded observations may be out of date.'
       },
       key_overview: {
         eyebrow: 'Key overview',
@@ -521,6 +535,7 @@ const resources = {
         credentials_quota_remaining: '{{count}} left',
         credentials_quota_percent_used: '{{percent}} used',
         credentials_refresh_status: 'Refresh',
+        credentials_refresh_single: 'Refresh quota for {{name}}',
         credentials_refresh_status_queued: 'Queued',
         credentials_refresh_status_running: 'Running',
         credentials_refresh_status_completed: 'Completed',
@@ -952,6 +967,8 @@ const resources = {
   },
   zh: {
     translation: {
+      overview_limits: { window: '窗口', observed_ago: '{{minutes}}分 {{seconds}}秒前', title: '用量限额', account: '提供商 / 账号', remaining: '剩余', resets: '重置倒计时', unavailable: '限额不可用', capture_unknown: '采集时间不可用', stale: '数据已过期', awaiting: '等待更新', info: '限额详情', rpm_avg: 'RPM 平均' },
+      read_only: {password_placeholder: 'Enter read-only password', sign_out_title: 'Sign out read-only session?', sign_out_body: 'This session will lose access to the overview.',"title": "Read-only overview", "login_tab": "Read-only overview", "login_submit": "Open overview", "password": "Read-only password", "scope": "Usage across all client keys. Estimated API costs are not subscription charges.", "keys": "Client key usage", "requests": "Requests", "tokens": "Tokens", "failures": "Failures", "cost": "Estimated API cost", "range": "Time range", "empty": "No client key usage in this period.", "error": "Usage data is unavailable. Try refreshing.", "trend": "Requests over time", "hours": "Last 24 hours", "week": "Last 7 days", "month": "Last 30 days"},
       common: {
         loading: '加载中...',
         save: '保存',
@@ -976,6 +993,9 @@ const resources = {
       },
       auth: {
         login_title: 'CPA USAGE KEEPER',
+        stay_signed_in: '保持登录',
+        stay_signed_in_help: '在此浏览器中保持登录 7 天。',
+        temporary_session_help: '仅在此浏览器会话中登录。刷新和打开新标签页不会退出。',
         login_subtitle: '万千流转，皆有迹可循。',
         console_kicker: '访问控制',
         console_title: '选择访问方式',
@@ -999,6 +1019,15 @@ const resources = {
         login_failed: '当前无法完成登录',
         api_key_login_failed: '当前无法打开 API Key 看板',
         session_expired: '登录状态已失效，请重新登录。'
+      },
+      key_quota: {
+        tab: 'Provider quota',
+        shared: 'Shared provider quota across all users. Accounts and windows are shown separately. Reload reads the latest stored observations.',
+        available: 'Available', stale: 'Stale observation - current quota may differ',
+        unavailable: 'Quota unavailable - no supported observation yet',
+        updated: 'Last observed', remaining: 'Remaining', resets: 'Resets',
+        exhausted: 'Limit reached', empty: 'No active providers configured',
+        error: 'Unable to load quota. Previously loaded observations may be out of date.'
       },
       key_overview: {
         eyebrow: 'API Key 概览',
@@ -1453,6 +1482,7 @@ const resources = {
         credentials_quota_remaining: '剩余 {{count}}',
         credentials_quota_percent_used: '已用 {{percent}}',
         credentials_refresh_status: '刷新',
+        credentials_refresh_single: '刷新 {{name}} 的限额',
         credentials_refresh_status_queued: '排队中',
         credentials_refresh_status_running: '运行中',
         credentials_refresh_status_completed: '已完成',
@@ -1884,6 +1914,8 @@ const resources = {
   },
   'zh-TW': {
     translation: {
+      overview_limits: { window: '時段', observed_ago: '{{minutes}}分 {{seconds}}秒前', title: '用量限額', account: '供應商 / 帳號', remaining: '剩餘', resets: '重置倒數', unavailable: '限額不可用', capture_unknown: '擷取時間不可用', stale: '資料已過期', awaiting: '等待更新', info: '限額詳情', rpm_avg: 'RPM 平均' },
+      read_only: {password_placeholder: 'Enter read-only password', sign_out_title: 'Sign out read-only session?', sign_out_body: 'This session will lose access to the overview.',"title": "Read-only overview", "login_tab": "Read-only overview", "login_submit": "Open overview", "password": "Read-only password", "scope": "Usage across all client keys. Estimated API costs are not subscription charges.", "keys": "Client key usage", "requests": "Requests", "tokens": "Tokens", "failures": "Failures", "cost": "Estimated API cost", "range": "Time range", "empty": "No client key usage in this period.", "error": "Usage data is unavailable. Try refreshing.", "trend": "Requests over time", "hours": "Last 24 hours", "week": "Last 7 days", "month": "Last 30 days"},
       common: {
         loading: '載入中...',
         save: '儲存',
@@ -1908,6 +1940,9 @@ const resources = {
       },
       auth: {
         login_title: 'CPA USAGE KEEPER',
+        stay_signed_in: '保持登入',
+        stay_signed_in_help: '在此瀏覽器中保持登入 7 天。',
+        temporary_session_help: '僅在此瀏覽器工作階段中登入。重新整理和開啟新分頁不會登出。',
         login_subtitle: '萬千流轉，皆有跡可循。',
         console_kicker: '存取控制',
         console_title: '選擇存取方式',
@@ -1931,6 +1966,15 @@ const resources = {
         login_failed: '目前無法完成登入',
         api_key_login_failed: '目前無法開啟 API Key 看板',
         session_expired: '登入狀態已失效，請重新登入。'
+      },
+      key_quota: {
+        tab: 'Provider quota',
+        shared: 'Shared provider quota across all users. Accounts and windows are shown separately. Reload reads the latest stored observations.',
+        available: 'Available', stale: 'Stale observation - current quota may differ',
+        unavailable: 'Quota unavailable - no supported observation yet',
+        updated: 'Last observed', remaining: 'Remaining', resets: 'Resets',
+        exhausted: 'Limit reached', empty: 'No active providers configured',
+        error: 'Unable to load quota. Previously loaded observations may be out of date.'
       },
       key_overview: {
         eyebrow: 'API Key 總覽',
@@ -2385,6 +2429,7 @@ const resources = {
         credentials_quota_remaining: '剩餘 {{count}}',
         credentials_quota_percent_used: '已用 {{percent}}',
         credentials_refresh_status: '重新整理',
+        credentials_refresh_single: '重新整理 {{name}} 的限額',
         credentials_refresh_status_queued: '排隊中',
         credentials_refresh_status_running: '執行中',
         credentials_refresh_status_completed: '已完成',

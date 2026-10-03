@@ -3,7 +3,8 @@ import { ApiError, fetchUsageQuotaCache } from '@/lib/api'
 import type { UsageQuotaCheckResponse } from '@/lib/types'
 import { quotaRefreshDisplayError, type QuotaState } from './useQuotaRefreshTasks'
 
-export const QUOTA_CACHE_REFRESH_INTERVAL_MS = 60 * 1000
+import { startQuotaPolling } from '@/lib/quotaPolling'
+export const QUOTA_CACHE_REFRESH_INTERVAL_MS = 10 * 1000
 
 export const buildQuotaCacheAuthIndexesKey = (authIndexes: string[]) => JSON.stringify(authIndexes)
 
@@ -35,7 +36,7 @@ export function useQuotaCache({ enabled, authIndexes, onAuthRequired }: UseQuota
       return
     }
 
-    requestControllerRef.current?.abort()
+    if (requestControllerRef.current) return
     if (stableAuthIndexes.length === 0) {
       requestControllerRef.current = null
       return
@@ -105,10 +106,9 @@ export function useQuotaCache({ enabled, authIndexes, onAuthRequired }: UseQuota
       requestControllerRef.current = null
       return
     }
-    void refreshQuotaCache()
-    const intervalID = window.setInterval(refreshQuotaCache, QUOTA_CACHE_REFRESH_INTERVAL_MS)
+    const stop = startQuotaPolling(async (signal) => {signal.addEventListener("abort",()=>requestControllerRef.current?.abort(),{once:true});await refreshQuotaCache()}, QUOTA_CACHE_REFRESH_INTERVAL_MS)
     return () => {
-      window.clearInterval(intervalID)
+      stop()
       requestControllerRef.current?.abort()
       requestControllerRef.current = null
     }

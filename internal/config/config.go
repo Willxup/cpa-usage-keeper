@@ -59,6 +59,7 @@ type Config struct {
 	CPARequestLogAccessEnabled bool
 	// APIKeyViewerLocalRankingEnabled 控制 API Key Viewer 是否可只读查看本地排行。
 	APIKeyViewerLocalRankingEnabled bool
+	APIKeyViewerQuotaEnabled        bool
 	// RedisQueueAddr 是 CPA management data stream 的 TCP 地址，空值时按 CPA_BASE_URL 推导。
 	RedisQueueAddr string
 	// RedisQueueTLS 控制是否使用 TLS 连接 Redis 队列。
@@ -100,7 +101,8 @@ type Config struct {
 	// AuthEnabled 控制是否启用登录保护。
 	AuthEnabled bool
 	// LoginPassword 是启用登录保护时使用的登录密码。
-	LoginPassword string
+	LoginPassword    string
+	ReadOnlyPassword string
 	// AuthSessionTTL 是登录 session 有效时长。
 	AuthSessionTTL time.Duration
 }
@@ -246,6 +248,11 @@ func Load(options LoadOptions) (*Config, error) {
 		return nil, err
 	}
 
+	apiKeyViewerQuotaEnabled, err := getBool("API_KEY_VIEWER_QUOTA_ENABLED", false)
+	if err != nil {
+		return nil, err
+	}
+
 	appBasePath, err := normalizeBasePath(strings.TrimSpace(os.Getenv("APP_BASE_PATH")))
 	if err != nil {
 		return nil, fmt.Errorf("APP_BASE_PATH is invalid: %w", err)
@@ -266,6 +273,7 @@ func Load(options LoadOptions) (*Config, error) {
 		CPAManagementKey:                strings.TrimSpace(os.Getenv("CPA_MANAGEMENT_KEY")),
 		CPARequestLogAccessEnabled:      cpaRequestLogAccessEnabled,
 		APIKeyViewerLocalRankingEnabled: apiKeyViewerLocalRankingEnabled,
+		APIKeyViewerQuotaEnabled:        apiKeyViewerQuotaEnabled,
 		RedisQueueAddr:                  strings.TrimSpace(os.Getenv("REDIS_QUEUE_ADDR")),
 		RedisQueueTLS:                   redisQueueTLS,
 		RedisQueueBatchSize:             redisQueueBatchSize,
@@ -287,6 +295,7 @@ func Load(options LoadOptions) (*Config, error) {
 		LogRetentionDays:                logRetentionDays,
 		AuthEnabled:                     authEnabled,
 		LoginPassword:                   strings.TrimSpace(os.Getenv("LOGIN_PASSWORD")),
+		ReadOnlyPassword:                strings.TrimSpace(os.Getenv("READ_ONLY_PASSWORD")),
 		AuthSessionTTL:                  authSessionTTL,
 	}
 	if appHost := strings.TrimSpace(options.AppHost); appHost != "" {
@@ -308,6 +317,9 @@ func Load(options LoadOptions) (*Config, error) {
 		if cfg.LoginPassword == publicLoginPasswordPlaceholder {
 			return nil, fmt.Errorf("LOGIN_PASSWORD must not use the public example value %q", publicLoginPasswordPlaceholder)
 		}
+	}
+	if cfg.ReadOnlyPassword != "" && (!cfg.AuthEnabled || len(cfg.ReadOnlyPassword) < 16 || cfg.ReadOnlyPassword == cfg.LoginPassword || cfg.ReadOnlyPassword == cfg.CPAManagementKey) {
+		return nil, fmt.Errorf("READ_ONLY_PASSWORD requires authentication and a distinct password of at least 16 characters")
 	}
 	if cfg.TLSEnabled {
 		if cfg.TLSCertFile == "" {

@@ -550,3 +550,25 @@ Production-style `linux/amd64` capacity measurements for sustained ingestion, Da
 ## License
 
 This project is open source under the [MIT License](./LICENSE).
+
+### Cached provider quota for API Key viewers
+
+Set `API_KEY_VIEWER_QUOTA_ENABLED=true` to add Provider quota to the API Key dashboard. This optional page shows shared provider-account capacity using generic account labels. It does not grant management access or allocate a separate quota to each client key.
+
+The page reads Keeper's existing cache, marks observations older than 15 minutes or past their reset as stale, and shows unavailable accounts explicitly. Opening or reloading it does not query providers; administrators can use the existing manual or scheduled refresh. Viewers lose access when their client key is revoked.
+
+### All-key read-only reporting
+
+Set a separate `READ_ONLY_PASSWORD` (at least 16 characters) to enable the Read-only overview login. Leave it empty to disable this role. It requires authentication and must differ from the administrator password and management key. Share it only with people authorized to see usage across all client keys.
+
+The role reuses Overview, Realtime and Analysis, and adds sanitized Request Events, CSV/JSON exports, Auth Files, AI Provider details and Local Ranking. Selecting a key filters request-derived reports, including retained historical and revoked keys; it never restores their authentication. Account statistics and cached provider quota are shared. Credential identities and names, client addresses, prompts, responses, raw errors and logs are excluded. The separate API Key login keeps its existing single-key scope.
+
+Read-only sessions cannot reach administrator APIs or mutation routes. Provider quota reads use the cache; this role cannot trigger quota probes or reset credits. CSV text fields are protected against spreadsheet formulas. Exports use two concurrent slots and private temporary files, and return an error if querying or writing fails.
+
+Read-only sessions use Keeper's existing hashed-token session storage and expire under the configured session policy. Restarting Keeper preserves unexpired sessions when `READ_ONLY_PASSWORD` is unchanged. Changing or disabling that password revokes read-only sessions, without revoking administrator or client-key sessions. On the first credential binding, previously unbound read-only sessions are revoked. The login form's Stay signed in choice controls whether the browser cookie persists after closing the browser; it does not extend the server expiry.
+
+### Quota observations from existing traffic
+
+Keeper polls CPA's local `/v8/management/quota/observations` cache every five seconds and queues new Codex/Claude Auth File observations through the existing bounded cache/history worker. It does not issue provider requests. The endpoint requires router-for-me/CLIProxyAPI#6333; older CPA versions returning 404 simply provide no traffic observations. Existing manual/scheduled quota queries remain available.
+
+Each quota window keeps its own capture time and source. Late/repeated observations cannot replace a newer window; an older observation can fill a different missing window. Metadata/provider changes, disabled/revoked accounts and active refresh tasks retain the existing worker protections. Reads never advance capture time. The UI places a small refresh icon and age after the remaining amount; its tooltip includes account, source and capture time. Missing or stale windows remain explicit. This follow-up builds on reporting PR #597 and includes its commits until that PR merges.

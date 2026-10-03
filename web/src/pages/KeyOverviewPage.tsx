@@ -18,7 +18,7 @@ import {
   useUsageComparisonsData,
 } from '@/components/usage';
 import type { UsageOverviewPayload } from '@/components/usage/hooks/useUsageData';
-import { getCurrentOverviewUsage, getDailyAverageCardUsage, getOverviewDisplayLoading, isDailyAverageRange } from '@/utils/usage/overview';
+import { getCurrentOverviewUsage, getOverviewDisplayLoading } from '@/utils/usage/overview';
 import { clampStoredUsageRangeStateToCurrentBounds, resolveUsageRangeRecoveryTimeZone, type StoredUsageRangeState } from '@/utils/usage/customRange';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import { loadKeyViewerTimeRange, persistKeyViewerTimeRange } from '@/features/key-viewer/timeRange';
@@ -133,11 +133,14 @@ export const scheduleKeyOverviewAutoRefresh = ({
 export interface KeyOverviewPageProps {
   page?: 'overview' | 'realtime';
   apiKey?: AuthSessionAPIKeySummary;
+  readOnly?: boolean;
+  selectedApiKeyId?: string;
+  keyFilter?: import('react').ReactNode;
   onNavigate: (path: KeyViewerPath) => void;
   onAuthRequired?: () => void;
 }
 
-export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthRequired }: KeyOverviewPageProps) {
+export function KeyOverviewPage({ page = 'overview', apiKey, readOnly = false, selectedApiKeyId, keyFilter, onNavigate, onAuthRequired }: KeyOverviewPageProps) {
   const { t } = useTranslation();
   const isMobile = useMediaQuery('(max-width: 768px)');
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
@@ -161,7 +164,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
     customStart: customRange?.start,
     customEnd: customRange?.end,
   }), [customRange?.end, customRange?.start, customRange?.unit, timeRange]);
-  const usageRangeQueryKey = usageRangeQuery.valid ? buildUsageStatsQueryKey(usageRangeQuery) : null;
+  const usageRangeQueryKey = usageRangeQuery.valid ? `${selectedApiKeyId ?? ''}:${buildUsageStatsQueryKey(usageRangeQuery)}` : null;
   const {
     request: activityRangeRequest,
     manualWindow: manualActivityWindow,
@@ -175,7 +178,8 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
     requestIdentity: activityRequestIdentity,
     loadActivity,
   } = useUsageActivityData({
-    viewer: 'key',
+    viewer: readOnly ? 'read_only' : 'key',
+    apiKeyId: selectedApiKeyId,
     request: activityRangeRequest,
     enabled: page === 'overview' && usageRangeQuery.valid,
     onAuthRequired,
@@ -205,7 +209,9 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
     onAuthRequired,
     onRangeBoundsConflict: recoverRangeBoundsConflict,
     enabled: page === 'overview' && usageRangeQuery.valid,
-    keyViewer: true,
+    keyViewer: !readOnly,
+    apiKeyId: selectedApiKeyId,
+    readOnly,
     range: timeRange,
     customUnit: customRange?.unit,
     customStart: customRange?.start,
@@ -234,7 +240,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
     setLoading(true);
     setError('');
     try {
-      const overview = await fetchKeyOverview(usageRangeQuery, controller.signal);
+      const overview = await fetchKeyOverview(usageRangeQuery, controller.signal, readOnly, selectedApiKeyId);
       if (overviewRequestControllerRef.current !== controller) return;
       setUsage(overview as UsageOverviewResponse as UsageOverviewPayload);
       setLoadedUsageRange(usageRangeQueryKey);
@@ -252,7 +258,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
         overviewRequestControllerRef.current = null;
       }
     }
-  }, [onAuthRequired, recoverRangeBoundsConflict, usageRangeQuery, usageRangeQueryKey]);
+  }, [onAuthRequired, readOnly, selectedApiKeyId, recoverRangeBoundsConflict, usageRangeQuery, usageRangeQueryKey]);
 
   const loadRealtime = useCallback(async (options: KeyOverviewLoadOptions = {}) => {
     const { controller, skipped } = startKeyOverviewRequest({
@@ -266,6 +272,8 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
     try {
       const nextRealtime = await fetchKeyOverviewRealtime({
         window: realtimeWindow,
+        apiKeyId: selectedApiKeyId,
+        readOnly,
         signal: controller.signal,
       });
       if (realtimeRequestControllerRef.current !== controller) return;
@@ -283,7 +291,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
         realtimeRequestControllerRef.current = null;
       }
     }
-  }, [onAuthRequired, realtimeWindow]);
+  }, [onAuthRequired, readOnly, selectedApiKeyId, realtimeWindow]);
 
   useEffect(() => {
     if (page !== 'overview') return;
@@ -339,13 +347,6 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
 
   const overviewDisplayLoading = getOverviewDisplayLoading({ loading, hasUsage: Boolean(usage) });
   const currentOverviewUsage = getCurrentOverviewUsage(usage, usageRangeQueryKey, loadedUsageRange);
-  const reserveDailyAverageCard = isDailyAverageRange({
-    range: timeRange,
-    customUnit: customRange?.unit,
-    customStart: customRange?.start,
-    customEnd: customRange?.end,
-  });
-  const dailyAverageCardUsage = getDailyAverageCardUsage(currentOverviewUsage, usage, reserveDailyAverageCard, loading);
   const {
     requestsSparkline,
     tokensSparkline,
@@ -378,8 +379,9 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
     <KeyViewerShell
       activePage={page}
       apiKey={apiKey}
+      readOnly={readOnly}
       loading={page === 'overview' && loading && !usage}
-      filters={page === 'overview' ? [<TimeRangeControl key="range" value={timeRange} customRange={customRange} timeZone={rangeTimeZone} onChange={handleTimeRangeChange} ariaLabel={t('usage_stats.range_filter')} labelInsideTrigger />] : []}
+      filters={[...(keyFilter ? [keyFilter] : []), ...page === 'overview' ? [<TimeRangeControl key="range" value={timeRange} customRange={customRange} timeZone={rangeTimeZone} onChange={handleTimeRangeChange} ariaLabel={t('usage_stats.range_filter')} labelInsideTrigger />] : []]}
       onRefresh={() => void handleManualRefresh()}
       refreshing={manualRefreshLoading}
       refreshDisabled={refreshDisabled}
@@ -390,10 +392,10 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
       {(displayError || comparisonsError) && <div className={styles.errorBox}>{displayError || comparisonsError}</div>}
 
       <StatCards
-        usage={usage}
+        usage={currentOverviewUsage}
         loading={overviewDisplayLoading}
-        dailyAverageUsage={dailyAverageCardUsage}
-        reserveDailyAverage={reserveDailyAverageCard}
+        quotaScope={readOnly ? 'readOnly' : 'key'}
+        onAuthRequired={onAuthRequired}
         sparklines={{
           requests: requestsSparkline,
           tokens: tokensSparkline,
@@ -404,6 +406,9 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
         }}
       />
 
+
+
+      <UsageComparisonCharts isDark={resolvedTheme === 'dark'} isMobile={isMobile} comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading} keyViewer={!readOnly} />
       <RecentActivityPanel
         activity={activity}
         loading={activityLoading}
@@ -413,8 +418,6 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
         requestIdentity={activityRequestIdentity}
         onWindowChange={setActivityWindow}
       />
-
-      <UsageComparisonCharts isDark={resolvedTheme === 'dark'} isMobile={isMobile} comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading} keyViewer />
       </>}
 
       {page === 'realtime' && <OverviewRealtimePanel
@@ -426,7 +429,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
         isDark={isDark}
         isMobile={isMobile}
         timezone={realtime?.timezone ?? usage?.timezone}
-        visibleDimensions={KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS}
+        visibleDimensions={readOnly ? ['models', 'api_keys', 'auth_files', 'ai_providers'] : KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS}
       />}
     </KeyViewerShell>
   );

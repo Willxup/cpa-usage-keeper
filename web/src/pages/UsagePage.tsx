@@ -49,7 +49,6 @@ import {
 } from '@/components/usage/RequestEventsDetailsCard';
 import { clampCustomRangeToCurrentBounds, clampStoredUsageRangeStateToCurrentBounds, parseLegacyCustomRange, parseStoredUsageRangeState, resolveUsageRangeRecoveryTimeZone, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
-import { getDailyAverageCardUsage, isDailyAverageRange } from '@/utils/usage/overview';
 import type { Theme } from '@/types';
 import { BrandLink } from '@/components/BrandLink';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
@@ -822,7 +821,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
   const {
     usage,
-    currentUsage: currentOverviewUsage,
     loading,
     error,
     loadUsage
@@ -2000,13 +1998,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   } = useSparklines({ usage, loading });
 
   const overviewDisplayLoading = getOverviewDisplayLoading({ loading, hasUsage: Boolean(usage) });
-  const reserveDailyAverageCard = isDailyAverageRange({
-    range: timeRange,
-    customUnit: customRange?.unit,
-    customStart: customRange?.start,
-    customEnd: customRange?.end,
-  });
-  const dailyAverageCardUsage = getDailyAverageCardUsage(currentOverviewUsage, usage, reserveDailyAverageCard, loading);
 
   return (
     <div className={`${styles.pageShell} ${!isEmbeddedInCPAMC ? styles.standalone : ''}`.trim()} data-keeper-page="usage">
@@ -2236,8 +2227,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 <StatCards
                   usage={usage}
                   loading={overviewDisplayLoading}
-                  dailyAverageUsage={dailyAverageCardUsage}
-                  reserveDailyAverage={reserveDailyAverageCard}
                   sparklines={{
                     requests: requestsSparkline,
                     tokens: tokensSparkline,
@@ -2248,6 +2237,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   }}
                 />
 
+
+                <UsageComparisonCharts isDark={resolvedTheme === 'dark'} isMobile={isMobile} comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading} />
                 <RecentActivityPanel
                   activity={activity}
                   loading={activityLoading}
@@ -2257,7 +2248,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   requestIdentity={activityRequestIdentity}
                   onWindowChange={setActivityWindow}
                 />
-                <UsageComparisonCharts isDark={resolvedTheme === 'dark'} isMobile={isMobile} comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading} />
               </>
             )}
 

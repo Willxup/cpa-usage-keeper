@@ -28,3 +28,4 @@ it('exposes all theme options in a labelled control', () => {
     expect(html).toContain(`usage_stats.theme_${theme}`);
   }
 });
+// @vitest-environment happy-dom

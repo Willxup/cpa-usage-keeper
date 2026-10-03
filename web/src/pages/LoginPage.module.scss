@@ -230,3 +230,9 @@
     line-height: 1.45;
   }
 }
+
+.sessionChoice {
+  label { display:flex; align-items:center; gap:8px; color:var(--text-primary); cursor:pointer; }
+  input { accent-color:var(--primary-color); width:16px; height:16px; }
+  p { margin:6px 0 0; color:var(--text-secondary); font-size:12px; line-height:1.5; }
+}

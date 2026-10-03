@@ -5,7 +5,7 @@ import { expect, it, vi } from 'vitest';
 import i18n from '@/i18n';
 import { isKeyViewerPath, KEY_VIEWER_PAGE_PATHS } from '@/features/key-viewer/navigation';
 
-const api = vi.hoisted(() => ({ fetchKeyOverview: vi.fn(), fetchKeyOverviewRealtime: vi.fn(), fetchKeyActivity: vi.fn() }));
+const api = vi.hoisted(() => ({ fetchKeyOverview: vi.fn(), fetchKeyOverviewRealtime: vi.fn(), fetchKeyActivity: vi.fn(), fetchKeyQuota: vi.fn() }));
 vi.mock('@/lib/api', async (original) => ({ ...await original<typeof import('@/lib/api')>(), ...api }));
 vi.mock('react-chartjs-2', () => ({ Bar: () => null, Chart: () => null, Doughnut: () => null, Line: () => null, Scatter: () => null }));
 import { KeyOverviewPage } from '../KeyOverviewPage';
@@ -24,6 +24,9 @@ it('routes and loads only the selected Key Viewer tab and cancels inactive reque
     expect(api.fetchKeyOverview).toHaveBeenCalledOnce();
     expect(api.fetchKeyOverviewRealtime).not.toHaveBeenCalled();
     expect(api.fetchKeyActivity).toHaveBeenCalledOnce();
+    expect(api.fetchKeyQuota).toHaveBeenCalledOnce();
+    expect(container.textContent).not.toContain('Daily Average');
+    expect(container.textContent!.indexOf('Usage Distribution')).toBeLessThan(container.textContent!.indexOf('Recent Activity'));
     const overviewSignal = api.fetchKeyOverview.mock.calls[0][1] as AbortSignal;
     await act(async () => root.render(<KeyOverviewPage page="realtime" onNavigate={() => undefined} />));
     expect(overviewSignal.aborted).toBe(true);

@@ -1,3 +1,4 @@
+import { QuotaFreshness } from '@/components/usage/QuotaFreshness';
 import { useCallback, useEffect, useId, useRef, useState, type Ref } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
@@ -93,6 +94,7 @@ const AUTO_REFRESH_SCHEDULE_UNITS: QuotaAutoRefreshScheduleUnit[] = ['minute', '
 const AUTO_REFRESH_WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const
 
 interface AuthFileCredentialsSectionProps {
+  reportingOnly?: boolean
   rows: AuthFileCredentialRow[]
   timeZone?: string
   total: number
@@ -128,7 +130,7 @@ interface AuthFileCredentialsSectionProps {
   onAfterInvalidAccountAction?: () => Promise<void>
 }
 
-export function AuthFileCredentialsSection({ rows, timeZone, total, page, totalPages, pageSize, activeOnly, sort, loading, quotaRefreshing, quotaRefreshError, quotaInspectionStatus, quotaInspectionLoading, quotaInspectionStarting, quotaInspectionError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex, onResetQuotaForAuthIndex, editFallbackRef, onEdit, onOpenDetails, statusPendingIdentityIds, onToggleStatus, onSavePriority, onRefreshInspectionStatus, onStartInspection, onAfterInvalidAccountAction }: AuthFileCredentialsSectionProps) {
+export function AuthFileCredentialsSection({ reportingOnly = false, rows, timeZone, total, page, totalPages, pageSize, activeOnly, sort, loading, quotaRefreshing, quotaRefreshError, quotaInspectionStatus, quotaInspectionLoading, quotaInspectionStarting, quotaInspectionError, onPageChange, onPageSizeChange, onActiveOnlyChange, onSortChange, onRefreshQuota, onRefreshQuotaForAuthIndex, onResetQuotaForAuthIndex, editFallbackRef, onEdit, onOpenDetails, statusPendingIdentityIds, onToggleStatus, onSavePriority, onRefreshInspectionStatus, onStartInspection, onAfterInvalidAccountAction }: AuthFileCredentialsSectionProps) {
   const { t } = useTranslation()
   const [inspectionOpen, setInspectionOpen] = useState(false)
   const [quotaUsageMode, setQuotaUsageMode] = useState<QuotaUsageMode>('current')
@@ -216,7 +218,7 @@ export function AuthFileCredentialsSection({ rows, timeZone, total, page, totalP
             <AuthFileDisplayModeSwitch mode={displayMode} onChange={setDisplayMode} />
           </div>
         )}
-        actions={(
+        actions={!reportingOnly && (
           <div className={styles.credentialSectionActionButtons}>
             <MainActionButton
               type="button"
@@ -275,7 +277,7 @@ export function AuthFileCredentialsSection({ rows, timeZone, total, page, totalP
                   displayName={row.displayName}
                   disabled={row.identity.disabled}
                   pending={statusPendingIdentityIds?.has(row.identity.id || row.identity.identity) ?? false}
-                  readOnly={row.identity.is_deleted}
+                  readOnly={reportingOnly || row.identity.is_deleted}
                   onToggle={(disabled) => onToggleStatus?.(row.identity.id || row.identity.identity, row.identity.identity, disabled)}
                 />
               ) : (
@@ -339,12 +341,12 @@ export function AuthFileCredentialsSection({ rows, timeZone, total, page, totalP
                 <CredentialPriorityEditor
                   priority={row.identity.priority}
                   displayName={row.displayName}
-                  readOnly={row.identity.is_deleted}
+                  readOnly={reportingOnly || row.identity.is_deleted}
                   onSave={onSavePriority ? (priority) => onSavePriority(row.identity.id || row.identity.identity, row.identity.identity, priority) : undefined}
                 />
               </span>
             ) : undefined}
-            badges={null}
+            badges={reportingOnly ? <span>{t(row.identity.disabled ? 'usage_stats.credentials_detail_disabled' : 'usage_stats.credentials_detail_enabled')}</span> : null}
             metricsTitle={row.identity.stats_reset_at ? t('usage_stats.credentials_stats_since', { time: formatCredentialTimestamp(row.identity.stats_reset_at) ?? row.identity.stats_reset_at }) : undefined}
             metrics={(
               <>
@@ -360,7 +362,7 @@ export function AuthFileCredentialsSection({ rows, timeZone, total, page, totalP
             ) : (
               <div className={styles.credentialQuotaSideWithAction}>
                 <AuthFileQuotaPanel row={row} quotaUsageMode={quotaUsageMode} timeZone={timeZone} />
-                <div className={styles.credentialQuotaActionStack}>
+                {!reportingOnly && <div className={styles.credentialQuotaActionStack}>
                   {/* reset 按钮只在官方缓存给出可用次数时展示；refresh 始终保留在右侧列居中位置。 */}
                   {resetCredits > 0 && (
                     <QuotaResetAction
@@ -381,7 +383,7 @@ export function AuthFileCredentialsSection({ rows, timeZone, total, page, totalP
                   >
                     {rowRefreshing ? <LoadingSpinner size={13} /> : <IconRefreshCw size={13} />}
                   </button>
-                </div>
+                </div>}
               </div>
             )}
           />
@@ -427,7 +429,7 @@ export function AuthFileCredentialsSection({ rows, timeZone, total, page, totalP
             document.body,
           )
         : null}
-      <QuotaInspectionModal
+      {!reportingOnly && <QuotaInspectionModal
         open={inspectionOpen}
         status={quotaInspectionStatus}
         loading={quotaInspectionLoading}
@@ -437,7 +439,7 @@ export function AuthFileCredentialsSection({ rows, timeZone, total, page, totalP
         onStart={onStartInspection}
         onRefreshStatus={onRefreshInspectionStatus}
         onAfterInvalidAccountAction={onAfterInvalidAccountAction}
-      />
+      />}
     </>
   )
 }
@@ -1996,6 +1998,7 @@ function QuotaBar({ quota, quotaUsageMode, timeZone, showGroupMetadata = true, t
           <span className={styles.credentialQuotaValueGroup}>
             {resetDuration && <span className={styles.credentialQuotaResetDuration}>{resetDuration}</span>}
             {percentLabel && <strong>{percentLabel}</strong>}
+            <QuotaFreshness capturedAt={quota.capturedAt} source={quota.source} account={"Provider account"} resetAt={quota.resetText} />
           </span>
         )}
       </div>
