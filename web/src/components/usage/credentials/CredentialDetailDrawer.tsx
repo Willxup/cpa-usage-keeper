@@ -24,6 +24,7 @@ const ERROR_EVENTS_PAGE_SIZE = 50
 type CredentialDetailTab = 'overview' | 'quota-history' | 'requests' | 'errors'
 
 interface CredentialDetailDrawerProps {
+  readOnly?: boolean
   open: boolean
   selection: CredentialDetailSelection | null
   timeZone?: string
@@ -71,6 +72,7 @@ function appendCredentialErrorEvents(
 }
 
 export function CredentialDetailDrawer({
+  readOnly = false,
   open,
   selection,
   timeZone,
@@ -143,10 +145,10 @@ export function CredentialDetailDrawer({
     }
   }
   const quotaHistoryProvider = selection?.kind === 'auth-file' ? identity?.type?.trim().toLowerCase() : undefined
-  const hasQuotaHistory = quotaHistoryProvider === 'codex' || quotaHistoryProvider === 'claude'
+  const hasQuotaHistory = !readOnly && (quotaHistoryProvider === 'codex' || quotaHistoryProvider === 'claude')
   const availableTabs = useMemo<CredentialDetailTab[]>(() => hasQuotaHistory
     ? ['overview', 'quota-history', 'requests', 'errors']
-    : ['overview', 'requests', 'errors'], [hasQuotaHistory])
+    : readOnly ? ['overview', 'requests'] : ['overview', 'requests', 'errors'], [hasQuotaHistory, readOnly])
 
   const resetRequestEvents = useCallback(() => {
     firstPageControllerRef.current?.abort()
@@ -208,6 +210,7 @@ export function CredentialDetailDrawer({
     try {
       // 详情列表固定从当前凭证最近的原始事件开始，不继承外层页面的查询条件。
       const response = await fetchUsageEvents(undefined, controller.signal, {
+        ...(readOnly ? { readOnly: true } : {}),
         authType: authTypeFilter,
         pageSize: REQUEST_EVENTS_PAGE_SIZE,
         cursorMode: true,
@@ -231,7 +234,7 @@ export function CredentialDetailDrawer({
         setEventsLoading(false)
       }
     }
-  }, [activeTab, authTypeFilter, onAuthRequired, open, sourceFilter, t])
+  }, [activeTab, authTypeFilter, onAuthRequired, open, sourceFilter, t, readOnly])
 
   useEffect(() => {
     if (!open || activeTab !== 'requests') return
@@ -349,6 +352,7 @@ export function CredentialDetailDrawer({
     setEventsError('')
     try {
       const response = await fetchUsageEvents(undefined, controller.signal, {
+        ...(readOnly ? { readOnly: true } : {}),
         authType: authTypeFilter,
         pageSize: REQUEST_EVENTS_PAGE_SIZE,
         cursorMode: true,
@@ -373,7 +377,7 @@ export function CredentialDetailDrawer({
         setEventsLoadingMore(false)
       }
     }
-  }, [authTypeFilter, eventsLoading, eventsLoadingMore, eventsNextCursor, onAuthRequired, sourceFilter, t])
+  }, [authTypeFilter, eventsLoading, eventsLoadingMore, eventsNextCursor, onAuthRequired, sourceFilter, t, readOnly])
 
   const loadMoreErrorEvents = useCallback(async () => {
     const cursor = errorEventsNextCursor?.trim()
@@ -422,7 +426,7 @@ export function CredentialDetailDrawer({
         {selection.kind === 'auth-file' && selection.row.subscriptionBadge
           ? <CredentialSubscriptionBadge model={selection.row.subscriptionBadge} />
           : null}
-        <CredentialPriorityBadge>{row.priorityLabel || 'P0'}</CredentialPriorityBadge>
+        {!readOnly && <CredentialPriorityBadge>{row.priorityLabel || 'P0'}</CredentialPriorityBadge>}
         <span className={identity.disabled || identity.is_deleted ? styles.statusDisabled : styles.statusEnabled}>
           {identity.is_deleted
             ? t('usage_stats.deleted')
@@ -486,7 +490,7 @@ export function CredentialDetailDrawer({
             >
               {t('usage_stats.credentials_detail_requests_tab')}
             </button>
-            <button
+            {!readOnly && <button
               ref={errorsTabRef}
               id={errorsTabId}
               type="button"
@@ -500,7 +504,7 @@ export function CredentialDetailDrawer({
               onKeyDown={handleTabKeyDown}
             >
               {t('usage_stats.credentials_detail_errors_tab')}
-            </button>
+            </button>}
           </div>
           {((activeTab === 'requests' && eventsError && events.length === 0 && !eventsLoading)
             || (activeTab === 'errors' && errorEventsError && errorEvents.length === 0 && !errorEventsLoading)) ? (

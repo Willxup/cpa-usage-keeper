@@ -22,11 +22,14 @@ const loadTimeRange = (): StoredUsageRangeState => {
 
 export interface KeyAnalysisPageProps {
   apiKey?: AuthSessionAPIKeySummary;
+  readOnly?: boolean;
+  selectedApiKeyId?: string;
+  keyFilter?: import('react').ReactNode;
   onNavigate: (path: KeyViewerPath) => void;
   onAuthRequired?: () => void;
 }
 
-export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnalysisPageProps) {
+export function KeyAnalysisPage({ apiKey, readOnly = false, selectedApiKeyId, keyFilter, onNavigate, onAuthRequired }: KeyAnalysisPageProps) {
   const { t } = useTranslation();
   const isMobile = useMediaQuery('(max-width: 768px)');
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
@@ -88,7 +91,7 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
     setLatency(null);
 
     // 主 Analysis 与 Latency 同时加载，但分别更新状态，避免一个慢请求阻塞另一块内容。
-    const coreRequest = fetchKeyAnalysis(usageRangeQuery, controller.signal).then((response) => {
+    const coreRequest = fetchKeyAnalysis(usageRangeQuery, controller.signal, readOnly, selectedApiKeyId).then((response) => {
       if (requestControllerRef.current !== controller) return;
       // 项目时区只作为后续 409 恢复依据，不参与当前请求 callback 身份，避免响应触发重复加载。
       analysisTimeZoneRef.current = response.timezone;
@@ -104,7 +107,7 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
       }
       setAnalysisError('KEY_ANALYSIS_LOAD_FAILED');
     });
-    const latencyRequest = fetchKeyAnalysisLatency(usageRangeQuery, controller.signal).then((response) => {
+    const latencyRequest = fetchKeyAnalysisLatency(usageRangeQuery, controller.signal, readOnly, selectedApiKeyId).then((response) => {
       if (requestControllerRef.current !== controller) return;
       setLatency(response);
       setLatencyLoading(false);
@@ -122,7 +125,7 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
     if (requestControllerRef.current === controller) {
       requestControllerRef.current = null;
     }
-  }, [onAuthRequired, recoverRangeBoundsConflict, usageRangeQuery]);
+  }, [onAuthRequired, readOnly, selectedApiKeyId, recoverRangeBoundsConflict, usageRangeQuery]);
 
   useEffect(() => {
     void loadAnalysis();
@@ -153,8 +156,9 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
     <KeyViewerShell
       activePage="analysis"
       apiKey={apiKey}
+      readOnly={readOnly}
       loading={analysisLoading && !analysis}
-      filters={[<TimeRangeControl key="range" value={timeRange} customRange={customRange} timeZone={rangeTimeZone} onChange={handleTimeRangeChange} ariaLabel={t('usage_stats.range_filter')} labelInsideTrigger />]}
+      filters={[...(keyFilter ? [keyFilter] : []), <TimeRangeControl key="range" value={timeRange} customRange={customRange} timeZone={rangeTimeZone} onChange={handleTimeRangeChange} ariaLabel={t('usage_stats.range_filter')} labelInsideTrigger />]}
       onRefresh={() => void handleManualRefresh()}
       refreshing={manualRefreshLoading}
       onNavigate={onNavigate}
@@ -176,7 +180,7 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
         latencyError={displayLatencyError}
         isDark={isDark}
         isMobile={isMobile}
-        compositionDimensions={['model']}
+        compositionDimensions={readOnly ? ['api_key', 'model', 'auth_files', 'ai_provider'] : ['model']}
       />
     </KeyViewerShell>
   );

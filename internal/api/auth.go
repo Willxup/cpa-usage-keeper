@@ -12,6 +12,7 @@ import (
 	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -39,11 +40,13 @@ const (
 type AuthConfig struct {
 	Enabled                         bool
 	LoginPassword                   string
+	ReadOnlyPassword                string
 	SessionTTL                      time.Duration
 	BasePath                        string
 	FrameAncestorOrigins            []string
 	TrustedProxyCIDRs               []string
 	APIKeyViewerLocalRankingEnabled bool
+	APIKeyViewerQuotaEnabled        bool
 }
 
 type authHandler struct {
@@ -54,23 +57,27 @@ type authHandler struct {
 }
 
 type loginRequest struct {
-	Password string `json:"password"`
+	RememberMe *bool  `json:"rememberMe"`
+	Password   string `json:"password"`
 }
 
 type apiKeyLoginRequest struct {
-	APIKey string `json:"apiKey"`
+	RememberMe *bool  `json:"rememberMe"`
+	APIKey     string `json:"apiKey"`
 }
 
 type sessionResponse struct {
-	Authenticated bool                   `json:"authenticated"`
-	Role          auth.Role              `json:"role,omitempty"`
-	APIKey        *sessionAPIKeyResponse `json:"api_key,omitempty"`
+	Authenticated   bool                   `json:"authenticated"`
+	ReadOnlyEnabled bool                   `json:"read_only_enabled"`
+	Role            auth.Role              `json:"role,omitempty"`
+	APIKey          *sessionAPIKeyResponse `json:"api_key,omitempty"`
 }
 
 type sessionAPIKeyResponse struct {
 	DisplayKey          string `json:"display_key"`
 	Alias               string `json:"alias,omitempty"`
 	LocalRankingEnabled bool   `json:"local_ranking_enabled,omitempty"`
+	QuotaEnabled        bool   `json:"quota_enabled,omitempty"`
 }
 
 type loginResponse struct {
@@ -99,6 +106,17 @@ type resolvedSessionToken struct {
 }
 
 func NewAuthHandler(config AuthConfig, sessions *auth.SessionManager) *authHandler {
+	password := config.ReadOnlyPassword
+	if !config.Enabled || len(password) < 16 || password == config.LoginPassword {
+		password = ""
+	}
+	if sessions != nil {
+		if err := sessions.BindReadOnlyPassword(password); err != nil {
+			// Fail closed without logging credential values or storage contents.
+			logrus.Error("read-only session credential binding failed; read-only login disabled")
+			config.ReadOnlyPassword = ""
+		}
+	}
 	return &authHandler{
 		config:   config,
 		sessions: sessions,
@@ -121,6 +139,7 @@ func (h *authHandler) registerRoutes(router gin.IRoutes) {
 	router.GET("/session", h.getSession)
 	router.POST("/login", h.login)
 	router.POST("/api-key-login", h.apiKeyLogin)
+	router.POST("/read-only-login", h.readOnlyLogin)
 	router.POST("/logout", h.logout)
 }
 
@@ -234,6 +253,9 @@ func (h *authHandler) resolveValidSession(c *gin.Context) (resolvedSessionToken,
 			}
 			continue
 		}
+		if session.Role == auth.RoleReadOnly && !h.readOnlyEnabled() {
+			continue
+		}
 		return resolved, session, true
 	}
 	return resolveSessionToken(c), auth.Session{}, false
@@ -245,26 +267,27 @@ func (h *authHandler) getSession(c *gin.Context) {
 		return
 	}
 	if h.sessions == nil {
-		c.JSON(http.StatusOK, sessionResponse{Authenticated: false})
+		c.JSON(http.StatusOK, sessionResponse{Authenticated: false, ReadOnlyEnabled: h.readOnlyEnabled()})
 		return
 	}
 
 	resolved, session, ok := h.resolveValidSession(c)
 	if !ok {
-		c.JSON(http.StatusOK, sessionResponse{Authenticated: false})
+		c.JSON(http.StatusOK, sessionResponse{Authenticated: false, ReadOnlyEnabled: h.readOnlyEnabled()})
 		return
 	}
-	response := sessionResponse{Authenticated: true, Role: session.Role}
+	response := sessionResponse{Authenticated: true, Role: session.Role, ReadOnlyEnabled: h.readOnlyEnabled()}
 	if session.Role == auth.RoleAPIKeyViewer {
 		row, ok := h.activeViewerAPIKey(c, resolved, session)
 		if !ok {
-			c.JSON(http.StatusOK, sessionResponse{Authenticated: false})
+			c.JSON(http.StatusOK, sessionResponse{Authenticated: false, ReadOnlyEnabled: h.readOnlyEnabled()})
 			return
 		}
 		response.APIKey = &sessionAPIKeyResponse{
 			DisplayKey:          helper.CPAAPIKeyMaskedDisplayKey(row),
 			Alias:               row.KeyAlias,
 			LocalRankingEnabled: h.config.APIKeyViewerLocalRankingEnabled,
+			QuotaEnabled:        h.config.APIKeyViewerQuotaEnabled,
 		}
 	}
 	c.JSON(http.StatusOK, response)
@@ -308,7 +331,7 @@ func (h *authHandler) login(c *gin.Context) {
 		return
 	}
 
-	setSessionCookie(c, h.config.BasePath, resolved.CookieKind, token, expiresAt)
+	setSessionCookie(c, h.config.BasePath, resolved.CookieKind, token, expiresAt, rememberLogin(request.RememberMe))
 	writeLoginSuccess(c, resolved, token)
 }
 
@@ -346,7 +369,7 @@ func (h *authHandler) apiKeyLogin(c *gin.Context) {
 		writeInternalError(c, "create api key viewer session failed", err)
 		return
 	}
-	setSessionCookie(c, h.config.BasePath, resolved.CookieKind, token, expiresAt)
+	setSessionCookie(c, h.config.BasePath, resolved.CookieKind, token, expiresAt, rememberLogin(request.RememberMe))
 	writeLoginSuccess(c, resolved, token)
 }
 
@@ -476,14 +499,19 @@ func requestIntentMiddleware() gin.HandlerFunc {
 	}
 }
 
-func setSessionCookie(c *gin.Context, basePath string, kind sessionCookieKind, token string, expiresAt time.Time) {
+// Older API clients retain their existing persistent-cookie behavior.
+func rememberLogin(value *bool) bool { return value == nil || *value }
+
+func setSessionCookie(c *gin.Context, basePath string, kind sessionCookieKind, token string, expiresAt time.Time, remember ...bool) {
 	cookie := sessionCookie(basePath, kind)
 	if kind == sessionCookieKindStandard {
 		cookie.Secure = c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
 	}
 	cookie.Value = token
-	cookie.Expires = expiresAt
-	cookie.MaxAge = int(time.Until(expiresAt).Seconds())
+	if len(remember) == 0 || remember[0] {
+		cookie.Expires = expiresAt
+		cookie.MaxAge = int(time.Until(expiresAt).Seconds())
+	}
 	http.SetCookie(c.Writer, cookie)
 }
 
