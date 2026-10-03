@@ -22,9 +22,10 @@ interface DashboardToolbarProps<T extends string> {
   onRefresh: () => void;
   refreshing?: boolean;
   refreshDisabled?: boolean;
+  autoRefreshControl?: ReactNode;
 }
 
-export function DashboardToolbar<T extends string>({ items, activeId, onNavigate, filters = [], onRefresh, refreshing = false, refreshDisabled = false }: DashboardToolbarProps<T>) {
+export function DashboardToolbar<T extends string>({ items, activeId, onNavigate, filters = [], onRefresh, refreshing = false, refreshDisabled = false, autoRefreshControl }: DashboardToolbarProps<T>) {
   const { t, i18n } = useTranslation();
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem(COLLAPSED_STORAGE_KEY) !== 'false'; } catch { return true; }
@@ -224,9 +225,12 @@ export function DashboardToolbar<T extends string>({ items, activeId, onNavigate
             {filter}
           </div>)}
         </div>}
-        <button type="button" className={styles.refresh} data-dashboard-refresh aria-label={t('usage_stats.refresh')} aria-busy={refreshing} title={t('usage_stats.refresh')} disabled={refreshDisabled || refreshing} onClick={onRefresh}>
-          {refreshing ? <LoadingSpinner size={16} /> : <IconRefreshCw size={16} aria-hidden="true" />}
-        </button>
+        <div className={styles.refreshControls}>
+          <button type="button" className={styles.refresh} data-dashboard-refresh aria-label={t('usage_stats.refresh')} aria-busy={refreshing} title={t('usage_stats.refresh')} disabled={refreshDisabled || refreshing} onClick={onRefresh}>
+            {refreshing ? <LoadingSpinner size={16} /> : <IconRefreshCw size={16} aria-hidden="true" />}
+          </button>
+          {autoRefreshControl}
+        </div>
       </div>
         {menuOpen && <div ref={menuRef} id={menuId} className={styles.pageMenu} data-dashboard-page-menu role="menu" aria-label={t('usage_stats.tabs_aria_label')} onKeyDown={(event) => {
           const choices = Array.from(menuRef.current?.querySelectorAll<HTMLAnchorElement>('a') ?? []);

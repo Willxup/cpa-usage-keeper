@@ -25,6 +25,7 @@ interface KeyViewerShellProps {
   onRefresh: () => void;
   refreshing?: boolean;
   refreshDisabled?: boolean;
+  autoRefreshControl?: ReactNode;
   children: ReactNode;
   onNavigate: (path: KeyViewerPath) => void;
   onAuthRequired?: () => void;
@@ -39,6 +40,7 @@ export function KeyViewerShell({
   onRefresh,
   refreshing,
   refreshDisabled,
+  autoRefreshControl,
   children,
   onNavigate,
   onAuthRequired,
@@ -81,6 +83,7 @@ export function KeyViewerShell({
               onRefresh={onRefresh}
               refreshing={refreshing}
               refreshDisabled={refreshDisabled}
+              autoRefreshControl={autoRefreshControl}
             />
 
             {children}

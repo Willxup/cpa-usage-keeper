@@ -1,0 +1,21 @@
+.control {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  > div > button {
+    width: 56px;
+    min-width: 56px;
+    height: 44px;
+    padding: 0 8px;
+    justify-content: center;
+    border: 0;
+    border-radius: 22px;
+    background: transparent;
+    box-shadow: none;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+    &:hover { background: var(--toolbar-hover, var(--bg-tertiary)); }
+    &:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+  }
+}

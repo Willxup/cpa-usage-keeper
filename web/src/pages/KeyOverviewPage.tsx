@@ -1,3 +1,4 @@
+import { AutoRefreshControl } from '@/components/dashboard/AutoRefreshControl';
 import { UsageComparisonCharts } from '@/components/usage/UsageComparisonCharts';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -327,12 +328,6 @@ export function KeyOverviewPage({ page = 'overview', apiKey, readOnly = false, s
     setError('KEY_OVERVIEW_LOAD_FAILED');
   }, [onAuthRequired]);
 
-  useEffect(() => scheduleKeyOverviewAutoRefresh({
-    refreshOverview: () => refreshKeyOverview({ skipIfInFlight: true }),
-    onRefreshError: handleAutoRefreshError,
-    intervalMs: KEY_OVERVIEW_AUTO_REFRESH_INTERVAL_MS,
-  }), [handleAutoRefreshError, refreshKeyOverview]);
-
   useEffect(() => {
     persistKeyViewerTimeRange(timeRangeState);
   }, [timeRangeState]);
@@ -392,6 +387,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, readOnly = false, s
       onRefresh={() => void handleManualRefresh()}
       refreshing={manualRefreshLoading}
       refreshDisabled={refreshDisabled}
+      autoRefreshControl={<AutoRefreshControl busy={manualRefreshLoading} onRefresh={() => refreshKeyOverview({ skipIfInFlight: true })} onError={handleAutoRefreshError} />}
       onNavigate={onNavigate}
       onAuthRequired={onAuthRequired}
     >

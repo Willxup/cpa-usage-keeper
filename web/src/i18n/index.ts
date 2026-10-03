@@ -21,6 +21,7 @@ const resources = {
   en: {
     translation: {
       read_only: {password_placeholder: 'Enter read-only password', sign_out_title: 'Sign out read-only session?', sign_out_body: 'This session will lose access to the overview.',"title": "Read-only overview", "login_tab": "Read-only overview", "login_submit": "Open overview", "password": "Read-only password", "scope": "Usage across all client keys. Estimated API costs are not subscription charges.", "keys": "Client key usage", "requests": "Requests", "tokens": "Tokens", "failures": "Failures", "cost": "Estimated API cost", "range": "Time range", "empty": "No client key usage in this period.", "error": "Usage data is unavailable. Try refreshing.", "trend": "Requests over time", "hours": "Last 24 hours", "week": "Last 7 days", "month": "Last 30 days"},
+      auto_refresh: { settings: 'Auto-refresh settings', off: 'Off', paused: 'Paused', every: 'Every {{seconds}}s' },
       common: {
         loading: 'Loading...',
         save: 'Save',
@@ -967,6 +968,7 @@ const resources = {
   zh: {
     translation: {
       read_only: {password_placeholder: 'Enter read-only password', sign_out_title: 'Sign out read-only session?', sign_out_body: 'This session will lose access to the overview.',"title": "Read-only overview", "login_tab": "Read-only overview", "login_submit": "Open overview", "password": "Read-only password", "scope": "Usage across all client keys. Estimated API costs are not subscription charges.", "keys": "Client key usage", "requests": "Requests", "tokens": "Tokens", "failures": "Failures", "cost": "Estimated API cost", "range": "Time range", "empty": "No client key usage in this period.", "error": "Usage data is unavailable. Try refreshing.", "trend": "Requests over time", "hours": "Last 24 hours", "week": "Last 7 days", "month": "Last 30 days"},
+      auto_refresh: { settings: '自动刷新设置', off: '关闭', paused: '已暂停', every: '每 {{seconds}} 秒' },
       common: {
         loading: '加载中...',
         save: '保存',
@@ -1913,6 +1915,7 @@ const resources = {
   'zh-TW': {
     translation: {
       read_only: {password_placeholder: 'Enter read-only password', sign_out_title: 'Sign out read-only session?', sign_out_body: 'This session will lose access to the overview.',"title": "Read-only overview", "login_tab": "Read-only overview", "login_submit": "Open overview", "password": "Read-only password", "scope": "Usage across all client keys. Estimated API costs are not subscription charges.", "keys": "Client key usage", "requests": "Requests", "tokens": "Tokens", "failures": "Failures", "cost": "Estimated API cost", "range": "Time range", "empty": "No client key usage in this period.", "error": "Usage data is unavailable. Try refreshing.", "trend": "Requests over time", "hours": "Last 24 hours", "week": "Last 7 days", "month": "Last 30 days"},
+      auto_refresh: { settings: '自動重新整理設定', off: '關閉', paused: '已暫停', every: '每 {{seconds}} 秒' },
       common: {
         loading: '載入中...',
         save: '儲存',

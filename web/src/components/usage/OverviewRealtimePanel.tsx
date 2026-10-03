@@ -265,6 +265,7 @@ function buildThroughputOptions(
   return {
     responsive: true,
     maintainAspectRatio: false,
+    animation: false,
     interaction: { mode: 'index', intersect: false },
     plugins: {
       legend: {
@@ -658,7 +659,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
               className={styles.overviewRealtimeLatencyScatterCard}
             >
               <RealtimeChartFrame loading={loading} emptyLabel={latencyEmptyLabel}>
-                <LatencyScatterChart diagnostics={latencyScatter} isDark={isDark} isMobile={isMobile} labels={latencyLabels} formatDuration={formatRealtimeDuration} />
+                <LatencyScatterChart animate={false} diagnostics={latencyScatter} isDark={isDark} isMobile={isMobile} labels={latencyLabels} formatDuration={formatRealtimeDuration} />
               </RealtimeChartFrame>
             </RealtimeCard>
 
