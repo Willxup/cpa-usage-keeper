@@ -44,6 +44,7 @@ type AuthConfig struct {
 	FrameAncestorOrigins            []string
 	TrustedProxyCIDRs               []string
 	APIKeyViewerLocalRankingEnabled bool
+	APIKeyViewerQuotaEnabled        bool
 }
 
 type authHandler struct {
@@ -71,6 +72,7 @@ type sessionAPIKeyResponse struct {
 	DisplayKey          string `json:"display_key"`
 	Alias               string `json:"alias,omitempty"`
 	LocalRankingEnabled bool   `json:"local_ranking_enabled,omitempty"`
+	QuotaEnabled        bool   `json:"quota_enabled,omitempty"`
 }
 
 type loginResponse struct {
@@ -265,6 +267,7 @@ func (h *authHandler) getSession(c *gin.Context) {
 			DisplayKey:          helper.CPAAPIKeyMaskedDisplayKey(row),
 			Alias:               row.KeyAlias,
 			LocalRankingEnabled: h.config.APIKeyViewerLocalRankingEnabled,
+			QuotaEnabled:        h.config.APIKeyViewerQuotaEnabled,
 		}
 	}
 	c.JSON(http.StatusOK, response)

@@ -157,6 +157,9 @@ func NewRouter(
 	keyViewerProtected := apiV1.Group("")
 	keyViewerProtected.Use(authHandler.apiKeyViewerMiddleware())
 	keyViewerProtected.Use(authHandler.activeAPIKeyViewerMiddleware())
+	if authConfig.APIKeyViewerQuotaEnabled {
+		registerKeyQuotaRoute(keyViewerProtected, usageIdentityProvider, quotaProvider)
+	}
 	registerKeyOverviewRoute(keyViewerProtected, usageProvider)
 	registerKeyActivityRoute(keyViewerProtected, usageProvider)
 	registerKeyUsageAnalysisRoute(keyViewerProtected, usageProvider)

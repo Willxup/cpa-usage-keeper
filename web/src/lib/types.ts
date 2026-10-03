@@ -4,6 +4,7 @@ export interface AuthSessionAPIKeySummary {
   display_key: string
   alias?: string
   local_ranking_enabled?: boolean
+  quota_enabled?: boolean
 }
 
 export interface AuthSessionResponse {

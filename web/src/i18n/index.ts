@@ -68,6 +68,15 @@ const resources = {
         api_key_login_failed: 'Unable to open the API Key dashboard right now',
         session_expired: 'Your session expired. Please sign in again.'
       },
+      key_quota: {
+        tab: 'Provider quota',
+        shared: 'Shared provider quota across all users. Accounts and windows are shown separately. Reload reads the latest stored observations.',
+        available: 'Available', stale: 'Stale observation - current quota may differ',
+        unavailable: 'Quota unavailable - no supported observation yet',
+        updated: 'Last observed', remaining: 'Remaining', resets: 'Resets',
+        exhausted: 'Limit reached', empty: 'No active providers configured',
+        error: 'Unable to load quota. Previously loaded observations may be out of date.'
+      },
       key_overview: {
         eyebrow: 'Key overview',
         title: 'API Key usage overview',
@@ -1000,6 +1009,15 @@ const resources = {
         api_key_login_failed: '当前无法打开 API Key 看板',
         session_expired: '登录状态已失效，请重新登录。'
       },
+      key_quota: {
+        tab: 'Provider quota',
+        shared: 'Shared provider quota across all users. Accounts and windows are shown separately. Reload reads the latest stored observations.',
+        available: 'Available', stale: 'Stale observation - current quota may differ',
+        unavailable: 'Quota unavailable - no supported observation yet',
+        updated: 'Last observed', remaining: 'Remaining', resets: 'Resets',
+        exhausted: 'Limit reached', empty: 'No active providers configured',
+        error: 'Unable to load quota. Previously loaded observations may be out of date.'
+      },
       key_overview: {
         eyebrow: 'API Key 概览',
         title: 'API Key 用量概览',
@@ -1931,6 +1949,15 @@ const resources = {
         login_failed: '目前無法完成登入',
         api_key_login_failed: '目前無法開啟 API Key 看板',
         session_expired: '登入狀態已失效，請重新登入。'
+      },
+      key_quota: {
+        tab: 'Provider quota',
+        shared: 'Shared provider quota across all users. Accounts and windows are shown separately. Reload reads the latest stored observations.',
+        available: 'Available', stale: 'Stale observation - current quota may differ',
+        unavailable: 'Quota unavailable - no supported observation yet',
+        updated: 'Last observed', remaining: 'Remaining', resets: 'Resets',
+        exhausted: 'Limit reached', empty: 'No active providers configured',
+        error: 'Unable to load quota. Previously loaded observations may be out of date.'
       },
       key_overview: {
         eyebrow: 'API Key 總覽',

@@ -550,3 +550,9 @@ Production-style `linux/amd64` capacity measurements for sustained ingestion, Da
 ## License
 
 This project is open source under the [MIT License](./LICENSE).
+
+### Cached provider quota for API Key viewers
+
+Set `API_KEY_VIEWER_QUOTA_ENABLED=true` to add Provider quota to the API Key dashboard. This optional page shows shared provider-account capacity using generic account labels. It does not grant management access or allocate a separate quota to each client key.
+
+The page reads Keeper's existing cache, marks observations older than 15 minutes or past their reset as stale, and shows unavailable accounts explicitly. Opening or reloading it does not query providers; administrators can use the existing manual or scheduled refresh. Viewers lose access when their client key is revoked.

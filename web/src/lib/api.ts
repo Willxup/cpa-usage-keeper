@@ -2,6 +2,20 @@ import { type AnalysisLatencyDiagnostics, type AnalysisResponse, type AuthFilesM
 import { isCPAMCEmbed } from '@/embed/cpamcEmbed'
 import { resolveUsageRequestRange } from '@/utils/usage/rangeQuery'
 
+export interface ViewerQuotaRow {
+  label: string; metric?: string; remaining?: number; limit?: number;
+  remaining_percent?: number; reset_at?: string; limit_reached?: boolean;
+}
+export interface ViewerQuotaAccount {
+  label: string; provider: string; status: 'available' | 'stale' | 'unavailable';
+  updated_at?: string; rows: ViewerQuotaRow[];
+}
+export async function fetchKeyQuota(signal?: AbortSignal): Promise<{accounts: ViewerQuotaAccount[]}> {
+  const response = await apiFetch(apiPath('/key-quota'), {signal});
+  if (!response.ok) return parseApiError(response, 'Unable to load quota');
+  return response.json();
+}
+
 export class ApiError extends Error {
   status: number
 

@@ -327,6 +327,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		FrameAncestorOrigins:            frameAncestorOrigins(cfg),
 		TrustedProxyCIDRs:               cfg.TrustedProxyCIDRs,
 		APIKeyViewerLocalRankingEnabled: cfg.APIKeyViewerLocalRankingEnabled,
+		APIKeyViewerQuotaEnabled:        cfg.APIKeyViewerQuotaEnabled,
 	}
 	authHandler := api.NewAuthHandler(authConfig, sessionManager)
 
