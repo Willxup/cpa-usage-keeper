@@ -1,3 +1,4 @@
+import { ApiProviderQuota } from './ApiProviderQuota'
 import type { Ref } from 'react'
 import { useTranslation } from 'react-i18next'
 import styles from './CredentialSections.module.scss'
@@ -68,6 +69,7 @@ export function AiProviderCredentialsSection({ reportingOnly = false, rows, tota
         </div>
       )}
     >
+      {!reportingOnly && <ApiProviderQuota />}
       {loading && rows.length === 0 && <div className={styles.credentialEmptyState}>{t('common.loading')}</div>}
       {!loading && rows.length === 0 && <div className={styles.credentialEmptyState}>{t('usage_stats.credentials_ai_providers_empty')}</div>}
       {rows.length > 0 && (

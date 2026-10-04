@@ -73,6 +73,7 @@ const resources = {
         session_expired: 'Your session expired. Please sign in again.'
       },
       key_quota: {
+ api_provider_title: 'API provider quota',
         tab: 'Provider quota',
         shared: 'Shared provider quota across all users. Accounts and windows are shown separately. Reload reads the latest stored observations.',
         available: 'Available', stale: 'Stale observation - current quota may differ',
@@ -1019,6 +1020,7 @@ const resources = {
         session_expired: '登录状态已失效，请重新登录。'
       },
       key_quota: {
+ api_provider_title: 'API 供应商额度',
         tab: 'Provider quota',
         shared: 'Shared provider quota across all users. Accounts and windows are shown separately. Reload reads the latest stored observations.',
         available: 'Available', stale: 'Stale observation - current quota may differ',
@@ -1965,6 +1967,7 @@ const resources = {
         session_expired: '登入狀態已失效，請重新登入。'
       },
       key_quota: {
+ api_provider_title: 'API 供應商額度',
         tab: 'Provider quota',
         shared: 'Shared provider quota across all users. Accounts and windows are shown separately. Reload reads the latest stored observations.',
         available: 'Available', stale: 'Stale observation - current quota may differ',

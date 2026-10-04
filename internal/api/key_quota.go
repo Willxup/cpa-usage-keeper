@@ -29,6 +29,7 @@ type viewerQuotaRow struct {
 	LimitReached     *bool               `json:"limit_reached,omitempty"`
 }
 type viewerQuotaAccount struct {
+	Kind      string           `json:"kind"`
 	Label     string           `json:"label"`
 	Provider  string           `json:"provider"`
 	Status    string           `json:"status"`
@@ -86,7 +87,7 @@ func registerViewerQuotaRoute(router gin.IRoutes, path string, identities servic
 				continue
 			}
 			selected = append(selected, identity)
-			if identity.AuthType == entities.UsageIdentityAuthTypeAuthFile && identity.Identity != "" {
+			if identity.Identity != "" && (identity.AuthType == entities.UsageIdentityAuthTypeAuthFile || (identity.AuthType == entities.UsageIdentityAuthTypeAIProvider && (identity.Type == "codex" || identity.Type == "claude"))) {
 				indexes = append(indexes, identity.Identity)
 			}
 		}
@@ -109,8 +110,12 @@ func registerViewerQuotaRoute(router gin.IRoutes, path string, identities servic
 			name := viewerProviderName(identity)
 			counts[name]++
 			account := viewerQuotaAccount{Label: fmt.Sprintf("%s account %d", name, counts[name]), Provider: name, Status: "unavailable", Rows: []viewerQuotaRow{}}
+			account.Kind = "oauth"
+			if identity.AuthType == entities.UsageIdentityAuthTypeAIProvider {
+				account.Kind = "api"
+			}
 			item, ok := byIndex[identity.Identity]
-			if identity.AuthType == entities.UsageIdentityAuthTypeAuthFile && ok && item.Status == quota.RefreshTaskStatusCompleted && item.Quota != nil && len(item.Quota.Quota) > 0 {
+			if ok && item.Status == quota.RefreshTaskStatusCompleted && item.Quota != nil && len(item.Quota.Quota) > 0 {
 				account.UpdatedAt = item.RefreshedAt
 				account.Status = "available"
 				if item.RefreshedAt == nil || now.Sub(*item.RefreshedAt) > 15*time.Minute {

@@ -72,7 +72,34 @@ func (s *Service) syncTrafficQuota(ctx context.Context, reader trafficQuotaReade
 	if err != nil {
 		return seen, err
 	}
+	// API providers retain a cache-only projection. They never enter OAuth
+	// history or the Auth File worker, even when they use Codex/Claude headers.
+	apiIdentities := map[string]entities.UsageIdentity{}
+	if indexes := usageHeaderSnapshotAuthIndexes(candidates); len(indexes) > 0 {
+		var rows []entities.UsageIdentity
+		if err := s.db.WithContext(ctx).Where("identity IN ? AND auth_type = ? AND is_deleted = ? AND (disabled IS NULL OR disabled = ?)", indexes, entities.UsageIdentityAuthTypeAIProvider, false, false).Find(&rows).Error; err != nil {
+			return seen, err
+		}
+		for _, row := range rows {
+			apiIdentities[row.Identity] = row
+		}
+	}
 	snapshots, next := selectTrafficQuotaSnapshots(validItems, candidates, identities, seen)
+	for i, snapshot := range candidates {
+		identity, ok := apiIdentities[snapshot.AuthIndex]
+		if !ok || !usageHeaderIdentityMatchesSnapshot(identity, snapshot) {
+			continue
+		}
+		key := snapshot.AuthIndex + "\x00" + snapshot.Provider + "\x00" + validItems[i].Window
+		previous := seen[key]
+		if next[key].After(previous) {
+			previous = next[key]
+		}
+		next[key] = previous
+		if snapshot.ObservedAt.After(previous) && s.applyTrafficAPIProviderQuota(ctx, snapshot, identity) {
+			next[key] = snapshot.ObservedAt
+		}
+	}
 	if !s.TryAppendUsageHeaderSnapshots(snapshots) {
 		return seen, context.Canceled
 	}
@@ -125,4 +152,23 @@ func stampQuotaRows(rows []QuotaRow, at time.Time, source RefreshSource) {
 			rows[i].ResetAt = at.Add(time.Duration(*rows[i].ResetAfterSeconds) * time.Second).Format(time.RFC3339)
 		}
 	}
+}
+
+// applyTrafficAPIProviderQuota is deliberately cache-only: API provider
+// credentials must not be represented as OAuth accounts in quota history.
+func (s *Service) applyTrafficAPIProviderQuota(ctx context.Context, snapshot *UsageHeaderSnapshot, identity entities.UsageIdentity) bool {
+	if snapshot == nil || identity.AuthType != entities.UsageIdentityAuthTypeAIProvider || identity.IsDeleted || (identity.Disabled != nil && *identity.Disabled) || !usageHeaderIdentityMatchesSnapshot(identity, snapshot) {
+		return false
+	}
+	response := CheckResponse{ID: snapshot.AuthIndex, Quota: NormalizeQuotaRows(snapshot.CacheOutput)}
+	stampQuotaRows(response.Quota, snapshot.ObservedAt, snapshot.Source)
+	response = s.attachWindowUsageStats(ctx, snapshot.AuthIndex, response, snapshot.ObservedAt)
+	var current entities.UsageIdentity
+	if err := s.db.WithContext(ctx).First(&current, identity.ID).Error; err != nil {
+		return false
+	}
+	if current.AuthType != entities.UsageIdentityAuthTypeAIProvider || current.Identity != snapshot.AuthIndex || current.IsDeleted || (current.Disabled != nil && *current.Disabled) || !usageHeaderIdentityMatchesSnapshot(current, snapshot) {
+		return false
+	}
+	return s.mergeUsageHeaderQuotaCache(snapshot.AuthIndex, response, snapshot.ObservedAt, current)
 }
