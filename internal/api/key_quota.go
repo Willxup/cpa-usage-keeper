@@ -110,6 +110,9 @@ func registerViewerQuotaRoute(router gin.IRoutes, path string, identities servic
 			counts[name]++
 			account := viewerQuotaAccount{Label: fmt.Sprintf("%s account %d", name, counts[name]), Provider: name, Status: "unavailable", Rows: []viewerQuotaRow{}}
 			item, ok := byIndex[identity.Identity]
+			if item.ProviderType != "" && !strings.EqualFold(strings.TrimSpace(item.ProviderType), strings.TrimSpace(identity.Type)) {
+				ok = false
+			}
 			if identity.AuthType == entities.UsageIdentityAuthTypeAuthFile && ok && item.Status == quota.RefreshTaskStatusCompleted && item.Quota != nil && len(item.Quota.Quota) > 0 {
 				account.UpdatedAt = item.RefreshedAt
 				account.Status = "available"
