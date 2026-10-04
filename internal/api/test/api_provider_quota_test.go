@@ -44,4 +44,10 @@ func TestAPIProviderViewerQuotaUsesOnlyActiveSanitizedCache(t *testing.T) {
 	if len(provider.cacheRequest.AuthIndexes) != 1 || provider.cacheRequest.AuthIndexes[0] != "api-fixture" {
 		t.Fatal(provider.cacheRequest)
 	}
+	provider.cacheResponse.Items[0].ProviderType = "claude"
+	changed := httptest.NewRecorder()
+	router.ServeHTTP(changed, viewerRankingRequest(http.MethodGet, "/api/v1/key-quota", token))
+	if changed.Code != http.StatusOK || !strings.Contains(changed.Body.String(), `"status":"unavailable"`) || strings.Contains(changed.Body.String(), `"remaining_percent"`) {
+		t.Fatal("previous-provider cache shown under current account", changed.Body.String())
+	}
 }

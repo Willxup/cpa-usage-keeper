@@ -115,6 +115,9 @@ func registerViewerQuotaRoute(router gin.IRoutes, path string, identities servic
 				account.Kind = "api"
 			}
 			item, ok := byIndex[identity.Identity]
+			if item.ProviderType != "" && !strings.EqualFold(strings.TrimSpace(item.ProviderType), strings.TrimSpace(identity.Type)) {
+				ok = false
+			}
 			if ok && item.Status == quota.RefreshTaskStatusCompleted && item.Quota != nil && len(item.Quota.Quota) > 0 {
 				account.UpdatedAt = item.RefreshedAt
 				account.Status = "available"

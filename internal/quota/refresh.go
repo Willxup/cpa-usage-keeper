@@ -45,6 +45,7 @@ type CacheResponse struct {
 }
 
 type CachedQuotaItem struct {
+	ProviderType      string             `json:"-"`
 	AuthIndex         string             `json:"auth_index"`
 	FileName          *string            `json:"file_name,omitempty"`
 	Status            RefreshTaskStatus  `json:"status"`
@@ -139,11 +140,11 @@ func (s *Service) GetCachedQuota(ctx context.Context, request CacheRequest) (Cac
 		case task.Status == RefreshTaskStatusCompleted && task.Quota != nil:
 			quota := *task.Quota
 			refreshedAt := task.RefreshedAt
-			response.Items = append(response.Items, CachedQuotaItem{AuthIndex: authIndex, FileName: task.FileName, Status: RefreshTaskStatusCompleted, Quota: &quota, RefreshedAt: &refreshedAt, UpstreamResponses: cloneUpstreamResponses(task.UpstreamResponses)})
+			response.Items = append(response.Items, CachedQuotaItem{ProviderType: task.Type, AuthIndex: authIndex, FileName: task.FileName, Status: RefreshTaskStatusCompleted, Quota: &quota, RefreshedAt: &refreshedAt, UpstreamResponses: cloneUpstreamResponses(task.UpstreamResponses)})
 		case task.Status == RefreshTaskStatusFailed && task.HTTPStatusCode != nil && isRefreshCacheableHTTPStatus(*task.HTTPStatusCode):
 			expiresAt := task.ExpiresAt
 			refreshedAt := task.RefreshedAt
-			response.Items = append(response.Items, CachedQuotaItem{AuthIndex: authIndex, FileName: task.FileName, Status: RefreshTaskStatusFailed, Error: task.Error, HTTPStatusCode: task.HTTPStatusCode, ExpiresAt: &expiresAt, RefreshedAt: &refreshedAt, UpstreamResponses: cloneUpstreamResponses(task.UpstreamResponses)})
+			response.Items = append(response.Items, CachedQuotaItem{ProviderType: task.Type, AuthIndex: authIndex, FileName: task.FileName, Status: RefreshTaskStatusFailed, Error: task.Error, HTTPStatusCode: task.HTTPStatusCode, ExpiresAt: &expiresAt, RefreshedAt: &refreshedAt, UpstreamResponses: cloneUpstreamResponses(task.UpstreamResponses)})
 		}
 	}
 	return response, nil
