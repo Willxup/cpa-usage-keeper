@@ -1,5 +1,6 @@
 # internal docs
 .dev-docs/
+.agents/
 .claude/
 .codex/
 .worktrees/
