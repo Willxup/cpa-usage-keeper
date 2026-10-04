@@ -67,8 +67,8 @@ describe('overview quota data', () => {
       expect(tooltip.textContent).toContain('Codex account 1');
       expect(tooltip.textContent).toContain('API response headers');
       expect(tooltip.textContent).toContain('Window: 7d');
-      expect(tooltip.textContent).toContain('Last observed: 2m 00s ago');
-      expect(tooltip.textContent).not.toContain(new Date(accounts[0].rows[1].captured_at!).toLocaleString());
+      expect(tooltip.textContent).toContain('2m 00s ago');
+      expect(tooltip.textContent).toContain(new Date(accounts[0].rows[1].captured_at!).toLocaleString());
       expect(tooltip.textContent).toContain(localizedResetDate(Date.parse(accounts[0].rows[1].reset_at!)));
       expect(container.contains(tooltip)).toBe(false);
     } finally { await act(async () => root.unmount()); container.remove(); }
@@ -80,9 +80,10 @@ describe('overview quota data', () => {
     try {
       await act(async () => root.render(<OverviewQuotaPanel />));
       await act(async () => container.querySelectorAll('button')[1].focus());
-      expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Last observed: 2m 00s ago');
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('2m 00s ago');
       await act(async () => vi.advanceTimersByTimeAsync(3_000));
-      expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Last observed: 2m 03s ago');
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('2m 03s ago');
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(new Date(accounts[0].rows[1].captured_at!).toLocaleString());
       expect(api.fetchAdminProviderQuota).toHaveBeenCalledTimes(1);
     } finally { await act(async () => root.unmount()); container.remove(); }
     expect(vi.getTimerCount()).toBe(0);

@@ -100,7 +100,7 @@ export function OverviewQuotaTable({ accounts, now, notice }: {
               const tooltipKey = `${account.kind}:${account.provider}:${account.label}:${index}`;
               const details = [account.label, `${t('overview_limits.window')}: ${label}`,
                 ...(Number.isFinite(reset) ? [`${t('key_quota.resets')}: ${localizedResetDate(reset)}`] : []),
-                Number.isFinite(captured) ? `${t('key_quota.updated')}: ${t('overview_limits.observed_ago', observationAge(captured, now))}` : t('overview_limits.capture_unknown'),
+                Number.isFinite(captured) ? `${t('key_quota.updated')}: ${new Date(captured).toLocaleString()} · ${t('overview_limits.observed_ago', observationAge(captured, now))}` : t('overview_limits.capture_unknown'),
                 quotaSourceLabel(row.source),
                 ...(stale ? [t('overview_limits.stale')] : []),
               ];
