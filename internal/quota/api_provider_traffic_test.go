@@ -68,6 +68,11 @@ func TestAPIProviderTrafficOnlyUpdatesCacheAndDeduplicates(t *testing.T) {
 	if len(seen) != 1 {
 		t.Fatal(seen)
 	}
+	for _, captured := range seen {
+		if !captured.Equal(at) {
+			t.Fatal("duplicate observation lost its successful timestamp", seen)
+		}
+	}
 	service.refreshMu.Lock()
 	cache := service.refreshTasks[item.AuthIndex]
 	service.refreshMu.Unlock()
