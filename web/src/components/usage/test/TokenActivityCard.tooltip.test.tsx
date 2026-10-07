@@ -45,7 +45,7 @@ describe('TokenActivityCard tooltip', () => {
 
     const tooltipText = document.body.querySelector('[role="tooltip"]')!.textContent;
     expect(tooltipText).toContain('Total 74.17M');
-    expect(tooltipText).toContain('Input 73.89M');
+    expect(tooltipText).toContain('Total Input (includes cache) 73.89M');
     expect(tooltipText).toContain('Output 280.80K');
     expect(tooltipText).toContain('Reasoning 160.43K');
     expect(tooltipText).toContain('Cache Read 69.90M');

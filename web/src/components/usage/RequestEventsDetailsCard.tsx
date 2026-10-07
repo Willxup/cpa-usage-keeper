@@ -37,11 +37,13 @@ import {
 } from '@/utils/usage/modelDisplay';
 import {
   calculateCacheReadRate,
+  calculateDisplayInputTokens,
   formatDurationMs,
   formatCompactTokenValue,
   formatUsd,
   LATENCY_SOURCE_FIELD,
   normalizeAuthIndex,
+  type InputTokenDisplayMode,
 } from '@/utils/usage';
 import styles from '@/pages/UsagePage.module.scss';
 import {
@@ -345,6 +347,7 @@ export interface RequestEventsDetailsCardProps {
   modelFilter: string;
   sourceFilter: string;
   resultFilter: string;
+  inputTokenDisplayMode?: InputTokenDisplayMode;
   exportingFormat?: RequestEventExportFormat | null;
   hasMore?: boolean;
   loadingMore?: boolean;
@@ -460,9 +463,18 @@ const formatRequestEventMetricTooltipLine = (
 const buildTokenTooltipLines = (
   row: RequestEventRow,
   t: (key: string, options?: Record<string, string>) => string,
+  inputTokenDisplayMode: InputTokenDisplayMode,
 ): string[] => [
   formatRequestEventMetricTooltipLine(t('usage_stats.total_tokens'), row.totalTokensLabel, t),
-  formatRequestEventMetricTooltipLine(t('usage_stats.input_tokens'), row.inputTokensLabel, t),
+  formatRequestEventMetricTooltipLine(
+    t(
+      inputTokenDisplayMode === 'total'
+        ? 'usage_stats.input_token_display_total'
+        : 'usage_stats.input_token_display_split',
+    ),
+    row.inputTokensLabel,
+    t,
+  ),
   formatRequestEventMetricTooltipLine(t('usage_stats.output_tokens'), row.outputTokensLabel, t),
   formatRequestEventMetricTooltipLine(t('usage_stats.reasoning_tokens'), row.reasoningTokensLabel, t),
 ];
@@ -579,6 +591,7 @@ export function RequestEventsDetailsCard({
   events,
   loading,
   totalCount,
+  inputTokenDisplayMode = 'split',
   modelOptions: backendModelOptions,
   sourceOptions: backendSourceOptions,
   modelFilter,
@@ -649,11 +662,17 @@ export function RequestEventsDetailsCard({
       const responseSpeedMode = formatSpeedMode(responseSpeedModeRaw, t);
       const endpointFields = parseRequestEndpoint(event.endpoint);
       const timestampLabels = formatRequestEventTimestamp(timestamp);
-      const inputTokens = Math.max(toNumber(event.tokens?.input_tokens), 0);
+      const canonicalInputTokens = Math.max(toNumber(event.tokens?.input_tokens), 0);
       const outputTokens = Math.max(toNumber(event.tokens?.output_tokens), 0);
       const reasoningTokens = Math.max(toNumber(event.tokens?.reasoning_tokens), 0);
       const cacheReadTokens = Math.max(toNumber(event.tokens?.cache_read_tokens), 0);
       const cacheCreationTokens = Math.max(toNumber(event.tokens?.cache_creation_tokens), 0);
+      const inputTokens = calculateDisplayInputTokens({
+        inputTokens: canonicalInputTokens,
+        cacheReadTokens,
+        cacheCreationTokens,
+        mode: inputTokenDisplayMode,
+      });
       const totalTokens = Math.max(toNumber(event.tokens?.total_tokens), 0);
       const latencyMs = Number.isFinite(event.latency_ms) ? event.latency_ms : null;
       const ttftMs = Number.isFinite(event.ttft_ms) ? event.ttft_ms as number : null;
@@ -724,7 +743,7 @@ export function RequestEventsDetailsCard({
         cacheReadTokensLabel: REQUEST_EVENT_INTEGER_FORMATTER.format(cacheReadTokens),
         cacheCreationTokensLabel: REQUEST_EVENT_INTEGER_FORMATTER.format(cacheCreationTokens),
         totalTokensLabel: REQUEST_EVENT_INTEGER_FORMATTER.format(totalTokens),
-        cacheReadRate: formatCacheReadRate(cacheReadTokens, inputTokens),
+        cacheReadRate: formatCacheReadRate(cacheReadTokens, canonicalInputTokens),
         cost,
         costAvailable,
         costLabel: costAvailable && cost !== null ? formatUsd(cost) : '-',
@@ -732,7 +751,7 @@ export function RequestEventsDetailsCard({
         executorType,
       };
     });
-  }, [events, t]);
+  }, [events, t, inputTokenDisplayMode]);
   const virtualizeRows = rows.length > REQUEST_EVENT_VIRTUALIZATION_THRESHOLD;
   // TanStack Virtual 依赖内部可变测量状态，不参与 React Compiler 自动记忆化。
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -1033,7 +1052,7 @@ export function RequestEventsDetailsCard({
         label: t('usage_stats.request_events_tokens'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_tokens')}</th>,
         renderCell: (row) => {
-          const tooltipLines = buildTokenTooltipLines(row, t);
+          const tooltipLines = buildTokenTooltipLines(row, t, inputTokenDisplayMode);
           return (
             <td
               className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell} ${styles.requestEventsSpeedModeCell}`}
@@ -1048,7 +1067,11 @@ export function RequestEventsDetailsCard({
               <div className={styles.requestEventsTokenMetricRow}>
                 <RequestEventsTokenMetric
                   direction="input"
-                  label={t('usage_stats.input_tokens')}
+                  label={t(
+                    inputTokenDisplayMode === 'total'
+                      ? 'usage_stats.input_token_display_total'
+                      : 'usage_stats.input_token_display_split',
+                  )}
                   value={row.inputTokensDisplayLabel}
                   fullValue={row.inputTokensLabel}
                 />
@@ -1159,6 +1182,7 @@ export function RequestEventsDetailsCard({
     handleRequestEventsTooltipFocus,
     handleRequestEventsTooltipMouseEnter,
     handleRequestEventsTooltipMouseLeave,
+    inputTokenDisplayMode,
     latencyHint,
     modelTooltipActions,
     onRequestLogOpen,

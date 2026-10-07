@@ -1,7 +1,11 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { UsageActivityBlock, UsageActivityResponse } from '@/lib/types';
-import { formatCompactNumber } from '@/utils/usage';
+import {
+  calculateDisplayInputTokens,
+  formatCompactNumber,
+  type InputTokenDisplayMode,
+} from '@/utils/usage';
 import { ActivityHeatmapGrid } from './ActivityHeatmapGrid';
 import styles from '@/pages/UsagePage.module.scss';
 
@@ -26,9 +30,10 @@ export interface TokenActivityCardProps {
   activity: UsageActivityResponse | null;
   loading: boolean;
   requestIdentity: string;
+  inputTokenDisplayMode?: InputTokenDisplayMode;
 }
 
-export function TokenActivityCard({ activity, loading, requestIdentity }: TokenActivityCardProps) {
+export function TokenActivityCard({ activity, loading, requestIdentity, inputTokenDisplayMode = 'total' }: TokenActivityCardProps) {
   const { t, i18n } = useTranslation();
   const blocks = useMemo(() => activity?.blocks ?? [], [activity]);
   const levels = useMemo(() => calculateTokenActivityLevels(blocks.map((block) => block.total_tokens)), [blocks]);
@@ -42,7 +47,18 @@ export function TokenActivityCard({ activity, loading, requestIdentity }: TokenA
   }, [i18n.language, i18n.resolvedLanguage]);
   const formatTokenSummary = (block: UsageActivityBlock) => [
     `${t('usage_stats.token_activity_total')} ${numberFormatter.format(block.total_tokens)}`,
-    `${t('usage_stats.token_activity_input')} ${numberFormatter.format(block.input_tokens)}`,
+    `${t(
+        inputTokenDisplayMode === 'total'
+          ? 'usage_stats.input_token_display_total'
+          : 'usage_stats.input_token_display_split',
+      )} ${numberFormatter.format(
+      calculateDisplayInputTokens({
+        inputTokens: block.input_tokens,
+        cacheReadTokens: block.cache_read_tokens,
+        cacheCreationTokens: block.cache_creation_tokens,
+        mode: inputTokenDisplayMode,
+      }),
+    )}`,
     `${t('usage_stats.token_activity_output')} ${numberFormatter.format(block.output_tokens)}`,
     `${t('usage_stats.token_activity_reasoning')} ${numberFormatter.format(block.reasoning_tokens)}`,
     `${t('usage_stats.token_activity_cache_read')} ${numberFormatter.format(block.cache_read_tokens)}`,
@@ -64,7 +80,21 @@ export function TokenActivityCard({ activity, loading, requestIdentity }: TokenA
             {activity ? formatCompactNumber(activity.total_tokens) : '--'}
           </strong>
           <span className={styles.activitySummaryDetails}>
-            <span>{t('usage_stats.token_activity_input')} {formatCompactNumber(activity?.input_tokens ?? 0)}</span>
+            <span>
+              {t(
+                inputTokenDisplayMode === 'total'
+                  ? 'usage_stats.input_token_display_total'
+                  : 'usage_stats.input_token_display_split',
+              )}{' '}
+              {formatCompactNumber(
+                calculateDisplayInputTokens({
+                  inputTokens: activity?.input_tokens ?? 0,
+                  cacheReadTokens: activity?.cache_read_tokens ?? 0,
+                  cacheCreationTokens: activity?.cache_creation_tokens ?? 0,
+                  mode: inputTokenDisplayMode,
+                }),
+              )}
+            </span>
             <span>{t('usage_stats.token_activity_output')} {formatCompactNumber(activity?.output_tokens ?? 0)}</span>
           </span>
         </div>
@@ -81,7 +111,23 @@ export function TokenActivityCard({ activity, loading, requestIdentity }: TokenA
           renderTooltipStats={(block) => (
             <span className={styles.tokenActivityTooltipStats}>
               <span>{t('usage_stats.token_activity_total')} <strong>{formatCompactNumber(block.total_tokens)}</strong></span>
-              <span>{t('usage_stats.token_activity_input')} <strong>{formatCompactNumber(block.input_tokens)}</strong></span>
+              <span>
+                {t(
+                  inputTokenDisplayMode === 'total'
+                    ? 'usage_stats.input_token_display_total'
+                    : 'usage_stats.input_token_display_split',
+                )}{' '}
+                <strong>
+                  {formatCompactNumber(
+                    calculateDisplayInputTokens({
+                      inputTokens: block.input_tokens,
+                      cacheReadTokens: block.cache_read_tokens,
+                      cacheCreationTokens: block.cache_creation_tokens,
+                      mode: inputTokenDisplayMode,
+                    }),
+                  )}
+                </strong>
+              </span>
               <span>{t('usage_stats.token_activity_output')} <strong>{formatCompactNumber(block.output_tokens)}</strong></span>
               <span>{t('usage_stats.token_activity_reasoning')} <strong>{formatCompactNumber(block.reasoning_tokens)}</strong></span>
               <span>{t('usage_stats.token_activity_cache_read')} <strong>{formatCompactNumber(block.cache_read_tokens)}</strong></span>

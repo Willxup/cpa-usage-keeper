@@ -94,17 +94,17 @@ describe('RequestEventsDetailsCard token and cache tooltips', () => {
       const localizedCases = [
         {
           language: 'en',
-          tokenLines: ['Total Tokens: 200', 'Input: 100', 'Output: 60', 'Reasoning: 20'],
+          tokenLines: ['Total Tokens: 200', 'Total Input (includes cache): 100', 'Output: 60', 'Reasoning: 20'],
           cacheLines: ['Cache Rate: 20.00%', 'Cache Read: 20', 'Cache Write: 5'],
         },
         {
           language: 'zh',
-          tokenLines: ['总 Token：200', '输入：100', '输出：60', '推理：20'],
+          tokenLines: ['总 Token：200', '总输入（包含缓存）：100', '输出：60', '推理：20'],
           cacheLines: ['缓存率：20.00%', '缓存读取：20', '缓存写入：5'],
         },
         {
           language: 'zh-TW',
-          tokenLines: ['總 Token：200', '輸入：100', '輸出：60', '推理：20'],
+          tokenLines: ['總 Token：200', '總輸入（包含快取）：100', '輸出：60', '推理：20'],
           cacheLines: ['快取率：20.00%', '快取讀取：20', '快取寫入：5'],
         },
       ] as const;
@@ -165,7 +165,7 @@ describe('RequestEventsDetailsCard token and cache tooltips', () => {
       });
       expect(tooltipLines()).toEqual([
         'Total Tokens: 74,174,604',
-        'Input: 73,893,802',
+        'Total Input (includes cache): 73,893,802',
         'Output: 280,802',
         'Reasoning: 160,430',
       ]);
