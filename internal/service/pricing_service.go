@@ -107,6 +107,9 @@ func (s *pricingService) UpdatePricingBatch(ctx context.Context, inputs []servic
 				return mutationErr
 			}
 			settings[index] = *setting
+			if err := tx.Where("setting_key = ?", automaticPricingExclusionKey(setting.Model)).Delete(&entities.AppSetting{}).Error; err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -153,7 +156,12 @@ func normalizePricingInput(input servicedto.UpdatePricingInput) (repodto.ModelPr
 
 func (s *pricingService) DeletePricing(ctx context.Context, model string) error {
 	_, err := s.mutatePricing(ctx, func(tx *gorm.DB) error {
-		return repository.DeleteModelPriceSetting(tx, model)
+		if err := repository.DeleteModelPriceSetting(tx, model); err != nil {
+			return err
+		}
+		value := "true"
+		_, err := repository.UpsertAppSetting(ctx, tx, entities.AppSetting{SettingKey: automaticPricingExclusionKey(strings.TrimSpace(model)), Value: &value, ValueType: entities.AppSettingValueTypeBool})
+		return err
 	})
 	return err
 }

@@ -71,6 +71,7 @@ type App struct {
 	QuotaAutoRefresh  QuotaRunner
 	BackupMaintenance *DatabaseBackupRunner
 	RecentUsageCache  *repository.UsageRecentEventCache
+	AutomaticPricing  Runner
 	PricingCatalog    *pricing.Catalog
 	LogCloser         io.Closer
 
@@ -124,6 +125,9 @@ func NewWithOptions(options Options) (*App, error) {
 }
 
 func NewWithConfig(cfg config.Config) (*App, error) {
+	if cfg.AutomaticPricingSource != "" && cfg.AutomaticPricingSource != "models-dev" && cfg.AutomaticPricingSource != "litellm" {
+		return nil, fmt.Errorf("AUTOMATIC_PRICING_SOURCE must be models-dev or litellm")
+	}
 	logCloser, err := logging.Configure(cfg)
 	if err != nil {
 		return nil, err
@@ -315,6 +319,14 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		logrus.WithField("cpa_base_url", cfg.CPABaseURL).Warn("TLS certificate verification is disabled for CPA and Redis queue connections")
 	}
 	pricingService := service.NewPricingService(db, pricingCatalog, cpaClient)
+	var automaticPricing Runner
+	if cfg.AutomaticPricingSource != "" {
+		runner, runnerErr := service.NewAutomaticPricingRunner(pricingService, cfg.AutomaticPricingSource)
+		if runnerErr != nil {
+			return nil, runnerErr
+		}
+		automaticPricing = runner
+	}
 	sessionManager := auth.NewSessionManager(cfg.AuthSessionTTL)
 	if cfg.AuthEnabled {
 		// Session Get/List 自动走 reader，Save/Delete 仍由写回调路由到唯一 writer。
@@ -352,6 +364,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		BackupMaintenance: backupMaintenance,
 		RecentUsageCache:  recentUsageCache,
 		PricingCatalog:    pricingCatalog,
+		AutomaticPricing:  automaticPricing,
 		LogCloser:         logCloser,
 		Router: api.NewRouter(
 			webui.Static,
@@ -462,6 +475,13 @@ func (a *App) Run() error {
 
 	ctx := a.startBackgroundContext()
 	defer a.stopBackgroundTasks()
+	if a.AutomaticPricing != nil {
+		a.startBackgroundTask(func() {
+			if err := a.AutomaticPricing.Run(ctx); err != nil {
+				logrus.WithError(err).Error("automatic pricing stopped")
+			}
+		})
+	}
 	if a.RedisIngest != nil {
 		a.startBackgroundTask(func() {
 			if err := a.RedisIngest.Run(ctx); err != nil {

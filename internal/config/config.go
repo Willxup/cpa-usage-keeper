@@ -36,6 +36,8 @@ var (
 )
 
 type Config struct {
+	// AutomaticPricingSource enables missing-price discovery; empty preserves manual pricing.
+	AutomaticPricingSource string
 	// AppHost 是 Web 服务监听主机；空值保持监听所有可用网络接口的现有行为。
 	AppHost string
 	// AppPort 是 Web 服务监听端口。
@@ -262,9 +264,14 @@ func Load(options LoadOptions) (*Config, error) {
 		return nil, fmt.Errorf("APP_BASE_PATH is invalid: %w", err)
 	}
 
+	automaticPricingSource := strings.TrimSpace(os.Getenv("AUTOMATIC_PRICING_SOURCE"))
+	if automaticPricingSource != "" && automaticPricingSource != "models-dev" && automaticPricingSource != "litellm" {
+		return nil, fmt.Errorf("AUTOMATIC_PRICING_SOURCE must be models-dev or litellm")
+	}
 	workDir := getString("WORK_DIR", DefaultWorkDir)
 
 	cfg := &Config{
+		AutomaticPricingSource:          automaticPricingSource,
 		AppHost:                         strings.TrimSpace(os.Getenv("APP_HOST")),
 		AppPort:                         getString("APP_PORT", "8080"),
 		AppBasePath:                     appBasePath,
