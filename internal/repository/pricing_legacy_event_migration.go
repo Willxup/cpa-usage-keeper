@@ -147,7 +147,7 @@ func fixPublishedPricingBaseline(ctx context.Context, writer *gorm.DB) (PricingL
 			return nil
 		}
 		var structureCount int64
-		if err := tx.Table("schema_migrations").Where("version = ?", "20261002_pricing_storage_structure").Count(&structureCount).Error; err != nil {
+		if err := tx.Table("schema_migrations").Where("version = ?", "20261009_pricing_storage_structure").Count(&structureCount).Error; err != nil {
 			return err
 		}
 		if structureCount > 0 {
@@ -230,7 +230,7 @@ func compileFixedPricingBaseline(fixed *PricingMigrationFixedBaseline) (*pricing
 func markPricingMigrationSchemaComplete(ctx context.Context, writer *gorm.DB) error {
 	return writer.Clauses(dbresolver.Write).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var versionCount int64
-		if err := tx.Table("schema_migrations").Where("version = ?", "20261002_pricing_storage_structure").Count(&versionCount).Error; err != nil {
+		if err := tx.Table("schema_migrations").Where("version = ?", "20261009_pricing_storage_structure").Count(&versionCount).Error; err != nil {
 			return err
 		}
 		if versionCount != 1 {

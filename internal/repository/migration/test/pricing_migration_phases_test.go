@@ -51,7 +51,7 @@ func TestPricingStorageWaitsForLatestMainMetadataMigration(t *testing.T) {
 	if err := migration.MarkAllAsApplied(db); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Exec("DELETE FROM schema_migrations WHERE version IN ?", []string{usageEventTraceMetadataMigrationVersion, pricingStorageStructureVersion, "20261005_remove_ranking"}).Error; err != nil {
+	if err := db.Exec("DELETE FROM schema_migrations WHERE version IN ?", []string{usageEventTraceMetadataMigrationVersion, pricingStorageStructureVersion, "20261009_remove_ranking"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := migration.RunPricingStorageStructure(db); err == nil || !strings.Contains(err.Error(), usageEventTraceMetadataMigrationVersion) {
@@ -92,7 +92,7 @@ func TestPricingStorageWaitsForLatestMainMetadataMigration(t *testing.T) {
 		}
 	}
 	var rankingVersions int64
-	if err := db.Table("schema_migrations").Where("version = ?", "20261005_remove_ranking").Count(&rankingVersions).Error; err != nil {
+	if err := db.Table("schema_migrations").Where("version = ?", "20261009_remove_ranking").Count(&rankingVersions).Error; err != nil {
 		t.Fatal(err)
 	}
 	if rankingVersions != 0 {

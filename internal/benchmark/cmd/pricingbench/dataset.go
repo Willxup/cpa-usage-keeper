@@ -115,7 +115,7 @@ func preparePricingDataset(ctx context.Context, path string, events int64, scena
 func downgradePricingPhysicalSchema(ctx context.Context, db *sql.DB, scenario string) error {
 	for _, step := range []string{
 		"DROP TABLE pricing_state", "DROP TABLE pricing_migration_state",
-		"DELETE FROM schema_migrations WHERE version = '20261002_pricing_storage_structure'",
+		"DELETE FROM schema_migrations WHERE version = '20261009_pricing_storage_structure'",
 		"ALTER TABLE usage_events DROP COLUMN cost_usd",
 		"ALTER TABLE usage_events DROP COLUMN cost_available",
 		"ALTER TABLE usage_events_archive DROP COLUMN cost_usd",
@@ -267,7 +267,7 @@ func verifyOldPricingPhysicalSchema(ctx context.Context, db *sql.DB, spec *datas
 	if control != 0 {
 		return fmt.Errorf("pricing control tables remain before old migration: %d", control)
 	}
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations WHERE version='20261002_pricing_storage_structure'").Scan(&applied); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations WHERE version='20261009_pricing_storage_structure'").Scan(&applied); err != nil {
 		return err
 	}
 	if applied != 0 {

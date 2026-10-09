@@ -298,7 +298,7 @@ func seedPublishedPricingRuntime(t *testing.T, cfg config.Config) *gorm.DB {
 		"ALTER TABLE model_price_settings DROP COLUMN branches_json",
 		"DROP TABLE pricing_state",
 		"DROP TABLE pricing_migration_state",
-		"DELETE FROM schema_migrations WHERE version = '20261002_pricing_storage_structure'",
+		"DELETE FROM schema_migrations WHERE version = '20261009_pricing_storage_structure'",
 	} {
 		if err := seed.Exec(statement).Error; err != nil {
 			t.Fatalf("restore old physical schema with %q: %v", statement, err)

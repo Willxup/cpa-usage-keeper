@@ -97,8 +97,8 @@ const (
 	migrationNormalizeUsageEventParentSessionNull   = "20260922_normalize_usage_event_parent_session_null"
 	// migrationLimitLatencySamplePoints 缩小已保存散点，事务前必须备份旧 BLOB。
 	migrationLimitLatencySamplePoints   = "20260925_limit_latency_sample_points"
-	migrationAddPricingStorageStructure = "20261002_pricing_storage_structure"
-	migrationRemoveRanking              = "20261005_remove_ranking"
+	migrationAddPricingStorageStructure = "20261009_pricing_storage_structure"
+	migrationRemoveRanking              = "20261009_remove_ranking"
 	// migrationAddUsageEventTraceMetadata 只保存上游提供的执行与节点元数据，历史行保持 NULL。
 	migrationAddUsageEventTraceMetadata = "20261008_usage_event_trace_metadata"
 )

@@ -530,7 +530,7 @@ func TestPricingLegacyConversionParentSessionNormalization(t *testing.T) {
 					if err := migration.MarkAllAsApplied(live); err != nil {
 						t.Fatal(err)
 					}
-					if err := live.Exec("DELETE FROM schema_migrations WHERE version IN (?, ?)", "20260922_normalize_usage_event_parent_session_null", "20261002_pricing_storage_structure").Error; err != nil {
+					if err := live.Exec("DELETE FROM schema_migrations WHERE version IN (?, ?)", "20260922_normalize_usage_event_parent_session_null", "20261009_pricing_storage_structure").Error; err != nil {
 						t.Fatal(err)
 					}
 					if err := migration.RunPublished(live); err != nil {
