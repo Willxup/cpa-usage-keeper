@@ -15,6 +15,8 @@ import {
   formatFixedTwoDecimals,
   formatPerMinuteValue,
   formatUsd,
+  calculateDisplayInputTokens,
+  type InputTokenDisplayMode,
 } from '@/utils/usage';
 import { sparklineOptions } from '@/utils/usage/chartConfig';
 import type { UsageOverviewPayload, UsagePayload } from './hooks/useUsageData';
@@ -37,6 +39,7 @@ interface StatCardData {
 export interface StatCardsProps {
   usage: UsageOverviewPayload | null;
   loading: boolean;
+  inputTokenDisplayMode?: InputTokenDisplayMode;
   dailyAverageUsage: UsageOverviewPayload | null;
   reserveDailyAverage: boolean;
   sparklines: {
@@ -117,6 +120,7 @@ export function buildStatCardMetrics({ usage }: { usage: UsageOverviewPayload | 
 export function StatCards({
   usage,
   loading,
+  inputTokenDisplayMode = 'total',
   dailyAverageUsage,
   reserveDailyAverage,
   sparklines,
@@ -129,7 +133,12 @@ export function StatCards({
     () => buildStatCardMetrics({ usage }),
     [usage]
   );
-
+  const displayInputTokens = calculateDisplayInputTokens({
+    inputTokens: cacheReadRateStats.inputTokens,
+    cacheReadTokens: cacheReadRateStats.cacheReadTokens,
+    cacheCreationTokens: tokenBreakdown.cacheCreationTokens,
+    mode: inputTokenDisplayMode,
+  });
   useEffect(() => {
     // 等浏览器完成当前布局后再切换展开态，让首次出现和范围切换都能触发卡片布局动画。
     const frame = window.requestAnimationFrame(() => setDailyAverageExpanded(shouldExpandDailyAverage));
@@ -236,8 +245,12 @@ export function StatCards({
             {loading ? '-' : formatCompactNumber(cacheReadRateStats.cacheReadTokens)}
           </span>
           <span className={styles.statMetaItem}>
-            {t('usage_stats.input_tokens')}:{' '}
-            {loading ? '-' : formatCompactNumber(cacheReadRateStats.inputTokens)}
+            {t(
+              inputTokenDisplayMode === 'total'
+                ? 'usage_stats.input_token_display_total'
+                : 'usage_stats.input_token_display_split',
+            )}:{' '}
+            {loading ? '-' : formatCompactNumber(displayInputTokens)}
           </span>
         </>
       ),

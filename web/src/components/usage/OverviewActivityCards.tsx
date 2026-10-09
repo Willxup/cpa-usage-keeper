@@ -1,4 +1,5 @@
 import type { UsageActivityResponse } from '@/lib/types';
+import type { InputTokenDisplayMode } from '@/utils/usage';
 import { ServiceHealthCard } from './ServiceHealthCard';
 import { TokenActivityCard } from './TokenActivityCard';
 import styles from '@/pages/UsagePage.module.scss';
@@ -7,13 +8,14 @@ export interface OverviewActivityCardsProps {
   activity: UsageActivityResponse | null;
   loading: boolean;
   requestIdentity: string;
+  inputTokenDisplayMode?: InputTokenDisplayMode;
 }
 
-export function OverviewActivityCards({ activity, loading, requestIdentity }: OverviewActivityCardsProps) {
+export function OverviewActivityCards({activity,loading,requestIdentity,inputTokenDisplayMode = 'total',}: OverviewActivityCardsProps) {
   // DOM 顺序固定 Token 在前，桌面对应左侧，移动端自然对应上方。
   return (
     <div className={styles.recentActivityGrid}>
-      <TokenActivityCard activity={activity} loading={loading} requestIdentity={requestIdentity} />
+      <TokenActivityCard activity={activity} loading={loading} requestIdentity={requestIdentity} inputTokenDisplayMode={inputTokenDisplayMode} />
       <ServiceHealthCard activity={activity} loading={loading} requestIdentity={requestIdentity} />
     </div>
   );

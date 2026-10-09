@@ -24,17 +24,27 @@ const toNumber = (value: unknown): number => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+export type InputTokenDisplayMode = 'total' | 'split';
+
 export function calculateDisplayInputTokens({
   inputTokens,
   cacheReadTokens,
   cacheCreationTokens,
+  mode = 'split',
 }: {
   inputTokens: unknown;
   cacheReadTokens: unknown;
   cacheCreationTokens: unknown;
+  mode?: InputTokenDisplayMode;
 }): number {
+  const input = Math.max(toNumber(inputTokens), 0);
+
+  if (mode === 'total') {
+    return input;
+  }
+
   return Math.max(
-    Math.max(toNumber(inputTokens), 0)
+    input
       - Math.max(toNumber(cacheReadTokens), 0)
       - Math.max(toNumber(cacheCreationTokens), 0),
     0,
