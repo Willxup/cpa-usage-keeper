@@ -16,7 +16,7 @@ const overviewDimensionsPredicate = "bucket_start = ? AND api_group_key = ? AND 
 // 旧费用桶必须已回填，且数据库加上本页有限增量后仍须是可保存的有限 REAL。
 const overviewReadyFeePredicate = "cost_usd IS NOT NULL AND unavailable_cost_count IS NOT NULL AND cost_usd + ? BETWEEN ? AND ?"
 
-// ApplyRows 用完整维度唯一键累加原统计与已存费用；调用方持有 hourly、daily、checkpoint 的共同事务。
+// ApplyRows 用完整维度唯一键累加原统计、已存费用和速度；调用方持有 hourly、daily、checkpoint 的共同事务。
 func ApplyRows(tx *gorm.DB, hourlyRows []entities.UsageOverviewHourlyStat, dailyRows []entities.UsageOverviewDailyStat, now time.Time) error {
 	// hourly 必须全部成功，调用方才会继续提交 daily 和 checkpoint。
 	for _, row := range hourlyRows {
@@ -39,6 +39,7 @@ func applyHourlyRow(tx *gorm.DB, row entities.UsageOverviewHourlyStat, now time.
 		return fmt.Errorf("hourly overview fee: %w", err)
 	}
 	updates := tokenStatUpdates(row.RequestCount, row.SuccessCount, row.FailureCount, row.InputTokens, row.OutputTokens, row.ReasoningTokens, row.CachedTokens, row.CacheReadTokens, row.CacheCreationTokens, row.TotalTokens, *row.CostUSD, *row.UnavailableCostCount, now)
+	addSpeedStatUpdates(updates, row.SpeedTPSSum, row.SpeedSampleCount, row.DecodeSpeedTPSSum, row.DecodeSpeedSampleCount)
 	args := hourlyDimensionArgs(row)
 	// update-first 避免正常累计走唯一索引冲突路径并消耗自增 ID。
 	result := tx.Model(&entities.UsageOverviewHourlyStat{}).Where(overviewDimensionsPredicate, args...).Where(overviewReadyFeePredicate, *row.CostUSD, -math.MaxFloat64, math.MaxFloat64).Updates(updates)
@@ -70,6 +71,7 @@ func applyDailyRow(tx *gorm.DB, row entities.UsageOverviewDailyStat, now time.Ti
 		return fmt.Errorf("daily overview fee: %w", err)
 	}
 	updates := tokenStatUpdates(row.RequestCount, row.SuccessCount, row.FailureCount, row.InputTokens, row.OutputTokens, row.ReasoningTokens, row.CachedTokens, row.CacheReadTokens, row.CacheCreationTokens, row.TotalTokens, *row.CostUSD, *row.UnavailableCostCount, now)
+	addSpeedStatUpdates(updates, row.SpeedTPSSum, row.SpeedSampleCount, row.DecodeSpeedTPSSum, row.DecodeSpeedSampleCount)
 	args := dailyDimensionArgs(row)
 	// daily 使用与 hourly 完全相同的最终唯一键和 update-first 语义。
 	result := tx.Model(&entities.UsageOverviewDailyStat{}).Where(overviewDimensionsPredicate, args...).Where(overviewReadyFeePredicate, *row.CostUSD, -math.MaxFloat64, math.MaxFloat64).Updates(updates)
@@ -136,4 +138,12 @@ func validateOverviewFeeDelta(cost *float64, unavailable *int64) error {
 		return fmt.Errorf("cost_usd is not finite")
 	}
 	return nil
+}
+
+// 速度与请求、费用、普通聚合水位共用一次事务，重试不会留下单独推进的速度计数。
+func addSpeedStatUpdates(updates map[string]any, speed float64, count int64, decodeSpeed float64, decodeCount int64) {
+	updates["speed_tps_sum"] = gorm.Expr("speed_tps_sum + ?", speed)
+	updates["speed_sample_count"] = gorm.Expr("speed_sample_count + ?", count)
+	updates["decode_speed_tps_sum"] = gorm.Expr("decode_speed_tps_sum + ?", decodeSpeed)
+	updates["decode_speed_sample_count"] = gorm.Expr("decode_speed_sample_count + ?", decodeCount)
 }

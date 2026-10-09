@@ -135,6 +135,16 @@ func TestPricingBenchCLIExercisesRealOldSchemas(t *testing.T) {
 			}
 			liveDB := openPricingBenchTestDB(t, filepath.Join(root, "pricing-old.db"))
 			assertPricingBenchColumn(t, liveDB, "usage_events", "cost_usd", true)
+			for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+				for _, column := range []string{"speed_tps_sum", "speed_sample_count", "decode_speed_tps_sum", "decode_speed_sample_count"} {
+					assertPricingBenchColumn(t, backupDB, table, column, false)
+					assertPricingBenchColumn(t, liveDB, table, column, true)
+				}
+				var count, decodeCount int64
+				if err := liveDB.QueryRow("SELECT SUM(speed_sample_count), SUM(decode_speed_sample_count) FROM "+table).Scan(&count, &decodeCount); err != nil || count <= 0 || decodeCount <= 0 || decodeCount > count {
+					t.Fatalf("%s speed statistics missing after rebuild/recalculation: count=%d decode=%d err=%v", table, count, decodeCount, err)
+				}
+			}
 			var schemaComplete, dataComplete int
 			if err := liveDB.QueryRow("SELECT schema_complete, data_complete FROM pricing_migration_state WHERE id=1").Scan(&schemaComplete, &dataComplete); err != nil || schemaComplete != 1 || dataComplete != 1 {
 				t.Fatalf("pricing data did not reach M6: schema=%d data=%d err=%v", schemaComplete, dataComplete, err)

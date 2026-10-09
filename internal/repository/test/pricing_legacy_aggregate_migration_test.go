@@ -202,6 +202,8 @@ func TestLegacyPricingOverviewPageFailureResumesWithoutDoubleAdd(t *testing.T) {
 		"UPDATE usage_aggregation_checkpoints SET last_aggregated_usage_event_id = 1003 WHERE name = 'overview'",
 		"UPDATE usage_overview_hourly_stats SET request_count = 1003, success_count = 1003, input_tokens = 1240, output_tokens = 40, total_tokens = 1280 WHERE id = 1",
 		"UPDATE usage_overview_daily_stats SET request_count = 1003, success_count = 1003, input_tokens = 1240, output_tokens = 40, total_tokens = 1280 WHERE id = 1",
+		"UPDATE usage_events SET latency_ms = 2000, ttft_ms = 1000",
+		"UPDATE usage_events_archive SET latency_ms = 4000, ttft_ms = 1000",
 	} {
 		if err := fixture.writer.Exec(statement).Error; err != nil {
 			t.Fatal(err)
@@ -211,8 +213,9 @@ func TestLegacyPricingOverviewPageFailureResumesWithoutDoubleAdd(t *testing.T) {
 	for id := int64(4); id <= 1003; id++ {
 		rows = append(rows, map[string]any{
 			"id": id, "event_key": "extra-priced", "api_group_key": "", "model": "model-a", "auth_index": "hot-a",
-			"timestamp": "2026-09-01T10:02:00Z", "input_tokens": 1, "output_tokens": 0,
-			"cache_read_tokens": 0, "cache_creation_tokens": 0, "total_tokens": 1, "failed": false,
+			"timestamp": "2026-09-01T10:02:00Z", "input_tokens": 1, "output_tokens": 1,
+			"latency_ms": 2000, "ttft_ms": 1000,
+			"cache_read_tokens": 0, "cache_creation_tokens": 0, "total_tokens": 2, "failed": false,
 		})
 	}
 	if err := fixture.writer.Table("usage_events").CreateInBatches(rows, 50).Error; err != nil {
@@ -241,6 +244,9 @@ func TestLegacyPricingOverviewPageFailureResumesWithoutDoubleAdd(t *testing.T) {
 	if err := json.Unmarshal([]byte(*failed.CursorsJSON), &progress); err != nil || progress.Overview == nil || progress.Overview.HotAfterID != 1001 {
 		t.Fatalf("失败页游标必须与金额一起回滚: %+v %v", progress, err)
 	}
+	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+		assertOverviewSpeedTotals(t, fixture.reader, table, "model-a", 514, 1000, 1028, 1000)
+	}
 	if _, err := repository.MigrateLegacyPricingEvents(ctx, fixture.writer, fixture.reader, filepath.Join(t.TempDir(), "unused"), time.Now()); err != nil {
 		t.Fatalf("M4 重入不得破坏 M5 游标: %v", err)
 	}
@@ -259,6 +265,9 @@ func TestLegacyPricingOverviewPageFailureResumesWithoutDoubleAdd(t *testing.T) {
 	t.Cleanup(func() { closePublishedPricingPools(reader, reopened) })
 	if err := repository.CompleteLegacyPricingData(ctx, reopened, reader, baseline); err != nil {
 		t.Fatalf("重启续页: %v", err)
+	}
+	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+		assertOverviewSpeedTotals(t, reader, table, "model-a", 517.5, 1003, 1030+10.0/3, 1003)
 	}
 	var cost sql.NullFloat64
 	var unavailable sql.NullInt64

@@ -26,7 +26,7 @@ type BucketKey struct {
 }
 
 // BuildRows 使用最终唯一键把已计价事件聚合成 hourly 和 daily rows；费用未回填时拒绝推进普通水位。
-// 只求和已存 USD 总额与不可用计数，原请求数和 Token 按事件原值累加，不再计价或归一化。
+// 费用、请求数和 Token 按已存事实累加，不再计价或归一化；两种速度逐请求计算后分别累计。
 func BuildRows(events []entities.UsageEvent) ([]entities.UsageOverviewHourlyStat, []entities.UsageOverviewDailyStat, int64, error) {
 	// 两个 map 都直接使用数据库最终唯一键，迁移与运行时不会产生不同分组。
 	hourly := make(map[BucketKey]*entities.UsageOverviewHourlyStat)
@@ -69,6 +69,23 @@ func BuildRows(events []entities.UsageEvent) ([]entities.UsageOverviewHourlyStat
 		}
 		addEventToHourlyRow(hourly[hourKey], event)
 		addEventToDailyRow(daily[dayKey], event)
+		// 与请求日志相同：失败、非流式或缺价不影响速度资格；旧 TTFT 缺失只排除解码速度。
+		// 先转 float64 再乘 1000，避免大 Token 数整数乘法溢出；同一事件只计算一次。
+		if event.OutputTokens > 0 && event.LatencyMS > 0 {
+			speed := float64(event.OutputTokens) * 1000 / float64(event.LatencyMS)
+			hourly[hourKey].SpeedTPSSum += speed
+			hourly[hourKey].SpeedSampleCount++
+			daily[dayKey].SpeedTPSSum += speed
+			daily[dayKey].SpeedSampleCount++
+			if event.TTFTMS != nil && *event.TTFTMS > 0 && *event.TTFTMS < event.LatencyMS {
+				// 保留完整输出 Token；这里不是 (N-1)/(T-TTFT) 的 TPOT 倒数。
+				decodeSpeed := float64(event.OutputTokens) * 1000 / float64(event.LatencyMS-*event.TTFTMS)
+				hourly[hourKey].DecodeSpeedTPSSum += decodeSpeed
+				hourly[hourKey].DecodeSpeedSampleCount++
+				daily[dayKey].DecodeSpeedTPSSum += decodeSpeed
+				daily[dayKey].DecodeSpeedSampleCount++
+			}
+		}
 	}
 
 	// map 转切片后固定写入顺序，让迁移重跑和故障定位保持稳定。

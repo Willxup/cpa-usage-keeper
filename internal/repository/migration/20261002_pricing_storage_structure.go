@@ -7,8 +7,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// addPricingStorageStructureMigration 只补费用和控制结构，不回填金额或宣告数据就绪。
-// 旧业务 migration 已按已发布顺序完成；新增列保持 NULL，供首次升级按固定基线逐批填写。
+// addPricingStorageStructureMigration 只补费用、速度与控制结构，不回填数据或宣告就绪。
+// 费用列保持 NULL，速度列从零开始；首次升级随后按固定基线同轮重建完整 Overview。
 func addPricingStorageStructureMigration(tx *gorm.DB) error {
 	for _, target := range []struct {
 		table   string
@@ -17,8 +17,8 @@ func addPricingStorageStructureMigration(tx *gorm.DB) error {
 	}{
 		{"usage_events", &entities.UsageEvent{}, []struct{ name, field string }{{"cost_usd", "CostUSD"}, {"cost_available", "CostAvailable"}}},
 		{"usage_events_archive", &entities.UsageEventArchive{}, []struct{ name, field string }{{"cost_usd", "CostUSD"}, {"cost_available", "CostAvailable"}}},
-		{"usage_overview_hourly_stats", &entities.UsageOverviewHourlyStat{}, []struct{ name, field string }{{"cost_usd", "CostUSD"}, {"unavailable_cost_count", "UnavailableCostCount"}}},
-		{"usage_overview_daily_stats", &entities.UsageOverviewDailyStat{}, []struct{ name, field string }{{"cost_usd", "CostUSD"}, {"unavailable_cost_count", "UnavailableCostCount"}}},
+		{"usage_overview_hourly_stats", &entities.UsageOverviewHourlyStat{}, overviewPricingColumns()},
+		{"usage_overview_daily_stats", &entities.UsageOverviewDailyStat{}, overviewPricingColumns()},
 		{"model_price_settings", &entities.ModelPriceSetting{}, []struct{ name, field string }{{"branches_json", "BranchesJSON"}}},
 	} {
 		if !tx.Migrator().HasTable(target.table) {
@@ -52,4 +52,13 @@ func addPricingStorageStructureMigration(tx *gorm.DB) error {
 		}
 	}
 	return nil
+}
+
+// 未发布 v2 的结构阶段一次准备费用与速度列，后续 M5 从现存明细同轮重建。
+func overviewPricingColumns() []struct{ name, field string } {
+	return []struct{ name, field string }{
+		{"cost_usd", "CostUSD"}, {"unavailable_cost_count", "UnavailableCostCount"},
+		{"speed_tps_sum", "SpeedTPSSum"}, {"speed_sample_count", "SpeedSampleCount"},
+		{"decode_speed_tps_sum", "DecodeSpeedTPSSum"}, {"decode_speed_sample_count", "DecodeSpeedSampleCount"},
+	}
 }

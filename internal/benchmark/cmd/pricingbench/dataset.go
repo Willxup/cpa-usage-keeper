@@ -122,8 +122,16 @@ func downgradePricingPhysicalSchema(ctx context.Context, db *sql.DB, scenario st
 		"ALTER TABLE usage_events_archive DROP COLUMN cost_available",
 		"ALTER TABLE usage_overview_hourly_stats DROP COLUMN cost_usd",
 		"ALTER TABLE usage_overview_hourly_stats DROP COLUMN unavailable_cost_count",
+		"ALTER TABLE usage_overview_hourly_stats DROP COLUMN speed_tps_sum",
+		"ALTER TABLE usage_overview_hourly_stats DROP COLUMN speed_sample_count",
+		"ALTER TABLE usage_overview_hourly_stats DROP COLUMN decode_speed_tps_sum",
+		"ALTER TABLE usage_overview_hourly_stats DROP COLUMN decode_speed_sample_count",
 		"ALTER TABLE usage_overview_daily_stats DROP COLUMN cost_usd",
 		"ALTER TABLE usage_overview_daily_stats DROP COLUMN unavailable_cost_count",
+		"ALTER TABLE usage_overview_daily_stats DROP COLUMN speed_tps_sum",
+		"ALTER TABLE usage_overview_daily_stats DROP COLUMN speed_sample_count",
+		"ALTER TABLE usage_overview_daily_stats DROP COLUMN decode_speed_tps_sum",
+		"ALTER TABLE usage_overview_daily_stats DROP COLUMN decode_speed_sample_count",
 		"ALTER TABLE model_price_settings DROP COLUMN branches_json",
 	} {
 		if _, err := db.ExecContext(ctx, step); err != nil {
@@ -225,6 +233,9 @@ func verifyOldPricingPhysicalSchema(ctx context.Context, db *sql.DB, spec *datas
 		}
 		if columns["cost_usd"] || columns["cost_available"] || columns["unavailable_cost_count"] {
 			return fmt.Errorf("%s still contains new pricing storage columns", table)
+		}
+		if columns["speed_tps_sum"] || columns["speed_sample_count"] || columns["decode_speed_tps_sum"] || columns["decode_speed_sample_count"] {
+			return fmt.Errorf("%s still has v2 speed columns before migration", table)
 		}
 		if spec.Scenario == pricingBenchFiveDim && (table == "usage_overview_hourly_stats" || table == "usage_overview_daily_stats") && columns["service_tier"] {
 			return fmt.Errorf("%s still has ten-dimension fields", table)

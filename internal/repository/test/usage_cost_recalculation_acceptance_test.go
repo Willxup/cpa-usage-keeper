@@ -50,7 +50,8 @@ func TestUsageCostRecalculationRetainsCommittedBatchAndOriginalFacts(t *testing.
 			EventKey:    []string{"committed-a", "committed-b", "rolled-back-a", "rolled-back-b"}[index],
 			APIGroupKey: "acceptance-key", Model: "priced", AuthIndex: "acceptance-credential",
 			Timestamp: when.Add(time.Duration(index) * time.Second), Endpoint: "/v1/responses",
-			InputTokens: 1_000_000, TotalTokens: 1_000_000, Failed: index == 1,
+			InputTokens: 1_000_000, OutputTokens: 100, TotalTokens: 1_000_100, Failed: index == 1,
+			LatencyMS: int64(1000 + index*1000), TTFTMS: new(int64(500)),
 			CostUSD: recalcCost(3), CostAvailable: recalcAvailable(index != 1),
 		}
 	}
