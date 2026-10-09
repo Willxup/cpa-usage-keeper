@@ -32,7 +32,7 @@ type CodexQuotaHistoryResponse struct {
 	GeneratedAt time.Time `json:"generated_at"`
 	// RangeStart 明确已结束周期只回溯最近三十天。
 	RangeStart time.Time `json:"range_start"`
-	// Windows 只列最近一次账号响应存在的角色，每个角色最多一项且标题取其最新周期。
+	// Windows 列出近 30 天内各自有记录的角色，每个角色最多一项且标题取其最新周期。
 	Windows []CodexQuotaHistoryWindow `json:"windows"`
 	// SelectedWindow 是本响应实际展示的单个窗口；无历史时为 nil。
 	SelectedWindow *CodexQuotaHistoryWindow `json:"selected_window"`
@@ -163,7 +163,8 @@ func (s *Service) GetCodexQuotaHistory(ctx context.Context, request CodexQuotaHi
 		}
 		return response, fmt.Errorf("get codex quota history identity: %w", err)
 	}
-	if !usageHeaderIdentityIsCodex(identity) {
+	provider := normalizeIdentityType(identity.Type)
+	if provider != "codex" && provider != "claude" {
 		return response, fmt.Errorf("%w: %s", ErrUnsupportedType, normalizeIdentityType(identity.Type))
 	}
 
@@ -173,6 +174,7 @@ func (s *Service) GetCodexQuotaHistory(ctx context.Context, request CodexQuotaHi
 		now = time.Now()
 	}
 	history, err := repository.BuildCodexQuotaEfficiencyHistory(ctx, s.db, repositorydto.CodexQuotaEfficiencyQuery{
+		Provider:   provider,
 		AuthIndex:  request.AuthIndex,
 		Now:        now,
 		RangeStart: now.Add(-codexQuotaHistoryRange),

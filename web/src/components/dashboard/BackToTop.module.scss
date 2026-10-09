@@ -1,0 +1,35 @@
+.button {
+  position: fixed;
+  right: max(24px, env(safe-area-inset-right));
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--floating-surface) 70%, transparent);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-lg);
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(8px);
+  transition: opacity .2s ease, transform .2s ease, visibility .2s;
+  -webkit-tap-highlight-color: transparent;
+
+  &[data-visible='true'] { opacity: 1; visibility: visible; transform: none; }
+  &:hover { background: var(--floating-surface); }
+  &:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 3px; }
+  > svg { position: relative; z-index: 1; }
+}
+
+@media (max-width: 768px) {
+  .button { right: max(20px, env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .button { transition: none; transform: none; }
+}

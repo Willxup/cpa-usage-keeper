@@ -1,14 +1,13 @@
-import { describe, expect, it, vi } from 'vitest'
-import type { UsageIdentity, UsageQuotaCheckResponse, UsageQuotaRow, UsageSubscriptionInfo } from '@/lib/types'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { UsageCredentialHealth, UsageIdentity, UsageQuotaCheckResponse, UsageQuotaRow, UsageSubscriptionInfo } from '@/lib/types'
 import {
-  CREDENTIALS_PAGE_SIZE,
   buildAiProviderCredentialRows,
   buildAuthFileCredentialRows,
   paginateCredentials,
   selectQuotaEligibleAuthIndexes,
   splitCredentialIdentities,
+  updateCredentialDetailStats,
 } from '../credentialViewModels'
-
 
 function quotaResponse(authIndex: string, quota: UsageQuotaRow[], rateLimitResetCreditsAvailableCount?: number | null, subscription?: UsageSubscriptionInfo): UsageQuotaCheckResponse {
   return {
@@ -19,41 +18,60 @@ function quotaResponse(authIndex: string, quota: UsageQuotaRow[], rateLimitReset
   }
 }
 
-function identity(overrides: Partial<UsageIdentity>): UsageIdentity {
+function identity(overrides: Partial<UsageIdentity> = {}): UsageIdentity {
   return {
-    id: overrides.id ?? '1',
-    name: overrides.name ?? '',
-    auth_type: overrides.auth_type ?? 1,
-    auth_type_name: overrides.auth_type_name ?? 'Auth File',
-    identity: overrides.identity ?? 'auth-1',
-    type: overrides.type ?? 'claude',
-    provider: overrides.provider ?? 'claude',
-    priority: overrides.priority,
-    subscription: overrides.subscription,
-    total_requests: overrides.total_requests ?? 0,
-    success_count: overrides.success_count ?? 0,
-    failure_count: overrides.failure_count ?? 0,
-    input_tokens: overrides.input_tokens ?? 0,
-    output_tokens: overrides.output_tokens ?? 0,
-    reasoning_tokens: overrides.reasoning_tokens ?? 0,
-    cache_read_tokens: overrides.cache_read_tokens ?? 0,
-    total_tokens: overrides.total_tokens ?? 0,
-    last_aggregated_usage_event_id: overrides.last_aggregated_usage_event_id ?? '0',
-    first_used_at: overrides.first_used_at,
-    last_used_at: overrides.last_used_at,
-    stats_updated_at: overrides.stats_updated_at,
-    credential_health: overrides.credential_health,
-    active_start: overrides.active_start,
-    active_until: overrides.active_until,
-    is_deleted: overrides.is_deleted ?? false,
-    created_at: overrides.created_at ?? '2026-05-09T00:00:00Z',
-    updated_at: overrides.updated_at ?? '2026-05-09T00:00:00Z',
-    deleted_at: overrides.deleted_at,
-    displayName: overrides.displayName,
+    id: '1',
+    name: '',
+    auth_type: 1,
+    auth_type_name: 'Auth File',
+    identity: 'auth-1',
+    type: 'claude',
+    provider: 'claude',
+    total_requests: 0,
+    success_count: 0,
+    failure_count: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    reasoning_tokens: 0,
+    cache_read_tokens: 0,
+    total_tokens: 0,
+    last_aggregated_usage_event_id: '0',
+    is_deleted: false,
+    created_at: '2026-05-09T00:00:00Z',
+    updated_at: '2026-05-09T00:00:00Z',
+    ...overrides,
+  }
+}
+
+function health(overrides: Partial<UsageCredentialHealth> = {}): UsageCredentialHealth {
+  return {
+    window_seconds: 18_000,
+    bucket_seconds: 600,
+    window_start: '2026-05-10T05:30:00Z',
+    window_end: '2026-05-10T10:30:00Z',
+    total_success: 0,
+    total_failure: 0,
+    success_rate: 0,
+    input_tokens: 0,
+    cache_read_tokens: 0,
+    buckets: [],
+    ...overrides,
   }
 }
 
 describe('credentialViewModels', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('updates the open detail priority from a fresh identity even if its row left the current page', () => {
+    const original = identity({ auth_type: 2, priority: 4 })
+    const selection = { kind: 'ai-provider' as const, row: buildAiProviderCredentialRows([original])[0] }
+    const updated = updateCredentialDetailStats(selection, identity({ auth_type: 2, priority: -3 }))
+    expect(updated.row.priorityLabel).toBe('P-3')
+    expect(updated.row.identity.priority).toBe(-3)
+    const cleared = updateCredentialDetailStats(updated, identity({ auth_type: 2, priority: 0 }))
+    expect(cleared.row.priorityLabel).toBe('P0')
+  })
+
   it('splits usage identities by auth type while keeping deleted rows for traffic display', () => {
     const groups = splitCredentialIdentities([
       identity({ id: '1', auth_type: 1, identity: 'auth-file' }),
@@ -92,6 +110,8 @@ describe('credentialViewModels', () => {
       ['free-auth', quotaResponse('free-auth', [], undefined, { provider: 'claude', plan: 'free' })],
       ['pro-auth', quotaResponse('pro-auth', [], undefined, { provider: 'claude', plan: 'pro' })],
       ['max-auth', quotaResponse('max-auth', [], undefined, { provider: 'claude', plan: 'max' })],
+      ['max5x-auth', quotaResponse('max5x-auth', [], undefined, { provider: 'claude', plan: 'max-5x' })],
+      ['max20x-auth', quotaResponse('max20x-auth', [], undefined, { provider: 'claude', plan: 'max-20x' })],
       ['team-auth', quotaResponse('team-auth', [], undefined, { provider: 'claude', plan: 'team' })],
     ])
 
@@ -99,6 +119,8 @@ describe('credentialViewModels', () => {
       identity({ identity: 'free-auth', provider: 'claude' }),
       identity({ identity: 'pro-auth', provider: 'claude' }),
       identity({ identity: 'max-auth', provider: 'claude' }),
+      identity({ identity: 'max5x-auth', provider: 'claude' }),
+      identity({ identity: 'max20x-auth', provider: 'claude' }),
       identity({ identity: 'team-auth', provider: 'claude' }),
     ], quotas)
 
@@ -106,6 +128,8 @@ describe('credentialViewModels', () => {
       { kind: 'claude-free', labelKey: 'usage_stats.credentials_subscription_claude_free' },
       { kind: 'claude-pro', labelKey: 'usage_stats.credentials_subscription_claude_pro' },
       { kind: 'claude-max', labelKey: 'usage_stats.credentials_subscription_claude_max' },
+      { kind: 'claude-max5x', labelKey: 'usage_stats.credentials_subscription_claude_max_5x' },
+      { kind: 'claude-max20x', labelKey: 'usage_stats.credentials_subscription_claude_max_20x' },
       { kind: 'claude-team', labelKey: 'usage_stats.credentials_subscription_claude_team' },
     ])
   })
@@ -172,16 +196,12 @@ describe('credentialViewModels', () => {
 
   it('builds active-until remaining days badge with zero as the minimum', () => {
     vi.setSystemTime(new Date('2026-05-10T10:00:00Z'))
-    try {
-      const rows = buildAuthFileCredentialRows([
-        identity({ identity: 'future-auth', active_until: '2026-06-04T09:59:59Z' }),
-        identity({ identity: 'expired-auth', active_until: '2026-05-09T10:00:00Z' }),
-      ])
+    const rows = buildAuthFileCredentialRows([
+      identity({ identity: 'future-auth', active_until: '2026-06-04T09:59:59Z' }),
+      identity({ identity: 'expired-auth', active_until: '2026-05-09T10:00:00Z' }),
+    ])
 
-      expect(rows.map((row) => row.remainingDaysLabel)).toEqual(['25d', '0d'])
-    } finally {
-      vi.useRealTimers()
-    }
+    expect(rows.map((row) => row.remainingDaysLabel)).toEqual(['25d', '0d'])
   })
 
   it('formats active-until timestamps without converting their project timezone offset', () => {
@@ -214,7 +234,6 @@ describe('credentialViewModels', () => {
     const firstPage = paginateCredentials(identities, 1)
     const thirdPage = paginateCredentials(identities, 3)
 
-    expect(CREDENTIALS_PAGE_SIZE).toBe(10)
     expect(firstPage.items).toHaveLength(10)
     expect(firstPage.total).toBe(25)
     expect(firstPage.totalPages).toBe(3)
@@ -262,7 +281,7 @@ describe('credentialViewModels', () => {
   })
 
   it('preserves Antigravity quota group metadata for provider-specific rendering', () => {
-    const groupedQuota = {
+    const groupedQuota: UsageQuotaRow = {
       key: 'bucket.antigravity-gemini-models.gemini-5h',
       label: '5h',
       scope: 'quota_group',
@@ -275,7 +294,7 @@ describe('credentialViewModels', () => {
       resetAt: '2026-05-09T12:00:00Z',
       window_usage_tokens: 1_000_000,
       window_usage_cost: 2.8,
-    } as UsageQuotaRow & { groupKey: string; groupLabel: string; groupDescription: string }
+    }
     const quotas = new Map<string, UsageQuotaCheckResponse>([
       ['antigravity-auth', quotaResponse('antigravity-auth', [groupedQuota])],
     ])
@@ -312,7 +331,7 @@ describe('credentialViewModels', () => {
       ])],
     ])
 
-    const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
+    const rows = buildAuthFileCredentialRows([identity()], quotas)
 
     expect(rows[0].displayQuotas[0].windowUsage).toEqual({ tokens: '0', cost: '$0.00' })
   })
@@ -325,7 +344,7 @@ describe('credentialViewModels', () => {
       ])],
     ])
 
-    const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
+    const rows = buildAuthFileCredentialRows([identity()], quotas)
 
     expect(rows[0].displayQuotas.map((quota) => quota.windowUsage)).toEqual([
       { tokens: '11.37M', cost: '$14.83' },
@@ -391,7 +410,7 @@ describe('credentialViewModels', () => {
       ])],
     ])
 
-    const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
+    const rows = buildAuthFileCredentialRows([identity()], quotas)
 
     expect(rows[0].displayQuotas.map((quota) => quota.windowUsageEstimate)).toEqual([
       { tokens: '4.00M', cost: '$10.00' },
@@ -409,7 +428,7 @@ describe('credentialViewModels', () => {
       ])],
     ])
 
-    const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
+    const rows = buildAuthFileCredentialRows([identity()], quotas)
 
     expect(rows[0].displayQuotas.map((quota) => quota.windowUsage)).toEqual([
       { tokens: '393.31K', cost: '$0.46' },
@@ -425,26 +444,15 @@ describe('credentialViewModels', () => {
     ])
   })
 
-  it('uses an explicit US locale for quota window cost formatting', () => {
-    const numberFormatSpy = vi.spyOn(Intl, 'NumberFormat')
-    try {
-      const quotas = new Map<string, UsageQuotaCheckResponse>([
-        ['auth-1', quotaResponse('auth-1', [
-          { key: 'rate_limit.primary_window', label: '5h', usedPercent: 3, window_usage_tokens: 11_368_055, window_usage_cost: 14.83442025 },
-        ])],
-      ])
+  it('formats quota cost with US grouping and two dollar decimals', () => {
+    const quotas = new Map<string, UsageQuotaCheckResponse>([
+      ['auth-1', quotaResponse('auth-1', [
+        { key: 'rate_limit.primary_window', usedPercent: 3, window_usage_tokens: 11_368_055, window_usage_cost: 1234.567 },
+      ])],
+    ])
 
-      buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
-
-      expect(numberFormatSpy).toHaveBeenCalledWith('en-US', expect.objectContaining({
-        style: 'currency',
-        currency: 'USD',
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }))
-    } finally {
-      numberFormatSpy.mockRestore()
-    }
+    const rows = buildAuthFileCredentialRows([identity()], quotas)
+    expect(rows[0].displayQuotas[0].windowUsage?.cost).toBe('$1,234.57')
   })
 
   it('uses normalized input token semantics for auth file cache rate', () => {
@@ -478,7 +486,7 @@ describe('credentialViewModels', () => {
       ])],
     ])
 
-    const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
+    const rows = buildAuthFileCredentialRows([identity()], quotas)
 
     expect(rows[0].displayQuotas[0]?.label).toBe('Weekly')
     expect(rows[0].displayQuotas[0]?.barPercent).toBe(90)
@@ -493,10 +501,25 @@ describe('credentialViewModels', () => {
       ])],
     ])
 
-    const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
+    const rows = buildAuthFileCredentialRows([identity()], quotas)
 
     expect(rows[0].displayQuotas.map((quota) => quota.label)).toEqual(['Monthly', 'Code Review Monthly', 'GPT-5.3-Codex-Spark Monthly'])
     expect(rows[0].displayQuotas.map((quota) => quota.barPercent)).toEqual([80, 60, 40])
+  })
+
+  it('displays international Kimi short and monthly quotas without changing its identity type', () => {
+    const quotas = new Map<string, UsageQuotaCheckResponse>([
+      ['kimi-ai-auth', quotaResponse('kimi-ai-auth', [
+        { key: 'limits.0', label: '5h', used: 25, limit: 100, remaining: 75, usedPercent: 25, window: { seconds: 18000 } },
+        { key: 'usages.limit_month_total', label: 'Monthly', used: 7.95, limit: 100, remaining: 92.05, usedPercent: 7.95, resetAt: '2026-11-05T00:00:00Z' },
+      ])],
+    ])
+
+    const rows = buildAuthFileCredentialRows([identity({ identity: 'kimi-ai-auth', provider: 'kimi-ai', type: 'kimi-ai' })], quotas)
+
+    expect(rows[0].identity.type).toBe('kimi-ai')
+    expect(rows[0].displayQuotas.map((quota) => quota.label)).toEqual(['5h', 'Monthly'])
+    expect(rows[0].displayQuotas.map((quota) => quota.barPercent)).toEqual([75, 92.05])
   })
 
   it('keeps unknown Codex windows displayable without showing a generic Window quota', () => {
@@ -507,7 +530,7 @@ describe('credentialViewModels', () => {
       ])],
     ])
 
-    const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
+    const rows = buildAuthFileCredentialRows([identity()], quotas)
 
     expect(rows[0].displayQuotas.map((quota) => quota.label)).toEqual(['Primary', 'GPT-5.3-Codex-Spark Primary'])
     expect(rows[0].displayQuotas.map((quota) => quota.barPercent)).toEqual([90, 17])
@@ -521,12 +544,11 @@ describe('credentialViewModels', () => {
       ])],
     ])
 
-    const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
+    const rows = buildAuthFileCredentialRows([identity()], quotas)
 
     expect(rows[0].displayQuotas.map((quota) => quota.label)).toEqual(['Primary', 'Code Review Secondary'])
     expect(rows[0].displayQuotas.map((quota) => quota.barPercent)).toEqual([90, 70])
   })
-
 
   it('derives auth file quota rows and reset credits from full quota responses', () => {
     const quotas = new Map<string, UsageQuotaCheckResponse>([
@@ -535,7 +557,7 @@ describe('credentialViewModels', () => {
     ])
 
     const rows = buildAuthFileCredentialRows([
-      identity({ identity: 'auth-1' }),
+      identity(),
       identity({ identity: 'auth-2' }),
     ], quotas)
 
@@ -558,18 +580,7 @@ describe('credentialViewModels', () => {
   })
 
   it('keeps credential health snapshots on Auth Files and AI Provider rows', () => {
-    const credentialHealth = {
-      window_seconds: 18_000,
-      bucket_seconds: 600,
-      window_start: '2026-05-10T05:30:00Z',
-      window_end: '2026-05-10T10:30:00Z',
-      total_success: 2,
-      total_failure: 1,
-      success_rate: 66.6667,
-      input_tokens: 0,
-      cache_read_tokens: 0,
-      buckets: [],
-    }
+    const credentialHealth = health({ total_success: 2, total_failure: 1, success_rate: 66.6667 })
 
     const authFileRows = buildAuthFileCredentialRows([
       identity({ identity: 'auth-1', credential_health: credentialHealth }),
@@ -590,18 +601,7 @@ describe('credentialViewModels', () => {
         // 终身累计与 5h 窗口刻意背离，确认两个字段各自独立取数。
         input_tokens: 1_000,
         cache_read_tokens: 100,
-        credential_health: {
-          window_seconds: 18_000,
-          bucket_seconds: 600,
-          window_start: '2026-05-10T05:30:00Z',
-          window_end: '2026-05-10T10:30:00Z',
-          total_success: 8,
-          total_failure: 0,
-          success_rate: 100,
-          input_tokens: 400,
-          cache_read_tokens: 250,
-          buckets: [],
-        },
+        credential_health: health({ total_success: 8, success_rate: 100, input_tokens: 400, cache_read_tokens: 250 }),
       }),
     ])
 
@@ -614,18 +614,7 @@ describe('credentialViewModels', () => {
       identity({
         auth_type: 1,
         identity: 'auth-window',
-        credential_health: {
-          window_seconds: 18_000,
-          bucket_seconds: 600,
-          window_start: '2026-05-10T05:30:00Z',
-          window_end: '2026-05-10T10:30:00Z',
-          total_success: 8,
-          total_failure: 0,
-          success_rate: 100,
-          input_tokens: 800,
-          cache_read_tokens: 300,
-          buckets: [],
-        },
+        credential_health: health({ total_success: 8, success_rate: 100, input_tokens: 800, cache_read_tokens: 300 }),
       }),
     ])
 
@@ -633,18 +622,7 @@ describe('credentialViewModels', () => {
   })
 
   it('reports a null AI Provider 5h cache rate when the window has no input tokens', () => {
-    const quietHealth = {
-      window_seconds: 18_000,
-      bucket_seconds: 600,
-      window_start: '2026-05-10T05:30:00Z',
-      window_end: '2026-05-10T10:30:00Z',
-      total_success: 0,
-      total_failure: 0,
-      success_rate: 0,
-      input_tokens: 0,
-      cache_read_tokens: 0,
-      buckets: [],
-    }
+    const quietHealth = health()
 
     const withQuietWindow = buildAiProviderCredentialRows([
       identity({ auth_type: 2, identity: 'quiet-provider', input_tokens: 1_000, cache_read_tokens: 500, credential_health: quietHealth }),

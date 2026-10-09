@@ -1,8 +1,7 @@
 package test
 
 import (
-	"reflect"
-	"strings"
+	"slices"
 	"testing"
 	_ "unsafe"
 
@@ -33,18 +32,11 @@ func TestFrameAncestorsUsesCPAPublicURLOrigin(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := testFrameAncestorConfig(t)
-			cfg.CPAPublicURL = tc.publicURL
+			cfg := config.Config{CPABaseURL: "https://private-cpa.internal", CPAPublicURL: tc.publicURL}
 
 			origins := frameAncestorOrigins(cfg)
-			if !reflect.DeepEqual(origins, tc.want) {
+			if !slices.Equal(origins, tc.want) {
 				t.Fatalf("expected frame ancestor origins %#v, got %#v", tc.want, origins)
-			}
-			if strings.Contains(strings.Join(origins, " "), "/cpa/") {
-				t.Fatalf("expected frame ancestor origins %#v to use origins only, not public URL paths", origins)
-			}
-			if strings.Contains(strings.Join(origins, " "), "private-cpa.internal") {
-				t.Fatalf("expected frame ancestor origins %#v not to include CPA_BASE_URL host", origins)
 			}
 		})
 	}
@@ -53,20 +45,12 @@ func TestFrameAncestorsUsesCPAPublicURLOrigin(t *testing.T) {
 func TestFrameAncestorsNeverFallsBackToCPABaseURL(t *testing.T) {
 	for _, publicURL := range []string{"", "/cpa/", "ftp://cpa.example.com", "cpa.example.com:8443/", "//cpa.example.com"} {
 		t.Run("public URL "+publicURL, func(t *testing.T) {
-			cfg := testFrameAncestorConfig(t)
-			cfg.CPAPublicURL = publicURL
+			cfg := config.Config{CPABaseURL: "https://private-cpa.internal", CPAPublicURL: publicURL}
 
 			origins := frameAncestorOrigins(cfg)
 			if len(origins) != 0 {
 				t.Fatalf("expected no extra frame ancestor origins, got %#v", origins)
 			}
 		})
-	}
-}
-
-func testFrameAncestorConfig(t *testing.T) config.Config {
-	t.Helper()
-	return config.Config{
-		CPABaseURL: "https://private-cpa.internal",
 	}
 }

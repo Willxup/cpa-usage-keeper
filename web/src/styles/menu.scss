@@ -1,0 +1,48 @@
+// 导航、选择器与操作菜单共用视觉；定位和滚动由各控件负责。
+@mixin surface {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 24px;
+  background: var(--bg-primary);
+  box-shadow: var(--shadow-lg);
+}
+
+@mixin item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+
+  &:hover:not(:disabled) { background: var(--keeper-menu-hover-bg); }
+  &:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
+  &:disabled { color: var(--text-tertiary); cursor: not-allowed; opacity: .76; }
+
+  @media (pointer: coarse) { min-height: 44px; }
+  @media (prefers-reduced-motion: reduce) { transition: none; }
+}
+
+@mixin selected {
+  // 选中态始终高于 hover / 键盘高亮，白色主题保留柔和的 8% 灰底。
+  &, &:hover:not(:disabled) {
+    background: var(--keeper-menu-selected-bg);
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+}

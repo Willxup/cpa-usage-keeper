@@ -3,6 +3,7 @@ package capacity_test
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -12,11 +13,7 @@ import (
 )
 
 func TestBuildUsagePayloadUsesValidSyntheticMetadata(t *testing.T) {
-	profiles, err := capacity.BuildAPIKeyProfiles(100, []capacity.TrafficTier{
-		{Name: "high", KeyShare: 0.30, PerKeyWeight: 10},
-		{Name: "medium", KeyShare: 0.50, PerKeyWeight: 3},
-		{Name: "low", KeyShare: 0.20, PerKeyWeight: 1},
-	}, 20260806)
+	profiles, err := capacity.BuildAPIKeyProfiles(100, capacityTestTrafficTiers(), 20260806)
 	if err != nil {
 		t.Fatalf("BuildAPIKeyProfiles returned error: %v", err)
 	}
@@ -40,11 +37,7 @@ func TestBuildUsagePayloadUsesValidSyntheticMetadata(t *testing.T) {
 }
 
 func TestBuildUsagePayloadUsesCanonicalTokenSemantics(t *testing.T) {
-	profiles, err := capacity.BuildAPIKeyProfiles(4, []capacity.TrafficTier{
-		{Name: "high", KeyShare: 0.30, PerKeyWeight: 10},
-		{Name: "medium", KeyShare: 0.50, PerKeyWeight: 3},
-		{Name: "low", KeyShare: 0.20, PerKeyWeight: 1},
-	}, 20260806)
+	profiles, err := capacity.BuildAPIKeyProfiles(4, capacityTestTrafficTiers(), 20260806)
 	if err != nil {
 		t.Fatalf("BuildAPIKeyProfiles returned error: %v", err)
 	}
@@ -121,35 +114,25 @@ func TestSummarizeDashboardLatenciesSeparatesHeavyDiagnosticEndpoint(t *testing.
 }
 
 func TestCoreDashboardReplayExcludesAnalysisLatency(t *testing.T) {
-	for _, path := range capacity.CoreDashboardReplayPaths() {
-		if path == "/api/v1/usage/analysis/latency?range=30d" {
-			t.Fatalf("analysis latency must not participate in the core Dashboard replay: %v", capacity.CoreDashboardReplayPaths())
-		}
+	if paths := capacity.CoreDashboardReplayPaths(); slices.Contains(paths, "/api/v1/usage/analysis/latency?range=30d") {
+		t.Fatalf("analysis latency must not participate in the core Dashboard replay: %v", paths)
 	}
 }
 
 func TestDashboardReplayUsesExplicitRealtimeWindow(t *testing.T) {
 	paths := capacity.DashboardReplayPaths()
-	found := false
 	for _, path := range paths {
-		if path == "/api/v1/usage/overview/realtime?window=60m" {
-			found = true
-		}
 		if strings.Contains(path, "realtime?range=") {
 			t.Fatalf("realtime path uses ignored range parameter: %q", path)
 		}
 	}
-	if !found {
+	if !slices.Contains(paths, "/api/v1/usage/overview/realtime?window=60m") {
 		t.Fatalf("explicit 60-minute realtime path missing: %v", paths)
 	}
 }
 
 func TestBuildUsagePayloadKeepsProductionCorrelations(t *testing.T) {
-	tiers := []capacity.TrafficTier{
-		{Name: "high", KeyShare: 0.30, PerKeyWeight: 10},
-		{Name: "medium", KeyShare: 0.50, PerKeyWeight: 3},
-		{Name: "low", KeyShare: 0.20, PerKeyWeight: 1},
-	}
+	tiers := capacityTestTrafficTiers()
 	profiles, err := capacity.BuildAPIKeyProfiles(100, tiers, 20260806)
 	if err != nil {
 		t.Fatalf("BuildAPIKeyProfiles returned error: %v", err)

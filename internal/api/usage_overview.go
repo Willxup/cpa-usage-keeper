@@ -1,11 +1,14 @@
 package api
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
+	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/helper"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/service"
@@ -55,31 +58,31 @@ type usageOverviewSeries struct {
 }
 
 type usageOverviewRealtime struct {
-	Window               string                            `json:"window"`
-	Timezone             string                            `json:"timezone"`
-	BucketSeconds        int64                             `json:"bucket_seconds"`
-	WindowStart          *time.Time                        `json:"window_start,omitempty"`
-	WindowEnd            *time.Time                        `json:"window_end,omitempty"`
-	TokenVelocity        []usageOverviewTokenVelocityPoint `json:"token_velocity"`
-	ResponseLevel        []usageOverviewResponseLevelPoint `json:"response_level"`
-	ResponseDistribution usageOverviewResponseDistribution `json:"response_distribution"`
-	CurrentUsage         usageOverviewRealtimeCurrentUsage `json:"current_usage"`
-	RequestLevel         []usageOverviewRequestLevelPoint  `json:"request_level"`
-	CacheLevel           []usageOverviewCacheLevelPoint    `json:"cache_level"`
+	Insights       *usageRealtimeInsights            `json:"insights,omitempty"`
+	Window         string                            `json:"window"`
+	Timezone       string                            `json:"timezone"`
+	BucketSeconds  int64                             `json:"bucket_seconds"`
+	WindowStart    *time.Time                        `json:"window_start,omitempty"`
+	WindowEnd      *time.Time                        `json:"window_end,omitempty"`
+	TokenVelocity  []usageOverviewTokenVelocityPoint `json:"token_velocity"`
+	LatencyScatter usageOverviewLatencyScatter       `json:"latency_scatter"`
+	CurrentUsage   usageOverviewRealtimeCurrentUsage `json:"current_usage"`
+	RequestLevel   []usageOverviewRequestLevelPoint  `json:"request_level"`
+	CacheLevel     []usageOverviewCacheLevelPoint    `json:"cache_level"`
 }
 
 type keyUsageOverviewRealtime struct {
-	Window               string                               `json:"window"`
-	Timezone             string                               `json:"timezone"`
-	BucketSeconds        int64                                `json:"bucket_seconds"`
-	WindowStart          *time.Time                           `json:"window_start,omitempty"`
-	WindowEnd            *time.Time                           `json:"window_end,omitempty"`
-	TokenVelocity        []usageOverviewTokenVelocityPoint    `json:"token_velocity"`
-	ResponseLevel        []usageOverviewResponseLevelPoint    `json:"response_level"`
-	ResponseDistribution usageOverviewResponseDistribution    `json:"response_distribution"`
-	CurrentUsage         keyUsageOverviewRealtimeCurrentUsage `json:"current_usage"`
-	RequestLevel         []usageOverviewRequestLevelPoint     `json:"request_level"`
-	CacheLevel           []usageOverviewCacheLevelPoint       `json:"cache_level"`
+	Insights       *usageRealtimeInsights               `json:"insights,omitempty"`
+	Window         string                               `json:"window"`
+	Timezone       string                               `json:"timezone"`
+	BucketSeconds  int64                                `json:"bucket_seconds"`
+	WindowStart    *time.Time                           `json:"window_start,omitempty"`
+	WindowEnd      *time.Time                           `json:"window_end,omitempty"`
+	TokenVelocity  []usageOverviewTokenVelocityPoint    `json:"token_velocity"`
+	LatencyScatter usageOverviewLatencyScatter          `json:"latency_scatter"`
+	CurrentUsage   keyUsageOverviewRealtimeCurrentUsage `json:"current_usage"`
+	RequestLevel   []usageOverviewRequestLevelPoint     `json:"request_level"`
+	CacheLevel     []usageOverviewCacheLevelPoint       `json:"cache_level"`
 }
 
 type usageOverviewTokenVelocityPoint struct {
@@ -89,37 +92,18 @@ type usageOverviewTokenVelocityPoint struct {
 	Cost            *float64 `json:"cost,omitempty"`
 }
 
-type usageOverviewResponseLevelPoint struct {
-	Bucket       string `json:"bucket"`
-	TTFTP50MS    *int64 `json:"ttft_p50_ms,omitempty"`
-	TTFTP95MS    *int64 `json:"ttft_p95_ms,omitempty"`
-	LatencyP50MS *int64 `json:"latency_p50_ms,omitempty"`
-	LatencyP95MS *int64 `json:"latency_p95_ms,omitempty"`
+type usageOverviewLatencyScatter struct {
+	Points       []usageOverviewLatencyScatterPoint `json:"points"`
+	TotalPoints  int64                              `json:"total_points"`
+	P95TTFTMS    int64                              `json:"p95_ttft_ms"`
+	P95LatencyMS int64                              `json:"p95_latency_ms"`
+	MaxTTFTMS    int64                              `json:"max_ttft_ms"`
+	MaxLatencyMS int64                              `json:"max_latency_ms"`
 }
 
-type usageOverviewResponseAveragePoint struct {
-	Bucket string   `json:"bucket"`
-	AvgMS  *float64 `json:"avg_ms,omitempty"`
-}
-
-type usageOverviewResponseParticle struct {
-	Bucket    string `json:"bucket"`
-	Timestamp string `json:"timestamp,omitempty"`
-	MS        int64  `json:"ms"`
-	Count     int64  `json:"count"`
-}
-
-type usageOverviewResponseDistributionSeries struct {
-	AverageLine    []usageOverviewResponseAveragePoint `json:"average_line"`
-	Particles      []usageOverviewResponseParticle     `json:"particles"`
-	TotalParticles int64                               `json:"total_particles"`
-	Sampled        bool                                `json:"sampled"`
-	MaxParticles   int                                 `json:"max_particles"`
-}
-
-type usageOverviewResponseDistribution struct {
-	TTFT    usageOverviewResponseDistributionSeries `json:"ttft"`
-	Latency usageOverviewResponseDistributionSeries `json:"latency"`
+type usageOverviewLatencyScatterPoint struct {
+	TTFTMS    int64 `json:"ttft_ms"`
+	LatencyMS int64 `json:"latency_ms"`
 }
 
 type usageOverviewRealtimeCurrentUsage struct {
@@ -134,16 +118,15 @@ type keyUsageOverviewRealtimeCurrentUsage struct {
 }
 
 type usageOverviewRealtimeBase struct {
-	Window               string
-	Timezone             string
-	BucketSeconds        int64
-	WindowStart          *time.Time
-	WindowEnd            *time.Time
-	TokenVelocity        []usageOverviewTokenVelocityPoint
-	ResponseLevel        []usageOverviewResponseLevelPoint
-	ResponseDistribution usageOverviewResponseDistribution
-	RequestLevel         []usageOverviewRequestLevelPoint
-	CacheLevel           []usageOverviewCacheLevelPoint
+	Window         string
+	Timezone       string
+	BucketSeconds  int64
+	WindowStart    *time.Time
+	WindowEnd      *time.Time
+	TokenVelocity  []usageOverviewTokenVelocityPoint
+	LatencyScatter usageOverviewLatencyScatter
+	RequestLevel   []usageOverviewRequestLevelPoint
+	CacheLevel     []usageOverviewCacheLevelPoint
 }
 
 type usageOverviewRealtimeUsageTopItem struct {
@@ -184,6 +167,20 @@ func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsagePro
 		filter.APIKeyID = fmt.Sprintf("%d", session.CPAAPIKeyID)
 		writeUsageOverviewResponse(c, usageProvider, filter)
 	})
+	router.GET("/key-overview/comparisons", func(c *gin.Context) {
+		session, viewerKey, ok := activeAPIKeyViewerContext(c)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		filter, err := parseKeyUsageOverviewTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		if err != nil {
+			writeUsageFilterParseError(c, err)
+			return
+		}
+		filter.APIKeyID = fmt.Sprintf("%d", session.CPAAPIKeyID)
+		writeUsageOverviewComparisonsResponse(c, usageProvider, filter, nil, true, &viewerKey)
+	})
 	router.GET("/key-overview/realtime", func(c *gin.Context) {
 		session, _, ok := activeAPIKeyViewerContext(c)
 		if !ok {
@@ -213,6 +210,14 @@ func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageP
 		}
 		writeUsageOverviewResponse(c, usageProvider, filter)
 	})
+	router.GET("/usage/overview/comparisons", func(c *gin.Context) {
+		filter, err := parseUsageOverviewTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		if err != nil {
+			writeUsageFilterParseError(c, err)
+			return
+		}
+		writeUsageOverviewComparisonsResponse(c, usageProvider, filter, cpaAPIKeyProvider, false, nil)
+	})
 	router.GET("/usage/overview/realtime", func(c *gin.Context) {
 		filter, err := parseUsageRealtimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
@@ -221,6 +226,32 @@ func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageP
 		}
 		writeUsageOverviewRealtimeResponse(c, usageProvider, cpaAPIKeyProvider, filter)
 	})
+}
+
+func writeUsageOverviewComparisonsResponse(c *gin.Context, usageProvider service.UsageProvider, filter servicedto.UsageFilter, cpaAPIKeyProvider service.CPAAPIKeyProvider, keyViewer bool, viewerKey *entities.CPAAPIKey) {
+	comparisonProvider, ok := usageProvider.(service.UsageComparisonProvider)
+	if !ok {
+		c.JSON(http.StatusOK, buildUsageOverviewComparisons(nil, nil))
+		return
+	}
+	overview, err := comparisonProvider.GetUsageOverviewComparisons(c.Request.Context(), filter)
+	if err != nil {
+		writeUsageProviderError(c, "get usage overview comparisons failed", err)
+		return
+	}
+	apiKeyInfos, err := loadCPAAPIKeyInfos(c, cpaAPIKeyProvider)
+	if err != nil {
+		return
+	}
+	if keyViewer && viewerKey != nil && viewerKey.ID > 0 && viewerKey.APIKey != "" {
+		apiKeyInfos[viewerKey.APIKey] = analysisAPIKeyInfo{ID: strconv.FormatInt(viewerKey.ID, 10), Label: helper.CPAAPIKeyDisplayName(*viewerKey)}
+	}
+	comparisons := buildUsageOverviewComparisons(overview, apiKeyInfos)
+	if keyViewer {
+		comparisons.AuthFiles = nil
+		comparisons.AIProviders = nil
+	}
+	c.JSON(http.StatusOK, comparisons)
 }
 
 func writeUsageOverviewResponse(c *gin.Context, usageProvider service.UsageProvider, filter servicedto.UsageFilter) {
@@ -359,14 +390,13 @@ func buildUsageOverviewSeries(overview *servicedto.UsageOverviewSnapshot) usageO
 func emptyUsageOverviewRealtime(window string) usageOverviewRealtime {
 	base := emptyUsageOverviewRealtimeBase(window)
 	return usageOverviewRealtime{
-		Window:               base.Window,
-		Timezone:             base.Timezone,
-		BucketSeconds:        base.BucketSeconds,
-		WindowStart:          base.WindowStart,
-		WindowEnd:            base.WindowEnd,
-		TokenVelocity:        base.TokenVelocity,
-		ResponseLevel:        base.ResponseLevel,
-		ResponseDistribution: base.ResponseDistribution,
+		Window:         base.Window,
+		Timezone:       base.Timezone,
+		BucketSeconds:  base.BucketSeconds,
+		WindowStart:    base.WindowStart,
+		WindowEnd:      base.WindowEnd,
+		TokenVelocity:  base.TokenVelocity,
+		LatencyScatter: base.LatencyScatter,
 		CurrentUsage: usageOverviewRealtimeCurrentUsage{
 			Models:      []usageOverviewRealtimeUsageTopItem{},
 			APIKeys:     []usageOverviewRealtimeUsageTopItem{},
@@ -381,14 +411,13 @@ func emptyUsageOverviewRealtime(window string) usageOverviewRealtime {
 func emptyKeyUsageOverviewRealtime(window string) keyUsageOverviewRealtime {
 	base := emptyUsageOverviewRealtimeBase(window)
 	return keyUsageOverviewRealtime{
-		Window:               base.Window,
-		Timezone:             base.Timezone,
-		BucketSeconds:        base.BucketSeconds,
-		WindowStart:          base.WindowStart,
-		WindowEnd:            base.WindowEnd,
-		TokenVelocity:        base.TokenVelocity,
-		ResponseLevel:        base.ResponseLevel,
-		ResponseDistribution: base.ResponseDistribution,
+		Window:         base.Window,
+		Timezone:       base.Timezone,
+		BucketSeconds:  base.BucketSeconds,
+		WindowStart:    base.WindowStart,
+		WindowEnd:      base.WindowEnd,
+		TokenVelocity:  base.TokenVelocity,
+		LatencyScatter: base.LatencyScatter,
 		CurrentUsage: keyUsageOverviewRealtimeCurrentUsage{
 			Models: []usageOverviewRealtimeUsageTopItem{},
 		},
@@ -403,23 +432,13 @@ func emptyUsageOverviewRealtimeBase(window string) usageOverviewRealtimeBase {
 	}
 	bucketSeconds := realtimeBucketSeconds(window)
 	return usageOverviewRealtimeBase{
-		Window:        window,
-		Timezone:      time.Local.String(),
-		BucketSeconds: bucketSeconds,
-		TokenVelocity: []usageOverviewTokenVelocityPoint{},
-		ResponseLevel: []usageOverviewResponseLevelPoint{},
-		ResponseDistribution: usageOverviewResponseDistribution{
-			TTFT: usageOverviewResponseDistributionSeries{
-				AverageLine: []usageOverviewResponseAveragePoint{},
-				Particles:   []usageOverviewResponseParticle{},
-			},
-			Latency: usageOverviewResponseDistributionSeries{
-				AverageLine: []usageOverviewResponseAveragePoint{},
-				Particles:   []usageOverviewResponseParticle{},
-			},
-		},
-		RequestLevel: []usageOverviewRequestLevelPoint{},
-		CacheLevel:   []usageOverviewCacheLevelPoint{},
+		Window:         window,
+		Timezone:       time.Local.String(),
+		BucketSeconds:  bucketSeconds,
+		TokenVelocity:  []usageOverviewTokenVelocityPoint{},
+		LatencyScatter: usageOverviewLatencyScatter{Points: []usageOverviewLatencyScatterPoint{}},
+		RequestLevel:   []usageOverviewRequestLevelPoint{},
+		CacheLevel:     []usageOverviewCacheLevelPoint{},
 	}
 }
 
@@ -447,14 +466,14 @@ func buildUsageOverviewRealtime(realtime *servicedto.UsageOverviewRealtime, wind
 		return emptyUsageOverviewRealtime(window)
 	}
 	result := usageOverviewRealtime{
-		Window:               realtime.Window,
-		Timezone:             time.Local.String(),
-		BucketSeconds:        realtime.BucketSeconds,
-		WindowStart:          usageOverviewOptionalTime(realtime.WindowStart),
-		WindowEnd:            usageOverviewOptionalTime(realtime.WindowEnd),
-		TokenVelocity:        make([]usageOverviewTokenVelocityPoint, 0, len(realtime.TokenVelocity)),
-		ResponseLevel:        make([]usageOverviewResponseLevelPoint, 0, len(realtime.ResponseLevel)),
-		ResponseDistribution: mapUsageOverviewResponseDistribution(realtime.ResponseDistribution),
+		Insights:       mapUsageRealtimeInsights(realtime.Insights),
+		Window:         realtime.Window,
+		Timezone:       time.Local.String(),
+		BucketSeconds:  realtime.BucketSeconds,
+		WindowStart:    usageOverviewOptionalTime(realtime.WindowStart),
+		WindowEnd:      usageOverviewOptionalTime(realtime.WindowEnd),
+		TokenVelocity:  make([]usageOverviewTokenVelocityPoint, 0, len(realtime.TokenVelocity)),
+		LatencyScatter: mapUsageOverviewLatencyScatter(realtime.LatencyScatter),
 		CurrentUsage: usageOverviewRealtimeCurrentUsage{
 			Models:      mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.Models, false),
 			APIKeys:     mapUsageOverviewRealtimeAPIKeyTopItems(realtime.CurrentUsage.APIKeys, apiKeyInfos),
@@ -476,15 +495,6 @@ func buildUsageOverviewRealtime(realtime *servicedto.UsageOverviewRealtime, wind
 			TokensPerMinute: point.TokensPerMinute,
 			Tokens:          point.Tokens,
 			Cost:            point.CostUSD,
-		})
-	}
-	for _, point := range realtime.ResponseLevel {
-		result.ResponseLevel = append(result.ResponseLevel, usageOverviewResponseLevelPoint{
-			Bucket:       point.Bucket,
-			TTFTP50MS:    point.TTFTP50MS,
-			TTFTP95MS:    point.TTFTP95MS,
-			LatencyP50MS: point.LatencyP50MS,
-			LatencyP95MS: point.LatencyP95MS,
 		})
 	}
 	for _, point := range realtime.RequestLevel {
@@ -511,14 +521,14 @@ func buildKeyUsageOverviewRealtime(realtime *servicedto.UsageOverviewRealtime, w
 		return emptyKeyUsageOverviewRealtime(window)
 	}
 	result := keyUsageOverviewRealtime{
-		Window:               realtime.Window,
-		Timezone:             time.Local.String(),
-		BucketSeconds:        realtime.BucketSeconds,
-		WindowStart:          usageOverviewOptionalTime(realtime.WindowStart),
-		WindowEnd:            usageOverviewOptionalTime(realtime.WindowEnd),
-		TokenVelocity:        make([]usageOverviewTokenVelocityPoint, 0, len(realtime.TokenVelocity)),
-		ResponseLevel:        make([]usageOverviewResponseLevelPoint, 0, len(realtime.ResponseLevel)),
-		ResponseDistribution: mapUsageOverviewResponseDistribution(realtime.ResponseDistribution),
+		Insights:       mapUsageRealtimeInsights(realtime.Insights),
+		Window:         realtime.Window,
+		Timezone:       time.Local.String(),
+		BucketSeconds:  realtime.BucketSeconds,
+		WindowStart:    usageOverviewOptionalTime(realtime.WindowStart),
+		WindowEnd:      usageOverviewOptionalTime(realtime.WindowEnd),
+		TokenVelocity:  make([]usageOverviewTokenVelocityPoint, 0, len(realtime.TokenVelocity)),
+		LatencyScatter: mapUsageOverviewLatencyScatter(realtime.LatencyScatter),
 		CurrentUsage: keyUsageOverviewRealtimeCurrentUsage{
 			Models: mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.Models, false),
 		},
@@ -537,15 +547,6 @@ func buildKeyUsageOverviewRealtime(realtime *servicedto.UsageOverviewRealtime, w
 			TokensPerMinute: point.TokensPerMinute,
 			Tokens:          point.Tokens,
 			Cost:            point.CostUSD,
-		})
-	}
-	for _, point := range realtime.ResponseLevel {
-		result.ResponseLevel = append(result.ResponseLevel, usageOverviewResponseLevelPoint{
-			Bucket:       point.Bucket,
-			TTFTP50MS:    point.TTFTP50MS,
-			TTFTP95MS:    point.TTFTP95MS,
-			LatencyP50MS: point.LatencyP50MS,
-			LatencyP95MS: point.LatencyP95MS,
 		})
 	}
 	for _, point := range realtime.RequestLevel {
@@ -567,45 +568,16 @@ func buildKeyUsageOverviewRealtime(realtime *servicedto.UsageOverviewRealtime, w
 	return result
 }
 
-func mapUsageOverviewResponseDistribution(distribution servicedto.RealtimeResponseDistribution) usageOverviewResponseDistribution {
-	return usageOverviewResponseDistribution{
-		TTFT:    mapUsageOverviewResponseDistributionSeries(distribution.TTFT),
-		Latency: mapUsageOverviewResponseDistributionSeries(distribution.Latency),
+func mapUsageOverviewLatencyScatter(scatter servicedto.RealtimeLatencyScatter) usageOverviewLatencyScatter {
+	points := make([]usageOverviewLatencyScatterPoint, 0, len(scatter.Points))
+	for _, point := range scatter.Points {
+		points = append(points, usageOverviewLatencyScatterPoint{TTFTMS: point.TTFTMS, LatencyMS: point.LatencyMS})
 	}
-}
-
-func mapUsageOverviewResponseDistributionSeries(series servicedto.RealtimeResponseDistributionSeries) usageOverviewResponseDistributionSeries {
-	return usageOverviewResponseDistributionSeries{
-		AverageLine:    mapUsageOverviewResponseAveragePoints(series.AverageLine),
-		Particles:      mapUsageOverviewResponseParticles(series.Particles),
-		TotalParticles: series.TotalParticles,
-		Sampled:        series.Sampled,
-		MaxParticles:   series.MaxParticles,
+	return usageOverviewLatencyScatter{
+		Points: points, TotalPoints: scatter.TotalPoints,
+		P95TTFTMS: scatter.P95TTFTMS, P95LatencyMS: scatter.P95LatencyMS,
+		MaxTTFTMS: scatter.MaxTTFTMS, MaxLatencyMS: scatter.MaxLatencyMS,
 	}
-}
-
-func mapUsageOverviewResponseAveragePoints(points []servicedto.RealtimeResponseAveragePoint) []usageOverviewResponseAveragePoint {
-	result := make([]usageOverviewResponseAveragePoint, 0, len(points))
-	for _, point := range points {
-		result = append(result, usageOverviewResponseAveragePoint{
-			Bucket: point.Bucket,
-			AvgMS:  point.AvgMS,
-		})
-	}
-	return result
-}
-
-func mapUsageOverviewResponseParticles(points []servicedto.RealtimeResponseParticle) []usageOverviewResponseParticle {
-	result := make([]usageOverviewResponseParticle, 0, len(points))
-	for _, point := range points {
-		result = append(result, usageOverviewResponseParticle{
-			Bucket:    point.Bucket,
-			Timestamp: point.Timestamp,
-			MS:        point.MS,
-			Count:     point.Count,
-		})
-	}
-	return result
 }
 
 func mapUsageOverviewRealtimeTopItems(items []servicedto.RealtimeUsageTopItem, redactAPIKey bool) []usageOverviewRealtimeUsageTopItem {
@@ -634,9 +606,21 @@ func mapUsageOverviewRealtimeTopItems(items []servicedto.RealtimeUsageTopItem, r
 
 func mapUsageOverviewRealtimeAPIKeyTopItems(items []servicedto.RealtimeUsageTopItem, apiKeyInfos map[string]analysisAPIKeyInfo) []usageOverviewRealtimeUsageTopItem {
 	result := make([]usageOverviewRealtimeUsageTopItem, 0, len(items))
-	for _, item := range items {
+	for index, item := range items {
+		if index == 5 && len(items) == 6 && item.Key == repodto.RealtimeUsageOtherKey {
+			// 合成余项不是 API Key，保留它的稳定标识和聚合值。
+			result = append(result, usageOverviewRealtimeUsageTopItem{
+				Key: item.Key, Label: item.Label, Tokens: item.Tokens,
+				Requests: item.Requests, Cost: item.CostUSD, Share: item.Share,
+			})
+			continue
+		}
+		key := analysisAPIKeyResponseKey(item.Key, apiKeyInfos)
+		if _, ok := apiKeyInfos[item.Key]; !ok {
+			key = fmt.Sprintf("legacy:%x", sha256.Sum256([]byte(item.Key)))
+		}
 		result = append(result, usageOverviewRealtimeUsageTopItem{
-			Key:      analysisAPIKeyResponseKey(item.Key, apiKeyInfos),
+			Key:      key,
 			Label:    analysisAPIKeyLabel(item.Key, apiKeyInfos),
 			Tokens:   item.Tokens,
 			Requests: item.Requests,

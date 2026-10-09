@@ -27,7 +27,7 @@ describe('QuestionMarkHelp', () => {
 
   afterEach(async () => {
     await act(async () => root.unmount())
-    document.body.innerHTML = ''
+    container.remove()
   })
 
   it('keeps an accessible description mounted and supports focus and touch dismissal', async () => {
@@ -44,34 +44,32 @@ describe('QuestionMarkHelp', () => {
       )
     })
 
-    const button = container.querySelector<HTMLButtonElement>('[data-question-mark-help]')
-    const descriptionId = button?.getAttribute('aria-describedby')
-    const tooltipId = button?.getAttribute('aria-controls')
-    const description = descriptionId ? document.getElementById(descriptionId) : null
-    const tooltip = tooltipId ? document.getElementById(tooltipId) : null
+    const button = container.querySelector<HTMLButtonElement>('[data-question-mark-help]')!
+    const description = document.getElementById(button.getAttribute('aria-describedby')!)!
+    const tooltip = document.getElementById(button.getAttribute('aria-controls')!)!
 
-    expect(button?.getAttribute('aria-expanded')).toBe('false')
-    expect(description?.textContent).toBe('OpenAI Compatible is not supported.')
-    expect(tooltip?.getAttribute('role')).toBe('tooltip')
-    expect(tooltip?.getAttribute('aria-hidden')).toBe('true')
-    expect(tooltip?.parentElement).toBe(document.body)
+    expect(button.getAttribute('aria-expanded')).toBe('false')
+    expect(description.textContent).toBe('OpenAI Compatible is not supported.')
+    expect(tooltip.getAttribute('role')).toBe('tooltip')
+    expect(tooltip.getAttribute('aria-hidden')).toBe('true')
+    expect(tooltip.parentElement).toBe(document.body)
 
-    await act(async () => button?.focus())
-    expect(tooltip?.getAttribute('aria-hidden')).toBe('false')
-    await act(async () => button?.blur())
-    expect(tooltip?.getAttribute('aria-hidden')).toBe('true')
+    await act(async () => button.focus())
+    expect(tooltip.getAttribute('aria-hidden')).toBe('false')
+    await act(async () => button.blur())
+    expect(tooltip.getAttribute('aria-hidden')).toBe('true')
 
-    await dispatchPointer(button!, 'pointerdown', 'touch')
-    expect(tooltip?.getAttribute('aria-hidden')).toBe('false')
-    await dispatchPointer(button!, 'pointerdown', 'touch')
-    expect(tooltip?.getAttribute('aria-hidden')).toBe('true')
+    await dispatchPointer(button, 'pointerdown', 'touch')
+    expect(tooltip.getAttribute('aria-hidden')).toBe('false')
+    await dispatchPointer(button, 'pointerdown', 'touch')
+    expect(tooltip.getAttribute('aria-hidden')).toBe('true')
 
-    await dispatchPointer(button!, 'pointerdown', 'touch')
+    await dispatchPointer(button, 'pointerdown', 'touch')
     await dispatchPointer(document.body, 'pointerdown', 'mouse')
-    expect(tooltip?.getAttribute('aria-hidden')).toBe('true')
+    expect(tooltip.getAttribute('aria-hidden')).toBe('true')
   })
 
-  it('closes an inline tooltip when keyboard focus leaves after activation', async () => {
+  async function renderInlineHelp() {
     await act(async () => {
       root.render(
         <QuestionMarkHelp
@@ -88,44 +86,33 @@ describe('QuestionMarkHelp', () => {
       )
     })
 
-    const button = container.querySelector<HTMLButtonElement>('[data-ranking-help]')
-    const tooltip = container.querySelector<HTMLElement>('[data-ranking-tooltip]')
+    const button = container.querySelector<HTMLButtonElement>('[data-ranking-help]')!
+    const tooltip = container.querySelector<HTMLElement>('[data-ranking-tooltip]')!
 
-    expect(button?.textContent).toBe('?')
-    expect(tooltip?.getAttribute('aria-hidden')).toBe('true')
-    await act(async () => button?.focus())
-    await act(async () => button?.click())
-    expect(tooltip?.getAttribute('aria-hidden')).toBe('false')
-    await act(async () => button?.blur())
-    expect(tooltip?.getAttribute('aria-hidden')).toBe('true')
+    return { button, tooltip }
+  }
+
+  it('closes an inline tooltip when keyboard focus leaves after activation', async () => {
+    const { button, tooltip } = await renderInlineHelp()
+
+    expect(button.textContent).toBe('?')
+    expect(tooltip.getAttribute('aria-hidden')).toBe('true')
+    await act(async () => button.focus())
+    await act(async () => button.click())
+    expect(tooltip.getAttribute('aria-hidden')).toBe('false')
+    await act(async () => button.blur())
+    expect(tooltip.getAttribute('aria-hidden')).toBe('true')
   })
 
   it('does not reopen an inline tooltip when touch taps also emit click events', async () => {
-    await act(async () => {
-      root.render(
-        <QuestionMarkHelp
-          label="Ranking details"
-          description="Ranking explanation."
-          portal={false}
-          tooltipClassName="ranking-tooltip"
-          tooltipVisibleClassName="ranking-tooltip-visible"
-          buttonProps={{ 'data-ranking-help': 'true' }}
-          tooltipProps={{ 'data-ranking-tooltip': 'true' }}
-        >
-          Ranking explanation.
-        </QuestionMarkHelp>,
-      )
-    })
+    const { button, tooltip } = await renderInlineHelp()
 
-    const button = container.querySelector<HTMLButtonElement>('[data-ranking-help]')
-    const tooltip = container.querySelector<HTMLElement>('[data-ranking-tooltip]')
+    await dispatchPointer(button, 'pointerdown', 'touch')
+    await act(async () => button.click())
+    expect(tooltip.getAttribute('aria-hidden')).toBe('false')
 
-    await dispatchPointer(button!, 'pointerdown', 'touch')
-    await act(async () => button?.click())
-    expect(tooltip?.getAttribute('aria-hidden')).toBe('false')
-
-    await dispatchPointer(button!, 'pointerdown', 'touch')
-    await act(async () => button?.click())
-    expect(tooltip?.getAttribute('aria-hidden')).toBe('true')
+    await dispatchPointer(button, 'pointerdown', 'touch')
+    await act(async () => button.click())
+    expect(tooltip.getAttribute('aria-hidden')).toBe('true')
   })
 })

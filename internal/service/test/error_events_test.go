@@ -2,25 +2,15 @@ package test
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
 )
 
 func TestErrorEventServiceStoresEveryCurrentPayloadField(t *testing.T) {
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "error-events.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	t.Cleanup(func() {
-		sqlDB, _ := db.DB()
-		_ = sqlDB.Close()
-	})
+	db := openUsageServiceTestDatabase(t)
 
 	receivedAt := time.Date(2026, 8, 20, 12, 1, 0, 0, time.Local)
 	payload := `{
@@ -80,14 +70,7 @@ func TestErrorEventServiceStoresEveryCurrentPayloadField(t *testing.T) {
 }
 
 func TestErrorEventServicePreservesAbsentOptionalSnapshotsAsNull(t *testing.T) {
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "error-events-null.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	t.Cleanup(func() {
-		sqlDB, _ := db.DB()
-		_ = sqlDB.Close()
-	})
+	db := openUsageServiceTestDatabase(t)
 
 	payload := `{"timestamp":"2026-08-20T12:00:00+08:00","auth_index":"stable-auth-index","status_code":500,"body":"failed","auth_status":{"status":"error","disabled":false,"unavailable":false}}`
 	if err := service.NewErrorEventService(db).StoreErrorEvent(context.Background(), payload, time.Now()); err != nil {
@@ -104,14 +87,7 @@ func TestErrorEventServicePreservesAbsentOptionalSnapshotsAsNull(t *testing.T) {
 }
 
 func TestErrorEventServiceReturnsIdentityAPIKeyForResponseRedaction(t *testing.T) {
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "error-events-list.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	t.Cleanup(func() {
-		sqlDB, _ := db.DB()
-		_ = sqlDB.Close()
-	})
+	db := openUsageServiceTestDatabase(t)
 
 	identity := entities.UsageIdentity{
 		AuthType:     entities.UsageIdentityAuthTypeAIProvider,

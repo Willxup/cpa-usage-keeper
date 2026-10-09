@@ -7,7 +7,6 @@ import (
 	"time"
 
 	keeperapp "cpa-usage-keeper/internal/app"
-	"cpa-usage-keeper/internal/config"
 	"github.com/gin-gonic/gin"
 )
 
@@ -22,18 +21,13 @@ func (s *rankingRunnerStub) Run(ctx context.Context) error {
 }
 
 func TestAppConstructsAndStartsRankingRunner(t *testing.T) {
-	cfg := config.Config{
-		AppPort: "invalid-port", CPABaseURL: "https://cpa.example.com", CPAManagementKey: "secret",
-		RedisQueueIdleInterval: time.Second, MetadataSyncInterval: 30 * time.Second,
-		SQLitePath: filepath.Join(t.TempDir(), "ranking-wiring.db"), RequestTimeout: 5 * time.Second,
-		LogLevel: "info", LogFileEnabled: false, LogRetentionDays: 7,
-	}
+	cfg := databasePoolTestConfig(filepath.Join(t.TempDir(), "ranking-wiring.db"))
 	application, err := keeperapp.NewWithConfig(cfg)
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
 	}
+	t.Cleanup(func() { _ = application.Close() })
 	if application.Ranking == nil {
-		_ = application.Close()
 		t.Fatal("expected App to construct ranking runner")
 	}
 	if err := application.Close(); err != nil {

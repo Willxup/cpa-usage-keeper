@@ -12,7 +12,7 @@ import (
 
 func TestRequestEventsListAndStreamUseCompleteRuleDimensions(t *testing.T) {
 	db := openTestDatabase(t)
-	timestamp := time.Now().Add(-time.Minute)
+	timestamp := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	if err := db.Create(&entities.UsageEvent{
 		EventKey: "request-rule", Timestamp: timestamp, APIGroupKey: "group-a", Model: "model-a", ServiceTier: "priority", ReasoningEffort: "xhigh", InputTokens: 1_000_000, TotalTokens: 1_000_000,
 	}).Error; err != nil {

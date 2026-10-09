@@ -40,7 +40,7 @@ describe('useRecentActivityWindow', () => {
   };
 
   const selectWindow = (window: UsageActivityWindow) => {
-    act(() => latest?.setWindow(window));
+    act(() => latest!.setWindow(window));
   };
 
   it('sends the top Overview query until the user selects a window', () => {

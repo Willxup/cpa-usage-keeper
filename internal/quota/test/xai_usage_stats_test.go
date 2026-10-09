@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/pricing"
 	. "cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/repository"
 	repositorydto "cpa-usage-keeper/internal/repository/dto"
@@ -15,7 +14,7 @@ import (
 )
 
 func TestAttachWindowUsageStatsBackfillsOnlyXAIWeeklyBilling(t *testing.T) {
-	db := openQuotaUsageStatsTestDB(t)
+	db := openQuotaTestDB(t)
 	if _, err := repository.UpsertModelPriceSetting(db, repositorydto.ModelPriceSettingInput{
 		Model:                "grok-priced",
 		PricingStyle:         entities.ModelPricingStyleOpenAI,
@@ -24,11 +23,7 @@ func TestAttachWindowUsageStatsBackfillsOnlyXAIWeeklyBilling(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting: %v", err)
 	}
-	snapshot, err := repository.LoadPricingSnapshot(context.Background(), db)
-	if err != nil {
-		t.Fatalf("LoadPricingSnapshot: %v", err)
-	}
-	service := NewServiceWithRegistry(db, NewProviderRegistry(nil), pricing.NewCatalog(snapshot))
+	service := NewServiceWithRegistry(db, NewProviderRegistry(nil), quotaUsagePricingCatalog(t, db))
 	defer service.StopRefreshTasks()
 
 	now := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
@@ -110,17 +105,17 @@ func TestAttachWindowUsageStatsBackfillsOnlyXAIWeeklyBilling(t *testing.T) {
 		},
 	}, now)
 
-	weekly := findQuotaUsageStatsRow(t, response.Quota, "billing.weekly")
+	weekly := findQuotaRow(t, response.Quota, "billing.weekly")
 	if weekly.WindowUsageTokens == nil || *weekly.WindowUsageTokens != 1_500_000 {
 		t.Fatalf("xAI weekly tokens = %#v, want 1500000", weekly.WindowUsageTokens)
 	}
 	const wantWeeklyCost = 7.0
-	if weekly.WindowUsageCost == nil || math.Abs(*weekly.WindowUsageCost-wantWeeklyCost) > 1e-9 {
+	if weekly.WindowUsageCost == nil || !(math.Abs(*weekly.WindowUsageCost-wantWeeklyCost) <= 1e-9) {
 		t.Fatalf("xAI weekly cost = %#v, want %.2f", weekly.WindowUsageCost, wantWeeklyCost)
 	}
 
 	for _, key := range []string{"billing.monthly", "billing.on_demand", "billing.weekly.product.grokbuild"} {
-		row := findQuotaUsageStatsRow(t, response.Quota, key)
+		row := findQuotaRow(t, response.Quota, key)
 		if row.WindowUsageTokens != nil || row.WindowUsageCost != nil {
 			t.Fatalf("%s must not receive auth-level window usage, got tokens=%#v cost=%#v", key, row.WindowUsageTokens, row.WindowUsageCost)
 		}

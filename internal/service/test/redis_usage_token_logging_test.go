@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -19,7 +20,7 @@ import (
 )
 
 func TestMixedBatchDoesNotWarnBeforeUnknownExecutorIsDiscarded(t *testing.T) {
-	db := openOpenAITokenNormalizationTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	lookupErr := errors.New("injected mixed token identity lookup failure")
 	registerTokenIdentityTypeLookupCallback(t, db, lookupErr)
 	_, err := repository.InsertRedisUsageInboxMessages(db, []repodto.RedisInboxInsert{
@@ -60,7 +61,7 @@ func TestMixedBatchDoesNotWarnBeforeUnknownExecutorIsDiscarded(t *testing.T) {
 }
 
 func TestUnknownExecutorOnlyWarnsAfterConfirmedDiscard(t *testing.T) {
-	db := openOpenAITokenNormalizationTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	lookupErr := errors.New("injected repeated token identity lookup failure")
 	registerTokenIdentityTypeLookupCallback(t, db, lookupErr)
 	_, err := repository.InsertRedisUsageInboxMessages(db, []repodto.RedisInboxInsert{{
@@ -86,13 +87,13 @@ func TestUnknownExecutorOnlyWarnsAfterConfirmedDiscard(t *testing.T) {
 		t.Fatalf("retry lifecycle must not emit a second unknown-executor warning, got %+v", unknownEntries)
 	}
 	discardedEntries := findAllTokenProcessorLogEntries(entries, "discarded redis usage inbox row after repeated process failures")
-	if len(discardedEntries) != 1 || int(discardedEntries[0]["attempt_count"].(float64)) != 5 {
+	if len(discardedEntries) != 1 || discardedEntries[0].AttemptCount != 5 {
 		t.Fatalf("expected exactly one warning after the fifth confirmed discard, got %+v", discardedEntries)
 	}
 }
 
 func TestTokenAttentionLogsOnlyAfterCommittedTransaction(t *testing.T) {
-	db := openOpenAITokenNormalizationTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	_, err := repository.InsertRedisUsageInboxMessages(db, []repodto.RedisInboxInsert{{
 		Source:     "usage",
 		RawMessage: `{"timestamp":"2026-07-14T08:00:00Z","provider":"OpenAI","auth_type":"api_key","auth_index":"commit-gate","model":"gpt-5.6","request_id":"uncommitted-correction","executor_type":"CodexExecutor","tokens":{"input_tokens":100,"output_tokens":20,"reasoning_tokens":5,"total_tokens":125}}`,
@@ -117,7 +118,7 @@ func TestTokenAttentionLogsOnlyAfterCommittedTransaction(t *testing.T) {
 }
 
 func TestSuccessfulMissingIdentityFallbackKeepsOneWarningPerEvent(t *testing.T) {
-	db := openOpenAITokenNormalizationTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	_, err := repository.InsertRedisUsageInboxMessages(db, []repodto.RedisInboxInsert{
 		{
 			Source:     "usage",
@@ -147,17 +148,17 @@ func TestSuccessfulMissingIdentityFallbackKeepsOneWarningPerEvent(t *testing.T) 
 
 	entries := decodeTokenProcessorLogEntries(t, logs.String())
 	missingEntries := findAllTokenProcessorLogEntries(entries, "usage identity type not found for redis usage event")
-	if len(missingEntries) != 2 || missingEntries[0]["event_key"] != "missing-empty-executor" || missingEntries[1]["event_key"] != "missing-placeholder-executor" {
+	if len(missingEntries) != 2 || missingEntries[0].EventKey != "missing-empty-executor" || missingEntries[1].EventKey != "missing-placeholder-executor" {
 		t.Fatalf("expected legacy missing-identity warnings only for empty and CPA placeholder executors, got %+v", missingEntries)
 	}
 	attentionEntries := findAllTokenProcessorLogEntries(entries, "redis usage token event requires attention")
-	if len(attentionEntries) != 1 || attentionEntries[0]["event_key"] != "missing-future-executor" {
+	if len(attentionEntries) != 1 || attentionEntries[0].EventKey != "missing-future-executor" {
 		t.Fatalf("expected one routing observation for the real future executor, got %+v", attentionEntries)
 	}
 }
 
 func TestProcessRedisUsageInboxLogsTokenSummaryAndOnlyExceptionalEvents(t *testing.T) {
-	db := openOpenAITokenNormalizationTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	_, err := repository.InsertRedisUsageInboxMessages(db, []repodto.RedisInboxInsert{
 		{
 			Source:     "usage",
@@ -200,28 +201,26 @@ func TestProcessRedisUsageInboxLogsTokenSummaryAndOnlyExceptionalEvents(t *testi
 	}
 
 	entries := decodeTokenProcessorLogEntries(t, logs.String())
-	summary := findTokenProcessorLogEntry(entries, "redis usage token processing summary")
-	if summary == nil {
+	summaries := findAllTokenProcessorLogEntries(entries, "redis usage token processing summary")
+	if len(summaries) != 1 {
 		t.Fatalf("expected batch token summary log, got %s", logs.String())
 	}
-	if int(summary["unknown_executor_count"].(float64)) != 1 || int(summary["token_ready_count"].(float64)) != 5 {
+	summary := summaries[0]
+	if summary.UnknownExecutorCount != 1 || summary.TokenReadyCount != 5 {
 		t.Fatalf("unexpected summary routing counts: %+v", summary)
 	}
-	outcomes, ok := summary["token_outcome_counts"].(map[string]any)
-	if !ok || int(outcomes["corrected"].(float64)) != 1 || int(outcomes["normalized"].(float64)) != 1 || int(outcomes["compatibility"].(float64)) != 1 || int(outcomes["valid"].(float64)) != 2 {
-		t.Fatalf("unexpected token outcome counts: %+v", summary["token_outcome_counts"])
+	outcomes := summary.OutcomeCounts
+	if outcomes["corrected"] != 1 || outcomes["normalized"] != 1 || outcomes["compatibility"] != 1 || outcomes["valid"] != 2 {
+		t.Fatalf("unexpected token outcome counts: %+v", summary.OutcomeCounts)
 	}
-	actions, ok := summary["token_action_counts"].(map[string]any)
-	if !ok || int(actions["correct_nonzero_total"].(float64)) != 1 || int(actions["apply_issue272_reasoning_fold"].(float64)) != 1 {
-		t.Fatalf("unexpected token action counts: %+v", summary["token_action_counts"])
+	actions := summary.ActionCounts
+	if actions["correct_nonzero_total"] != 1 || actions["apply_issue272_reasoning_fold"] != 1 {
+		t.Fatalf("unexpected token action counts: %+v", summary.ActionCounts)
 	}
 
 	attentionEvents := tokenProcessorAttentionEventKeys(entries)
 	if len(attentionEvents) != 2 || !attentionEvents["log-corrected"] || !attentionEvents["log-unknown"] {
 		t.Fatalf("expected event logs only for corrected and unknown, got %+v", attentionEvents)
-	}
-	if attentionEvents["log-normalized"] || attentionEvents["log-compatibility"] {
-		t.Fatalf("normal normalized/compatibility events must not emit per-event warnings: %+v", attentionEvents)
 	}
 	if strings.Contains(logs.String(), "secret-corrected") || strings.Contains(logs.String(), "secret-normalized") || strings.Contains(logs.String(), "secret-compatibility") || strings.Contains(logs.String(), "secret-unknown") || strings.Contains(logs.String(), "secret-cpa-unknown") || strings.Contains(logs.String(), "sk-raw-payload-only-marker") {
 		t.Fatalf("token logs must not expose auth indexes or credentials: %s", logs.String())
@@ -230,7 +229,7 @@ func TestProcessRedisUsageInboxLogsTokenSummaryAndOnlyExceptionalEvents(t *testi
 
 func TestTokenBatchSummaryRemainsDebugOnly(t *testing.T) {
 	// 生产默认 info 级别不增加批次汇总日志；需要排查时仍可显式启用 debug。
-	db := openOpenAITokenNormalizationTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	_, err := repository.InsertRedisUsageInboxMessages(db, []repodto.RedisInboxInsert{{
 		Source:     "usage",
 		RawMessage: `{"timestamp":"2026-07-14T08:00:00Z","provider":"OpenAI","auth_type":"api_key","auth_index":"summary-info","model":"gpt-5.6","request_id":"summary-info-event","executor_type":"CodexExecutor","tokens":{"input_tokens":11,"output_tokens":7,"total_tokens":18}}`,
@@ -287,50 +286,45 @@ func captureTokenProcessorLogsAtLevel(t *testing.T, level logrus.Level) *bytes.B
 	return logs
 }
 
-func decodeTokenProcessorLogEntries(t *testing.T, raw string) []map[string]any {
+type tokenProcessorLogEntry struct {
+	Message              string         `json:"msg"`
+	EventKey             string         `json:"event_key"`
+	AttemptCount         int            `json:"attempt_count"`
+	UnknownExecutorCount int            `json:"unknown_executor_count"`
+	TokenReadyCount      int            `json:"token_ready_count"`
+	OutcomeCounts        map[string]int `json:"token_outcome_counts"`
+	ActionCounts         map[string]int `json:"token_action_counts"`
+}
+
+func decodeTokenProcessorLogEntries(t *testing.T, raw string) []tokenProcessorLogEntry {
 	t.Helper()
-	entries := make([]map[string]any, 0)
-	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		var entry map[string]any
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			t.Fatalf("decode log line %q: %v", line, err)
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	var entries []tokenProcessorLogEntry
+	for {
+		var entry tokenProcessorLogEntry
+		if err := decoder.Decode(&entry); errors.Is(err, io.EOF) {
+			return entries
+		} else if err != nil {
+			t.Fatalf("decode token log: %v", err)
 		}
 		entries = append(entries, entry)
 	}
-	return entries
 }
 
-func findTokenProcessorLogEntry(entries []map[string]any, message string) map[string]any {
+func findAllTokenProcessorLogEntries(entries []tokenProcessorLogEntry, message string) []tokenProcessorLogEntry {
+	var matches []tokenProcessorLogEntry
 	for _, entry := range entries {
-		if entry["msg"] == message {
-			return entry
-		}
-	}
-	return nil
-}
-
-func findAllTokenProcessorLogEntries(entries []map[string]any, message string) []map[string]any {
-	matches := make([]map[string]any, 0)
-	for _, entry := range entries {
-		if entry["msg"] == message {
+		if entry.Message == message {
 			matches = append(matches, entry)
 		}
 	}
 	return matches
 }
 
-func tokenProcessorAttentionEventKeys(entries []map[string]any) map[string]bool {
+func tokenProcessorAttentionEventKeys(entries []tokenProcessorLogEntry) map[string]bool {
 	keys := map[string]bool{}
-	for _, entry := range entries {
-		if entry["msg"] != "redis usage token event requires attention" {
-			continue
-		}
-		if eventKey, ok := entry["event_key"].(string); ok {
-			keys[eventKey] = true
-		}
+	for _, entry := range findAllTokenProcessorLogEntries(entries, "redis usage token event requires attention") {
+		keys[entry.EventKey] = true
 	}
 	return keys
 }

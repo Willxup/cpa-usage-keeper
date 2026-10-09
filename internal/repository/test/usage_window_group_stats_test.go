@@ -48,50 +48,41 @@ func TestUsageWindowStatsCalculatorGroupsAggregatedRowsByRealModel(t *testing.T)
 }
 
 func TestUsageWindowStatsCalculatorMarksUnknownGroupsAndMissingPricesIncomplete(t *testing.T) {
-	t.Run("unknown model group", func(t *testing.T) {
-		db := openTestDatabase(t)
-		start := time.Date(2026, 9, 2, 8, 0, 0, 0, time.Local)
-		end := start.Add(5 * time.Hour)
-		if err := db.Create(&entities.UsageEvent{
-			EventKey: "future", AuthIndex: "antigravity-auth", Model: "future-model", Timestamp: start.Add(time.Hour), InputTokens: 10, TotalTokens: 10,
-		}).Error; err != nil {
-			t.Fatalf("seed unknown grouped usage event: %v", err)
-		}
-		calculator, err := repository.NewUsageWindowStatsCalculator(context.Background(), db, usageWindowGroupPricingResolver(t))
-		if err != nil {
-			t.Fatalf("NewUsageWindowStatsCalculator: %v", err)
-		}
-		result, err := calculator.SumGroupsByAuthIndex(context.Background(), "antigravity-auth", start, &end, antigravityUsageWindowTestGroup)
-		if err != nil {
-			t.Fatalf("SumGroupsByAuthIndex: %v", err)
-		}
-		if result.Complete {
-			t.Fatalf("expected an unknown positive-token model to make grouped attribution incomplete, got %+v", result)
-		}
-	})
-
-	t.Run("missing group price", func(t *testing.T) {
-		db := openTestDatabase(t)
-		start := time.Date(2026, 9, 2, 8, 0, 0, 0, time.Local)
-		end := start.Add(5 * time.Hour)
-		if err := db.Create(&entities.UsageEvent{
-			EventKey: "unpriced", AuthIndex: "antigravity-auth", Model: "gpt-unpriced", Timestamp: start.Add(time.Hour), InputTokens: 10, TotalTokens: 10,
-		}).Error; err != nil {
-			t.Fatalf("seed unpriced grouped usage event: %v", err)
-		}
-		calculator, err := repository.NewUsageWindowStatsCalculator(context.Background(), db, pricing.NewCatalog(pricing.EmptySnapshot()).NewResolver())
-		if err != nil {
-			t.Fatalf("NewUsageWindowStatsCalculator: %v", err)
-		}
-		result, err := calculator.SumGroupsByAuthIndex(context.Background(), "antigravity-auth", start, &end, antigravityUsageWindowTestGroup)
-		if err != nil {
-			t.Fatalf("SumGroupsByAuthIndex: %v", err)
-		}
-		stats := result.Groups["claude-gpt"]
-		if stats.Tokens != 10 || stats.CostAvailable {
-			t.Fatalf("expected tokens to remain known while group cost is unavailable, got %+v", stats)
-		}
-	})
+	for _, tc := range []struct {
+		name      string
+		model     string
+		resolver  pricing.Resolver
+		wantGroup string
+	}{
+		{name: "unknown model group", model: "future-model", resolver: usageWindowGroupPricingResolver(t)},
+		{name: "missing group price", model: "gpt-unpriced", resolver: emptyPricingResolverForTest(), wantGroup: "claude-gpt"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := openTestDatabase(t)
+			start := time.Date(2026, 9, 2, 8, 0, 0, 0, time.Local)
+			end := start.Add(5 * time.Hour)
+			if err := db.Create(&entities.UsageEvent{
+				EventKey: "incomplete", AuthIndex: "antigravity-auth", Model: tc.model, Timestamp: start.Add(time.Hour), InputTokens: 10, TotalTokens: 10,
+			}).Error; err != nil {
+				t.Fatalf("seed grouped event: %v", err)
+			}
+			calculator, err := repository.NewUsageWindowStatsCalculator(context.Background(), db, tc.resolver)
+			if err != nil {
+				t.Fatalf("NewUsageWindowStatsCalculator: %v", err)
+			}
+			result, err := calculator.SumGroupsByAuthIndex(context.Background(), "antigravity-auth", start, &end, antigravityUsageWindowTestGroup)
+			if err != nil {
+				t.Fatalf("SumGroupsByAuthIndex: %v", err)
+			}
+			if tc.wantGroup == "" {
+				if result.Complete {
+					t.Fatalf("expected unknown positive-token model to make attribution incomplete: %+v", result)
+				}
+			} else if stats := result.Groups[tc.wantGroup]; stats.Tokens != 10 || stats.CostAvailable {
+				t.Fatalf("expected known tokens with unavailable cost, got %+v", stats)
+			}
+		})
+	}
 }
 
 func antigravityUsageWindowTestGroup(model string) (string, bool) {

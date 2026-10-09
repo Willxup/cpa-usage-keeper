@@ -65,16 +65,6 @@ const createAPI = (overrides: Partial<RankingDataAPI> = {}): RankingDataAPI => (
   ...overrides,
 });
 
-const deferred = <T,>() => {
-  let resolve: (value: T) => void = () => undefined;
-  let reject: (reason: unknown) => void = () => undefined;
-  const promise = new Promise<T>((nextResolve, nextReject) => {
-    resolve = nextResolve;
-    reject = nextReject;
-  });
-  return { promise, resolve, reject };
-};
-
 let latest: ReturnType<typeof useRankingData> | null = null;
 
 function Harness({ enabled, api, onAuthRequired, onBackgroundRefreshError }: {
@@ -95,12 +85,7 @@ describe('useRankingData', () => {
   let root: Root;
 
   beforeEach(() => {
-    // period/metric 现在会持久化，用例之间必须清掉，否则上一条的选择会泄漏成下一条的初始值。
-    try {
-      window.localStorage.removeItem(RANKING_PREFERENCES_STORAGE_KEY);
-    } catch {
-      // 环境没有可用的 localStorage 时 hook 也不会写入，无需清理。
-    }
+    window.localStorage.removeItem(RANKING_PREFERENCES_STORAGE_KEY);
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -144,10 +129,10 @@ describe('useRankingData', () => {
 
     await renderHook(true, api);
     expect(calls).toBe(3);
-    expect(latest?.status?.status).toBe('disabled');
-    expect(latest?.metadata?.avatar_count).toBe(66);
-    expect(latest?.leaderboard?.period).toBe('today');
-    expect(latest?.leaderboard?.metric).toBe('overall');
+    expect(latest!.status?.status).toBe('disabled');
+    expect(latest!.metadata?.avatar_count).toBe(66);
+    expect(latest!.leaderboard?.period).toBe('today');
+    expect(latest!.leaderboard?.metric).toBe('overall');
   });
 
   it('reloads only the leaderboard when its period or metric changes', async () => {
@@ -160,15 +145,15 @@ describe('useRankingData', () => {
     });
     await renderHook(true, api);
 
-    await act(async () => latest?.setPeriod('yesterday'));
-    await act(async () => latest?.setMetric('total_tokens'));
+    await act(async () => latest!.setPeriod('yesterday'));
+    await act(async () => latest!.setMetric('total_tokens'));
 
     expect(selections).toEqual(['today:overall', 'yesterday:overall', 'yesterday:total_tokens']);
-    expect(latest?.leaderboard).toMatchObject({ period: 'yesterday', metric: 'total_tokens' });
+    expect(latest!.leaderboard).toMatchObject({ period: 'yesterday', metric: 'total_tokens' });
   });
 
   it('clears foreground loading when an immediate manual refresh takes over and succeeds', async () => {
-    const firstBoard = deferred<RankingLeaderboardResponse>();
+    const firstBoard = Promise.withResolvers<RankingLeaderboardResponse>();
     let leaderboardCalls = 0;
     const api = createAPI({
       leaderboard: async (period, metric) => {
@@ -178,17 +163,17 @@ describe('useRankingData', () => {
       },
     });
     await renderHook(true, api);
-    expect(latest?.leaderboardLoading).toBe(true);
+    expect(latest!.leaderboardLoading).toBe(true);
 
-    await act(async () => latest?.refreshRanking());
+    await act(async () => latest!.refreshRanking());
 
-    expect(latest?.leaderboardLoading).toBe(false);
-    expect(latest?.leaderboard?.entries[0]?.value).toBe(9_400);
+    expect(latest!.leaderboardLoading).toBe(false);
+    expect(latest!.leaderboard?.entries[0]?.value).toBe(9_400);
     firstBoard.resolve(board('today', 'overall'));
   });
 
   it('ends foreground loading with an error when an immediate manual refresh fails', async () => {
-    const firstBoard = deferred<RankingLeaderboardResponse>();
+    const firstBoard = Promise.withResolvers<RankingLeaderboardResponse>();
     let leaderboardCalls = 0;
     const api = createAPI({
       leaderboard: async () => {
@@ -198,17 +183,17 @@ describe('useRankingData', () => {
       },
     });
     await renderHook(true, api);
-    expect(latest?.leaderboardLoading).toBe(true);
+    expect(latest!.leaderboardLoading).toBe(true);
 
-    await act(async () => latest?.refreshRanking());
+    await act(async () => latest!.refreshRanking());
 
-    expect(latest?.leaderboardLoading).toBe(false);
-    expect(latest?.leaderboardError).toBeInstanceOf(RankingApiError);
+    expect(latest!.leaderboardLoading).toBe(false);
+    expect(latest!.leaderboardError).toBeInstanceOf(RankingApiError);
     firstBoard.resolve(board('today', 'overall'));
   });
 
   it('clears selection loading when refresh immediately replaces a period request', async () => {
-    const pendingYesterday = deferred<RankingLeaderboardResponse>();
+    const pendingYesterday = Promise.withResolvers<RankingLeaderboardResponse>();
     let yesterdayCalls = 0;
     const api = createAPI({
       leaderboard: async (period, metric) => {
@@ -220,13 +205,13 @@ describe('useRankingData', () => {
     });
     await renderHook(true, api);
 
-    await act(async () => latest?.setPeriod('yesterday'));
-    expect(latest?.leaderboardLoading).toBe(true);
-    expect(latest?.leaderboard).toMatchObject({ period: 'today', metric: 'overall' });
-    await act(async () => latest?.refreshRanking());
+    await act(async () => latest!.setPeriod('yesterday'));
+    expect(latest!.leaderboardLoading).toBe(true);
+    expect(latest!.leaderboard).toMatchObject({ period: 'today', metric: 'overall' });
+    await act(async () => latest!.refreshRanking());
 
-    expect(latest?.leaderboardLoading).toBe(false);
-    expect(latest?.leaderboard).toMatchObject({ period: 'yesterday', metric: 'overall' });
+    expect(latest!.leaderboardLoading).toBe(false);
+    expect(latest!.leaderboard).toMatchObject({ period: 'yesterday', metric: 'overall' });
     pendingYesterday.resolve(board('yesterday', 'overall'));
   });
 
@@ -267,12 +252,12 @@ describe('useRankingData', () => {
       },
     });
     await renderHook(true, api);
-    expect(latest?.status?.status).toBe('active');
+    expect(latest!.status?.status).toBe('active');
 
     await act(async () => vi.advanceTimersByTimeAsync(60_000));
 
     expect(statusCalls).toBe(2);
-    expect(latest?.status?.status).toBe('deleted');
+    expect(latest!.status?.status).toBe('deleted');
   });
 
   it('continues polling metadata while the selected period is offline and reloads when it reopens', async () => {
@@ -296,13 +281,13 @@ describe('useRankingData', () => {
       },
     });
     await renderHook(true, api);
-    expect(latest?.metadata?.periods.find((item) => item.period === 'today')?.online).toBe(false);
+    expect(latest!.metadata?.periods.find((item) => item.period === 'today')?.online).toBe(false);
     const callsBeforeReopen = leaderboardCalls;
 
     await act(async () => vi.advanceTimersByTimeAsync(60_000));
 
     expect(metadataCalls).toBe(2);
-    expect(latest?.metadata?.periods.find((item) => item.period === 'today')?.online).toBe(true);
+    expect(latest!.metadata?.periods.find((item) => item.period === 'today')?.online).toBe(true);
     expect(leaderboardCalls).toBe(callsBeforeReopen + 1);
   });
 
@@ -339,11 +324,11 @@ describe('useRankingData', () => {
     });
     await renderHook(true, api);
 
-    await act(async () => latest?.join({ display_name: 'Keeper_02', avatar_id: 9 }));
+    await act(async () => latest!.join({ display_name: 'Keeper_02', avatar_id: 9 }));
 
     expect(statusCalls).toBe(2);
-    expect(latest?.status).toMatchObject({ status: 'joining', display_name: 'Keeper_02', avatar_id: 9 });
-    expect(latest?.actionError).toBeInstanceOf(RankingApiError);
+    expect(latest!.status).toMatchObject({ status: 'joining', display_name: 'Keeper_02', avatar_id: 9 });
+    expect(latest!.actionError).toBeInstanceOf(RankingApiError);
   });
 
   it('keeps the last successful board and reports one notice per background failure episode', async () => {
@@ -360,9 +345,9 @@ describe('useRankingData', () => {
     shouldFail = true;
 
     await act(async () => vi.advanceTimersByTimeAsync(60_000));
-    expect(latest?.leaderboard?.entries[0]?.display_name).toBe('Keeper_01');
-    expect(latest?.leaderboard?.stale).toBe(true);
-    expect(latest?.leaderboardError).toBeNull();
+    expect(latest!.leaderboard?.entries[0]?.display_name).toBe('Keeper_01');
+    expect(latest!.leaderboard?.stale).toBe(true);
+    expect(latest!.leaderboardError).toBeNull();
     expect(onBackgroundRefreshError).toHaveBeenCalledOnce();
 
     await act(async () => vi.advanceTimersByTimeAsync(60_000));
@@ -370,7 +355,7 @@ describe('useRankingData', () => {
 
     shouldFail = false;
     await act(async () => vi.advanceTimersByTimeAsync(60_000));
-    expect(latest?.leaderboard?.stale).toBe(false);
+    expect(latest!.leaderboard?.stale).toBe(false);
     shouldFail = true;
     await act(async () => vi.advanceTimersByTimeAsync(60_000));
     expect(onBackgroundRefreshError).toHaveBeenCalledTimes(2);
@@ -396,13 +381,13 @@ describe('useRankingData', () => {
 
     await act(async () => vi.advanceTimersByTimeAsync(60_000));
 
-    expect(latest?.metadata?.periods.find((item) => item.period === 'today')?.period_key).toBe('2026-07-25');
-    expect(latest?.leaderboard?.period_key).toBe('2026-07-24');
-    expect(latest?.leaderboard?.stale).toBe(true);
+    expect(latest!.metadata?.periods.find((item) => item.period === 'today')?.period_key).toBe('2026-07-25');
+    expect(latest!.leaderboard?.period_key).toBe('2026-07-24');
+    expect(latest!.leaderboard?.stale).toBe(true);
   });
 
   it('rechecks an already loaded board when newer metadata arrives later', async () => {
-    const pendingMetadata = deferred<RankingMetadataResponse>();
+    const pendingMetadata = Promise.withResolvers<RankingMetadataResponse>();
     const nextDayMetadata: RankingMetadataResponse = {
       ...metadata,
       periods: metadata.periods.map((item) => item.period === 'today'
@@ -414,13 +399,13 @@ describe('useRankingData', () => {
       leaderboard: async (period, metric) => board(period, metric),
     });
     await renderHook(true, api);
-    expect(latest?.leaderboard?.stale).toBe(false);
+    expect(latest!.leaderboard?.stale).toBe(false);
 
     pendingMetadata.resolve(nextDayMetadata);
     await act(async () => pendingMetadata.promise);
 
-    expect(latest?.leaderboard?.period_key).toBe('2026-07-24');
-    expect(latest?.leaderboard?.stale).toBe(true);
+    expect(latest!.leaderboard?.period_key).toBe('2026-07-24');
+    expect(latest!.leaderboard?.stale).toBe(true);
   });
 
   it('keeps the blocking error when no leaderboard has ever loaded', async () => {
@@ -432,12 +417,12 @@ describe('useRankingData', () => {
       },
     });
     await renderHook(true, api, undefined, onBackgroundRefreshError);
-    expect(latest?.leaderboard).toBeNull();
-    expect(latest?.leaderboardError).toBeInstanceOf(RankingApiError);
+    expect(latest!.leaderboard).toBeNull();
+    expect(latest!.leaderboardError).toBeInstanceOf(RankingApiError);
 
     await act(async () => vi.advanceTimersByTimeAsync(60_000));
 
-    expect(latest?.leaderboardError).toBeInstanceOf(RankingApiError);
+    expect(latest!.leaderboardError).toBeInstanceOf(RankingApiError);
     expect(onBackgroundRefreshError).not.toHaveBeenCalled();
   });
 
@@ -460,10 +445,7 @@ describe('useRankingData', () => {
       },
     });
     await renderHook(true, api);
-    const refreshRanking = (latest as unknown as { refreshRanking?: () => Promise<unknown> } | null)?.refreshRanking;
-    expect(refreshRanking).toBeTypeOf('function');
-
-    await act(async () => refreshRanking?.());
+    await act(async () => latest!.refreshRanking());
 
     expect(statusCalls).toBe(2);
     expect(metadataCalls).toBe(2);
@@ -480,14 +462,14 @@ describe('useRankingData', () => {
       },
     });
     await renderHook(true, api, undefined, onBackgroundRefreshError);
-    await act(async () => latest?.setPeriod('yesterday'));
+    await act(async () => latest!.setPeriod('yesterday'));
     failToday = true;
 
-    await act(async () => latest?.setPeriod('today'));
+    await act(async () => latest!.setPeriod('today'));
 
-    expect(latest?.leaderboard).toMatchObject({ period: 'today', metric: 'overall' });
-    expect(latest?.leaderboard?.entries[0]?.value).toBe(9_325);
-    expect(latest?.leaderboardError).toBeNull();
+    expect(latest!.leaderboard).toMatchObject({ period: 'today', metric: 'overall' });
+    expect(latest!.leaderboard?.entries[0]?.value).toBe(9_325);
+    expect(latest!.leaderboardError).toBeNull();
     expect(onBackgroundRefreshError).toHaveBeenCalledOnce();
   });
 
@@ -500,10 +482,10 @@ describe('useRankingData', () => {
     });
     await renderHook(true, api);
 
-    await act(async () => latest?.setPeriod('yesterday'));
+    await act(async () => latest!.setPeriod('yesterday'));
 
-    expect(latest?.leaderboard).toBeNull();
-    expect(latest?.leaderboardError).toBeInstanceOf(RankingApiError);
+    expect(latest!.leaderboard).toBeNull();
+    expect(latest!.leaderboardError).toBeInstanceOf(RankingApiError);
   });
 
   it('reports a manual metadata failure while retaining the last metadata and successful board', async () => {
@@ -518,11 +500,11 @@ describe('useRankingData', () => {
     });
     await renderHook(true, api, undefined, onBackgroundRefreshError);
 
-    await act(async () => latest?.refreshRanking());
-    await act(async () => latest?.refreshRanking());
+    await act(async () => latest!.refreshRanking());
+    await act(async () => latest!.refreshRanking());
 
-    expect(latest?.metadata).toBe(metadata);
-    expect(latest?.leaderboard?.entries[0]?.display_name).toBe('Keeper_01');
+    expect(latest!.metadata).toBe(metadata);
+    expect(latest!.leaderboard?.entries[0]?.display_name).toBe('Keeper_01');
     expect(onBackgroundRefreshError).toHaveBeenCalledOnce();
   });
 
@@ -538,16 +520,16 @@ describe('useRankingData', () => {
     });
     await renderHook(true, api, undefined, onBackgroundRefreshError);
 
-    await act(async () => latest?.refreshRanking());
-    await act(async () => latest?.refreshRanking());
+    await act(async () => latest!.refreshRanking());
+    await act(async () => latest!.refreshRanking());
 
-    expect(latest?.status).toMatchObject({ status: 'active', display_name: 'Keeper_01' });
+    expect(latest!.status).toMatchObject({ status: 'active', display_name: 'Keeper_01' });
     expect(onBackgroundRefreshError).toHaveBeenCalledOnce();
   });
 
   it('does not start a follow-up leaderboard request after Ranking is disabled', async () => {
-    const pendingStatus = deferred<RankingStatusResponse>();
-    const pendingMetadata = deferred<RankingMetadataResponse>();
+    const pendingStatus = Promise.withResolvers<RankingStatusResponse>();
+    const pendingMetadata = Promise.withResolvers<RankingMetadataResponse>();
     let statusCalls = 0;
     let metadataCalls = 0;
     let leaderboardCalls = 0;
@@ -567,9 +549,9 @@ describe('useRankingData', () => {
     });
     await renderHook(true, api);
 
-    let refreshPromise: Promise<unknown> = Promise.resolve();
+    let refreshPromise!: Promise<unknown>;
     await act(async () => {
-      refreshPromise = latest?.refreshRanking() ?? Promise.resolve();
+      refreshPromise = latest!.refreshRanking();
       await Promise.resolve();
     });
     await renderHook(false, api);
@@ -581,7 +563,7 @@ describe('useRankingData', () => {
   });
 
   it('does not refresh the leaderboard after an action finishes on another tab', async () => {
-    const pendingSync = deferred<RankingStatusResponse>();
+    const pendingSync = Promise.withResolvers<RankingStatusResponse>();
     let leaderboardCalls = 0;
     const api = createAPI({
       sync: async () => pendingSync.promise,
@@ -592,9 +574,9 @@ describe('useRankingData', () => {
     });
     await renderHook(true, api);
 
-    let syncPromise: Promise<unknown> = Promise.resolve();
+    let syncPromise!: Promise<unknown>;
     await act(async () => {
-      syncPromise = latest?.sync() ?? Promise.resolve();
+      syncPromise = latest!.sync();
       await Promise.resolve();
     });
     await renderHook(false, api);
@@ -625,10 +607,10 @@ describe('useRankingData', () => {
     });
     await renderHook(true, api, undefined, onBackgroundRefreshError);
 
-    await act(async () => latest?.refreshRanking());
+    await act(async () => latest!.refreshRanking());
 
     expect(leaderboardCalls).toBe(1);
-    expect(latest?.metadata?.periods.find((item) => item.period === 'today')?.online).toBe(false);
+    expect(latest!.metadata?.periods.find((item) => item.period === 'today')?.online).toBe(false);
     expect(onBackgroundRefreshError).not.toHaveBeenCalled();
   });
 
@@ -642,8 +624,8 @@ describe('useRankingData', () => {
     await renderHook(true, api, onAuthRequired);
 
     expect(onAuthRequired).toHaveBeenCalledOnce();
-    expect(latest?.status).toBeNull();
-    expect(latest?.leaderboard?.entries[0]?.display_name).toBe('Keeper_01');
+    expect(latest!.status).toBeNull();
+    expect(latest!.leaderboard?.entries[0]?.display_name).toBe('Keeper_01');
   });
 
   it('updates the local participation state after join, sync, pause, resume, and permanent exit', async () => {
@@ -663,20 +645,20 @@ describe('useRankingData', () => {
     });
     await renderHook(true, api);
 
-    await act(async () => latest?.join({ display_name: 'Keeper_02', avatar_id: 9 }));
-    expect(latest?.status?.status).toBe('active');
-    await act(async () => latest?.sync());
-    expect(latest?.status?.last_successful_sync_at).toBe('2026-07-24T05:00:00Z');
-    await act(async () => latest?.pause());
-    expect(latest?.status?.status).toBe('paused');
-    await act(async () => latest?.resume());
-    expect(latest?.status?.status).toBe('active');
-    await act(async () => latest?.exit());
-    expect(latest?.status?.status).toBe('deleted');
+    await act(async () => latest!.join({ display_name: 'Keeper_02', avatar_id: 9 }));
+    expect(latest!.status?.status).toBe('active');
+    await act(async () => latest!.sync());
+    expect(latest!.status?.last_successful_sync_at).toBe('2026-07-24T05:00:00Z');
+    await act(async () => latest!.pause());
+    expect(latest!.status?.status).toBe('paused');
+    await act(async () => latest!.resume());
+    expect(latest!.status?.status).toBe('active');
+    await act(async () => latest!.exit());
+    expect(latest!.status?.status).toBe('deleted');
   });
 
   it('does not let an older status request overwrite a completed participation action', async () => {
-    const pendingStatus = deferred<RankingStatusResponse>();
+    const pendingStatus = Promise.withResolvers<RankingStatusResponse>();
     let statusCalls = 0;
     const api = createAPI({
       status: async () => {
@@ -689,18 +671,18 @@ describe('useRankingData', () => {
     });
     await renderHook(true, api);
 
-    let refreshPromise: Promise<unknown> = Promise.resolve();
+    let refreshPromise!: Promise<unknown>;
     await act(async () => {
-      refreshPromise = latest?.refreshStatus() ?? Promise.resolve();
+      refreshPromise = latest!.refreshStatus();
       await Promise.resolve();
     });
-    await act(async () => latest?.pause());
-    expect(latest?.status?.status).toBe('paused');
+    await act(async () => latest!.pause());
+    expect(latest!.status?.status).toBe('paused');
 
     pendingStatus.resolve({ status: 'active', display_name: 'Keeper_01', avatar_id: 7 });
     await act(async () => refreshPromise);
 
-    expect(latest?.status?.status).toBe('paused');
+    expect(latest!.status?.status).toBe('paused');
   });
 
   it('does not refresh the center leaderboard for local-only pause and resume actions', async () => {
@@ -714,8 +696,8 @@ describe('useRankingData', () => {
     await renderHook(true, api);
     expect(leaderboardCalls).toBe(1);
 
-    await act(async () => latest?.pause());
-    await act(async () => latest?.resume());
+    await act(async () => latest!.pause());
+    await act(async () => latest!.resume());
 
     expect(leaderboardCalls).toBe(1);
   });
@@ -735,11 +717,11 @@ describe('useRankingData', () => {
     });
     await renderHook(true, api);
 
-    await act(async () => latest?.sync());
+    await act(async () => latest!.sync());
 
     expect(statusCalls).toBe(2);
-    expect(latest?.status?.status).toBe('deleted');
-    expect(latest?.actionError).toBeInstanceOf(RankingApiError);
+    expect(latest!.status?.status).toBe('deleted');
+    expect(latest!.actionError).toBeInstanceOf(RankingApiError);
   });
 
   it('clears the retained action error when the profile modal dismisses its feedback', async () => {
@@ -749,14 +731,10 @@ describe('useRankingData', () => {
       },
     });
     await renderHook(true, api);
-    await act(async () => latest?.sync());
-    expect(latest?.actionError).toBeInstanceOf(RankingApiError);
+    await act(async () => latest!.sync());
+    expect(latest!.actionError).toBeInstanceOf(RankingApiError);
 
-    const clearActionError = (latest as unknown as { clearActionError?: () => void } | null)?.clearActionError;
-    expect(clearActionError).toBeTypeOf('function');
-    if (!clearActionError) return;
-
-    await act(async () => clearActionError());
-    expect(latest?.actionError).toBeNull();
+    await act(async () => latest!.clearActionError());
+    expect(latest!.actionError).toBeNull();
   });
 });

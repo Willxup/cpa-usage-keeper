@@ -1,9 +1,9 @@
 package test
 
 import (
-	"context"
-	"path/filepath"
-	"reflect"
+	"bytes"
+	"log"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -11,7 +11,6 @@ import (
 	"cpa-usage-keeper/internal/repository/migration"
 	"cpa-usage-keeper/internal/timeutil"
 
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 )
@@ -36,40 +35,9 @@ type usageOverviewFiveDimensionRow struct {
 	TotalTokens         int64
 }
 
-type usageOverviewMigrationSQLRecorder struct {
-	recording  bool
-	statements []string
-}
-
-func (recorder *usageOverviewMigrationSQLRecorder) LogMode(gormlogger.LogLevel) gormlogger.Interface {
-	return recorder
-}
-
-func (*usageOverviewMigrationSQLRecorder) Info(context.Context, string, ...interface{})  {}
-func (*usageOverviewMigrationSQLRecorder) Warn(context.Context, string, ...interface{})  {}
-func (*usageOverviewMigrationSQLRecorder) Error(context.Context, string, ...interface{}) {}
-
-func (recorder *usageOverviewMigrationSQLRecorder) Trace(_ context.Context, _ time.Time, statement func() (string, int64), _ error) {
-	if !recorder.recording {
-		return
-	}
-	sql, _ := statement()
-	recorder.statements = append(recorder.statements, sql)
-}
-
 func TestUsageOverviewFiveDimensionsMigrationRebuildsFromCurrentUsageEvents(t *testing.T) {
-	previousLocal := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = previousLocal })
-
-	recorder := &usageOverviewMigrationSQLRecorder{}
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "five-dimensions.db")), &gorm.Config{NowFunc: func() time.Time {
-		return timeutil.NormalizeStorageTime(time.Now())
-	}, Logger: recorder})
-	if err != nil {
-		t.Fatalf("open five-dimension migration database: %v", err)
-	}
-	closeMigrationTestDatabase(t, db)
+	db := openUnmigratedTestDatabase(t)
+	db.NowFunc = func() time.Time { return timeutil.NormalizeStorageTime(time.Now()) }
 	createLegacyUsageOverviewFiveDimensionSchema(t, db)
 	seedUsageOverviewFiveDimensionMigrationData(t, db)
 
@@ -79,18 +47,16 @@ func TestUsageOverviewFiveDimensionsMigrationRebuildsFromCurrentUsageEvents(t *t
 	if err := db.Exec("DELETE FROM schema_migrations WHERE version = ?", usageOverviewFiveDimensionsMigrationVersion).Error; err != nil {
 		t.Fatalf("enable five-dimension migration: %v", err)
 	}
-	recorder.recording = true
+	var statements bytes.Buffer
+	originalLogger := db.Logger
+	db.Logger = gormlogger.New(log.New(&statements, "", 0), gormlogger.Config{LogLevel: gormlogger.Info})
 	if err := migration.Run(db); err != nil {
 		t.Fatalf("run five-dimension migration: %v", err)
 	}
-	recorder.recording = false
+	db.Logger = originalLogger
 
 	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
-		for _, column := range []string{"service_tier", "response_service_tier", "reasoning_effort", "endpoint", "executor_type"} {
-			if !db.Migrator().HasColumn(table, column) {
-				t.Fatalf("expected %s.%s after migration", table, column)
-			}
-		}
+
 		var staleCount int64
 		if err := db.Table(table).Where("api_group_key = ?", "stale-api").Count(&staleCount).Error; err != nil {
 			t.Fatalf("count stale %s rows: %v", table, err)
@@ -100,56 +66,24 @@ func TestUsageOverviewFiveDimensionsMigrationRebuildsFromCurrentUsageEvents(t *t
 		}
 	}
 
-	assertUsageOverviewFiveDimensionMigrationRows(t, db, "usage_overview_hourly_stats")
-	assertUsageOverviewFiveDimensionMigrationRows(t, db, "usage_overview_daily_stats")
-	assertUsageOverviewFiveDimensionIndex(t, db, "usage_overview_hourly_stats", "uniq_usage_overview_hourly_stats_dimensions")
-	assertUsageOverviewFiveDimensionIndex(t, db, "usage_overview_daily_stats", "uniq_usage_overview_daily_stats_dimensions")
-	assertUsageOverviewIndexCreatedAfterClear(t, recorder.statements, "usage_overview_hourly_stats", "uniq_usage_overview_hourly_stats_dimensions")
-	assertUsageOverviewIndexCreatedAfterClear(t, recorder.statements, "usage_overview_daily_stats", "uniq_usage_overview_daily_stats_dimensions")
-	for _, oldIndex := range []string{
-		"uniq_usage_overview_hourly_stats_bucket_api_model_auth_alias",
-		"uniq_usage_overview_daily_stats_bucket_api_model_auth_alias",
-	} {
-		var count int64
-		if err := db.Raw("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?", oldIndex).Scan(&count).Error; err != nil {
-			t.Fatalf("check old index %s: %v", oldIndex, err)
-		}
-		if count != 0 {
+	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+		index := "uniq_" + table + "_dimensions"
+		assertUsageOverviewFiveDimensionMigrationRows(t, db, table)
+		assertUsageOverviewFiveDimensionIndex(t, db, table, index)
+		assertUsageOverviewIndexCreatedAfterClear(t, statements.String(), table, index)
+		oldIndex := "uniq_" + table + "_bucket_api_model_auth_alias"
+		if db.Migrator().HasIndex(table, oldIndex) {
 			t.Fatalf("expected old index %s to be removed", oldIndex)
 		}
 	}
 
-	var checkpoint struct {
-		LastAggregatedUsageEventID int64
-	}
-	if err := db.Table("usage_overview_aggregation_checkpoints").Select("last_aggregated_usage_event_id").Where("name = ?", "overview").Take(&checkpoint).Error; err != nil {
-		t.Fatalf("load rebuilt overview checkpoint: %v", err)
-	}
-	if checkpoint.LastAggregatedUsageEventID != 4 {
-		t.Fatalf("expected rebuilt overview checkpoint 4, got %d", checkpoint.LastAggregatedUsageEventID)
-	}
-
-	var applied int64
-	if err := db.Table("schema_migrations").Where("version = ?", usageOverviewFiveDimensionsMigrationVersion).Count(&applied).Error; err != nil {
-		t.Fatalf("count five-dimension migration version: %v", err)
-	}
-	if applied != 1 {
-		t.Fatalf("expected five-dimension migration to be recorded once, got %d", applied)
-	}
+	assertUsageOverviewMigrationCheckpoint(t, db, 4)
+	assertUsageOverviewMigrationVersionCount(t, db, 1)
 }
 
 func TestUsageOverviewFiveDimensionsMigrationRestartsCleanlyAfterBatchFailure(t *testing.T) {
-	previousLocal := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = previousLocal })
-
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "five-dimensions-retry.db")), &gorm.Config{NowFunc: func() time.Time {
-		return timeutil.NormalizeStorageTime(time.Now())
-	}})
-	if err != nil {
-		t.Fatalf("open five-dimension retry database: %v", err)
-	}
-	closeMigrationTestDatabase(t, db)
+	db := openUnmigratedTestDatabase(t)
+	db.NowFunc = func() time.Time { return timeutil.NormalizeStorageTime(time.Now()) }
 	createLegacyUsageOverviewFiveDimensionSchema(t, db)
 	seedUsageOverviewFiveDimensionBatchEvents(t, db, 1001)
 
@@ -363,61 +297,42 @@ func assertUsageOverviewFiveDimensionMigrationRows(t *testing.T, db *gorm.DB, ta
 		Find(&rows).Error; err != nil {
 		t.Fatalf("load rebuilt %s rows: %v", table, err)
 	}
-	if len(rows) != 3 {
-		t.Fatalf("expected 3 rebuilt %s rows, got %d: %+v", table, len(rows), rows)
+	want := []usageOverviewFiveDimensionRow{
+		{ServiceTier: "default", ResponseServiceTier: "default", ReasoningEffort: "xhigh", Endpoint: "GET /v1/responses", ExecutorType: "CodexWebsocketsExecutor",
+			RequestCount: 2, SuccessCount: 2, InputTokens: 40, OutputTokens: 6, ReasoningTokens: 4, CachedTokens: 16, CacheReadTokens: 8, CacheCreationTokens: 4, TotalTokens: 46},
+		{ServiceTier: "priority", ResponseServiceTier: "priority", ReasoningEffort: "max", Endpoint: "POST /v1/responses", ExecutorType: "CodexExecutor",
+			RequestCount: 1, FailureCount: 1, InputTokens: 20, OutputTokens: 3, ReasoningTokens: 2, CachedTokens: 8, CacheReadTokens: 4, CacheCreationTokens: 2, TotalTokens: 23},
+		{ServiceTier: "default", ResponseServiceTier: "default", ReasoningEffort: "xhigh", ExecutorType: "CodexWebsocketsExecutor",
+			RequestCount: 1, SuccessCount: 1, InputTokens: 40, OutputTokens: 5, ReasoningTokens: 4, CachedTokens: 10, CacheReadTokens: 6, CacheCreationTokens: 4, TotalTokens: 45},
 	}
-	if got := rows[0]; got.ServiceTier != "default" || got.ResponseServiceTier != "default" || got.ReasoningEffort != "xhigh" || got.Endpoint != "GET /v1/responses" || got.ExecutorType != "CodexWebsocketsExecutor" || got.RequestCount != 2 || got.SuccessCount != 2 || got.FailureCount != 0 || got.InputTokens != 40 || got.OutputTokens != 6 || got.ReasoningTokens != 4 || got.CachedTokens != 16 || got.CacheReadTokens != 8 || got.CacheCreationTokens != 4 || got.TotalTokens != 46 {
-		t.Fatalf("unexpected first rebuilt %s row: %+v", table, got)
-	}
-	if got := rows[1]; got.ServiceTier != "priority" || got.ResponseServiceTier != "priority" || got.ReasoningEffort != "max" || got.Endpoint != "POST /v1/responses" || got.ExecutorType != "CodexExecutor" || got.RequestCount != 1 || got.SuccessCount != 0 || got.FailureCount != 1 || got.InputTokens != 20 || got.OutputTokens != 3 || got.ReasoningTokens != 2 || got.CachedTokens != 8 || got.CacheReadTokens != 4 || got.CacheCreationTokens != 2 || got.TotalTokens != 23 {
-		t.Fatalf("unexpected second rebuilt %s row: %+v", table, got)
-	}
-	if got := rows[2]; got.ServiceTier != "default" || got.ResponseServiceTier != "default" || got.ReasoningEffort != "xhigh" || got.Endpoint != "" || got.ExecutorType != "CodexWebsocketsExecutor" || got.RequestCount != 1 || got.SuccessCount != 1 || got.FailureCount != 0 || got.InputTokens != 40 || got.OutputTokens != 5 || got.ReasoningTokens != 4 || got.CachedTokens != 10 || got.CacheReadTokens != 6 || got.CacheCreationTokens != 4 || got.TotalTokens != 45 {
-		t.Fatalf("unexpected third rebuilt %s row: %+v", table, got)
+	if !slices.Equal(rows, want) {
+		t.Fatalf("unexpected rebuilt %s rows:\n got=%+v\nwant=%+v", table, rows, want)
 	}
 }
 
 func assertUsageOverviewFiveDimensionIndex(t *testing.T, db *gorm.DB, table string, name string) {
 	t.Helper()
-	type indexListRow struct {
-		Name   string `gorm:"column:name"`
-		Unique int    `gorm:"column:unique"`
+	var unique bool
+	if err := db.Raw(`SELECT "unique" FROM pragma_index_list(?) WHERE name = ?`, table, name).Scan(&unique).Error; err != nil {
+		t.Fatalf("look up %s index: %v", table, err)
 	}
-	var indexes []indexListRow
-	if err := db.Raw("PRAGMA index_list(" + table + ")").Scan(&indexes).Error; err != nil {
-		t.Fatalf("list %s indexes: %v", table, err)
-	}
-	foundUnique := false
-	for _, index := range indexes {
-		if index.Name == name && index.Unique == 1 {
-			foundUnique = true
-		}
-	}
-	if !foundUnique {
+	if !unique {
 		t.Fatalf("expected %s to be a unique index on %s", name, table)
 	}
-
-	type indexColumn struct {
-		Seqno int
-		Name  string
-	}
-	var rows []indexColumn
-	if err := db.Raw("PRAGMA index_info(" + name + ")").Scan(&rows).Error; err != nil {
+	var got []string
+	if err := db.Raw("SELECT name FROM pragma_index_info(?) ORDER BY seqno", name).Scan(&got).Error; err != nil {
 		t.Fatalf("load index %s columns: %v", name, err)
 	}
 	want := []string{"bucket_start", "api_group_key", "model", "auth_index", "model_alias", "service_tier", "response_service_tier", "reasoning_effort", "endpoint", "executor_type"}
-	got := make([]string, len(rows))
-	for index, row := range rows {
-		got[index] = row.Name
-	}
-	if !reflect.DeepEqual(got, want) {
+
+	if !slices.Equal(got, want) {
 		t.Fatalf("unexpected %s columns: got %v want %v", name, got, want)
 	}
 }
 
-func assertUsageOverviewIndexCreatedAfterClear(t *testing.T, statements []string, table string, index string) {
+func assertUsageOverviewIndexCreatedAfterClear(t *testing.T, statements string, table string, index string) {
 	t.Helper()
-	normalized := strings.ToLower(strings.Join(statements, "\n"))
+	normalized := strings.ToLower(statements)
 	normalized = strings.NewReplacer("`", "", "\"", "").Replace(normalized)
 	clearPosition := strings.Index(normalized, "delete from "+table)
 	indexPosition := strings.Index(normalized, "create unique index "+index)

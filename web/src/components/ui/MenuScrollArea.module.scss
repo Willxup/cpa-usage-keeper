@@ -1,0 +1,52 @@
+.root {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: clip;
+  border-radius: 18px;
+}
+
+.viewport {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+}
+
+.content { display: flex; flex-direction: column; gap: 2px; }
+.root[data-overflow='true'] .viewport { padding-right: 10px; }
+
+.track {
+  position: absolute;
+  inset: 6px 0 6px auto;
+  width: 12px;
+  touch-action: none;
+  user-select: none;
+  cursor: default;
+}
+
+.thumb {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  width: 4px;
+  border-radius: 999px;
+  background: var(--text-tertiary);
+  opacity: .42;
+  transition: opacity .15s ease;
+}
+
+.root:hover .thumb, .root[data-pulling='true'] .thumb, .root[data-dragging='true'] .thumb { opacity: .7; }
+
+@media (prefers-reduced-motion: reduce) {
+  .viewport { scroll-behavior: auto; }
+  .thumb { transition: none; }
+}
+
+@media (forced-colors: active) { .thumb { background: CanvasText; opacity: 1; } }

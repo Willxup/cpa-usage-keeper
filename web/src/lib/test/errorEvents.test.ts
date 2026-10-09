@@ -9,10 +9,7 @@ describe('fetchErrorEvents', () => {
 
   it('loads one credential error cursor page by Keeper identity id', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper/' })
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ events: [], next_cursor: 'next', has_more: true }),
-    } as Response)
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ events: [], next_cursor: 'next', has_more: true }))
     const signal = new AbortController().signal
 
     const response = await fetchErrorEvents('9007199254740993', signal, 'cursor value', 50)

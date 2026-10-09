@@ -14,15 +14,15 @@ import (
 
 func TestGeminiCLIProviderUsesProjectIDForQuotaAndCodeAssistRequests(t *testing.T) {
 	caller := &recordingManagementCaller{responses: []*apicall.Response{
-		{StatusCode: 200, BodyText: `{"buckets":[{"model_id":"gemini-2.5-pro_vertex","token_type":"PROMPT","remaining_fraction":0.7,"remaining_amount":42,"reset_time":"2026-05-09T12:00:00Z"}]}`, Body: json.RawMessage(`{"buckets":[{"model_id":"gemini-2.5-pro_vertex","token_type":"PROMPT","remaining_fraction":0.7,"remaining_amount":42,"reset_time":"2026-05-09T12:00:00Z"}]}`)},
-		{StatusCode: 200, BodyText: `{"current_tier":{"id":"free-tier","available_credits":[{"credit_type":"GOOGLE_ONE_AI","credit_amount":10}]}}`, Body: json.RawMessage(`{"current_tier":{"id":"free-tier","available_credits":[{"credit_type":"GOOGLE_ONE_AI","credit_amount":10}]}}`)},
+		quotaAPIResponse(200, `{"buckets":[{"model_id":"gemini-2.5-pro_vertex","token_type":"PROMPT","remaining_fraction":0.7,"remaining_amount":42,"reset_time":"2026-05-09T12:00:00Z"}]}`),
+		quotaAPIResponse(200, `{"current_tier":{"id":"free-tier","available_credits":[{"credit_type":"GOOGLE_ONE_AI","credit_amount":10}]}}`),
 	}}
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewGeminiCLIProvider(caller, configs.GeminiCLI, configs.GeminiCLICodeAssist)
 
 	output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{
 		Identity:  "gemini-auth",
-		ProjectID: stringPtr("project-123"),
+		ProjectID: new("project-123"),
 	}})
 	if err != nil {
 		t.Fatalf("Check returned error: %v", err)
@@ -97,17 +97,13 @@ func TestGeminiCLIProviderRejectsMissingProjectID(t *testing.T) {
 }
 
 func TestGeminiCLIProviderReturnsTargetErrorMessage(t *testing.T) {
-	caller := &recordingManagementCaller{responses: []*apicall.Response{{
-		StatusCode: 403,
-		BodyText:   `{"message":"permission denied"}`,
-		Body:       json.RawMessage(`{"message":"permission denied"}`),
-	}}}
+	caller := &recordingManagementCaller{responses: []*apicall.Response{quotaAPIResponse(403, `{"message":"permission denied"}`)}}
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewGeminiCLIProvider(caller, configs.GeminiCLI, configs.GeminiCLICodeAssist)
 
 	_, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{
 		Identity:  "gemini-auth",
-		ProjectID: stringPtr("project-123"),
+		ProjectID: new("project-123"),
 	}})
 	if err == nil || err.Error() != "HTTP 403: permission denied" {
 		t.Fatalf("expected target HTTP message, got %v", err)
@@ -116,7 +112,7 @@ func TestGeminiCLIProviderReturnsTargetErrorMessage(t *testing.T) {
 
 func TestGeminiCLIProviderKeepsQuotaWhenSupplementaryCallFails(t *testing.T) {
 	caller := &recordingManagementCaller{responses: []*apicall.Response{
-		{StatusCode: 200, BodyText: `{"buckets":[{"model_id":"gemini-2.5-pro_vertex","token_type":"PROMPT","remaining_fraction":0.7,"remaining_amount":42,"reset_time":"2026-05-09T12:00:00Z"}]}`, Body: json.RawMessage(`{"buckets":[{"model_id":"gemini-2.5-pro_vertex","token_type":"PROMPT","remaining_fraction":0.7,"remaining_amount":42,"reset_time":"2026-05-09T12:00:00Z"}]}`)},
+		quotaAPIResponse(200, `{"buckets":[{"model_id":"gemini-2.5-pro_vertex","token_type":"PROMPT","remaining_fraction":0.7,"remaining_amount":42,"reset_time":"2026-05-09T12:00:00Z"}]}`),
 		{StatusCode: 500, BodyText: `upstream error`, Body: json.RawMessage(`null`)},
 	}}
 	configs := quota.DefaultProviderConfigs()
@@ -124,7 +120,7 @@ func TestGeminiCLIProviderKeepsQuotaWhenSupplementaryCallFails(t *testing.T) {
 
 	output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{
 		Identity:  "gemini-auth",
-		ProjectID: stringPtr("project-123"),
+		ProjectID: new("project-123"),
 	}})
 	if err != nil {
 		t.Fatalf("Check returned error: %v", err)

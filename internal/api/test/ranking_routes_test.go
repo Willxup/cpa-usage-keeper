@@ -5,10 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
-	. "cpa-usage-keeper/internal/api"
-	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/ranking"
 )
 
@@ -50,32 +47,43 @@ func (*rankingRouteProviderStub) LeaderboardMetadata(context.Context) (ranking.L
 }
 
 func TestRankingRoutesAreMountedOnlyInsideAdminGroup(t *testing.T) {
-	sessions := auth.NewSessionManager(time.Hour)
+	sessions, viewerToken, community, local, router := newKeyViewerRankingRouter(t, false)
 	adminToken, _, err := sessions.Create()
 	if err != nil {
 		t.Fatalf("create admin session: %v", err)
 	}
-	viewerToken, _, err := sessions.CreateAPIKeyViewer(42)
-	if err != nil {
-		t.Fatalf("create viewer session: %v", err)
+	for _, tc := range []struct {
+		path  string
+		calls func() int
+	}{
+		{"/api/v1/ranking/status", func() int { return community.statusCalls }},
+		{"/api/v1/ranking/local/leaderboards?period=today&metric=overall", func() int { return local.calls }},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			viewer := httptest.NewRecorder()
+			router.ServeHTTP(viewer, viewerRankingRequest(http.MethodGet, tc.path, viewerToken))
+			if viewer.Code != http.StatusForbidden || tc.calls() != 0 {
+				t.Fatalf("viewer reached admin ranking: status=%d body=%s calls=%d", viewer.Code, viewer.Body.String(), tc.calls())
+			}
+			admin := httptest.NewRecorder()
+			router.ServeHTTP(admin, viewerRankingRequest(http.MethodGet, tc.path, adminToken))
+			if admin.Code != http.StatusOK || tc.calls() != 1 {
+				t.Fatalf("admin could not reach ranking: status=%d body=%s calls=%d", admin.Code, admin.Body.String(), tc.calls())
+			}
+		})
 	}
-	provider := &rankingRouteProviderStub{}
-	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	router := NewRouter(nil, nil, nil, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{Ranking: provider})
+}
 
-	viewerResponse := httptest.NewRecorder()
-	viewerRequest := httptest.NewRequest(http.MethodGet, "/api/v1/ranking/status", nil)
-	viewerRequest.AddCookie(&http.Cookie{Name: "cpa_usage_keeper_session", Value: viewerToken})
-	router.ServeHTTP(viewerResponse, viewerRequest)
-	if viewerResponse.Code != http.StatusForbidden || provider.statusCalls != 0 {
-		t.Fatalf("viewer reached ranking route: status=%d body=%s calls=%d", viewerResponse.Code, viewerResponse.Body.String(), provider.statusCalls)
-	}
+type adminLocalRankingProviderStub struct {
+	calls int
+}
 
-	adminResponse := httptest.NewRecorder()
-	adminRequest := httptest.NewRequest(http.MethodGet, "/api/v1/ranking/status", nil)
-	adminRequest.AddCookie(&http.Cookie{Name: "cpa_usage_keeper_session", Value: adminToken})
-	router.ServeHTTP(adminResponse, adminRequest)
-	if adminResponse.Code != http.StatusOK || provider.statusCalls != 1 {
-		t.Fatalf("admin could not reach ranking route: status=%d body=%s calls=%d", adminResponse.Code, adminResponse.Body.String(), provider.statusCalls)
-	}
+func (s *adminLocalRankingProviderStub) Leaderboard(context.Context, ranking.LeaderboardPeriod, ranking.LeaderboardMetric) (ranking.Leaderboard, error) {
+	s.calls++
+	return ranking.Leaderboard{Entries: []ranking.LeaderboardEntry{}}, nil
+}
+
+func (s *adminLocalRankingProviderStub) UpdateProfile(_ context.Context, id int64, keyAlias string, avatarID uint8) (ranking.LocalProfile, error) {
+	s.calls++
+	return ranking.LocalProfile{ParticipantID: "42", KeyAlias: keyAlias, DisplayName: keyAlias, AvatarID: avatarID}, nil
 }

@@ -6,8 +6,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import {
   REQUEST_EVENT_COLUMN_IDS,
-  RequestEventsDetailsCard,
 } from '../RequestEventsDetailsCard';
+import { RequestEventsTestCard } from './requestEventsFixtures';
 import i18n from '@/i18n';
 import type { UsageEvent } from '@/lib/types';
 
@@ -38,19 +38,11 @@ const baseEvent: UsageEvent = {
 };
 
 const renderCardElement = (events: UsageEvent[]) => (
-  <RequestEventsDetailsCard
+  <RequestEventsTestCard
     events={events}
-    loading={false}
-    totalCount={events.length}
     modelOptions={['claude-sonnet']}
     sourceOptions={[{ value: 'source-a', label: 'Provider A' }]}
-    modelFilter="__all__"
-    sourceFilter="__all__"
-    resultFilter="__all__"
     visibleColumnIds={['service_tier']}
-    onModelFilterChange={() => undefined}
-    onSourceFilterChange={() => undefined}
-    onResultFilterChange={() => undefined}
   />
 );
 
@@ -76,18 +68,6 @@ const extractSpeedModeCells = (html: string) => (
   Array.from(html.matchAll(/<tr><td\b[^>]*>(.*?)<\/td><\/tr>/gs), (match) => match[1])
 );
 
-const rectAt = (left: number, top: number, width = 40, height = 20): DOMRect => ({
-  x: left,
-  y: top,
-  left,
-  top,
-  right: left + width,
-  bottom: top + height,
-  width,
-  height,
-  toJSON: () => ({}),
-});
-
 describe('RequestEventsDetailsCard Speed Mode column', () => {
   it('shows an immediate localized tooltip with mapped and raw request and response modes', async () => {
     const events = [{ ...baseEvent, service_tier: 'auto', response_service_tier: 'default' }];
@@ -105,27 +85,25 @@ describe('RequestEventsDetailsCard Speed Mode column', () => {
           mounted.root.render(renderCardElement(events));
         });
 
-        const cell = mounted.container.querySelector('tbody td');
-        expect(cell).toBeInstanceOf(HTMLTableCellElement);
-        expect(cell?.getAttribute('title')).toBeNull();
+        const cell = mounted.container.querySelector<HTMLTableCellElement>('tbody td')!;
+        expect(cell.getAttribute('title')).toBeNull();
 
         await act(async () => {
-          cell?.dispatchEvent(new MouseEvent('mouseover', {
+          cell.dispatchEvent(new MouseEvent('mouseover', {
             bubbles: true,
             clientX: 120,
             clientY: 80,
           }));
         });
 
-        const tooltip = document.body.querySelector('[role="tooltip"]');
-        expect(tooltip).not.toBeNull();
-        expect(Array.from(tooltip?.querySelectorAll('span') ?? [], (line) => line.textContent)).toEqual([
+        const tooltip = document.body.querySelector('[role="tooltip"]')!;
+        expect(Array.from(tooltip.querySelectorAll('span'), (line) => line.textContent)).toEqual([
           requestLine,
           responseLine,
         ]);
 
         await act(async () => {
-          cell?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+          cell.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
         });
         expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
       }
@@ -145,7 +123,6 @@ describe('RequestEventsDetailsCard Speed Mode column', () => {
     expect(html).toContain('>Speed Mode</th>');
     expect(html).not.toContain('>Response Speed Mode</th>');
     expect(extractSpeedModeCells(html)).toEqual(['Auto / Standard', 'Standard / Standard']);
-    expect(html).not.toContain('title="Speed Mode: Auto\nResponse Speed Mode: Standard"');
     expect(html).toContain('aria-label="Speed Mode: Auto (auto); Response Speed Mode: Standard (default)"');
   });
 
@@ -156,8 +133,10 @@ describe('RequestEventsDetailsCard Speed Mode column', () => {
     ]);
 
     try {
-      const cell = mounted.container.querySelector('tbody td') as HTMLTableCellElement;
+      const cell = mounted.container.querySelector<HTMLTableCellElement>('tbody td')!;
       await act(async () => cell.focus());
+      expect(cell.getAttribute('aria-label')).toBe('Speed Mode: Auto (auto); Response Speed Mode: Standard (default)');
+      expect(cell.getAttribute('aria-describedby')).toBeNull();
       expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull();
 
       await act(async () => {
@@ -181,22 +160,6 @@ describe('RequestEventsDetailsCard Speed Mode column', () => {
     }
   });
 
-  it('exposes the expanded values once without a duplicate description', async () => {
-    await i18n.changeLanguage('en');
-    const mounted = await mountCard([
-      { ...baseEvent, service_tier: 'auto', response_service_tier: 'default' },
-    ]);
-
-    try {
-      const cell = mounted.container.querySelector('tbody td') as HTMLTableCellElement;
-      await act(async () => cell.focus());
-      expect(cell.getAttribute('aria-label')).toBe('Speed Mode: Auto (auto); Response Speed Mode: Standard (default)');
-      expect(cell.getAttribute('aria-describedby')).toBeNull();
-    } finally {
-      await mounted.unmount();
-    }
-  });
-
   it('repositions the tooltip when its scroll container or viewport changes', async () => {
     await i18n.changeLanguage('en');
     const mounted = await mountCard([
@@ -204,8 +167,8 @@ describe('RequestEventsDetailsCard Speed Mode column', () => {
     ]);
 
     try {
-      const cell = mounted.container.querySelector('tbody td') as HTMLTableCellElement;
-      let currentRect = rectAt(100, 50);
+      const cell = mounted.container.querySelector<HTMLTableCellElement>('tbody td')!;
+      let currentRect = new DOMRect(100, 50, 40, 20);
       vi.spyOn(cell, 'getBoundingClientRect').mockImplementation(() => currentRect);
 
       await act(async () => {
@@ -215,14 +178,14 @@ describe('RequestEventsDetailsCard Speed Mode column', () => {
       expect(tooltip.style.left).toBe('148px');
       expect(tooltip.style.top).toBe('80px');
 
-      currentRect = rectAt(300, 200);
+      currentRect = new DOMRect(300, 200, 40, 20);
       await act(async () => {
-        mounted.container.querySelector('table')?.parentElement?.dispatchEvent(new Event('scroll'));
+        mounted.container.querySelector('table')!.parentElement!.dispatchEvent(new Event('scroll'));
       });
       expect(tooltip.style.left).toBe('320px');
       expect(tooltip.style.top).toBe('230px');
 
-      currentRect = rectAt(400, 300);
+      currentRect = new DOMRect(400, 300, 40, 20);
       await act(async () => window.dispatchEvent(new Event('resize')));
       expect(tooltip.style.left).toBe('420px');
       expect(tooltip.style.top).toBe('330px');

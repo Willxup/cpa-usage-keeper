@@ -3,20 +3,17 @@ package test
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
-	"gorm.io/gorm"
 )
 
 func TestUsageActivityMapsNormalizedTimeRangesToFixedWindowGrains(t *testing.T) {
-	db := openUsageActivityServiceDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	provider := service.NewUsageService(db, emptyPricingCatalogForTest())
 	now := time.Date(2026, 7, 20, 12, 34, 56, 0, time.UTC)
 	testCases := []struct {
@@ -45,11 +42,8 @@ func TestUsageActivityMapsNormalizedTimeRangesToFixedWindowGrains(t *testing.T) 
 		t.Run(testCase.name, func(t *testing.T) {
 			filter := testCase.filter
 			filter.QueryNow = &now
-			if filter.Range == "today" || filter.Range == "yesterday" {
+			if filter.Range == "today" {
 				start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
-				if filter.Range == "yesterday" {
-					start = start.AddDate(0, 0, -1)
-				}
 				end := start.AddDate(0, 0, 1).Add(-time.Nanosecond)
 				filter.StartTime = &start
 				filter.EndTime = &end
@@ -81,7 +75,7 @@ func TestUsageActivityMapsNormalizedTimeRangesToFixedWindowGrains(t *testing.T) 
 }
 
 func TestUsageActivityDirectWindowsMatchEquivalentNormalizedRanges(t *testing.T) {
-	provider := service.NewUsageService(openUsageActivityServiceDatabase(t), emptyPricingCatalogForTest())
+	provider := service.NewUsageService(openUsageServiceTestDatabase(t), emptyPricingCatalogForTest())
 	now := time.Date(2026, 7, 20, 12, 34, 56, 0, time.UTC)
 	testCases := []struct {
 		name       string
@@ -132,7 +126,7 @@ func TestUsageActivityDirectWindowsMatchEquivalentNormalizedRanges(t *testing.T)
 }
 
 func TestCustomDayUsageActivityReadsDailyRollupWithoutRawEvents(t *testing.T) {
-	db := openUsageActivityServiceDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	bucket, err := repository.UsageActivityBucketForTimestamp(entities.UsageActivityGrainDaily, now.Add(-24*time.Hour))
 	if err != nil {
@@ -164,15 +158,9 @@ func TestCustomDayUsageActivityReadsDailyRollupWithoutRawEvents(t *testing.T) {
 }
 
 func TestUsageActivityNaturalDayUsesExactLocalDayAndExcludesAdjacentEvents(t *testing.T) {
-	previousLocal := time.Local
-	location, err := time.LoadLocation("Asia/Shanghai")
-	if err != nil {
-		t.Fatalf("load location: %v", err)
-	}
-	time.Local = location
-	t.Cleanup(func() { time.Local = previousLocal })
+	location := withUsageServiceLocation(t, "Asia/Shanghai")
 
-	db := openUsageActivityServiceDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	dayStart := time.Date(2026, 7, 20, 0, 0, 0, 0, location)
 	dayEnd := dayStart.AddDate(0, 0, 1)
 	events := []entities.UsageEvent{
@@ -234,15 +222,9 @@ func TestUsageActivityNaturalDayUsesExactLocalDayAndExcludesAdjacentEvents(t *te
 }
 
 func TestUsageActivityTodayKeepsFullDayAxisButExcludesFutureData(t *testing.T) {
-	previousLocal := time.Local
-	location, err := time.LoadLocation("Asia/Shanghai")
-	if err != nil {
-		t.Fatalf("load location: %v", err)
-	}
-	time.Local = location
-	t.Cleanup(func() { time.Local = previousLocal })
+	location := withUsageServiceLocation(t, "Asia/Shanghai")
 
-	db := openUsageActivityServiceDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	dayStart := time.Date(2026, 7, 20, 0, 0, 0, 0, location)
 	dayEnd := dayStart.AddDate(0, 0, 1)
 	queryNow := dayStart.Add(12 * time.Hour)
@@ -284,7 +266,7 @@ func TestUsageActivityTodayKeepsFullDayAxisButExcludesFutureData(t *testing.T) {
 }
 
 func TestUsageActivityHeaderAndBlocksUseTheSameAPIKeyScope(t *testing.T) {
-	db := openUsageActivityServiceDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	apiKey := entities.CPAAPIKey{APIKey: "provider-a", DisplayKey: "provider-a"}
 	if err := db.Create(&apiKey).Error; err != nil {
 		t.Fatalf("seed CPA API key: %v", err)
@@ -328,18 +310,4 @@ func TestUsageActivityHeaderAndBlocksUseTheSameAPIKeyScope(t *testing.T) {
 	if blockInputTokens != activity.InputTokens || blockTotalTokens != activity.TotalTokens {
 		t.Fatalf("Activity Token header and blocks disagree: header=%d/%d blocks=%d/%d", activity.InputTokens, activity.TotalTokens, blockInputTokens, blockTotalTokens)
 	}
-}
-
-func openUsageActivityServiceDatabase(t *testing.T) *gorm.DB {
-	t.Helper()
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-activity-service.db")})
-	if err != nil {
-		t.Fatalf("open Activity service database: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("resolve Activity service database: %v", err)
-	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
-	return db
 }

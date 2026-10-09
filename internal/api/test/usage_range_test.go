@@ -2,14 +2,11 @@ package test
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
 
 	. "cpa-usage-keeper/internal/api"
-	"cpa-usage-keeper/internal/auth"
-	"cpa-usage-keeper/internal/entities"
 )
 
 func TestUsageRoutesAcceptBoundedRollingRanges(t *testing.T) {
@@ -28,10 +25,7 @@ func TestUsageRoutesAcceptBoundedRollingRanges(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			provider := &usageEventsStub{}
 			router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range="+tc.rangeVal, nil)
-			resp := httptest.NewRecorder()
-
-			router.ServeHTTP(resp, req)
+			resp := serveAPIGet(router, "/api/v1/usage/events?range="+tc.rangeVal)
 
 			if resp.Code != http.StatusOK {
 				t.Fatalf("expected rolling range %q to return 200, got %d body=%s", tc.rangeVal, resp.Code, resp.Body.String())
@@ -51,10 +45,7 @@ func TestUsageRoutesRejectOutOfBoundsRollingRanges(t *testing.T) {
 		t.Run(rangeVal, func(t *testing.T) {
 			provider := &usageEventsStub{}
 			router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range="+rangeVal, nil)
-			resp := httptest.NewRecorder()
-
-			router.ServeHTTP(resp, req)
+			resp := serveAPIGet(router, "/api/v1/usage/events?range="+rangeVal)
 
 			if resp.Code != http.StatusBadRequest {
 				t.Fatalf("expected rolling range %q to return 400, got %d body=%s", rangeVal, resp.Code, resp.Body.String())
@@ -66,87 +57,30 @@ func TestUsageRoutesRejectOutOfBoundsRollingRanges(t *testing.T) {
 	}
 }
 
-func TestKeyOverviewAcceptsBoundedRollingRange(t *testing.T) {
-	provider := &usageEventsStub{}
-	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, APIKey: "sk-cpa-viewer", DisplayKey: "sk-...viewer"}}
-	sessions := auth.NewSessionManager(time.Hour)
-	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
-	token, _, err := sessions.CreateAPIKeyViewerWithSource(42, auth.SessionSourceStandard)
-	if err != nil {
-		t.Fatalf("create API key viewer session: %v", err)
-	}
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/key-overview?range=13d", nil)
-	req.AddCookie(&http.Cookie{Name: standardSessionCookieName, Value: token})
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected key overview rolling range to return 200, got %d body=%s", resp.Code, resp.Body.String())
-	}
-}
-
-func TestUsageRoutesAcceptCustomHourSlots(t *testing.T) {
-	currentHour := time.Now().In(time.Local).Truncate(time.Hour)
-	startHour := currentHour.Add(-4 * time.Hour)
-	provider := &usageEventsStub{}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	query := url.Values{
-		"range": {"custom"},
-		"unit":  {"hour"},
-		"start": {startHour.Format(time.RFC3339)},
-		"end":   {currentHour.Format(time.RFC3339)},
-	}
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?"+query.Encode(), nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected custom hour range to return 200, got %d body=%s", resp.Code, resp.Body.String())
-	}
-	if provider.lastFilter.StartTime == nil || !provider.lastFilter.StartTime.Equal(startHour) {
-		t.Fatalf("expected custom hour start %s, got %+v", startHour, provider.lastFilter)
-	}
-	expectedEnd := currentHour.Add(time.Hour)
-	if provider.lastFilter.EndTime == nil || !provider.lastFilter.EndTime.Equal(expectedEnd) || !provider.lastFilter.EndExclusive {
-		t.Fatalf("expected exclusive custom hour end %s, got %+v", expectedEnd, provider.lastFilter)
-	}
-	if provider.lastFilter.CustomUnit != "hour" {
-		t.Fatalf("expected custom hour unit, got %+v", provider.lastFilter)
-	}
-}
-
-func TestUsageRoutesAcceptCustomDaySlots(t *testing.T) {
+func TestUsageRoutesAcceptCustomHourAndDaySlots(t *testing.T) {
 	now := time.Now().In(time.Local)
+	currentHour := now.Truncate(time.Hour)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
-	startDay := today.AddDate(0, 0, -29)
-	provider := &usageEventsStub{}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	query := url.Values{
-		"range": {"custom"},
-		"unit":  {"day"},
-		"start": {startDay.Format(time.DateOnly)},
-		"end":   {today.Format(time.DateOnly)},
-	}
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?"+query.Encode(), nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected custom day range to return 200, got %d body=%s", resp.Code, resp.Body.String())
-	}
-	if provider.lastFilter.StartTime == nil || !provider.lastFilter.StartTime.Equal(startDay) {
-		t.Fatalf("expected custom day start %s, got %+v", startDay, provider.lastFilter)
-	}
-	expectedEnd := today.AddDate(0, 0, 1)
-	if provider.lastFilter.EndTime == nil || !provider.lastFilter.EndTime.Equal(expectedEnd) || !provider.lastFilter.EndExclusive {
-		t.Fatalf("expected exclusive custom day end %s, got %+v", expectedEnd, provider.lastFilter)
-	}
-	if provider.lastFilter.CustomUnit != "day" {
-		t.Fatalf("expected custom day unit, got %+v", provider.lastFilter)
+	for _, tc := range []struct {
+		unit, format             string
+		start, end, exclusiveEnd time.Time
+	}{
+		{"hour", time.RFC3339, currentHour.Add(-4 * time.Hour), currentHour, currentHour.Add(time.Hour)},
+		{"day", time.DateOnly, today.AddDate(0, 0, -29), today, today.AddDate(0, 0, 1)},
+	} {
+		t.Run(tc.unit, func(t *testing.T) {
+			provider := &usageEventsStub{}
+			router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
+			query := url.Values{"range": {"custom"}, "unit": {tc.unit}, "start": {tc.start.Format(tc.format)}, "end": {tc.end.Format(tc.format)}}
+			resp := serveAPIGet(router, "/api/v1/usage/events?"+query.Encode())
+			if resp.Code != http.StatusOK {
+				t.Fatalf("custom %s status=%d body=%s", tc.unit, resp.Code, resp.Body.String())
+			}
+			filter := provider.lastFilter
+			if filter.StartTime == nil || !filter.StartTime.Equal(tc.start) || filter.EndTime == nil || !filter.EndTime.Equal(tc.exclusiveEnd) || !filter.EndExclusive || filter.CustomUnit != tc.unit {
+				t.Fatalf("custom %s filter=%+v, want %s..%s exclusive", tc.unit, filter, tc.start, tc.exclusiveEnd)
+			}
+		})
 	}
 }
 
@@ -174,10 +108,7 @@ func TestUsageRoutesRejectCustomRangesOutsideProductBounds(t *testing.T) {
 			provider := &usageEventsStub{}
 			router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
 			query := url.Values{"range": {"custom"}, "unit": {tc.unit}, "start": {tc.start}, "end": {tc.end}}
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?"+query.Encode(), nil)
-			resp := httptest.NewRecorder()
-
-			router.ServeHTTP(resp, req)
+			resp := serveAPIGet(router, "/api/v1/usage/events?"+query.Encode())
 
 			if resp.Code != tc.wantStatus {
 				t.Fatalf("expected invalid custom range to return %d, got %d body=%s", tc.wantStatus, resp.Code, resp.Body.String())
@@ -189,34 +120,24 @@ func TestUsageRoutesRejectCustomRangesOutsideProductBounds(t *testing.T) {
 	}
 }
 
-func TestKeyOverviewAcceptsCustomRange(t *testing.T) {
+func TestKeyOverviewAcceptsRollingAndCustomRanges(t *testing.T) {
 	now := time.Now().In(time.Local)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
-	provider := &usageEventsStub{}
-	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, APIKey: "sk-cpa-viewer", DisplayKey: "sk-...viewer"}}
-	sessions := auth.NewSessionManager(time.Hour)
-	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
-	token, _, err := sessions.CreateAPIKeyViewerWithSource(42, auth.SessionSourceStandard)
-	if err != nil {
-		t.Fatalf("create API key viewer session: %v", err)
-	}
-	query := url.Values{
-		"range": {"custom"},
-		"unit":  {"day"},
-		"start": {today.AddDate(0, 0, -6).Format(time.DateOnly)},
-		"end":   {today.Format(time.DateOnly)},
-	}
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/key-overview?"+query.Encode(), nil)
-	req.AddCookie(&http.Cookie{Name: standardSessionCookieName, Value: token})
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected key overview custom range to return 200, got %d body=%s", resp.Code, resp.Body.String())
-	}
-	if provider.lastFilter.CustomUnit != "day" || !provider.lastFilter.EndExclusive || provider.lastFilter.APIKeyID != "42" {
-		t.Fatalf("expected key overview custom filter to keep range and force viewer key, got %+v", provider.lastFilter)
+	custom := url.Values{"range": {"custom"}, "unit": {"day"}, "start": {today.AddDate(0, 0, -6).Format(time.DateOnly)}, "end": {today.Format(time.DateOnly)}}
+	for _, tc := range []struct{ query, unit string }{
+		{"range=13d", ""},
+		{custom.Encode(), "day"},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			provider := &usageEventsStub{}
+			router, cookie := newUsageViewerRouter(t, provider)
+			resp := serveAPIGet(router, "/api/v1/key-overview?"+tc.query, cookie)
+			if resp.Code != http.StatusOK {
+				t.Fatalf("key overview status=%d body=%s", resp.Code, resp.Body.String())
+			}
+			if provider.lastFilter.APIKeyID != "42" || provider.lastFilter.CustomUnit != tc.unit || (tc.unit != "" && !provider.lastFilter.EndExclusive) {
+				t.Fatalf("expected key overview to preserve range and force viewer key, got %+v", provider.lastFilter)
+			}
+		})
 	}
 }

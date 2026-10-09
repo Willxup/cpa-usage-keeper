@@ -19,10 +19,7 @@ const usageLatencyStatsMigrationVersion = "20260726_usage_latency_stats"
 
 func TestUsageLatencyStatsMigrationMatchesRuntimeAggregation(t *testing.T) {
 	// 相同事件页分别走 migration 和运行时 Apply，最终业务字段与 BLOB 必须完全一致。
-	previousLocal := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = previousLocal })
-	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.Local)
 	events := []entities.UsageEvent{
 		latencyMigrationEvent(1, "key-a", now.Add(-time.Hour), 100, 900),
 		latencyMigrationEvent(2, "key-a", now.Add(-30*time.Minute), 200, 1200),
@@ -30,7 +27,7 @@ func TestUsageLatencyStatsMigrationMatchesRuntimeAggregation(t *testing.T) {
 	}
 
 	// migration 数据库只具备新 migration 所需的最小前置 schema。
-	migrationDB := openUsageLatencyMigrationDatabaseAt(t, "latency-migration.db", now)
+	migrationDB := openUsageLatencyMigrationDatabaseAt(t, now)
 	prepareUsageLatencyMigrationDatabase(t, migrationDB, events)
 	if err := migration.Run(migrationDB); err != nil {
 		t.Fatalf("run latency stats migration: %v", err)
@@ -40,7 +37,7 @@ func TestUsageLatencyStatsMigrationMatchesRuntimeAggregation(t *testing.T) {
 	assertUsageLatencyMigrationApplied(t, migrationDB, true)
 
 	// 运行时数据库直接用同一 BuildRows 和 Apply 入口处理同一页。
-	runtimeDB := openUsageLatencyMigrationDatabaseAt(t, "latency-runtime.db", now)
+	runtimeDB := openUsageLatencyMigrationDatabaseAt(t, now)
 	if err := runtimeDB.AutoMigrate(&entities.UsageAggregationCheckpoint{}, &entities.UsageLatencyStat{}); err != nil {
 		t.Fatalf("create runtime latency schema: %v", err)
 	}
@@ -56,10 +53,7 @@ func TestUsageLatencyStatsMigrationMatchesRuntimeAggregation(t *testing.T) {
 
 func TestUsageLatencyStatsMigrationResumesAfterCommittedPage(t *testing.T) {
 	// 1001 条事件强制形成 1000+1 两页，第二页 trigger 失败时第一页必须已经独立提交。
-	previousLocal := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = previousLocal })
-	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.Local)
 	events := make([]entities.UsageEvent, 0, 1001)
 	for id := int64(1); id <= 1001; id++ {
 		apiGroupKey := "ok-key"
@@ -68,7 +62,7 @@ func TestUsageLatencyStatsMigrationResumesAfterCommittedPage(t *testing.T) {
 		}
 		events = append(events, latencyMigrationEvent(id, apiGroupKey, now.Add(-time.Minute), 100, 900))
 	}
-	db := openUsageLatencyMigrationDatabaseAt(t, "latency-resume.db", now)
+	db := openUsageLatencyMigrationDatabaseAt(t, now)
 	prepareUsageLatencyMigrationDatabase(t, db, events)
 	if err := db.AutoMigrate(&entities.UsageLatencyStat{}); err != nil {
 		t.Fatalf("create latency table before trigger: %v", err)
@@ -115,15 +109,12 @@ func TestUsageLatencyStatsMigrationResumesAfterCommittedPage(t *testing.T) {
 
 func TestUsageLatencyStatsMigrationEnablesUsageEventArchive(t *testing.T) {
 	// Latency migration 只有推进到当前最大事件 ID，才应与另外两类水位共同放行 raw archive。
-	previousLocal := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = previousLocal })
-	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.Local)
 	events := []entities.UsageEvent{
 		latencyMigrationEvent(1, "key-a", now.AddDate(0, 0, -92), 100, 900),
 		latencyMigrationEvent(2, "key-a", now.AddDate(0, 0, -91), 200, 1200),
 	}
-	db := openUsageLatencyMigrationDatabaseAt(t, "latency-cleanup.db", now)
+	db := openUsageLatencyMigrationDatabaseAt(t, now)
 	prepareUsageLatencyMigrationDatabase(t, db, events)
 	// Cleanup 后续步骤依赖这些当前实体表；保持空表即可，不掺入其它业务数据。
 	if err := db.AutoMigrate(&entities.RedisUsageInbox{}, &entities.UsageActivityStat{}, &entities.UsageIdentity{}); err != nil {
@@ -140,7 +131,7 @@ func TestUsageLatencyStatsMigrationEnablesUsageEventArchive(t *testing.T) {
 		t.Fatalf("seed caught-up overview/activity checkpoints: %v", err)
 	}
 
-	result, err := repository.CleanupStorage(db, now)
+	result, err := repository.CleanupStorage(db, now, 0)
 	if err != nil {
 		t.Fatalf("archive after latency migration: %v", err)
 	}
@@ -175,9 +166,9 @@ func latencyMigrationEvent(id int64, apiGroupKey string, timestamp time.Time, tt
 	return entities.UsageEvent{ID: id, EventKey: fmt.Sprintf("latency-%d", id), APIGroupKey: apiGroupKey, Timestamp: timestamp, Generate: &generate, TTFTMS: &ttftMS, LatencyMS: latencyMS}
 }
 
-func openUsageLatencyMigrationDatabaseAt(t *testing.T, name string, now time.Time) *gorm.DB {
+func openUsageLatencyMigrationDatabaseAt(t *testing.T, now time.Time) *gorm.DB {
 	t.Helper()
-	db := openUsageAggregationCheckpointMigrationDatabase(t, name)
+	db := openUnmigratedTestDatabase(t)
 	db.NowFunc = func() time.Time { return now }
 	return db
 }

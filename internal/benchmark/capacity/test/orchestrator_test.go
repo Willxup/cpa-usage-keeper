@@ -102,8 +102,7 @@ func TestPreflightDatasetDependenciesRequiresZstdOnlyForCompressedCanonical(t *t
 }
 
 func TestReadCgroupSampleAcceptsEmptyIOStat(t *testing.T) {
-	root := t.TempDir()
-	files := map[string]string{
+	root := writeCgroupTestFiles(t, map[string]string{
 		"cpu.stat":            "usage_usec 10\nuser_usec 6\nsystem_usec 4\nthrottled_usec 0\nnr_throttled 0\n",
 		"memory.current":      "1024\n",
 		"memory.peak":         "2048\n",
@@ -111,12 +110,7 @@ func TestReadCgroupSampleAcceptsEmptyIOStat(t *testing.T) {
 		"memory.events":       "oom 0\noom_kill 0\n",
 		"pids.current":        "3\n",
 		"io.stat":             "\n",
-	}
-	for name, content := range files {
-		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o600); err != nil {
-			t.Fatalf("write %s: %v", name, err)
-		}
-	}
+	})
 	sample, err := capacity.ReadCgroupSample(root)
 	if err != nil {
 		t.Fatalf("ReadCgroupSample returned error: %v", err)
@@ -127,18 +121,12 @@ func TestReadCgroupSampleAcceptsEmptyIOStat(t *testing.T) {
 }
 
 func TestReadAndValidateCgroupLimits(t *testing.T) {
-	root := t.TempDir()
-	files := map[string]string{
+	root := writeCgroupTestFiles(t, map[string]string{
 		"cpu.max":               "200000 100000\n",
 		"cpuset.cpus.effective": "0-1\n",
 		"memory.max":            "536870912\n",
 		"memory.swap.max":       "0\n",
-	}
-	for name, content := range files {
-		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o600); err != nil {
-			t.Fatalf("write %s: %v", name, err)
-		}
-	}
+	})
 	limits, err := capacity.ReadCgroupLimits(root)
 	if err != nil {
 		t.Fatalf("ReadCgroupLimits returned error: %v", err)
@@ -152,18 +140,12 @@ func TestReadAndValidateCgroupLimits(t *testing.T) {
 }
 
 func TestReadAndValidateUnlimitedMemoryCgroupLimits(t *testing.T) {
-	root := t.TempDir()
-	files := map[string]string{
+	root := writeCgroupTestFiles(t, map[string]string{
 		"cpu.max":               "100000 100000\n",
 		"cpuset.cpus.effective": "0\n",
 		"memory.max":            "max\n",
 		"memory.swap.max":       "0\n",
-	}
-	for name, content := range files {
-		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o600); err != nil {
-			t.Fatalf("write %s: %v", name, err)
-		}
-	}
+	})
 	limits, err := capacity.ReadCgroupLimits(root)
 	if err != nil {
 		t.Fatalf("ReadCgroupLimits returned error: %v", err)
@@ -224,8 +206,8 @@ func TestResetDatasetCloneReplacesPreviousProbeState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open source database: %v", err)
 	}
+	defer sourceDB.Close()
 	if _, err := sourceDB.Exec("CREATE TABLE marker(value TEXT); INSERT INTO marker VALUES ('canonical');"); err != nil {
-		sourceDB.Close()
 		t.Fatalf("create source database: %v", err)
 	}
 	if err := sourceDB.Close(); err != nil {
@@ -296,4 +278,15 @@ func TestFixedRateSoakPassedSupportsHardOnlyMode(t *testing.T) {
 	if _, err := capacity.FixedRateSoakPassed("unknown", evaluation); err == nil {
 		t.Fatal("unknown fixed pass mode must fail")
 	}
+}
+
+func writeCgroupTestFiles(t *testing.T, files map[string]string) string {
+	t.Helper()
+	root := t.TempDir()
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	return root
 }

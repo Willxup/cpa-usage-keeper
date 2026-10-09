@@ -63,12 +63,12 @@ describe('RankingLeaderboardResults', () => {
     await act(async () => {
       container.querySelector<HTMLButtonElement>(
         '[data-ranking-podium-rank="1"] [data-ranking-local-profile-edit="1"]',
-      )?.click();
+      )!.click();
     });
     await act(async () => {
       container.querySelector<HTMLButtonElement>(
         'tbody [data-ranking-local-profile-edit="4"]',
-      )?.click();
+      )!.click();
     });
 
     expect(onEditLocalProfile).toHaveBeenNthCalledWith(1, entries[0]);

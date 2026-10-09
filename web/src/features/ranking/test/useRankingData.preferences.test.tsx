@@ -75,8 +75,8 @@ describe('ranking period and metric wiring', () => {
   it('defaults to today and overall without a stored selection', async () => {
     await act(async () => root.render(<Harness />));
 
-    expect(latest?.period).toBe('today');
-    expect(latest?.metric).toBe('overall');
+    expect(latest!.period).toBe('today');
+    expect(latest!.metric).toBe('overall');
     expect(leaderboard).toHaveBeenCalledWith('today', 'overall', expect.anything());
   });
 
@@ -88,20 +88,20 @@ describe('ranking period and metric wiring', () => {
     }));
     await act(async () => root.render(<Harness />));
 
-    expect(latest?.period).toBe('previous_month');
-    expect(latest?.metric).toBe('peak_tpm');
+    expect(latest!.period).toBe('previous_month');
+    expect(latest!.metric).toBe('peak_tpm');
     expect(leaderboard).toHaveBeenCalledWith('previous_month', 'peak_tpm', expect.anything());
   });
 
   it('persists each selector without dropping the other', async () => {
     await act(async () => root.render(<Harness />));
 
-    await act(async () => latest?.setMetric('cache_read_rate'));
+    await act(async () => latest!.setMetric('cache_read_rate'));
     expect(storedPreferences()).toEqual({ version: 1, period: 'today', metric: 'cache_read_rate' });
 
-    await act(async () => latest?.setPeriod('yesterday'));
-    expect(latest?.period).toBe('yesterday');
-    expect(latest?.metric).toBe('cache_read_rate');
+    await act(async () => latest!.setPeriod('yesterday'));
+    expect(latest!.period).toBe('yesterday');
+    expect(latest!.metric).toBe('cache_read_rate');
     expect(storedPreferences()).toEqual({ version: 1, period: 'yesterday', metric: 'cache_read_rate' });
   });
 

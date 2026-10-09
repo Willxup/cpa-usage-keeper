@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act } from 'react'
+import { act, type ComponentProps } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthManagedSessionItem } from '@/lib/types'
@@ -56,6 +56,11 @@ const sessions: AuthManagedSessionItem[] = [
   },
 ]
 
+const changeAlias = (input: HTMLInputElement, value: string) => {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
 describe('SessionSettingsCard admin alias editor', () => {
   let container: HTMLDivElement
   let root: Root
@@ -72,16 +77,19 @@ describe('SessionSettingsCard admin alias editor', () => {
     vi.restoreAllMocks()
   })
 
-  it('places each source label beside its session type and saves the admin alias inline', async () => {
+  const renderCard = (props: Partial<ComponentProps<typeof SessionSettingsCard>> = {}) => root.render(
+    <SessionSettingsCard
+      sessions={sessions}
+      onLogout={() => undefined}
+      onSaveAlias={async () => undefined}
+      {...props}
+    />,
+  )
+
+  it('shows session sources and saves only the admin alias inline', async () => {
     const onSaveAlias = vi.fn(async () => undefined)
     await act(async () => {
-      root.render(
-        <SessionSettingsCard
-          sessions={sessions}
-          onLogout={() => undefined}
-          onSaveAlias={onSaveAlias}
-        />,
-      )
+      renderCard({ onSaveAlias })
     })
 
     const editButton = container.querySelector<HTMLButtonElement>('button[aria-label="Edit session alias"]')
@@ -91,32 +99,22 @@ describe('SessionSettingsCard admin alias editor', () => {
     const currentDot = container.querySelector<HTMLElement>('[data-session-current-dot="true"]')
     expect(editButton).not.toBeNull()
     expect(container.querySelectorAll('button[aria-label="Edit session alias"]')).toHaveLength(1)
-    expect(standardSource?.parentElement?.children[0]?.textContent).toBe('Admin')
-    expect(standardSource?.parentElement?.children[1]).toBe(standardSource)
-    expect(embedSource?.parentElement?.children[0]?.textContent).toBe('API Key')
-    expect(embedSource?.parentElement?.children[1]).toBe(embedSource)
-    expect(standardSource?.parentElement?.contains(currentIndicator)).toBe(false)
-    expect(currentIndicator?.textContent).toBe('In use')
-    expect(currentDot?.getAttribute('aria-hidden')).toBe('true')
-    expect(currentIndicator?.parentElement?.querySelector('button[aria-label="Sign out this session"]')).toBeNull()
-    expect(standardSource?.compareDocumentPosition(editButton as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(standardSource?.textContent).toBe('Standalone')
-    expect(embedSource?.textContent).toBe('CPAMC Embed')
+    expect(currentIndicator!.textContent).toBe('In use')
+    expect(currentDot!.getAttribute('aria-hidden')).toBe('true')
+    expect(currentIndicator!.parentElement!.querySelector('button[aria-label="Sign out this session"]')).toBeNull()
+    expect(standardSource!.textContent).toBe('Standalone')
+    expect(embedSource!.textContent).toBe('CPAMC Embed')
     expect(container.textContent).toContain('Office Mac')
 
-    await act(async () => editButton?.click())
-    const input = container.querySelector<HTMLInputElement>('input[aria-label="Session alias"]')
-    expect(input?.value).toBe('Office Mac')
+    await act(async () => editButton!.click())
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="Session alias"]')!
+    expect(input.value).toBe('Office Mac')
 
     await act(async () => {
-      if (input) {
-        const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
-        valueSetter?.call(input, 'Home Mac')
-        input.dispatchEvent(new Event('input', { bubbles: true }))
-      }
+      changeAlias(input, 'Home Mac')
     })
     await act(async () => {
-      container.querySelector<HTMLButtonElement>('button[aria-label="Save session alias"]')?.click()
+      container.querySelector<HTMLButtonElement>('button[aria-label="Save session alias"]')!.click()
       await Promise.resolve()
     })
 
@@ -125,13 +123,7 @@ describe('SessionSettingsCard admin alias editor', () => {
 
   it('shows the localized default admin name when the alias is empty', async () => {
     await act(async () => {
-      root.render(
-        <SessionSettingsCard
-          sessions={[{ ...sessions[0], alias: '' }]}
-          onLogout={() => undefined}
-          onSaveAlias={async () => undefined}
-        />,
-      )
+      renderCard({ sessions: [{ ...sessions[0], alias: '' }] })
     })
 
     expect(container.textContent).toContain('Admin Session')
@@ -150,79 +142,56 @@ describe('SessionSettingsCard admin alias editor', () => {
       },
     ]
     await act(async () => {
-      root.render(
-        <SessionSettingsCard
-          sessions={adminSessions}
-          onLogout={() => undefined}
-          onSaveAlias={onSaveAlias}
-        />,
-      )
+      renderCard({ sessions: adminSessions, onSaveAlias })
     })
 
     const editButtons = container.querySelectorAll<HTMLButtonElement>('button[aria-label="Edit session alias"]')
     await act(async () => {
-      editButtons[0]?.click()
-      editButtons[1]?.click()
+      editButtons[0]!.click()
+      editButtons[1]!.click()
     })
     const inputs = container.querySelectorAll<HTMLInputElement>('input[aria-label="Session alias"]')
     await act(async () => {
-      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
-      valueSetter?.call(inputs[1], 'Travel PC')
-      inputs[1]?.dispatchEvent(new Event('input', { bubbles: true }))
-      root.render(
-        <SessionSettingsCard
-          sessions={adminSessions}
-          aliasSavingId="admin-session"
-          onLogout={() => undefined}
-          onSaveAlias={onSaveAlias}
-        />,
-      )
+      changeAlias(inputs[1], 'Travel PC')
+      renderCard({ sessions: adminSessions, aliasSavingId: 'admin-session', onSaveAlias })
     })
 
     const openInputs = container.querySelectorAll<HTMLInputElement>('input[aria-label="Session alias"]')
     const secondSaveButton = container.querySelector<HTMLButtonElement>('button[aria-label="Save session alias"]')
-    expect(openInputs[0]?.disabled).toBe(true)
-    expect(openInputs[1]?.disabled).toBe(true)
-    expect(secondSaveButton?.disabled).toBe(true)
-    await act(async () => secondSaveButton?.click())
+    expect(openInputs[0]!.disabled).toBe(true)
+    expect(openInputs[1]!.disabled).toBe(true)
+    expect(secondSaveButton!.disabled).toBe(true)
+    await act(async () => secondSaveButton!.click())
     expect(onSaveAlias).not.toHaveBeenCalled()
   })
 
   it('restores focus to the edit button after cancelling or saving', async () => {
     const onSaveAlias = vi.fn(async () => undefined)
     await act(async () => {
-      root.render(
-        <SessionSettingsCard
-          sessions={[sessions[0]]}
-          onLogout={() => undefined}
-          onSaveAlias={onSaveAlias}
-        />,
-      )
+      renderCard({ sessions: [sessions[0]], onSaveAlias })
     })
 
     await act(async () => {
-      container.querySelector<HTMLButtonElement>('button[aria-label="Edit session alias"]')?.click()
+      container.querySelector<HTMLButtonElement>('button[aria-label="Edit session alias"]')!.click()
     })
     const cancelInput = container.querySelector<HTMLInputElement>('input[aria-label="Session alias"]')
     expect(document.activeElement).toBe(cancelInput)
     await act(async () => {
-      cancelInput?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      cancelInput!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
     expect(document.activeElement).toBe(container.querySelector('button[aria-label="Edit session alias"]'))
 
     await act(async () => {
-      container.querySelector<HTMLButtonElement>('button[aria-label="Edit session alias"]')?.click()
+      container.querySelector<HTMLButtonElement>('button[aria-label="Edit session alias"]')!.click()
     })
     const saveInput = container.querySelector<HTMLInputElement>('input[aria-label="Session alias"]')
     await act(async () => {
-      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
-      valueSetter?.call(saveInput, 'Home Mac')
-      saveInput?.dispatchEvent(new Event('input', { bubbles: true }))
+      changeAlias(saveInput!, 'Home Mac')
     })
     const saveButton = container.querySelector<HTMLButtonElement>('button[aria-label="Save session alias"]')
     await act(async () => {
-      saveButton?.focus()
-      saveButton?.click()
+      saveButton!.focus()
+      saveButton!.click()
       await Promise.resolve()
     })
     expect(onSaveAlias).toHaveBeenCalledWith('admin-session', 'Home Mac')

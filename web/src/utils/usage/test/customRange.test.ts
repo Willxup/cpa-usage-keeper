@@ -6,6 +6,7 @@ import {
   buildDefaultCustomRange,
   formatCustomRangeLabel,
   parseStoredUsageRangeState,
+  parseLegacyCustomRange,
   resolveUsageRangeRecoveryTimeZone,
   serializeUsageRangeState,
   normalizeCustomRange,
@@ -14,24 +15,14 @@ import {
 const SHANGHAI_NOW = Date.parse('2026-07-17T07:36:42.000Z');
 
 describe('custom usage range slots', () => {
-  it('builds exactly 365 project-timezone calendar days including today', () => {
-    const slots = buildCustomDaySlots({ nowMs: SHANGHAI_NOW, timeZone: 'Asia/Shanghai' });
-
-    expect(slots).toHaveLength(365);
-    expect(slots[0].value).toBe('2025-07-18');
-    expect(slots.at(-1)?.value).toBe('2026-07-17');
-  });
-
-  it('supports a page-specific 90-day calendar boundary', () => {
-    const slots = buildCustomDaySlots({
-      nowMs: SHANGHAI_NOW,
-      timeZone: 'Asia/Shanghai',
-      maxDayRangeDays: 90,
-    });
-
-    expect(slots).toHaveLength(90);
-    expect(slots[0].value).toBe('2026-04-19');
-    expect(slots.at(-1)?.value).toBe('2026-07-17');
+  it.each([
+    { maxDayRangeDays: undefined, count: 365, firstDay: '2025-07-18' },
+    { maxDayRangeDays: 90, count: 90, firstDay: '2026-04-19' },
+  ])('builds $count project-timezone calendar days including today', ({ maxDayRangeDays, count, firstDay }) => {
+    const slots = buildCustomDaySlots({ nowMs: SHANGHAI_NOW, timeZone: 'Asia/Shanghai', maxDayRangeDays });
+    expect(slots).toHaveLength(count);
+    expect(slots[0].value).toBe(firstDay);
+    expect(slots.at(-1)!.value).toBe('2026-07-17');
   });
 
   it('localizes the custom calendar weekday headings', () => {
@@ -203,54 +194,17 @@ describe('custom usage range slots', () => {
     });
   });
 
-  it('parses the legacy standalone Custom date range for deferred timezone migration', async () => {
-    const customRangeModule = await import('../customRange') as Record<string, unknown>;
-    const parseLegacyCustomRange = customRangeModule.parseLegacyCustomRange as ((raw: string | null) => unknown) | undefined;
-
-    expect(parseLegacyCustomRange).toBeTypeOf('function');
-    expect(parseLegacyCustomRange?.('{"start":"2026-07-01","end":"2026-07-17"}')).toEqual({
+  it('parses the legacy standalone Custom date range for deferred timezone migration', () => {
+    expect(parseLegacyCustomRange('{"start":"2026-07-01","end":"2026-07-17"}')).toEqual({
       unit: 'day',
       start: '2026-07-01',
       end: '2026-07-17',
     });
-    expect(parseLegacyCustomRange?.('{"start":"not-a-date","end":"2026-07-17"}')).toBeNull();
-  });
-
-  it('advances only an expired Custom start while preserving its selected end', async () => {
-    const customRangeModule = await import('../customRange') as Record<string, unknown>;
-    const clampCustomRangeToCurrentBounds = customRangeModule.clampCustomRangeToCurrentBounds as ((
-      range: { unit: 'hour' | 'day'; start: string; end: string },
-      options: { nowMs: number; timeZone: string },
-    ) => unknown) | undefined;
-
-    expect(clampCustomRangeToCurrentBounds).toBeTypeOf('function');
-    expect(clampCustomRangeToCurrentBounds?.({
-      unit: 'hour',
-      start: '2026-07-16T15:00:00+08:00',
-      end: '2026-07-17T14:00:00+08:00',
-    }, { nowMs: SHANGHAI_NOW, timeZone: 'Asia/Shanghai' })).toEqual({
-      unit: 'hour',
-      start: '2026-07-16T16:00:00+08:00',
-      end: '2026-07-17T14:00:00+08:00',
-    });
-    expect(clampCustomRangeToCurrentBounds?.({
-      unit: 'day',
-      start: '2026-06-17',
-      end: '2026-07-16',
-    }, { nowMs: SHANGHAI_NOW, timeZone: 'Asia/Shanghai' })).toEqual({
-      unit: 'day',
-      start: '2026-06-17',
-      end: '2026-07-16',
-    });
+    expect(parseLegacyCustomRange('{"start":"not-a-date","end":"2026-07-17"}')).toBeNull();
   });
 
   it('formats Custom hour row dates with the Keeper locale', () => {
-    const localizedBuildCustomHourSlots = buildCustomHourSlots as typeof buildCustomHourSlots & ((options: {
-      nowMs: number;
-      timeZone: string;
-      locale?: string;
-    }) => ReturnType<typeof buildCustomHourSlots>);
-    const slots = localizedBuildCustomHourSlots({
+    const slots = buildCustomHourSlots({
       nowMs: SHANGHAI_NOW,
       timeZone: 'Asia/Shanghai',
       locale: 'zh-CN',

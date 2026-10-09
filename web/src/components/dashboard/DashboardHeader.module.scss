@@ -1,0 +1,76 @@
+@use '../../styles/menu';
+
+.header { position: relative; z-index: 40; display: flex; align-items: center; justify-content: space-between; min-height: 50px; gap: 16px; margin-inline: 5px; padding: 0 3px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.brand { display: inline-flex; align-items: center; min-height: 44px; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--text-primary); font-size: 18px; font-weight: 800; letter-spacing: .1em; gap: 11px; }
+.brand img { width: 41px; height: 31px; }
+.actions { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 44px;
+  margin-right: 8px;
+  padding: 0 4px;
+  border-radius: 22px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-decoration: none;
+  &:hover { background: color-mix(in srgb, var(--bg-hover) 70%, transparent); }
+  &:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+}
+.backShort { display: none; }
+.identity { max-width: 220px; min-width: 0; margin-right: 8px; color: var(--text-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.iconSelect { flex: 0 0 44px; width: 44px; height: 44px; }
+.iconSelect > button, .themeToggle, .more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: none;
+  &:hover, &[aria-expanded='true'] { background: color-mix(in srgb, var(--bg-hover) 70%, transparent); }
+  &:focus { outline: none; box-shadow: none; }
+  &:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+}
+.iconSelect > button > span, .themeToggle > span { display: inline-flex; align-items: center; justify-content: center; }
+.iconSelect svg, .themeToggle svg { display: block; }
+.more { position: relative; }
+.updateDot { display: inline-block; flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%; background: var(--danger-color); }
+.more > .updateDot { position: absolute; right: 8px; top: 8px; }
+.menu {
+  @include menu.surface;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: max-content;
+  max-width: min(320px, calc(100vw - 32px));
+  button { @include menu.item; width: 100%; }
+}
+.menuIdentity { padding: 10px 12px; border-bottom: 1px solid var(--border-color); color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }
+@media (max-width: 768px) {
+  .header { padding: 0; gap: 8px; }
+  .brand { font-size: 13px; gap: 7px; }
+  .brand img { width: 29px; height: 26px; }
+  .actions { gap: 4px; flex-shrink: 0; }
+  .back { flex: 0 0 44px; width: 44px; padding: 0; margin: 0 4px 0 0; gap: 3px; }
+  .backFull, .identity { display: none; }
+  .backShort { display: inline; }
+}
+@media (max-width: 360px) {
+  .header { margin-inline: 0; gap: 5px; }
+  .brand { gap: 4px; letter-spacing: .03em; }
+  .brand img { width: 26px; height: 24px; }
+}

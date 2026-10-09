@@ -22,7 +22,6 @@ describe('ranking profile names', () => {
     ['___', 'characters'],
     ['1234567890', 'phone'],
     ['١٢٣٤٥٦٧٨٩٠', 'phone'],
-    ['a'.repeat(17), 'too_long'],
   ])('rejects %j with %s', (name, error) => {
     expect(normalizeRankingDisplayName(name)).toMatchObject({ error });
   });

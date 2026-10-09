@@ -1,4 +1,4 @@
-import type { UsageCredentialHealth, UsageIdentity, UsageQuotaCheckResponse, UsageQuotaRow } from '@/lib/types'
+import type { ClaudeResetGrantStatus, UsageCredentialHealth, UsageIdentity, UsageQuotaCheckResponse, UsageQuotaRow } from '@/lib/types'
 import { calculateCacheReadRate, formatCompactTokenValue } from '@/utils/usage'
 import { resolveCredentialSubscriptionBadge, type SubscriptionBadgeModel } from './credentialSubscription'
 
@@ -64,6 +64,7 @@ export interface AuthFileCredentialRow {
   windowCacheReadRate: number | null
   quota: UsageQuotaRow[]
   quotaResetCreditsAvailableCount?: number | null
+  claudeResetGrants?: ClaudeResetGrantStatus
   quotaLoading: boolean
   quotaError?: string
   refreshStatus?: 'queued' | 'running' | 'completed' | 'failed'
@@ -96,6 +97,11 @@ export interface AiProviderCredentialRow {
 export type CredentialDetailSelection =
   | { kind: 'auth-file'; row: AuthFileCredentialRow }
   | { kind: 'ai-provider'; row: AiProviderCredentialRow }
+
+export type CredentialEditChange =
+  | { field: 'alias'; value: string }
+  | { field: 'priority'; value: number }
+  | { field: 'disabled'; value: boolean }
 
 export interface CredentialIdentityGroups {
   authFiles: UsageIdentity[]
@@ -165,16 +171,12 @@ export function buildAuthFileCredentialRows(
       priorityLabel: credentialPriorityLabel(identity.priority),
       subscriptionBadge,
       remainingDaysLabel: remainingDaysLabel(identity.active_until),
-      expiresAtLabel: formatCredentialExpiry(identity.active_until),
-      totalRequests: safeNumber(identity.total_requests),
-      successCount: safeNumber(identity.success_count),
-      failureCount: safeNumber(identity.failure_count),
-      successRate: successRate(identity),
-      totalTokens: safeNumber(identity.total_tokens),
-      cacheReadRate: cacheReadRate(identity),
+      expiresAtLabel: formatCredentialTimestamp(identity.active_until),
+      ...credentialUsageStats(identity),
       windowCacheReadRate: windowCacheReadRate(identity.credential_health),
       quota,
       quotaResetCreditsAvailableCount: quotaResponse?.rateLimitResetCreditsAvailableCount,
+      claudeResetGrants: quotaResponse?.claudeResetGrants,
       quotaLoading: state?.quotaLoading ?? false,
       quotaError: state?.quotaError,
       refreshStatus: state?.refreshStatus,
@@ -194,12 +196,7 @@ export function buildAiProviderCredentialRows(identities: UsageIdentity[]): AiPr
     typeLabel: credentialTypeLabel(identity),
     authTypeLabel: credentialAuthTypeLabel(identity),
     priorityLabel: credentialPriorityLabel(identity.priority),
-    totalRequests: safeNumber(identity.total_requests),
-    successCount: safeNumber(identity.success_count),
-    failureCount: safeNumber(identity.failure_count),
-    successRate: successRate(identity),
-    totalTokens: safeNumber(identity.total_tokens),
-    cacheReadRate: cacheReadRate(identity),
+    ...credentialUsageStats(identity),
     windowCacheReadRate: windowCacheReadRate(identity.credential_health),
     lastUsedText: identity.last_used_at,
     statsUpdatedText: identity.stats_updated_at,
@@ -408,7 +405,10 @@ function quotaStatus(row: UsageQuotaRow, percent: number | null, kind: DisplayQu
   if (row.limitReached) {
     return 'danger'
   }
-  const remainingPercent = quotaBarPercent(percent, kind)
+  return quotaRemainingStatus(quotaBarPercent(percent, kind))
+}
+
+export function quotaRemainingStatus(remainingPercent: number | null): QuotaStatus {
   if (remainingPercent === null) {
     return 'unknown'
   }
@@ -481,7 +481,7 @@ function remainingDaysLabel(activeUntil?: string): string | undefined {
   return `${Math.max(0, Math.ceil((untilMs - Date.now()) / dayMs))}d`
 }
 
-function formatCredentialExpiry(activeUntil?: string): string | undefined {
+export function formatCredentialTimestamp(activeUntil?: string): string | undefined {
   if (!activeUntil || !Number.isFinite(Date.parse(activeUntil))) {
     return undefined
   }
@@ -498,19 +498,57 @@ function formatCredentialExpiry(activeUntil?: string): string | undefined {
   return `${year}-${month}-${day} ${hour}:${minute}:${second} ${offset}`
 }
 
-function successRate(identity: UsageIdentity): number | null {
+function credentialUsageStats(identity: UsageIdentity) {
+  const stats = identity.period_stats ?? identity
+  return {
+    totalRequests: safeNumber(stats.total_requests),
+    successCount: safeNumber(stats.success_count),
+    failureCount: safeNumber(stats.failure_count),
+    successRate: successRate(stats),
+    totalTokens: safeNumber(stats.total_tokens),
+    cacheReadRate: calculateCacheReadRate({ inputTokens: stats.input_tokens, cacheReadTokens: stats.cache_read_tokens }),
+  }
+}
+
+// 独立刷新本轮统计和健康快照，元数据与额度继续由列表维护。
+export function updateCredentialDetailStats(selection: CredentialDetailSelection, updated: UsageIdentity): CredentialDetailSelection {
+  const identity = {
+    ...selection.row.identity,
+    total_requests: updated.total_requests,
+    success_count: updated.success_count,
+    failure_count: updated.failure_count,
+    input_tokens: updated.input_tokens,
+    output_tokens: updated.output_tokens,
+    reasoning_tokens: updated.reasoning_tokens,
+    cache_read_tokens: updated.cache_read_tokens,
+    total_tokens: updated.total_tokens,
+    last_aggregated_usage_event_id: updated.last_aggregated_usage_event_id,
+    first_used_at: updated.first_used_at,
+    last_used_at: updated.last_used_at,
+    stats_updated_at: updated.stats_updated_at,
+    stats_reset_at: updated.stats_reset_at,
+    period_stats: updated.period_stats,
+    priority: updated.priority,
+    // 重置响应不带健康快照时保留旧值；详情读取返回的空窗口也必须应用。
+    credential_health: updated.credential_health ?? selection.row.identity.credential_health,
+  }
+  const stats = {
+    ...credentialUsageStats(identity),
+    credentialHealth: identity.credential_health,
+    windowCacheReadRate: windowCacheReadRate(identity.credential_health),
+  }
+  if (selection.kind === 'auth-file') {
+    return { kind: 'auth-file', row: { ...selection.row, identity, priorityLabel: credentialPriorityLabel(identity.priority), ...stats } }
+  }
+  return { kind: 'ai-provider', row: { ...selection.row, identity, priorityLabel: credentialPriorityLabel(identity.priority), ...stats, lastUsedText: identity.last_used_at, statsUpdatedText: identity.stats_updated_at } }
+}
+
+function successRate(identity: Pick<UsageIdentity, 'total_requests' | 'success_count'>): number | null {
   const total = safeNumber(identity.total_requests)
   if (total <= 0) {
     return null
   }
   return (safeNumber(identity.success_count) / total) * 100
-}
-
-function cacheReadRate(identity: UsageIdentity): number | null {
-  return calculateCacheReadRate({
-    inputTokens: identity.input_tokens,
-    cacheReadTokens: identity.cache_read_tokens,
-  })
 }
 
 // 5h 窗口缓存率复用同一个 calculateCacheReadRate，只把分子分母换成健康窗口的合计值。

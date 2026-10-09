@@ -5,9 +5,14 @@ import { Interaction, Tooltip } from 'chart.js';
 import type { Chart, ChartData, ChartOptions, InteractionItem, InteractionModeFunction, Plugin, ScriptableContext, TooltipModel, TooltipPositionerFunction } from 'chart.js';
 import { Bar, Doughnut, Scatter } from 'react-chartjs-2';
 import type { AnalysisCompositionItem, AnalysisCostBreakdown, AnalysisHeatmapCell, AnalysisLatencyDiagnostics, AnalysisModelEfficiencyItem, AnalysisModelUsagePayload, AnalysisResponse, AnalysisTokenUsageBucket } from '@/lib/types';
-import { calculateDisplayInputTokens, calculateDisplayOutputTokens, formatCompactNumber, formatDurationMs, formatPerMinuteValue, formatUsd } from '@/utils/usage';
-import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill as toGradientFill, USAGE_CHART_REQUESTS_LINE_COLOR, type UsageChartGradientColor, type UsageChartTheme } from '@/utils/usage/chartConfig';
+import { calculateDisplayInputTokens, calculateDisplayOutputTokens, formatCompactNumber, formatDurationMs, formatUsd } from '@/utils/usage';
+import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill as toGradientFill, USAGE_CHART_REQUESTS_LINE_COLOR, USAGE_CHART_COMPOSITION_COLORS as CHART_COLORS, USAGE_CHART_TOKEN_COLORS as TOKEN_COLORS, type UsageChartGradientColor, type UsageChartTheme } from '@/utils/usage/chartConfig';
+import { createCompositionLabelsPlugin } from './compositionLabels';
+import { compositionGeometryPlugin } from './compositionGeometry';
+import { AnalysisRankingList, getAnalysisRankingColor, useAnalysisHighlight, type AnalysisRankingItem } from './analysisRanking';
+import { useTopModelsTooltip } from './topModelsTooltip';
 import styles from './AnalysisPanel.module.scss';
+import { LatencyScatterChart } from '../LatencyScatterChart';
 
 interface AnalysisPanelProps {
   analysis: AnalysisResponse | null;
@@ -46,13 +51,9 @@ type LegendItem = {
   color: string;
 };
 
-type TopModelViewSeries = {
-  key: string;
+type TopModelViewSeries = AnalysisRankingItem & {
   model: string;
   totalTokens: number[];
-  total: number;
-  share: number;
-  color: GradientColor;
 };
 
 type TopModelsViewModel = {
@@ -92,48 +93,11 @@ type ChartTooltipPointer = {
   chartY: number;
   viewport?: ViewportPoint;
 };
-type CostBreakdownSegmentKey = 'input' | 'cacheRead' | 'cacheWrite' | 'output';
-type CostBreakdownSegment = {
-  key: CostBreakdownSegmentKey;
-  label: string;
-  value: number;
-  color: string;
-  tokens: number;
-};
 type ModelEfficiencyColor = {
   base: string;
   light: string;
   dark: string;
 };
-type LatencyScatterPoint = {
-  x: number;
-  y: number;
-};
-type LatencyDiagnosticsPluginLabels = {
-  p95TTFT: string;
-  p95Latency: string;
-};
-type LatencyThemeColors = {
-  point: string;
-  pointFill: string;
-  p95TTFT: string;
-  p95Latency: string;
-};
-type LatencyDiagnosticsPluginOptions = {
-  p95TTFTMS: number;
-  p95LatencyMS: number;
-  labels: LatencyDiagnosticsPluginLabels;
-  colors: LatencyThemeColors;
-};
-type LatencyReferenceHover = {
-  kind: 'ttft' | 'latency';
-  text: string;
-  x: number;
-  y: number;
-  color: string;
-};
-type LatencyPluginEventArgs = Parameters<NonNullable<Plugin<'scatter'>['afterEvent']>>[1];
-
 declare module 'chart.js' {
   interface TooltipPositionerMap {
     analysisCompositionCursor: TooltipPositionerFunction<'doughnut'>;
@@ -144,14 +108,6 @@ declare module 'chart.js' {
   }
 }
 
-const CHART_COLORS: GradientColor[] = [
-  { base: '#1d4ed8', light: '#60a5fa' },
-  { base: '#ca8a04', light: '#facc15' },
-  { base: '#15803d', light: '#22c55e' },
-  { base: '#7e22ce', light: '#c084fc' },
-  { base: '#b91c1c', light: '#ef4444' },
-  { base: '#0891b2', light: '#67e8f9' },
-];
 const TOP_MODEL_COLORS: GradientColor[] = [
   { base: '#db2777', light: '#f9a8d4' },
   { base: '#d97706', light: '#fcd34d' },
@@ -159,34 +115,8 @@ const TOP_MODEL_COLORS: GradientColor[] = [
   { base: '#2563eb', light: '#93c5fd' },
   { base: '#dc2626', light: '#fca5a5' },
 ];
-const TOP_MODELS_OTHERS_COLOR: GradientColor = { base: '#64748b', light: '#cbd5e1' };
-const TOP_MODELS_LIMIT = 5;
 const TOP_MODELS_MIN_SEGMENT_PX = 4;
 const TOP_MODELS_SCALE_HEADROOM_RATIO = 1.12;
-const TOP_MODELS_OTHERS_KEY = '__analysis_top_models_others__';
-const TOKEN_COLORS = {
-  input: { base: '#2563eb', light: '#93c5fd' },
-  output: { base: '#16a34a', light: '#86efac' },
-  cacheRead: { base: '#d97706', light: '#fde68a' },
-  cacheWrite: { base: '#e11d48', light: '#fda4af' },
-  reasoning: { base: '#8b5cf6', light: '#d8b4fe' },
-  requests: USAGE_CHART_REQUESTS_LINE_COLOR,
-  cost: '#14b8a6',
-};
-const LATENCY_COLORS = {
-  light: {
-    point: '#14b8a6',
-    pointFill: 'rgba(45, 212, 191, 0.62)',
-    p95TTFT: '#38bdf8',
-    p95Latency: '#fb7185',
-  },
-  dark: {
-    point: '#5eead4',
-    pointFill: 'rgba(94, 234, 212, 0.72)',
-    p95TTFT: '#7dd3fc',
-    p95Latency: '#fda4af',
-  },
-} satisfies Record<'light' | 'dark', LatencyThemeColors>;
 const MODEL_EFFICIENCY_COLORS: ModelEfficiencyColor[] = [
   { base: '#5b7fb9', light: '#7898c8', dark: '#395a8d' },
   { base: '#b46f68', light: '#c68b84', dark: '#864943' },
@@ -197,13 +127,9 @@ const MODEL_EFFICIENCY_COLORS: ModelEfficiencyColor[] = [
   { base: '#b07194', light: '#c188a7', dark: '#854f6c' },
   { base: '#8c9f61', light: '#a0b374', dark: '#62733d' },
 ];
-const COST_TOOLTIP_MAX_WIDTH = 280;
-const COST_TOOLTIP_VIEWPORT_PADDING = 8;
-const COST_TOOLTIP_CURSOR_OFFSET = 14;
 const COMPOSITION_DONUT_BORDER_RADIUS = 10;
 const COMPOSITION_DONUT_SPACING = 4;
 const COMPOSITION_DONUT_HOVER_OFFSET = 10;
-const COMPOSITION_DONUT_LAYOUT_PADDING = 28;
 const COMPOSITION_TOOLTIP_CARET_PADDING = 18;
 const COMPOSITION_TOOLTIP_TITLE_LINE_LENGTH = 28;
 const COMPOSITION_TOOLTIP_TITLE_MAX_LINES = 3;
@@ -223,14 +149,9 @@ const MODEL_EFFICIENCY_TOOLTIP_CURSOR_OFFSET = 14;
 const MODEL_EFFICIENCY_MIN_RADIUS = 5;
 const MODEL_EFFICIENCY_MAX_RADIUS = 24;
 const MODEL_EFFICIENCY_HOVER_RADIUS_DELTA = 4;
-const MODEL_EFFICIENCY_RADIUS_EASING = 0.75;
-const MODEL_EFFICIENCY_OUTLIER_RATIO = 8;
 const MODEL_EFFICIENCY_AXIS_PADDING_FACTOR = 2.5;
-const LATENCY_REFERENCE_HIT_RADIUS_PX = 8;
 const EMPTY_COMPOSITION_ITEMS: AnalysisCompositionItem[] = [];
-const modelEfficiencyTooltipPointers = new WeakMap<Chart, ChartTooltipPointer>();
-const latencyReferenceHoverStates = new WeakMap<Chart<'scatter'>, LatencyReferenceHover>();
-
+const modelEfficiencyTooltipPointers = new WeakMap<object, ChartTooltipPointer>();
 const analysisCompositionCursorPositioner: TooltipPositionerFunction<'doughnut'> = function (_items, eventPosition) {
   if (!eventPosition) return false;
   const x = toFiniteNumber(eventPosition.x);
@@ -467,193 +388,6 @@ const modelEfficiencyTooltipPointerPlugin: Plugin<'scatter'> = {
 const getChartTheme = getUsageChartTheme;
 const buildAnalysisBarTooltipStyle = buildUsageChartTooltipStyle;
 
-const getLatencyColors = (isDark: boolean): LatencyThemeColors => (isDark ? LATENCY_COLORS.dark : LATENCY_COLORS.light);
-
-const getLatencyDiagnosticsPluginOptions = (chart: Chart<'scatter'>): LatencyDiagnosticsPluginOptions | undefined => {
-  const plugins = chart.options.plugins as (ChartOptions<'scatter'>['plugins'] & { analysisLatencyDiagnostics?: LatencyDiagnosticsPluginOptions }) | undefined;
-  return plugins?.analysisLatencyDiagnostics;
-};
-
-const drawLatencyReferenceLabel = (
-  chart: Chart<'scatter'>,
-  text: string,
-  x: number,
-  y: number,
-  color: string,
-  align: CanvasTextAlign,
-) => {
-  const { ctx, chartArea } = chart;
-  ctx.save();
-  ctx.font = '700 11px Inter, system-ui, sans-serif';
-  ctx.textAlign = align;
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = color;
-  const labelX = Math.max(chartArea.left + 6, Math.min(x, chartArea.right - 6));
-  const labelY = Math.max(chartArea.top + 10, Math.min(y, chartArea.bottom - 10));
-  ctx.fillText(text, labelX, labelY);
-  ctx.restore();
-};
-
-const getBoundedHoverPoint = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max));
-
-const setLatencyReferenceHover = (
-  chart: Chart<'scatter'>,
-  args: LatencyPluginEventArgs,
-  hover: LatencyReferenceHover | undefined,
-) => {
-  const previous = latencyReferenceHoverStates.get(chart);
-  const changed = previous?.text !== hover?.text
-    || Math.round(previous?.x ?? -1) !== Math.round(hover?.x ?? -1)
-    || Math.round(previous?.y ?? -1) !== Math.round(hover?.y ?? -1);
-  if (!changed) return;
-
-  if (hover) {
-    latencyReferenceHoverStates.set(chart, hover);
-  } else {
-    latencyReferenceHoverStates.delete(chart);
-  }
-  if (chart.canvas) {
-    chart.canvas.style.cursor = '';
-  }
-  args.changed = true;
-};
-
-const getLatencyReferenceHover = (
-  chart: Chart<'scatter'>,
-  event: LatencyPluginEventArgs['event'],
-  options: LatencyDiagnosticsPluginOptions,
-): LatencyReferenceHover | undefined => {
-  if (event.x == null || event.y == null) return undefined;
-  const xScale = chart.scales.x;
-  const yScale = chart.scales.y;
-  if (!xScale || !yScale) return undefined;
-  const { chartArea } = chart;
-  if (!chartArea) return undefined;
-  const hovers: Array<LatencyReferenceHover & { distance: number }> = [];
-
-  if (options.p95TTFTMS > 0) {
-    const x = xScale.getPixelForValue(options.p95TTFTMS);
-    const distance = Math.abs(event.x - x);
-    if (x >= chartArea.left && x <= chartArea.right && distance <= LATENCY_REFERENCE_HIT_RADIUS_PX) {
-      hovers.push({
-        kind: 'ttft',
-        text: `${options.labels.p95TTFT}: ${formatDurationMs(options.p95TTFTMS)}`,
-        x,
-        y: getBoundedHoverPoint(event.y, chartArea.top, chartArea.bottom),
-        color: options.colors.p95TTFT,
-        distance,
-      });
-    }
-  }
-
-  if (options.p95LatencyMS > 0) {
-    const y = yScale.getPixelForValue(options.p95LatencyMS);
-    const distance = Math.abs(event.y - y);
-    if (y >= chartArea.top && y <= chartArea.bottom && distance <= LATENCY_REFERENCE_HIT_RADIUS_PX) {
-      hovers.push({
-        kind: 'latency',
-        text: `${options.labels.p95Latency}: ${formatDurationMs(options.p95LatencyMS)}`,
-        x: getBoundedHoverPoint(event.x, chartArea.left, chartArea.right),
-        y,
-        color: options.colors.p95Latency,
-        distance,
-      });
-    }
-  }
-
-  hovers.sort((left, right) => left.distance - right.distance);
-  return hovers[0];
-};
-
-const drawLatencyReferenceHover = (chart: Chart<'scatter'>, hover: LatencyReferenceHover) => {
-  const { ctx, chartArea } = chart;
-  if (!chartArea) return;
-  const paddingX = 8;
-  const height = 24;
-  const gap = 12;
-  ctx.save();
-  ctx.font = '700 11px Inter, system-ui, sans-serif';
-  const width = Math.ceil(ctx.measureText(hover.text).width) + paddingX * 2;
-  let x = hover.x + gap;
-  if (x + width > chartArea.right - 4) {
-    x = hover.x - width - gap;
-  }
-  x = getBoundedHoverPoint(x, chartArea.left + 4, chartArea.right - width - 4);
-  let y = hover.y - height - gap;
-  if (y < chartArea.top + 4) {
-    y = hover.y + gap;
-  }
-  y = getBoundedHoverPoint(y, chartArea.top + 4, chartArea.bottom - height - 4);
-  ctx.fillStyle = 'rgba(17, 24, 39, 0.94)';
-  ctx.strokeStyle = hover.color;
-  ctx.lineWidth = 1;
-  ctx.fillRect(x, y, width, height);
-  ctx.strokeRect(x, y, width, height);
-  ctx.fillStyle = '#ffffff';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(hover.text, x + paddingX, y + height / 2);
-  ctx.restore();
-};
-
-const latencyDiagnosticsPlugin: Plugin<'scatter'> = {
-  id: 'analysis-latency-diagnostics',
-  afterEvent: (chart, args) => {
-    const options = getLatencyDiagnosticsPluginOptions(chart);
-    if (!options) return;
-    if (args.event.type === 'mouseout' || !args.inChartArea) {
-      setLatencyReferenceHover(chart, args, undefined);
-      return;
-    }
-    if (args.event.type !== 'mousemove') return;
-    setLatencyReferenceHover(chart, args, getLatencyReferenceHover(chart, args.event, options));
-  },
-  afterDatasetsDraw: (chart) => {
-    const options = getLatencyDiagnosticsPluginOptions(chart);
-    if (!options) return;
-    const xScale = chart.scales.x;
-    const yScale = chart.scales.y;
-    if (!xScale || !yScale) return;
-    const { ctx, chartArea } = chart;
-    if (!chartArea) return;
-    ctx.save();
-    // p95 参考线覆盖在样本点上，辅助快速区分首字慢和总耗时慢。
-    const hover = latencyReferenceHoverStates.get(chart);
-    if (options.p95TTFTMS > 0) {
-      const x = xScale.getPixelForValue(options.p95TTFTMS);
-      if (x >= chartArea.left && x <= chartArea.right) {
-        const active = hover?.kind === 'ttft';
-        ctx.lineWidth = active ? 2.6 : 1.4;
-        ctx.setLineDash(active ? [4, 3] : [5, 5]);
-        ctx.strokeStyle = options.colors.p95TTFT;
-        ctx.beginPath();
-        ctx.moveTo(x, chartArea.top);
-        ctx.lineTo(x, chartArea.bottom);
-        ctx.stroke();
-        drawLatencyReferenceLabel(chart, options.labels.p95TTFT, x + 6, chartArea.top + 16, options.colors.p95TTFT, 'left');
-      }
-    }
-    if (options.p95LatencyMS > 0) {
-      const y = yScale.getPixelForValue(options.p95LatencyMS);
-      if (y >= chartArea.top && y <= chartArea.bottom) {
-        const active = hover?.kind === 'latency';
-        ctx.lineWidth = active ? 2.6 : 1.4;
-        ctx.setLineDash(active ? [4, 3] : [5, 5]);
-        ctx.strokeStyle = options.colors.p95Latency;
-        ctx.beginPath();
-        ctx.moveTo(chartArea.left, y);
-        ctx.lineTo(chartArea.right, y);
-        ctx.stroke();
-        drawLatencyReferenceLabel(chart, options.labels.p95Latency, chartArea.right - 6, y - 12, options.colors.p95Latency, 'right');
-      }
-    }
-    if (hover) {
-      drawLatencyReferenceHover(chart, hover);
-    }
-    ctx.restore();
-  },
-};
-
 const toNumber = (value: unknown) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -675,7 +409,6 @@ const getTooltipTokenValue = (dataset: unknown, dataIndex: number | undefined, f
 };
 
 const formatPercent = (value: number) => `${value.toFixed(2)}%`;
-const clampPercent = (value: number) => Math.max(0, Math.min(100, value));
 
 const interpolateColor = (from: [number, number, number], to: [number, number, number], ratio: number) => {
   const clampedRatio = Math.max(0, Math.min(1, ratio));
@@ -770,10 +503,12 @@ function buildTopModelsViewModel(
   modelUsage: AnalysisModelUsagePayload | undefined,
   granularity: AnalysisResponse['granularity'],
   timezone: string | undefined,
-  othersLabel: string,
+  composition: AnalysisCompositionItem[],
 ): TopModelsViewModel {
   const buckets = modelUsage?.buckets ?? [];
   const valuesByModel = new Map<string, number[]>();
+  const requestsByModel = new Map<string, number>();
+  const detailsByModel = new Map(composition.map((item) => [item.label.trim(), item]));
   for (const source of modelUsage?.series ?? []) {
     const model = String(source.model ?? '').trim();
     if (!model) continue;
@@ -782,6 +517,7 @@ function buildTopModelsViewModel(
       values[index] += Math.max(0, toNumber(source.total_tokens?.[index]));
     }
     valuesByModel.set(model, values);
+    requestsByModel.set(model, (requestsByModel.get(model) ?? 0) + (source.requests ?? []).reduce((sum, count) => sum + Math.max(0, toNumber(count)), 0));
   }
 
   const ranked = Array.from(valuesByModel, ([model, totalTokens]) => ({
@@ -790,32 +526,26 @@ function buildTopModelsViewModel(
     totalTokens,
     total: totalTokens.reduce((sum, value) => sum + value, 0),
   }))
-    .filter((item) => item.total > 0)
+    .filter((item) => item.total > 0 || (requestsByModel.get(item.model) ?? 0) > 0 || detailsByModel.has(item.model))
     .sort((left, right) => right.total - left.total || compareModelNames(left.model, right.model));
   const rangeTotal = ranked.reduce((sum, item) => sum + item.total, 0);
-  const major = ranked.slice(0, TOP_MODELS_LIMIT).map((item, index) => ({
-    ...item,
-    share: rangeTotal > 0 ? (item.total / rangeTotal) * 100 : 0,
-    color: TOP_MODEL_COLORS[index % TOP_MODEL_COLORS.length],
-  }));
-  const rest = ranked.slice(TOP_MODELS_LIMIT);
-  if (rest.length > 0) {
-    const totalTokens = Array.from({ length: buckets.length }, (_, index) =>
-      rest.reduce((sum, item) => sum + item.totalTokens[index], 0));
-    const total = totalTokens.reduce((sum, value) => sum + value, 0);
-    major.push({
-      key: TOP_MODELS_OTHERS_KEY,
-      model: othersLabel,
-      totalTokens,
-      total,
-      share: rangeTotal > 0 ? (total / rangeTotal) * 100 : 0,
-      color: TOP_MODELS_OTHERS_COLOR,
-    });
-  }
+  const series = ranked.map((item, index) => {
+    const details = detailsByModel.get(item.model);
+    return {
+      ...item,
+      label: item.model,
+      share: rangeTotal > 0 ? (item.total / rangeTotal) * 100 : 0,
+      requests: details ? toNumber(details.requests) : requestsByModel.get(item.model) ?? 0,
+      cost: details && details.cost_available !== false ? toNumber(details.cost_usd) : null,
+      inputTokens: details ? toNumber(details.input_tokens) : null,
+      cacheReadTokens: details ? toNumber(details.cache_read_tokens) : null,
+      color: getAnalysisRankingColor(`model:${item.model}`, index, TOP_MODEL_COLORS),
+    };
+  });
 
   return {
     labels: buckets.map((bucket) => formatBucketLabel(bucket, granularity, timezone)),
-    series: major,
+    series,
     bucketTotals: Array.from({ length: buckets.length }, (_, index) =>
       ranked.reduce((sum, item) => sum + item.totalTokens[index], 0)),
     rangeTotal,
@@ -868,22 +598,28 @@ function buildTopModelsChartOptions({
   isMobile,
   bucketTotals,
   totalLabel,
+  external,
 }: {
   chartTheme: ChartTheme;
   isMobile: boolean;
   bucketTotals: number[];
   totalLabel: string;
+  external: (context: { chart: Chart; tooltip: TooltipModel<'bar'> }) => void;
 }): ChartOptions<'bar'> {
   const maxBucketTotal = bucketTotals.reduce((maximum, value) => Math.max(maximum, toNumber(value)), 0);
   return {
     responsive: true,
     maintainAspectRatio: false,
     animation: false,
+    // 触摸拖动留给页面滚动；轻点产生的 click 才打开明细。
+    events: ['mousemove', 'mouseout', 'click'],
     interaction: { mode: 'index', intersect: false },
     plugins: {
       legend: { display: false },
       tooltip: {
         ...buildAnalysisBarTooltipStyle(chartTheme),
+        enabled: false,
+        external,
         filter: (context) => toNumber(context.parsed.y) > 0,
         // 图表维持全范围稳定色序；tooltip 单独按当前 bucket 用量降序，便于直接比较。
         itemSort: (left, right) => (
@@ -962,43 +698,6 @@ function calculateAnalysisWindowMinutes(analysis: AnalysisResponse | null): numb
   const end = Date.parse(analysis?.range_end ?? '');
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
   return (end - start) / 60_000;
-}
-
-function takeMajorComposition(items: AnalysisCompositionItem[], othersLabel: string, limit = 5): AnalysisCompositionItem[] {
-  if (items.length <= limit) return items;
-  const major = items.slice(0, limit);
-  const rest = items.slice(limit).reduce(
-    (sum, item) => ({
-      total_tokens: sum.total_tokens + toNumber(item.total_tokens),
-      requests: sum.requests + toNumber(item.requests),
-      input_tokens: sum.input_tokens + toNumber(item.input_tokens),
-      output_tokens: sum.output_tokens + toNumber(item.output_tokens),
-      cache_read_tokens: sum.cache_read_tokens + toNumber(item.cache_read_tokens),
-      cache_creation_tokens: sum.cache_creation_tokens + toNumber(item.cache_creation_tokens),
-      reasoning_tokens: sum.reasoning_tokens + toNumber(item.reasoning_tokens),
-      cost_usd: sum.cost_usd + toNumber(item.cost_usd),
-      cost_available: sum.cost_available && item.cost_available !== false,
-    }),
-    { total_tokens: 0, requests: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, reasoning_tokens: 0, cost_usd: 0, cost_available: true },
-  );
-  const total = items.reduce((sum, item) => sum + toNumber(item.total_tokens), 0);
-  return [
-    ...major,
-    {
-      key: '__others__',
-      label: othersLabel,
-      total_tokens: rest.total_tokens,
-      requests: rest.requests,
-      input_tokens: rest.input_tokens,
-      output_tokens: rest.output_tokens,
-      cache_read_tokens: rest.cache_read_tokens,
-      cache_creation_tokens: rest.cache_creation_tokens,
-      reasoning_tokens: rest.reasoning_tokens,
-      cost_usd: rest.cost_usd,
-      cost_available: rest.cost_available,
-      percent: total > 0 ? (rest.total_tokens / total) * 100 : 0,
-    },
-  ];
 }
 
 function buildTokenLegendItems(labels: TokenLabels, averageTokenTotal: number, averageLineColor: string): LegendItem[] {
@@ -1132,15 +831,21 @@ function AnalysisCardHeader({ title, subtitle, showPricingHint, hint }: { title:
   );
 }
 
-function buildCompositionChartData(items: AnalysisCompositionItem[]): ChartData<'doughnut', number[], string> {
+function buildCompositionChartData(items: AnalysisRankingItem[], highlighted: string | null): ChartData<'doughnut', number[], string> {
   return {
     labels: items.map((item) => item.label),
     datasets: [{
-      data: items.map((item) => toNumber(item.total_tokens)),
-      backgroundColor: (context) => toGradientFill(context, CHART_COLORS[context.dataIndex % CHART_COLORS.length]),
+      data: items.map((item) => item.total),
+      backgroundColor: (context) => {
+        const item = items[context.dataIndex];
+        const color = highlighted && highlighted !== item.key
+          ? { base: `${item.color.base}33`, light: `${item.color.light}33` } : item.color;
+        return toGradientFill(context, color);
+      },
       borderColor: 'transparent',
       borderWidth: 0,
       borderRadius: COMPOSITION_DONUT_BORDER_RADIUS,
+      offset: items.map((item) => item.key === highlighted ? 8 : 0),
       hoverOffset: COMPOSITION_DONUT_HOVER_OFFSET,
     }],
   };
@@ -1185,7 +890,14 @@ function buildCompositionChartOptions(chartTheme: ChartTheme, labels: Compositio
     maintainAspectRatio: false,
     interaction: { mode: 'analysisCompositionArc', intersect: false, axis: 'r' },
     hover: { mode: 'analysisCompositionArc', intersect: false, axis: 'r' },
-    layout: { padding: COMPOSITION_DONUT_LAYOUT_PADDING },
+    layout: {
+      padding: ({ chart }) => ({
+        top: 20,
+        bottom: 20,
+        left: Math.min(130, chart.width * 0.27),
+        right: Math.min(130, chart.width * 0.27),
+      }),
+    },
     cutout: '58%',
     spacing: COMPOSITION_DONUT_SPACING,
     plugins: {
@@ -1214,7 +926,7 @@ function buildCompositionChartOptions(chartTheme: ChartTheme, labels: Compositio
   };
 }
 
-function TokenUsageChart({ rows, loading, isDark, isMobile }: { rows: ChartRow[]; loading: boolean; isDark: boolean; isMobile: boolean }) {
+function TokenUsageChart({ rows, breakdown, loading, isDark, isMobile }: { rows: ChartRow[]; breakdown: AnalysisCostBreakdown | undefined; loading: boolean; isDark: boolean; isMobile: boolean }) {
   const { t } = useTranslation();
   const tokenLabels = useMemo(() => ({
     input: t('usage_stats.input_tokens'),
@@ -1238,15 +950,33 @@ function TokenUsageChart({ rows, loading, isDark, isMobile }: { rows: ChartRow[]
     averageTokenTotal,
   }), [averageTokenTotal, chartTheme, isMobile, rows, tokenLabels.total]);
   const legendItems = useMemo(() => buildTokenLegendItems(tokenLabels, averageTokenTotal, chartTheme.averageLine), [averageTokenTotal, chartTheme.averageLine, tokenLabels]);
-  const hasUnavailableCost = rows.some((row) => !row.costAvailable);
+  const hasUnavailableCost = breakdown?.cost_available === false || rows.some((row) => !row.costAvailable);
+  const totalTokens = rows.reduce((sum, row) => sum + row.total, 0);
+  const totalCost = toNumber(breakdown?.total_cost_usd);
   return (
-    <section className={`${styles.analysisCard} ${styles.tokenUsageCard} keeper-card-surface`}>
+    <section className={`${styles.analysisCard} keeper-card-surface`}>
       <AnalysisCardHeader
         title={t('usage_stats.analysis_token_usage_title')}
         subtitle={t('usage_stats.analysis_token_usage_subtitle')}
         showPricingHint={hasUnavailableCost}
         hint={t('usage_stats.cost_need_price')}
       />
+      {!loading && (rows.length > 0 || totalCost > 0) && (
+        <dl className={styles.analysisSummary}>
+          <div>
+            <dt>{t('usage_stats.total_tokens')}</dt>
+            <dd>{formatCompactNumber(totalTokens)}</dd>
+          </div>
+          <div>
+            <dt>{t('usage_stats.total_cost')}</dt>
+            <dd>{formatUsd(totalCost)}</dd>
+          </div>
+          <div>
+            <dt>{t('usage_stats.analysis_cost_per_million_tokens')}</dt>
+            <dd title={t('usage_stats.analysis_blended_rate')}>{formatUsd(getCostRatePerMillion(totalCost, totalTokens))}</dd>
+          </div>
+        </dl>
+      )}
       {loading ? (
         <div className={styles.emptyState}>{t('common.loading')}</div>
       ) : rows.length === 0 ? (
@@ -1270,95 +1000,44 @@ function TokenUsageChart({ rows, loading, isDark, isMobile }: { rows: ChartRow[]
   );
 }
 
-function TopModelsCard({
-  modelUsage,
-  granularity,
-  timezone,
-  loading,
-  isDark,
-  isMobile,
-}: {
+function TopModelsCard({ modelUsage, composition, granularity, timezone, loading, isDark, isMobile, windowMinutes }: {
   modelUsage: AnalysisModelUsagePayload | undefined;
+  composition: AnalysisCompositionItem[];
   granularity: AnalysisResponse['granularity'];
   timezone: string | undefined;
   loading: boolean;
   isDark: boolean;
   isMobile: boolean;
+  windowMinutes: number | null;
 }) {
   const { t } = useTranslation();
-  const [hoveredModel, setHoveredModel] = useState<string | null>(null);
-  const [focusedModel, setFocusedModel] = useState<string | null>(null);
+  const highlight = useAnalysisHighlight('models');
   const chartTheme = useMemo(() => getChartTheme(isDark), [isDark]);
-  const view = useMemo(
-    () => buildTopModelsViewModel(modelUsage, granularity, timezone, t('usage_stats.analysis_others')),
-    [granularity, modelUsage, t, timezone],
-  );
-  const highlightedModel = focusedModel ?? hoveredModel;
-  const activeHighlightedModel = view.series.some((item) => item.key === highlightedModel)
-    ? highlightedModel
-    : null;
-  const chartData = useMemo(
-    () => buildTopModelsChartData(view, activeHighlightedModel),
-    [activeHighlightedModel, view],
-  );
+  const view = useMemo(() => buildTopModelsViewModel(modelUsage, granularity, timezone, composition), [composition, granularity, modelUsage, timezone]);
+  const activeHighlightedModel = view.series.some((item) => item.key === highlight.active) ? highlight.active : null;
+  const chartData = useMemo(() => buildTopModelsChartData(view, activeHighlightedModel), [activeHighlightedModel, view]);
+  const { external, onPointerDown, tooltip } = useTopModelsTooltip(chartData, !loading, isMobile);
   const chartOptions = useMemo(() => buildTopModelsChartOptions({
-    chartTheme,
-    isMobile,
-    bucketTotals: view.bucketTotals,
-    totalLabel: t('usage_stats.total_tokens'),
-  }), [chartTheme, isMobile, t, view.bucketTotals]);
+    chartTheme, isMobile, bucketTotals: view.bucketTotals, totalLabel: t('usage_stats.total_tokens'), external,
+  }), [chartTheme, external, isMobile, t, view.bucketTotals]);
 
   return (
-    <section className={`${styles.analysisCard} ${styles.topModelsCard} keeper-card-surface`}>
-      <AnalysisCardHeader
-        title={t('usage_stats.analysis_top_models_title')}
-        subtitle={t('usage_stats.analysis_top_models_subtitle')}
-        showPricingHint={false}
-        hint=""
-      />
-      {loading ? (
-        <div className={styles.emptyState}>{t('common.loading')}</div>
-      ) : view.series.length === 0 ? (
-        <div className={styles.emptyState}>{t('usage_stats.no_data')}</div>
-      ) : (
-        <div className={styles.topModelsBody}>
+    <section className={`${styles.analysisCard} ${styles.pairedChartCard} keeper-card-surface`}>
+      <AnalysisCardHeader title={t('usage_stats.analysis_top_models_title')} subtitle={t('usage_stats.analysis_top_models_subtitle')} showPricingHint={false} hint="" />
+      <div className={styles.pairedChartToolbar}>
+        <span className={styles.chartSummaryCount}>{t('usage_stats.analysis_models_count', { count: view.series.length })}</span>
+        <span className={styles.chartSummaryTotal}>{t('usage_stats.total_tokens')} <strong>{formatCompactNumber(view.rangeTotal)}</strong></span>
+      </div>
+      {loading ? <div className={styles.emptyState}>{t('common.loading')}</div> : view.series.length === 0 ? <div className={styles.emptyState}>{t('usage_stats.no_data')}</div> : (
+        <>
           <div className={styles.analysisChartSurface}>
-            <div
-              className={styles.topModelsChartFrame}
-              role="img"
-              aria-label={`${t('usage_stats.analysis_top_models_chart_aria')}: ${formatCompactNumber(view.rangeTotal)}`}
-            >
+            <div className={styles.pairedChartFrame} role="img" onPointerDown={onPointerDown} aria-label={`${t('usage_stats.analysis_top_models_chart_aria')}: ${formatCompactNumber(view.rangeTotal)}`}>
               <Bar data={chartData} options={chartOptions} />
             </div>
           </div>
-          <ol className={styles.topModelsRanking} aria-label={t('usage_stats.analysis_top_models_ranking_aria')}>
-            {view.series.map((item, index) => {
-              const muted = Boolean(activeHighlightedModel && activeHighlightedModel !== item.key);
-              const ariaLabel = `${index + 1}. ${item.model}, ${t('usage_stats.total_tokens')}: ${formatCompactNumber(item.total)}, ${t('usage_stats.analysis_top_models_share')}: ${formatPercent(item.share)}`;
-              return (
-                <li key={item.key}>
-                  <button
-                    type="button"
-                    className={styles.topModelsRankItem}
-                    style={{ '--top-model-color': item.color.base } as CSSProperties}
-                    data-muted={muted}
-                    aria-label={ariaLabel}
-                    onMouseEnter={() => setHoveredModel(item.key)}
-                    onMouseLeave={() => setHoveredModel(null)}
-                    onFocus={() => setFocusedModel(item.key)}
-                    onBlur={() => setFocusedModel(null)}
-                  >
-                    <span className={styles.topModelsRank}>{index + 1}</span>
-                    <span className={styles.topModelsColor} aria-hidden="true" />
-                    <span className={styles.topModelsName} title={item.model}>{item.model}</span>
-                    <strong className={styles.topModelsTokens}>{formatCompactNumber(item.total)}</strong>
-                    <span className={styles.topModelsShare}>{formatPercent(item.share)}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
-        </div>
+          <AnalysisRankingList items={view.series} label={t('usage_stats.analysis_top_models_ranking_aria')} windowMinutes={windowMinutes} highlight={highlight} />
+          {tooltip}
+        </>
       )}
     </section>
   );
@@ -1375,137 +1054,9 @@ const emptyLatencyDiagnostics = (): AnalysisLatencyDiagnostics => ({
   max_latency_ms: 0,
 });
 
-const getLatencyLogAxisBounds = (values: Iterable<number>) => {
-  let minValue = Number.POSITIVE_INFINITY;
-  let maxValue = 0;
-  for (const value of values) {
-    if (!Number.isFinite(value) || value <= 0) continue;
-    if (value < minValue) minValue = value;
-    if (value > maxValue) maxValue = value;
-  }
-  if (!Number.isFinite(minValue) || maxValue <= 0) {
-    return { min: 1, max: 10 };
-  }
-  return {
-    min: Math.max(1, Math.floor(minValue / 1.35)),
-    max: Math.max(10, Math.ceil(maxValue * 1.18)),
-  };
-};
-
-function* getLatencyAxisValues(diagnostics: AnalysisLatencyDiagnostics, axis: 'ttft' | 'latency'): Generator<number> {
-  yield axis === 'ttft' ? diagnostics.max_ttft_ms : diagnostics.max_latency_ms;
-  yield axis === 'ttft' ? diagnostics.p95_ttft_ms : diagnostics.p95_latency_ms;
-  for (const point of diagnostics.points) {
-    yield axis === 'ttft' ? point.ttft_ms : point.latency_ms;
-  }
-}
-
-function buildLatencyDiagnosticsChartData(diagnostics: AnalysisLatencyDiagnostics, label: string, colors: LatencyThemeColors): ChartData<'scatter', LatencyScatterPoint[], string> {
-  return {
-    labels: diagnostics.points.map((point) => `${point.ttft_ms}/${point.latency_ms}`),
-    datasets: [{
-      label,
-      data: diagnostics.points.map((point) => ({
-        x: toNumber(point.ttft_ms),
-        y: toNumber(point.latency_ms),
-      })),
-      pointRadius: 3,
-      pointHoverRadius: 5,
-      pointBackgroundColor: colors.pointFill,
-      pointBorderColor: 'transparent',
-      pointBorderWidth: 0,
-      pointHoverBorderWidth: 0,
-      borderColor: 'transparent',
-      borderWidth: 0,
-      showLine: false,
-      clip: false,
-    }],
-  };
-}
-
-function buildLatencyDiagnosticsChartOptions({
-  diagnostics,
-  chartTheme,
-  isMobile,
-  labels,
-  colors,
-}: {
-  diagnostics: AnalysisLatencyDiagnostics;
-  chartTheme: ChartTheme;
-  isMobile: boolean;
-  labels: {
-    ttft: string;
-    latency: string;
-    p95TTFT: string;
-    p95Latency: string;
-  };
-  colors: LatencyThemeColors;
-}): ChartOptions<'scatter'> {
-  const xBounds = getLatencyLogAxisBounds(getLatencyAxisValues(diagnostics, 'ttft'));
-  const yBounds = getLatencyLogAxisBounds(getLatencyAxisValues(diagnostics, 'latency'));
-  const plugins = {
-    legend: { display: false },
-    tooltip: {
-      backgroundColor: chartTheme.tooltipBg,
-      titleColor: chartTheme.textPrimary,
-      bodyColor: chartTheme.tooltipBody,
-      borderColor: chartTheme.tooltipBorder,
-      borderWidth: 1,
-      padding: 10,
-      displayColors: false,
-      callbacks: {
-        title: () => [],
-        label: (context) => [
-          `${labels.ttft}: ${formatDurationMs(context.parsed.x)}`,
-          `${labels.latency}: ${formatDurationMs(context.parsed.y)}`,
-        ],
-      },
-    },
-    analysisLatencyDiagnostics: {
-      p95TTFTMS: toNumber(diagnostics.p95_ttft_ms),
-      p95LatencyMS: toNumber(diagnostics.p95_latency_ms),
-      labels: {
-        p95TTFT: labels.p95TTFT,
-        p95Latency: labels.p95Latency,
-      },
-      colors,
-    },
-  } as ChartOptions<'scatter'>['plugins'] & { analysisLatencyDiagnostics: LatencyDiagnosticsPluginOptions };
-
-  return {
-    responsive: true,
-    maintainAspectRatio: false,
-    interaction: { mode: 'nearest', intersect: false },
-    layout: { padding: { top: 18, right: 14, bottom: 8, left: 8 } },
-    plugins,
-    scales: {
-      x: {
-        type: 'logarithmic',
-        min: xBounds.min,
-        max: xBounds.max,
-        grid: { color: chartTheme.grid },
-        border: { color: chartTheme.axis },
-        title: { display: true, text: labels.ttft, color: chartTheme.textSecondary, font: { size: 11, weight: 800 } },
-        ticks: { color: chartTheme.textSecondary, font: { size: 10 }, maxTicksLimit: isMobile ? 4 : 6, callback: (value) => formatDurationMs(Number(value)) },
-      },
-      y: {
-        type: 'logarithmic',
-        min: yBounds.min,
-        max: yBounds.max,
-        grid: { color: chartTheme.grid },
-        border: { color: chartTheme.axis },
-        title: { display: true, text: labels.latency, color: chartTheme.textSecondary, font: { size: 11, weight: 800 } },
-        ticks: { color: chartTheme.textSecondary, font: { size: 10 }, maxTicksLimit: isMobile ? 4 : 6, callback: (value) => formatDurationMs(Number(value)) },
-      },
-    },
-  };
-}
-
 function LatencyDiagnosticsCard({ diagnostics, loading, error, isDark, isMobile }: { diagnostics: AnalysisLatencyDiagnostics | null | undefined; loading: boolean; error: string; isDark: boolean; isMobile: boolean }) {
   const { t } = useTranslation();
   const safeDiagnostics = diagnostics ?? emptyLatencyDiagnostics();
-  const chartTheme = useMemo(() => getChartTheme(isDark), [isDark]);
-  const latencyColors = useMemo(() => getLatencyColors(isDark), [isDark]);
   const labels = useMemo(() => ({
     ttft: t('usage_stats.ttft'),
     latency: t('usage_stats.latency'),
@@ -1513,18 +1064,10 @@ function LatencyDiagnosticsCard({ diagnostics, loading, error, isDark, isMobile 
     p95Latency: t('usage_stats.analysis_latency_p95_latency'),
     samples: t('usage_stats.analysis_latency_samples'),
   }), [t]);
-  const chartData = useMemo(() => buildLatencyDiagnosticsChartData(safeDiagnostics, labels.samples, latencyColors), [safeDiagnostics, labels.samples, latencyColors]);
-  const chartOptions = useMemo(() => buildLatencyDiagnosticsChartOptions({
-    diagnostics: safeDiagnostics,
-    chartTheme,
-    isMobile,
-    labels,
-    colors: latencyColors,
-  }), [chartTheme, isMobile, labels, latencyColors, safeDiagnostics]);
   const unsupported = safeDiagnostics.supported === false;
   const hasData = toNumber(safeDiagnostics.total_points) > 0 && safeDiagnostics.points.length > 0;
   return (
-    <section className={`${styles.analysisCard} ${styles.latencyDiagnosticsCard} keeper-card-surface`}>
+    <section className={`${styles.analysisCard} keeper-card-surface`}>
       <AnalysisCardHeader
         title={t('usage_stats.analysis_latency_title')}
         subtitle={t('usage_stats.analysis_latency_subtitle')}
@@ -1540,28 +1083,27 @@ function LatencyDiagnosticsCard({ diagnostics, loading, error, isDark, isMobile 
       ) : !hasData ? (
         <div className={styles.emptyState}>{t('usage_stats.no_data')}</div>
       ) : (
-        <div className={styles.latencyDiagnosticsBody}>
-          <div className={styles.latencyMetricGrid}>
-            <div className={styles.latencyMetric}>
-              <span>{t('usage_stats.analysis_latency_p95_ttft')}</span>
-              <strong>{formatDurationMs(safeDiagnostics.p95_ttft_ms)}</strong>
+        <>
+          <dl className={styles.analysisSummary}>
+            <div>
+              <dt>{t('usage_stats.analysis_latency_p95_ttft')}</dt>
+              <dd>{formatDurationMs(safeDiagnostics.p95_ttft_ms)}</dd>
             </div>
-            <div className={styles.latencyMetric}>
-              <span>{t('usage_stats.analysis_latency_p95_latency')}</span>
-              <strong>{formatDurationMs(safeDiagnostics.p95_latency_ms)}</strong>
+            <div>
+              <dt>{t('usage_stats.analysis_latency_p95_latency')}</dt>
+              <dd>{formatDurationMs(safeDiagnostics.p95_latency_ms)}</dd>
             </div>
-            <div className={styles.latencyMetric}>
-              <span>{t('usage_stats.analysis_latency_samples_count')}</span>
-              <strong>{formatCompactNumber(safeDiagnostics.total_points)}</strong>
-              {safeDiagnostics.sampled ? <small>{t('usage_stats.analysis_latency_sampled')}</small> : null}
+            <div>
+              <dt>{t('usage_stats.analysis_latency_samples_count')}</dt>
+              <dd>{formatCompactNumber(safeDiagnostics.total_points)}</dd>
             </div>
-          </div>
+          </dl>
           <div className={styles.analysisChartSurface}>
             <div className={styles.latencyChartFrame}>
-              <Scatter data={chartData} options={chartOptions} plugins={[latencyDiagnosticsPlugin]} />
+              <LatencyScatterChart diagnostics={safeDiagnostics} isDark={isDark} isMobile={isMobile} labels={labels} />
             </div>
           </div>
-        </div>
+        </>
       )}
     </section>
   );
@@ -1573,99 +1115,53 @@ type CompositionTab = {
   items: AnalysisCompositionItem[];
 };
 
-function CompositionMetaPill({ label, value }: { label: string; value: string }) {
-  return (
-    <span className={styles.compositionUsageMetaPill}>
-      <span className={styles.compositionUsageMetaLabel}>{label}</span>
-      <span className={styles.compositionUsageMetaValue}>{value}</span>
-    </span>
-  );
-}
-
-const formatCompositionRate = (value: number, windowMinutes: number | null): string => {
-  if (!windowMinutes || windowMinutes <= 0) return '--';
-  return formatPerMinuteValue(value / windowMinutes);
-};
-
 function CompositionPanel({ tabs, loading, isDark, windowMinutes }: { tabs: CompositionTab[]; loading: boolean; isDark: boolean; windowMinutes: number | null }) {
   const { t } = useTranslation();
-  const [activeTabId, setActiveTabId] = useState<CompositionTab['id']>('api_key');
+  const [activeTabId, setActiveTabId] = useState<CompositionTab['id']>(tabs[0]?.id ?? 'model');
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
   const items = activeTab?.items ?? EMPTY_COMPOSITION_ITEMS;
   const activeContentKey = `${activeTab?.id ?? 'empty'}:${items.map((item) => item.key).join('|')}`;
+  const highlight = useAnalysisHighlight(activeTab?.id ?? 'empty');
+  const rankingItems = useMemo<AnalysisRankingItem[]>(() => items.map((item, index) => ({
+    key: item.key, label: item.label, total: toNumber(item.total_tokens), share: toNumber(item.percent),
+    requests: toNumber(item.requests), cost: item.cost_available === false ? null : toNumber(item.cost_usd),
+    inputTokens: toNumber(item.input_tokens), cacheReadTokens: toNumber(item.cache_read_tokens),
+    color: getAnalysisRankingColor(`${activeTab?.id}:${item.key}`, index, CHART_COLORS),
+  })), [activeTab?.id, items]);
+  const highlighted = rankingItems.find((item) => item.key === highlight.active);
   const chartTheme = useMemo(() => getChartTheme(isDark), [isDark]);
-  const tooltipLabels = useMemo(() => ({
-    totalTokens: t('usage_stats.total_tokens'),
-  }), [t]);
-  const chartData = useMemo(() => buildCompositionChartData(items), [items]);
+  const tooltipLabels = useMemo(() => ({ totalTokens: t('usage_stats.total_tokens') }), [t]);
+  const chartData = useMemo(() => buildCompositionChartData(rankingItems, highlighted?.key ?? null), [rankingItems, highlighted?.key]);
   const chartOptions = useMemo(() => buildCompositionChartOptions(chartTheme, tooltipLabels), [chartTheme, tooltipLabels]);
+  const chartLabels = useMemo(() => items.map((item) => ({ name: item.label, share: formatPercent(toNumber(item.percent)) })), [items]);
+  const labelsPlugin = useMemo(() => createCompositionLabelsPlugin(chartLabels, chartTheme.textPrimary), [chartLabels, chartTheme.textPrimary]);
+  // 标签与主题变化时重建已安装的插件；悬浮只更新图表数据，不重建实例。
+  const chartKey = JSON.stringify([activeContentKey, chartLabels, chartTheme.textPrimary]);
   const hasUnavailableCost = items.some((item) => item.cost_available === false);
   return (
-    <section className={`${styles.analysisCard} ${styles.compositionCard} keeper-card-surface`}>
-      <AnalysisCardHeader
-        title={t('usage_stats.analysis_composition_title')}
-        subtitle={t('usage_stats.analysis_composition_subtitle')}
-        showPricingHint={hasUnavailableCost}
-        hint={t('usage_stats.cost_need_price')}
-      />
-      <div className={styles.compositionTabs} role="tablist" aria-label={t('usage_stats.analysis_composition_title')}>
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={tab.id === activeTabId}
-            className={`${styles.compositionTab} ${tab.id === activeTabId ? styles.compositionTabActive : ''}`}
-            onClick={() => setActiveTabId(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
+    <section className={`${styles.analysisCard} ${styles.pairedChartCard} keeper-card-surface`}>
+      <AnalysisCardHeader title={t('usage_stats.analysis_composition_title')}
+        subtitle={tabs.length === 1 ? t('usage_stats.analysis_composition_single_dimension_subtitle') : t('usage_stats.analysis_composition_subtitle')}
+        showPricingHint={hasUnavailableCost} hint={t('usage_stats.cost_need_price')} />
+      <div className={styles.pairedChartToolbar}>
+        <div className={styles.compositionTabs} role="tablist" aria-label={t('usage_stats.analysis_composition_title')}>
+          {tabs.map((tab) => (
+            <button key={tab.id} type="button" role="tab" aria-selected={tab.id === activeTab?.id}
+              className={`${styles.compositionTab} ${tab.id === activeTab?.id ? styles.compositionTabActive : ''}`}
+              onClick={() => setActiveTabId(tab.id)}>{tab.label}</button>
+          ))}
+        </div>
       </div>
-      {loading ? (
-        <div className={styles.emptyState}>{t('common.loading')}</div>
-      ) : items.length === 0 ? (
-        <div className={styles.emptyState}>{t('usage_stats.no_data')}</div>
-      ) : (
-        <div key={activeContentKey} className={styles.analysisChartSurface}>
-          <div className={styles.compositionLayout}>
-            <div className={styles.donutChartFrame}>
-              <div className={styles.donutCanvasBox}>
-                <Doughnut key={`chart-${activeContentKey}`} data={chartData} options={chartOptions} />
-              </div>
-            </div>
-            <div key={`list-${activeContentKey}`} className={styles.compositionUsageList}>
-              {items.map((item, index) => {
-                const rawPercent = toNumber(item.percent);
-                const visualPercent = clampPercent(rawPercent);
-                const barStyle = {
-                  width: `${visualPercent}%`,
-                  '--composition-bar-color': CHART_COLORS[index % CHART_COLORS.length].base,
-                } as CSSProperties;
-                return (
-                  <div key={`${activeTab.id}-${item.key}`} className={styles.compositionUsageItem}>
-                    <div className={styles.compositionUsageTopline}>
-                      <span className={styles.compositionUsageLabel} title={item.label}>{item.label}</span>
-                      <span className={styles.compositionUsageShare} aria-label={t('usage_stats.analysis_composition_token_percent')}>{formatPercent(rawPercent)}</span>
-                    </div>
-                    <div className={styles.compositionUsageTrack}>
-                      {visualPercent > 0 && (
-                        <span className={styles.compositionUsageBar} style={barStyle} />
-                      )}
-                    </div>
-                    <div className={styles.compositionUsageMeta}>
-                      <CompositionMetaPill label={t('usage_stats.total_tokens')} value={formatCompactNumber(toNumber(item.total_tokens))} />
-                      <CompositionMetaPill label={t('usage_stats.requests_count')} value={formatCompactNumber(toNumber(item.requests))} />
-                      <CompositionMetaPill label={t('usage_stats.total_cost')} value={formatUsd(toNumber(item.cost_usd))} />
-                      <CompositionMetaPill label={t('usage_stats.rpm')} value={formatCompositionRate(toNumber(item.requests), windowMinutes)} />
-                      <CompositionMetaPill label={t('usage_stats.tpm')} value={formatCompositionRate(toNumber(item.total_tokens), windowMinutes)} />
-                    </div>
-                  </div>
-                );
-              })}
+      {loading ? <div className={styles.emptyState}>{t('common.loading')}</div> : items.length === 0 ? <div className={styles.emptyState}>{t('usage_stats.no_data')}</div> : (
+        <>
+          <div className={styles.analysisChartSurface}>
+            <div className={`${styles.pairedChartFrame} ${styles.donutCanvasBox}`} role="img"
+              aria-label={`${activeTab.label}: ${items.map((item) => `${item.label} ${formatPercent(toNumber(item.percent))}`).join(', ')}`}>
+              <Doughnut key={chartKey} data={chartData} options={chartOptions} plugins={[compositionGeometryPlugin, labelsPlugin]} />
             </div>
           </div>
-        </div>
+          <AnalysisRankingList key={activeTab.id} items={rankingItems} label={t('usage_stats.analysis_composition_title')} windowMinutes={windowMinutes} highlight={highlight} />
+        </>
       )}
     </section>
   );
@@ -1673,144 +1169,6 @@ function CompositionPanel({ tabs, loading, isDark, windowMinutes }: { tabs: Comp
 
 function getCostRatePerMillion(cost: number, tokens: number) {
   return tokens > 0 ? (cost / tokens) * 1_000_000 : 0;
-}
-
-function getCostSegmentTokens(rows: ChartRow[]): Record<CostBreakdownSegmentKey, number> {
-  return rows.reduce(
-    (totals, row) => ({
-      input: totals.input + Math.max(row.rawInput - row.cacheRead - row.cacheWrite, 0),
-      cacheRead: totals.cacheRead + row.cacheRead,
-      cacheWrite: totals.cacheWrite + row.cacheWrite,
-      output: totals.output + row.rawOutput,
-    }),
-    { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 },
-  );
-}
-
-function CostBreakdownCard({ breakdown, rows, loading }: { breakdown: AnalysisCostBreakdown | undefined; rows: ChartRow[]; loading: boolean }) {
-  const { t } = useTranslation();
-  const [costTooltip, setCostTooltip] = useState<FloatingTooltipState | null>(null);
-  const safeBreakdown = breakdown ?? { uncached_input_cost_usd: 0, cache_read_cost_usd: 0, cache_write_cost_usd: 0, output_cost_usd: 0, total_cost_usd: 0, cost_available: true };
-  const totalCost = toNumber(safeBreakdown.total_cost_usd);
-  const totalTokens = rows.reduce((sum, row) => sum + row.total, 0);
-  const segmentTokens = getCostSegmentTokens(rows);
-  const costAvailable = safeBreakdown.cost_available !== false;
-  const blendedRate = getCostRatePerMillion(totalCost, totalTokens);
-  const segments: CostBreakdownSegment[] = [
-    { key: 'input', label: t('usage_stats.input_tokens'), value: toNumber(safeBreakdown.uncached_input_cost_usd), color: TOKEN_COLORS.input.base, tokens: segmentTokens.input },
-    { key: 'cacheRead', label: t('usage_stats.cache_read_tokens'), value: toNumber(safeBreakdown.cache_read_cost_usd), color: TOKEN_COLORS.cacheRead.base, tokens: segmentTokens.cacheRead },
-    { key: 'cacheWrite', label: t('usage_stats.cache_creation_tokens'), value: toNumber(safeBreakdown.cache_write_cost_usd), color: TOKEN_COLORS.cacheWrite.base, tokens: segmentTokens.cacheWrite },
-    { key: 'output', label: t('usage_stats.output_tokens'), value: toNumber(safeBreakdown.output_cost_usd), color: TOKEN_COLORS.output.base, tokens: segmentTokens.output },
-  ];
-  const hasData = rows.length > 0 || totalCost > 0 || segments.some((segment) => segment.value > 0);
-  const buildCostTooltipLines = (segment: CostBreakdownSegment, percent: number) => [
-    `${segment.label} · ${t('usage_stats.analysis_cost_share')}`,
-    `${t('usage_stats.total_cost')}: ${formatUsd(segment.value)}`,
-    `${t('usage_stats.analysis_cost_share')}: ${formatPercent(percent)}`,
-    `${t('usage_stats.total_tokens')}: ${formatCompactNumber(segment.tokens)}`,
-    `${t('usage_stats.analysis_cost_per_million_tokens')}: ${formatUsd(getCostRatePerMillion(segment.value, segment.tokens))}`,
-  ];
-  const showCostTooltip = (
-    lines: string[],
-    event: MouseEvent<HTMLSpanElement> | FocusEvent<HTMLSpanElement>,
-  ) => {
-    const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth;
-    const viewportHeight = typeof window === 'undefined' ? 768 : window.innerHeight;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const pointerX = 'clientX' in event && event.clientX > 0 ? event.clientX : rect.left + rect.width / 2;
-    const pointerY = 'clientY' in event && event.clientY > 0 ? event.clientY : rect.top + rect.height / 2;
-    const left = Math.max(
-      COST_TOOLTIP_VIEWPORT_PADDING,
-      Math.min(pointerX + COST_TOOLTIP_CURSOR_OFFSET, viewportWidth - COST_TOOLTIP_MAX_WIDTH - COST_TOOLTIP_VIEWPORT_PADDING),
-    );
-    const placement = pointerY > viewportHeight - 200 ? 'above' : 'below';
-    const y = pointerY + (placement === 'above' ? -COST_TOOLTIP_CURSOR_OFFSET : COST_TOOLTIP_CURSOR_OFFSET);
-    setCostTooltip({ lines, x: left, y, placement });
-  };
-  const hideCostTooltip = () => setCostTooltip(null);
-  return (
-    <section className={`${styles.analysisCard} ${styles.costBreakdownCard} keeper-card-surface`}>
-      <AnalysisCardHeader
-        title={t('usage_stats.analysis_cost_breakdown_title')}
-        subtitle={t('usage_stats.analysis_cost_breakdown_subtitle')}
-        showPricingHint={!costAvailable}
-        hint={t('usage_stats.cost_need_price')}
-      />
-      {loading ? (
-        <div className={styles.emptyState}>{t('common.loading')}</div>
-      ) : !hasData ? (
-        <div className={styles.emptyState}>{t('usage_stats.no_data')}</div>
-      ) : (
-        <div className={styles.costBreakdownBody}>
-          <div className={styles.costStack} aria-label={t('usage_stats.analysis_cost_breakdown_title')}>
-            {segments.map((segment) => {
-              const percent = totalCost > 0 ? (segment.value / totalCost) * 100 : 0;
-              const tooltipLines = buildCostTooltipLines(segment, percent);
-              return (
-                <span
-                  key={segment.key}
-                  className={styles.costStackSegment}
-                  style={{
-                    '--cost-segment-color': segment.color,
-                    flexBasis: `${Math.max(percent, segment.value > 0 ? 4 : 0)}%`,
-                  } as CSSProperties}
-                  tabIndex={0}
-                  aria-label={tooltipLines.join(', ')}
-                  onMouseEnter={(event) => showCostTooltip(tooltipLines, event)}
-                  onMouseMove={(event) => showCostTooltip(tooltipLines, event)}
-                  onMouseLeave={hideCostTooltip}
-                  onFocus={(event) => showCostTooltip(tooltipLines, event)}
-                  onBlur={hideCostTooltip}
-                >
-                  <span>{formatPercent(percent)}</span>
-                </span>
-              );
-            })}
-          </div>
-          {costTooltip ? (
-            <div
-              className={styles.costStackFloatingTooltip}
-              role="tooltip"
-              style={{
-                left: costTooltip.x,
-                top: costTooltip.y,
-                transform: costTooltip.placement === 'above' ? 'translateY(-100%)' : undefined,
-              }}
-            >
-              {costTooltip.lines.map((line, index) => (
-                <span key={`${index}-${line}`} className={index === 0 ? styles.costStackTooltipTitle : ''}>{line}</span>
-              ))}
-            </div>
-          ) : null}
-          <div className={styles.costRatePanel}>
-            <div className={styles.costRateMetric}>
-              <span>{t('usage_stats.total_tokens')}</span>
-              <strong>{formatCompactNumber(totalTokens)}</strong>
-            </div>
-            <div className={styles.costRateMetric}>
-              <span>{t('usage_stats.total_cost')}</span>
-              <strong>{formatUsd(totalCost)}</strong>
-            </div>
-            <div className={styles.costRateMetric}>
-              <span>{t('usage_stats.analysis_cost_per_million_tokens')}</span>
-              <strong>{formatUsd(blendedRate)}</strong>
-              <small>{t('usage_stats.analysis_blended_rate')}</small>
-            </div>
-          </div>
-          <div className={styles.costMetricGrid}>
-            {segments.map((segment) => (
-              <div key={segment.key} className={styles.costMetric}>
-                <span className={styles.costMetricDot} style={{ backgroundColor: segment.color }} />
-                <span className={styles.costMetricLabel}>{segment.label}</span>
-                <strong>{formatUsd(segment.value)}</strong>
-                <small>{formatPercent(totalCost > 0 ? (segment.value / totalCost) * 100 : 0)}</small>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </section>
-  );
 }
 
 type EfficiencyPoint = {
@@ -1829,41 +1187,21 @@ const getEfficiencyPalette = (index: number) => {
 
 const getEfficiencyColor = (index: number) => getEfficiencyPalette(index).base;
 
-const getNearestRankPercentile = (values: number[], percentile: number) => {
-  const sortedValues = values
-    .filter((value) => Number.isFinite(value) && value > 0)
-    .sort((a, b) => a - b);
-  if (sortedValues.length === 0) return 0;
-  const index = Math.min(sortedValues.length - 1, Math.max(0, Math.ceil(percentile * sortedValues.length) - 1));
-  return sortedValues[index];
-};
-
 const buildModelEfficiencyRadii = (values: number[]) => {
   const positiveValues = values.filter((value) => Number.isFinite(value) && value > 0);
   if (positiveValues.length === 0) {
     return values.map(() => MODEL_EFFICIENCY_MIN_RADIUS);
   }
-  const minValue = Math.min(...positiveValues);
   const maxValue = Math.max(...positiveValues);
-  if (minValue === maxValue) {
-    const radius = (MODEL_EFFICIENCY_MIN_RADIUS + MODEL_EFFICIENCY_MAX_RADIUS) / 2;
-    return values.map((value) => (value > 0 ? radius : MODEL_EFFICIENCY_MIN_RADIUS));
-  }
+  const minArea = MODEL_EFFICIENCY_MIN_RADIUS ** 2;
+  const maxArea = MODEL_EFFICIENCY_MAX_RADIUS ** 2;
+  const areaRange = Math.max(maxArea - minArea, Number.EPSILON);
 
-  // 用 log 压缩头部模型，并在明显离群时把参考上限拉回到头部和长尾之间。
-  const p90Value = getNearestRankPercentile(positiveValues, 0.9);
-  const referenceMax = p90Value > 0 && maxValue > p90Value * MODEL_EFFICIENCY_OUTLIER_RATIO
-    ? Math.sqrt(maxValue * p90Value)
-    : maxValue;
-  const logMin = Math.log(minValue + 1);
-  const logMax = Math.log(Math.max(referenceMax, minValue * 1.1) + 1);
-  const logRange = Math.max(logMax - logMin, Number.EPSILON);
+  // 面积按 Token 数线性增长，半径取平方根，既保留数量比例又让长尾模型保持可见。
   return values.map((value) => {
     if (!Number.isFinite(value) || value <= 0) return MODEL_EFFICIENCY_MIN_RADIUS;
-    const clampedValue = Math.min(value, referenceMax);
-    const normalized = Math.max(0, Math.min(1, (Math.log(clampedValue + 1) - logMin) / logRange));
-    const eased = Math.pow(normalized, MODEL_EFFICIENCY_RADIUS_EASING);
-    const radius = MODEL_EFFICIENCY_MIN_RADIUS + eased * (MODEL_EFFICIENCY_MAX_RADIUS - MODEL_EFFICIENCY_MIN_RADIUS);
+    const normalized = Math.max(0, Math.min(1, value / maxValue));
+    const radius = Math.sqrt(minArea + normalized * areaRange);
     return Number(radius.toFixed(2));
   });
 };
@@ -2011,7 +1349,7 @@ function ModelEfficiencyCard({ rows, loading, isDark, isMobile }: { rows: Analys
     costPerMillion: t('usage_stats.analysis_cost_per_million_tokens'),
     requests: t('usage_stats.requests_count'),
   }), [t]);
-  const pointRadii = useMemo(() => buildModelEfficiencyRadii(pricedRows.map((row) => toNumber(row.requests))), [pricedRows]);
+  const pointRadii = useMemo(() => buildModelEfficiencyRadii(pricedRows.map((row) => toNumber(row.total_tokens))), [pricedRows]);
   const chartData = useMemo<ChartData<'scatter', EfficiencyPoint[], string>>(() => ({
     labels: pricedRows.map((row) => row.model),
     datasets: [{
@@ -2089,7 +1427,7 @@ function ModelEfficiencyCard({ rows, loading, isDark, isMobile }: { rows: Analys
   const hasPricedData = pricedRows.length > 0;
   const hasUnavailableCost = rows.some((row) => row.cost_available === false);
   return (
-    <section className={`${styles.analysisCard} ${styles.modelEfficiencyCard} keeper-card-surface`}>
+    <section className={`${styles.analysisCard} keeper-card-surface`}>
       <AnalysisCardHeader
         title={t('usage_stats.analysis_model_efficiency_title')}
         subtitle={t('usage_stats.analysis_model_efficiency_subtitle')}
@@ -2356,10 +1694,10 @@ export function AnalysisPanel({
 }: AnalysisPanelProps) {
   const { t } = useTranslation();
   const tokenRows = useMemo(() => buildTokenUsageRows(analysis?.token_usage ?? [], analysis?.granularity ?? 'hourly', analysis?.timezone), [analysis]);
-  const apiComposition = useMemo(() => takeMajorComposition(analysis?.api_key_composition ?? [], t('usage_stats.analysis_others')), [analysis, t]);
-  const modelComposition = useMemo(() => takeMajorComposition(analysis?.model_composition ?? [], t('usage_stats.analysis_others')), [analysis, t]);
-  const authFilesComposition = useMemo(() => takeMajorComposition(analysis?.auth_files_composition ?? [], t('usage_stats.analysis_others')), [analysis, t]);
-  const aiProviderComposition = useMemo(() => takeMajorComposition(analysis?.ai_provider_composition ?? [], t('usage_stats.analysis_others')), [analysis, t]);
+  const apiComposition = analysis?.api_key_composition ?? EMPTY_COMPOSITION_ITEMS;
+  const modelComposition = analysis?.model_composition ?? EMPTY_COMPOSITION_ITEMS;
+  const authFilesComposition = analysis?.auth_files_composition ?? EMPTY_COMPOSITION_ITEMS;
+  const aiProviderComposition = analysis?.ai_provider_composition ?? EMPTY_COMPOSITION_ITEMS;
   const analysisWindowMinutes = useMemo(() => calculateAnalysisWindowMinutes(analysis), [analysis]);
   const compositionTabs = useMemo<CompositionTab[]>(() => {
     const tabs: Record<AnalysisCompositionDimension, CompositionTab> = {
@@ -2373,21 +1711,24 @@ export function AnalysisPanel({
 
   return (
     <div className={styles.analysisPanel}>
-      <TokenUsageChart rows={tokenRows} loading={loading} isDark={isDark} isMobile={isMobile} />
+      <TokenUsageChart rows={tokenRows} breakdown={analysis?.cost_breakdown} loading={loading} isDark={isDark} isMobile={isMobile} />
       <div className={styles.insightGrid}>
-        <CostBreakdownCard breakdown={analysis?.cost_breakdown} rows={tokenRows} loading={loading} />
+        <CompositionPanel tabs={compositionTabs} loading={loading} isDark={isDark} windowMinutes={analysisWindowMinutes} />
+        <TopModelsCard
+          modelUsage={analysis?.model_usage}
+          composition={modelComposition}
+          windowMinutes={analysisWindowMinutes}
+          granularity={analysis?.granularity ?? 'hourly'}
+          timezone={analysis?.timezone}
+          loading={loading}
+          isDark={isDark}
+          isMobile={isMobile}
+        />
+      </div>
+      <div className={styles.insightGrid}>
+        <LatencyDiagnosticsCard diagnostics={latencyDiagnostics} loading={latencyLoading} error={latencyError} isDark={isDark} isMobile={isMobile} />
         <ModelEfficiencyCard rows={analysis?.model_efficiency ?? []} loading={loading} isDark={isDark} isMobile={isMobile} />
       </div>
-      <TopModelsCard
-        modelUsage={analysis?.model_usage}
-        granularity={analysis?.granularity ?? 'hourly'}
-        timezone={analysis?.timezone}
-        loading={loading}
-        isDark={isDark}
-        isMobile={isMobile}
-      />
-      <LatencyDiagnosticsCard diagnostics={latencyDiagnostics} loading={latencyLoading} error={latencyError} isDark={isDark} isMobile={isMobile} />
-      <CompositionPanel tabs={compositionTabs} loading={loading} isDark={isDark} windowMinutes={analysisWindowMinutes} />
       <Heatmap cells={analysis?.heatmap?.cells ?? []} apiKeys={analysis?.heatmap?.api_keys ?? []} apiKeyLabels={analysis?.heatmap?.api_key_labels ?? {}} models={analysis?.heatmap?.models ?? []} loading={loading} isDark={isDark} />
     </div>
   );

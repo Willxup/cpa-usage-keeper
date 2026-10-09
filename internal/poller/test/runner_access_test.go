@@ -3,6 +3,7 @@ package poller_test
 import (
 	"context"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 	"unsafe"
@@ -31,12 +32,7 @@ func setUnexportedField(t *testing.T, target any, name string, value any) {
 
 func requireDurations(t *testing.T, got []time.Duration, want []time.Duration) {
 	t.Helper()
-	if len(got) != len(want) {
+	if !slices.Equal(got, want) {
 		t.Fatalf("unexpected delays: got %v want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("unexpected delays: got %v want %v", got, want)
-		}
 	}
 }

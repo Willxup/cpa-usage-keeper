@@ -1,0 +1,68 @@
+.surface {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.base, .lens, .rim {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.base {
+  // Demo 的 3px 方框模糊对应约 2px 的高斯标准差。
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+// 折射完成后再覆盖 Demo 的薄渐变；避免把不透明底色一起折射成厚重边框。
+.surface::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--bg-primary) 38%, transparent), color-mix(in srgb, var(--bg-primary) 22%, transparent) 48%, color-mix(in srgb, var(--bg-primary) 32%, transparent));
+  box-shadow: inset 0 1px 1px rgb(255 255 255 / 90%), inset 1px 0 1px rgb(255 255 255 / 58%), inset 0 -1px 1px color-mix(in srgb, var(--text-primary) 16%, transparent);
+}
+
+.surface::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  z-index: 1;
+  border-radius: inherit;
+  box-shadow: inset 0 2px 3px rgb(255 255 255 / 48%), inset 0 -2px 3px rgb(255 255 255 / 36%);
+}
+
+.rim {
+  z-index: 2;
+  padding: 1px;
+  background: linear-gradient(135deg, #fff, rgb(255 255 255 / 20%) 26%, color-mix(in srgb, var(--text-primary) 14%, transparent) 46%, rgb(255 255 255 / 85%) 74%, rgb(255 255 255 / 30%));
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+}
+
+.filter { position: absolute; width: 0; height: 0; }
+
+:global([data-theme='dark']) {
+  .surface::before {
+    background: linear-gradient(135deg, color-mix(in srgb, var(--bg-primary) 28%, transparent), color-mix(in srgb, var(--bg-primary) 20%, transparent) 48%, color-mix(in srgb, var(--bg-primary) 25%, transparent));
+    box-shadow: inset 0 1px 1px rgb(255 255 255 / 40%), inset 1px 0 1px rgb(255 255 255 / 20%), inset 0 -1px 1px rgb(0 0 0 / 40%);
+  }
+  .surface::after { box-shadow: inset 0 2px 3px rgb(255 255 255 / 10%), inset 0 -2px 3px rgb(255 255 255 / 5%); }
+  .rim { background: linear-gradient(135deg, rgb(255 255 255 / 52%), rgb(255 255 255 / 5%) 26%, rgb(0 0 0 / 25%) 46%, rgb(255 255 255 / 24%) 74%, rgb(255 255 255 / 10%)); }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .base { background: var(--bg-primary); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .lens { display: none; }
+}
+@supports not (backdrop-filter: blur(1px)) {
+  .base { background: var(--bg-primary); }
+  .lens { display: none; }
+}

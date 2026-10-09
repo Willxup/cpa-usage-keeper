@@ -139,6 +139,9 @@ func loadState(ctx context.Context, db *gorm.DB) (State, error) {
 }
 
 func validateState(state State) error {
+	if state.Banned && state.Status != StatusDeleted {
+		return fmt.Errorf("%w: banned identity must remain deleted", ErrInvalidState)
+	}
 	switch state.Status {
 	case StatusDisabled:
 		if state != (State{Status: StatusDisabled}) {

@@ -28,7 +28,7 @@ type codexQuotaHistoryInput struct {
 	Snapshot *UsageHeaderSnapshot
 	// Observations 是主动查询成功后构造的最多两条主额度事实；该切片所有权随入队转交 runner。
 	Observations []repositorydto.CodexMainQuotaObservation
-	// IdentityVerified 表示主动查询入口已经确认活跃 Codex Auth File；Header 来源固定为 false 并批量回查。
+	// IdentityVerified 表示主动查询入口已确认对应 provider 的活跃 Auth File；Header 来源固定为 false 并批量回查。
 	IdentityVerified bool
 	// Source 决定 Header/可信队列分流、同账号角色 Header 替代、校准权限与失败日志，不写入数据库。
 	Source RefreshSource
@@ -44,11 +44,13 @@ type codexQuotaHistoryCandidate struct {
 	Source RefreshSource
 }
 
-// codexQuotaHistoryStateKey 只标识一个账号的一个主额度角色，用于当前周期比较缓存。
+// codexQuotaHistoryStateKey 以 provider、账号和额度键隔离当前周期比较缓存。
 type codexQuotaHistoryStateKey struct {
+	Provider string
+	QuotaKey string
 	// AuthIndex 是 CPA OAuth Auth File 稳定账号键。
 	AuthIndex string
-	// WindowRole 只允许 primary/secondary；周期切换不会改变这个缓存键。
+	// WindowRole 只允许 primary/secondary；额度键由 provider 与角色映射得出。
 	WindowRole string
 }
 
@@ -78,7 +80,7 @@ type codexQuotaHistoryCurrentState struct {
 type codexQuotaHistoryWriter func(context.Context, *gorm.DB, []repositorydto.CodexMainQuotaObservation) error
 
 // codexQuotaHistoryLoader 抽象 writer 状态恢复，保证缓存失效后数据库仍是最终事实。
-type codexQuotaHistoryLoader func(context.Context, *gorm.DB, string, string) (repositorydto.CodexQuotaHistoryState, error)
+type codexQuotaHistoryLoader func(context.Context, *gorm.DB, string, string, string) (repositorydto.CodexQuotaHistoryState, error)
 
 // codexQuotaHistoryIdentityLister 批量读取活跃 Auth File，Header observation 只有通过后才能进入状态机。
 type codexQuotaHistoryIdentityLister func(context.Context, *gorm.DB, []string) ([]entities.UsageIdentity, error)
@@ -131,7 +133,7 @@ func splitPreferredCodexQuotaHistoryCandidates(candidates []codexQuotaHistoryCan
 		}
 		trusted = append(trusted, candidate)
 		key := codexQuotaHistoryCandidateStateKey(candidate)
-		if key.AuthIndex != "" && (key.WindowRole == "primary" || key.WindowRole == "secondary") {
+		if key.AuthIndex != "" && key.QuotaKey != "" {
 			trustedKeys[key] = struct{}{}
 		}
 	}
@@ -155,9 +157,20 @@ func splitPreferredCodexQuotaHistoryCandidates(candidates []codexQuotaHistoryCan
 
 // codexQuotaHistoryCandidateStateKey 统一规范 runner 分流与状态缓存使用的账号角色键。
 func codexQuotaHistoryCandidateStateKey(candidate codexQuotaHistoryCandidate) codexQuotaHistoryStateKey {
+	provider := strings.ToLower(strings.TrimSpace(candidate.Observation.Provider))
+	if provider == "" {
+		provider = "codex"
+	}
+	role := strings.ToLower(strings.TrimSpace(candidate.Observation.WindowRole))
+	quotaKey, ok := repositorydto.QuotaWindowKey(provider, role)
+	if !ok || (candidate.Observation.QuotaKey != "" && candidate.Observation.QuotaKey != quotaKey) {
+		quotaKey = ""
+	}
 	return codexQuotaHistoryStateKey{
+		Provider:   provider,
+		QuotaKey:   quotaKey,
 		AuthIndex:  strings.TrimSpace(candidate.Observation.AuthIndex),
-		WindowRole: strings.ToLower(strings.TrimSpace(candidate.Observation.WindowRole)),
+		WindowRole: role,
 	}
 }
 
@@ -202,7 +215,7 @@ func codexQuotaHistorySourceIsAuthoritative(source RefreshSource) bool {
 func (s *Service) loadCodexQuotaHistoryCurrentState(key codexQuotaHistoryStateKey) (codexQuotaHistoryCurrentState, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), codexQuotaHistoryDatabaseTimeout)
 	defer cancel()
-	recovered, err := s.codexQuotaHistoryLoad(ctx, s.db, key.AuthIndex, key.WindowRole)
+	recovered, err := s.codexQuotaHistoryLoad(ctx, s.db, key.Provider, key.AuthIndex, key.WindowRole)
 	if err != nil {
 		return codexQuotaHistoryCurrentState{}, err
 	}

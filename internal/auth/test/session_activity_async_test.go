@@ -18,10 +18,7 @@ func TestTouchDoesNotWaitForActivityPersistence(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 
-	var releaseOnce sync.Once
-	releaseWrite := func() {
-		releaseOnce.Do(func() { close(release) })
-	}
+	releaseWrite := sync.OnceFunc(func() { close(release) })
 	t.Cleanup(releaseWrite)
 
 	touchResult := make(chan bool, 1)

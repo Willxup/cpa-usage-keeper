@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	. "cpa-usage-keeper/internal/api"
@@ -15,7 +14,7 @@ import (
 func TestPricingRulesGETReturnsModelAndNormalizedRules(t *testing.T) {
 	provider := &pricingStub{rules: []servicedto.PricingRule{{Key: "service_tier", Value: "priority", Multiplier: 2}}}
 	router := NewRouter(nil, nil, nil, provider, AuthConfig{}, nil, "")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/pricing/rules?model=openai%2Fgpt-5.6", nil)
+	req := newPricingRequest(http.MethodGet, "/api/v1/pricing/rules?model=openai%2Fgpt-5.6", "")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -33,9 +32,7 @@ func TestPricingRulesPUTPreservesOmittedNullAndExplicitZeroMultipliers(t *testin
 		t.Run(name, func(t *testing.T) {
 			provider := &pricingStub{rules: []servicedto.PricingRule{{Key: "service_tier", Value: "priority", Multiplier: 1}}}
 			router := NewRouter(nil, nil, nil, provider, AuthConfig{}, nil, "")
-			req := httptest.NewRequest(http.MethodPut, "/api/v1/pricing/rules", strings.NewReader(body))
-			req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
-			req.Header.Set("Content-Type", "application/json")
+			req := newPricingRequest(http.MethodPut, "/api/v1/pricing/rules", body)
 			resp := httptest.NewRecorder()
 			router.ServeHTTP(resp, req)
 
@@ -57,9 +54,7 @@ func TestPricingRulesPUTPreservesOmittedNullAndExplicitZeroMultipliers(t *testin
 func TestPricingRulesPUTAllowsEmptyArrayToClearRules(t *testing.T) {
 	provider := &pricingStub{rules: []servicedto.PricingRule{}}
 	router := NewRouter(nil, nil, nil, provider, AuthConfig{}, nil, "")
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/pricing/rules", strings.NewReader(`{"model":"model-a","rules":[]}`))
-	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
-	req.Header.Set("Content-Type", "application/json")
+	req := newPricingRequest(http.MethodPut, "/api/v1/pricing/rules", `{"model":"model-a","rules":[]}`)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -87,11 +82,7 @@ func TestPricingRulesRoutesMapValidationAndMissingModelErrors(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			provider := &pricingStub{err: test.providerErr}
 			router := NewRouter(nil, nil, nil, provider, AuthConfig{}, nil, "")
-			req := httptest.NewRequest(test.method, test.url, strings.NewReader(test.body))
-			if test.method == http.MethodPut {
-				req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
-				req.Header.Set("Content-Type", "application/json")
-			}
+			req := newPricingRequest(test.method, test.url, test.body)
 			resp := httptest.NewRecorder()
 			router.ServeHTTP(resp, req)
 			if resp.Code != test.want {
@@ -106,9 +97,7 @@ func TestPricingRulesPUTRejectsNonJSONFiniteNumbers(t *testing.T) {
 		provider := &pricingStub{}
 		router := NewRouter(nil, nil, nil, provider, AuthConfig{}, nil, "")
 		body := `{"model":"model-a","rules":[{"key":"service_tier","value":"priority","multiplier":` + value + `}]}`
-		req := httptest.NewRequest(http.MethodPut, "/api/v1/pricing/rules", strings.NewReader(body))
-		req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
-		req.Header.Set("Content-Type", "application/json")
+		req := newPricingRequest(http.MethodPut, "/api/v1/pricing/rules", body)
 		resp := httptest.NewRecorder()
 		router.ServeHTTP(resp, req)
 		if resp.Code != http.StatusBadRequest || provider.lastRules != nil {
@@ -121,7 +110,7 @@ func TestPricingRulesRoutesRequireAdminAuthentication(t *testing.T) {
 	provider := &pricingStub{err: errors.New("must not be called")}
 	config := AuthConfig{Enabled: true, LoginPassword: "secret"}
 	router := NewRouter(nil, nil, nil, provider, config, NewAuthHandler(config, nil), "")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/pricing/rules?model=model-a", nil)
+	req := newPricingRequest(http.MethodGet, "/api/v1/pricing/rules?model=model-a", "")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	if resp.Code != http.StatusUnauthorized {

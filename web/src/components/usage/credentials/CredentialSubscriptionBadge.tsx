@@ -18,6 +18,8 @@ const BADGE_PRESENTATIONS: Record<SubscriptionBadgeKind, BadgePresentation> = {
   'claude-free': { className: styles.credentialPlanBadgeFree, hasPremiumMotion: false },
   'claude-pro': { className: styles.credentialPlanBadgePlus, hasPremiumMotion: true },
   'claude-max': { className: styles.credentialPlanBadgePro20x, hasPremiumMotion: true },
+  'claude-max5x': { className: styles.credentialPlanBadgePro5x, hasPremiumMotion: true },
+  'claude-max20x': { className: styles.credentialPlanBadgePro20x, hasPremiumMotion: true },
   'claude-team': { className: styles.credentialPlanBadgeTeam, hasPremiumMotion: true },
   'antigravity-free': { className: styles.credentialPlanBadgeFree, hasPremiumMotion: false },
   'antigravity-pro': { className: styles.credentialPlanBadgePlus, hasPremiumMotion: true },

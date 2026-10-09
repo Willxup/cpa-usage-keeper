@@ -10,6 +10,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,10 +26,7 @@ func TestOfficialCenterURLUsesKeeperDomain(t *testing.T) {
 }
 
 func TestCenterClientRegistersWithCompatibleSignature(t *testing.T) {
-	identity, err := ranking.GenerateIdentity(rand.Reader)
-	if err != nil {
-		t.Fatalf("GenerateIdentity returned error: %v", err)
-	}
+	identity := rankingIdentityForTest(t)
 	now := time.Date(2026, 7, 24, 3, 4, 5, 6, time.UTC)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
@@ -52,10 +52,7 @@ func TestCenterClientRegistersWithCompatibleSignature(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := ranking.NewClientWithBaseURL(server.URL, server.Client())
-	if err != nil {
-		t.Fatalf("NewClientWithBaseURL returned error: %v", err)
-	}
+	client := centerClientForServer(t, server)
 	participant, err := client.Register(context.Background(), ranking.RegistrationCommand{
 		Credentials:    ranking.Credentials{PublicKey: identity.PublicKey, PrivateKey: identity.PrivateKey},
 		IdempotencyKey: "registration_once",
@@ -72,10 +69,7 @@ func TestCenterClientRegistersWithCompatibleSignature(t *testing.T) {
 }
 
 func TestCenterClientReportsAllMetricsAndMapsDeletedTombstone(t *testing.T) {
-	identity, err := ranking.GenerateIdentity(rand.Reader)
-	if err != nil {
-		t.Fatalf("GenerateIdentity returned error: %v", err)
-	}
+	identity := rankingIdentityForTest(t)
 	now := time.Date(2026, 7, 24, 4, 5, 6, 7, time.UTC)
 	sequence := int64(9)
 
@@ -113,11 +107,8 @@ func TestCenterClientReportsAllMetricsAndMapsDeletedTombstone(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := ranking.NewClientWithBaseURL(server.URL, server.Client())
-	if err != nil {
-		t.Fatalf("NewClientWithBaseURL returned error: %v", err)
-	}
-	_, err = client.SubmitReport(context.Background(), ranking.ReportCommand{
+	client := centerClientForServer(t, server)
+	_, err := client.SubmitReport(context.Background(), ranking.ReportCommand{
 		Credentials: ranking.Credentials{
 			PublicKey: identity.PublicKey, PrivateKey: identity.PrivateKey, ParticipantID: "p_example",
 		},
@@ -135,11 +126,47 @@ func TestCenterClientReportsAllMetricsAndMapsDeletedTombstone(t *testing.T) {
 	}
 }
 
-func TestCenterClientDoesNotMapServerFailureToDeletedTombstone(t *testing.T) {
+func TestCenterClientPreservesExplicitBanFeedback(t *testing.T) {
 	identity, err := ranking.GenerateIdentity(rand.Reader)
 	if err != nil {
-		t.Fatalf("GenerateIdentity returned error: %v", err)
+		t.Fatal(err)
 	}
+	credentials := ranking.Credentials{PublicKey: identity.PublicKey, PrivateKey: identity.PrivateKey, ParticipantID: "p_example"}
+	now := time.Now().UTC()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if request.Method == http.MethodGet {
+			_, _ = io.WriteString(w, `{"participant_id":"p_example","status":"deleted","banned":true}`)
+			return
+		}
+		if request.Method == http.MethodDelete {
+			_ = json.NewEncoder(w).Encode(map[string]any{"participant_id": "p_example", "sequence": 1, "deleted_at": now, "banned": true})
+			return
+		}
+		w.WriteHeader(http.StatusGone)
+		_, _ = io.WriteString(w, `{"error":"participant_deleted","banned":true}`)
+	}))
+	defer server.Close()
+	client, err := ranking.NewClientWithBaseURL(server.URL, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	self, err := client.Self(context.Background(), credentials, now)
+	if err != nil || self.Status != "deleted" || !self.Banned {
+		t.Fatalf("Self status=%s banned=%t error=%v", self.Status, self.Banned, err)
+	}
+	_, err = client.SubmitReport(context.Background(), ranking.ReportCommand{Credentials: credentials, Sequence: 1, IdempotencyKey: "ban_report", SnapshotAt: now, PeriodTimezone: "Asia/Shanghai", DayKey: "2026-09-11"})
+	if !errors.Is(err, ranking.ErrParticipantBanned) || !errors.Is(err, ranking.ErrParticipantDeleted) {
+		t.Fatalf("report did not preserve ban and legacy deletion: %v", err)
+	}
+	receipt, err := client.Delete(context.Background(), ranking.DeleteCommand{Credentials: credentials, Sequence: 1, IdempotencyKey: "ban_exit", RequestedAt: now})
+	if err != nil || !receipt.Banned {
+		t.Fatalf("Delete banned=%t error=%v", receipt.Banned, err)
+	}
+}
+
+func TestCenterClientDoesNotMapServerFailureToDeletedTombstone(t *testing.T) {
+	identity := rankingIdentityForTest(t)
 	now := time.Date(2026, 7, 24, 4, 5, 6, 0, time.UTC)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -149,11 +176,8 @@ func TestCenterClientDoesNotMapServerFailureToDeletedTombstone(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := ranking.NewClientWithBaseURL(server.URL, server.Client())
-	if err != nil {
-		t.Fatalf("NewClientWithBaseURL returned error: %v", err)
-	}
-	_, err = client.SubmitReport(context.Background(), ranking.ReportCommand{
+	client := centerClientForServer(t, server)
+	_, err := client.SubmitReport(context.Background(), ranking.ReportCommand{
 		Credentials: ranking.Credentials{
 			PublicKey: identity.PublicKey, PrivateKey: identity.PrivateKey, ParticipantID: "p_example",
 		},
@@ -186,10 +210,7 @@ func TestCenterClientReadsLeaderboardWithKeeperMarker(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := ranking.NewClientWithBaseURL(server.URL, server.Client())
-	if err != nil {
-		t.Fatalf("NewClientWithBaseURL returned error: %v", err)
-	}
+	client := centerClientForServer(t, server)
 	board, err := client.Leaderboard(context.Background(), ranking.LeaderboardToday, ranking.MetricOverall)
 	if err != nil {
 		t.Fatalf("Leaderboard returned error: %v", err)
@@ -253,11 +274,8 @@ func TestCenterClientValidatesFixedMetadataContract(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			client, err := ranking.NewClientWithBaseURL(server.URL, server.Client())
-			if err != nil {
-				t.Fatalf("NewClientWithBaseURL returned error: %v", err)
-			}
-			_, err = client.LeaderboardMetadata(context.Background())
+			client := centerClientForServer(t, server)
+			_, err := client.LeaderboardMetadata(context.Background())
 			if test.wantErr && !errors.Is(err, ranking.ErrIncompatibleCenter) {
 				t.Fatalf("expected incompatible center error, got %v", err)
 			}
@@ -269,13 +287,10 @@ func TestCenterClientValidatesFixedMetadataContract(t *testing.T) {
 }
 
 func TestCenterClientDoesNotForwardSignedRequestAcrossRedirect(t *testing.T) {
-	identity, err := ranking.GenerateIdentity(rand.Reader)
-	if err != nil {
-		t.Fatalf("GenerateIdentity returned error: %v", err)
-	}
-	forwarded := false
+	identity := rankingIdentityForTest(t)
+	var forwarded atomic.Bool
 	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		forwarded = true
+		forwarded.Store(true)
 	}))
 	defer target.Close()
 	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
@@ -283,11 +298,8 @@ func TestCenterClientDoesNotForwardSignedRequestAcrossRedirect(t *testing.T) {
 	}))
 	defer redirect.Close()
 
-	client, err := ranking.NewClientWithBaseURL(redirect.URL, redirect.Client())
-	if err != nil {
-		t.Fatalf("NewClientWithBaseURL returned error: %v", err)
-	}
-	_, err = client.Register(context.Background(), ranking.RegistrationCommand{
+	client := centerClientForServer(t, redirect)
+	_, err := client.Register(context.Background(), ranking.RegistrationCommand{
 		Credentials:    ranking.Credentials{PublicKey: identity.PublicKey, PrivateKey: identity.PrivateKey},
 		IdempotencyKey: "registration_once", DisplayName: "Keeper_01", AvatarID: 7,
 		RequestedAt: time.Date(2026, 7, 24, 3, 4, 5, 0, time.UTC),
@@ -295,16 +307,13 @@ func TestCenterClientDoesNotForwardSignedRequestAcrossRedirect(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected redirect response to be rejected")
 	}
-	if forwarded {
+	if forwarded.Load() {
 		t.Fatal("signed ranking request was forwarded to redirect target")
 	}
 }
 
 func TestCenterClientRejectsMismatchedReportReceipt(t *testing.T) {
-	identity, err := ranking.GenerateIdentity(rand.Reader)
-	if err != nil {
-		t.Fatalf("GenerateIdentity returned error: %v", err)
-	}
+	identity := rankingIdentityForTest(t)
 	now := time.Date(2026, 7, 24, 4, 5, 6, 0, time.UTC)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -312,11 +321,8 @@ func TestCenterClientRejectsMismatchedReportReceipt(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := ranking.NewClientWithBaseURL(server.URL, server.Client())
-	if err != nil {
-		t.Fatalf("NewClientWithBaseURL returned error: %v", err)
-	}
-	_, err = client.SubmitReport(context.Background(), ranking.ReportCommand{
+	client := centerClientForServer(t, server)
+	_, err := client.SubmitReport(context.Background(), ranking.ReportCommand{
 		Credentials: ranking.Credentials{PublicKey: identity.PublicKey, PrivateKey: identity.PrivateKey, ParticipantID: "p_example"},
 		Sequence:    3, IdempotencyKey: "report_once", SnapshotAt: now, PeriodTimezone: "Asia/Shanghai", DayKey: "2026-07-24",
 	})
@@ -330,14 +336,14 @@ func assertSignedRequest(t *testing.T, request *http.Request, body []byte, encod
 	if request.Header.Get("X-Keeper-Protocol-Version") != "1" || request.Header.Get("X-Keeper-Timestamp") != input.Timestamp.Format(time.RFC3339Nano) {
 		t.Fatalf("unexpected protocol headers: %v", request.Header)
 	}
-	if input.Subject[:11] == "public-key:" {
+	if strings.HasPrefix(input.Subject, "public-key:") {
 		if request.Header.Get("X-Keeper-Public-Key") != encodedPublicKey {
 			t.Fatalf("unexpected public key header: %v", request.Header)
 		}
 	} else if request.Header.Get("X-Keeper-Participant-ID") != "p_example" {
 		t.Fatalf("unexpected participant header: %v", request.Header)
 	}
-	if input.Sequence != nil && request.Header.Get("X-Keeper-Sequence") != "9" {
+	if input.Sequence != nil && request.Header.Get("X-Keeper-Sequence") != strconv.FormatInt(*input.Sequence, 10) {
 		t.Fatalf("unexpected sequence header: %v", request.Header)
 	}
 	if input.IdempotencyKey != "" && request.Header.Get("X-Keeper-Idempotency-Key") != input.IdempotencyKey {
@@ -355,4 +361,22 @@ func assertSignedRequest(t *testing.T, request *http.Request, body []byte, encod
 	if err != nil || !ed25519.Verify(ed25519.PublicKey(publicKey), payload, signature) {
 		t.Fatalf("invalid request signature: %v", err)
 	}
+}
+
+func rankingIdentityForTest(t *testing.T) ranking.Identity {
+	t.Helper()
+	identity, err := ranking.GenerateIdentity(rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateIdentity: %v", err)
+	}
+	return identity
+}
+
+func centerClientForServer(t *testing.T, server *httptest.Server) *ranking.Client {
+	t.Helper()
+	client, err := ranking.NewClientWithBaseURL(server.URL, server.Client())
+	if err != nil {
+		t.Fatalf("NewClientWithBaseURL: %v", err)
+	}
+	return client
 }

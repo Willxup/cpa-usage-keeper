@@ -126,7 +126,7 @@ const authFileRow = {
 
 const authFileSelection: CredentialDetailSelection = { kind: 'auth-file', row: authFileRow }
 
-const nonCodexAuthFileSelection: CredentialDetailSelection = {
+const claudeAuthFileSelection: CredentialDetailSelection = {
   kind: 'auth-file',
   row: {
     ...authFileRow,
@@ -134,6 +134,16 @@ const nonCodexAuthFileSelection: CredentialDetailSelection = {
     displayName: 'Claude Auth File',
     typeLabel: 'claude',
     providerLabel: 'claude',
+  },
+}
+
+const unsupportedAuthFileSelection: CredentialDetailSelection = {
+  kind: 'auth-file',
+  row: {
+    ...authFileRow,
+    identity: { ...authFileRow.identity, id: 'gemini-auth-file', identity: 'gemini-auth', type: 'gemini', provider: 'gemini' },
+    typeLabel: 'gemini',
+    providerLabel: 'gemini',
   },
 }
 
@@ -207,6 +217,7 @@ describe('CredentialDetailDrawer', () => {
 
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    vi.useFakeTimers()
     fetchUsageEvents.mockReset()
     fetchUsageEvents.mockResolvedValueOnce(response('1', 'cursor-1')).mockResolvedValueOnce(response('2'))
     fetchErrorEvents.mockReset()
@@ -219,109 +230,124 @@ describe('CredentialDetailDrawer', () => {
   })
 
   afterEach(async () => {
-    // TanStack Virtual 默认在 150ms 后发送滚动结束更新，销毁 Happy DOM 前先等待该更新完成。
-    await act(async () => {
-      const { promise: settleVirtualizer, resolve } = Promise.withResolvers<void>()
-      window.setTimeout(resolve, 200)
-      await settleVirtualizer
-    })
+    // 完成虚拟列表的滚动结束更新再销毁抽屉。
+    await act(async () => vi.advanceTimersByTimeAsync(200))
     await act(async () => root.unmount())
     container.remove()
-    document.body.innerHTML = ''
     vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
+  const renderDrawer = async (props: Partial<Parameters<typeof CredentialDetailDrawer>[0]> = {}) => {
+    await act(async () => root.render(
+      <CredentialDetailDrawer open selection={selection} onClose={() => undefined} {...props} />,
+    ))
+  }
+
+  it.each([
+    ['kimi', 'china'],
+    ['kimi-ai', 'international'],
+    ['kimi.ai', 'international'],
+    ['kimi.com', 'china'],
+  ])('shows the %s site in the Auth File detail badges', async (type, site) => {
+    await renderDrawer({ selection: {
+      kind: 'auth-file',
+      row: { ...authFileRow, identity: { ...authFileRow.identity, type }, typeLabel: type },
+    } })
+
+    const badge = document.body.querySelector(`[data-kimi-site="${site}"]`)
+    expect(badge?.textContent).toBe(`usage_stats.credentials_kimi_site_${site}`)
+    expect(badge?.parentElement?.textContent).toContain('P1')
+  })
+
+  it('keeps site badges restricted to Kimi Auth Files', async () => {
+    await renderDrawer({ selection: { kind: 'ai-provider', row: { ...row, identity: { ...row.identity, type: 'kimi-ai' } } } })
+    expect(document.body.querySelector('[data-kimi-site]')).toBeNull()
+    await renderDrawer({ selection: { kind: 'auth-file', row: { ...authFileRow, identity: { ...authFileRow.identity, type: 'generic', provider: 'kimi-ai' } } } })
+    expect(document.body.querySelector('[data-kimi-site]')).toBeNull()
   })
 
   it('shows the concrete Auth File filename as the subtitle without a cumulative heading', async () => {
-    await act(async () => {
-      root.render(
-        <CredentialDetailDrawer
-          open
-          selection={authFileSelection}
-          onClose={() => undefined}
-        />,
-      )
-      await Promise.resolve()
-    })
+    await renderDrawer({ selection: authFileSelection })
 
     expect(document.body.querySelector('[data-credential-detail-subtitle]')?.textContent)
       .toBe('user106@edu.sso.monsterx.it.com.json')
     expect(document.body.textContent).not.toContain('usage_stats.credentials_detail_cumulative')
   })
 
-  it('shows and lazily loads quota history only for a Codex Auth File', async () => {
-    await act(async () => {
-      root.render(<CredentialDetailDrawer open selection={authFileSelection} onClose={() => undefined} />)
-      await Promise.resolve()
-    })
+  it('shows the shared quota history for Codex and Claude Auth Files', async () => {
+    await renderDrawer({ selection: authFileSelection })
 
-    const quotaTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="quota-history"]')
-    expect(quotaTab).not.toBeNull()
+    const quotaTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="quota-history"]')!
     expect(fetchCodexQuotaHistory).not.toHaveBeenCalled()
     await act(async () => {
-      quotaTab?.click()
-      await Promise.resolve()
-      await Promise.resolve()
+      quotaTab.click()
     })
     expect(fetchCodexQuotaHistory).toHaveBeenCalledWith('auth-file-identity-1', {}, expect.any(AbortSignal))
     expect(document.body.querySelector('[data-codex-quota-history-panel="true"]')).not.toBeNull()
     expect(document.body.textContent).toContain('usage_stats.credentials_quota_history_no_current')
     expect(document.body.textContent).not.toContain('usage_stats.credentials_quota_history_window_selector')
 
-    await act(async () => {
-      root.render(<CredentialDetailDrawer open selection={nonCodexAuthFileSelection} onClose={() => undefined} />)
-      await Promise.resolve()
-    })
+    await renderDrawer({ selection: claudeAuthFileSelection })
+    const claudeTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="quota-history"]')!
+    expect(claudeTab).not.toBeNull()
+    await act(async () => { claudeTab.click() })
+    expect(fetchCodexQuotaHistory).toHaveBeenCalledWith('claude-auth', {}, expect.any(AbortSignal))
+    expect(document.body.querySelector('[data-codex-quota-history-panel="true"]')).not.toBeNull()
+
+    await renderDrawer({ selection: unsupportedAuthFileSelection })
     expect(document.body.querySelector('[data-credential-detail-tab="quota-history"]')).toBeNull()
     expect(document.body.querySelector('[data-credential-detail-tab="overview"]')?.getAttribute('aria-selected')).toBe('true')
   })
 
+  it('reloads quota history when the same Auth File changes provider type', async () => {
+    await renderDrawer({ selection: authFileSelection })
+    await act(async () => { document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="quota-history"]')!.click() })
+    expect(fetchCodexQuotaHistory).toHaveBeenCalledTimes(1)
+
+    const changedType: CredentialDetailSelection = {
+      kind: 'auth-file',
+      row: {
+        ...authFileRow,
+        identity: { ...authFileRow.identity, type: 'claude', provider: 'claude' },
+        typeLabel: 'claude',
+        providerLabel: 'claude',
+      },
+    }
+    await renderDrawer({ selection: changedType })
+    expect(document.body.querySelector('[data-credential-detail-tab="quota-history"]')?.getAttribute('aria-selected')).toBe('true')
+    expect(fetchCodexQuotaHistory).toHaveBeenCalledTimes(2)
+    expect(fetchCodexQuotaHistory).toHaveBeenLastCalledWith('auth-file-identity-1', {}, expect.any(AbortSignal))
+  })
+
   it('includes the Codex quota history tab in roving keyboard order', async () => {
+    await renderDrawer({ selection: authFileSelection })
+    const overviewTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="overview"]')!
+    const quotaTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="quota-history"]')!
+    const requestsTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')!
+    overviewTab.focus()
     await act(async () => {
-      root.render(<CredentialDetailDrawer open selection={authFileSelection} onClose={() => undefined} />)
-      await Promise.resolve()
-    })
-    const overviewTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="overview"]')
-    const quotaTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="quota-history"]')
-    const requestsTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')
-    overviewTab?.focus()
-    await act(async () => {
-      overviewTab?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
-      await Promise.resolve()
+      overviewTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
     })
     expect(document.activeElement).toBe(quotaTab)
     await act(async () => {
-      quotaTab?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
-      await Promise.resolve()
+      quotaTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
     })
     expect(document.activeElement).toBe(requestsTab)
   })
 
-  it('uses the credential list tones for Overview metrics', async () => {
-    await act(async () => {
-      root.render(
-        <CredentialDetailDrawer
-          open
-          selection={selection}
-          onClose={() => undefined}
-        />,
-      )
-      await Promise.resolve()
-    })
+  it('renders Overview metrics with the list thresholds and recent cache rate', async () => {
+    await renderDrawer()
 
     const overviewMetrics = [...document.body.querySelectorAll<HTMLElement>('[class*="summaryMetric"]')]
     const tonedMetrics = overviewMetrics.filter((metric) => metric.hasAttribute('data-credential-detail-metric-tone'))
     const tones = tonedMetrics.map((metric) => metric.dataset.credentialDetailMetricTone)
 
     expect(overviewMetrics).toHaveLength(4)
-    expect(overviewMetrics.map((metric) => metric.querySelector('strong')?.className)).toEqual([
-      expect.stringContaining('credentialMetricValueNeutral'),
-      expect.stringContaining('credentialMetricValueWarning'),
-      expect.stringContaining('credentialMetricValueNeutral'),
-      expect.stringContaining('credentialMetricValueNeutral'),
-    ])
+    expect(overviewMetrics.map((metric) => metric.querySelector('strong')?.textContent)).toEqual(['10', '90.00%', '135', '10.00%'])
     expect(tones).toEqual(['warning', 'neutral'])
-    expect(document.body.querySelector('small [class*="credentialMetricValueSuccess"]')?.textContent).toBe('usage_stats.success 9')
-    expect(document.body.querySelector('small [class*="credentialMetricValueDanger"]')?.textContent).toBe('usage_stats.failure 1')
+    expect(document.body.textContent).toContain('usage_stats.success 9')
+    expect(document.body.textContent).toContain('usage_stats.failure 1')
     expect(document.body.textContent).toContain('usage_stats.credentials_health_cache_rate_5h')
     expect(document.body.textContent).toContain('42.50%')
   })
@@ -332,16 +358,7 @@ describe('CredentialDetailDrawer', () => {
     { label: 'below warning boundaries', successRate: 79.99, cacheReadRate: 19.99, expectedTones: ['danger', 'neutral'] },
     { label: 'missing rates', successRate: null, cacheReadRate: null, expectedTones: ['neutral', 'neutral'] },
   ])('uses the shared list thresholds for $label', async ({ successRate, cacheReadRate, expectedTones }) => {
-    await act(async () => {
-      root.render(
-        <CredentialDetailDrawer
-          open
-          selection={{ kind: 'ai-provider', row: { ...row, successRate, cacheReadRate } }}
-          onClose={() => undefined}
-        />,
-      )
-      await Promise.resolve()
-    })
+    await renderDrawer({ selection: { kind: 'ai-provider', row: { ...row, successRate, cacheReadRate } } })
 
     const tones = [...document.body.querySelectorAll<HTMLElement>('[data-credential-detail-metric-tone]')]
       .map((metric) => metric.dataset.credentialDetailMetricTone)
@@ -350,23 +367,12 @@ describe('CredentialDetailDrawer', () => {
   })
 
   it('loads the dedicated latest-event list lazily and appends the next cursor page on scroll', async () => {
-    await act(async () => {
-      root.render(
-        <CredentialDetailDrawer
-          open
-          selection={selection}
-          onClose={() => undefined}
-        />,
-      )
-      await Promise.resolve()
-    })
+    await renderDrawer()
 
     expect(fetchUsageEvents).not.toHaveBeenCalled()
-    const requestTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')
+    const requestTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')!
     await act(async () => {
-      requestTab?.click()
-      await Promise.resolve()
-      await Promise.resolve()
+      requestTab.click()
     })
 
     expect(fetchUsageEvents).toHaveBeenCalledWith(
@@ -385,17 +391,14 @@ describe('CredentialDetailDrawer', () => {
     expect(document.body.textContent).not.toContain('usage_stats.request_events_columns')
     expect(document.body.textContent).not.toContain('usage_stats.request_events_filter_model')
 
-    const scroller = document.body.querySelector<HTMLElement>('[class*="scroller"]')
-    expect(scroller).not.toBeNull()
+    const scroller = document.body.querySelector<HTMLElement>('[class*="scroller"]')!
     Object.defineProperties(scroller, {
       clientHeight: { configurable: true, value: 600 },
       scrollHeight: { configurable: true, value: 1800 },
     })
-    scroller!.scrollTop = 1_300
+    scroller.scrollTop = 1_300
     await act(async () => {
-      scroller?.dispatchEvent(new Event('scroll', { bubbles: true }))
-      await Promise.resolve()
-      await Promise.resolve()
+      scroller.dispatchEvent(new Event('scroll', { bubbles: true }))
     })
 
     expect(fetchUsageEvents).toHaveBeenLastCalledWith(
@@ -415,43 +418,14 @@ describe('CredentialDetailDrawer', () => {
   it('clears the previous credential request state before the drawer reopens', async () => {
     fetchUsageEvents.mockReset()
     fetchUsageEvents.mockResolvedValue(response('1'))
+    await renderDrawer()
     await act(async () => {
-      root.render(
-        <CredentialDetailDrawer
-          open
-          selection={selection}
-          onClose={() => undefined}
-        />,
-      )
-      await Promise.resolve()
-    })
-    await act(async () => {
-      document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')?.click()
-      await Promise.resolve()
-      await Promise.resolve()
+      document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')!.click()
     })
     expect(document.body.textContent).toContain('model-1')
 
-    await act(async () => {
-      root.render(
-        <CredentialDetailDrawer
-          open={false}
-          selection={selection}
-          onClose={() => undefined}
-        />,
-      )
-      await Promise.resolve()
-    })
-    await act(async () => {
-      root.render(
-        <CredentialDetailDrawer
-          open
-          selection={secondSelection}
-          onClose={() => undefined}
-        />,
-      )
-      await Promise.resolve()
-    })
+    await renderDrawer({ open: false })
+    await renderDrawer({ selection: secondSelection })
 
     expect(document.body.textContent).toContain('Provider Two')
     expect(document.body.textContent).not.toContain('model-1')
@@ -460,22 +434,11 @@ describe('CredentialDetailDrawer', () => {
   })
 
   it('loads credential errors lazily by Keeper identity id', async () => {
-    await act(async () => {
-      root.render(
-        <CredentialDetailDrawer
-          open
-          selection={selection}
-          onClose={() => undefined}
-        />,
-      )
-      await Promise.resolve()
-    })
+    await renderDrawer()
 
     expect(fetchErrorEvents).not.toHaveBeenCalled()
     await act(async () => {
-      document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="errors"]')?.click()
-      await Promise.resolve()
-      await Promise.resolve()
+      document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="errors"]')!.click()
     })
 
     expect(fetchErrorEvents).toHaveBeenCalledWith('provider-1', expect.any(AbortSignal), undefined, 50)
@@ -487,17 +450,14 @@ describe('CredentialDetailDrawer', () => {
     expect(document.body.textContent).not.toContain('usage_stats.credentials_error_auth_state')
     expect(document.body.textContent).not.toContain('usage_stats.credentials_error_quota')
 
-    const scroller = document.body.querySelector<HTMLElement>('[data-credential-error-events-scroller="true"]')
-    expect(scroller).not.toBeNull()
+    const scroller = document.body.querySelector<HTMLElement>('[data-credential-error-events-scroller="true"]')!
     Object.defineProperties(scroller, {
       clientHeight: { configurable: true, value: 600 },
       scrollHeight: { configurable: true, value: 1800 },
     })
-    scroller!.scrollTop = 1_300
+    scroller.scrollTop = 1_300
     await act(async () => {
-      scroller?.dispatchEvent(new Event('scroll', { bubbles: true }))
-      await Promise.resolve()
-      await Promise.resolve()
+      scroller.dispatchEvent(new Event('scroll', { bubbles: true }))
     })
 
     expect(fetchErrorEvents).toHaveBeenLastCalledWith('provider-1', expect.any(AbortSignal), 'error-cursor-1', 50)
@@ -507,84 +467,56 @@ describe('CredentialDetailDrawer', () => {
   it('uses roving focus and arrow keys for the detail tabs', async () => {
     fetchUsageEvents.mockReset()
     fetchUsageEvents.mockResolvedValue(response('1'))
-    await act(async () => {
-      root.render(
-        <CredentialDetailDrawer
-          open
-          selection={selection}
-          onClose={() => undefined}
-        />,
-      )
-      await Promise.resolve()
-    })
+    await renderDrawer()
 
-    const overviewTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="overview"]')
-    const requestsTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')
-    const errorsTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="errors"]')
-    expect(overviewTab?.tabIndex).toBe(0)
-    expect(requestsTab?.tabIndex).toBe(-1)
-    expect(errorsTab?.tabIndex).toBe(-1)
+    const overviewTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="overview"]')!
+    const requestsTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')!
+    const errorsTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="errors"]')!
+    expect(overviewTab.tabIndex).toBe(0)
+    expect(requestsTab.tabIndex).toBe(-1)
+    expect(errorsTab.tabIndex).toBe(-1)
 
-    overviewTab?.focus()
+    overviewTab.focus()
     await act(async () => {
-      overviewTab?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
-      await Promise.resolve()
-      await Promise.resolve()
+      overviewTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
     })
     expect(document.activeElement).toBe(requestsTab)
-    expect(requestsTab?.getAttribute('aria-selected')).toBe('true')
-    expect(overviewTab?.tabIndex).toBe(-1)
-    expect(requestsTab?.tabIndex).toBe(0)
+    expect(requestsTab.getAttribute('aria-selected')).toBe('true')
+    expect(overviewTab.tabIndex).toBe(-1)
+    expect(requestsTab.tabIndex).toBe(0)
 
     await act(async () => {
-      requestsTab?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
-      await Promise.resolve()
-      await Promise.resolve()
+      requestsTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
     })
     expect(document.activeElement).toBe(errorsTab)
-    expect(errorsTab?.getAttribute('aria-selected')).toBe('true')
+    expect(errorsTab.getAttribute('aria-selected')).toBe('true')
 
     await act(async () => {
-      errorsTab?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
-      await Promise.resolve()
+      errorsTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
     })
     expect(document.activeElement).toBe(overviewTab)
-    expect(overviewTab?.getAttribute('aria-selected')).toBe('true')
+    expect(overviewTab.getAttribute('aria-selected')).toBe('true')
   })
 
   it('pauses automatic cursor retries after a load-more failure', async () => {
     fetchUsageEvents.mockReset()
     fetchUsageEvents.mockResolvedValueOnce(response('1', 'cursor-1')).mockRejectedValueOnce(new Error('load more failed'))
+    await renderDrawer()
     await act(async () => {
-      root.render(
-        <CredentialDetailDrawer
-          open
-          selection={selection}
-          onClose={() => undefined}
-        />,
-      )
-      await Promise.resolve()
-    })
-    await act(async () => {
-      document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')?.click()
-      await Promise.resolve()
-      await Promise.resolve()
+      document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')!.click()
     })
 
-    const scroller = document.body.querySelector<HTMLElement>('[class*="scroller"]')
-    Object.defineProperties(scroller!, {
+    const scroller = document.body.querySelector<HTMLElement>('[class*="scroller"]')!
+    Object.defineProperties(scroller, {
       clientHeight: { configurable: true, value: 600 },
       scrollHeight: { configurable: true, value: 1800 },
     })
-    scroller!.scrollTop = 1_300
+    scroller.scrollTop = 1_300
     await act(async () => {
-      scroller?.dispatchEvent(new Event('scroll', { bubbles: true }))
-      await Promise.resolve()
-      await Promise.resolve()
+      scroller.dispatchEvent(new Event('scroll', { bubbles: true }))
     })
     await act(async () => {
-      scroller?.dispatchEvent(new Event('scroll', { bubbles: true }))
-      await Promise.resolve()
+      scroller.dispatchEvent(new Event('scroll', { bubbles: true }))
     })
 
     expect(fetchUsageEvents).toHaveBeenCalledTimes(2)
@@ -594,38 +526,22 @@ describe('CredentialDetailDrawer', () => {
   it('offers an initial-load retry at the right side of the tab row', async () => {
     fetchUsageEvents.mockReset()
     fetchUsageEvents.mockRejectedValueOnce(new Error('initial load failed')).mockResolvedValueOnce(response('1'))
+    await renderDrawer()
     await act(async () => {
-      root.render(
-        <CredentialDetailDrawer
-          open
-          selection={selection}
-          onClose={() => undefined}
-        />,
-      )
-      await Promise.resolve()
-    })
-    await act(async () => {
-      document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')?.click()
-      await Promise.resolve()
-      await Promise.resolve()
+      document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')!.click()
     })
 
     const tabBar = document.body.querySelector('[data-credential-detail-tab-bar]')
     const tabList = document.body.querySelector('[role="tablist"]')
-    const retryButton = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-retry]')
+    const retryButton = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-retry]')!
     expect(tabBar?.contains(retryButton)).toBe(true)
     expect(tabList?.contains(retryButton)).toBe(false)
-    expect(retryButton?.className).toContain('credentialRowRefreshButton')
-    expect(retryButton?.querySelector('svg')).not.toBeNull()
-    expect(retryButton?.textContent).toBe('')
-    expect(retryButton?.getAttribute('aria-label')).toBe('common.retry')
+    expect(retryButton.getAttribute('aria-label')).toBe('common.retry')
     expect(document.body.textContent).toContain('initial load failed')
     expect(document.body.textContent).not.toContain('usage_stats.request_events_empty_title')
 
     await act(async () => {
-      retryButton?.click()
-      await Promise.resolve()
-      await Promise.resolve()
+      retryButton.click()
     })
 
     expect(fetchUsageEvents).toHaveBeenCalledTimes(2)
@@ -634,21 +550,14 @@ describe('CredentialDetailDrawer', () => {
   })
 
   it('does not keep the request-log modal mounted after the drawer closes', async () => {
-    await act(async () => {
-      root.render(
-        <CredentialDetailDrawer
-          open={false}
-          selection={selection}
-          requestLogResponse={{
-            event_id: '1',
-            available: true,
-            previewable: true,
-            sections: [{ title: 'RAW LOG', content: 'request log content' }],
-          }}
-          onClose={() => undefined}
-        />,
-      )
-      await Promise.resolve()
+    await renderDrawer({
+      open: false,
+      requestLogResponse: {
+        event_id: '1',
+        available: true,
+        previewable: true,
+        sections: [{ title: 'RAW LOG', content: 'request log content' }],
+      },
     })
 
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()

@@ -2,8 +2,8 @@ package test
 
 import (
 	"context"
-	"database/sql"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,13 +28,7 @@ func TestUsageIdentityAliasUpdateDoesNotDependOnReaderAvailability(t *testing.T)
 	if err := db.Create(&identity).Error; err != nil {
 		t.Fatalf("seed usage identity: %v", err)
 	}
-	heldReaders, releaseReaders := holdResolverServiceTestReaders(t, reader)
-	readersHeld := true
-	defer func() {
-		if readersHeld {
-			releaseReaders(heldReaders)
-		}
-	}()
+	releaseReaders := holdResolverServiceTestReaders(t, reader)
 
 	// 执行：alias UPDATE 及结果回读必须作为一个写命令固定在 writer。
 	result := make(chan error, 1)
@@ -50,26 +44,17 @@ func TestUsageIdentityAliasUpdateDoesNotDependOnReaderAvailability(t *testing.T)
 			t.Fatalf("update usage identity alias: %v", err)
 		}
 	case <-time.After(time.Second):
-		releaseReaders(heldReaders)
-		readersHeld = false
+		releaseReaders()
 		<-result
 		t.Fatal("usage identity alias update waited for an occupied reader")
 	}
 
-	releaseReaders(heldReaders)
-	readersHeld = false
 }
 
 func TestPricingUpdateDoesNotDependOnReaderAvailability(t *testing.T) {
 	// 准备：定价 upsert 内部会先查旧记录再 Save，占满 reader 可验证整个写命令的路由。
 	db, reader := openResolverServiceTestPools(t)
-	heldReaders, releaseReaders := holdResolverServiceTestReaders(t, reader)
-	readersHeld := true
-	defer func() {
-		if readersHeld {
-			releaseReaders(heldReaders)
-		}
-	}()
+	releaseReaders := holdResolverServiceTestReaders(t, reader)
 
 	// 执行：更新定价时的存在性查询和 Save 都必须使用 writer。
 	result := make(chan error, 1)
@@ -89,14 +74,11 @@ func TestPricingUpdateDoesNotDependOnReaderAvailability(t *testing.T) {
 			t.Fatalf("update pricing: %v", err)
 		}
 	case <-time.After(time.Second):
-		releaseReaders(heldReaders)
-		readersHeld = false
+		releaseReaders()
 		<-result
 		t.Fatal("pricing update waited for an occupied reader")
 	}
 
-	releaseReaders(heldReaders)
-	readersHeld = false
 }
 
 func openResolverServiceTestPools(t *testing.T) (*gorm.DB, *gorm.DB) {
@@ -124,30 +106,29 @@ func openResolverServiceTestPools(t *testing.T) (*gorm.DB, *gorm.DB) {
 	return db, reader
 }
 
-func holdResolverServiceTestReaders(t *testing.T, reader *gorm.DB) ([]*sql.Conn, func([]*sql.Conn)) {
+func holdResolverServiceTestReaders(t *testing.T, reader *gorm.DB) func() {
 	t.Helper()
 	readerSQL, err := reader.DB()
 	if err != nil {
 		t.Fatalf("load reader sql db: %v", err)
 	}
-	readerLimit := readerSQL.Stats().MaxOpenConnections
-	heldReaders := make([]*sql.Conn, 0, readerLimit)
-	for index := 0; index < readerLimit; index++ {
+	var releases []func()
+	for index := 0; index < readerSQL.Stats().MaxOpenConnections; index++ {
 		connection, err := readerSQL.Conn(context.Background())
 		if err != nil {
-			for _, held := range heldReaders {
-				_ = held.Close()
-			}
 			t.Fatalf("hold reader connection %d: %v", index, err)
 		}
-		heldReaders = append(heldReaders, connection)
-	}
-	release := func(connections []*sql.Conn) {
-		for _, connection := range connections {
+		release := sync.OnceFunc(func() {
 			if err := connection.Close(); err != nil {
 				t.Errorf("release reader connection: %v", err)
 			}
+		})
+		t.Cleanup(release)
+		releases = append(releases, release)
+	}
+	return func() {
+		for _, release := range releases {
+			release()
 		}
 	}
-	return heldReaders, release
 }

@@ -3,22 +3,21 @@ package test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"cpa-usage-keeper/internal/ranking"
 )
 
 type runnerSyncerStub struct {
-	mu        sync.Mutex
+	seedMu    sync.Mutex
 	calls     int
 	deadlines []time.Duration
 	cancel    context.CancelFunc
 	failFirst bool
 	seed      string
-	seedRead  chan string
 }
 
 type runnerIntervalStub struct {
@@ -31,186 +30,125 @@ func (s *runnerIntervalStub) SyncInterval(context.Context) (time.Duration, error
 }
 
 func (s *runnerSyncerStub) RunOnce(ctx context.Context) error {
-	s.mu.Lock()
 	s.calls++
-	call := s.calls
 	if deadline, ok := ctx.Deadline(); ok {
 		s.deadlines = append(s.deadlines, time.Until(deadline))
 	}
-	cancel := s.cancel
-	s.mu.Unlock()
-	if call >= 2 && cancel != nil {
-		cancel()
+	if s.calls >= 2 && s.cancel != nil {
+		s.cancel()
 	}
-	if call == 1 && s.failFirst {
+	if s.calls == 1 && s.failFirst {
 		return errors.New("temporary failure")
 	}
 	return nil
 }
 
 func (s *runnerSyncerStub) ScheduleSeed(context.Context) (string, error) {
-	s.mu.Lock()
-	seed := s.seed
-	seedRead := s.seedRead
-	s.mu.Unlock()
-	if seed == "" {
-		seed = "stable-instance-seed"
-	}
-	if seedRead != nil {
-		select {
-		case seedRead <- seed:
-		default:
-		}
-	}
-	return seed, nil
-}
-
-func (s *runnerSyncerStub) setSeed(seed string) {
-	s.mu.Lock()
-	s.seed = seed
-	s.mu.Unlock()
+	s.seedMu.Lock()
+	defer s.seedMu.Unlock()
+	return s.seed, nil
 }
 
 func TestRunnerWaitsForStableSlotBeforeFirstAttempt(t *testing.T) {
-	const interval = time.Second
-	now := time.Now()
-	seed := ""
-	for candidate := 0; candidate < 10_000; candidate++ {
-		value := fmt.Sprintf("delayed-instance-%d", candidate)
-		if ranking.NextScheduledRun(now, value, interval).Sub(now) >= 500*time.Millisecond {
-			seed = value
-			break
-		}
-	}
-	if seed == "" {
-		t.Fatal("could not find a deterministic delayed schedule seed")
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	stub := &runnerSyncerStub{seed: seed}
-	runner, err := ranking.NewRunnerWithTiming(stub, interval, 40*time.Millisecond)
-	if err != nil {
-		t.Fatalf("NewRunnerWithTiming returned error: %v", err)
-	}
-
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
-	time.Sleep(20 * time.Millisecond)
-	cancel()
-	if err := <-done; err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-	stub.mu.Lock()
-	defer stub.mu.Unlock()
-	if stub.calls != 0 {
-		t.Fatalf("runner synchronized before its stable slot: calls=%d", stub.calls)
-	}
-}
-
-func TestRunnerUsesHardTimeoutAndContinuesAfterError(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	stub := &runnerSyncerStub{cancel: cancel, failFirst: true}
-	runner, err := ranking.NewRunnerWithTiming(stub, 5*time.Millisecond, 40*time.Millisecond)
-	if err != nil {
-		t.Fatalf("NewRunnerWithTiming returned error: %v", err)
-	}
-
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
-	select {
-	case err := <-done:
+	synctest.Test(t, func(t *testing.T) {
+		const interval = time.Second
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		stub := &runnerSyncerStub{seed: "stable-instance-seed"}
+		runner, err := ranking.NewRunnerWithTiming(stub, interval, 40*time.Millisecond)
 		if err != nil {
-			t.Fatalf("Run returned error: %v", err)
+			t.Fatalf("NewRunnerWithTiming: %v", err)
 		}
-	case <-time.After(time.Second):
-		t.Fatal("runner did not continue to a second attempt")
-	}
-	stub.mu.Lock()
-	defer stub.mu.Unlock()
-	if stub.calls < 2 {
-		t.Fatalf("expected scheduled attempt and retry, got %d calls", stub.calls)
-	}
-	if len(stub.deadlines) == 0 || stub.deadlines[0] <= 0 || stub.deadlines[0] > 40*time.Millisecond {
-		t.Fatalf("unexpected runner deadline: %+v", stub.deadlines)
-	}
-}
-
-func TestRunnerUsesCenterSyncIntervalInsteadOfLocalDefault(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	stub := &runnerSyncerStub{cancel: cancel}
-	syncer := &runnerIntervalStub{runnerSyncerStub: stub, interval: 5 * time.Millisecond}
-	runner, err := ranking.NewRunnerWithTiming(syncer, time.Hour, 40*time.Millisecond)
-	if err != nil {
-		t.Fatalf("NewRunnerWithTiming returned error: %v", err)
-	}
-
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("Run returned error: %v", err)
-		}
-	case <-time.After(time.Second):
+		delay := ranking.NextScheduledRun(time.Now(), stub.seed, interval).Sub(time.Now())
+		done := make(chan error, 1)
+		go func() { done <- runner.Run(ctx) }()
+		synctest.Wait()
+		time.Sleep(delay - time.Nanosecond)
+		synctest.Wait()
 		cancel()
-		t.Fatal("runner ignored the center sync interval")
-	}
-	stub.mu.Lock()
-	defer stub.mu.Unlock()
-	if stub.calls < 2 {
-		t.Fatalf("expected repeated center-scheduled runs, got %d", stub.calls)
+		if err := <-done; err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		if stub.calls != 0 {
+			t.Fatalf("runner synchronized before its stable slot: calls=%d", stub.calls)
+		}
+	})
+}
+
+func TestRunnerRepeatsAfterErrorAndUsesCenterInterval(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		centerInterval bool
+		failFirst      bool
+	}{
+		{name: "local interval retries after error", failFirst: true},
+		{name: "center interval overrides local default", centerInterval: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				stub := &runnerSyncerStub{cancel: cancel, failFirst: tc.failFirst, seed: "stable-instance-seed"}
+				var syncer ranking.RunnerSyncer = stub
+				interval := 5 * time.Millisecond
+				if tc.centerInterval {
+					syncer = &runnerIntervalStub{runnerSyncerStub: stub, interval: interval}
+					interval = time.Hour
+				}
+				runner, err := ranking.NewRunnerWithTiming(syncer, interval, 40*time.Millisecond)
+				if err != nil {
+					t.Fatalf("NewRunnerWithTiming: %v", err)
+				}
+				done := make(chan error, 1)
+				go func() { done <- runner.Run(ctx) }()
+				select {
+				case err := <-done:
+					if err != nil {
+						t.Fatalf("Run: %v", err)
+					}
+				case <-time.After(time.Second):
+					t.Fatal("runner did not continue at the selected interval")
+				}
+				if stub.calls != 2 || len(stub.deadlines) != 2 {
+					t.Fatalf("expected two scheduled attempts with deadlines, got calls=%d deadlines=%v", stub.calls, stub.deadlines)
+				}
+				for _, deadline := range stub.deadlines {
+					if deadline != 40*time.Millisecond {
+						t.Fatalf("run deadline = %s, want 40ms", deadline)
+					}
+				}
+			})
+		})
 	}
 }
 
 func TestRunnerReschedulesWithoutSyncingWhenIdentityChangesBeforeOldSlot(t *testing.T) {
-	const interval = 500 * time.Millisecond
-	now := time.Now()
-	findSeed := func(minDelay, maxDelay time.Duration) string {
-		for candidate := 0; candidate < 100_000; candidate++ {
-			seed := fmt.Sprintf("seed-%d", candidate)
-			delay := ranking.NextScheduledRun(now, seed, interval).Sub(now)
-			if delay >= minDelay && delay <= maxDelay {
-				return seed
-			}
+	synctest.Test(t, func(t *testing.T) {
+		const interval = 500 * time.Millisecond
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		stub := &runnerSyncerStub{seed: "old-seed"}
+		runner, err := ranking.NewRunnerWithTiming(stub, interval, 40*time.Millisecond)
+		if err != nil {
+			t.Fatalf("NewRunnerWithTiming: %v", err)
 		}
-		return ""
-	}
-	oldSeed := findSeed(140*time.Millisecond, 200*time.Millisecond)
-	newSeed := findSeed(350*time.Millisecond, 420*time.Millisecond)
-	if oldSeed == "" || newSeed == "" {
-		t.Fatal("could not find deterministic seeds for the runner schedule")
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	stub := &runnerSyncerStub{seed: oldSeed, seedRead: make(chan string, 4)}
-	runner, err := ranking.NewRunnerWithTiming(stub, interval, 40*time.Millisecond)
-	if err != nil {
-		t.Fatalf("NewRunnerWithTiming returned error: %v", err)
-	}
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
-
-	select {
-	case scheduledSeed := <-stub.seedRead:
-		if scheduledSeed != oldSeed {
-			t.Fatalf("initial schedule seed = %q, want %q", scheduledSeed, oldSeed)
+		delay := ranking.NextScheduledRun(time.Now(), stub.seed, interval).Sub(time.Now())
+		done := make(chan error, 1)
+		go func() { done <- runner.Run(ctx) }()
+		synctest.Wait()
+		stub.seedMu.Lock()
+		stub.seed = "new-seed"
+		stub.seedMu.Unlock()
+		time.Sleep(delay)
+		synctest.Wait()
+		if stub.calls != 0 {
+			t.Fatalf("runner used the obsolete slot after the seed changed: calls=%d", stub.calls)
 		}
-	case <-time.After(time.Second):
-		t.Fatal("runner did not read the initial schedule seed")
-	}
-	stub.setSeed(newSeed)
-	time.Sleep(ranking.NextScheduledRun(now, oldSeed, interval).Sub(now) + 60*time.Millisecond)
-
-	stub.mu.Lock()
-	calls := stub.calls
-	stub.mu.Unlock()
-	cancel()
-	if err := <-done; err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-	if calls != 0 {
-		t.Fatalf("runner used the obsolete disabled slot after the seed changed: calls=%d", calls)
-	}
+		cancel()
+		if err := <-done; err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	})
 }
 
 func TestNextRankingRunUsesStableJitterWithinThirtyMinutes(t *testing.T) {

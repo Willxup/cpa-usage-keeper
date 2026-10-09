@@ -3,6 +3,7 @@ package poller_test
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -96,88 +97,52 @@ func TestRedisInboxWriterPersistsMessagesWithSource(t *testing.T) {
 	}
 }
 
-func TestControlAwareRedisInboxWriterFiltersControlMessages(t *testing.T) {
-	db := openPollerTestDB(t)
-	observer := &controlObserverStub{}
-	writer := poller.NewControlAwareRedisInboxWriter(
-		poller.NewRedisInboxWriter(db),
-		observer,
-	)
-
-	messages := []string{`{"support_refresh":true}`, `{"refresh":true}`, `{"request_id":"usage"}`, `{"request_id":"usage-refresh","refresh":true}`}
-	inserted, err := writer.Insert(context.Background(), poller.RedisIngestSourceSubscribe, messages, time.Now())
-	if err != nil {
-		t.Fatalf("Insert returned error: %v", err)
-	}
-	if inserted != 2 {
-		t.Fatalf("expected two usage rows, got %d", inserted)
-	}
-	_, support, refresh, _ := observer.counts()
-	if support != 2 || refresh != 1 {
-		t.Fatalf("unexpected observer calls: %+v", observer)
-	}
-
-	var rows []entities.RedisUsageInbox
-	if err := db.Order("id asc").Find(&rows).Error; err != nil {
-		t.Fatalf("list rows: %v", err)
-	}
-	if len(rows) != 2 || rows[0].RawMessage != `{"request_id":"usage"}` || rows[1].RawMessage != `{"request_id":"usage-refresh","refresh":true}` {
-		t.Fatalf("unexpected rows: %+v", rows)
-	}
-}
-
-func TestControlAwareRedisInboxWriterSkipsControlOnlyBatch(t *testing.T) {
-	db := openPollerTestDB(t)
-	observer := &controlObserverStub{}
-	writer := poller.NewControlAwareRedisInboxWriter(
-		poller.NewRedisInboxWriter(db),
-		observer,
-	)
-
-	inserted, err := writer.Insert(context.Background(), poller.RedisIngestSourceHTTPPull, []string{`{"refresh":true}`}, time.Now())
-	if err != nil {
-		t.Fatalf("Insert returned error: %v", err)
-	}
-	_, _, refresh, _ := observer.counts()
-	if inserted != 0 || refresh != 1 {
-		t.Fatalf("expected filtered refresh only, inserted=%d observer=%+v", inserted, observer)
-	}
-
-	var count int64
-	if err := db.Model(&entities.RedisUsageInbox{}).Count(&count).Error; err != nil {
-		t.Fatalf("count rows: %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("expected no inbox rows, got %d", count)
-	}
-}
-
-func TestControlAwareRedisInboxWriterSkipsEmptyAndNullPayloads(t *testing.T) {
-	db := openPollerTestDB(t)
-	observer := &controlObserverStub{}
-	writer := poller.NewControlAwareRedisInboxWriter(
-		poller.NewRedisInboxWriter(db),
-		observer,
-	)
-
-	inserted, err := writer.Insert(context.Background(), poller.RedisIngestSourceHTTPPull, []string{"", " \n\t", " null ", `{"request_id":"usage"}`}, time.Now())
-	if err != nil {
-		t.Fatalf("Insert returned error: %v", err)
-	}
-	if inserted != 1 {
-		t.Fatalf("expected one usage row, got %d", inserted)
-	}
-	_, support, refresh, _ := observer.counts()
-	if support != 0 || refresh != 0 {
-		t.Fatalf("expected empty/null payloads not to trigger control observer, got %+v", observer)
-	}
-
-	var rows []entities.RedisUsageInbox
-	if err := db.Order("id asc").Find(&rows).Error; err != nil {
-		t.Fatalf("list rows: %v", err)
-	}
-	if len(rows) != 1 || rows[0].RawMessage != `{"request_id":"usage"}` {
-		t.Fatalf("unexpected rows: %+v", rows)
+func TestControlAwareRedisInboxWriterFiltersBatches(t *testing.T) {
+	for _, tc := range []struct {
+		name, source             string
+		messages, wantRaw        []string
+		wantSupport, wantRefresh int
+	}{
+		{
+			name: "mixed control and usage", source: poller.RedisIngestSourceSubscribe,
+			messages:    []string{`{"support_refresh":true}`, `{"refresh":true}`, `{"request_id":"usage"}`, `{"request_id":"usage-refresh","refresh":true}`},
+			wantRaw:     []string{`{"request_id":"usage"}`, `{"request_id":"usage-refresh","refresh":true}`},
+			wantSupport: 2, wantRefresh: 1,
+		},
+		{
+			name: "control only", source: poller.RedisIngestSourceHTTPPull,
+			messages: []string{`{"refresh":true}`}, wantSupport: 1, wantRefresh: 1,
+		},
+		{
+			name: "empty and null payloads", source: poller.RedisIngestSourceHTTPPull,
+			messages: []string{"", " \n\t", " null ", `{"request_id":"usage"}`},
+			wantRaw:  []string{`{"request_id":"usage"}`},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := openPollerTestDB(t)
+			observer := &controlObserverStub{}
+			writer := poller.NewControlAwareRedisInboxWriter(poller.NewRedisInboxWriter(db), observer)
+			inserted, err := writer.Insert(context.Background(), tc.source, tc.messages, time.Now())
+			if err != nil || inserted != len(tc.wantRaw) {
+				t.Fatalf("Insert = %d, %v; want %d rows", inserted, err, len(tc.wantRaw))
+			}
+			_, support, refresh, _ := observer.counts()
+			if support != tc.wantSupport || refresh != tc.wantRefresh {
+				t.Fatalf("observer support/refresh = %d/%d, want %d/%d", support, refresh, tc.wantSupport, tc.wantRefresh)
+			}
+			var rows []entities.RedisUsageInbox
+			if err := db.Order("id asc").Find(&rows).Error; err != nil {
+				t.Fatalf("list rows: %v", err)
+			}
+			raw := make([]string, len(rows))
+			for index, row := range rows {
+				raw[index] = row.RawMessage
+			}
+			if !slices.Equal(raw, tc.wantRaw) {
+				t.Fatalf("persisted messages = %v, want %v", raw, tc.wantRaw)
+			}
+		})
 	}
 }
 
@@ -225,11 +190,10 @@ func openPollerTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
-	t.Cleanup(func() {
-		sqlDB, err := db.DB()
-		if err == nil {
-			_ = sqlDB.Close()
-		}
-	})
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get sql database: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	return db
 }

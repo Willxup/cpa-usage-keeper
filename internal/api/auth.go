@@ -3,7 +3,6 @@ package api
 import (
 	"crypto/subtle"
 	"net/http"
-	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -160,7 +159,7 @@ func (h *authHandler) roleMiddleware(allowedRoles ...auth.Role) gin.HandlerFunc 
 		c.Set(authTokenContextKey, resolved.Token)
 		c.Set(authSessionContextKey, session)
 		c.Set(authResolvedContextKey, resolved)
-		h.sessions.Touch(resolved.Token, sessionClientIP(c))
+		h.sessions.Touch(resolved.Token, c.ClientIP())
 		c.Next()
 	}
 }
@@ -411,22 +410,9 @@ func loginClientKey(c *gin.Context) string {
 
 func sessionClientMetadata(c *gin.Context) auth.SessionClientMetadata {
 	return auth.SessionClientMetadata{
-		IP:        sessionClientIP(c),
+		IP:        c.ClientIP(),
 		UserAgent: c.Request.UserAgent(),
 	}
-}
-
-// sessionClientIP 只用于会话信息展示；宿主机 Nginx 会把其观测到的客户端追加在 XFF 最右侧。
-func sessionClientIP(c *gin.Context) string {
-	forwarded := strings.Split(c.GetHeader("X-Forwarded-For"), ",")
-	for index := len(forwarded) - 1; index >= 0; index-- {
-		candidate := strings.TrimSpace(forwarded[index])
-		address, err := netip.ParseAddr(candidate)
-		if err == nil {
-			return address.Unmap().String()
-		}
-	}
-	return c.ClientIP()
 }
 
 func isCPAMCEmbedRequest(c *gin.Context) bool {

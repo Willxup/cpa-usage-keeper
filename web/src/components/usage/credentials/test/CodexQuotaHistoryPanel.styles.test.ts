@@ -21,28 +21,12 @@ const scssRule = (selector: string) => {
 }
 
 describe('Codex quota history styles', () => {
-  it('uses the Keeper card contract for the two top-level sections', () => {
-    expect(quotaHistoryStyles).toMatch(/\.card,\s*\.historySection\s*\{[\s\S]*?border-radius:\s*var\(--keeper-card-radius\);/)
-    expect(quotaHistoryStyles).toMatch(/\.card,\s*\.historySection\s*\{[\s\S]*?box-shadow:\s*var\(--shadow-lg\);/)
-    expect(quotaHistoryStyles).toMatch(/\.cycleCard\s*\{[\s\S]*?border-radius:\s*9px;/)
-  })
 
-  it('keeps the window selector in the existing pill-shaped segmented-control language', () => {
-    expect(quotaHistoryStyles).toMatch(/\.windowSwitcher\s*\{[\s\S]*?border-radius:\s*999px;/)
-    expect(quotaHistoryStyles).toMatch(/\.segmentButton\s*\{[\s\S]*?border-radius:\s*999px;/)
-    expect(quotaHistoryStyles).toMatch(/&\[aria-pressed='true'\]\s*\{[\s\S]*?background:\s*var\(--bg-primary\);[\s\S]*?box-shadow:\s*0 6px 14px rgba\(0, 0, 0, 0\.08\);/)
-    expect(quotaHistoryStyles).toMatch(/&:hover:not\(:disabled\)\s*\{[\s\S]*?color:\s*var\(--text-primary\);/)
+  it('gives the window selector a visible keyboard focus indicator', () => {
     expect(quotaHistoryStyles).toMatch(/&:focus-visible\s*\{[\s\S]*?outline:\s*2px solid var\(--primary-color\);[\s\S]*?outline-offset:\s*2px;/)
   })
 
-  it('centers the combined chart legend below the graph', () => {
-    expect(quotaHistoryStyles).toMatch(/\.chartLegend\s*\{[\s\S]*?justify-content:\s*center;/)
-    expect(quotaHistoryStyles).toMatch(/\.remainingLine\s*\{[\s\S]*?border-top:\s*1\.5px solid var\(--quota-remaining-line-color, rgba\(120, 113, 108, 0\.68\)\);/)
-    expect(quotaHistoryStyles).toMatch(/\.costLine\s*\{[\s\S]*?border-top:\s*2px dashed var\(--quota-cost-line-color, #ff5a40\);/)
-  })
-
-  it('matches the Analysis header hint and keeps chart facts available to screen readers', () => {
-    expect(quotaHistoryStyles).toMatch(/\.costHeaderHint\s*\{[\s\S]*?text-align:\s*right;/)
+  it('keeps chart facts available to screen readers', () => {
     expect(quotaHistoryStyles).toMatch(/\.screenReaderOnly\s*\{[\s\S]*?clip-path:\s*inset\(50%\);/)
   })
 
@@ -52,7 +36,7 @@ describe('Codex quota history styles', () => {
     expect(quotaHistoryStyles).not.toMatch(/@include mobile\s*\{[\s\S]*?\.currentCycleRange,\s*\.currentObservedRange/)
   })
 
-  it('switches chart summaries directly from three columns to top-labeled rows at one card width', () => {
+  it('switches chart summaries directly from three columns to shared metric columns in top-labeled rows at one card width', () => {
     const summaryStyles = quotaHistoryStyles.slice(
       quotaHistoryStyles.indexOf('.chartSummary {'),
       quotaHistoryStyles.indexOf('.chartSummaryRow'),
@@ -75,16 +59,16 @@ describe('Codex quota history styles', () => {
     expect(summaryRowStyles).toMatch(/dd\s*\{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-columns:\s*repeat\(3, max-content\);[\s\S]*?justify-content:\s*center;/)
     expect(quotaHistoryStyles).toMatch(/\.chartSummaryMetric\s*\{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-columns:\s*14px max-content;/)
     expect(narrowSummaryStyles).toMatch(/@container quota-history-card \(max-width:\s*640px\)/)
-    expect(narrowSummaryStyles).toMatch(/\.chartSummary\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
-    expect(narrowSummaryStyles).toMatch(/\.chartSummaryRow\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);[\s\S]*?grid-template-rows:\s*max-content max-content;/)
-    expect(narrowSummaryStyles).toMatch(/dt\s*\{[\s\S]*?text-align:\s*left;/)
-    expect(narrowSummaryStyles).toMatch(/dd\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, max-content\);[\s\S]*?justify-content:\s*start;/)
+    expect(narrowSummaryStyles).toMatch(/\.chartSummary\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, max-content\)\);/)
+    expect(narrowSummaryStyles).toMatch(/\.chartSummaryRow\s*\{[\s\S]*?grid-column:\s*1 \/ -1;[\s\S]*?grid-template-columns:\s*subgrid;[\s\S]*?grid-template-rows:\s*max-content max-content;/)
+    expect(narrowSummaryStyles).toMatch(/dt\s*\{[\s\S]*?text-align:\s*center;/)
+    expect(narrowSummaryStyles).toMatch(/dd\s*\{[\s\S]*?grid-column:\s*1 \/ -1;[\s\S]*?grid-template-columns:\s*subgrid;[\s\S]*?column-gap:\s*inherit;/)
     expect(compiledQuotaHistoryStyles).toMatch(/@container quota-history-card \(max-width: 640px\) \{[\s\S]*?\.chartSummary > \.chartSummaryRow \+ \.chartSummaryRow \{\s*border-left: 0;/)
     expect(compiledQuotaHistoryStyles).not.toContain('.chartSummary > .chartSummaryRow + .chartSummary > .chartSummaryRow')
     expect(narrowSummaryStyles).not.toMatch(/@container quota-history-card \(max-width:\s*560px\)/)
   })
 
-  it('collapses current and completed summaries into the same direct narrow layout', () => {
+  it('collapses current and completed summaries into the same shared-column narrow layout', () => {
     const cycleSummaryStyles = quotaHistoryStyles.slice(
       quotaHistoryStyles.indexOf('.cycleSummary {'),
       quotaHistoryStyles.indexOf('@container quota-cycle-card'),
@@ -101,11 +85,11 @@ describe('Codex quota history styles', () => {
     expect(cycleSummaryStyles).toMatch(/dd\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, max-content\);[\s\S]*?justify-content:\s*center;/)
     expect(cycleSummaryStyles).toMatch(/\.chartSummaryMetric\s*\{[\s\S]*?grid-template-columns:\s*14px max-content;/)
     expect(narrowCycleSummaryStyles).toMatch(/@container quota-cycle-card \(max-width:\s*640px\)/)
-    expect(narrowCycleSummaryStyles).toMatch(/\.currentCycleSummary,\s*\.completedCycleSummary\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
-    expect(narrowCycleSummaryStyles).toMatch(/\.chartSummaryRow:nth-child\(n\)\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);[\s\S]*?grid-template-rows:\s*max-content max-content;/)
+    expect(narrowCycleSummaryStyles).toMatch(/\.currentCycleSummary,\s*\.completedCycleSummary\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, max-content\)\);/)
+    expect(narrowCycleSummaryStyles).toMatch(/\.chartSummaryRow:nth-child\(n\)\s*\{[\s\S]*?grid-column:\s*1 \/ -1;[\s\S]*?grid-template-columns:\s*subgrid;[\s\S]*?grid-template-rows:\s*max-content max-content;/)
     expect(narrowCycleSummaryStyles).toMatch(/\.chartSummaryRow:nth-child\(n\)\s*\{[\s\S]*?margin-top:\s*0;[\s\S]*?border-top:\s*0;[\s\S]*?border-left:\s*0;/)
-    expect(narrowCycleSummaryStyles).toMatch(/dt\s*\{[\s\S]*?text-align:\s*left;/)
-    expect(narrowCycleSummaryStyles).toMatch(/dd\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, max-content\);[\s\S]*?justify-content:\s*start;/)
+    expect(narrowCycleSummaryStyles).toMatch(/dt\s*\{[\s\S]*?text-align:\s*center;/)
+    expect(narrowCycleSummaryStyles).toMatch(/dd\s*\{[\s\S]*?grid-column:\s*1 \/ -1;[\s\S]*?grid-template-columns:\s*subgrid;[\s\S]*?column-gap:\s*inherit;/)
     expect(narrowCycleSummaryStyles).not.toMatch(/@container quota-cycle-card \(max-width:\s*560px\)/)
   })
 

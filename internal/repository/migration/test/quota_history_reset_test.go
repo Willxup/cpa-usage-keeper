@@ -76,7 +76,7 @@ func TestQuotaHistoryResetMigrationStopsWhenBackupFails(t *testing.T) {
 
 func seedQuotaHistoryResetRows(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	now := time.Now()
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.Local)
 	cycle := entities.QuotaCycle{
 		Provider: "codex", AuthIndex: "codex-auth", QuotaKey: "rate_limit.primary_window",
 		WindowSeconds: 604_800, ResetAtSource: entities.QuotaResetAtSourceAbsolute,

@@ -7,17 +7,15 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
-	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/ranking"
 	"cpa-usage-keeper/internal/repository"
-	"gorm.io/gorm"
 )
 
 func TestRankingStoreDefaultsToDisabledWithoutPersistedIdentity(t *testing.T) {
@@ -121,87 +119,40 @@ func TestRankingStoreRejectsUnsupportedPersistedProfile(t *testing.T) {
 }
 
 func TestRankingStoreLoadBypassesBlockedUpdate(t *testing.T) {
-	db, reader, err := repository.OpenDatabasePools(config.Config{SQLitePath: filepath.Join(t.TempDir(), "ranking-store.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabasePools returned error: %v", err)
-	}
-	t.Cleanup(func() {
-		if sqlDB, err := db.DB(); err == nil {
-			_ = sqlDB.Close()
-		}
-		if sqlDB, err := reader.DB(); err == nil {
-			_ = sqlDB.Close()
-		}
-	})
-
-	identity, err := ranking.GenerateIdentity(rand.Reader)
-	if err != nil {
-		t.Fatalf("GenerateIdentity returned error: %v", err)
-	}
-	startedAt := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
-	want := ranking.State{
-		Status:                     ranking.StatusActive,
-		PublicKey:                  identity.PublicKey,
-		PrivateKey:                 identity.PrivateKey,
-		RegistrationIdempotencyKey: "registration_once",
-		DisplayName:                "Keeper_01",
-		AvatarID:                   7,
-		ParticipantID:              "p_example",
-		ParticipationStartedAt:     &startedAt,
-	}
+	db, writeSQL := openRankingDatabasePools(t)
 	store := ranking.NewStore(db)
-	if err := store.Save(context.Background(), want); err != nil {
-		t.Fatalf("seed active ranking state: %v", err)
-	}
-
-	writeSQL, err := db.DB()
+	seedActiveState(t, store, 0)
+	want, err := store.Load(context.Background())
 	if err != nil {
-		t.Fatalf("load writer pool: %v", err)
+		t.Fatalf("load seeded ranking state: %v", err)
 	}
 	heldWriter, err := writeSQL.Conn(context.Background())
 	if err != nil {
 		t.Fatalf("occupy writer connection: %v", err)
 	}
-	writerHeld := true
-
-	updateCtx, cancelUpdate := context.WithCancel(context.Background())
-	updateDone := make(chan error, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	var workers sync.WaitGroup
+	defer func() {
+		cancel()
+		_ = heldWriter.Close()
+		done := make(chan struct{})
+		go func() { workers.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Error("ranking store operations did not stop during cleanup")
+		}
+	}()
 	waitCountBefore := writeSQL.Stats().WaitCount
-	go func() {
-		_, updateErr := store.Update(updateCtx, func(next *ranking.State) error {
+	workers.Go(func() {
+		_, err := store.Update(ctx, func(next *ranking.State) error {
 			next.LastError = "updated"
 			return nil
 		})
-		updateDone <- updateErr
-	}()
-
-	type loadResult struct {
-		state ranking.State
-		err   error
-	}
-	loadDone := make(chan loadResult, 1)
-	loadStarted := false
-	loadCtx, cancelLoad := context.WithCancel(context.Background())
-	defer func() {
-		cancelLoad()
-		cancelUpdate()
-		if writerHeld {
-			_ = heldWriter.Close()
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Errorf("Update: %v", err)
 		}
-		select {
-		case <-updateDone:
-		case <-time.After(2 * time.Second):
-			t.Errorf("blocked Update did not stop during cleanup")
-		}
-		if loadStarted {
-			select {
-			case <-loadDone:
-			case <-time.After(2 * time.Second):
-				t.Errorf("Load did not stop during cleanup")
-			}
-		}
-	}()
-
+	})
 	deadline := time.Now().Add(time.Second)
 	for writeSQL.Stats().WaitCount == waitCountBefore {
 		if time.Now().After(deadline) {
@@ -209,21 +160,22 @@ func TestRankingStoreLoadBypassesBlockedUpdate(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-
-	loadStarted = true
-	go func() {
-		state, loadErr := store.Load(loadCtx)
-		loadDone <- loadResult{state: state, err: loadErr}
-	}()
-
+	type loadResult struct {
+		state ranking.State
+		err   error
+	}
+	loadDone := make(chan loadResult, 1)
+	workers.Go(func() {
+		state, err := store.Load(ctx)
+		loadDone <- loadResult{state, err}
+	})
 	select {
 	case result := <-loadDone:
-		loadStarted = false
 		if result.err != nil {
-			t.Fatalf("Load returned error while Update was blocked: %v", result.err)
+			t.Fatalf("Load while Update was blocked: %v", result.err)
 		}
 		if !reflect.DeepEqual(result.state, want) {
-			t.Fatalf("Load returned an unexpected state:\nwant=%+v\n got=%+v", want, result.state)
+			t.Fatalf("Load = %+v, want %+v", result.state, want)
 		}
 	case <-time.After(250 * time.Millisecond):
 		t.Fatal("Load waited for the blocked Update instead of using the reader pool")
@@ -275,22 +227,11 @@ func TestRankingCanonicalPayloadMatchesCenterContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CanonicalSigningPayload returned error: %v", err)
 	}
-	lines := strings.Split(string(payload), "\n")
-	if len(lines) != 8 || lines[0] != "keeper-ranking-center/v1" || lines[1] != "POST" || lines[2] != "/api/v1/reports" || lines[3] != "participant:abc_123" || lines[4] != "42" || lines[5] != "idem_1234567890ab" || lines[6] != "2026-07-14T02:03:04.5Z" || lines[7] != "JZQ2bWDz8799F_fImZfUuW2lIbaIk0nL_GTGfAqfnYQ" {
-		t.Fatalf("canonical payload does not match ranking-center: %q", payload)
+	want := strings.Join([]string{
+		"keeper-ranking-center/v1", "POST", "/api/v1/reports", "participant:abc_123", "42",
+		"idem_1234567890ab", "2026-07-14T02:03:04.5Z", "JZQ2bWDz8799F_fImZfUuW2lIbaIk0nL_GTGfAqfnYQ",
+	}, "\n")
+	if string(payload) != want {
+		t.Fatalf("canonical payload = %q, want %q", payload, want)
 	}
-}
-
-func openRankingDatabase(t *testing.T) *gorm.DB {
-	t.Helper()
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "ranking.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	t.Cleanup(func() {
-		if sqlDB, err := db.DB(); err == nil {
-			_ = sqlDB.Close()
-		}
-	})
-	return db
 }

@@ -190,17 +190,11 @@ func captureConsole(t *testing.T, cfg config.Config, writeLog func()) string {
 		if err != nil {
 			t.Fatalf("configure logging: %v", err)
 		}
-		closed := false
-		t.Cleanup(func() {
-			if !closed {
-				_ = closer.Close()
-			}
-		})
+		defer closer.Close()
 		writeLog()
 		if err := closer.Close(); err != nil {
 			t.Fatalf("close logging: %v", err)
 		}
-		closed = true
 	})
 }
 
@@ -229,4 +223,27 @@ func captureStderr(t *testing.T, action func()) string {
 		t.Fatalf("read stderr: %v", err)
 	}
 	return string(content)
+}
+
+func TestConfigureFiltersGinDebugByLogLevel(t *testing.T) {
+	for _, level := range []string{"info", "debug"} {
+		t.Run(level, func(t *testing.T) {
+			output := captureConsole(t, config.Config{LogLevel: level}, func() {
+				gin.DebugPrintFunc("GET %s", "/api/v1/status")
+				gin.DebugPrintRouteFunc("POST", "/api/v1/events", "handler", 3)
+			})
+			plain := ansiPattern.ReplaceAllString(output, "")
+			for _, message := range []string{
+				"[GIN-debug] GET /api/v1/status",
+				"[GIN-debug] POST   /api/v1/events --> handler (3 handlers)",
+			} {
+				if got := strings.Contains(plain, message); got != (level == "debug") {
+					t.Fatalf("unexpected %s visibility for %q in %q", level, message, plain)
+				}
+			}
+			if level == "debug" && !regexp.MustCompile(`(?m)^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2}) \|`).MatchString(plain) {
+				t.Fatalf("expected timestamped Gin debug log, got %q", plain)
+			}
+		})
+	}
 }

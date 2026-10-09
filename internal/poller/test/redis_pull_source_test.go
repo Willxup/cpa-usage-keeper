@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	_ "unsafe"
@@ -91,7 +93,17 @@ func TestRedisPullSourceLocksUsageQueueKeyAfterEmptySuccess(t *testing.T) {
 }
 
 func TestRedisPullSourceNameDoesNotWaitForSelectedPop(t *testing.T) {
-	addr, releaseSecondPop, waitForSecondPop, wait := newRedisPullBlockingSecondPopServer(t)
+	secondPopReady := make(chan struct{})
+	releaseSecondPopCh := make(chan struct{})
+	releaseSecondPop := sync.OnceFunc(func() { close(releaseSecondPopCh) })
+	addr, wait := newRedisPullScriptedServer(t, []redisPullExpectation{
+		{queueKey: cpa.ManagementUsageQueueKey, response: "*0\r\n"},
+		{
+			queueKey: cpa.ManagementUsageQueueKey, response: redisPullArrayResponse("usage-after-release"),
+			beforeResponse: func() { close(secondPopReady); <-releaseSecondPopCh },
+		},
+	})
+	t.Cleanup(releaseSecondPop)
 
 	source := poller.NewRedisPullSource(cpa.RedisQueueOptions{
 		RedisAddr:     addr,
@@ -114,7 +126,11 @@ func TestRedisPullSourceNameDoesNotWaitForSelectedPop(t *testing.T) {
 		pullDone <- err
 	}()
 
-	waitForSecondPop()
+	select {
+	case <-secondPopReady:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for second redis pop command")
+	}
 
 	sourceNameDone := make(chan string, 1)
 	go func() {
@@ -169,17 +185,15 @@ func TestRedisPullSourceStopsAfterTwoUnsupportedQueueKeyAttempts(t *testing.T) {
 func TestRedisPullQueueKeyCandidatesAreUsageThenQueue(t *testing.T) {
 	got := redisPullQueueKeyCandidates()
 	want := []string{cpa.ManagementUsageQueueKey, cpa.ManagementUsageLegacyQueueKey}
-	if strings.Join(got, ",") != strings.Join(want, ",") {
+	if !slices.Equal(got, want) {
 		t.Fatalf("redisPullQueueKeyCandidates() = %#v, want %#v", got, want)
-	}
-	if len(got) != 2 {
-		t.Fatalf("redisPullQueueKeyCandidates() returned %d keys, want 2", len(got))
 	}
 }
 
 type redisPullExpectation struct {
-	queueKey string
-	response string
+	queueKey       string
+	response       string
+	beforeResponse func()
 }
 
 func newRedisPullScriptedServer(t *testing.T, expectations []redisPullExpectation) (string, func()) {
@@ -208,9 +222,7 @@ func newRedisPullScriptedServer(t *testing.T, expectations []redisPullExpectatio
 
 	wait := func() {
 		t.Helper()
-		if err := listener.Close(); err != nil {
-			t.Fatalf("close redis pull test listener: %v", err)
-		}
+		_ = listener.Close()
 		select {
 		case err := <-done:
 			if err != nil {
@@ -220,81 +232,9 @@ func newRedisPullScriptedServer(t *testing.T, expectations []redisPullExpectatio
 			t.Fatal("timeout waiting for redis pull test server")
 		}
 	}
-	t.Cleanup(func() { _ = listener.Close() })
+	t.Cleanup(wait)
 
 	return listener.Addr().String(), wait
-}
-
-func newRedisPullBlockingSecondPopServer(t *testing.T) (string, func(), func(), func()) {
-	t.Helper()
-
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen redis pull blocking test server: %v", err)
-	}
-
-	secondPopReady := make(chan struct{})
-	releaseSecondPop := make(chan struct{})
-	done := make(chan error, 1)
-	go func() {
-		defer close(done)
-		expectations := []redisPullExpectation{
-			{queueKey: cpa.ManagementUsageQueueKey, response: "*0\r\n"},
-			{queueKey: cpa.ManagementUsageQueueKey, response: redisPullArrayResponse("usage-after-release")},
-		}
-		for i, expectation := range expectations {
-			conn, err := listener.Accept()
-			if err != nil {
-				done <- fmt.Errorf("accept blocking connection %d: %w", i+1, err)
-				return
-			}
-			if i == 1 {
-				if err := handleRedisPullExpectationAfterSignal(conn, expectation, secondPopReady, releaseSecondPop); err != nil {
-					done <- fmt.Errorf("blocking connection %d: %w", i+1, err)
-					return
-				}
-				continue
-			}
-			if err := handleRedisPullExpectation(conn, expectation); err != nil {
-				done <- fmt.Errorf("blocking connection %d: %w", i+1, err)
-				return
-			}
-		}
-	}()
-
-	release := func() {
-		t.Helper()
-		select {
-		case <-releaseSecondPop:
-		default:
-			close(releaseSecondPop)
-		}
-	}
-	waitForPop := func() {
-		t.Helper()
-		select {
-		case <-secondPopReady:
-		case <-time.After(2 * time.Second):
-			t.Fatal("timeout waiting for second redis pop command")
-		}
-	}
-	wait := func() {
-		t.Helper()
-		if err := listener.Close(); err != nil {
-			t.Fatalf("close redis pull blocking test listener: %v", err)
-		}
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatal(err)
-			}
-		case <-time.After(2 * time.Second):
-			t.Fatal("timeout waiting for redis pull blocking test server")
-		}
-	}
-	t.Cleanup(func() { _ = listener.Close() })
-
-	return listener.Addr().String(), release, waitForPop, wait
 }
 
 func handleRedisPullExpectation(conn net.Conn, expectation redisPullExpectation) error {
@@ -320,38 +260,9 @@ func handleRedisPullExpectation(conn net.Conn, expectation redisPullExpectation)
 	if got := strings.Join(popCommand, " "); got != wantPopCommand {
 		return fmt.Errorf("pop command = %q, want %q", got, wantPopCommand)
 	}
-	if _, err := fmt.Fprint(conn, expectation.response); err != nil {
-		return fmt.Errorf("write pop response: %w", err)
+	if expectation.beforeResponse != nil {
+		expectation.beforeResponse()
 	}
-	return nil
-}
-
-func handleRedisPullExpectationAfterSignal(conn net.Conn, expectation redisPullExpectation, ready chan<- struct{}, release <-chan struct{}) error {
-	defer conn.Close()
-
-	reader := bufio.NewReader(conn)
-	authCommand, err := readRedisPullRESPCommand(reader)
-	if err != nil {
-		return fmt.Errorf("read auth command: %w", err)
-	}
-	if got, want := strings.Join(authCommand, " "), cpa.ManagementRedisAuthCommand+" secret"; got != want {
-		return fmt.Errorf("auth command = %q, want %q", got, want)
-	}
-	if _, err := fmt.Fprint(conn, "+OK\r\n"); err != nil {
-		return fmt.Errorf("write auth response: %w", err)
-	}
-
-	popCommand, err := readRedisPullRESPCommand(reader)
-	if err != nil {
-		return fmt.Errorf("read pop command: %w", err)
-	}
-	wantPopCommand := cpa.ManagementRedisPopCommand + " " + expectation.queueKey + " 1"
-	if got := strings.Join(popCommand, " "); got != wantPopCommand {
-		return fmt.Errorf("pop command = %q, want %q", got, wantPopCommand)
-	}
-	close(ready)
-	<-release
-
 	if _, err := fmt.Fprint(conn, expectation.response); err != nil {
 		return fmt.Errorf("write pop response: %w", err)
 	}

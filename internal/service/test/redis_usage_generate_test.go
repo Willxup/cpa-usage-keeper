@@ -66,22 +66,15 @@ func TestDecodeRedisUsageMessageReusesExplicitGenerateAllocation(t *testing.T) {
 	explicitMessage := `{"request_id":"allocation-check","generate":true,"executor_type":"CodexExecutor","tokens":{"input_tokens":1,"total_tokens":1}}`
 	missingMessage := `{"request_id":"allocation-check","executor_type":"CodexExecutor","tokens":{"input_tokens":1,"total_tokens":1}}`
 
-	decodeAllocs := func(message string) (float64, error) {
-		var decodeErr error
-		allocs := testing.AllocsPerRun(1000, func() {
-			_, _, decodeErr = service.DecodeRedisUsageMessage(message, fetchedAt)
+	decodeAllocs := func(message string) float64 {
+		return testing.AllocsPerRun(1000, func() {
+			if _, _, err := service.DecodeRedisUsageMessage(message, fetchedAt); err != nil {
+				t.Fatalf("decode allocation fixture: %v", err)
+			}
 		})
-		return allocs, decodeErr
 	}
-
-	explicitAllocs, err := decodeAllocs(explicitMessage)
-	if err != nil {
-		t.Fatalf("decode explicit generate message: %v", err)
-	}
-	missingAllocs, err := decodeAllocs(missingMessage)
-	if err != nil {
-		t.Fatalf("decode missing generate message: %v", err)
-	}
+	explicitAllocs := decodeAllocs(explicitMessage)
+	missingAllocs := decodeAllocs(missingMessage)
 	if explicitAllocs > missingAllocs {
 		t.Fatalf("explicit generate allocations=%v, missing generate allocations=%v; explicit value should reuse its decoded pointer", explicitAllocs, missingAllocs)
 	}

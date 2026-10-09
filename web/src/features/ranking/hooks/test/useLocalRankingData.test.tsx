@@ -21,14 +21,6 @@ const board = (period: RankingPeriod, metric: RankingMetric, value = 93): Rankin
   entries: [{ rank: 1, participant_id: '1', display_name: 'Primary', avatar_id: 1, value }],
 });
 
-const deferred = <T,>() => {
-  let resolve: (value: T) => void = () => undefined;
-  const promise = new Promise<T>((nextResolve) => {
-    resolve = nextResolve;
-  });
-  return { promise, resolve };
-};
-
 let latest: ReturnType<typeof useLocalRankingData> | null = null;
 
 function Harness({ enabled, period, metric, api }: {
@@ -80,7 +72,7 @@ describe('useLocalRankingData', () => {
     await renderHook(true, 'yesterday', 'total_tokens', api);
 
     expect(calls).toEqual(['today:overall', 'yesterday:total_tokens']);
-    expect(latest?.leaderboard).toMatchObject({ period: 'yesterday', metric: 'total_tokens' });
+    expect(latest!.leaderboard).toMatchObject({ period: 'yesterday', metric: 'total_tokens' });
   });
 
   it('polls the selected local board every minute', async () => {
@@ -97,11 +89,11 @@ describe('useLocalRankingData', () => {
     expect(calls).toBe(1);
     await act(async () => vi.advanceTimersByTimeAsync(LOCAL_RANKING_POLL_INTERVAL_MS));
     expect(calls).toBe(2);
-    expect(latest?.leaderboard?.entries[0]?.value).toBe(92);
+    expect(latest!.leaderboard?.entries[0]?.value).toBe(92);
   });
 
   it('retains the previous response while another selection is loading', async () => {
-    const pendingYesterday = deferred<RankingLeaderboardResponse>();
+    const pendingYesterday = Promise.withResolvers<RankingLeaderboardResponse>();
     const api: LocalRankingDataAPI = {
       leaderboard: async (period, metric) => (
         period === 'yesterday' ? pendingYesterday.promise : board(period, metric)
@@ -111,12 +103,12 @@ describe('useLocalRankingData', () => {
     await renderHook(true, 'today', 'overall', api);
     await renderHook(true, 'yesterday', 'overall', api);
 
-    expect(latest?.leaderboardLoading).toBe(true);
-    expect(latest?.leaderboard).toMatchObject({ period: 'today', metric: 'overall' });
+    expect(latest!.leaderboardLoading).toBe(true);
+    expect(latest!.leaderboard).toMatchObject({ period: 'today', metric: 'overall' });
 
     await act(async () => pendingYesterday.resolve(board('yesterday', 'overall', 88)));
-    expect(latest?.leaderboardLoading).toBe(false);
-    expect(latest?.leaderboard).toMatchObject({ period: 'yesterday', metric: 'overall' });
+    expect(latest!.leaderboardLoading).toBe(false);
+    expect(latest!.leaderboard).toMatchObject({ period: 'yesterday', metric: 'overall' });
   });
 
   it('refreshes only the local leaderboard', async () => {
@@ -129,9 +121,9 @@ describe('useLocalRankingData', () => {
     };
 
     await renderHook(true, 'today', 'overall', api);
-    await act(async () => latest?.refreshLeaderboard());
+    await act(async () => latest!.refreshLeaderboard());
     expect(calls).toBe(2);
-    expect(latest?.leaderboard?.entries[0]?.value).toBe(92);
+    expect(latest!.leaderboard?.entries[0]?.value).toBe(92);
   });
 
   it('updates every cached occurrence of a saved Key profile immediately', async () => {
@@ -144,10 +136,10 @@ describe('useLocalRankingData', () => {
 	};
 
 	await renderHook(true, 'today', 'overall', api);
-	await act(async () => latest?.updateProfile('1', { key_alias: 'Renamed', avatar_id: 42 }));
+	await act(async () => latest!.updateProfile('1', { key_alias: 'Renamed', avatar_id: 42 }));
 
 	expect(updateProfile).toHaveBeenCalledWith('1', { key_alias: 'Renamed', avatar_id: 42 }, undefined);
-    expect(latest?.leaderboard?.entries[0]).toMatchObject({
+    expect(latest!.leaderboard?.entries[0]).toMatchObject({
       participant_id: '1', key_alias: 'Renamed', display_name: 'Renamed', avatar_id: 42,
     });
   });
@@ -163,15 +155,15 @@ describe('useLocalRankingData', () => {
 
     await renderHook(true, 'today', 'overall', api);
     await renderHook(false, 'today', 'overall', api);
-    await act(async () => latest?.patchProfileCache('1', {
+    await act(async () => latest!.patchProfileCache('1', {
       key_alias: 'Settings Alias',
       display_name: 'Settings Alias',
     }));
     shouldFail = true;
     await renderHook(true, 'today', 'overall', api);
 
-    expect(latest?.leaderboard).toMatchObject({ stale: true });
-    expect(latest?.leaderboard?.entries[0]).toMatchObject({
+    expect(latest!.leaderboard).toMatchObject({ stale: true });
+    expect(latest!.leaderboard?.entries[0]).toMatchObject({
       participant_id: '1',
       key_alias: 'Settings Alias',
       display_name: 'Settings Alias',
@@ -180,7 +172,7 @@ describe('useLocalRankingData', () => {
   });
 
   it('does not let an older in-flight board overwrite a saved Key profile', async () => {
-    const pendingRefresh = deferred<RankingLeaderboardResponse>();
+    const pendingRefresh = Promise.withResolvers<RankingLeaderboardResponse>();
     let leaderboardCalls = 0;
     const api: LocalRankingDataAPI = {
       leaderboard: async (period, metric) => {
@@ -193,17 +185,17 @@ describe('useLocalRankingData', () => {
     };
 
     await renderHook(true, 'today', 'overall', api);
-    let pendingLoad: Promise<RankingLeaderboardResponse | null> | undefined;
+    let pendingLoad!: Promise<RankingLeaderboardResponse | null>;
     await act(async () => {
-      pendingLoad = latest?.refreshLeaderboard();
+      pendingLoad = latest!.refreshLeaderboard();
     });
-    await act(async () => latest?.updateProfile('1', { key_alias: 'Renamed', avatar_id: 42 }));
+    await act(async () => latest!.updateProfile('1', { key_alias: 'Renamed', avatar_id: 42 }));
     await act(async () => pendingRefresh.resolve(board('today', 'overall')));
     await pendingLoad;
 
-    expect(latest?.leaderboard?.entries[0]).toMatchObject({
+    expect(latest!.leaderboard?.entries[0]).toMatchObject({
       key_alias: 'Renamed', display_name: 'Renamed', avatar_id: 42,
     });
-    expect(latest?.leaderboardLoading).toBe(false);
+    expect(latest!.leaderboardLoading).toBe(false);
   });
 });

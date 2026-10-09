@@ -139,11 +139,14 @@ func mergePendingUsageHeaderSnapshotPointers(pending map[string]*UsageHeaderSnap
 		if snapshot == nil {
 			continue
 		}
-		// 优先按 auth_index 合并，保证同一 Codex Auth File 只保留最新进度。
+		// 优先按 auth_index 合并，同一 provider 的同一 Auth File 只保留最新进度。
 		authIndex := strings.TrimSpace(snapshot.AuthIndex)
 		// auth_index 缺失的异常快照用 provider/auth_type 分组，避免全部挤到空 key。
 		if authIndex == "" {
 			authIndex = snapshot.Provider + "\x00" + snapshot.AuthType
+		} else if strings.EqualFold(strings.TrimSpace(snapshot.Provider), "claude") {
+			// 同名 auth_index 的两种解码来源不能在 pending 阶段互相合并。
+			authIndex = "claude\x00" + authIndex
 		}
 		// 已有身份按主额度和每个 Additional 分别比较时间；整体迟到不代表其中缺失组件也过期。
 		if existing, exists := pending[authIndex]; exists {
@@ -183,10 +186,19 @@ func mergePendingUsageHeaderCacheSnapshot(existing *UsageHeaderSnapshot, candida
 	if candidate == nil {
 		return existing
 	}
+	if strings.ToLower(strings.TrimSpace(existing.Provider)) != strings.ToLower(strings.TrimSpace(candidate.Provider)) {
+		if usageHeaderSnapshotIsNewer(candidate, existing) {
+			return candidate
+		}
+		return existing
+	}
+	if strings.EqualFold(strings.TrimSpace(existing.Provider), "claude") {
+		return mergePendingClaudeUsageHeaderCacheSnapshot(existing, candidate)
+	}
 	existingUsage := codexUsagePayloadFromProviderOutput(existing.CacheOutput)
 	candidateUsage := codexUsagePayloadFromProviderOutput(candidate.CacheOutput)
 	if existingUsage == nil || candidateUsage == nil {
-		// Header snapshot 当前只有 Codex；未来其它 provider 没有明确合并合同时仍保持整体最新语义。
+		// Codex 无可消费 cache 投影时保持原有整体择新语义。
 		if usageHeaderSnapshotIsNewer(candidate, existing) {
 			return candidate
 		}
@@ -237,6 +249,108 @@ func mergePendingUsageHeaderCacheSnapshot(existing *UsageHeaderSnapshot, candida
 		Result:   CodexResult{Usage: &mergedUsage},
 	}
 	return &mergedSnapshot
+}
+
+func claudeUsagePayloadFromProviderOutput(output ProviderOutput) *ClaudeUsagePayload {
+	switch result := output.Result.(type) {
+	case ClaudeResult:
+		return result.Usage
+	case *ClaudeResult:
+		if result != nil {
+			return result.Usage
+		}
+	}
+	return nil
+}
+
+func pendingClaudeWindowObservedAt(snapshot *UsageHeaderSnapshot, key string) time.Time {
+	if observedAt, exists := snapshot.pendingClaudeObservedAt[key]; exists {
+		return observedAt
+	}
+	return snapshot.ObservedAt
+}
+
+func mergePendingClaudeUsageHeaderCacheSnapshot(existing, candidate *UsageHeaderSnapshot) *UsageHeaderSnapshot {
+	base := existing
+	if usageHeaderSnapshotIsNewer(candidate, existing) {
+		base = candidate
+	}
+	existingUsage := claudeUsagePayloadFromProviderOutput(existing.CacheOutput)
+	candidateUsage := claudeUsagePayloadFromProviderOutput(candidate.CacheOutput)
+	if existingUsage == nil || candidateUsage == nil {
+		return base
+	}
+	merged := *base
+	usage := *claudeUsagePayloadFromProviderOutput(base.CacheOutput)
+	merged.pendingClaudeObservedAt = make(map[string]time.Time, 2)
+	for _, window := range []struct {
+		key                 string
+		existing, candidate *ClaudeUsageWindow
+		target              **ClaudeUsageWindow
+	}{
+		{"five_hour", existingUsage.FiveHour, candidateUsage.FiveHour, &usage.FiveHour},
+		{"seven_day", existingUsage.SevenDay, candidateUsage.SevenDay, &usage.SevenDay},
+	} {
+		existingAt := pendingClaudeWindowObservedAt(existing, window.key)
+		candidateAt := pendingClaudeWindowObservedAt(candidate, window.key)
+		switch {
+		case window.candidate != nil && (window.existing == nil || !usageHeaderObservedAtBefore(candidateAt, existingAt)):
+			*window.target = window.candidate
+			merged.pendingClaudeObservedAt[window.key] = candidateAt
+		case window.existing != nil:
+			*window.target = window.existing
+			merged.pendingClaudeObservedAt[window.key] = existingAt
+		}
+	}
+	merged.CacheOutput = ProviderOutput{Provider: base.CacheOutput.Provider, Result: ClaudeResult{Usage: &usage}}
+	return &merged
+}
+
+func (s *Service) applyPendingClaudeUsageHeaderSnapshot(ctx context.Context, snapshot *UsageHeaderSnapshot, identity entities.UsageIdentity, statsProvider usageWindowStatsProvider) bool {
+	usage := claudeUsagePayloadFromProviderOutput(snapshot.CacheOutput)
+	if usage == nil {
+		return false
+	}
+	var windows []*UsageHeaderSnapshot
+	for _, window := range []struct {
+		key   string
+		value *ClaudeUsageWindow
+	}{
+		{"five_hour", usage.FiveHour}, {"seven_day", usage.SevenDay},
+	} {
+		if window.value == nil {
+			continue
+		}
+		at := pendingClaudeWindowObservedAt(snapshot, window.key)
+		var windowUsage *ClaudeUsagePayload
+		if len(windows) > 0 && windows[0].ObservedAt.Equal(at) {
+			// 相同时间的两个窗口一次应用，避免 completed cache 的同时间保护挡住第二个窗口。
+			windowUsage = claudeUsagePayloadFromProviderOutput(windows[0].CacheOutput)
+		} else {
+			copy := *snapshot
+			copy.ObservedAt = at
+			copy.pendingClaudeObservedAt = nil
+			windowUsage = &ClaudeUsagePayload{}
+			copy.CacheOutput = ProviderOutput{Provider: snapshot.CacheOutput.Provider, Result: ClaudeResult{Usage: windowUsage}}
+			windows = append(windows, &copy)
+		}
+		if window.key == "five_hour" {
+			windowUsage.FiveHour = window.value
+		} else {
+			windowUsage.SevenDay = window.value
+		}
+	}
+	// 同一身份 job 内先处理较早窗口；沿用主动刷新保护，并按每个窗口自己的时间计算用量。
+	sort.SliceStable(windows, func(i, j int) bool {
+		return usageHeaderObservedAtBefore(windows[i].ObservedAt, windows[j].ObservedAt)
+	})
+	applied := false
+	for _, window := range windows {
+		if s.applyUsageHeaderSnapshotWithIdentity(ctx, window, identity, statsProvider) {
+			applied = true
+		}
+	}
+	return applied
 }
 
 func pendingUsageHeaderMainObservedAt(snapshot *UsageHeaderSnapshot, usage *CodexUsagePayload) time.Time {
@@ -412,7 +526,7 @@ func (s *Service) applyUsageHeaderSnapshotPointers(ctx context.Context, snapshot
 	if s == nil || len(snapshots) == 0 {
 		return
 	}
-	// 批量查询活跃 Codex Auth File 身份，避免每个 snapshot 单独查一次 usage_identities。
+	// 批量查询活跃 Auth File 身份，避免每个 snapshot 单独查一次 usage_identities。
 	identityByAuthIndex, err := s.usageHeaderIdentityLookup(ctx, snapshots)
 	// 身份查询失败时整批跳过，避免在身份状态不确定时写入错误账号的 quota cache。
 	if err != nil {
@@ -425,11 +539,11 @@ func (s *Service) applyUsageHeaderSnapshotPointers(ctx context.Context, snapshot
 		// 批量 header 更新必须与窗口 token/cost 使用同一统计基础；统计器不可用时整批跳过，避免写入半套 cache。
 		return
 	}
-	// 先构造身份 job；缺失或非 Codex 身份在主 goroutine 过滤，worker 只处理明确归属的账号。
+	// 先构造身份 job；缺失或 provider/type 不匹配的快照在主 goroutine 过滤。
 	type usageHeaderSnapshotJob struct {
 		// snapshot 是 Build 阶段冻结的只读对象，两个临时 worker 都不能修改其内部投影。
 		snapshot *UsageHeaderSnapshot
-		// identity 是当前 auth_index 对应的活跃 Codex Auth File 数据库事实。
+		// identity 是当前 auth_index 对应的活跃 Auth File 数据库事实。
 		identity entities.UsageIdentity
 	}
 	jobs := make([]usageHeaderSnapshotJob, 0, len(snapshots))
@@ -440,9 +554,9 @@ func (s *Service) applyUsageHeaderSnapshotPointers(ctx context.Context, snapshot
 		}
 		// auth_index 在入 cache 前再 trim 一次，避免空白导致 identity map 匹配失败。
 		authIndex := strings.TrimSpace(snapshot.AuthIndex)
-		// 找不到活跃 Codex 身份时跳过当前 snapshot，不影响同批其它账号。
+		// 找不到匹配的活跃身份时跳过当前 snapshot，不影响同批其它账号。
 		identity, ok := identityByAuthIndex[authIndex]
-		if !ok {
+		if !ok || !usageHeaderIdentityMatchesSnapshot(identity, snapshot) {
 			logUsageHeaderSnapshotIgnored(snapshot)
 			continue
 		}
@@ -500,18 +614,18 @@ func (s *Service) usageHeaderIdentityLookup(ctx context.Context, snapshots []*Us
 	}
 	// 结果 map 按 auth_index 建索引，供批量 apply O(1) 匹配。
 	identityByAuthIndex := make(map[string]entities.UsageIdentity, len(identities))
-	// 遍历仓储返回结果，只保留 type=codex 的 Auth File。
+	// 遍历仓储返回结果，只保留真实 type 属于 Codex/Claude 的 Auth File。
 	for _, identity := range identities {
 		// identity 字段就是 auth_index，入 map 前统一 trim。
 		authIndex := strings.TrimSpace(identity.Identity)
-		// 空 identity 或非 Codex 类型不能被 header snapshot 更新。
-		if authIndex == "" || !usageHeaderIdentityIsCodex(identity) {
+		// 空 identity 或不支持的类型不能被 header snapshot 更新。
+		if authIndex == "" || !usageHeaderIdentitySupported(identity) {
 			continue
 		}
 		// 同一 auth_index 只需要一条活跃身份记录。
 		identityByAuthIndex[authIndex] = identity
 	}
-	// 返回可用于匹配的 Codex Auth File 身份集合。
+	// 返回可用于逐快照匹配的 Auth File 身份集合。
 	return identityByAuthIndex, nil
 }
 
@@ -565,7 +679,7 @@ func (s *Service) applyUsageHeaderSnapshot(ctx context.Context, snapshot UsageHe
 	authType := strings.ToLower(strings.TrimSpace(snapshot.AuthType))
 	// auth_index 是后续查身份和写 refreshTasks 的唯一键。
 	authIndex := strings.TrimSpace(snapshot.AuthIndex)
-	// 非 OAuth 或缺少 auth_index 的 snapshot 不具备更新 Codex quota cache 的身份边界。
+	// 非 OAuth 或缺少 auth_index 的 snapshot 不具备更新 quota cache 的身份边界。
 	if authType != "oauth" || authIndex == "" {
 		return false
 	}
@@ -576,8 +690,8 @@ func (s *Service) applyUsageHeaderSnapshot(ctx context.Context, snapshot UsageHe
 		logUsageHeaderIdentityLookupError(authIndex, err)
 		return false
 	}
-	// 只有 type=codex 的 Auth File 才允许消费 X-Codex-* header。
-	if !usageHeaderIdentityIsCodex(identity) {
+	// 只有真实 type 与已选 parser 一致的 Auth File 才能消费快照。
+	if !usageHeaderIdentityMatchesSnapshot(identity, &snapshot) {
 		return false
 	}
 	// 身份确认后进入共享 apply 逻辑，单条路径按需自行构造窗口统计。
@@ -598,6 +712,9 @@ func (s *Service) applyUsageHeaderSnapshotWithIdentity(ctx context.Context, snap
 	if s == nil || snapshot == nil {
 		return false
 	}
+	if strings.EqualFold(strings.TrimSpace(snapshot.Provider), "claude") && len(snapshot.pendingClaudeObservedAt) > 0 {
+		return s.applyPendingClaudeUsageHeaderSnapshot(ctx, snapshot, identity, statsProvider)
+	}
 	// auth_type 在最终 apply 前再标准化一次，防止测试或单条入口绕过前置校验。
 	authType := strings.ToLower(strings.TrimSpace(snapshot.AuthType))
 	// auth_index 标准化后必须和传入 identity 对齐。
@@ -606,8 +723,8 @@ func (s *Service) applyUsageHeaderSnapshotWithIdentity(ctx context.Context, snap
 	if authType != "oauth" || authIndex == "" || strings.TrimSpace(identity.Identity) != authIndex {
 		return false
 	}
-	// 再次确认 identity 类型是 Codex，保证批量路径和单条路径共享同一安全边界。
-	if !usageHeaderIdentityIsCodex(identity) {
+	// 再次确认数据库真实 type 与解析来源一致，保证批量与单条路径共享边界。
+	if !usageHeaderIdentityMatchesSnapshot(identity, snapshot) {
 		return false
 	}
 	// 直接读取 Build 阶段生成的只读 cache 投影，分钟 worker 不再解析或持有 Header。
@@ -633,7 +750,7 @@ func (s *Service) applyUsageHeaderSnapshotWithIdentity(ctx context.Context, snap
 		observedAt = timeutil.NormalizeStorageTime(time.Now())
 	}
 	// active task 或更新的 completed cache 已存在时，当前 header snapshot 不应覆盖它。
-	if !s.shouldProcessUsageHeaderQuotaSnapshot(authIndex, observedAt) {
+	if !s.shouldProcessUsageHeaderQuotaSnapshot(authIndex, identity.Type, observedAt) {
 		return false
 	}
 	// 批量路径传入 statsProvider，用同一统计器复用 price/settings 查询。
@@ -652,7 +769,32 @@ func usageHeaderIdentityIsCodex(identity entities.UsageIdentity) bool {
 	return normalizeIdentityType(identity.Type) == "codex"
 }
 
-func (s *Service) shouldProcessUsageHeaderQuotaSnapshot(authIndex string, observedAt time.Time) bool {
+func usageHeaderIdentitySupported(identity entities.UsageIdentity) bool {
+	provider := normalizeIdentityType(identity.Type)
+	return provider == "codex" || provider == "claude"
+}
+
+func usageHeaderIdentityMatchesSnapshot(identity entities.UsageIdentity, snapshot *UsageHeaderSnapshot) bool {
+	if snapshot == nil {
+		return false
+	}
+	provider := strings.ToLower(strings.TrimSpace(snapshot.Provider))
+	if !usageHeaderIdentitySupported(identity) || normalizeIdentityType(identity.Type) != provider {
+		return false
+	}
+	switch provider {
+	case "codex":
+		return codexUsagePayloadFromProviderOutput(snapshot.CacheOutput) != nil
+	case "claude":
+		switch snapshot.CacheOutput.Result.(type) {
+		case ClaudeResult, *ClaudeResult:
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) shouldProcessUsageHeaderQuotaSnapshot(authIndex string, identityType string, observedAt time.Time) bool {
 	// refreshTasks 与手动/自动刷新任务共享，读写前必须持有 refreshMu。
 	s.refreshMu.Lock()
 	// 函数退出时释放任务锁，避免阻塞前端查询或刷新调度。
@@ -663,12 +805,12 @@ func (s *Service) shouldProcessUsageHeaderQuotaSnapshot(authIndex string, observ
 	if !ok {
 		return true
 	}
-	// 手动/自动刷新正在 queued/running 时，以主动刷新为准，header snapshot 不抢写。
-	if existing.isActive() {
+	// 同类型主动任务优先；类型已切换时，旧任务不能阻挡新 Header。
+	if existing.isActive() && normalizeIdentityType(existing.Type) == normalizeIdentityType(identityType) {
 		return false
 	}
 	// 已有 completed cache 时间不早于当前 header 时，跳过旧 snapshot。
-	if usageHeaderCompletedCacheIsCurrentOrNewer(existing, observedAt) {
+	if usageHeaderCompletedCacheIsCurrentOrNewer(existing, identityType, observedAt) {
 		return false
 	}
 	// 已有 cache 更旧或失败时，允许当前 header snapshot 修复/更新 cache。
@@ -685,20 +827,22 @@ func (s *Service) mergeUsageHeaderQuotaCache(authIndex string, response CheckRes
 	var upstreamResponses []UpstreamResponse
 	// 有旧记录时先确认当前 header 仍然有资格写入。
 	if ok {
-		// active 任务可能在前置检查后出现，二次检查避免竞态覆盖。
-		if existing.isActive() {
+		// 同类型 active 任务可能在前置检查后出现，二次检查避免竞态覆盖。
+		if existing.isActive() && normalizeIdentityType(existing.Type) == normalizeIdentityType(identity.Type) {
 			return false
 		}
 		// completed cache 可能在前置检查后更新，二次检查避免旧 header 回写。
-		if usageHeaderCompletedCacheIsCurrentOrNewer(existing, observedAt) {
+		if usageHeaderCompletedCacheIsCurrentOrNewer(existing, identity.Type, observedAt) {
 			return false
 		}
-		// 有旧 quota 时保留 header 没覆盖的字段，例如 reset credits 或非 header 行。
-		if existing.Quota != nil {
-			response = mergeUsageHeaderQuotaResponse(*existing.Quota, response)
+		// Auth File 的真实 type 变化后，旧 provider 的 row、套餐和 credits 不能混进新 cache。
+		if normalizeIdentityType(existing.Type) == normalizeIdentityType(identity.Type) {
+			if existing.Quota != nil {
+				response = mergeUsageHeaderQuotaResponse(*existing.Quota, response)
+			}
+			// Header 无 management api-call，同一 provider 才保留最近主动刷新响应，包括失败任务。
+			upstreamResponses = cloneUpstreamResponses(existing.UpstreamResponses)
 		}
-		// Header 快照没有 management api-call；保留最近一次主动刷新响应，直到下一次主动刷新整体覆盖任务。
-		upstreamResponses = cloneUpstreamResponses(existing.UpstreamResponses)
 	}
 	// 写入一条 completed refresh task，让前端 quota cache API 可以直接读取。
 	s.refreshTasks[authIndex] = &RefreshTaskRecord{
@@ -717,9 +861,10 @@ func (s *Service) mergeUsageHeaderQuotaCache(authIndex string, response CheckRes
 	return true
 }
 
-func usageHeaderCompletedCacheIsCurrentOrNewer(existing *RefreshTaskRecord, observedAt time.Time) bool {
+func usageHeaderCompletedCacheIsCurrentOrNewer(existing *RefreshTaskRecord, identityType string, observedAt time.Time) bool {
 	// 只有 completed 且 refreshed_at 有效的 cache 才能参与时间新旧判断。
 	return existing != nil &&
+		normalizeIdentityType(existing.Type) == normalizeIdentityType(identityType) &&
 		existing.Status == RefreshTaskStatusCompleted &&
 		!existing.RefreshedAt.IsZero() &&
 		!existing.RefreshedAt.Before(observedAt)
@@ -735,6 +880,10 @@ func mergeUsageHeaderQuotaResponse(existing CheckResponse, header CheckResponse)
 	// header 没带 reset credits 时保留旧 cache 的 reset credit 信息。
 	if merged.RateLimitResetCreditsAvailableCount == nil {
 		merged.RateLimitResetCreditsAvailableCount = existing.RateLimitResetCreditsAvailableCount
+	}
+	// Header 只观察额度，不能抹掉同 provider 主动查询取得的 Claude 重置权益。
+	if merged.ClaudeResetGrants == nil {
+		merged.ClaudeResetGrants = existing.ClaudeResetGrants
 	}
 	// Header 未携带套餐只代表这次快照没有该字段，保留此前完整刷新或 Header 已确认的订阅。
 	if merged.Subscription == nil {

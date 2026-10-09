@@ -62,6 +62,20 @@ type UsageIdentityServiceOptions struct {
 	OnDisplayNameChanged func(entities.UsageIdentity)
 }
 
+// UsageIdentityStatsResetter 是管理员对本地统计基线的写入能力。
+type UsageIdentityStatsResetter interface {
+	ResetUsageIdentityStats(context.Context, int64) (entities.UsageIdentity, error)
+}
+
+type UsageIdentityReader interface {
+	GetUsageIdentity(context.Context, int64) (UsageIdentityDetail, error)
+}
+
+type UsageIdentityDetail struct {
+	Identity         entities.UsageIdentity
+	CredentialHealth UsageCredentialHealthSnapshot
+}
+
 type usageIdentityService struct {
 	db                   *gorm.DB
 	recentUsage          *repository.UsageRecentEventCache
@@ -89,6 +103,20 @@ func (s *usageIdentityService) ListUsageIdentities(ctx context.Context) ([]entit
 func (s *usageIdentityService) ListActiveUsageIdentities(ctx context.Context) ([]entities.UsageIdentity, error) {
 	// source 解析和筛选只需要活跃身份，过滤条件下推到 repository 的 SQL 查询中执行。
 	return repository.ListActiveUsageIdentities(ctx, s.db)
+}
+
+func (s *usageIdentityService) GetUsageIdentity(ctx context.Context, id int64) (UsageIdentityDetail, error) {
+	if id <= 0 {
+		return UsageIdentityDetail{}, ErrInvalidID
+	}
+	// 详情按主键读取，不受列表分页、排序及删除状态影响。
+	identity, err := repository.FindUsageIdentityByID(ctx, s.db, id)
+	if err != nil {
+		return UsageIdentityDetail{}, err
+	}
+	// 与列表共用内存健康快照，只处理当前凭证，不额外查询请求历史。
+	health := s.credentialHealthSnapshots([]entities.UsageIdentity{identity})[0]
+	return UsageIdentityDetail{Identity: identity, CredentialHealth: health}, nil
 }
 
 func (s *usageIdentityService) ListActiveUsageIdentitiesPage(ctx context.Context, request ListUsageIdentitiesRequest) (ListUsageIdentitiesResponse, error) {
@@ -122,6 +150,16 @@ func (s *usageIdentityService) UpdateUsageIdentityAlias(ctx context.Context, id 
 		s.onDisplayNameChanged(updated)
 	}
 	return updated, nil
+}
+
+func (s *usageIdentityService) ResetUsageIdentityStats(ctx context.Context, id int64) (entities.UsageIdentity, error) {
+	if id <= 0 {
+		return entities.UsageIdentity{}, ErrInvalidID
+	}
+	if err := repository.ResetUsageIdentityStats(ctx, s.db, id, s.now()); err != nil {
+		return entities.UsageIdentity{}, err
+	}
+	return repository.FindUsageIdentityByID(ctx, s.db.Clauses(dbresolver.Write), id)
 }
 
 func (s *usageIdentityService) credentialHealthSnapshots(items []entities.UsageIdentity) []UsageCredentialHealthSnapshot {

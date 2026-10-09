@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
-	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -35,13 +35,9 @@ func TestGenerateDatasetBuildsValidatedSteadyState(t *testing.T) {
 		Seed:              20260806,
 		Now:               time.Date(2026, 8, 6, 15, 0, 0, 0, location),
 		Cardinality:       capacity.Cardinality{Identities: 12, Models: 6, APIKeys: 4},
-		TrafficTiers: []capacity.TrafficTier{
-			{Name: "high", KeyShare: 0.30, PerKeyWeight: 10},
-			{Name: "medium", KeyShare: 0.50, PerKeyWeight: 3},
-			{Name: "low", KeyShare: 0.20, PerKeyWeight: 1},
-		},
-		InsertBatchSize: 100,
-		AggregatePage:   200,
+		TrafficTiers:      capacityTestTrafficTiers(),
+		InsertBatchSize:   100,
+		AggregatePage:     200,
 	}
 
 	result, err := capacity.GenerateDataset(context.Background(), options)
@@ -54,7 +50,7 @@ func TestGenerateDatasetBuildsValidatedSteadyState(t *testing.T) {
 	if result.Recent30DayEvents != 250 {
 		t.Fatalf("recent 30-day events=%d, want 250", result.Recent30DayEvents)
 	}
-	if result.FailureRate != options.FailureRate || !reflect.DeepEqual(result.TrafficTiers, options.TrafficTiers) {
+	if result.FailureRate != options.FailureRate || !slices.Equal(result.TrafficTiers, options.TrafficTiers) {
 		t.Fatalf("generation config=%v/%+v, want %v/%+v", result.FailureRate, result.TrafficTiers, options.FailureRate, options.TrafficTiers)
 	}
 	if result.Identities != 12 || result.Models != 6 || result.APIKeys != 4 {
@@ -92,36 +88,24 @@ func TestGenerateDatasetIsSemanticallyDeterministic(t *testing.T) {
 		Seed:              99,
 		Now:               time.Date(2026, 8, 6, 15, 0, 0, 0, location),
 		Cardinality:       capacity.Cardinality{Identities: 6, Models: 4, APIKeys: 4},
-		TrafficTiers: []capacity.TrafficTier{
-			{Name: "high", KeyShare: 0.30, PerKeyWeight: 10},
-			{Name: "medium", KeyShare: 0.50, PerKeyWeight: 3},
-			{Name: "low", KeyShare: 0.20, PerKeyWeight: 1},
-		},
-		InsertBatchSize: 50,
-		AggregatePage:   100,
+		TrafficTiers:      capacityTestTrafficTiers(),
+		InsertBatchSize:   50,
+		AggregatePage:     100,
 	}
-	firstOptions := base
-	firstOptions.Path = filepath.Join(t.TempDir(), "first.db")
-	secondOptions := base
-	secondOptions.Path = filepath.Join(t.TempDir(), "second.db")
-	first, err := capacity.GenerateDataset(context.Background(), firstOptions)
-	if err != nil {
-		t.Fatalf("first GenerateDataset returned error: %v", err)
+	generate := func(options capacity.GenerateOptions) capacity.DatasetResult {
+		options.Path = filepath.Join(t.TempDir(), "dataset.db")
+		result, err := capacity.GenerateDataset(context.Background(), options)
+		if err != nil {
+			t.Fatalf("GenerateDataset seed %d: %v", options.Seed, err)
+		}
+		return result
 	}
-	second, err := capacity.GenerateDataset(context.Background(), secondOptions)
-	if err != nil {
-		t.Fatalf("second GenerateDataset returned error: %v", err)
-	}
+	first, second := generate(base), generate(base)
 	if first.SemanticFingerprint != second.SemanticFingerprint {
 		t.Fatalf("semantic fingerprints differ: %q != %q", first.SemanticFingerprint, second.SemanticFingerprint)
 	}
-	thirdOptions := base
-	thirdOptions.Path = filepath.Join(t.TempDir(), "third.db")
-	thirdOptions.Seed++
-	third, err := capacity.GenerateDataset(context.Background(), thirdOptions)
-	if err != nil {
-		t.Fatalf("third GenerateDataset returned error: %v", err)
-	}
+	base.Seed++
+	third := generate(base)
 	if first.SemanticFingerprint == third.SemanticFingerprint {
 		t.Fatalf("different seeds must produce different fingerprints: %q", first.SemanticFingerprint)
 	}
@@ -148,6 +132,11 @@ func TestValidateDatasetAgainstManifestRejectsStaleOrMismatchedMetadata(t *testi
 	}, TrafficTiers: []capacity.TrafficTier{{Name: "all", KeyShare: 1, PerKeyWeight: 1}}}
 	if err := capacity.ValidateDatasetAgainstManifest(actual, metadata, manifest); err != nil {
 		t.Fatalf("valid dataset rejected: %v", err)
+	}
+	staleGenerator := metadata
+	staleGenerator.GeneratorVersion = "production-v8-month-window-canonical"
+	if err := capacity.ValidateDatasetAgainstManifest(actual, staleGenerator, manifest); err == nil {
+		t.Fatal("dataset generated before stream/status-code dimensions must fail validation")
 	}
 
 	mismatched := actual

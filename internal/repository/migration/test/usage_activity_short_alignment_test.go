@@ -11,7 +11,6 @@ import (
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/repository/migration"
 	"cpa-usage-keeper/internal/timeutil"
-	"gorm.io/gorm"
 )
 
 const usageActivityShortAlignmentMigrationVersion = "20260722_align_usage_activity_short"
@@ -25,15 +24,9 @@ func TestUsageActivityShortAlignmentMigrationRebuildsOnlyCheckpointedShortRows(t
 	time.Local = location
 	t.Cleanup(func() { time.Local = previousLocal })
 
-	db := openUsageActivityMigrationDatabase(t, "usage-activity-short-alignment.db")
+	db := openUsageActivityMigrationDatabase(t)
 	if err := db.AutoMigrate(&entities.UsageEvent{}, &entities.UsageActivityStat{}, &entities.UsageActivityAggregationCheckpoint{}); err != nil {
 		t.Fatalf("create Activity schema: %v", err)
-	}
-	if err := migration.MarkAllAsApplied(db); err != nil {
-		t.Fatalf("mark migrations applied: %v", err)
-	}
-	if err := db.Exec("DELETE FROM schema_migrations WHERE version = ?", usageActivityShortAlignmentMigrationVersion).Error; err != nil {
-		t.Fatalf("enable short alignment migration: %v", err)
 	}
 
 	now := timeutil.NormalizeStorageTime(time.Now()).Truncate(time.Second)
@@ -62,20 +55,16 @@ func TestUsageActivityShortAlignmentMigrationRebuildsOnlyCheckpointedShortRows(t
 		t.Fatalf("seed Activity checkpoint: %v", err)
 	}
 
-	beforeMedium := loadUsageActivityRowsByGrain(t, db, entities.UsageActivityGrainMedium)
-	beforeLong := loadUsageActivityRowsByGrain(t, db, entities.UsageActivityGrainLong)
-	beforeDaily := loadUsageActivityRowsByGrain(t, db, entities.UsageActivityGrainDaily)
+	beforeOtherGrains := loadUsageActivityRows(t, db.Where("grain <> ?", entities.UsageActivityGrainShort))
 	beforeCheckpoint := loadUsageActivityCheckpoint(t, db)
 
-	if err := migration.Run(db); err != nil {
-		t.Fatalf("run short alignment migration: %v", err)
-	}
+	runOnlyMigration(t, db, usageActivityShortAlignmentMigrationVersion)
 
 	assertUsageActivityTotals(t, db, entities.UsageActivityGrainShort, usageActivityTotals{
 		SuccessCount: 1, InputTokens: 10, OutputTokens: 20, ReasoningTokens: 3,
 		CacheReadTokens: 4, CacheCreationTokens: 5, TotalTokens: 42,
 	})
-	shortRows := loadUsageActivityRowsByGrain(t, db, entities.UsageActivityGrainShort)
+	shortRows := loadUsageActivityRows(t, db.Where("grain = ?", entities.UsageActivityGrainShort))
 	for _, row := range shortRows {
 		bucket, err := activity.BucketForTimestamp(entities.UsageActivityGrainShort, row.BucketStart)
 		if err != nil {
@@ -85,14 +74,8 @@ func TestUsageActivityShortAlignmentMigrationRebuildsOnlyCheckpointedShortRows(t
 			t.Fatalf("short row is not midnight-aligned: row=%+v bucket=%+v", row, bucket)
 		}
 	}
-	if after := loadUsageActivityRowsByGrain(t, db, entities.UsageActivityGrainMedium); !reflect.DeepEqual(after, beforeMedium) {
-		t.Fatalf("medium rows changed:\n before=%+v\n after=%+v", beforeMedium, after)
-	}
-	if after := loadUsageActivityRowsByGrain(t, db, entities.UsageActivityGrainLong); !reflect.DeepEqual(after, beforeLong) {
-		t.Fatalf("long rows changed:\n before=%+v\n after=%+v", beforeLong, after)
-	}
-	if after := loadUsageActivityRowsByGrain(t, db, entities.UsageActivityGrainDaily); !reflect.DeepEqual(after, beforeDaily) {
-		t.Fatalf("daily rows changed:\n before=%+v\n after=%+v", beforeDaily, after)
+	if after := loadUsageActivityRows(t, db.Where("grain <> ?", entities.UsageActivityGrainShort)); !reflect.DeepEqual(after, beforeOtherGrains) {
+		t.Fatalf("other grains changed:\n before=%+v\n after=%+v", beforeOtherGrains, after)
 	}
 	if after := loadUsageActivityCheckpoint(t, db); !reflect.DeepEqual(after, beforeCheckpoint) {
 		t.Fatalf("Activity checkpoint changed:\n before=%+v\n after=%+v", beforeCheckpoint, after)
@@ -136,13 +119,4 @@ func TestUsageActivityShortAlignmentMigrationRebuildsOnlyCheckpointedShortRows(t
 	if afterRerun := loadUsageActivityRows(t, db); !reflect.DeepEqual(afterRerun, beforeRerun) {
 		t.Fatalf("Activity rows changed after idempotent rerun:\n before=%+v\n after=%+v", beforeRerun, afterRerun)
 	}
-}
-
-func loadUsageActivityRowsByGrain(t *testing.T, db *gorm.DB, grain entities.UsageActivityGrain) []entities.UsageActivityStat {
-	t.Helper()
-	var rows []entities.UsageActivityStat
-	if err := db.Where("grain = ?", grain).Order("bucket_start asc, api_group_key asc").Find(&rows).Error; err != nil {
-		t.Fatalf("load %s Activity rows: %v", grain, err)
-	}
-	return rows
 }

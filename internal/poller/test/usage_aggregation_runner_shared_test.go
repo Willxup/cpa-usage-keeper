@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"cpa-usage-keeper/internal/activity"
@@ -30,17 +31,7 @@ func TestUsageAggregationRunnerSharedTurnReadsOneEventPageAndAdvancesAllRollups(
 		t.Fatalf("insert shared runner events: %v", err)
 	}
 
-	var eventPageQueries atomic.Int64
-	callbackName := "test:count_shared_usage_event_pages"
-	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
-		// 固定投影只出现在共享/回退事件页，MAX(id) 与 Identity 查询不计入页读取次数。
-		if tx.Statement.Table == "usage_events" && len(tx.Statement.Selects) == 1 && tx.Statement.Selects[0] == entities.UsageAggregationEventProjectionColumns {
-			eventPageQueries.Add(1)
-		}
-	}); err != nil {
-		t.Fatalf("register usage event page counter: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Callback().Query().Remove(callbackName) })
+	eventPageQueries := countUsageAggregationEventPages(t, db)
 
 	runner := newUsageAggregationRunnerAt(db, now, 10*time.Millisecond)
 	result, err := runner.RunOnce(context.Background())
@@ -104,16 +95,7 @@ func TestUsageAggregationRunnerFallbackCatchesUpEachCursorThenRestoresSharedRead
 		t.Fatalf("seed activity fallback cursor: %v", err)
 	}
 
-	var eventPageQueries atomic.Int64
-	callbackName := "test:count_fallback_usage_event_pages"
-	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
-		if tx.Statement.Table == "usage_events" && len(tx.Statement.Selects) == 1 && tx.Statement.Selects[0] == entities.UsageAggregationEventProjectionColumns {
-			eventPageQueries.Add(1)
-		}
-	}); err != nil {
-		t.Fatalf("register fallback page counter: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Callback().Query().Remove(callbackName) })
+	eventPageQueries := countUsageAggregationEventPages(t, db)
 
 	runner := newUsageAggregationRunnerAt(db, now, 0)
 	result, err := runner.RunOnce(context.Background())
@@ -238,38 +220,29 @@ func TestUsageAggregationRunnerIdentityFailureDoesNotFreezeLaterRollups(t *testi
 	}
 
 	runner := newUsageAggregationRunnerAt(db, now, 20*time.Millisecond)
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
+	stop := startUsageAggregationTestRunner(t, runner)
 	waitForUsageAggregationRunnerCondition(t, 2*time.Second, func() bool {
-		return usageAggregationCheckpointCursor(db, entities.UsageAggregationCheckpointOverview) == 1 &&
-			usageAggregationCheckpointCursor(db, entities.UsageAggregationCheckpointActivity) == 1 &&
-			usageAggregationCheckpointCursor(db, entities.UsageAggregationCheckpointLatency) == 1
+		return usageAggregationCheckpointCursor(t, db, entities.UsageAggregationCheckpointOverview) == 1 &&
+			usageAggregationCheckpointCursor(t, db, entities.UsageAggregationCheckpointActivity) == 1 &&
+			usageAggregationCheckpointCursor(t, db, entities.UsageAggregationCheckpointLatency) == 1
 	})
 
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
 		EventKey: "identity-block-second", APIGroupKey: "provider-a", Model: "model-a", AuthType: "oauth", AuthIndex: identity.Identity, Timestamp: now.Add(time.Minute), TotalTokens: 1,
 	}}); err != nil {
-		cancel()
-		<-done
 		t.Fatalf("seed second event: %v", err)
 	}
 	var second entities.UsageEvent
 	if err := db.Where("event_key = ?", "identity-block-second").Take(&second).Error; err != nil {
-		cancel()
-		<-done
 		t.Fatalf("load second event: %v", err)
 	}
 	runner.NotifyUsageEventsCommitted([]entities.UsageEvent{second})
 	waitForUsageAggregationRunnerCondition(t, 2*time.Second, func() bool {
-		return usageAggregationCheckpointCursor(db, entities.UsageAggregationCheckpointOverview) == second.ID &&
-			usageAggregationCheckpointCursor(db, entities.UsageAggregationCheckpointActivity) == second.ID &&
-			usageAggregationCheckpointCursor(db, entities.UsageAggregationCheckpointLatency) == second.ID
+		return usageAggregationCheckpointCursor(t, db, entities.UsageAggregationCheckpointOverview) == second.ID &&
+			usageAggregationCheckpointCursor(t, db, entities.UsageAggregationCheckpointActivity) == second.ID &&
+			usageAggregationCheckpointCursor(t, db, entities.UsageAggregationCheckpointLatency) == second.ID
 	})
-	cancel()
-	if err := <-done; err != nil {
-		t.Fatalf("stop identity failure isolation runner: %v", err)
-	}
+	stop()
 }
 
 func TestUsageAggregationRunnerSkipsEmptyIdentityTurnBetweenRollupPages(t *testing.T) {
@@ -457,13 +430,9 @@ func TestUsageAggregationRunnerStaysDatabaseSilentAfterStartupCatchUp(t *testing
 	}
 	t.Cleanup(func() { _ = db.Callback().Query().Remove(callbackName) })
 
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
+	stop := startUsageAggregationTestRunner(t, runner)
 	time.Sleep(80 * time.Millisecond)
 	if got := queryCount.Load(); got != 0 {
-		cancel()
-		<-done
 		t.Fatalf("caught-up runner polled database %d times without notification", got)
 	}
 	// Identity-only 通知可以立即扫描身份，但不能创建 rollup checkpoint 或 usage debounce 工作。
@@ -472,76 +441,70 @@ func TestUsageAggregationRunnerStaysDatabaseSilentAfterStartupCatchUp(t *testing
 	assertUsageAggregationCheckpointValue(t, db, entities.UsageAggregationCheckpointOverview, 0)
 	assertUsageAggregationCheckpointValue(t, db, entities.UsageAggregationCheckpointActivity, 0)
 	assertUsageAggregationCheckpointValue(t, db, entities.UsageAggregationCheckpointLatency, 0)
-	cancel()
-	if err := <-done; err != nil {
-		t.Fatalf("stop silent runner: %v", err)
-	}
+	stop()
 }
 
 func TestUsageAggregationRunnerDebounceDoesNotResetAndStartupDoesNotWait(t *testing.T) {
 	t.Run("startup catch-up is immediate", func(t *testing.T) {
-		db := openUsageAggregationRunnerDatabase(t)
-		now := time.Date(2026, 7, 26, 12, 30, 0, 0, time.UTC)
-		if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{EventKey: "startup-immediate", APIGroupKey: "provider-a", Model: "model-a", Timestamp: now}}); err != nil {
-			t.Fatalf("insert startup event: %v", err)
-		}
-		runner := newUsageAggregationRunnerAt(db, now, 500*time.Millisecond)
-		ctx, cancel := context.WithCancel(context.Background())
-		done := make(chan error, 1)
-		go func() { done <- runner.Run(ctx) }()
-		waitForUsageAggregationRunnerCondition(t, 300*time.Millisecond, func() bool {
-			return usageAggregationCheckpointCursor(db, entities.UsageAggregationCheckpointOverview) == 1
+		synctest.Test(t, func(t *testing.T) {
+			db := openUsageAggregationRunnerDatabase(t)
+			now := time.Date(2026, 7, 26, 12, 30, 0, 0, time.UTC)
+			if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{EventKey: "startup-immediate", APIGroupKey: "provider-a", Model: "model-a", Timestamp: now}}); err != nil {
+				t.Fatalf("insert startup event: %v", err)
+			}
+			runner := newUsageAggregationRunnerAt(db, now, 500*time.Millisecond)
+			stop := startUsageAggregationTestRunner(t, runner)
+			// 只等待当前工作阻塞，不推进虚拟时间；启动追赶不能依赖 debounce。
+			synctest.Wait()
+			assertUsageAggregationCheckpointValue(t, db, entities.UsageAggregationCheckpointOverview, 1)
+			stop()
 		})
-		cancel()
-		if err := <-done; err != nil {
-			t.Fatalf("stop startup runner: %v", err)
-		}
 	})
 
 	t.Run("later notifications share the first fixed window", func(t *testing.T) {
-		db := openUsageAggregationRunnerDatabase(t)
-		now := time.Date(2026, 7, 26, 12, 30, 0, 0, time.UTC)
-		runner := newUsageAggregationRunnerAt(db, now, 500*time.Millisecond)
-		ctx, cancel := context.WithCancel(context.Background())
-		done := make(chan error, 1)
-		go func() { done <- runner.Run(ctx) }()
-		// 等待启动 MAX(id) 与空 Identity 扫描结束，后续事件只能走 debounce 路径。
-		time.Sleep(80 * time.Millisecond)
-		if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{EventKey: "debounce-1", APIGroupKey: "provider-a", Model: "model-a", Timestamp: now}}); err != nil {
-			t.Fatalf("insert first debounce event: %v", err)
-		}
-		var first entities.UsageEvent
-		if err := db.Where("event_key = ?", "debounce-1").Take(&first).Error; err != nil {
-			t.Fatalf("load first debounce event: %v", err)
-		}
-		startedAt := time.Now()
-		runner.NotifyUsageEventsCommitted([]entities.UsageEvent{first})
-		time.Sleep(300 * time.Millisecond)
-		if usageAggregationCheckpointCursor(db, entities.UsageAggregationCheckpointOverview) != 0 {
-			cancel()
-			<-done
-			t.Fatal("rollups ran before the fixed debounce window elapsed")
-		}
-		if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{EventKey: "debounce-2", APIGroupKey: "provider-a", Model: "model-a", Timestamp: now.Add(time.Minute)}}); err != nil {
-			t.Fatalf("insert second debounce event: %v", err)
-		}
-		var second entities.UsageEvent
-		if err := db.Where("event_key = ?", "debounce-2").Take(&second).Error; err != nil {
-			t.Fatalf("load second debounce event: %v", err)
-		}
-		runner.NotifyUsageEventsCommitted([]entities.UsageEvent{second})
-		waitForUsageAggregationRunnerCondition(t, 350*time.Millisecond, func() bool {
-			return usageAggregationCheckpointCursor(db, entities.UsageAggregationCheckpointOverview) == second.ID
+		synctest.Test(t, func(t *testing.T) {
+			db := openUsageAggregationRunnerDatabase(t)
+			now := time.Date(2026, 7, 26, 12, 30, 0, 0, time.UTC)
+			runner := newUsageAggregationRunnerAt(db, now, 500*time.Millisecond)
+			// 同步完成空库启动扫描，后续事件只能走 debounce 路径。
+			for range 2 {
+				if _, err := runner.RunOnce(context.Background()); err != nil {
+					t.Fatalf("complete startup catch-up: %v", err)
+				}
+			}
+			stop := startUsageAggregationTestRunner(t, runner)
+			if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{EventKey: "debounce-1", APIGroupKey: "provider-a", Model: "model-a", Timestamp: now}}); err != nil {
+				t.Fatalf("insert first debounce event: %v", err)
+			}
+			var first entities.UsageEvent
+			if err := db.Where("event_key = ?", "debounce-1").Take(&first).Error; err != nil {
+				t.Fatalf("load first debounce event: %v", err)
+			}
+			runner.NotifyUsageEventsCommitted([]entities.UsageEvent{first})
+			// 先让 runner 建立计时器，再推进虚拟时间，固定首个窗口的起点。
+			synctest.Wait()
+			time.Sleep(300 * time.Millisecond)
+			if usageAggregationCheckpointCursor(t, db, entities.UsageAggregationCheckpointOverview) != 0 {
+				t.Fatal("rollups ran before the fixed debounce window elapsed")
+			}
+			if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{EventKey: "debounce-2", APIGroupKey: "provider-a", Model: "model-a", Timestamp: now.Add(time.Minute)}}); err != nil {
+				t.Fatalf("insert second debounce event: %v", err)
+			}
+			var second entities.UsageEvent
+			if err := db.Where("event_key = ?", "debounce-2").Take(&second).Error; err != nil {
+				t.Fatalf("load second debounce event: %v", err)
+			}
+			runner.NotifyUsageEventsCommitted([]entities.UsageEvent{second})
+			synctest.Wait()
+			// 首次通知后的 499ms 仍不能聚合，500ms 必须覆盖第二次通知的目标。
+			time.Sleep(199 * time.Millisecond)
+			synctest.Wait()
+			assertUsageAggregationCheckpointValue(t, db, entities.UsageAggregationCheckpointOverview, 0)
+			time.Sleep(time.Millisecond)
+			synctest.Wait()
+			assertUsageAggregationCheckpointValue(t, db, entities.UsageAggregationCheckpointOverview, second.ID)
+			stop()
 		})
-		if elapsed := time.Since(startedAt); elapsed >= 700*time.Millisecond {
-			cancel()
-			<-done
-			t.Fatalf("second notification reset debounce window, elapsed=%s", elapsed)
-		}
-		cancel()
-		if err := <-done; err != nil {
-			t.Fatalf("stop debounce runner: %v", err)
-		}
 	})
 }
 
@@ -562,17 +525,12 @@ func TestUsageAggregationRunnerBackgroundFailureStillLetsIdentityRun(t *testing.
 		t.Fatalf("create background failure trigger: %v", err)
 	}
 	runner := newUsageAggregationRunnerAt(db, now, 0)
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
+	stop := startUsageAggregationTestRunner(t, runner)
 	waitForUsageAggregationRunnerCondition(t, 2*time.Second, func() bool {
 		var stored entities.UsageIdentity
 		return db.First(&stored, identity.ID).Error == nil && stored.TotalRequests == 1 && stored.LastAggregatedUsageEventID == 1
 	})
-	cancel()
-	if err := <-done; err != nil {
-		t.Fatalf("stop failure-isolation runner: %v", err)
-	}
+	stop()
 	assertUsageAggregationCheckpointValue(t, db, entities.UsageAggregationCheckpointOverview, 1)
 	assertUsageAggregationCheckpointValue(t, db, entities.UsageAggregationCheckpointActivity, 0)
 	assertUsageAggregationCheckpointValue(t, db, entities.UsageAggregationCheckpointLatency, 1)
@@ -594,37 +552,28 @@ func TestUsageAggregationRunnerPersistentRollupFailureDoesNotFreezeHealthyRollup
 	}
 
 	runner := newUsageAggregationRunnerAt(db, now, 20*time.Millisecond)
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
+	stop := startUsageAggregationTestRunner(t, runner)
 	waitForUsageAggregationRunnerCondition(t, 2*time.Second, func() bool {
-		return usageAggregationCheckpointCursor(db, entities.UsageAggregationCheckpointOverview) == 1 &&
-			usageAggregationCheckpointCursor(db, entities.UsageAggregationCheckpointLatency) == 1
+		return usageAggregationCheckpointCursor(t, db, entities.UsageAggregationCheckpointOverview) == 1 &&
+			usageAggregationCheckpointCursor(t, db, entities.UsageAggregationCheckpointLatency) == 1
 	})
 
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
 		EventKey: "persistent-failure-2", APIGroupKey: "provider-a", Model: "model-a", Timestamp: now.Add(time.Minute), TotalTokens: 2,
 	}}); err != nil {
-		cancel()
-		<-done
 		t.Fatalf("insert second persistent-failure event: %v", err)
 	}
 	var second entities.UsageEvent
 	if err := db.Where("event_key = ?", "persistent-failure-2").Take(&second).Error; err != nil {
-		cancel()
-		<-done
 		t.Fatalf("load second persistent-failure event: %v", err)
 	}
 	runner.NotifyUsageEventsCommitted([]entities.UsageEvent{second})
 	waitForUsageAggregationRunnerCondition(t, 2*time.Second, func() bool {
-		return usageAggregationCheckpointCursor(db, entities.UsageAggregationCheckpointOverview) == second.ID &&
-			usageAggregationCheckpointCursor(db, entities.UsageAggregationCheckpointLatency) == second.ID
+		return usageAggregationCheckpointCursor(t, db, entities.UsageAggregationCheckpointOverview) == second.ID &&
+			usageAggregationCheckpointCursor(t, db, entities.UsageAggregationCheckpointLatency) == second.ID
 	})
 
-	cancel()
-	if err := <-done; err != nil {
-		t.Fatalf("stop persistent-failure runner: %v", err)
-	}
+	stop()
 	assertUsageAggregationCheckpointValue(t, db, entities.UsageAggregationCheckpointOverview, second.ID)
 	assertUsageAggregationCheckpointValue(t, db, entities.UsageAggregationCheckpointActivity, 0)
 	assertUsageAggregationCheckpointValue(t, db, entities.UsageAggregationCheckpointLatency, second.ID)
@@ -632,29 +581,16 @@ func TestUsageAggregationRunnerPersistentRollupFailureDoesNotFreezeHealthyRollup
 
 func assertUsageAggregationCheckpointValue(t *testing.T, db *gorm.DB, name entities.UsageAggregationCheckpointName, want int64) {
 	t.Helper()
-	var checkpoint entities.UsageAggregationCheckpoint
-	err := db.Where("name = ?", name).Take(&checkpoint).Error
-	if want == 0 {
-		if err == nil && checkpoint.LastAggregatedUsageEventID != 0 {
-			t.Fatalf("expected checkpoint %s to remain 0, got %+v", name, checkpoint)
-		}
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			t.Fatalf("load checkpoint %s: %v", name, err)
-		}
-		return
-	}
-	if err != nil {
-		t.Fatalf("load checkpoint %s: %v", name, err)
-	}
-	if checkpoint.LastAggregatedUsageEventID != want {
-		t.Fatalf("expected checkpoint %s=%d, got %+v", name, want, checkpoint)
+	if got := usageAggregationCheckpointCursor(t, db, name); got != want {
+		t.Fatalf("checkpoint %s = %d, want %d", name, got, want)
 	}
 }
 
-func usageAggregationCheckpointCursor(db *gorm.DB, name entities.UsageAggregationCheckpointName) int64 {
+func usageAggregationCheckpointCursor(t *testing.T, db *gorm.DB, name entities.UsageAggregationCheckpointName) int64 {
+	t.Helper()
 	var checkpoint entities.UsageAggregationCheckpoint
-	if err := db.Where("name = ?", name).Take(&checkpoint).Error; err != nil {
-		return 0
+	if err := db.Where("name = ?", name).Take(&checkpoint).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("load checkpoint %s: %v", name, err)
 	}
 	return checkpoint.LastAggregatedUsageEventID
 }
@@ -678,4 +614,41 @@ func newUsageAggregationRunnerAt(db *gorm.DB, now time.Time, debounceInterval ti
 		DebounceInterval: debounceInterval,
 		NowFunc:          func() time.Time { return now },
 	})
+}
+
+func countUsageAggregationEventPages(t *testing.T, db *gorm.DB) *atomic.Int64 {
+	t.Helper()
+	count := &atomic.Int64{}
+	const callbackName = "test:count_usage_event_pages"
+	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+		// 固定投影只出现在共享/回退事件页，不计 MAX(id) 与 Identity 查询。
+		if tx.Statement.Table == "usage_events" && len(tx.Statement.Selects) == 1 && tx.Statement.Selects[0] == entities.UsageAggregationEventProjectionColumns {
+			count.Add(1)
+		}
+	}); err != nil {
+		t.Fatalf("register usage event page counter: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Query().Remove(callbackName) })
+	return count
+}
+
+func startUsageAggregationTestRunner(t *testing.T, runner *poller.UsageAggregationRunner) func() {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	var runErr error
+	go func() {
+		defer close(done)
+		runErr = runner.Run(ctx)
+	}()
+	stop := func() {
+		t.Helper()
+		cancel()
+		<-done
+		if runErr != nil {
+			t.Fatalf("stop usage aggregation runner: %v", runErr)
+		}
+	}
+	t.Cleanup(stop)
+	return stop
 }

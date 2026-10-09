@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -13,124 +12,39 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func TestRedisProcessRunnerSleepsAfterNonFullBatch(t *testing.T) {
-	syncer := &sequenceRedisProcessSyncer{results: []redisProcessSyncerResult{{
-		result: &servicedto.RedisBatchSyncResult{Status: "completed", ProcessedRows: 999},
-	}}}
-	runner := poller.NewRedisProcessRunner(syncer)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	var delays []time.Duration
-	setRedisProcessRunnerSleep(t, runner, func(_ context.Context, delay time.Duration) bool {
-		delays = append(delays, delay)
-		cancel()
-		return false
-	})
-
-	if err := runner.Run(ctx); err != nil {
-		t.Fatalf("Run returned error: %v", err)
+func TestRedisProcessRunnerSleepsUnlessFullBatchCanContinue(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		first     redisProcessSyncerResult
+		wantCalls int
+	}{
+		{"non-full", redisProcessSyncerResult{result: &servicedto.RedisBatchSyncResult{Status: "completed", ProcessedRows: 999}}, 1},
+		{"full", redisProcessSyncerResult{result: &servicedto.RedisBatchSyncResult{Status: "completed", ProcessedRows: 1000, BatchFull: true}}, 2},
+		{"warning full", redisProcessSyncerResult{result: &servicedto.RedisBatchSyncResult{Status: "completed_with_warnings", ProcessedRows: 1000, BatchFull: true}, err: errors.New("decode warning")}, 2},
+		// 待重试行必须等待，避免一次 drain 耗尽全部重试机会。
+		{"warning retry pending", redisProcessSyncerResult{result: &servicedto.RedisBatchSyncResult{Status: "completed_with_warnings", ProcessedRows: 1000, BatchFull: true, RetryPending: true}, err: errors.New("identity lookup warning")}, 1},
+		{"failed full", redisProcessSyncerResult{result: &servicedto.RedisBatchSyncResult{Status: "failed", ProcessedRows: 1000, BatchFull: true}, err: errors.New("sqlite locked")}, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			syncer := &sequenceRedisProcessSyncer{results: []redisProcessSyncerResult{tc.first}}
+			runner := poller.NewRedisProcessRunner(syncer)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var delays []time.Duration
+			setRedisProcessRunnerSleep(t, runner, func(_ context.Context, delay time.Duration) bool {
+				delays = append(delays, delay)
+				cancel()
+				return false
+			})
+			if err := runner.Run(ctx); err != nil {
+				t.Fatalf("Run returned error: %v", err)
+			}
+			if syncer.calls != tc.wantCalls {
+				t.Fatalf("process calls before sleep = %d, want %d", syncer.calls, tc.wantCalls)
+			}
+			requireDurations(t, delays, []time.Duration{time.Second})
+		})
 	}
-	if calls := syncer.callCount(); calls != 1 {
-		t.Fatalf("expected one process call before sleep, got %d", calls)
-	}
-	requireDurations(t, delays, []time.Duration{time.Second})
-}
-
-func TestRedisProcessRunnerSkipsSleepAfterFullBatch(t *testing.T) {
-	syncer := &sequenceRedisProcessSyncer{results: []redisProcessSyncerResult{
-		{result: &servicedto.RedisBatchSyncResult{Status: "completed", ProcessedRows: 1000, BatchFull: true}},
-		{result: &servicedto.RedisBatchSyncResult{Empty: true, Status: "empty"}},
-	}}
-	runner := poller.NewRedisProcessRunner(syncer)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	var delays []time.Duration
-	setRedisProcessRunnerSleep(t, runner, func(_ context.Context, delay time.Duration) bool {
-		delays = append(delays, delay)
-		cancel()
-		return false
-	})
-
-	if err := runner.Run(ctx); err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-	if calls := syncer.callCount(); calls != 2 {
-		t.Fatalf("expected full batch to process again before sleeping, got %d calls", calls)
-	}
-	requireDurations(t, delays, []time.Duration{time.Second})
-}
-
-func TestRedisProcessRunnerSkipsSleepAfterWarningFullBatch(t *testing.T) {
-	syncer := &sequenceRedisProcessSyncer{results: []redisProcessSyncerResult{
-		{result: &servicedto.RedisBatchSyncResult{Status: "completed_with_warnings", ProcessedRows: 1000, BatchFull: true}, err: errors.New("decode warning")},
-		{result: &servicedto.RedisBatchSyncResult{Empty: true, Status: "empty"}},
-	}}
-	runner := poller.NewRedisProcessRunner(syncer)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	var delays []time.Duration
-	setRedisProcessRunnerSleep(t, runner, func(_ context.Context, delay time.Duration) bool {
-		delays = append(delays, delay)
-		cancel()
-		return false
-	})
-
-	if err := runner.Run(ctx); err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-	if calls := syncer.callCount(); calls != 2 {
-		t.Fatalf("expected warning full batch to process again before sleeping, got %d calls", calls)
-	}
-	requireDurations(t, delays, []time.Duration{time.Second})
-}
-
-func TestRedisProcessRunnerSleepsAfterWarningFullBatchWithRetryPending(t *testing.T) {
-	// 满批中的部分成功不能掩盖待重试行；否则同一临时故障会在连续 drain 中瞬间耗尽五次机会。
-	syncer := &sequenceRedisProcessSyncer{results: []redisProcessSyncerResult{{
-		result: &servicedto.RedisBatchSyncResult{Status: "completed_with_warnings", ProcessedRows: 1000, BatchFull: true, RetryPending: true},
-		err:    errors.New("identity lookup warning"),
-	}}}
-	runner := poller.NewRedisProcessRunner(syncer)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	var delays []time.Duration
-	setRedisProcessRunnerSleep(t, runner, func(_ context.Context, delay time.Duration) bool {
-		delays = append(delays, delay)
-		cancel()
-		return false
-	})
-
-	if err := runner.Run(ctx); err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-	if calls := syncer.callCount(); calls != 1 {
-		t.Fatalf("expected retryable warning to sleep before another process call, got %d calls", calls)
-	}
-	requireDurations(t, delays, []time.Duration{time.Second})
-}
-
-func TestRedisProcessRunnerSleepsAfterFailedFullBatch(t *testing.T) {
-	syncer := &sequenceRedisProcessSyncer{results: []redisProcessSyncerResult{{
-		result: &servicedto.RedisBatchSyncResult{Status: "failed", ProcessedRows: 1000, BatchFull: true},
-		err:    errors.New("sqlite locked"),
-	}}}
-	runner := poller.NewRedisProcessRunner(syncer)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	var delays []time.Duration
-	setRedisProcessRunnerSleep(t, runner, func(_ context.Context, delay time.Duration) bool {
-		delays = append(delays, delay)
-		cancel()
-		return false
-	})
-
-	if err := runner.Run(ctx); err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-	if calls := syncer.callCount(); calls != 1 {
-		t.Fatalf("expected one failed full batch process call before sleep, got %d", calls)
-	}
-	requireDurations(t, delays, []time.Duration{time.Second})
 }
 
 func TestRedisProcessRunnerDoesNotRepeatManagedRowFailureWarnings(t *testing.T) {
@@ -171,20 +85,11 @@ type redisProcessSyncerResult struct {
 }
 
 type sequenceRedisProcessSyncer struct {
-	mu      sync.Mutex
 	results []redisProcessSyncerResult
 	calls   int
 }
 
-func (s *sequenceRedisProcessSyncer) callCount() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.calls
-}
-
 func (s *sequenceRedisProcessSyncer) ProcessRedisUsageInbox(context.Context) (*servicedto.RedisBatchSyncResult, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.calls >= len(s.results) {
 		s.calls++
 		return &servicedto.RedisBatchSyncResult{Empty: true, Status: "empty"}, nil

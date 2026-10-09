@@ -22,8 +22,8 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 }));
 
 vi.mock('@/features/key-viewer/KeyViewerShell', () => ({
-  KeyViewerShell: ({ children, toolbar }: { children: React.ReactNode; toolbar: React.ReactNode }) => (
-    <div>{toolbar}{children}</div>
+  KeyViewerShell: ({ children, filters, onRefresh, refreshing }: { children: React.ReactNode; filters: React.ReactNode[]; onRefresh: () => void; refreshing: boolean }) => (
+    <div>{filters}<button type="button" onClick={onRefresh} disabled={refreshing}>usage_stats.refresh</button>{children}</div>
   ),
 }));
 
@@ -41,19 +41,6 @@ vi.mock('react-i18next', () => ({
 }));
 
 import { KeyAnalysisPage } from '../KeyAnalysisPage';
-
-type Deferred<T> = {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-};
-
-const deferred = <T,>(): Deferred<T> => {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((nextResolve) => {
-    resolve = nextResolve;
-  });
-  return { promise, resolve };
-};
 
 const analysisResponse = (timezone: string): AnalysisResponse => ({
   granularity: 'hourly',
@@ -105,10 +92,10 @@ describe('KeyAnalysisPage requests', () => {
   });
 
   it('aborts the previous load and ignores its stale response after manual refresh', async () => {
-    const firstAnalysis = deferred<AnalysisResponse>();
-    const secondAnalysis = deferred<AnalysisResponse>();
-    const firstLatency = deferred<AnalysisLatencyDiagnostics>();
-    const secondLatency = deferred<AnalysisLatencyDiagnostics>();
+    const firstAnalysis = Promise.withResolvers<AnalysisResponse>();
+    const secondAnalysis = Promise.withResolvers<AnalysisResponse>();
+    const firstLatency = Promise.withResolvers<AnalysisLatencyDiagnostics>();
+    const secondLatency = Promise.withResolvers<AnalysisLatencyDiagnostics>();
     apiMocks.fetchKeyAnalysis
       .mockReturnValueOnce(firstAnalysis.promise)
       .mockReturnValueOnce(secondAnalysis.promise);
@@ -123,9 +110,8 @@ describe('KeyAnalysisPage requests', () => {
     const firstSignal = apiMocks.fetchKeyAnalysis.mock.calls[0][1] as AbortSignal;
 
     const refreshButton = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('usage_stats.refresh'));
-    expect(refreshButton).toBeDefined();
     await act(async () => {
-      refreshButton?.click();
+      refreshButton!.click();
     });
 
     expect(firstSignal.aborted).toBe(true);
@@ -133,14 +119,12 @@ describe('KeyAnalysisPage requests', () => {
     await act(async () => {
       secondAnalysis.resolve(analysisResponse('new'));
       secondLatency.resolve(latencyResponse);
-      await Promise.resolve();
     });
     expect(container.querySelector('[data-testid="analysis"]')?.textContent).toBe('new');
 
     await act(async () => {
       firstAnalysis.resolve(analysisResponse('old'));
       firstLatency.resolve(latencyResponse);
-      await Promise.resolve();
     });
     expect(container.querySelector('[data-testid="analysis"]')?.textContent).toBe('new');
   });
@@ -151,8 +135,8 @@ describe('KeyAnalysisPage requests', () => {
       customRange: { unit: 'day', start: '2026-08-20', end: '2026-08-21' },
       timeZone: 'America/New_York',
     }));
-    const blockedAnalysis = deferred<AnalysisResponse>();
-    const blockedLatency = deferred<AnalysisLatencyDiagnostics>();
+    const blockedAnalysis = Promise.withResolvers<AnalysisResponse>();
+    const blockedLatency = Promise.withResolvers<AnalysisLatencyDiagnostics>();
     apiMocks.fetchKeyAnalysis
       .mockResolvedValueOnce(analysisResponse('Asia/Shanghai'))
       .mockReturnValue(blockedAnalysis.promise);
@@ -162,8 +146,6 @@ describe('KeyAnalysisPage requests', () => {
 
     await act(async () => {
       root.render(<KeyAnalysisPage onNavigate={() => {}} />);
-      await Promise.resolve();
-      await Promise.resolve();
     });
 
     expect(apiMocks.fetchKeyAnalysis).toHaveBeenCalledTimes(1);
@@ -171,14 +153,14 @@ describe('KeyAnalysisPage requests', () => {
     expect(container.querySelector('[data-testid="analysis"]')?.textContent).toBe('Asia/Shanghai');
   });
 
-  it('returns to authentication when either viewer endpoint rejects the session', async () => {
-    apiMocks.fetchKeyAnalysis.mockRejectedValue(new ApiError('expired', 401));
-    apiMocks.fetchKeyAnalysisLatency.mockRejectedValue(new ApiError('expired', 401));
+  it.each(['fetchKeyAnalysis', 'fetchKeyAnalysisLatency'] as const)('returns to authentication when %s rejects the session', async (endpoint) => {
+    apiMocks.fetchKeyAnalysis.mockResolvedValue(analysisResponse('UTC'));
+    apiMocks.fetchKeyAnalysisLatency.mockResolvedValue(latencyResponse);
+    apiMocks[endpoint].mockRejectedValue(new ApiError('expired', 401));
     const onAuthRequired = vi.fn();
 
     await act(async () => {
       root.render(<KeyAnalysisPage onNavigate={() => {}} onAuthRequired={onAuthRequired} />);
-      await Promise.resolve();
     });
 
     expect(onAuthRequired).toHaveBeenCalled();

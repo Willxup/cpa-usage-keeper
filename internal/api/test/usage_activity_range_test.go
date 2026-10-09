@@ -5,14 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
 	. "cpa-usage-keeper/internal/api"
-	"cpa-usage-keeper/internal/auth"
-	"cpa-usage-keeper/internal/config"
-	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
@@ -41,9 +37,9 @@ func TestUsageActivityUsesOverviewTimeQueryAndAcceptsOptionalAPIKey(t *testing.T
 		"/api/v1/usage/activity",
 		"/api/v1/usage/activity?range=daily",
 		"/api/v1/usage/activity?range=custom&unit=day",
+		"/api/v1/usage/activity?window=unknown",
 	} {
-		response := httptest.NewRecorder()
-		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		response := serveAPIGet(router, path)
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("path %q status=%d, want 400: %s", path, response.Code, response.Body.String())
 		}
@@ -76,21 +72,6 @@ func TestUsageActivityUsesOverviewTimeQueryAndAcceptsOptionalAPIKey(t *testing.T
 	}
 }
 
-func TestUsageActivityRejectsUnknownWindowBeforeCallingService(t *testing.T) {
-	provider := &usageActivityRouteStub{}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	response := httptest.NewRecorder()
-
-	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/usage/activity?window=unknown", nil))
-
-	if response.Code != http.StatusBadRequest {
-		t.Fatalf("unknown Activity window status=%d, want 400: %s", response.Code, response.Body.String())
-	}
-	if provider.calls != 0 {
-		t.Fatalf("unknown Activity window called service %d times, want 0", provider.calls)
-	}
-}
-
 func TestUsageActivityAcceptsLongCustomDayRange(t *testing.T) {
 	provider := &usageActivityRouteStub{activity: &servicedto.UsageActivitySnapshot{
 		Window: servicedto.UsageActivityWindowYear, Grain: "daily", Rows: 7, Columns: 52, Blocks: []servicedto.UsageActivityBlock{},
@@ -101,8 +82,7 @@ func TestUsageActivityAcceptsLongCustomDayRange(t *testing.T) {
 	startDay := today.AddDate(0, 0, -120)
 	path := "/api/v1/usage/activity?range=custom&unit=day&start=" + startDay.Format(time.DateOnly) + "&end=" + today.Format(time.DateOnly) + "&api_key_id=42"
 
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+	response := serveAPIGet(router, path)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("long Custom day Activity status=%d body=%s", response.Code, response.Body.String())
@@ -156,15 +136,7 @@ func TestUsageActivityAcceptsCalendarDayWindowModes(t *testing.T) {
 }
 
 func TestUsageActivityRangesReturnBackendSelectedFixedTierWindows(t *testing.T) {
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-activity-ranges.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("resolve sql database: %v", err)
-	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
+	db := openAPITestDatabase(t)
 	router := NewRouter(nil, nil, service.NewUsageService(db, emptyPricingCatalogForTest()), nil, AuthConfig{}, nil, "")
 	testCases := []struct {
 		name         string
@@ -190,9 +162,7 @@ func TestUsageActivityRangesReturnBackendSelectedFixedTierWindows(t *testing.T) 
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			response := httptest.NewRecorder()
-			request := httptest.NewRequest(http.MethodGet, "/api/v1/usage/activity?"+testCase.query, nil)
-			router.ServeHTTP(response, request)
+			response := serveAPIGet(router, "/api/v1/usage/activity?"+testCase.query)
 			if response.Code != http.StatusOK {
 				t.Fatalf("expected status 200, got %d body=%s", response.Code, response.Body.String())
 			}
@@ -219,24 +189,17 @@ func TestUsageActivityRangesReturnBackendSelectedFixedTierWindows(t *testing.T) 
 			if payload.Rows != 7 || payload.Columns != 52 || len(payload.Blocks) != repository.UsageActivityHeatmapBlocks {
 				t.Fatalf("unexpected Activity shape: rows=%d columns=%d blocks=%d", payload.Rows, payload.Columns, len(payload.Blocks))
 			}
+			location, err := time.LoadLocation(payload.Timezone)
+			if err != nil {
+				t.Fatalf("load Activity timezone %q: %v", payload.Timezone, err)
+			}
+			windowStart, windowEnd := payload.WindowStart.In(location), payload.WindowEnd.In(location)
 			if testCase.wantCalendar {
-				location, err := time.LoadLocation(payload.Timezone)
-				if err != nil {
-					t.Fatalf("load Activity timezone %q: %v", payload.Timezone, err)
-				}
-				windowStart := payload.WindowStart.In(location)
-				windowEnd := payload.WindowEnd.In(location)
 				if windowStart.Hour() != 0 || windowStart.Minute() != 0 || windowStart.Second() != 0 || !windowEnd.Equal(windowStart.AddDate(0, 0, 1)) {
 					t.Fatalf("Activity %s did not keep a local calendar day: %s..%s", testCase.name, windowStart, windowEnd)
 				}
 			}
 			if testCase.wantDays > 0 {
-				location, err := time.LoadLocation(payload.Timezone)
-				if err != nil {
-					t.Fatalf("load Activity timezone %q: %v", payload.Timezone, err)
-				}
-				windowStart := payload.WindowStart.In(location)
-				windowEnd := payload.WindowEnd.In(location)
 				if wantEnd := windowStart.AddDate(0, 0, testCase.wantDays); !windowEnd.Equal(wantEnd) {
 					t.Fatalf("Activity calendar end=%s, want %s", windowEnd, wantEnd)
 				}
@@ -260,19 +223,13 @@ func TestUsageActivityRangesReturnBackendSelectedFixedTierWindows(t *testing.T) 
 
 func TestUsageActivityReturnsInternalErrorWhenUsageProviderIsMissing(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "")
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/usage/activity?range=24h", nil))
+	response := serveAPIGet(router, "/api/v1/usage/activity?range=24h")
 	if response.Code != http.StatusInternalServerError {
 		t.Fatalf("missing provider status=%d, want 500: %s", response.Code, response.Body.String())
 	}
 }
 
 func TestKeyActivityForcesViewerAPIKeyAndIgnoresEventsOnlyFilters(t *testing.T) {
-	sessions := auth.NewSessionManager(time.Hour)
-	token, _, err := sessions.CreateAPIKeyViewerWithSource(42, auth.SessionSourceStandard)
-	if err != nil {
-		t.Fatalf("create API key viewer session: %v", err)
-	}
 	provider := &usageActivityRouteStub{
 		UsageProvider: &usageEventsStub{},
 		activity: &servicedto.UsageActivitySnapshot{
@@ -283,14 +240,8 @@ func TestKeyActivityForcesViewerAPIKeyAndIgnoresEventsOnlyFilters(t *testing.T) 
 			Blocks:  []servicedto.UsageActivityBlock{},
 		},
 	}
-	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, APIKey: "provider-a", DisplayKey: "provider-a"}}
-	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
-
-	activityResponse := httptest.NewRecorder()
-	activityRequest := httptest.NewRequest(http.MethodGet, "/api/v1/key-activity?window=year&api_key_id=not-a-number&page=0&result=bogus", nil)
-	activityRequest.AddCookie(&http.Cookie{Name: standardSessionCookieName, Value: token})
-	router.ServeHTTP(activityResponse, activityRequest)
+	router, cookie := newUsageViewerRouter(t, provider)
+	activityResponse := serveAPIGet(router, "/api/v1/key-activity?window=year&api_key_id=not-a-number&page=0&result=bogus", cookie)
 	if activityResponse.Code != http.StatusOK {
 		t.Fatalf("key Activity status=%d body=%s", activityResponse.Code, activityResponse.Body.String())
 	}

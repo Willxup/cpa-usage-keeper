@@ -2,7 +2,7 @@ package test
 
 import (
 	"math"
-	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -61,7 +61,7 @@ func TestAnalysisProjectionSelectsOnlyFixedColumnsWithoutPricingRules(t *testing
 			}
 
 			query := requireSingleAnalysisRollupQuery(t, *queries, tt.wantTable)
-			if got := analysisProjectionSelectColumns(t, query); !reflect.DeepEqual(got, analysisProjectionFixedColumns) {
+			if got := analysisProjectionSelectColumns(t, query); !slices.Equal(got, analysisProjectionFixedColumns) {
 				t.Fatalf("selected columns = %#v, want %#v\nSQL: %s", got, analysisProjectionFixedColumns, query)
 			}
 			if strings.Contains(query, " group by ") {
@@ -114,8 +114,8 @@ func TestAnalysisProjectionAddsOnlyActivePricingDimensions(t *testing.T) {
 			}
 
 			query := requireSingleAnalysisRollupQuery(t, *queries, "usage_overview_hourly_stats")
-			want := append(append([]string{}, analysisProjectionFixedColumns...), tt.wantOptional...)
-			if got := analysisProjectionSelectColumns(t, query); !reflect.DeepEqual(got, want) {
+			want := slices.Concat(analysisProjectionFixedColumns, tt.wantOptional)
+			if got := analysisProjectionSelectColumns(t, query); !slices.Equal(got, want) {
 				t.Fatalf("selected columns = %#v, want %#v\nSQL: %s", got, want, query)
 			}
 		})
@@ -339,26 +339,23 @@ func TestBuildAnalysisWithoutUsageEventsUsesOnlyRollupTables(t *testing.T) {
 
 func captureAnalysisRollupQueries(t *testing.T, db *gorm.DB) *[]string {
 	t.Helper()
-	rollupQueries := make([]string, 0, 3)
-	callbackName := "test:capture-analysis-rollup-only:" + strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
-	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
-		query := strings.ToLower(strings.Join(strings.Fields(tx.Statement.SQL.String()), " "))
-		if strings.Contains(query, "usage_overview_hourly_stats") || strings.Contains(query, "usage_overview_daily_stats") {
-			rollupQueries = append(rollupQueries, query)
-		}
-	}); err != nil {
-		t.Fatalf("register rollup query callback: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Callback().Query().Remove(callbackName) })
-	return &rollupQueries
+	return captureAnalysisQueries(t, db, true)
 }
 
 func captureAllAnalysisQueries(t *testing.T, db *gorm.DB) *[]string {
 	t.Helper()
+	return captureAnalysisQueries(t, db, false)
+}
+
+func captureAnalysisQueries(t *testing.T, db *gorm.DB, rollupsOnly bool) *[]string {
+	t.Helper()
 	queries := make([]string, 0, 4)
-	callbackName := "test:capture-analysis-all:" + strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
+	callbackName := "test:capture-analysis-all"
 	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
-		queries = append(queries, strings.ToLower(strings.Join(strings.Fields(tx.Statement.SQL.String()), " ")))
+		query := strings.ToLower(strings.Join(strings.Fields(tx.Statement.SQL.String()), " "))
+		if !rollupsOnly || strings.Contains(query, "usage_overview_hourly_stats") || strings.Contains(query, "usage_overview_daily_stats") {
+			queries = append(queries, query)
+		}
 	}); err != nil {
 		t.Fatalf("register query callback: %v", err)
 	}

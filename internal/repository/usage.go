@@ -13,15 +13,16 @@ import (
 	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
+	"gorm.io/plugin/dbresolver"
 )
 
 // usageEventProjectionColumns 限制 usage_events 查询列，避免 Overview 和列表页把 RawJSON 等大字段读入内存。
-const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, request_id, client_ip, x_forwarded_for, user_agent, model, model_alias, reasoning_effort, service_tier, response_service_tier, executor_type, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, request_id, client_ip, x_forwarded_for, user_agent, model, model_alias, response_model, reasoning_effort, service_tier, response_service_tier, executor_type, endpoint, timestamp, source, auth_index, failed, status_code, stream, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
 
 // usageOverviewBoundaryEventProjectionColumns 只包含非 Custom Overview 边界卡片计算需要的字段。
-const usageOverviewBoundaryEventProjectionColumns = "api_group_key, model, model_alias, timestamp, failed, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+const usageOverviewBoundaryEventProjectionColumns = "api_group_key, model, model_alias, timestamp, failed, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, auth_index"
 
-// usageOverviewRealtimeEventProjectionColumns 保持 Realtime 的响应分布与身份字段完整。
+// usageOverviewRealtimeEventProjectionColumns 保持 Realtime 散点与身份字段完整。
 const usageOverviewRealtimeEventProjectionColumns = "api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
 
 // usageEventProjection 是 usage_events 轻量投影，专门承接 select columns 的查询结果。
@@ -36,6 +37,7 @@ type usageEventProjection struct {
 	UserAgent           *string
 	Model               string
 	ModelAlias          *string `gorm:"column:model_alias"`
+	ResponseModel       string  `gorm:"column:response_model"`
 	ReasoningEffort     string
 	ServiceTier         string
 	ResponseServiceTier string
@@ -45,7 +47,9 @@ type usageEventProjection struct {
 	Source              string
 	AuthIndex           string
 	Failed              bool
+	StatusCode          *int
 	Generate            *bool
+	Stream              *bool
 	LatencyMS           int64
 	TTFTMS              *int64 `gorm:"column:ttft_ms"`
 	InputTokens         int64
@@ -200,16 +204,13 @@ func FindUsageEventRequestIDByID(db *gorm.DB, id int64) (string, error) {
 }
 
 func loadUsageEventRecordsForQuery(db *gorm.DB, query *gorm.DB, costResolver pricing.Resolver) ([]dto.UsageEventRecord, error) {
-	var events []usageEventProjection
-	if err := query.Find(&events).Error; err != nil {
-		return nil, fmt.Errorf("load usage events: %w", err)
-	}
-	rows := make([]dto.UsageEventRecord, 0, len(events))
-	for _, event := range events {
-		record := usageEventProjectionToRecord(event)
-		// Request Events cost 只在响应阶段按当前价格配置计算，不回写 usage_events。
-		record.CostUSD, record.CostAvailable, record.PricingStyle = usageEventRecordCost(record, costResolver)
+	var rows []dto.UsageEventRecord
+	// Request Events cost 只在响应阶段按当前价格配置计算，不回写 usage_events。
+	if err := streamUsageEventRecordsForQuery(db, query, func(record dto.UsageEventRecord) error {
 		rows = append(rows, record)
+		return nil
+	}, costResolver); err != nil {
+		return nil, err
 	}
 	return rows, nil
 }
@@ -256,6 +257,7 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 			}
 			return strings.TrimSpace(*event.ModelAlias)
 		}(),
+		ResponseModel:       strings.TrimSpace(event.ResponseModel),
 		ReasoningEffort:     strings.TrimSpace(event.ReasoningEffort),
 		ServiceTier:         strings.TrimSpace(event.ServiceTier),
 		ResponseServiceTier: strings.TrimSpace(event.ResponseServiceTier),
@@ -270,6 +272,8 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 		Source:              strings.TrimSpace(event.Source),
 		AuthIndex:           strings.TrimSpace(event.AuthIndex),
 		Failed:              event.Failed,
+		StatusCode:          event.StatusCode,
+		Stream:              event.Stream,
 		LatencyMS:           event.LatencyMS,
 		TTFTMS:              event.TTFTMS,
 		InputTokens:         event.InputTokens,
@@ -305,7 +309,9 @@ func usageEventProjectionToEntity(event usageEventProjection) entities.UsageEven
 		Source:              event.Source,
 		AuthIndex:           event.AuthIndex,
 		Failed:              event.Failed,
+		StatusCode:          event.StatusCode,
 		Generate:            event.Generate,
+		Stream:              event.Stream,
 		LatencyMS:           event.LatencyMS,
 		TTFTMS:              event.TTFTMS,
 		InputTokens:         event.InputTokens,
@@ -827,6 +833,16 @@ func BuildUsageOverviewWithFilterAndRecentCache(db *gorm.DB, filter dto.UsageQue
 		return nil, fmt.Errorf("usage overview requires start_time and end_time")
 	}
 
+	// 独立比较查询使用同一个数据库快照，避免增量写入夹在边界与 rollup 读取之间。
+	if filter.ComparisonOnly {
+		var overview *dto.UsageOverviewRecord
+		err := db.Clauses(dbresolver.Read).Transaction(func(tx *gorm.DB) error {
+			var err error
+			overview, err = buildUsageOverviewFromStats(tx, filter, costResolver, recentCache)
+			return err
+		})
+		return overview, err
+	}
 	// stats 表不保存价格，所有 cost 都使用调用方固定的请求级 resolver 动态计算。
 	overview, err := buildUsageOverviewFromStats(db, filter, costResolver, recentCache)
 	if err != nil {
@@ -872,27 +888,27 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, costR
 	windowMinutes := computeWindowMinutes(effectiveFilter)
 	bucketByDay := shouldBucketUsageOverviewByDay(effectiveFilter, windowMinutes)
 	overview := newUsageOverviewRecord(windowMinutes)
+	if filter.ComparisonOnly {
+		comparisonFilter := effectiveFilter
+		if filter.Range == "custom" {
+			comparisonFilter = filter
+			bucketByDay = filter.CustomUnit == "day"
+		}
+		overview.Comparisons = newUsageOverviewComparisons(comparisonFilter, bucketByDay)
+	}
 	if strings.TrimSpace(filter.Range) == "custom" {
 		switch strings.TrimSpace(filter.CustomUnit) {
 		case "hour":
 			// Custom 小时的边界已由 API 对齐，包含当前小时也只读取增量 hourly 桶。
-			hourlyRows, err := loadUsageOverviewHourlyStatsWithFilter(db, filter, *filter.StartTime, *filter.EndTime, costResolver.ActiveFields())
-			if err != nil {
+			if err := loadAndApplyUsageOverviewStats(overview, db, filter, *filter.StartTime, *filter.EndTime, "hourly", false, costResolver); err != nil {
 				return nil, err
-			}
-			for _, row := range hourlyRows {
-				applyUsageOverviewStatToOverview(overview, row, false, costResolver)
 			}
 			finalizeUsageOverview(overview)
 			return overview, nil
 		case "day":
 			// Custom 天始终读取完整 daily 桶，当前日由后台增量汇总持续刷新。
-			dailyRows, err := loadUsageOverviewDailyStatsWithFilter(db, filter, *filter.StartTime, *filter.EndTime, costResolver.ActiveFields())
-			if err != nil {
+			if err := loadAndApplyUsageOverviewStats(overview, db, filter, *filter.StartTime, *filter.EndTime, "daily", true, costResolver); err != nil {
 				return nil, err
-			}
-			for _, row := range dailyRows {
-				applyUsageOverviewStatToOverview(overview, row, true, costResolver)
 			}
 			finalizeUsageOverview(overview)
 			return overview, nil
@@ -909,33 +925,50 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, costR
 	if err != nil {
 		return nil, err
 	}
+	var boundaryIdentityLookup analysisIdentityLookup
+	if overview.Comparisons != nil {
+		authIndexes := make([]string, 0, len(boundaryEvents))
+		seen := make(map[string]struct{}, len(boundaryEvents))
+		for _, event := range boundaryEvents {
+			if authIndex := strings.TrimSpace(event.AuthIndex); authIndex != "" {
+				if _, ok := seen[authIndex]; !ok {
+					authIndexes = append(authIndexes, authIndex)
+					seen[authIndex] = struct{}{}
+				}
+			}
+		}
+		boundaryIdentityLookup, err = loadAnalysisIdentityLookup(db, authIndexes)
+		if err != nil {
+			return nil, err
+		}
+	}
+	comparisonSeriesEnd := *effectiveFilter.EndTime
 	for _, event := range boundaryEvents {
 		if usageOverviewEventInsideWindow(event, fullStart, fullEnd) {
 			continue
 		}
-		applyUsageEventToOverviewSnapshot(overview.Usage, event)
-		applyUsageEventToOverview(overview, event, bucketByDay, costResolver)
+		if filter.ComparisonOnly {
+			applyUsageEventToComparisonOnly(overview.Comparisons, event, costResolver, boundaryIdentityLookup)
+			if event.Timestamp.After(comparisonSeriesEnd) {
+				comparisonSeriesEnd = event.Timestamp
+			}
+		} else {
+			applyUsageEventToOverviewSnapshot(overview.Usage, event)
+			applyUsageEventToOverview(overview, event, bucketByDay, costResolver, boundaryIdentityLookup)
+		}
 	}
 
 	if fullEnd.After(fullStart) {
 		// 短窗口的主序列和 snapshot 小时图必须保持小时粒度，不能因为内部包含完整天就压成 daily bucket。
 		fullDayStart, fullDayEnd := usageOverviewFullDayWindow(fullStart, fullEnd)
 		if !bucketByDay || !fullDayEnd.After(fullDayStart) {
-			hourlyRows, err := loadUsageOverviewHourlyStatsWithFilter(db, effectiveFilter, fullStart, fullEnd, costResolver.ActiveFields())
-			if err != nil {
+			if err := loadAndApplyUsageOverviewStats(overview, db, effectiveFilter, fullStart, fullEnd, "hourly", bucketByDay, costResolver); err != nil {
 				return nil, err
-			}
-			for _, row := range hourlyRows {
-				applyUsageOverviewStatToOverview(overview, row, bucketByDay, costResolver)
 			}
 		} else {
 			// 长窗口中间的完整本地天用 daily stats，减少大量小时 row 累加。
-			dailyRows, err := loadUsageOverviewDailyStatsWithFilter(db, effectiveFilter, fullDayStart, fullDayEnd, costResolver.ActiveFields())
-			if err != nil {
+			if err := loadAndApplyUsageOverviewStats(overview, db, effectiveFilter, fullDayStart, fullDayEnd, "daily", bucketByDay, costResolver); err != nil {
 				return nil, err
-			}
-			for _, row := range dailyRows {
-				applyUsageOverviewStatToOverview(overview, row, bucketByDay, costResolver)
 			}
 
 			// 完整天两侧剩余的完整小时仍走 hourly stats，避免回退到大范围事件扫描。
@@ -943,19 +976,24 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, costR
 				if !window.end.After(window.start) {
 					continue
 				}
-				hourlyRows, err := loadUsageOverviewHourlyStatsWithFilter(db, effectiveFilter, window.start, window.end, costResolver.ActiveFields())
-				if err != nil {
+				if err := loadAndApplyUsageOverviewStats(overview, db, effectiveFilter, window.start, window.end, "hourly", bucketByDay, costResolver); err != nil {
 					return nil, err
-				}
-				for _, row := range hourlyRows {
-					applyUsageOverviewStatToOverview(overview, row, bucketByDay, costResolver)
 				}
 			}
 		}
 	}
 
+	// 保留 Overview 最新缓存语义；仅比较图时间轴覆盖本次实际计入的跨桶事件，不扩大查询。
+	if filter.ComparisonOnly && comparisonSeriesEnd.After(*effectiveFilter.EndTime) {
+		seriesFilter := effectiveFilter
+		seriesFilter.EndTime = &comparisonSeriesEnd
+		seriesFilter.EndExclusive = false
+		overview.Comparisons.Buckets = usageOverviewComparisonBuckets(seriesFilter, bucketByDay)
+	}
 	// 顶部 summary 和 series 始终使用本次精确筛选窗口。
-	finalizeUsageOverview(overview)
+	if !filter.ComparisonOnly {
+		finalizeUsageOverview(overview)
+	}
 	return overview, nil
 }
 
@@ -1214,7 +1252,11 @@ func usageOverviewRecentCacheCoversWindow(recentCache *UsageRecentEventCache, wi
 }
 
 func loadUsageOverviewBoundaryEventRangeWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, includeEnd bool, activeFields pricing.ActiveFields) ([]entities.UsageEvent, error) {
-	return loadUsageOverviewEventRangeWithProjection(db, filter, start, end, includeEnd, usagePricingProjectionColumns(usageOverviewBoundaryEventProjectionColumns, activeFields))
+	projection := usageOverviewBoundaryEventProjectionColumns
+	if !filter.ComparisonOnly {
+		projection = strings.TrimSuffix(projection, ", auth_index")
+	}
+	return loadUsageOverviewEventRangeWithProjection(db, filter, start, end, includeEnd, usagePricingProjectionColumns(projection, activeFields))
 }
 
 func loadUsageOverviewRealtimeEventRangeWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, includeEnd bool, activeFields pricing.ActiveFields) ([]entities.UsageEvent, error) {
@@ -1292,12 +1334,16 @@ func applyUsageOverviewStatToSeries(series *dto.UsageOverviewSeriesRecord, reque
 }
 
 const (
-	usageOverviewRealtimeBucketCount                     = 30
-	usageOverviewRealtimeDistributionMaxParticles        = 1000
-	usageOverviewRealtimeDistributionDefaultParticleSize = 1
+	usageOverviewRealtimeBucketCount             = 30
+	usageOverviewRealtimeLatencyScatterMaxPoints = 1000
 )
 
 type usageOverviewRealtimeBucket struct {
+	failures            int64
+	tokenRequests       int64
+	cachedRequests      int64
+	outputTokens        int64
+	reasoningTokens     int64
 	bucketStart         time.Time
 	requests            int64
 	tokens              int64
@@ -1306,13 +1352,13 @@ type usageOverviewRealtimeBucket struct {
 	cacheCreationTokens int64
 	costUSD             float64
 	costAvailable       bool
-	ttftSamples         []usageOverviewRealtimeResponseSample
-	latencySamples      []usageOverviewRealtimeResponseSample
+	latencyPairs        []usageOverviewRealtimeLatencyPair
 }
 
-type usageOverviewRealtimeResponseSample struct {
+type usageOverviewRealtimeLatencyPair struct {
 	timestamp time.Time
-	ms        int64
+	ttftMS    int64
+	latencyMS int64
 }
 
 type usageOverviewRealtimeTopAccumulator struct {
@@ -1360,13 +1406,13 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, costRe
 
 	// 无论数据来源是缓存还是 DB，都先创建完整 bucket 骨架，前端渲染结构保持一致。
 	buckets := newUsageOverviewRealtimeBuckets(readStart, span, usageOverviewRealtimeBucketCount+warmupBucketCount)
-	// 只有 current usage 的 Auth File / AI Provider 展示名需要身份表补全，隐藏预热事件不参与 Top5。
+	// 只有 current usage 的 Auth File / AI Provider 展示名需要身份表补全，隐藏预热事件不参与当前占比。
 	authIndexes := collectRealtimeAuthIndexes(events, start)
 	identityLookup, err := loadAnalysisIdentityLookup(db, authIndexes)
 	if err != nil {
 		return dto.UsageOverviewRealtimeRecord{}, err
 	}
-	// 四个 Top5 维度共用 accumulator，按 token 占比排序输出。
+	// 四个当前用量维度共用 accumulator，按 token 占比输出 Top5+Other。
 	modelUsage := map[string]*usageOverviewRealtimeTopAccumulator{}
 	apiKeyUsage := map[string]*usageOverviewRealtimeTopAccumulator{}
 	authFileUsage := map[string]*usageOverviewRealtimeTopAccumulator{}
@@ -1381,19 +1427,23 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, costRe
 		if index < 0 {
 			continue
 		}
-		// visibleEvent 控制 Top5/当前占比统计范围，避免预热事件进入当前窗口语义。
+		// visibleEvent 控制当前占比统计范围，避免预热事件进入当前窗口语义。
 		visibleEvent := !timestamp.Before(start)
 		// 请求水平包含成功和失败请求。
 		bucket := &buckets[index]
 		bucket.requests++
+		if event.Failed {
+			bucket.failures++
+		}
 		if visibleEvent {
 			// current usage 的请求数同样包含成功和失败，token 后续只由成功请求累计。
 			applyUsageOverviewRealtimeRequest(realtimeEvent, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage, identityLookup)
 		}
 		if !event.Failed && usageEventGenerateEnabled(event.Generate) && event.TTFTMS != nil && *event.TTFTMS > 0 && event.LatencyMS > 0 {
-			// TTFT 和 Latency 共用同一有效请求样本，避免两张响应分布图的统计口径不一致。
-			bucket.ttftSamples = append(bucket.ttftSamples, usageOverviewRealtimeResponseSample{timestamp: timestamp, ms: *event.TTFTMS})
-			bucket.latencySamples = append(bucket.latencySamples, usageOverviewRealtimeResponseSample{timestamp: timestamp, ms: event.LatencyMS})
+			// 散点保留同一有效请求的 TTFT 和总耗时，预热事件不计入可见窗口。
+			if visibleEvent {
+				bucket.latencyPairs = append(bucket.latencyPairs, usageOverviewRealtimeLatencyPair{timestamp: timestamp, ttftMS: *event.TTFTMS, latencyMS: event.LatencyMS})
+			}
 		}
 		// 失败或无 token 的请求不参与 token velocity/cache/current token share。
 		if event.Failed || event.TotalTokens <= 0 {
@@ -1404,6 +1454,12 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, costRe
 		costResult := costResolver.Calculate(UsageEventCostSubject(event))
 		cost := costResult.Cost.TotalCostUSD
 		// token velocity/cache level 都从同一个 bucket accumulator 派生。
+		bucket.tokenRequests++
+		if event.CacheReadTokens > 0 {
+			bucket.cachedRequests++
+		}
+		bucket.outputTokens += event.OutputTokens
+		bucket.reasoningTokens += event.ReasoningTokens
 		bucket.tokens += event.TotalTokens
 		bucket.inputTokens += event.InputTokens
 		bucket.cacheReadTokens += event.CacheReadTokens
@@ -1418,7 +1474,7 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, costRe
 		}
 	}
 
-	// 最后统一把 bucket、percentile 和 Top5 accumulator 映射成 API DTO。
+	// 最后统一把 bucket、percentile 和当前用量 accumulator 映射成 API DTO。
 	return finalizeUsageOverviewRealtime(window, span, start, end, buckets, warmupBucketCount, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage), nil
 }
 
@@ -1609,7 +1665,7 @@ func applyUsageOverviewRealtimeTokenUsage(realtimeEvent usageOverviewRealtimeEve
 }
 
 func applyUsageOverviewRealtimeTokenUsageToTotals(totals map[string]*usageOverviewRealtimeTopAccumulator, key, label string, tokens int64, cost float64, costAvailable bool) {
-	// 同一个 key 的 token/cost 累加到同一 Top5 accumulator。
+	// 同一个 key 的 token/cost 累加到同一当前用量 accumulator。
 	item := usageOverviewRealtimeTopItem(totals, key, label)
 	item.tokens += tokens
 	item.costUSD += cost
@@ -1619,7 +1675,7 @@ func applyUsageOverviewRealtimeTokenUsageToTotals(totals map[string]*usageOvervi
 }
 
 func usageOverviewRealtimeTopItem(totals map[string]*usageOverviewRealtimeTopAccumulator, key, label string) *usageOverviewRealtimeTopAccumulator {
-	// key 已存在时直接复用，避免重复 item 影响 Top5 排序。
+	// key 已存在时直接复用，避免重复 item 影响 token 排序。
 	item, ok := totals[key]
 	if !ok {
 		// 新 item 默认 costAvailable=true，遇到缺价格事件时再置 false。
@@ -1642,7 +1698,7 @@ func applyUsageOverviewRealtimeIdentityRequest(realtimeEvent usageOverviewRealti
 
 func applyUsageOverviewRealtimeIdentityTokenUsage(realtimeEvent usageOverviewRealtimeEvent, authFileUsage, aiProviderUsage map[string]*usageOverviewRealtimeTopAccumulator, identityLookup analysisIdentityLookup, cost float64, costAvailable bool) {
 	event := realtimeEvent.event
-	// token 累计使用和 request 累计相同的身份解析结果，避免两张 Top5 对不上。
+	// token 累计使用和 request 累计相同的身份解析结果，避免两类统计对不上。
 	authFile, aiProvider := usageOverviewRealtimeIdentityTargets(realtimeEvent, identityLookup)
 	if authFile != nil {
 		applyUsageOverviewRealtimeTokenUsageToTotals(authFileUsage, authFile.identity, authFile.label, event.TotalTokens, cost, costAvailable)
@@ -1712,8 +1768,6 @@ func aggregateUsageOverviewRealtimeBucket(buckets []usageOverviewRealtimeBucket,
 		if !bucket.costAvailable {
 			aggregated.costAvailable = false
 		}
-		aggregated.ttftSamples = append(aggregated.ttftSamples, bucket.ttftSamples...)
-		aggregated.latencySamples = append(aggregated.latencySamples, bucket.latencySamples...)
 	}
 	return aggregated
 }
@@ -1721,17 +1775,6 @@ func aggregateUsageOverviewRealtimeBucket(buckets []usageOverviewRealtimeBucket,
 func finalizeUsageOverviewRealtime(window, span time.Duration, windowStart, windowEnd time.Time, buckets []usageOverviewRealtimeBucket, visibleStartIndex int, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage map[string]*usageOverviewRealtimeTopAccumulator) dto.UsageOverviewRealtimeRecord {
 	visibleBucketCount := len(buckets) - visibleStartIndex
 	tokenVelocity := make([]dto.RealtimeTokenVelocityPointRecord, 0, visibleBucketCount)
-	responseLevel := make([]dto.RealtimeResponseLevelPointRecord, 0, visibleBucketCount)
-	responseDistribution := dto.RealtimeResponseDistributionRecord{
-		TTFT: dto.RealtimeResponseDistributionSeriesRecord{
-			AverageLine: make([]dto.RealtimeResponseAveragePointRecord, 0, visibleBucketCount),
-			Particles:   []dto.RealtimeResponseParticleRecord{},
-		},
-		Latency: dto.RealtimeResponseDistributionSeriesRecord{
-			AverageLine: make([]dto.RealtimeResponseAveragePointRecord, 0, visibleBucketCount),
-			Particles:   []dto.RealtimeResponseParticleRecord{},
-		},
-	}
 	requestLevel := make([]dto.RealtimeRequestLevelPointRecord, 0, visibleBucketCount)
 	cacheLevel := make([]dto.RealtimeCacheLevelPointRecord, 0, visibleBucketCount)
 	aggregationWindow := usageOverviewRealtimeAggregationWindow(window)
@@ -1739,33 +1782,13 @@ func finalizeUsageOverviewRealtime(window, span time.Duration, windowStart, wind
 	aggregationMinutes := aggregationWindow.Minutes()
 	for index := visibleStartIndex; index < len(buckets); index++ {
 		rollingBucket := aggregateUsageOverviewRealtimeBucket(buckets, index, aggregationBucketCount)
-		rawBucket := buckets[index]
 		bucketKey := timeutil.FormatStorageTime(rollingBucket.bucketStart)
-		ttftP50, ttftP95 := usageOverviewRealtimePercentilePair(rollingBucket.ttftSamples, 0.50, 0.95)
-		latencyP50, latencyP95 := usageOverviewRealtimePercentilePair(rollingBucket.latencySamples, 0.50, 0.95)
 		tokenVelocity = append(tokenVelocity, dto.RealtimeTokenVelocityPointRecord{
 			Bucket:          bucketKey,
 			TokensPerMinute: float64(rollingBucket.tokens) / aggregationMinutes,
 			Tokens:          rollingBucket.tokens,
 			CostUSD:         usageOverviewRealtimeCostPtr(rollingBucket.costUSD, rollingBucket.costAvailable),
 		})
-		responseLevel = append(responseLevel, dto.RealtimeResponseLevelPointRecord{
-			Bucket:       bucketKey,
-			TTFTP50MS:    ttftP50,
-			TTFTP95MS:    ttftP95,
-			LatencyP50MS: latencyP50,
-			LatencyP95MS: latencyP95,
-		})
-		responseDistribution.TTFT.AverageLine = append(responseDistribution.TTFT.AverageLine, dto.RealtimeResponseAveragePointRecord{
-			Bucket: bucketKey,
-			AvgMS:  usageOverviewRealtimeAverage(rollingBucket.ttftSamples),
-		})
-		responseDistribution.TTFT.Particles = appendUsageOverviewRealtimeDistributionParticles(responseDistribution.TTFT.Particles, bucketKey, rawBucket.ttftSamples)
-		responseDistribution.Latency.AverageLine = append(responseDistribution.Latency.AverageLine, dto.RealtimeResponseAveragePointRecord{
-			Bucket: bucketKey,
-			AvgMS:  usageOverviewRealtimeAverage(rollingBucket.latencySamples),
-		})
-		responseDistribution.Latency.Particles = appendUsageOverviewRealtimeDistributionParticles(responseDistribution.Latency.Particles, bucketKey, rawBucket.latencySamples)
 		requestLevel = append(requestLevel, dto.RealtimeRequestLevelPointRecord{
 			Bucket:            bucketKey,
 			RequestsPerMinute: float64(rollingBucket.requests) / aggregationMinutes,
@@ -1779,16 +1802,15 @@ func finalizeUsageOverviewRealtime(window, span time.Duration, windowStart, wind
 			InputTokens:         rollingBucket.inputTokens,
 		})
 	}
-	responseDistribution.TTFT = finalizeUsageOverviewRealtimeDistributionSeries(responseDistribution.TTFT)
-	responseDistribution.Latency = finalizeUsageOverviewRealtimeDistributionSeries(responseDistribution.Latency)
+	latencyScatter := buildUsageOverviewRealtimeLatencyScatter(buckets[visibleStartIndex:])
 	return dto.UsageOverviewRealtimeRecord{
-		Window:               usageOverviewRealtimeWindowLabel(window),
-		BucketSeconds:        int64(span / time.Second),
-		WindowStart:          windowStart,
-		WindowEnd:            windowEnd,
-		TokenVelocity:        tokenVelocity,
-		ResponseLevel:        responseLevel,
-		ResponseDistribution: responseDistribution,
+		Insights:       buildRealtimeInsights(buckets[visibleStartIndex:]),
+		Window:         usageOverviewRealtimeWindowLabel(window),
+		BucketSeconds:  int64(span / time.Second),
+		WindowStart:    windowStart,
+		WindowEnd:      windowEnd,
+		TokenVelocity:  tokenVelocity,
+		LatencyScatter: latencyScatter,
 		CurrentUsage: dto.RealtimeCurrentUsageRecord{
 			Models:      finalizeUsageOverviewRealtimeTopItems(modelUsage),
 			APIKeys:     finalizeUsageOverviewRealtimeTopItems(apiKeyUsage),
@@ -1800,99 +1822,59 @@ func finalizeUsageOverviewRealtime(window, span time.Duration, windowStart, wind
 	}
 }
 
-func finalizeUsageOverviewRealtimeDistributionSeries(series dto.RealtimeResponseDistributionSeriesRecord) dto.RealtimeResponseDistributionSeriesRecord {
-	series.TotalParticles = usageOverviewRealtimeParticleCountTotal(series.Particles)
-	series.MaxParticles = usageOverviewRealtimeDistributionMaxParticles
-	if len(series.Particles) <= usageOverviewRealtimeDistributionMaxParticles {
-		return series
+func buildUsageOverviewRealtimeLatencyScatter(buckets []usageOverviewRealtimeBucket) dto.RealtimeLatencyScatterRecord {
+	scatter := dto.RealtimeLatencyScatterRecord{Points: []dto.RealtimeLatencyScatterPointRecord{}}
+	var pairs []usageOverviewRealtimeLatencyPair
+	for _, bucket := range buckets {
+		pairs = append(pairs, bucket.latencyPairs...)
 	}
-	series.Sampled = true
-	series.Particles = sampleUsageOverviewRealtimeDistributionParticles(series.Particles, usageOverviewRealtimeDistributionMaxParticles)
-	return series
+	if len(pairs) == 0 {
+		return scatter
+	}
+	scatter.TotalPoints = int64(len(pairs))
+	ttftValues := make([]int64, 0, len(pairs))
+	latencyValues := make([]int64, 0, len(pairs))
+	for _, pair := range pairs {
+		ttftValues = append(ttftValues, pair.ttftMS)
+		latencyValues = append(latencyValues, pair.latencyMS)
+		scatter.MaxTTFTMS = max(scatter.MaxTTFTMS, pair.ttftMS)
+		scatter.MaxLatencyMS = max(scatter.MaxLatencyMS, pair.latencyMS)
+	}
+	sort.Slice(ttftValues, func(i, j int) bool { return ttftValues[i] < ttftValues[j] })
+	sort.Slice(latencyValues, func(i, j int) bool { return latencyValues[i] < latencyValues[j] })
+	scatter.P95TTFTMS = *usageOverviewRealtimeSortedPercentile(ttftValues, 0.95)
+	scatter.P95LatencyMS = *usageOverviewRealtimeSortedPercentile(latencyValues, 0.95)
+	if len(pairs) > usageOverviewRealtimeLatencyScatterMaxPoints {
+		// 先对请求配对排序，再按时间段选真实请求；不能分别抽样两个指标后拼接。
+		sort.SliceStable(pairs, func(i, j int) bool {
+			if !pairs[i].timestamp.Equal(pairs[j].timestamp) {
+				return pairs[i].timestamp.Before(pairs[j].timestamp)
+			}
+			if pairs[i].ttftMS != pairs[j].ttftMS {
+				return pairs[i].ttftMS < pairs[j].ttftMS
+			}
+			return pairs[i].latencyMS < pairs[j].latencyMS
+		})
+		sampled := make([]usageOverviewRealtimeLatencyPair, 0, usageOverviewRealtimeLatencyScatterMaxPoints)
+		for index := 0; index < usageOverviewRealtimeLatencyScatterMaxPoints; index++ {
+			start, end := usageOverviewRealtimeScatterPointRange(index, len(pairs), usageOverviewRealtimeLatencyScatterMaxPoints)
+			sampled = append(sampled, pairs[start+(end-start)/2])
+		}
+		pairs = sampled
+	}
+	for _, pair := range pairs {
+		scatter.Points = append(scatter.Points, dto.RealtimeLatencyScatterPointRecord{TTFTMS: pair.ttftMS, LatencyMS: pair.latencyMS})
+	}
+	return scatter
 }
 
-func sampleUsageOverviewRealtimeDistributionParticles(particles []dto.RealtimeResponseParticleRecord, maxParticles int) []dto.RealtimeResponseParticleRecord {
-	if len(particles) <= maxParticles || maxParticles <= 0 {
-		return particles
-	}
-	sortedParticles := append([]dto.RealtimeResponseParticleRecord(nil), particles...)
-	sort.SliceStable(sortedParticles, func(i, j int) bool {
-		leftTime := usageOverviewRealtimeParticleTimeKey(sortedParticles[i])
-		rightTime := usageOverviewRealtimeParticleTimeKey(sortedParticles[j])
-		if leftTime != rightTime {
-			return leftTime < rightTime
-		}
-		if sortedParticles[i].MS != sortedParticles[j].MS {
-			return sortedParticles[i].MS < sortedParticles[j].MS
-		}
-		return sortedParticles[i].Count < sortedParticles[j].Count
-	})
-
-	sampled := make([]dto.RealtimeResponseParticleRecord, 0, maxParticles)
-	for index := 0; index < maxParticles; index++ {
-		start, end := usageOverviewRealtimeDistributionParticleRange(index, len(sortedParticles), maxParticles)
-		if end <= start {
-			end = start + 1
-		}
-		group := sortedParticles[start:end]
-		// 代表点保持为真实事件坐标，只把该组真实样本数汇总到 count。
-		representative := group[len(group)/2]
-		representative.Count = usageOverviewRealtimeParticleCountTotal(group)
-		sampled = append(sampled, representative)
-	}
-	return sampled
-}
-
-func usageOverviewRealtimeDistributionParticleRange(index, particleCount, maxParticles int) (int, int) {
-	if maxParticles <= 0 {
+func usageOverviewRealtimeScatterPointRange(index, pointCount, maxPoints int) (int, int) {
+	if maxPoints <= 0 {
 		return 0, 0
 	}
-	start := int(int64(index) * int64(particleCount) / int64(maxParticles))
-	end := int(int64(index+1) * int64(particleCount) / int64(maxParticles))
+	start := int(int64(index) * int64(pointCount) / int64(maxPoints))
+	end := int(int64(index+1) * int64(pointCount) / int64(maxPoints))
 	return start, end
-}
-
-func usageOverviewRealtimeParticleTimeKey(particle dto.RealtimeResponseParticleRecord) string {
-	if particle.Timestamp != "" {
-		return particle.Timestamp
-	}
-	return particle.Bucket
-}
-
-func usageOverviewRealtimeParticleCountTotal(particles []dto.RealtimeResponseParticleRecord) int64 {
-	var total int64
-	for _, particle := range particles {
-		count := particle.Count
-		if count <= 0 {
-			count = usageOverviewRealtimeDistributionDefaultParticleSize
-		}
-		total += count
-	}
-	return total
-}
-
-func usageOverviewRealtimeAverage(samples []usageOverviewRealtimeResponseSample) *float64 {
-	if len(samples) == 0 {
-		return nil
-	}
-	var sum int64
-	for _, sample := range samples {
-		sum += sample.ms
-	}
-	value := float64(sum) / float64(len(samples))
-	return &value
-}
-
-func appendUsageOverviewRealtimeDistributionParticles(dst []dto.RealtimeResponseParticleRecord, bucket string, samples []usageOverviewRealtimeResponseSample) []dto.RealtimeResponseParticleRecord {
-	for _, sample := range samples {
-		dst = append(dst, dto.RealtimeResponseParticleRecord{
-			Bucket:    bucket,
-			Timestamp: timeutil.FormatStorageTime(sample.timestamp),
-			MS:        sample.ms,
-			Count:     1,
-		})
-	}
-	return dst
 }
 
 func usageOverviewRealtimeCostPtr(cost float64, available bool) *float64 {
@@ -1909,18 +1891,6 @@ func usageOverviewRealtimeCacheReadRate(cacheReadTokens, inputTokens int64) *flo
 	}
 	value := (float64(cacheReadTokens) / float64(inputTokens)) * 100
 	return &value
-}
-
-func usageOverviewRealtimePercentilePair(samples []usageOverviewRealtimeResponseSample, first, second float64) (*int64, *int64) {
-	if len(samples) == 0 {
-		return nil, nil
-	}
-	sorted := make([]int64, 0, len(samples))
-	for _, sample := range samples {
-		sorted = append(sorted, sample.ms)
-	}
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-	return usageOverviewRealtimeSortedPercentile(sorted, first), usageOverviewRealtimeSortedPercentile(sorted, second)
 }
 
 func usageOverviewRealtimeSortedPercentile(sorted []int64, percentile float64) *int64 {
@@ -1955,7 +1925,17 @@ func finalizeUsageOverviewRealtimeTopItems(totals map[string]*usageOverviewRealt
 		return items[i].tokens > items[j].tokens
 	})
 	if len(items) > 5 {
-		items = items[:5]
+		// 第六项保留余项的原始统计口径，费用有任一未知时仍保持未知。
+		other := &usageOverviewRealtimeTopAccumulator{key: dto.RealtimeUsageOtherKey, label: "Other", costAvailable: true}
+		for _, item := range items[5:] {
+			other.tokens += item.tokens
+			other.requests += item.requests
+			other.costUSD += item.costUSD
+			if !item.costAvailable {
+				other.costAvailable = false
+			}
+		}
+		items = append(items[:5], other)
 	}
 	result := make([]dto.RealtimeUsageTopItemRecord, 0, len(items))
 	for _, item := range items {
@@ -2010,7 +1990,7 @@ func applyUsageEventToOverviewSeries(series *dto.UsageOverviewSeriesRecord, even
 }
 
 // applyUsageEventToOverview 把边界 raw event 合并进 Overview，语义必须和 stats row 合并保持一致。
-func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities.UsageEvent, bucketByDay bool, costResolver pricing.Resolver) {
+func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities.UsageEvent, bucketByDay bool, costResolver pricing.Resolver, identityLookups ...analysisIdentityLookup) {
 	overview.Summary.InputTokens += event.InputTokens
 	overview.Summary.CacheReadTokens += event.CacheReadTokens
 	overview.Summary.CacheCreationTokens += event.CacheCreationTokens
@@ -2022,6 +2002,25 @@ func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities
 	}
 	cost := result.Cost.TotalCostUSD
 	overview.Summary.TotalCost += cost
+
+	if overview.Comparisons != nil {
+		failures := int64(0)
+		if event.Failed {
+			failures = 1
+		}
+		applyUsageOverviewComparison(overview.Comparisons, event.Model, event.APIGroupKey, dto.UsageComparisonItemRecord{
+			Requests: 1, Failures: failures, InputTokens: event.InputTokens, OutputTokens: event.OutputTokens,
+			CacheReadTokens: event.CacheReadTokens, CacheCreationTokens: event.CacheCreationTokens, ReasoningTokens: event.ReasoningTokens,
+			TotalTokens: event.TotalTokens, CostUSD: cost, CostAvailable: result.Available,
+		})
+		if len(identityLookups) > 0 {
+			applyUsageOverviewIdentityComparison(overview.Comparisons, identityLookups[0], event.AuthIndex, dto.UsageComparisonItemRecord{
+				Requests: 1, Failures: failures, InputTokens: event.InputTokens, OutputTokens: event.OutputTokens,
+				CacheReadTokens: event.CacheReadTokens, CacheCreationTokens: event.CacheCreationTokens, ReasoningTokens: event.ReasoningTokens,
+				TotalTokens: event.TotalTokens, CostUSD: cost, CostAvailable: result.Available,
+			})
+		}
+	}
 
 	// 主序列使用页面当前粒度，缓存率同桶累计后即时刷新。
 	bucketKey, bucketMinutes := usageOverviewBucket(timeutil.NormalizeStorageTime(event.Timestamp), bucketByDay)

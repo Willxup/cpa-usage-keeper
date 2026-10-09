@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 
 import React, { act } from 'react'
-import { createRoot } from 'react-dom/client'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AuthFileCredentialsSection } from '../AuthFileCredentialsSection'
+import { createAuthFileSectionProps } from './credentialSectionFixtures'
 import type { AuthFileCredentialRow } from '../credentialViewModels'
 
 const fileName = 'claude-account-with-a-very-long-workspace-and-profile-name.json'
@@ -32,43 +33,25 @@ const row = {
   displayQuotas: [],
 } as AuthFileCredentialRow
 
-const sectionProps = {
-  rows: [row],
-  total: 1,
-  page: 1,
-  totalPages: 1,
-  pageSize: 10,
-  activeOnly: false,
-  sort: 'priority' as const,
-  loading: false,
-  quotaRefreshing: false,
-  quotaRefreshError: '',
-  quotaInspectionStatus: null,
-  quotaInspectionLoading: false,
-  quotaInspectionStarting: false,
-  quotaInspectionError: '',
-  onPageChange: () => undefined,
-  onPageSizeChange: () => undefined,
-  onActiveOnlyChange: () => undefined,
-  onSortChange: () => undefined,
-  onRefreshQuota: async () => undefined,
-  onRefreshQuotaForAuthIndex: async () => undefined,
-  onResetQuotaForAuthIndex: async () => undefined,
-  onSaveAlias: async () => undefined,
-  onRefreshInspectionStatus: async () => undefined,
-  onStartInspection: async () => undefined,
-}
+const sectionProps = createAuthFileSectionProps({ rows: [row], total: 1, onEdit: async () => undefined })
 
-afterEach(() => {
-  document.body.innerHTML = ''
+let container: HTMLDivElement
+let root: Root
+
+beforeEach(() => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  container = document.createElement('div')
+  document.body.appendChild(container)
+  root = createRoot(container)
+})
+
+afterEach(async () => {
+  await act(async () => root.unmount())
+  container.remove()
 })
 
 describe('AuthFileCredentialsSection filename interaction', () => {
   it('opens details from the name without exposing the filename in a tooltip', async () => {
-    globalThis.IS_REACT_ACT_ENVIRONMENT = true
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
     const onOpenDetails = vi.fn()
     await act(async () => root.render(
       <AuthFileCredentialsSection
@@ -91,8 +74,5 @@ describe('AuthFileCredentialsSection filename interaction', () => {
 
     await act(async () => name.click())
     expect(onOpenDetails).toHaveBeenCalledWith(row)
-
-    await act(async () => root.unmount())
-    container.remove()
   })
 })

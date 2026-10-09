@@ -29,18 +29,13 @@ type usageActivityTotals struct {
 }
 
 func TestUsageActivityMigrationBackfillsRetainedGrainsWithoutChangingOverviewRollups(t *testing.T) {
-	// 准备：固定项目时区，并构造旧 schema、retention 分层事件和旧聚合 sentinel。
-	previousLocal := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = previousLocal })
-
 	// 创建只包含 migration 之前 schema 的旧数据库。
-	db := openUsageActivityMigrationDatabase(t, "usage-activity.db")
+	db := openUsageActivityMigrationDatabase(t)
 	createUsageActivityLegacySchema(t, db)
 	markOnlyUsageActivityMigrationPending(t, db)
 
 	// 固定相对当前时间的事件，分别覆盖四种 retention gate。
-	now := timeutil.NormalizeStorageTime(time.Now().UTC().Truncate(time.Second))
+	now := timeutil.NormalizeStorageTime(time.Now().Truncate(time.Second))
 	events := []entities.UsageEvent{
 		usageActivityMigrationEvent(1, " recent-group ", now.Add(-time.Hour), false, 100, 20, 5, 999, 10, 3, 138),
 		usageActivityMigrationEvent(2, " recent-group ", now.Add(-30*time.Minute), true, 200, 30, 6, 888, 20, 4, 260),
@@ -136,13 +131,9 @@ func TestUsageActivityMigrationBackfillsRetainedGrainsWithoutChangingOverviewRol
 }
 
 func TestUsageActivityMigrationResumesAfterCommittedBatchWithoutDoubleCounting(t *testing.T) {
-	// 准备：固定项目时区，构造 1001 条事件和只阻断第二批的 SQLite trigger。
-	previousLocal := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = previousLocal })
-
+	// 构造 1001 条事件和只阻断第二批的 SQLite trigger。
 	// 预先创建最终 Activity 表，便于安装只阻断第二批的 SQLite trigger。
-	db := openUsageActivityMigrationDatabase(t, "usage-activity-resume.db")
+	db := openUsageActivityMigrationDatabase(t)
 	createUsageActivityLegacySchema(t, db)
 	if err := db.AutoMigrate(&entities.UsageActivityStat{}, &entities.UsageActivityAggregationCheckpoint{}); err != nil {
 		t.Fatalf("create activity schema: %v", err)
@@ -150,7 +141,7 @@ func TestUsageActivityMigrationResumesAfterCommittedBatchWithoutDoubleCounting(t
 	markOnlyUsageActivityMigrationPending(t, db)
 
 	// 第一批 1000 条使用 ok-group，第二批唯一事件使用 fail-group。
-	now := timeutil.NormalizeStorageTime(time.Now().UTC().Truncate(time.Second))
+	now := timeutil.NormalizeStorageTime(time.Now().Truncate(time.Second))
 	events := make([]entities.UsageEvent, 0, 1001)
 	for id := 1; id <= 1001; id++ {
 		apiGroupKey := "ok-group"
@@ -214,10 +205,10 @@ func TestUsageActivityMigrationResumesAfterCommittedBatchWithoutDoubleCounting(t
 
 func TestUsageActivityMigrationKeepsHealthWhenCapturedTargetDisappears(t *testing.T) {
 	// 准备：构造只有一条 raw event 的旧库，并让 checkpoint 首次创建时删除已经捕获的 target。
-	db := openUsageActivityMigrationDatabase(t, "usage-activity-missing-target.db")
+	db := openUsageActivityMigrationDatabase(t)
 	createUsageActivityLegacySchema(t, db)
 	markOnlyUsageActivityMigrationPending(t, db)
-	now := timeutil.NormalizeStorageTime(time.Now().UTC().Truncate(time.Second))
+	now := timeutil.NormalizeStorageTime(time.Now().Truncate(time.Second))
 	event := usageActivityMigrationEvent(1, "missing-target", now, false, 1, 0, 0, 9, 1, 0, 1)
 	if err := db.Create(&event).Error; err != nil {
 		t.Fatalf("seed missing target event: %v", err)
@@ -249,24 +240,15 @@ func TestUsageActivityMigrationKeepsHealthWhenCapturedTargetDisappears(t *testin
 	assertUsageActivityMigrationApplied(t, db, false)
 }
 
-func openUsageActivityMigrationDatabase(t *testing.T, name string) *gorm.DB {
+func openUsageActivityMigrationDatabase(t *testing.T) *gorm.DB {
 	// 每个用例使用独立磁盘 SQLite 文件，覆盖真实 migration 事务行为。
 	t.Helper()
-	dsn := filepath.Join(t.TempDir(), name) + "?_busy_timeout=5000&_foreign_keys=on"
+	dsn := filepath.Join(t.TempDir(), "activity.db") + "?_busy_timeout=5000&_foreign_keys=on"
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{NowFunc: func() time.Time { return timeutil.NormalizeStorageTime(time.Now()) }})
 	if err != nil {
 		t.Fatalf("open migration database: %v", err)
 	}
-	t.Cleanup(func() {
-		sqlDB, dbErr := db.DB()
-		if dbErr != nil {
-			t.Errorf("load sql db: %v", dbErr)
-			return
-		}
-		if closeErr := sqlDB.Close(); closeErr != nil {
-			t.Errorf("close sql db: %v", closeErr)
-		}
-	})
+	closeMigrationTestDatabase(t, db)
 	return db
 }
 
@@ -285,18 +267,12 @@ func createUsageActivityLegacySchema(t *testing.T, db *gorm.DB) {
 }
 
 type usageActivityLegacyHealthStat struct {
-	// ID 是测试旧 Health 行的自增主键。
-	ID int64 `gorm:"primaryKey"`
-	// BucketStart 复刻历史表的时间桶起点。
-	BucketStart time.Time `gorm:"serializer:storageTime;not null;uniqueIndex:uniq_usage_overview_health_stats_bucket_span_api,priority:1"`
-	// SpanSeconds 复刻历史表的固定跨度。
-	SpanSeconds int64 `gorm:"not null;uniqueIndex:uniq_usage_overview_health_stats_bucket_span_api,priority:2"`
-	// APIGroupKey 复刻历史表唯一业务维度。
-	APIGroupKey string `gorm:"not null;uniqueIndex:uniq_usage_overview_health_stats_bucket_span_api,priority:3"`
-	// SuccessCount 保存测试迁移前成功数。
-	SuccessCount int64 `gorm:"not null;default:0"`
-	// FailureCount 保存测试迁移前失败数。
-	FailureCount int64 `gorm:"not null;default:0"`
+	ID           int64     `gorm:"primaryKey"`
+	BucketStart  time.Time `gorm:"serializer:storageTime;not null;uniqueIndex:uniq_usage_overview_health_stats_bucket_span_api,priority:1"`
+	SpanSeconds  int64     `gorm:"not null;uniqueIndex:uniq_usage_overview_health_stats_bucket_span_api,priority:2"`
+	APIGroupKey  string    `gorm:"not null;uniqueIndex:uniq_usage_overview_health_stats_bucket_span_api,priority:3"`
+	SuccessCount int64     `gorm:"not null;default:0"`
+	FailureCount int64     `gorm:"not null;default:0"`
 }
 
 func (usageActivityLegacyHealthStat) TableName() string {

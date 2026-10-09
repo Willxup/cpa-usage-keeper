@@ -6,14 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	. "cpa-usage-keeper/internal/api"
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
 	"gorm.io/gorm"
 )
@@ -35,29 +33,20 @@ func TestErrorEventsRouteReturnsSafeDisplayPayloadAndCursor(t *testing.T) {
 	timestamp := time.Date(2026, 8, 20, 12, 0, 0, 0, time.Local)
 	credentialRetry := timestamp.Add(5 * time.Minute)
 	modelRetry := timestamp.Add(3 * time.Minute)
-	quotaExceeded := true
-	quotaReason := "limit for sk-secret-value"
-	backoff := 2
-	modelName := "gpt-5.6"
-	modelStatus := "error"
-	modelMessage := "Bearer abc.def.secret"
-	modelUnavailable := true
 	provider := &errorEventsStub{response: service.ErrorEventListResponse{
 		Events: []entities.ErrorEvent{{
 			ID: 9, Timestamp: timestamp, Provider: "codex", Model: "gpt-5.6", AuthID: "runtime-auth-id", AuthIndex: "identity-auth-index",
 			StatusCode: 429, Body: "upstream rejected api_key=sk-secret-value at base_url=https://private.example/v1", Code: "rate_limit", Retryable: true,
 			AuthStatus: "error", AuthStatusMessage: "hidden auth snapshot", AuthUnavailable: true, AuthNextRetryAfter: &credentialRetry,
-			AuthQuotaExceeded: &quotaExceeded, AuthQuotaReason: &quotaReason, AuthQuotaBackoffLevel: &backoff,
-			AuthModelName: &modelName, AuthModelStatus: &modelStatus, AuthModelStatusMessage: &modelMessage, AuthModelUnavailable: &modelUnavailable,
+			AuthQuotaExceeded: new(true), AuthQuotaReason: new("limit for sk-secret-value"), AuthQuotaBackoffLevel: new(2),
+			AuthModelName: new("gpt-5.6"), AuthModelStatus: new("error"), AuthModelStatusMessage: new("Bearer abc.def.secret"), AuthModelUnavailable: new(true),
 			AuthModelNextRetryAfter: &modelRetry,
 		}},
 		HasMore: true,
 		APIKey:  "sk-secret-value",
 	}}
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{ErrorEvents: provider})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/identities/42/errors?page_size=50", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/identities/42/errors?page_size=50")
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", resp.Code, resp.Body.String())
@@ -113,9 +102,7 @@ func TestErrorEventsRouteOnlyRedactsKnownAPIKey(t *testing.T) {
 		APIKey: "generic-api-key",
 	}}
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{ErrorEvents: provider})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/identities/42/errors", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/identities/42/errors")
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", resp.Code, resp.Body.String())
@@ -147,41 +134,25 @@ func TestErrorEventsRouteParsesCursorAndErrors(t *testing.T) {
 	provider := &errorEventsStub{}
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{ErrorEvents: provider})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/identities/42/errors?cursor="+cursor, nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/identities/42/errors?cursor="+cursor)
 	if resp.Code != http.StatusOK || provider.request.Cursor == nil || provider.request.Cursor.ID != 17 || !provider.request.Cursor.Timestamp.Equal(timestamp) {
 		t.Fatalf("cursor was not parsed: status=%d request=%+v body=%s", resp.Code, provider.request, resp.Body.String())
 	}
 
-	for _, path := range []string{
-		"/api/v1/usage/identities/not-an-id/errors",
-		"/api/v1/usage/identities/42/errors?cursor=invalid",
+	for _, tc := range []struct {
+		path   string
+		err    error
+		status int
+	}{
+		{path: "/api/v1/usage/identities/not-an-id/errors", status: http.StatusBadRequest},
+		{path: "/api/v1/usage/identities/42/errors?cursor=invalid", status: http.StatusBadRequest},
+		{path: "/api/v1/usage/identities/404/errors", err: gorm.ErrRecordNotFound, status: http.StatusNotFound},
+		{path: "/api/v1/usage/identities/42/errors", err: errors.New("database unavailable"), status: http.StatusInternalServerError},
 	} {
-		req := httptest.NewRequest(http.MethodGet, path, nil)
-		resp := httptest.NewRecorder()
-		router.ServeHTTP(resp, req)
-		if resp.Code != http.StatusBadRequest {
-			t.Fatalf("%s status = %d, want 400", path, resp.Code)
+		provider.err = tc.err
+		resp := serveAPIGet(router, tc.path)
+		if resp.Code != tc.status {
+			t.Fatalf("%s status = %d, want %d; body=%s", tc.path, resp.Code, tc.status, resp.Body.String())
 		}
 	}
-
-	provider.err = gorm.ErrRecordNotFound
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/usage/identities/404/errors", nil)
-	resp = httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-	if resp.Code != http.StatusNotFound {
-		t.Fatalf("not found status = %d, body=%s", resp.Code, resp.Body.String())
-	}
-
-	provider.err = errors.New("database unavailable")
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/usage/identities/42/errors", nil)
-	resp = httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-	if resp.Code != http.StatusInternalServerError {
-		t.Fatalf("internal error status = %d, body=%s", resp.Code, resp.Body.String())
-	}
 }
-
-var _ service.ErrorEventProvider = (*errorEventsStub)(nil)
-var _ = repository.ErrorEventCursor{}

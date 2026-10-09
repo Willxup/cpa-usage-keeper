@@ -1,23 +1,11 @@
 package test
 
-import (
-	"path/filepath"
-	"testing"
-
-	"cpa-usage-keeper/internal/repository/migration"
-
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-)
+import "testing"
 
 const usageEventGenerateMigrationVersion = "20260715_add_usage_event_generate"
 
 func TestUsageEventGenerateMigrationBackfillsLegacyPrewarmEvents(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "existing.db")), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open existing database: %v", err)
-	}
-	closeMigrationTestDatabase(t, db)
+	db := openUnmigratedTestDatabase(t)
 
 	if err := db.Exec(`CREATE TABLE usage_events (
 		id INTEGER PRIMARY KEY,
@@ -45,16 +33,7 @@ func TestUsageEventGenerateMigrationBackfillsLegacyPrewarmEvents(t *testing.T) {
 	`).Error; err != nil {
 		t.Fatalf("seed legacy usage events: %v", err)
 	}
-	if err := migration.MarkAllAsApplied(db); err != nil {
-		t.Fatalf("mark historical migrations applied: %v", err)
-	}
-	if err := db.Table("schema_migrations").Where("version = ?", usageEventGenerateMigrationVersion).Delete(nil).Error; err != nil {
-		t.Fatalf("make generate migration pending: %v", err)
-	}
-
-	if err := migration.Run(db); err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
+	runOnlyMigration(t, db, usageEventGenerateMigrationVersion)
 
 	if !db.Migrator().HasColumn("usage_events", "generate") {
 		t.Fatal("expected usage_events.generate column")

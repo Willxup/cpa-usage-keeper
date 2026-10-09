@@ -46,28 +46,23 @@ func TestUsageAggregationRunnerPreservesExistingOverviewAndIdentityFinalSnapshot
 }
 
 func assertUsageAggregationParitySnapshot(t *testing.T, candidate, baseline usageAggregationParitySnapshot) {
-	// 断言：先单独比较 Overview checkpoint，避免表行很多时淹没真正差异。
 	t.Helper()
 	if candidate.OverviewCursor != baseline.OverviewCursor || candidate.OverviewStatsUpdated != baseline.OverviewStatsUpdated {
 		t.Fatalf("runner changed overview checkpoint: candidate cursor=%d stats_updated=%v; baseline cursor=%d stats_updated=%v", candidate.OverviewCursor, candidate.OverviewStatsUpdated, baseline.OverviewCursor, baseline.OverviewStatsUpdated)
 	}
-	// 断言：三个旧表的行数必须完全一致。
 	if len(candidate.Hourly) != len(baseline.Hourly) || len(candidate.Daily) != len(baseline.Daily) || len(candidate.Identities) != len(baseline.Identities) {
 		t.Fatalf("runner changed aggregation row counts: candidate hourly=%d daily=%d identities=%d; baseline hourly=%d daily=%d identities=%d", len(candidate.Hourly), len(candidate.Daily), len(candidate.Identities), len(baseline.Hourly), len(baseline.Daily), len(baseline.Identities))
 	}
-	// 断言：按稳定排序逐行比较 hourly 的全部旧业务字段。
 	for index := range baseline.Hourly {
 		if !reflect.DeepEqual(candidate.Hourly[index], baseline.Hourly[index]) {
 			t.Fatalf("runner changed hourly row %d: candidate=%+v baseline=%+v", index, candidate.Hourly[index], baseline.Hourly[index])
 		}
 	}
-	// 断言：按稳定排序逐行比较 daily 的全部旧业务字段。
 	for index := range baseline.Daily {
 		if !reflect.DeepEqual(candidate.Daily[index], baseline.Daily[index]) {
 			t.Fatalf("runner changed daily row %d: candidate=%+v baseline=%+v", index, candidate.Daily[index], baseline.Daily[index])
 		}
 	}
-	// 断言：按 identity 业务键逐行比较旧统计、cursor 和首尾时间。
 	for index := range baseline.Identities {
 		if !reflect.DeepEqual(candidate.Identities[index], baseline.Identities[index]) {
 			t.Fatalf("runner changed identity row %d: candidate=%+v baseline=%+v", index, candidate.Identities[index], baseline.Identities[index])
@@ -76,82 +71,47 @@ func assertUsageAggregationParitySnapshot(t *testing.T, candidate, baseline usag
 }
 
 type usageAggregationParitySnapshot struct {
-	// Hourly 保存全部旧 Overview hourly 业务字段。
-	Hourly []usageAggregationOverviewRow
-	// Daily 保存全部旧 Overview daily 业务字段。
-	Daily []usageAggregationOverviewRow
-	// OverviewCursor 保存旧 checkpoint 最终 usage event ID。
-	OverviewCursor int64
-	// OverviewStatsUpdated 保存旧 checkpoint 已经记录业务更新时间的状态。
+	Hourly               []usageAggregationOverviewRow
+	Daily                []usageAggregationOverviewRow
+	OverviewCursor       int64
 	OverviewStatsUpdated bool
-	// Identities 保存 active/deleted 每行全部旧统计字段和 cursor。
-	Identities []usageAggregationIdentityRow
+	Identities           []usageAggregationIdentityRow
 }
 
 type usageAggregationOverviewRow struct {
-	// BucketStart 是旧聚合行的时间维度。
-	BucketStart time.Time
-	// APIGroupKey 是旧聚合行 API group 维度。
-	APIGroupKey string
-	// Model 是旧聚合行 model 维度。
-	Model string
-	// AuthIndex 是旧聚合行 auth 维度。
-	AuthIndex string
-	// ModelAlias 是旧聚合行 alias 维度。
-	ModelAlias string
-	// RequestCount 是旧请求总数。
-	RequestCount int64
-	// SuccessCount 是旧成功数。
-	SuccessCount int64
-	// FailureCount 是旧失败数。
-	FailureCount int64
-	// InputTokens 是旧 input token 累计。
-	InputTokens int64
-	// OutputTokens 是旧 output token 累计。
-	OutputTokens int64
-	// ReasoningTokens 是旧 reasoning token 累计。
-	ReasoningTokens int64
-	// CachedTokens 是必须继续保留的旧兼容字段累计。
-	CachedTokens int64
-	// CacheReadTokens 是旧 cache read 累计。
-	CacheReadTokens int64
-	// CacheCreationTokens 是旧 cache creation 累计。
+	BucketStart         time.Time
+	APIGroupKey         string
+	Model               string
+	AuthIndex           string
+	ModelAlias          string
+	RequestCount        int64
+	SuccessCount        int64
+	FailureCount        int64
+	InputTokens         int64
+	OutputTokens        int64
+	ReasoningTokens     int64
+	CachedTokens        int64
+	CacheReadTokens     int64
 	CacheCreationTokens int64
-	// TotalTokens 是旧 total token 累计。
-	TotalTokens int64
+	TotalTokens         int64
 }
 
 type usageAggregationIdentityRow struct {
-	// Identity 是每行稳定业务键。
-	Identity string
-	// IsDeleted 保留 deleted identity 的原聚合语义。
-	IsDeleted bool
-	// TotalRequests 是旧 identity 请求总数。
-	TotalRequests int64
-	// SuccessCount 是旧 identity 成功数。
-	SuccessCount int64
-	// FailureCount 是旧 identity 失败数。
-	FailureCount int64
-	// InputTokens 是旧 identity input token 累计。
-	InputTokens int64
-	// OutputTokens 是旧 identity output token 累计。
-	OutputTokens int64
-	// ReasoningTokens 是旧 identity reasoning token 累计。
+	Identity        string
+	IsDeleted       bool
+	TotalRequests   int64
+	SuccessCount    int64
+	FailureCount    int64
+	InputTokens     int64
+	OutputTokens    int64
 	ReasoningTokens int64
-	// CachedTokens 是旧 identity 必须继续维护的兼容字段。
-	CachedTokens int64
-	// CacheReadTokens 是旧 identity cache read 累计。
+	CachedTokens    int64
 	CacheReadTokens int64
-	// TotalTokens 是旧 identity total token 累计。
-	TotalTokens int64
-	// Cursor 是该 identity 独立 usage event checkpoint。
-	Cursor int64
-	// FirstUsedAt 是该 identity 最早事件时间。
-	FirstUsedAt *time.Time
-	// LastUsedAt 是该 identity 最晚事件时间。
-	LastUsedAt *time.Time
-	// StatsUpdated 表示旧 identity 已记录本轮真正推进时间。
-	StatsUpdated bool
+	TotalTokens     int64
+	Cursor          int64
+	FirstUsedAt     *time.Time
+	LastUsedAt      *time.Time
+	StatsUpdated    bool
 }
 
 func seedUsageAggregationParityDatabase(t *testing.T, db *gorm.DB, now time.Time) {
@@ -189,7 +149,6 @@ func seedUsageAggregationParityDatabase(t *testing.T, db *gorm.DB, now time.Time
 }
 
 func loadUsageAggregationParitySnapshot(t *testing.T, db *gorm.DB) usageAggregationParitySnapshot {
-	// 执行：按业务维度稳定排序读取两个旧 Overview 表。
 	t.Helper()
 	var hourly []entities.UsageOverviewHourlyStat
 	if err := db.Order("bucket_start asc, api_group_key asc, model asc, auth_index asc, model_alias asc").Find(&hourly).Error; err != nil {
@@ -199,12 +158,10 @@ func loadUsageAggregationParitySnapshot(t *testing.T, db *gorm.DB) usageAggregat
 	if err := db.Order("bucket_start asc, api_group_key asc, model asc, auth_index asc, model_alias asc").Find(&daily).Error; err != nil {
 		t.Fatalf("load parity daily rows: %v", err)
 	}
-	// 执行：读取唯一 Overview checkpoint。
 	var checkpoint entities.UsageAggregationCheckpoint
 	if err := db.Where("name = ?", entities.UsageAggregationCheckpointOverview).Take(&checkpoint).Error; err != nil {
 		t.Fatalf("load parity overview checkpoint: %v", err)
 	}
-	// 执行：按稳定 identity 业务键读取 active/deleted 行。
 	var identities []entities.UsageIdentity
 	if err := db.Order("identity asc").Find(&identities).Error; err != nil {
 		t.Fatalf("load parity identities: %v", err)
@@ -228,12 +185,10 @@ func loadUsageAggregationParitySnapshot(t *testing.T, db *gorm.DB) usageAggregat
 			StatsUpdated: row.StatsUpdatedAt != nil,
 		})
 	}
-	// 返回可直接 DeepEqual 的完整旧聚合业务快照。
 	return snapshot
 }
 
 func usageAggregationOverviewRowFromHourly(row entities.UsageOverviewHourlyStat) usageAggregationOverviewRow {
-	// hourly 到统一快照只做旧字段机械复制。
 	return usageAggregationOverviewRow{
 		BucketStart: row.BucketStart, APIGroupKey: row.APIGroupKey, Model: row.Model, AuthIndex: row.AuthIndex, ModelAlias: row.ModelAlias,
 		RequestCount: row.RequestCount, SuccessCount: row.SuccessCount, FailureCount: row.FailureCount,
@@ -243,7 +198,6 @@ func usageAggregationOverviewRowFromHourly(row entities.UsageOverviewHourlyStat)
 }
 
 func usageAggregationOverviewRowFromDaily(row entities.UsageOverviewDailyStat) usageAggregationOverviewRow {
-	// daily 到统一快照只做旧字段机械复制。
 	return usageAggregationOverviewRow{
 		BucketStart: row.BucketStart, APIGroupKey: row.APIGroupKey, Model: row.Model, AuthIndex: row.AuthIndex, ModelAlias: row.ModelAlias,
 		RequestCount: row.RequestCount, SuccessCount: row.SuccessCount, FailureCount: row.FailureCount,

@@ -117,61 +117,41 @@ func TestGORMLoggerStillReportsSlowRecordNotFound(t *testing.T) {
 }
 
 func TestGORMLoggerKeepsQueryParametersOutOfLogs(t *testing.T) {
-	const secretAPIKey = "sk-review-secret-123456"
-	output := captureConsole(t, config.Config{LogLevel: "info"}, func() {
-		db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logging.NewGORMLogger()})
-		if err != nil {
-			t.Fatalf("open GORM database: %v", err)
-		}
-		if sqlDB, dbErr := db.DB(); dbErr == nil {
-			t.Cleanup(func() { _ = sqlDB.Close() })
-		}
-		if err := db.Exec("CREATE TABLE credentials (id INTEGER PRIMARY KEY, api_key TEXT)").Error; err != nil {
-			t.Fatalf("create credentials table: %v", err)
-		}
-
-		var row struct{ ID int64 }
-		err = db.Table("credentials").Where("missing_api_key = ?", secretAPIKey).First(&row).Error
-		if err == nil {
-			t.Fatal("expected invalid-column query to fail")
-		}
-	})
-
-	plain := ansiPattern.ReplaceAllString(output, "")
-	if strings.Contains(plain, secretAPIKey) {
-		t.Fatalf("expected query parameters to stay out of logs, got %q", plain)
-	}
-	if !strings.Contains(plain, "missing_api_key = ?") {
-		t.Fatalf("expected parameterized SQL in logs, got %q", plain)
-	}
-}
-
-func TestGORMLoggerKeepsScanParametersOutOfLogs(t *testing.T) {
-	const secretAPIKey = "sk-scan-secret-654321"
-	output := captureConsole(t, config.Config{LogLevel: "info"}, func() {
-		db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logging.NewGORMLogger()})
-		if err != nil {
-			t.Fatalf("open GORM database: %v", err)
-		}
-		if sqlDB, dbErr := db.DB(); dbErr == nil {
-			t.Cleanup(func() { _ = sqlDB.Close() })
-		}
-		if err := db.Exec("CREATE TABLE credentials (id INTEGER PRIMARY KEY, api_key TEXT)").Error; err != nil {
-			t.Fatalf("create credentials table: %v", err)
-		}
-
-		var row struct{ ID int64 }
-		err = db.Table("credentials").Where("missing_api_key = ?", secretAPIKey).Scan(&row).Error
-		if err == nil {
-			t.Fatal("expected invalid-column scan to fail")
-		}
-	})
-
-	plain := ansiPattern.ReplaceAllString(output, "")
-	if strings.Contains(plain, secretAPIKey) {
-		t.Fatalf("expected Scan parameters to stay out of logs, got %q", plain)
-	}
-	if !strings.Contains(plain, "missing_api_key = ?") {
-		t.Fatalf("expected parameterized Scan SQL in logs, got %q", plain)
+	for _, tc := range []struct {
+		name  string
+		query func(*gorm.DB, any) *gorm.DB
+	}{
+		{"First", func(db *gorm.DB, row any) *gorm.DB { return db.First(row) }},
+		{"Scan", func(db *gorm.DB, row any) *gorm.DB { return db.Scan(row) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const secretAPIKey = "sk-query-test-secret-123456"
+			output := captureConsole(t, config.Config{LogLevel: "info"}, func() {
+				db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logging.NewGORMLogger()})
+				if err != nil {
+					t.Fatalf("open GORM database: %v", err)
+				}
+				sqlDB, err := db.DB()
+				if err != nil {
+					t.Fatalf("get SQL database: %v", err)
+				}
+				defer sqlDB.Close()
+				if err := db.Exec("CREATE TABLE credentials (id INTEGER PRIMARY KEY, api_key TEXT)").Error; err != nil {
+					t.Fatalf("create credentials table: %v", err)
+				}
+				var row struct{ ID int64 }
+				err = tc.query(db.Table("credentials").Where("missing_api_key = ?", secretAPIKey), &row).Error
+				if err == nil {
+					t.Fatal("expected invalid-column query to fail")
+				}
+			})
+			plain := ansiPattern.ReplaceAllString(output, "")
+			if strings.Contains(plain, secretAPIKey) {
+				t.Fatalf("expected query parameters to stay out of logs, got %q", plain)
+			}
+			if !strings.Contains(plain, "missing_api_key = ?") {
+				t.Fatalf("expected parameterized SQL in logs, got %q", plain)
+			}
+		})
 	}
 }

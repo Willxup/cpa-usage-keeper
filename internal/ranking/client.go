@@ -24,6 +24,7 @@ const (
 
 var (
 	ErrParticipantDeleted = errors.New("ranking participant deleted")
+	ErrParticipantBanned  = fmt.Errorf("%w: banned", ErrParticipantDeleted)
 	ErrPeriodClosed       = errors.New("ranking period closed")
 	ErrProfileConflict    = errors.New("ranking profile conflict")
 	ErrReplayedSequence   = errors.New("ranking sequence replayed")
@@ -58,6 +59,7 @@ type SelfStatus struct {
 	DisplayName    string     `json:"display_name"`
 	AvatarID       uint8      `json:"avatar_id"`
 	Status         string     `json:"status"`
+	Banned         bool       `json:"banned,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 	RevokedAt      *time.Time `json:"revoked_at,omitempty"`
 	RestoredAt     *time.Time `json:"restored_at,omitempty"`
@@ -93,6 +95,7 @@ type DeleteCommand struct {
 }
 
 type DeleteReceipt struct {
+	Banned        bool      `json:"banned,omitempty"`
 	ParticipantID string    `json:"participant_id"`
 	Sequence      int64     `json:"sequence"`
 	DeletedAt     time.Time `json:"deleted_at"`
@@ -174,6 +177,7 @@ type CenterError struct {
 	StatusCode int
 	Code       string
 	RetryAfter string
+	Banned     bool
 }
 
 func (e *CenterError) Error() string {
@@ -188,6 +192,8 @@ func (e *CenterError) Is(target error) bool {
 		return false
 	}
 	switch target {
+	case ErrParticipantBanned:
+		return e.StatusCode == http.StatusGone && e.Code == "participant_deleted" && e.Banned
 	case ErrParticipantDeleted:
 		return e.StatusCode == http.StatusGone && e.Code == "participant_deleted"
 	case ErrPeriodClosed:
@@ -448,10 +454,11 @@ func (c *Client) doJSON(request *http.Request, target any) error {
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		var payload struct {
-			Error string `json:"error"`
+			Error  string `json:"error"`
+			Banned bool   `json:"banned"`
 		}
 		_ = json.Unmarshal(body, &payload)
-		return &CenterError{StatusCode: response.StatusCode, Code: payload.Error, RetryAfter: response.Header.Get("Retry-After")}
+		return &CenterError{StatusCode: response.StatusCode, Code: payload.Error, RetryAfter: response.Header.Get("Retry-After"), Banned: payload.Banned}
 	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	if err := decoder.Decode(target); err != nil {

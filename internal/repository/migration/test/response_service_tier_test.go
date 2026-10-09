@@ -1,23 +1,11 @@
 package test
 
-import (
-	"path/filepath"
-	"testing"
-
-	"cpa-usage-keeper/internal/repository/migration"
-
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-)
+import "testing"
 
 const responseServiceTierMigrationVersion = "20260715_add_usage_event_response_service_tier"
 
 func TestUsageEventResponseServiceTierMigrationBackfillsEveryExistingRow(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "existing.db")), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open existing database: %v", err)
-	}
-	closeMigrationTestDatabase(t, db)
+	db := openUnmigratedTestDatabase(t)
 
 	if err := db.Exec(`CREATE TABLE usage_events (
 		id INTEGER PRIMARY KEY,
@@ -30,16 +18,7 @@ func TestUsageEventResponseServiceTierMigrationBackfillsEveryExistingRow(t *test
 			t.Fatalf("seed usage event %d: %v", id+1, err)
 		}
 	}
-	if err := migration.MarkAllAsApplied(db); err != nil {
-		t.Fatalf("mark historical migrations applied: %v", err)
-	}
-	if err := db.Table("schema_migrations").Where("version = ?", responseServiceTierMigrationVersion).Delete(nil).Error; err != nil {
-		t.Fatalf("make response service tier migration pending: %v", err)
-	}
-
-	if err := migration.Run(db); err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
+	runOnlyMigration(t, db, responseServiceTierMigrationVersion)
 
 	if !db.Migrator().HasColumn("usage_events", "response_service_tier") {
 		t.Fatal("expected usage_events.response_service_tier column")

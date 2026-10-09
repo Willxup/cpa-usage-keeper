@@ -5,11 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"path/filepath"
 	"testing"
+	"testing/synctest"
 	"time"
 
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	repositorydto "cpa-usage-keeper/internal/repository/dto"
@@ -19,7 +18,7 @@ import (
 
 func TestWriteCodexMainQuotaObservationsPreservesMonotonicSegments(t *testing.T) {
 	// 准备：固定一个五小时 Primary 周期，构造重复、下降和非法回升序列。
-	db := openCodexQuotaHistoryRepositoryDatabase(t, "monotonic.db")
+	db := openTestDatabase(t)
 	resetAt := time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC)
 	firstObservedAt := resetAt.Add(-4 * time.Hour)
 	observations := []repositorydto.CodexMainQuotaObservation{
@@ -62,7 +61,7 @@ func TestWriteCodexMainQuotaObservationsPreservesMonotonicSegments(t *testing.T)
 
 func TestWriteCodexMainQuotaObservationsCorrectsFalseLowTailFromAuthoritativePercent(t *testing.T) {
 	// Header 错误低值可以连续出现；同周期可信刷新回到 90% 时必须删除全部不可能的低值尾段。
-	db := openCodexQuotaHistoryRepositoryDatabase(t, "authoritative-percent-correction.db")
+	db := openTestDatabase(t)
 	resetAt := time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC)
 	firstObservedAt := resetAt.Add(-4 * time.Hour)
 	observations := []repositorydto.CodexMainQuotaObservation{
@@ -94,7 +93,7 @@ func TestWriteCodexMainQuotaObservationsCorrectsFalseLowTailFromAuthoritativePer
 
 func TestWriteCodexMainQuotaObservationsStartsNewCycleAndIgnoresOldLateData(t *testing.T) {
 	// 准备：同一账号 Primary 先观察旧周期 20%，再进入重置后的新周期 99%。
-	db := openCodexQuotaHistoryRepositoryDatabase(t, "cycle-switch.db")
+	db := openTestDatabase(t)
 	oldResetAt := time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC)
 	newResetAt := oldResetAt.Add(5 * time.Hour)
 	oldObservedAt := oldResetAt.Add(-time.Hour)
@@ -132,7 +131,7 @@ func TestWriteCodexMainQuotaObservationsStartsNewCycleAndIgnoresOldLateData(t *t
 
 func TestWriteCodexMainQuotaObservationsSwitchesWindowBeforeComparingReset(t *testing.T) {
 	// Weekly reset 虽然更远，但后续 observation 改为 5h 时，窗口变化必须优先建立新周期。
-	db := openCodexQuotaHistoryRepositoryDatabase(t, "window-switch-priority.db")
+	db := openTestDatabase(t)
 	base := time.Date(2026, 8, 22, 8, 0, 0, 0, time.UTC)
 	weeklyReset := base.Add(7 * 24 * time.Hour)
 	fiveHourReset := base.Add(5 * time.Hour)
@@ -171,7 +170,7 @@ func TestWriteCodexMainQuotaObservationsSwitchesWindowBeforeComparingReset(t *te
 
 func TestWriteCodexMainQuotaObservationsReusesMatchingCycleAfterWindowDetour(t *testing.T) {
 	// Weekly 中间出现错误 5h 后再次观察同一 Weekly，必须回到原父行而不是触发唯一键或创建重复周期。
-	db := openCodexQuotaHistoryRepositoryDatabase(t, "reuse-window-cycle.db")
+	db := openTestDatabase(t)
 	base := time.Date(2026, 8, 27, 8, 0, 0, 0, time.UTC)
 	weeklyReset := base.Add(7 * 24 * time.Hour)
 	fiveHourReset := base.Add(5 * time.Hour)
@@ -208,7 +207,7 @@ func TestWriteCodexMainQuotaObservationsReusesMatchingCycleAfterWindowDetour(t *
 
 func TestWriteCodexMainQuotaObservationsMergesRelativeResetAndUpgradesAbsoluteBoundary(t *testing.T) {
 	// 准备：relative-only 候选相差 30 秒，随后官方 absolute 边界在两分钟容差内到达。
-	db := openCodexQuotaHistoryRepositoryDatabase(t, "relative-upgrade.db")
+	db := openTestDatabase(t)
 	firstResetAt := time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC)
 	first := codexQuotaHistoryObservation("codex-auth", "secondary", 604_800, firstResetAt, 90, firstResetAt.Add(-time.Hour))
 	first.ResetAtSource = "relative"
@@ -234,7 +233,7 @@ func TestWriteCodexMainQuotaObservationsMergesRelativeResetAndUpgradesAbsoluteBo
 
 func TestWriteCodexMainQuotaObservationsLetsAuthoritativeSourceCalibrateAbsoluteReset(t *testing.T) {
 	// Header 和可信接口都返回明确时刻时，可信结果仍应在两分钟容差内替换 Header 抖动边界。
-	db := openCodexQuotaHistoryRepositoryDatabase(t, "authoritative-absolute-reset.db")
+	db := openTestDatabase(t)
 	base := time.Date(2026, 8, 22, 8, 0, 0, 0, time.UTC)
 	headerReset := base.Add(5 * time.Hour)
 	trustedReset := headerReset.Add(118 * time.Second)
@@ -256,44 +255,24 @@ func TestWriteCodexMainQuotaObservationsLetsAuthoritativeSourceCalibrateAbsolute
 	}
 }
 
-func TestWriteCodexMainQuotaObservationsToleranceMergesDirectResetJitter(t *testing.T) {
-	// 上游直接返回的两个重置时刻相差 30 秒时仍属于同一稳定周期，后续下降必须保留。
-	db := openCodexQuotaHistoryRepositoryDatabase(t, "absolute-nearby.db")
-	firstResetAt := time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC)
-	first := codexQuotaHistoryObservation("codex-auth", "primary", 18_000, firstResetAt, 77, firstResetAt.Add(-time.Hour))
-	second := codexQuotaHistoryObservation("codex-auth", "primary", 18_000, firstResetAt.Add(30*time.Second), 76, first.FirstObservedAt.Add(time.Minute))
-	if err := repository.WriteCodexMainQuotaObservations(context.Background(), db, []repositorydto.CodexMainQuotaObservation{first, second}); err != nil {
-		t.Fatalf("write nearby absolute codex quota cycles: %v", err)
-	}
-	var cycleCount int64
-	if err := db.Model(&entities.QuotaCycle{}).Where("provider = ? AND auth_index = ? AND quota_key = ?", "codex", "codex-auth", "rate_limit.primary_window").Count(&cycleCount).Error; err != nil {
-		t.Fatalf("count nearby absolute cycles: %v", err)
-	}
-	if cycleCount != 1 {
-		t.Fatalf("expected one debounced direct-reset cycle, got %d", cycleCount)
-	}
-	_, segments := loadCodexQuotaHistoryRows(t, db, "codex-auth", "primary")
-	if len(segments) != 2 || segments[0].RemainingPercent != 77 || segments[1].RemainingPercent != 76 {
-		t.Fatalf("expected direct reset jitter to retain 77 and 76, got %+v", segments)
-	}
-}
-
 func TestWriteCodexMainQuotaObservationsKeepsResetToleranceBounded(t *testing.T) {
 	// 所有重置时刻统一允许两分钟抖动；边界外必须建立新周期，避免跨周期静默合并。
 	testCases := []struct {
 		name               string
 		resetOffset        time.Duration
+		remaining          int
 		expectedCycleCount int64
 	}{
-		{name: "exactly_two_minutes_merges", resetOffset: 120 * time.Second, expectedCycleCount: 1},
-		{name: "over_two_minutes_splits", resetOffset: 121 * time.Second, expectedCycleCount: 2},
+		{name: "nearby_direct_reset_merges", resetOffset: 30 * time.Second, remaining: 77, expectedCycleCount: 1},
+		{name: "exactly_two_minutes_merges", resetOffset: 120 * time.Second, remaining: 90, expectedCycleCount: 1},
+		{name: "over_two_minutes_splits", resetOffset: 121 * time.Second, remaining: 90, expectedCycleCount: 2},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			db := openCodexQuotaHistoryRepositoryDatabase(t, testCase.name+".db")
+			db := openTestDatabase(t)
 			firstResetAt := time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC)
-			first := codexQuotaHistoryObservation("codex-auth", "primary", 18_000, firstResetAt, 90, firstResetAt.Add(-time.Hour))
-			second := codexQuotaHistoryObservation("codex-auth", "primary", 18_000, firstResetAt.Add(testCase.resetOffset), 89, first.FirstObservedAt.Add(time.Minute))
+			first := codexQuotaHistoryObservation("codex-auth", "primary", 18_000, firstResetAt, testCase.remaining, firstResetAt.Add(-time.Hour))
+			second := codexQuotaHistoryObservation("codex-auth", "primary", 18_000, firstResetAt.Add(testCase.resetOffset), testCase.remaining-1, first.FirstObservedAt.Add(time.Minute))
 
 			if err := repository.WriteCodexMainQuotaObservations(context.Background(), db, []repositorydto.CodexMainQuotaObservation{first, second}); err != nil {
 				t.Fatalf("write reset boundary observations: %v", err)
@@ -307,7 +286,7 @@ func TestWriteCodexMainQuotaObservationsKeepsResetToleranceBounded(t *testing.T)
 			}
 			if testCase.expectedCycleCount == 1 {
 				segments := loadCodexQuotaHistorySegments(t, db, cycles[0].ID)
-				if len(segments) != 2 || segments[0].RemainingPercent != 90 || segments[1].RemainingPercent != 89 {
+				if len(segments) != 2 || segments[0].RemainingPercent != testCase.remaining || segments[1].RemainingPercent != testCase.remaining-1 {
 					t.Fatalf("expected tolerance-bound observations to share one ordered cycle, got %+v", segments)
 				}
 			}
@@ -317,7 +296,7 @@ func TestWriteCodexMainQuotaObservationsKeepsResetToleranceBounded(t *testing.T)
 
 func TestWriteCodexMainQuotaObservationsRejectsInvalidInputAndCanceledContext(t *testing.T) {
 	// 准备：构造最小非法输入和已经取消的全局写入 context。
-	db := openCodexQuotaHistoryRepositoryDatabase(t, "validation.db")
+	db := openTestDatabase(t)
 	invalid := codexQuotaHistoryObservation("", "primary", 18_000, time.Now(), 90, time.Now())
 	if err := repository.WriteCodexMainQuotaObservations(context.Background(), db, []repositorydto.CodexMainQuotaObservation{invalid}); err == nil {
 		t.Fatal("expected empty auth_index observation to be rejected")
@@ -356,7 +335,7 @@ func TestWriteCodexMainQuotaObservationsKeepsThirtyTwoItemTransactionBoundary(t 
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			db := openCodexQuotaHistoryRepositoryDatabase(t, testCase.name+".db")
+			db := openTestDatabase(t)
 			resetAt := time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC)
 			observedAt := resetAt.Add(-time.Hour)
 			observations := make([]repositorydto.CodexMainQuotaObservation, 0, testCase.observationCount)
@@ -394,7 +373,7 @@ func TestWriteCodexMainQuotaObservationsKeepsThirtyTwoItemTransactionBoundary(t 
 
 func TestWriteCodexMainQuotaObservationsMergesOneThousandEqualPercentages(t *testing.T) {
 	// 高频 Header 在同一周期反复返回相同整数百分比时，只更新尾段时间和累计次数。
-	db := openCodexQuotaHistoryRepositoryDatabase(t, "thousand-duplicates.db")
+	db := openTestDatabase(t)
 	resetAt := time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC)
 	firstObservedAt := resetAt.Add(-time.Hour)
 	observations := make([]repositorydto.CodexMainQuotaObservation, 0, 1000)
@@ -430,7 +409,7 @@ func TestWriteCodexMainQuotaObservationsMergesOneThousandEqualPercentages(t *tes
 
 func TestWriteCodexMainQuotaObservationsHonorsCancellationWhileWriterIsOccupied(t *testing.T) {
 	// 生产只有一个 SQLite writer；先占住该连接，证明 history 在池外等待时能响应调用方取消。
-	db := openCodexQuotaHistoryRepositoryDatabase(t, "writer-cancel.db")
+	db := openTestDatabase(t)
 	heldTransaction := db.Begin()
 	if heldTransaction.Error != nil {
 		t.Fatalf("begin held writer transaction: %v", heldTransaction.Error)
@@ -444,22 +423,20 @@ func TestWriteCodexMainQuotaObservationsHonorsCancellationWhileWriterIsOccupied(
 		90,
 		time.Date(2026, 8, 20, 23, 0, 0, 0, time.UTC),
 	)
-	ctx, cancel := context.WithCancel(context.Background())
-	result := make(chan error, 1)
-	go func() {
-		result <- repository.WriteCodexMainQuotaObservations(ctx, db, []repositorydto.CodexMainQuotaObservation{observation})
-	}()
-	// 写连接仍由 heldTransaction 持有；取消必须唤醒等待中的 history 调用。
-	time.Sleep(20 * time.Millisecond)
-	cancel()
-	select {
-	case err := <-result:
-		if !errors.Is(err, context.Canceled) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		result := make(chan error, 1)
+		go func() {
+			result <- repository.WriteCodexMainQuotaObservations(ctx, db, []repositorydto.CodexMainQuotaObservation{observation})
+		}()
+		// 等待写入阻塞在已占用的连接池，再取消调用方context。
+		synctest.Wait()
+		cancel()
+		if err := <-result; !errors.Is(err, context.Canceled) {
 			t.Fatalf("expected context cancellation while waiting for writer, got %v", err)
 		}
-	case <-time.After(time.Second):
-		t.Fatal("history write did not stop after context cancellation")
-	}
+	})
 	if err := heldTransaction.Rollback().Error; err != nil {
 		t.Fatalf("release held writer transaction: %v", err)
 	}
@@ -474,7 +451,7 @@ func TestWriteCodexMainQuotaObservationsHonorsCancellationWhileWriterIsOccupied(
 
 func TestWriteCodexMainQuotaObservationsRollsBackParentWhenChildInsertFails(t *testing.T) {
 	// 父周期先创建、百分比子行后创建；子表失败必须由同一个事务连父行一起回滚。
-	db := openCodexQuotaHistoryRepositoryDatabase(t, "child-rollback.db")
+	db := openTestDatabase(t)
 	if err := db.Exec(`CREATE TRIGGER fail_codex_quota_segment BEFORE INSERT ON quota_percent_segments BEGIN SELECT RAISE(ABORT, 'expected child insert failure'); END;`).Error; err != nil {
 		t.Fatalf("create child failure trigger: %v", err)
 	}
@@ -515,21 +492,6 @@ func codexQuotaHistoryObservation(authIndex string, role string, windowSeconds i
 		LastObservedAt:   observedAt,
 		ObservationCount: 1,
 	}
-}
-
-func openCodexQuotaHistoryRepositoryDatabase(t *testing.T, name string) *gorm.DB {
-	t.Helper()
-	// 每个用例使用真实文件 SQLite，确保 writer 路由、WAL、foreign_keys 和 migration 与生产一致。
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), name)})
-	if err != nil {
-		t.Fatalf("open codex quota history repository database: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("get codex quota history repository sql database: %v", err)
-	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
-	return db
 }
 
 func loadCodexQuotaHistoryRows(t *testing.T, db *gorm.DB, authIndex string, role string) (entities.QuotaCycle, []entities.QuotaPercentSegment) {

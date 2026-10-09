@@ -3,13 +3,13 @@ package test
 import (
 	"context"
 	"fmt"
-	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/latency"
 	"cpa-usage-keeper/internal/repository"
@@ -75,14 +75,14 @@ func TestCleanupStorageRemovesExpiredLatencyHourAndDayRows(t *testing.T) {
 		t.Fatalf("seed latency retention rows: %v", err)
 	}
 
-	if _, err := repository.CleanupStorage(db, now); err != nil {
+	if _, err := repository.CleanupStorage(db, now, 0); err != nil {
 		t.Fatalf("cleanup latency retention rows: %v", err)
 	}
 	var keys []string
 	if err := db.Model(&entities.UsageLatencyStat{}).Order("api_group_key asc").Pluck("api_group_key", &keys).Error; err != nil {
 		t.Fatalf("load latency rows after cleanup: %v", err)
 	}
-	if len(keys) != 2 || keys[0] != "kept-day" || keys[1] != "kept-hour" {
+	if !slices.Equal(keys, []string{"kept-day", "kept-hour"}) {
 		t.Fatalf("expected only in-retention latency rows, got %v", keys)
 	}
 }
@@ -130,13 +130,8 @@ func TestCleanupUsageLatencyStatsUsesStoredTimezoneAtExactRetentionBoundary(t *t
 				t.Fatalf("load exact latency retention rows: %v", err)
 			}
 			want := []string{"boundary-day", "boundary-hour", "recent-day", "recent-hour"}
-			if len(keys) != len(want) {
+			if !slices.Equal(keys, want) {
 				t.Fatalf("retained latency keys=%v, want %v", keys, want)
-			}
-			for index := range want {
-				if keys[index] != want[index] {
-					t.Fatalf("retained latency keys=%v, want %v", keys, want)
-				}
 			}
 		})
 	}
@@ -144,78 +139,60 @@ func TestCleanupUsageLatencyStatsUsesStoredTimezoneAtExactRetentionBoundary(t *t
 
 func TestApplyUsageLatencyAggregationPageReadsOldRowsBeforeWaitingForWriter(t *testing.T) {
 	// 旧 BLOB 必须由 Reader 读取和合并；唯一 Writer 被占用时，旧行查询仍应先完成再等待最终写入。
-	previousLocal := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = previousLocal })
-	db, reader, closePools := openLatencyReaderPoolTestDatabase(t)
-	defer closePools()
-	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	db, writerSQL, readerSQL := openTestDatabasePools(t, "latency-reader.db")
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.Local)
 	firstRows := buildLatencyRowsForTest(t, []entities.UsageEvent{validLatencyEvent(1, "reader-key", now.Add(-time.Minute), 100, 900)})
 	secondRows := buildLatencyRowsForTest(t, []entities.UsageEvent{validLatencyEvent(2, "reader-key", now, 200, 1200)})
 	if err := repository.ApplyUsageLatencyAggregationPage(context.Background(), db, 0, 1, firstRows, now); err != nil {
 		t.Fatalf("seed latency row before reader routing check: %v", err)
 	}
-	writerSQL, err := db.DB()
-	if err != nil {
-		t.Fatalf("load latency writer pool: %v", err)
-	}
+
 	heldWriter, err := writerSQL.Conn(context.Background())
 	if err != nil {
 		t.Fatalf("hold latency writer connection: %v", err)
 	}
-	writerHeld := true
-	defer func() {
-		if writerHeld {
-			_ = heldWriter.Close()
-		}
-	}()
-	oldRowsLoaded := make(chan struct{}, 1)
-	callbackName := "test:latency_old_rows_use_reader"
-	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
-		if tx.Statement.Table == "usage_latency_stats" {
-			select {
-			case oldRowsLoaded <- struct{}{}:
-			default:
+	defer heldWriter.Close()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		oldRowsLoaded := make(chan struct{}, 1)
+		callbackName := "test:latency_old_rows_use_reader"
+		if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+			if tx.Statement.Table == "usage_latency_stats" {
+				select {
+				case oldRowsLoaded <- struct{}{}:
+				default:
+				}
 			}
+		}); err != nil {
+			t.Fatalf("register latency reader callback: %v", err)
 		}
-	}); err != nil {
-		t.Fatalf("register latency reader callback: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Callback().Query().Remove(callbackName) })
-	applyDone := make(chan error, 1)
-	go func() {
-		// Runner 传入的句柄已经带 Write scope；Apply 内部的旧行读取仍必须显式覆盖到 Reader。
-		applyDone <- repository.ApplyUsageLatencyAggregationPage(context.Background(), db.Clauses(dbresolver.Write), 1, 2, secondRows, now.Add(time.Minute))
-	}()
-	select {
-	case <-oldRowsLoaded:
-	case <-time.After(time.Second):
-		_ = heldWriter.Close()
-		writerHeld = false
-		<-applyDone
-		t.Fatal("old latency rows did not load while the writer was occupied")
-	}
-	select {
-	case err := <-applyDone:
-		t.Fatalf("expected final latency write to wait for occupied writer, got %v", err)
-	case <-time.After(100 * time.Millisecond):
-	}
-	if err := heldWriter.Close(); err != nil {
-		t.Fatalf("release latency writer: %v", err)
-	}
-	writerHeld = false
-	select {
-	case err := <-applyDone:
-		if err != nil {
+		t.Cleanup(func() { _ = db.Callback().Query().Remove(callbackName) })
+		applyDone := make(chan error, 1)
+		go func() {
+			// 调用方带Write scope；旧行读取必须先绕过占用的writer。
+			applyDone <- repository.ApplyUsageLatencyAggregationPage(ctx, db.Clauses(dbresolver.Write), 1, 2, secondRows, now.Add(time.Minute))
+		}()
+		synctest.Wait()
+		select {
+		case <-oldRowsLoaded:
+		default:
+			cancel()
+			<-applyDone
+			t.Fatal("old latency rows did not load while the writer was occupied")
+		}
+		select {
+		case err := <-applyDone:
+			t.Fatalf("expected final latency write to wait for occupied writer, got %v", err)
+		default:
+		}
+		if err := heldWriter.Close(); err != nil {
+			t.Fatalf("release latency writer: %v", err)
+		}
+		if err := <-applyDone; err != nil {
 			t.Fatalf("apply latency page after writer release: %v", err)
 		}
-	case <-time.After(time.Second):
-		t.Fatal("latency apply did not finish after writer release")
-	}
-	readerSQL, err := reader.DB()
-	if err != nil {
-		t.Fatalf("load latency reader pool: %v", err)
-	}
+	})
 	if stats := readerSQL.Stats(); stats.MaxOpenConnections != 8 {
 		t.Fatalf("expected production reader pool for old latency rows: stats=%+v", stats)
 	}
@@ -223,11 +200,8 @@ func TestApplyUsageLatencyAggregationPageReadsOldRowsBeforeWaitingForWriter(t *t
 
 func TestApplyUsageLatencyAggregationPageMergesExistingBlobsAndAdvancesCursor(t *testing.T) {
 	// 两个页面落入同一个 hour/day key，验证 store 合并而不是覆盖旧分布。
-	previousLocal := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = previousLocal })
 	db := openTestDatabase(t)
-	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.Local)
 	firstRows := buildLatencyRowsForTest(t, []entities.UsageEvent{
 		validLatencyEvent(1, "key-a", now.Add(-30*time.Minute), 100, 900),
 		validLatencyEvent(2, "key-a", now.Add(-20*time.Minute), 200, 1200),
@@ -257,22 +231,13 @@ func TestApplyUsageLatencyAggregationPageMergesExistingBlobsAndAdvancesCursor(t 
 	}
 
 	// cursor 只能在两行都成功合并后推进到第二页末尾。
-	var checkpoint entities.UsageAggregationCheckpoint
-	if err := db.Where("name = ?", entities.UsageAggregationCheckpointLatency).Take(&checkpoint).Error; err != nil {
-		t.Fatalf("load latency checkpoint: %v", err)
-	}
-	if checkpoint.LastAggregatedUsageEventID != 3 {
-		t.Fatalf("expected latency checkpoint 3, got %+v", checkpoint)
-	}
+	assertLatencyAggregationCheckpoint(t, db, 3)
 }
 
 func TestApplyUsageLatencyAggregationPageRollsBackPreparedRowsWhenCheckpointChanged(t *testing.T) {
 	// Reader 结果与最终写事务之间仍由 expected cursor 保护；过期页面写入必须和水位冲突一起回滚。
-	previousLocal := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = previousLocal })
 	db := openTestDatabase(t)
-	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.Local)
 	firstRows := buildLatencyRowsForTest(t, []entities.UsageEvent{validLatencyEvent(1, "conflict-key", now.Add(-time.Minute), 100, 900)})
 	secondRows := buildLatencyRowsForTest(t, []entities.UsageEvent{validLatencyEvent(2, "conflict-key", now, 200, 1200)})
 	if err := repository.ApplyUsageLatencyAggregationPage(context.Background(), db, 0, 1, firstRows, now); err != nil {
@@ -296,11 +261,8 @@ func TestApplyUsageLatencyAggregationPageRollsBackPreparedRowsWhenCheckpointChan
 
 func TestApplyUsageLatencyAggregationPageLoadsCompositeKeysInTwoHundredKeyChunks(t *testing.T) {
 	// 201 个不同 API key 强制跨过计划约定的 200-key 查询边界。
-	previousLocal := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = previousLocal })
 	db := openTestDatabase(t)
-	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.Local)
 	firstEvents := make([]entities.UsageEvent, 0, 201)
 	secondEvents := make([]entities.UsageEvent, 0, 201)
 	for index := 0; index < 201; index++ {
@@ -344,11 +306,8 @@ func TestApplyUsageLatencyAggregationPageLoadsCompositeKeysInTwoHundredKeyChunks
 
 func TestApplyUsageLatencyAggregationPageMergesEachKeyChunkBeforeLoadingTheNext(t *testing.T) {
 	// 第一块必须完成真实 Sample merge 后才加载下一块，不能只解码后继续累积整页旧 BLOB。
-	previousLocal := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = previousLocal })
 	db := openTestDatabase(t)
-	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.Local)
 	firstEvents := make([]entities.UsageEvent, 0, 201)
 	secondEvents := make([]entities.UsageEvent, 0, 201)
 	for index := 0; index < 201; index++ {
@@ -394,11 +353,8 @@ func TestApplyUsageLatencyAggregationPageMergesEachKeyChunkBeforeLoadingTheNext(
 
 func TestApplyUsageLatencyAggregationPageRollsBackOnCorruptStoredBlob(t *testing.T) {
 	// 预置合法唯一键但损坏旧 Sketch，模拟磁盘或历史格式异常。
-	previousLocal := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = previousLocal })
 	db := openTestDatabase(t)
-	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.Local)
 	rows := buildLatencyRowsForTest(t, []entities.UsageEvent{validLatencyEvent(2, "key-a", now.Add(-time.Minute), 200, 1200)})
 	corrupt := rows[0]
 	corrupt.SampleCount = 1
@@ -417,18 +373,12 @@ func TestApplyUsageLatencyAggregationPageRollsBackOnCorruptStoredBlob(t *testing
 	if err == nil {
 		t.Fatal("expected corrupt latency blob to fail")
 	}
-	var checkpoint entities.UsageAggregationCheckpoint
-	if err := db.Where("name = ?", entities.UsageAggregationCheckpointLatency).Take(&checkpoint).Error; err != nil {
-		t.Fatalf("reload latency checkpoint: %v", err)
-	}
-	if checkpoint.LastAggregatedUsageEventID != 1 {
-		t.Fatalf("corrupt latency apply advanced checkpoint: %+v", checkpoint)
-	}
+	assertLatencyAggregationCheckpoint(t, db, 1)
 	var stored entities.UsageLatencyStat
 	if err := db.Where("id = ?", corrupt.ID).Take(&stored).Error; err != nil {
 		t.Fatalf("reload corrupt latency row: %v", err)
 	}
-	if string(stored.TTFTSketch) != string(corrupt.TTFTSketch) || stored.SampleCount != 1 {
+	if !slices.Equal(stored.TTFTSketch, corrupt.TTFTSketch) || stored.SampleCount != 1 {
 		t.Fatalf("corrupt latency row changed after rollback: %+v", stored)
 	}
 }
@@ -485,25 +435,6 @@ func assertLatencyAggregationCheckpoint(t *testing.T, db *gorm.DB, want int64) {
 	if checkpoint.LastAggregatedUsageEventID != want {
 		t.Fatalf("expected latency aggregation checkpoint %d, got %+v", want, checkpoint)
 	}
-}
-
-func openLatencyReaderPoolTestDatabase(t *testing.T) (*gorm.DB, *gorm.DB, func()) {
-	t.Helper()
-	db, reader, err := repository.OpenDatabasePools(config.Config{SQLitePath: filepath.Join(t.TempDir(), "latency-reader.db")})
-	if err != nil {
-		t.Fatalf("open latency reader pools: %v", err)
-	}
-	closePools := func() {
-		if reader != nil && reader != db {
-			if sqlDB, dbErr := reader.DB(); dbErr == nil {
-				_ = sqlDB.Close()
-			}
-		}
-		if sqlDB, dbErr := db.DB(); dbErr == nil {
-			_ = sqlDB.Close()
-		}
-	}
-	return db, reader, closePools
 }
 
 func validLatencyEvent(id int64, apiGroupKey string, timestamp time.Time, ttftMS, latencyMS int64) entities.UsageEvent {

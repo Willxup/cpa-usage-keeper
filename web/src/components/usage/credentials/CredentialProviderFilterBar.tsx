@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { IconFilterAll } from '@/components/ui/icons'
 import { ProviderBrandIcon } from '@/components/ProviderBrandIcon'
@@ -15,17 +15,7 @@ interface CredentialProviderFilterBarProps {
 
 export function CredentialProviderFilterBar({ scope, typeCounts, value, onChange }: CredentialProviderFilterBarProps) {
   const { t } = useTranslation()
-  const visibleOptions = useMemo(() => buildCredentialProviderFilterOptions(scope, typeCounts), [scope, typeCounts])
-
-  useEffect(() => {
-    // 计数还没加载时没有可对账的选项，此时重置会把持久化恢复出来的筛选直接清掉。
-    if (visibleOptions.length === 0) {
-      return
-    }
-    if (value !== 'all' && !visibleOptions.some((option) => option.key === value)) {
-      onChange('all')
-    }
-  }, [onChange, value, visibleOptions])
+  const visibleOptions = useMemo(() => buildCredentialProviderFilterOptions(scope, typeCounts, value), [scope, typeCounts, value])
 
   if (visibleOptions.length === 0) {
     return null

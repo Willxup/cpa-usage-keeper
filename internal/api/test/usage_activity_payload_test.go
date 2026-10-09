@@ -2,16 +2,14 @@ package test
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
-	"net/http/httptest"
-	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	. "cpa-usage-keeper/internal/api"
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
@@ -19,15 +17,7 @@ import (
 
 func TestUsageActivityPayloadExposesCanonicalTokenMetricsWithoutCachedTokens(t *testing.T) {
 	// 准备独立数据库和一个位于当前 short 窗口内的 Activity 稀疏行。
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-activity-payload.db")})
-	if err != nil {
-		t.Fatalf("open Activity payload database: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("resolve Activity payload database: %v", err)
-	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
+	db := openAPITestDatabase(t)
 	bucket, err := repository.UsageActivityBucketForTimestamp(entities.UsageActivityGrainShort, time.Now().Add(-time.Hour))
 	if err != nil {
 		t.Fatalf("resolve Activity bucket: %v", err)
@@ -52,8 +42,7 @@ func TestUsageActivityPayloadExposesCanonicalTokenMetricsWithoutCachedTokens(t *
 
 	// 执行真实路由，确保 repository、service 和 API 映射使用同一份 canonical 数据。
 	router := NewRouter(nil, nil, service.NewUsageService(db, emptyPricingCatalogForTest()), nil, AuthConfig{}, nil, "")
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/usage/activity?range=24h", nil))
+	response := serveAPIGet(router, "/api/v1/usage/activity?range=24h")
 	if response.Code != http.StatusOK {
 		t.Fatalf("Activity payload status=%d body=%s", response.Code, response.Body.String())
 	}
@@ -111,13 +100,8 @@ func TestUsageActivityPayloadExposesCanonicalTokenMetricsWithoutCachedTokens(t *
 
 func assertUsageActivityJSONKeys(t *testing.T, object map[string]json.RawMessage, want []string) {
 	t.Helper()
-	got := make([]string, 0, len(object))
-	for key := range object {
-		got = append(got, key)
-	}
-	sort.Strings(got)
-	sort.Strings(want)
-	if strings.Join(got, ",") != strings.Join(want, ",") {
+	got := slices.Sorted(maps.Keys(object))
+	if !slices.Equal(got, want) {
 		t.Fatalf("JSON keys=%v, want %v", got, want)
 	}
 }

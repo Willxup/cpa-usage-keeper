@@ -155,12 +155,22 @@ func (r *MetadataSyncRunner) MarkRefreshSupported() {
 }
 
 func (r *MetadataSyncRunner) RequestMetadataRefresh() {
+	// CPA refresh=true 控制消息同时证明通知链路可用。
+	r.requestMetadataRefresh(true)
+}
+
+// RequestLocalMetadataRefresh 只排队本地操作后的同步，不推断 CPA 通知能力。
+func (r *MetadataSyncRunner) RequestLocalMetadataRefresh() {
+	r.requestMetadataRefresh(false)
+}
+
+func (r *MetadataSyncRunner) requestMetadataRefresh(upstreamNotification bool) {
 	// nil runner 保护只为防御异常 wiring，正常路径不会触发。
 	if r == nil {
 		return
 	}
-	// refresh=true 同时证明通知可用；只有 runner 已经激活时才进入 trailing debounce。
-	changed, activated := r.recordRefreshRequest()
+	// 两类刷新共用防抖队列；只有真实上游通知允许改变同步模式。
+	changed, activated := r.recordRefreshRequest(upstreamNotification)
 	if changed {
 		// refresh=true 也能证明 CPA 通知可用，首次进入通知模式时记录。
 		logrus.WithField("source", "refresh").Info("metadata sync switched to notification mode")
@@ -270,13 +280,15 @@ func (r *MetadataSyncRunner) setNotificationMode(enabled bool) bool {
 	return changed
 }
 
-func (r *MetadataSyncRunner) recordRefreshRequest() (changed, activated bool) {
+func (r *MetadataSyncRunner) recordRefreshRequest(upstreamNotification bool) (changed, activated bool) {
 	// refresh 请求需要在同一把锁内更新通知模式、激活状态和 debounce 时间。
 	// changed 表示通知模式是否切换；activated 表示首次连接信号是否已被消费。
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	changed = !r.notificationMode
-	r.notificationMode = true
+	if upstreamNotification {
+		changed = !r.notificationMode
+		r.notificationMode = true
+	}
 	activated = r.activated
 	if activated {
 		// 激活前的 refresh 由首次连接同步覆盖，不污染后续 debounce 起点。

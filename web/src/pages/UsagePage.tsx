@@ -1,6 +1,8 @@
+import { CredentialEditModal } from '@/components/usage/credentials/CredentialEditModal';
+import { UsageComparisonCharts } from '@/components/usage/UsageComparisonCharts';
 import { useState, useMemo, useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError, appPath, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchVersion, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateAuthSessionAlias, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
+import { ApiError, appPath, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentity, fetchVersion, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateAuthSessionAlias, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
 import type { AnalysisLatencyDiagnostics, AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageCustomRange, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption, UsageTimeRange, VersionResponse } from '@/lib/types';
 import { DEFAULT_USAGE_TAB, getUsageTabPath, handleUsageTabKeyActivation, resolveInitialUsageTab, shouldHandleUsageNavigation, USAGE_TAB_OPTIONS, type UsageTab } from '@/lib/usageNavigation';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -10,6 +12,9 @@ import { Button } from '@/components/ui/Button';
 import { MainActionButton } from '@/components/ui/MainActionButton';
 import { Modal } from '@/components/ui/Modal';
 import { IconRefreshCw } from '@/components/ui/icons';
+import { updateCredentialDetailStats } from '@/components/usage/credentials/credentialViewModels';
+import { CREDENTIAL_PAGES_REFRESH_INTERVAL_MS } from '@/components/usage/credentials/useCredentialPages';
+import { buildCredentialProviderSearch } from '@/components/usage/credentials/credentialProviderFilters';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useThemeStore } from '@/stores';
@@ -27,6 +32,7 @@ import {
   CredentialProviderFilterBar,
   TimeRangeControl,
   useUsageData,
+  useUsageComparisonsData,
   useRecentActivityWindow,
   useUsageActivityData,
   useOverviewRealtimeData,
@@ -47,6 +53,8 @@ import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import { getDailyAverageCardUsage, isDailyAverageRange } from '@/utils/usage/overview';
 import type { Theme } from '@/types';
 import { BrandLink } from '@/components/BrandLink';
+import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
+import { DashboardToolbar } from '@/components/dashboard/DashboardToolbar';
 import { cpamcEmbedSearch, isCPAMCEmbed } from '@/embed/cpamcEmbed';
 import { RankingPage } from '@/features/ranking/RankingPage';
 import { RankingScopeSwitch } from '@/features/ranking/components/RankingScopeSwitch';
@@ -74,6 +82,7 @@ const LOCAL_RANKING_PREVIEW_API = resolveLocalRankingPreviewAPI(import.meta.env.
 type Translate = (key: string) => string;
 const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
   overview: 'usage_stats.tab_overview',
+  realtime: 'usage_stats.tab_realtime',
   analysis: 'usage_stats.tab_analysis',
   ranking: 'usage_stats.tab_ranking',
   events: 'usage_stats.tab_events',
@@ -107,6 +116,11 @@ export const getUsageCustomRangeForTab = (
   });
 };
 
+export const resolveCredentialTimeZone = (
+  statusTimeZone?: string,
+  usageTimeZone?: string,
+): string | undefined => statusTimeZone?.trim() || usageTimeZone?.trim() || undefined;
+
 type AnalysisSectionLoadOptions<TCore, TLatency> = {
   loadCore: () => Promise<TCore>;
   loadLatency: () => Promise<TLatency>;
@@ -136,9 +150,9 @@ export const getCredentialSectionVisibility = (tab: UsageTab) => ({
   showAiProvider: tab === 'ai-provider',
 });
 
-export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'ranking' && tab !== 'settings' && !getCredentialSectionVisibility(tab).enabled;
+export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'realtime' && tab !== 'ranking' && tab !== 'settings' && !getCredentialSectionVisibility(tab).enabled;
 
-export const shouldShowApiKeyFilter = (tab: UsageTab) => shouldShowRangeControls(tab);
+export const shouldShowApiKeyFilter = (tab: UsageTab) => tab === 'realtime' || shouldShowRangeControls(tab);
 
 // 恢复出来的 API Key 筛选只有在选项成功加载后才能判定失效；加载中或加载失败时保留选择，避免被空列表误清。
 export const shouldResetSelectedApiKeyFilter = (
@@ -230,7 +244,7 @@ export const shouldAutoRefreshUsageTab = ({
   activeTab: UsageTab;
   eventsPage: number;
 }) => {
-  if (activeTab === 'overview') return true;
+  if (activeTab === 'overview' || activeTab === 'realtime') return true;
   if (activeTab === 'events') return eventsPage === 1;
   return false;
 };
@@ -327,8 +341,9 @@ const normalizeRequestEventResultFilter = (value: unknown): string => (
   value === 'success' || value === 'failed' ? value : ALL_REQUEST_EVENTS_FILTER
 );
 
-const normalizeRequestEventPreferenceFilters = (value: unknown): RequestEventFilterState => {
+const normalizeRequestEventPreferenceFilters = (value: unknown): RequestEventsPreferences['filters'] => {
   const filters = isRecord(value) ? value : {};
+  // 只恢复仍支持的列表筛选；旧 apiKeyId 不再参与查询，也不覆盖顶部选择。
   return {
     model: normalizeRequestEventFilterValue(filters.model),
     source: normalizeRequestEventFilterValue(filters.source),
@@ -740,17 +755,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     const loadedTab = loadUsageTab();
     return isEmbeddedInCPAMC && loadedTab === 'ranking' ? DEFAULT_USAGE_TAB : loadedTab;
   });
-  const activateUsageTab = useCallback((tab: UsageTab) => {
-    setActiveTab(tab);
-    window.history.replaceState(null, '', appPath(getUsageTabPath(tab)) + cpamcEmbedSearch());
-  }, []);
-  const handleUsageTabNavigation = useCallback((event: ReactMouseEvent<HTMLAnchorElement>, tab: UsageTab) => {
-    // 普通左键保持现有无刷新切换；组合键和中键交给原生链接打开新页面。
-    if (!shouldHandleUsageNavigation(event.nativeEvent)) return;
-
-    event.preventDefault();
-    activateUsageTab(tab);
-  }, [activateUsageTab]);
   const [rankingScope, setRankingScope] = useState<RankingScope>(loadRankingScope);
   const handleRankingScopeChange = useCallback((scope: RankingScope) => {
     setRankingScope(scope);
@@ -823,6 +827,21 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     onRangeBoundsConflict: recoverRangeBoundsConflict,
   });
   const {
+    comparisons: overviewComparisons,
+    loading: comparisonsLoading,
+    error: comparisonsError,
+    loadComparisons,
+  } = useUsageComparisonsData({
+    onAuthRequired,
+    onRangeBoundsConflict: recoverRangeBoundsConflict,
+    enabled: activeTab === 'overview' && usageRangeQuery.valid && apiKeyFilterReady,
+    apiKeyId: requestApiKeyId,
+    range: timeRange,
+    customUnit: activeCustomRange?.unit,
+    customStart: activeCustomRange?.start,
+    customEnd: activeCustomRange?.end,
+  });
+  const {
     activity,
     activityMatchesRequest,
     loading: activityLoading,
@@ -839,6 +858,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const activityWindow = manualActivityWindow ?? activity?.window ?? null;
   const activityWindowIsCurrent = manualActivityWindow !== null || activityMatchesRequest;
   const rangeTimeZone = status?.timezone ?? usage?.timezone ?? timeRangeState.timeZone;
+  const credentialTimeZone = resolveCredentialTimeZone(status?.timezone, usage?.timezone);
   const handleTimeRangeChange = useCallback((range: UsageTimeRange, nextCustomRange?: UsageCustomRange) => {
     pendingLegacyCustomRangeRef.current = null;
     try {
@@ -859,7 +879,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     loadRealtime
   } = useOverviewRealtimeData({
     onAuthRequired,
-    enabled: activeTab === 'overview' && apiKeyFilterReady,
+    enabled: activeTab === 'realtime' && apiKeyFilterReady,
     apiKeyId: requestApiKeyId,
     realtimeWindow,
   });
@@ -917,7 +937,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [eventsExportingFormat, setEventsExportingFormat] = useState<UsageEventsExportFormat | null>(null);
   const [eventsFilterOptionsLoaded, setEventsFilterOptionsLoaded] = useState(false);
   const [credentialDetailSelection, setCredentialDetailSelection] = useState<CredentialDetailSelection | null>(null);
+  const credentialEditFallbackRef = useRef<HTMLInputElement | null>(null);
+  const [credentialEditSelection, setCredentialEditSelection] = useState<CredentialDetailSelection | null>(null);
   const [credentialDetailOpen, setCredentialDetailOpen] = useState(false);
+  const [credentialPriorityRevision, setCredentialPriorityRevision] = useState(0);
+  const credentialDetailRequestRef = useRef<{ id: string; controller: AbortController } | null>(null);
   const [requestLogResponse, setRequestLogResponse] = useState<UsageEventRequestLogResponse | null>(null);
   const [requestLogError, setRequestLogError] = useState('');
   const [requestLogLoadingEventId, setRequestLogLoadingEventId] = useState<string | null>(null);
@@ -984,8 +1008,36 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     enabledAiProviders: credentialSectionVisibility.showAiProvider && pageVisible,
     onAuthRequired,
     onNotice: showTopNotice,
+    onPrioritySaved: () => setCredentialPriorityRevision((current) => current + 1),
   });
   const refreshCredentials = credentialsData.refresh;
+  const getUsageTabHref = useCallback((tab: UsageTab) => {
+    let search = tab === activeTab ? window.location.search : cpamcEmbedSearch();
+    if (tab === 'auth-files' || tab === 'ai-provider') {
+      search = buildCredentialProviderSearch(search, tab === 'auth-files' ? credentialsData.authFileProviderFilter : credentialsData.aiProviderProviderFilter);
+    } else {
+      search = cpamcEmbedSearch();
+    }
+    return appPath(getUsageTabPath(tab)) + search + (tab === activeTab ? window.location.hash : '');
+  }, [activeTab, credentialsData.authFileProviderFilter, credentialsData.aiProviderProviderFilter]);
+  const activateUsageTab = useCallback((tab: UsageTab) => {
+    window.history.replaceState(null, '', getUsageTabHref(tab));
+    setActiveTab(tab);
+  }, [getUsageTabHref]);
+  const handleUsageTabNavigation = useCallback((event: ReactMouseEvent<HTMLAnchorElement>, tab: UsageTab) => {
+    // 普通左键保持现有无刷新切换；组合键和中键交给原生链接打开新页面。
+    if (!shouldHandleUsageNavigation(event.nativeEvent)) return;
+    event.preventDefault();
+    activateUsageTab(tab);
+  }, [activateUsageTab]);
+  useEffect(() => {
+    if (activeTab !== 'auth-files' && activeTab !== 'ai-provider') return;
+    // 无参数入口也固定本标签页的筛选，避免刷新时再次读取其他标签页改过的默认偏好。
+    const href = getUsageTabHref(activeTab);
+    if (href !== window.location.pathname + window.location.search + window.location.hash) {
+      window.history.replaceState(null, '', href);
+    }
+  }, [activeTab, getUsageTabHref]);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
   const [analysisData, setAnalysisData] = useState<AnalysisResponse | null>(null);
@@ -1322,10 +1374,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [eventsColumnOrder, eventsModelFilter, eventsResultFilter, eventsSourceFilter, eventsVisibleColumnIds]);
 
   useEffect(() => {
-    setEventsPage(1);
-  }, [selectedApiKeyId, usageRangeQuery]);
-
-  useEffect(() => {
     // Credentials 列表、quota cache 和 task polling 都跟页面可见性绑定，隐藏页不保持刷新或轮询。
     const syncPageVisible = () => setPageVisible(isUsagePageVisible());
     syncPageVisible();
@@ -1537,6 +1585,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setEventsPage(1);
   }, []);
 
+  useEffect(() => {
+    // 顶部 Key 和时间范围共同限定列表；切换时立即丢弃旧游标，查询 effect 负责取消旧请求。
+    resetEventsPage();
+  }, [resetEventsPage, selectedApiKeyId, usageRangeQuery]);
 
   const handleEventsModelFilterChange = useCallback((model: string) => {
     setEventsModelFilter(model);
@@ -1639,6 +1691,62 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setCredentialDetailOpen(true);
   }, []);
 
+  const credentialDetailID = credentialDetailSelection?.row.identity.id;
+  const refreshCredentialDetail = useCallback(async () => {
+    if (!credentialDetailOpen || !credentialDetailID) return;
+    credentialDetailRequestRef.current?.controller.abort();
+    const request = { id: credentialDetailID, controller: new AbortController() };
+    credentialDetailRequestRef.current = request;
+    try {
+      const updated = await fetchUsageIdentity(request.id, request.controller.signal);
+      if (credentialDetailRequestRef.current !== request) return;
+      setCredentialDetailSelection((current) => current?.row.identity.id === request.id ? updateCredentialDetailStats(current, updated) : current);
+    } catch (error) {
+      if (credentialDetailRequestRef.current !== request) return;
+      // 自动刷新失败保留最后一次成功的统计，下次轮询继续尝试。
+      if (error instanceof ApiError && error.status === 401) onAuthRequired?.();
+    } finally {
+      if (credentialDetailRequestRef.current === request) credentialDetailRequestRef.current = null;
+    }
+  }, [credentialDetailID, credentialDetailOpen, onAuthRequired]);
+
+  useEffect(() => {
+    if (credentialPriorityRevision > 0) void refreshCredentialDetail();
+  }, [credentialPriorityRevision, refreshCredentialDetail]);
+
+  useEffect(() => {
+    if (!credentialDetailOpen) return;
+    // 详情按稳定 ID 独立刷新，凭证因重置移出当前分页后仍能观察新增用量。
+    void refreshCredentialDetail();
+    const interval = window.setInterval(() => { void refreshCredentialDetail(); }, CREDENTIAL_PAGES_REFRESH_INTERVAL_MS);
+    return () => {
+      window.clearInterval(interval);
+      credentialDetailRequestRef.current?.controller.abort();
+      credentialDetailRequestRef.current = null;
+    };
+  }, [credentialDetailOpen, refreshCredentialDetail]);
+
+  const handleCredentialStatsReset = useCallback(async (id: string) => {
+    const updated = await credentialsData.resetUsageIdentityStats(id);
+    // 重置结果应用前使旧详情请求失效，避免较晚返回的旧基线覆盖新周期。
+    if (credentialDetailRequestRef.current?.id === id) {
+      credentialDetailRequestRef.current.controller.abort();
+      credentialDetailRequestRef.current = null;
+    }
+    setCredentialDetailSelection((current) => current?.row.identity.id === id ? updateCredentialDetailStats(current, updated) : current);
+  }, [credentialsData]);
+
+  const currentCredentialDetailSelection = useMemo<CredentialDetailSelection | null>(() => {
+    if (!credentialDetailSelection) return null;
+    const id = credentialDetailSelection.row.identity.id;
+    if (credentialDetailSelection.kind === 'auth-file') {
+      const row = credentialsData.authFileRows.find((item) => item.identity.id === id);
+      return row ? updateCredentialDetailStats({ kind: 'auth-file', row }, { ...credentialDetailSelection.row.identity, priority: row.identity.priority }) : credentialDetailSelection;
+    }
+    const row = credentialsData.aiProviderRows.find((item) => item.identity.id === id);
+    return row ? updateCredentialDetailStats({ kind: 'ai-provider', row }, { ...credentialDetailSelection.row.identity, priority: row.identity.priority }) : credentialDetailSelection;
+  }, [credentialDetailSelection, credentialsData.authFileRows, credentialsData.aiProviderRows]);
+
   const handleRequestLogDownload = useCallback(async (eventId: string) => {
     if (!requestLogAccessEnabled) return;
     requestLogDownloadGenerationRef.current += 1;
@@ -1657,7 +1765,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [onAuthRequired, requestLogAccessEnabled, showTopNotice, t]);
 
   const refreshActiveTab = useCallback(async () => {
-    if (!apiKeyFilterReady && shouldShowRangeControls(activeTab)) return;
+    if (!apiKeyFilterReady && shouldShowApiKeyFilter(activeTab)) return;
+    if (activeTab === 'realtime') {
+      await loadRealtime();
+      return;
+    }
     if (activeTab === 'events') {
       await Promise.all([loadEventFilterOptions(), loadEvents()]);
       return;
@@ -1667,7 +1779,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       return;
     }
     if (credentialSectionVisibility.enabled) {
-      await refreshCredentials();
+      await Promise.all([refreshCredentials(), refreshCredentialDetail()]);
       return;
     }
     if (activeTab === 'analysis') {
@@ -1678,11 +1790,15 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await Promise.all([loadAuthSessions(), loadApiKeySettings(), loadPricing()]);
       return;
     }
-    await Promise.all([loadUsage(), loadActivity(), loadRealtime()]);
-  }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadEventFilterOptions, loadEvents, loadPricing, loadRealtime, loadUsage, refreshCredentials, refreshRanking]);
+    await Promise.all([loadUsage(), loadActivity(), loadComparisons()]);
+  }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadComparisons, loadEventFilterOptions, loadEvents, loadPricing, loadRealtime, loadUsage, refreshCredentialDetail, refreshCredentials, refreshRanking]);
 
   const refreshAutoRefreshTab = useCallback(async () => {
-    if (!apiKeyFilterReady && shouldShowRangeControls(activeTab)) return;
+    if (!apiKeyFilterReady && shouldShowApiKeyFilter(activeTab)) return;
+    if (activeTab === 'realtime') {
+      await loadRealtime();
+      return;
+    }
     if (activeTab === 'events') {
       await loadEvents();
       return;
@@ -1691,8 +1807,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await refreshCredentials();
       return;
     }
-    await Promise.all([loadUsage(), loadActivity({ skipIfInFlight: true }), loadRealtime()]);
-  }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadEvents, loadRealtime, loadUsage, refreshCredentials]);
+    await Promise.all([loadUsage(), loadActivity({ skipIfInFlight: true }), loadComparisons({ skipIfInFlight: true })]);
+  }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadComparisons, loadEvents, loadRealtime, loadUsage, refreshCredentials]);
 
   const handleAutoRefreshError = useCallback((error: unknown) => {
     if (recoverRangeBoundsConflict(error)) return;
@@ -1889,6 +2005,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     : '';
   // 只有需要时间范围的 tab 才渲染 Range 控件，避免 Credentials/Pricing 产生空白占位。
   const showRangeControls = shouldShowRangeControls(activeTab);
+  const showApiKeyFilter = shouldShowApiKeyFilter(activeTab);
   const showRankingScopeControl = activeTab === 'ranking' && !isEmbeddedInCPAMC;
   const {
     requestsSparkline,
@@ -1909,9 +2026,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const dailyAverageCardUsage = getDailyAverageCardUsage(currentOverviewUsage, usage, reserveDailyAverageCard, loading);
 
   return (
-    <div className={styles.pageShell} data-keeper-page="usage">
+    <div className={`${styles.pageShell} ${!isEmbeddedInCPAMC ? styles.standalone : ''}`.trim()} data-keeper-page="usage">
       <div className={styles.pageFrame}>
-        <header className={styles.topBar}>
+        {isEmbeddedInCPAMC ? <header className={styles.topBar}>
           <div className={styles.brandBlock}>
             <BrandLink className={styles.eyebrow} />
           </div>
@@ -1968,7 +2085,14 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               {loggingOut ? t('common.loading') : t('common.logout')}
             </MainActionButton>
           </div>
-        </header>
+        </header> : <DashboardHeader
+          backToCPA={cpaManagementURL || undefined}
+          onLogout={handleRequestLogout}
+          loggingOut={loggingOut}
+          onCheckUpdates={shouldShowUpdateCheckButton(versionInfo) ? () => void handleUpdateCheck() : undefined}
+          checkingUpdates={updateCheckLoading}
+          updateAvailable={hasNewVersion}
+        />}
 
         <main className={styles.contentColumn}>
           <div className={styles.container}>
@@ -1977,28 +2101,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 <div className={styles.loadingOverlayContent}>
                   <LoadingSpinner size={28} className={styles.loadingOverlaySpinner} />
                   <span className={styles.loadingOverlayText}>{t('common.loading')}</span>
-                </div>
-              </div>
-            )}
-
-            {(!isEmbeddedInCPAMC && cpaManagementURL) && (
-              <div className={styles.toolbarMetaRow}>
-                <div className={styles.toolbarMetaRight}>
-                  <a
-                    className={styles.backToCpaLink}
-                    href={cpaManagementURL}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label={t('usage_stats.back_to_cpa_aria')}
-                  >
-                    <span>{t('usage_stats.back_to_cpa')}</span>
-                    <span className={styles.backToCpaIcon} aria-hidden="true">
-                      <svg viewBox="0 0 16 16" focusable="false">
-                        <path d="M6 4h6v6" />
-                        <path d="M12 4 5 11" />
-                      </svg>
-                    </span>
-                  </a>
                 </div>
               </div>
             )}
@@ -2026,7 +2128,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </div>
             )}
 
-            <div className={styles.toolbarRow}>
+            {isEmbeddedInCPAMC ? <div className={styles.toolbarRow}>
               <div
                 className={`${styles.tabBar} ${!isEmbeddedInCPAMC ? styles.tabBarConnected : ''}`.trim()}
                 role="tablist"
@@ -2036,7 +2138,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 {tabOptions.map((option) => (
                   <a
                     key={option.value}
-                    href={appPath(getUsageTabPath(option.value)) + cpamcEmbedSearch()}
+                    href={getUsageTabHref(option.value)}
                     role="tab"
                     aria-selected={activeTab === option.value}
                     className={`${styles.tabPill} ${activeTab === option.value ? styles.tabPillActive : ''}`.trim()}
@@ -2050,12 +2152,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
               <div className={`${styles.toolbarActionsRight} ${!isEmbeddedInCPAMC ? styles.toolbarActionsRightAnimated : ''}`.trim()}>
                 <div className={isEmbeddedInCPAMC ? styles.toolbarContextSlotImmediate : styles.toolbarContextSlot}>
-                  {(!isEmbeddedInCPAMC || showRangeControls) && (
+                  {(!isEmbeddedInCPAMC || showApiKeyFilter) && (
                   /* 普通模式保留筛选区节点以执行过渡；CPAMC 继续按需挂载，维持既有布局。 */
                   <div
-                    className={`${styles.usageFilterTransition} ${isEmbeddedInCPAMC ? styles.usageFilterTransitionImmediate : ''} ${showRangeControls ? styles.usageFilterTransitionOpen : ''}`.trim()}
-                    aria-hidden={!showRangeControls}
-                    inert={!showRangeControls}
+                    className={`${styles.usageFilterTransition} ${isEmbeddedInCPAMC ? styles.usageFilterTransitionImmediate : ''} ${showApiKeyFilter ? styles.usageFilterTransitionOpen : ''}`.trim()}
+                    aria-hidden={!showApiKeyFilter}
+                    inert={!showApiKeyFilter}
                   >
                     <div className={styles.usageFilterTransitionInner}>
                       <div className={styles.usageFilterBar}>
@@ -2073,14 +2175,14 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       />
                     </label>
                   </div>
-                    <TimeRangeControl
+                    {showRangeControls && <TimeRangeControl
                       value={timeRange}
                       customRange={activeCustomRange}
                       timeZone={rangeTimeZone}
                       maxCustomDayRangeDays={activeTab === 'events' ? REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS : undefined}
                       onChange={handleTimeRangeChange}
                       ariaLabel={t('usage_stats.range_filter')}
-                    />
+                    />}
                       </div>
                     </div>
                   </div>
@@ -2119,7 +2221,28 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </div>
             </div>
 
-            {activeTab === 'overview' && error && <div className={styles.errorBox}>{error === 'AUTH_REQUIRED' ? t('auth.session_expired') : error}</div>}
+            : <DashboardToolbar
+              activeId={activeTab}
+              items={tabOptions.map((option) => ({ id: option.value, label: option.label, href: getUsageTabHref(option.value) }))}
+              onNavigate={activateUsageTab}
+              filters={showApiKeyFilter ? [
+                <Select
+                  key="api-key"
+                  value={selectedApiKeyId}
+                  options={apiKeySelectOptions}
+                  onChange={setSelectedApiKeyId}
+                  ariaLabel={`${t('usage_stats.api_key_filter')}: ${apiKeySelectOptions.find((option) => option.value === selectedApiKeyId)?.label ?? ''}`}
+                  fullWidth={false}
+                  dropdownMinWidth={180}
+                  renderValue={(option) => <><span data-dashboard-filter-caption>{t('usage_stats.api_key_filter')}</span><span data-dashboard-filter-value>{option?.label}</span></>}
+                />,
+                ...showRangeControls ? [<TimeRangeControl key="range" value={timeRange} customRange={activeCustomRange} timeZone={rangeTimeZone} maxCustomDayRangeDays={activeTab === 'events' ? REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS : undefined} onChange={handleTimeRangeChange} ariaLabel={t('usage_stats.range_filter')} labelInsideTrigger />] : [],
+              ] : showRankingScopeControl ? [<RankingScopeSwitch key="ranking-scope" value={rankingScope} onChange={handleRankingScopeChange} />] : []}
+              onRefresh={() => void handleManualRefresh().catch(() => {})}
+              refreshing={manualRefreshLoading}
+            />}
+
+            {activeTab === 'overview' && (error || comparisonsError) && <div className={styles.errorBox}>{(error || comparisonsError) === 'AUTH_REQUIRED' ? t('auth.session_expired') : (error || comparisonsError)}</div>}
             {activeTab === 'settings' && pricingError && <div className={styles.errorBox}>{pricingError === 'AUTH_REQUIRED' ? t('auth.session_expired') : pricingError}</div>}
             {activeTab === 'settings' && authSessionsError && <div className={styles.errorBox}>{authSessionsError}</div>}
             {activeTab === 'settings' && apiKeySettingsError && <div className={styles.errorBox}>{apiKeySettingsError}</div>}
@@ -2151,18 +2274,21 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   requestIdentity={activityRequestIdentity}
                   onWindowChange={setActivityWindow}
                 />
-
-                <OverviewRealtimePanel
-                  realtime={currentRealtime ?? undefined}
-                  loading={realtimeLoading}
-                  error={displayRealtimeError}
-                  window={realtimeWindow}
-                  onWindowChange={setRealtimeWindow}
-                  isDark={isDark}
-                  isMobile={isMobile}
-                  timezone={currentRealtime?.timezone ?? usage?.timezone}
-                />
+                <UsageComparisonCharts isDark={resolvedTheme === 'dark'} isMobile={isMobile} comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading} />
               </>
+            )}
+
+            {activeTab === 'realtime' && (
+              <OverviewRealtimePanel
+                realtime={currentRealtime ?? undefined}
+                loading={realtimeLoading}
+                error={displayRealtimeError}
+                window={realtimeWindow}
+                onWindowChange={setRealtimeWindow}
+                isDark={isDark}
+                isMobile={isMobile}
+                timezone={currentRealtime?.timezone ?? status?.timezone}
+              />
             )}
 
             {activeTab === 'analysis' && (
@@ -2262,6 +2388,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   {credentialSectionVisibility.showAuthFiles && (
                     <AuthFileCredentialsSection
                       rows={credentialsData.authFileRows}
+                      timeZone={credentialTimeZone}
                       total={credentialsData.authFileTotal}
                       page={credentialsData.authFilePage}
                       totalPages={credentialsData.authFileTotalPages}
@@ -2282,9 +2409,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       onRefreshQuota={credentialsData.refreshQuotaForCurrentAuthFilePage}
                       onRefreshQuotaForAuthIndex={credentialsData.refreshQuotaForAuthIndex}
                       onResetQuotaForAuthIndex={credentialsData.resetQuotaForAuthIndex}
-                      aliasSavingId={credentialsData.aliasSavingId}
-                      onSaveAlias={credentialsData.saveUsageIdentityAlias}
+                      editFallbackRef={credentialEditFallbackRef}
+                      onEdit={(row) => setCredentialEditSelection({ kind: 'auth-file', row })}
                       onOpenDetails={(row) => handleCredentialDetailOpen({ kind: 'auth-file', row })}
+                      statusPendingIdentityIds={credentialsData.credentialStatusPendingIdentityIds}
+                      onToggleStatus={credentialsData.toggleAuthFileStatus}
+                      onSavePriority={credentialsData.saveAuthFilePriority}
                       onRefreshInspectionStatus={credentialsData.refreshQuotaInspectionStatus}
                       onStartInspection={credentialsData.startQuotaInspection}
                       onAfterInvalidAccountAction={credentialsData.refresh}
@@ -2300,9 +2430,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       activeOnly={credentialsData.aiProviderActiveOnly}
                       sort={credentialsData.aiProviderSort}
                       loading={credentialsData.loading}
-                      aliasSavingId={credentialsData.aliasSavingId}
-                      onSaveAlias={credentialsData.saveUsageIdentityAlias}
+                      editFallbackRef={credentialEditFallbackRef}
+                      onEdit={(row) => setCredentialEditSelection({ kind: 'ai-provider', row })}
                       onOpenDetails={(row) => handleCredentialDetailOpen({ kind: 'ai-provider', row })}
+                      statusPendingIdentityIds={credentialsData.credentialStatusPendingIdentityIds}
+                      onToggleStatus={credentialsData.toggleAiProviderStatus}
+                      onSavePriority={credentialsData.saveAiProviderPriority}
                       onPageChange={credentialsData.setAiProviderPage}
                       onPageSizeChange={credentialsData.setAiProviderPageSize}
                       onActiveOnlyChange={credentialsData.setAiProviderActiveOnly}
@@ -2347,9 +2480,22 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
           </div>
         </main>
       </div>
+      {credentialEditSelection && <CredentialEditModal
+        key={`${credentialEditSelection.kind}:${credentialEditSelection.row.identity.id}`}
+        selection={credentialEditSelection}
+        fallbackFocusRef={credentialEditFallbackRef}
+        onClose={() => setCredentialEditSelection(null)}
+        onSaveField={(change) => credentialsData.saveCredentialField(credentialEditSelection.kind, credentialEditSelection.row.identity.id, credentialEditSelection.row.identity.identity, change)}
+        onSaved={() => {
+          setCredentialEditSelection(null);
+          showTopNotice('success', t('usage_stats.credentials_edit_saved'));
+        }}
+      />}
       <CredentialDetailDrawer
         open={credentialDetailOpen}
-        selection={credentialDetailSelection}
+        selection={currentCredentialDetailSelection}
+        timeZone={credentialTimeZone}
+        onResetStats={handleCredentialStatsReset}
         onAuthRequired={onAuthRequired}
         requestLogAccessEnabled={requestLogAccessEnabled}
         onRequestLogOpen={handleRequestLogOpen}

@@ -1,7 +1,6 @@
 package test
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	keeperapi "cpa-usage-keeper/internal/api"
 	"cpa-usage-keeper/internal/auth"
 )
 
@@ -70,8 +68,8 @@ func TestManagedSessionAliasPatchRejectsAPIKeyUnknownAndInvalidTargets(t *testin
 		{name: "missing alias", id: auth.SessionTokenHash(adminToken), body: `{}`, want: http.StatusBadRequest},
 		{name: "non-string alias", id: auth.SessionTokenHash(adminToken), body: `{"alias":42}`, want: http.StatusBadRequest},
 		{name: "too long", id: auth.SessionTokenHash(adminToken), body: `{"alias":"` + strings.Repeat("a", 51) + `"}`, want: http.StatusBadRequest},
-		{name: "control character", id: auth.SessionTokenHash(adminToken), body: "{\"alias\":\"bad\\u0001alias\"}", want: http.StatusBadRequest},
-		{name: "bidi override", id: auth.SessionTokenHash(adminToken), body: "{\"alias\":\"safe\\u202Eevil\"}", want: http.StatusBadRequest},
+		{name: "control character", id: auth.SessionTokenHash(adminToken), body: `{"alias":"bad\u0001alias"}`, want: http.StatusBadRequest},
+		{name: "bidi override", id: auth.SessionTokenHash(adminToken), body: `{"alias":"safe\u202Eevil"}`, want: http.StatusBadRequest},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			response := patchManagedSessionAlias(router, adminToken, testCase.id, testCase.body)
@@ -89,17 +87,15 @@ func newSessionAliasRouter(t *testing.T) (http.Handler, *auth.SessionManager, st
 	if err != nil {
 		t.Fatalf("create current admin session: %v", err)
 	}
-	config := keeperapi.AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	handler := keeperapi.NewAuthHandler(config, manager)
-	return keeperapi.NewRouter(nil, nil, nil, nil, config, handler, ""), manager, adminToken
+	return newManagedSessionRouter(manager), manager, adminToken
 }
 
 func patchManagedSessionAlias(router http.Handler, adminToken, id, body string) *httptest.ResponseRecorder {
 	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPatch, "/api/v1/auth/sessions/"+id, bytes.NewBufferString(body))
-	request.AddCookie(&http.Cookie{Name: "cpa_usage_keeper_session", Value: adminToken})
+	request := httptest.NewRequest(http.MethodPatch, "/api/v1/auth/sessions/"+id, strings.NewReader(body))
+	request.AddCookie(&http.Cookie{Name: standardSessionCookieName, Value: adminToken})
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-CPA-Usage-Keeper-Request", "fetch")
+	request.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	router.ServeHTTP(response, request)
 	return response
 }

@@ -109,9 +109,9 @@ describe('useUsageActivityData', () => {
   });
 
   it('aborts the previous time query and never displays its late response', async () => {
-    let resolveFirst: ((value: UsageActivityResponse) => void) | undefined;
+    const firstRequest = Promise.withResolvers<UsageActivityResponse>();
     apiMocks.fetchUsageActivity
-      .mockImplementationOnce(() => new Promise<UsageActivityResponse>((resolve) => { resolveFirst = resolve; }))
+      .mockImplementationOnce(() => firstRequest.promise)
       .mockResolvedValueOnce(activityFor('month'));
 
     await renderOptions({ viewer: 'admin', request: { range: '8h' } });
@@ -122,17 +122,15 @@ describe('useUsageActivityData', () => {
     expect(firstSignal.aborted).toBe(true);
     expect(latest?.activity?.window).toBe('month');
     expect(latest?.requestIdentity).not.toBe(firstIdentity);
-    await act(async () => resolveFirst?.(activityFor('day')));
+    await act(async () => firstRequest.resolve(activityFor('day')));
     expect(latest?.activity?.window).toBe('month');
   });
 
   it('keeps the last Activity payload visible while the same API key scope changes window', async () => {
-    let resolveNext: ((value: UsageActivityResponse) => void) | undefined;
+    const nextRequest = Promise.withResolvers<UsageActivityResponse>();
     apiMocks.fetchUsageActivity
       .mockResolvedValueOnce(activityFor('day'))
-      .mockImplementationOnce(() => new Promise<UsageActivityResponse>((resolve) => {
-        resolveNext = resolve;
-      }));
+      .mockImplementationOnce(() => nextRequest.promise);
 
     await renderOptions({ viewer: 'admin', request: { range: '24h' }, apiKeyId: '42' });
     expect(latest?.activityMatchesRequest).toBe(true);
@@ -142,7 +140,7 @@ describe('useUsageActivityData', () => {
     expect(latest?.activity?.window).toBe('day');
     expect(latest?.activityMatchesRequest).toBe(false);
 
-    await act(async () => resolveNext?.(activityFor('week')));
+    await act(async () => nextRequest.resolve(activityFor('week')));
     expect(latest?.activity?.window).toBe('week');
     expect(latest?.activityMatchesRequest).toBe(true);
   });
@@ -160,66 +158,60 @@ describe('useUsageActivityData', () => {
   });
 
   it('drops the same-scope fallback after the replacement window fails', async () => {
-    let rejectNext: ((reason: unknown) => void) | undefined;
+    const nextRequest = Promise.withResolvers<UsageActivityResponse>();
     apiMocks.fetchUsageActivity
       .mockResolvedValueOnce(activityFor('day'))
-      .mockImplementationOnce(() => new Promise<UsageActivityResponse>((_resolve, reject) => {
-        rejectNext = reject;
-      }));
+      .mockImplementationOnce(() => nextRequest.promise);
 
     await renderOptions({ viewer: 'admin', request: { range: '24h' }, apiKeyId: '42' });
     await renderOptions({ viewer: 'admin', request: { range: '7d' }, apiKeyId: '42' });
     expect(latest?.activity?.window).toBe('day');
 
-    await act(async () => rejectNext?.(new ApiError('failed', 500)));
+    await act(async () => nextRequest.reject(new ApiError('failed', 500)));
 
     expect(latest?.activity).toBeNull();
     expect(latest?.error).toBe('ACTIVITY_LOAD_FAILED');
   });
 
   it('reuses the same in-flight request when automatic refresh skips it', async () => {
-    let resolveRequest: ((value: UsageActivityResponse) => void) | undefined;
-    apiMocks.fetchUsageActivity.mockImplementation(() => new Promise<UsageActivityResponse>((resolve) => {
-      resolveRequest = resolve;
-    }));
+    const pendingRequest = Promise.withResolvers<UsageActivityResponse>();
+    apiMocks.fetchUsageActivity.mockImplementation(() => pendingRequest.promise);
 
     await renderOptions({ viewer: 'admin', request: { range: '8h' } });
     const firstSignal = apiMocks.fetchUsageActivity.mock.calls[0][0].signal as AbortSignal;
-    let refreshPromise: Promise<void> | undefined;
+    let refreshPromise!: Promise<void>;
     await act(async () => {
-      refreshPromise = latest?.loadActivity({ skipIfInFlight: true });
+      refreshPromise = latest!.loadActivity({ skipIfInFlight: true });
       await Promise.resolve();
     });
 
     expect(apiMocks.fetchUsageActivity).toHaveBeenCalledTimes(1);
     expect(firstSignal.aborted).toBe(false);
     await act(async () => {
-      resolveRequest?.(activityFor('day'));
+      pendingRequest.resolve(activityFor('day'));
       await refreshPromise;
     });
     expect(latest?.activity?.window).toBe('day');
   });
 
   it('lets a manual refresh replace the same in-flight request', async () => {
-    let resolveReplacement: ((value: UsageActivityResponse) => void) | undefined;
+    const replacementRequest = Promise.withResolvers<UsageActivityResponse>();
     apiMocks.fetchUsageActivity
       .mockImplementationOnce(() => new Promise<UsageActivityResponse>(() => undefined))
-      .mockImplementationOnce(() => new Promise<UsageActivityResponse>((resolve) => {
-        resolveReplacement = resolve;
-      }));
+      .mockImplementationOnce(() => replacementRequest.promise);
 
     await renderOptions({ viewer: 'admin', request: { range: '8h' } });
     const firstSignal = apiMocks.fetchUsageActivity.mock.calls[0][0].signal as AbortSignal;
-    let refreshPromise: Promise<void> | undefined;
+    let refreshPromise!: Promise<void>;
     await act(async () => {
-      refreshPromise = latest?.loadActivity();
+      refreshPromise = latest!.loadActivity();
       await Promise.resolve();
     });
 
     expect(apiMocks.fetchUsageActivity).toHaveBeenCalledTimes(2);
     expect(firstSignal.aborted).toBe(true);
     await act(async () => {
-      resolveReplacement?.(activityFor('day'));
+      replacementRequest.resolve(activityFor('day'));
       await refreshPromise;
     });
     expect(latest?.activity?.window).toBe('day');

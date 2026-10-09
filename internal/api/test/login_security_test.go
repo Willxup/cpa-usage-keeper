@@ -42,7 +42,7 @@ func TestAPIKeyLoginDoesNotQueryProviderWhenAttemptLimitIsReached(t *testing.T) 
 	remoteAddr := "198.51.100.22:1234"
 	for index := 0; index < 5; index++ {
 		response := performLoginRequest(router, "/api/v1/auth/api-key-login", `{"apiKey":"missing"}`, remoteAddr)
-		if response.Code != http.StatusUnauthorized {
+		if response.Code != http.StatusUnauthorized || !strings.Contains(response.Body.String(), "invalid credentials") {
 			t.Fatalf("failed attempt %d: expected 401, got %d", index+1, response.Code)
 		}
 	}
@@ -57,43 +57,25 @@ func TestAPIKeyLoginDoesNotQueryProviderWhenAttemptLimitIsReached(t *testing.T) 
 }
 
 func TestUnauthenticatedLoginEndpointsRejectBodiesLargerThanFourKiB(t *testing.T) {
-	router := newLoginSecurityRouter(&countingCPAAPIKeyProvider{findErr: errors.New("not found")})
-	for _, testCase := range []struct {
-		name string
-		path string
-		body string
-	}{
-		{name: "password", path: "/api/v1/auth/login", body: `{"password":"` + strings.Repeat("x", 4096) + `"}`},
-		{name: "api key", path: "/api/v1/auth/api-key-login", body: `{"apiKey":"` + strings.Repeat("x", 4096) + `"}`},
+	for _, endpoint := range []struct{ name, path, field string }{
+		{"password", "/api/v1/auth/login", "password"},
+		{"api key", "/api/v1/auth/api-key-login", "apiKey"},
 	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			response := performLoginRequest(router, testCase.path, testCase.body, "198.51.100.23:1234")
-			if response.Code != http.StatusRequestEntityTooLarge {
-				t.Fatalf("expected 413, got %d body=%s", response.Code, response.Body.String())
-			}
-		})
-	}
-}
-
-func TestUnauthenticatedLoginEndpointsRejectChunkedBodiesLargerThanFourKiB(t *testing.T) {
-	router := newLoginSecurityRouter(&countingCPAAPIKeyProvider{findErr: errors.New("not found")})
-	for _, testCase := range []struct {
-		name string
-		path string
-		body string
-	}{
-		{name: "password", path: "/api/v1/auth/login", body: `{"password":"` + strings.Repeat("x", 4096) + `"}`},
-		{name: "api key", path: "/api/v1/auth/api-key-login", body: `{"apiKey":"` + strings.Repeat("x", 4096) + `"}`},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			request := newLoginRequest(testCase.path, testCase.body, "198.51.100.24:1234")
-			request.ContentLength = -1
-			response := httptest.NewRecorder()
-			router.ServeHTTP(response, request)
-			if response.Code != http.StatusRequestEntityTooLarge {
-				t.Fatalf("expected 413, got %d body=%s", response.Code, response.Body.String())
-			}
-		})
+		for _, chunked := range []bool{false, true} {
+			t.Run(endpoint.name+"/chunked="+strconv.FormatBool(chunked), func(t *testing.T) {
+				router := newLoginSecurityRouter(&countingCPAAPIKeyProvider{findErr: errors.New("not found")})
+				body := `{"` + endpoint.field + `":"` + strings.Repeat("x", 4096) + `"}`
+				request := newLoginRequest(endpoint.path, body, "198.51.100.23:1234")
+				if chunked {
+					request.ContentLength = -1
+				}
+				response := httptest.NewRecorder()
+				router.ServeHTTP(response, request)
+				if response.Code != http.StatusRequestEntityTooLarge {
+					t.Fatalf("expected 413, got %d body=%s", response.Code, response.Body.String())
+				}
+			})
+		}
 	}
 }
 
@@ -155,23 +137,33 @@ func TestKnownOversizedLoginBodyClosesAfterReadDeadline(t *testing.T) {
 	}
 }
 
-func TestTrustedLoopbackProxySeparatesLoginAttemptSources(t *testing.T) {
-	router := newLoginSecurityRouter(nil)
-	for index := 0; index < 5; index++ {
-		response := performForwardedLoginRequest(router, "198.51.100.31", "127.0.0.1:4100")
-		if response.Code != http.StatusUnauthorized {
-			t.Fatalf("failed attempt %d: expected 401, got %d", index+1, response.Code)
-		}
-	}
-
-	otherClient := performForwardedLoginRequest(router, "198.51.100.32", "127.0.0.1:4101")
-	if otherClient.Code != http.StatusUnauthorized {
-		t.Fatalf("expected a different client behind the trusted proxy to keep its own budget, got %d", otherClient.Code)
-	}
-
-	limitedClient := performForwardedLoginRequest(router, "198.51.100.31", "127.0.0.1:4102")
-	if limitedClient.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected the original forwarded client to remain limited, got %d", limitedClient.Code)
+func TestTrustedProxySeparatesLoginAttemptSources(t *testing.T) {
+	for _, tc := range []struct {
+		name, remoteAddr, otherAddr, lastAddr string
+		trusted                               []string
+	}{
+		{name: "loopback", remoteAddr: "127.0.0.1:4100", otherAddr: "127.0.0.1:4101", lastAddr: "127.0.0.1:4102"},
+		{name: "configured CIDR", remoteAddr: "192.0.2.10:4300", otherAddr: "192.0.2.10:4301", lastAddr: "192.0.2.10:4302", trusted: []string{"192.0.2.0/24"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := keeperapi.AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour, TrustedProxyCIDRs: tc.trusted}
+			sessions := keeperauth.NewSessionManager(time.Hour)
+			router := keeperapi.NewRouter(nil, nil, nil, nil, config, keeperapi.NewAuthHandler(config, sessions), "")
+			for index := 0; index < 5; index++ {
+				response := performForwardedLoginRequest(router, "198.51.100.31", tc.remoteAddr)
+				if response.Code != http.StatusUnauthorized {
+					t.Fatalf("failed attempt %d: expected 401, got %d", index+1, response.Code)
+				}
+			}
+			otherClient := performForwardedLoginRequest(router, "198.51.100.32", tc.otherAddr)
+			if otherClient.Code != http.StatusUnauthorized {
+				t.Fatalf("different forwarded client should retain its budget, got %d", otherClient.Code)
+			}
+			limitedClient := performForwardedLoginRequest(router, "198.51.100.31", tc.lastAddr)
+			if limitedClient.Code != http.StatusTooManyRequests {
+				t.Fatalf("original forwarded client should remain limited, got %d", limitedClient.Code)
+			}
+		})
 	}
 }
 
@@ -187,28 +179,6 @@ func TestDirectClientCannotSpoofLoginSourceWithForwardedHeader(t *testing.T) {
 	response := performForwardedLoginRequest(router, "203.0.113.99", "198.51.100.41:4201")
 	if response.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected direct client to remain limited despite changing X-Forwarded-For, got %d", response.Code)
-	}
-}
-
-func TestExplicitTrustedProxyCIDRSeparatesLoginAttemptSources(t *testing.T) {
-	config := keeperapi.AuthConfig{
-		Enabled:           true,
-		LoginPassword:     "secret",
-		SessionTTL:        time.Hour,
-		TrustedProxyCIDRs: []string{"192.0.2.0/24"},
-	}
-	sessions := keeperauth.NewSessionManager(time.Hour)
-	router := keeperapi.NewRouter(nil, nil, nil, nil, config, keeperapi.NewAuthHandler(config, sessions), "")
-
-	for index := 0; index < 5; index++ {
-		response := performForwardedLoginRequest(router, "198.51.100.51", "192.0.2.10:4300")
-		if response.Code != http.StatusUnauthorized {
-			t.Fatalf("failed attempt %d: expected 401, got %d", index+1, response.Code)
-		}
-	}
-	response := performForwardedLoginRequest(router, "198.51.100.52", "192.0.2.10:4301")
-	if response.Code != http.StatusUnauthorized {
-		t.Fatalf("expected configured proxy CIDR to separate forwarded clients, got %d", response.Code)
 	}
 }
 
@@ -270,25 +240,14 @@ func newLoginRequest(path, body, remoteAddr string) *http.Request {
 }
 
 type countingCPAAPIKeyProvider struct {
+	service.CPAAPIKeyProvider
 	findCalls int
 	findErr   error
-}
-
-func (p *countingCPAAPIKeyProvider) ListCPAAPIKeys(context.Context) ([]entities.CPAAPIKey, error) {
-	return nil, nil
 }
 
 func (p *countingCPAAPIKeyProvider) FindActiveCPAAPIKeyByValue(context.Context, string) (entities.CPAAPIKey, error) {
 	p.findCalls++
 	return entities.CPAAPIKey{}, p.findErr
-}
-
-func (p *countingCPAAPIKeyProvider) FindActiveCPAAPIKeyByID(context.Context, int64) (entities.CPAAPIKey, error) {
-	return entities.CPAAPIKey{}, errors.New("not found")
-}
-
-func (p *countingCPAAPIKeyProvider) UpdateCPAAPIKeyAlias(context.Context, int64, string) (entities.CPAAPIKey, error) {
-	return entities.CPAAPIKey{}, nil
 }
 
 type authFilesManagementProvider struct{}
@@ -334,6 +293,6 @@ func (b *deadlineCheckingBody) Read(buffer []byte) (int, error) {
 }
 
 func (b *deadlineCheckingBody) Close() error {
-	b.closedWithDeadline = b.deadlineActive != nil && b.deadlineActive()
+	b.closedWithDeadline = b.deadlineActive()
 	return nil
 }

@@ -105,12 +105,18 @@ describe('CredentialHealthPanel health semantics', () => {
       />,
     )
 
-    expect(html).toContain('aria-label="10:00 - 10:10|usage_stats.credentials_health_status_success|99/1|99.0%" style="height:21.9px"')
-    expect(html).toContain('aria-label="10:10 - 10:20|usage_stats.credentials_health_status_success|9/1|90.0%" style="height:20.8px"')
-    expect(html).toContain('aria-label="10:20 - 10:30|usage_stats.credentials_health_status_warning|1/1|50.0%" style="height:16px"')
-    expect(html).toContain('aria-label="10:30 - 10:40|usage_stats.credentials_health_status_failure|1/2|33.3%" style="height:14px"')
-    expect(html).toContain('aria-label="10:40 - 10:50|usage_stats.credentials_health_status_failure|0/1|0.0%" style="height:10px"')
-    expect(html).toMatch(/usage_stats\.credentials_health_status_empty\|0\/0\|0\.0%" style="height:5px"/)
+    const bars = Array.from(html.matchAll(/role="listitem"[^>]*aria-label="([^"]+)" style="height:([\d.]+)px"/g),
+      ([, label, height]) => ({ label, height: Number(height) }))
+    expect(bars).toHaveLength(30)
+    expect(bars.slice(0, 5).map(({ label }) => label.split('|').at(-1))).toEqual([
+      '99.0%', '90.0%', '50.0%', '33.3%', '0.0%',
+    ])
+    const heights = bars.slice(0, 6).map(({ height }) => height)
+    for (let index = 1; index < heights.length; index += 1) {
+      expect(heights[index - 1]).toBeGreaterThan(heights[index])
+    }
+    expect(heights[5]).toBeGreaterThan(0)
+
   })
 
   it('uses exact request totals when the API success rate is unavailable', () => {

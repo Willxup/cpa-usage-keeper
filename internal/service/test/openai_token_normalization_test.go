@@ -2,11 +2,9 @@ package test
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	repodto "cpa-usage-keeper/internal/repository/dto"
@@ -15,7 +13,7 @@ import (
 )
 
 func TestProcessRedisUsageInboxNormalizesOpenAICompatibilityTokensForOpenAIIdentity(t *testing.T) {
-	db := openOpenAITokenNormalizationTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	// 固定 unknown executor 必须进入 identity fallback；查询计数用于防止测试被 executor-first 路径悄悄绕过。
 	identityLookupCount := registerTokenIdentityTypeLookupCallback(t, db, nil)
 	if err := db.Create(&entities.UsageIdentity{
@@ -53,26 +51,18 @@ func TestProcessRedisUsageInboxNormalizesOpenAICompatibilityTokensForOpenAIIdent
 	if err != nil {
 		t.Fatalf("seed inbox row: %v", err)
 	}
-	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com"})
-
-	result, err := syncService.ProcessRedisUsageInbox(context.Background())
-	if err != nil {
-		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
-	}
-	if result == nil || result.InsertedEvents != 1 {
-		t.Fatalf("expected one inserted event, got %+v", result)
-	}
+	processOneTokenNormalizationEvent(t, db)
 	if *identityLookupCount == 0 {
 		t.Fatal("expected OpenAI compatibility normalization to query the identity fallback")
 	}
-	event := loadOpenAITokenNormalizationEvent(t, db, "openai-compatible-gemini-thinking")
+	event := loadTokenProcessorSyncEvent(t, db, "openai-compatible-gemini-thinking")
 	if event.InputTokens != 11 || event.OutputTokens != 10 || event.ReasoningTokens != 3 || event.CachedTokens != 5 || event.CacheReadTokens != 4 || event.CacheCreationTokens != 2 || event.TotalTokens != 21 {
 		t.Fatalf("expected openai identity to normalize separated reasoning into output, got %+v", event)
 	}
 }
 
 func TestProcessRedisUsageInboxBackfillsCodexCacheReadFromCachedTokens(t *testing.T) {
-	db := openOpenAITokenNormalizationTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	if err := db.Create(&entities.UsageIdentity{
 		Name:         "Codex",
 		AuthType:     entities.UsageIdentityAuthTypeAIProvider,
@@ -107,23 +97,15 @@ func TestProcessRedisUsageInboxBackfillsCodexCacheReadFromCachedTokens(t *testin
 	if err != nil {
 		t.Fatalf("seed inbox row: %v", err)
 	}
-	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com"})
-
-	result, err := syncService.ProcessRedisUsageInbox(context.Background())
-	if err != nil {
-		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
-	}
-	if result == nil || result.InsertedEvents != 1 {
-		t.Fatalf("expected one inserted event, got %+v", result)
-	}
-	event := loadOpenAITokenNormalizationEvent(t, db, "codex-cache-read-fallback")
+	processOneTokenNormalizationEvent(t, db)
+	event := loadTokenProcessorSyncEvent(t, db, "codex-cache-read-fallback")
 	if event.CachedTokens != 30 || event.CacheReadTokens != 30 || event.CacheCreationTokens != 10 {
 		t.Fatalf("expected Codex cached tokens to backfill cache read while preserving write, got %+v", event)
 	}
 }
 
 func TestProcessRedisUsageInboxPreservesCanonicalZeroCacheRead(t *testing.T) {
-	db := openOpenAITokenNormalizationTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	_, err := repository.InsertRedisUsageInboxMessages(db, []repodto.RedisInboxInsert{{
 		Source: "usage",
 		RawMessage: `{
@@ -148,23 +130,15 @@ func TestProcessRedisUsageInboxPreservesCanonicalZeroCacheRead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed inbox row: %v", err)
 	}
-	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com"})
-
-	result, err := syncService.ProcessRedisUsageInbox(context.Background())
-	if err != nil {
-		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
-	}
-	if result == nil || result.InsertedEvents != 1 {
-		t.Fatalf("expected one inserted event, got %+v", result)
-	}
-	event := loadOpenAITokenNormalizationEvent(t, db, "canonical-zero-cache-read")
+	processOneTokenNormalizationEvent(t, db)
+	event := loadTokenProcessorSyncEvent(t, db, "canonical-zero-cache-read")
 	if event.CachedTokens != 30 || event.CacheReadTokens != 0 {
 		t.Fatalf("expected canonical zero cache read to remain zero, got %+v", event)
 	}
 }
 
 func TestProcessRedisUsageInboxBackfillsCustomCacheReadDespiteQueuePresence(t *testing.T) {
-	db := openOpenAITokenNormalizationTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	_, err := repository.InsertRedisUsageInboxMessages(db, []repodto.RedisInboxInsert{{
 		Source: "usage",
 		RawMessage: `{
@@ -189,23 +163,15 @@ func TestProcessRedisUsageInboxBackfillsCustomCacheReadDespiteQueuePresence(t *t
 	if err != nil {
 		t.Fatalf("seed inbox row: %v", err)
 	}
-	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com"})
-
-	result, err := syncService.ProcessRedisUsageInbox(context.Background())
-	if err != nil {
-		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
-	}
-	if result == nil || result.InsertedEvents != 1 {
-		t.Fatalf("expected one inserted event, got %+v", result)
-	}
-	event := loadOpenAITokenNormalizationEvent(t, db, "custom-cache-read-fallback")
+	processOneTokenNormalizationEvent(t, db)
+	event := loadTokenProcessorSyncEvent(t, db, "custom-cache-read-fallback")
 	if event.CachedTokens != 30 || event.CacheReadTokens != 30 {
 		t.Fatalf("expected custom executor cached tokens to backfill cache read despite queue presence, got %+v", event)
 	}
 }
 
 func TestProcessRedisUsageInboxUsesDefaultTokensWhenUsageIdentityMissing(t *testing.T) {
-	db := openOpenAITokenNormalizationTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	_, err := repository.InsertRedisUsageInboxMessages(db, []repodto.RedisInboxInsert{{
 		Source: "usage",
 		RawMessage: `{
@@ -228,44 +194,21 @@ func TestProcessRedisUsageInboxUsesDefaultTokensWhenUsageIdentityMissing(t *test
 	if err != nil {
 		t.Fatalf("seed inbox row: %v", err)
 	}
-	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com"})
-
-	result, err := syncService.ProcessRedisUsageInbox(context.Background())
-	if err != nil {
-		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
-	}
-	if result == nil || result.InsertedEvents != 1 {
-		t.Fatalf("expected one inserted event, got %+v", result)
-	}
-	event := loadOpenAITokenNormalizationEvent(t, db, "missing-identity-thinking")
+	processOneTokenNormalizationEvent(t, db)
+	event := loadTokenProcessorSyncEvent(t, db, "missing-identity-thinking")
 	if event.InputTokens != 11 || event.OutputTokens != 7 || event.ReasoningTokens != 3 || event.CachedTokens != 5 || event.CacheReadTokens != 5 || event.TotalTokens != 21 {
 		t.Fatalf("expected missing identity to use default strict token normalization, got %+v", event)
 	}
 }
 
-func openOpenAITokenNormalizationTestDatabase(t *testing.T) *gorm.DB {
+func processOneTokenNormalizationEvent(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "openai-token-normalization.db")})
+	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{BaseURL: "https://cpa.example.com"})
+	result, err := syncService.ProcessRedisUsageInbox(context.Background())
 	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
+		t.Fatalf("ProcessRedisUsageInbox: %v", err)
 	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("get sql database: %v", err)
+	if result == nil || result.InsertedEvents != 1 {
+		t.Fatalf("expected one inserted event, got %+v", result)
 	}
-	t.Cleanup(func() {
-		if err := sqlDB.Close(); err != nil {
-			t.Fatalf("close database: %v", err)
-		}
-	})
-	return db
-}
-
-func loadOpenAITokenNormalizationEvent(t *testing.T, db *gorm.DB, eventKey string) entities.UsageEvent {
-	t.Helper()
-	var event entities.UsageEvent
-	if err := db.Where("event_key = ?", eventKey).First(&event).Error; err != nil {
-		t.Fatalf("load usage event %q: %v", eventKey, err)
-	}
-	return event
 }

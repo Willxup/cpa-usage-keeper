@@ -2,7 +2,7 @@ package test
 
 import (
 	"context"
-	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -10,8 +10,7 @@ import (
 )
 
 type metadataConnectionSyncer struct {
-	mu     sync.Mutex
-	calls  int
+	calls  atomic.Int32
 	called chan struct{}
 }
 
@@ -20,9 +19,7 @@ func newMetadataConnectionSyncer() *metadataConnectionSyncer {
 }
 
 func (s *metadataConnectionSyncer) SyncMetadata(context.Context) error {
-	s.mu.Lock()
-	s.calls++
-	s.mu.Unlock()
+	s.calls.Add(1)
 	select {
 	case s.called <- struct{}{}:
 	default:
@@ -30,16 +27,11 @@ func (s *metadataConnectionSyncer) SyncMetadata(context.Context) error {
 	return nil
 }
 
-func (s *metadataConnectionSyncer) callCount() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.calls
-}
-
 func TestMetadataSyncRunnerWaitsForConnectionAndKeepsPolling(t *testing.T) {
 	syncer := newMetadataConnectionSyncer()
 	runner := keeperapp.NewMetadataSyncRunner(syncer, 20*time.Millisecond)
 	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	done := make(chan error, 1)
 	go func() {
 		done <- runner.Run(ctx)
@@ -72,7 +64,7 @@ func TestMetadataSyncRunnerWaitsForConnectionAndKeepsPolling(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for metadata runner to stop")
 	}
-	if got := syncer.callCount(); got < 2 {
+	if got := syncer.calls.Load(); got < 2 {
 		t.Fatalf("expected connection-triggered sync plus periodic sync, got %d calls", got)
 	}
 }
@@ -84,6 +76,7 @@ func TestMetadataSyncRunnerIgnoresRefreshBeforeConnectionActivation(t *testing.T
 	runner.NotifyIngestConnected()
 
 	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	done := make(chan error, 1)
 	go func() {
 		done <- runner.Run(ctx)
@@ -109,7 +102,7 @@ func TestMetadataSyncRunnerIgnoresRefreshBeforeConnectionActivation(t *testing.T
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for metadata runner to stop")
 	}
-	if got := syncer.callCount(); got != 1 {
+	if got := syncer.calls.Load(); got != 1 {
 		t.Fatalf("expected only connection-triggered sync, got %d calls", got)
 	}
 }

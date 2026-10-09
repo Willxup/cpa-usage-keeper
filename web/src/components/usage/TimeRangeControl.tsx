@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { useAnchorPosition } from '@/hooks/useAnchorPosition';
 import { useTranslation } from 'react-i18next';
 import type { UsageCustomRange, UsageTimeRange } from '@/lib/types';
 import { Modal } from '@/components/ui/Modal';
@@ -239,6 +240,7 @@ interface TimeRangeControlProps {
   customRange?: UsageCustomRange;
   onChange: (value: UsageTimeRange, customRange?: UsageCustomRange) => void;
   ariaLabel: string;
+  labelInsideTrigger?: boolean;
   timeZone?: string;
   maxCustomDayRangeDays?: number;
 }
@@ -248,6 +250,7 @@ export function TimeRangeControl({
   customRange,
   onChange,
   ariaLabel,
+  labelInsideTrigger = false,
   timeZone: providedTimeZone,
   maxCustomDayRangeDays = DEFAULT_CUSTOM_DAY_RANGE_MAX_DAYS,
 }: TimeRangeControlProps) {
@@ -391,14 +394,12 @@ export function TimeRangeControl({
     };
   }, [handleRollingValueCommit]);
 
-  const updatePopoverPosition = useCallback(() => {
-    const trigger = desktopTriggerRef.current;
-    if (!trigger) return;
-    const rect = trigger.getBoundingClientRect();
+  const updatePopoverPosition = useCallback((rect: DOMRect) => {
     const width = Math.min(368, window.innerWidth - 24);
     const left = Math.min(Math.max(12, rect.right - width), window.innerWidth - width - 12);
     setPopoverPosition({ top: rect.bottom + 8, left });
   }, []);
+  useAnchorPosition(desktopOpen, desktopTriggerRef, updatePopoverPosition);
 
   const discardDraft = useCallback(() => {
     activeRollingPointerRef.current = null;
@@ -440,9 +441,8 @@ export function TimeRangeControl({
       return;
     }
     if (appliedMode === 'custom') prepareCustomDraft();
-    updatePopoverPosition();
     setDesktopOpen(true);
-  }, [appliedMode, closeDesktopPopover, desktopOpen, prepareCustomDraft, updatePopoverPosition]);
+  }, [appliedMode, closeDesktopPopover, desktopOpen, prepareCustomDraft]);
 
   const openMobileModal = useCallback(() => {
     closeDesktopPopover();
@@ -510,17 +510,13 @@ export function TimeRangeControl({
         firstElement.focus();
       }
     };
-    window.addEventListener('resize', updatePopoverPosition);
-    window.addEventListener('scroll', updatePopoverPosition, true);
     document.addEventListener('pointerdown', handlePointerDown);
     document.addEventListener('keydown', handleKeyDown);
     return () => {
-      window.removeEventListener('resize', updatePopoverPosition);
-      window.removeEventListener('scroll', updatePopoverPosition, true);
       document.removeEventListener('pointerdown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [closeDesktopPopover, desktopOpen, updatePopoverPosition]);
+  }, [closeDesktopPopover, desktopOpen]);
 
   const handleCustomApply = () => {
     lastEmittedRangeRef.current = 'custom';
@@ -563,7 +559,7 @@ export function TimeRangeControl({
   return (
     <div className={styles.controlRoot}>
       <div className={styles.desktopShell} data-time-range-shell="desktop">
-        <span className={styles.shellLabel}>{ariaLabel}</span>
+        {!labelInsideTrigger && <span className={styles.shellLabel}>{ariaLabel}</span>}
         <button
           ref={desktopTriggerRef}
           type="button"
@@ -574,14 +570,15 @@ export function TimeRangeControl({
           aria-expanded={desktopOpen}
           onClick={toggleDesktopPopover}
         >
+          {labelInsideTrigger && <span className={styles.shellLabel} data-dashboard-filter-caption>{ariaLabel}</span>}
           <IconTimer size={16} className={styles.triggerIcon} />
-          <span className={styles.triggerLabel}>{currentLabel}</span>
+          <span className={styles.triggerLabel} data-time-range-value>{currentLabel}</span>
           <IconChevronDown size={14} className={styles.triggerChevron} />
         </button>
       </div>
 
       <div className={styles.mobileShell} data-time-range-shell="mobile">
-        <span className={styles.shellLabel}>{ariaLabel}</span>
+        {!labelInsideTrigger && <span className={styles.shellLabel}>{ariaLabel}</span>}
         <button
           type="button"
           className={styles.mobileTrigger}
@@ -591,8 +588,9 @@ export function TimeRangeControl({
           aria-expanded={mobileOpen}
           onClick={openMobileModal}
         >
+          {labelInsideTrigger && <span className={styles.shellLabel} data-dashboard-filter-caption>{ariaLabel}</span>}
           <IconTimer size={16} className={styles.triggerIcon} />
-          <span className={styles.triggerLabel}>{currentLabel}</span>
+          <span className={styles.triggerLabel} data-time-range-value>{currentLabel}</span>
           <IconChevronDown size={16} className={styles.triggerChevron} />
         </button>
       </div>

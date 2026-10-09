@@ -9,55 +9,36 @@ import (
 	repodto "cpa-usage-keeper/internal/repository/dto"
 )
 
-func TestUpsertModelPriceSettingDefaultsMultiplierToOne(t *testing.T) {
-	db := openUsageCostResolverDatabase(t, "model-price-multiplier-default.db")
-
-	created, err := repository.UpsertModelPriceSetting(db, repodto.ModelPriceSettingInput{
-		Model:                "default-model",
-		PromptPricePer1M:     3,
-		CompletionPricePer1M: 15,
-		CacheReadPricePer1M:  0.3,
-	})
-	if err != nil {
-		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
-	}
-	if created.PriceMultiplier == nil || *created.PriceMultiplier != 1 {
-		t.Fatalf("expected omitted price multiplier to default to 1, got %+v", created.PriceMultiplier)
-	}
-
-	settings, err := repository.ListModelPriceSettings(db)
-	if err != nil {
-		t.Fatalf("ListModelPriceSettings returned error: %v", err)
-	}
-	if len(settings) != 1 || settings[0].PriceMultiplier == nil || *settings[0].PriceMultiplier != 1 {
-		t.Fatalf("expected listed price multiplier to be 1, got %+v", settings)
-	}
-}
-
-func TestUpsertModelPriceSettingPreservesExplicitZeroMultiplier(t *testing.T) {
-	db := openUsageCostResolverDatabase(t, "model-price-multiplier-zero.db")
+func TestUpsertModelPriceSettingPersistsDefaultAndZeroMultiplier(t *testing.T) {
 	zero := 0.0
-
-	created, err := repository.UpsertModelPriceSetting(db, repodto.ModelPriceSettingInput{
-		Model:                "free-model",
-		PromptPricePer1M:     3,
-		CompletionPricePer1M: 15,
-		CacheReadPricePer1M:  0.3,
-		PriceMultiplier:      &zero,
-	})
-	if err != nil {
-		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
-	}
-	if created.PriceMultiplier == nil || *created.PriceMultiplier != 0 {
-		t.Fatalf("expected explicit zero price multiplier, got %+v", created.PriceMultiplier)
-	}
-
-	settings, err := repository.ListModelPriceSettings(db)
-	if err != nil {
-		t.Fatalf("ListModelPriceSettings returned error: %v", err)
-	}
-	if len(settings) != 1 || settings[0].PriceMultiplier == nil || *settings[0].PriceMultiplier != 0 {
-		t.Fatalf("expected listed price multiplier to preserve zero, got %+v", settings)
+	for _, tc := range []struct {
+		name       string
+		multiplier *float64
+		want       float64
+	}{
+		{name: "omitted", want: 1},
+		{name: "zero", multiplier: &zero, want: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := openTestDatabase(t)
+			created, err := repository.UpsertModelPriceSetting(db, repodto.ModelPriceSettingInput{
+				Model: "model-a", PromptPricePer1M: 3, CompletionPricePer1M: 15, CacheReadPricePer1M: 0.3,
+				PriceMultiplier: tc.multiplier,
+			})
+			if err != nil {
+				t.Fatalf("UpsertModelPriceSetting: %v", err)
+			}
+			if created.PriceMultiplier == nil || *created.PriceMultiplier != tc.want {
+				t.Fatalf("created multiplier = %v, want %v", created.PriceMultiplier, tc.want)
+			}
+			settings, err := repository.ListModelPriceSettings(db)
+			if err != nil {
+				t.Fatalf("ListModelPriceSettings: %v", err)
+			}
+			if len(settings) != 1 || settings[0].PriceMultiplier == nil || *settings[0].PriceMultiplier != tc.want {
+				t.Fatalf("listed multiplier = %+v, want %v", settings, tc.want)
+			}
+		})
 	}
 }
 
@@ -68,7 +49,7 @@ func TestUpsertModelPriceSettingRejectsInvalidMultiplier(t *testing.T) {
 		"infinite": math.Inf(1),
 	} {
 		t.Run(name, func(t *testing.T) {
-			db := openUsageCostResolverDatabase(t, "model-price-multiplier-invalid-"+name+".db")
+			db := openTestDatabase(t)
 
 			_, err := repository.UpsertModelPriceSetting(db, repodto.ModelPriceSettingInput{
 				Model:                "invalid-" + name,

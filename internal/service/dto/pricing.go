@@ -13,6 +13,7 @@ type UpdatePricingInput struct {
 
 // PricingSyncPreview 是外部价格元数据同步前的预览结果。
 type PricingSyncPreview struct {
+	SourceID        string             `json:"source_id"`
 	Source          string             `json:"source"`
 	SourceURL       string             `json:"source_url"`
 	MetadataModels  int                `json:"metadata_models"`

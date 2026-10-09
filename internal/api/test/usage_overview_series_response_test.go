@@ -3,16 +3,12 @@ package test
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"testing"
 	"time"
 
 	. "cpa-usage-keeper/internal/api"
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/repository"
 	repositorydto "cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/service"
 )
@@ -28,15 +24,7 @@ type overviewSeriesJSON struct {
 }
 
 func TestLongCustomDayOverviewCapsAlignedSeriesAtNinetyPoints(t *testing.T) {
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "overview-series.db")})
-	if err != nil {
-		t.Fatalf("open database: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("resolve sql database: %v", err)
-	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
+	db := openAPITestDatabase(t)
 
 	now := time.Now().In(time.Local)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
@@ -45,7 +33,7 @@ func TestLongCustomDayOverviewCapsAlignedSeriesAtNinetyPoints(t *testing.T) {
 	for bucket := start; !bucket.After(today); bucket = bucket.AddDate(0, 0, 1) {
 		rows = append(rows, entities.UsageOverviewDailyStat{
 			BucketStart: bucket, APIGroupKey: "provider-a", Model: "model-a",
-			RequestCount: 1, SuccessCount: 1, InputTokens: 10, TotalTokens: 10,
+			RequestCount: 1, SuccessCount: 1, InputTokens: 10, CacheReadTokens: 4, TotalTokens: 10,
 		})
 	}
 	if err := db.Create(&rows).Error; err != nil {
@@ -57,8 +45,7 @@ func TestLongCustomDayOverviewCapsAlignedSeriesAtNinetyPoints(t *testing.T) {
 		"start": {start.Format(time.DateOnly)}, "end": {today.Format(time.DateOnly)},
 	}
 	router := NewRouter(nil, nil, service.NewUsageService(db, emptyPricingCatalogForTest()), nil, AuthConfig{}, nil, "")
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview?"+query.Encode(), nil))
+	response := serveAPIGet(router, "/api/v1/usage/overview?"+query.Encode())
 	if response.Code != http.StatusOK {
 		t.Fatalf("Overview status=%d body=%s", response.Code, response.Body.String())
 	}
@@ -91,5 +78,10 @@ func TestLongCustomDayOverviewCapsAlignedSeriesAtNinetyPoints(t *testing.T) {
 	}
 	if seriesRequests != 121 {
 		t.Fatalf("merged series lost requests: %d", seriesRequests)
+	}
+	for index, rate := range payload.Series.CacheReadRate {
+		if rate == nil || *rate != 40 {
+			t.Fatalf("merged cache rate[%d] = %v, want 40", index, rate)
+		}
 	}
 }

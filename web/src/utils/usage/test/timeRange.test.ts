@@ -3,9 +3,6 @@ import * as rangeQuery from '../rangeQuery';
 import { resolveUsageFilterWindow } from '../../usage';
 import { isDailyAverageRange } from '../overview';
 
-type RangeMode = 'hour' | 'day' | 'today' | 'yesterday';
-type ParsedRange = { mode: RangeMode; value?: number };
-
 describe('usage rolling time ranges', () => {
   it('normalizes every bounded hour and day range', () => {
     expect(rangeQuery.normalizeUsageRange('5h')).toBe('5h');
@@ -23,38 +20,26 @@ describe('usage rolling time ranges', () => {
   });
 
   it('migrates persisted custom and invalid UI ranges to the default', () => {
-    const normalizeSelectable = (rangeQuery as unknown as Record<string, unknown>).normalizeSelectableUsageRange as ((value: unknown) => string) | undefined;
-    expect(typeof normalizeSelectable).toBe('function');
-    if (!normalizeSelectable) return;
-
-    expect(normalizeSelectable('custom')).toBe('8h');
-    expect(normalizeSelectable('17d')).toBe('17d');
-    expect(normalizeSelectable('today')).toBe('today');
-    expect(normalizeSelectable('invalid')).toBe('8h');
+    expect(rangeQuery.normalizeSelectableUsageRange('custom')).toBe('8h');
+    expect(rangeQuery.normalizeSelectableUsageRange('17d')).toBe('17d');
+    expect(rangeQuery.normalizeSelectableUsageRange('today')).toBe('today');
+    expect(rangeQuery.normalizeSelectableUsageRange('invalid')).toBe('8h');
   });
 
   it('parses the four selector modes and rolling values', () => {
-    const parseSelectable = (rangeQuery as unknown as Record<string, unknown>).parseSelectableUsageRange as ((value: string) => ParsedRange) | undefined;
-    expect(typeof parseSelectable).toBe('function');
-    if (!parseSelectable) return;
-
-    expect(parseSelectable('13h')).toEqual({ mode: 'hour', value: 13 });
-    expect(parseSelectable('17d')).toEqual({ mode: 'day', value: 17 });
-    expect(parseSelectable('today')).toEqual({ mode: 'today' });
-    expect(parseSelectable('yesterday')).toEqual({ mode: 'yesterday' });
+    expect(rangeQuery.parseSelectableUsageRange('13h')).toEqual({ mode: 'hour', value: 13 });
+    expect(rangeQuery.parseSelectableUsageRange('17d')).toEqual({ mode: 'day', value: 17 });
+    expect(rangeQuery.parseSelectableUsageRange('today')).toEqual({ mode: 'today' });
+    expect(rangeQuery.parseSelectableUsageRange('yesterday')).toEqual({ mode: 'yesterday' });
   });
 
   it('builds clamped rolling ranges for slider values', () => {
-    const buildRolling = (rangeQuery as unknown as Record<string, unknown>).buildRollingUsageRange as ((unit: 'hour' | 'day', value: number) => string) | undefined;
-    expect(typeof buildRolling).toBe('function');
-    if (!buildRolling) return;
-
-    expect(buildRolling('hour', 0)).toBe('5h');
-    expect(buildRolling('hour', 13)).toBe('13h');
-    expect(buildRolling('hour', 25)).toBe('24h');
-    expect(buildRolling('day', 0)).toBe('1d');
-    expect(buildRolling('day', 17)).toBe('17d');
-    expect(buildRolling('day', 31)).toBe('30d');
+    expect(rangeQuery.buildRollingUsageRange('hour', 0)).toBe('5h');
+    expect(rangeQuery.buildRollingUsageRange('hour', 13)).toBe('13h');
+    expect(rangeQuery.buildRollingUsageRange('hour', 25)).toBe('24h');
+    expect(rangeQuery.buildRollingUsageRange('day', 0)).toBe('1d');
+    expect(rangeQuery.buildRollingUsageRange('day', 17)).toBe('17d');
+    expect(rangeQuery.buildRollingUsageRange('day', 31)).toBe('30d');
   });
 
   it('resolves arbitrary rolling ranges to concrete windows', () => {

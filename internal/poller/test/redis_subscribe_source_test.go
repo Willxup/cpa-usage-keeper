@@ -35,76 +35,49 @@ func TestRedisSubscribeSourceRejectsSubscribeError(t *testing.T) {
 }
 
 func TestRedisSubscriptionReceiveHonorsContextCancel(t *testing.T) {
-	done := make(chan struct{})
-	defer close(done)
-	server := newRESPServer(t, func(t *testing.T, conn net.Conn) {
-		reader := bufio.NewReader(conn)
-		readRESPCommandForPollerTest(t, reader)
-		fmt.Fprint(conn, "+OK\r\n")
-		readRESPCommandForPollerTest(t, reader)
-		fmt.Fprint(conn, redisSubscribeAckForPollerTest())
-		<-done
-	})
+	for name, newContext := range map[string]func(context.Context) (context.Context, context.CancelFunc){
+		"without deadline": context.WithCancel,
+		"with deadline": func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return context.WithTimeout(ctx, time.Hour)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			done := make(chan struct{})
+			defer close(done)
+			server := newRESPServer(t, func(t *testing.T, conn net.Conn) {
+				reader := bufio.NewReader(conn)
+				readRESPCommandForPollerTest(t, reader)
+				fmt.Fprint(conn, "+OK\r\n")
+				readRESPCommandForPollerTest(t, reader)
+				fmt.Fprint(conn, redisSubscribeAckForPollerTest())
+				<-done
+			})
 
-	source := poller.NewRedisSubscribeSource(poller.RedisSubscribeOptions{RedisAddr: server.addr, ManagementKey: "secret", Timeout: time.Second})
-	sub, err := source.Subscribe(context.Background())
-	if err != nil {
-		t.Fatalf("Subscribe returned error: %v", err)
-	}
-	defer sub.Close()
+			source := poller.NewRedisSubscribeSource(poller.RedisSubscribeOptions{RedisAddr: server.addr, ManagementKey: "secret", Timeout: time.Second})
+			sub, err := source.Subscribe(context.Background())
+			if err != nil {
+				t.Fatalf("Subscribe returned error: %v", err)
+			}
+			defer sub.Close()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	errCh := make(chan error, 1)
-	go func() {
-		_, err := sub.Receive(ctx)
-		errCh <- err
-	}()
-	cancel()
+			ctx, cancel := newContext(context.Background())
+			defer cancel()
+			errCh := make(chan error, 1)
+			go func() {
+				_, err := sub.Receive(ctx)
+				errCh <- err
+			}()
+			cancel()
 
-	select {
-	case err := <-errCh:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("expected context.Canceled, got %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for canceled receive")
-	}
-}
-
-func TestRedisSubscriptionReceiveHonorsDeadlineContextCancel(t *testing.T) {
-	done := make(chan struct{})
-	defer close(done)
-	server := newRESPServer(t, func(t *testing.T, conn net.Conn) {
-		reader := bufio.NewReader(conn)
-		readRESPCommandForPollerTest(t, reader)
-		fmt.Fprint(conn, "+OK\r\n")
-		readRESPCommandForPollerTest(t, reader)
-		fmt.Fprint(conn, redisSubscribeAckForPollerTest())
-		<-done
-	})
-
-	source := poller.NewRedisSubscribeSource(poller.RedisSubscribeOptions{RedisAddr: server.addr, ManagementKey: "secret", Timeout: time.Second})
-	sub, err := source.Subscribe(context.Background())
-	if err != nil {
-		t.Fatalf("Subscribe returned error: %v", err)
-	}
-	defer sub.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
-	errCh := make(chan error, 1)
-	go func() {
-		_, err := sub.Receive(ctx)
-		errCh <- err
-	}()
-	cancel()
-
-	select {
-	case err := <-errCh:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("expected context.Canceled, got %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for deadline context cancellation")
+			select {
+			case err := <-errCh:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("expected context.Canceled, got %v", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for canceled receive")
+			}
+		})
 	}
 }
 
@@ -146,7 +119,6 @@ func TestRedisSubscriptionReceiveHonorsContextDeadline(t *testing.T) {
 
 type respTestServer struct {
 	addr string
-	done chan struct{}
 }
 
 func newRESPServer(t *testing.T, handler func(*testing.T, net.Conn)) respTestServer {
@@ -155,11 +127,7 @@ func newRESPServer(t *testing.T, handler func(*testing.T, net.Conn)) respTestSer
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	server := respTestServer{addr: listener.Addr().String(), done: make(chan struct{})}
-	t.Cleanup(func() {
-		close(server.done)
-		listener.Close()
-	})
+	server := respTestServer{addr: listener.Addr().String()}
 	accepted := make(chan struct{})
 	go func() {
 		defer close(accepted)
@@ -170,7 +138,10 @@ func newRESPServer(t *testing.T, handler func(*testing.T, net.Conn)) respTestSer
 		defer conn.Close()
 		handler(t, conn)
 	}()
-	t.Cleanup(func() { <-accepted })
+	t.Cleanup(func() {
+		_ = listener.Close()
+		<-accepted
+	})
 	return server
 }
 
@@ -186,29 +157,9 @@ func redisMessageForPollerTest(payload string) string {
 
 func readRESPCommandForPollerTest(t *testing.T, reader *bufio.Reader) []string {
 	t.Helper()
-	line, err := reader.ReadString('\n')
+	parts, err := readRedisPullRESPCommand(reader)
 	if err != nil {
-		t.Fatalf("read command header: %v", err)
-	}
-	var count int
-	if _, err := fmt.Sscanf(line, "*%d\r\n", &count); err != nil {
-		t.Fatalf("parse command header %q: %v", line, err)
-	}
-	parts := make([]string, 0, count)
-	for range count {
-		bulkHeader, err := reader.ReadString('\n')
-		if err != nil {
-			t.Fatalf("read bulk header: %v", err)
-		}
-		var size int
-		if _, err := fmt.Sscanf(bulkHeader, "$%d\r\n", &size); err != nil {
-			t.Fatalf("parse bulk header %q: %v", bulkHeader, err)
-		}
-		buf := make([]byte, size+2)
-		if _, err := reader.Read(buf); err != nil {
-			t.Fatalf("read bulk body: %v", err)
-		}
-		parts = append(parts, string(buf[:size]))
+		t.Fatalf("read RESP command: %v", err)
 	}
 	return parts
 }

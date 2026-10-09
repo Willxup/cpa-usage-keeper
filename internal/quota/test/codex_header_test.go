@@ -1,9 +1,9 @@
 package test
 
 import (
+	"encoding/json"
 	"math"
 	"net/http"
-	"reflect"
 	"strconv"
 	"testing"
 	"time"
@@ -82,7 +82,7 @@ func TestParseCodexHeaderQuotaMapsMonthlyWindowMinutes(t *testing.T) {
 func TestBuildCodexUsageHeaderSnapshotCreatesImmutableCacheAndHistoryProjections(t *testing.T) {
 	// 固定 observation instant，证明 history 使用真实 UsageEvent 时间而不是 runner 入队时间。
 	observedAt := time.Date(2026, 6, 22, 3, 10, 44, 0, time.UTC)
-	snapshot, ok := BuildUsageHeaderSnapshot(UsageHeaderSnapshotInput{
+	input := UsageHeaderSnapshotInput{
 		AuthType:   "oauth",
 		AuthIndex:  "codex-auth",
 		Provider:   "codex",
@@ -101,19 +101,28 @@ func TestBuildCodexUsageHeaderSnapshotCreatesImmutableCacheAndHistoryProjections
 			"X-Codex-Bengalfox-Primary-Reset-At":        []string{"1782105247"},
 			"X-Codex-Bengalfox-Primary-Unrelated-Field": []string{"ignored"},
 		},
-	})
+	}
+	snapshot, ok := BuildUsageHeaderSnapshot(input)
 	if !ok {
 		t.Fatal("expected codex header snapshot to build")
 	}
-	// 异步快照不再持有任何 Header map，原始 Cookie/Date 也就无法进入分钟或 history 队列。
-	if _, exists := reflect.TypeOf(*snapshot).FieldByName("Headers"); exists {
-		t.Fatal("expected immutable structured snapshot to omit http.Header")
+	// 改写调用方 Header 后，快照投影仍保留原始用量，且不携带敏感原始 Header。
+	input.Headers.Set("X-Codex-Primary-Used-Percent", "99")
+	encoded, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"session=secret", "Set-Cookie", "Mon, 22 Jun 2026 03:10:44 GMT"} {
+		if contains(string(encoded), secret) {
+			t.Fatalf("raw Header leaked into snapshot: %s", encoded)
+		}
 	}
 	// cache 投影必须保留现有主额度和 Additional 行，且不受 history 只选主额度的规则影响。
 	rows := NormalizeQuotaRows(snapshot.CacheOutput)
 	if len(rows) != 2 || rows[0].Key != "rate_limit.primary_window" || rows[1].Key != "additional_rate_limits.GPT-5.3-Codex-Spark.primary_window" {
 		t.Fatalf("unexpected immutable cache output rows: %#v", rows)
 	}
+	assertFloatField(t, rows[0].UsedPercent, 4, "immutable primary usedPercent")
 	// history 投影只允许无 group Primary，并保留整数剩余值、窗口秒数和观察时间。
 	if len(snapshot.MainQuotaObservations) != 1 {
 		t.Fatalf("expected one main quota observation, got %+v", snapshot.MainQuotaObservations)
@@ -172,12 +181,12 @@ func TestBuildCodexUsageHeaderSnapshotAcceptsKnownMainAndRejectsUnknownActiveLim
 	tests := []struct {
 		name        string
 		activeLimit string
-		wantHistory bool
+		wantHistory int
 	}{
-		{name: "known main", activeLimit: "premium", wantHistory: true},
-		{name: "unknown non-empty", activeLimit: "future_pool", wantHistory: false},
-		{name: "unknown normalized empty", activeLimit: "___", wantHistory: false},
-		{name: "missing compatibility", wantHistory: true},
+		{name: "known main", activeLimit: "premium", wantHistory: 1},
+		{name: "unknown non-empty", activeLimit: "future_pool", wantHistory: 0},
+		{name: "unknown normalized empty", activeLimit: "___", wantHistory: 0},
+		{name: "missing compatibility", wantHistory: 1},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -192,7 +201,7 @@ func TestBuildCodexUsageHeaderSnapshotAcceptsKnownMainAndRejectsUnknownActiveLim
 			if !ok || snapshot == nil {
 				t.Fatal("expected valid cache snapshot")
 			}
-			if got := len(snapshot.MainQuotaObservations); (got == 1) != test.wantHistory {
+			if got := len(snapshot.MainQuotaObservations); got != test.wantHistory {
 				t.Fatalf("unexpected history eligibility for active limit %q: %+v", test.activeLimit, snapshot.MainQuotaObservations)
 			}
 		})
@@ -229,29 +238,6 @@ func TestBuildCodexUsageHeaderSnapshotKeepsUnknownMainWindowHistoryOnly(t *testi
 	}
 }
 
-func TestParseCodexHeaderQuotaRejectsOverflowWindowMinutes(t *testing.T) {
-	overflowToFiveHourMinutes := strconv.FormatInt(300+(math.MaxInt64/2+1), 10)
-	output, ok := parseCodexHeaderQuota(http.Header{
-		"X-Codex-Primary-Used-Percent":   []string{"33"},
-		"X-Codex-Primary-Window-Minutes": []string{overflowToFiveHourMinutes},
-		"X-Codex-Primary-Reset-At":       []string{"1782702643"},
-	})
-	if ok {
-		t.Fatalf("expected overflow-sized window minutes to be ignored, got %#v", output)
-	}
-}
-
-func TestParseCodexHeaderQuotaIgnoresCreditsAndInvalidNumbers(t *testing.T) {
-	output, ok := parseCodexHeaderQuota(http.Header{
-		"X-Codex-Credits-Has-Credits":    []string{"False"},
-		"X-Codex-Primary-Used-Percent":   []string{"bad"},
-		"X-Codex-Primary-Window-Minutes": []string{"also-bad"},
-	})
-	if ok {
-		t.Fatalf("expected invalid/incomplete header to be ignored, got %#v", output)
-	}
-}
-
 func TestParseCodexHeaderQuotaRequiresValidUsedPercentPerWindow(t *testing.T) {
 	output, ok := parseCodexHeaderQuota(http.Header{
 		"X-Codex-Primary-Window-Minutes":           []string{"300"},
@@ -274,30 +260,6 @@ func TestParseCodexHeaderQuotaRequiresValidUsedPercentPerWindow(t *testing.T) {
 	}
 }
 
-func TestParseCodexHeaderQuotaRequiresWindowMinutesAndResetBoundary(t *testing.T) {
-	output, ok := parseCodexHeaderQuota(http.Header{
-		"X-Codex-Primary-Used-Percent":        []string{"4"},
-		"X-Codex-Primary-Reset-After-Seconds": []string{"60"},
-		"X-Codex-Secondary-Used-Percent":      []string{"22"},
-		"X-Codex-Secondary-Window-Minutes":    []string{"10080"},
-	})
-	if ok {
-		t.Fatalf("expected quota header without complete window/reset data to be ignored, got %#v", output)
-	}
-}
-
-func TestParseCodexHeaderQuotaIgnoresWindowWithoutUsedPercent(t *testing.T) {
-	output, ok := parseCodexHeaderQuota(http.Header{
-		"X-Codex-Primary-Window-Minutes":      []string{"300"},
-		"X-Codex-Primary-Reset-After-Seconds": []string{"60"},
-		"X-Codex-Bengalfox-Limit-Name":        []string{"GPT-5.3-Codex-Spark"},
-		"X-Codex-Bengalfox-Reset-At":          []string{"1782115844"},
-	})
-	if ok {
-		t.Fatalf("expected quota header without valid used percent to be ignored, got %#v", output)
-	}
-}
-
 func TestParseCodexHeaderQuotaAcceptsLowercaseHeaderKeys(t *testing.T) {
 	output, ok := parseCodexHeaderQuota(http.Header{
 		"x-codex-plan-type":                     []string{"pro"},
@@ -314,5 +276,41 @@ func TestParseCodexHeaderQuotaAcceptsLowercaseHeaderKeys(t *testing.T) {
 	rows := NormalizeQuotaRows(output)
 	if len(rows) != 2 || rows[1].Window == nil || rows[1].Window.Seconds == nil || *rows[1].Window.Seconds != quotaWindowThirtyDaySeconds {
 		t.Fatalf("unexpected rows: %#v", rows)
+	}
+}
+
+func TestParseCodexHeaderQuotaRejectsInvalidHeaders(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		headers http.Header
+	}{
+		{"RejectsOverflowWindowMinutes", http.Header{
+			"X-Codex-Primary-Used-Percent":   []string{"33"},
+			"X-Codex-Primary-Window-Minutes": []string{strconv.FormatInt(300+(math.MaxInt64/2+1), 10)},
+			"X-Codex-Primary-Reset-At":       []string{"1782702643"},
+		}},
+		{"IgnoresCreditsAndInvalidNumbers", http.Header{
+			"X-Codex-Credits-Has-Credits":    []string{"False"},
+			"X-Codex-Primary-Used-Percent":   []string{"bad"},
+			"X-Codex-Primary-Window-Minutes": []string{"also-bad"},
+		}},
+		{"RequiresWindowMinutesAndResetBoundary", http.Header{
+			"X-Codex-Primary-Used-Percent":        []string{"4"},
+			"X-Codex-Primary-Reset-After-Seconds": []string{"60"},
+			"X-Codex-Secondary-Used-Percent":      []string{"22"},
+			"X-Codex-Secondary-Window-Minutes":    []string{"10080"},
+		}},
+		{"IgnoresWindowWithoutUsedPercent", http.Header{
+			"X-Codex-Primary-Window-Minutes":      []string{"300"},
+			"X-Codex-Primary-Reset-After-Seconds": []string{"60"},
+			"X-Codex-Bengalfox-Limit-Name":        []string{"GPT-5.3-Codex-Spark"},
+			"X-Codex-Bengalfox-Reset-At":          []string{"1782115844"},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if output, ok := parseCodexHeaderQuota(tc.headers); ok {
+				t.Fatalf("invalid header produced quota: %#v", output)
+			}
+		})
 	}
 }

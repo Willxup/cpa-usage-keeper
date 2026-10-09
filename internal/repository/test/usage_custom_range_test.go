@@ -1,22 +1,16 @@
 package test
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 )
 
 func TestListUsageEventsExcludesCustomRangeEndBoundary(t *testing.T) {
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "custom-events.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	closeTestDatabase(t, db)
+	db := openTestDatabase(t)
 	start := time.Date(2026, 7, 17, 10, 0, 0, 0, time.Local)
 	end := time.Date(2026, 7, 17, 16, 0, 0, 0, time.Local)
 	events := []entities.UsageEvent{
@@ -47,11 +41,7 @@ func TestListUsageEventsExcludesCustomRangeEndBoundary(t *testing.T) {
 }
 
 func TestBuildAnalysisUsesCustomHourRollupsWithoutUsageEvents(t *testing.T) {
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "custom-analysis.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	closeTestDatabase(t, db)
+	db := openTestDatabase(t)
 	start := time.Date(2026, 7, 17, 10, 0, 0, 0, time.Local)
 	end := time.Date(2026, 7, 17, 16, 0, 0, 0, time.Local)
 	selectedEndHour := end.Add(-time.Hour)

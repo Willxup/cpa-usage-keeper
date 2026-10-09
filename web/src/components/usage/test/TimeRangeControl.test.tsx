@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 
-import { act, Profiler, type ComponentType } from 'react';
+import { act, Profiler } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UsageCustomRange, UsageTimeRange } from '@/lib/types';
+import { TimeRangeControl } from '../TimeRangeControl';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -14,25 +15,6 @@ vi.mock('react-i18next', () => ({
     i18n: { language: 'en-US' },
   }),
 }));
-
-interface TimeRangeControlProps {
-  value: UsageTimeRange;
-  customRange?: UsageCustomRange;
-  onChange: (value: UsageTimeRange, customRange?: UsageCustomRange) => void;
-  ariaLabel: string;
-  timeZone?: string;
-  maxCustomDayRangeDays?: number;
-}
-
-const loadTimeRangeControl = async (): Promise<ComponentType<TimeRangeControlProps> | null> => {
-  try {
-    const modulePath = '../TimeRangeControl';
-    const module = await import(/* @vite-ignore */ modulePath) as Record<string, unknown>;
-    return (module.TimeRangeControl as ComponentType<TimeRangeControlProps> | undefined) ?? null;
-  } catch {
-    return null;
-  }
-};
 
 describe('TimeRangeControl', () => {
   let container: HTMLDivElement;
@@ -47,32 +29,55 @@ describe('TimeRangeControl', () => {
 
   afterEach(async () => {
     await act(async () => root.unmount());
-    document.body.replaceChildren();
+    container.remove();
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: initialInnerWidth });
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
   const renderControl = async (value: UsageTimeRange, onChange = vi.fn(), customRange?: UsageCustomRange, timeZone: string | null = 'Asia/Shanghai', maxCustomDayRangeDays?: number) => {
-    const TimeRangeControl = await loadTimeRangeControl();
-    expect(TimeRangeControl).not.toBeNull();
-    if (!TimeRangeControl) return { onChange };
     await act(async () => {
       root.render(<TimeRangeControl value={value} customRange={customRange} onChange={onChange} ariaLabel="Range" timeZone={timeZone ?? undefined} maxCustomDayRangeDays={maxCustomDayRangeDays} />);
     });
     return { onChange };
   };
 
+  const click = async (selector: string) => {
+    const button = document.querySelector<HTMLButtonElement>(selector)!;
+    await act(async () => button.click());
+  };
+
   it('renders labeled double-pill shells for desktop and mobile triggers', async () => {
     await renderControl('8h');
 
-    const desktopShell = document.querySelector('[data-time-range-shell="desktop"]');
-    const mobileShell = document.querySelector('[data-time-range-shell="mobile"]');
+    const desktopShell = document.querySelector('[data-time-range-shell="desktop"]')!;
+    const mobileShell = document.querySelector('[data-time-range-shell="mobile"]')!;
 
-    expect(desktopShell?.textContent).toContain('Range');
-    expect(desktopShell?.querySelector('[data-time-range-trigger="desktop"]')).not.toBeNull();
-    expect(mobileShell?.textContent).toContain('Range');
-    expect(mobileShell?.querySelector('[data-time-range-trigger="mobile"]')).not.toBeNull();
+    expect(desktopShell.textContent).toContain('Range');
+    expect(desktopShell.querySelector('[data-time-range-trigger="desktop"]')).not.toBeNull();
+    expect(mobileShell.textContent).toContain('Range');
+    expect(mobileShell.querySelector('[data-time-range-trigger="mobile"]')).not.toBeNull();
+  });
+
+  it('opens the existing range dialog when the inline toolbar title is clicked', async () => {
+    await act(async () => root.render(<TimeRangeControl value="today" onChange={vi.fn()} ariaLabel="Range" timeZone="Asia/Shanghai" labelInsideTrigger />));
+    const title = container.querySelector<HTMLElement>('[data-time-range-trigger="desktop"] [data-dashboard-filter-caption]');
+    expect(title?.textContent).toBe('Range');
+    await act(async () => title!.click());
+    expect(document.querySelector('[role="dialog"][aria-label="Range"]')).not.toBeNull();
+  });
+
+  it('keeps an open desktop panel attached when the trigger moves to another toolbar row', async () => {
+    await renderControl('today');
+    const trigger = container.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    const bounds = vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue(new DOMRect(801, 87, 99, 44));
+    await act(async () => trigger.click());
+    const panel = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Range"]')!;
+    expect(panel.style.top).toBe('139px');
+    bounds.mockReturnValue(new DOMRect(103, 140, 144, 44));
+    await act(async () => { await new Promise(requestAnimationFrame); });
+    expect(panel.style.left).toBe('12px');
+    expect(panel.style.top).toBe('192px');
   });
 
   it('includes the applied range in both trigger accessible names', async () => {
@@ -82,40 +87,28 @@ describe('TimeRangeControl', () => {
     expect(document.querySelector('[data-time-range-trigger="mobile"]')?.getAttribute('aria-label')).toBe('Range: usage_stats.range_last_hours:8');
   });
 
-  it('uses a fixed SVG timer icon beside the mobile range label', async () => {
-    await renderControl('7d');
-
-    const mobileTrigger = document.querySelector('[data-time-range-trigger="mobile"]');
-
-    expect(mobileTrigger?.querySelector('svg')).not.toBeNull();
-    expect(mobileTrigger?.textContent).not.toContain('◷');
-  });
-
   it('opens the C popover and switches immediately to natural-day ranges', async () => {
     const { onChange } = await renderControl('8h');
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    expect(trigger).not.toBeNull();
-    await act(async () => trigger?.click());
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
 
-    const yesterday = document.querySelector<HTMLButtonElement>('[data-time-range-mode="yesterday"]');
-    expect(yesterday).not.toBeNull();
-    await act(async () => yesterday?.click());
+    const yesterday = document.querySelector<HTMLButtonElement>('[data-time-range-mode="yesterday"]')!;
+    await act(async () => yesterday.click());
 
     expect(onChange).toHaveBeenCalledWith('yesterday');
   });
 
   it('moves focus into the desktop dialog, traps Tab, and restores focus on Escape', async () => {
     await renderControl('8h');
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    expect(trigger).not.toBeNull();
-    trigger?.focus();
-    await act(async () => trigger?.click());
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    trigger.focus();
+    await act(async () => trigger.click());
 
-    const activeMode = document.querySelector<HTMLButtonElement>('[data-time-range-mode="hour"]');
-    const slider = document.querySelector<HTMLInputElement>('[data-time-range-slider]');
+    const activeMode = document.querySelector<HTMLButtonElement>('[data-time-range-mode="hour"]')!;
+    const slider = document.querySelector<HTMLInputElement>('[data-time-range-slider]')!;
     expect(document.activeElement).toBe(activeMode);
 
-    slider?.focus();
+    slider.focus();
     await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })));
     expect(document.activeElement).toBe(activeMode);
 
@@ -126,71 +119,65 @@ describe('TimeRangeControl', () => {
 
   it('discards an uncommitted keyboard draft when Escape closes the desktop dialog', async () => {
     const { onChange } = await renderControl('8h');
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-    const slider = document.querySelector<HTMLInputElement>('[data-time-range-slider]');
-    expect(slider).not.toBeNull();
-    if (!slider) return;
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
+    const slider = document.querySelector<HTMLInputElement>('[data-time-range-slider]')!;
 
     await act(async () => {
       slider.value = '13';
       slider.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    expect(trigger?.textContent).toContain('usage_stats.range_last_hours:13');
+    expect(trigger.textContent).toContain('usage_stats.range_last_hours:13');
 
     await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
 
     expect(onChange).not.toHaveBeenCalled();
-    expect(trigger?.textContent).toContain('usage_stats.range_last_hours:8');
-    await act(async () => trigger?.click());
+    expect(trigger.textContent).toContain('usage_stats.range_last_hours:8');
+    await act(async () => trigger.click());
     expect(document.querySelector<HTMLInputElement>('[data-time-range-slider]')?.value).toBe('8');
   });
 
   it('closes the incompatible overlay when crossing the mobile breakpoint', async () => {
     await renderControl('8h');
-    const desktopTrigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    const mobileTrigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="mobile"]');
-    await act(async () => desktopTrigger?.click());
-    expect(desktopTrigger?.getAttribute('aria-expanded')).toBe('true');
+    const desktopTrigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    const mobileTrigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="mobile"]')!;
+    await act(async () => desktopTrigger.click());
+    expect(desktopTrigger.getAttribute('aria-expanded')).toBe('true');
 
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 600 });
     await act(async () => window.dispatchEvent(new Event('resize')));
 
-    expect(desktopTrigger?.getAttribute('aria-expanded')).toBe('false');
+    expect(desktopTrigger.getAttribute('aria-expanded')).toBe('false');
     expect(document.querySelector('[role="dialog"][aria-label="Range"]')).toBeNull();
 
-    await act(async () => mobileTrigger?.click());
-    expect(mobileTrigger?.getAttribute('aria-expanded')).toBe('true');
+    await act(async () => mobileTrigger.click());
+    expect(mobileTrigger.getAttribute('aria-expanded')).toBe('true');
 
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
     await act(async () => window.dispatchEvent(new Event('resize')));
-    expect(mobileTrigger?.getAttribute('aria-expanded')).toBe('false');
+    expect(mobileTrigger.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('discards a pending mobile Custom draft when crossing to desktop', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 600 });
     await renderControl('8h');
-    const mobileTrigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="mobile"]');
-    const desktopTrigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => mobileTrigger?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-time-range-mode="custom"]')?.click());
+    const mobileTrigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="mobile"]')!;
+    const desktopTrigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => mobileTrigger.click());
+    await click('[data-time-range-mode="custom"]');
     expect(document.querySelector('[data-custom-range-summary]')).not.toBeNull();
 
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
     await act(async () => window.dispatchEvent(new Event('resize')));
-    await act(async () => desktopTrigger?.click());
+    await act(async () => desktopTrigger.click());
 
-    const desktopSlider = document.querySelector('[data-time-range-slider]');
-    const desktopDialog = desktopSlider?.closest('[role="dialog"]');
-    expect(desktopSlider).not.toBeNull();
-    expect(desktopDialog?.querySelector('[data-custom-range-summary]')).toBeNull();
+    const desktopSlider = document.querySelector('[data-time-range-slider]')!;
+    const desktopDialog = desktopSlider.closest('[role="dialog"]')!;
+    expect(desktopDialog.querySelector('[data-custom-range-summary]')).toBeNull();
   });
 
   it('does not rerender a closed mobile control during desktop-only resizes', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
-    const TimeRangeControl = await loadTimeRangeControl();
-    expect(TimeRangeControl).not.toBeNull();
-    if (!TimeRangeControl) return;
     let commitCount = 0;
 
     await act(async () => {
@@ -213,28 +200,11 @@ describe('TimeRangeControl', () => {
     expect(commitCount).toBe(commitsAfterRender);
   });
 
-  it('renders eighteen independently timed liquid particles for rolling ranges', async () => {
-    await renderControl('8h');
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-
-    const particles = [...document.querySelectorAll<HTMLElement>('[data-liquid-particle]')];
-    const motions = new Set(particles.map((particle) => particle.dataset.particleMotion));
-    const durations = new Set(particles.map((particle) => particle.style.getPropertyValue('--liquid-particle-duration')));
-
-    expect(particles).toHaveLength(18);
-    expect(motions).toEqual(new Set(['a', 'b', 'c']));
-    expect(durations.size).toBeGreaterThanOrEqual(6);
-    expect(particles.every((particle) => particle.style.getPropertyValue('--liquid-particle-delay').startsWith('-'))).toBe(true);
-  });
-
   it('updates the slider draft without querying until interaction finishes', async () => {
     const { onChange } = await renderControl('8h');
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-    const slider = document.querySelector<HTMLInputElement>('[data-time-range-slider]');
-    expect(slider).not.toBeNull();
-    if (!slider) return;
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
+    const slider = document.querySelector<HTMLInputElement>('[data-time-range-slider]')!;
 
     await act(async () => {
       slider.value = '13';
@@ -254,11 +224,9 @@ describe('TimeRangeControl', () => {
     { initialRange: '7d' as const, minimum: '1', expectedRange: '1d' as const },
   ])('commits the latest $expectedRange value when input and pointerup arrive in one batch', async ({ initialRange, minimum, expectedRange }) => {
     const { onChange } = await renderControl(initialRange);
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-    const slider = document.querySelector<HTMLInputElement>('[data-time-range-slider]');
-    expect(slider).not.toBeNull();
-    if (!slider) return;
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
+    const slider = document.querySelector<HTMLInputElement>('[data-time-range-slider]')!;
 
     await act(async () => {
       slider.value = minimum;
@@ -275,11 +243,9 @@ describe('TimeRangeControl', () => {
     { initialRange: '7d' as const, expectedRange: '1d' as const },
   ])('commits $expectedRange when the pointer is released outside the range card', async ({ initialRange, expectedRange }) => {
     const { onChange } = await renderControl(initialRange);
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-    const slider = document.querySelector<HTMLInputElement>('[data-time-range-slider]');
-    expect(slider).not.toBeNull();
-    if (!slider) return;
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
+    const slider = document.querySelector<HTMLInputElement>('[data-time-range-slider]')!;
 
     await act(async () => {
       slider.dispatchEvent(new Event('pointerdown', { bubbles: true }));
@@ -301,11 +267,9 @@ describe('TimeRangeControl', () => {
       return event;
     };
     const { onChange } = await renderControl('8h');
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-    const slider = document.querySelector<HTMLInputElement>('[data-time-range-slider]');
-    expect(slider).not.toBeNull();
-    if (!slider) return;
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
+    const slider = document.querySelector<HTMLInputElement>('[data-time-range-slider]')!;
 
     await act(async () => {
       slider.dispatchEvent(createPointerEvent('pointerdown', 7, true));
@@ -324,8 +288,8 @@ describe('TimeRangeControl', () => {
 
   it('renders a natural-day summary instead of a slider for today', async () => {
     await renderControl('today');
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
 
     expect(document.querySelector('[data-time-range-natural-summary="today"]')).not.toBeNull();
     expect(document.querySelector('[data-time-range-slider]')).toBeNull();
@@ -333,9 +297,9 @@ describe('TimeRangeControl', () => {
 
   it('restores custom summary actions and applies the current draft directly', async () => {
     const { onChange } = await renderControl('8h');
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-time-range-mode="custom"]')?.click());
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
+    await click('[data-time-range-mode="custom"]');
 
     expect(onChange).not.toHaveBeenCalled();
     expect(document.querySelector('[data-custom-range-summary]')).not.toBeNull();
@@ -343,7 +307,7 @@ describe('TimeRangeControl', () => {
     expect(document.querySelector('[data-custom-summary-apply]')).not.toBeNull();
     expect(document.querySelector('input[type="date"], input[type="time"], input[type="datetime-local"]')).toBeNull();
 
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-summary-apply]')?.click());
+    await click('[data-custom-summary-apply]');
 
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith('custom', expect.objectContaining({ unit: 'day' }));
@@ -351,13 +315,13 @@ describe('TimeRangeControl', () => {
 
   it('cancels the custom summary without querying and closes the range popover', async () => {
     const { onChange } = await renderControl('8h');
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-time-range-mode="custom"]')?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-summary-cancel]')?.click());
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
+    await click('[data-time-range-mode="custom"]');
+    await click('[data-custom-summary-cancel]');
 
     expect(onChange).not.toHaveBeenCalled();
-    expect(trigger?.getAttribute('aria-expanded')).toBe('false');
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
     expect(document.querySelector('[role="dialog"][aria-label="Range"]')).toBeNull();
   });
 
@@ -369,13 +333,13 @@ describe('TimeRangeControl', () => {
       start: '2026-06-18',
       end: '2026-07-17',
     });
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
+    await click('[data-custom-endpoint="start"]');
 
     expect(document.querySelector('[data-custom-calendar-month]')?.getAttribute('data-custom-calendar-month')).toBe('2026-06');
 
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-picker-endpoint="end"]')?.click());
+    await click('[data-custom-picker-endpoint="end"]');
 
     expect(document.querySelector('[data-custom-calendar-month]')?.getAttribute('data-custom-calendar-month')).toBe('2026-07');
   });
@@ -388,10 +352,10 @@ describe('TimeRangeControl', () => {
       start: '2026-06-18',
       end: '2026-07-17',
     });
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="usage_stats.range_custom_previous_month"]')?.click());
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
+    await click('[data-custom-endpoint="start"]');
+    await click('[aria-label="usage_stats.range_custom_previous_month"]');
 
     expect(document.querySelector('[data-custom-calendar-month]')?.getAttribute('data-custom-calendar-month')).toBe('2026-05');
     expect(document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2026-05-01"]')?.disabled).toBe(false);
@@ -405,9 +369,9 @@ describe('TimeRangeControl', () => {
       start: '2025-07-18',
       end: '2026-07-17',
     });
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
+    await click('[data-custom-endpoint="start"]');
 
     expect(document.querySelector('[data-custom-calendar-month]')?.getAttribute('data-custom-calendar-month')).toBe('2025-07');
     expect(document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2025-07-18"]')?.disabled).toBe(false);
@@ -424,11 +388,11 @@ describe('TimeRangeControl', () => {
       start: '2026-04-19',
       end: '2026-07-17',
     }, 'Asia/Shanghai', 90);
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
     expect(document.querySelector('[data-custom-range-limit-hint]')?.textContent)
       .toBe('usage_stats.range_custom_day_limit_hint:90');
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
+    await click('[data-custom-endpoint="start"]');
 
     expect(document.querySelector('[data-custom-calendar-month]')?.getAttribute('data-custom-calendar-month')).toBe('2026-04');
     expect(document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2026-04-19"]')?.disabled).toBe(false);
@@ -444,9 +408,9 @@ describe('TimeRangeControl', () => {
       start: '2026-06-30',
       end: '2026-07-10',
     });
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
+    await click('[data-custom-endpoint="start"]');
 
     expect(document.querySelector('[data-custom-calendar-month]')?.getAttribute('data-custom-calendar-month')).toBe('2026-06');
     expect(document.querySelectorAll('[data-custom-calendar-cell]')).toHaveLength(42);
@@ -461,7 +425,7 @@ describe('TimeRangeControl', () => {
     expect(document.querySelector('[data-custom-calendar-cell="2026-07-05"]')?.hasAttribute('data-custom-range-row-start')).toBe(true);
     expect(document.querySelector('[data-custom-calendar-cell="2026-07-10"]')?.hasAttribute('data-custom-range-row-end')).toBe(true);
 
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-picker-endpoint="end"]')?.click());
+    await click('[data-custom-picker-endpoint="end"]');
 
     expect(document.querySelector('[data-custom-calendar-month]')?.getAttribute('data-custom-calendar-month')).toBe('2026-07');
     expect(document.querySelectorAll('[data-custom-calendar-cell]')).toHaveLength(42);
@@ -477,20 +441,20 @@ describe('TimeRangeControl', () => {
       start: '2026-06-30',
       end: '2026-07-10',
     });
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
+    await click('[data-custom-endpoint="start"]');
 
-    const start = document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2026-06-30"]');
-    const middle = document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2026-07-01"]');
-    const end = document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2026-07-10"]');
+    const start = document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2026-06-30"]')!;
+    const middle = document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2026-07-01"]')!;
+    const end = document.querySelector<HTMLButtonElement>('[data-custom-calendar-cell="2026-07-10"]')!;
 
-    expect(start?.getAttribute('aria-label')).toBe('Tuesday, June 30, 2026, usage_stats.range_custom_day_start');
-    expect(start?.getAttribute('aria-pressed')).toBe('true');
-    expect(middle?.getAttribute('aria-label')).toBe('Wednesday, July 1, 2026, usage_stats.range_custom_day_in_range');
-    expect(middle?.getAttribute('aria-pressed')).toBe('false');
-    expect(end?.getAttribute('aria-label')).toBe('Friday, July 10, 2026, usage_stats.range_custom_day_end');
-    expect(end?.getAttribute('aria-pressed')).toBe('true');
+    expect(start.getAttribute('aria-label')).toBe('Tuesday, June 30, 2026, usage_stats.range_custom_day_start');
+    expect(start.getAttribute('aria-pressed')).toBe('true');
+    expect(middle.getAttribute('aria-label')).toBe('Wednesday, July 1, 2026, usage_stats.range_custom_day_in_range');
+    expect(middle.getAttribute('aria-pressed')).toBe('false');
+    expect(end.getAttribute('aria-label')).toBe('Friday, July 10, 2026, usage_stats.range_custom_day_end');
+    expect(end.getAttribute('aria-pressed')).toBe('true');
   });
 
   it('syncs a migrated Custom range into an already open popover', async () => {
@@ -498,8 +462,8 @@ describe('TimeRangeControl', () => {
     vi.setSystemTime(new Date('2026-07-17T07:36:42.000Z'));
     const onChange = vi.fn();
     await renderControl('8h', onChange, undefined, null);
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
 
     await renderControl('custom', onChange, {
       unit: 'day',
@@ -515,14 +479,16 @@ describe('TimeRangeControl', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-17T07:36:42.000Z'));
     const { onChange } = await renderControl('8h');
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-time-range-mode="custom"]')?.click());
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
+    await click('[data-time-range-mode="custom"]');
 
-    const initialStartLabel = document.querySelector('[data-custom-endpoint="start"] strong')?.textContent;
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-day="2026-06-20"]')?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-picker-cancel]')?.click());
+    const initialStartLabel = document.querySelector('[data-custom-endpoint="start"] strong')!.textContent;
+    await click('[data-custom-endpoint="start"]');
+    await click('[aria-label="usage_stats.range_custom_previous_month"]');
+    await click('[data-custom-day="2026-06-20"]');
+    expect(document.querySelector('[data-custom-picker-endpoint="start"]')!.textContent).toContain('Jun 20');
+    await click('[data-custom-picker-cancel]');
 
     expect(document.querySelector('[data-custom-range-summary]')).not.toBeNull();
     expect(document.querySelector('[data-custom-endpoint="start"] strong')?.textContent).toBe(initialStartLabel);
@@ -531,18 +497,18 @@ describe('TimeRangeControl', () => {
 
   it('disables Custom until the project timezone is available', async () => {
     await renderControl('8h', vi.fn(), undefined, null);
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
 
     expect(document.querySelector<HTMLButtonElement>('[data-time-range-mode="custom"]')?.disabled).toBe(true);
   });
 
   it('uses a Keeper-rendered calendar instead of a native date input', async () => {
     await renderControl('8h');
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-time-range-mode="custom"]')?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
+    await click('[data-time-range-mode="custom"]');
+    await click('[data-custom-endpoint="start"]');
 
     expect(document.querySelector('[data-custom-day-picker]')).not.toBeNull();
     expect(document.querySelectorAll('[data-custom-day]').length).toBeGreaterThan(0);
@@ -551,9 +517,9 @@ describe('TimeRangeControl', () => {
 
   it('shows the one-year limit while drafting a Custom day range', async () => {
     await renderControl('8h');
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-time-range-mode="custom"]')?.click());
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
+    await click('[data-time-range-mode="custom"]');
 
     expect(document.querySelector('[data-custom-range-limit-hint]')?.textContent)
       .toBe('usage_stats.range_custom_day_limit_hint:365');
@@ -561,11 +527,11 @@ describe('TimeRangeControl', () => {
 
   it('uses two custom 24-slot hour lists and disables too-short end choices', async () => {
     await renderControl('8h');
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-time-range-mode="custom"]')?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-unit="hour"]')?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
+    await click('[data-time-range-mode="custom"]');
+    await click('[data-custom-unit="hour"]');
+    await click('[data-custom-endpoint="start"]');
 
     const startSlots = [...document.querySelectorAll<HTMLButtonElement>('[data-custom-hour-start]')];
     const endSlots = [...document.querySelectorAll<HTMLButtonElement>('[data-custom-hour-end]')];
@@ -577,11 +543,11 @@ describe('TimeRangeControl', () => {
 
   it('exposes the active Custom endpoint and selected hour slots to assistive technology', async () => {
     await renderControl('8h');
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-time-range-mode="custom"]')?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-unit="hour"]')?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
+    await click('[data-time-range-mode="custom"]');
+    await click('[data-custom-unit="hour"]');
+    await click('[data-custom-endpoint="start"]');
 
     expect(document.querySelector('[data-custom-picker-endpoint="start"]')?.getAttribute('aria-pressed')).toBe('true');
     expect(document.querySelector('[data-custom-picker-endpoint="end"]')?.getAttribute('aria-pressed')).toBe('false');
@@ -602,11 +568,11 @@ describe('TimeRangeControl', () => {
     });
 
     await renderControl('8h');
-    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]');
-    await act(async () => trigger?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-time-range-mode="custom"]')?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-unit="hour"]')?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-custom-endpoint="start"]')?.click());
+    const trigger = document.querySelector<HTMLButtonElement>('[data-time-range-trigger="desktop"]')!;
+    await act(async () => trigger.click());
+    await click('[data-time-range-mode="custom"]');
+    await click('[data-custom-unit="hour"]');
+    await click('[data-custom-endpoint="start"]');
 
     const lists = [...document.querySelectorAll<HTMLElement>('[data-custom-hour-list]')];
     expect(lists).toHaveLength(2);

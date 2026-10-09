@@ -8,7 +8,6 @@ import (
 
 	"cpa-usage-keeper/internal/cpa/dto/authfiles"
 	"cpa-usage-keeper/internal/repository"
-	"cpa-usage-keeper/internal/service"
 )
 
 func TestSyncMetadataWritesXAIUserIDCandidatesOnlyForXAI(t *testing.T) {
@@ -47,16 +46,10 @@ func TestSyncMetadataWritesXAIUserIDCandidatesOnlyForXAI(t *testing.T) {
 	}
 	files = append(files, decodeXAIAuthFile(t, "non-xai", "claude", `{"sub":"must-not-sync"}`))
 
-	// 使用共享 metadata 数据库 helper，避免保留第二套测试装配。
 	db := openMetadataTestDatabase(t, "xai-user-id-candidates.db")
-	// 共享 fetcher 默认覆盖全部 provider endpoint。
 	fetcher := newMetadataTestFetcher()
-	// 当前测试只替换 Auth Files payload。
 	fetcher.setAuthFiles(files)
-	syncer := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
-		BaseURL:         "https://cpa.example.com",
-		MetadataFetcher: fetcher,
-	})
+	syncer := newMetadataTestSyncer(db, fetcher, nil)
 	if err := syncer.SyncMetadata(context.Background()); err != nil {
 		t.Fatalf("SyncMetadata returned error: %v", err)
 	}
@@ -96,16 +89,10 @@ func TestSyncMetadataMirrorsXAINullishNestedRecordFallback(t *testing.T) {
 	for _, tt := range tests {
 		files = append(files, decodeXAIAuthFile(t, tt.authIndex, "xai", tt.claims))
 	}
-	// 使用共享 metadata 数据库 helper。
 	db := openMetadataTestDatabase(t, "xai-nullish-fallback.db")
-	// 共享 fetcher 避免为 XAI 测试复制七个 provider 方法。
 	fetcher := newMetadataTestFetcher()
-	// 当前测试只替换 Auth Files payload。
 	fetcher.setAuthFiles(files)
-	syncer := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
-		BaseURL:         "https://cpa.example.com",
-		MetadataFetcher: fetcher,
-	})
+	syncer := newMetadataTestSyncer(db, fetcher, nil)
 	if err := syncer.SyncMetadata(context.Background()); err != nil {
 		t.Fatalf("SyncMetadata returned error: %v", err)
 	}
@@ -128,18 +115,12 @@ func TestSyncMetadataMirrorsXAINullishNestedRecordFallback(t *testing.T) {
 }
 
 func TestSyncMetadataClearsXAIUserIDAfterSuccessfulResponseOmitsIt(t *testing.T) {
-	// 使用共享 metadata 数据库 helper。
 	db := openMetadataTestDatabase(t, "xai-clear-user-id.db")
-	// 共享 fetcher 支持同一实例连续两轮替换 Auth Files。
 	fetcher := newMetadataTestFetcher()
-	// 首轮写入带 user id 的 xAI Auth File。
 	fetcher.setAuthFiles([]authfiles.AuthFile{
 		decodeXAIAuthFile(t, "xai-auth", "xai", `{"sub":"xai-user-old"}`),
 	})
-	syncer := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
-		BaseURL:         "https://cpa.example.com",
-		MetadataFetcher: fetcher,
-	})
+	syncer := newMetadataTestSyncer(db, fetcher, nil)
 	if err := syncer.SyncMetadata(context.Background()); err != nil {
 		t.Fatalf("initial SyncMetadata returned error: %v", err)
 	}
@@ -166,25 +147,17 @@ func TestSyncMetadataClearsXAIUserIDAfterSuccessfulResponseOmitsIt(t *testing.T)
 }
 
 func TestSyncMetadataPreservesXAIUserIDWhenAuthFilesFetchFails(t *testing.T) {
-	// 使用共享 metadata 数据库 helper。
 	db := openMetadataTestDatabase(t, "xai-preserve-on-error.db")
-	// 共享 fetcher 先返回成功 Auth Files。
 	fetcher := newMetadataTestFetcher()
-	// 首轮建立带稳定 user id 的 identity。
 	fetcher.setAuthFiles([]authfiles.AuthFile{
 		decodeXAIAuthFile(t, "xai-auth", "xai", `{"sub":"xai-user-stable"}`),
 	})
-	syncer := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
-		BaseURL:         "https://cpa.example.com",
-		MetadataFetcher: fetcher,
-	})
+	syncer := newMetadataTestSyncer(db, fetcher, nil)
 	if err := syncer.SyncMetadata(context.Background()); err != nil {
 		t.Fatalf("initial SyncMetadata returned error: %v", err)
 	}
 
-	// 失败轮不提供可用 Auth Files result。
 	fetcher.authFilesResult = nil
-	// 独立 fetch error 必须保留首轮 XAIUserID。
 	fetcher.authFilesErr = errors.New("auth files unavailable")
 	if err := syncer.SyncMetadata(context.Background()); err == nil {
 		t.Fatal("expected failed auth files fetch to return an error")

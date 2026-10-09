@@ -15,10 +15,7 @@ describe('apiPath CPAMC embed behavior', () => {
 
   it('marks embed API requests with a header instead of query params', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper/', location: { search: '?embed=cpamc' } });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({}),
-    } as Response);
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({}));
 
     await login('secret');
 
@@ -33,10 +30,7 @@ describe('apiPath CPAMC embed behavior', () => {
 
   it('sends embed headers on reads without request intent', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper/', location: { search: '?mode=cpamc' } });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ authenticated: false }),
-    } as Response);
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ authenticated: false }));
 
     await getSession();
 
@@ -50,9 +44,9 @@ describe('apiPath CPAMC embed behavior', () => {
     const sessionStorage = createSessionStorage();
     vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper/', location: { search: '?embed=cpamc' }, sessionStorage });
     const fetchMock = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(jsonResponse({ session_token: 'embed-token' }))
-      .mockResolvedValueOnce(jsonResponse({ authenticated: true, role: 'admin' }))
-      .mockResolvedValueOnce(jsonResponse({ authenticated: true, role: 'admin' }));
+      .mockResolvedValueOnce(Response.json({ session_token: 'embed-token' }))
+      .mockResolvedValueOnce(Response.json({ authenticated: true, role: 'admin' }))
+      .mockResolvedValueOnce(Response.json({ authenticated: true, role: 'admin' }));
 
     await login('secret');
     await getSession();
@@ -67,9 +61,9 @@ describe('apiPath CPAMC embed behavior', () => {
     const sessionStorage = createSessionStorage();
     vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper/', location: { search: '?mode=cpamc' }, sessionStorage });
     const fetchMock = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(jsonResponse({ session_token: 'embed-token' }))
-      .mockResolvedValueOnce(jsonResponse({ authenticated: false }))
-      .mockResolvedValueOnce(jsonResponse({ authenticated: true, role: 'admin' }));
+      .mockResolvedValueOnce(Response.json({ session_token: 'embed-token' }))
+      .mockResolvedValueOnce(Response.json({ authenticated: false }))
+      .mockResolvedValueOnce(Response.json({ authenticated: true, role: 'admin' }));
 
     await login('secret');
     await getSession();
@@ -83,9 +77,9 @@ describe('apiPath CPAMC embed behavior', () => {
     const sessionStorage = createSessionStorage();
     vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper/', location: { search: '?embed=cpamc' }, sessionStorage });
     const fetchMock = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(jsonResponse({ session_token: 'api-key-embed-token' }))
-      .mockResolvedValueOnce(jsonResponse({ authenticated: false }))
-      .mockResolvedValueOnce(jsonResponse({ authenticated: true, role: 'admin' }));
+      .mockResolvedValueOnce(Response.json({ session_token: 'api-key-embed-token' }))
+      .mockResolvedValueOnce(Response.json({ authenticated: false }))
+      .mockResolvedValueOnce(Response.json({ authenticated: true, role: 'admin' }));
 
     await loginWithCPAAPIKey('cpa-key');
     await getSession();
@@ -100,7 +94,7 @@ describe('apiPath CPAMC embed behavior', () => {
     const sessionStorage = createSessionStorage();
     sessionStorage.setItem('cpa_usage_keeper_embed_session', 'embed-token');
     vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper/', location: { search: '?embed=cpamc' }, sessionStorage });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({
       download_url: '/keeper/api/v1/usage/events/42/request-log/download-file?token=abc',
     }));
 
@@ -118,10 +112,10 @@ describe('apiPath CPAMC embed behavior', () => {
     const sessionStorage = createSessionStorage();
     vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper/', location: { search: '?embed=cpamc' }, sessionStorage });
     const fetchMock = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(jsonResponse({ session_token: 'old-token' }))
-      .mockResolvedValueOnce(jsonResponse({ authenticated: false }))
-      .mockResolvedValueOnce(jsonResponse({ session_token: 'new-token' }))
-      .mockResolvedValueOnce(jsonResponse({ authenticated: false }));
+      .mockResolvedValueOnce(Response.json({ session_token: 'old-token' }))
+      .mockResolvedValueOnce(Response.json({ authenticated: false }))
+      .mockResolvedValueOnce(Response.json({ session_token: 'new-token' }))
+      .mockResolvedValueOnce(Response.json({ authenticated: false }));
 
     await login('secret');
     await login('secret');
@@ -135,10 +129,10 @@ describe('apiPath CPAMC embed behavior', () => {
     const sessionStorage = createSessionStorage();
     vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper/', location: { search: '?embed=cpamc' }, sessionStorage });
     const fetchMock = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(jsonResponse({ session_token: 'embed-token' }))
-      .mockResolvedValueOnce(jsonResponse({ authenticated: false }))
-      .mockResolvedValueOnce({ ok: true } as Response)
-      .mockResolvedValueOnce(jsonResponse({ authenticated: false }));
+      .mockResolvedValueOnce(Response.json({ session_token: 'embed-token' }))
+      .mockResolvedValueOnce(Response.json({ authenticated: false }))
+      .mockResolvedValueOnce(new Response())
+      .mockResolvedValueOnce(Response.json({ authenticated: false }));
 
     await login('secret');
     await logout();
@@ -154,8 +148,8 @@ describe('apiPath CPAMC embed behavior', () => {
     sessionStorage.setItem('cpa_usage_keeper_embed_session', 'stale-token');
     vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper/', location: { search: '?embed=cpamc' }, sessionStorage });
     const fetchMock = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(jsonResponse({ authenticated: false }))
-      .mockResolvedValueOnce(jsonResponse({ authenticated: false }));
+      .mockResolvedValueOnce(Response.json({ authenticated: false }))
+      .mockResolvedValueOnce(Response.json({ authenticated: false }));
 
     await expect(getSession()).resolves.toMatchObject({ authenticated: false });
     await getSession();
@@ -170,9 +164,9 @@ describe('apiPath CPAMC embed behavior', () => {
     const sessionStorage = createThrowingSessionStorage();
     vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper/', location: { search: '?embed=cpamc' }, sessionStorage });
     const fetchMock = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(jsonResponse({ session_token: 'embed-token' }))
-      .mockResolvedValueOnce(jsonResponse({ authenticated: false }))
-      .mockResolvedValueOnce(jsonResponse({ authenticated: false }));
+      .mockResolvedValueOnce(Response.json({ session_token: 'embed-token' }))
+      .mockResolvedValueOnce(Response.json({ authenticated: false }))
+      .mockResolvedValueOnce(Response.json({ authenticated: false }));
 
     await expect(login('secret')).resolves.toBeUndefined();
     await expect(getSession()).resolves.toMatchObject({ authenticated: false });
@@ -184,9 +178,7 @@ describe('apiPath CPAMC embed behavior', () => {
 
   it('adds request intent to normal mutating requests', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined, location: { search: '' } });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-    } as Response);
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response());
 
     await logout();
 
@@ -197,33 +189,13 @@ describe('apiPath CPAMC embed behavior', () => {
 });
 
 function headerValue(init: RequestInit | undefined, name: string): string | null {
-  const headers = init?.headers;
-  if (!headers) return null;
-  if (headers instanceof Headers) {
-    return headers.get(name);
-  }
-  if (Array.isArray(headers)) {
-    return new Headers(headers).get(name);
-  }
-  return new Headers(headers).get(name);
+  return new Headers(init?.headers).get(name);
 }
 
-function jsonResponse(payload: unknown): Response {
-  return {
-    ok: true,
-    json: async () => payload,
-  } as Response;
-}
-
-function createSessionStorage(): Storage & { values: () => string[] } {
+function createSessionStorage() {
   const store = new Map<string, string>();
   return {
-    get length() {
-      return store.size;
-    },
-    clear: () => store.clear(),
     getItem: (key: string) => store.get(key) ?? null,
-    key: (index: number) => Array.from(store.keys())[index] ?? null,
     removeItem: (key: string) => {
       store.delete(key);
     },
@@ -234,21 +206,7 @@ function createSessionStorage(): Storage & { values: () => string[] } {
   };
 }
 
-function createThrowingSessionStorage(): Storage {
-  return {
-    get length() {
-      return 0;
-    },
-    clear: () => undefined,
-    getItem: () => {
-      throw new Error('session storage get blocked');
-    },
-    key: () => null,
-    removeItem: () => {
-      throw new Error('session storage remove blocked');
-    },
-    setItem: () => {
-      throw new Error('session storage set blocked');
-    },
-  };
+function createThrowingSessionStorage() {
+  const blocked = () => { throw new Error('session storage blocked'); };
+  return { getItem: blocked, removeItem: blocked, setItem: blocked };
 }

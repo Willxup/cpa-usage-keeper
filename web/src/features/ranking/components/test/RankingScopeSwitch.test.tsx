@@ -39,7 +39,7 @@ describe('RankingScopeSwitch', () => {
     expect(local?.getAttribute('aria-pressed')).toBe('false');
     expect(community?.getAttribute('aria-pressed')).toBe('true');
 
-    act(() => local?.click());
+    act(() => local!.click());
     expect(onChange).toHaveBeenCalledWith('local');
   });
 

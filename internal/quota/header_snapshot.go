@@ -11,11 +11,11 @@ import (
 const codexHeaderSnapshotValueMaxLength = 4096
 
 type UsageHeaderSnapshotInput struct {
-	// AuthType 是 UsageEvent 的标准化身份来源；只有 oauth 才能对应 Codex Auth File。
+	// AuthType 是 UsageEvent 的标准化身份来源；只有 oauth 才能对应支持的 Auth File。
 	AuthType string
 	// AuthIndex 是 UsageEvent 携带的 CPA auth-index，空值不能建立 cache 或历史归属。
 	AuthIndex string
-	// Provider 是 UsageEvent 的上游提示，仅用于诊断，不参与真实 Codex 身份判定。
+	// Provider 选择当前 Header 的解码协议；cache/history 仍需核对数据库真实 Auth File type。
 	Provider string
 	// ObservedAt 是 Header 对应 UsageEvent 的发生 instant，不得替换为解码或入队时间。
 	ObservedAt time.Time
@@ -28,18 +28,20 @@ type UsageHeaderSnapshot struct {
 	AuthType string
 	// AuthIndex 是 CPA Auth File 稳定账号键，供 cache 身份匹配和历史回溯使用。
 	AuthIndex string
-	// Provider 是上游诊断提示，不替代 usage_identities.type 的 Codex 身份校验。
+	// Provider 是规范化后的已选解码来源，不替代 usage_identities.type 的身份校验。
 	Provider string
 	// ObservedAt 是对应 UsageEvent 的真实观察时间，不是 runner 入队或 flush 时间。
 	ObservedAt time.Time
 	// CacheOutput 是现有 quota cache 合同的完整只读解析结果，worker 不再解析 Header。
 	CacheOutput ProviderOutput
-	// MainQuotaObservations 只包含无 group Primary/Secondary，供 history runner 在一分钟批次到期后消费。
+	// MainQuotaObservations 只包含已选 provider 的账号主窗口；Codex 排除 Additional，Claude 只收 5h/7d。
 	MainQuotaObservations []repositorydto.CodexMainQuotaObservation
 	// pendingMainObservedAt 只供一分钟 cache 合并记录主额度自身的新鲜度；零值表示回退 ObservedAt。
 	pendingMainObservedAt time.Time
 	// pendingAdditionalObservedAt 按 LimitName 记录 Additional 自身的新鲜度，不进入 history 或对外响应。
 	pendingAdditionalObservedAt map[string]time.Time
+	// pendingClaudeObservedAt 保留各 Claude 主窗口的观察时间，避免部分 Header 相互覆盖或被刷新为新时间。
+	pendingClaudeObservedAt map[string]time.Time
 }
 
 type UsageHeaderSnapshotAppender interface {
@@ -51,15 +53,19 @@ type usageHeaderSnapshotProcessor interface {
 	TryBuildUsageHeaderSnapshot(UsageHeaderSnapshotInput) (*UsageHeaderSnapshot, bool)
 }
 
-var usageHeaderSnapshotProcessors = []usageHeaderSnapshotProcessor{
-	codexUsageHeaderSnapshotProcessor{},
-}
-
 func BuildUsageHeaderSnapshot(input UsageHeaderSnapshotInput) (*UsageHeaderSnapshot, bool) {
-	for _, processor := range usageHeaderSnapshotProcessors {
-		if snapshot, ok := processor.TryBuildUsageHeaderSnapshot(input); ok {
-			return snapshot, true
-		}
+	input.AuthType = strings.ToLower(strings.TrimSpace(input.AuthType))
+	input.AuthIndex = strings.TrimSpace(input.AuthIndex)
+	input.Provider = strings.ToLower(strings.TrimSpace(input.Provider))
+	if input.AuthType != "oauth" || input.AuthIndex == "" || len(input.Headers) == 0 {
+		return nil, false
+	}
+	// 协议仅由已归一化的身份字段决定；未知 provider 不推测 Header 命名空间。
+	switch input.Provider {
+	case "codex":
+		return codexUsageHeaderSnapshotProcessor{}.TryBuildUsageHeaderSnapshot(input)
+	case "claude":
+		return claudeUsageHeaderSnapshotProcessor{}.TryBuildUsageHeaderSnapshot(input)
 	}
 	return nil, false
 }

@@ -26,65 +26,75 @@ func SyncCPAAPIKeys(db *gorm.DB, keys []string, syncedAt time.Time) error {
 		uniqueKeys = append(uniqueKeys, key)
 	}
 
-	return db.Transaction(func(tx *gorm.DB) error {
-		var existingRows []struct {
-			ID        int64
-			APIKey    string
-			IsDeleted bool
-		}
-		if err := tx.Model(&entities.CPAAPIKey{}).Select("id, api_key, is_deleted").Find(&existingRows).Error; err != nil {
-			return err
-		}
-
-		existingByKey := make(map[string]struct {
-			ID        int64
-			IsDeleted bool
-		}, len(existingRows))
-		for _, row := range existingRows {
-			existingByKey[row.APIKey] = struct {
-				ID        int64
-				IsDeleted bool
-			}{ID: row.ID, IsDeleted: row.IsDeleted}
-		}
-
-		incoming := make(map[string]struct{}, len(uniqueKeys))
-		toCreate := make([]entities.CPAAPIKey, 0)
-		for _, key := range uniqueKeys {
-			incoming[key] = struct{}{}
-			if existing, ok := existingByKey[key]; ok {
-				updates := map[string]any{
-					"display_key":    helper.RedactSensitiveValue(key),
-					"is_deleted":     false,
-					"last_synced_at": &syncedAt,
-					"updated_at":     syncedAt,
-				}
-				if err := tx.Model(&entities.CPAAPIKey{}).Where("id = ?", existing.ID).Updates(updates).Error; err != nil {
-					return err
-				}
-				continue
+	var existingRows []struct {
+		ID         int64
+		APIKey     string
+		DisplayKey string
+		IsDeleted  bool
+	}
+	// 先在独立 reader 上比较完整 key 集合，只有变化才进入 writer 事务。
+	if err := db.Clauses(dbresolver.Read).Model(&entities.CPAAPIKey{}).
+		Select("id, api_key, display_key, is_deleted").Find(&existingRows).Error; err != nil {
+		return err
+	}
+	type keyUpdate struct {
+		id     int64
+		fields map[string]any
+	}
+	existingByKey := make(map[string]int, len(existingRows))
+	for index, row := range existingRows {
+		existingByKey[row.APIKey] = index
+	}
+	incoming := make(map[string]struct{}, len(uniqueKeys))
+	toCreate := make([]entities.CPAAPIKey, 0)
+	toUpdate := make([]keyUpdate, 0)
+	for _, key := range uniqueKeys {
+		incoming[key] = struct{}{}
+		if index, ok := existingByKey[key]; ok {
+			row := existingRows[index]
+			fields := make(map[string]any)
+			if display := helper.RedactSensitiveValue(key); row.DisplayKey != display {
+				fields["display_key"] = display
 			}
-			toCreate = append(toCreate, entities.CPAAPIKey{
-				APIKey:       key,
-				DisplayKey:   helper.RedactSensitiveValue(key),
-				IsDeleted:    false,
-				LastSyncedAt: &syncedAt,
-			})
+			if row.IsDeleted {
+				fields["is_deleted"] = false
+			}
+			if len(fields) > 0 {
+				fields["last_synced_at"] = &syncedAt
+				fields["updated_at"] = syncedAt
+				toUpdate = append(toUpdate, keyUpdate{id: row.ID, fields: fields})
+			}
+			continue
+		}
+		toCreate = append(toCreate, entities.CPAAPIKey{
+			APIKey:       key,
+			DisplayKey:   helper.RedactSensitiveValue(key),
+			IsDeleted:    false,
+			LastSyncedAt: &syncedAt,
+		})
+	}
+	staleIDs := make([]int64, 0)
+	for _, row := range existingRows {
+		if row.IsDeleted {
+			continue
+		}
+		if _, ok := incoming[row.APIKey]; !ok {
+			staleIDs = append(staleIDs, row.ID)
+		}
+	}
+	if len(toCreate) == 0 && len(toUpdate) == 0 && len(staleIDs) == 0 {
+		return nil
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		for _, change := range toUpdate {
+			if err := tx.Model(&entities.CPAAPIKey{}).Where("id = ?", change.id).Updates(change.fields).Error; err != nil {
+				return err
+			}
 		}
 		if len(toCreate) > 0 {
 			if err := tx.Create(&toCreate).Error; err != nil {
 				return err
 			}
-		}
-
-		staleIDs := make([]int64, 0)
-		for _, row := range existingRows {
-			if row.IsDeleted {
-				continue
-			}
-			if _, ok := incoming[row.APIKey]; ok {
-				continue
-			}
-			staleIDs = append(staleIDs, row.ID)
 		}
 		if len(staleIDs) == 0 {
 			return nil

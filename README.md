@@ -25,59 +25,78 @@
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/Willxup/cpa-usage-keeper?style=flat-square" alt="MIT License" /></a>
 </p>
 
-CPA Usage Keeper is a standalone persistence and analytics dashboard for [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI). It stores CPA usage in SQLite, pulls CPA configuration and credential data, and provides views for usage, cost, request health, quotas, and model/API statistics.
+Keep usage history for [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI), understand model costs, and track request performance and credential quotas. CPA Usage Keeper brings overviews, realtime diagnostics, request details, and quota history into one independently deployed dashboard.
+
+**[Add Keeper to an existing CPA](#keeper-only) · [Deploy CPA + Keeper](#cpa--keeper) · [Configuration](#configuration)**
 
 ## Screenshots
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./assets/screenshots/overview-dark.png" />
-    <source media="(prefers-color-scheme: light)" srcset="./assets/screenshots/overview-light.png" />
-    <img src="./assets/screenshots/overview-light.png" alt="CPA Usage Keeper Overview" width="49%" />
-  </picture>
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./assets/screenshots/analysis-dark.png" />
-    <source media="(prefers-color-scheme: light)" srcset="./assets/screenshots/analysis-light.png" />
-    <img src="./assets/screenshots/analysis-light.png" alt="CPA Usage Keeper Analysis" width="49%" />
-  </picture>
-</p>
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./assets/screenshots/auth-files-dark.png" />
-    <source media="(prefers-color-scheme: light)" srcset="./assets/screenshots/auth-files-light.png" />
-    <img src="./assets/screenshots/auth-files-light.png" alt="CPA Usage Keeper Auth Files" width="49%" />
-  </picture>
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./assets/screenshots/ai-provider-dark.png" />
-    <source media="(prefers-color-scheme: light)" srcset="./assets/screenshots/ai-provider-light.png" />
-    <img src="./assets/screenshots/ai-provider-light.png" alt="CPA Usage Keeper AI Provider" width="49%" />
-  </picture>
-</p>
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./assets/screenshots/ranking-dark.png" />
-    <source media="(prefers-color-scheme: light)" srcset="./assets/screenshots/ranking-light.png" />
-    <img src="./assets/screenshots/ranking-light.png" alt="CPA Usage Keeper Ranking" width="49%" />
-  </picture>
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./assets/screenshots/login-dark.png" />
-    <source media="(prefers-color-scheme: light)" srcset="./assets/screenshots/login-light.png" />
-    <img src="./assets/screenshots/login-light.png" alt="CPA Usage Keeper Login" width="49%" />
-  </picture>
-</p>
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <strong>Overview</strong>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="./assets/screenshots/overview-dark.png" />
+        <source media="(prefers-color-scheme: light)" srcset="./assets/screenshots/overview-white.png" />
+        <img src="./assets/screenshots/overview-white.png" alt="CPA Usage Keeper Overview" width="100%" />
+      </picture>
+    </td>
+    <td width="50%" align="center">
+      <strong>Realtime Diagnostics</strong>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="./assets/screenshots/realtime-dark.png" />
+        <source media="(prefers-color-scheme: light)" srcset="./assets/screenshots/realtime-white.png" />
+        <img src="./assets/screenshots/realtime-white.png" alt="CPA Usage Keeper Realtime Diagnostics" width="100%" />
+      </picture>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <strong>Usage Analysis</strong>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="./assets/screenshots/analysis-dark.png" />
+        <source media="(prefers-color-scheme: light)" srcset="./assets/screenshots/analysis-white.png" />
+        <img src="./assets/screenshots/analysis-white.png" alt="CPA Usage Keeper Usage Analysis" width="100%" />
+      </picture>
+    </td>
+    <td width="50%" align="center">
+      <strong>Request Events</strong>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="./assets/screenshots/request-events-dark.png" />
+        <source media="(prefers-color-scheme: light)" srcset="./assets/screenshots/request-events-white.png" />
+        <img src="./assets/screenshots/request-events-white.png" alt="CPA Usage Keeper Request Events" width="100%" />
+      </picture>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <strong>Credentials and Quotas</strong>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="./assets/screenshots/credentials-dark.png" />
+        <source media="(prefers-color-scheme: light)" srcset="./assets/screenshots/credentials-white.png" />
+        <img src="./assets/screenshots/credentials-white.png" alt="CPA Usage Keeper Credentials and Quotas" width="100%" />
+      </picture>
+    </td>
+    <td width="50%" align="center">
+      <strong>Quota History</strong>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="./assets/screenshots/quota-history-dark.png" />
+        <source media="(prefers-color-scheme: light)" srcset="./assets/screenshots/quota-history-white.png" />
+        <img src="./assets/screenshots/quota-history-white.png" alt="CPA Usage Keeper Quota History" width="100%" />
+      </picture>
+    </td>
+  </tr>
+</table>
 
 ## Features
 
-- Persist CPA usage data in SQLite, with optional scheduled backups
-- Track requests, tokens, cost, cache usage, success rate, RPM/TPM, and latency, with filters for time range, model, API Key, source, and result
-- Inspect and export request-level events with configurable table columns
-- Analyze usage trends, cost composition, model/API Key/AI Provider mix, hourly heatmaps, and latency diagnostics
-- Monitor Auth Files and AI Providers with usage metrics, health inspection, and quota refresh
-- Opt into community rankings by overall score, tokens, requests, cache rate, average TTFT/latency, or peak TPM/RPM
-- Open a read-only usage view scoped to an individual CPA API Key
-- Sync CPA Auth Files, API Keys, and AI Providers automatically, and maintain model pricing for cost estimates
-- Deploy with Docker/Docker Compose, Homebrew, binaries, or systemd, with optional password protection
-- Embed the Keeper dashboard in CPAMC through the CPA plugin
+- **Keep your history**: persist CPA usage in SQLite with scheduled backups.
+- **Understand costs**: analyze usage, caching, and estimated costs by model, API Key, and provider.
+- **Investigate requests**: inspect and export request details, and explore success rates, time to first token (TTFT), and total latency.
+- **Track quotas**: monitor credential health and remaining quotas, refresh quotas, edit priorities, and explore Codex quota history.
+- **Share scoped access**: provide a read-only usage view for an individual CPA API Key.
+
+Optional community rankings and CPA plugin embedding in CPAMC are also available. Deploy with Docker Compose, Homebrew, or binaries; login protection is enabled by default.
 
 ## Sponsors and Special Thanks
 
@@ -87,16 +106,18 @@ CPA Usage Keeper is a standalone persistence and analytics dashboard for [CLIPro
 
 ## Quick Start
 
-> Before using CPA Usage Keeper, make sure CPA usage statistics are enabled: `usage-statistics-enabled: true`.
+> Before using CPA Usage Keeper, enable CPA usage statistics. Set `observability.usage.usage-statistics-enabled` to `true` in v8 configurations; legacy configurations use the top-level `usage-statistics-enabled` setting.
 >
 > When multiple usage collectors share one CPA instance, ensure they all use subscription mode; otherwise, collection may stop or become incomplete.
 
 Docker Compose is the recommended deployment method. Use the full stack when deploying CPA and Keeper together, or the Keeper-only stack when CPA already exists.
 
+Docker deployment requires Docker and Docker Compose; you do not need Go, Node.js, or a source build. For an existing CPA, have its address and management key ready, and choose a Keeper login password.
+
 | Setup | Recommended path | Architectures |
 | --- | --- | --- |
-| New CPA + Keeper deployment | [Docker Compose: CPA + Keeper](#docker-compose-recommended) | `linux/amd64`, `linux/arm64` |
-| Existing CPA deployment | [Docker Compose: Keeper only](#docker-compose-recommended) | `linux/amd64`, `linux/arm64` |
+| New CPA + Keeper deployment | [Docker Compose: CPA + Keeper](#cpa--keeper) | `linux/amd64`, `linux/arm64` |
+| Existing CPA deployment | [Docker Compose: Keeper only](#keeper-only) | `linux/amd64`, `linux/arm64` |
 | Existing CPA, Docker CLI preferred | [Docker](#docker-cpa-already-runs-on-the-host) | `linux/amd64`, `linux/arm64` |
 | macOS | [Homebrew](#macos-homebrew) | `amd64`, `arm64` |
 | Linux without containers | [Linux binary](#linux-binary) | `amd64`, `arm64` |
@@ -104,9 +125,8 @@ Docker Compose is the recommended deployment method. Use the full stack when dep
 
 Login protection is enabled by default. Configure `LOGIN_PASSWORD` before starting Keeper, or explicitly set `AUTH_ENABLED=false` only when access is reliably isolated by the deployment environment.
 
-## Benchmark
-
-Production-style `linux/amd64` capacity measurements for sustained ingestion, Dashboard latency, CPU utilization, and Keeper cgroup peak memory are available in the [Capacity Benchmark Report](./internal/benchmark/REPORT.md).
+<details>
+<summary>Developer reference: project structure, local setup, and tests</summary>
 
 ## Project Structure
 
@@ -136,7 +156,7 @@ web/                     React + TypeScript frontend
 
 ### Run Locally
 
-1. Copy `.env.example` to `.env`, then set at least `CPA_BASE_URL` and `CPA_MANAGEMENT_KEY`.
+1. Copy `.env.example` to `.env`, then set at least `CPA_BASE_URL`, `CPA_MANAGEMENT_KEY`, and a private `LOGIN_PASSWORD`.
 
 ```bash
 cp .env.example .env
@@ -176,7 +196,11 @@ npm --prefix ./web run typecheck
 npm --prefix ./web run build
 ```
 
+</details>
+
 ## Deployment
+
+After startup, open `http://your-server-address:8080` (`http://127.0.0.1:8080` for a local deployment) and sign in with your Keeper login password. Adjust the URL if you configure a different port, HTTPS, or a base path.
 
 ### Docker Compose (Recommended)
 
@@ -184,64 +208,73 @@ Docker Compose is recommended for both a complete CPA + Keeper stack and a Keepe
 
 #### CPA + Keeper
 
-Save the following as `docker-compose.yml`, then replace the management key and login password:
+**1. Prepare the configuration files**
 
-```yaml
-services:
-  cli-proxy-api:
-    image: eceasy/cli-proxy-api:latest
-    container_name: cli-proxy-api
-    restart: unless-stopped
-    ports:
-      - "8317:8317"
-      - "1455:1455"
-    volumes:
-      - ./cpa/config.yaml:/CLIProxyAPI/config.yaml
-      - ./cpa/auths:/root/.cli-proxy-api
-      - ./cpa/logs:/CLIProxyAPI/logs
-    networks:
-      - cpa-network
+First, download the configuration example from the [official CPA repository](https://github.com/router-for-me/CLIProxyAPI) into `./cpa/config.yaml` in your deployment directory:
 
-  cpa-usage-keeper:
-    image: ghcr.io/willxup/cpa-usage-keeper:latest
-    container_name: cpa-usage-keeper
-    restart: unless-stopped
-    depends_on:
-      - cli-proxy-api
-    ports:
-      - "8080:8080"
-    environment:
-      TZ: Asia/Shanghai # Sets the container timezone; log timestamps use this timezone.
-      CPA_BASE_URL: http://cli-proxy-api:8317
-      CPA_MANAGEMENT_KEY: replace-with-your-management-key
-      REDIS_QUEUE_ADDR: cli-proxy-api:8317
-      AUTH_ENABLED: true
-      LOGIN_PASSWORD: ${KEEPER_LOGIN_PASSWORD:?set KEEPER_LOGIN_PASSWORD}
-    volumes:
-      - ./keeper:/data
-    networks:
-      - cpa-network
-
-networks:
-  cpa-network:
-    driver: bridge
+```bash
+mkdir -p cpa/auths cpa/logs keeper
+curl -fL https://raw.githubusercontent.com/router-for-me/CLIProxyAPI/main/config.example.yaml \
+  -o cpa/config.yaml
 ```
 
-Set `KEEPER_LOGIN_PASSWORD` in the shell or the Compose `.env` file before starting.
+In the same directory, download the [CPA + Keeper Compose template](./deploy/docker-compose.full.example.yml):
 
-Run `docker compose up -d` to start the stack and `docker compose down` to stop it.
+```bash
+curl -fL https://raw.githubusercontent.com/Willxup/cpa-usage-keeper/main/deploy/docker-compose.full.example.yml \
+  -o docker-compose.yml
+```
+
+Use this download command for a new deployment only; edit an existing configuration directly to avoid overwriting it.
+
+**2. Configure CPA and Keeper**
+
+The official template uses the v8 configuration layout. Edit the existing settings in `cpa/config.yaml` as listed below, preserving YAML nesting and indentation. Dots in the table denote nested paths, not literal YAML keys to add:
+
+| Setting | What to configure |
+| --- | --- |
+| `management.allow-remote` | Set to `true` so Keeper can access CPA management features from another container. |
+| `management.secret-key` | Set a private management key and use the same original key for `CPA_MANAGEMENT_KEY` in `docker-compose.yml`. |
+| `observability.usage.usage-statistics-enabled` | Set to `true` to enable usage statistics. |
+| `access.api-keys` | Replace the example keys with your own client API keys; these are separate from the CPA management key and Keeper login password. |
+
+Keep `server.host` as an empty string, `server.port` as `8317`, and `oauth.auth-dir` as `"~/.cli-proxy-api"` to match the container network and volume mounts in the template. Do not append equivalent legacy settings to the v8 template.
+
+Edit the downloaded `docker-compose.yml` and fill in two values under Keeper's `environment`:
+
+- `CPA_MANAGEMENT_KEY`: use the same original management key configured in CPA.
+- `LOGIN_PASSWORD`: replace the empty string `""` with your own Keeper login password.
+
+Alternatively, put the settings in `./keeper/.env`; the template loads it through an optional `env_file` entry and accepts a missing file. Values in `environment` take precedence, so remove the corresponding entries, including empty placeholders, to use values from the file.
+
+**3. Start and open Keeper**
+
+```bash
+docker compose up -d
+```
+
+Open `http://your-server-address:8080` and sign in with your Keeper password. Run `docker compose down` to stop the stack.
+
+For a new deployment, add model credentials in CPA and make a model request to generate usage records.
 
 CPA data is stored under `./cpa`, and Keeper data is stored under `./keeper`.
 
 #### Keeper Only
 
-When CPA is already deployed, use the repository's Keeper-only Compose template:
+**1. Prepare the configuration files**
+
+When CPA is already deployed, download the Keeper-only Compose template and environment configuration into a new deployment directory:
 
 ```bash
-cp deploy/docker-compose.example.yml docker-compose.yml
-cp .env.example .env
+curl -fL https://raw.githubusercontent.com/Willxup/cpa-usage-keeper/main/deploy/docker-compose.example.yml \
+  -o docker-compose.yml
+curl -fL https://raw.githubusercontent.com/Willxup/cpa-usage-keeper/main/.env.example -o .env
 vim .env
 ```
+
+For an existing deployment, edit the existing files directly to avoid overwriting your configuration.
+
+**2. Set the connection details and login password**
 
 For CPA running on the Docker host, start with:
 
@@ -254,11 +287,40 @@ LOGIN_PASSWORD=
 
 Set a private `LOGIN_PASSWORD` before starting the container.
 
-Set `CPA_BASE_URL` to the reachable CPA address for other network layouts. If CPA uses a non-default Redis/RESP address, also set `REDIS_QUEUE_ADDR`.
+Whether CPA runs on the Docker host or another machine, it must allow remote management and listen on an address reachable from the Keeper container; a listener bound only to `127.0.0.1` is not reachable. In v8 configurations, set `management.allow-remote: true` and check `server.host`; legacy configurations use `remote-management.allow-remote` and the top-level `host` setting.
 
-Run `docker compose up -d` to start Keeper and `docker compose down` to stop it.
+For other network layouts, set `CPA_BASE_URL` to a CPA address reachable from the container. Set `REDIS_QUEUE_ADDR` only when the Redis/RESP address differs from the automatically derived address.
+
+**3. Start and open Keeper**
+
+```bash
+docker compose up -d
+```
+
+Open `http://your-server-address:8080` and sign in with your Keeper password. Run `docker compose down` to stop the stack.
 
 Keeper data is stored under `./data` by the provided template.
+
+#### Logs and Updates
+
+For either Compose setup, view Keeper logs from the deployment directory:
+
+```bash
+docker compose logs --tail=100 -f cpa-usage-keeper
+```
+
+To update Keeper, keep your configuration and data directories and run:
+
+```bash
+docker compose pull cpa-usage-keeper
+docker compose up -d cpa-usage-keeper
+```
+
+#### No Data After Startup?
+
+- Check that CPA usage statistics are enabled: `observability.usage.usage-statistics-enabled` must be `true` in v8 configurations, or the top-level `usage-statistics-enabled` in legacy configurations.
+- Ensure Keeper can reach `CPA_BASE_URL` and that `CPA_MANAGEMENT_KEY` matches the CPA management key.
+- Check that CPA has received new model requests. If data is still missing, use the log command above to look for connection or authentication errors.
 
 ### Docker (CPA Already Runs On The Host)
 
@@ -336,6 +398,7 @@ sudo systemctl restart cpa-usage-keeper
 The binary supports optional startup flags:
 
 ```bash
+cpa-usage-keeper --env /path/to/keeper.env # Use a specific environment file.
 cpa-usage-keeper --host 127.0.0.1 # Override APP_HOST for this process.
 cpa-usage-keeper -v               # Print the build version and exit; --version is also supported.
 ```
@@ -360,7 +423,7 @@ Copy the example config:
 cp .env.example .env
 ```
 
-For first-time deployments, start with "Minimum required" and "Web access and reverse proxy". Most other settings can keep their defaults.
+For a first deployment, set the CPA address, CPA management key, and Keeper login password. Most other settings can keep their defaults. Read the relevant sections when you need a domain, HTTPS, or a base path.
 
 ### Minimum Required
 
@@ -394,6 +457,7 @@ For cross-origin CPAMC embedding, `CPA_PUBLIC_URL` must be a complete `http://` 
 | --- | --- | --- | --- |
 | `AUTH_ENABLED` | No | `true` | Enable login protection |
 | `LOGIN_PASSWORD` | When auth is enabled | - | Login password |
+| `CPA_REQUEST_LOG_ACCESS_ENABLED` | No | `false` | Allow administrators to view and download CPA request logs through Keeper; corresponding logs must exist in CPA and may contain request or response data |
 | `AUTH_SESSION_TTL` | No | `168h` | Login session lifetime |
 | `API_KEY_VIEWER_LOCAL_RANKING_ENABLED` | No | `false` | Allow API Key viewers to read Local Ranking; Community Ranking remains read-only |
 
@@ -402,6 +466,7 @@ For cross-origin CPAMC embedding, `CPA_PUBLIC_URL` must be a complete `http://` 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
 | `TZ` | No | `Asia/Shanghai` | Timezone used for statistics and display; Today, daily totals, page timestamps, log timestamps, and daily cleanup are calculated in this timezone |
+| `AUTOMATIC_PRICING_SOURCE` | No | empty (disabled) | Opt in to automatic missing-price discovery from `models-dev` or `litellm`; see below |
 | `REQUEST_TIMEOUT` | No | `30s` | Timeout for CPA HTTP requests and Redis queue operations |
 | `TLS_SKIP_VERIFY` | No | `false` | Skip TLS certificate verification for CPA HTTPS and Redis queue TLS; enable only with self-signed certificates |
 
@@ -418,7 +483,7 @@ Scheduled Auth Files quota refresh is configured from the gear button in the Aut
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `REDIS_QUEUE_ADDR` | No | `CPA_BASE_URL` hostname + `8317` | CPA Redis/RESP TCP address; normally leave empty. Set `host:port` for non-default ports or separately exposed Redis streams |
+| `REDIS_QUEUE_ADDR` | No | Derived from `CPA_BASE_URL` | An explicit value takes precedence. When empty, use the hostname and explicit port from `CPA_BASE_URL`, or `8317` if no port is specified. Set `host:port` for a separate address |
 | `REDIS_QUEUE_TLS` | No | `false` | Use TLS for Redis queue connection; set `true` when `REDIS_QUEUE_ADDR` is explicit and requires TLS |
 | `REDIS_QUEUE_BATCH_SIZE` | No | `10000` | Maximum queue records per pull |
 | `REDIS_QUEUE_IDLE_INTERVAL` | No | `1s` | Empty queue check interval |
@@ -434,8 +499,9 @@ Scheduled Auth Files quota refresh is configured from the gear button in the Aut
 | `BACKUP_ENABLED` | No | `true` | Enable SQLite database backups |
 | `BACKUP_INTERVAL` | No | `24h` | Database backup interval |
 | `BACKUP_RETENTION_DAYS` | No | `7` | Backup retention days |
+| `USAGE_RAW_RETENTION_DAYS` | No | `0` | Total raw-request retention in days; only archives are deleted. `0` retains archives forever; `>=90` enables cleanup. Negative values and `1–89` fall back to `0` with a warning without preventing startup |
 
-Keeper automatically moves raw `usage_events` older than 90 local calendar days into the permanently retained `usage_events_archive` cold table during the daily 04:30 maintenance window. The archive is reserved for future schema-migration rebuilds and is not queried by normal dashboard APIs.
+Keeper archives raw request records older than 90 local calendar days daily at 04:30 in the configured timezone. Archives are retained permanently by default. With `USAGE_RAW_RETENTION_DAYS>=90`, daily maintenance deletes expired archived records in batches after archiving, using the request timestamp and local calendar days in the configured timezone. The 90-day hot-table window remains unchanged. Normal pages do not directly query archived records; historical aggregates and backups keep their own retention policies. Deleted raw records cannot support later historical recalculation. Deletion may not immediately shrink the SQLite file: freed space can be reused and is reclaimed by the existing conditional compaction policy.
 
 When file logging is enabled, `cpa-usage-keeper-YYYY-MM-DD.log` contains all emitted levels. Error, fatal, and panic entries are also copied to `cpa-usage-keeper-error-YYYY-MM-DD.log`, which keeps the previous 30 local calendar dates plus the current date.
 
@@ -471,7 +537,7 @@ location /cpa/ {
 }
 ```
 
-The loopback Nginx configuration above works without additional Keeper settings. If the reverse proxy reaches Keeper from a container or another host, add that exact proxy network, for example `TRUSTED_PROXY_CIDRS=172.18.0.0/16`.
+The loopback Nginx configuration above works without additional Keeper settings. If the reverse proxy reaches Keeper from a container or another host, or a CDN such as Cloudflare sits in front of the reverse proxy, add the exact proxy networks, for example `TRUSTED_PROXY_CIDRS=172.18.0.0/16`.
 
 When CPA and Keeper share a browser origin, `CPA_PUBLIC_URL` can be omitted and "Back to CPA" uses `/management.html`. For another domain, port, or path, set the public CPA URL:
 
@@ -479,6 +545,18 @@ When CPA and Keeper share a browser origin, `CPA_PUBLIC_URL` can be omitted and 
 CPA_PUBLIC_URL=https://cpa.example.com
 ```
 
+## Benchmark
+
+Production-style `linux/amd64` capacity measurements for sustained ingestion, Dashboard latency, CPU utilization, and Keeper cgroup peak memory are available in the [Capacity Benchmark Report](./internal/benchmark/REPORT.md).
+
 ## License
 
 This project is open source under the [MIT License](./LICENSE).
+
+### Automatic missing-price discovery
+
+Set `AUTOMATIC_PRICING_SOURCE=models-dev` (or `litellm`) to enable discovery at startup and every five minutes. The worker shares the manual pricing service and Catalog, includes hot and archived historical models plus the CPA model list, and caches external metadata for one hour. It never blocks ingestion or HTTP responses. Download/database failures are logged and retried; costs remain unavailable until prices exist.
+
+Only exact model IDs with a preferred provider and complete basic token prices are inserted. Unknown models, ambiguous entries, absent paid cache-read rates, and Claude entries without explicit nonzero cache-read/write rates remain unpriced. There is no guessed GPT/family baseline. Deployment IDs with observed billable aliases are excluded so the existing alias resolver remains authoritative. A deployment used both with and without an alias requires manual pricing for the latter usage.
+
+Existing settings and multipliers are never overwritten. Deleting a price records a durable exclusion in the existing app settings table; manually saving that model clears its exclusion. No schema migration is added. Old prices generated by earlier PR revisions have no reliable provenance and are deliberately preserved; review/correct them manually. This feature uses current metadata base token prices, not historical invoice rates, context-length tiers, cache TTL tiers, image/audio charges, or currency conversion. The usual preview/save workflow remains available for unmatched models and source/provider selection.

@@ -13,8 +13,8 @@ type UsageIdentityStatsDelta struct {
 	CachedTokens    int64
 	CacheReadTokens int64
 	TotalTokens     int64
-	FirstUsedAt     *time.Time
-	LastUsedAt      *time.Time
+	FirstUsedAt     *time.Time `gorm:"serializer:storageTime"`
+	LastUsedAt      *time.Time `gorm:"serializer:storageTime"`
 	MaxUsageEventID int64
 }
 

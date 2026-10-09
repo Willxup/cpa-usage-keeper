@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -25,12 +27,9 @@ type sqliteTableColumn struct {
 func TestUsageEventArchiveSchemaMatchesHotColumnsWithoutSecondaryIndexes(t *testing.T) {
 	db := openTestDatabase(t)
 
-	if !db.Migrator().HasTable("usage_events_archive") {
-		t.Fatal("expected fresh database to create usage_events_archive")
-	}
 	hotColumns := loadSQLiteTableColumns(t, db, "usage_events")
 	archiveColumns := loadSQLiteTableColumns(t, db, "usage_events_archive")
-	if fmt.Sprint(hotColumns) != fmt.Sprint(archiveColumns) {
+	if !slices.Equal(hotColumns, archiveColumns) {
 		t.Fatalf("usage event archive schema mismatch:\n hot=%+v\n archive=%+v", hotColumns, archiveColumns)
 	}
 	storageColumnNames := strings.Split(strings.ReplaceAll(entities.UsageEventStorageColumns, " ", ""), ",")
@@ -38,7 +37,7 @@ func TestUsageEventArchiveSchemaMatchesHotColumnsWithoutSecondaryIndexes(t *test
 	for _, column := range hotColumns {
 		hotColumnNames = append(hotColumnNames, column.Name)
 	}
-	if fmt.Sprint(storageColumnNames) != fmt.Sprint(hotColumnNames) {
+	if !slices.Equal(storageColumnNames, hotColumnNames) {
 		t.Fatalf("usage event archive copy columns mismatch:\n copy=%v\n schema=%v", storageColumnNames, hotColumnNames)
 	}
 
@@ -63,14 +62,17 @@ func TestArchiveExpiredUsageEventsPreservesOriginalRowAndHotSequence(t *testing.
 	db := openTestDatabase(t)
 	now := time.Date(2026, 7, 30, 4, 30, 0, 0, time.Local)
 	generate := false
+	stream := true
+	statusCode := 429
 	clientIP := "203.0.113.10"
+	parentSessionID := "session-root"
 	ttft := int64(321)
 	events := []entities.UsageEvent{
 		{
 			EventKey: "archive-me", APIGroupKey: "group-a", Provider: "openai", Endpoint: "/v1/responses",
-			AuthType: "oauth", RequestID: "request-a", ClientIP: &clientIP, Model: "gpt-5", ReasoningEffort: "high",
+			AuthType: "oauth", RequestID: "request-a", SessionID: "session-child", ParentSessionID: &parentSessionID, ClientIP: &clientIP, Model: "gpt-5", ResponseModel: "gpt-5.6-luna", ReasoningEffort: "high",
 			ServiceTier: "priority", ResponseServiceTier: "priority", ExecutorType: "codex", Timestamp: now.AddDate(0, 0, -91),
-			Source: "auth-a", AuthIndex: "auth-a", Failed: true, Generate: &generate, LatencyMS: 999, TTFTMS: &ttft,
+			Source: "auth-a", AuthIndex: "auth-a", Failed: true, StatusCode: &statusCode, Generate: &generate, Stream: &stream, LatencyMS: 999, TTFTMS: &ttft,
 			InputTokens: 10, OutputTokens: 20, ReasoningTokens: 5, CachedTokens: 4, CacheReadTokens: 3, CacheCreationTokens: 2, TotalTokens: 35,
 		},
 		{EventKey: "recent", Model: "gpt-5", Timestamp: now.Add(-time.Hour), TotalTokens: 1},
@@ -85,7 +87,7 @@ func TestArchiveExpiredUsageEventsPreservesOriginalRowAndHotSequence(t *testing.
 	previousMaxID := eventsMaxID(t, db)
 	seedArchiveCaughtUpCheckpoints(t, db, previousMaxID, now)
 
-	result, err := repository.CleanupStorage(db, now)
+	result, err := repository.CleanupStorage(db, now, 0)
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}
@@ -93,11 +95,11 @@ func TestArchiveExpiredUsageEventsPreservesOriginalRowAndHotSequence(t *testing.
 		t.Fatalf("expected one archived usage event, got %+v", result)
 	}
 
-	var archived entities.UsageEventArchive
-	if err := db.Where("id = ?", original.ID).Take(&archived).Error; err != nil {
+	var archived entities.UsageEvent
+	if err := db.Table("usage_events_archive").Where("id = ?", original.ID).Take(&archived).Error; err != nil {
 		t.Fatalf("load archived usage event: %v", err)
 	}
-	if archived.ID != original.ID || archived.EventKey != original.EventKey || archived.RequestID != original.RequestID || archived.TotalTokens != original.TotalTokens {
+	if !reflect.DeepEqual(archived, original) {
 		t.Fatalf("archive row did not preserve original values: original=%+v archive=%+v", original, archived)
 	}
 	var oldHotCount int64
@@ -193,9 +195,7 @@ func TestArchiveExpiredUsageEventsProcessesMoreThanOneBatch(t *testing.T) {
 	}
 }
 
-func loadSQLiteTableColumns(t *testing.T, db interface {
-	Raw(string, ...any) *gorm.DB
-}, table string) []sqliteTableColumn {
+func loadSQLiteTableColumns(t *testing.T, db *gorm.DB, table string) []sqliteTableColumn {
 	t.Helper()
 	var columns []sqliteTableColumn
 	if err := db.Raw("PRAGMA table_info(" + table + ")").Scan(&columns).Error; err != nil {

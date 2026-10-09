@@ -436,6 +436,15 @@ func normalizeKimiQuotaRows(result KimiResult) []QuotaRow {
 	if isMeaningfulKimiDetail(result.Usage.Usage) {
 		rows = append(rows, kimiDetailQuotaRow("usage", "summary", "Weekly", result.Usage.Usage))
 	}
+	if aggregate := result.Usage.Usages; aggregate != nil && aggregate.MonthTotal != nil {
+		monthly := aggregate.MonthTotal
+		used := monthly.UsedRatio * 100
+		rows = append(rows, QuotaRow{
+			Key: "usages.limit_month_total", Label: "Monthly", Scope: "summary",
+			Used: floatPtr(used), Limit: floatPtr(100), Remaining: floatPtr(100 - used),
+			UsedPercent: floatPtr(used), ResetAt: monthly.ResetTime,
+		})
+	}
 	return rows
 }
 

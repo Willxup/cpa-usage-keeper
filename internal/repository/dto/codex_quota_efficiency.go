@@ -2,8 +2,10 @@ package dto
 
 import "time"
 
-// CodexQuotaEfficiencyQuery 描述一次只读的 Codex 主额度效率回溯，不会把统计结果写回历史表。
+// CodexQuotaEfficiencyQuery 描述一次只读的账号主额度效率回溯，不会把统计结果写回历史表。
 type CodexQuotaEfficiencyQuery struct {
+	// Provider 来自当前 Auth File 的真实 type；旧内部调用缺失时仍按 Codex 处理。
+	Provider string
 	// AuthIndex 是 Auth File 与 usage_events 之间唯一允许的账号关联键。
 	AuthIndex string
 	// Now 固定本次响应的“当前时间”，避免多条查询跨秒后对当前周期产生不同判断。
@@ -20,7 +22,7 @@ type CodexQuotaEfficiencyHistory struct {
 	GeneratedAt time.Time
 	// RangeStart 是响应实际采用的历史下界，供调用层明确“最近 30 天”口径。
 	RangeStart time.Time
-	// Windows 只列最近一次账号响应存在的角色，每个角色最多一项并使用其最新真实周期。
+	// Windows 列出近 30 天范围内各自有记录的角色，每个角色最多一项并使用其最新真实周期。
 	Windows []CodexQuotaEfficiencyWindow
 	// SelectedWindow 是当前响应实际展开的单个窗口；没有历史时为 nil。
 	SelectedWindow *CodexQuotaEfficiencyWindow
@@ -30,7 +32,7 @@ type CodexQuotaEfficiencyHistory struct {
 
 // CodexQuotaEfficiencyWindow 用上游角色稳定表达一个窗口，周期长度取该角色的最新观察值。
 type CodexQuotaEfficiencyWindow struct {
-	// WindowRole 是上游主额度中的 primary 或 secondary 位置。
+	// WindowRole 是共享 API 的 primary/secondary，内部存储键按 provider 映射。
 	WindowRole string
 	// WindowKind 是当前已知秒数的友好分类；未知正窗口保持 nil。
 	WindowKind *string

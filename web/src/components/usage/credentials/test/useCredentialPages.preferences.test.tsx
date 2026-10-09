@@ -35,13 +35,13 @@ describe('credential list preferences wiring', () => {
 
   beforeEach(() => {
     window.localStorage.clear()
+    window.history.replaceState(null, '', '/')
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
-    fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ identities: [], total_count: 0, page: 1, page_size: 10, total_pages: 0, type_counts: [] }),
-    } as Response)
+    fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({
+      identities: [], total_count: 0, page: 1, page_size: 10, total_pages: 0, type_counts: [],
+    }))
   })
 
   afterEach(async () => {
@@ -49,6 +49,7 @@ describe('credential list preferences wiring', () => {
     container.remove()
     latest = null
     fetchMock.mockRestore()
+    delete window.__APP_BASE_PATH__
   })
 
   it('starts from each section default when nothing is stored', async () => {
@@ -60,6 +61,32 @@ describe('credential list preferences wiring', () => {
     expect(latest?.aiProviderProviderFilter).toBe('all')
     expect(requestFor(fetchMock, '1')?.get('sort')).toBe('priority')
     expect(requestFor(fetchMock, '2')?.get('sort')).toBe('total_requests')
+  })
+
+  it.each([
+    ['auth-files', 'codex', '1', 'codex'],
+    ['ai-provider', 'openai', '2', 'openai'],
+    ['auth-files', 'all', '1', null],
+    ['auth-files', 'unknown', '1', 'claude'],
+    ['auth-files', 'openai', '1', 'claude'],
+    ['ai-provider', 'antigravity', '2', 'claude'],
+  ] as const)('resolves %s URL provider %s before the first request without saving it', async (scope, provider, authType, expectedType) => {
+    window.__APP_BASE_PATH__ = '/cpa'
+    window.history.replaceState(null, '', `/cpa/${scope}?provider=${provider}`)
+    for (const key of Object.values(CREDENTIAL_LIST_PREFERENCES_STORAGE_KEYS)) {
+      localStorage.setItem(key, JSON.stringify({ version: 1, sort: 'last_used_at', pageSize: 50, providerFilter: 'claude' }))
+    }
+    await act(async () => root.render(<Harness />))
+    const requests = fetchMock.mock.calls.map(([url]) => new URL(String(url), 'http://localhost'))
+      .filter((url) => url.searchParams.get('auth_type') === authType)
+    expect(requests.length).toBeGreaterThan(0)
+    expect(requests.every((url) => url.searchParams.get('type') === expectedType)).toBe(true)
+    expect(requestFor(fetchMock, authType === '1' ? '2' : '1')?.get('type')).toBe('claude')
+    expect(storedPreferences(scope).providerFilter).toBe('claude')
+    // 改分页、排序也不能把仅来自链接的 provider 写成默认偏好。
+    await act(async () => latest!.setAuthFilePageSize(20))
+    await act(async () => latest!.setAiProviderSort('total_tokens'))
+    expect(storedPreferences(scope).providerFilter).toBe('claude')
   })
 
   it('restores sort, page size and provider filter into the first request', async () => {
@@ -88,16 +115,16 @@ describe('credential list preferences wiring', () => {
 
   it('persists each selection and returns to the first page', async () => {
     await act(async () => root.render(<Harness />))
-    await act(async () => latest?.setAiProviderPage(4))
+    await act(async () => latest!.setAiProviderPage(4))
     expect(latest?.aiProviderPage).toBe(4)
 
-    await act(async () => latest?.setAiProviderSort('total_tokens'))
+    await act(async () => latest!.setAiProviderSort('total_tokens'))
     expect(latest?.aiProviderSort).toBe('total_tokens')
     expect(latest?.aiProviderPage).toBe(1)
     expect(storedPreferences('ai-provider').sort).toBe('total_tokens')
 
-    await act(async () => latest?.setAiProviderPageSize(20))
-    await act(async () => latest?.setAiProviderProviderFilter('claude'))
+    await act(async () => latest!.setAiProviderPageSize(20))
+    await act(async () => latest!.setAiProviderProviderFilter('claude'))
     expect(storedPreferences('ai-provider')).toEqual({
       version: 1,
       sort: 'total_tokens',
@@ -108,7 +135,7 @@ describe('credential list preferences wiring', () => {
 
   it('keeps the two sections in separate records', async () => {
     await act(async () => root.render(<Harness />))
-    await act(async () => latest?.setAuthFileSort('last_used_at'))
+    await act(async () => latest!.setAuthFileSort('last_used_at'))
 
     expect(latest?.authFileSort).toBe('last_used_at')
     expect(latest?.aiProviderSort).toBe('total_requests')

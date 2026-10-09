@@ -1,22 +1,16 @@
 package test
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 )
 
 func TestBuildAnalysisUsesLongCustomDayRollupsWithoutUsageEvents(t *testing.T) {
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "long-custom-analysis.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	closeTestDatabase(t, db)
+	db := openTestDatabase(t)
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.Local)
 	bucket := start.AddDate(0, 0, 90)
 	end := start.AddDate(0, 0, 121)

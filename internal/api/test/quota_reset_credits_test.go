@@ -11,53 +11,15 @@ import (
 )
 
 type quotaResetCreditsProviderStub struct {
+	QuotaProvider
 	request  quota.ResetCreditsRequest
 	response quota.ResetCreditsResponse
 	err      error
 }
 
-func (s *quotaResetCreditsProviderStub) GetCodexQuotaHistory(context.Context, quota.CodexQuotaHistoryRequest) (quota.CodexQuotaHistoryResponse, error) {
-	return quota.CodexQuotaHistoryResponse{}, nil
-}
-
-func (s *quotaResetCreditsProviderStub) GetCachedQuota(context.Context, quota.CacheRequest) (quota.CacheResponse, error) {
-	return quota.CacheResponse{}, nil
-}
-
-func (s *quotaResetCreditsProviderStub) Refresh(context.Context, quota.RefreshRequest) (quota.RefreshResponse, error) {
-	return quota.RefreshResponse{}, nil
-}
-
-func (s *quotaResetCreditsProviderStub) GetRefreshTaskByAuthIndex(context.Context, string) (quota.RefreshTaskResponse, error) {
-	return quota.RefreshTaskResponse{}, nil
-}
-
-func (s *quotaResetCreditsProviderStub) GetInspectionStatus(context.Context) (quota.InspectionStatus, error) {
-	return quota.InspectionStatus{}, nil
-}
-
-func (s *quotaResetCreditsProviderStub) StartInspection(context.Context) (quota.InspectionStatus, error) {
-	return quota.InspectionStatus{}, nil
-}
-
-func (s *quotaResetCreditsProviderStub) GetAutoRefreshSettings(context.Context) (quota.AutoRefreshSettings, error) {
-	return quota.AutoRefreshSettings{}, nil
-}
-
-func (s *quotaResetCreditsProviderStub) UpdateAutoRefreshSettings(_ context.Context, settings quota.AutoRefreshSettings) (quota.AutoRefreshSettings, error) {
-	return settings, nil
-}
-
 func (s *quotaResetCreditsProviderStub) GetResetCredits(_ context.Context, request quota.ResetCreditsRequest) (quota.ResetCreditsResponse, error) {
 	s.request = request
-	if s.err != nil {
-		return quota.ResetCreditsResponse{}, s.err
-	}
-	return s.response, nil
-}
-
-func (s *quotaResetCreditsProviderStub) Reset(context.Context, quota.ResetRequest) (quota.ResetResponse, error) {
-	return quota.ResetResponse{}, nil
+	return s.response, s.err
 }
 
 func TestQuotaResetCreditsReturnsAvailableExpiries(t *testing.T) {

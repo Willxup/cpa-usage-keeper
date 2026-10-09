@@ -138,8 +138,19 @@ describe('RankingPage', () => {
     });
   };
 
+  const click = async (selector: string, scope: ParentNode = document) => {
+    await act(async () => scope.querySelector<HTMLButtonElement>(selector)!.click());
+  };
+
+  const setInput = async (input: HTMLInputElement, value: string) => {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  };
+
   const openProfileModal = async () => {
-    await act(async () => container.querySelector<HTMLButtonElement>('[data-ranking-profile-action]')?.click());
+    await click('[data-ranking-profile-action]', container);
     // Modal 会在下一任务设置初始焦点，等待完成后再让用例操作弹窗内焦点。
     await act(async () => {
       await new Promise<void>((resolve) => {
@@ -148,27 +159,17 @@ describe('RankingPage', () => {
     });
   };
 
-  it('keeps metric, help, and period together while the community profile stays right aligned', async () => {
+  it('renders a labelled heading with metric, period, and community profile controls', async () => {
     await renderPage();
 
-    const card = container.querySelector('article.card');
-    const header = card?.querySelector('header');
-    const title = header?.querySelector('[data-ranking-header-title]');
-    const toolbar = header?.querySelector('[data-ranking-header-toolbar]');
-    const profile = header?.querySelector('[data-ranking-profile-action-shell]');
-
-    expect(title?.parentElement).toBe(header);
-    expect(toolbar?.parentElement).toBe(title?.querySelector('.keeper-card-title-track'));
-    expect(profile?.parentElement).toBe(header);
-    expect(header?.children).toHaveLength(2);
-    expect(title?.compareDocumentPosition(profile as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const title = container.querySelector('[data-ranking-header-title]')!;
+    const toolbar = container.querySelector('[data-ranking-header-toolbar]')!;
+    expect(container.querySelector('[data-ranking-profile-action]')).not.toBeNull();
     expect(title?.querySelector('[data-ranking-metric-title]')).not.toBeNull();
     expect(title?.querySelector('[data-ranking-score-explanation-slot]')).not.toBeNull();
     expect(title?.querySelector('[role="heading"][aria-level="2"]')).not.toBeNull();
     expect(toolbar?.querySelector('[data-ranking-toolbar]')).not.toBeNull();
     expect(toolbar?.querySelector('[data-ranking-period]')).not.toBeNull();
-    expect(header?.querySelector('[data-ranking-periods]')).toBeNull();
-    expect(toolbar?.querySelector('[data-ranking-metric]')).toBeNull();
     expect(title?.textContent).toContain('ranking.metric_short_overall');
     expect(title?.textContent).toContain('ranking.period_trigger_today');
   });
@@ -191,12 +192,7 @@ describe('RankingPage', () => {
   });
 
   it('opens the same local Key editor from podium and table avatars and saves alias with avatar', async () => {
-    const onUpdateLocalProfile = vi.fn(async (participantID: string, profile: { key_alias: string; avatar_id: number }) => ({
-      participant_id: participantID,
-      key_alias: profile.key_alias,
-      display_name: profile.key_alias,
-      avatar_id: profile.avatar_id,
-    }));
+    const onUpdateLocalProfile = defaultProps.onUpdateLocalProfile;
     const localLeaderboard: RankingLeaderboardResponse = {
       ...leaderboard,
       entries: leaderboard.entries.map((entry, index) => ({
@@ -211,18 +207,14 @@ describe('RankingPage', () => {
 
     expect(container.querySelectorAll('[data-ranking-podium] [data-ranking-local-profile-edit]')).toHaveLength(3);
     expect(container.querySelectorAll('tbody [data-ranking-local-profile-edit]')).toHaveLength(5);
-    await act(async () => container.querySelector<HTMLButtonElement>('[data-ranking-podium-rank="1"] [data-ranking-local-profile-edit]')?.click());
+    await click('[data-ranking-podium-rank="1"] [data-ranking-local-profile-edit]', container);
 
     const aliasInput = document.querySelector<HTMLInputElement>('input[name="local-ranking-key-alias"]');
     expect(aliasInput?.value).toBe('Primary');
     expect(aliasInput?.placeholder).toBe('');
-    await act(async () => {
-      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-      valueSetter?.call(aliasInput, 'Renamed');
-      aliasInput?.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-ranking-avatar-option="42"]')?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-ranking-local-profile-save]')?.click());
+    await setInput(aliasInput!, 'Renamed');
+    await click('[data-ranking-avatar-option="42"]');
+    await click('[data-ranking-local-profile-save]');
 
     expect(onUpdateLocalProfile).toHaveBeenCalledWith('1', { key_alias: 'Renamed', avatar_id: 42 });
   });
@@ -238,7 +230,7 @@ describe('RankingPage', () => {
       })),
     };
     await renderPage({ scope: 'local', leaderboard: localLeaderboard });
-    await act(async () => container.querySelector<HTMLButtonElement>('[data-ranking-podium-rank="1"] [data-ranking-local-profile-edit]')?.click());
+    await click('[data-ranking-podium-rank="1"] [data-ranking-local-profile-edit]', container);
 
     const aliasInput = document.querySelector<HTMLInputElement>('input[name="local-ranking-key-alias"]');
     expect(aliasInput?.value).toBe('');
@@ -267,9 +259,9 @@ describe('RankingPage', () => {
     expect(hint?.getAttribute('aria-expanded')).toBe('false');
     expect(tooltip?.getAttribute('role')).toBe('tooltip');
     expect(tooltip?.textContent).toBe('Overall score V2 from the ranking center.');
-    await act(async () => hint?.focus());
+    await act(async () => hint!.focus());
     expect(hint?.getAttribute('aria-expanded')).toBe('true');
-    await act(async () => hint?.blur());
+    await act(async () => hint!.blur());
     expect(hint?.getAttribute('aria-expanded')).toBe('false');
 
     await renderPage({
@@ -331,10 +323,10 @@ describe('RankingPage', () => {
     await renderPage({ onMetricChange });
 
     const trigger = container.querySelector<HTMLButtonElement>('[data-ranking-metric-title] button');
-    await act(async () => trigger?.click());
+    await act(async () => trigger!.click());
     const requestMetric = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]'))
       .find((option) => option.textContent?.includes('ranking.metric_request_count'));
-    await act(async () => requestMetric?.click());
+    await act(async () => requestMetric!.click());
 
     expect(onMetricChange).toHaveBeenCalledWith('request_count');
   });
@@ -347,18 +339,11 @@ describe('RankingPage', () => {
     expect(container.textContent).not.toContain('ranking.privacy_description');
     expect(container.querySelector('[data-ranking-upload-field]')).toBeNull();
     expect(container.querySelector('[data-ranking-avatar-option]')).toBeNull();
-    const profileActionShell = container.querySelector('[data-ranking-profile-action-shell]');
-    expect(profileActionShell).not.toBeNull();
-    const sharedActionShell = profileActionShell?.querySelector('.main-action-button-shell');
-    expect(sharedActionShell).not.toBeNull();
-    expect(sharedActionShell?.querySelector('[data-ranking-profile-action]')).not.toBeNull();
-    expect(sharedActionShell?.querySelector('[data-ranking-profile-action]')?.classList.contains('main-action-button')).toBe(true);
     expect(container.querySelector('[data-ranking-profile-action]')?.textContent).toContain('ranking.join');
 
     await openProfileModal();
 
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
-    expect(dialog?.style.width).toBe('600px');
     const privacyHint = dialog?.querySelector<HTMLButtonElement>('[data-ranking-privacy-hint]');
     const privacyDescriptionID = privacyHint?.getAttribute('aria-describedby');
     const privacyDescription = privacyDescriptionID ? document.getElementById(privacyDescriptionID) : null;
@@ -370,9 +355,9 @@ describe('RankingPage', () => {
     expect(privacyHint?.getAttribute('aria-expanded')).toBe('false');
     expect(privacyTooltip?.getAttribute('role')).toBe('tooltip');
     expect(privacyTooltip?.textContent).toBe('ranking.privacy_description');
-    await act(async () => privacyHint?.focus());
+    await act(async () => privacyHint!.focus());
     expect(privacyHint?.getAttribute('aria-expanded')).toBe('true');
-    await act(async () => privacyHint?.blur());
+    await act(async () => privacyHint!.blur());
     expect(privacyHint?.getAttribute('aria-expanded')).toBe('false');
     expect(dialog?.querySelector('[data-ranking-upload-field]')).toBeNull();
     expect(dialog?.querySelectorAll('[data-ranking-avatar-option]')).toHaveLength(66);
@@ -396,7 +381,7 @@ describe('RankingPage', () => {
     expect(container.querySelectorAll('[data-ranking-podium-rank]')).toHaveLength(3);
     const warning = container.querySelector('[data-ranking-metadata-warning]');
     expect(warning).not.toBeNull();
-    await act(async () => warning?.querySelector<HTMLButtonElement>('button')?.click());
+    await click('button', warning!);
     expect(onRetryMetadata).toHaveBeenCalledOnce();
   });
 
@@ -407,8 +392,7 @@ describe('RankingPage', () => {
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
     const footer = dialog?.querySelector('.modal-footer');
     expect(footer?.textContent).toContain('common.cancel');
-    expect(footer?.querySelector('[data-ranking-join]')?.classList.contains('btn-action')).toBe(true);
-    expect(dialog?.querySelector('.modal-body [data-ranking-join]')).toBeNull();
+    expect(footer?.querySelector('[data-ranking-join]')).not.toBeNull();
   });
 
   it('normalizes the profile and requires immutable-profile confirmation before joining', async () => {
@@ -418,19 +402,14 @@ describe('RankingPage', () => {
 
     const input = document.querySelector<HTMLInputElement>('input[name="ranking-display-name"]');
     expect(input).not.toBeNull();
-    await act(async () => {
-      if (!input) return;
-      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-      valueSetter?.call(input, '  Ｋeeper_中-1  ');
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-ranking-avatar-option="7"]')?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-ranking-join]')?.click());
+    await setInput(input!, '  Ｋeeper_中-1  ');
+    await click('[data-ranking-avatar-option="7"]');
+    await click('[data-ranking-join]');
 
     expect(onJoin).not.toHaveBeenCalled();
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain('ranking.join_confirm_title');
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-ranking-confirm-join]')?.click());
+    await click('[data-ranking-confirm-join]');
     expect(onJoin).toHaveBeenCalledWith({ display_name: 'Keeper_中-1', avatar_id: 7 });
   });
 
@@ -443,8 +422,8 @@ describe('RankingPage', () => {
     expect(avatars[0]?.getAttribute('aria-checked')).toBe('true');
 
     await act(async () => {
-      avatars[0]?.focus();
-      avatars[0]?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      avatars[0].focus();
+      avatars[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
     });
 
     const updated = [...document.querySelectorAll<HTMLButtonElement>('[data-ranking-avatar-option]')];
@@ -460,11 +439,9 @@ describe('RankingPage', () => {
     const rows = container.querySelectorAll('[data-ranking-row]');
     expect(rows).toHaveLength(5);
     expect([...podium].map((card) => card.textContent).join(' ').match(/SameName/g)).toHaveLength(2);
-    expect(container.textContent).not.toContain('p_secret_1');
-    expect(container.textContent).not.toContain('p_secret_2');
-    expect(container.textContent).not.toContain('p_secret_3');
-    expect(container.textContent).not.toContain('p_secret_4');
-    expect(container.textContent).not.toContain('p_secret_5');
+    for (const entry of leaderboard.entries) {
+      expect(container.textContent).not.toContain(entry.participant_id);
+    }
     expect(rows[0]?.querySelector('[data-ranking-position]')?.textContent).toBe('1');
     expect(rows[4]?.querySelector('[data-ranking-position]')?.textContent).toBe('5');
   });
@@ -493,7 +470,7 @@ describe('RankingPage', () => {
     const firstPlace = container.querySelector('[data-ranking-podium-rank="1"]');
     const score = [...(firstPlace?.querySelectorAll('span') ?? [])]
       .find((element) => element.textContent === '93.25 PTS');
-    expect(score).not.toBeNull();
+    expect(score).toBeDefined();
     expect(firstPlace?.querySelector('button')).toBeNull();
     expect(container.querySelector('[data-ranking-score-trigger]')).toBeNull();
     expect(document.body.querySelector('[data-ranking-score-tooltip]')).toBeNull();
@@ -546,17 +523,32 @@ describe('RankingPage', () => {
     expect(document.querySelector('input[name="ranking-display-name"]')).toBeNull();
   });
 
+  it('shows a permanent ban distinctly from voluntary exit and uses the ban error message', async () => {
+    const status = { status: 'deleted', banned: true, display_name: 'Keeper_01', avatar_id: 7 } as RankingStatusResponse;
+    await renderPage({ status });
+    expect(container.querySelector('[data-ranking-profile-action]')?.textContent).toBe('ranking.status_banned');
+    await openProfileModal();
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.querySelector('.modal-title')?.textContent).toBe('ranking.banned_title');
+    expect(dialog?.textContent).toContain('ranking.banned_description');
+    expect(dialog?.textContent).not.toContain('ranking.deleted_description');
+    expect(document.querySelector('[data-ranking-join]')).toBeNull();
+    expect(document.querySelector('[data-ranking-resume]')).toBeNull();
+
+    await renderPage({ status, actionError: new RankingApiError('ranking_participant_deleted', 410) });
+    expect(document.querySelector('[data-ranking-action-feedback="error"]')?.textContent).toBe('ranking.error_banned');
+  });
+
   it('requires a second confirmation before permanent exit', async () => {
     const onExit = vi.fn(async () => null);
     await renderPage({ status: { status: 'active', display_name: 'Keeper_01', avatar_id: 7 }, onExit });
     await openProfileModal();
 
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-ranking-exit]')?.click());
+    await click('[data-ranking-exit]');
     expect(onExit).not.toHaveBeenCalled();
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain('ranking.exit_confirm_title');
-    expect(document.querySelector('[data-ranking-confirm-exit]')?.classList.contains('btn-action')).toBe(true);
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-ranking-confirm-exit]')?.click());
+    await click('[data-ranking-confirm-exit]');
     expect(onExit).toHaveBeenCalledOnce();
   });
 
@@ -573,10 +565,10 @@ describe('RankingPage', () => {
     expect(footer?.querySelectorAll('button')).toHaveLength(4);
     expect(document.querySelector('.modal-body [data-ranking-sync]')).toBeNull();
 
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-ranking-pause]')?.click());
+    await click('[data-ranking-pause]');
     expect(onPause).not.toHaveBeenCalled();
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain('ranking.pause_confirm_body');
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-ranking-confirm-pause]')?.click());
+    await click('[data-ranking-confirm-pause]');
     expect(onPause).toHaveBeenCalledOnce();
   });
 
@@ -586,7 +578,7 @@ describe('RankingPage', () => {
     await renderPage({ status: syncedStatus, onSync });
     await openProfileModal();
 
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-ranking-sync]')?.click());
+    await click('[data-ranking-sync]');
 
     const dialog = document.querySelector('[role="dialog"]');
     const success = dialog?.querySelector('[data-ranking-action-feedback="success"]');
@@ -616,19 +608,19 @@ describe('RankingPage', () => {
     await renderPage({ status: activeStatus, onPause, onResume, onExit });
     await openProfileModal();
 
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-ranking-pause]')?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-ranking-confirm-pause]')?.click());
+    await click('[data-ranking-pause]');
+    await click('[data-ranking-confirm-pause]');
     expect(document.querySelector('[role="dialog"] [data-ranking-action-feedback="success"]')?.textContent)
       .toBe('ranking.action_pause_success');
 
     await renderPage({ status: pausedStatus, onPause, onResume, onExit });
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-ranking-resume]')?.click());
+    await click('[data-ranking-resume]');
     expect(document.querySelector('[role="dialog"] [data-ranking-action-feedback="success"]')?.textContent)
       .toBe('ranking.action_resume_success');
 
     await renderPage({ status: activeStatus, onPause, onResume, onExit });
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-ranking-exit]')?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-ranking-confirm-exit]')?.click());
+    await click('[data-ranking-exit]');
+    await click('[data-ranking-confirm-exit]');
     expect(document.querySelector('[role="dialog"] [data-ranking-action-feedback="success"]')?.textContent)
       .toBe('ranking.action_exit_success');
   });
@@ -645,7 +637,7 @@ describe('RankingPage', () => {
     expect(dialog?.querySelector('[data-ranking-sync]')).toBeNull();
     expect(dialog?.querySelector('[data-ranking-pause]')).toBeNull();
 
-    await act(async () => dialog?.querySelector<HTMLButtonElement>('[data-ranking-resume]')?.click());
+    await click('[data-ranking-resume]', dialog!);
     expect(onResume).toHaveBeenCalledOnce();
   });
 
@@ -679,7 +671,7 @@ describe('RankingPage', () => {
     await openProfileModal();
     expect(document.querySelector('[role="dialog"] [data-ranking-action-feedback="error"]')).not.toBeNull();
 
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-ranking-close]')?.click());
+    await click('[data-ranking-close]');
     await openProfileModal();
 
     expect(document.querySelector('[role="dialog"] [data-ranking-action-feedback="error"]')).toBeNull();

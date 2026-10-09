@@ -3,9 +3,9 @@
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it } from 'vitest';
+import { RequestEventsTestCard } from './requestEventsFixtures';
 import i18n from '@/i18n';
 import type { UsageEvent } from '@/lib/types';
-import { RequestEventsDetailsCard } from '../RequestEventsDetailsCard';
 
 const baseEvent: UsageEvent = {
   id: 'metrics-tooltip-event',
@@ -46,20 +46,12 @@ const largeTokenEvent: UsageEvent = {
 };
 
 const renderCardElement = (events: UsageEvent[]) => (
-  <RequestEventsDetailsCard
+  <RequestEventsTestCard
     events={events}
-    loading={false}
-    totalCount={events.length}
     modelOptions={['gpt-5']}
     sourceOptions={[{ value: 'source-a', label: 'Provider A' }]}
-    modelFilter="__all__"
-    sourceFilter="__all__"
-    resultFilter="__all__"
     visibleColumnIds={['total_tokens', 'cache_read_rate']}
     columnOrder={['total_tokens', 'cache_read_rate']}
-    onModelFilterChange={() => undefined}
-    onSourceFilterChange={() => undefined}
-    onResultFilterChange={() => undefined}
   />
 );
 
@@ -92,8 +84,6 @@ describe('RequestEventsDetailsCard token and cache tooltips', () => {
       const cells = mounted.container.querySelectorAll<HTMLTableCellElement>('tbody td');
       const tokensCell = cells[0];
       const cacheCell = cells[1];
-      expect(tokensCell).toBeInstanceOf(HTMLTableCellElement);
-      expect(cacheCell).toBeInstanceOf(HTMLTableCellElement);
       expect(tokensCell.tabIndex).toBe(0);
       expect(cacheCell.tabIndex).toBe(0);
       expect(tokensCell.getAttribute('title')).toBeNull();
@@ -109,12 +99,12 @@ describe('RequestEventsDetailsCard token and cache tooltips', () => {
         },
         {
           language: 'zh',
-          tokenLines: ['Token 总数：200', '输入：100', '输出：60', '推理：20'],
+          tokenLines: ['总 Token：200', '输入：100', '输出：60', '推理：20'],
           cacheLines: ['缓存率：20.00%', '缓存读取：20', '缓存写入：5'],
         },
         {
           language: 'zh-TW',
-          tokenLines: ['Token 總數：200', '輸入：100', '輸出：60', '推理：20'],
+          tokenLines: ['總 Token：200', '輸入：100', '輸出：60', '推理：20'],
           cacheLines: ['快取率：20.00%', '快取讀取：20', '快取寫入：5'],
         },
       ] as const;

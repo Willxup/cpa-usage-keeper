@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"testing"
 	"time"
@@ -16,30 +17,8 @@ import (
 	gormlogger "gorm.io/gorm/logger"
 )
 
-type redisInboxUpdateCounter struct {
-	updateCount int
-}
-
-func (c *redisInboxUpdateCounter) LogMode(gormlogger.LogLevel) gormlogger.Interface {
-	return c
-}
-
-func (c *redisInboxUpdateCounter) Info(context.Context, string, ...any) {}
-
-func (c *redisInboxUpdateCounter) Warn(context.Context, string, ...any) {}
-
-func (c *redisInboxUpdateCounter) Error(context.Context, string, ...any) {}
-
-func (c *redisInboxUpdateCounter) Trace(_ context.Context, _ time.Time, sql func() (string, int64), _ error) {
-	statement, _ := sql()
-	normalized := strings.ToLower(strings.TrimSpace(statement))
-	if strings.HasPrefix(normalized, "update ") && strings.Contains(normalized, "redis_usage_inboxes") {
-		c.updateCount++
-	}
-}
-
 func TestProcessRedisUsageInboxBatchesProcessedMarks(t *testing.T) {
-	db := openOpenAITokenNormalizationTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	const rowCount = 301
 	now := time.Date(2026, 7, 23, 10, 0, 0, 0, time.UTC)
 	rows, err := repository.InsertRedisUsageInboxMessages(db, redisInboxBatchInputs("batch-mark", rowCount, now))
@@ -47,8 +26,8 @@ func TestProcessRedisUsageInboxBatchesProcessedMarks(t *testing.T) {
 		t.Fatalf("seed redis usage inbox rows: %v", err)
 	}
 
-	counter := &redisInboxUpdateCounter{}
-	loggedDB := db.Session(&gorm.Session{Logger: counter})
+	var queries strings.Builder
+	loggedDB := db.Session(&gorm.Session{Logger: gormlogger.New(log.New(&queries, "", 0), gormlogger.Config{LogLevel: gormlogger.Info})})
 	notifier := &recordingUsageAggregationNotifier{}
 	syncService := service.NewSyncServiceWithOptions(loggedDB, service.SyncServiceOptions{
 		BaseURL:                  "https://cpa.example.com",
@@ -62,15 +41,8 @@ func TestProcessRedisUsageInboxBatchesProcessedMarks(t *testing.T) {
 	if result == nil || result.InsertedEvents != rowCount {
 		t.Fatalf("expected %d inserted events, got %+v", rowCount, result)
 	}
-	if counter.updateCount != 2 {
-		t.Fatalf("expected 2 batched inbox UPDATE statements, got %d", counter.updateCount)
-	}
-	var processedCount int64
-	if err := db.Model(&entities.RedisUsageInbox{}).Where("status = ?", repository.RedisUsageInboxStatusProcessed).Count(&processedCount).Error; err != nil {
-		t.Fatalf("count processed inbox rows: %v", err)
-	}
-	if processedCount != rowCount {
-		t.Fatalf("expected %d processed inbox rows, got %d", rowCount, processedCount)
+	if updates := strings.Count(queries.String(), "UPDATE `redis_usage_inboxes`"); updates != 2 {
+		t.Fatalf("expected 2 batched inbox UPDATE statements, got %d", updates)
 	}
 	var storedInbox []entities.RedisUsageInbox
 	if err := db.Order("id ASC").Find(&storedInbox).Error; err != nil {
@@ -93,14 +65,14 @@ func TestProcessRedisUsageInboxBatchesProcessedMarks(t *testing.T) {
 		if !exists || expectedEventKey == "" {
 			t.Fatalf("missing persisted event mapping for request_id %q", expectedRequestID)
 		}
-		if inbox.ID != rows[i].ID || inbox.UsageEventKey != expectedEventKey {
+		if inbox.ID != rows[i].ID || inbox.Status != repository.RedisUsageInboxStatusProcessed || inbox.UsageEventKey != expectedEventKey {
 			t.Fatalf("unexpected inbox/event mapping at index %d: inbox=%+v expected_event_key=%q", i, inbox, expectedEventKey)
 		}
 	}
 }
 
 func TestProcessRedisUsageInboxRollsBackAllChunksWhenLaterProcessedMarkFails(t *testing.T) {
-	db := openOpenAITokenNormalizationTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	const rowCount = 301
 	now := time.Date(2026, 7, 23, 10, 30, 0, 0, time.UTC)
 	rows, err := repository.InsertRedisUsageInboxMessages(db, redisInboxBatchInputs("batch-rollback", rowCount, now))

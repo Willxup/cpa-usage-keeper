@@ -57,20 +57,12 @@ func ReplaceUsageIdentitiesForAuthType(ctx context.Context, db *gorm.DB, identit
 
 	// 先统一清洗和去重输入，后续 upsert 与 stale 判断都使用同一组 identity。
 	normalized, incomingIdentities := normalizeUsageIdentities(identities, authType)
-
-	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		existingRows, err := listUsageIdentitySyncRows(tx.Model(&entities.UsageIdentity{}).Where("auth_type = ?", authType))
-		if err != nil {
-			return fmt.Errorf("list usage identities for sync: %w", err)
-		}
-		// 先写入或恢复本次同步到的身份，确保 CPA 返回的 deleted row 会重新变为 active。
-		if err := syncUsageIdentities(tx, normalized, existingRows, normalizedNow); err != nil {
-			return err
-		}
-
-		// 再按 auth_type 范围只对当前 active 身份做 stale 对比；未返回且已 deleted 的历史行不刷新 deleted_at。
-		return markStaleUsageIdentityRowsDeleted(tx, existingRows, incomingIdentities, normalizedNow, "mark stale usage identities deleted")
-	})
+	// 在独立 reader 上完成全量 metadata 比较，只有实际变化才占用 writer。
+	changes, err := prepareUsageIdentitySync(db.Clauses(dbresolver.Read).WithContext(ctx), normalized, incomingIdentities, authType, nil, false, normalizedNow)
+	if err != nil {
+		return fmt.Errorf("list usage identities for sync: %w", err)
+	}
+	return applyUsageIdentitySync(db.WithContext(ctx), changes, normalizedNow, "mark stale usage identities deleted")
 }
 
 func ReplaceUsageIdentitiesForProviderTypes(ctx context.Context, db *gorm.DB, identities []entities.UsageIdentity, providerTypes []string, now time.Time) error {
@@ -89,36 +81,12 @@ func ReplaceUsageIdentitiesForProviderTypes(ctx context.Context, db *gorm.DB, id
 	normalized, incomingIdentities := normalizeUsageIdentities(identities, entities.UsageIdentityAuthTypeAIProvider)
 	types := normalizeProviderTypes(providerTypes)
 
-	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		existingRows, err := listUsageIdentitySyncRows(tx.Model(&entities.UsageIdentity{}).Where("auth_type = ?", entities.UsageIdentityAuthTypeAIProvider))
-		if err != nil {
-			return fmt.Errorf("list provider usage identities for sync: %w", err)
-		}
-		// 先同步本次成功拉到的 provider identity，CPA 返回的历史 deleted provider 会在这里恢复 active。
-		if err := syncUsageIdentities(tx, normalized, existingRows, normalizedNow); err != nil {
-			return err
-		}
-		if len(types) == 0 {
-			return nil
-		}
-
-		// fetched provider type 也按批次切分，避免极端情况下 type IN 变量过多。
-		for start := 0; start < len(types); start += insertBatchSize(entities.UsageIdentity{}) {
-			end := min(start+insertBatchSize(entities.UsageIdentity{}), len(types))
-			// 每批只处理本次成功 fetch 的 provider type；未返回且仍 active 的身份才会被标记 deleted。
-			staleRows, err := listUsageIdentitySyncRows(tx.Model(&entities.UsageIdentity{}).
-				Where("auth_type = ? AND is_deleted = ?", entities.UsageIdentityAuthTypeAIProvider, false).
-				Where("type IN ?", types[start:end]))
-			if err != nil {
-				return fmt.Errorf("list stale provider usage identities: %w", err)
-			}
-			if err := markStaleUsageIdentityRowsDeleted(tx, staleRows, incomingIdentities, normalizedNow, "mark stale provider usage identities deleted"); err != nil {
-				return err
-			}
-		}
-
-		return nil
-	})
+	// 成功的 provider type 决定 stale 范围；失败来源的旧行保留。
+	changes, err := prepareUsageIdentitySync(db.Clauses(dbresolver.Read).WithContext(ctx), normalized, incomingIdentities, entities.UsageIdentityAuthTypeAIProvider, types, true, normalizedNow)
+	if err != nil {
+		return fmt.Errorf("list provider usage identities for sync: %w", err)
+	}
+	return applyUsageIdentitySync(db.WithContext(ctx), changes, normalizedNow, "mark stale provider usage identities deleted")
 }
 
 type ListUsageIdentitiesPageRequest struct {
@@ -137,7 +105,7 @@ const (
 	UsageIdentityPageSortLastUsedAt    = "last_used_at"
 )
 
-const usageIdentityReadColumns = "id, name, alias, auth_type, auth_type_name, identity, type, provider, lookup_key, prefix, base_url, file_name, file_path, priority, disabled, note, account_id, project_id, xai_user_id, active_start, active_until, plan_type, total_requests, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, total_tokens, last_aggregated_usage_event_id, first_used_at, last_used_at, stats_updated_at, is_deleted, created_at, updated_at, deleted_at"
+const usageIdentityReadColumns = "id, name, alias, auth_type, auth_type_name, identity, type, provider, lookup_key, prefix, base_url, file_name, file_path, priority, disabled, note, account_id, project_id, xai_user_id, active_start, active_until, plan_type, total_requests, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, total_tokens, last_aggregated_usage_event_id, first_used_at, last_used_at, stats_updated_at, is_deleted, created_at, updated_at, deleted_at, stats_reset_at, reset_total_requests, reset_success_count, reset_failure_count, reset_input_tokens, reset_cache_read_tokens, reset_total_tokens"
 
 const usageIdentityAggregationColumns = "id, auth_type, identity, total_requests, success_count, failure_count, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, total_tokens, last_aggregated_usage_event_id, first_used_at, last_used_at"
 
@@ -145,6 +113,7 @@ const usageIdentityAggregationColumns = "id, auth_type, identity, total_requests
 const UsageIdentityAggregationBatchSize = 25
 
 const activeAuthFileUsageIdentityLookupBatchSize = 500
+const openAIProviderPriorityUpdateBatchSize = 500
 
 func ListUsageIdentities(ctx context.Context, db *gorm.DB) ([]entities.UsageIdentity, error) {
 	if db == nil {
@@ -220,6 +189,26 @@ func FindUsageIdentityByID(ctx context.Context, db *gorm.DB, id int64) (entities
 	return identity, nil
 }
 
+// FindActiveUsageIdentityByAuthTypeAndIdentity 按页面公开的 auth_index 精确读取可操作身份。
+func FindActiveUsageIdentityByAuthTypeAndIdentity(ctx context.Context, db *gorm.DB, authType entities.UsageIdentityAuthType, identity string) (entities.UsageIdentity, error) {
+	var row entities.UsageIdentity
+	if db == nil {
+		return row, fmt.Errorf("database is nil")
+	}
+	identity = strings.TrimSpace(identity)
+	if identity == "" {
+		return row, fmt.Errorf("usage identity is required")
+	}
+	if err := db.WithContext(ctx).
+		Clauses(dbresolver.Write).
+		Select(usageIdentityReadColumns).
+		Where("auth_type = ? AND identity = ? AND is_deleted = ?", authType, identity, false).
+		First(&row).Error; err != nil {
+		return row, fmt.Errorf("find active usage identity: %w", err)
+	}
+	return row, nil
+}
+
 func UpdateUsageIdentityAlias(ctx context.Context, db *gorm.DB, id int64, alias string) error {
 	if db == nil {
 		return fmt.Errorf("database is nil")
@@ -240,6 +229,72 @@ func UpdateUsageIdentityAlias(ctx context.Context, db *gorm.DB, id int64, alias 
 		return gorm.ErrRecordNotFound
 	}
 	return nil
+}
+
+// UpdateUsageIdentityDisabled 在上游状态成功后写回 Keeper 的即时状态。
+func UpdateUsageIdentityDisabled(ctx context.Context, db *gorm.DB, authType entities.UsageIdentityAuthType, identity string, disabled bool) error {
+	if db == nil {
+		return fmt.Errorf("database is nil")
+	}
+	identity = strings.TrimSpace(identity)
+	if identity == "" {
+		return fmt.Errorf("usage identity is required")
+	}
+	result := db.WithContext(ctx).
+		Model(&entities.UsageIdentity{}).
+		Where("auth_type = ? AND identity = ? AND is_deleted = ?", authType, identity, false).
+		Update("disabled", disabled)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+// UpdateUsageIdentityPriority 写入单条凭证的即时优先级。
+func UpdateUsageIdentityPriority(ctx context.Context, db *gorm.DB, authType entities.UsageIdentityAuthType, identity string, priority int) error {
+	if db == nil {
+		return fmt.Errorf("database is nil")
+	}
+	result := db.WithContext(ctx).Model(&entities.UsageIdentity{}).
+		Where("auth_type = ? AND identity = ? AND is_deleted = ?", authType, strings.TrimSpace(identity), false).
+		Update("priority", priority)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+// UpdateOpenAIProviderPriority 使用单个事务更新同一 CPA provider 下所有已同步的 key。
+func UpdateOpenAIProviderPriority(ctx context.Context, db *gorm.DB, authIndexes []string, priority int) error {
+	if db == nil {
+		return fmt.Errorf("database is nil")
+	}
+	if len(authIndexes) == 0 {
+		return fmt.Errorf("openai provider auth indexes are required")
+	}
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var updated int64
+		for start := 0; start < len(authIndexes); start += openAIProviderPriorityUpdateBatchSize {
+			end := min(start+openAIProviderPriorityUpdateBatchSize, len(authIndexes))
+			result := tx.Model(&entities.UsageIdentity{}).
+				Where("auth_type = ? AND type = ? AND identity IN ? AND is_deleted = ?", entities.UsageIdentityAuthTypeAIProvider, "openai", authIndexes[start:end], false).
+				Update("priority", priority)
+			if result.Error != nil {
+				return result.Error
+			}
+			updated += result.RowsAffected
+		}
+		if updated == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return nil
+	})
 }
 
 func ListActiveUsageIdentityTypeCounts(ctx context.Context, db *gorm.DB, request ListUsageIdentitiesPageRequest) ([]dto.UsageIdentityTypeCount, error) {
@@ -297,11 +352,11 @@ func applyUsageIdentityPageSort(query *gorm.DB, sort string, authType *entities.
 		}
 		return query.Order("id ASC")
 	case UsageIdentityPageSortTotalTokens:
-		return query.Order("total_tokens DESC").Order("id ASC")
+		return query.Order("(total_tokens - reset_total_tokens) DESC").Order("id ASC")
 	case UsageIdentityPageSortLastUsedAt:
 		return query.Order("last_used_at IS NULL ASC").Order("last_used_at DESC").Order("id ASC")
 	default:
-		return query.Order("total_requests DESC").Order("id ASC")
+		return query.Order("(total_requests - reset_total_requests) DESC").Order("id ASC")
 	}
 }
 
@@ -529,7 +584,8 @@ func aggregateUsageIdentityDelta(tx *gorm.DB, identity entities.UsageIdentity) (
 		return delta, nil
 	}
 
-	// 再用 last_aggregated_usage_event_id 做增量游标，只累计上次之后的新事件。
+	// 同一次增量查询取齐累计和首尾时间，减少唯一 writer 事务内的重复查询。
+	// MIN/MAX 沿用原先 timestamp 排序口径，DTO serializer 兼容新旧存储时间格式。
 	if err := query.
 		Select(`
 			COUNT(*) AS total_requests,
@@ -541,36 +597,13 @@ func aggregateUsageIdentityDelta(tx *gorm.DB, identity entities.UsageIdentity) (
 			COALESCE(SUM(cached_tokens), 0) AS cached_tokens,
 			COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
 			COALESCE(SUM(total_tokens), 0) AS total_tokens,
+			MIN(timestamp) AS first_used_at,
+			MAX(timestamp) AS last_used_at,
 			COALESCE(MAX(id), 0) AS max_usage_event_id`).
 		Where("id > ?", identity.LastAggregatedUsageEventID).
 		Scan(&delta).Error; err != nil {
 		return delta, fmt.Errorf("aggregate usage identity stats for %q: %w", identity.Identity, err)
 	}
-	if delta.TotalRequests == 0 {
-		return delta, nil
-	}
-
-	// 统计总量不包含首尾时间，首尾时间用同一组身份过滤条件分别取最早和最晚事件。
-	var firstEvent struct {
-		Timestamp time.Time
-	}
-	firstQuery, _ := usageIdentityEventsQuery(tx.Model(&entities.UsageEvent{}), identity)
-	if err := firstQuery.Select("timestamp").Where("id > ?", identity.LastAggregatedUsageEventID).Order("timestamp asc, id asc").First(&firstEvent).Error; err != nil {
-		return delta, fmt.Errorf("find first usage identity event for %q: %w", identity.Identity, err)
-	}
-	firstUsedAt := firstEvent.Timestamp
-	delta.FirstUsedAt = &firstUsedAt
-
-	var lastEvent struct {
-		Timestamp time.Time
-	}
-	lastQuery, _ := usageIdentityEventsQuery(tx.Model(&entities.UsageEvent{}), identity)
-	if err := lastQuery.Select("timestamp").Where("id > ?", identity.LastAggregatedUsageEventID).Order("timestamp desc, id desc").First(&lastEvent).Error; err != nil {
-		return delta, fmt.Errorf("find last usage identity event for %q: %w", identity.Identity, err)
-	}
-	lastUsedAt := lastEvent.Timestamp
-	delta.LastUsedAt = &lastUsedAt
-
 	return delta, nil
 }
 
@@ -693,44 +726,115 @@ func normalizeUsageIdentityTypes(identityTypes []string) []string {
 	return types
 }
 
-type usageIdentitySyncRow struct {
-	ID        int64
-	AuthType  entities.UsageIdentityAuthType
-	Identity  string
-	IsDeleted bool
+const usageIdentitySyncColumns = "id, name, auth_type_name, identity, type, provider, lookup_key, prefix, base_url, file_name, file_path, priority, disabled, note, account_id, project_id, xai_user_id, active_start, active_until, plan_type, is_deleted, deleted_at"
+
+type usageIdentityUpdate struct {
+	id          int64
+	fields      map[string]any
+	oldPriority *int
+	oldDisabled *bool
 }
 
-func listUsageIdentitySyncRows(query *gorm.DB) ([]usageIdentitySyncRow, error) {
-	var rows []usageIdentitySyncRow
-	if err := query.Select("id, auth_type, identity, is_deleted").Find(&rows).Error; err != nil {
-		return nil, err
+type usageIdentityChanges struct {
+	create   []entities.UsageIdentity
+	update   []usageIdentityUpdate
+	staleIDs []int64
+}
+
+func prepareUsageIdentitySync(reader *gorm.DB, identities []entities.UsageIdentity, incomingIdentities []string, authType entities.UsageIdentityAuthType, providerTypes []string, providerScoped bool, now time.Time) (usageIdentityChanges, error) {
+	var changes usageIdentityChanges
+	var existing []entities.UsageIdentity
+	if err := reader.Model(&entities.UsageIdentity{}).
+		Select(usageIdentitySyncColumns).
+		Where("auth_type = ?", authType).
+		Find(&existing).Error; err != nil {
+		return changes, err
 	}
-	return rows, nil
-}
 
-func markStaleUsageIdentityRowsDeleted(tx *gorm.DB, rows []usageIdentitySyncRow, incomingIdentities []string, now time.Time, context string) error {
-	// 把本次同步到的 identity 放进内存集合，避免生成超大的 identity NOT IN SQL。
+	// 同一次 reader 快照决定新增、字段更新和 stale，避免把统计与本地 alias 纳入 metadata 比较。
+	byIdentity := make(map[string]entities.UsageIdentity, len(existing))
+	for _, row := range existing {
+		byIdentity[row.Identity] = row
+	}
 	incoming := make(map[string]struct{}, len(incomingIdentities))
 	for _, identity := range incomingIdentities {
 		incoming[identity] = struct{}{}
 	}
+	for _, identity := range identities {
+		if row, ok := byIdentity[identity.Identity]; ok {
+			fields := usageIdentityMetadataDiff(row, identity)
+			if len(fields) > 0 {
+				fields["updated_at"] = timeutil.FormatStorageTime(now)
+				changes.update = append(changes.update, usageIdentityUpdate{id: row.ID, fields: fields, oldPriority: row.Priority, oldDisabled: row.Disabled})
+			}
+			continue
+		}
+		identity.CreatedAt = now
+		identity.UpdatedAt = now
+		changes.create = append(changes.create, identity)
+	}
 
-	// 候选行中没有出现在本次输入里的 active ID，就是需要标记删除的 stale 数据。
-	staleIDs := make([]int64, 0)
-	for _, row := range rows {
+	// Auth File 的成功空列表覆盖整个来源；Provider 只删除本轮成功 fetch 的类型。
+	allowedTypes := make(map[string]struct{}, len(providerTypes))
+	for _, providerType := range providerTypes {
+		allowedTypes[providerType] = struct{}{}
+	}
+	for _, row := range existing {
 		if row.IsDeleted {
 			continue
 		}
 		if _, ok := incoming[row.Identity]; ok {
 			continue
 		}
-		staleIDs = append(staleIDs, row.ID)
+		if providerScoped {
+			if _, ok := allowedTypes[row.Type]; !ok {
+				continue
+			}
+		}
+		changes.staleIDs = append(changes.staleIDs, row.ID)
 	}
+	return changes, nil
+}
 
-	// stale ID 也按批次更新，避免 id IN 在数据量大时再次触发 SQLite 变量上限。
+func applyUsageIdentitySync(db *gorm.DB, changes usageIdentityChanges, now time.Time, staleContext string) error {
+	if len(changes.create) == 0 && len(changes.update) == 0 && len(changes.staleIDs) == 0 {
+		return nil
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		// 短事务只提交已判定的变化；更新与恢复仍先于新增和 stale 标记。
+		for _, change := range changes.update {
+			query := tx.Model(&entities.UsageIdentity{}).Where("id = ?", change.id)
+			// 本地编辑可能发生在 reader 快照之后；只对本轮将写的可编辑字段检查旧值，冲突时整行跳过。
+			if _, changed := change.fields["priority"]; changed {
+				if change.oldPriority == nil {
+					query = query.Where("priority IS NULL")
+				} else {
+					query = query.Where("priority = ?", *change.oldPriority)
+				}
+			}
+			if _, changed := change.fields["disabled"]; changed {
+				if change.oldDisabled == nil {
+					query = query.Where("disabled IS NULL")
+				} else {
+					query = query.Where("disabled = ?", *change.oldDisabled)
+				}
+			}
+			if err := query.Updates(change.fields).Error; err != nil {
+				return fmt.Errorf("update usage identity: %w", err)
+			}
+		}
+		if len(changes.create) > 0 {
+			if err := tx.CreateInBatches(&changes.create, insertBatchSize(entities.UsageIdentity{})).Error; err != nil {
+				return fmt.Errorf("create usage identities: %w", err)
+			}
+		}
+		return markStaleUsageIdentityRowsDeleted(tx, changes.staleIDs, now, staleContext)
+	})
+}
+
+func markStaleUsageIdentityRowsDeleted(tx *gorm.DB, staleIDs []int64, now time.Time, context string) error {
 	for start := 0; start < len(staleIDs); start += insertBatchSize(entities.UsageIdentity{}) {
 		end := min(start+insertBatchSize(entities.UsageIdentity{}), len(staleIDs))
-		// stale 状态与 metadata 更新时间必须使用同一个调用方 now，不能依赖 GORM 隐式时钟。
 		if err := tx.Model(&entities.UsageIdentity{}).
 			Where("id IN ?", staleIDs[start:end]).
 			Updates(map[string]any{"is_deleted": true, "deleted_at": timeutil.FormatStorageTime(now), "updated_at": timeutil.FormatStorageTime(now)}).Error; err != nil {
@@ -740,70 +844,98 @@ func markStaleUsageIdentityRowsDeleted(tx *gorm.DB, rows []usageIdentitySyncRow,
 	return nil
 }
 
-// syncUsageIdentities 使用入口规范化后的统一 now 创建、刷新或恢复 identity。
-func syncUsageIdentities(tx *gorm.DB, identities []entities.UsageIdentity, existingRows []usageIdentitySyncRow, now time.Time) error {
-	if len(identities) == 0 {
-		return nil
+// usageIdentityMetadataDiff 只比较 CPA 负责的字段，保留本地 alias、统计、游标和创建时间。
+func usageIdentityMetadataDiff(existing, incoming entities.UsageIdentity) map[string]any {
+	fields := make(map[string]any)
+	if existing.Name != incoming.Name {
+		fields["name"] = incoming.Name
 	}
-
-	existingByKey := make(map[string]usageIdentitySyncRow, len(existingRows))
-	for _, row := range existingRows {
-		existingByKey[usageIdentitySyncKey(row.AuthType, row.Identity)] = row
+	if existing.AuthTypeName != incoming.AuthTypeName {
+		fields["auth_type_name"] = incoming.AuthTypeName
 	}
-
-	toCreate := make([]entities.UsageIdentity, 0)
-	for _, identity := range identities {
-		if existing, ok := existingByKey[usageIdentitySyncKey(identity.AuthType, identity.Identity)]; ok {
-			// 既有 active 或 deleted 行都保留 created_at，并只用本轮 now 刷新 updated_at。
-			if err := tx.Model(&entities.UsageIdentity{}).Where("id = ?", existing.ID).Updates(usageIdentityMetadataUpdates(identity, now)).Error; err != nil {
-				return fmt.Errorf("update usage identity: %w", err)
-			}
-			continue
+	if existing.Type != incoming.Type {
+		fields["type"] = incoming.Type
+	}
+	if existing.Provider != incoming.Provider {
+		fields["provider"] = incoming.Provider
+	}
+	if existing.LookupKey != incoming.LookupKey {
+		fields["lookup_key"] = incoming.LookupKey
+	}
+	if existing.Prefix != incoming.Prefix {
+		fields["prefix"] = incoming.Prefix
+	}
+	if existing.BaseURL != incoming.BaseURL {
+		fields["base_url"] = incoming.BaseURL
+	}
+	if !optionalEqual(existing.FileName, incoming.FileName) {
+		fields["file_name"] = incoming.FileName
+	}
+	if !optionalEqual(existing.FilePath, incoming.FilePath) {
+		fields["file_path"] = incoming.FilePath
+	}
+	if !optionalEqual(existing.Priority, incoming.Priority) {
+		fields["priority"] = incoming.Priority
+	}
+	if !optionalEqual(existing.Disabled, incoming.Disabled) {
+		fields["disabled"] = incoming.Disabled
+	}
+	if !optionalEqual(existing.Note, incoming.Note) {
+		fields["note"] = incoming.Note
+	}
+	if !optionalEqual(existing.AccountID, incoming.AccountID) {
+		fields["account_id"] = incoming.AccountID
+	}
+	if !optionalEqual(existing.ProjectID, incoming.ProjectID) {
+		fields["project_id"] = incoming.ProjectID
+	}
+	if !optionalEqual(existing.XAIUserID, incoming.XAIUserID) {
+		fields["xai_user_id"] = incoming.XAIUserID
+	}
+	if !optionalTimeEqual(existing.ActiveStart, incoming.ActiveStart) {
+		fields["active_start"] = incoming.ActiveStart
+	}
+	if !optionalEqual(existing.PlanType, incoming.PlanType) {
+		fields["plan_type"] = incoming.PlanType
+	}
+	if incoming.AuthType == entities.UsageIdentityAuthTypeAuthFile && strings.EqualFold(strings.TrimSpace(incoming.Type), "codex") {
+		// 官方订阅时间可在 reader 快照之后更新；SQL 条件仍原子地保留较晚值。
+		if incoming.ActiveUntil != nil && (existing.ActiveUntil == nil || incoming.ActiveUntil.After(*existing.ActiveUntil)) {
+			value := timeutil.FormatStorageTime(*incoming.ActiveUntil)
+			fields["active_until"] = gorm.Expr("CASE WHEN active_until IS NULL OR julianday(?) > julianday(active_until) THEN ? ELSE active_until END", value, value)
 		}
-		// 新行的 created_at 来自本轮统一时间，避免 GORM 为不同批次生成不同时间。
-		identity.CreatedAt = now
-		// 新行的 updated_at 与 created_at 完全一致，建立首次 metadata 版本。
-		identity.UpdatedAt = now
-		// 只有真正不存在的 identity 才进入批量创建，既有 ID 不受影响。
-		toCreate = append(toCreate, identity)
+	} else if !optionalTimeEqual(existing.ActiveUntil, incoming.ActiveUntil) {
+		fields["active_until"] = incoming.ActiveUntil
 	}
-	if len(toCreate) == 0 {
+	if existing.IsDeleted {
+		fields["is_deleted"] = false
+	}
+	if existing.DeletedAt != nil {
+		fields["deleted_at"] = nil
+	}
+	return fields
+}
+
+func optionalEqual[T comparable](a, b *T) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
+func optionalTimeEqual(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.Equal(*b)
+}
+
+// UpdateCodexUsageIdentityActiveUntil 只写官方订阅时间，并防止旧账号的在途响应落到新账号行。
+func UpdateCodexUsageIdentityActiveUntil(ctx context.Context, db *gorm.DB, identity entities.UsageIdentity, activeUntil time.Time) error {
+	if identity.ID == 0 || identity.AccountID == nil || strings.TrimSpace(*identity.AccountID) == "" || activeUntil.IsZero() {
 		return nil
 	}
-	if err := tx.CreateInBatches(&toCreate, insertBatchSize(entities.UsageIdentity{})).Error; err != nil {
-		return fmt.Errorf("create usage identities: %w", err)
-	}
-	return nil
-}
-
-func usageIdentitySyncKey(authType entities.UsageIdentityAuthType, identity string) string {
-	return fmt.Sprintf("%d:%s", authType, identity)
-}
-
-// usageIdentityMetadataUpdates 只刷新上游 metadata 与 active 状态，保留 alias、统计、游标和 created_at。
-func usageIdentityMetadataUpdates(identity entities.UsageIdentity, now time.Time) map[string]any {
-	return map[string]any{
-		"name":           identity.Name,
-		"auth_type_name": identity.AuthTypeName,
-		"type":           identity.Type,
-		"provider":       identity.Provider,
-		"lookup_key":     identity.LookupKey,
-		"prefix":         identity.Prefix,
-		"base_url":       identity.BaseURL,
-		"file_name":      identity.FileName,
-		"file_path":      identity.FilePath,
-		"priority":       identity.Priority,
-		"disabled":       identity.Disabled,
-		"note":           identity.Note,
-		"account_id":     identity.AccountID,
-		"project_id":     identity.ProjectID,
-		"xai_user_id":    identity.XAIUserID,
-		"active_start":   identity.ActiveStart,
-		"active_until":   identity.ActiveUntil,
-		"plan_type":      identity.PlanType,
-		"is_deleted":     false,
-		"deleted_at":     nil,
-		// updated_at 明确使用入口统一 now，不能读取输入实体通常为空的时间字段。
-		"updated_at": timeutil.FormatStorageTime(now),
-	}
+	return db.WithContext(ctx).Model(&entities.UsageIdentity{}).
+		Where("id = ? AND auth_type = ? AND identity = ? AND account_id = ? AND LOWER(TRIM(type)) = ? AND is_deleted = ?", identity.ID, entities.UsageIdentityAuthTypeAuthFile, identity.Identity, *identity.AccountID, "codex", false).
+		Update("active_until", timeutil.FormatStorageTime(activeUntil)).Error
 }

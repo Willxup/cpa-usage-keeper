@@ -2,17 +2,15 @@ package test
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	"gorm.io/gorm"
 )
 
 func TestAppSettingsUpsertAndReadNullableValue(t *testing.T) {
-	db := openAppSettingsRepositoryDatabase(t)
+	db := openTestDatabase(t)
 	ctx := context.Background()
 	key := "quota.auto_refresh.schedule"
 
@@ -59,7 +57,7 @@ func TestAppSettingsUpsertAndReadNullableValue(t *testing.T) {
 }
 
 func TestAppSettingsUsesPortableSettingKeyColumn(t *testing.T) {
-	db := openAppSettingsRepositoryDatabase(t)
+	db := openTestDatabase(t)
 
 	columns := appSettingsColumnNames(t, db)
 	if !columns["setting_key"] {
@@ -84,19 +82,4 @@ func appSettingsColumnNames(t *testing.T, db *gorm.DB) map[string]bool {
 		columns[row.Name] = true
 	}
 	return columns
-}
-
-func openAppSettingsRepositoryDatabase(t *testing.T) *gorm.DB {
-	t.Helper()
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "app-settings.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	t.Cleanup(func() {
-		sqlDB, err := db.DB()
-		if err == nil {
-			_ = sqlDB.Close()
-		}
-	})
-	return db
 }

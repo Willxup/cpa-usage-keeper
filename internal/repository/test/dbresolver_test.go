@@ -2,25 +2,17 @@ package test
 
 import (
 	"context"
-	"database/sql"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/repository"
 	"gorm.io/gorm"
 	"gorm.io/plugin/dbresolver"
 )
 
 func TestOpenDatabaseUsesPinnedSQLiteVersion(t *testing.T) {
 	// 准备：通过项目正式数据库入口打开全新文件，版本必须来自本次固定的 go-sqlite3 依赖。
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "app.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	closeResolverTestDatabase(t, db)
+	db := openTestDatabase(t)
 
 	// 执行：直接读取驱动内嵌的 SQLite core 版本，不依赖系统 sqlite3 命令。
 	var version string
@@ -36,20 +28,7 @@ func TestOpenDatabaseUsesPinnedSQLiteVersion(t *testing.T) {
 
 func TestOpenDatabasePoolsAutomaticallyRoutesQueriesAndWrites(t *testing.T) {
 	// 准备：统一业务 DB 和硬只读 reader 指向同一个带特殊字符的 WAL 文件。
-	dbPath := filepath.Join(t.TempDir(), "app #resolver.db")
-	db, reader, err := repository.OpenDatabasePools(config.Config{SQLitePath: dbPath})
-	if err != nil {
-		t.Fatalf("OpenDatabasePools returned error: %v", err)
-	}
-	writerSQL, err := db.DB()
-	if err != nil {
-		t.Fatalf("load writer sql db: %v", err)
-	}
-	readerSQL, err := reader.DB()
-	if err != nil {
-		t.Fatalf("load reader sql db: %v", err)
-	}
-	closeResolverTestPools(t, writerSQL, readerSQL)
+	db, writerSQL, readerSQL := openTestDatabasePools(t, "app #resolver.db")
 	if writerSQL == readerSQL {
 		t.Fatal("expected file database to use independent writer and reader pools")
 	}
@@ -59,12 +38,7 @@ func TestOpenDatabasePoolsAutomaticallyRoutesQueriesAndWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hold writer connection: %v", err)
 	}
-	writerHeld := true
-	defer func() {
-		if writerHeld {
-			_ = heldWriter.Close()
-		}
-	}()
+	defer heldWriter.Close()
 
 	// 执行：普通 GORM Query 必须由 dbresolver 自动发往 reader，而不是依赖调用方手选 ReadDB。
 	queryContext, cancelQuery := context.WithTimeout(context.Background(), time.Second)
@@ -93,7 +67,6 @@ func TestOpenDatabasePoolsAutomaticallyRoutesQueriesAndWrites(t *testing.T) {
 	if err := heldWriter.Close(); err != nil {
 		t.Fatalf("release writer connection: %v", err)
 	}
-	writerHeld = false
 	select {
 	case err := <-writeResult:
 		if err != nil {
@@ -112,38 +85,20 @@ func TestOpenDatabasePoolsAutomaticallyRoutesQueriesAndWrites(t *testing.T) {
 
 func TestOpenDatabasePoolsKeepsDefaultTransactionOnWriter(t *testing.T) {
 	// 准备：占满全部 reader，验证默认事务不依赖任何 reader 连接。
-	db, reader, err := repository.OpenDatabasePools(config.Config{SQLitePath: filepath.Join(t.TempDir(), "app.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabasePools returned error: %v", err)
-	}
-	writerSQL, err := db.DB()
-	if err != nil {
-		t.Fatalf("load writer sql db: %v", err)
-	}
-	readerSQL, err := reader.DB()
-	if err != nil {
-		t.Fatalf("load reader sql db: %v", err)
-	}
-	closeResolverTestPools(t, writerSQL, readerSQL)
+	db, _, readerSQL := openTestDatabasePools(t, "app.db")
 	readerLimit := readerSQL.Stats().MaxOpenConnections
-	heldReaders := make([]*sql.Conn, 0, readerLimit)
 	for index := 0; index < readerLimit; index++ {
 		connection, err := readerSQL.Conn(context.Background())
 		if err != nil {
 			t.Fatalf("hold reader connection %d: %v", index, err)
 		}
-		heldReaders = append(heldReaders, connection)
+		defer connection.Close()
 	}
-	defer func() {
-		for _, connection := range heldReaders {
-			_ = connection.Close()
-		}
-	}()
 
 	// 执行：事务中的 SELECT 和 Create 必须始终复用默认 writer 事务连接。
 	transactionContext, cancelTransaction := context.WithTimeout(context.Background(), time.Second)
 	defer cancelTransaction()
-	err = db.WithContext(transactionContext).Transaction(func(tx *gorm.DB) error {
+	err := db.WithContext(transactionContext).Transaction(func(tx *gorm.DB) error {
 		var count int64
 		if err := tx.Model(&entities.UsageEvent{}).Count(&count).Error; err != nil {
 			return err
@@ -162,33 +117,4 @@ func TestOpenDatabasePoolsKeepsDefaultTransactionOnWriter(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("expected one committed transaction row, got %d", count)
 	}
-}
-
-func closeResolverTestDatabase(t *testing.T, db *gorm.DB) {
-	t.Helper()
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("load sql db for cleanup: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := sqlDB.Close(); err != nil {
-			t.Fatalf("close sql db: %v", err)
-		}
-	})
-}
-
-func closeResolverTestPools(t *testing.T, writer, reader *sql.DB) {
-	t.Helper()
-	t.Cleanup(func() {
-		if reader != nil && reader != writer {
-			if err := reader.Close(); err != nil {
-				t.Fatalf("close reader sql db: %v", err)
-			}
-		}
-		if writer != nil {
-			if err := writer.Close(); err != nil {
-				t.Fatalf("close writer sql db: %v", err)
-			}
-		}
-	})
 }

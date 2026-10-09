@@ -1,7 +1,7 @@
+// @vitest-environment happy-dom
+
 import React from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import type { AnalysisResponse } from '@/lib/types';
 
 vi.mock('react-chartjs-2', () => ({
   Bar: () => React.createElement('div'),
@@ -14,96 +14,40 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-import { AnalysisPanel } from '../AnalysisPanel';
-
-const analysis: AnalysisResponse = {
-  granularity: 'hourly',
-  timezone: 'UTC',
-  token_usage: [],
-  api_key_composition: [],
-  model_composition: [],
-  auth_files_composition: [],
-  ai_provider_composition: [],
-  cost_breakdown: {
-    uncached_input_cost_usd: 0,
-    cache_read_cost_usd: 0,
-    cache_write_cost_usd: 0,
-    output_cost_usd: 0,
-    total_cost_usd: 0,
-    cost_available: true,
-  },
-  model_efficiency: [],
-  heatmap: { api_keys: [], api_key_labels: {}, models: [], cells: [] },
-};
+import { renderAnalysisPanel } from './analysisFixtures';
 
 describe('AnalysisPanel latency loading boundary', () => {
-  it('keeps core cards settled while only the latency card is loading', () => {
-    const markup = renderToStaticMarkup(
-      <AnalysisPanel
-        analysis={analysis}
-        loading={false}
-        latencyDiagnostics={null}
-        latencyLoading
-        latencyError=""
-        isDark={false}
-        isMobile={false}
-      />,
-    );
+  const latencyCard = (container: HTMLElement) => [...container.querySelectorAll('h2')].find((heading) => heading.textContent === 'usage_stats.analysis_latency_title')!.closest('section')!;
 
-    const latencyStart = markup.indexOf('usage_stats.analysis_latency_title');
-    const compositionStart = markup.indexOf('usage_stats.analysis_composition_title', latencyStart);
-    const latencyMarkup = markup.slice(latencyStart, compositionStart);
-    expect(latencyStart).toBeGreaterThan(-1);
-    expect(latencyMarkup).toContain('common.loading');
-    expect(markup.slice(0, latencyStart)).not.toContain('common.loading');
+  it('keeps core cards settled while only the latency card is loading', () => {
+    const container = renderAnalysisPanel({ latencyLoading: true });
+    expect(latencyCard(container).textContent).toContain('common.loading');
+    latencyCard(container).remove();
+    expect(container.textContent).not.toContain('common.loading');
   });
 
   it('shows a latency-only error without replacing the core panel', () => {
-    const markup = renderToStaticMarkup(
-      <AnalysisPanel
-        analysis={analysis}
-        loading={false}
-        latencyDiagnostics={null}
-        latencyLoading={false}
-        latencyError="latency failed"
-        isDark={false}
-        isMobile={false}
-      />,
-    );
-
-    expect(markup).toContain('usage_stats.analysis_token_usage_title');
-    expect(markup).toContain('usage_stats.analysis_latency_title');
-    expect(markup).toContain('latency failed');
+    const container = renderAnalysisPanel({ latencyError: 'latency failed' });
+    expect(latencyCard(container).textContent).toContain('latency failed');
+    expect(container.textContent).toContain('usage_stats.analysis_token_usage_title');
   });
 
   it('shows recent-range guidance when latency diagnostics are unsupported', () => {
-    const markup = renderToStaticMarkup(
-      <AnalysisPanel
-        analysis={analysis}
-        loading={false}
-        latencyDiagnostics={{
-          supported: false,
-          unsupported_reason: 'range_outside_recent_30_days',
-          points: [],
-          density: [],
-          total_points: 0,
-          sampled: false,
-          p95_ttft_ms: 0,
-          p95_latency_ms: 0,
-          max_ttft_ms: 0,
-          max_latency_ms: 0,
-        }}
-        latencyLoading={false}
-        latencyError=""
-        isDark={false}
-        isMobile={false}
-      />,
-    );
-
-    const latencyStart = markup.indexOf('usage_stats.analysis_latency_title');
-    const compositionStart = markup.indexOf('usage_stats.analysis_composition_title', latencyStart);
-    const latencyMarkup = markup.slice(latencyStart, compositionStart);
-    expect(latencyMarkup).toContain('usage_stats.analysis_latency_recent_range_only');
-    expect(latencyMarkup).not.toContain('usage_stats.no_data');
+    const container = renderAnalysisPanel({
+      latencyDiagnostics: {
+        supported: false,
+        unsupported_reason: 'range_outside_recent_30_days',
+        points: [],
+        density: [],
+        total_points: 0,
+        sampled: false,
+        p95_ttft_ms: 0,
+        p95_latency_ms: 0,
+        max_ttft_ms: 0,
+        max_latency_ms: 0,
+      },
+    });
+    expect(latencyCard(container).textContent).toContain('usage_stats.analysis_latency_recent_range_only');
+    expect(latencyCard(container).textContent).not.toContain('usage_stats.no_data');
   });
 });

@@ -11,14 +11,8 @@ import (
 func TestCatalogResolverKeepsOneImmutableSnapshot(t *testing.T) {
 	t.Parallel()
 
-	oldSnapshot, err := pricing.CompileSnapshot([]pricing.ModelConfig{{Pricing: testPricingWithPrompt("model-a", 1)}})
-	if err != nil {
-		t.Fatalf("CompileSnapshot old: %v", err)
-	}
-	newSnapshot, err := pricing.CompileSnapshot([]pricing.ModelConfig{{Pricing: testPricingWithPrompt("model-a", 2)}})
-	if err != nil {
-		t.Fatalf("CompileSnapshot new: %v", err)
-	}
+	oldSnapshot := compileSnapshot(t, pricing.ModelConfig{Pricing: testPricingWithPrompt("model-a", 1)})
+	newSnapshot := compileSnapshot(t, pricing.ModelConfig{Pricing: testPricingWithPrompt("model-a", 2)})
 	catalog := pricing.NewCatalog(oldSnapshot)
 	oldResolver := catalog.NewResolver()
 	catalog.Replace(newSnapshot)
@@ -33,22 +27,14 @@ func TestCatalogResolverKeepsOneImmutableSnapshot(t *testing.T) {
 }
 
 func TestCatalogConcurrentReadersObserveWholeSnapshots(t *testing.T) {
-	first, err := pricing.CompileSnapshot([]pricing.ModelConfig{{Pricing: testPricingWithPrompt("model-a", 1)}})
-	if err != nil {
-		t.Fatalf("CompileSnapshot first: %v", err)
-	}
-	second, err := pricing.CompileSnapshot([]pricing.ModelConfig{{Pricing: testPricingWithPrompt("model-a", 2)}})
-	if err != nil {
-		t.Fatalf("CompileSnapshot second: %v", err)
-	}
+	first := compileSnapshot(t, pricing.ModelConfig{Pricing: testPricingWithPrompt("model-a", 1)})
+	second := compileSnapshot(t, pricing.ModelConfig{Pricing: testPricingWithPrompt("model-a", 2)})
 	catalog := pricing.NewCatalog(first)
 	subject := pricing.NewCostSubject(pricing.UsageDimensions{Model: "model-a"}, helper.UsageTokenCostInput{InputTokens: 1_000_000})
 
 	var wg sync.WaitGroup
 	for reader := 0; reader < 8; reader++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for index := 0; index < 1000; index++ {
 				got := catalog.NewResolver().Calculate(subject).Cost.TotalCostUSD
 				if got != 1 && got != 2 {
@@ -56,7 +42,7 @@ func TestCatalogConcurrentReadersObserveWholeSnapshots(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 	for index := 0; index < 1000; index++ {
 		if index%2 == 0 {

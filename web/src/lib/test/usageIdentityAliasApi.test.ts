@@ -11,10 +11,7 @@ describe('updateUsageIdentityAlias', () => {
 
   it('patches usage identity aliases through the usage identities endpoint', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined })
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ id: '123', alias: 'Friendly Auth', displayName: 'Friendly Auth' }),
-    } as Response)
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ id: '123', alias: 'Friendly Auth', displayName: 'Friendly Auth' }))
 
     const updated = await updateUsageIdentityAlias('123', ' Friendly Auth ')
 

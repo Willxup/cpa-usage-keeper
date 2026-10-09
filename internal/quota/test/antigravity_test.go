@@ -15,23 +15,15 @@ import (
 
 func TestAntigravityProviderUsesProjectIDForQuotaRequest(t *testing.T) {
 	caller := &recordingManagementCaller{responses: []*apicall.Response{
-		{
-			StatusCode: 200,
-			BodyText:   `{"body":{"groups":[{"displayName":"Gemini Models","description":"Models within this group: Gemini Flash, Gemini Pro","buckets":[{"bucketId":"gemini-5h","displayName":"Five Hour Limit","window":"5h","remainingFraction":0.4,"resetTime":"2026-05-09T12:00:00Z"},{"bucketId":"gemini-weekly","displayName":"Weekly Limit","window":"weekly","remainingFraction":0.9,"resetTime":"2026-05-10T12:00:00Z"}]}]}}`,
-			Body:       json.RawMessage(`{"body":{"groups":[{"displayName":"Gemini Models","description":"Models within this group: Gemini Flash, Gemini Pro","buckets":[{"bucketId":"gemini-5h","displayName":"Five Hour Limit","window":"5h","remainingFraction":0.4,"resetTime":"2026-05-09T12:00:00Z"},{"bucketId":"gemini-weekly","displayName":"Weekly Limit","window":"weekly","remainingFraction":0.9,"resetTime":"2026-05-10T12:00:00Z"}]}]}}`),
-		},
-		{
-			StatusCode: 200,
-			BodyText:   `{"body":{"currentTier":{"id":"free-tier","name":"Free"},"paidTier":{"id":"g1-ultra-tier","name":"Ultra"}}}`,
-			Body:       json.RawMessage(`{"body":{"currentTier":{"id":"free-tier","name":"Free"},"paidTier":{"id":"g1-ultra-tier","name":"Ultra"}}}`),
-		},
+		quotaAPIResponse(200, `{"body":{"groups":[{"displayName":"Gemini Models","description":"Models within this group: Gemini Flash, Gemini Pro","buckets":[{"bucketId":"gemini-5h","displayName":"Five Hour Limit","window":"5h","remainingFraction":0.4,"resetTime":"2026-05-09T12:00:00Z"},{"bucketId":"gemini-weekly","displayName":"Weekly Limit","window":"weekly","remainingFraction":0.9,"resetTime":"2026-05-10T12:00:00Z"}]}]}}`),
+		quotaAPIResponse(200, `{"body":{"currentTier":{"id":"free-tier","name":"Free"},"paidTier":{"id":"g1-ultra-tier","name":"Ultra"}}}`),
 	}}
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewAntigravityProvider(caller, configs.Antigravity[:1], configs.AntigravitySubscriptions)
 
 	output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{
 		Identity:  "ag-auth",
-		ProjectID: stringPtr("project-123"),
+		ProjectID: new("project-123"),
 	}})
 	if err != nil {
 		t.Fatalf("Check returned error: %v", err)
@@ -91,7 +83,7 @@ func TestAntigravityProviderFallsBackToProdSubscriptionEndpoint(t *testing.T) {
 		dailyResponse *apicall.Response
 	}{
 		{name: "daily unavailable", dailyResponse: &apicall.Response{StatusCode: 503, BodyText: `{"message":"daily unavailable"}`}},
-		{name: "daily missing tiers", dailyResponse: &apicall.Response{StatusCode: 200, BodyText: `{}`, Body: json.RawMessage(`{}`)}},
+		{name: "daily missing tiers", dailyResponse: quotaAPIResponse(200, `{}`)},
 	}
 
 	for _, test := range tests {
@@ -99,16 +91,16 @@ func TestAntigravityProviderFallsBackToProdSubscriptionEndpoint(t *testing.T) {
 			quotaBody := `{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":0.6}]}]}`
 			subscriptionBody := `{"currentTier":{"id":"free-tier","name":"Free"},"paidTier":{"id":"g1-pro-tier","name":"Pro"}}`
 			caller := &recordingManagementCaller{responses: []*apicall.Response{
-				{StatusCode: 200, BodyText: quotaBody, Body: json.RawMessage(quotaBody)},
+				quotaAPIResponse(200, quotaBody),
 				test.dailyResponse,
-				{StatusCode: 200, BodyText: subscriptionBody, Body: json.RawMessage(subscriptionBody)},
+				quotaAPIResponse(200, subscriptionBody),
 			}}
 			configs := quota.DefaultProviderConfigs()
 			provider := quota.NewAntigravityProvider(caller, configs.Antigravity[:1], configs.AntigravitySubscriptions)
 
 			output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{
 				Identity:  "ag-auth",
-				ProjectID: stringPtr("project-123"),
+				ProjectID: new("project-123"),
 			}})
 			if err != nil {
 				t.Fatalf("Check returned error: %v", err)
@@ -143,15 +135,15 @@ func TestAntigravityProviderRejectsMissingProjectID(t *testing.T) {
 
 func TestAntigravityProviderContinuesAfterSuccessfulEmptyQuota(t *testing.T) {
 	caller := &recordingManagementCaller{responses: []*apicall.Response{
-		{StatusCode: 200, BodyText: `{"groups":[]}`, Body: json.RawMessage(`{"groups":[]}`)},
-		{StatusCode: 200, BodyText: `{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":0.72}]}]}`, Body: json.RawMessage(`{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":0.72}]}]}`)},
+		quotaAPIResponse(200, `{"groups":[]}`),
+		quotaAPIResponse(200, `{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":0.72}]}]}`),
 	}}
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewAntigravityProvider(caller, configs.Antigravity, configs.AntigravitySubscriptions)
 
 	output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{
 		Identity:  "ag-auth",
-		ProjectID: stringPtr("project-123"),
+		ProjectID: new("project-123"),
 	}})
 	if err != nil {
 		t.Fatalf("Check returned error: %v", err)
@@ -166,16 +158,14 @@ func TestAntigravityProviderContinuesAfterSuccessfulEmptyQuota(t *testing.T) {
 }
 
 func TestAntigravityProviderReturnsSuccessfulEmptyQuotaAfterAllEndpoints(t *testing.T) {
-	emptyResponse := func() *apicall.Response {
-		return &apicall.Response{StatusCode: 200, BodyText: `{"groups":[]}`, Body: json.RawMessage(`{"groups":[]}`)}
-	}
-	caller := &recordingManagementCaller{responses: []*apicall.Response{emptyResponse(), emptyResponse(), emptyResponse()}}
+	emptyResponse := quotaAPIResponse(200, `{"groups":[]}`)
+	caller := &recordingManagementCaller{responses: []*apicall.Response{emptyResponse, emptyResponse, emptyResponse}}
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewAntigravityProvider(caller, configs.Antigravity, configs.AntigravitySubscriptions)
 
 	output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{
 		Identity:  "ag-auth",
-		ProjectID: stringPtr("project-123"),
+		ProjectID: new("project-123"),
 	}})
 	if err != nil {
 		t.Fatalf("expected successful empty quota, got error: %v", err)
@@ -191,17 +181,13 @@ func TestAntigravityProviderReturnsSuccessfulEmptyQuotaAfterAllEndpoints(t *test
 
 func TestAntigravityProviderNormalizesFiniteQuotaFractions(t *testing.T) {
 	body := `{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"percent","window":"5h","remainingFraction":"72%"},{"bucketId":"nan","window":"5h","remainingFraction":"NaN"},{"bucketId":"infinity","window":"5h","remainingFraction":"+Inf"},{"bucketId":"invalid","window":"5h","remainingFraction":"not-a-number"},{"bucketId":"decimal","window":"weekly","remainingFraction":0.5}]}]}`
-	caller := &recordingManagementCaller{responses: []*apicall.Response{{
-		StatusCode: 200,
-		BodyText:   body,
-		Body:       json.RawMessage(body),
-	}}}
+	caller := &recordingManagementCaller{responses: []*apicall.Response{quotaAPIResponse(200, body)}}
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewAntigravityProvider(caller, configs.Antigravity[:1], configs.AntigravitySubscriptions)
 
 	output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{
 		Identity:  "ag-auth",
-		ProjectID: stringPtr("project-123"),
+		ProjectID: new("project-123"),
 	}})
 	if err != nil {
 		t.Fatalf("Check returned error: %v", err)
@@ -223,17 +209,13 @@ func TestAntigravityProviderNormalizesFiniteQuotaFractions(t *testing.T) {
 }
 
 func TestAntigravityProviderReturnsTargetErrorMessage(t *testing.T) {
-	caller := &recordingManagementCaller{responses: []*apicall.Response{{
-		StatusCode: 500,
-		BodyText:   `{"error":"backend unavailable"}`,
-		Body:       json.RawMessage(`{"error":"backend unavailable"}`),
-	}}}
+	caller := &recordingManagementCaller{responses: []*apicall.Response{quotaAPIResponse(500, `{"error":"backend unavailable"}`)}}
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewAntigravityProvider(caller, configs.Antigravity[:1], configs.AntigravitySubscriptions)
 
 	_, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{
 		Identity:  "ag-auth",
-		ProjectID: stringPtr("project-123"),
+		ProjectID: new("project-123"),
 	}})
 	if err == nil || err.Error() != "HTTP 500: backend unavailable" {
 		t.Fatalf("expected target HTTP message, got %v", err)
@@ -255,14 +237,14 @@ func TestAntigravityProviderKeepsQuotaWhenSubscriptionIsUnavailable(t *testing.T
 		t.Run(test.name, func(t *testing.T) {
 			quotaBody := `{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":0.6}]}]}`
 			caller := &recordingManagementCaller{responses: []*apicall.Response{
-				{StatusCode: 200, BodyText: quotaBody, Body: json.RawMessage(quotaBody)},
+				quotaAPIResponse(200, quotaBody),
 				test.response,
 				test.response,
 			}}
 			configs := quota.DefaultProviderConfigs()
 			provider := quota.NewAntigravityProvider(caller, configs.Antigravity[:1], configs.AntigravitySubscriptions)
 
-			output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "ag-auth", ProjectID: stringPtr("project-123")}})
+			output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "ag-auth", ProjectID: new("project-123")}})
 			if err != nil {
 				t.Fatalf("Check returned error: %v", err)
 			}
@@ -280,12 +262,12 @@ func TestAntigravityProviderKeepsQuotaWhenSubscriptionIsUnavailable(t *testing.T
 func TestAntigravityProviderSkipsSubscriptionWhenQuotaFails(t *testing.T) {
 	caller := &recordingManagementCaller{responses: []*apicall.Response{
 		{StatusCode: 200, BodyText: `not-json`, Body: json.RawMessage(`null`)},
-		{StatusCode: 200, BodyText: `{}`, Body: json.RawMessage(`{}`)},
+		quotaAPIResponse(200, `{}`),
 	}}
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewAntigravityProvider(caller, configs.Antigravity[:1], configs.AntigravitySubscriptions)
 
-	_, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "ag-auth", ProjectID: stringPtr("project-123")}})
+	_, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "ag-auth", ProjectID: new("project-123")}})
 	if err == nil {
 		t.Fatal("expected quota failure")
 	}
@@ -304,7 +286,7 @@ func (c *antigravitySubscriptionContextCaller) CallManagementAPI(ctx context.Con
 	c.calls++
 	if c.calls == 1 {
 		body := `{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":0.6}]}]}`
-		return &apicall.Response{StatusCode: 200, BodyText: body, Body: json.RawMessage(body)}, nil
+		return quotaAPIResponse(200, body), nil
 	}
 	deadline, _ := ctx.Deadline()
 	c.subscriptionDeadlines = append(c.subscriptionDeadlines, deadline)
@@ -334,7 +316,7 @@ func TestAntigravityProviderBoundsOptionalSubscriptionContext(t *testing.T) {
 			configs := quota.DefaultProviderConfigs()
 			provider := quota.NewAntigravityProvider(caller, configs.Antigravity[:1], configs.AntigravitySubscriptions)
 
-			output, err := provider.Check(ctx, quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "ag-auth", ProjectID: stringPtr("project-123")}})
+			output, err := provider.Check(ctx, quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "ag-auth", ProjectID: new("project-123")}})
 			if err != nil {
 				t.Fatalf("Check returned error: %v", err)
 			}

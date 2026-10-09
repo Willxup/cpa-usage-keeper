@@ -2,7 +2,7 @@ package test
 
 import (
 	"path/filepath"
-	"sort"
+	"slices"
 	"testing"
 	"time"
 
@@ -19,10 +19,13 @@ func TestQuotaHistoryFreshDatabaseCreatesConstrainedGenericSchema(t *testing.T) 
 	if err != nil {
 		t.Fatalf("open fresh quota history database: %v", err)
 	}
-	closeCodexQuotaHistoryDatabase(t, db)
+	closeMigrationTestDatabase(t, db)
 
 	if !db.Migrator().HasTable(&entities.QuotaCycle{}) || !db.Migrator().HasTable(&entities.QuotaPercentSegment{}) {
 		t.Fatal("expected generic quota history tables in fresh database")
+	}
+	if db.Migrator().HasTable("codex_quota_cycles") || db.Migrator().HasTable("codex_quota_percent_segments") {
+		t.Fatal("fresh database must not create legacy Codex quota history tables")
 	}
 	assertQuotaHistoryIndexNames(t, db, "quota_cycles", []string{"uniq_quota_cycles_identity"})
 	assertQuotaHistoryIndexNames(t, db, "quota_percent_segments", []string{"uniq_quota_percent_segments_cycle_percent"})
@@ -49,18 +52,21 @@ func assertQuotaHistoryDatabaseConstraints(t *testing.T, db *gorm.DB) {
 		t.Fatalf("insert valid quota cycle: %v", err)
 	}
 
-	invalidCycles := []entities.QuotaCycle{
-		quotaHistoryCycleMutation(validCycle, "empty-provider", func(cycle *entities.QuotaCycle) { cycle.Provider = "" }),
-		quotaHistoryCycleMutation(validCycle, "empty-auth", func(cycle *entities.QuotaCycle) { cycle.AuthIndex = "" }),
-		quotaHistoryCycleMutation(validCycle, "empty-key", func(cycle *entities.QuotaCycle) { cycle.QuotaKey = "" }),
-		quotaHistoryCycleMutation(validCycle, "invalid-source", func(cycle *entities.QuotaCycle) { cycle.ResetAtSource = "guessed" }),
-		quotaHistoryCycleMutation(validCycle, "invalid-seconds", func(cycle *entities.QuotaCycle) { cycle.WindowSeconds = 0 }),
-		quotaHistoryCycleMutation(validCycle, "invalid-window-bounds", func(cycle *entities.QuotaCycle) { cycle.WindowStartedAt = cycle.ResetAt }),
-		quotaHistoryCycleMutation(validCycle, "invalid-observed-bounds", func(cycle *entities.QuotaCycle) { cycle.FirstObservedAt = cycle.LastObservedAt.Add(time.Second) }),
-	}
-	for _, invalidCycle := range invalidCycles {
-		if err := db.Create(&invalidCycle).Error; err == nil {
-			t.Fatalf("expected invalid quota cycle to be rejected: %+v", invalidCycle)
+	for name, mutate := range map[string]func(*entities.QuotaCycle){
+		"empty-provider":          func(cycle *entities.QuotaCycle) { cycle.Provider = "" },
+		"empty-auth":              func(cycle *entities.QuotaCycle) { cycle.AuthIndex = "" },
+		"empty-key":               func(cycle *entities.QuotaCycle) { cycle.QuotaKey = "" },
+		"invalid-source":          func(cycle *entities.QuotaCycle) { cycle.ResetAtSource = "guessed" },
+		"invalid-seconds":         func(cycle *entities.QuotaCycle) { cycle.WindowSeconds = 0 },
+		"invalid-window-bounds":   func(cycle *entities.QuotaCycle) { cycle.WindowStartedAt = cycle.ResetAt },
+		"invalid-observed-bounds": func(cycle *entities.QuotaCycle) { cycle.FirstObservedAt = cycle.LastObservedAt.Add(time.Second) },
+	} {
+		invalid := validCycle
+		invalid.ID = 0
+		invalid.AuthIndex += "-" + name
+		mutate(&invalid)
+		if err := db.Create(&invalid).Error; err == nil {
+			t.Errorf("expected %s quota cycle to be rejected", name)
 		}
 	}
 	duplicateCycle := validCycle
@@ -79,24 +85,27 @@ func assertQuotaHistoryDatabaseConstraints(t *testing.T, db *gorm.DB) {
 	if err := db.Create(&validSegment).Error; err != nil {
 		t.Fatalf("insert valid quota percent segment: %v", err)
 	}
-	invalidSegments := []entities.QuotaPercentSegment{
-		quotaHistorySegmentMutation(validSegment, func(segment *entities.QuotaPercentSegment) { segment.RemainingPercent = -1 }),
-		quotaHistorySegmentMutation(validSegment, func(segment *entities.QuotaPercentSegment) { segment.RemainingPercent = 101 }),
-		quotaHistorySegmentMutation(validSegment, func(segment *entities.QuotaPercentSegment) { segment.ObservationCount = -1 }),
-		quotaHistorySegmentMutation(validSegment, func(segment *entities.QuotaPercentSegment) {
+	for name, mutate := range map[string]func(*entities.QuotaPercentSegment){
+		"negative-percent": func(segment *entities.QuotaPercentSegment) { segment.RemainingPercent = -1 },
+		"excess-percent":   func(segment *entities.QuotaPercentSegment) { segment.RemainingPercent = 101 },
+		"negative-count":   func(segment *entities.QuotaPercentSegment) { segment.ObservationCount = -1 },
+		"reversed-observations": func(segment *entities.QuotaPercentSegment) {
 			segment.FirstObservedAt = segment.LastObservedAt.Add(time.Second)
-		}),
-		quotaHistorySegmentMutation(validSegment, func(segment *entities.QuotaPercentSegment) { segment.CycleID = validCycle.ID + 1000 }),
-	}
-	for _, invalidSegment := range invalidSegments {
-		if err := db.Create(&invalidSegment).Error; err == nil {
-			t.Fatalf("expected invalid quota percent segment to be rejected: %+v", invalidSegment)
+		},
+		"missing-cycle": func(segment *entities.QuotaPercentSegment) { segment.CycleID = validCycle.ID + 1000 },
+	} {
+		invalid := validSegment
+		invalid.ID = 0
+		invalid.RemainingPercent = 76
+		mutate(&invalid)
+		if err := db.Create(&invalid).Error; err == nil {
+			t.Errorf("expected %s quota percent segment to be rejected", name)
 		}
 	}
 	if err := db.Exec(`INSERT INTO quota_percent_segments
 		(cycle_id, remaining_percent, first_observed_at, last_observed_at, observation_count, created_at, updated_at)
 		VALUES (?, ?, ?, ?, 0, ?, ?)`,
-		validCycle.ID, 76, validCycle.FirstObservedAt, validCycle.LastObservedAt, time.Now(), time.Now()).Error; err == nil {
+		validCycle.ID, 76, validCycle.FirstObservedAt, validCycle.LastObservedAt, resetAt, resetAt).Error; err == nil {
 		t.Fatal("expected explicit zero observation count to be rejected")
 	}
 	duplicateSegment := validSegment
@@ -106,43 +115,14 @@ func assertQuotaHistoryDatabaseConstraints(t *testing.T, db *gorm.DB) {
 	}
 }
 
-func quotaHistoryCycleMutation(base entities.QuotaCycle, suffix string, mutate func(*entities.QuotaCycle)) entities.QuotaCycle {
-	candidate := base
-	candidate.ID = 0
-	candidate.AuthIndex += "-" + suffix
-	mutate(&candidate)
-	return candidate
-}
-
-func quotaHistorySegmentMutation(base entities.QuotaPercentSegment, mutate func(*entities.QuotaPercentSegment)) entities.QuotaPercentSegment {
-	candidate := base
-	candidate.ID = 0
-	candidate.RemainingPercent = 76
-	mutate(&candidate)
-	return candidate
-}
-
 func assertQuotaHistoryIndexNames(t *testing.T, db *gorm.DB, table string, expected []string) {
 	t.Helper()
-	var rows []struct {
-		Name string `gorm:"column:name"`
-	}
-	if err := db.Raw("PRAGMA index_list('" + table + "')").Scan(&rows).Error; err != nil {
+	var actual []string
+	if err := db.Raw("SELECT name FROM pragma_index_list(?) ORDER BY name", table).Scan(&actual).Error; err != nil {
 		t.Fatalf("list %s indexes: %v", table, err)
 	}
-	actual := make([]string, 0, len(rows))
-	for _, row := range rows {
-		actual = append(actual, row.Name)
-	}
-	sort.Strings(actual)
-	sort.Strings(expected)
-	if len(actual) != len(expected) {
+	if !slices.Equal(actual, expected) {
 		t.Fatalf("expected %s indexes %v, got %v", table, expected, actual)
-	}
-	for index := range expected {
-		if actual[index] != expected[index] {
-			t.Fatalf("expected %s indexes %v, got %v", table, expected, actual)
-		}
 	}
 }
 
@@ -171,13 +151,4 @@ func assertQuotaHistoryMigrationApplied(t *testing.T, db *gorm.DB) {
 	if count != 1 {
 		t.Fatalf("expected one quota history rebuild migration record, got %d", count)
 	}
-}
-
-func closeCodexQuotaHistoryDatabase(t *testing.T, db *gorm.DB) {
-	t.Helper()
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("get quota history sql database: %v", err)
-	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
 }

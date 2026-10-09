@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import {
   exitRanking,
   fetchKeyLocalRankingLeaderboard,
@@ -15,28 +15,20 @@ import {
   updateLocalRankingProfile,
 } from '../api';
 
-const jsonResponse = (body: unknown, status = 200, headers?: HeadersInit) => new Response(
-  JSON.stringify(body),
-  { status, headers: { 'Content-Type': 'application/json', ...headers } },
-);
-
 describe('ranking API', () => {
+  let fetchMock: MockInstance<typeof fetch>;
+
+  beforeEach(() => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper/' });
+    fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({}));
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
   it('uses the Keeper base path and exact leaderboard selection', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper/' });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => jsonResponse({
-      period: 'today',
-      period_key: '2026-07-24',
-      metric: 'overall',
-      generated_at: '2026-07-24T04:05:06Z',
-      stale: false,
-      entries: [],
-    }));
-
     await fetchRankingLeaderboard('today', 'overall');
 
     const [rawURL, init] = fetchMock.mock.calls[0];
@@ -47,16 +39,6 @@ describe('ranking API', () => {
   });
 
   it('uses the dedicated local leaderboard endpoint', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper/' });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({
-      period: 'today',
-      period_key: '2026-07-31',
-      metric: 'overall',
-      generated_at: '2026-07-31T04:00:00Z',
-      stale: false,
-      entries: [],
-    }));
-
     await fetchLocalRankingLeaderboard('today', 'overall');
 
     const [rawURL, init] = fetchMock.mock.calls[0];
@@ -67,16 +49,6 @@ describe('ranking API', () => {
   });
 
   it('uses dedicated read-only API Key Viewer leaderboard endpoints', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper/' });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => jsonResponse({
-      period: 'today',
-      period_key: '2026-08-28',
-      metric: 'overall',
-      generated_at: '2026-08-28T04:00:00Z',
-      stale: false,
-      entries: [],
-    }));
-
     await fetchKeyRankingLeaderboard('today', 'overall');
     await fetchKeyLocalRankingLeaderboard('today', 'overall');
 
@@ -98,14 +70,6 @@ describe('ranking API', () => {
       location: { search: '?embed=cpamc' },
       sessionStorage,
     });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({
-      period: 'today',
-      period_key: '2026-08-28',
-      metric: 'overall',
-      generated_at: '2026-08-28T04:00:00Z',
-      stale: false,
-      entries: [],
-    }));
 
     await fetchKeyRankingLeaderboard('today', 'overall');
 
@@ -115,26 +79,17 @@ describe('ranking API', () => {
   });
 
   it('updates a local Key profile through the dedicated admin endpoint', async () => {
-	vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper/' });
-	const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({
-		participant_id: '42',
-		key_alias: 'Primary',
-		display_name: 'Primary',
-		avatar_id: 17,
-	}));
+    await updateLocalRankingProfile('42', { key_alias: 'Primary', avatar_id: 17 });
 
-	await updateLocalRankingProfile('42', { key_alias: 'Primary', avatar_id: 17 });
-
-	const [rawURL, init] = fetchMock.mock.calls[0];
-	expect(new URL(String(rawURL), 'http://localhost').pathname).toBe('/keeper/api/v1/ranking/local/profiles/42');
-	expect(init).toMatchObject({ method: 'PATCH', credentials: 'include', cache: 'no-store' });
-	expect(new Headers(init?.headers).get('X-CPA-Usage-Keeper-Request')).toBe('fetch');
-	expect(init?.body).toBe(JSON.stringify({ key_alias: 'Primary', avatar_id: 17 }));
+    const [rawURL, init] = fetchMock.mock.calls[0];
+    expect(new URL(String(rawURL), 'http://localhost').pathname).toBe('/keeper/api/v1/ranking/local/profiles/42');
+    expect(init).toMatchObject({ method: 'PATCH', credentials: 'include', cache: 'no-store' });
+    expect(new Headers(init?.headers).get('X-CPA-Usage-Keeper-Request')).toBe('fetch');
+    expect(init?.body).toBe(JSON.stringify({ key_alias: 'Primary', avatar_id: 17 }));
   });
 
   it('uses the local admin endpoints and request-intent header for every mutation', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => jsonResponse({ status: 'active' }));
 
     await fetchRankingStatus();
     await fetchRankingMetadata();
@@ -162,10 +117,9 @@ describe('ranking API', () => {
 
   it('preserves the server error code and Retry-After for actionable feedback', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(
+    fetchMock.mockResolvedValue(Response.json(
       { error: 'ranking_center_registration_rate_limited' },
-      429,
-      { 'Retry-After': '3599' },
+      { status: 429, headers: { 'Retry-After': '3599' } },
     ));
 
     await expect(joinRanking({ display_name: 'Keeper_01', avatar_id: 7 })).rejects.toMatchObject({

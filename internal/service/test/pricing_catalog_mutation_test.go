@@ -18,7 +18,7 @@ import (
 )
 
 func TestPricingCatalogListReadsImmutableSnapshotInsteadOfDatabase(t *testing.T) {
-	db := openPricingServiceTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	seedPricingCatalogPrice(t, db, "model-a", 1)
 	pricingProvider, catalog := newCatalogPricingService(t, db)
 
@@ -34,7 +34,7 @@ func TestPricingCatalogListReadsImmutableSnapshotInsteadOfDatabase(t *testing.T)
 }
 
 func TestPricingMutationPublishesUpdateAndDeleteOnlyAfterCommit(t *testing.T) {
-	db := openPricingServiceTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	pricingProvider, catalog := newCatalogPricingService(t, db)
 
 	setting, err := pricingProvider.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
@@ -66,7 +66,7 @@ func TestPricingMutationPublishesUpdateAndDeleteOnlyAfterCommit(t *testing.T) {
 }
 
 func TestPricingBatchMutationPublishesAllModelsTogether(t *testing.T) {
-	db := openPricingServiceTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	pricingProvider, catalog := newCatalogPricingService(t, db)
 	ruleSnapshotQueries := 0
 	const callbackName = "test:count-batch-pricing-rule-snapshot-loads"
@@ -99,7 +99,7 @@ func TestPricingBatchMutationPublishesAllModelsTogether(t *testing.T) {
 }
 
 func TestPricingBatchMutationRollsBackEveryModelWhenCandidateIsInvalid(t *testing.T) {
-	db := openPricingServiceTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	seedPricingCatalogPrice(t, db, "model-a", 1)
 	seedPricingCatalogPrice(t, db, "model-b", 1)
 	pricingProvider, catalog := newCatalogPricingService(t, db)
@@ -118,17 +118,15 @@ func TestPricingBatchMutationRollsBackEveryModelWhenCandidateIsInvalid(t *testin
 }
 
 func TestPricingRulesMutationPublishesNormalizedCompleteCollection(t *testing.T) {
-	db := openPricingServiceTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	seedPricingCatalogPrice(t, db, "model-a", 2)
 	pricingProvider, catalog := newCatalogPricingService(t, db)
-	two := 2.0
-	three := 3.0
 
 	rules, err := pricingProvider.ReplacePricingRules(context.Background(), servicedto.ReplacePricingRulesInput{
 		Model: " model-a ",
 		Rules: []servicedto.PricingRuleInput{
-			{Key: " SERVICE_TIER ", Value: " priority ", Multiplier: &two},
-			{Key: "reasoning_effort", Value: " xhigh ", Multiplier: &three},
+			{Key: " SERVICE_TIER ", Value: " priority ", Multiplier: new(2.0)},
+			{Key: "reasoning_effort", Value: " xhigh ", Multiplier: new(3.0)},
 		},
 	})
 	if err != nil {
@@ -145,7 +143,7 @@ func TestPricingRulesMutationPublishesNormalizedCompleteCollection(t *testing.T)
 		t.Fatalf("unexpected cached rules: %+v", listed)
 	}
 	result := catalog.NewResolver().Calculate(pricing.NewCostSubject(pricing.UsageDimensions{Model: "model-a", ServiceTier: "priority", ReasoningEffort: "xhigh"}, helper.UsageTokenCostInput{InputTokens: 1_000_000}))
-	if !result.Available || result.Cost.TotalCostUSD != 12 {
+	if !result.Available || !(math.Abs(result.Cost.TotalCostUSD-12) <= 1e-9) {
 		t.Fatalf("expected price 2 * rule 2 * rule 3, got %+v", result)
 	}
 
@@ -160,7 +158,7 @@ func TestPricingRulesMutationPublishesNormalizedCompleteCollection(t *testing.T)
 }
 
 func TestPricingMutationCandidateCompileFailureRollsBackDatabaseAndCatalog(t *testing.T) {
-	db := openPricingServiceTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	seedPricingCatalogPrice(t, db, "model-a", 1)
 	pricingProvider, catalog := newCatalogPricingService(t, db)
 
@@ -176,7 +174,7 @@ func TestPricingMutationCandidateCompileFailureRollsBackDatabaseAndCatalog(t *te
 }
 
 func TestPricingMutationCommitFailureKeepsPreviousCatalog(t *testing.T) {
-	db := openPricingServiceTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	seedPricingCatalogPrice(t, db, "model-a", 1)
 	pricingProvider, catalog := newCatalogPricingService(t, db)
 	if err := db.Exec(`CREATE TABLE pricing_commit_failure_probe (
@@ -202,20 +200,17 @@ func TestPricingMutationCommitFailureKeepsPreviousCatalog(t *testing.T) {
 }
 
 func TestPricingMutationConcurrentWritesLeaveDatabaseAndCatalogConsistent(t *testing.T) {
-	db := openPricingServiceTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	seedPricingCatalogPrice(t, db, "model-a", 1)
 	pricingProvider, catalog := newCatalogPricingService(t, db)
 
 	var wg sync.WaitGroup
 	errors := make(chan error, 2)
 	for _, prompt := range []float64{2, 3} {
-		prompt := prompt
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, err := pricingProvider.UpdatePricing(context.Background(), servicedto.UpdatePricingInput{Model: "model-a", PromptPricePer1M: prompt})
 			errors <- err
-		}()
+		})
 	}
 	wg.Wait()
 	close(errors)
@@ -263,7 +258,7 @@ func assertPricingDatabasePrompt(t *testing.T, db *gorm.DB, model string, want f
 func assertPricingCatalogCost(t *testing.T, catalog *pricing.Catalog, model string, want float64) {
 	t.Helper()
 	result := catalog.NewResolver().Calculate(pricing.NewCostSubject(pricing.UsageDimensions{Model: model}, helper.UsageTokenCostInput{InputTokens: 1_000_000}))
-	if !result.Available || result.Cost.TotalCostUSD != want {
+	if !result.Available || !(math.Abs(result.Cost.TotalCostUSD-want) <= 1e-9) {
 		t.Fatalf("catalog cost for %q = %+v, want %v", model, result, want)
 	}
 }

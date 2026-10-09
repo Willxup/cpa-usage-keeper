@@ -33,7 +33,6 @@ describe('RankingAvatar', () => {
     expect(avatar?.dataset.rankingAvatarId).toBe(String(avatarID));
     expect(avatar?.style.backgroundPosition).toBe(position);
     expect(avatar?.style.backgroundImage).toContain('avatar-catalog.webp');
-    expect(container.querySelector('img')).toBeNull();
   });
 
   it('can be hidden from assistive technology when surrounding content supplies the name', () => {

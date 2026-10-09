@@ -2,7 +2,7 @@ package providermetadata
 
 import "fmt"
 
-// providerSources 按用户指定优先级显式构造七个来源，不使用 init 或动态注册。
+// providerSources 按用户指定优先级显式构造八个来源，不使用 init 或动态注册。
 func providerSources() []source {
 	// 每次返回新 slice，避免调用方或测试意外修改全局 registry 状态。
 	return []source{
@@ -18,6 +18,8 @@ func providerSources() []source {
 		claudeSource(),
 		// Vertex 使用 CPA 正确拼写并排在 OpenAI 前。
 		vertexSource(),
+		// Meta API Key 使用独立 provider type 并排在 OpenAI 前。
+		metaSource(),
 		// OpenAI Compatibility 最后归并 provider 层与多 key entry。
 		openAICompatibilitySource(),
 	}

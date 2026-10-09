@@ -3,8 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { ApiError, fetchKeyAnalysis, fetchKeyAnalysisLatency, isUsageRangeBoundsConflict } from '@/lib/api';
 import type { AnalysisLatencyDiagnostics, AnalysisResponse, AuthSessionAPIKeySummary, UsageCustomRange, UsageTimeRange } from '@/lib/types';
 import { AnalysisPanel, TimeRangeControl } from '@/components/usage';
-import { MainActionButton } from '@/components/ui/MainActionButton';
-import { IconRefreshCw } from '@/components/ui/icons';
 import { KeyViewerShell } from '@/features/key-viewer/KeyViewerShell';
 import type { KeyViewerPath } from '@/features/key-viewer/navigation';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
@@ -150,45 +148,15 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
 
   const displayAnalysisError = analysisError ? t('key_analysis.load_failed') : '';
   const displayLatencyError = latencyError ? t('key_analysis.latency_load_failed') : '';
-  const toolbar = (
-    <>
-      <div className={styles.usageFilterBar}>
-        <TimeRangeControl
-          value={timeRange}
-          customRange={customRange}
-          timeZone={rangeTimeZone}
-          onChange={handleTimeRangeChange}
-          ariaLabel={t('usage_stats.range_filter')}
-        />
-      </div>
-      <div className={styles.usageRefreshSlot}>
-        <div className={styles.usageFilterActions}>
-          <MainActionButton
-            type="button"
-            shellClassName={styles.refreshMainActionShell}
-            className={styles.refreshMainActionButton}
-            onClick={() => void handleManualRefresh()}
-            disabled={manualRefreshLoading}
-            loading={manualRefreshLoading}
-          >
-            {manualRefreshLoading ? t('common.loading') : (
-              <>
-                <IconRefreshCw size={14} />
-                <span>{t('usage_stats.refresh')}</span>
-              </>
-            )}
-          </MainActionButton>
-        </div>
-      </div>
-    </>
-  );
 
   return (
     <KeyViewerShell
       activePage="analysis"
       apiKey={apiKey}
       loading={analysisLoading && !analysis}
-      toolbar={toolbar}
+      filters={[<TimeRangeControl key="range" value={timeRange} customRange={customRange} timeZone={rangeTimeZone} onChange={handleTimeRangeChange} ariaLabel={t('usage_stats.range_filter')} labelInsideTrigger />]}
+      onRefresh={() => void handleManualRefresh()}
+      refreshing={manualRefreshLoading}
       onNavigate={onNavigate}
       onAuthRequired={onAuthRequired}
     >
@@ -208,7 +176,7 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
         latencyError={displayLatencyError}
         isDark={isDark}
         isMobile={isMobile}
-        compositionDimensions={['api_key', 'model']}
+        compositionDimensions={['model']}
       />
     </KeyViewerShell>
   );

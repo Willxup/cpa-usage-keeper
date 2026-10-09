@@ -11,18 +11,15 @@ import (
 func TestCompileSnapshotNormalizesRulesAndExcludesIdentityRulesFromActiveFields(t *testing.T) {
 	t.Parallel()
 
-	snapshot, err := pricing.CompileSnapshot([]pricing.ModelConfig{{
+	snapshot := compileSnapshot(t, pricing.ModelConfig{
 		Pricing: testPricing(" model-b ", 2),
 		Rules: []pricing.RuleConfig{
 			{Key: " SERVICE_TIER ", Value: " priority ", Multiplier: 2},
 			{Key: "reasoning_effort", Value: " xhigh ", Multiplier: 1},
 		},
-	}, {
+	}, pricing.ModelConfig{
 		Pricing: testPricing("model-a", 1),
-	}})
-	if err != nil {
-		t.Fatalf("CompileSnapshot returned error: %v", err)
-	}
+	})
 
 	active := snapshot.ActiveFields()
 	if !active.Has(pricing.RuleFieldServiceTier) {
@@ -56,10 +53,7 @@ func TestCompileSnapshotDefensivelyCopiesInputsAndOutputs(t *testing.T) {
 		},
 		Rules: []pricing.RuleConfig{{Key: "service_tier", Value: "priority", Multiplier: 2}},
 	}}
-	snapshot, err := pricing.CompileSnapshot(configs)
-	if err != nil {
-		t.Fatalf("CompileSnapshot returned error: %v", err)
-	}
+	snapshot := compileSnapshot(t, configs...)
 
 	configs[0].Pricing.Model = "mutated"
 	multiplier = 100
@@ -95,7 +89,6 @@ func TestCompileSnapshotRejectsInvalidModelsPricesAndRules(t *testing.T) {
 		{"duplicate normalized rule", []pricing.ModelConfig{{Pricing: testPricing("model", 1), Rules: []pricing.RuleConfig{{Key: "service_tier", Value: "priority", Multiplier: 2}, {Key: " SERVICE_TIER ", Value: " priority ", Multiplier: 3}}}}},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if _, err := pricing.CompileSnapshot(tt.configs); err == nil {

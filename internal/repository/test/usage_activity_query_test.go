@@ -136,10 +136,8 @@ func TestQueryUsageActivityGridReadsRequestHealthWithoutLegacyTable(t *testing.T
 	if err := repository.AggregateUsageActivityStats(context.Background(), db, end); err != nil {
 		t.Fatalf("aggregate Activity stats: %v", err)
 	}
-	if db.Migrator().HasTable("usage_overview_health_stats") {
-		if err := db.Migrator().DropTable("usage_overview_health_stats"); err != nil {
-			t.Fatalf("drop legacy health table: %v", err)
-		}
+	if err := db.Migrator().DropTable("usage_overview_health_stats"); err != nil {
+		t.Fatalf("drop legacy health table: %v", err)
 	}
 
 	// 执行：独立查询在旧 Health 表不存在时读取 medium Activity。

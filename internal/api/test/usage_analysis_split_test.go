@@ -3,10 +3,10 @@ package test
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	. "cpa-usage-keeper/internal/api"
@@ -15,36 +15,13 @@ import (
 )
 
 type analysisSplitStub struct {
+	service.UsageProvider
 	analysis       *servicedto.AnalysisSnapshot
 	latency        *servicedto.AnalysisLatencyDiagnostics
 	analysisCalls  int
 	latencyCalls   int
 	analysisFilter servicedto.UsageFilter
 	latencyFilter  servicedto.UsageFilter
-}
-
-func (s *analysisSplitStub) GetUsageOverview(context.Context, servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
-	return nil, nil
-}
-
-func (s *analysisSplitStub) GetUsageActivity(context.Context, servicedto.UsageFilter) (*servicedto.UsageActivitySnapshot, error) {
-	return nil, nil
-}
-
-func (s *analysisSplitStub) GetUsageOverviewRealtime(context.Context, servicedto.UsageFilter) (*servicedto.UsageOverviewRealtime, error) {
-	return nil, nil
-}
-
-func (s *analysisSplitStub) ListUsageEvents(context.Context, servicedto.UsageFilter) (*servicedto.UsageEventsPage, error) {
-	return nil, nil
-}
-
-func (s *analysisSplitStub) StreamUsageEvents(context.Context, servicedto.UsageFilter, func(servicedto.UsageEventRecord) error) error {
-	return nil
-}
-
-func (s *analysisSplitStub) ListUsageEventFilterOptions(context.Context, servicedto.UsageFilter) (*servicedto.UsageEventFilterOptions, error) {
-	return nil, nil
 }
 
 func (s *analysisSplitStub) GetAnalysis(_ context.Context, filter servicedto.UsageFilter) (*servicedto.AnalysisSnapshot, error) {
@@ -65,8 +42,7 @@ func TestUsageAnalysisCoreOmitsLatencyDiagnostics(t *testing.T) {
 		TokenUsage:  []servicedto.AnalysisTokenUsageBucket{},
 	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/usage/analysis?range=24h", nil))
+	response := serveAPIGet(router, "/api/v1/usage/analysis?range=24h")
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", response.Code)
@@ -89,8 +65,7 @@ func TestUsageAnalysisLatencyUsesIndependentRoute(t *testing.T) {
 		MaxLatencyMS: 800,
 	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/usage/analysis/latency?range=24h", nil))
+	response := serveAPIGet(router, "/api/v1/usage/analysis/latency?range=24h")
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", response.Code, response.Body.String())
@@ -112,8 +87,7 @@ func TestUsageAnalysisAcceptsCustomDayRangeOlderThanThirtyDays(t *testing.T) {
 	startDay := today.AddDate(0, 0, -120)
 	provider := &analysisSplitStub{analysis: &servicedto.AnalysisSnapshot{}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, analysisCustomDayURL("/api/v1/usage/analysis", startDay, today), nil))
+	response := serveAPIGet(router, analysisCustomDayURL("/api/v1/usage/analysis", startDay, today))
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("expected long custom Analysis range to return 200, got %d: %s", response.Code, response.Body.String())
@@ -126,69 +100,39 @@ func TestUsageAnalysisAcceptsCustomDayRangeOlderThanThirtyDays(t *testing.T) {
 	}
 }
 
-func TestUsageAnalysisLatencyOlderThanThirtyDaysStillCallsProvider(t *testing.T) {
+func TestUsageAnalysisLatencyCustomDayBounds(t *testing.T) {
 	today := analysisLocalToday()
-	historicalDay := today.AddDate(0, 0, -120)
-	provider := &analysisSplitStub{latency: &servicedto.AnalysisLatencyDiagnostics{}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, analysisCustomDayURL("/api/v1/usage/analysis/latency", historicalDay, historicalDay), nil))
-
-	if response.Code != http.StatusOK {
-		t.Fatalf("expected historical latency range to return 200, got %d: %s", response.Code, response.Body.String())
-	}
-	body := response.Body.String()
-	if !strings.Contains(body, `"supported":true`) || strings.Contains(body, `"unsupported_reason"`) {
-		t.Fatalf("expected historical latency range to stay supported, got %s", body)
-	}
-	if provider.latencyCalls != 1 || provider.latencyFilter.RangeCount != 1 || provider.latencyFilter.CustomUnit != "day" {
-		t.Fatalf("expected historical latency range to reach provider once, got calls=%d filter=%+v", provider.latencyCalls, provider.latencyFilter)
-	}
-}
-
-func TestUsageAnalysisLatencySupportsThreeHundredSixtyFiveDaysAndRejectsThreeHundredSixtySix(t *testing.T) {
-	today := analysisLocalToday()
-	provider := &analysisSplitStub{latency: &servicedto.AnalysisLatencyDiagnostics{}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-
-	supportedResponse := httptest.NewRecorder()
-	router.ServeHTTP(supportedResponse, httptest.NewRequest(http.MethodGet, analysisCustomDayURL(
-		"/api/v1/usage/analysis/latency", today.AddDate(0, 0, -364), today,
-	), nil))
-	if supportedResponse.Code != http.StatusOK {
-		t.Fatalf("expected 365-day latency range to return 200, got %d: %s", supportedResponse.Code, supportedResponse.Body.String())
-	}
-	if !strings.Contains(supportedResponse.Body.String(), `"supported":true`) || provider.latencyCalls != 1 || provider.latencyFilter.RangeCount != 365 {
-		t.Fatalf("expected 365-day latency provider call, calls=%d filter=%+v body=%s", provider.latencyCalls, provider.latencyFilter, supportedResponse.Body.String())
-	}
-
-	rejectedResponse := httptest.NewRecorder()
-	router.ServeHTTP(rejectedResponse, httptest.NewRequest(http.MethodGet, analysisCustomDayURL(
-		"/api/v1/usage/analysis/latency", today.AddDate(0, 0, -365), today,
-	), nil))
-	if rejectedResponse.Code != http.StatusBadRequest {
-		t.Fatalf("expected 366-day latency range to be rejected by the shared parser, got %d: %s", rejectedResponse.Code, rejectedResponse.Body.String())
-	}
-	if provider.latencyCalls != 1 {
-		t.Fatalf("expected rejected 366-day range not to call provider, got %d calls", provider.latencyCalls)
-	}
-}
-
-func TestUsageAnalysisLatencySupportsCustomRangeWithinRecentThirtyDays(t *testing.T) {
-	today := analysisLocalToday()
-	provider := &analysisSplitStub{latency: &servicedto.AnalysisLatencyDiagnostics{}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, analysisCustomDayURL("/api/v1/usage/analysis/latency", today.AddDate(0, 0, -29), today), nil))
-
-	if response.Code != http.StatusOK {
-		t.Fatalf("expected recent 30-day latency range to return 200, got %d: %s", response.Code, response.Body.String())
-	}
-	if !strings.Contains(response.Body.String(), `"supported":true`) {
-		t.Fatalf("expected supported latency response, got %s", response.Body.String())
-	}
-	if provider.latencyCalls != 1 {
-		t.Fatalf("expected recent latency range to reach provider once, got %d calls", provider.latencyCalls)
+	for _, tc := range []struct {
+		name                         string
+		startOffset, endOffset, days int
+		status                       int
+	}{
+		{"historical day", -120, -120, 1, http.StatusOK},
+		{"recent thirty days", -29, 0, 30, http.StatusOK},
+		{"maximum days", -364, 0, 365, http.StatusOK},
+		{"too many days", -365, 0, 366, http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := &analysisSplitStub{latency: &servicedto.AnalysisLatencyDiagnostics{}}
+			router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
+			response := serveAPIGet(router, analysisCustomDayURL("/api/v1/usage/analysis/latency", today.AddDate(0, 0, tc.startOffset), today.AddDate(0, 0, tc.endOffset)))
+			if response.Code != tc.status {
+				t.Fatalf("status=%d, want %d: %s", response.Code, tc.status, response.Body.String())
+			}
+			if tc.status == http.StatusBadRequest {
+				if provider.latencyCalls != 0 {
+					t.Fatalf("rejected range called provider %d times", provider.latencyCalls)
+				}
+				return
+			}
+			body := response.Body.String()
+			if !strings.Contains(body, `"supported":true`) || strings.Contains(body, `"unsupported_reason"`) {
+				t.Fatalf("expected supported latency response: %s", body)
+			}
+			if provider.latencyCalls != 1 || provider.latencyFilter.RangeCount != tc.days || provider.latencyFilter.CustomUnit != "day" {
+				t.Fatalf("expected %d-day provider call, got calls=%d filter=%+v", tc.days, provider.latencyCalls, provider.latencyFilter)
+			}
+		})
 	}
 }
 
@@ -208,37 +152,35 @@ func analysisCustomDayURL(path string, startDay, endDay time.Time) string {
 }
 
 func TestUsageAnalysisRoutesResolveRollingRangesIndependently(t *testing.T) {
-	provider := &analysisSplitStub{
-		analysis: &servicedto.AnalysisSnapshot{},
-		latency:  &servicedto.AnalysisLatencyDiagnostics{},
-	}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
+	synctest.Test(t, func(t *testing.T) {
+		provider := &analysisSplitStub{
+			analysis: &servicedto.AnalysisSnapshot{},
+			latency:  &servicedto.AnalysisLatencyDiagnostics{},
+		}
+		router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
 
-	coreResponse := httptest.NewRecorder()
-	router.ServeHTTP(coreResponse, httptest.NewRequest(http.MethodGet, "/api/v1/usage/analysis?range=24h", nil))
-	if coreResponse.Code != http.StatusOK {
-		t.Fatalf("expected core status 200, got %d: %s", coreResponse.Code, coreResponse.Body.String())
-	}
+		coreResponse := serveAPIGet(router, "/api/v1/usage/analysis?range=24h")
+		if coreResponse.Code != http.StatusOK {
+			t.Fatalf("expected core status 200, got %d: %s", coreResponse.Code, coreResponse.Body.String())
+		}
 
-	// 两个无状态接口各自使用服务端收到请求的时间，与 Overview 的并行加载保持一致。
-	time.Sleep(5 * time.Millisecond)
-	latencyResponse := httptest.NewRecorder()
-	router.ServeHTTP(latencyResponse, httptest.NewRequest(http.MethodGet, "/api/v1/usage/analysis/latency?range=24h", nil))
-	if latencyResponse.Code != http.StatusOK {
-		t.Fatalf("expected latency status 200, got %d: %s", latencyResponse.Code, latencyResponse.Body.String())
-	}
+		// 两个无状态接口各自使用服务端收到请求的时间，与 Overview 的并行加载保持一致。
+		time.Sleep(time.Second)
+		latencyResponse := serveAPIGet(router, "/api/v1/usage/analysis/latency?range=24h")
+		if latencyResponse.Code != http.StatusOK {
+			t.Fatalf("expected latency status 200, got %d: %s", latencyResponse.Code, latencyResponse.Body.String())
+		}
 
-	if provider.analysisFilter.StartTime == nil || provider.analysisFilter.EndTime == nil || provider.latencyFilter.StartTime == nil || provider.latencyFilter.EndTime == nil {
-		t.Fatalf("expected both routes to resolve time boundaries, core=%+v latency=%+v", provider.analysisFilter, provider.latencyFilter)
-	}
-	if !provider.analysisFilter.StartTime.Before(*provider.latencyFilter.StartTime) || !provider.analysisFilter.EndTime.Before(*provider.latencyFilter.EndTime) {
-		t.Fatalf("expected independently resolved rolling ranges, core=[%s,%s] latency=[%s,%s]",
-			provider.analysisFilter.StartTime.Format(time.RFC3339Nano),
-			provider.analysisFilter.EndTime.Format(time.RFC3339Nano),
-			provider.latencyFilter.StartTime.Format(time.RFC3339Nano),
-			provider.latencyFilter.EndTime.Format(time.RFC3339Nano),
-		)
-	}
+		if provider.analysisFilter.StartTime == nil || provider.analysisFilter.EndTime == nil || provider.latencyFilter.StartTime == nil || provider.latencyFilter.EndTime == nil {
+			t.Fatalf("expected both routes to resolve time boundaries, core=%+v latency=%+v", provider.analysisFilter, provider.latencyFilter)
+		}
+		if !provider.analysisFilter.StartTime.Before(*provider.latencyFilter.StartTime) || !provider.analysisFilter.EndTime.Before(*provider.latencyFilter.EndTime) {
+			t.Fatalf("expected independently resolved rolling ranges, core=[%s,%s] latency=[%s,%s]",
+				provider.analysisFilter.StartTime.Format(time.RFC3339Nano),
+				provider.analysisFilter.EndTime.Format(time.RFC3339Nano),
+				provider.latencyFilter.StartTime.Format(time.RFC3339Nano),
+				provider.latencyFilter.EndTime.Format(time.RFC3339Nano),
+			)
+		}
+	})
 }
-
-var _ service.UsageProvider = (*analysisSplitStub)(nil)

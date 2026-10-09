@@ -30,22 +30,16 @@ func TestProviderRegistrySupportsQuotaIdentityTypes(t *testing.T) {
 	}
 }
 
-func TestDefaultProviderRegistrySupportsReferenceQuotaIdentityTypes(t *testing.T) {
+func TestDefaultProviderRegistrySupportedTypes(t *testing.T) {
 	registry := quota.NewDefaultProviderRegistry(&recordingManagementCaller{}, quota.DefaultProviderConfigs())
-
-	for _, identityType := range []string{"antigravity", "codex", "gemini-cli", "claude", "kimi", "xai"} {
-		if _, ok := registry.Provider(identityType); !ok {
-			t.Fatalf("expected default registry to support %q", identityType)
-		}
-	}
-}
-
-func TestDefaultProviderRegistryDoesNotExposeSupplementOrVertexTypes(t *testing.T) {
-	registry := quota.NewDefaultProviderRegistry(&recordingManagementCaller{}, quota.DefaultProviderConfigs())
-
-	for _, identityType := range []string{"gemini-cli-code-assist", "vertex"} {
-		if _, ok := registry.Provider(identityType); ok {
-			t.Fatalf("expected default registry not to expose %q", identityType)
+	for identityType, want := range map[string]bool{
+		"antigravity": true, "codex": true, "gemini-cli": true, "claude": true, "kimi": true, "xai": true,
+		"kimi-ai": true, "kimi.ai": true, "kimi.com": true,
+		"kimi-future": false, "kimi.ai-backup": false,
+		"gemini-cli-code-assist": false, "vertex": false,
+	} {
+		if _, ok := registry.Provider(identityType); ok != want {
+			t.Fatalf("Provider(%q) found=%t, want %t", identityType, ok, want)
 		}
 	}
 }

@@ -1,12 +1,12 @@
 package test
 
 import (
+	"fmt"
 	"os"
 	"testing"
 	"time"
 
 	"cpa-usage-keeper/internal/config"
-	"cpa-usage-keeper/internal/cpa"
 )
 
 var isolatedConfigEnvKeys = []string{
@@ -19,92 +19,43 @@ var isolatedConfigEnvKeys = []string{
 	"TLS_SKIP_VERIFY", "QUOTA_REFRESH_WORKER_LIMIT", "QUOTA_UPSTREAM_RESPONSES_ENABLED",
 }
 
-func TestLoadFromEnvDefaultsCPARequestLogAccessDisabled(t *testing.T) {
-	isolateConfigEnv(t)
-	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
-	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
-
-	cfg, err := config.LoadFromEnv()
-	if err != nil {
-		t.Fatalf("LoadFromEnv returned error: %v", err)
-	}
-
-	if cfg.CPARequestLogAccessEnabled {
-		t.Fatal("expected CPA request log access to be disabled by default")
-	}
-}
-
-func TestLoadFromEnvReadsCPARequestLogAccessFlag(t *testing.T) {
-	isolateConfigEnv(t)
-	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
-	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
-	t.Setenv("CPA_REQUEST_LOG_ACCESS_ENABLED", "true")
-
-	cfg, err := config.LoadFromEnv()
-	if err != nil {
-		t.Fatalf("LoadFromEnv returned error: %v", err)
-	}
-
-	if !cfg.CPARequestLogAccessEnabled {
-		t.Fatal("expected CPA request log access to be enabled")
-	}
-}
-
-func TestLoadFromEnvDefaultsQuotaUpstreamResponsesDisabled(t *testing.T) {
-	isolateConfigEnv(t)
-	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
-	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
-
-	cfg, err := config.LoadFromEnv()
-	if err != nil {
-		t.Fatalf("LoadFromEnv returned error: %v", err)
-	}
-	if cfg.QuotaUpstreamResponsesEnabled {
-		t.Fatal("expected quota upstream responses to be disabled by default")
-	}
-}
-
-func TestLoadFromEnvReadsQuotaUpstreamResponsesFlag(t *testing.T) {
-	isolateConfigEnv(t)
-	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
-	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
-	t.Setenv("QUOTA_UPSTREAM_RESPONSES_ENABLED", "true")
-
-	cfg, err := config.LoadFromEnv()
-	if err != nil {
-		t.Fatalf("LoadFromEnv returned error: %v", err)
-	}
-	if !cfg.QuotaUpstreamResponsesEnabled {
-		t.Fatal("expected quota upstream responses to be enabled")
+func TestLoadOptionalAccessFlags(t *testing.T) {
+	for _, tc := range []struct {
+		key   string
+		value func(*config.Config) bool
+	}{
+		{"CPA_REQUEST_LOG_ACCESS_ENABLED", func(cfg *config.Config) bool { return cfg.CPARequestLogAccessEnabled }},
+		{"QUOTA_UPSTREAM_RESPONSES_ENABLED", func(cfg *config.Config) bool { return cfg.QuotaUpstreamResponsesEnabled }},
+		{"API_KEY_VIEWER_LOCAL_RANKING_ENABLED", func(cfg *config.Config) bool { return cfg.APIKeyViewerLocalRankingEnabled }},
+	} {
+		for _, enabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/%t", tc.key, enabled), func(t *testing.T) {
+				isolateConfigEnv(t)
+				setRequiredConfig(t)
+				if enabled {
+					t.Setenv(tc.key, "true")
+				}
+				cfg, err := config.LoadFromEnv()
+				if err != nil {
+					t.Fatalf("LoadFromEnv: %v", err)
+				}
+				if got := tc.value(cfg); got != enabled {
+					t.Fatalf("flag = %t, want %t", got, enabled)
+				}
+			})
+		}
 	}
 }
 
 func isolateConfigEnv(t *testing.T) {
 	t.Helper()
 	previousLocal := time.Local
-	previousEnv := make(map[string]string, len(isolatedConfigEnvKeys))
-	previousPresent := make(map[string]bool, len(isolatedConfigEnvKeys))
+	t.Cleanup(func() { time.Local = previousLocal })
 	for _, key := range isolatedConfigEnvKeys {
-		previousEnv[key], previousPresent[key] = os.LookupEnv(key)
+		t.Setenv(key, "")
 		if err := os.Unsetenv(key); err != nil {
 			t.Fatalf("unset %s: %v", key, err)
 		}
 	}
-	if err := os.Setenv("LOGIN_PASSWORD", "test-login-password"); err != nil {
-		t.Fatalf("set test login password: %v", err)
-	}
-	t.Cleanup(func() {
-		time.Local = previousLocal
-		for _, key := range isolatedConfigEnvKeys {
-			if previousPresent[key] {
-				if err := os.Setenv(key, previousEnv[key]); err != nil {
-					t.Fatalf("restore %s: %v", key, err)
-				}
-				continue
-			}
-			if err := os.Unsetenv(key); err != nil {
-				t.Fatalf("unset %s: %v", key, err)
-			}
-		}
-	})
+	t.Setenv("LOGIN_PASSWORD", "test-login-password")
 }

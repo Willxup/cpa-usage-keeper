@@ -119,7 +119,10 @@ function App() {
       }
       const currentPath = stripAppBasePath(window.location.pathname, window.__APP_BASE_PATH__) ?? '/';
       const targetPath = getRoleTargetPath(session.role ?? 'admin', currentPath, isEmbeddedInCPAMC);
-      window.history.replaceState(null, '', appPath(targetPath) + cpamcEmbedSearch());
+      // 管理员凭据直达链接需跨登录保留；发生角色或路由重定向时仍只携带嵌入标记。
+      const keepCredentialSearch = targetPath === currentPath && (targetPath === '/auth-files' || targetPath === '/ai-provider');
+      const suffix = keepCredentialSearch ? window.location.search + window.location.hash : cpamcEmbedSearch();
+      window.history.replaceState(null, '', appPath(targetPath) + suffix);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         setAdminLoginError(t('auth.invalid_password'));
@@ -177,7 +180,7 @@ function App() {
       ? <KeyAnalysisPage apiKey={sessionAPIKey} onNavigate={handleKeyViewerNavigate} onAuthRequired={clearSession} />
       : keyViewerPath === '/key-ranking'
         ? <KeyRankingPage apiKey={sessionAPIKey} onNavigate={handleKeyViewerNavigate} onAuthRequired={clearSession} />
-        : <KeyOverviewPage apiKey={sessionAPIKey} onNavigate={handleKeyViewerNavigate} onAuthRequired={clearSession} />;
+        : <KeyOverviewPage page={keyViewerPath === '/key-realtime' ? 'realtime' : 'overview'} apiKey={sessionAPIKey} onNavigate={handleKeyViewerNavigate} onAuthRequired={clearSession} />;
   } else {
     page = <UsagePage onAuthRequired={clearSession} />;
   }

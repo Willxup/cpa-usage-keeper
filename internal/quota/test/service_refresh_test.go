@@ -97,7 +97,7 @@ func TestResetConsumesCodexCredit(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	handler := &resetHandlerStub{resetOutput: ProviderResetOutput{Code: "reset", WindowsReset: 2}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
 
 	response, err := service.Reset(context.Background(), ResetRequest{AuthIndex: " codex-auth "})
 	if err != nil {
@@ -119,7 +119,7 @@ func TestGetResetCreditsListsCodexCreditsWithoutWritingQuotaCache(t *testing.T) 
 		AvailableCount: &availableCount,
 		Credits:        []CodexRateLimitResetCredit{{ID: "credit-1", Status: "available", ExpiresAt: "2026-07-20T00:00:00Z"}},
 	}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
 
 	response, err := service.GetResetCredits(context.Background(), ResetCreditsRequest{AuthIndex: " codex-auth "})
 	if err != nil {
@@ -144,7 +144,7 @@ func TestGetResetCreditsPreservesUnknownAvailableCount(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	handler := &resetHandlerStub{creditOutput: ProviderResetCreditsOutput{Credits: []CodexRateLimitResetCredit{}}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
 
 	response, err := service.GetResetCredits(context.Background(), ResetCreditsRequest{AuthIndex: "codex-auth"})
 	if err != nil {
@@ -163,7 +163,7 @@ func TestGetResetCreditsRejectsUnsupportedProvider(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	handler := &resetHandlerStub{}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
 	_, err := service.GetResetCredits(context.Background(), ResetCreditsRequest{AuthIndex: "claude-auth"})
 	if !errors.Is(err, ErrUnsupportedType) {
@@ -175,7 +175,7 @@ func TestResetRejectsUnsupportedProvider(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	handler := &resetHandlerStub{resetOutput: ProviderResetOutput{Code: "reset", WindowsReset: 1}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
 	_, err := service.Reset(context.Background(), ResetRequest{AuthIndex: "claude-auth"})
 	if !errors.Is(err, ErrUnsupportedType) {
@@ -184,7 +184,7 @@ func TestResetRejectsUnsupportedProvider(t *testing.T) {
 }
 
 func TestResetRejectsEmptyAuthIndex(t *testing.T) {
-	service := newQuotaServiceWithRegistry(t, openQuotaTestDatabase(t), NewProviderRegistry(nil))
+	service := newQuotaRefreshService(t, openQuotaTestDatabase(t), NewProviderRegistry(nil))
 
 	_, err := service.Reset(context.Background(), ResetRequest{AuthIndex: "   "})
 	if !errors.Is(err, ErrValidation) {
@@ -208,7 +208,7 @@ func TestResetRejectsNilServiceWithoutInProgressError(t *testing.T) {
 }
 
 func TestResetReturnsNotFoundForMissingAuthIndex(t *testing.T) {
-	service := newQuotaServiceWithRegistry(t, openQuotaTestDatabase(t), NewProviderRegistry(nil))
+	service := newQuotaRefreshService(t, openQuotaTestDatabase(t), NewProviderRegistry(nil))
 
 	_, err := service.Reset(context.Background(), ResetRequest{AuthIndex: "missing-auth"})
 	if !errors.Is(err, ErrNotFound) {
@@ -221,17 +221,15 @@ func TestResetRejectsConcurrentRequestsForSameAuthIndex(t *testing.T) {
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	block := make(chan struct{})
 	handler := &resetHandlerStub{refreshHandlerStub: refreshHandlerStub{block: block}, resetOutput: ProviderResetOutput{Code: "reset", WindowsReset: 2}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
 
 	var wg sync.WaitGroup
 	results := make(chan error, 2)
 	for range 2 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, err := service.Reset(context.Background(), ResetRequest{AuthIndex: "codex-auth"})
 			results <- err
-		}()
+		})
 	}
 
 	select {
@@ -271,17 +269,15 @@ func TestResetAllowsConcurrentRequestsForDifferentAuthIndexes(t *testing.T) {
 		resetOutput:        ProviderResetOutput{Code: "reset", WindowsReset: 1},
 		entered:            entered,
 	}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
 
 	var wg sync.WaitGroup
 	results := make(chan error, 2)
 	for _, authIndex := range []string{"codex-auth-1", "codex-auth-2"} {
-		wg.Add(1)
-		go func(authIndex string) {
-			defer wg.Done()
+		wg.Go(func() {
 			_, err := service.Reset(context.Background(), ResetRequest{AuthIndex: authIndex})
 			results <- err
-		}(authIndex)
+		})
 	}
 
 	enteredAuthIndexes := map[string]bool{}
@@ -318,8 +314,8 @@ func TestResetAllowsConcurrentRequestsForDifferentAuthIndexes(t *testing.T) {
 func TestCheckExposesCodexRateLimitResetCredits(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	handler := &refreshHandlerStub{output: ProviderOutput{Provider: "codex", Result: CodexResult{Usage: &CodexUsagePayload{RateLimitResetCredits: &CodexRateLimitResetCredits{AvailableCount: quotaIntPtr(2)}}}}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
+	handler := &refreshHandlerStub{output: ProviderOutput{Provider: "codex", Result: CodexResult{Usage: &CodexUsagePayload{RateLimitResetCredits: &CodexRateLimitResetCredits{AvailableCount: new(2)}}}}}
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
 
 	response, err := service.Check(context.Background(), CheckRequest{AuthIndex: "codex-auth"})
 	if err != nil {
@@ -332,14 +328,11 @@ func TestCheckExposesCodexRateLimitResetCredits(t *testing.T) {
 
 func TestRefreshCachesCodexRateLimitResetCredits(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile, FileName: quotaStringPtr("codex-user.json")})
-	handler := &refreshHandlerStub{output: ProviderOutput{Provider: "codex", Result: CodexResult{Usage: &CodexUsagePayload{RateLimitResetCredits: &CodexRateLimitResetCredits{AvailableCount: quotaIntPtr(0)}}}}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile, FileName: new("codex-user.json")})
+	handler := &refreshHandlerStub{output: ProviderOutput{Provider: "codex", Result: CodexResult{Usage: &CodexUsagePayload{RateLimitResetCredits: &CodexRateLimitResetCredits{AvailableCount: new(0)}}}}}
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"codex": handler}))
 
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"codex-auth"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("Refresh returned error: %v", err)
-	}
+	response := queueManualQuotaRefresh(t, service, "codex-auth")
 	if response.Accepted != 1 || response.Skipped != 0 || len(response.Tasks) != 1 {
 		t.Fatalf("unexpected refresh response: %+v", response)
 	}
@@ -360,14 +353,11 @@ func TestRefreshCachesCodexRateLimitResetCredits(t *testing.T) {
 
 func TestRefreshCreatesTaskPerAuthIndexAndCachesCompletedQuota(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile, FileName: quotaStringPtr("claude-user.json")})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile, FileName: new("claude-user.json")})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("Refresh returned error: %v", err)
-	}
+	response := queueManualQuotaRefresh(t, service, "auth-1")
 	if response.Accepted != 1 || response.Skipped != 0 || len(response.Tasks) != 1 {
 		t.Fatalf("unexpected refresh response: %+v", response)
 	}
@@ -405,12 +395,9 @@ func TestRefreshTaskStoresUsageIdentityDisplayName(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Name: "   ", Provider: "Claude Workspace", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("Refresh returned error: %v", err)
-	}
+	response := queueManualQuotaRefresh(t, service, "auth-1")
 	waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusCompleted)
 
 	task := refreshTaskRecord(service, "auth-1")
@@ -445,19 +432,13 @@ func TestRefreshOverwritesPreviousCompletedTaskForSameAuthIndex(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
-	first, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("first Refresh returned error: %v", err)
-	}
+	first := queueManualQuotaRefresh(t, service, "auth-1")
 	waitForRefreshTask(t, service, first.Tasks[0].AuthIndex, RefreshTaskStatusCompleted)
 
 	handler.output = ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 60}}}}
-	second, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("second Refresh returned error: %v", err)
-	}
+	second := queueManualQuotaRefresh(t, service, "auth-1")
 	waitForRefreshTask(t, service, second.Tasks[0].AuthIndex, RefreshTaskStatusCompleted)
 	cache, err := service.GetCachedQuota(context.Background(), CacheRequest{AuthIndexes: []string{"auth-1"}})
 	if err != nil {
@@ -472,14 +453,10 @@ func TestManualRefreshIgnoresRecentAutoRefreshRound(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
-	setRefreshCooldown(service, func(time.Duration) {})
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 	setLastAutoRefreshRoundAt(service, time.Now())
 
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("Refresh returned error: %v", err)
-	}
+	response := queueManualQuotaRefresh(t, service, "auth-1")
 	if response.Accepted != 1 || len(response.Tasks) != 1 {
 		t.Fatalf("expected manual refresh to ignore recent auto round, got %+v", response)
 	}
@@ -494,12 +471,9 @@ func TestManualRefreshAllowsDisabledAuthFile(t *testing.T) {
 	// disabled 只限制自动刷新扫描，手动刷新仍允许用户显式触发。
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile, Disabled: boolPtr(true)})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("Refresh returned error: %v", err)
-	}
+	response := queueManualQuotaRefresh(t, service, "auth-1")
 	if response.Accepted != 1 || response.Skipped != 0 || len(response.Tasks) != 1 {
 		t.Fatalf("expected disabled auth file to be accepted for manual refresh, got %+v", response)
 	}
@@ -514,12 +488,9 @@ func TestManualRefreshFallsBackToIdentityTypeWhenProviderUnsupported(t *testing.
 	// provider 不支持但 type 支持时，手动刷新应复用 Check/auto 的同一套 handler 解析规则。
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "unknown-provider", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("Refresh returned error: %v", err)
-	}
+	response := queueManualQuotaRefresh(t, service, "auth-1")
 	if response.Accepted != 1 || response.Skipped != 0 || len(response.Tasks) != 1 {
 		t.Fatalf("expected manual refresh to fall back to identity type, got %+v", response)
 	}
@@ -533,12 +504,9 @@ func TestManualRefreshSkipsUnsupportedAuthFileWithoutCaching(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	// Auth File 存在但 provider/type 都没有 handler 时，手动刷新静默跳过，不创建任务缓存或错误缓存。
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "unknown-provider", Type: "unknown-type", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(nil))
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(nil))
 
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("Refresh returned error: %v", err)
-	}
+	response := queueManualQuotaRefresh(t, service, "auth-1")
 	if response.Accepted != 0 || response.Skipped != 1 || len(response.Tasks) != 0 || len(response.Rejected) != 0 {
 		t.Fatalf("expected unsupported auth file to be skipped without rejection, got %+v", response)
 	}
@@ -561,12 +529,9 @@ func TestRefreshRejectsInvalidEntriesAndIgnoresRunningTask(t *testing.T) {
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "deleted-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile, IsDeleted: true})
 	block := make(chan struct{})
 	handler := &refreshHandlerStub{block: block, output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1", "auth-1", "provider-1", "deleted-1", "missing"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("Refresh returned error: %v", err)
-	}
+	response := queueManualQuotaRefresh(t, service, "auth-1", "auth-1", "provider-1", "deleted-1", "missing")
 	if response.Accepted != 1 || response.Skipped != 4 || len(response.Tasks) != 1 || len(response.Rejected) != 4 {
 		t.Fatalf("unexpected refresh response: %+v", response)
 	}
@@ -576,10 +541,7 @@ func TestRefreshRejectsInvalidEntriesAndIgnoresRunningTask(t *testing.T) {
 
 	firstTaskID := response.Tasks[0].AuthIndex
 	waitForRefreshTask(t, service, firstTaskID, RefreshTaskStatusRunning)
-	second, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("second Refresh returned error: %v", err)
-	}
+	second := queueManualQuotaRefresh(t, service, "auth-1")
 	if second.Accepted != 0 || second.Skipped != 1 || len(second.Tasks) != 0 || !hasRefreshRejection(second.Rejected, "auth-1", "duplicate") {
 		t.Fatalf("expected running task to be ignored as duplicate, got %+v", second)
 	}
@@ -605,13 +567,9 @@ func TestManualRefreshReturnsDuplicateForRunningTaskEvenWhenIdentityDeleted(t *t
 			})
 		},
 	}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
-	setRefreshCooldown(service, func(time.Duration) {})
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
-	first, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("first Refresh returned error: %v", err)
-	}
+	first := queueManualQuotaRefresh(t, service, "auth-1")
 	waitForRefreshTask(t, service, first.Tasks[0].AuthIndex, RefreshTaskStatusRunning)
 	select {
 	case <-providerEntered:
@@ -622,10 +580,7 @@ func TestManualRefreshReturnsDuplicateForRunningTaskEvenWhenIdentityDeleted(t *t
 		t.Fatalf("delete usage identity returned error: %v", err)
 	}
 
-	second, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("second Refresh returned error: %v", err)
-	}
+	second := queueManualQuotaRefresh(t, service, "auth-1")
 
 	if second.Accepted != 0 || second.Skipped != 1 || len(second.Tasks) != 0 || !hasRefreshRejection(second.Rejected, "auth-1", "duplicate") {
 		t.Fatalf("expected active task to win over deleted identity validation, got %+v", second)
@@ -646,19 +601,12 @@ func TestRefreshQueueUsesConfiguredWorkersTimeoutAndCooldown(t *testing.T) {
 	}
 }
 
-func TestNewServiceWithRegistryAndOptionsUsesConfiguredWorkerLimit(t *testing.T) {
-	db := openQuotaTestDatabase(t)
-	service := newQuotaServiceWithRegistryAndOptions(t, db, NewProviderRegistry(nil), ServiceOptions{RefreshWorkerLimit: 7})
-	if refreshWorkerTokenCap(service) != 7 {
-		t.Fatalf("expected configured worker limit 7, got %d", refreshWorkerTokenCap(service))
-	}
-}
-
-func TestNewServiceWithRegistryAndOptionsCapsConfiguredWorkerLimit(t *testing.T) {
-	db := openQuotaTestDatabase(t)
-	service := newQuotaServiceWithRegistryAndOptions(t, db, NewProviderRegistry(nil), ServiceOptions{RefreshWorkerLimit: 101})
-	if refreshWorkerTokenCap(service) != 100 {
-		t.Fatalf("expected configured worker limit to be capped at 100, got %d", refreshWorkerTokenCap(service))
+func TestNewServiceWithRegistryAndOptionsWorkerLimit(t *testing.T) {
+	for _, tc := range []struct{ configured, want int }{{7, 7}, {101, 100}} {
+		service := newQuotaServiceWithRegistryAndOptions(t, nil, NewProviderRegistry(nil), ServiceOptions{RefreshWorkerLimit: tc.configured})
+		if got := refreshWorkerTokenCap(service); got != tc.want {
+			t.Fatalf("configured %d workers: got %d, want %d", tc.configured, got, tc.want)
+		}
 	}
 }
 
@@ -666,16 +614,13 @@ func TestRefreshTaskWaitsForCooldownBeforeReleasingWorker(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 	cooldownCalls := make(chan time.Duration, 1)
 	setRefreshCooldown(service, func(duration time.Duration) {
 		cooldownCalls <- duration
 	})
 
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("Refresh returned error: %v", err)
-	}
+	response := queueManualQuotaRefresh(t, service, "auth-1")
 	waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusCompleted)
 
 	select {
@@ -697,10 +642,7 @@ func TestQueuedRefreshTaskFailsWhenParentContextCancelsBeforeWorkerSlot(t *testi
 	ctx, cancel := context.WithCancel(context.Background())
 	service.SetRefreshContext(ctx)
 
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("Refresh returned error: %v", err)
-	}
+	response := queueManualQuotaRefresh(t, service, "auth-1")
 	cancel()
 	defer releaseWorkerToken()
 	task := waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusFailed)
@@ -722,10 +664,7 @@ func TestQueuedRefreshDispatcherFailsRemainingTasksOnParentContextCancel(t *test
 	ctx, cancel := context.WithCancel(context.Background())
 	service.SetRefreshContext(ctx)
 
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1", "auth-2"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("Refresh returned error: %v", err)
-	}
+	response := queueManualQuotaRefresh(t, service, "auth-1", "auth-2")
 	cancel()
 	defer releaseWorkerToken()
 	first := waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusFailed)
@@ -743,15 +682,11 @@ func TestRefreshTaskUsesParentContextCancellation(t *testing.T) {
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	block := make(chan struct{})
 	handler := &refreshHandlerStub{block: block}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
-	setRefreshCooldown(service, func(time.Duration) {})
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 	ctx, cancel := context.WithCancel(context.Background())
 	service.SetRefreshContext(ctx)
 
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("Refresh returned error: %v", err)
-	}
+	response := queueManualQuotaRefresh(t, service, "auth-1")
 	waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusRunning)
 	cancel()
 	task := waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusFailed)
@@ -765,13 +700,10 @@ func TestStopRefreshTasksPreventsNewRefreshWorkers(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
 	service.StopRefreshTasks()
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("Refresh returned error: %v", err)
-	}
+	response := queueManualQuotaRefresh(t, service, "auth-1")
 
 	task := waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusFailed)
 	if task.Error != "Quota refresh timed out. Please try again later." {
@@ -786,12 +718,9 @@ func TestRefreshTaskFailureReturnsFriendlyMessage(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	handler := &refreshHandlerStub{err: errors.New("upstream exploded")}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("Refresh returned error: %v", err)
-	}
+	response := queueManualQuotaRefresh(t, service, "auth-1")
 	task := waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusFailed)
 	if task.Error != "Quota refresh failed. Please try again later." {
 		t.Fatalf("expected friendly error message, got %q", task.Error)
@@ -817,7 +746,7 @@ func TestInspectionStatusSummarizesActiveAuthFileCache(t *testing.T) {
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "disabled", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile, Disabled: boolPtr(true)})
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "deleted", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile, IsDeleted: true})
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "provider", Provider: "openai", Type: "openai", AuthType: entities.UsageIdentityAuthTypeAIProvider})
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(nil))
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(nil))
 	now := time.Date(2026, 6, 3, 10, 30, 0, 0, time.UTC)
 	code401 := 401
 	code402 := 402
@@ -855,7 +784,7 @@ func TestInspectionStatusSummarizesActiveAuthFileCache(t *testing.T) {
 func TestInspectionStatusNormalizesIdentityBeforeReadingRefreshTask(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: " auth-1 ", Name: "Claude Account", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(nil))
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(nil))
 	now := time.Date(2026, 6, 3, 10, 30, 0, 0, time.UTC)
 	setRefreshTasks(service, map[string]*RefreshTaskRecord{
 		"auth-1": {
@@ -882,13 +811,9 @@ func TestManualRefreshDoesNotMarkInspectionCompleted(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
-	setRefreshCooldown(service, func(time.Duration) {})
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("Refresh returned error: %v", err)
-	}
+	response := queueManualQuotaRefresh(t, service, "auth-1")
 	waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusCompleted)
 
 	status, err := service.GetInspectionStatus(context.Background())
@@ -908,8 +833,7 @@ func TestManualRefreshAfterInspectionCompletionDoesNotSetInspectionRunning(t *te
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	block := make(chan struct{})
 	handler := &refreshHandlerStub{block: block, output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
-	setRefreshCooldown(service, func(time.Duration) {})
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
 	if _, err := service.StartInspection(context.Background()); err != nil {
 		t.Fatalf("StartInspection returned error: %v", err)
@@ -960,14 +884,10 @@ func TestStartInspectionIgnoresNonInspectionActiveRefreshTasks(t *testing.T) {
 			db := openQuotaTestDatabase(t)
 			seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 			block := make(chan struct{})
-			blockClosed := false
-			t.Cleanup(func() {
-				if !blockClosed {
-					close(block)
-				}
-			})
+			release := sync.OnceFunc(func() { close(block) })
+			t.Cleanup(release)
 			handler := &refreshHandlerStub{block: block, output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
-			service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
+			service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 			setRefreshCooldown(service, func(time.Duration) {})
 
 			refresh, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: tt.source})
@@ -984,8 +904,7 @@ func TestStartInspectionIgnoresNonInspectionActiveRefreshTasks(t *testing.T) {
 				t.Fatalf("expected %s task to stay outside inspection state, got %+v", tt.source, status)
 			}
 
-			close(block)
-			blockClosed = true
+			release()
 			waitForRefreshTask(t, service, "auth-1", RefreshTaskStatusCompleted)
 			finalStatus, err := service.GetInspectionStatus(context.Background())
 			if err != nil {
@@ -1126,7 +1045,7 @@ func TestInspectionStatusClassifiesLimitReachedByKnownAuthFileType(t *testing.T)
 		t.Run(tt.name, func(t *testing.T) {
 			db := openQuotaTestDatabase(t)
 			seedUsageIdentity(t, db, tt.identity)
-			service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(nil))
+			service := newQuotaRefreshService(t, db, NewProviderRegistry(nil))
 			now := time.Date(2026, 6, 3, 10, 30, 0, 0, time.UTC)
 			setRefreshTasks(service, map[string]*RefreshTaskRecord{
 				tt.identity.Identity: {
@@ -1198,7 +1117,7 @@ func TestInspectionStatusClassifiesLimitReachedThroughRefreshPipeline(t *testing
 			db := openQuotaTestDatabase(t)
 			seedUsageIdentity(t, db, tt.identity)
 			handler := &refreshHandlerStub{output: tt.output}
-			service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{tt.identity.Type: handler}))
+			service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{tt.identity.Type: handler}))
 			setRefreshCooldown(service, func(time.Duration) {})
 
 			if _, err := service.StartInspection(context.Background()); err != nil {
@@ -1228,8 +1147,7 @@ func TestStartInspectionClearsSettledCacheAndStartsOneAuthFileRound(t *testing.T
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "disabled", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile, Disabled: boolPtr(true)})
 	block := make(chan struct{})
 	handler := &refreshHandlerStub{block: block, output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
-	setRefreshCooldown(service, func(time.Duration) {})
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 	setLastAutoRefreshRoundAt(service, time.Now())
 	setRefreshTasks(service, map[string]*RefreshTaskRecord{
 		"auth-1":   {AuthIndex: "auth-1", Status: RefreshTaskStatusCompleted, Quota: &CheckResponse{ID: "auth-1"}, RefreshedAt: time.Now().Add(-time.Hour)},
@@ -1266,11 +1184,10 @@ func TestStartInspectionClearsSettledCacheAndStartsOneAuthFileRound(t *testing.T
 
 func TestInspectionStatusUsesRefreshTaskIdentitySnapshot(t *testing.T) {
 	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Name: "Original Account", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile, FileName: quotaStringPtr("original.json")})
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Name: "Original Account", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile, FileName: new("original.json")})
 	block := make(chan struct{})
 	handler := &refreshHandlerStub{block: block, output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
-	setRefreshCooldown(service, func(time.Duration) {})
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
 	if _, err := service.StartInspection(context.Background()); err != nil {
 		t.Fatalf("StartInspection returned error: %v", err)
@@ -1298,8 +1215,7 @@ func TestInspectionStatusUsesUsageIdentityDisplayNameSnapshot(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Name: "   ", Provider: "Claude Workspace", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	handler := &refreshHandlerStub{output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
-	setRefreshCooldown(service, func(time.Duration) {})
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
 	if _, err := service.StartInspection(context.Background()); err != nil {
 		t.Fatalf("StartInspection returned error: %v", err)
@@ -1336,8 +1252,7 @@ func TestInspectionStatusCachesCompletedAtWhenExplicitInspectionRoundSettles(t *
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-2", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	block := make(chan struct{})
 	handler := &refreshHandlerStub{block: block, output: ProviderOutput{Result: ClaudeResult{Usage: &ClaudeUsagePayload{FiveHour: &ClaudeUsageWindow{Utilization: 25}}}}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
-	setRefreshCooldown(service, func(time.Duration) {})
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
 	if _, err := service.StartInspection(context.Background()); err != nil {
 		t.Fatalf("StartInspection returned error: %v", err)
@@ -1377,12 +1292,9 @@ func TestRefreshTaskCachesConfiguredHTTPError(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "auth-1", Provider: "claude", Type: "auth-file", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	handler := &refreshHandlerStub{err: ProviderHTTPError{StatusCode: 401, Message: "expired token"}}
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"claude": handler}))
 
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"auth-1"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("Refresh returned error: %v", err)
-	}
+	response := queueManualQuotaRefresh(t, service, "auth-1")
 	task := waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusFailed)
 	if task.HTTPStatusCode == nil || *task.HTTPStatusCode != 401 {
 		t.Fatalf("expected task to expose HTTP status 401, got %+v", task)
@@ -1412,18 +1324,14 @@ func TestXAIRefreshCachesCompletedPartialQuota(t *testing.T) {
 	monthlyJSON := `{"config":{"monthlyLimit":{"val":1000},"used":{"val":250},"onDemandCap":{"val":0},"billingPeriodEnd":"2026-08-01T00:00:00Z"}}`
 	caller := newXAIManagementCaller(
 		&apicall.Response{StatusCode: 500, BodyText: "weekly unavailable"},
-		&apicall.Response{StatusCode: 200, BodyText: monthlyJSON, Body: json.RawMessage(monthlyJSON)},
+		quotaAPIResponse(200, monthlyJSON),
 	)
 	configs := DefaultProviderConfigs()
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{
 		"xai": NewXAIProvider(caller, configs.XAIWeekly, configs.XAIMonthly),
 	}))
-	setRefreshCooldown(service, func(time.Duration) {})
 
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"xai-auth"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("Refresh returned error: %v", err)
-	}
+	response := queueManualQuotaRefresh(t, service, "xai-auth")
 	task := waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusCompleted)
 	if task.Quota == nil || len(task.Quota.Quota) != 1 || task.Quota.Quota[0].Key != "billing.monthly" {
 		t.Fatalf("expected completed monthly-only xai quota, got %+v", task)
@@ -1446,15 +1354,11 @@ func TestXAIRefreshCachesFailureOnlyWhenBothBillingSourcesFail(t *testing.T) {
 		&apicall.Response{StatusCode: 401, BodyText: "token expired"},
 	)
 	configs := DefaultProviderConfigs()
-	service := newQuotaServiceWithRegistry(t, db, NewProviderRegistry(map[string]ProviderHandler{
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{
 		"xai": NewXAIProvider(caller, configs.XAIWeekly, configs.XAIMonthly),
 	}))
-	setRefreshCooldown(service, func(time.Duration) {})
 
-	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: []string{"xai-auth"}, Source: RefreshSourceManual})
-	if err != nil {
-		t.Fatalf("Refresh returned error: %v", err)
-	}
+	response := queueManualQuotaRefresh(t, service, "xai-auth")
 	task := waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusFailed)
 	if task.HTTPStatusCode == nil || *task.HTTPStatusCode != 401 || task.ExpiresAt == nil || task.RefreshedAt == nil || task.ExpiresAt.Sub(*task.RefreshedAt) != RefreshErrorCacheTTL {
 		t.Fatalf("expected xai failure to reuse cacheable HTTP error semantics, got %+v", task)
@@ -1512,10 +1416,18 @@ func hasRefreshRejection(rejections []RefreshRejectedAuthIndex, authIndex string
 	return false
 }
 
-func quotaStringPtr(value string) *string {
-	return &value
+func newQuotaRefreshService(t *testing.T, db *gorm.DB, registry ProviderRegistry) *Service {
+	t.Helper()
+	service := newQuotaServiceWithRegistry(t, db, registry)
+	setRefreshCooldown(service, func(time.Duration) {})
+	return service
 }
 
-func quotaIntPtr(value int) *int {
-	return &value
+func queueManualQuotaRefresh(t *testing.T, service *Service, authIndexes ...string) RefreshResponse {
+	t.Helper()
+	response, err := service.Refresh(context.Background(), RefreshRequest{AuthIndexes: authIndexes, Source: RefreshSourceManual})
+	if err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	return response
 }

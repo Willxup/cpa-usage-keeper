@@ -19,19 +19,15 @@ func BenchmarkResolver(b *testing.B) {
 					Multiplier: 1.01,
 				})
 			}
-			snapshot, err := pricing.CompileSnapshot([]pricing.ModelConfig{{
+			snapshot := compileSnapshot(b, pricing.ModelConfig{
 				Pricing: testPricingWithPrompt("model-a", 1),
 				Rules:   rules,
-			}})
-			if err != nil {
-				b.Fatalf("CompileSnapshot returned error: %v", err)
-			}
+			})
 			resolver := pricing.NewCatalog(snapshot).NewResolver()
 			subject := pricing.NewCostSubject(pricing.UsageDimensions{Model: "model-a", ServiceTier: "tier-1"}, helper.UsageTokenCostInput{InputTokens: 1_000_000})
 
 			b.ReportAllocs()
-			b.ResetTimer()
-			for index := 0; index < b.N; index++ {
+			for b.Loop() {
 				_ = resolver.Calculate(subject)
 			}
 		})

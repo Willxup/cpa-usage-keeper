@@ -1,30 +1,18 @@
 package test
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 )
 
 func TestBuildAnalysisKeepsTwentyFourHourAndDirectOneDayRangesOnHourlyStats(t *testing.T) {
-	previousLocal := time.Local
-	location, err := time.LoadLocation("Asia/Shanghai")
-	if err != nil {
-		t.Fatalf("load location: %v", err)
-	}
-	t.Cleanup(func() { time.Local = previousLocal })
-	time.Local = location
+	location := time.Local
 
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "analysis-rolling-hour.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	closeTestDatabase(t, db)
+	db := openTestDatabase(t)
 	end := time.Date(2026, 5, 21, 9, 14, 21, 0, location)
 	start := end.Add(-24 * time.Hour)
 	currentHour := time.Date(2026, 5, 21, 9, 0, 0, 0, location)
@@ -58,13 +46,7 @@ func TestBuildAnalysisKeepsTwentyFourHourAndDirectOneDayRangesOnHourlyStats(t *t
 }
 
 func TestBuildAnalysisMatchesOverviewCustomRollupRouting(t *testing.T) {
-	previousLocal := time.Local
-	location, err := time.LoadLocation("Asia/Shanghai")
-	if err != nil {
-		t.Fatalf("load location: %v", err)
-	}
-	t.Cleanup(func() { time.Local = previousLocal })
-	time.Local = location
+	location := time.Local
 
 	dayStart := time.Date(2026, 5, 20, 0, 0, 0, 0, location)
 	hourStart := time.Date(2026, 5, 20, 8, 0, 0, 0, location)
@@ -92,11 +74,7 @@ func TestBuildAnalysisMatchesOverviewCustomRollupRouting(t *testing.T) {
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "analysis-custom-rollup.db")})
-			if err != nil {
-				t.Fatalf("OpenDatabase returned error: %v", err)
-			}
-			closeTestDatabase(t, db)
+			db := openTestDatabase(t)
 			if err := db.Create(&entities.CPAAPIKey{APIKey: "sk-target-key", DisplayKey: "sk-*********target"}).Error; err != nil {
 				t.Fatalf("insert CPA API key: %v", err)
 			}
@@ -138,50 +116,25 @@ func TestBuildAnalysisMatchesOverviewCustomRollupRouting(t *testing.T) {
 }
 
 func TestBuildAnalysisUsesOnlyDailyStatsForRollingDayRanges(t *testing.T) {
-	previousLocal := time.Local
-	location, err := time.LoadLocation("Asia/Shanghai")
-	if err != nil {
-		t.Fatalf("load location: %v", err)
-	}
-	t.Cleanup(func() { time.Local = previousLocal })
-	time.Local = location
+	location := time.Local
 
-	for _, testCase := range []struct {
-		name        string
-		rangeName   string
-		days        int
-		wantBuckets []struct {
-			bucket time.Time
-			tokens int64
-		}
+	wantBuckets := []struct {
+		bucket time.Time
+		tokens int64
 	}{
-		{
-			name: "twelve days includes the start day", rangeName: "12d", days: 12,
-			wantBuckets: []struct {
-				bucket time.Time
-				tokens int64
-			}{
-				{bucket: time.Date(2026, 7, 15, 0, 0, 0, 0, location), tokens: 671_404_633},
-				{bucket: time.Date(2026, 7, 27, 0, 0, 0, 0, location), tokens: 222},
-			},
-		},
-		{
-			name: "thirteen days keeps the full left day", rangeName: "13d", days: 13,
-			wantBuckets: []struct {
-				bucket time.Time
-				tokens int64
-			}{
-				{bucket: time.Date(2026, 7, 15, 0, 0, 0, 0, location), tokens: 671_404_633},
-				{bucket: time.Date(2026, 7, 27, 0, 0, 0, 0, location), tokens: 222},
-			},
-		},
+		{bucket: time.Date(2026, 7, 15, 0, 0, 0, 0, location), tokens: 671_404_633},
+		{bucket: time.Date(2026, 7, 27, 0, 0, 0, 0, location), tokens: 222},
+	}
+	for _, testCase := range []struct {
+		name      string
+		rangeName string
+		days      int
+	}{
+		{name: "twelve days includes the start day", rangeName: "12d", days: 12},
+		{name: "thirteen days keeps the full left day", rangeName: "13d", days: 13},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "analysis-daily-range.db")})
-			if err != nil {
-				t.Fatalf("OpenDatabase returned error: %v", err)
-			}
-			closeTestDatabase(t, db)
+			db := openTestDatabase(t)
 
 			end := time.Date(2026, 7, 27, 17, 14, 21, 0, location)
 			start := end.Add(-time.Duration(testCase.days) * 24 * time.Hour)
@@ -231,10 +184,10 @@ func TestBuildAnalysisUsesOnlyDailyStatsForRollingDayRanges(t *testing.T) {
 			if analysis.RangeStart == nil || !analysis.RangeStart.Equal(wantRangeStart) || analysis.RangeEnd == nil || !analysis.RangeEnd.Equal(wantRangeEnd) {
 				t.Fatalf("range = [%v, %v), want [%v, %v)", analysis.RangeStart, analysis.RangeEnd, wantRangeStart, wantRangeEnd)
 			}
-			if len(analysis.TokenUsage) != len(testCase.wantBuckets) {
-				t.Fatalf("token usage = %+v, want %d daily buckets", analysis.TokenUsage, len(testCase.wantBuckets))
+			if len(analysis.TokenUsage) != len(wantBuckets) {
+				t.Fatalf("token usage = %+v, want %d daily buckets", analysis.TokenUsage, len(wantBuckets))
 			}
-			for index, want := range testCase.wantBuckets {
+			for index, want := range wantBuckets {
 				got := analysis.TokenUsage[index]
 				if !got.Bucket.Equal(want.bucket) || got.TotalTokens != want.tokens {
 					t.Fatalf("token usage[%d] = %+v, want bucket=%s total_tokens=%d", index, got, want.bucket, want.tokens)
@@ -249,19 +202,9 @@ func TestBuildAnalysisUsesOnlyDailyStatsForRollingDayRanges(t *testing.T) {
 }
 
 func TestBuildAnalysisIncludesCurrentDailyStatsForRollingDayRange(t *testing.T) {
-	previousLocal := time.Local
-	location, err := time.LoadLocation("Asia/Shanghai")
-	if err != nil {
-		t.Fatalf("load location: %v", err)
-	}
-	t.Cleanup(func() { time.Local = previousLocal })
-	time.Local = location
+	location := time.Local
 
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "analysis-rolling-day.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	closeTestDatabase(t, db)
+	db := openTestDatabase(t)
 	end := time.Date(2026, 5, 21, 9, 14, 21, 0, location)
 	start := end.Add(-13 * 24 * time.Hour)
 	currentDay := time.Date(2026, 5, 21, 0, 0, 0, 0, location)

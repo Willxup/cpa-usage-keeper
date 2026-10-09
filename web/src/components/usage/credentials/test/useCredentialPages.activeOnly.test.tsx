@@ -25,10 +25,9 @@ describe('AI Provider active-only state', () => {
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
-    fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ identities: [], total_count: 0, page: 1, page_size: 10, total_pages: 0, type_counts: [] }),
-    } as Response)
+    fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({
+      identities: [], total_count: 0, page: 1, page_size: 10, total_pages: 0, type_counts: [],
+    }))
   })
 
   afterEach(async () => {
@@ -48,10 +47,10 @@ describe('AI Provider active-only state', () => {
     expect(parsed.searchParams.get('auth_type')).toBe('2')
     expect(parsed.searchParams.has('active_only')).toBe(false)
 
-    await act(async () => latest?.setAiProviderPage(3))
+    await act(async () => latest!.setAiProviderPage(3))
     expect(latest?.aiProviderPage).toBe(3)
 
-    await act(async () => latest?.setAiProviderActiveOnly(true))
+    await act(async () => latest!.setAiProviderActiveOnly(true))
     expect(latest?.authFileActiveOnly).toBe(true)
     expect(latest?.aiProviderActiveOnly).toBe(true)
     expect(latest?.aiProviderPage).toBe(1)

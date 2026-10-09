@@ -17,10 +17,10 @@ func httpRawUsageMessage(item []byte) string
 func TestHTTPPullSourcePreservesNullPayloadForBatchCounting(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v0/management/usage-queue" {
-			t.Fatalf("unexpected path %q", r.URL.Path)
+			t.Errorf("unexpected path %q", r.URL.Path)
 		}
 		if got := r.URL.Query().Get("count"); got != "2" {
-			t.Fatalf("expected count=2, got %q", got)
+			t.Errorf("expected count=2, got %q", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`[{"request_id":"req-1"},null]`))
@@ -41,27 +41,21 @@ func TestHTTPPullSourcePreservesNullPayloadForBatchCounting(t *testing.T) {
 }
 
 func TestHTTPRawUsageMessageAvoidsAllocationForIgnorablePayloads(t *testing.T) {
-	nullPayload := []byte(" \n null \t")
-	emptyPayload := []byte(" \r\n\t ")
-
-	if got := httpRawUsageMessage(nullPayload); got != "null" {
-		t.Fatalf("expected null payload to normalize to null, got %q", got)
-	}
-	if got := httpRawUsageMessage(emptyPayload); got != "" {
-		t.Fatalf("expected empty payload to normalize to empty string, got %q", got)
-	}
-
-	nullAllocs := testing.AllocsPerRun(1000, func() {
-		_ = httpRawUsageMessage(nullPayload)
-	})
-	if nullAllocs != 0 {
-		t.Fatalf("expected null payload normalization to avoid allocations, got %.2f", nullAllocs)
-	}
-
-	emptyAllocs := testing.AllocsPerRun(1000, func() {
-		_ = httpRawUsageMessage(emptyPayload)
-	})
-	if emptyAllocs != 0 {
-		t.Fatalf("expected empty payload normalization to avoid allocations, got %.2f", emptyAllocs)
+	for _, tc := range []struct {
+		body []byte
+		want string
+	}{
+		{[]byte(" \n null \t"), "null"},
+		{[]byte(" \r\n\t "), ""},
+	} {
+		t.Run(tc.want, func(t *testing.T) {
+			if got := httpRawUsageMessage(tc.body); got != tc.want {
+				t.Fatalf("normalized payload = %q, want %q", got, tc.want)
+			}
+			allocs := testing.AllocsPerRun(1000, func() { _ = httpRawUsageMessage(tc.body) })
+			if allocs != 0 {
+				t.Fatalf("expected normalization without allocations, got %.2f", allocs)
+			}
+		})
 	}
 }

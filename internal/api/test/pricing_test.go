@@ -16,17 +16,18 @@ import (
 )
 
 type pricingStub struct {
-	usedModels []string
-	pricing    []entities.ModelPriceSetting
-	preview    servicedto.PricingSyncPreview
-	updated    *entities.ModelPriceSetting
-	lastUpdate *servicedto.UpdatePricingInput
-	batch      []entities.ModelPriceSetting
-	lastBatch  []servicedto.UpdatePricingInput
-	rules      []servicedto.PricingRule
-	lastRules  *servicedto.ReplacePricingRulesInput
-	deleted    string
-	err        error
+	usedModels    []string
+	pricing       []entities.ModelPriceSetting
+	preview       servicedto.PricingSyncPreview
+	previewSource *string
+	updated       *entities.ModelPriceSetting
+	lastUpdate    *servicedto.UpdatePricingInput
+	batch         []entities.ModelPriceSetting
+	lastBatch     []servicedto.UpdatePricingInput
+	rules         []servicedto.PricingRule
+	lastRules     *servicedto.ReplacePricingRulesInput
+	deleted       string
+	err           error
 }
 
 type pricingTimeoutError struct{}
@@ -43,12 +44,41 @@ func (s pricingStub) ListPricing(context.Context) ([]entities.ModelPriceSetting,
 	return s.pricing, s.err
 }
 
-func (s pricingStub) PreviewPricingSync(context.Context) (servicedto.PricingSyncPreview, error) {
+func (s pricingStub) PreviewPricingSync(_ context.Context, source string) (servicedto.PricingSyncPreview, error) {
+	if s.previewSource != nil {
+		*s.previewSource = source
+	}
 	return s.preview, s.err
 }
 
-func (s pricingStub) EnsureModelsPricing(context.Context, []string) ([]entities.ModelPriceSetting, error) {
-	return nil, s.err
+func TestPricingSyncPreviewSelectsSource(t *testing.T) {
+	for _, tc := range []struct {
+		query, source string
+		status        int
+	}{
+		{"", "models-dev", http.StatusOK},
+		{"?source=litellm", "litellm", http.StatusOK},
+		{"?source=other", "", http.StatusBadRequest},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			var source string
+			router := NewRouter(nil, nil, nil, &pricingStub{previewSource: &source}, AuthConfig{}, nil, "")
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/pricing/sync/preview"+tc.query, nil))
+			if resp.Code != tc.status || source != tc.source {
+				t.Fatalf("status=%d source=%q, want %+v", resp.Code, source, tc)
+			}
+		})
+	}
+}
+
+func TestPricingSyncLiteLLMTimeoutNamesSelectedSource(t *testing.T) {
+	router := NewRouter(nil, nil, nil, &pricingStub{err: context.DeadlineExceeded}, AuthConfig{}, nil, "")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/pricing/sync/preview?source=litellm", nil))
+	if resp.Code != http.StatusGatewayTimeout || !strings.Contains(resp.Body.String(), "LiteLLM request timed out") {
+		t.Fatalf("unexpected timeout: %d %s", resp.Code, resp.Body.String())
+	}
 }
 
 func (s *pricingStub) UpdatePricing(_ context.Context, input servicedto.UpdatePricingInput) (*entities.ModelPriceSetting, error) {
@@ -77,26 +107,18 @@ func (s *pricingStub) ReplacePricingRules(_ context.Context, input servicedto.Re
 
 func TestPricingRoutesReturnEmptyResponsesWithoutProvider(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "")
-
-	usedReq := httptest.NewRequest(http.MethodGet, "/api/v1/models/used", nil)
-	usedResp := httptest.NewRecorder()
-	router.ServeHTTP(usedResp, usedReq)
-	if usedResp.Code != http.StatusOK || !contains(usedResp.Body.String(), `"models":[]`) {
-		t.Fatalf("unexpected used models response: %d %s", usedResp.Code, usedResp.Body.String())
-	}
-
-	pricingReq := httptest.NewRequest(http.MethodGet, "/api/v1/pricing", nil)
-	pricingResp := httptest.NewRecorder()
-	router.ServeHTTP(pricingResp, pricingReq)
-	if pricingResp.Code != http.StatusOK || !contains(pricingResp.Body.String(), `"pricing":[]`) {
-		t.Fatalf("unexpected pricing response: %d %s", pricingResp.Code, pricingResp.Body.String())
-	}
-
-	previewReq := httptest.NewRequest(http.MethodGet, "/api/v1/pricing/sync/preview", nil)
-	previewResp := httptest.NewRecorder()
-	router.ServeHTTP(previewResp, previewReq)
-	if previewResp.Code != http.StatusOK || !contains(previewResp.Body.String(), `"matches":[]`) {
-		t.Fatalf("unexpected pricing sync preview response: %d %s", previewResp.Code, previewResp.Body.String())
+	for path, want := range map[string]string{
+		"/api/v1/models/used":          `"models":[]`,
+		"/api/v1/pricing":              `"pricing":[]`,
+		"/api/v1/pricing/sync/preview": `"matches":[]`,
+	} {
+		t.Run(path, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, newPricingRequest(http.MethodGet, path, ""))
+			if response.Code != http.StatusOK || !contains(response.Body.String(), want) {
+				t.Fatalf("unexpected response: %d %s; want %s", response.Code, response.Body.String(), want)
+			}
+		})
 	}
 }
 
@@ -115,14 +137,14 @@ func TestPricingRoutesReturnConfiguredData(t *testing.T) {
 		}},
 	}, AuthConfig{}, nil, "")
 
-	usedReq := httptest.NewRequest(http.MethodGet, "/api/v1/models/used", nil)
+	usedReq := newPricingRequest(http.MethodGet, "/api/v1/models/used", "")
 	usedResp := httptest.NewRecorder()
 	router.ServeHTTP(usedResp, usedReq)
 	if usedResp.Code != http.StatusOK || !contains(usedResp.Body.String(), `claude-sonnet`) {
 		t.Fatalf("unexpected used models response: %d %s", usedResp.Code, usedResp.Body.String())
 	}
 
-	pricingReq := httptest.NewRequest(http.MethodGet, "/api/v1/pricing", nil)
+	pricingReq := newPricingRequest(http.MethodGet, "/api/v1/pricing", "")
 	pricingResp := httptest.NewRecorder()
 	router.ServeHTTP(pricingResp, pricingReq)
 	if pricingResp.Code != http.StatusOK || !contains(pricingResp.Body.String(), `"prompt_price_per_1m":3`) || !contains(pricingResp.Body.String(), `"pricing_style":"claude"`) || !contains(pricingResp.Body.String(), `"cache_write_price_per_1m":3.75`) || !contains(pricingResp.Body.String(), `"price_multiplier":0.5`) {
@@ -150,7 +172,7 @@ func TestPricingSyncPreviewRoute(t *testing.T) {
 		},
 	}, AuthConfig{}, nil, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/pricing/sync/preview", nil)
+	req := newPricingRequest(http.MethodGet, "/api/v1/pricing/sync/preview", "")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -165,48 +187,25 @@ func TestPricingSyncPreviewRoute(t *testing.T) {
 	}
 }
 
-func TestPricingSyncPreviewRouteReturnsGatewayTimeoutForUpstreamTimeout(t *testing.T) {
-	router := NewRouter(nil, nil, nil, &pricingStub{
-		err: fmt.Errorf("fetch pricing catalog: %w", context.DeadlineExceeded),
-	}, AuthConfig{}, nil, "")
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/pricing/sync/preview", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusGatewayTimeout ||
-		!contains(resp.Body.String(), `"error":"Models.dev request timed out"`) {
-		t.Fatalf("unexpected pricing sync timeout response: %d %s", resp.Code, resp.Body.String())
-	}
-}
-
-func TestPricingSyncPreviewRouteReturnsGatewayTimeoutForNetworkTimeout(t *testing.T) {
-	router := NewRouter(nil, nil, nil, &pricingStub{
-		err: fmt.Errorf("fetch pricing catalog: %w", pricingTimeoutError{}),
-	}, AuthConfig{}, nil, "")
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/pricing/sync/preview", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusGatewayTimeout ||
-		!contains(resp.Body.String(), `"error":"Models.dev request timed out"`) {
-		t.Fatalf("unexpected pricing sync network timeout response: %d %s", resp.Code, resp.Body.String())
-	}
-}
-
-func TestPricingSyncPreviewRouteKeepsNonTimeoutErrorsInternal(t *testing.T) {
-	router := NewRouter(nil, nil, nil, &pricingStub{
-		err: errors.New("decode pricing catalog: invalid character"),
-	}, AuthConfig{}, nil, "")
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/pricing/sync/preview", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusInternalServerError ||
-		!contains(resp.Body.String(), `"error":"internal server error"`) {
-		t.Fatalf("unexpected pricing sync non-timeout response: %d %s", resp.Code, resp.Body.String())
+func TestPricingSyncPreviewRouteMapsErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		err     error
+		status  int
+		message string
+	}{
+		{"deadline", fmt.Errorf("fetch pricing catalog: %w", context.DeadlineExceeded), http.StatusGatewayTimeout, `"error":"Models.dev request timed out"`},
+		{"network timeout", fmt.Errorf("fetch pricing catalog: %w", pricingTimeoutError{}), http.StatusGatewayTimeout, `"error":"Models.dev request timed out"`},
+		{"internal", errors.New("decode pricing catalog: invalid character"), http.StatusInternalServerError, `"error":"internal server error"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			router := NewRouter(nil, nil, nil, &pricingStub{err: tc.err}, AuthConfig{}, nil, "")
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, newPricingRequest(http.MethodGet, "/api/v1/pricing/sync/preview", ""))
+			if response.Code != tc.status || !contains(response.Body.String(), tc.message) {
+				t.Fatalf("unexpected response: %d %s; want %d %s", response.Code, response.Body.String(), tc.status, tc.message)
+			}
+		})
 	}
 }
 
@@ -222,9 +221,7 @@ func TestUpdatePricingRoutePreservesOpenAICacheWritePrice(t *testing.T) {
 		},
 	}
 	router := NewRouter(nil, nil, nil, provider, AuthConfig{}, nil, "")
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/pricing/gpt-5.6-terra", strings.NewReader(`{"pricing_style":"openai","prompt_price_per_1m":2.5,"completion_price_per_1m":15,"cache_read_price_per_1m":0.25,"cache_write_price_per_1m":3.125}`))
-	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
-	req.Header.Set("Content-Type", "application/json")
+	req := newPricingRequest(http.MethodPut, "/api/v1/pricing/gpt-5.6-terra", `{"pricing_style":"openai","prompt_price_per_1m":2.5,"completion_price_per_1m":15,"cache_read_price_per_1m":0.25,"cache_write_price_per_1m":3.125}`)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -239,9 +236,7 @@ func TestUpdatePricingRoutePreservesOpenAICacheWritePrice(t *testing.T) {
 func TestUpdatePricingRouteRejectsLegacyCachePriceFields(t *testing.T) {
 	provider := &pricingStub{}
 	router := NewRouter(nil, nil, nil, provider, AuthConfig{}, nil, "")
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/pricing/gpt-5.6-terra", strings.NewReader(`{"cache_price_per_1m":0.25,"cache_creation_price_per_1m":3.125}`))
-	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
-	req.Header.Set("Content-Type", "application/json")
+	req := newPricingRequest(http.MethodPut, "/api/v1/pricing/gpt-5.6-terra", `{"cache_price_per_1m":0.25,"cache_creation_price_per_1m":3.125}`)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -268,10 +263,7 @@ func TestUpdatePricingRoute(t *testing.T) {
 	}
 	router := NewRouter(nil, nil, nil, provider, AuthConfig{}, nil, "")
 
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/pricing/claude-sonnet", strings.NewReader(`{"pricing_style":"claude","prompt_price_per_1m":3,"completion_price_per_1m":15,"cache_read_price_per_1m":0.3,"cache_write_price_per_1m":3.75,"price_multiplier":0.5}`))
-
-	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
-	req.Header.Set("Content-Type", "application/json")
+	req := newPricingRequest(http.MethodPut, "/api/v1/pricing/claude-sonnet", `{"pricing_style":"claude","prompt_price_per_1m":3,"completion_price_per_1m":15,"cache_read_price_per_1m":0.3,"cache_write_price_per_1m":3.75,"price_multiplier":0.5}`)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -289,9 +281,7 @@ func TestBatchUpdatePricingRouteUsesOneProviderCall(t *testing.T) {
 		{Model: "model-b", PromptPricePer1M: 3},
 	}}
 	router := NewRouter(nil, nil, nil, provider, AuthConfig{}, nil, "")
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/pricing/batch", strings.NewReader(`{"pricing":[{"model":"model-a","prompt_price_per_1m":2},{"model":"model-b","prompt_price_per_1m":3}]}`))
-	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
-	req.Header.Set("Content-Type", "application/json")
+	req := newPricingRequest(http.MethodPut, "/api/v1/pricing/batch", `{"pricing":[{"model":"model-a","prompt_price_per_1m":2},{"model":"model-b","prompt_price_per_1m":3}]}`)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -309,9 +299,7 @@ func TestBatchUpdatePricingRouteUsesOneProviderCall(t *testing.T) {
 func TestBatchUpdatePricingRouteMapsInvalidInputToBadRequest(t *testing.T) {
 	provider := &pricingStub{err: service.ErrInvalidPricingInput}
 	router := NewRouter(nil, nil, nil, provider, AuthConfig{}, nil, "")
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/pricing/batch", strings.NewReader(`{"pricing":[{"model":"overflow-model","prompt_price_per_1m":1.7976931348623157e308}]}`))
-	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
-	req.Header.Set("Content-Type", "application/json")
+	req := newPricingRequest(http.MethodPut, "/api/v1/pricing/batch", `{"pricing":[{"model":"overflow-model","prompt_price_per_1m":1.7976931348623157e308}]}`)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -333,9 +321,7 @@ func TestUpdatePricingRouteAllowsZeroPriceMultiplier(t *testing.T) {
 	}
 	router := NewRouter(nil, nil, nil, provider, AuthConfig{}, nil, "")
 
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/pricing/free-model", strings.NewReader(`{"prompt_price_per_1m":3,"completion_price_per_1m":15,"cache_read_price_per_1m":0.3,"price_multiplier":0}`))
-	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
-	req.Header.Set("Content-Type", "application/json")
+	req := newPricingRequest(http.MethodPut, "/api/v1/pricing/free-model", `{"prompt_price_per_1m":3,"completion_price_per_1m":15,"cache_read_price_per_1m":0.3,"price_multiplier":0}`)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -351,9 +337,7 @@ func TestUpdatePricingRouteMapsPriceMultiplierValidationToBadRequest(t *testing.
 	provider := &pricingStub{err: errors.Join(service.ErrInvalidPricingInput, errors.New("price_multiplier must be non-negative"))}
 	router := NewRouter(nil, nil, nil, provider, AuthConfig{}, nil, "")
 
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/pricing/free-model", strings.NewReader(`{"prompt_price_per_1m":3,"completion_price_per_1m":15,"cache_read_price_per_1m":0.3,"price_multiplier":-1}`))
-	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
-	req.Header.Set("Content-Type", "application/json")
+	req := newPricingRequest(http.MethodPut, "/api/v1/pricing/free-model", `{"prompt_price_per_1m":3,"completion_price_per_1m":15,"cache_read_price_per_1m":0.3,"price_multiplier":-1}`)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -366,9 +350,7 @@ func TestUpdatePricingRouteMapsInvalidSnapshotInputToBadRequest(t *testing.T) {
 	provider := &pricingStub{err: service.ErrInvalidPricingInput}
 	router := NewRouter(nil, nil, nil, provider, AuthConfig{}, nil, "")
 
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/pricing/overflow-model", strings.NewReader(`{"prompt_price_per_1m":1.7976931348623157e308}`))
-	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
-	req.Header.Set("Content-Type", "application/json")
+	req := newPricingRequest(http.MethodPut, "/api/v1/pricing/overflow-model", `{"prompt_price_per_1m":1.7976931348623157e308}`)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -388,10 +370,7 @@ func TestUpdatePricingRouteAcceptsModelInBody(t *testing.T) {
 	}
 	router := NewRouter(nil, nil, nil, provider, AuthConfig{}, nil, "")
 
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/pricing", strings.NewReader(`{"model":"openai/gpt-4.1","prompt_price_per_1m":3,"completion_price_per_1m":15,"cache_read_price_per_1m":0.3}`))
-
-	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
-	req.Header.Set("Content-Type", "application/json")
+	req := newPricingRequest(http.MethodPut, "/api/v1/pricing", `{"model":"openai/gpt-4.1","prompt_price_per_1m":3,"completion_price_per_1m":15,"cache_read_price_per_1m":0.3}`)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -407,9 +386,7 @@ func TestDeletePricingRoute(t *testing.T) {
 	provider := &pricingStub{}
 	router := NewRouter(nil, nil, nil, provider, AuthConfig{}, nil, "")
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/pricing?model=openai%2Fgpt-4.1", nil)
-
-	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
+	req := newPricingRequest(http.MethodDelete, "/api/v1/pricing?model=openai%2Fgpt-4.1", "")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 

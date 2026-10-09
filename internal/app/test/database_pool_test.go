@@ -17,24 +17,17 @@ func TestNewWithConfigKeepsMemoryDatabaseOnOriginalSinglePool(t *testing.T) {
 		"special_uri": "file::memory:?cache=shared",
 	} {
 		t.Run(name, func(t *testing.T) {
-			// 准备：每个子用例构造独立 App，writer 负责建表，所有读取继续复用同一底层池。
 			cfg := databasePoolTestConfig(databasePath)
 			application, err := keeperapp.NewWithConfig(cfg)
 			if err != nil {
 				t.Fatalf("NewWithConfig returned error: %v", err)
 			}
-			closed := false
-			t.Cleanup(func() {
-				if !closed {
-					_ = application.Close()
-				}
-			})
+			t.Cleanup(func() { _ = application.Close() })
 
 			// 断言：内存库不能打开第二个 reader，避免产生独立空库或引入 shared-cache 锁语义。
 			if application.ReadDB == nil || application.ReadDB != application.DB {
 				t.Fatalf("expected memory database to reuse writer pool, write=%p read=%p", application.DB, application.ReadDB)
 			}
-			// 执行：通过 writer 写入一条事件，再从 App 暴露的 reader 查询同一条记录。
 			event := entities.UsageEvent{EventKey: "memory-read-pool-" + name, Model: "model-a", Timestamp: time.Now()}
 			if err := application.DB.Create(&event).Error; err != nil {
 				t.Fatalf("write memory usage event: %v", err)
@@ -51,7 +44,6 @@ func TestNewWithConfigKeepsMemoryDatabaseOnOriginalSinglePool(t *testing.T) {
 			if err := application.Close(); err != nil {
 				t.Fatalf("first Close returned error: %v", err)
 			}
-			closed = true
 			if err := application.Close(); err != nil {
 				t.Fatalf("second Close returned error: %v", err)
 			}

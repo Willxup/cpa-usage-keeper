@@ -21,7 +21,7 @@ RUN CGO_ENABLED=1 GOOS=linux go build \
     -ldflags="-s -w -X cpa-usage-keeper/internal/version.Version=${VERSION}" \
     -o /out/cpa-usage-keeper ./cmd/server/main.go
 
-FROM alpine:3.20
+FROM alpine:3.24
 WORKDIR /
 RUN apk add --no-cache ca-certificates tzdata su-exec \
 	&& addgroup -S app \

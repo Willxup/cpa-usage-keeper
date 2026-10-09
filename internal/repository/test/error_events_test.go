@@ -2,24 +2,15 @@ package test
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 )
 
 func TestListErrorEventsByAuthIndexUsesStableCursorAndIsolation(t *testing.T) {
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "error-event-pages.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	t.Cleanup(func() {
-		sqlDB, _ := db.DB()
-		_ = sqlDB.Close()
-	})
+	db := openTestDatabase(t)
 
 	now := time.Date(2026, 8, 20, 12, 0, 0, 0, time.Local)
 	rows := []entities.ErrorEvent{

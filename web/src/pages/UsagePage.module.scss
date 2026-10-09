@@ -1,5 +1,6 @@
 @use '../styles/variables' as *;
 @use '../styles/mixins' as *;
+@use '../styles/menu';
 
 .pageShell {
   min-height: 100svh;
@@ -24,6 +25,7 @@
   flex-direction: column;
   gap: var(--keeper-page-frame-gap, 18px);
 }
+
 
 .topBar {
   position: sticky;
@@ -89,7 +91,7 @@
   display: inline-flex;
   align-items: stretch;
   gap: 4px;
-  min-height: var(--keeper-toolbar-control-height, 42px);
+  height: 40px;
   padding: 4px;
   border-radius: 999px;
   border: 1px solid var(--border-color);
@@ -104,7 +106,8 @@
   font: inherit;
   font-size: 12px;
   font-weight: 600;
-  padding: 8px 12px;
+  padding: 6px 12px;
+  line-height: 18px;
   border-radius: 999px;
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
@@ -207,7 +210,8 @@
     outline: none;
   }
 
-  > button {
+  > button,
+  > input[role='combobox'] {
     min-height: 40px;
     border-radius: 999px;
     background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
@@ -1634,6 +1638,7 @@
   }
 
   th {
+    font-size: 10px;
     font-weight: 600;
     color: var(--text-tertiary);
     background-color: var(--bg-secondary);
@@ -2843,15 +2848,7 @@
 }
 
 .requestEventsCountBadge {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 9px;
-  border-radius: $radius-full;
-  border: 1px solid color-mix(in srgb, var(--primary-color) 28%, var(--border-color));
-  background: color-mix(in srgb, var(--primary-color) 8%, var(--bg-primary));
-  color: color-mix(in srgb, var(--text-primary) 80%, var(--primary-color));
-  font-size: 11px;
-  font-weight: 800;
+  @include card-count-badge;
 }
 
 .requestEventsActions {
@@ -3047,41 +3044,15 @@
 }
 
 .requestEventsExportDropdown {
+  @include menu.surface;
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 8px);
   right: 0;
   z-index: 2020;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  width: max-content;
   min-width: 128px;
-  padding: 6px;
-  border: 1px solid var(--border-color);
-  border-radius: $radius-lg;
-  background: var(--bg-primary);
-  box-shadow: var(--shadow-lg);
 
-  button {
-    display: flex;
-    align-items: center;
-    min-height: 32px;
-    border: 1px solid transparent;
-    border-radius: $radius-md;
-    padding: 7px 10px;
-    background: transparent;
-    color: var(--text-primary);
-    font: inherit;
-    font-size: 12px;
-    font-weight: 700;
-    text-align: left;
-    cursor: pointer;
-
-    &:hover,
-    &:focus-visible {
-      background: var(--bg-secondary);
-      outline: none;
-    }
-  }
+  button { @include menu.item; }
 }
 
 .requestEventsToolbar {
@@ -3115,7 +3086,7 @@
 }
 
 .requestEventsFilterLabel {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-tertiary);
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -3125,9 +3096,11 @@
   min-width: 170px;
 }
 
+.requestEventsSelect input,
 .requestEventsSelect button,
 .requestEventsResultSelect button {
   height: 40px;
+  font-size: 12px;
 }
 
 .requestEventsResultSelect {
@@ -3303,6 +3276,18 @@
   line-height: 1.25;
 }
 
+.requestEventsStackedResponse {
+  display: block;
+  margin-top: 3px;
+  color: #d97706;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .requestEventsStackedLabel {
   color: var(--text-secondary);
 }
@@ -3410,6 +3395,7 @@
 }
 
 .requestEventsAPIKeyCell {
+  min-width: 18ch;
   max-width: 240px;
 }
 
@@ -3462,10 +3448,6 @@
 .requestEventsLargeLogModal {
   :global(.modal-header) {
     padding: 18px 54px 12px 20px;
-  }
-
-  :global(.modal-title) {
-    font-size: 16px;
   }
 
   :global(.modal-body) {
@@ -3897,16 +3879,8 @@
   }
 }
 
-.overviewRealtimeResponseStack {
-  min-width: 0;
-  display: grid;
-  grid-template-rows: repeat(2, minmax(250px, 1fr));
-  gap: 16px;
-}
-
-.overviewRealtimeCardCompact {
-  min-height: 250px;
-  gap: 10px;
+.overviewRealtimeLatencyScatterCard {
+  min-height: 396px;
 }
 
 .overviewRealtimeCurrentUsageCard {
@@ -3930,6 +3904,95 @@
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.overviewRealtimePairedMetrics {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+
+  @include mobile {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+.overviewRealtimePairedMetric {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 26px;
+  padding: 4px 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.overviewRealtimeScreenReaderOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  border: 0;
+  white-space: nowrap;
+}
+
+.overviewRealtimePairedMetricLabel {
+  color: var(--text-tertiary);
+}
+
+.overviewRealtimePairedMetricSeries {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.overviewRealtimePairedMetricTokenLabel,
+.overviewRealtimePairedMetricRequestLabel {
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.025em;
+}
+
+.overviewRealtimePairedMetricTokenLabel {
+  color: #3b82f6;
+}
+
+.overviewRealtimePairedMetricRequestLabel {
+  color: #f97316;
+}
+
+.overviewRealtimePairedMetricDivider {
+  color: var(--text-tertiary);
+}
+
+.overviewRealtimePairedMetricValue {
+  color: var(--text-primary);
+  font-weight: 800;
+}
+
+.overviewRealtimePairedMetricValueUp {
+  color: #16a34a;
+}
+
+.overviewRealtimePairedMetricValueDown {
+  color: #dc2626;
+}
+
+.overviewRealtimePairedMetricValueFlat {
+  color: var(--text-secondary);
 }
 
 .overviewRealtimeMetric {
@@ -3984,9 +4047,9 @@
   height: 240px;
 }
 
-.overviewRealtimeCardCompact .overviewRealtimeChartFrame {
-  min-height: 112px;
-  height: 112px;
+.overviewRealtimeLatencyScatterCard .overviewRealtimeChartFrame {
+  min-height: 300px;
+  height: 300px;
 }
 
 .overviewRealtimeEmptyOverlay {
@@ -4056,6 +4119,112 @@
   flex-direction: column;
   gap: 10px;
   min-height: 220px;
+}
+
+.overviewRealtimeRibbon {
+  display: grid;
+  grid-template-columns: minmax(0, 40%) minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+  min-height: 260px;
+  flex: 1 0 auto;
+
+  @media (max-width: 520px) {
+    grid-template-columns: minmax(0, 30%) minmax(0, 1fr);
+    gap: 6px;
+  }
+}
+
+.overviewRealtimeRibbonCanvasWrap {
+  position: relative;
+  min-width: 0;
+}
+
+.overviewRealtimeRibbonCanvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.overviewRealtimeRibbonTotal {
+  fill: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.overviewRealtimeRibbonFlow {
+  opacity: 0.42;
+}
+
+.overviewRealtimeRibbonRows {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.overviewRealtimeRibbonRow {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 70px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border-color);
+
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+
+.overviewRealtimeRibbonTopline {
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr) max-content;
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.overviewRealtimeRibbonDot {
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  border-radius: 50%;
+}
+
+.overviewRealtimeRibbonName {
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.overviewRealtimeRibbonShare {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.5;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.overviewRealtimeUsageMeta.overviewRealtimeRibbonMeta {
+  gap: 5px;
+  margin-left: 15px;
+
+  > span {
+    gap: 4px;
+    min-height: 21px;
+    padding: 4px 6px;
+    font-size: 11px;
+  }
 }
 
 .overviewRealtimeUsageItem {
@@ -4487,4 +4656,20 @@
   .tokenActivityTooltipStats {
     grid-template-columns: max-content;
   }
+}
+
+.standalone {
+  --keeper-page-padding-top: 21px;
+  --keeper-page-padding-x: 24px;
+  --keeper-page-frame-gap: 12px;
+  background: var(--bg-secondary);
+  padding: var(--keeper-page-padding-top, 21px) var(--keeper-page-padding-x, 24px) var(--keeper-page-padding-bottom, 48px);
+  .pageFrame { gap: var(--keeper-page-frame-gap, 12px); }
+  .container { padding-top: 0; }
+  @include mobile {
+    padding-inline: 20px;
+    // 移动端内容 gap 为 12px，补齐工具条下方的 24px 留白。
+    .container > [data-dashboard-toolbar] { margin-bottom: 12px; }
+  }
+  @media (max-width: 360px) { padding-inline: 16px; }
 }

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"sync"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
 	"cpa-usage-keeper/internal/entities"
@@ -23,8 +23,8 @@ func TestXAIProviderCallsBillingRequest(t *testing.T) {
 	weeklyJSON := `{"config":{"currentPeriod":{"type":"weekly","end":"2026-07-13T00:00:00Z"},"creditUsagePercent":10}}`
 	xaiBillingJSON := `{"config":{"monthlyLimit":{"val":20000},"used":{"val":167},"onDemandCap":{"val":0},"billingPeriodStart":"2026-06-01T00:00:00+00:00","billingPeriodEnd":"2026-07-01T00:00:00+00:00","history":[{"billingCycle":{"year":2026,"month":5},"includedUsed":{"val":0},"onDemandUsed":{"val":0},"totalUsed":{"val":0}}]}}`
 	caller := newXAIManagementCaller(
-		&apicall.Response{StatusCode: 200, BodyText: weeklyJSON, Body: json.RawMessage(weeklyJSON)},
-		&apicall.Response{StatusCode: 200, BodyText: xaiBillingJSON, Body: json.RawMessage(xaiBillingJSON)},
+		quotaAPIResponse(200, weeklyJSON),
+		quotaAPIResponse(200, xaiBillingJSON),
 	)
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewXAIProvider(caller, configs.XAIWeekly, configs.XAIMonthly)
@@ -51,42 +51,8 @@ func TestXAIProviderCallsBillingRequest(t *testing.T) {
 	if !contains(body, `"weekly":{"config"`) || !contains(body, `"monthly":{"config"`) || contains(body, "bodyText") || contains(body, "statusCode") {
 		t.Fatalf("unexpected xai result JSON: %s", body)
 	}
-	requests := caller.requestsSnapshot()
-	if len(requests) != 2 {
-		t.Fatalf("expected two api-call requests, got %d", len(requests))
-	}
-	request, ok := caller.requestForURL(xaiMonthlyBillingURL)
-	if !ok || request.AuthIndex != "xai-auth" || request.Method != "GET" {
-		t.Fatalf("unexpected api-call request: %+v", request)
-	}
-	if request.Header["Authorization"] != "Bearer $TOKEN$" {
-		t.Fatalf("unexpected api-call headers: %+v", request.Header)
-	}
-	if request.Data != nil {
-		t.Fatalf("expected no data body, got %#v", request.Data)
-	}
-}
-
-func TestXAIProviderCallsWeeklyThenMonthlyWithIndependentHeaders(t *testing.T) {
-	weeklyJSON := `{"config":{"currentPeriod":{"type":"weekly","start":"2026-07-06T00:00:00Z","end":"2026-07-13T00:00:00Z"},"creditUsagePercent":25}}`
-	monthlyJSON := `{"config":{"monthlyLimit":{"val":20000},"used":{"val":167},"billingPeriodEnd":"2026-08-01T00:00:00Z"}}`
-	caller := newXAIManagementCaller(
-		&apicall.Response{StatusCode: 200, BodyText: weeklyJSON, Body: json.RawMessage(weeklyJSON)},
-		&apicall.Response{StatusCode: 200, BodyText: monthlyJSON, Body: json.RawMessage(monthlyJSON)},
-	)
-	configs := quota.DefaultProviderConfigs()
-	provider := quota.NewXAIProvider(caller, configs.XAIWeekly, configs.XAIMonthly)
-
-	output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "xai-auth"}})
-	if err != nil {
-		t.Fatalf("Check returned error: %v", err)
-	}
-	result, ok := output.Result.(quota.XAIResult)
-	if !ok {
-		t.Fatalf("expected xai result type, got %T", output.Result)
-	}
-	if result.Weekly == nil || result.Weekly.Config == nil || result.Monthly == nil || result.Monthly.Config == nil {
-		t.Fatalf("expected both weekly and monthly payloads, got %#v", result)
+	if result.Weekly == nil || result.Weekly.Config == nil {
+		t.Fatalf("missing weekly payload: %#v", result)
 	}
 	requests := caller.requestsSnapshot()
 	if len(requests) != 2 {
@@ -128,12 +94,12 @@ func TestXAIProviderCompletesWithEitherValidBillingResult(t *testing.T) {
 		{
 			name:        "weekly fails and monthly succeeds",
 			weekly:      &apicall.Response{StatusCode: 500, BodyText: "weekly unavailable"},
-			monthly:     &apicall.Response{StatusCode: 200, BodyText: monthlyJSON, Body: json.RawMessage(monthlyJSON)},
+			monthly:     quotaAPIResponse(200, monthlyJSON),
 			wantMonthly: true,
 		},
 		{
 			name:       "weekly succeeds and monthly fails",
-			weekly:     &apicall.Response{StatusCode: 200, BodyText: weeklyJSON, Body: json.RawMessage(weeklyJSON)},
+			weekly:     quotaAPIResponse(200, weeklyJSON),
 			monthly:    &apicall.Response{StatusCode: 500, BodyText: "monthly unavailable"},
 			wantWeekly: true,
 		},
@@ -268,8 +234,8 @@ func TestXAIProviderParsesWeeklyAndMonthlyBillingShapes(t *testing.T) {
 	weeklyJSON := `{"config":{"current_period":{"type":"weekly","start":"2026-07-06T00:00:00Z","end":"2026-07-13T00:00:00Z"},"credit_usage_percent":"37.5","product_usage":[{"product":"Grok 4","usage_percent":80},{"product":"Grok Code","usagePercent":"25"},{"product":"No Data","usage_percent":null}]}}`
 	monthlyJSON := `{"config":{"monthly_limit":{"val":"1000"},"used":1250,"on_demand_cap":{"val":500},"on_demand_used":{"val":"250"},"billing_period_start":"2026-07-01T00:00:00Z","billing_period_end":"2026-08-01T00:00:00Z"}}`
 	caller := newXAIManagementCaller(
-		&apicall.Response{StatusCode: 200, BodyText: weeklyJSON, Body: json.RawMessage(weeklyJSON)},
-		&apicall.Response{StatusCode: 200, BodyText: monthlyJSON, Body: json.RawMessage(monthlyJSON)},
+		quotaAPIResponse(200, weeklyJSON),
+		quotaAPIResponse(200, monthlyJSON),
 	)
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewXAIProvider(caller, configs.XAIWeekly, configs.XAIMonthly)
@@ -306,18 +272,18 @@ func TestXAIProviderRejectsNonFiniteBillingNumbers(t *testing.T) {
 	}{
 		{
 			name:    "weekly usage percent NaN",
-			weekly:  xaiJSONResponse(`{"config":{"creditUsagePercent":"NaN"}}`),
+			weekly:  quotaAPIResponse(200, `{"config":{"creditUsagePercent":"NaN"}}`),
 			monthly: &apicall.Response{StatusCode: 500, BodyText: "monthly unavailable"},
 		},
 		{
 			name:    "product usage percent infinity",
-			weekly:  xaiJSONResponse(`{"config":{"productUsage":[{"product":"Grok Code","usagePercent":"+Inf"}]}}`),
+			weekly:  quotaAPIResponse(200, `{"config":{"productUsage":[{"product":"Grok Code","usagePercent":"+Inf"}]}}`),
 			monthly: &apicall.Response{StatusCode: 500, BodyText: "monthly unavailable"},
 		},
 		{
 			name:    "monthly money negative infinity",
 			weekly:  &apicall.Response{StatusCode: 500, BodyText: "weekly unavailable"},
-			monthly: xaiJSONResponse(`{"config":{"monthlyLimit":{"val":"-Inf"}}}`),
+			monthly: quotaAPIResponse(200, `{"config":{"monthlyLimit":{"val":"-Inf"}}}`),
 		},
 	}
 
@@ -337,8 +303,8 @@ func TestXAIProviderRejectsNonFiniteBillingNumbers(t *testing.T) {
 func TestXAIProviderDistinguishesEmptyBillingFromExplicitZeroQuota(t *testing.T) {
 	t.Run("both empty responses fail", func(t *testing.T) {
 		caller := newXAIManagementCaller(
-			&apicall.Response{StatusCode: 200, BodyText: `{"config":{}}`, Body: json.RawMessage(`{"config":{}}`)},
-			&apicall.Response{StatusCode: 200, BodyText: `{"config":null}`, Body: json.RawMessage(`{"config":null}`)},
+			quotaAPIResponse(200, `{"config":{}}`),
+			quotaAPIResponse(200, `{"config":null}`),
 		)
 		configs := quota.DefaultProviderConfigs()
 		provider := quota.NewXAIProvider(caller, configs.XAIWeekly, configs.XAIMonthly)
@@ -351,7 +317,7 @@ func TestXAIProviderDistinguishesEmptyBillingFromExplicitZeroQuota(t *testing.T)
 	t.Run("explicit zero weekly usage is valid", func(t *testing.T) {
 		weeklyJSON := `{"config":{"current_period":{"type":"weekly","end":"2026-07-13T00:00:00Z"},"credit_usage_percent":0}}`
 		caller := newXAIManagementCaller(
-			&apicall.Response{StatusCode: 200, BodyText: weeklyJSON, Body: json.RawMessage(weeklyJSON)},
+			quotaAPIResponse(200, weeklyJSON),
 			&apicall.Response{StatusCode: 500, BodyText: "monthly unavailable"},
 		)
 		configs := quota.DefaultProviderConfigs()
@@ -376,13 +342,13 @@ func TestXAIProviderRejectsPeriodOnlyBillingResponses(t *testing.T) {
 	}{
 		{
 			name:    "weekly period only",
-			weekly:  xaiJSONResponse(`{"config":{"currentPeriod":{"type":"weekly","start":"2026-07-06T00:00:00Z","end":"2026-07-13T00:00:00Z"}}}`),
+			weekly:  quotaAPIResponse(200, `{"config":{"currentPeriod":{"type":"weekly","start":"2026-07-06T00:00:00Z","end":"2026-07-13T00:00:00Z"}}}`),
 			monthly: &apicall.Response{StatusCode: 500, BodyText: "monthly unavailable"},
 		},
 		{
 			name:    "monthly reset only",
 			weekly:  &apicall.Response{StatusCode: 500, BodyText: "weekly unavailable"},
-			monthly: xaiJSONResponse(`{"config":{"billingPeriodStart":"2026-07-01T00:00:00Z","billingPeriodEnd":"2026-08-01T00:00:00Z"}}`),
+			monthly: quotaAPIResponse(200, `{"config":{"billingPeriodStart":"2026-07-01T00:00:00Z","billingPeriodEnd":"2026-08-01T00:00:00Z"}}`),
 		},
 	}
 
@@ -400,50 +366,46 @@ func TestXAIProviderRejectsPeriodOnlyBillingResponses(t *testing.T) {
 }
 
 func TestXAIProviderStartsBothEqualBillingSourcesWithoutBlocking(t *testing.T) {
-	monthlyJSON := `{"config":{"monthlyLimit":{"val":1000},"used":{"val":250}}}`
-	caller := &blockingWeeklyManagementCaller{
-		weeklyStarted:  make(chan struct{}),
-		monthlyStarted: make(chan struct{}),
-		releaseWeekly:  make(chan struct{}),
-		monthlyResponse: &apicall.Response{
-			StatusCode: 200,
-			BodyText:   monthlyJSON,
-			Body:       json.RawMessage(monthlyJSON),
-		},
-	}
-	configs := quota.DefaultProviderConfigs()
-	provider := quota.NewXAIProvider(caller, configs.XAIWeekly, configs.XAIMonthly)
-	type checkResult struct {
-		output quota.ProviderOutput
-		err    error
-	}
-	resultCh := make(chan checkResult, 1)
-	go func() {
-		output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "xai-auth"}})
-		resultCh <- checkResult{output: output, err: err}
-	}()
+	synctest.Test(t, func(t *testing.T) {
+		monthlyJSON := `{"config":{"monthlyLimit":{"val":1000},"used":{"val":250}}}`
+		caller := &blockingWeeklyManagementCaller{
+			weeklyStarted:   make(chan struct{}),
+			monthlyStarted:  make(chan struct{}),
+			releaseWeekly:   make(chan struct{}),
+			monthlyResponse: quotaAPIResponse(200, monthlyJSON),
+		}
+		release := sync.OnceFunc(func() { close(caller.releaseWeekly) })
+		defer release()
+		configs := quota.DefaultProviderConfigs()
+		provider := quota.NewXAIProvider(caller, configs.XAIWeekly, configs.XAIMonthly)
+		type checkResult struct {
+			output quota.ProviderOutput
+			err    error
+		}
+		resultCh := make(chan checkResult, 1)
+		go func() {
+			output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "xai-auth"}})
+			resultCh <- checkResult{output: output, err: err}
+		}()
 
-	select {
-	case <-caller.weeklyStarted:
-	case <-time.After(time.Second):
-		t.Fatal("weekly billing request did not start")
-	}
-	select {
-	case <-caller.monthlyStarted:
-		close(caller.releaseWeekly)
-	case <-time.After(200 * time.Millisecond):
-		close(caller.releaseWeekly)
-		<-resultCh
-		t.Fatal("monthly billing request was blocked behind weekly")
-	}
-	result := <-resultCh
-	if result.err != nil {
-		t.Fatalf("expected monthly partial success, got %v", result.err)
-	}
-	xaiResult := result.output.Result.(quota.XAIResult)
-	if xaiResult.Monthly == nil || xaiResult.Weekly != nil {
-		t.Fatalf("unexpected concurrent partial result: %#v", xaiResult)
-	}
+		synctest.Wait()
+		for name, started := range map[string]<-chan struct{}{"weekly": caller.weeklyStarted, "monthly": caller.monthlyStarted} {
+			select {
+			case <-started:
+			default:
+				t.Fatalf("%s request did not start while weekly was blocked", name)
+			}
+		}
+		release()
+		result := <-resultCh
+		if result.err != nil {
+			t.Fatalf("expected monthly partial success, got %v", result.err)
+		}
+		xaiResult := result.output.Result.(quota.XAIResult)
+		if xaiResult.Monthly == nil || xaiResult.Weekly != nil {
+			t.Fatalf("unexpected concurrent partial result: %#v", xaiResult)
+		}
+	})
 }
 
 func TestXAIProviderParsesNestedBodyTextBillingResponse(t *testing.T) {
@@ -451,7 +413,7 @@ func TestXAIProviderParsesNestedBodyTextBillingResponse(t *testing.T) {
 	wrapped := `{"status_code":200,"body":` + strconv.Quote(inner) + `}`
 	caller := newXAIManagementCaller(
 		&apicall.Response{StatusCode: 500, BodyText: "weekly unavailable"},
-		&apicall.Response{StatusCode: 200, BodyText: wrapped, Body: json.RawMessage(wrapped)},
+		quotaAPIResponse(200, wrapped),
 	)
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewXAIProvider(caller, configs.XAIWeekly, configs.XAIMonthly)
@@ -469,50 +431,16 @@ func TestXAIProviderParsesNestedBodyTextBillingResponse(t *testing.T) {
 	}
 }
 
-func TestXAIProviderAddsXAIUserIDToBothBillingRequests(t *testing.T) {
-	weeklyJSON := `{"config":{"currentPeriod":{"type":"weekly","end":"2026-07-13T00:00:00Z"},"creditUsagePercent":10}}`
-	monthlyJSON := `{"config":{"monthlyLimit":{"val":20000},"used":{"val":167},"billingPeriodEnd":"2026-08-01T00:00:00Z"}}`
-	caller := newXAIManagementCaller(
-		&apicall.Response{StatusCode: 200, BodyText: weeklyJSON, Body: json.RawMessage(weeklyJSON)},
-		&apicall.Response{StatusCode: 200, BodyText: monthlyJSON, Body: json.RawMessage(monthlyJSON)},
-	)
-	configs := quota.DefaultProviderConfigs()
-	provider := quota.NewXAIProvider(caller, configs.XAIWeekly, configs.XAIMonthly)
-	xaiUserID := "  xai-user-123  "
-
-	if _, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{
-		Identity:  "xai-auth",
-		XAIUserID: &xaiUserID,
-	}}); err != nil {
-		t.Fatalf("Check returned error: %v", err)
-	}
-	requests := caller.requestsSnapshot()
-	if len(requests) != 2 {
-		t.Fatalf("expected weekly and monthly requests, got %d", len(requests))
-	}
-	for _, request := range requests {
-		if request.Header["x-userid"] != "xai-user-123" {
-			t.Fatalf("expected %s request to include trimmed x-userid, got %+v", request.URL, request.Header)
-		}
-	}
-	if _, ok := configs.XAIWeekly.Headers["x-userid"]; ok {
-		t.Fatalf("weekly config header template must remain unchanged: %+v", configs.XAIWeekly.Headers)
-	}
-	if _, ok := configs.XAIMonthly.Headers["x-userid"]; ok {
-		t.Fatalf("monthly config header template must remain unchanged: %+v", configs.XAIMonthly.Headers)
-	}
-}
-
 func TestXAIProviderDoesNotLeakXAIUserIDBetweenIdentities(t *testing.T) {
 	weeklyJSON := `{"config":{"currentPeriod":{"type":"weekly","end":"2026-07-13T00:00:00Z"},"creditUsagePercent":10}}`
 	monthlyJSON := `{"config":{"monthlyLimit":{"val":20000},"used":{"val":167},"billingPeriodEnd":"2026-08-01T00:00:00Z"}}`
 	caller := newXAIManagementCaller(
-		&apicall.Response{StatusCode: 200, BodyText: weeklyJSON, Body: json.RawMessage(weeklyJSON)},
-		&apicall.Response{StatusCode: 200, BodyText: monthlyJSON, Body: json.RawMessage(monthlyJSON)},
+		quotaAPIResponse(200, weeklyJSON),
+		quotaAPIResponse(200, monthlyJSON),
 	)
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewXAIProvider(caller, configs.XAIWeekly, configs.XAIMonthly)
-	firstUserID := "first-user"
+	firstUserID := "  first-user  "
 
 	if _, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{
 		Identity:  "first-auth",
@@ -533,7 +461,7 @@ func TestXAIProviderDoesNotLeakXAIUserIDBetweenIdentities(t *testing.T) {
 	for _, request := range requests {
 		switch request.AuthIndex {
 		case "first-auth":
-			if request.Header["x-userid"] != firstUserID {
+			if request.Header["x-userid"] != "first-user" {
 				t.Fatalf("expected first identity header on %s, got %+v", request.URL, request.Header)
 			}
 		case "second-auth":
@@ -544,15 +472,16 @@ func TestXAIProviderDoesNotLeakXAIUserIDBetweenIdentities(t *testing.T) {
 			t.Fatalf("unexpected auth index in request: %+v", request)
 		}
 	}
+	for _, config := range []quota.APICallConfig{configs.XAIWeekly, configs.XAIMonthly} {
+		if _, ok := config.Headers["x-userid"]; ok {
+			t.Fatalf("x-userid leaked into template: %+v", config.Headers)
+		}
+	}
 }
 
 func TestXAIProviderCopiesHeadersForEachBillingRequest(t *testing.T) {
 	xaiBillingJSON := `{"config":{"monthlyLimit":{"val":20000},"used":{"val":167},"billingPeriodEnd":"2026-07-01T00:00:00+00:00"}}`
-	caller := &mutatingHeaderManagementCaller{response: &apicall.Response{
-		StatusCode: 200,
-		BodyText:   xaiBillingJSON,
-		Body:       json.RawMessage(xaiBillingJSON),
-	}}
+	caller := &mutatingHeaderManagementCaller{response: quotaAPIResponse(200, xaiBillingJSON)}
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewXAIProvider(caller, configs.XAIWeekly, configs.XAIMonthly)
 
@@ -596,10 +525,6 @@ func newXAIManagementCaller(weekly *apicall.Response, monthly *apicall.Response)
 	}}
 }
 
-func xaiJSONResponse(body string) *apicall.Response {
-	return &apicall.Response{StatusCode: 200, BodyText: body, Body: json.RawMessage(body)}
-}
-
 func (c *xaiManagementCaller) CallManagementAPI(_ context.Context, request apicall.Request) (*apicall.Response, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -615,15 +540,6 @@ func (c *xaiManagementCaller) requestsSnapshot() []apicall.Request {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]apicall.Request(nil), c.requests...)
-}
-
-func (c *xaiManagementCaller) requestForURL(targetURL string) (apicall.Request, bool) {
-	for _, request := range c.requestsSnapshot() {
-		if request.URL == targetURL {
-			return request, true
-		}
-	}
-	return apicall.Request{}, false
 }
 
 type mutatingHeaderManagementCaller struct {

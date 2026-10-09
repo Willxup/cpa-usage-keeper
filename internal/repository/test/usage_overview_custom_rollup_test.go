@@ -29,7 +29,7 @@ func TestCustomHourOverviewReadsCompleteHourlyBucketsWithoutUsageEvents(t *testi
 		t.Fatalf("seed hourly rollups: %v", err)
 	}
 
-	queries := captureOverviewDataQueries(t, db, "custom_hour")
+	queries := captureOverviewDataQueries(t, db)
 	overview, err := repository.BuildUsageOverviewWithFilter(db, repositorydto.UsageQueryFilter{
 		Range: "custom", CustomUnit: "hour", StartTime: &start, EndTime: &end, EndExclusive: true, QueryNow: &queryNow,
 	}, emptyPricingResolverForTest())
@@ -55,7 +55,7 @@ func TestCustomOverviewRollupQueryProjectsAndGroupsOnlyCardDimensions(t *testing
 		t.Fatalf("seed hourly rollup: %v", err)
 	}
 
-	queries := captureOverviewDataQueries(t, db, "projection")
+	queries := captureOverviewDataQueries(t, db)
 	if _, err := repository.BuildUsageOverviewWithFilter(db, repositorydto.UsageQueryFilter{
 		Range: "custom", CustomUnit: "hour", StartTime: &start, EndTime: &end, EndExclusive: true, QueryNow: &end,
 	}, emptyPricingResolverForTest()); err != nil {
@@ -120,7 +120,7 @@ func TestPresetOverviewRawBoundaryUsesCardOnlyProjection(t *testing.T) {
 	db := openTestDatabase(t)
 	end := time.Date(2026, 7, 22, 10, 30, 0, 0, time.Local)
 	start := end.Add(-4 * time.Hour)
-	queries := captureOverviewDataQueries(t, db, "raw_projection")
+	queries := captureOverviewDataQueries(t, db)
 
 	if _, err := repository.BuildUsageOverviewWithFilter(db, repositorydto.UsageQueryFilter{
 		Range: "4h", StartTime: &start, EndTime: &end, QueryNow: &end,
@@ -157,7 +157,7 @@ func TestCustomDayOverviewReadsCompleteDailyBucketsWithoutUsageEvents(t *testing
 		t.Fatalf("seed daily rollups: %v", err)
 	}
 
-	queries := captureOverviewDataQueries(t, db, "custom_day")
+	queries := captureOverviewDataQueries(t, db)
 	overview, err := repository.BuildUsageOverviewWithFilter(db, repositorydto.UsageQueryFilter{
 		Range: "custom", CustomUnit: "day", StartTime: &start, EndTime: &end, EndExclusive: true, QueryNow: &queryNow,
 	}, emptyPricingResolverForTest())
@@ -172,10 +172,11 @@ func TestCustomDayOverviewReadsCompleteDailyBucketsWithoutUsageEvents(t *testing
 	assertOverviewQueryTables(t, *queries, false, true)
 }
 
-func captureOverviewDataQueries(t *testing.T, db *gorm.DB, suffix string) *[]string {
+func captureOverviewDataQueries(t *testing.T, db *gorm.DB, suffix ...string) *[]string {
 	t.Helper()
 	queries := make([]string, 0, 3)
-	callbackName := "test:capture_overview_data_queries_" + suffix
+	callbackName := "test:capture_overview_data_queries"
+	if len(suffix) > 0 && suffix[0] != "" { callbackName += "_" + suffix[0] }
 	capture := func(tx *gorm.DB) {
 		queries = append(queries, strings.ToLower(tx.Statement.SQL.String()))
 	}

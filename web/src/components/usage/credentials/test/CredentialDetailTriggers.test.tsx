@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AiProviderCredentialsSection } from '../AiProviderCredentialsSection'
 import { AuthFileCredentialsSection } from '../AuthFileCredentialsSection'
+import { createAiProviderSectionProps, createAuthFileSectionProps } from './credentialSectionFixtures'
 import type { AiProviderCredentialRow, AuthFileCredentialRow } from '../credentialViewModels'
 
 vi.mock('react-i18next', () => {
@@ -53,19 +54,19 @@ const commonRow = {
   windowCacheReadRate: null,
 }
 
-const authFileRow = {
+const authFileRow: AuthFileCredentialRow = {
   ...commonRow,
   identity,
   quota: [],
   quotaLoading: false,
   displayQuotas: [],
-} as AuthFileCredentialRow
+}
 
-const aiProviderRow = {
+const aiProviderRow: AiProviderCredentialRow = {
   ...commonRow,
   identity: { ...identity, auth_type: 2 as const, auth_type_name: 'apikey' },
   authTypeLabel: 'apikey',
-} as AiProviderCredentialRow
+}
 
 describe('credential detail name triggers', () => {
   let container: HTMLDivElement
@@ -81,74 +82,42 @@ describe('credential detail name triggers', () => {
   afterEach(async () => {
     await act(async () => root.unmount())
     container.remove()
-    document.body.innerHTML = ''
   })
 
   it('opens details from an auth-file name while keeping alias editing separate', async () => {
     const onOpenDetails = vi.fn()
     await act(async () => root.render(
       <AuthFileCredentialsSection
+        {...createAuthFileSectionProps()}
         rows={[authFileRow]}
         total={1}
-        page={1}
-        totalPages={1}
-        pageSize={10}
-        activeOnly={false}
-        sort="priority"
-        loading={false}
-        quotaRefreshing={false}
-        quotaRefreshError=""
-        quotaInspectionStatus={null}
-        quotaInspectionLoading={false}
-        quotaInspectionStarting={false}
-        quotaInspectionError=""
-        onPageChange={() => undefined}
-        onPageSizeChange={() => undefined}
-        onActiveOnlyChange={() => undefined}
-        onSortChange={() => undefined}
-        onRefreshQuota={async () => undefined}
-        onRefreshQuotaForAuthIndex={async () => undefined}
-        onResetQuotaForAuthIndex={async () => undefined}
-        onSaveAlias={async () => undefined}
+        onEdit={async () => undefined}
         onOpenDetails={onOpenDetails}
-        onRefreshInspectionStatus={async () => undefined}
-        onStartInspection={async () => undefined}
       />,
     ))
 
     const authFileTrigger = container.querySelector<HTMLButtonElement>('[data-credential-detail-trigger="true"]')
-    const authFileRowElement = authFileTrigger?.closest('article')
-    expect(authFileTrigger?.querySelector('[class*="credentialDetailNameArrow"]')).not.toBeNull()
-    await act(async () => authFileRowElement?.click())
+    const authFileRowElement = authFileTrigger!.closest('article')
+    await act(async () => authFileRowElement!.click())
     expect(onOpenDetails).not.toHaveBeenCalled()
-    await act(async () => authFileTrigger?.click())
+    await act(async () => authFileTrigger!.click())
     expect(onOpenDetails).toHaveBeenCalledWith(authFileRow)
-    expect(container.querySelector('[aria-label="usage_stats.credentials_alias_edit"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="usage_stats.credentials_edit_title"]')).not.toBeNull()
   })
 
   it('opens details from an AI-provider name', async () => {
     const onOpenDetails = vi.fn()
     await act(async () => root.render(
       <AiProviderCredentialsSection
+        {...createAiProviderSectionProps()}
         rows={[aiProviderRow]}
         total={1}
-        page={1}
-        totalPages={1}
-        pageSize={10}
-        activeOnly={false}
-        sort="priority"
-        loading={false}
         onOpenDetails={onOpenDetails}
-        onPageChange={() => undefined}
-        onPageSizeChange={() => undefined}
-        onActiveOnlyChange={() => undefined}
-        onSortChange={() => undefined}
       />,
     ))
 
     const aiProviderTrigger = container.querySelector<HTMLButtonElement>('[data-credential-detail-trigger="true"]')
-    expect(aiProviderTrigger?.querySelector('[class*="credentialDetailNameArrow"]')).not.toBeNull()
-    await act(async () => aiProviderTrigger?.click())
+    await act(async () => aiProviderTrigger!.click())
     expect(onOpenDetails).toHaveBeenCalledWith(aiProviderRow)
   })
 })

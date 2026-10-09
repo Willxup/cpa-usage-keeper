@@ -9,7 +9,7 @@ import (
 )
 
 func TestSampleSetKeepsStableGlobalPrioritySubsetAcrossMergeOrders(t *testing.T) {
-	// 两半数据合计超过 2500，最终必须只保留全局固定优先级最小集合。
+	// 两半数据合计超过新上限，最终只保留全局固定优先级最小集合。
 	left := latency.NewSampleSet()
 	right := latency.NewSampleSet()
 	for eventID := int64(1); eventID <= 3000; eventID++ {
@@ -22,7 +22,7 @@ func TestSampleSetKeepsStableGlobalPrioritySubsetAcrossMergeOrders(t *testing.T)
 		}
 	}
 
-	// 两种合并顺序都必须裁剪成同一 2500 点二进制结果。
+	// 两种合并顺序都必须裁剪成同一 1000 点二进制结果。
 	leftFirst := left.Clone()
 	if err := leftFirst.Merge(right); err != nil {
 		t.Fatalf("merge right into left: %v", err)
@@ -99,7 +99,7 @@ func TestSampleSetRejectsInvalidAndUnknownBinaryData(t *testing.T) {
 		t.Fatal("expected unknown sample version to fail")
 	}
 
-	// 最大整数宽度下 2500 点仍必须低于计划约定的 100 KiB。
+	// 最大整数宽度下 1000 点仍必须低于计划约定的 100 KiB。
 	wide := latency.NewSampleSet()
 	for offset := int64(0); offset < latency.MaxSamplePoints; offset++ {
 		if err := wide.Add(math.MaxInt64-offset, math.MaxInt64-offset, math.MaxInt64-offset); err != nil {

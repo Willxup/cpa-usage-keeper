@@ -6,26 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UsageEvent } from '@/lib/types';
 import {
   REQUEST_EVENT_COLUMN_IDS,
-  RequestEventsDetailsCard,
   type RequestEventColumnId,
 } from '../RequestEventsDetailsCard';
+import { RequestEventsTestCard } from './requestEventsFixtures';
 import { moveRequestEventColumnId } from '../requestEventColumns';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-
-const baseProps: React.ComponentProps<typeof RequestEventsDetailsCard> = {
-  events: [],
-  loading: false,
-  totalCount: 0,
-  modelOptions: [],
-  sourceOptions: [],
-  modelFilter: '__all__',
-  sourceFilter: '__all__',
-  resultFilter: '__all__',
-  onModelFilterChange: () => undefined,
-  onSourceFilterChange: () => undefined,
-  onResultFilterChange: () => undefined,
-};
 
 const customOrder: RequestEventColumnId[] = [
   'model',
@@ -44,6 +30,10 @@ const event: UsageEvent = {
   tokens: { total_tokens: 0 },
 };
 
+const query = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
+const columnIds = () => Array.from(document.querySelectorAll('[data-request-events-column-row]'),
+  (row) => row.getAttribute('data-request-events-column-row'));
+
 describe('RequestEvents column settings', () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -60,7 +50,7 @@ describe('RequestEvents column settings', () => {
     await act(async () => root.unmount());
     restoreElementAnimate();
     restoreElementAnimate = () => undefined;
-    document.body.replaceChildren();
+    container.remove();
     vi.restoreAllMocks();
   });
 
@@ -97,8 +87,7 @@ describe('RequestEvents column settings', () => {
   } = {}) => {
     await act(async () => {
       root.render(
-        <RequestEventsDetailsCard
-          {...baseProps}
+        <RequestEventsTestCard
           events={events}
           visibleColumnIds={visibleColumnIds}
           columnOrder={columnOrder}
@@ -111,54 +100,22 @@ describe('RequestEvents column settings', () => {
   };
 
   const openSettings = async () => {
-    const trigger = document.querySelector<HTMLButtonElement>('[data-request-events-column-settings-trigger]');
-    expect(trigger).not.toBeNull();
+    const trigger = query<HTMLButtonElement>('[data-request-events-column-settings-trigger]');
     await act(async () => {
-      trigger?.click();
+      trigger.click();
       await Promise.resolve();
     });
   };
 
-  const dispatchPointer = (
-    element: HTMLElement | null,
-    type: string,
-    {
-      pointerId = 1,
-      clientX = 12,
-      clientY = 12,
-      button = 0,
-      isPrimary = true,
-    }: {
-      pointerId?: number;
-      clientX?: number;
-      clientY?: number;
-      button?: number;
-      isPrimary?: boolean;
-    } = {},
-  ) => {
-    const pointerEvent = new Event(type, { bubbles: true, cancelable: true });
-    Object.defineProperties(pointerEvent, {
-      pointerId: { value: pointerId },
-      clientX: { value: clientX },
-      clientY: { value: clientY },
-      button: { value: button },
-      isPrimary: { value: isPrimary },
-    });
-    element?.dispatchEvent(pointerEvent);
+  const dispatchPointer = (element: HTMLElement, type: string, options: PointerEventInit = {}) => {
+    element.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, cancelable: true, pointerId: 1, clientX: 12, clientY: 12,
+      button: 0, isPrimary: true, ...options,
+    }));
   };
 
   const mockColumnRowRect = (row: HTMLElement, top: number) => {
-    row.getBoundingClientRect = () => ({
-      top,
-      right: 560,
-      bottom: top + 46,
-      left: 0,
-      width: 560,
-      height: 46,
-      x: 0,
-      y: top,
-      toJSON: () => ({}),
-    });
+    row.getBoundingClientRect = () => new DOMRect(0, top, 560, 46);
   };
 
   const mockColumnRowsInCurrentOrder = () => {
@@ -167,20 +124,23 @@ describe('RequestEvents column settings', () => {
       row.getBoundingClientRect = () => {
         const currentRows = [...document.querySelectorAll('[data-request-events-column-row]')];
         const top = currentRows.indexOf(row) * 52;
-        return {
-          top,
-          right: 560,
-          bottom: top + 46,
-          left: 0,
-          width: 560,
-          height: 46,
-          x: 0,
-          y: top,
-          toJSON: () => ({}),
-        };
+        return new DOMRect(0, top, 560, 46);
       };
     }
     return rows;
+  };
+
+  const mockAnimatedRowLayout = () => {
+    const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function getBoundingClientRect() {
+      if (this.hasAttribute('data-request-events-column-row')) {
+        const rows = [...document.querySelectorAll('[data-request-events-column-row]')];
+        const index = rows.indexOf(this);
+        const top = index * 52;
+        return new DOMRect(0, top, 560, 46);
+      }
+      return originalGetBoundingClientRect.call(this);
+    });
   };
 
   it('reuses the current order when the drag target has not changed', () => {
@@ -191,19 +151,18 @@ describe('RequestEvents column settings', () => {
     const { onVisibleColumnIdsChange, onColumnOrderChange } = await renderCard();
     await openSettings();
 
-    const modelVisibility = document.querySelector<HTMLInputElement>('[data-request-events-column-visibility="model"]');
-    expect(modelVisibility?.checked).toBe(true);
-    await act(async () => modelVisibility?.click());
+    const modelVisibility = query<HTMLInputElement>('[data-request-events-column-visibility="model"]');
+    expect(modelVisibility.checked).toBe(true);
+    await act(async () => modelVisibility.click());
 
-    const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
-    expect(modelHandle?.querySelector('svg')).not.toBeNull();
-    await act(async () => modelHandle?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
+    const modelHandle = query<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
+    await act(async () => modelHandle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
 
     expect(onVisibleColumnIdsChange).not.toHaveBeenCalled();
     expect(onColumnOrderChange).not.toHaveBeenCalled();
-    expect(document.querySelector('[data-request-events-column-row]')?.getAttribute('data-request-events-column-row')).toBe('timestamp');
+    expect(query('[data-request-events-column-row]').getAttribute('data-request-events-column-row')).toBe('timestamp');
 
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-request-events-column-settings-apply]')?.click());
+    await act(async () => query<HTMLButtonElement>('[data-request-events-column-settings-apply]').click());
 
     expect(onVisibleColumnIdsChange).toHaveBeenCalledWith(['timestamp']);
     expect(onColumnOrderChange).toHaveBeenCalledWith([
@@ -223,29 +182,27 @@ describe('RequestEvents column settings', () => {
     const { onVisibleColumnIdsChange, onColumnOrderChange } = await renderCard();
     await openSettings();
 
-    await act(async () => document.querySelector<HTMLInputElement>('[data-request-events-column-visibility="model"]')?.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]')?.dispatchEvent(
+    await act(async () => query<HTMLInputElement>('[data-request-events-column-visibility="model"]').click());
+    await act(async () => query<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]').dispatchEvent(
       new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
     ));
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-request-events-column-settings-cancel]')?.click());
+    await act(async () => query<HTMLButtonElement>('[data-request-events-column-settings-cancel]').click());
 
     expect(onVisibleColumnIdsChange).not.toHaveBeenCalled();
     expect(onColumnOrderChange).not.toHaveBeenCalled();
 
     await openSettings();
-    expect(document.querySelector<HTMLInputElement>('[data-request-events-column-visibility="model"]')?.checked).toBe(true);
-    expect(document.querySelector('[data-request-events-column-row]')?.getAttribute('data-request-events-column-row')).toBe('model');
+    expect(query<HTMLInputElement>('[data-request-events-column-visibility="model"]').checked).toBe(true);
+    expect(query('[data-request-events-column-row]').getAttribute('data-request-events-column-row')).toBe('model');
   });
 
   it('keeps an unchecked column in the order changed by pointer dragging', async () => {
     const { onColumnOrderChange } = await renderCard();
     await openSettings();
 
-    await act(async () => document.querySelector<HTMLInputElement>('[data-request-events-column-visibility="model"]')?.click());
-    const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
-    const timestampRow = document.querySelector<HTMLElement>('[data-request-events-column-row="timestamp"]');
-    expect(modelHandle).not.toBeNull();
-    expect(timestampRow).not.toBeNull();
+    await act(async () => query<HTMLInputElement>('[data-request-events-column-visibility="model"]').click());
+    const modelHandle = query<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
+    const timestampRow = query<HTMLElement>('[data-request-events-column-row="timestamp"]');
     vi.spyOn(document, 'elementFromPoint').mockReturnValue(timestampRow);
 
     await act(async () => {
@@ -253,7 +210,7 @@ describe('RequestEvents column settings', () => {
       dispatchPointer(modelHandle, 'pointermove');
       dispatchPointer(modelHandle, 'pointerup');
     });
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-request-events-column-settings-apply]')?.click());
+    await act(async () => query<HTMLButtonElement>('[data-request-events-column-settings-apply]').click());
 
     expect(onColumnOrderChange).toHaveBeenCalledWith([
       'timestamp',
@@ -266,18 +223,16 @@ describe('RequestEvents column settings', () => {
     await renderCard();
     await openSettings();
 
-    const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
-    const timestampRow = document.querySelector<HTMLElement>('[data-request-events-column-row="timestamp"]');
-    const apiKeyRow = document.querySelector<HTMLElement>('[data-request-events-column-row="api_key"]');
-    const settingsList = document.querySelector<HTMLElement>('[data-request-events-column-row]')?.parentElement ?? null;
-    expect(modelHandle).not.toBeNull();
-    expect(settingsList).not.toBeNull();
+    const modelHandle = query<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
+    const timestampRow = query<HTMLElement>('[data-request-events-column-row="timestamp"]');
+    const apiKeyRow = query<HTMLElement>('[data-request-events-column-row="api_key"]');
+    const settingsList = query<HTMLElement>('[data-request-events-column-settings-list]');
 
     let captureOwner: HTMLElement | null = null;
-    vi.spyOn(modelHandle!, 'setPointerCapture').mockImplementation(() => {
+    vi.spyOn(modelHandle, 'setPointerCapture').mockImplementation(() => {
       captureOwner = modelHandle;
     });
-    vi.spyOn(settingsList!, 'setPointerCapture').mockImplementation(() => {
+    vi.spyOn(settingsList, 'setPointerCapture').mockImplementation(() => {
       captureOwner = settingsList;
     });
     vi.spyOn(document, 'elementFromPoint')
@@ -294,24 +249,19 @@ describe('RequestEvents column settings', () => {
       if (captureOwner === modelHandle) {
         dispatchPointer(modelHandle, 'lostpointercapture', { clientY: 100 });
       }
-      dispatchPointer(captureOwner, 'pointermove', { clientY: 100 });
+      dispatchPointer(captureOwner!, 'pointermove', { clientY: 100 });
     });
 
-    expect([...document.querySelectorAll('[data-request-events-column-row]')].slice(0, 3).map((row) => (
-      row.getAttribute('data-request-events-column-row')
-    ))).toEqual(['timestamp', 'api_key', 'model']);
+    expect(columnIds().slice(0, 3)).toEqual(['timestamp', 'api_key', 'model']);
   });
 
   it('ignores pointer events that do not belong to the active drag', async () => {
     await renderCard();
     await openSettings();
 
-    const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
-    const timestampRow = document.querySelector<HTMLElement>('[data-request-events-column-row="timestamp"]');
-    const settingsList = document.querySelector<HTMLElement>('[data-request-events-column-settings-list]');
-    expect(modelHandle).not.toBeNull();
-    expect(timestampRow).not.toBeNull();
-    expect(settingsList).not.toBeNull();
+    const modelHandle = query<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
+    const timestampRow = query<HTMLElement>('[data-request-events-column-row="timestamp"]');
+    const settingsList = query<HTMLElement>('[data-request-events-column-settings-list]');
     vi.spyOn(document, 'elementFromPoint').mockReturnValue(timestampRow);
 
     await act(async () => {
@@ -323,8 +273,8 @@ describe('RequestEvents column settings', () => {
       });
     });
 
-    expect(document.querySelector('[data-request-events-column-row]')?.getAttribute('data-request-events-column-row')).toBe('model');
-    expect(document.querySelector('[data-request-events-column-row="model"]')?.className).toContain('Dragging');
+    expect(query('[data-request-events-column-row]').getAttribute('data-request-events-column-row')).toBe('model');
+    expect(query('[data-request-events-column-row="model"]').className).toContain('Dragging');
 
     await act(async () => dispatchPointer(settingsList, 'pointercancel', { pointerId: 1, clientY: 10 }));
   });
@@ -333,9 +283,8 @@ describe('RequestEvents column settings', () => {
     await renderCard();
     await openSettings();
 
-    const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
+    const modelHandle = query<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
     mockColumnRowsInCurrentOrder();
-    expect(modelHandle).not.toBeNull();
     vi.spyOn(document, 'elementFromPoint').mockReturnValue(null);
 
     await act(async () => {
@@ -343,18 +292,15 @@ describe('RequestEvents column settings', () => {
       dispatchPointer(modelHandle, 'pointerup', { clientY: 101 });
     });
 
-    expect([...document.querySelectorAll('[data-request-events-column-row]')].slice(0, 2).map((row) => (
-      row.getAttribute('data-request-events-column-row')
-    ))).toEqual(['timestamp', 'model']);
+    expect(columnIds().slice(0, 2)).toEqual(['timestamp', 'model']);
   });
 
   it('appends the dragged row when a fast drop lands below the final row', async () => {
     await renderCard();
     await openSettings();
 
-    const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
+    const modelHandle = query<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
     const rows = mockColumnRowsInCurrentOrder();
-    expect(modelHandle).not.toBeNull();
     vi.spyOn(document, 'elementFromPoint').mockReturnValue(null);
 
     await act(async () => {
@@ -370,11 +316,9 @@ describe('RequestEvents column settings', () => {
     await renderCard();
     await openSettings();
 
-    const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
-    const apiKeyRow = document.querySelector<HTMLElement>('[data-request-events-column-row="api_key"]');
-    expect(modelHandle).not.toBeNull();
-    expect(apiKeyRow).not.toBeNull();
-    mockColumnRowRect(apiKeyRow!, 104);
+    const modelHandle = query<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
+    const apiKeyRow = query<HTMLElement>('[data-request-events-column-row="api_key"]');
+    mockColumnRowRect(apiKeyRow, 104);
     vi.spyOn(document, 'elementFromPoint').mockReturnValue(apiKeyRow);
 
     await act(async () => {
@@ -382,23 +326,18 @@ describe('RequestEvents column settings', () => {
       dispatchPointer(modelHandle, 'pointerup', { clientY: 110 });
     });
 
-    expect([...document.querySelectorAll('[data-request-events-column-row]')].slice(0, 3).map((row) => (
-      row.getAttribute('data-request-events-column-row')
-    ))).toEqual(['timestamp', 'model', 'api_key']);
+    expect(columnIds().slice(0, 3)).toEqual(['timestamp', 'model', 'api_key']);
   });
 
   it('moves past skipped rows when dropped on the near half of a higher row', async () => {
     await renderCard();
     await openSettings();
 
-    const apiKeyHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="api_key"]');
-    const apiKeyRow = document.querySelector<HTMLElement>('[data-request-events-column-row="api_key"]');
-    const modelRow = document.querySelector<HTMLElement>('[data-request-events-column-row="model"]');
-    expect(apiKeyHandle).not.toBeNull();
-    expect(apiKeyRow).not.toBeNull();
-    expect(modelRow).not.toBeNull();
-    mockColumnRowRect(apiKeyRow!, 104);
-    mockColumnRowRect(modelRow!, 0);
+    const apiKeyHandle = query<HTMLButtonElement>('[data-request-events-column-drag-handle="api_key"]');
+    const apiKeyRow = query<HTMLElement>('[data-request-events-column-row="api_key"]');
+    const modelRow = query<HTMLElement>('[data-request-events-column-row="model"]');
+    mockColumnRowRect(apiKeyRow, 104);
+    mockColumnRowRect(modelRow, 0);
     vi.spyOn(document, 'elementFromPoint').mockReturnValue(modelRow);
 
     await act(async () => {
@@ -406,44 +345,19 @@ describe('RequestEvents column settings', () => {
       dispatchPointer(apiKeyHandle, 'pointerup', { clientY: 40 });
     });
 
-    expect([...document.querySelectorAll('[data-request-events-column-row]')].slice(0, 3).map((row) => (
-      row.getAttribute('data-request-events-column-row')
-    ))).toEqual(['model', 'api_key', 'timestamp']);
+    expect(columnIds().slice(0, 3)).toEqual(['model', 'api_key', 'timestamp']);
   });
 
   it('moves the dragged row with the latest pointer position in one animation frame', async () => {
     await renderCard();
     await openSettings();
 
-    const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
-    const modelRow = document.querySelector<HTMLElement>('[data-request-events-column-row="model"]');
-    const modalBody = document.querySelector<HTMLElement>('.modal-body');
-    expect(modelHandle).not.toBeNull();
-    expect(modelRow).not.toBeNull();
-    expect(modalBody).not.toBeNull();
+    const modelHandle = query<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
+    const modelRow = query<HTMLElement>('[data-request-events-column-row="model"]');
+    const modalBody = query<HTMLElement>('.modal-body');
 
-    modelRow!.getBoundingClientRect = () => ({
-      top: 100,
-      right: 560,
-      bottom: 146,
-      left: 0,
-      width: 560,
-      height: 46,
-      x: 0,
-      y: 100,
-      toJSON: () => ({}),
-    });
-    modalBody!.getBoundingClientRect = () => ({
-      top: 0,
-      right: 560,
-      bottom: 1000,
-      left: 0,
-      width: 560,
-      height: 1000,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    });
+    modelRow.getBoundingClientRect = () => new DOMRect(0, 100, 560, 46);
+    modalBody.getBoundingClientRect = () => new DOMRect(0, 0, 560, 1000);
     vi.spyOn(document, 'elementFromPoint').mockReturnValue(null);
     let animationFrame: FrameRequestCallback | null = null;
     const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
@@ -460,7 +374,7 @@ describe('RequestEvents column settings', () => {
 
     expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
     await act(async () => animationFrame?.(0));
-    expect(modelRow?.style.transform).toBe('translate3d(0, 80px, 0)');
+    expect(modelRow.style.transform).toBe('translate3d(0, 80px, 0)');
 
     await act(async () => dispatchPointer(modelHandle, 'pointerup', { clientY: 190 }));
   });
@@ -469,43 +383,20 @@ describe('RequestEvents column settings', () => {
     await renderCard();
     await openSettings();
 
-    const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
-    const modelRow = document.querySelector<HTMLElement>('[data-request-events-column-row="model"]');
-    const modalBody = document.querySelector<HTMLElement>('.modal-body');
-    expect(modelHandle).not.toBeNull();
-    expect(modelRow).not.toBeNull();
-    expect(modalBody).not.toBeNull();
+    const modelHandle = query<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
+    const modelRow = query<HTMLElement>('[data-request-events-column-row="model"]');
+    const modalBody = query<HTMLElement>('.modal-body');
 
-    modelRow!.getBoundingClientRect = () => {
-      const translateY = Number(/translate3d\(0, (-?[\d.]+)px, 0\)/.exec(modelRow!.style.transform)?.[1] ?? 0);
-      const top = 100 - modalBody!.scrollTop + translateY;
-      return {
-        top,
-        right: 560,
-        bottom: top + 46,
-        left: 0,
-        width: 560,
-        height: 46,
-        x: 0,
-        y: top,
-        toJSON: () => ({}),
-      };
+    modelRow.getBoundingClientRect = () => {
+      const translateY = Number(/translate3d\(0, (-?[\d.]+)px, 0\)/.exec(modelRow.style.transform)?.[1] ?? 0);
+      const top = 100 - modalBody.scrollTop + translateY;
+      return new DOMRect(0, top, 560, 46);
     };
     Object.defineProperties(modalBody, {
       clientHeight: { configurable: true, value: 400 },
       scrollHeight: { configurable: true, value: 1200 },
     });
-    modalBody!.getBoundingClientRect = () => ({
-      top: 0,
-      right: 560,
-      bottom: 1000,
-      left: 0,
-      width: 560,
-      height: 1000,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    });
+    modalBody.getBoundingClientRect = () => new DOMRect(0, 0, 560, 1000);
     vi.spyOn(document, 'elementFromPoint').mockReturnValue(null);
     let animationFrame: FrameRequestCallback | null = null;
     const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
@@ -518,25 +409,25 @@ describe('RequestEvents column settings', () => {
       dispatchPointer(modelHandle, 'pointermove', { clientY: 190 });
     });
     await act(async () => animationFrame?.(0));
-    expect(modelRow?.style.transform).toBe('translate3d(0, 80px, 0)');
+    expect(modelRow.style.transform).toBe('translate3d(0, 80px, 0)');
 
     animationFrame = null;
     await act(async () => {
-      modalBody!.scrollTop = 40;
-      modalBody!.dispatchEvent(new Event('scroll'));
+      modalBody.scrollTop = 40;
+      modalBody.dispatchEvent(new Event('scroll'));
     });
     expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(2);
     await act(async () => animationFrame?.(16));
-    expect(modelRow?.style.transform).toBe('translate3d(0, 120px, 0)');
+    expect(modelRow.style.transform).toBe('translate3d(0, 120px, 0)');
 
     animationFrame = null;
     await act(async () => {
-      modalBody!.scrollTop = 10;
-      modalBody!.dispatchEvent(new Event('scroll'));
+      modalBody.scrollTop = 10;
+      modalBody.dispatchEvent(new Event('scroll'));
     });
     expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(3);
     await act(async () => animationFrame?.(32));
-    expect(modelRow?.style.transform).toBe('translate3d(0, 90px, 0)');
+    expect(modelRow.style.transform).toBe('translate3d(0, 90px, 0)');
 
     await act(async () => dispatchPointer(modelHandle, 'pointerup', { clientY: 190 }));
   });
@@ -545,25 +436,13 @@ describe('RequestEvents column settings', () => {
     await renderCard();
     await openSettings();
 
-    const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
-    const timestampRow = document.querySelector<HTMLElement>('[data-request-events-column-row="timestamp"]');
-    expect(modelHandle).not.toBeNull();
-    expect(timestampRow).not.toBeNull();
+    const modelHandle = query<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
+    const timestampRow = query<HTMLElement>('[data-request-events-column-row="timestamp"]');
 
-    timestampRow!.getBoundingClientRect = () => {
+    timestampRow.getBoundingClientRect = () => {
       const rows = [...document.querySelectorAll('[data-request-events-column-row]')];
-      const top = rows.indexOf(timestampRow!) * 52;
-      return {
-        top,
-        right: 560,
-        bottom: top + 46,
-        left: 0,
-        width: 560,
-        height: 46,
-        x: 0,
-        y: top,
-        toJSON: () => ({}),
-      };
+      const top = rows.indexOf(timestampRow) * 52;
+      return new DOMRect(0, top, 560, 46);
     };
     vi.spyOn(document, 'elementFromPoint').mockReturnValue(timestampRow);
     const animationFrames: FrameRequestCallback[] = [];
@@ -577,50 +456,27 @@ describe('RequestEvents column settings', () => {
       dispatchPointer(modelHandle, 'pointermove', { clientY: 90 });
       animationFrames.shift()?.(0);
     });
-    expect([...document.querySelectorAll('[data-request-events-column-row]')].slice(0, 2).map((row) => (
-      row.getAttribute('data-request-events-column-row')
-    ))).toEqual(['timestamp', 'model']);
+    expect(columnIds().slice(0, 2)).toEqual(['timestamp', 'model']);
 
     await act(async () => {
       dispatchPointer(modelHandle, 'pointermove', { clientY: 90 });
       animationFrames.shift()?.(16);
     });
-    expect([...document.querySelectorAll('[data-request-events-column-row]')].slice(0, 2).map((row) => (
-      row.getAttribute('data-request-events-column-row')
-    ))).toEqual(['timestamp', 'model']);
+    expect(columnIds().slice(0, 2)).toEqual(['timestamp', 'model']);
 
     await act(async () => dispatchPointer(modelHandle, 'pointerup', { clientY: 90 }));
   });
 
   it('animates rows from their previous positions after reordering', async () => {
     const animateSpy = mockElementAnimate();
-    const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
-    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function getBoundingClientRect() {
-      if (this.hasAttribute('data-request-events-column-row')) {
-        const rows = [...document.querySelectorAll('[data-request-events-column-row]')];
-        const index = rows.indexOf(this);
-        const top = index * 52;
-        return {
-          top,
-          right: 560,
-          bottom: top + 46,
-          left: 0,
-          width: 560,
-          height: 46,
-          x: 0,
-          y: top,
-          toJSON: () => ({}),
-        };
-      }
-      return originalGetBoundingClientRect.call(this);
-    });
+    mockAnimatedRowLayout();
 
     await renderCard();
     await openSettings();
     expect(animateSpy).not.toHaveBeenCalled();
 
-    const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
-    await act(async () => modelHandle?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
+    const modelHandle = query<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
+    await act(async () => modelHandle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
 
     expect(animateSpy).toHaveBeenCalledTimes(2);
     expect(animateSpy.mock.calls.map(([keyframes]) => JSON.stringify(keyframes)).join('\n')).toContain('translate3d');
@@ -629,7 +485,7 @@ describe('RequestEvents column settings', () => {
       const animation = animationResult.value as Animation;
       animation.onfinish?.call(animation, new Event('finish') as unknown as AnimationPlaybackEvent);
     }
-    await act(async () => modelHandle?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
+    await act(async () => modelHandle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
     expect(animateSpy).toHaveBeenCalledTimes(4);
   });
 
@@ -645,92 +501,47 @@ describe('RequestEvents column settings', () => {
       removeEventListener: vi.fn(),
       dispatchEvent: vi.fn(),
     }));
-    const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
-    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function getBoundingClientRect() {
-      if (this.hasAttribute('data-request-events-column-row')) {
-        const rows = [...document.querySelectorAll('[data-request-events-column-row]')];
-        const index = rows.indexOf(this);
-        const top = index * 52;
-        return {
-          top,
-          right: 560,
-          bottom: top + 46,
-          left: 0,
-          width: 560,
-          height: 46,
-          x: 0,
-          y: top,
-          toJSON: () => ({}),
-        };
-      }
-      return originalGetBoundingClientRect.call(this);
-    });
+    mockAnimatedRowLayout();
 
     await renderCard();
     await openSettings();
-    const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
-    await act(async () => modelHandle?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
+    const modelHandle = query<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
+    await act(async () => modelHandle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
 
     expect(animateSpy).not.toHaveBeenCalled();
   });
 
-  it('announces keyboard moves with the current column position', async () => {
+  it('announces keyboard moves and keeps the moved row visible', async () => {
     await renderCard();
     await openSettings();
 
-    const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
-    expect(modelHandle?.getAttribute('aria-label')).toContain(`1 of ${REQUEST_EVENT_COLUMN_IDS.length}`);
-
-    await act(async () => modelHandle?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
-
-    expect(modelHandle?.getAttribute('aria-label')).toContain(`2 of ${REQUEST_EVENT_COLUMN_IDS.length}`);
-    expect(document.querySelector('[data-request-events-column-move-announcement]')?.textContent).toContain(
-      `Moved Model to position 2 of ${REQUEST_EVENT_COLUMN_IDS.length}`,
-    );
-  });
-
-  it('keeps the keyboard-moved row visible', async () => {
-    await renderCard();
-    await openSettings();
-
-    const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
-    const modelRow = document.querySelector<HTMLElement>('[data-request-events-column-row="model"]');
+    const modelHandle = query<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
     const scrollIntoView = vi.fn();
-    expect(modelHandle).not.toBeNull();
-    expect(modelRow).not.toBeNull();
-    modelRow!.scrollIntoView = scrollIntoView;
+    query('[data-request-events-column-row="model"]').scrollIntoView = scrollIntoView;
+    expect(modelHandle.getAttribute('aria-label')).toContain(`1 of ${REQUEST_EVENT_COLUMN_IDS.length}`);
 
-    await act(async () => modelHandle?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
+    await act(async () => modelHandle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
 
     expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+    expect(modelHandle.getAttribute('aria-label')).toContain(`2 of ${REQUEST_EVENT_COLUMN_IDS.length}`);
+    expect(query('[data-request-events-column-move-announcement]').textContent).toContain(
+      `Moved Model to position 2 of ${REQUEST_EVENT_COLUMN_IDS.length}`,
+    );
   });
 
   it('auto-scrolls the modal body while dragging near its lower edge', async () => {
     await renderCard();
     await openSettings();
 
-    const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
-    const timestampRow = document.querySelector<HTMLElement>('[data-request-events-column-row="timestamp"]');
-    const modalBody = document.querySelector<HTMLElement>('.modal-body');
-    expect(modelHandle).not.toBeNull();
-    expect(timestampRow).not.toBeNull();
-    expect(modalBody).not.toBeNull();
+    const modelHandle = query<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
+    const timestampRow = query<HTMLElement>('[data-request-events-column-row="timestamp"]');
+    const modalBody = query<HTMLElement>('.modal-body');
 
     Object.defineProperties(modalBody, {
       clientHeight: { configurable: true, value: 200 },
       scrollHeight: { configurable: true, value: 1200 },
     });
-    modalBody!.getBoundingClientRect = () => ({
-      top: 0,
-      right: 560,
-      bottom: 200,
-      left: 0,
-      width: 560,
-      height: 200,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    });
+    modalBody.getBoundingClientRect = () => new DOMRect(0, 0, 560, 200);
     vi.spyOn(document, 'elementFromPoint').mockReturnValue(timestampRow);
     let animationFrame: FrameRequestCallback | null = null;
     const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
@@ -745,7 +556,7 @@ describe('RequestEvents column settings', () => {
 
     expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
     await act(async () => animationFrame?.(0));
-    expect(modalBody?.scrollTop).toBeGreaterThan(0);
+    expect(modalBody.scrollTop).toBeGreaterThan(0);
 
     await act(async () => dispatchPointer(modelHandle, 'pointerup', { clientY: 190 }));
   });
@@ -754,26 +565,14 @@ describe('RequestEvents column settings', () => {
     await renderCard();
     await openSettings();
 
-    const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
-    const modalBody = document.querySelector<HTMLElement>('.modal-body');
-    expect(modelHandle).not.toBeNull();
-    expect(modalBody).not.toBeNull();
+    const modelHandle = query<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
+    const modalBody = query<HTMLElement>('.modal-body');
 
     Object.defineProperties(modalBody, {
       clientHeight: { configurable: true, value: 200 },
       scrollHeight: { configurable: true, value: 1200 },
     });
-    modalBody!.getBoundingClientRect = () => ({
-      top: 0,
-      right: 560,
-      bottom: 200,
-      left: 0,
-      width: 560,
-      height: 200,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    });
+    modalBody.getBoundingClientRect = () => new DOMRect(0, 0, 560, 200);
     vi.spyOn(document, 'elementFromPoint').mockReturnValue(null);
     const animationFrames: FrameRequestCallback[] = [];
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
@@ -786,16 +585,16 @@ describe('RequestEvents column settings', () => {
       dispatchPointer(modelHandle, 'pointermove', { clientY: 190 });
       animationFrames.shift()?.(0);
     });
-    expect(modalBody!.scrollTop).toBeGreaterThan(0);
+    expect(modalBody.scrollTop).toBeGreaterThan(0);
 
-    const manuallyScrolledTop = modalBody!.scrollTop - 5;
+    const manuallyScrolledTop = modalBody.scrollTop - 5;
     await act(async () => {
-      modalBody!.dispatchEvent(new WheelEvent('wheel', { deltaY: -40, bubbles: true }));
-      modalBody!.scrollTop = manuallyScrolledTop;
-      modalBody!.dispatchEvent(new Event('scroll'));
+      modalBody.dispatchEvent(new WheelEvent('wheel', { deltaY: -40, bubbles: true }));
+      modalBody.scrollTop = manuallyScrolledTop;
+      modalBody.dispatchEvent(new Event('scroll'));
       animationFrames.shift()?.(16);
     });
-    expect(modalBody!.scrollTop).toBe(manuallyScrolledTop);
+    expect(modalBody.scrollTop).toBe(manuallyScrolledTop);
 
     await act(async () => dispatchPointer(modelHandle, 'pointerup', { clientY: 190 }));
   });
@@ -804,8 +603,8 @@ describe('RequestEvents column settings', () => {
     await renderCard();
     await openSettings();
 
-    const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
-    const timestampRow = document.querySelector<HTMLElement>('[data-request-events-column-row="timestamp"]');
+    const modelHandle = query<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
+    const timestampRow = query<HTMLElement>('[data-request-events-column-row="timestamp"]');
     vi.spyOn(document, 'elementFromPoint').mockReturnValue(timestampRow);
 
     await act(async () => {
@@ -814,16 +613,16 @@ describe('RequestEvents column settings', () => {
       dispatchPointer(modelHandle, 'pointerup', { button: 2 });
     });
 
-    expect(document.querySelector('[data-request-events-column-row]')?.getAttribute('data-request-events-column-row')).toBe('model');
+    expect(query('[data-request-events-column-row]').getAttribute('data-request-events-column-row')).toBe('model');
   });
 
   it('clears pointer dragging when capture is lost', async () => {
     await renderCard();
     await openSettings();
 
-    const modelHandle = document.querySelector<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
-    const timestampRow = document.querySelector<HTMLElement>('[data-request-events-column-row="timestamp"]');
-    const settingsList = document.querySelector<HTMLElement>('[data-request-events-column-row]')?.parentElement ?? null;
+    const modelHandle = query<HTMLButtonElement>('[data-request-events-column-drag-handle="model"]');
+    const timestampRow = query<HTMLElement>('[data-request-events-column-row="timestamp"]');
+    const settingsList = query<HTMLElement>('[data-request-events-column-settings-list]');
     const elementFromPointSpy = vi.spyOn(document, 'elementFromPoint').mockReturnValue(timestampRow);
 
     await act(async () => {
@@ -833,13 +632,13 @@ describe('RequestEvents column settings', () => {
     });
 
     expect(elementFromPointSpy).not.toHaveBeenCalled();
-    expect(document.querySelector('[data-request-events-column-row]')?.getAttribute('data-request-events-column-row')).toBe('model');
+    expect(query('[data-request-events-column-row]').getAttribute('data-request-events-column-row')).toBe('model');
   });
 
   it('prevents hiding the final visible column', async () => {
     await renderCard({ visibleColumnIds: ['timestamp'] });
     await openSettings();
 
-    expect(document.querySelector<HTMLInputElement>('[data-request-events-column-visibility="timestamp"]')?.disabled).toBe(true);
+    expect(query<HTMLInputElement>('[data-request-events-column-visibility="timestamp"]').disabled).toBe(true);
   });
 });

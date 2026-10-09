@@ -1,7 +1,6 @@
 package test
 
 import (
-	"errors"
 	"testing"
 	"time"
 
@@ -9,13 +8,7 @@ import (
 )
 
 func TestParseUsageQueryRangeNormalizesSupportedRanges(t *testing.T) {
-	previousLocal := time.Local
-	location, err := time.LoadLocation("Asia/Shanghai")
-	if err != nil {
-		t.Fatalf("load location: %v", err)
-	}
-	t.Cleanup(func() { time.Local = previousLocal })
-	time.Local = location
+	location := useTimezone(t, "Asia/Shanghai")
 
 	anchor := time.Date(2026, 7, 21, 12, 34, 56, 0, location)
 	testCases := []struct {
@@ -98,13 +91,7 @@ func TestParseUsageQueryRangeNormalizesSupportedRanges(t *testing.T) {
 }
 
 func TestParseUsageQueryRangeCountsCustomDaysAcrossDSTByCalendarDate(t *testing.T) {
-	previousLocal := time.Local
-	location, err := time.LoadLocation("America/New_York")
-	if err != nil {
-		t.Fatalf("load location: %v", err)
-	}
-	t.Cleanup(func() { time.Local = previousLocal })
-	time.Local = location
+	location := useTimezone(t, "America/New_York")
 
 	result, err := timeutil.ParseUsageQueryRange(
 		"custom",
@@ -174,14 +161,12 @@ func TestParseUsageQueryRangeClassifiesCurrentBoundsConflicts(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected expired Custom range to be rejected")
 	}
-	var boundsConflict interface{ UsageQueryRangeBoundsConflict() }
-	if !errors.As(err, &boundsConflict) {
+	if !timeutil.IsUsageQueryRangeBoundsConflict(err) {
 		t.Fatalf("expected current-bounds conflict error, got %T: %v", err, err)
 	}
 
 	_, err = timeutil.ParseUsageQueryRange("custom", "day", "2026-07-21", "2026-07-20", anchor)
-	boundsConflict = nil
-	if err == nil || errors.As(err, &boundsConflict) {
+	if err == nil || timeutil.IsUsageQueryRangeBoundsConflict(err) {
 		t.Fatalf("expected reversed range to remain a regular validation error, got %T: %v", err, err)
 	}
 }
@@ -217,8 +202,19 @@ func TestParseUsageQueryRangeEnforcesLongCustomDayLimit(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected 366-day Custom range to be rejected")
 	}
-	var boundsConflict interface{ UsageQueryRangeBoundsConflict() }
-	if errors.As(err, &boundsConflict) {
+	if timeutil.IsUsageQueryRangeBoundsConflict(err) {
 		t.Fatalf("expected 366-day Custom range to remain a regular validation error, got %T: %v", err, err)
 	}
+}
+
+func useTimezone(t *testing.T, name string) *time.Location {
+	t.Helper()
+	location, err := time.LoadLocation(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := time.Local
+	time.Local = location
+	t.Cleanup(func() { time.Local = previous })
+	return location
 }

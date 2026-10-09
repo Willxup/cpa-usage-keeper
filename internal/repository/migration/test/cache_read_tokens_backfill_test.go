@@ -2,13 +2,12 @@ package test
 
 import (
 	"fmt"
-	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
 	"cpa-usage-keeper/internal/repository/migration"
 	"cpa-usage-keeper/internal/timeutil"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -52,18 +51,9 @@ func TestCacheReadTokensBackfillNormalizesRawAndCursorSafeAggregates(t *testing.
 	})
 
 	db := openCacheReadTokensBackfillDatabase(t)
-	createCacheReadTokensBackfillSchema(t, db)
-	if err := migration.MarkAllAsApplied(db); err != nil {
-		t.Fatalf("mark migrations applied: %v", err)
-	}
-	if err := db.Exec("DELETE FROM schema_migrations WHERE version = ?", cacheReadTokensBackfillVersion).Error; err != nil {
-		t.Fatalf("enable cache read migration: %v", err)
-	}
 	seedCacheReadTokensBackfillData(t, db)
 
-	if err := migration.Run(db); err != nil {
-		t.Fatalf("run migrations: %v", err)
-	}
+	runOnlyMigration(t, db, cacheReadTokensBackfillVersion)
 
 	assertEventCacheTokens(t, db, "codex-fallback", 1_000, 100, 100, 10, 1_200)
 	assertEventCacheTokens(t, db, "openai-explicit", 2_000, 30, 80, 20, 2_400)
@@ -102,8 +92,8 @@ func TestCacheReadTokensBackfillNormalizesRawAndCursorSafeAggregates(t *testing.
 		t.Fatalf("rerun migrations: %v", err)
 	}
 	secondSnapshot := cacheReadTokensBackfillSnapshot(t, db)
-	if secondSnapshot != firstSnapshot {
-		t.Fatalf("expected forced migration rerun to be idempotent\nfirst:  %s\nsecond: %s", firstSnapshot, secondSnapshot)
+	if !reflect.DeepEqual(secondSnapshot, firstSnapshot) {
+		t.Fatalf("expected forced migration rerun to be idempotent\nfirst:  %+v\nsecond: %+v", firstSnapshot, secondSnapshot)
 	}
 
 	var migrationCount int64
@@ -127,13 +117,6 @@ func TestCacheReadTokensBackfillUsesProjectTimezoneForDSTDailyBucket(t *testing.
 	})
 
 	db := openCacheReadTokensBackfillDatabase(t)
-	createCacheReadTokensBackfillSchema(t, db)
-	if err := migration.MarkAllAsApplied(db); err != nil {
-		t.Fatalf("mark migrations applied: %v", err)
-	}
-	if err := db.Exec("DELETE FROM schema_migrations WHERE version = ?", cacheReadTokensBackfillVersion).Error; err != nil {
-		t.Fatalf("enable cache read migration: %v", err)
-	}
 
 	eventTimestamp := time.Date(2026, time.March, 8, 12, 15, 0, 0, location)
 	hourBucket := eventTimestamp.Truncate(time.Hour)
@@ -172,9 +155,7 @@ func TestCacheReadTokensBackfillUsesProjectTimezoneForDSTDailyBucket(t *testing.
 		}
 	}
 
-	if err := migration.Run(db); err != nil {
-		t.Fatalf("run DST cache read migration: %v", err)
-	}
+	runOnlyMigration(t, db, cacheReadTokensBackfillVersion)
 
 	assertEventCacheTokens(t, db, "dst-cache", 1_000, 100, 100, 0, 1_000)
 	assertOverviewCacheTokens(t, db, "usage_overview_hourly_stats", timeutil.FormatStorageTime(hourBucket), "dst-cache", 100, 100, 0)
@@ -183,13 +164,6 @@ func TestCacheReadTokensBackfillUsesProjectTimezoneForDSTDailyBucket(t *testing.
 
 func TestCacheReadTokensBackfillSkipsNonCanonicalAPIKeyAuthType(t *testing.T) {
 	db := openCacheReadTokensBackfillDatabase(t)
-	createCacheReadTokensBackfillSchema(t, db)
-	if err := migration.MarkAllAsApplied(db); err != nil {
-		t.Fatalf("mark migrations applied: %v", err)
-	}
-	if err := db.Exec("DELETE FROM schema_migrations WHERE version = ?", cacheReadTokensBackfillVersion).Error; err != nil {
-		t.Fatalf("enable cache read migration: %v", err)
-	}
 
 	if err := db.Exec(
 		"INSERT INTO usage_identities (id, auth_type, identity, type, cached_tokens, last_aggregated_usage_event_id) VALUES (1, 2, 'legacy-api-key', 'codex', 0, 1)",
@@ -206,9 +180,7 @@ func TestCacheReadTokensBackfillSkipsNonCanonicalAPIKeyAuthType(t *testing.T) {
 		t.Fatalf("seed non-canonical overview checkpoint: %v", err)
 	}
 
-	if err := migration.Run(db); err != nil {
-		t.Fatalf("run non-canonical cache read migration: %v", err)
-	}
+	runOnlyMigration(t, db, cacheReadTokensBackfillVersion)
 
 	assertEventCacheTokens(t, db, "legacy-api-key", 1_000, 30, 80, 0, 1_000)
 	assertIdentityCacheTokens(t, db, 1, 0, 0, 1)
@@ -223,13 +195,6 @@ func TestCacheReadTokensBackfillProcessesMultipleBucketBatches(t *testing.T) {
 
 	const eventCount = 205
 	db := openCacheReadTokensBackfillDatabase(t)
-	createCacheReadTokensBackfillSchema(t, db)
-	if err := migration.MarkAllAsApplied(db); err != nil {
-		t.Fatalf("mark migrations applied: %v", err)
-	}
-	if err := db.Exec("DELETE FROM schema_migrations WHERE version = ?", cacheReadTokensBackfillVersion).Error; err != nil {
-		t.Fatalf("enable cache read migration: %v", err)
-	}
 	if err := db.Exec(
 		"INSERT INTO usage_identities (id, auth_type, identity, type, cached_tokens, last_aggregated_usage_event_id) VALUES (1, 2, 'batch-cache', 'codex', ?, ?)",
 		eventCount, eventCount,
@@ -266,9 +231,7 @@ func TestCacheReadTokensBackfillProcessesMultipleBucketBatches(t *testing.T) {
 		}
 	}
 
-	if err := migration.Run(db); err != nil {
-		t.Fatalf("run batched cache read migration: %v", err)
-	}
+	runOnlyMigration(t, db, cacheReadTokensBackfillVersion)
 
 	var normalizedEvents int64
 	if err := db.Table("usage_events").Where("cached_tokens = 1 AND cache_read_tokens = 1").Count(&normalizedEvents).Error; err != nil {
@@ -284,24 +247,21 @@ func TestCacheReadTokensBackfillProcessesMultipleBucketBatches(t *testing.T) {
 
 func openCacheReadTokensBackfillDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "cache-read-backfill.db")), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open migration database: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("get migration sql database: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := sqlDB.Close(); err != nil {
-			t.Fatalf("close migration database: %v", err)
-		}
-	})
+	db := openUnmigratedTestDatabase(t)
+	createCacheReadTokensBackfillSchema(t, db)
 	return db
 }
 
 func createCacheReadTokensBackfillSchema(t *testing.T, db *gorm.DB) {
 	t.Helper()
+	const overviewColumns = `bucket_start TEXT NOT NULL,
+		api_group_key TEXT NOT NULL,
+		model TEXT NOT NULL,
+		auth_index TEXT NOT NULL,
+		model_alias TEXT NOT NULL,
+		cached_tokens INTEGER,
+		cache_read_tokens INTEGER,
+		cache_creation_tokens INTEGER`
 	statements := []string{
 		`CREATE TABLE usage_events (
 			id INTEGER PRIMARY KEY,
@@ -335,26 +295,8 @@ func createCacheReadTokensBackfillSchema(t *testing.T, db *gorm.DB) {
 			cache_price_per1_m REAL,
 			cache_creation_price_per1_m REAL
 		)`,
-		`CREATE TABLE usage_overview_hourly_stats (
-			bucket_start TEXT NOT NULL,
-			api_group_key TEXT NOT NULL,
-			model TEXT NOT NULL,
-			auth_index TEXT NOT NULL,
-			model_alias TEXT NOT NULL,
-			cached_tokens INTEGER,
-			cache_read_tokens INTEGER,
-			cache_creation_tokens INTEGER
-		)`,
-		`CREATE TABLE usage_overview_daily_stats (
-			bucket_start TEXT NOT NULL,
-			api_group_key TEXT NOT NULL,
-			model TEXT NOT NULL,
-			auth_index TEXT NOT NULL,
-			model_alias TEXT NOT NULL,
-			cached_tokens INTEGER,
-			cache_read_tokens INTEGER,
-			cache_creation_tokens INTEGER
-		)`,
+		"CREATE TABLE usage_overview_hourly_stats (" + overviewColumns + ")",
+		"CREATE TABLE usage_overview_daily_stats (" + overviewColumns + ")",
 		`CREATE TABLE usage_overview_aggregation_checkpoints (
 			name TEXT PRIMARY KEY,
 			last_aggregated_usage_event_id INTEGER NOT NULL
@@ -369,14 +311,15 @@ func createCacheReadTokensBackfillSchema(t *testing.T, db *gorm.DB) {
 
 func seedCacheReadTokensBackfillData(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	identities := []struct {
+	type identityFixture struct {
 		id         int64
 		authType   int
 		identity   string
 		usageType  string
 		cached     int64
 		lastCursor int64
-	}{
+	}
+	identities := []identityFixture{
 		{id: 1, authType: 2, identity: "shared-cache", usageType: "codex", cached: 170, lastCursor: 2},
 		{id: 2, authType: 1, identity: "shared-cache", usageType: "openai", cached: 50, lastCursor: 2},
 		{id: 3, authType: 2, identity: "gemini-pending", usageType: "gemini", cached: 0, lastCursor: 2},
@@ -386,14 +329,7 @@ func seedCacheReadTokensBackfillData(t *testing.T, db *gorm.DB) {
 	}
 	nextIdentityID := int64(20)
 	for _, identityType := range cacheReadBackfillAliasTypes() {
-		identities = append(identities, struct {
-			id         int64
-			authType   int
-			identity   string
-			usageType  string
-			cached     int64
-			lastCursor int64
-		}{id: nextIdentityID, authType: 2, identity: "alias-" + identityType, usageType: identityType})
+		identities = append(identities, identityFixture{id: nextIdentityID, authType: 2, identity: "alias-" + identityType, usageType: identityType})
 		nextIdentityID++
 	}
 	for _, identity := range identities {
@@ -405,7 +341,7 @@ func seedCacheReadTokensBackfillData(t *testing.T, db *gorm.DB) {
 		}
 	}
 
-	events := []struct {
+	type eventFixture struct {
 		id          int64
 		eventKey    string
 		authType    string
@@ -419,7 +355,8 @@ func seedCacheReadTokensBackfillData(t *testing.T, db *gorm.DB) {
 		apiGroupKey string
 		model       string
 		modelAlias  string
-	}{
+	}
+	events := []eventFixture{
 		{id: 1, eventKey: "codex-fallback", authType: "apikey", authIndex: "shared-cache", provider: "OpenAI", input: 1_000, cached: 100, read: 0, creation: 10, total: 1_200, apiGroupKey: "shared-group", model: "shared-model"},
 		{id: 2, eventKey: "openai-explicit", authType: "oauth", authIndex: "shared-cache", provider: "OpenAI", input: 2_000, cached: 30, read: 80, creation: 20, total: 2_400, apiGroupKey: "shared-group", model: "shared-model"},
 		{id: 3, eventKey: "gemini-pending", authType: "apikey", authIndex: "gemini-pending", provider: "Gemini", input: 3_000, cached: 60, read: 0, creation: 30, total: 3_600, apiGroupKey: "gemini-group", model: "gemini-model"},
@@ -429,21 +366,7 @@ func seedCacheReadTokensBackfillData(t *testing.T, db *gorm.DB) {
 	}
 	nextEventID := int64(20)
 	for _, identityType := range cacheReadBackfillAliasTypes() {
-		events = append(events, struct {
-			id          int64
-			eventKey    string
-			authType    string
-			authIndex   string
-			provider    string
-			input       int64
-			cached      int64
-			read        int64
-			creation    int64
-			total       int64
-			apiGroupKey string
-			model       string
-			modelAlias  string
-		}{
+		events = append(events, eventFixture{
 			id: nextEventID, eventKey: "alias-" + identityType, authType: "apikey", authIndex: "alias-" + identityType,
 			provider: identityType, input: 100, cached: 1, creation: 2, total: 120, apiGroupKey: "alias-group", model: "alias-model",
 		})
@@ -553,7 +476,14 @@ func assertModelPriceCacheColumns(t *testing.T, db *gorm.DB, model string, read,
 	}
 }
 
-func cacheReadTokensBackfillSnapshot(t *testing.T, db *gorm.DB) string {
+type cacheReadBackfillState struct {
+	events        []cacheTokenRow
+	hourly, daily []overviewCacheTokenRow
+	identities    []identityCacheTokenRow
+	prices        []modelPriceCacheRow
+}
+
+func cacheReadTokensBackfillSnapshot(t *testing.T, db *gorm.DB) cacheReadBackfillState {
 	t.Helper()
 	var events []cacheTokenRow
 	if err := db.Table("usage_events").Order("event_key ASC").Find(&events).Error; err != nil {
@@ -575,5 +505,5 @@ func cacheReadTokensBackfillSnapshot(t *testing.T, db *gorm.DB) string {
 	if err := db.Table("model_price_settings").Order("model ASC").Find(&prices).Error; err != nil {
 		t.Fatalf("snapshot model prices: %v", err)
 	}
-	return fmt.Sprintf("events=%#v hourly=%#v daily=%#v identities=%#v prices=%#v", events, hourly, daily, identities, prices)
+	return cacheReadBackfillState{events: events, hourly: hourly, daily: daily, identities: identities, prices: prices}
 }

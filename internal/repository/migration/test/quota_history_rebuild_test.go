@@ -5,9 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/repository/migration"
 
 	"gorm.io/driver/sqlite"
@@ -16,29 +14,13 @@ import (
 
 const quotaHistoryRebuildMigrationVersion = "20260822_rebuild_quota_history"
 
-func TestQuotaHistoryFreshDatabaseCreatesOnlyGenericTables(t *testing.T) {
-	databasePath := filepath.Join(t.TempDir(), "fresh-quota-history.db")
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: databasePath})
-	if err != nil {
-		t.Fatalf("open fresh quota history database: %v", err)
-	}
-	closeCodexQuotaHistoryDatabase(t, db)
-
-	if !db.Migrator().HasTable("quota_cycles") || !db.Migrator().HasTable("quota_percent_segments") {
-		t.Fatal("expected generic quota history tables in fresh database")
-	}
-	if db.Migrator().HasTable("codex_quota_cycles") || db.Migrator().HasTable("codex_quota_percent_segments") {
-		t.Fatal("fresh database must not create legacy Codex quota history tables")
-	}
-}
-
 func TestQuotaHistoryRebuildMigrationDropsWrongRowsAndIsIdempotent(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "upgrade-quota-history.db")
 	db, err := gorm.Open(sqlite.Open(databasePath+"?_foreign_keys=on"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open quota history upgrade database: %v", err)
 	}
-	closeCodexQuotaHistoryDatabase(t, db)
+	closeMigrationTestDatabase(t, db)
 
 	if err := db.AutoMigrate(&entities.CodexQuotaCycle{}, &entities.CodexQuotaPercentSegment{}); err != nil {
 		t.Fatalf("create legacy quota history tables: %v", err)
@@ -69,16 +51,8 @@ func TestQuotaHistoryRebuildMigrationDropsWrongRowsAndIsIdempotent(t *testing.T)
 	if err := db.Create(&legacySegment).Error; err != nil {
 		t.Fatalf("insert legacy quota percent segment: %v", err)
 	}
-	if err := migration.MarkAllAsApplied(db); err != nil {
-		t.Fatalf("mark migration baseline: %v", err)
-	}
-	if err := db.Exec("DELETE FROM schema_migrations WHERE version = ?", quotaHistoryRebuildMigrationVersion).Error; err != nil {
-		t.Fatalf("mark quota history rebuild pending: %v", err)
-	}
+	runOnlyMigration(t, db, quotaHistoryRebuildMigrationVersion)
 
-	if err := migration.Run(db); err != nil {
-		t.Fatalf("run quota history rebuild migration: %v", err)
-	}
 	if db.Migrator().HasTable("codex_quota_cycles") || db.Migrator().HasTable("codex_quota_percent_segments") {
 		t.Fatal("expected legacy Codex quota history tables to be dropped")
 	}

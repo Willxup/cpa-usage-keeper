@@ -1,6 +1,9 @@
 export { useUsageData } from './useUsageData';
 export type { UsagePayload, UseUsageDataReturn } from './useUsageData';
 
+export { useUsageComparisonsData } from './useUsageComparisonsData';
+export type { UseUsageComparisonsDataOptions } from './useUsageComparisonsData';
+
 export { useOverviewRealtimeData } from './useOverviewRealtimeData';
 export type { UseOverviewRealtimeDataOptions, UseOverviewRealtimeDataReturn } from './useOverviewRealtimeData';
 

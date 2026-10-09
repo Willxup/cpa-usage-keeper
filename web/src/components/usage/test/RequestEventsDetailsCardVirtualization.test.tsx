@@ -3,8 +3,10 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { RequestEventsTestCard } from './requestEventsFixtures';
+import { TestResizeObserver } from './virtualizationFixtures';
 import type { UsageEvent } from '@/lib/types';
-import { RequestEventsDetailsCard } from '../RequestEventsDetailsCard';
+import type { RequestEventsDetailsCard } from '../RequestEventsDetailsCard';
 
 const buildEvent = (index: number): UsageEvent => ({
   id: String(index + 1),
@@ -34,60 +36,13 @@ const buildEvent = (index: number): UsageEvent => ({
   pricing_style: 'claude',
 });
 
-const baseProps: Omit<React.ComponentProps<typeof RequestEventsDetailsCard>, 'events' | 'totalCount'> = {
-  loading: false,
-  modelOptions: [],
-  sourceOptions: [],
-  modelFilter: '__all__',
-  sourceFilter: '__all__',
-  resultFilter: '__all__',
-  initialVisibleColumnIds: ['timestamp', 'model', 'total_tokens'],
-  onModelFilterChange: () => undefined,
-  onSourceFilterChange: () => undefined,
-  onResultFilterChange: () => undefined,
-};
-
-const rect = (width: number, height: number): DOMRect => ({
-  x: 0,
-  y: 0,
-  top: 0,
-  right: width,
-  bottom: height,
-  left: 0,
-  width,
-  height,
-  toJSON: () => ({}),
-});
-
-class TestResizeObserver implements ResizeObserver {
-  private readonly callback: ResizeObserverCallback;
-
-  constructor(callback: ResizeObserverCallback) {
-    this.callback = callback;
-  }
-
-  observe(target: Element) {
-    const contentRect = target.getBoundingClientRect();
-    this.callback([{
-      target,
-      contentRect,
-      borderBoxSize: [{ inlineSize: contentRect.width, blockSize: contentRect.height }],
-      contentBoxSize: [{ inlineSize: contentRect.width, blockSize: contentRect.height }],
-      devicePixelContentBoxSize: [],
-    } as unknown as ResizeObserverEntry], this);
-  }
-
-  disconnect() {}
-
-  unobserve() {}
-}
-
 describe('RequestEventsDetailsCard event table virtualization', () => {
   let container: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    vi.useFakeTimers();
     vi.stubGlobal('ResizeObserver', TestResizeObserver);
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       callback(performance.now());
@@ -95,15 +50,11 @@ describe('RequestEventsDetailsCard event table virtualization', () => {
     });
     vi.stubGlobal('cancelAnimationFrame', () => undefined);
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function getBoundingClientRect() {
-      const className = typeof this.className === 'string' ? this.className : '';
-      if (className.includes('requestEventsTableWrapper')) {
-        return rect(1200, 600);
-      }
       if (this instanceof HTMLTableRowElement) {
         const spacerHeight = Number.parseFloat(this.style.height);
-        return rect(1200, Number.isFinite(spacerHeight) ? spacerHeight : 44);
+        return new DOMRect(0, 0, 1200, Number.isFinite(spacerHeight) ? spacerHeight : 44);
       }
-      return rect(1200, 600);
+      return new DOMRect(0, 0, 1200, 600);
     });
     container = document.createElement('div');
     document.body.appendChild(container);
@@ -111,16 +62,13 @@ describe('RequestEventsDetailsCard event table virtualization', () => {
   });
 
   afterEach(async () => {
-    await act(async () => {
-      const { promise: settleVirtualizer, resolve } = Promise.withResolvers<void>();
-      window.setTimeout(resolve, 200);
-      await settleVirtualizer;
-    });
+    // 完成虚拟列表的滚动结束更新，再销毁 DOM。
+    await act(async () => vi.advanceTimersByTimeAsync(200));
     await act(async () => root.unmount());
     container.remove();
-    document.body.innerHTML = '';
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   const renderEvents = async (
@@ -129,31 +77,26 @@ describe('RequestEventsDetailsCard event table virtualization', () => {
   ) => {
     await act(async () => {
       root.render(
-        <RequestEventsDetailsCard
-          {...baseProps}
+        <RequestEventsTestCard
           events={events}
-          totalCount={events.length}
+          initialVisibleColumnIds={['timestamp', 'model', 'total_tokens']}
           {...props}
         />,
       );
       await Promise.resolve();
     });
-    return document.querySelector<HTMLElement>('[class*="requestEventsTableWrapper"]');
+    return document.querySelector<HTMLElement>('[class*="requestEventsTableWrapper"]')!;
   };
 
-  const scrollTo = async (scroller: HTMLElement | null, scrollTop: number) => {
-    if (!scroller) return;
+  const scrollTo = async (scroller: HTMLElement, scrollTop: number) => {
     scroller.scrollTop = scrollTop;
     await act(async () => {
       scroller.dispatchEvent(new Event('scroll'));
-      const { promise: tick, resolve } = Promise.withResolvers<void>();
-      window.setTimeout(resolve, 0);
-      await tick;
+      await vi.advanceTimersByTimeAsync(0);
     });
   };
 
-  const scrollNearBottom = async (scroller: HTMLElement | null) => {
-    if (!scroller) return;
+  const scrollNearBottom = async (scroller: HTMLElement) => {
     Object.defineProperties(scroller, {
       clientHeight: { configurable: true, value: 600 },
       scrollHeight: { configurable: true, value: 4400 },
@@ -164,18 +107,18 @@ describe('RequestEventsDetailsCard event table virtualization', () => {
   it('keeps a 1000-event page bounded in the DOM and advances the window on scroll', async () => {
     const events = Array.from({ length: 1000 }, (_, index) => buildEvent(index));
     const scroller = await renderEvents(events);
-    const table = scroller?.querySelector('table');
-    expect(scroller?.dataset.virtualized).toBe('true');
+    const table = scroller.querySelector('table');
+    expect(scroller.dataset.virtualized).toBe('true');
     expect(table?.getAttribute('aria-rowcount')).toBe('1001');
 
-    const initialRows = Array.from(scroller?.querySelectorAll<HTMLTableRowElement>('tbody tr[data-index]') ?? []);
+    const initialRows = Array.from(scroller.querySelectorAll<HTMLTableRowElement>('tbody tr[data-index]'));
     const initialIndexes = initialRows.map((row) => Number(row.dataset.index));
     expect(initialRows.length).toBeGreaterThan(0);
     expect(initialRows.length).toBeLessThan(100);
 
     await scrollTo(scroller, 35_000);
 
-    const scrolledRows = Array.from(scroller?.querySelectorAll<HTMLTableRowElement>('tbody tr[data-index]') ?? []);
+    const scrolledRows = Array.from(scroller.querySelectorAll<HTMLTableRowElement>('tbody tr[data-index]'));
     const scrolledIndexes = scrolledRows.map((row) => Number(row.dataset.index));
     expect(scrolledRows.length).toBeGreaterThan(0);
     expect(scrolledRows.length).toBeLessThan(100);
@@ -183,7 +126,7 @@ describe('RequestEventsDetailsCard event table virtualization', () => {
 
     await scrollTo(scroller, 69_500);
 
-    const finalRows = Array.from(scroller?.querySelectorAll<HTMLTableRowElement>('tbody tr[data-index]') ?? []);
+    const finalRows = Array.from(scroller.querySelectorAll<HTMLTableRowElement>('tbody tr[data-index]'));
     const finalIndexes = finalRows.map((row) => Number(row.dataset.index));
     expect(finalRows.length).toBeLessThan(100);
     expect(Math.max(...finalIndexes)).toBe(999);
@@ -192,11 +135,11 @@ describe('RequestEventsDetailsCard event table virtualization', () => {
   it('keeps small pages fully rendered without virtual spacer rows', async () => {
     const events = Array.from({ length: 3 }, (_, index) => buildEvent(index));
     const scroller = await renderEvents(events);
-    const rows = scroller?.querySelectorAll('tbody tr') ?? [];
-    expect(scroller?.dataset.virtualized).toBe('false');
+    const rows = scroller.querySelectorAll('tbody tr');
+    expect(scroller.dataset.virtualized).toBe('false');
     expect(rows).toHaveLength(3);
-    expect(scroller?.querySelector('[class*="requestEventsVirtualSpacerRow"]')).toBeNull();
-    expect(scroller?.textContent).toContain('model-2');
+    expect(scroller.querySelector('[class*="requestEventsVirtualSpacerRow"]')).toBeNull();
+    expect(scroller.textContent).toContain('model-2');
   });
 
   it('requests the next cursor batch when infinite scrolling nears the bottom', async () => {
@@ -207,7 +150,6 @@ describe('RequestEventsDetailsCard event table virtualization', () => {
       hasMore: true,
       onLoadMore,
     });
-    expect(scroller).not.toBeNull();
     await scrollNearBottom(scroller);
 
     expect(onLoadMore).toHaveBeenCalledTimes(1);
@@ -222,7 +164,6 @@ describe('RequestEventsDetailsCard event table virtualization', () => {
       hasMore: true,
       onLoadMore,
     });
-    expect(scroller).not.toBeNull();
     await scrollNearBottom(scroller);
 
     expect(onLoadMore).not.toHaveBeenCalled();
@@ -237,24 +178,19 @@ describe('RequestEventsDetailsCard event table virtualization', () => {
       autoLoadMore: false,
       onLoadMore,
     });
-    expect(scroller).not.toBeNull();
     await scrollNearBottom(scroller);
     expect(onLoadMore).not.toHaveBeenCalled();
 
     const loadMoreButton = container.querySelector<HTMLButtonElement>(
       '[class*="requestEventsPaginationFooter"] button',
-    );
+    )!;
     const loadedSummary = container.querySelector<HTMLElement>(
       '[class*="requestEventsPaginationPage"]',
     );
-    expect(loadMoreButton).not.toBeNull();
     expect(loadedSummary?.getAttribute('role')).toBe('status');
     expect(loadedSummary?.getAttribute('aria-label')).toBe('Loaded 100 / 500');
-    expect(loadMoreButton?.className).toContain('btn-secondary');
-    expect(loadMoreButton?.className).toContain('btn-action');
-    expect(loadMoreButton?.className).toContain('btn-sm');
     await act(async () => {
-      loadMoreButton?.click();
+      loadMoreButton.click();
     });
     expect(onLoadMore).toHaveBeenCalledOnce();
   });

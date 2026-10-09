@@ -54,9 +54,9 @@ type RecentUsageEvent struct {
 	IdentityFallbackLabel string
 	// Failed 保留请求成功状态，realtime 请求水平统计需要成功和失败总量。
 	Failed bool
-	// Generate 标记请求是否要求实际生成；预热事件只保留请求计数，不参与延迟分布。
+	// Generate 标记请求是否要求实际生成；非生成请求不参与延迟散点。
 	Generate bool
-	// LatencyMS 保留响应耗时样本，用于 Response Level 滑动聚合。
+	// LatencyMS 保留总耗时，与 TTFT 配成实时散点。
 	LatencyMS int64
 	// TTFTMS 保留可空首 token 延迟样本，用指针区分缺失和 0。
 	TTFTMS *int64

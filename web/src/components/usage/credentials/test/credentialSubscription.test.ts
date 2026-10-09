@@ -28,6 +28,8 @@ describe('credentialSubscription', () => {
     ['free', 'claude-free', 'usage_stats.credentials_subscription_claude_free'],
     ['pro', 'claude-pro', 'usage_stats.credentials_subscription_claude_pro'],
     ['max', 'claude-max', 'usage_stats.credentials_subscription_claude_max'],
+    ['max-5x', 'claude-max5x', 'usage_stats.credentials_subscription_claude_max_5x'],
+    ['max-20x', 'claude-max20x', 'usage_stats.credentials_subscription_claude_max_20x'],
     ['team', 'claude-team', 'usage_stats.credentials_subscription_claude_team'],
   ] as const)('maps Claude %s to its namespaced badge', (plan, kind, labelKey) => {
     expect(resolveCredentialSubscriptionBadge({ provider: ' Claude ', plan: ` ${plan.toUpperCase()} ` })).toEqual({

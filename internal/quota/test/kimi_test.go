@@ -12,14 +12,10 @@ import (
 )
 
 func TestKimiProviderCallsUsageRequest(t *testing.T) {
-	caller := &recordingManagementCaller{responses: []*apicall.Response{{
-		StatusCode: 200,
-		BodyText:   `{"usage":{"used":3,"limit":10,"remaining":7,"reset_at":"2026-05-09T12:00:00Z"},"limits":[{"name":"daily","title":"Daily","scope":"request","used":3,"limit":10,"remaining":7,"window":{"duration":1,"timeUnit":"day"},"detail":{"used":3,"limit":10,"remaining":7,"resetIn":3600,"ttl":7200}}]}`,
-		Body:       json.RawMessage(`{"usage":{"used":3,"limit":10,"remaining":7,"reset_at":"2026-05-09T12:00:00Z"},"limits":[{"name":"daily","title":"Daily","scope":"request","used":3,"limit":10,"remaining":7,"window":{"duration":1,"timeUnit":"day"},"detail":{"used":3,"limit":10,"remaining":7,"resetIn":3600,"ttl":7200}}]}`),
-	}}}
-	provider := quota.NewKimiProvider(caller, quota.DefaultProviderConfigs().Kimi)
+	caller := newKimiTestCaller(quotaAPIResponse(200, `{"usage":{"used":3,"limit":10,"remaining":7,"reset_at":"2026-05-09T12:00:00Z"},"limits":[{"name":"daily","title":"Daily","scope":"request","used":3,"limit":10,"remaining":7,"window":{"duration":1,"timeUnit":"day"},"detail":{"used":3,"limit":10,"remaining":7,"resetIn":3600,"ttl":7200}}]}`))
+	provider := quota.NewKimiProvider(caller, quota.DefaultProviderConfigs().Kimi, quota.DefaultProviderConfigs().KimiAI)
 
-	output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "kimi-auth"}})
+	output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "kimi-auth", Provider: "kimi", Type: "kimi", FileName: stringPtr("kimi.json"), FilePath: stringPtr("/data/auths/kimi.json")}})
 	if err != nil {
 		t.Fatalf("Check returned error: %v", err)
 	}
@@ -59,14 +55,10 @@ func TestKimiProviderCallsUsageRequest(t *testing.T) {
 func TestKimiProviderNormalizesNestedFiveHourAndWeeklyUsage(t *testing.T) {
 	// #354 的真实响应把短窗口用量放在 detail，数值使用字符串，窗口单位使用枚举值。
 	body := json.RawMessage(`{"usage":{"limit":"100","used":"28","remaining":"72","resetTime":"2026-07-31T02:59:25.127311Z"},"limits":[{"window":{"duration":300,"timeUnit":"TIME_UNIT_MINUTE"},"detail":{"limit":"100","used":"92","remaining":"8","resetTime":"2026-07-24T12:59:25.127311Z"}}]}`)
-	caller := &recordingManagementCaller{responses: []*apicall.Response{{
-		StatusCode: 200,
-		BodyText:   string(body),
-		Body:       body,
-	}}}
-	provider := quota.NewKimiProvider(caller, quota.DefaultProviderConfigs().Kimi)
+	caller := newKimiTestCaller(quotaAPIResponse(200, string(body)))
+	provider := quota.NewKimiProvider(caller, quota.DefaultProviderConfigs().Kimi, quota.DefaultProviderConfigs().KimiAI)
 
-	output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "kimi-auth"}})
+	output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "kimi-auth", Provider: "kimi", Type: "kimi", FileName: stringPtr("kimi.json"), FilePath: stringPtr("/data/auths/kimi.json")}})
 	if err != nil {
 		t.Fatalf("Check returned error: %v", err)
 	}
@@ -107,14 +99,10 @@ func TestKimiProviderNormalizesNestedFiveHourAndWeeklyUsage(t *testing.T) {
 func TestKimiProviderDerivesMissingUsedFromLimitAndRemaining(t *testing.T) {
 	// Kimi 可能省略 used；字段仍在原始 JSON 时应由 limit 与 remaining 推导已用额度。
 	body := json.RawMessage(`{"limits":[{"window":{"duration":300,"timeUnit":"TIME_UNIT_MINUTE"},"detail":{"limit":"100","remaining":"85","resetTime":"2026-07-24T12:59:25.127311Z"}}]}`)
-	caller := &recordingManagementCaller{responses: []*apicall.Response{{
-		StatusCode: 200,
-		BodyText:   string(body),
-		Body:       body,
-	}}}
-	provider := quota.NewKimiProvider(caller, quota.DefaultProviderConfigs().Kimi)
+	caller := newKimiTestCaller(quotaAPIResponse(200, string(body)))
+	provider := quota.NewKimiProvider(caller, quota.DefaultProviderConfigs().Kimi, quota.DefaultProviderConfigs().KimiAI)
 
-	output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "kimi-auth"}})
+	output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "kimi-auth", Provider: "kimi", Type: "kimi", FileName: stringPtr("kimi.json"), FilePath: stringPtr("/data/auths/kimi.json")}})
 	if err != nil {
 		t.Fatalf("Check returned error: %v", err)
 	}
@@ -130,9 +118,13 @@ func TestKimiProviderDerivesMissingUsedFromLimitAndRemaining(t *testing.T) {
 	assertApproxFloatField(t, fiveHour.UsedPercent, 15, "five-hour usedPercent")
 }
 
+func newKimiTestCaller(responses ...*apicall.Response) *kimiAIMetadataCaller {
+	return &kimiAIMetadataCaller{credentialType: "kimi", recordingManagementCaller: recordingManagementCaller{responses: responses}}
+}
+
 func assertApproxFloatField(t *testing.T, value *float64, expected float64, label string) {
 	t.Helper()
-	if value == nil || math.Abs(*value-expected) > 1e-9 {
+	if value == nil || !(math.Abs(*value-expected) <= 1e-9) {
 		t.Fatalf("unexpected %s: got %#v want %v", label, value, expected)
 	}
 }

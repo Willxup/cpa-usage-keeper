@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	keeperapi "cpa-usage-keeper/internal/api"
 	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/timeutil"
@@ -17,10 +16,9 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestPasswordLoginCapturesSessionClientMetadataFromRightmostForwardedIP(t *testing.T) {
+func TestPasswordLoginCapturesSessionClientMetadataFromTrustedProxy(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
-	config := keeperapi.AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	router := keeperapi.NewRouter(nil, nil, nil, nil, config, keeperapi.NewAuthHandler(config, sessions), "")
+	router := newManagedSessionRouterWithTrustedProxies(sessions, managedSessionTrustedProxyCIDRs)
 	userAgent := "Keeper-Test/" + strings.Repeat("a", 600) + "/tail-marker"
 
 	login := httptest.NewRecorder()
@@ -28,7 +26,7 @@ func TestPasswordLoginCapturesSessionClientMetadataFromRightmostForwardedIP(t *t
 	loginRequest.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	loginRequest.Header.Set("Content-Type", "application/json")
 	loginRequest.Header.Set("User-Agent", userAgent)
-	loginRequest.Header.Set("X-Forwarded-For", "198.51.100.7, invalid, 203.0.113.9")
+	loginRequest.Header.Set("X-Forwarded-For", "198.51.100.7, 172.71.10.5")
 	loginRequest.RemoteAddr = "172.17.0.1:42310"
 	router.ServeHTTP(login, loginRequest)
 	if login.Code != http.StatusNoContent {
@@ -42,14 +40,14 @@ func TestPasswordLoginCapturesSessionClientMetadataFromRightmostForwardedIP(t *t
 	if !ok {
 		t.Fatal("expected created session")
 	}
-	if session.LoginIP != "203.0.113.9" || session.LastSeenIP != "203.0.113.9" || session.UserAgent != userAgent {
+	if session.LoginIP != "198.51.100.7" || session.LastSeenIP != "198.51.100.7" || session.UserAgent != userAgent {
 		t.Fatalf("unexpected captured metadata: %+v", session)
 	}
 
 	list := httptest.NewRecorder()
 	listRequest := httptest.NewRequest(http.MethodGet, "/api/v1/auth/sessions", nil)
 	listRequest.AddCookie(cookies[0])
-	listRequest.Header.Set("X-Forwarded-For", "203.0.113.9")
+	listRequest.Header.Set("X-Forwarded-For", "203.0.113.9, 172.71.10.6")
 	listRequest.RemoteAddr = "172.17.0.1:42311"
 	router.ServeHTTP(list, listRequest)
 	if list.Code != http.StatusOK {
@@ -70,7 +68,7 @@ func TestPasswordLoginCapturesSessionClientMetadataFromRightmostForwardedIP(t *t
 		t.Fatalf("expected one session, got %+v", parsed.Items)
 	}
 	item := parsed.Items[0]
-	if item.LoginIP != "203.0.113.9" || item.LastSeenIP != "203.0.113.9" || item.UserAgent != userAgent || item.LastSeen == "" {
+	if item.LoginIP != "198.51.100.7" || item.LastSeenIP != "203.0.113.9" || item.UserAgent != userAgent || item.LastSeen == "" {
 		t.Fatalf("unexpected session response metadata: %+v", item)
 	}
 	for _, parsedField := range []string{`"browser":`, `"os":`, `"device":`} {
@@ -82,8 +80,7 @@ func TestPasswordLoginCapturesSessionClientMetadataFromRightmostForwardedIP(t *t
 
 func TestPasswordLoginFallsBackToObservedClientIPWithoutForwardedHeader(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
-	config := keeperapi.AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	router := keeperapi.NewRouter(nil, nil, nil, nil, config, keeperapi.NewAuthHandler(config, sessions), "")
+	router := newManagedSessionRouter(sessions)
 
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"secret"}`))
 	request.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
@@ -100,28 +97,49 @@ func TestPasswordLoginFallsBackToObservedClientIPWithoutForwardedHeader(t *testi
 	}
 }
 
+func TestPasswordLoginIgnoresForwardedIPFromUntrustedPeer(t *testing.T) {
+	sessions := auth.NewSessionManager(time.Hour)
+	router := newManagedSessionRouterWithTrustedProxies(sessions, managedSessionTrustedProxyCIDRs)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"secret"}`))
+	request.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Forwarded-For", "203.0.113.9, 172.71.10.5")
+	request.RemoteAddr = "198.51.100.41:42310"
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("expected login status 204, got %d body=%s", response.Code, response.Body.String())
+	}
+	cookies := response.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected session cookie")
+	}
+	session, ok := sessions.Get(cookies[0].Value)
+	if !ok || session.LoginIP != "198.51.100.41" || session.LastSeenIP != "198.51.100.41" {
+		t.Fatalf("expected direct peer IP, got %+v", session)
+	}
+}
+
 func TestManagedSessionsSortCurrentFirstThenRecentActivityDescending(t *testing.T) {
 	db := openSessionMetadataAPIDatabase(t)
 	manager := auth.NewPersistentSessionManager(time.Hour, auth.NewGormSessionStore(db))
-	currentToken, _, err := manager.CreateWithSourceAndMetadata(auth.SessionSourceStandard, auth.SessionClientMetadata{IP: "203.0.113.1"})
-	if err != nil {
-		t.Fatalf("create current session: %v", err)
+	tokens := make([]string, 3)
+	for i, ip := range []string{"203.0.113.1", "203.0.113.2", "203.0.113.3"} {
+		token, _, err := manager.CreateWithSourceAndMetadata(auth.SessionSourceStandard, auth.SessionClientMetadata{IP: ip})
+		if err != nil {
+			t.Fatalf("create session for %s: %v", ip, err)
+		}
+		tokens[i] = token
 	}
-	olderToken, _, err := manager.CreateWithSourceAndMetadata(auth.SessionSourceStandard, auth.SessionClientMetadata{IP: "203.0.113.2"})
-	if err != nil {
-		t.Fatalf("create older session: %v", err)
-	}
-	newerToken, _, err := manager.CreateWithSourceAndMetadata(auth.SessionSourceStandard, auth.SessionClientMetadata{IP: "203.0.113.3"})
-	if err != nil {
-		t.Fatalf("create newer session: %v", err)
-	}
+	currentToken, olderToken, newerToken := tokens[0], tokens[1], tokens[2]
+
 	now := timeutil.NormalizeStorageTime(time.Now())
 	setSessionLastSeen(t, db, olderToken, now.Add(-20*time.Minute))
 	setSessionLastSeen(t, db, newerToken, now.Add(-10*time.Minute))
 
 	restarted := auth.NewPersistentSessionManager(time.Hour, auth.NewGormSessionStore(db))
-	config := keeperapi.AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
-	router := keeperapi.NewRouter(nil, nil, nil, nil, config, keeperapi.NewAuthHandler(config, restarted), "")
+	router := newManagedSessionRouter(restarted)
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/auth/sessions", nil)
 	request.AddCookie(&http.Cookie{Name: standardSessionCookieName, Value: currentToken})
 	// 排序测试不验证活动写入；保持来源 IP 不变，避免启动异步 writer 干扰临时数据库清理。

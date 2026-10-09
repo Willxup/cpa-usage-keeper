@@ -70,8 +70,9 @@ export interface RankingPageProps {
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
-const formatError = (error: unknown, t: Translate): string => {
+const formatError = (error: unknown, t: Translate, banned = false): string => {
   if (!(error instanceof RankingApiError)) return t('ranking.error_generic');
+  if (error.code === 'ranking_participant_deleted' && banned) return t('ranking.error_banned');
   if (error.status === 429 && error.retryAfter) {
     const seconds = Number.parseInt(error.retryAfter, 10);
     if (Number.isFinite(seconds) && seconds > 0) {
@@ -214,13 +215,14 @@ export function RankingPage(props: RankingPageProps) {
     }
   };
 
+  const participantBanned = props.status?.status === 'deleted' && props.status.banned === true;
   const modalTitle = profileModalStep === 'confirm-join'
     ? t('ranking.join_confirm_title')
     : profileModalStep === 'confirm-pause'
       ? t('ranking.pause_confirm_title')
       : profileModalStep === 'confirm-exit'
         ? t('ranking.exit_confirm_title')
-        : t('ranking.participation_title');
+        : t(participantBanned ? 'ranking.banned_title' : 'ranking.participation_title');
   const modalFooter = profileModalStep === 'confirm-join' ? (
     <>
       <Button variant="secondary" appearance="action" onClick={showProfileStep} disabled={props.action === 'join'}>
@@ -359,7 +361,7 @@ export function RankingPage(props: RankingPageProps) {
 
       <Modal
         open={profileModalStep !== null}
-        title={profileModalStep === 'profile' ? (
+        title={profileModalStep === 'profile' && !participantBanned ? (
           <span className={styles.profileModalTitle}>
             <span>{modalTitle}</span>
             <QuestionMarkHelp
@@ -399,9 +401,9 @@ export function RankingPage(props: RankingPageProps) {
             />
             {props.actionError ? (
               <div className={styles.errorBox} role="alert" data-ranking-action-feedback="error">
-                {formatError(props.actionError, t)}
+                {formatError(props.actionError, t, participantBanned)}
               </div>
-            ) : profileActionSuccess ? (
+            ) : !participantBanned && profileActionSuccess ? (
               <div className={styles.successBox} role="status" data-ranking-action-feedback="success">
                 {t(PROFILE_ACTION_SUCCESS_KEYS[profileActionSuccess])}
               </div>
@@ -413,6 +415,7 @@ export function RankingPage(props: RankingPageProps) {
             <div>
               <strong>{pendingProfile.display_name}</strong>
               <p>{t('ranking.join_confirm_body')}</p>
+              <p>{t('ranking.display_name_policy')}</p>
             </div>
           </div>
         ) : profileModalStep === 'confirm-pause' ? (
@@ -516,8 +519,8 @@ function ParticipationContent({
   if (status.status === 'deleted') {
     return (
       <div className={styles.deletedState}>
-        <strong>{t('ranking.deleted_title')}</strong>
-        <p>{t('ranking.deleted_description')}</p>
+        {!status.banned && <strong>{t('ranking.deleted_title')}</strong>}
+        <p>{t(status.banned ? 'ranking.banned_description' : 'ranking.deleted_description')}</p>
       </div>
     );
   }
@@ -559,7 +562,7 @@ function ParticipationContent({
         value={displayName}
         onChange={(event) => setDisplayName(event.target.value)}
         label={t('ranking.display_name')}
-        hint={t('ranking.display_name_hint')}
+        hint={`${t('ranking.display_name_hint')}\n${t('ranking.display_name_policy')}`}
         error={profileError ? t(profileErrorKey(profileError)) : undefined}
         maxLength={RANKING_DISPLAY_NAME_MAX_LENGTH}
         autoComplete="off"
@@ -762,7 +765,7 @@ function LeaderboardCard({
               ) : status?.status === 'joining'
                 ? t('ranking.join_retry')
                 : status?.status === 'deleted'
-                  ? t('ranking.status_deleted')
+                  ? t(status.banned ? 'ranking.status_banned' : 'ranking.status_deleted')
                   : status?.status === 'disabled'
                     ? t('ranking.join')
                     : t('ranking.profile_action')}

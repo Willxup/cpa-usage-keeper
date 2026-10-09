@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
@@ -10,6 +11,10 @@ import (
 type recordingManagementCaller struct {
 	requests  []apicall.Request
 	responses []*apicall.Response
+}
+
+func (c *recordingManagementCaller) ResetQuota(context.Context, string) error {
+	return nil
 }
 
 func (c *recordingManagementCaller) CallManagementAPI(ctx context.Context, request apicall.Request) (*apicall.Response, error) {
@@ -28,4 +33,8 @@ func stringPtr(value string) *string {
 
 func contains(value, substr string) bool {
 	return strings.Contains(value, substr)
+}
+
+func quotaAPIResponse(status int, body string) *apicall.Response {
+	return &apicall.Response{StatusCode: status, BodyText: body, Body: json.RawMessage(body)}
 }

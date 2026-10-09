@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Modal } from '@/components/ui/Modal'
+import { Button } from '@/components/ui/Button'
 import { IconRefreshCw } from '@/components/ui/icons'
 import { ProviderBrandIcon } from '@/components/ProviderBrandIcon'
 import { RequestEventLogModal } from '@/components/usage/RequestEventLogModal'
@@ -11,9 +12,10 @@ import { CredentialErrorEventsList } from './CredentialErrorEventsList'
 import { CredentialHealthPanel } from './CredentialHealthPanel'
 import { CredentialPriorityBadge, cacheReadRateTone, credentialToneClassName, formatCredentialNumber, formatCredentialPercent, successRateTone } from './CredentialSectionShell'
 import { CredentialSubscriptionBadge } from './CredentialSubscriptionBadge'
+import { CredentialKimiSiteBadge } from './CredentialKimiSiteBadge'
 import { CredentialRequestEventsList } from './CredentialRequestEventsList'
 import { CodexQuotaHistoryPanel } from './CodexQuotaHistoryPanel'
-import type { CredentialDetailSelection } from './credentialViewModels'
+import { formatCredentialTimestamp, type CredentialDetailSelection } from './credentialViewModels'
 import styles from './CredentialDetailDrawer.module.scss'
 import credentialStyles from './CredentialSections.module.scss'
 
@@ -25,7 +27,9 @@ type CredentialDetailTab = 'overview' | 'quota-history' | 'requests' | 'errors'
 interface CredentialDetailDrawerProps {
   open: boolean
   selection: CredentialDetailSelection | null
+  timeZone?: string
   onAuthRequired?: () => void
+  onResetStats?: (id: string) => Promise<void>
   requestLogAccessEnabled?: boolean
   onRequestLogOpen?: (event: UsageEvent) => void
   requestLogLoadingEventId?: string | null
@@ -70,7 +74,9 @@ function appendCredentialErrorEvents(
 export function CredentialDetailDrawer({
   open,
   selection,
+  timeZone,
   onAuthRequired,
+  onResetStats,
   requestLogAccessEnabled = false,
   onRequestLogOpen,
   requestLogLoadingEventId = null,
@@ -95,6 +101,10 @@ export function CredentialDetailDrawer({
   const requestsTabRef = useRef<HTMLButtonElement | null>(null)
   const errorsTabRef = useRef<HTMLButtonElement | null>(null)
   const [activeTab, setActiveTab] = useState<CredentialDetailTab>('overview')
+  const [resetTarget, setResetTarget] = useState<{ id: string; name: string } | null>(null)
+  const [resettingStats, setResettingStats] = useState(false)
+  const [statsResetError, setStatsResetError] = useState('')
+  const statsResetInFlight = useRef(false)
   const [events, setEvents] = useState<UsageEvent[]>([])
   const [eventsLoading, setEventsLoading] = useState(false)
   const [eventsLoadingMore, setEventsLoadingMore] = useState(false)
@@ -118,10 +128,26 @@ export function CredentialDetailDrawer({
   const sourceFilter = identity?.identity?.trim() ?? ''
   const authTypeFilter = identity?.auth_type
   const identityId = String(identity?.id ?? '').trim()
-  const hasCodexQuotaHistory = selection?.kind === 'auth-file' && identity?.type?.trim().toLowerCase() === 'codex'
-  const availableTabs = useMemo<CredentialDetailTab[]>(() => hasCodexQuotaHistory
+  const confirmStatsReset = async () => {
+    if (!resetTarget || !onResetStats || statsResetInFlight.current) return
+    statsResetInFlight.current = true
+    setResettingStats(true)
+    setStatsResetError('')
+    try {
+      await onResetStats(resetTarget.id)
+      setResetTarget(null)
+    } catch {
+      setStatsResetError(t('usage_stats.credentials_stats_reset_failed'))
+    } finally {
+      statsResetInFlight.current = false
+      setResettingStats(false)
+    }
+  }
+  const quotaHistoryProvider = selection?.kind === 'auth-file' ? identity?.type?.trim().toLowerCase() : undefined
+  const hasQuotaHistory = quotaHistoryProvider === 'codex' || quotaHistoryProvider === 'claude'
+  const availableTabs = useMemo<CredentialDetailTab[]>(() => hasQuotaHistory
     ? ['overview', 'quota-history', 'requests', 'errors']
-    : ['overview', 'requests', 'errors'], [hasCodexQuotaHistory])
+    : ['overview', 'requests', 'errors'], [hasQuotaHistory])
 
   const resetRequestEvents = useCallback(() => {
     firstPageControllerRef.current?.abort()
@@ -165,9 +191,9 @@ export function CredentialDetailDrawer({
   }, [open, resetErrorEvents, resetRequestEvents, selectionKey])
 
   useEffect(() => {
-    // 同一个身份在同步后可能改变类型；不再是 Codex 时立即退出专属标签，避免展示不属于当前凭证的数据。
-    if (activeTab === 'quota-history' && !hasCodexQuotaHistory) setActiveTab('overview')
-  }, [activeTab, hasCodexQuotaHistory])
+    // 同一身份同步后可能切换类型；失去历史能力时立即退出标签。
+    if (activeTab === 'quota-history' && !hasQuotaHistory) setActiveTab('overview')
+  }, [activeTab, hasQuotaHistory])
 
   const loadFirstPage = useCallback(async () => {
     if (!open || activeTab !== 'requests' || !sourceFilter) return
@@ -394,10 +420,11 @@ export function CredentialDetailDrawer({
         </span>
       </div>
       <div className={styles.drawerTitleBadges}>
+        {selection.kind === 'auth-file' && <CredentialKimiSiteBadge identityType={identity.type} />}
         {selection.kind === 'auth-file' && selection.row.subscriptionBadge
           ? <CredentialSubscriptionBadge model={selection.row.subscriptionBadge} />
           : null}
-        {row.priorityLabel ? <CredentialPriorityBadge>{row.priorityLabel}</CredentialPriorityBadge> : null}
+        <CredentialPriorityBadge>{row.priorityLabel || 'P0'}</CredentialPriorityBadge>
         <span className={identity.disabled || identity.is_deleted ? styles.statusDisabled : styles.statusEnabled}>
           {identity.is_deleted
             ? t('usage_stats.deleted')
@@ -411,7 +438,7 @@ export function CredentialDetailDrawer({
 
   return (
     <>
-      <Modal open={open} title={title} variant="drawer" width={920} className={styles.drawer} onClose={onClose}>
+      <Modal open={open} title={title} variant="drawer" width={920} className={styles.drawer} onClose={onClose} closeDisabled={resettingStats}>
         <div className={styles.tabBar} data-credential-detail-tab-bar>
           <div className={styles.tabs} role="tablist" aria-label={t('usage_stats.credentials_detail_tabs')}>
             <button
@@ -429,7 +456,7 @@ export function CredentialDetailDrawer({
             >
               {t('usage_stats.credentials_detail_overview_tab')}
             </button>
-            {hasCodexQuotaHistory ? (
+            {hasQuotaHistory ? (
               <button
                 ref={quotaHistoryTabRef}
                 id={quotaHistoryTabId}
@@ -493,6 +520,20 @@ export function CredentialDetailDrawer({
 
         {activeTab === 'overview' ? (
           <section id={overviewPanelId} role="tabpanel" aria-labelledby={overviewTabId} className={styles.overviewPanel}>
+          <div className={styles.summaryToolbar}>
+            <span>{identity.stats_reset_at
+              ? t('usage_stats.credentials_stats_since', { time: formatCredentialTimestamp(identity.stats_reset_at) ?? identity.stats_reset_at })
+              : t('usage_stats.credentials_stats_lifetime')}</span>
+            {onResetStats ? (
+              <Button type="button" variant="danger" size="sm" appearance="action" className={styles.statsResetButton} disabled={resettingStats} onClick={() => {
+                setStatsResetError('')
+                setResetTarget({ id: identityId, name: row.displayName })
+              }}>
+                <IconRefreshCw size={13} />
+                {t('usage_stats.credentials_stats_reset')}
+              </Button>
+            ) : null}
+          </div>
           <div className={styles.summaryGrid}>
             <DetailMetric
               label={t('usage_stats.total_requests')}
@@ -516,13 +557,13 @@ export function CredentialDetailDrawer({
                 <dt>{t('usage_stats.credentials_detail_provider')}</dt><dd>{row.providerLabel || '-'}</dd>
                 <dt>{t('usage_stats.credentials_detail_type')}</dt><dd>{row.typeLabel || '-'}</dd>
                 <dt>{t('usage_stats.credentials_detail_auth_type')}</dt><dd>{row.authTypeLabel || '-'}</dd>
-                <dt>{t('usage_stats.credentials_detail_priority')}</dt><dd>{row.priorityLabel || '-'}</dd>
+                <dt>{t('usage_stats.credentials_detail_priority')}</dt><dd>{row.priorityLabel || 'P0'}</dd>
               </dl>
             </section>
             {selection.kind === 'auth-file' ? (
               <section className={styles.overviewSection}>
                 <h3>{t('usage_stats.credentials_detail_quota')}</h3>
-                <AuthFileQuotaPanel row={selection.row} quotaUsageMode="current" />
+                <AuthFileQuotaPanel row={selection.row} quotaUsageMode="current" timeZone={timeZone} />
               </section>
             ) : null}
           </div>
@@ -537,9 +578,9 @@ export function CredentialDetailDrawer({
             />
           </section>
           </section>
-        ) : activeTab === 'quota-history' && hasCodexQuotaHistory ? (
+        ) : activeTab === 'quota-history' && hasQuotaHistory ? (
           <section id={quotaHistoryPanelId} role="tabpanel" aria-labelledby={quotaHistoryTabId} className={styles.quotaHistoryPanel}>
-            <CodexQuotaHistoryPanel authIndex={sourceFilter} onAuthRequired={onAuthRequired} />
+            <CodexQuotaHistoryPanel key={`${sourceFilter}:${quotaHistoryProvider}`} authIndex={sourceFilter} onAuthRequired={onAuthRequired} />
           </section>
         ) : activeTab === 'requests' ? (
           <section id={requestsPanelId} role="tabpanel" aria-labelledby={requestsTabId} className={styles.requestsPanel}>
@@ -573,6 +614,20 @@ export function CredentialDetailDrawer({
             )}
           </section>
         )}
+      </Modal>
+      <Modal
+        open={open && resetTarget?.id === identityId}
+        title={t('usage_stats.credentials_stats_reset')}
+        onClose={() => setResetTarget(null)}
+        closeDisabled={resettingStats}
+        width={440}
+        footer={<>
+          <Button type="button" variant="secondary" appearance="action" disabled={resettingStats} onClick={() => setResetTarget(null)}>{t('common.cancel')}</Button>
+          <Button type="button" variant="danger" appearance="action" loading={resettingStats} onClick={() => void confirmStatsReset()}>{t('usage_stats.credentials_stats_reset_confirm')}</Button>
+        </>}
+      >
+        <p>{t('usage_stats.credentials_stats_reset_body', { name: resetTarget?.name ?? '' })}</p>
+        {statsResetError ? <p className={styles.statsResetError} role="alert">{statsResetError}</p> : null}
       </Modal>
       {open ? (
         <RequestEventLogModal

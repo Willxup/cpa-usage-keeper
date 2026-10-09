@@ -2,7 +2,6 @@ package test
 
 import (
 	"context"
-	"math"
 	"strconv"
 	"testing"
 	"time"
@@ -63,14 +62,8 @@ func TestHeaderManualAndScheduledRefreshReuseSameWindowUsageStats(t *testing.T) 
 			if task.Quota == nil || len(task.Quota.Quota) != 1 {
 				t.Fatalf("expected one quota window from %s path, got %+v", entry, task)
 			}
-			row := task.Quota.Quota[0]
-			if row.WindowUsageTokens == nil || *row.WindowUsageTokens != 1_500_000 {
-				t.Fatalf("expected shared token result from %s path, got %#v", entry, row.WindowUsageTokens)
-			}
-			const wantCost = 10.5
-			if row.WindowUsageCost == nil || math.Abs(*row.WindowUsageCost-wantCost) > 1e-9 {
-				t.Fatalf("expected shared cost %.2f from %s path, got %#v", wantCost, entry, row.WindowUsageCost)
-			}
+			assertWindowUsage(t, task.Quota.Quota[0], 1_500_000, 10.5)
+
 		})
 	}
 }

@@ -26,7 +26,7 @@ const (
 	codexSecondaryQuotaKey   = "rate_limit.secondary_window"
 )
 
-// WriteCodexMainQuotaObservations 把 Codex observation 规范化后写入通用额度历史父子表。
+// WriteCodexMainQuotaObservations 把 Codex/Claude 主窗口 observation 规范化后写入通用额度历史父子表。
 func WriteCodexMainQuotaObservations(ctx context.Context, db *gorm.DB, observations []repositorydto.CodexMainQuotaObservation) error {
 	if db == nil {
 		return fmt.Errorf("write codex quota history: database is nil")
@@ -71,6 +71,10 @@ func WriteCodexMainQuotaObservations(ctx context.Context, db *gorm.DB, observati
 
 // LoadLatestCodexQuotaHistoryState 从通用表恢复一个 Codex 主窗口的最新周期和尾段。
 func LoadLatestCodexQuotaHistoryState(ctx context.Context, db *gorm.DB, authIndex string, windowRole string) (repositorydto.CodexQuotaHistoryState, error) {
+	return LoadLatestQuotaHistoryState(ctx, db, "codex", authIndex, windowRole)
+}
+
+func LoadLatestQuotaHistoryState(ctx context.Context, db *gorm.DB, provider string, authIndex string, windowRole string) (repositorydto.CodexQuotaHistoryState, error) {
 	state := repositorydto.CodexQuotaHistoryState{}
 	if db == nil {
 		return state, fmt.Errorf("load codex quota history state: database is nil")
@@ -83,14 +87,15 @@ func LoadLatestCodexQuotaHistoryState(ctx context.Context, db *gorm.DB, authInde
 		return state, fmt.Errorf("load codex quota history state: auth_index is required")
 	}
 	windowRole = strings.ToLower(strings.TrimSpace(windowRole))
-	quotaKey, ok := codexQuotaKey(windowRole)
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	quotaKey, ok := repositorydto.QuotaWindowKey(provider, windowRole)
 	if !ok {
 		return state, fmt.Errorf("load codex quota history state: invalid window role %q", windowRole)
 	}
 
 	var cycle entities.QuotaCycle
 	err := db.WithContext(ctx).Clauses(dbresolver.Write).
-		Where("provider = ? AND auth_index = ? AND quota_key = ?", codexQuotaProvider, authIndex, quotaKey).
+		Where("provider = ? AND auth_index = ? AND quota_key = ?", provider, authIndex, quotaKey).
 		Order("last_observed_at DESC, id DESC").
 		Take(&cycle).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -124,14 +129,23 @@ func LoadLatestCodexQuotaHistoryState(ctx context.Context, db *gorm.DB, authInde
 }
 
 func normalizeCodexMainQuotaObservation(observation repositorydto.CodexMainQuotaObservation) (repositorydto.CodexMainQuotaObservation, error) {
+	observation.Provider = strings.ToLower(strings.TrimSpace(observation.Provider))
+	if observation.Provider == "" {
+		observation.Provider = "codex"
+	}
 	observation.AuthIndex = strings.TrimSpace(observation.AuthIndex)
 	if observation.AuthIndex == "" {
 		return observation, fmt.Errorf("auth_index is required")
 	}
 	observation.WindowRole = strings.ToLower(strings.TrimSpace(observation.WindowRole))
-	if _, ok := codexQuotaKey(observation.WindowRole); !ok {
+	quotaKey, ok := repositorydto.QuotaWindowKey(observation.Provider, observation.WindowRole)
+	if !ok {
 		return observation, fmt.Errorf("invalid window role %q", observation.WindowRole)
 	}
+	if observation.QuotaKey != "" && observation.QuotaKey != quotaKey {
+		return observation, fmt.Errorf("quota key does not match provider and role")
+	}
+	observation.QuotaKey = quotaKey
 	if observation.WindowSeconds <= 0 {
 		return observation, fmt.Errorf("window seconds must be positive")
 	}
@@ -164,17 +178,17 @@ func normalizeCodexMainQuotaObservation(observation repositorydto.CodexMainQuota
 }
 
 func applyCodexMainQuotaObservation(tx *gorm.DB, observation repositorydto.CodexMainQuotaObservation) error {
-	quotaKey, _ := codexQuotaKey(observation.WindowRole)
-	latestCycle, latestFound, err := loadCurrentQuotaCycle(tx, observation.AuthIndex, quotaKey)
+	quotaKey := observation.QuotaKey
+	latestCycle, latestFound, err := loadCurrentQuotaCycle(tx, observation.Provider, observation.AuthIndex, quotaKey)
 	if err != nil {
 		return err
 	}
 	// 正常连续观察直接复用最近父行，只保留原来的一次查询。
 	cycle := latestCycle
-	found := latestFound && latestCycle.WindowSeconds == observation.WindowSeconds && quotaResetTimesMatch(latestCycle.ResetAt, observation.ResetAt)
+	found := latestFound && quotaCycleMatchesObservation(latestCycle, observation)
 	if latestFound && !found {
 		// 只有窗口绕行或 reset 变化时才回查旧父行；Weekly 经 5h 绕行后由这里复用原周期。
-		cycle, found, err = loadMatchingQuotaCycle(tx, observation.AuthIndex, quotaKey, observation.WindowSeconds, observation.ResetAt)
+		cycle, found, err = loadMatchingQuotaCycle(tx, observation.Provider, observation.AuthIndex, quotaKey, observation.WindowSeconds, observation.ResetAt)
 		if err != nil {
 			return err
 		}
@@ -276,38 +290,45 @@ func applyCodexMainQuotaObservation(tx *gorm.DB, observation repositorydto.Codex
 }
 
 // loadMatchingQuotaCycle 在同账号角色和窗口内选择 reset 距离最近的已有父行，支持周期恢复复用。
-func loadMatchingQuotaCycle(tx *gorm.DB, authIndex string, quotaKey string, windowSeconds int64, resetAt time.Time) (entities.QuotaCycle, bool, error) {
+func loadMatchingQuotaCycle(tx *gorm.DB, provider string, authIndex string, quotaKey string, windowSeconds int64, resetAt time.Time) (entities.QuotaCycle, bool, error) {
 	// reset 查询边界与写入状态机共用固定两分钟容差，避免两处周期身份规则漂移。
 	resetLower := timeutil.FormatSortableStorageTime(resetAt.Add(-codexQuotaResetTolerance))
 	resetUpper := timeutil.FormatSortableStorageTime(resetAt.Add(codexQuotaResetTolerance))
 	var candidates []entities.QuotaCycle
 	err := tx.Where(
 		"provider = ? AND auth_index = ? AND quota_key = ? AND window_seconds = ? AND reset_at >= ? AND reset_at <= ?",
-		codexQuotaProvider, authIndex, quotaKey, windowSeconds, resetLower, resetUpper,
+		provider, authIndex, quotaKey, windowSeconds, resetLower, resetUpper,
 	).Order("last_observed_at DESC, id DESC").Find(&candidates).Error
 	if err != nil {
 		return entities.QuotaCycle{}, false, fmt.Errorf("load matching quota cycle: %w", err)
 	}
-	if len(candidates) == 0 {
-		return entities.QuotaCycle{}, false, nil
-	}
+	selected, found := closestMatchingQuotaCycle(candidates, windowSeconds, resetAt)
+	return selected, found, nil
+}
+
+func quotaCycleMatchesObservation(cycle entities.QuotaCycle, observation repositorydto.CodexMainQuotaObservation) bool {
+	return cycle.WindowSeconds == observation.WindowSeconds && quotaResetTimesMatch(cycle.ResetAt, observation.ResetAt)
+}
+
+// closestMatchingQuotaCycle 的输入按观察时间、ID 倒序排列，等距离时继续优先最新行。
+func closestMatchingQuotaCycle(candidates []entities.QuotaCycle, windowSeconds int64, resetAt time.Time) (entities.QuotaCycle, bool) {
 	// 正常只有一个候选；若历史抖动曾产生多个父行，则复用 reset 距离本次事实最近的一行。
-	selected := candidates[0]
-	selectedDistance := selected.ResetAt.Sub(resetAt)
-	if selectedDistance < 0 {
-		selectedDistance = -selectedDistance
-	}
-	for _, candidate := range candidates[1:] {
+	var selected entities.QuotaCycle
+	var selectedDistance time.Duration
+	for _, candidate := range candidates {
+		if candidate.WindowSeconds != windowSeconds || !quotaResetTimesMatch(candidate.ResetAt, resetAt) {
+			continue
+		}
 		distance := candidate.ResetAt.Sub(resetAt)
 		if distance < 0 {
 			distance = -distance
 		}
-		if distance < selectedDistance {
+		if selected.ID == 0 || distance < selectedDistance {
 			selected = candidate
 			selectedDistance = distance
 		}
 	}
-	return selected, true, nil
+	return selected, selected.ID != 0
 }
 
 func correctQuotaPercentTail(tx *gorm.DB, cycle entities.QuotaCycle, observation repositorydto.CodexMainQuotaObservation) error {
@@ -348,9 +369,9 @@ func correctQuotaPercentTail(tx *gorm.DB, cycle entities.QuotaCycle, observation
 	return updateQuotaCycleObservedTimes(tx, cycle, observation)
 }
 
-func loadCurrentQuotaCycle(tx *gorm.DB, authIndex string, quotaKey string) (entities.QuotaCycle, bool, error) {
+func loadCurrentQuotaCycle(tx *gorm.DB, provider string, authIndex string, quotaKey string) (entities.QuotaCycle, bool, error) {
 	var cycle entities.QuotaCycle
-	err := tx.Where("provider = ? AND auth_index = ? AND quota_key = ?", codexQuotaProvider, authIndex, quotaKey).
+	err := tx.Where("provider = ? AND auth_index = ? AND quota_key = ?", provider, authIndex, quotaKey).
 		Order("last_observed_at DESC, id DESC").
 		Take(&cycle).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -373,7 +394,7 @@ func quotaResetTimesMatch(left time.Time, right time.Time) bool {
 func newQuotaCycle(observation repositorydto.CodexMainQuotaObservation, quotaKey string) entities.QuotaCycle {
 	now := timeutil.NormalizeStorageTime(time.Now())
 	return entities.QuotaCycle{
-		Provider:        codexQuotaProvider,
+		Provider:        observation.Provider,
 		AuthIndex:       observation.AuthIndex,
 		QuotaKey:        quotaKey,
 		WindowSeconds:   observation.WindowSeconds,

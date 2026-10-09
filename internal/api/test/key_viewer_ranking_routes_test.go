@@ -84,33 +84,33 @@ func TestKeyViewerCommunityRankingRouteIsReadOnly(t *testing.T) {
 }
 
 func TestKeyViewerLocalRankingRouteFollowsExplicitAccessFlag(t *testing.T) {
-	t.Run("disabled", func(t *testing.T) {
-		_, viewerToken, _, local, router := newKeyViewerRankingRouter(t, false)
-		response := httptest.NewRecorder()
-		router.ServeHTTP(response, viewerRankingRequest(http.MethodGet, "/api/v1/key-ranking/local/leaderboards?period=today&metric=overall", viewerToken))
-		if response.Code != http.StatusNotFound || local.calls != 0 {
-			t.Fatalf("disabled local ranking was exposed: status=%d body=%s calls=%d", response.Code, response.Body.String(), local.calls)
-		}
-	})
-
-	t.Run("enabled read only", func(t *testing.T) {
-		_, viewerToken, _, local, router := newKeyViewerRankingRouter(t, true)
-		response := httptest.NewRecorder()
-		router.ServeHTTP(response, viewerRankingRequest(http.MethodGet, "/api/v1/key-ranking/local/leaderboards?period=today&metric=overall", viewerToken))
-		if response.Code != http.StatusOK || local.calls != 1 {
-			t.Fatalf("enabled local ranking was unavailable: status=%d body=%s calls=%d", response.Code, response.Body.String(), local.calls)
-		}
-
-		mutation := httptest.NewRecorder()
-		router.ServeHTTP(mutation, viewerRankingRequest(http.MethodPatch, "/api/v1/key-ranking/local/profiles/42", viewerToken))
-		if mutation.Code != http.StatusNotFound || local.calls != 1 {
-			t.Fatalf("viewer local profile mutation was exposed: status=%d body=%s calls=%d", mutation.Code, mutation.Body.String(), local.calls)
-		}
-
-		session := httptest.NewRecorder()
-		router.ServeHTTP(session, viewerRankingRequest(http.MethodGet, "/api/v1/auth/session", viewerToken))
-		if session.Code != http.StatusOK || !strings.Contains(session.Body.String(), `"local_ranking_enabled":true`) {
-			t.Fatalf("viewer session omitted local ranking capability: status=%d body=%s", session.Code, session.Body.String())
-		}
-	})
+	for _, tc := range []struct {
+		name                  string
+		enabled               bool
+		wantStatus, wantCalls int
+	}{
+		{"disabled", false, http.StatusNotFound, 0},
+		{"enabled read only", true, http.StatusOK, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, viewerToken, _, local, router := newKeyViewerRankingRouter(t, tc.enabled)
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, viewerRankingRequest(http.MethodGet, "/api/v1/key-ranking/local/leaderboards?period=today&metric=overall", viewerToken))
+			if response.Code != tc.wantStatus || local.calls != tc.wantCalls {
+				t.Fatalf("local ranking status=%d body=%s calls=%d; want %d/%d", response.Code, response.Body.String(), local.calls, tc.wantStatus, tc.wantCalls)
+			}
+			mutation := httptest.NewRecorder()
+			router.ServeHTTP(mutation, viewerRankingRequest(http.MethodPatch, "/api/v1/key-ranking/local/profiles/42", viewerToken))
+			if mutation.Code != http.StatusNotFound || local.calls != tc.wantCalls {
+				t.Fatalf("viewer local profile mutation was exposed: status=%d body=%s calls=%d", mutation.Code, mutation.Body.String(), local.calls)
+			}
+			if tc.enabled {
+				session := httptest.NewRecorder()
+				router.ServeHTTP(session, viewerRankingRequest(http.MethodGet, "/api/v1/auth/session", viewerToken))
+				if session.Code != http.StatusOK || !strings.Contains(session.Body.String(), `"local_ranking_enabled":true`) {
+					t.Fatalf("viewer session omitted local ranking capability: status=%d body=%s", session.Code, session.Body.String())
+				}
+			}
+		})
+	}
 }

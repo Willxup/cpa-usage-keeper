@@ -6,9 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"reflect"
+	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -77,6 +76,7 @@ func TestRedisErrorSubscribeSourceCancelsBlockedHandshake(t *testing.T) {
 		RedisAddr: server.addr, ManagementKey: "secret", Timeout: time.Second,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	result := make(chan error, 1)
 	go func() {
 		_, err := source.SubscribeErrors(ctx)
@@ -97,7 +97,7 @@ func TestRedisErrorSubscribeSourceCancelsBlockedHandshake(t *testing.T) {
 
 func TestRedisErrorIngestDefaultRetrySchedule(t *testing.T) {
 	want := []time.Duration{10 * time.Second, 30 * time.Second, time.Minute, 3 * time.Minute, 10 * time.Minute}
-	if got := poller.DefaultRedisErrorRetryDelays(); !reflect.DeepEqual(got, want) {
+	if got := poller.DefaultRedisErrorRetryDelays(); !slices.Equal(got, want) {
 		t.Fatalf("retry delays = %v, want %v", got, want)
 	}
 }
@@ -132,6 +132,7 @@ func TestRedisErrorIngestDoesNotRetryPermanentSubscribeFailure(t *testing.T) {
 
 func TestRedisErrorIngestContinuesAfterWriteFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	subscription := &fakeErrorSubscription{messages: []string{"first", "second"}}
 	source := &fakeErrorSubscribeSource{subscription: subscription}
 	sink := &fakeErrorEventSink{failFirst: true, afterStore: func(call int) {
@@ -151,15 +152,12 @@ func TestRedisErrorIngestContinuesAfterWriteFailure(t *testing.T) {
 }
 
 type fakeErrorSubscribeSource struct {
-	mu           sync.Mutex
 	calls        int
 	err          error
 	subscription poller.ErrorSubscription
 }
 
 func (s *fakeErrorSubscribeSource) SubscribeErrors(context.Context) (poller.ErrorSubscription, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.calls++
 	if s.err != nil {
 		return nil, s.err
@@ -168,20 +166,16 @@ func (s *fakeErrorSubscribeSource) SubscribeErrors(context.Context) (poller.Erro
 }
 
 type fakeErrorSubscription struct {
-	mu       sync.Mutex
 	messages []string
 	index    int
 }
 
 func (s *fakeErrorSubscription) Receive(ctx context.Context) (string, error) {
-	s.mu.Lock()
 	if s.index < len(s.messages) {
 		message := s.messages[s.index]
 		s.index++
-		s.mu.Unlock()
 		return message, nil
 	}
-	s.mu.Unlock()
 	<-ctx.Done()
 	return "", ctx.Err()
 }
@@ -189,19 +183,16 @@ func (s *fakeErrorSubscription) Receive(ctx context.Context) (string, error) {
 func (s *fakeErrorSubscription) Close() error { return nil }
 
 type fakeErrorEventSink struct {
-	mu         sync.Mutex
 	calls      int
 	failFirst  bool
 	afterStore func(int)
 }
 
 func (s *fakeErrorEventSink) StoreErrorEvent(context.Context, string, time.Time) error {
-	s.mu.Lock()
 	s.calls++
 	call := s.calls
 	fail := s.failFirst && call == 1
 	afterStore := s.afterStore
-	s.mu.Unlock()
 	if afterStore != nil {
 		afterStore(call)
 	}

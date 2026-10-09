@@ -35,6 +35,7 @@ type codexQuotaHistoryRunnerState struct {
 
 // codexQuotaHistoryCohortKey 标识同一账号在同一次 Header/额度响应中返回的主窗口集合。
 type codexQuotaHistoryCohortKey struct {
+	Provider       string
 	AuthIndex      string
 	LastObservedAt time.Time
 }
@@ -54,6 +55,8 @@ func (s *Service) runCodexQuotaHistoryRunner() {
 
 	for {
 		select {
+		case request := <-s.codexQuotaHistoryDelete:
+			s.deleteCodexQuotaHistoryCycle(&state, request)
 		case <-s.codexQuotaHistoryHeaderWake:
 			// 队列和 wake 必须在生产者同一把短锁下观察，避免把并发新数据误判为空通知。
 			s.codexQuotaHistoryMu.Lock()
@@ -64,20 +67,28 @@ func (s *Service) runCodexQuotaHistoryRunner() {
 			}
 			// 第一条 Header 固定开启一分钟窗口，后续 Header 只进入同一个有界队列。
 			timerC, stopTimer := s.codexQuotaHistoryNewTimer(s.codexQuotaHistoryFlushInterval)
-			select {
-			case <-timerC:
-				stopTimer()
-				// 一分钟到点后固定本批输入，后续 Header 自然进入下一批。
-				s.processPreferredCodexQuotaHistoryInputs(&state, false)
-			case <-s.codexQuotaHistoryTrustedWake:
-				stopTimer()
-				// 可信查询跳过 Header 等待，并覆盖同账号角色的待处理 Header。
-				s.processPreferredCodexQuotaHistoryInputs(&state, false)
-			case <-s.codexQuotaHistoryStopCh:
-				stopTimer()
-				// shutdown 只尽力处理已经接收的数据，不等待剩余的一分钟窗口。
-				s.processPreferredCodexQuotaHistoryInputs(&state, true)
-				return
+		waitForHeader:
+			for {
+				select {
+				case request := <-s.codexQuotaHistoryDelete:
+					// 删除只清匹配数据，保留其他 Header 原有的一分钟等待窗口。
+					s.deleteCodexQuotaHistoryCycle(&state, request)
+				case <-timerC:
+					stopTimer()
+					// 一分钟到点后固定本批输入，后续 Header 自然进入下一批。
+					s.processPreferredCodexQuotaHistoryInputs(&state, false)
+					break waitForHeader
+				case <-s.codexQuotaHistoryTrustedWake:
+					stopTimer()
+					// 可信查询跳过 Header 等待，并覆盖同账号角色的待处理 Header。
+					s.processPreferredCodexQuotaHistoryInputs(&state, false)
+					break waitForHeader
+				case <-s.codexQuotaHistoryStopCh:
+					stopTimer()
+					// shutdown 只尽力处理已经接收的数据，不等待剩余的一分钟窗口。
+					s.processPreferredCodexQuotaHistoryInputs(&state, true)
+					return
+				}
 			}
 		case <-s.codexQuotaHistoryTrustedWake:
 			// 空闲 runner 收到可信事实时立即处理，不创建 Header timer。
@@ -119,7 +130,7 @@ func (s *Service) processCodexQuotaHistoryCandidateBatch(state *codexQuotaHistor
 
 	// 任一窗口在本批发生变化时，同一 Header 中仍处于稳定降频的另一窗口也必须一起物化。
 	for key, deferred := range state.Stable {
-		cohort := codexQuotaHistoryCohortKey{AuthIndex: key.AuthIndex, LastObservedAt: deferred.Observation.LastObservedAt}
+		cohort := codexQuotaHistoryCohortKey{Provider: key.Provider, AuthIndex: key.AuthIndex, LastObservedAt: deferred.Observation.LastObservedAt}
 		if _, materialized := materializedCohorts[cohort]; materialized {
 			deferred.Immediate = true
 			state.Stable[key] = deferred
@@ -133,8 +144,10 @@ func (s *Service) processCodexQuotaHistoryCandidateBatch(state *codexQuotaHistor
 
 // codexQuotaHistoryCandidateCohortKey 用账号和观察时刻关联同一次响应里的 Primary/Secondary。
 func codexQuotaHistoryCandidateCohortKey(candidate codexQuotaHistoryCandidate) codexQuotaHistoryCohortKey {
+	key := codexQuotaHistoryCandidateStateKey(candidate)
 	return codexQuotaHistoryCohortKey{
-		AuthIndex:      strings.TrimSpace(candidate.Observation.AuthIndex),
+		Provider:       key.Provider,
+		AuthIndex:      key.AuthIndex,
 		LastObservedAt: candidate.Observation.LastObservedAt,
 	}
 }
@@ -144,6 +157,9 @@ func sortCodexQuotaHistoryCandidates(candidates []codexQuotaHistoryCandidate) {
 	sort.SliceStable(candidates, func(left int, right int) bool {
 		leftKey := codexQuotaHistoryCandidateStateKey(candidates[left])
 		rightKey := codexQuotaHistoryCandidateStateKey(candidates[right])
+		if leftKey.Provider != rightKey.Provider {
+			return leftKey.Provider < rightKey.Provider
+		}
 		if leftKey.AuthIndex != rightKey.AuthIndex {
 			return leftKey.AuthIndex < rightKey.AuthIndex
 		}
@@ -178,7 +194,7 @@ func (s *Service) verifyCodexQuotaHistoryCandidates(candidates []codexQuotaHisto
 		authIndexes = append(authIndexes, authIndex)
 	}
 
-	verifiedAuthIndexes := make(map[string]struct{}, len(authIndexes))
+	verifiedProviders := make(map[string]string, len(authIndexes))
 	if len(authIndexes) > 0 {
 		// 身份查询有独立短超时；失败时宁可留下采样缺口，也不猜测 Header 归属。
 		ctx, cancel := context.WithTimeout(context.Background(), codexQuotaHistoryDatabaseTimeout)
@@ -188,13 +204,14 @@ func (s *Service) verifyCodexQuotaHistoryCandidates(candidates []codexQuotaHisto
 			logrus.WithError(err).Warn("codex quota history identity verification failed")
 		} else {
 			for _, identity := range identities {
-				// repository 已限定 Auth File；这里再限定真实 Codex 类型，排除 provider 文本误判。
-				if !usageHeaderIdentityIsCodex(identity) {
+				// repository 已限定 Auth File；这里再取真实 type，与 observation 来源逐条核对。
+				provider := normalizeIdentityType(identity.Type)
+				if provider != "codex" && provider != "claude" {
 					continue
 				}
 				authIndex := strings.TrimSpace(identity.Identity)
 				if authIndex != "" {
-					verifiedAuthIndexes[authIndex] = struct{}{}
+					verifiedProviders[authIndex] = provider
 				}
 			}
 		}
@@ -204,10 +221,13 @@ func (s *Service) verifyCodexQuotaHistoryCandidates(candidates []codexQuotaHisto
 	verified := make([]codexQuotaHistoryCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
 		if candidate.IdentityVerified {
-			verified = append(verified, candidate)
+			if codexQuotaHistoryCandidateStateKey(candidate).QuotaKey != "" {
+				verified = append(verified, candidate)
+			}
 			continue
 		}
-		if _, ok := verifiedAuthIndexes[strings.TrimSpace(candidate.Observation.AuthIndex)]; ok {
+		key := codexQuotaHistoryCandidateStateKey(candidate)
+		if provider, ok := verifiedProviders[key.AuthIndex]; ok && provider == key.Provider && key.QuotaKey != "" {
 			verified = append(verified, candidate)
 		}
 	}
@@ -219,11 +239,13 @@ func (s *Service) mergeCodexQuotaHistoryObservation(state *codexQuotaHistoryRunn
 	observation := candidate.Observation
 	key := codexQuotaHistoryCandidateStateKey(candidate)
 	// runner 只接受构造层定义的两个主额度角色；repository 仍保留最终完整校验。
-	if key.AuthIndex == "" || (key.WindowRole != "primary" && key.WindowRole != "secondary") {
+	if key.AuthIndex == "" || key.QuotaKey == "" {
 		return false
 	}
 	observation.AuthIndex = key.AuthIndex
 	observation.WindowRole = key.WindowRole
+	observation.Provider = key.Provider
+	observation.QuotaKey = key.QuotaKey
 	observation.Authoritative = codexQuotaHistorySourceIsAuthoritative(candidate.Source)
 	// 内部 DTO 必须满足基本范围与时间顺序，异常值不能推进内存状态。
 	if observation.WindowSeconds <= 0 || observation.WindowSeconds > math.MaxInt64/int64(time.Second) ||
@@ -410,13 +432,13 @@ func (s *Service) appendDueCodexQuotaHistoryStable(state *codexQuotaHistoryRunne
 		current := state.Current[key]
 		due := deferred.Immediate || current.LastMaterializedAt.IsZero() || !now.Before(current.LastMaterializedAt.Add(s.codexQuotaHistoryHeartbeatInterval))
 		if all || due {
-			dueCohorts[codexQuotaHistoryCohortKey{AuthIndex: key.AuthIndex, LastObservedAt: deferred.Observation.LastObservedAt}] = struct{}{}
+			dueCohorts[codexQuotaHistoryCohortKey{Provider: key.Provider, AuthIndex: key.AuthIndex, LastObservedAt: deferred.Observation.LastObservedAt}] = struct{}{}
 		}
 	}
 	// 一个窗口到期或被标记立即写入时，把同一响应中存在的另一个主窗口一起收集。
 	keys := make([]codexQuotaHistoryStateKey, 0)
 	for key, deferred := range state.Stable {
-		cohort := codexQuotaHistoryCohortKey{AuthIndex: key.AuthIndex, LastObservedAt: deferred.Observation.LastObservedAt}
+		cohort := codexQuotaHistoryCohortKey{Provider: key.Provider, AuthIndex: key.AuthIndex, LastObservedAt: deferred.Observation.LastObservedAt}
 		if _, due := dueCohorts[cohort]; due {
 			keys = append(keys, key)
 		}
@@ -455,6 +477,9 @@ func (s *Service) flushCodexQuotaHistory(state *codexQuotaHistoryRunnerState, pe
 	}
 	// 同账号角色必须按观察时间进入 repository；不同账号仅使用稳定排序便于诊断。
 	sort.SliceStable(pending, func(left int, right int) bool {
+		if pending[left].Provider != pending[right].Provider {
+			return pending[left].Provider < pending[right].Provider
+		}
 		if pending[left].AuthIndex != pending[right].AuthIndex {
 			return pending[left].AuthIndex < pending[right].AuthIndex
 		}
@@ -474,7 +499,7 @@ func (s *Service) flushCodexQuotaHistory(state *codexQuotaHistoryRunnerState, pe
 		}).Warn("codex quota history flush failed")
 		// history 是低优先级采样：失败允许形成缺口，但不能用未提交内存状态继续推断。
 		for _, observation := range pending {
-			key := codexQuotaHistoryStateKey{AuthIndex: observation.AuthIndex, WindowRole: observation.WindowRole}
+			key := codexQuotaHistoryCandidateStateKey(codexQuotaHistoryCandidate{Observation: observation})
 			delete(state.Current, key)
 			delete(state.Stable, key)
 		}
@@ -486,7 +511,7 @@ func (s *Service) flushCodexQuotaHistory(state *codexQuotaHistoryRunnerState, pe
 		delete(state.Stable, key)
 	}
 	for _, observation := range pending {
-		key := codexQuotaHistoryStateKey{AuthIndex: observation.AuthIndex, WindowRole: observation.WindowRole}
+		key := codexQuotaHistoryCandidateStateKey(codexQuotaHistoryCandidate{Observation: observation})
 		current, exists := state.Current[key]
 		if !exists {
 			continue

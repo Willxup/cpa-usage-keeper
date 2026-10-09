@@ -12,10 +12,6 @@ import (
 )
 
 func TestUsageIdentityAggregationPreservesExistingFinalSnapshots(t *testing.T) {
-	// 准备：固定项目时区和聚合 now，构造 active、deleted 与 metadata 后创建三类 identity。
-	previousLocal := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = previousLocal })
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	db := openTestDatabase(t)
 
@@ -46,23 +42,21 @@ func TestUsageIdentityAggregationPreservesExistingFinalSnapshots(t *testing.T) {
 		t.Fatalf("insert identity usage events: %v", err)
 	}
 
-	// 执行：第一次聚合只处理当时存在的 active/deleted identities。
 	if err := repository.AggregateUsageIdentityStats(context.Background(), db, now); err != nil {
 		t.Fatalf("first AggregateUsageIdentityStats: %v", err)
 	}
-	// 断言：active/deleted 的旧统计、cached_tokens、cursor 和首尾时间逐字段保持原语义。
-	assertUsageIdentitySnapshot(t, db, "auth-active", usageIdentitySnapshot{
+	wantActive := usageIdentitySnapshot{
 		TotalRequests: 12, Success: 9, Failure: 3, Input: 1300, Output: 250, Reasoning: 37,
 		Cached: 570, CacheRead: 57, Total: 1627, Cursor: 2,
 		FirstUsedAt: now.Add(-2 * time.Hour), LastUsedAt: now.Add(-time.Hour), StatsUpdatedAt: now, IsDeleted: false,
-	})
+	}
+	assertUsageIdentitySnapshot(t, db, "auth-active", wantActive)
 	assertUsageIdentitySnapshot(t, db, "key-deleted", usageIdentitySnapshot{
 		TotalRequests: 21, Success: 16, Failure: 5, Input: 2300, Output: 340, Reasoning: 45,
 		Cached: 570, CacheRead: 57, Total: 2685, Cursor: 3,
 		FirstUsedAt: now.Add(-90 * time.Minute), LastUsedAt: now.Add(-90 * time.Minute), StatsUpdatedAt: now, IsDeleted: true,
 	})
 
-	// 执行：metadata 后创建 identity，并从 cursor=0 再运行一次完整聚合。
 	late := entities.UsageIdentity{Name: "Late", AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: "auth-late", Type: "codex"}
 	if err := db.Create(&late).Error; err != nil {
 		t.Fatalf("create late identity: %v", err)
@@ -70,23 +64,16 @@ func TestUsageIdentityAggregationPreservesExistingFinalSnapshots(t *testing.T) {
 	if err := repository.AggregateUsageIdentityStats(context.Background(), db, now.Add(time.Minute)); err != nil {
 		t.Fatalf("second AggregateUsageIdentityStats: %v", err)
 	}
-	// 断言：late identity 必须回补已经存在的历史事件。
 	assertUsageIdentitySnapshot(t, db, "auth-late", usageIdentitySnapshot{
 		TotalRequests: 1, Success: 1, Failure: 0, Input: 400, Output: 50, Reasoning: 6,
 		Cached: 60, CacheRead: 6, Total: 456, Cursor: 4,
 		FirstUsedAt: now.Add(-3 * time.Hour), LastUsedAt: now.Add(-3 * time.Hour), StatsUpdatedAt: now.Add(time.Minute), IsDeleted: false,
 	})
 
-	// 执行：第三次完整聚合验证所有每行 cursor 已经追平。
 	if err := repository.AggregateUsageIdentityStats(context.Background(), db, now.Add(2*time.Minute)); err != nil {
 		t.Fatalf("third AggregateUsageIdentityStats: %v", err)
 	}
-	// 断言：旧 snapshot 保持幂等，不能重复累计。
-	assertUsageIdentitySnapshot(t, db, "auth-active", usageIdentitySnapshot{
-		TotalRequests: 12, Success: 9, Failure: 3, Input: 1300, Output: 250, Reasoning: 37,
-		Cached: 570, CacheRead: 57, Total: 1627, Cursor: 2,
-		FirstUsedAt: now.Add(-2 * time.Hour), LastUsedAt: now.Add(-time.Hour), StatsUpdatedAt: now, IsDeleted: false,
-	})
+	assertUsageIdentitySnapshot(t, db, "auth-active", wantActive)
 }
 
 type usageIdentitySnapshot struct {
@@ -106,9 +93,7 @@ type usageIdentitySnapshot struct {
 	IsDeleted      bool
 }
 
-func assertUsageIdentitySnapshot(t *testing.T, db interface {
-	Where(query any, args ...any) *gorm.DB
-}, identity string, want usageIdentitySnapshot) {
+func assertUsageIdentitySnapshot(t *testing.T, db *gorm.DB, identity string, want usageIdentitySnapshot) {
 	// 逐字段比较最终 identity 行，确保批次化只改变事务边界、不改变聚合效果。
 	t.Helper()
 	var row entities.UsageIdentity

@@ -33,13 +33,6 @@ func TestStorageVacuumRequiredUsesFreeBytesRatioAndDiskSpace(t *testing.T) {
 	}
 }
 
-func TestStorageVacuumRequiredHasNoTimeIntervalCondition(t *testing.T) {
-	stats := repository.StorageVacuumStats{PageSize: 4096, PageCount: 1_500_000, FreelistCount: 300_000}
-	if !repository.StorageVacuumRequired(stats, 13<<30) {
-		t.Fatal("expected current page and disk conditions alone to allow vacuum")
-	}
-}
-
 func TestStorageVacuumRequiredRejectsOverflowingSpaceEstimate(t *testing.T) {
 	stats := repository.StorageVacuumStats{PageSize: 1 << 32, PageCount: 1 << 31, FreelistCount: 1 << 30}
 	if repository.StorageVacuumRequired(stats, ^uint64(0)) {

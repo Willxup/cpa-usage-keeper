@@ -2,11 +2,14 @@ package dto
 
 import "time"
 
-// CodexMainQuotaObservation 是 quota 采集层交给 repository 的主额度状态变化，不包含 Token 或 cost。
+// CodexMainQuotaObservation 是共享 quota 采集层交给 repository 的账号主额度状态变化，不包含 Token 或 cost。
 type CodexMainQuotaObservation struct {
+	// Provider 和 QuotaKey 是实际额度来源及其存储键；旧 Codex 调用可由 repository 补默认值。
+	Provider string
+	QuotaKey string
 	// AuthIndex 是 CPA OAuth Auth File 的稳定账号键，未来 UsageEvent 回溯必须同时限定 auth_type=oauth。
 	AuthIndex string
-	// WindowRole 只允许 primary/secondary，明确排除 Code Review 与 Additional。
+	// WindowRole 是共享 API 的 primary/secondary；Codex 排除 Code Review/Additional，Claude 仅映射 5h/7d。
 	WindowRole string
 	// WindowSeconds 保存上游原始正整数窗口秒数，并参与周期唯一身份。
 	WindowSeconds int64

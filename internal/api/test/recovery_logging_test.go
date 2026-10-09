@@ -24,12 +24,7 @@ func TestRouterRecoveryUsesUnifiedKeeperLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("configure logging: %v", err)
 	}
-	closed := false
-	t.Cleanup(func() {
-		if !closed {
-			_ = closer.Close()
-		}
-	})
+	t.Cleanup(func() { _ = closer.Close() })
 
 	var output bytes.Buffer
 	logrus.SetOutput(&output)
@@ -48,7 +43,6 @@ func TestRouterRecoveryUsesUnifiedKeeperLog(t *testing.T) {
 	if err := closer.Close(); err != nil {
 		t.Fatalf("close logging: %v", err)
 	}
-	closed = true
 	plain := regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(output.String(), "")
 	if !strings.Contains(plain, "| error | gin panic recovered |") {
 		t.Fatalf("expected Logrus-native Gin recovery entry, got %q", plain)

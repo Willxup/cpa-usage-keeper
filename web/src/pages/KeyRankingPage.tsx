@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { MainActionButton } from '@/components/ui/MainActionButton';
-import { IconRefreshCw } from '@/components/ui/icons';
 import { KeyViewerShell } from '@/features/key-viewer/KeyViewerShell';
 import type { KeyViewerPath } from '@/features/key-viewer/navigation';
 import {
@@ -143,41 +141,15 @@ export function KeyRankingPage({ apiKey, onNavigate, onAuthRequired }: KeyRankin
   }, [loadLeaderboard, manualRefreshLoading]);
 
   const rows = useMemo(() => leaderboard?.entries.slice(0, 100) ?? [], [leaderboard]);
-  const toolbar = (
-    <>
-      {localRankingEnabled ? (
-        <div className={shellStyles.usageFilterBar}>
-          <RankingScopeSwitch value={effectiveScope} onChange={handleScopeChange} />
-        </div>
-      ) : null}
-      <div className={shellStyles.usageRefreshSlot}>
-        <div className={shellStyles.usageFilterActions}>
-          <MainActionButton
-            type="button"
-            shellClassName={shellStyles.refreshMainActionShell}
-            className={shellStyles.refreshMainActionButton}
-            onClick={() => void handleManualRefresh()}
-            disabled={manualRefreshLoading}
-            loading={manualRefreshLoading}
-          >
-            {manualRefreshLoading ? t('common.loading') : (
-              <>
-                <IconRefreshCw size={14} />
-                <span>{t('usage_stats.refresh')}</span>
-              </>
-            )}
-          </MainActionButton>
-        </div>
-      </div>
-    </>
-  );
 
   return (
     <KeyViewerShell
       activePage="ranking"
       apiKey={apiKey}
       loading={loading && !leaderboard}
-      toolbar={toolbar}
+      filters={localRankingEnabled ? [<RankingScopeSwitch key="scope" value={effectiveScope} onChange={handleScopeChange} />] : []}
+      onRefresh={() => void handleManualRefresh()}
+      refreshing={manualRefreshLoading}
       onNavigate={onNavigate}
       onAuthRequired={onAuthRequired}
     >

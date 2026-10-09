@@ -135,43 +135,56 @@ func (sketch *Sketch) MarshalBinary() ([]byte, error) {
 
 // UnmarshalSketch 严格解析当前版本，拒绝未知版本、乱序、重复、截断和溢出。
 func UnmarshalSketch(encoded []byte) (*Sketch, error) {
+	sketch := NewSketch()
+	count, err := walkSketch(encoded, func(key int64, count uint64) {
+		sketch.bins[key] = count
+	})
+	if err != nil {
+		return nil, err
+	}
+	sketch.count = count
+	return sketch, nil
+}
+
+// walkSketch 为普通解码和查询独占合并提供同一套格式与行内计数校验。
+func walkSketch(encoded []byte, visit func(int64, uint64)) (uint64, error) {
 	if len(encoded) == 0 {
-		return nil, fmt.Errorf("sketch data is empty")
+		return 0, fmt.Errorf("sketch data is empty")
 	}
 	if encoded[0] != FormatVersion {
-		return nil, fmt.Errorf("unsupported sketch version %d", encoded[0])
+		return 0, fmt.Errorf("unsupported sketch version %d", encoded[0])
 	}
 	offset := 1
 	binCount, err := readUvarint(encoded, &offset, "sketch bin count")
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	sketch := NewSketch()
+	var total uint64
 	previousKey := int64(0)
 	for index := uint64(0); index < binCount; index++ {
 		encodedKey, err := readUvarint(encoded, &offset, "sketch bin key")
 		if err != nil {
-			return nil, err
+			return 0, err
 		}
 		key := zigzagDecode(encodedKey)
 		if index > 0 && key <= previousKey {
-			return nil, fmt.Errorf("sketch bin keys must be strictly increasing")
+			return 0, fmt.Errorf("sketch bin keys must be strictly increasing")
 		}
 		count, err := readUvarint(encoded, &offset, "sketch bin count")
 		if err != nil {
-			return nil, err
+			return 0, err
 		}
-		if count == 0 || sketch.count > math.MaxUint64-count {
-			return nil, fmt.Errorf("invalid sketch bin count %d", count)
+		if count == 0 || total > math.MaxUint64-count {
+			return 0, fmt.Errorf("invalid sketch bin count %d", count)
 		}
-		sketch.bins[key] = count
-		sketch.count += count
+		visit(key, count)
+		total += count
 		previousKey = key
 	}
 	if offset != len(encoded) {
-		return nil, fmt.Errorf("sketch data has trailing bytes")
+		return 0, fmt.Errorf("sketch data has trailing bytes")
 	}
-	return sketch, nil
+	return total, nil
 }
 
 func (sketch *Sketch) sortedKeys() []int64 {

@@ -39,16 +39,6 @@ func TestNormalizeCodexSubscription(t *testing.T) {
 	}
 }
 
-func TestNormalizeCodexSubscriptionSupportsPointerResult(t *testing.T) {
-	got := quota.NormalizeSubscription(quota.ProviderOutput{
-		Provider: "codex",
-		Result:   &quota.CodexResult{Usage: &quota.CodexUsagePayload{PlanType: "plus"}},
-	})
-	if got == nil || got.Provider != "codex" || got.Plan != "plus" {
-		t.Fatalf("NormalizeSubscription() = %#v, want codex plus", got)
-	}
-}
-
 func TestNormalizeClaudeSubscription(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -58,15 +48,39 @@ func TestNormalizeClaudeSubscription(t *testing.T) {
 		{
 			name: "max wins over every lower tier",
 			profile: &quota.ClaudeProfileResponse{
-				Account:      &quota.ClaudeProfileAccount{HasClaudeMax: boolPtr(true), HasClaudePro: boolPtr(true)},
+				Account:      &quota.ClaudeProfileAccount{HasClaudeMax: new(true), HasClaudePro: new(true)},
 				Organization: &quota.ClaudeProfileOrganization{OrganizationType: "claude_team", SubscriptionStatus: "active"},
+			},
+			want: "max",
+		},
+		{
+			name: "max 5x rate limit tier",
+			profile: &quota.ClaudeProfileResponse{
+				Account:      &quota.ClaudeProfileAccount{HasClaudeMax: new(true)},
+				Organization: &quota.ClaudeProfileOrganization{OrganizationType: "claude_max", RateLimitTier: "default_claude_max_5x"},
+			},
+			want: "max-5x",
+		},
+		{
+			name: "max 20x rate limit tier",
+			profile: &quota.ClaudeProfileResponse{
+				Account:      &quota.ClaudeProfileAccount{HasClaudeMax: new(true)},
+				Organization: &quota.ClaudeProfileOrganization{OrganizationType: "claude_max", RateLimitTier: "default_claude_max_20x"},
+			},
+			want: "max-20x",
+		},
+		{
+			name: "max without rate limit tier keeps plain max",
+			profile: &quota.ClaudeProfileResponse{
+				Account:      &quota.ClaudeProfileAccount{HasClaudeMax: new(true)},
+				Organization: &quota.ClaudeProfileOrganization{OrganizationType: "claude_max"},
 			},
 			want: "max",
 		},
 		{
 			name: "pro wins over team",
 			profile: &quota.ClaudeProfileResponse{
-				Account:      &quota.ClaudeProfileAccount{HasClaudeMax: boolPtr(false), HasClaudePro: boolPtr(true)},
+				Account:      &quota.ClaudeProfileAccount{HasClaudeMax: new(false), HasClaudePro: new(true)},
 				Organization: &quota.ClaudeProfileOrganization{OrganizationType: "claude_team", SubscriptionStatus: "active"},
 			},
 			want: "pro",
@@ -74,7 +88,7 @@ func TestNormalizeClaudeSubscription(t *testing.T) {
 		{
 			name: "active team wins over free",
 			profile: &quota.ClaudeProfileResponse{
-				Account:      &quota.ClaudeProfileAccount{HasClaudeMax: boolPtr(false), HasClaudePro: boolPtr(false)},
+				Account:      &quota.ClaudeProfileAccount{HasClaudeMax: new(false), HasClaudePro: new(false)},
 				Organization: &quota.ClaudeProfileOrganization{OrganizationType: " CLAUDE_TEAM ", SubscriptionStatus: " ACTIVE "},
 			},
 			want: "team",
@@ -82,14 +96,14 @@ func TestNormalizeClaudeSubscription(t *testing.T) {
 		{
 			name: "free requires both explicit false values",
 			profile: &quota.ClaudeProfileResponse{
-				Account: &quota.ClaudeProfileAccount{HasClaudeMax: boolPtr(false), HasClaudePro: boolPtr(false)},
+				Account: &quota.ClaudeProfileAccount{HasClaudeMax: new(false), HasClaudePro: new(false)},
 			},
 			want: "free",
 		},
 		{
 			name: "explicit free organization remains free",
 			profile: &quota.ClaudeProfileResponse{
-				Account:      &quota.ClaudeProfileAccount{HasClaudeMax: boolPtr(false), HasClaudePro: boolPtr(false)},
+				Account:      &quota.ClaudeProfileAccount{HasClaudeMax: new(false), HasClaudePro: new(false)},
 				Organization: &quota.ClaudeProfileOrganization{OrganizationType: "claude_free"},
 			},
 			want: "free",
@@ -97,7 +111,7 @@ func TestNormalizeClaudeSubscription(t *testing.T) {
 		{
 			name: "enterprise organization is not free",
 			profile: &quota.ClaudeProfileResponse{
-				Account:      &quota.ClaudeProfileAccount{HasClaudeMax: boolPtr(false), HasClaudePro: boolPtr(false)},
+				Account:      &quota.ClaudeProfileAccount{HasClaudeMax: new(false), HasClaudePro: new(false)},
 				Organization: &quota.ClaudeProfileOrganization{OrganizationType: "claude_enterprise"},
 			},
 		},
@@ -111,7 +125,7 @@ func TestNormalizeClaudeSubscription(t *testing.T) {
 		{
 			name: "one missing flag is not free",
 			profile: &quota.ClaudeProfileResponse{
-				Account: &quota.ClaudeProfileAccount{HasClaudePro: boolPtr(false)},
+				Account: &quota.ClaudeProfileAccount{HasClaudePro: new(false)},
 			},
 		},
 		{name: "missing profile"},
@@ -133,18 +147,6 @@ func TestNormalizeClaudeSubscription(t *testing.T) {
 				t.Fatalf("NormalizeSubscription() = %#v, want provider=claude plan=%s", got, test.want)
 			}
 		})
-	}
-}
-
-func TestNormalizeClaudeSubscriptionSupportsPointerResult(t *testing.T) {
-	got := quota.NormalizeSubscription(quota.ProviderOutput{
-		Provider: "claude",
-		Result: &quota.ClaudeResult{Profile: &quota.ClaudeProfileResponse{
-			Account: &quota.ClaudeProfileAccount{HasClaudeMax: boolPtr(true)},
-		}},
-	})
-	if got == nil || got.Provider != "claude" || got.Plan != "max" {
-		t.Fatalf("NormalizeSubscription() = %#v, want claude max", got)
 	}
 }
 
@@ -199,18 +201,6 @@ func TestNormalizeAntigravitySubscription(t *testing.T) {
 	}
 }
 
-func TestNormalizeAntigravitySubscriptionSupportsPointerResult(t *testing.T) {
-	got := quota.NormalizeSubscription(quota.ProviderOutput{
-		Provider: "antigravity",
-		Result: &quota.AntigravityResult{Subscription: &quota.AntigravitySubscriptionPayload{
-			CurrentTier: &quota.GeminiCliUserTier{ID: "g1-ultra-tier", Name: "Ultra"},
-		}},
-	})
-	if got == nil || got.Provider != "antigravity" || got.Plan != "ultra" {
-		t.Fatalf("NormalizeSubscription() = %#v, want antigravity ultra", got)
-	}
-}
-
 func TestNormalizeSubscriptionRejectsMissingOrUnregisteredValues(t *testing.T) {
 	for _, output := range []quota.ProviderOutput{
 		{},
@@ -246,5 +236,23 @@ func TestResolveIdentitySubscriptionOnlyPublishesCodexMetadata(t *testing.T) {
 		if got := quota.ResolveIdentitySubscription(identity); got != nil {
 			t.Fatalf("ResolveIdentitySubscription(%#v) = %#v, want nil", identity, got)
 		}
+	}
+}
+
+func TestNormalizeSubscriptionSupportsPointerResults(t *testing.T) {
+	for _, tc := range []struct {
+		provider, plan string
+		result         any
+	}{
+		{"codex", "plus", &quota.CodexResult{Usage: &quota.CodexUsagePayload{PlanType: "plus"}}},
+		{"claude", "max", &quota.ClaudeResult{Profile: &quota.ClaudeProfileResponse{Account: &quota.ClaudeProfileAccount{HasClaudeMax: new(true)}}}},
+		{"antigravity", "ultra", &quota.AntigravityResult{Subscription: &quota.AntigravitySubscriptionPayload{CurrentTier: &quota.GeminiCliUserTier{ID: "g1-ultra-tier", Name: "Ultra"}}}},
+	} {
+		t.Run(tc.provider, func(t *testing.T) {
+			got := quota.NormalizeSubscription(quota.ProviderOutput{Provider: tc.provider, Result: tc.result})
+			if got == nil || got.Provider != tc.provider || got.Plan != tc.plan {
+				t.Fatalf("unexpected pointer result subscription: %#v", got)
+			}
+		})
 	}
 }

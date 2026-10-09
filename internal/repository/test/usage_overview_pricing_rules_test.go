@@ -12,7 +12,7 @@ import (
 
 func TestUsageOverviewHourlyAppliesActiveRuleDimensionsBeforePricing(t *testing.T) {
 	db := openTestDatabase(t)
-	bucket := time.Now().Add(-2 * time.Hour).Truncate(time.Hour)
+	bucket := time.Date(2026, 7, 20, 12, 0, 0, 0, time.Local)
 	rows := []entities.UsageOverviewHourlyStat{
 		{BucketStart: bucket, APIGroupKey: "group-a", Model: "model-a", ServiceTier: "priority", InputTokens: 1_000_000, TotalTokens: 1_000_000},
 		{BucketStart: bucket, APIGroupKey: "group-a", Model: "model-a", ServiceTier: "default", InputTokens: 1_000_000, TotalTokens: 1_000_000},
@@ -35,7 +35,7 @@ func TestUsageOverviewHourlyAppliesActiveRuleDimensionsBeforePricing(t *testing.
 
 func TestUsageOverviewDailyAppliesTwoMatchingRulesContinuously(t *testing.T) {
 	db := openTestDatabase(t)
-	bucket := time.Now().AddDate(0, 0, -2).Truncate(24 * time.Hour)
+	bucket := time.Date(2026, 7, 20, 0, 0, 0, 0, time.Local)
 	if err := db.Create(&entities.UsageOverviewDailyStat{
 		BucketStart: bucket, APIGroupKey: "group-a", Model: "model-a", ServiceTier: "priority", ReasoningEffort: "xhigh", InputTokens: 1_000_000, TotalTokens: 1_000_000,
 	}).Error; err != nil {

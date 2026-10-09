@@ -25,6 +25,7 @@ type CopyTextArea = {
   remove?: () => void;
 };
 type CopyDocument = {
+  activeElement?: { isConnected: boolean; focus: (options?: FocusOptions) => void } | null;
   body?: {
     appendChild: (node: CopyTextArea) => unknown;
     removeChild?: (node: CopyTextArea) => unknown;
@@ -67,6 +68,7 @@ export async function copyApiKeyToClipboard(apiKey: string, context: CopyContext
   textarea.style.pointerEvents = 'none';
   textarea.style.top = '0';
   textarea.style.left = '0';
+  const previouslyFocused = documentRef.activeElement;
   documentRef.body.appendChild(textarea);
   textarea.focus();
   textarea.select();
@@ -80,6 +82,8 @@ export async function copyApiKeyToClipboard(apiKey: string, context: CopyContext
     } else {
       documentRef.body.removeChild?.(textarea);
     }
+    // 兼容复制借用焦点后还给原控件，避免一次复制打断页面的键盘操作。
+    if (previouslyFocused?.isConnected) previouslyFocused.focus({ preventScroll: true });
   }
 }
 

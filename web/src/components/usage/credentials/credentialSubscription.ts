@@ -11,6 +11,8 @@ export type SubscriptionBadgeKind =
   | 'claude-free'
   | 'claude-pro'
   | 'claude-max'
+  | 'claude-max5x'
+  | 'claude-max20x'
   | 'claude-team'
   | 'antigravity-free'
   | 'antigravity-pro'
@@ -37,6 +39,8 @@ const CLAUDE_PRESENTATIONS = new Map<string, Omit<SubscriptionBadgeModel, 'fallb
   ['free', { kind: 'claude-free', labelKey: 'usage_stats.credentials_subscription_claude_free' }],
   ['pro', { kind: 'claude-pro', labelKey: 'usage_stats.credentials_subscription_claude_pro' }],
   ['max', { kind: 'claude-max', labelKey: 'usage_stats.credentials_subscription_claude_max' }],
+  ['max-5x', { kind: 'claude-max5x', labelKey: 'usage_stats.credentials_subscription_claude_max_5x' }],
+  ['max-20x', { kind: 'claude-max20x', labelKey: 'usage_stats.credentials_subscription_claude_max_20x' }],
   ['team', { kind: 'claude-team', labelKey: 'usage_stats.credentials_subscription_claude_team' }],
 ])
 

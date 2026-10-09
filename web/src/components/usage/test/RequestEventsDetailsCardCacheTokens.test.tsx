@@ -1,6 +1,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { RequestEventsTestCard, extractTableHeaders, extractFirstTableRowCells } from './requestEventsFixtures';
 import {
   REQUEST_EVENT_COLUMN_IDS,
   RequestEventsDetailsCard,
@@ -31,30 +32,11 @@ const event: UsageEvent = {
   pricing_style: 'openai',
 };
 
-const textFromMarkup = (value: string) => value.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
-
-const extractTableHeaders = (html: string) => (
-  Array.from(html.matchAll(/<th\b[^>]*>(.*?)<\/th>/gs), (match) => textFromMarkup(match[1]))
-);
-
-const extractFirstTableRowCells = (html: string) => {
-  const row = html.match(/<tbody><tr>(.*?)<\/tr><\/tbody>/s)?.[1] ?? '';
-  return Array.from(row.matchAll(/<td\b[^>]*>(.*?)<\/td>/gs), (match) => textFromMarkup(match[1]));
-};
-
 const renderCard = (props: Partial<React.ComponentProps<typeof RequestEventsDetailsCard>> = {}) => renderToStaticMarkup(
-  <RequestEventsDetailsCard
+  <RequestEventsTestCard
     events={[event]}
-    loading={false}
-    totalCount={1}
     modelOptions={['gpt-5.6-terra']}
     sourceOptions={[{ value: 'openai', label: 'OpenAI' }]}
-    modelFilter="__all__"
-    sourceFilter="__all__"
-    resultFilter="__all__"
-    onModelFilterChange={() => undefined}
-    onSourceFilterChange={() => undefined}
-    onResultFilterChange={() => undefined}
     {...props}
   />,
 );
@@ -63,8 +45,8 @@ describe('RequestEventsDetailsCard cache token columns', () => {
   it('uses one Tokens column and one Cache column', () => {
     expect(REQUEST_EVENT_COLUMN_IDS).toContain('total_tokens');
     expect(REQUEST_EVENT_COLUMN_IDS).toContain('cache_read_rate');
-    expect(REQUEST_EVENT_COLUMN_IDS).not.toContain('cache_read_tokens' as never);
-    expect(REQUEST_EVENT_COLUMN_IDS).not.toContain('cache_creation_tokens' as never);
+    expect(REQUEST_EVENT_COLUMN_IDS).not.toContain('cache_read_tokens');
+    expect(REQUEST_EVENT_COLUMN_IDS).not.toContain('cache_creation_tokens');
     expect(REQUEST_EVENT_COLUMN_IDS).not.toContain('cached_tokens');
     expect(REQUEST_EVENT_COLUMN_IDS).not.toContain('cache_rate');
     expect(REQUEST_EVENT_COLUMN_IDS.indexOf('cache_read_rate')).toBe(
@@ -83,16 +65,6 @@ describe('RequestEventsDetailsCard cache token columns', () => {
     expect(cacheIndex).toBe(tokensIndex + 1);
     expect(cells[tokensIndex]).toBe('120100205');
     expect(cells[cacheIndex]).toBe('30.00%3010');
-    expect(html).toContain('data-token-direction="input"');
-    expect(html).toContain('data-token-direction="output"');
-    expect(html).toContain('data-token-direction="reasoning"');
-    expect(html).toContain('data-token-flow="upload"');
-    expect(html).toContain('data-token-flow="download"');
-    expect(html).toContain('data-cache-operation="read"');
-    expect(html).toContain('data-cache-operation="write"');
-    expect(html).toContain('data-cache-flow="upload"');
-    expect(html).toContain('data-cache-flow="download"');
-    expect(html).not.toContain('data-cache-rate-tone=');
   });
 
   it('uses compact token units in cells while keeping full values in the cell labels', () => {

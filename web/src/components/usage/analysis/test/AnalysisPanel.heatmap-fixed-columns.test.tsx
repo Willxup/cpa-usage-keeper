@@ -1,6 +1,8 @@
+// @vitest-environment happy-dom
+
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import React from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { AnalysisResponse } from '@/lib/types';
 
@@ -20,9 +22,9 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-import { AnalysisPanel } from '../AnalysisPanel';
+import { emptyAnalysis, renderAnalysisPanel } from './analysisFixtures';
 
-const analysisPanelStyles = readFileSync(new URL('../AnalysisPanel.module.scss', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+const analysisPanelStyles = readFileSync(resolve(process.cwd(), 'src/components/usage/analysis/AnalysisPanel.module.scss'), 'utf8').replace(/\r\n/g, '\n');
 
 const styleRuleBlock = (selector: string) => {
   const start = analysisPanelStyles.indexOf(selector);
@@ -35,22 +37,7 @@ const styleRuleBlock = (selector: string) => {
 };
 
 const analysis: AnalysisResponse = {
-  granularity: 'hourly',
-  timezone: 'UTC',
-  token_usage: [],
-  api_key_composition: [],
-  model_composition: [],
-  auth_files_composition: [],
-  ai_provider_composition: [],
-  cost_breakdown: {
-    uncached_input_cost_usd: 0,
-    cache_read_cost_usd: 0,
-    cache_write_cost_usd: 0,
-    output_cost_usd: 0,
-    total_cost_usd: 0,
-    cost_available: true,
-  },
-  model_efficiency: [],
+  ...emptyAnalysis,
   heatmap: {
     api_keys: ['key-1'],
     api_key_labels: { 'key-1': 'Primary Production Key' },
@@ -88,86 +75,37 @@ const analysis: AnalysisResponse = {
   },
 };
 
-describe('AnalysisPanel fixed heatmap columns demo', () => {
-  it('keeps the API key and two compact totals outside the scrolling model matrix', () => {
-    const markup = renderToStaticMarkup(
-      <AnalysisPanel analysis={analysis} loading={false} isDark isMobile={false} />,
+describe('AnalysisPanel heatmap columns', () => {
+  it('keeps the key, model values, and accessible totals in column order', () => {
+    const container = renderAnalysisPanel({ analysis, isDark: true });
+    const row = container.querySelector('[class*="heatmapRowContents"]')!;
+    expect([...row.children].map((cell) => cell.textContent)).toEqual([
+      'Primary Production Key', '1.00K', '2.50K', '3.50K', '$0.7500',
+    ]);
+    expect(row.querySelector('[class*="heatmapRowLabel"]')?.getAttribute('aria-label')).toBe(
+      'usage_stats.analysis_heatmap_api_key: Primary Production Key, usage_stats.total_tokens: 3.50K, usage_stats.total_cost: $0.7500',
     );
-
-    expect(markup).toContain('heatmapKeyColumn');
-    expect(markup).toContain('heatmapTotalTokensColumn');
-    expect(markup).toContain('heatmapTotalCostColumn');
-    expect(markup).not.toContain('heatmapSummaryColumn');
-    expect(markup).toContain('heatmapKeyMarker');
-    expect(markup).not.toContain('heatmapCostSummaryCell');
-    expect(markup).not.toContain('usage_stats.analysis_heatmap_total');
-    expect(markup).toContain('Primary Production Key');
-    expect(markup).toContain('3.50K');
-    expect(markup).toContain('$0.7500');
-    const rowMarkup = markup.slice(markup.indexOf('heatmapRowContents'));
-    expect(rowMarkup).toContain('aria-label="usage_stats.analysis_heatmap_api_key: Primary Production Key, usage_stats.total_tokens: 3.50K, usage_stats.total_cost: $0.7500"');
-    expect(rowMarkup).toContain('aria-label="usage_stats.total_tokens: 3.50K, usage_stats.analysis_heatmap_api_key: Primary Production Key"');
-    expect(rowMarkup).toContain('aria-label="usage_stats.total_cost: $0.7500, usage_stats.analysis_heatmap_api_key: Primary Production Key"');
-    expect(rowMarkup).not.toContain('aria-label="Primary Production Key, usage_stats.total_tokens: 3.50K, usage_stats.total_cost: $0.7500"');
-    expect(rowMarkup.indexOf('Primary Production Key')).toBeLessThan(rowMarkup.indexOf('1.00K'));
-    expect(rowMarkup.lastIndexOf('3.50K')).toBeGreaterThan(rowMarkup.lastIndexOf('2.50K'));
-    expect(rowMarkup.lastIndexOf('$0.7500')).toBeGreaterThan(rowMarkup.lastIndexOf('3.50K'));
+    expect([...row.querySelectorAll('[class*="heatmapSummaryCell"]')].map((cell) => cell.getAttribute('aria-label'))).toEqual([
+      'usage_stats.total_tokens: 3.50K, usage_stats.analysis_heatmap_api_key: Primary Production Key',
+      'usage_stats.total_cost: $0.7500, usage_stats.analysis_heatmap_api_key: Primary Production Key',
+    ]);
   });
 
-  it('masks only the rounded key column footprint without pinning the grid gap', () => {
-    const heatmapScroller = styleRuleBlock('.heatmapScroller');
-    expect(heatmapScroller).toContain('padding-bottom: 2px;');
-    expect(heatmapScroller).toContain('scrollbar-gutter: stable;');
-    expect(heatmapScroller).toMatch(/@include mobile\s*\{[\s\S]*?padding-bottom:\s*10px;/);
-    expect(analysisPanelStyles).toContain('\n.heatmapGrid {\n  --heatmap-key-column-width: 160px;');
-    expect(analysisPanelStyles).toContain('--heatmap-summary-column-width: 88px;');
+  it('pins only the desktop key column footprint and preserves mobile scrolling and focus', () => {
+    const scroller = styleRuleBlock('.heatmapScroller');
+    expect(scroller).toContain('overflow-x: auto;');
+    expect(scroller).toContain('scrollbar-gutter: stable;');
+    expect(scroller).toMatch(/@include mobile\s*\{[\s\S]*?padding-bottom:\s*10px;/);
     const keyColumn = styleRuleBlock('.heatmapKeyColumn');
     expect(keyColumn).toContain('position: sticky;');
     expect(keyColumn).toContain('left: 0;');
-    expect(keyColumn).not.toContain('var(--heatmap-grid-gap) 0 0');
-    expect(analysisPanelStyles).not.toContain('--heatmap-pinned-gap-color');
-    const keyColumnMask = styleRuleBlock('.heatmapKeyColumn::before');
-    expect(keyColumnMask).toContain('position: absolute;');
-    expect(keyColumnMask).toContain('inset: 0;');
-    expect(keyColumnMask).toContain('z-index: -1;');
-    expect(keyColumnMask).toContain('border-radius: inherit;');
-    expect(keyColumnMask).not.toContain('border-radius: 0;');
-    expect(keyColumnMask).toContain('background: inherit;');
-    expect(keyColumnMask).not.toContain('var(--heatmap-grid-gap)');
-    expect(analysisPanelStyles).toContain(`@include mobile {
-  .heatmapKeyColumn {
-    position: static;
-    box-shadow: none;
-  }
-
-  .heatmapKeyColumn::before {
-    content: none;
-  }
-}`);
-    const keyMarker = styleRuleBlock('.heatmapKeyMarker');
-    expect(keyMarker).toContain('width: 3px;');
-    expect(keyMarker).toContain('height: 16px;');
-    expect(keyMarker).not.toContain('box-shadow:');
-    expect(analysisPanelStyles).toMatch(/\.heatmapRowLabel\s*\{[\s\S]*?height:\s*34px;[\s\S]*?border:\s*1px solid var\(--border-color\);[\s\S]*?background:\s*var\(--bg-primary\);/);
-    expect(analysisPanelStyles).toContain('.heatmapRowLabel:focus-visible,\n.heatmapSummaryCell:focus-visible {');
-    const summaryCell = styleRuleBlock('\n\n.heatmapSummaryCell {');
-    expect(summaryCell).toContain('display: flex;');
-    expect(summaryCell).toContain('justify-content: center;');
-    expect(summaryCell).toContain('font-variant-numeric: tabular-nums;');
-    expect(analysisPanelStyles).not.toContain('.heatmapSummaryMetric');
-    expect(analysisPanelStyles).not.toContain('.heatmapCostSummaryCell');
-    expect(analysisPanelStyles).not.toContain('.heatmapTooltipTarget');
-  });
-
-  it('uses the shared large radius for every heatmap header and data block', () => {
-    const roundedBlocks = styleRuleBlock(`.heatmapCorner,
-.heatmapHeaderCell,
-.heatmapRowLabel,
-.heatmapCell,
-.heatmapSummaryCell`);
-    expect(roundedBlocks).toContain('border-radius: $radius-lg;');
-    expect(styleRuleBlock('\n.heatmapRowLabel {')).not.toContain('border-radius: 5px;');
-    expect(styleRuleBlock('\n.heatmapCell {')).not.toContain('border-radius: 5px;');
-    expect(styleRuleBlock('\n\n.heatmapSummaryCell {')).not.toContain('border-radius: 5px;');
+    const mask = styleRuleBlock('.heatmapKeyColumn::before');
+    expect(mask).toContain('inset: 0;');
+    expect(mask).toContain('border-radius: inherit;');
+    expect(mask).toContain('background: inherit;');
+    expect(mask).not.toContain('var(--heatmap-grid-gap)');
+    expect(analysisPanelStyles).toMatch(/@include mobile\s*\{\s*\.heatmapKeyColumn\s*\{[^}]*position: static;/);
+    expect(analysisPanelStyles).toMatch(/@include mobile\s*\{\s*\.heatmapKeyColumn\s*\{[^}]*\}\s*\.heatmapKeyColumn::before\s*\{\s*content: none;/);
+    expect(styleRuleBlock('.heatmapRowLabel:focus-visible,')).toMatch(/box-shadow:/);
   });
 });

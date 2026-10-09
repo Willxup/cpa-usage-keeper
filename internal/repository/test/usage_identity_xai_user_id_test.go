@@ -2,11 +2,9 @@ package test
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 
@@ -14,18 +12,11 @@ import (
 )
 
 func TestUsageIdentityXAIUserIDPersistsAndReads(t *testing.T) {
-	db := openXAIUserIDRepositoryDatabase(t)
+	db := openTestDatabase(t)
 	ctx := context.Background()
 	xaiUserID := "xai-user-123"
 
-	if err := repository.ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{{
-		Name:      "xAI Auth",
-		Identity:  "xai-auth",
-		Type:      "xai",
-		XAIUserID: &xaiUserID,
-	}}, entities.UsageIdentityAuthTypeAuthFile, time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)); err != nil {
-		t.Fatalf("ReplaceUsageIdentitiesForAuthType returned error: %v", err)
-	}
+	replaceXAIUsageIdentity(t, ctx, db, &xaiUserID, time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC))
 
 	row, err := repository.GetActiveAuthFileUsageIdentityByAuthIndex(ctx, db, "xai-auth")
 	if err != nil {
@@ -37,7 +28,7 @@ func TestUsageIdentityXAIUserIDPersistsAndReads(t *testing.T) {
 }
 
 func TestUsageIdentityXAIUserIDRefreshesAndClearsAcrossSync(t *testing.T) {
-	db := openXAIUserIDRepositoryDatabase(t)
+	db := openTestDatabase(t)
 	ctx := context.Background()
 	now := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
 	initialUserID := "xai-user-old"
@@ -73,22 +64,4 @@ func replaceXAIUsageIdentity(t *testing.T, ctx context.Context, db *gorm.DB, xai
 	}}, entities.UsageIdentityAuthTypeAuthFile, now); err != nil {
 		t.Fatalf("ReplaceUsageIdentitiesForAuthType returned error: %v", err)
 	}
-}
-
-func openXAIUserIDRepositoryDatabase(t *testing.T) *gorm.DB {
-	t.Helper()
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "xai-user-id.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("load sql database: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := sqlDB.Close(); err != nil {
-			t.Fatalf("close sql database: %v", err)
-		}
-	})
-	return db
 }

@@ -56,10 +56,7 @@ func TestReplaceModelPriceRulesReplacesCompleteOrderedCollection(t *testing.T) {
 
 func TestReplaceModelPriceRulesRejectsMissingModel(t *testing.T) {
 	db := openTestDatabase(t)
-	err := db.Transaction(func(tx *gorm.DB) error {
-		_, err := repository.ReplaceModelPriceRules(tx, "missing", []repodto.ModelPriceRuleInput{{Key: "service_tier", Value: "priority", Multiplier: 2}})
-		return err
-	})
+	_, err := replaceModelPriceRulesInTransaction(db, "missing", []repodto.ModelPriceRuleInput{{Key: "service_tier", Value: "priority", Multiplier: 2}})
 	if err == nil {
 		t.Fatal("expected missing model to fail")
 	}
@@ -95,10 +92,7 @@ func TestReplaceModelPriceRulesRollsBackAllBatches(t *testing.T) {
 		rules = append(rules, repodto.ModelPriceRuleInput{Key: "service_tier", Value: fmt.Sprintf("tier-%03d", index), Multiplier: 2})
 	}
 	rules = append(rules, rules[0])
-	err := db.Transaction(func(tx *gorm.DB) error {
-		_, err := repository.ReplaceModelPriceRules(tx, "model-a", rules)
-		return err
-	})
+	_, err := replaceModelPriceRulesInTransaction(db, "model-a", rules)
 	if err == nil {
 		t.Fatal("expected duplicate in a later insert batch to fail")
 	}

@@ -1,0 +1,190 @@
+@use '../../styles/menu';
+
+.host {
+  --toolbar-ink: var(--text-primary);
+  --toolbar-muted: var(--text-secondary);
+  --toolbar-action: var(--text-primary);
+  --toolbar-surface: var(--bg-primary);
+  --toolbar-line: var(--border-color);
+  --toolbar-hover: color-mix(in srgb, var(--bg-hover) 60%, transparent);
+  --toolbar-selected: var(--floating-surface);
+  --toolbar-gap: 10px;
+  --toolbar-inset: 14px;
+  position: sticky;
+  top: max(24px, env(safe-area-inset-top));
+  z-index: 30;
+  width: 100%;
+  min-width: 0;
+  margin-bottom: 4px;
+  container-type: inline-size;
+  pointer-events: none;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  line-height: 1.5;
+}
+
+.dock {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--toolbar-gap);
+  width: 100%;
+  max-width: 100%;
+  min-height: 52px;
+  padding: 4px var(--toolbar-inset);
+  border-radius: 28px;
+  box-shadow: 0 8px 24px rgb(33 40 57 / 13%), 0 1px 3px rgb(33 40 57 / 7%);
+  pointer-events: auto;
+}
+
+.dock[data-resizing='true'] { overflow: clip; }
+
+.collapse, .refresh, .pageTrigger, .tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--toolbar-ink);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+
+  &:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+}
+
+.collapse, .refresh {
+  flex-basis: 44px;
+  width: 44px;
+  height: 44px;
+  border-radius: 22px;
+  &:hover:not(:disabled) { background: var(--toolbar-hover); }
+  &:disabled { opacity: .55; cursor: default; }
+}
+
+.tabs { display: flex; flex: 1 0 auto; align-items: center; width: max-content; min-width: 0; }
+.tabs, .collapse, .pageTrigger, .filters, .refresh { position: relative; z-index: 1; }
+.selection, .currentPage {
+  background: var(--toolbar-selected);
+  color: var(--text-primary);
+  border: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
+  border-radius: 20px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 8%), 0 3px 8px rgb(0 0 0 / 6%);
+}
+.selection {
+  position: absolute;
+  top: 6px;
+  left: 0;
+  height: 32px;
+  pointer-events: none;
+  transition: transform .26s cubic-bezier(.2, .75, .25, 1);
+}
+.tab { position: relative; padding: 9px 11px; border-radius: 22px; font-weight: 550; color: var(--toolbar-action); white-space: nowrap; }
+.tab[aria-selected='true'] { color: var(--text-primary); font-weight: 650; }
+.tab:hover { background: var(--toolbar-hover); }
+.pageTrigger { display: none; width: max-content; max-width: 100%; gap: 6px; border-radius: 24px; }
+.pageTrigger > svg { flex: 0 0 14px; display: block; color: var(--toolbar-muted); transition: transform .2s ease; }
+.pageTrigger[aria-expanded='true'] > svg { transform: rotate(180deg); }
+.currentPage { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 32px; padding: 5px 12px; line-height: 20px; font-weight: 650; overflow-wrap: anywhere; }
+.collapse { color: var(--toolbar-muted); }
+.refresh { color: var(--toolbar-action); }
+.host[data-compact='true'] {
+  .dock { width: max-content; }
+  .tabs { display: none; }
+  .pageTrigger { display: inline-flex; }
+}
+
+.filters { display: flex; align-items: center; flex: 0 0 auto; width: max-content; max-width: 100%; min-width: 0; gap: 10px; }
+.filter, .filter > div { flex: 0 1 auto; width: max-content; max-width: 100%; min-width: 0; }
+.filter [data-time-range-shell] { width: max-content; max-width: 100%; min-height: 44px; padding: 0; grid-template-columns: minmax(0, 1fr); border: 0; background: transparent; box-shadow: none; }
+.filter { display: flex; align-items: center; gap: 8px; }
+.filter [data-dashboard-filter-caption] { flex: 0 0 auto; font-size: 10px; color: var(--toolbar-muted); font-weight: 500; white-space: nowrap; }
+// 只修饰顶部控件的触发区域；Select/TimeRangeControl 的 portal 弹层仍由原组件管理。
+.filter > div > button, .filter [data-time-range-trigger] {
+  justify-content: center;
+  width: max-content;
+  max-width: 100%;
+  height: auto;
+  min-height: 44px;
+  padding: 4px 8px;
+  gap: 6px;
+  border-radius: 22px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--toolbar-ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  &:hover, &[aria-expanded='true'] { border-color: transparent; background: var(--toolbar-hover); box-shadow: none; }
+  &:focus { box-shadow: none; outline: none; }
+  &:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+}
+.filter > div > button > span:first-of-type { display: inline-flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; overflow: visible; }
+.filter [data-time-range-trigger] > svg:last-child { width: 14px; height: 14px; color: var(--toolbar-muted); }
+.filter [data-dashboard-filter-value], .filter [data-time-range-value] { flex: 0 1 auto; min-width: 0; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; line-height: 1.4; font-weight: 600; color: var(--text-primary); }
+// Ranking 的原事件与状态保留，去掉旧工具条的嵌套外壳。
+.filter [data-ranking-scope-switch] { min-height: 44px; height: 44px; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.filter [data-ranking-scope-switch] > span { inset: 6px auto 6px 0; width: 50%; border: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent); background: var(--toolbar-selected); box-shadow: 0 1px 2px rgb(0 0 0 / 8%), 0 3px 8px rgb(0 0 0 / 6%); }
+.filter [data-ranking-scope-switch] button { width: 100%; background: transparent; font-weight: 550; }
+.filter [data-ranking-scope-switch] button[aria-pressed='true'] { color: var(--text-primary); font-weight: 650; }
+
+.host[data-flow='split'] {
+  .dock { display: grid; width: 100%; grid-template-columns: 44px minmax(0, 1fr) 44px; grid-template-areas: 'collapse navigation refresh' 'filters filters filters'; gap: 4px var(--toolbar-gap); border-radius: 24px; }
+  .collapse { grid-area: collapse; }
+  .tabs, .pageTrigger { grid-area: navigation; }
+  .pageTrigger { justify-self: start; }
+  .refresh { grid-area: refresh; }
+  .filters {
+    grid-area: filters;
+    display: grid;
+    width: 100%;
+    grid-template-columns: minmax(0, min(var(--toolbar-first-filter), calc(100% - min(var(--toolbar-second-filter), 50%) - 10px))) minmax(0, min(var(--toolbar-second-filter), 50%));
+    justify-content: start;
+    padding-top: 4px;
+    border-top: 1px solid color-mix(in srgb, var(--text-primary) 9%, transparent);
+    &[data-count='1'] { grid-template-columns: minmax(0, min(var(--toolbar-first-filter), 100%)); }
+  }
+}
+
+.pageMenu {
+  @include menu.surface;
+  pointer-events: auto;
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  z-index: 2;
+  width: max-content;
+  max-width: min(320px, calc(100% - 20px));
+  max-height: min(420px, 65svh);
+  overflow: hidden;
+
+  a { @include menu.item; overflow-wrap: anywhere; }
+  a[aria-current='page'] { @include menu.selected; }
+}
+
+// 测量副本不参与排版、不接受输入，也不会重新执行子组件的副作用。
+.host .dock.measure { position: absolute; left: 0; top: 0; display: flex; width: max-content; max-width: none; visibility: hidden; pointer-events: none; }
+.measure .tabs, .measure .filters, .measure .filter, .measure .filter > div, .measure [data-time-range-shell], .measure [data-time-range-trigger], .measure .filter > div > button, .measure .pageTrigger { width: max-content; max-width: none; flex: 0 0 auto; }
+.host .measure .filters { display: flex; border: 0; padding: 0; }
+.measure .currentPage, .measure [data-dashboard-filter-value], .measure [data-time-range-value] { white-space: nowrap; }
+
+@container (max-width: 1100px) {
+  .tab { padding-inline: 8px; }
+  .filter [data-dashboard-filter-caption], .filter [data-time-range-shell] > span { display: none; }
+}
+@container (max-width: 900px) {
+  .dock { --toolbar-inset: 12px; --toolbar-gap: 8px; }
+  .collapse { display: none; }
+  .filter [data-time-range-trigger] > svg:not(:last-child) { display: none; }
+  .filters { gap: 8px; }
+  .host[data-flow='split'] .dock { grid-template-columns: minmax(0, 1fr) 44px; grid-template-areas: 'navigation refresh' 'filters filters'; }
+}
+@container (max-width: 330px) { .dock { --toolbar-gap: 6px; } }
+
+:global([data-theme='dark']) .host .dock { box-shadow: 0 8px 24px rgb(0 0 0 / 35%), 0 1px 3px rgb(0 0 0 / 25%); }
+@media (prefers-reduced-motion: reduce) { .selection, .pageTrigger > svg { transition: none; } }

@@ -2,31 +2,16 @@ package test
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 )
 
 func TestLoadUsageAggregationEventPageUsesBoundsLimitProjectionAndReader(t *testing.T) {
 	// 文件数据库才能证明统一业务句柄把事件页 SELECT 路由到独立 Reader。
-	dbPath := filepath.Join(t.TempDir(), "aggregation-page.db")
-	db, reader, err := repository.OpenDatabasePools(config.Config{SQLitePath: dbPath})
-	if err != nil {
-		t.Fatalf("OpenDatabasePools returned error: %v", err)
-	}
-	writerSQL, err := db.DB()
-	if err != nil {
-		t.Fatalf("load writer pool: %v", err)
-	}
-	readerSQL, err := reader.DB()
-	if err != nil {
-		t.Fatalf("load reader pool: %v", err)
-	}
-	closeResolverTestPools(t, writerSQL, readerSQL)
+	db, writerSQL, _ := openTestDatabasePools(t, "aggregation-page.db")
 
 	// 第二条事件填满三类 BuildRows 所需字段，同时给非投影字段写 sentinel。
 	alias := "alias-a"

@@ -13,7 +13,8 @@ const authFilesStatusWorkerLimit = 10
 var ErrAuthFilesManagementValidation = errors.New("auth files management request validation failed")
 
 type AuthFilesManagementClient interface {
-	UpdateAuthFileStatus(ctx context.Context, name string, disabled bool) error
+	// UpdateAuthFileStatus 返回 CPA 状态码，便于单条开关区分 404 与其它失败。
+	UpdateAuthFileStatus(ctx context.Context, name string, authIndex string, disabled bool) (int, error)
 	DeleteAuthFiles(ctx context.Context, names []string) error
 }
 
@@ -29,10 +30,11 @@ type AuthFilesManagementResponse struct {
 
 type authFilesManagementService struct {
 	client AuthFilesManagementClient
+	locks  *CredentialMutationLocks
 }
 
-func NewAuthFilesManagementService(client AuthFilesManagementClient) AuthFilesManagementProvider {
-	return &authFilesManagementService{client: client}
+func NewAuthFilesManagementService(client AuthFilesManagementClient, locks *CredentialMutationLocks) AuthFilesManagementProvider {
+	return &authFilesManagementService{client: client, locks: locks}
 }
 
 func (s *authFilesManagementService) SetAuthFilesDisabled(ctx context.Context, names []string, disabled bool) (AuthFilesManagementResponse, error) {
@@ -63,7 +65,9 @@ func (s *authFilesManagementService) SetAuthFilesDisabled(ctx context.Context, n
 				mu.Unlock()
 				return
 			}
-			if err := s.client.UpdateAuthFileStatus(ctx, name, disabled); err != nil {
+			defer s.locks.lockAuthFile(name)()
+			// 批量入口只有文件名，auth_index 留空沿用原有语义。
+			if _, err := s.client.UpdateAuthFileStatus(ctx, name, "", disabled); err != nil {
 				mu.Lock()
 				updateErr = joinAuthFilesManagementError(updateErr, fmt.Errorf("%s: %w", name, err))
 				mu.Unlock()

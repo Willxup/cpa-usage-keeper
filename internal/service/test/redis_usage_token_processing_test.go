@@ -49,7 +49,7 @@ func (r *tokenProcessorHeaderRecorder) TryAppendUsageHeaderSnapshots(snapshots [
 func (r *tokenProcessorHeaderRecorder) NotifyUsageIdentitiesChanged() {}
 
 func TestProcessRedisUsageInboxKnownExecutorBypassesIdentityLookup(t *testing.T) {
-	db := openOpenAITokenNormalizationTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	// 定价只读取 Input/Output 等基础字段；错误 Total 被纠正后成本不能跟着漂移。
 	multiplier := 1.0
 	if err := db.Create(&entities.ModelPriceSetting{Model: "gpt-5.6", PricingStyle: entities.ModelPricingStyleOpenAI, PromptPricePer1M: 1, CompletionPricePer1M: 2, PriceMultiplier: &multiplier}).Error; err != nil {
@@ -129,7 +129,7 @@ func TestProcessRedisUsageInboxKnownExecutorBypassesIdentityLookup(t *testing.T)
 }
 
 func TestProcessRedisUsageInboxCommitsReadyItemsWhenIdentityLookupFails(t *testing.T) {
-	db := openOpenAITokenNormalizationTestDatabase(t)
+	db := openUsageServiceTestDatabase(t)
 	lookupErr := errors.New("injected token identity lookup failure")
 	registerTokenIdentityTypeLookupCallback(t, db, lookupErr)
 	rows, err := repository.InsertRedisUsageInboxMessages(db, []repodto.RedisInboxInsert{
@@ -248,7 +248,7 @@ func TestProcessRedisUsageInboxWaitsWhenFailureStatusCannotBeConfirmed(t *testin
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			db := openOpenAITokenNormalizationTestDatabase(t)
+			db := openUsageServiceTestDatabase(t)
 			lookupErr := errors.New("injected uncertain token identity lookup failure")
 			stateErr := errors.New("injected uncertain inbox state failure")
 			registerTokenIdentityTypeLookupCallback(t, db, lookupErr)

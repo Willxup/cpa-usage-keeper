@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
-	"sync"
 	"testing"
 	"time"
 
@@ -12,18 +11,14 @@ import (
 )
 
 type centerStub struct {
-	register    func(context.Context, ranking.RegistrationCommand) (ranking.ParticipantInfo, error)
-	self        func(context.Context, ranking.Credentials, time.Time) (ranking.SelfStatus, error)
-	report      func(context.Context, ranking.ReportCommand) (ranking.ReportReceipt, error)
-	delete      func(context.Context, ranking.DeleteCommand) (ranking.DeleteReceipt, error)
-	leaderboard func(context.Context, ranking.LeaderboardPeriod, ranking.LeaderboardMetric) (ranking.Leaderboard, error)
-	metadata    func(context.Context) (ranking.LeaderboardMetadata, error)
+	register func(context.Context, ranking.RegistrationCommand) (ranking.ParticipantInfo, error)
+	self     func(context.Context, ranking.Credentials, time.Time) (ranking.SelfStatus, error)
+	report   func(context.Context, ranking.ReportCommand) (ranking.ReportReceipt, error)
+	delete   func(context.Context, ranking.DeleteCommand) (ranking.DeleteReceipt, error)
+	metadata func(context.Context) (ranking.LeaderboardMetadata, error)
 
-	mu               sync.Mutex
-	registerCalls    int
 	selfCalls        int
 	reportCalls      int
-	deleteCalls      int
 	leaderboardCalls int
 	metadataCalls    int
 	registrations    []ranking.RegistrationCommand
@@ -32,10 +27,7 @@ type centerStub struct {
 }
 
 func (s *centerStub) Register(ctx context.Context, command ranking.RegistrationCommand) (ranking.ParticipantInfo, error) {
-	s.mu.Lock()
-	s.registerCalls++
 	s.registrations = append(s.registrations, command)
-	s.mu.Unlock()
 	if s.register != nil {
 		return s.register(ctx, command)
 	}
@@ -43,9 +35,7 @@ func (s *centerStub) Register(ctx context.Context, command ranking.RegistrationC
 }
 
 func (s *centerStub) Self(ctx context.Context, credentials ranking.Credentials, requestedAt time.Time) (ranking.SelfStatus, error) {
-	s.mu.Lock()
 	s.selfCalls++
-	s.mu.Unlock()
 	if s.self != nil {
 		return s.self(ctx, credentials, requestedAt)
 	}
@@ -53,10 +43,8 @@ func (s *centerStub) Self(ctx context.Context, credentials ranking.Credentials, 
 }
 
 func (s *centerStub) SubmitReport(ctx context.Context, command ranking.ReportCommand) (ranking.ReportReceipt, error) {
-	s.mu.Lock()
 	s.reportCalls++
 	s.reports = append(s.reports, command)
-	s.mu.Unlock()
 	if s.report != nil {
 		return s.report(ctx, command)
 	}
@@ -64,10 +52,7 @@ func (s *centerStub) SubmitReport(ctx context.Context, command ranking.ReportCom
 }
 
 func (s *centerStub) Delete(ctx context.Context, command ranking.DeleteCommand) (ranking.DeleteReceipt, error) {
-	s.mu.Lock()
-	s.deleteCalls++
 	s.deletes = append(s.deletes, command)
-	s.mu.Unlock()
 	if s.delete != nil {
 		return s.delete(ctx, command)
 	}
@@ -75,19 +60,12 @@ func (s *centerStub) Delete(ctx context.Context, command ranking.DeleteCommand) 
 }
 
 func (s *centerStub) Leaderboard(ctx context.Context, period ranking.LeaderboardPeriod, metric ranking.LeaderboardMetric) (ranking.Leaderboard, error) {
-	s.mu.Lock()
 	s.leaderboardCalls++
-	s.mu.Unlock()
-	if s.leaderboard != nil {
-		return s.leaderboard(ctx, period, metric)
-	}
 	return ranking.Leaderboard{Period: period, Metric: metric}, nil
 }
 
 func (s *centerStub) LeaderboardMetadata(ctx context.Context) (ranking.LeaderboardMetadata, error) {
-	s.mu.Lock()
 	s.metadataCalls++
-	s.mu.Unlock()
 	if s.metadata != nil {
 		return s.metadata(ctx)
 	}
@@ -103,29 +81,17 @@ type aggregatorStub struct {
 	metrics     ranking.Metrics
 	latestID    int64
 	latestByDay map[string]int64
-	err         error
-	mu          sync.Mutex
 	ranges      []aggregateRange
 	latest      int
 }
 
 func (s *aggregatorStub) AggregateDay(_ context.Context, start, end time.Time) (ranking.Metrics, error) {
-	s.mu.Lock()
 	s.ranges = append(s.ranges, aggregateRange{start: start, end: end})
-	s.mu.Unlock()
-	if s.err != nil {
-		return ranking.Metrics{}, s.err
-	}
 	return s.metrics, nil
 }
 
 func (s *aggregatorStub) LatestEventID(_ context.Context, start, _ time.Time) (int64, error) {
-	s.mu.Lock()
 	s.latest++
-	s.mu.Unlock()
-	if s.err != nil {
-		return 0, s.err
-	}
 	if s.latestByDay != nil {
 		return s.latestByDay[start.Format("2006-01-02")], nil
 	}
@@ -136,15 +102,12 @@ func TestServiceDisabledStateNeverCallsCenterOrAggregator(t *testing.T) {
 	store := ranking.NewStore(openRankingDatabase(t))
 	center := &centerStub{}
 	aggregator := &aggregatorStub{}
-	service, err := ranking.NewService(store, aggregator, center)
-	if err != nil {
-		t.Fatalf("NewService returned error: %v", err)
-	}
+	service := newRankingService(t, store, aggregator, center)
 
 	if err := service.RunOnce(context.Background()); err != nil {
 		t.Fatalf("RunOnce returned error: %v", err)
 	}
-	if center.registerCalls != 0 || center.selfCalls != 0 || center.reportCalls != 0 || aggregator.latest != 0 || len(aggregator.ranges) != 0 {
+	if len(center.registrations) != 0 || center.selfCalls != 0 || len(center.reports) != 0 || aggregator.latest != 0 || len(aggregator.ranges) != 0 {
 		t.Fatalf("disabled ranking made external or aggregate calls: center=%+v aggregator=%+v", center, aggregator)
 	}
 }
@@ -154,25 +117,16 @@ func TestServiceSkipsZeroEventDaysWithoutUploading(t *testing.T) {
 	seedActiveState(t, store, 0)
 	now := time.Date(2026, 7, 23, 17, 15, 0, 0, time.UTC)
 	center := &centerStub{}
-	center.self = func(_ context.Context, credentials ranking.Credentials, _ time.Time) (ranking.SelfStatus, error) {
-		return ranking.SelfStatus{ParticipantID: credentials.ParticipantID, DisplayName: "Keeper_01", AvatarID: 7, Status: "active"}, nil
-	}
 	aggregator := &aggregatorStub{latestByDay: map[string]int64{"2026-07-23": 0, "2026-07-24": 0}}
-	service, err := ranking.NewService(store, aggregator, center, ranking.WithClock(func() time.Time { return now }))
-	if err != nil {
-		t.Fatalf("NewService returned error: %v", err)
-	}
+	service := newRankingService(t, store, aggregator, center, ranking.WithClock(func() time.Time { return now }))
 
 	if err := service.RunOnce(context.Background()); err != nil {
 		t.Fatalf("RunOnce returned error: %v", err)
 	}
-	if center.reportCalls != 0 || len(aggregator.ranges) != 0 {
-		t.Fatalf("zero-event days were uploaded or aggregated: reports=%d ranges=%+v", center.reportCalls, aggregator.ranges)
+	if len(center.reports) != 0 || len(aggregator.ranges) != 0 {
+		t.Fatalf("zero-event days were uploaded or aggregated: reports=%d ranges=%+v", len(center.reports), aggregator.ranges)
 	}
-	state, err := store.Load(context.Background())
-	if err != nil {
-		t.Fatalf("load zero-event state: %v", err)
-	}
+	state := loadRankingState(t, store)
 	if state.LastSuccessfulCompleteDay != "2026-07-23" || state.LastSuccessfulCompleteEventID != 0 || state.LastAllocatedSequence != 0 {
 		t.Fatalf("zero-event day watermark = %+v", state)
 	}
@@ -180,8 +134,8 @@ func TestServiceSkipsZeroEventDaysWithoutUploading(t *testing.T) {
 	if err := service.RunOnce(context.Background()); err != nil {
 		t.Fatalf("second RunOnce returned error: %v", err)
 	}
-	if center.reportCalls != 0 || len(aggregator.ranges) != 0 {
-		t.Fatalf("unchanged zero-event days caused work: reports=%d ranges=%+v", center.reportCalls, aggregator.ranges)
+	if len(center.reports) != 0 || len(aggregator.ranges) != 0 {
+		t.Fatalf("unchanged zero-event days caused work: reports=%d ranges=%+v", len(center.reports), aggregator.ranges)
 	}
 }
 
@@ -202,15 +156,12 @@ func TestServiceReconcilesCenterDeletionWhenUsageIsUnchanged(t *testing.T) {
 			Status:        status,
 		}, nil
 	}
-	service, err := ranking.NewService(
+	service := newRankingService(t,
 		store,
 		&aggregatorStub{latestID: 0},
 		center,
 		ranking.WithClock(func() time.Time { return now }),
 	)
-	if err != nil {
-		t.Fatalf("NewService returned error: %v", err)
-	}
 
 	if err := service.RunOnce(context.Background()); err != nil {
 		t.Fatalf("first RunOnce returned error: %v", err)
@@ -218,32 +169,23 @@ func TestServiceReconcilesCenterDeletionWhenUsageIsUnchanged(t *testing.T) {
 	if err := service.RunOnce(context.Background()); !errors.Is(err, ranking.ErrParticipantDeleted) {
 		t.Fatalf("second RunOnce error = %v, want participant deleted", err)
 	}
-	state, err := store.Load(context.Background())
-	if err != nil {
-		t.Fatalf("load reconciled state: %v", err)
-	}
-	if center.selfCalls != 2 || center.reportCalls != 0 || state.Status != ranking.StatusDeleted {
-		t.Fatalf("unchanged usage did not converge deletion: self=%d reports=%d state=%+v", center.selfCalls, center.reportCalls, state)
+	state := loadRankingState(t, store)
+	if center.selfCalls != 2 || len(center.reports) != 0 || state.Status != ranking.StatusDeleted {
+		t.Fatalf("unchanged usage did not converge deletion: self=%d reports=%d state=%+v", center.selfCalls, len(center.reports), state)
 	}
 }
 
 func TestServicePauseStopsSyncAndResumeKeepsIdentity(t *testing.T) {
 	store := ranking.NewStore(openRankingDatabase(t))
 	seedActiveState(t, store, 4)
-	before, err := store.Load(context.Background())
-	if err != nil {
-		t.Fatalf("load active state: %v", err)
-	}
+	before := loadRankingState(t, store)
 	now := time.Date(2026, 7, 24, 9, 0, 0, 0, time.UTC)
 	center := &centerStub{}
 	center.self = func(_ context.Context, credentials ranking.Credentials, _ time.Time) (ranking.SelfStatus, error) {
 		return ranking.SelfStatus{ParticipantID: credentials.ParticipantID, DisplayName: "Keeper_01", AvatarID: 7, Status: "active", LastSequence: 4}, nil
 	}
 	aggregator := &aggregatorStub{latestID: 9, metrics: ranking.Metrics{RequestCount: 1, SuccessCount: 1, TotalTokens: 10}}
-	service, err := ranking.NewService(store, aggregator, center, ranking.WithClock(func() time.Time { return now }))
-	if err != nil {
-		t.Fatalf("NewService returned error: %v", err)
-	}
+	service := newRankingService(t, store, aggregator, center, ranking.WithClock(func() time.Time { return now }))
 
 	paused, err := service.Pause(context.Background())
 	if err != nil {
@@ -258,7 +200,7 @@ func TestServicePauseStopsSyncAndResumeKeepsIdentity(t *testing.T) {
 	if err := service.SyncNow(context.Background()); !errors.Is(err, ranking.ErrParticipation) {
 		t.Fatalf("paused SyncNow error = %v, want participation conflict", err)
 	}
-	if center.selfCalls != 0 || center.reportCalls != 0 || aggregator.latest != 0 || len(aggregator.ranges) != 0 {
+	if center.selfCalls != 0 || len(center.reports) != 0 || aggregator.latest != 0 || len(aggregator.ranges) != 0 {
 		t.Fatalf("paused state performed synchronization: center=%+v aggregator=%+v", center, aggregator)
 	}
 
@@ -269,13 +211,13 @@ func TestServicePauseStopsSyncAndResumeKeepsIdentity(t *testing.T) {
 	if active.Status != ranking.StatusActive || active.ParticipantID != before.ParticipantID || active.DisplayName != before.DisplayName || active.AvatarID != before.AvatarID {
 		t.Fatalf("resumed status changed identity: before=%+v after=%+v", before, active)
 	}
-	if center.selfCalls != 0 || center.reportCalls != 0 || aggregator.latest != 0 {
+	if center.selfCalls != 0 || len(center.reports) != 0 || aggregator.latest != 0 {
 		t.Fatalf("Resume triggered synchronization instead of only enabling it: center=%+v aggregator=%+v", center, aggregator)
 	}
 	if err := service.RunOnce(context.Background()); err != nil {
 		t.Fatalf("resumed RunOnce returned error: %v", err)
 	}
-	if center.selfCalls != 1 || center.reportCalls != 1 || aggregator.latest != 1 || len(aggregator.ranges) != 1 {
+	if center.selfCalls != 1 || len(center.reports) != 1 || aggregator.latest != 1 || len(aggregator.ranges) != 1 {
 		t.Fatalf("resumed state did not synchronize normally: center=%+v aggregator=%+v", center, aggregator)
 	}
 }
@@ -288,10 +230,7 @@ func TestServicePausedParticipantCanExitPermanently(t *testing.T) {
 	center.self = func(_ context.Context, credentials ranking.Credentials, _ time.Time) (ranking.SelfStatus, error) {
 		return ranking.SelfStatus{ParticipantID: credentials.ParticipantID, DisplayName: "Keeper_01", AvatarID: 7, Status: "active", LastSequence: 2}, nil
 	}
-	service, err := ranking.NewService(store, &aggregatorStub{}, center, ranking.WithClock(func() time.Time { return now }))
-	if err != nil {
-		t.Fatalf("NewService returned error: %v", err)
-	}
+	service := newRankingService(t, store, &aggregatorStub{}, center, ranking.WithClock(func() time.Time { return now }))
 	if _, err := service.Pause(context.Background()); err != nil {
 		t.Fatalf("Pause returned error: %v", err)
 	}
@@ -299,8 +238,8 @@ func TestServicePausedParticipantCanExitPermanently(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Exit from paused state returned error: %v", err)
 	}
-	if status.Status != ranking.StatusDeleted || center.deleteCalls != 1 {
-		t.Fatalf("paused exit result = %+v, delete calls=%d", status, center.deleteCalls)
+	if status.Status != ranking.StatusDeleted || len(center.deletes) != 1 {
+		t.Fatalf("paused exit result = %+v, delete calls=%d", status, len(center.deletes))
 	}
 }
 
@@ -308,10 +247,7 @@ func TestServiceCachesLeaderboardsAndMetadataForThirtySeconds(t *testing.T) {
 	store := ranking.NewStore(openRankingDatabase(t))
 	now := time.Date(2026, 7, 24, 9, 0, 0, 0, time.UTC)
 	center := &centerStub{}
-	service, err := ranking.NewService(store, &aggregatorStub{}, center, ranking.WithClock(func() time.Time { return now }))
-	if err != nil {
-		t.Fatalf("NewService returned error: %v", err)
-	}
+	service := newRankingService(t, store, &aggregatorStub{}, center, ranking.WithClock(func() time.Time { return now }))
 
 	for range 2 {
 		if _, err := service.Leaderboard(context.Background(), ranking.LeaderboardToday, ranking.MetricOverall); err != nil {
@@ -342,19 +278,13 @@ func TestServiceRejectsUnsupportedProfileWithoutPersistingIdentity(t *testing.T)
 		t.Run(name, func(t *testing.T) {
 			store := ranking.NewStore(openRankingDatabase(t))
 			center := &centerStub{}
-			service, err := ranking.NewService(store, &aggregatorStub{}, center)
-			if err != nil {
-				t.Fatalf("NewService returned error: %v", err)
-			}
+			service := newRankingService(t, store, &aggregatorStub{}, center)
 			if _, err := service.Join(context.Background(), name, 7); !errors.Is(err, ranking.ErrInvalidProfile) {
 				t.Fatalf("expected invalid profile error for %q, got %v", name, err)
 			}
-			state, err := store.Load(context.Background())
-			if err != nil {
-				t.Fatalf("Load returned error: %v", err)
-			}
-			if state.Status != ranking.StatusDisabled || center.registerCalls != 0 {
-				t.Fatalf("invalid profile created identity or center call: state=%+v calls=%d", state, center.registerCalls)
+			state := loadRankingState(t, store)
+			if state.Status != ranking.StatusDisabled || len(center.registrations) != 0 {
+				t.Fatalf("invalid profile created identity or center call: state=%+v calls=%d", state, len(center.registrations))
 			}
 		})
 	}
@@ -363,17 +293,14 @@ func TestServiceRejectsUnsupportedProfileWithoutPersistingIdentity(t *testing.T)
 func TestServiceAcceptsSixteenCharacterProfile(t *testing.T) {
 	store := ranking.NewStore(openRankingDatabase(t))
 	center := &centerStub{}
-	service, err := ranking.NewService(store, &aggregatorStub{}, center)
-	if err != nil {
-		t.Fatalf("NewService returned error: %v", err)
-	}
+	service := newRankingService(t, store, &aggregatorStub{}, center)
 
 	status, err := service.Join(context.Background(), "abcdefghijklmnop", 7)
 	if err != nil {
 		t.Fatalf("Join returned error for 16-character profile: %v", err)
 	}
-	if status.DisplayName != "abcdefghijklmnop" || center.registerCalls != 1 {
-		t.Fatalf("16-character profile was not registered: status=%+v calls=%d", status, center.registerCalls)
+	if status.DisplayName != "abcdefghijklmnop" || len(center.registrations) != 1 {
+		t.Fatalf("16-character profile was not registered: status=%+v calls=%d", status, len(center.registrations))
 	}
 }
 
@@ -381,7 +308,6 @@ func TestServicePersistsJoiningBeforeRegistrationAndRetriesSameIdentity(t *testi
 	store := ranking.NewStore(openRankingDatabase(t))
 	now := time.Date(2026, 7, 24, 8, 30, 0, 0, time.UTC)
 	center := &centerStub{}
-	first := true
 	center.register = func(ctx context.Context, command ranking.RegistrationCommand) (ranking.ParticipantInfo, error) {
 		persisted, err := store.Load(ctx)
 		if err != nil {
@@ -390,8 +316,7 @@ func TestServicePersistsJoiningBeforeRegistrationAndRetriesSameIdentity(t *testi
 		if persisted.Status != ranking.StatusJoining || persisted.PublicKey != command.PublicKey || persisted.RegistrationIdempotencyKey != command.IdempotencyKey {
 			t.Fatalf("joining identity was not persisted before registration: state=%+v command=%+v", persisted, command)
 		}
-		if first {
-			first = false
+		if len(center.registrations) == 1 {
 			return ranking.ParticipantInfo{}, errors.New("temporary center failure")
 		}
 		return ranking.ParticipantInfo{ParticipantID: "p_example", DisplayName: command.DisplayName, AvatarID: command.AvatarID, CreatedAt: now}, nil
@@ -407,34 +332,28 @@ func TestServicePersistsJoiningBeforeRegistrationAndRetriesSameIdentity(t *testi
 		return ranking.ReportReceipt{ParticipantID: command.ParticipantID, Sequence: command.Sequence, SnapshotAt: command.SnapshotAt, SyncedAt: now}, nil
 	}
 	aggregator := &aggregatorStub{latestID: 42, metrics: ranking.Metrics{RequestCount: 1, SuccessCount: 1, TotalTokens: 10}}
-	service, err := ranking.NewService(store, aggregator, center, ranking.WithClock(func() time.Time { return now }), ranking.WithRandom(rand.Reader))
-	if err != nil {
-		t.Fatalf("NewService returned error: %v", err)
-	}
+	service := newRankingService(t, store, aggregator, center, ranking.WithClock(func() time.Time { return now }))
 
 	if _, err := service.Join(context.Background(), "Keeper_01", 7); err == nil {
 		t.Fatal("expected first registration attempt to fail")
 	}
-	joining, err := store.Load(context.Background())
-	if err != nil {
-		t.Fatalf("load joining state: %v", err)
-	}
+	joining := loadRankingState(t, store)
 	if joining.Status != ranking.StatusJoining || joining.LastError == "" {
 		t.Fatalf("expected recoverable joining state, got %+v", joining)
 	}
 	if err := service.RunOnce(context.Background()); err != nil {
 		t.Fatalf("joining RunOnce returned error: %v", err)
 	}
-	if center.registerCalls != 1 {
-		t.Fatalf("background synchronization retried registration: calls=%d", center.registerCalls)
+	if len(center.registrations) != 1 {
+		t.Fatalf("background synchronization retried registration: calls=%d", len(center.registrations))
 	}
 
 	status, err := service.Join(context.Background(), "Keeper_01", 7)
 	if err != nil {
 		t.Fatalf("retry Join returned error: %v", err)
 	}
-	if status.Status != ranking.StatusActive || status.ParticipantID != "p_example" || center.reportCalls != 1 {
-		t.Fatalf("unexpected joined status or immediate sync: status=%+v reports=%d", status, center.reportCalls)
+	if status.Status != ranking.StatusActive || status.ParticipantID != "p_example" || len(center.reports) != 1 {
+		t.Fatalf("unexpected joined status or immediate sync: status=%+v reports=%d", status, len(center.reports))
 	}
 	if len(center.registrations) != 2 || center.registrations[0].PublicKey != center.registrations[1].PublicKey || center.registrations[0].PrivateKey != center.registrations[1].PrivateKey || center.registrations[0].IdempotencyKey != center.registrations[1].IdempotencyKey {
 		t.Fatalf("registration retry did not reuse identity: %+v", center.registrations)
@@ -452,23 +371,18 @@ func TestServiceExitFromJoiningRegistersOnlyToDeleteWithoutUploading(t *testing.
 	store := ranking.NewStore(openRankingDatabase(t))
 	now := time.Date(2026, 7, 24, 8, 30, 0, 0, time.UTC)
 	center := &centerStub{}
-	first := true
 	center.register = func(_ context.Context, command ranking.RegistrationCommand) (ranking.ParticipantInfo, error) {
-		if first {
-			first = false
+		if len(center.registrations) == 1 {
 			return ranking.ParticipantInfo{}, errors.New("temporary center failure")
 		}
 		return ranking.ParticipantInfo{ParticipantID: "p_example", DisplayName: command.DisplayName, AvatarID: command.AvatarID, CreatedAt: now}, nil
 	}
-	service, err := ranking.NewService(
+	service := newRankingService(t,
 		store,
 		&aggregatorStub{latestID: 42, metrics: ranking.Metrics{RequestCount: 1, SuccessCount: 1}},
 		center,
 		ranking.WithClock(func() time.Time { return now }),
 	)
-	if err != nil {
-		t.Fatalf("NewService returned error: %v", err)
-	}
 
 	if _, err := service.Join(context.Background(), "Keeper_01", 7); err == nil {
 		t.Fatal("expected first registration attempt to fail")
@@ -477,10 +391,10 @@ func TestServiceExitFromJoiningRegistersOnlyToDeleteWithoutUploading(t *testing.
 	if err != nil {
 		t.Fatalf("Exit from joining returned error: %v", err)
 	}
-	if status.Status != ranking.StatusDeleted || center.registerCalls != 2 || center.deleteCalls != 1 {
-		t.Fatalf("unexpected joining exit: status=%+v register=%d delete=%d", status, center.registerCalls, center.deleteCalls)
+	if status.Status != ranking.StatusDeleted || len(center.registrations) != 2 || len(center.deletes) != 1 {
+		t.Fatalf("unexpected joining exit: status=%+v register=%d delete=%d", status, len(center.registrations), len(center.deletes))
 	}
-	if center.reportCalls != 0 {
+	if len(center.reports) != 0 {
 		t.Fatalf("joining exit uploaded usage before deletion: reports=%+v", center.reports)
 	}
 }
@@ -503,16 +417,13 @@ func TestServiceReconcilesSequenceThenSubmitsNextNumber(t *testing.T) {
 		}
 		return ranking.ReportReceipt{ParticipantID: command.ParticipantID, Sequence: command.Sequence, SnapshotAt: command.SnapshotAt, SyncedAt: now}, nil
 	}
-	service, err := ranking.NewService(store, &aggregatorStub{latestID: 1}, center, ranking.WithClock(func() time.Time { return now }))
-	if err != nil {
-		t.Fatalf("NewService returned error: %v", err)
-	}
+	service := newRankingService(t, store, &aggregatorStub{latestID: 1}, center, ranking.WithClock(func() time.Time { return now }))
 
 	if err := service.RunOnce(context.Background()); err != nil {
 		t.Fatalf("RunOnce returned error: %v", err)
 	}
-	if center.selfCalls != 1 || center.reportCalls != 1 {
-		t.Fatalf("expected one self and one report call, got self=%d report=%d", center.selfCalls, center.reportCalls)
+	if center.selfCalls != 1 || len(center.reports) != 1 {
+		t.Fatalf("expected one self and one report call, got self=%d report=%d", center.selfCalls, len(center.reports))
 	}
 }
 
@@ -529,15 +440,12 @@ func TestServiceReconcilesAgainAfterReportSequenceReplay(t *testing.T) {
 		return ranking.SelfStatus{ParticipantID: credentials.ParticipantID, DisplayName: "Keeper_01", AvatarID: 7, Status: "active", LastSequence: lastSequence}, nil
 	}
 	center.report = func(_ context.Context, command ranking.ReportCommand) (ranking.ReportReceipt, error) {
-		if center.reportCalls == 1 {
+		if len(center.reports) == 1 {
 			return ranking.ReportReceipt{}, ranking.ErrReplayedSequence
 		}
 		return ranking.ReportReceipt{ParticipantID: command.ParticipantID, Sequence: command.Sequence, SnapshotAt: command.SnapshotAt, SyncedAt: now}, nil
 	}
-	service, err := ranking.NewService(store, &aggregatorStub{latestID: 1}, center, ranking.WithClock(func() time.Time { return now }))
-	if err != nil {
-		t.Fatalf("NewService returned error: %v", err)
-	}
+	service := newRankingService(t, store, &aggregatorStub{latestID: 1}, center, ranking.WithClock(func() time.Time { return now }))
 
 	if err := service.RunOnce(context.Background()); !errors.Is(err, ranking.ErrReplayedSequence) {
 		t.Fatalf("expected first sequence replay error, got %v", err)
@@ -555,32 +463,23 @@ func TestServicePersistsDeletedTombstoneOnCenterGone(t *testing.T) {
 	seedActiveState(t, store, 0)
 	now := time.Date(2026, 7, 24, 9, 0, 0, 0, time.UTC)
 	center := &centerStub{}
-	center.self = func(_ context.Context, credentials ranking.Credentials, _ time.Time) (ranking.SelfStatus, error) {
-		return ranking.SelfStatus{ParticipantID: credentials.ParticipantID, DisplayName: "Keeper_01", AvatarID: 7, Status: "active"}, nil
-	}
 	center.report = func(context.Context, ranking.ReportCommand) (ranking.ReportReceipt, error) {
 		return ranking.ReportReceipt{}, ranking.ErrParticipantDeleted
 	}
-	service, err := ranking.NewService(store, &aggregatorStub{latestID: 1}, center, ranking.WithClock(func() time.Time { return now }))
-	if err != nil {
-		t.Fatalf("NewService returned error: %v", err)
-	}
+	service := newRankingService(t, store, &aggregatorStub{latestID: 1}, center, ranking.WithClock(func() time.Time { return now }))
 
 	if err := service.RunOnce(context.Background()); !errors.Is(err, ranking.ErrParticipantDeleted) {
 		t.Fatalf("expected participant deleted error, got %v", err)
 	}
-	state, err := store.Load(context.Background())
-	if err != nil {
-		t.Fatalf("load deleted state: %v", err)
-	}
+	state := loadRankingState(t, store)
 	if state.Status != ranking.StatusDeleted {
 		t.Fatalf("expected deleted tombstone, got %+v", state)
 	}
-	beforeSelf, beforeReports := center.selfCalls, center.reportCalls
+	beforeSelf, beforeReports := center.selfCalls, len(center.reports)
 	if err := service.RunOnce(context.Background()); err != nil {
 		t.Fatalf("deleted RunOnce returned error: %v", err)
 	}
-	if center.selfCalls != beforeSelf || center.reportCalls != beforeReports {
+	if center.selfCalls != beforeSelf || len(center.reports) != beforeReports {
 		t.Fatal("deleted state continued calling ranking center")
 	}
 	if _, err := service.Join(context.Background(), "Keeper_01", 7); !errors.Is(err, ranking.ErrDeletedState) {
@@ -597,14 +496,8 @@ func TestServiceUsesCenterDayBoundaryRegardlessOfKeeperClockLocation(t *testing.
 	center.metadata = func(context.Context) (ranking.LeaderboardMetadata, error) {
 		return ranking.LeaderboardMetadata{PeriodTimezone: "Asia/Tokyo"}, nil
 	}
-	center.self = func(_ context.Context, credentials ranking.Credentials, _ time.Time) (ranking.SelfStatus, error) {
-		return ranking.SelfStatus{ParticipantID: credentials.ParticipantID, DisplayName: "Keeper_01", AvatarID: 7, Status: "active"}, nil
-	}
 	aggregator := &aggregatorStub{latestID: 5, metrics: ranking.Metrics{RequestCount: 2, SuccessCount: 2}}
-	service, err := ranking.NewService(store, aggregator, center, ranking.WithClock(func() time.Time { return now }))
-	if err != nil {
-		t.Fatalf("NewService returned error: %v", err)
-	}
+	service := newRankingService(t, store, aggregator, center, ranking.WithClock(func() time.Time { return now }))
 
 	if err := service.RunOnce(context.Background()); err != nil {
 		t.Fatalf("RunOnce returned error: %v", err)
@@ -619,10 +512,7 @@ func TestServiceUsesCenterDayBoundaryRegardlessOfKeeperClockLocation(t *testing.
 	if len(aggregator.ranges) != 2 || aggregator.ranges[0].start.Location().String() != "Asia/Tokyo" || !aggregator.ranges[0].start.Equal(time.Date(2026, 7, 23, 0, 0, 0, 0, tokyo)) || !aggregator.ranges[0].end.Equal(time.Date(2026, 7, 24, 0, 0, 0, 0, tokyo)) || !aggregator.ranges[1].start.Equal(time.Date(2026, 7, 24, 0, 0, 0, 0, tokyo)) || !aggregator.ranges[1].end.Equal(nowUTC) {
 		t.Fatalf("unexpected day ranges: %+v", aggregator.ranges)
 	}
-	state, err := store.Load(context.Background())
-	if err != nil {
-		t.Fatalf("load synced state: %v", err)
-	}
+	state := loadRankingState(t, store)
 	if state.LastSuccessfulCompleteDay != "2026-07-23" || state.LastAllocatedSequence != 2 {
 		t.Fatalf("unexpected completed state: %+v", state)
 	}
@@ -646,10 +536,7 @@ func TestServiceUsesCenterSyncIntervalWithSafetyFloor(t *testing.T) {
 			center.metadata = func(context.Context) (ranking.LeaderboardMetadata, error) {
 				return ranking.LeaderboardMetadata{SuggestedSyncIntervalSeconds: test.requestedSecond}, nil
 			}
-			service, err := ranking.NewService(store, &aggregatorStub{}, center)
-			if err != nil {
-				t.Fatalf("NewService returned error: %v", err)
-			}
+			service := newRankingService(t, store, &aggregatorStub{}, center)
 
 			interval, err := service.SyncInterval(context.Background())
 			if err != nil {
@@ -668,10 +555,7 @@ func TestServiceDoesNotFetchCenterIntervalUntilParticipantIsActive(t *testing.T)
 		t.Fatal("disabled participant fetched ranking metadata")
 		return ranking.LeaderboardMetadata{}, nil
 	}
-	service, err := ranking.NewService(ranking.NewStore(openRankingDatabase(t)), &aggregatorStub{}, center)
-	if err != nil {
-		t.Fatalf("NewService returned error: %v", err)
-	}
+	service := newRankingService(t, ranking.NewStore(openRankingDatabase(t)), &aggregatorStub{}, center)
 
 	interval, err := service.SyncInterval(context.Background())
 	if err != nil {
@@ -687,17 +571,11 @@ func TestServiceResubmitsYesterdayOnlyWhenLateEventsAdvanceWatermark(t *testing.
 	seedActiveState(t, store, 0)
 	now := time.Date(2026, 7, 23, 17, 15, 0, 0, time.UTC)
 	center := &centerStub{}
-	center.self = func(_ context.Context, credentials ranking.Credentials, _ time.Time) (ranking.SelfStatus, error) {
-		return ranking.SelfStatus{ParticipantID: credentials.ParticipantID, DisplayName: "Keeper_01", AvatarID: 7, Status: "active"}, nil
-	}
 	aggregator := &aggregatorStub{
 		latestByDay: map[string]int64{"2026-07-23": 5, "2026-07-24": 10},
 		metrics:     ranking.Metrics{RequestCount: 2, SuccessCount: 2},
 	}
-	service, err := ranking.NewService(store, aggregator, center, ranking.WithClock(func() time.Time { return now }))
-	if err != nil {
-		t.Fatalf("NewService returned error: %v", err)
-	}
+	service := newRankingService(t, store, aggregator, center, ranking.WithClock(func() time.Time { return now }))
 
 	if err := service.RunOnce(context.Background()); err != nil {
 		t.Fatalf("first RunOnce returned error: %v", err)
@@ -710,10 +588,7 @@ func TestServiceResubmitsYesterdayOnlyWhenLateEventsAdvanceWatermark(t *testing.
 	if len(center.reports) != 3 || !center.reports[2].Complete || center.reports[2].DayKey != "2026-07-23" {
 		t.Fatalf("expected one replacement yesterday report, got %+v", center.reports)
 	}
-	state, err := store.Load(context.Background())
-	if err != nil {
-		t.Fatalf("load state after late event: %v", err)
-	}
+	state := loadRankingState(t, store)
 	if state.LastSuccessfulCompleteDay != "2026-07-23" || state.LastSuccessfulCompleteEventID != 6 {
 		t.Fatalf("unexpected complete-day watermark: %+v", state)
 	}
@@ -737,22 +612,13 @@ func TestServiceNewParticipantBeforeTwoShanghaiDoesNotBackfillYesterday(t *testi
 		}, nil
 	}
 	aggregator := &aggregatorStub{latestID: 1}
-	service, err := ranking.NewService(store, aggregator, center, ranking.WithClock(func() time.Time { return now }))
-	if err != nil {
-		t.Fatalf("NewService returned error: %v", err)
-	}
+	service := newRankingService(t, store, aggregator, center, ranking.WithClock(func() time.Time { return now }))
 
 	if _, err := service.Join(context.Background(), "Keeper_New", 8); err != nil {
 		t.Fatalf("Join returned error: %v", err)
 	}
 	if len(center.reports) != 1 || center.reports[0].Complete || center.reports[0].DayKey != "2026-07-24" {
-		var complete bool
-		var dayKey string
-		if len(center.reports) > 0 {
-			complete = center.reports[0].Complete
-			dayKey = center.reports[0].DayKey
-		}
-		t.Fatalf("new participant report count=%d complete=%v day=%q", len(center.reports), complete, dayKey)
+		t.Fatalf("unexpected new participant reports: %+v", center.reports)
 	}
 }
 
@@ -771,17 +637,14 @@ func TestServiceExitAllocatesSequenceBeforeDeleteAndStopsPermanently(t *testing.
 		}
 		return ranking.DeleteReceipt{ParticipantID: command.ParticipantID, Sequence: command.Sequence, DeletedAt: now}, nil
 	}
-	service, err := ranking.NewService(store, &aggregatorStub{}, center, ranking.WithClock(func() time.Time { return now }))
-	if err != nil {
-		t.Fatalf("NewService returned error: %v", err)
-	}
+	service := newRankingService(t, store, &aggregatorStub{}, center, ranking.WithClock(func() time.Time { return now }))
 
 	status, err := service.Exit(context.Background())
 	if err != nil {
 		t.Fatalf("Exit returned error: %v", err)
 	}
-	if status.Status != ranking.StatusDeleted || center.deleteCalls != 1 {
-		t.Fatalf("unexpected exit result: status=%+v calls=%d", status, center.deleteCalls)
+	if status.Status != ranking.StatusDeleted || len(center.deletes) != 1 {
+		t.Fatalf("unexpected exit result: status=%+v calls=%d", status, len(center.deletes))
 	}
 }
 
@@ -798,15 +661,12 @@ func TestServiceExitReconcilesAndRetriesSequenceReplayOnce(t *testing.T) {
 		return ranking.SelfStatus{ParticipantID: credentials.ParticipantID, DisplayName: "Keeper_01", AvatarID: 7, Status: "active", LastSequence: lastSequence}, nil
 	}
 	center.delete = func(_ context.Context, command ranking.DeleteCommand) (ranking.DeleteReceipt, error) {
-		if center.deleteCalls == 1 {
+		if len(center.deletes) == 1 {
 			return ranking.DeleteReceipt{}, ranking.ErrReplayedSequence
 		}
 		return ranking.DeleteReceipt{ParticipantID: command.ParticipantID, Sequence: command.Sequence, DeletedAt: now}, nil
 	}
-	service, err := ranking.NewService(store, &aggregatorStub{}, center, ranking.WithClock(func() time.Time { return now }))
-	if err != nil {
-		t.Fatalf("NewService returned error: %v", err)
-	}
+	service := newRankingService(t, store, &aggregatorStub{}, center, ranking.WithClock(func() time.Time { return now }))
 
 	status, err := service.Exit(context.Background())
 	if err != nil {
@@ -830,10 +690,7 @@ func TestServiceExitPersistsDeletedTombstoneAfterRequestCancellation(t *testing.
 		cancel()
 		return ranking.DeleteReceipt{ParticipantID: command.ParticipantID, Sequence: command.Sequence, DeletedAt: now}, nil
 	}
-	service, err := ranking.NewService(store, &aggregatorStub{}, center, ranking.WithClock(func() time.Time { return now }))
-	if err != nil {
-		t.Fatalf("NewService returned error: %v", err)
-	}
+	service := newRankingService(t, store, &aggregatorStub{}, center, ranking.WithClock(func() time.Time { return now }))
 
 	status, err := service.Exit(ctx)
 	if err != nil {
@@ -865,4 +722,22 @@ func seedActiveState(t *testing.T, store *ranking.Store, sequence int64) {
 
 func rankingTimePointer(value time.Time) *time.Time {
 	return &value
+}
+
+func newRankingService(t *testing.T, store *ranking.Store, aggregator ranking.UsageAggregator, center ranking.CenterAPI, options ...ranking.ServiceOption) *ranking.Service {
+	t.Helper()
+	service, err := ranking.NewService(store, aggregator, center, options...)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	return service
+}
+
+func loadRankingState(t *testing.T, store *ranking.Store) ranking.State {
+	t.Helper()
+	state, err := store.Load(context.Background())
+	if err != nil {
+		t.Fatalf("load ranking state: %v", err)
+	}
+	return state
 }

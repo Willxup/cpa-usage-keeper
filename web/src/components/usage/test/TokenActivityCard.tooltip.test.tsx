@@ -21,7 +21,7 @@ describe('TokenActivityCard tooltip', () => {
 
   afterEach(async () => {
     await act(async () => root.unmount());
-    document.body.replaceChildren();
+    container.remove();
   });
 
   it('compacts visible token values while keeping exact values in the cell label', async () => {
@@ -39,19 +39,18 @@ describe('TokenActivityCard tooltip', () => {
     await act(async () => root.render(
       <TokenActivityCard activity={activity} loading={false} requestIdentity="admin::day:::" />,
     ));
-    const firstCell = container.querySelector<HTMLElement>('[role="gridcell"]');
-    expect(firstCell).not.toBeNull();
+    const firstCell = container.querySelector<HTMLElement>('[role="gridcell"]')!;
 
-    await act(async () => firstCell?.focus());
+    await act(async () => firstCell.focus());
 
-    const tooltipText = document.body.querySelector('[role="tooltip"]')?.textContent ?? '';
+    const tooltipText = document.body.querySelector('[role="tooltip"]')!.textContent;
     expect(tooltipText).toContain('Total 74.17M');
     expect(tooltipText).toContain('Input 73.89M');
     expect(tooltipText).toContain('Output 280.80K');
     expect(tooltipText).toContain('Reasoning 160.43K');
     expect(tooltipText).toContain('Cache Read 69.90M');
     expect(tooltipText).toContain('Cache Creation 0');
-    expect(firstCell?.getAttribute('aria-label')).toContain('Total 74,174,604');
-    expect(firstCell?.getAttribute('aria-label')).toContain('Cache Read 69,897,984');
+    expect(firstCell.getAttribute('aria-label')).toContain('Total 74,174,604');
+    expect(firstCell.getAttribute('aria-label')).toContain('Cache Read 69,897,984');
   });
 });

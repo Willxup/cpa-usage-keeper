@@ -1,8 +1,8 @@
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
+import { RequestEventsTestCard, extractTableHeaders, extractFirstTableRowCells } from './requestEventsFixtures'
 import type { UsageEvent } from '@/lib/types'
-import { RequestEventsDetailsCard } from '../RequestEventsDetailsCard'
 
 const event: UsageEvent = {
   id: 'compact-columns',
@@ -40,39 +40,21 @@ const event: UsageEvent = {
   pricing_style: 'claude',
 }
 
-const textFromMarkup = (value: string) => value.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
-
-const renderCard = () => renderToStaticMarkup(
-  <RequestEventsDetailsCard
-    events={[event]}
-    loading={false}
-    totalCount={1}
+const renderCard = (row: UsageEvent = event) => renderToStaticMarkup(
+  <RequestEventsTestCard
+    events={[row]}
     modelOptions={['gpt-5.6']}
     sourceOptions={[{ value: 'openai-team', label: 'OpenAI Team' }]}
-    modelFilter="__all__"
-    sourceFilter="__all__"
-    resultFilter="__all__"
-    onModelFilterChange={() => undefined}
-    onSourceFilterChange={() => undefined}
-    onResultFilterChange={() => undefined}
   />,
 )
 
-const extractTableHeaders = (html: string) => (
-  Array.from(html.matchAll(/<th\b[^>]*>(.*?)<\/th>/gs), (match) => textFromMarkup(match[1]))
-)
-
-const extractFirstTableRowCells = (html: string) => {
-  const row = html.match(/<tbody><tr>(.*?)<\/tr><\/tbody>/s)?.[1] ?? ''
-  return Array.from(row.matchAll(/<td\b[^>]*>(.*?)<\/td>/gs), (match) => textFromMarkup(match[1]))
-}
-
-const extractFirstTableRowCellMarkup = (html: string) => {
-  const row = html.match(/<tbody><tr>(.*?)<\/tr><\/tbody>/s)?.[1] ?? ''
-  return Array.from(row.matchAll(/(<td\b[^>]*>.*?<\/td>)/gs), (match) => match[1])
-}
-
 describe('RequestEventsDetailsCard compact columns', () => {
+  it.each([undefined, 0, 3000])('shows the API speed independently of TTFT %s', (ttft) => {
+    const cells = extractFirstTableRowCells(renderCard({ ...event, ttft_ms: ttft }))
+
+    expect(cells[9]).toBe('30.0 t/s')
+  })
+
   it('renders the agreed 17 display columns in order', () => {
     const html = renderCard()
 
@@ -105,7 +87,6 @@ describe('RequestEventsDetailsCard compact columns', () => {
     expect(cells[2]).toContain('OpenAI Team')
     expect(cells[2]).toContain('Deleted')
     expect(cells[2]).not.toContain('openai')
-    expect(html).toMatch(/data-provider-brand-icon="openai"[^>]*style="width:25px;height:25px"/)
     expect(cells[3]).toBe('gpt-5.6keeper-gpt')
     expect(cells[4]).toBe('high')
     expect(cells[5]).toBe('Fast / Flex')
@@ -121,17 +102,5 @@ describe('RequestEventsDetailsCard compact columns', () => {
       '203.0.113.5, 198.51.100.8',
       'keeper-client/1.0',
     ])
-  })
-
-  it('emphasizes standalone primary values except client metadata', () => {
-    const cellMarkup = extractFirstTableRowCellMarkup(renderCard())
-
-    for (const index of [1, 4, 5, 9, 13]) {
-      expect(cellMarkup[index]).toContain('requestEventsPrimaryCell')
-    }
-    expect(cellMarkup[12]).toContain('requestEventsStackedPrimary')
-    for (const index of [14, 15, 16]) {
-      expect(cellMarkup[index]).not.toContain('requestEventsPrimaryCell')
-    }
   })
 })

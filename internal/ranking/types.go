@@ -29,6 +29,7 @@ var (
 // State 是 ranking.identity 的完整持久化内容。私钥只能在后端模块内部流转。
 type State struct {
 	Status                        Status     `json:"status"`
+	Banned                        bool       `json:"banned,omitempty"`
 	PublicKey                     string     `json:"public_key,omitempty"`
 	PrivateKey                    string     `json:"private_key,omitempty"`
 	RegistrationIdempotencyKey    string     `json:"registration_idempotency_key,omitempty"`

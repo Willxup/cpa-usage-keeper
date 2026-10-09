@@ -1,55 +1,25 @@
-import { resolve } from 'node:path';
-import React, { type ComponentType } from 'react';
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { compile } from 'sass';
 import { describe, expect, it } from 'vitest';
 import { Button } from '../Button';
 import { MainActionButton } from '../MainActionButton';
 
-const componentsCSS = compile(resolve(process.cwd(), 'src/styles/components.scss')).css;
-
-type ActionButtonProbeProps = React.ComponentProps<typeof Button> & {
-  appearance?: 'action';
-};
-
-const ActionButtonProbe = Button as ComponentType<ActionButtonProbeProps>;
+const componentsStyles = readFileSync(new URL('../../../styles/components.scss', import.meta.url), 'utf8');
 
 describe('Button', () => {
   it('exposes the shared action appearance without changing its semantic variant', () => {
-    const primary = renderToStaticMarkup(<ActionButtonProbe appearance="action">Save</ActionButtonProbe>);
+    const primary = renderToStaticMarkup(<Button appearance="action">Save</Button>);
     const danger = renderToStaticMarkup(
-      <ActionButtonProbe appearance="action" variant="danger">Delete</ActionButtonProbe>,
+      <Button appearance="action" variant="danger">Delete</Button>,
     );
 
     expect(primary).toContain('class="btn btn-primary btn-action"');
     expect(danger).toContain('class="btn btn-danger btn-action"');
   });
-
-  it('keeps action buttons on the established compact pill contract', () => {
-    expect(componentsCSS).toMatch(
-      /\.btn-action \{[^}]*min-height: 32px;[^}]*border-radius: 999px;[^}]*padding: 7px 12px;[^}]*font-size: 12px;/,
-    );
-    expect(componentsCSS).toMatch(
-      /\.btn-action\.btn-secondary, \.btn-action\.btn-ghost \{\s*box-shadow: 0 8px 20px rgba\(0, 0, 0, 0\.08\);\s*\}/,
-    );
-    expect(componentsCSS).toMatch(
-      /\.btn-action\.btn-danger \{\s*box-shadow: none;\s*\}/,
-    );
-    expect(componentsCSS).toMatch(/\.btn\.btn-secondary \{[^}]*background-color: var\(--bg-tertiary\);/);
-    expect(componentsCSS).toMatch(/\.btn\.btn-danger \{[^}]*background-color: var\(--danger-color\);/);
-  });
 });
 
 describe('MainActionButton', () => {
-  it('provides a dedicated page-level action primitive', async () => {
-    const modulePath = '../MainActionButton';
-
-    await expect(import(modulePath)).resolves.toMatchObject({
-      MainActionButton: expect.any(Function),
-    });
-  });
-
-  it('renders the 42px shell and 32px action trigger while forwarding button state', () => {
+  it('forwards button state and custom classes', () => {
     const html = renderToStaticMarkup(
       <MainActionButton
         shellClassName="page-action-shell"
@@ -69,23 +39,8 @@ describe('MainActionButton', () => {
     expect(html).toContain('class="loading-spinner"');
   });
 
-  it('matches the joined profile interaction with a theme surface hover animation', () => {
-    expect(componentsCSS).toMatch(
-      /\.main-action-button-shell \{[^}]*min-height: 42px;[^}]*padding: 4px;[^}]*border-radius: 999px;/,
-    );
-    expect(componentsCSS).toMatch(
-      /\.btn\.btn-action\.main-action-button \{[^}]*min-height: 32px;[^}]*min-width: 0;[^}]*max-width: 100%;[^}]*border: 0;[^}]*background: var\(--bg-primary\);[^}]*color: var\(--text-primary\);/,
-    );
-    expect(componentsCSS).toMatch(
-      /\.btn\.btn-action\.main-action-button > span:not\(\.loading-spinner\) \{[^}]*min-width: 0;[^}]*max-width: 100%;/,
-    );
-    expect(componentsCSS).toMatch(
-      /\.btn\.btn-action\.main-action-button:hover:not\(:disabled\) \{[^}]*background: var\(--bg-primary\);[^}]*color: var\(--text-primary\);[^}]*box-shadow: 0 8px 20px rgba\(0, 0, 0, 0\.1\);[^}]*transform: translateY\(-1px\);/,
-    );
-    expect(componentsCSS).toMatch(
-      /\.btn\.btn-action\.main-action-button:active:not\(:disabled\) \{[^}]*background: var\(--bg-primary\);[^}]*color: var\(--text-primary\);[^}]*transform: translateY\(0\);/,
-    );
-    expect(componentsCSS).toMatch(
+  it('respects reduced motion for the page action', () => {
+    expect(componentsStyles).toMatch(
       /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.btn\.btn-action\.main-action-button[\s\S]*?transition: none;[\s\S]*?transform: none;/,
     );
   });

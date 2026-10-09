@@ -2,27 +2,14 @@ package test
 
 import (
 	"database/sql"
-	"path/filepath"
 	"testing"
 	"time"
-
-	"cpa-usage-keeper/internal/repository/migration"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
 )
 
 const localRankingProfileMigrationVersion = "20260803_add_cpa_api_key_local_ranking_avatar"
 
 func TestLocalRankingProfileMigrationAddsNullableAvatarWithoutChangingKeys(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "local-ranking-profile.db")), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open migration database: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("load sql database: %v", err)
-	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
+	db := openUnmigratedTestDatabase(t)
 
 	if err := db.Exec(`CREATE TABLE cpa_api_keys (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,15 +30,7 @@ func TestLocalRankingProfileMigrationAddsNullableAvatarWithoutChangingKeys(t *te
 	).Error; err != nil {
 		t.Fatalf("seed existing CPA API key: %v", err)
 	}
-	if err := migration.MarkAllAsApplied(db); err != nil {
-		t.Fatalf("mark migrations applied: %v", err)
-	}
-	if err := db.Exec("DELETE FROM schema_migrations WHERE version = ?", localRankingProfileMigrationVersion).Error; err != nil {
-		t.Fatalf("mark local ranking profile migration pending: %v", err)
-	}
-	if err := migration.Run(db); err != nil {
-		t.Fatalf("run local ranking profile migration: %v", err)
-	}
+	runOnlyMigration(t, db, localRankingProfileMigrationVersion)
 	if !db.Migrator().HasColumn("cpa_api_keys", "local_ranking_avatar_id") {
 		t.Fatal("expected nullable local ranking avatar column")
 	}

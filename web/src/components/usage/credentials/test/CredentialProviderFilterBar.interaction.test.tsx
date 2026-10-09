@@ -15,7 +15,7 @@ vi.mock('react-i18next', () => ({
   }),
 }))
 
-describe('CredentialProviderFilterBar reset behaviour', () => {
+describe('CredentialProviderFilterBar selection preservation', () => {
   let container: HTMLDivElement
   let root: Root
 
@@ -41,25 +41,17 @@ describe('CredentialProviderFilterBar reset behaviour', () => {
     ))
   }
 
-  it('keeps a restored filter while the type counts are still empty', async () => {
-    // 首帧计数为空，此时重置会让持久化的供应商筛选活不过一次刷新。
+  it.each([
+    { label: 'not loaded', counts: [], count: 0 },
+    { label: 'unavailable after loading', counts: [{ type: 'claude', count: 3 }], count: 0 },
+    { label: 'available', counts: [{ type: 'openai', count: 2 }, { type: 'claude', count: 3 }], count: 2 },
+  ])('keeps the selected provider when counts are $label and changes only on a click', async ({ counts, count }) => {
     const onChange = vi.fn()
-    await render([], 'openai', onChange)
-
+    await render(counts, 'openai', onChange)
     expect(onChange).not.toHaveBeenCalled()
-  })
-
-  it('resets a filter that loaded counts no longer offer', async () => {
-    const onChange = vi.fn()
-    await render([{ type: 'claude', count: 3 }], 'openai', onChange)
-
-    expect(onChange).toHaveBeenCalledWith('all')
-  })
-
-  it('keeps a filter that loaded counts still offer', async () => {
-    const onChange = vi.fn()
-    await render([{ type: 'openai', count: 2 }, { type: 'claude', count: 3 }], 'openai', onChange)
-
-    expect(onChange).not.toHaveBeenCalled()
+    expect(container.querySelector('[aria-pressed="true"]')?.textContent).toBe(`usage_stats.credentials_filter_openai${count}`)
+    const all = container.querySelector<HTMLButtonElement>('button')!
+    await act(async () => all.click())
+    expect(onChange.mock.calls).toEqual([['all']])
   })
 })

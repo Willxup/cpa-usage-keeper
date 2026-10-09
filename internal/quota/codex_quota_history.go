@@ -34,6 +34,59 @@ func BuildCodexMainQuotaObservations(authIndex string, output ProviderOutput, ob
 	return observations
 }
 
+// BuildMainQuotaObservations 将两个 provider 的主窗口投影到同一历史状态机。
+func BuildMainQuotaObservations(authIndex string, output ProviderOutput, observedAt time.Time) []repositorydto.CodexMainQuotaObservation {
+	if strings.TrimSpace(authIndex) == "" || observedAt.IsZero() {
+		return nil
+	}
+	if codexUsagePayloadFromProviderOutput(output) != nil {
+		return BuildCodexMainQuotaObservations(authIndex, output, observedAt)
+	}
+	var usage *ClaudeUsagePayload
+	switch result := output.Result.(type) {
+	case ClaudeResult:
+		usage = result.Usage
+	case *ClaudeResult:
+		if result != nil {
+			usage = result.Usage
+		}
+	}
+	if usage == nil {
+		return nil
+	}
+	observations := make([]repositorydto.CodexMainQuotaObservation, 0, 2)
+	for _, window := range []struct {
+		role    string
+		key     string
+		seconds int64
+		value   *ClaudeUsageWindow
+	}{
+		{"primary", "five_hour", quotaWindowFiveHourSeconds, usage.FiveHour},
+		{"secondary", "seven_day", quotaWindowSevenDaySeconds, usage.SevenDay},
+	} {
+		if window.value == nil || !window.value.HasUtilization || math.IsNaN(window.value.Utilization) || math.IsInf(window.value.Utilization, 0) {
+			continue
+		}
+		resetAt, err := time.Parse(time.RFC3339Nano, window.value.ResetsAt)
+		if err != nil || resetAt.IsZero() {
+			continue
+		}
+		codexWindow := &CodexUsageWindow{
+			UsedPercent: window.value.Utilization, HasUsedPercent: true,
+			LimitWindowSeconds: window.seconds, HasLimitWindowSeconds: true,
+			ResetAt: resetAt.Unix(), HasResetAt: true,
+		}
+		observation, ok := buildCodexMainQuotaObservation(authIndex, window.role, codexWindow, observedAt)
+		if !ok {
+			continue
+		}
+		observation.Provider = "claude"
+		observation.QuotaKey = window.key
+		observations = append(observations, observation)
+	}
+	return observations
+}
+
 func codexUsagePayloadFromProviderOutput(output ProviderOutput) *CodexUsagePayload {
 	// Provider handler 当前返回值可能是值或指针，两种形式共享完全相同的历史语义。
 	switch result := output.Result.(type) {
@@ -50,6 +103,13 @@ func codexUsagePayloadFromProviderOutput(output ProviderOutput) *CodexUsagePaylo
 func buildCodexMainQuotaObservation(authIndex string, role string, window *CodexUsageWindow, observedAt time.Time) (repositorydto.CodexMainQuotaObservation, bool) {
 	// 零值结果保持不可写；调用方只能在 ok=true 时消费字段。
 	observation := repositorydto.CodexMainQuotaObservation{}
+	// 静态存储键避免每份主窗口观察都为字符串拼接分配内存。
+	quotaKey := "rate_limit.primary_window"
+	if role == "secondary" {
+		quotaKey = "rate_limit.secondary_window"
+	} else if role != "primary" {
+		return observation, false
+	}
 	// used、window seconds 和至少一种 reset 边界都必须由上游明确提供。
 	if window == nil || !window.HasUsedPercent || !window.HasLimitWindowSeconds || (!window.HasResetAt && !window.HasResetAfterSeconds) {
 		return observation, false
@@ -90,6 +150,8 @@ func buildCodexMainQuotaObservation(authIndex string, role string, window *Codex
 	}
 
 	observation = repositorydto.CodexMainQuotaObservation{
+		Provider:         "codex",
+		QuotaKey:         quotaKey,
 		AuthIndex:        authIndex,
 		WindowRole:       role,
 		WindowSeconds:    window.LimitWindowSeconds,

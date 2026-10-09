@@ -1,30 +1,42 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { deletePricing, fetchPricingRules, replacePricingRules, updatePricing, updatePricingBatch } from '../api'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { deletePricing, fetchPricingRules, fetchPricingSyncPreview, replacePricingRules, updatePricing, updatePricingBatch } from '../api'
 
 const headerValue = (init: RequestInit | undefined, name: string): string | null => (
   new Headers(init?.headers).get(name)
 )
 
+beforeEach(() => {
+  vi.stubGlobal('window', { __APP_BASE_PATH__: undefined })
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
+
 describe('pricing API client', () => {
-  afterEach(() => {
-    vi.restoreAllMocks()
-    vi.unstubAllGlobals()
+  it.each([undefined, 'litellm'] as const)('requests the selected pricing source %s with cancellation', async (source) => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper' })
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
+    const signal = new AbortController().signal
+    await fetchPricingSyncPreview(source, signal)
+    const [rawURL, init] = fetchMock.mock.calls[0]
+    const url = new URL(String(rawURL), 'http://localhost')
+    expect(url.pathname).toBe('/keeper/api/v1/pricing/sync/preview')
+    expect(url.searchParams.get('source')).toBe(source ?? 'models-dev')
+    expect(init).toMatchObject({ credentials: 'include', cache: 'no-store', signal })
   })
 
   it('updates one model through the pricing endpoint without sending a pricing snapshot', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined })
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        model: 'openai/gpt-4.1',
-        pricing_style: 'openai',
-        prompt_price_per_1m: 3,
-        completion_price_per_1m: 15,
-        cache_read_price_per_1m: 0.3,
-        cache_write_price_per_1m: 0,
-        price_multiplier: 1,
-      }),
-    } as Response)
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({
+      model: 'openai/gpt-4.1',
+      pricing_style: 'openai',
+      prompt_price_per_1m: 3,
+      completion_price_per_1m: 15,
+      cache_read_price_per_1m: 0.3,
+      cache_write_price_per_1m: 0,
+      price_multiplier: 1,
+    }))
 
     await updatePricing('openai/gpt-4.1', {
       pricing_style: 'openai',
@@ -51,14 +63,10 @@ describe('pricing API client', () => {
       cache_write_price_per_1m: 0,
       price_multiplier: 1,
     })
-    expect(body).not.toHaveProperty('pricing')
   })
 
   it('deletes one model through the pricing endpoint without sending a request body', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined })
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-    } as Response)
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response())
 
     await deletePricing('openai/gpt-4.1')
 
@@ -72,15 +80,11 @@ describe('pricing API client', () => {
   })
 
   it('updates multiple model prices in one batch request', async () => {
-	vi.stubGlobal('window', { __APP_BASE_PATH__: undefined })
 	const pricing = [
 	  { model: 'model-a', pricing_style: 'openai' as const, prompt_price_per_1m: 2, completion_price_per_1m: 0, cache_read_price_per_1m: 0, cache_write_price_per_1m: 0, price_multiplier: 1 },
 	  { model: 'model-b', pricing_style: 'openai' as const, prompt_price_per_1m: 3, completion_price_per_1m: 0, cache_read_price_per_1m: 0, cache_write_price_per_1m: 0, price_multiplier: 1 },
 	]
-	const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-	  ok: true,
-	  json: async () => ({ pricing }),
-	} as Response)
+	const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ pricing }))
 
 	await updatePricingBatch(pricing)
 
@@ -93,17 +97,8 @@ describe('pricing API client', () => {
 })
 
 describe('pricing rules API', () => {
-  afterEach(() => {
-    vi.restoreAllMocks()
-    vi.unstubAllGlobals()
-  })
-
   it('loads rules through a query parameter so model names may contain slashes', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined })
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ model: 'openai/gpt-5.6', rules: [] }),
-    } as Response)
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ model: 'openai/gpt-5.6', rules: [] }))
     const signal = new AbortController().signal
 
     await fetchPricingRules('openai/gpt-5.6', signal)
@@ -116,11 +111,7 @@ describe('pricing rules API', () => {
   })
 
   it('replaces the complete rule set and preserves an explicit empty array', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined })
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ model: 'model-a', rules: [] }),
-    } as Response)
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ model: 'model-a', rules: [] }))
 
     await replacePricingRules({ model: 'model-a', rules: [] })
 

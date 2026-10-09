@@ -231,10 +231,7 @@ func TestUsageEventsEndpointsAcceptNinetyDayCustomRange(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			provider := &usageEventsStub{}
 			router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-			response := httptest.NewRecorder()
-			request := httptest.NewRequest(http.MethodGet, tc.path, nil)
-
-			router.ServeHTTP(response, request)
+			response := serveAPIGet(router, tc.path)
 
 			if response.Code != http.StatusOK {
 				t.Fatalf("expected 90-day custom Events %s to return 200, got %d body=%s", tc.name, response.Code, response.Body.String())
@@ -280,10 +277,7 @@ func TestUsageEventsEndpointsRejectCustomRangeBeyondNinetyDays(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			provider := &usageEventsStub{}
 			router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-			response := httptest.NewRecorder()
-			request := httptest.NewRequest(http.MethodGet, tc.path, nil)
-
-			router.ServeHTTP(response, request)
+			response := serveAPIGet(router, tc.path)
 
 			if response.Code != http.StatusBadRequest {
 				t.Fatalf("expected 91-day custom Events %s to return 400, got %d body=%s", tc.name, response.Code, response.Body.String())
@@ -309,12 +303,13 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 		Timestamp:           time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
 		Model:               "claude-sonnet",
 		ModelAlias:          "sonnet-business",
+		ResponseModel:       "actual-model",
 		ReasoningEffort:     "medium",
 		ServiceTier:         "auto",
 		ResponseServiceTier: "default",
-		ClientIP:            usageEventStringPtr("192.0.2.10"),
-		XForwardedFor:       usageEventStringPtr("203.0.113.5, 198.51.100.8"),
-		UserAgent:           usageEventStringPtr("test-client/1.0"),
+		ClientIP:            new("192.0.2.10"),
+		XForwardedFor:       new("203.0.113.5, 198.51.100.8"),
+		UserAgent:           new("test-client/1.0"),
 		ExecutorType:        "responses",
 		Endpoint:            "POST /v1/responses",
 		AuthType:            "apikey",
@@ -323,8 +318,10 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 		Source:              "sk-provider-key",
 		AuthIndex:           "2",
 		Failed:              false,
-		LatencyMS:           2045,
-		TTFTMS:              usageEventInt64Ptr(45),
+		StatusCode:          new(200),
+		Stream:              new(true),
+		LatencyMS:           2000,
+		TTFTMS:              new(int64(45)),
 		InputTokens:         10,
 		OutputTokens:        61,
 		ReasoningTokens:     2,
@@ -336,71 +333,34 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 		PricingStyle:        "claude",
 	}}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/events?range=24h")
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
 	body := resp.Body.String()
-	if !contains(body, `"events":[`) || !contains(body, `"model":"claude-sonnet"`) {
-		t.Fatalf("unexpected response body: %s", body)
+	for _, fragment := range []string{
+		`"events":[`, `"model":"claude-sonnet"`, `"model_alias":"sonnet-business"`, `"response_model":"actual-model"`,
+		`"id":"42"`, `"total_count":1`, `"page":1`,
+		`"page_size":100`, `"total_pages":1`, `"source":"OpenAI Mirror"`,
+		`"auth_index":"2"`, `"request_id":"req-log-42"`, `"timestamp":"2026-04-22T19:00:00+08:00"`,
+		`"cache_read_tokens":3`, `"cache_creation_tokens":4`, `"reasoning_effort":"medium"`,
+		`"service_tier":"auto"`, `"response_service_tier":"default"`, `"client_ip":"192.0.2.10"`,
+		`"x_forwarded_for":"203.0.113.5, 198.51.100.8"`, `"user_agent":"test-client/1.0"`, `"endpoint":"POST /v1/responses"`,
+		`"ttft_ms":45`, `"speed_tps":30.5`, `"executor_type":"responses"`, `"status_code":200`, `"stream":true`,
+		`"cost_usd":0.1234`, `"cost_available":true`, `"pricing_style":"claude"`,
+	} {
+		if !contains(body, fragment) {
+			t.Fatalf("missing JSON field/value %s in %s", fragment, body)
+		}
 	}
-	if !contains(body, `"model_alias":"sonnet-business"`) {
-		t.Fatalf("expected model alias in response body: %s", body)
-	}
-	if !contains(body, `"id":"42"`) || !contains(body, `"total_count":1`) || !contains(body, `"page":1`) || !contains(body, `"page_size":100`) || !contains(body, `"total_pages":1`) {
-		t.Fatalf("expected pagination metadata and event id in response body: %s", body)
-	}
-	if !contains(body, `"source":"OpenAI Mirror"`) {
-		t.Fatalf("expected resolved source display in response body: %s", body)
-	}
-	if contains(body, `sk-provider-key`) || contains(body, `sk-provider-prefix`) {
-		t.Fatalf("expected raw source values to be redacted from response body: %s", body)
-	}
-	if contains(body, `"source_type"`) || contains(body, `"source_key"`) {
-		t.Fatalf("expected source metadata fields to stay omitted, got %s", body)
-	}
-	if !contains(body, `"auth_index":"2"`) {
-		t.Fatalf("expected auth index in response body: %s", body)
-	}
-	if !contains(body, `"request_id":"req-log-42"`) {
-		t.Fatalf("expected request_id in response body: %s", body)
-	}
-	if !contains(body, `"timestamp":"2026-04-22T19:00:00+08:00"`) {
-		t.Fatalf("expected project timezone timestamp in response body: %s", body)
-	}
-	if contains(body, `"cached_tokens"`) || !contains(body, `"cache_read_tokens":3`) || !contains(body, `"cache_creation_tokens":4`) {
-		t.Fatalf("expected cache token fields in response body: %s", body)
-	}
-	if !contains(body, `"reasoning_effort":"medium"`) {
-		t.Fatalf("expected reasoning effort in response body: %s", body)
-	}
-	if !contains(body, `"service_tier":"auto"`) {
-		t.Fatalf("expected service_tier in response body: %s", body)
-	}
-	if !contains(body, `"response_service_tier":"default"`) {
-		t.Fatalf("expected response_service_tier in response body: %s", body)
-	}
-	if !contains(body, `"client_ip":"192.0.2.10"`) || !contains(body, `"x_forwarded_for":"203.0.113.5, 198.51.100.8"`) || !contains(body, `"user_agent":"test-client/1.0"`) {
-		t.Fatalf("expected client metadata in response body: %s", body)
-	}
-	if !contains(body, `"endpoint":"POST /v1/responses"`) {
-		t.Fatalf("expected endpoint in response body: %s", body)
-	}
-	if !contains(body, `"ttft_ms":45`) {
-		t.Fatalf("expected ttft_ms in response body: %s", body)
-	}
-	if !contains(body, `"speed_tps":30.5`) {
-		t.Fatalf("expected speed_tps in response body: %s", body)
-	}
-	if !contains(body, `"executor_type":"responses"`) {
-		t.Fatalf("expected executor_type in response body: %s", body)
-	}
-	if !contains(body, `"cost_usd":0.1234`) || !contains(body, `"cost_available":true`) || !contains(body, `"pricing_style":"claude"`) {
-		t.Fatalf("expected backend cost fields in response body: %s", body)
+	for _, fragment := range []string{
+		`sk-provider-key`, `sk-provider-prefix`, `"source_type"`,
+		`"source_key"`, `"cached_tokens"`,
+	} {
+		if contains(body, fragment) {
+			t.Fatalf("unexpected JSON field/value %s in %s", fragment, body)
+		}
 	}
 	if provider.filterCalls != 1 {
 		t.Fatalf("expected ListUsageEvents to be called once, got %d", provider.filterCalls)
@@ -429,10 +389,7 @@ func TestUsageEventRequestLogReturnsStructuredLog(t *testing.T) {
 		}},
 	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider, Status: StatusRouteConfig{CPARequestLogAccessEnabled: true}})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/42/request-log", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/events/42/request-log")
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d body=%s", resp.Code, resp.Body.String())
@@ -453,24 +410,28 @@ func TestUsageEventRequestLogReturnsStructuredLog(t *testing.T) {
 	}
 }
 
-func TestUsageEventRequestLogReturnsForbiddenWhenAccessDisabled(t *testing.T) {
-	provider := &usageEventsStub{}
-	requestLogProvider := &requestLogProviderStub{response: service.RequestLogResponse{
-		EventID:   42,
-		RequestID: "req-log-42",
-		Available: true,
-	}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/42/request-log", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusForbidden {
-		t.Fatalf("expected status 403, got %d body=%s", resp.Code, resp.Body.String())
-	}
-	if requestLogProvider.calls != 0 {
-		t.Fatalf("expected disabled request log access not to call provider, got %d calls", requestLogProvider.calls)
+func TestUsageEventRequestLogRoutesRejectDisabledAccess(t *testing.T) {
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodGet, "/api/v1/usage/events/42/request-log"},
+		{http.MethodPost, "/api/v1/usage/events/42/request-log/download-token"},
+		{http.MethodGet, "/api/v1/usage/events/42/request-log/download-file?token=stale"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			logs := &requestLogProviderStub{}
+			router := NewRouter(nil, nil, &usageEventsStub{}, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: logs})
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			if tc.method == http.MethodPost {
+				req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
+			}
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+			if resp.Code != http.StatusForbidden {
+				t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+			}
+			if logs.calls != 0 || logs.downloadCalls != 0 {
+				t.Fatalf("disabled access reached provider: preview=%d download=%d", logs.calls, logs.downloadCalls)
+			}
+		})
 	}
 }
 
@@ -478,10 +439,7 @@ func TestUsageEventRequestLogReturnsNotFoundWhenEventMissing(t *testing.T) {
 	provider := &usageEventsStub{}
 	requestLogProvider := &requestLogProviderStub{err: gorm.ErrRecordNotFound}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider, Status: StatusRouteConfig{CPARequestLogAccessEnabled: true}})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/404/request-log", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/events/404/request-log")
 
 	if resp.Code != http.StatusNotFound {
 		t.Fatalf("expected status 404, got %d body=%s", resp.Code, resp.Body.String())
@@ -506,10 +464,7 @@ func TestUsageEventRequestLogReturnsTooLargeMetadata(t *testing.T) {
 		Downloadable: true,
 	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider, Status: StatusRouteConfig{CPARequestLogAccessEnabled: true}})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/42/request-log", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/events/42/request-log")
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d body=%s", resp.Code, resp.Body.String())
@@ -520,51 +475,6 @@ func TestUsageEventRequestLogReturnsTooLargeMetadata(t *testing.T) {
 	}
 	if contains(body, `"raw":`) || contains(body, `"sections":null`) {
 		t.Fatalf("expected too large preview response without raw body: %s", body)
-	}
-}
-
-func TestUsageEventRequestLogDownloadTokenReturnsForbiddenWhenAccessDisabled(t *testing.T) {
-	provider := &usageEventsStub{}
-	requestLogProvider := &requestLogProviderStub{downloadResponse: service.RequestLogDownload{
-		EventID:      42,
-		RequestID:    "req-log-42",
-		Body:         io.NopCloser(bytes.NewBufferString("raw log")),
-		Downloadable: true,
-	}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/usage/events/42/request-log/download-token", nil)
-	req.Header.Set("X-CPA-Usage-Keeper-Request", "fetch")
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusForbidden {
-		t.Fatalf("expected status 403, got %d body=%s", resp.Code, resp.Body.String())
-	}
-	if requestLogProvider.downloadCalls != 0 {
-		t.Fatalf("expected disabled request log download token not to call provider, got %d calls", requestLogProvider.downloadCalls)
-	}
-}
-
-func TestUsageEventRequestLogDownloadFileReturnsForbiddenWhenAccessDisabled(t *testing.T) {
-	provider := &usageEventsStub{}
-	requestLogProvider := &requestLogProviderStub{downloadResponse: service.RequestLogDownload{
-		EventID:      42,
-		RequestID:    "req-log-42",
-		Body:         io.NopCloser(bytes.NewBufferString("raw log")),
-		Downloadable: true,
-	}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/42/request-log/download-file?token=stale", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusForbidden {
-		t.Fatalf("expected status 403, got %d body=%s", resp.Code, resp.Body.String())
-	}
-	if requestLogProvider.downloadCalls != 0 {
-		t.Fatalf("expected disabled request log download file not to call provider, got %d calls", requestLogProvider.downloadCalls)
 	}
 }
 
@@ -582,11 +492,7 @@ func TestUsageEventRequestLogDownloadTokenStreamsAttachmentOnce(t *testing.T) {
 		Downloadable:  true,
 	}, downloadClosed: &closed}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider, Status: StatusRouteConfig{CPARequestLogAccessEnabled: true}})
-	issueReq := httptest.NewRequest(http.MethodPost, "/api/v1/usage/events/42/request-log/download-token", nil)
-	issueReq.Header.Set("X-CPA-Usage-Keeper-Request", "fetch")
-	issueResp := httptest.NewRecorder()
-
-	router.ServeHTTP(issueResp, issueReq)
+	issueResp := serveCredentialMutation(router, http.MethodPost, "/api/v1/usage/events/42/request-log/download-token", "")
 
 	if issueResp.Code != http.StatusOK {
 		t.Fatalf("expected token status 200, got %d body=%s", issueResp.Code, issueResp.Body.String())
@@ -600,9 +506,7 @@ func TestUsageEventRequestLogDownloadTokenStreamsAttachmentOnce(t *testing.T) {
 		t.Fatalf("unexpected download URL %q", payload.DownloadURL)
 	}
 
-	downloadReq := httptest.NewRequest(http.MethodGet, payload.DownloadURL, nil)
-	downloadResp := httptest.NewRecorder()
-	router.ServeHTTP(downloadResp, downloadReq)
+	downloadResp := serveAPIGet(router, payload.DownloadURL)
 
 	if downloadResp.Code != http.StatusOK {
 		t.Fatalf("expected download status 200, got %d body=%s", downloadResp.Code, downloadResp.Body.String())
@@ -619,12 +523,7 @@ func TestUsageEventRequestLogDownloadTokenStreamsAttachmentOnce(t *testing.T) {
 	if downloadResp.Body.String() != body {
 		t.Fatalf("unexpected download body %q", downloadResp.Body.String())
 	}
-	if downloadResp.Header().Get("Cache-Control") != "no-store" {
-		t.Fatalf("expected token request log download Cache-Control no-store, got %q", downloadResp.Header().Get("Cache-Control"))
-	}
-	if downloadResp.Header().Get("Pragma") != "no-cache" || downloadResp.Header().Get("Expires") != "0" {
-		t.Fatalf("expected request log download no-store companion headers, got Pragma=%q Expires=%q", downloadResp.Header().Get("Pragma"), downloadResp.Header().Get("Expires"))
-	}
+	assertNoStoreHeaders(t, downloadResp)
 	if !closed {
 		t.Fatalf("expected download stream to be closed")
 	}
@@ -632,9 +531,7 @@ func TestUsageEventRequestLogDownloadTokenStreamsAttachmentOnce(t *testing.T) {
 		t.Fatalf("expected download provider call with event id 42, got calls=%d eventID=%d", requestLogProvider.downloadCalls, requestLogProvider.downloadEventID)
 	}
 
-	reuseReq := httptest.NewRequest(http.MethodGet, payload.DownloadURL, nil)
-	reuseResp := httptest.NewRecorder()
-	router.ServeHTTP(reuseResp, reuseReq)
+	reuseResp := serveAPIGet(router, payload.DownloadURL)
 	if reuseResp.Code != http.StatusUnauthorized {
 		t.Fatalf("expected reused token status 401, got %d body=%s", reuseResp.Code, reuseResp.Body.String())
 	}
@@ -655,10 +552,7 @@ func TestUsageEventRequestLogDirectDownloadRouteIsUnavailable(t *testing.T) {
 		RequestLogs: requestLogProvider,
 		Status:      StatusRouteConfig{CPARequestLogAccessEnabled: true},
 	})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/42/request-log/download", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/events/42/request-log/download")
 
 	if resp.Code != http.StatusNotFound {
 		t.Fatalf("expected removed direct download route status 404, got %d body=%s", resp.Code, resp.Body.String())
@@ -682,10 +576,7 @@ func TestUsageEventRequestLogDownloadTokenAuthBoundary(t *testing.T) {
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour, BasePath: "/cpa"}
 	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "/cpa", OptionalProviders{RequestLogs: requestLogProvider, Status: StatusRouteConfig{CPARequestLogAccessEnabled: true}})
 
-	noSessionReq := httptest.NewRequest(http.MethodPost, "/cpa/api/v1/usage/events/42/request-log/download-token", nil)
-	noSessionReq.Header.Set("X-CPA-Usage-Keeper-Request", "fetch")
-	noSessionResp := httptest.NewRecorder()
-	router.ServeHTTP(noSessionResp, noSessionReq)
+	noSessionResp := serveCredentialMutation(router, http.MethodPost, "/cpa/api/v1/usage/events/42/request-log/download-token", "")
 	if noSessionResp.Code != http.StatusUnauthorized {
 		t.Fatalf("expected unauthenticated token issue status 401, got %d body=%s", noSessionResp.Code, noSessionResp.Body.String())
 	}
@@ -694,11 +585,7 @@ func TestUsageEventRequestLogDownloadTokenAuthBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create viewer session: %v", err)
 	}
-	viewerReq := httptest.NewRequest(http.MethodPost, "/cpa/api/v1/usage/events/42/request-log/download-token", nil)
-	viewerReq.Header.Set("X-CPA-Usage-Keeper-Request", "fetch")
-	viewerReq.AddCookie(&http.Cookie{Name: "cpa_usage_keeper_session", Value: viewerToken})
-	viewerResp := httptest.NewRecorder()
-	router.ServeHTTP(viewerResp, viewerReq)
+	viewerResp := serveCredentialMutation(router, http.MethodPost, "/cpa/api/v1/usage/events/42/request-log/download-token", "", &http.Cookie{Name: "cpa_usage_keeper_session", Value: viewerToken})
 	if viewerResp.Code != http.StatusForbidden {
 		t.Fatalf("expected viewer token issue status 403, got %d body=%s", viewerResp.Code, viewerResp.Body.String())
 	}
@@ -707,11 +594,7 @@ func TestUsageEventRequestLogDownloadTokenAuthBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create admin session: %v", err)
 	}
-	adminReq := httptest.NewRequest(http.MethodPost, "/cpa/api/v1/usage/events/42/request-log/download-token", nil)
-	adminReq.Header.Set("X-CPA-Usage-Keeper-Request", "fetch")
-	adminReq.AddCookie(&http.Cookie{Name: "cpa_usage_keeper_session", Value: adminToken})
-	adminResp := httptest.NewRecorder()
-	router.ServeHTTP(adminResp, adminReq)
+	adminResp := serveCredentialMutation(router, http.MethodPost, "/cpa/api/v1/usage/events/42/request-log/download-token", "", &http.Cookie{Name: "cpa_usage_keeper_session", Value: adminToken})
 	if adminResp.Code != http.StatusOK {
 		t.Fatalf("expected admin token issue status 200, got %d body=%s", adminResp.Code, adminResp.Body.String())
 	}
@@ -723,9 +606,7 @@ func TestUsageEventRequestLogDownloadTokenAuthBoundary(t *testing.T) {
 		t.Fatalf("expected base path download URL, got %q", payload.DownloadURL)
 	}
 
-	downloadReq := httptest.NewRequest(http.MethodGet, payload.DownloadURL, nil)
-	downloadResp := httptest.NewRecorder()
-	router.ServeHTTP(downloadResp, downloadReq)
+	downloadResp := serveAPIGet(router, payload.DownloadURL)
 	if downloadResp.Code != http.StatusOK {
 		t.Fatalf("expected token-only download status 200, got %d body=%s", downloadResp.Code, downloadResp.Body.String())
 	}
@@ -749,11 +630,7 @@ func TestUsageEventRequestLogDownloadSanitizesAttachmentFilename(t *testing.T) {
 		Downloadable: true,
 	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{RequestLogs: requestLogProvider, Status: StatusRouteConfig{CPARequestLogAccessEnabled: true}})
-	issueReq := httptest.NewRequest(http.MethodPost, "/api/v1/usage/events/42/request-log/download-token", nil)
-	issueReq.Header.Set("X-CPA-Usage-Keeper-Request", "fetch")
-	issueResp := httptest.NewRecorder()
-
-	router.ServeHTTP(issueResp, issueReq)
+	issueResp := serveCredentialMutation(router, http.MethodPost, "/api/v1/usage/events/42/request-log/download-token", "")
 
 	if issueResp.Code != http.StatusOK {
 		t.Fatalf("expected token status 200, got %d body=%s", issueResp.Code, issueResp.Body.String())
@@ -762,10 +639,7 @@ func TestUsageEventRequestLogDownloadSanitizesAttachmentFilename(t *testing.T) {
 	if err := json.NewDecoder(issueResp.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode token response: %v", err)
 	}
-	req := httptest.NewRequest(http.MethodGet, payload.DownloadURL, nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, payload.DownloadURL)
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d body=%s", resp.Code, resp.Body.String())
@@ -796,20 +670,23 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 		APIGroupKey:         "sk-export123456",
 		Model:               "claude-sonnet",
 		ModelAlias:          "sonnet-export",
+		ResponseModel:       "actual-export-model",
 		ReasoningEffort:     "medium",
 		ServiceTier:         "auto",
 		ResponseServiceTier: "default",
-		ClientIP:            usageEventStringPtr("192.0.2.10"),
-		XForwardedFor:       usageEventStringPtr("203.0.113.5, 198.51.100.8"),
-		UserAgent:           usageEventStringPtr("test-client/1.0"),
+		ClientIP:            new("192.0.2.10"),
+		XForwardedFor:       new("203.0.113.5, 198.51.100.8"),
+		UserAgent:           new("test-client/1.0"),
 		ExecutorType:        "responses",
 		Endpoint:            "POST /v1/responses",
 		AuthType:            "apikey",
 		Provider:            "Provider Fallback",
 		AuthIndex:           "authidx-export-main",
 		Failed:              true,
-		LatencyMS:           2045,
-		TTFTMS:              usageEventInt64Ptr(45),
+		StatusCode:          new(429),
+		Stream:              new(false),
+		LatencyMS:           2000,
+		TTFTMS:              new(int64(45)),
 		InputTokens:         10,
 		OutputTokens:        61,
 		ReasoningTokens:     2,
@@ -837,10 +714,7 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 			Provider:     "Provider",
 		}}},
 	})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/export?range=24h&page=3&page_size=100&model=claude-sonnet&source=authidx-export-main&result=failed&format=csv", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/events/export?range=24h&page=3&page_size=100&model=claude-sonnet&source=authidx-export-main&result=failed&format=csv")
 
 	body := resp.Body.String()
 	if resp.Code != http.StatusOK {
@@ -861,14 +735,14 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 	if !regexp.MustCompile(`filename="usage-events-\d{8}-\d{6}\.csv"`).MatchString(resp.Header().Get("Content-Disposition")) {
 		t.Fatalf("expected timestamped csv filename, got %q", resp.Header().Get("Content-Disposition"))
 	}
-	if !contains(body, "cpa_api_key_id") || !contains(body, "auth_index") || !contains(body, "model_alias") || !contains(body, "response_service_tier") || !contains(body, "executor_type") || !contains(body, "is_identity_deleted") {
-		t.Fatalf("expected cpa_api_key_id, auth_index, model_alias, response_service_tier, executor_type, and is_identity_deleted columns, got %s", body)
+	if !contains(body, "cpa_api_key_id") || !contains(body, "auth_index") || !contains(body, "model_alias") || !contains(body, "response_model") || !contains(body, "response_service_tier") || !contains(body, "executor_type") || !contains(body, "is_identity_deleted") {
+		t.Fatalf("expected cpa_api_key_id, auth_index, model_alias, response_model, response_service_tier, executor_type, and is_identity_deleted columns, got %s", body)
 	}
 	if !contains(body, "cache_read_tokens,cache_creation_tokens,cache_read_rate") || !contains(body, ",3,4,30,") || contains(body, "cached_tokens") {
 		t.Fatalf("expected canonical cache token fields in csv export, got %s", body)
 	}
-	if !regexp.MustCompile(`(?m)^id,timestamp,api_key,cpa_api_key_id,source,source_type,auth_index,is_identity_deleted,model,model_alias,reasoning_effort,`).MatchString(body) {
-		t.Fatalf("expected model_alias to follow model in csv header, got %s", body)
+	if !regexp.MustCompile(`(?m)^id,timestamp,api_key,cpa_api_key_id,source,source_type,auth_index,is_identity_deleted,model,model_alias,response_model,reasoning_effort,`).MatchString(body) {
+		t.Fatalf("expected response_model to follow model_alias in csv header, got %s", body)
 	}
 	if !contains(body, "speed_tps,client_ip,x_forwarded_for,user_agent,input_tokens") || !contains(body, ",30.5,192.0.2.10,\"203.0.113.5, 198.51.100.8\",test-client/1.0,10,") {
 		t.Fatalf("expected client metadata after speed in csv export, got %s", body)
@@ -876,13 +750,16 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 	if !contains(body, "service_tier,response_service_tier,executor_type") || !contains(body, ",auto,default,responses,") {
 		t.Fatalf("expected separate request and response service tiers in csv export, got %s", body)
 	}
+	if !contains(body, "result,status_code,stream,endpoint") || !contains(body, "failed,429,false,POST /v1/responses") {
+		t.Fatalf("expected status_code and stream in csv export, got %s", body)
+	}
 	if contains(body, "is_deleted") {
 		t.Fatalf("expected export to use is_identity_deleted instead of is_deleted, got %s", body)
 	}
 	if contains(body, "cost_available") || contains(body, "pricing_style") {
 		t.Fatalf("expected csv export to omit cost availability metadata, got %s", body)
 	}
-	if !contains(body, "Export Key") || !contains(body, ",7,") || !contains(body, "authidx-export-main") || !contains(body, "sonnet-export") || !contains(body, "responses") || !contains(body, "failed") {
+	if !contains(body, "Export Key") || !contains(body, ",7,") || !contains(body, "authidx-export-main") || !contains(body, "sonnet-export") || !contains(body, "actual-export-model") || !contains(body, "responses") || !contains(body, "failed") {
 		t.Fatalf("expected exported row values, got %s", body)
 	}
 }
@@ -891,15 +768,12 @@ func TestUsageEventsExportCSVFormatsClientMetadataAsText(t *testing.T) {
 	provider := &usageEventsStub{exportEvents: []servicedto.UsageEventRecord{{
 		ID:            54,
 		Timestamp:     time.Date(2026, 7, 29, 9, 0, 0, 0, time.UTC),
-		ClientIP:      usageEventStringPtr("=1+1"),
-		XForwardedFor: usageEventStringPtr("+SUM(1,1)"),
-		UserAgent:     usageEventStringPtr("@HYPERLINK(\"https://example.invalid\")"),
+		ClientIP:      new("=1+1"),
+		XForwardedFor: new("+SUM(1,1)"),
+		UserAgent:     new("@HYPERLINK(\"https://example.invalid\")"),
 	}}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/export?range=24h&format=csv", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/events/export?range=24h&format=csv")
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
@@ -951,9 +825,7 @@ func TestUsageEventsExportAllowsTwoConcurrentStreamsAndRejectsThird(t *testing.T
 	results := make(chan exportResult, 3)
 	for range 3 {
 		go func() {
-			response := httptest.NewRecorder()
-			request := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/export?range=24h&format=csv", nil)
-			router.ServeHTTP(response, request)
+			response := serveAPIGet(router, "/api/v1/usage/events/export?range=24h&format=csv")
 			results <- exportResult{status: response.Code, body: response.Body.String()}
 		}()
 	}
@@ -990,9 +862,7 @@ func TestUsageEventsExportAllowsTwoConcurrentStreamsAndRejectsThird(t *testing.T
 		}
 	}
 
-	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/export?range=24h&format=json", nil)
-	router.ServeHTTP(response, request)
+	response := serveAPIGet(router, "/api/v1/usage/events/export?range=24h&format=json")
 	if response.Code != http.StatusOK {
 		t.Fatalf("expected a later export to reuse a released slot, got %d body=%s", response.Code, response.Body.String())
 	}
@@ -1010,16 +880,18 @@ func TestUsageEventsExportJSONIncludesAllExportFields(t *testing.T) {
 		ModelAlias:          "gpt-json-alias",
 		ServiceTier:         "auto",
 		ResponseServiceTier: "default",
-		ClientIP:            usageEventStringPtr("192.0.2.11"),
-		XForwardedFor:       usageEventStringPtr("203.0.113.6"),
-		UserAgent:           usageEventStringPtr("json-client/1.0"),
+		ClientIP:            new("192.0.2.11"),
+		XForwardedFor:       new("203.0.113.6"),
+		UserAgent:           new("json-client/1.0"),
 		ExecutorType:        "chat_completions",
 		Endpoint:            "GET /v1/responses",
 		AuthType:            "oauth",
 		Source:              "claude-code",
 		AuthIndex:           "auth-file-export",
 		Failed:              false,
-		LatencyMS:           300,
+		StatusCode:          new(200),
+		Stream:              new(true),
+		LatencyMS:           500,
 		InputTokens:         9,
 		OutputTokens:        5,
 		CacheReadTokens:     3,
@@ -1035,10 +907,7 @@ func TestUsageEventsExportJSONIncludesAllExportFields(t *testing.T) {
 			KeyAlias: "Team <Ops> & Co",
 		}},
 	})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/export?range=24h&format=json", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/events/export?range=24h&format=json")
 
 	body := resp.Body.String()
 	if resp.Code != http.StatusOK {
@@ -1050,33 +919,29 @@ func TestUsageEventsExportJSONIncludesAllExportFields(t *testing.T) {
 	if !regexp.MustCompile(`filename="usage-events-\d{8}-\d{6}\.json"`).MatchString(resp.Header().Get("Content-Disposition")) {
 		t.Fatalf("expected timestamped json filename, got %q", resp.Header().Get("Content-Disposition"))
 	}
-	if !contains(body, `"total_count":1`) || contains(body, `"page"`) || contains(body, `"page_size"`) {
-		t.Fatalf("expected export metadata without pagination, got %s", body)
+	for _, fragment := range []string{
+		`"total_count":1`, `"auth_index":"auth-file-export"`, `"model_alias":"gpt-json-alias"`,
+		`"executor_type":"chat_completions"`, `"endpoint":"GET /v1/responses"`, `"is_identity_deleted":true`,
+		`"api_key":"Team <Ops> & Co"`, `"cpa_api_key_id":"9"`, `"source_type":""`,
+		`"reasoning_effort":""`, `"ttft_ms":null`, `"speed_tps":10`,
+		`"service_tier":"auto"`, `"response_service_tier":"default"`, `"client_ip":"192.0.2.11"`,
+		`"x_forwarded_for":"203.0.113.6"`, `"user_agent":"json-client/1.0"`, `"cache_read_tokens":3`,
+		`"cache_creation_tokens":4`, `"cache_read_rate":33.33333333333333`, `"status_code":200`, `"stream":true`,
+	} {
+		if !contains(body, fragment) {
+			t.Fatalf("missing JSON field/value %s in %s", fragment, body)
+		}
 	}
-	if !contains(body, `"auth_index":"auth-file-export"`) || !contains(body, `"model_alias":"gpt-json-alias"`) || !contains(body, `"executor_type":"chat_completions"`) || !contains(body, `"endpoint":"GET /v1/responses"`) || !contains(body, `"is_identity_deleted":true`) {
-		t.Fatalf("expected raw export fields in json body, got %s", body)
+	for _, fragment := range []string{
+		`"page"`, `"page_size"`, `\u003c`,
+		`\u0026`, `\u003e`, `"cached_tokens"`,
+		`"is_deleted"`, `"cost_available"`, `"pricing_style"`,
+	} {
+		if contains(body, fragment) {
+			t.Fatalf("unexpected JSON field/value %s in %s", fragment, body)
+		}
 	}
-	if !contains(body, `"api_key":"Team <Ops> & Co"`) || contains(body, `\u003c`) || contains(body, `\u0026`) || contains(body, `\u003e`) {
-		t.Fatalf("expected json export to preserve plain text values without HTML escaping, got %s", body)
-	}
-	if !contains(body, `"cpa_api_key_id":"9"`) || !contains(body, `"source_type":""`) || !contains(body, `"reasoning_effort":""`) || !contains(body, `"ttft_ms":null`) || !contains(body, `"speed_tps":null`) {
-		t.Fatalf("expected json export to keep a stable field set, got %s", body)
-	}
-	if !contains(body, `"service_tier":"auto"`) || !contains(body, `"response_service_tier":"default"`) {
-		t.Fatalf("expected separate request and response service tiers in json export, got %s", body)
-	}
-	if !contains(body, `"client_ip":"192.0.2.11"`) || !contains(body, `"x_forwarded_for":"203.0.113.6"`) || !contains(body, `"user_agent":"json-client/1.0"`) {
-		t.Fatalf("expected client metadata in json export, got %s", body)
-	}
-	if contains(body, `"cached_tokens"`) || !contains(body, `"cache_read_tokens":3`) || !contains(body, `"cache_creation_tokens":4`) || !contains(body, `"cache_read_rate":33.33333333333333`) {
-		t.Fatalf("expected canonical cache token fields in json export, got %s", body)
-	}
-	if contains(body, `"is_deleted"`) {
-		t.Fatalf("expected json export to use is_identity_deleted instead of is_deleted, got %s", body)
-	}
-	if contains(body, `"cost_available"`) || contains(body, `"pricing_style"`) {
-		t.Fatalf("expected json export to omit cost availability metadata, got %s", body)
-	}
+
 }
 
 func TestUsageEventsExportStreamSetupErrorReturnsServerError(t *testing.T) {
@@ -1084,10 +949,7 @@ func TestUsageEventsExportStreamSetupErrorReturnsServerError(t *testing.T) {
 		t.Run(format, func(t *testing.T) {
 			provider := &usageEventsStub{err: errors.New("stream setup failed")}
 			router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/export?range=24h&format="+format, nil)
-			resp := httptest.NewRecorder()
-
-			router.ServeHTTP(resp, req)
+			resp := serveAPIGet(router, "/api/v1/usage/events/export?range=24h&format="+format)
 
 			if resp.Code != http.StatusInternalServerError {
 				t.Fatalf("expected status 500 before export body is written, got %d: %s", resp.Code, resp.Body.String())
@@ -1099,125 +961,45 @@ func TestUsageEventsExportStreamSetupErrorReturnsServerError(t *testing.T) {
 	}
 }
 
-func TestUsageEventsResponseDoesNotExposeSourceKey(t *testing.T) {
-	provider := &usageEventsStub{events: []servicedto.UsageEventRecord{{
-		ID:        48,
-		Timestamp: time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
-		Model:     "claude-sonnet",
-		AuthType:  "apikey",
-		Provider:  "Fallback Provider",
-		AuthIndex: "provider-auth-index",
-	}}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{
-		ID:           12,
-		Name:         "Provider Name",
-		AuthType:     entities.UsageIdentityAuthTypeAIProvider,
-		AuthTypeName: "apikey",
-		Identity:     "provider-auth-index",
-	}}}})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
-
-	body := resp.Body.String()
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
-	}
-	if contains(body, `"source_key"`) {
-		t.Fatalf("expected source_key to be removed from usage event response, got %s", body)
-	}
-}
-
-func TestUsageEventsResolvesCPAAPIKeyAliasFromGroupKey(t *testing.T) {
-	provider := &usageEventsStub{events: []servicedto.UsageEventRecord{{
-		ID:          49,
-		Timestamp:   time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
-		APIGroupKey: "sk-alpha123456",
-		Model:       "claude-sonnet",
-		AuthType:    "apikey",
-		Provider:    "Fallback Provider",
-	}}}
-	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{
-		ID:         7,
-		APIKey:     "sk-alpha123456",
-		DisplayKey: "sk-*********123456",
-		KeyAlias:   "Production Key",
-	}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: keyProvider})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
-
-	body := resp.Body.String()
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
-	}
-	if !contains(body, `"api_key":"Production Key"`) {
-		t.Fatalf("expected API key alias in response body: %s", body)
-	}
-	if contains(body, `sk-alpha123456`) || contains(body, `sk-*********123456`) {
-		t.Fatalf("expected raw and masked key to be hidden when alias exists, got %s", body)
-	}
-}
-
-func TestUsageEventsFallsBackToMaskedCPAAPIKeyFromGroupKey(t *testing.T) {
-	provider := &usageEventsStub{events: []servicedto.UsageEventRecord{{
-		ID:          50,
-		Timestamp:   time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
-		APIGroupKey: "sk-beta654321",
-		Model:       "claude-sonnet",
-		AuthType:    "apikey",
-		Provider:    "Fallback Provider",
-	}}}
-	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{
-		ID:         8,
-		APIKey:     "sk-beta654321",
-		DisplayKey: "sk-*********654321",
-	}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: keyProvider})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
-
-	body := resp.Body.String()
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
-	}
-	if !contains(body, `"api_key":"sk-*********654321"`) {
-		t.Fatalf("expected masked API key in response body: %s", body)
-	}
-	if contains(body, `sk-beta654321`) {
-		t.Fatalf("expected raw API key to stay hidden, got %s", body)
-	}
-}
-
-func TestUsageEventsFallsBackToCanonicalMaskedAPIKeyWhenGroupKeyIsUnmatched(t *testing.T) {
-	provider := &usageEventsStub{events: []servicedto.UsageEventRecord{{
-		ID:          51,
-		Timestamp:   time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
-		APIGroupKey: "sk-BabcdefghijklmnopqrstuvwxyzmaWyTA",
-		Model:       "claude-sonnet",
-		AuthType:    "apikey",
-		Provider:    "Fallback Provider",
-	}}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
-
-	body := resp.Body.String()
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
-	}
-	if !contains(body, `"api_key":"sk-*********maWyTA"`) {
-		t.Fatalf("expected canonical masked API key in response body: %s", body)
-	}
-	if contains(body, `sk-BabcdefghijklmnopqrstuvwxyzmaWyTA`) || contains(body, `sk-B***************************WyTA`) {
-		t.Fatalf("expected raw and variable-length masked keys to stay hidden, got %s", body)
+func TestUsageEventsResolvesCPAAPIKeyDisplay(t *testing.T) {
+	for _, tc := range []struct {
+		name, groupKey, alias, want string
+		matched                     bool
+		hiddenMask                  string
+	}{
+		{"alias", "sk-alpha123456", "Production Key", "Production Key", true, "sk-*********123456"},
+		{"matched without alias", "sk-beta654321", "", "sk-*********654321", true, ""},
+		{"unmatched", "sk-BabcdefghijklmnopqrstuvwxyzmaWyTA", "", "sk-*********maWyTA", false, "sk-B***************************WyTA"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := &usageEventsStub{events: []servicedto.UsageEventRecord{{
+				ID: 49, Timestamp: time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
+				APIGroupKey: tc.groupKey, Model: "claude-sonnet", AuthType: "apikey", Provider: "Fallback Provider",
+			}}}
+			var keys service.CPAAPIKeyProvider
+			if tc.matched {
+				keys = &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 7, APIKey: tc.groupKey, DisplayKey: "sk-*********" + tc.groupKey[len(tc.groupKey)-6:], KeyAlias: tc.alias}}
+			}
+			router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: keys})
+			resp := serveAPIGet(router, "/api/v1/usage/events?range=24h")
+			if resp.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+			}
+			var payload struct {
+				Events []struct {
+					APIKey string `json:"api_key"`
+				} `json:"events"`
+			}
+			if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+				t.Fatal(err)
+			}
+			if len(payload.Events) != 1 || payload.Events[0].APIKey != tc.want {
+				t.Fatalf("unexpected API key display: %s", resp.Body.String())
+			}
+			if contains(resp.Body.String(), tc.groupKey) || (tc.hiddenMask != "" && contains(resp.Body.String(), tc.hiddenMask)) {
+				t.Fatalf("key leaked in response: %s", resp.Body.String())
+			}
+		})
 	}
 }
 
@@ -1242,10 +1024,7 @@ func TestUsageEventsResolvesAPIKeySourceFromProviderIdentity(t *testing.T) {
 		Provider:      "Provider",
 		TotalRequests: 1,
 	}}}})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/events?range=24h")
 
 	body := resp.Body.String()
 	if resp.Code != http.StatusOK {
@@ -1286,10 +1065,7 @@ func TestUsageEventsDoesNotResolveProviderIdentityFromSource(t *testing.T) {
 		Provider:      "Provider",
 		TotalRequests: 1,
 	}}}})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/events?range=24h")
 
 	body := resp.Body.String()
 	if resp.Code != http.StatusOK {
@@ -1303,63 +1079,28 @@ func TestUsageEventsDoesNotResolveProviderIdentityFromSource(t *testing.T) {
 	}
 }
 
-func TestUsageEventsMarksRowDeletedWhenAuthIndexHasNoIdentity(t *testing.T) {
-	provider := &usageEventsStub{events: []servicedto.UsageEventRecord{{
-		ID:        46,
-		Timestamp: time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
-		Model:     "claude-sonnet",
-		AuthType:  "apikey",
-		Provider:  "Fallback Provider",
-		AuthIndex: "missing-auth-index",
-	}}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{
-		ID:           12,
-		Name:         "Provider Name",
-		AuthType:     entities.UsageIdentityAuthTypeAIProvider,
-		AuthTypeName: "apikey",
-		Identity:     "other-auth-index",
-	}}}})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
-
-	body := resp.Body.String()
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
-	}
-	if !contains(body, `"isDelete":true`) {
-		t.Fatalf("expected missing identity row to be marked deleted, got %s", body)
-	}
-}
-
-func TestUsageEventsDoesNotMarkRowDeletedWhenAuthIndexMatchesIdentity(t *testing.T) {
-	provider := &usageEventsStub{events: []servicedto.UsageEventRecord{{
-		ID:        47,
-		Timestamp: time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
-		Model:     "claude-sonnet",
-		AuthType:  "apikey",
-		Provider:  "Fallback Provider",
-		AuthIndex: "provider-auth-index",
-	}}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{
-		ID:           12,
-		Name:         "Provider Name",
-		AuthType:     entities.UsageIdentityAuthTypeAIProvider,
-		AuthTypeName: "apikey",
-		Identity:     "provider-auth-index",
-	}}}})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
-
-	body := resp.Body.String()
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
-	}
-	if contains(body, `"isDelete":true`) {
-		t.Fatalf("expected matched identity row not to be marked deleted, got %s", body)
+func TestUsageEventsMarksDeletedFromAuthIndexIdentityMatch(t *testing.T) {
+	for _, authIndex := range []string{"missing-auth-index", "provider-auth-index"} {
+		t.Run(authIndex, func(t *testing.T) {
+			provider := &usageEventsStub{events: []servicedto.UsageEventRecord{{
+				ID: 46, Timestamp: time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
+				Model: "claude-sonnet", AuthType: "apikey", Provider: "Fallback Provider", AuthIndex: authIndex,
+			}}}
+			router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{
+				ID: 12, Name: "Provider Name", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "provider-auth-index",
+			}}}})
+			resp := serveAPIGet(router, "/api/v1/usage/events?range=24h")
+			if resp.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", resp.Code, resp.Body.String())
+			}
+			body := resp.Body.String()
+			if contains(body, `"isDelete":true`) != (authIndex == "missing-auth-index") {
+				t.Fatalf("unexpected identity deletion marker: %s", body)
+			}
+			if contains(body, `"source_key"`) {
+				t.Fatalf("source_key exposed: %s", body)
+			}
+		})
 	}
 }
 
@@ -1373,10 +1114,7 @@ func TestUsageEventsKeepsFallbackSourceWhenAuthIndexIsMissing(t *testing.T) {
 		Source:    "sk-provider-key",
 	}}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/events?range=24h")
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
@@ -1390,10 +1128,7 @@ func TestUsageEventsKeepsFallbackSourceWhenAuthIndexIsMissing(t *testing.T) {
 func TestUsageEventsPassesPaginationAndAuthIndexSourceFilter(t *testing.T) {
 	provider := &usageEventsStub{eventsPage: &servicedto.UsageEventsPage{Events: []servicedto.UsageEventRecord{}, TotalCount: 0, Page: 3, PageSize: 100, TotalPages: 0}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h&page=3&page_size=100&model=claude-sonnet&source=authidx-openai-main&result=failed", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/events?range=24h&page=3&page_size=100&model=claude-sonnet&source=authidx-openai-main&result=failed")
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
@@ -1416,10 +1151,7 @@ func TestUsageEventsPassesPaginationAndAuthIndexSourceFilter(t *testing.T) {
 func TestUsageEventsPassesLatestIdentityTypeFilterWithoutRange(t *testing.T) {
 	provider := &usageEventsStub{eventsPage: &servicedto.UsageEventsPage{Events: []servicedto.UsageEventRecord{}, TotalCount: 0, Page: 1, PageSize: 50}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?cursor_mode=true&page_size=50&source=shared-auth&auth_type=2", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/events?cursor_mode=true&page_size=50&source=shared-auth&auth_type=2")
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d body=%s", resp.Code, resp.Body.String())
@@ -1438,10 +1170,7 @@ func TestUsageEventsPassesLatestIdentityTypeFilterWithoutRange(t *testing.T) {
 func TestUsageEventsExportRejectsLatestIdentityQueryWithoutRange(t *testing.T) {
 	provider := &usageEventsStub{}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/export?format=csv&cursor_mode=true&source=shared-auth&auth_type=2", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/events/export?format=csv&cursor_mode=true&source=shared-auth&auth_type=2")
 
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d body=%s", resp.Code, resp.Body.String())
@@ -1461,9 +1190,7 @@ func TestUsageEventsReturnsAndAcceptsCursorPagination(t *testing.T) {
 		HasMore:    true,
 	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	firstRequest := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h&page_size=20&cursor_mode=true", nil)
-	firstResponse := httptest.NewRecorder()
-	router.ServeHTTP(firstResponse, firstRequest)
+	firstResponse := serveAPIGet(router, "/api/v1/usage/events?range=24h&page_size=20&cursor_mode=true")
 
 	if firstResponse.Code != http.StatusOK {
 		t.Fatalf("expected first cursor response status 200, got %d", firstResponse.Code)
@@ -1500,10 +1227,7 @@ func TestUsageEventsReturnsAndAcceptsCursorPagination(t *testing.T) {
 func TestUsageEventsPassesAuthFileIdentitySourceFilterAsAuthIndex(t *testing.T) {
 	provider := &usageEventsStub{eventsPage: &servicedto.UsageEventsPage{Events: []servicedto.UsageEventRecord{}, TotalCount: 0, Page: 1, PageSize: 100, TotalPages: 0}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h&source=auth-file-index", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/events?range=24h&source=auth-file-index")
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
@@ -1521,10 +1245,7 @@ func TestUsageEventsDoesNotReturnFilterOptions(t *testing.T) {
 		TotalCount: 2, Page: 1, PageSize: 20, TotalPages: 1,
 	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/events?range=24h")
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
@@ -1540,10 +1261,7 @@ func TestUsageEventModelFilterOptionsReturnsStableModels(t *testing.T) {
 		Models: []string{"claude-sonnet", "gpt-5"},
 	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/filters/models?range=24h&model=ignored&source=ignored&result=failed&page=3&page_size=20", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/events/filters/models?range=24h&model=ignored&source=ignored&result=failed&page=3&page_size=20")
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
@@ -1566,66 +1284,20 @@ func TestUsageEventSpeedTPS(t *testing.T) {
 		row  servicedto.UsageEventRecord
 		want *float64
 	}{
-		{
-			name: "uses output tokens over generation duration",
-			row: servicedto.UsageEventRecord{
-				LatencyMS:    2045,
-				TTFTMS:       usageEventInt64Ptr(45),
-				OutputTokens: 61,
-			},
-			want: usageEventFloat64Ptr(30.5),
-		},
-		{
-			name: "does not subtract reasoning tokens",
-			row: servicedto.UsageEventRecord{
-				LatencyMS:       2045,
-				TTFTMS:          usageEventInt64Ptr(45),
-				OutputTokens:    61,
-				ReasoningTokens: 2,
-			},
-			want: usageEventFloat64Ptr(30.5),
-		},
-		{
-			name: "omits speed without ttft",
-			row: servicedto.UsageEventRecord{
-				LatencyMS:    2045,
-				OutputTokens: 61,
-			},
-		},
-		{
-			name: "omits speed when latency does not exceed ttft",
-			row: servicedto.UsageEventRecord{
-				LatencyMS:    45,
-				TTFTMS:       usageEventInt64Ptr(45),
-				OutputTokens: 61,
-			},
-		},
-		{
-			name: "uses a single output token",
-			row: servicedto.UsageEventRecord{
-				LatencyMS:    2045,
-				TTFTMS:       usageEventInt64Ptr(45),
-				OutputTokens: 1,
-			},
-			want: usageEventFloat64Ptr(0.5),
-		},
-		{
-			name: "uses full output tokens when reasoning is present",
-			row: servicedto.UsageEventRecord{
-				LatencyMS:       2045,
-				TTFTMS:          usageEventInt64Ptr(45),
-				OutputTokens:    4,
-				ReasoningTokens: 3,
-			},
-			want: usageEventFloat64Ptr(2),
-		},
-		{
-			name: "omits speed without output tokens",
-			row: servicedto.UsageEventRecord{
-				LatencyMS: 2045,
-				TTFTMS:    usageEventInt64Ptr(45),
-			},
-		},
+		{"total latency", servicedto.UsageEventRecord{LatencyMS: 2000, TTFTMS: new(int64(45)), OutputTokens: 61}, new(30.5)},
+		{"reasoning included", servicedto.UsageEventRecord{LatencyMS: 2000, TTFTMS: new(int64(45)), OutputTokens: 61, ReasoningTokens: 2}, new(30.5)},
+		{"missing ttft", servicedto.UsageEventRecord{LatencyMS: 2000, OutputTokens: 61}, new(30.5)},
+		{"ttft equals latency", servicedto.UsageEventRecord{LatencyMS: 2000, TTFTMS: new(int64(2000)), OutputTokens: 61}, new(30.5)},
+		{"one output token", servicedto.UsageEventRecord{LatencyMS: 2000, TTFTMS: new(int64(45)), OutputTokens: 1}, new(0.5)},
+		{"mostly reasoning", servicedto.UsageEventRecord{LatencyMS: 2000, TTFTMS: new(int64(45)), OutputTokens: 4, ReasoningTokens: 3}, new(float64(2))},
+		{"zero output", servicedto.UsageEventRecord{LatencyMS: 2000, TTFTMS: new(int64(45))}, nil},
+		{"zero ttft", servicedto.UsageEventRecord{LatencyMS: 2000, TTFTMS: new(int64(0)), OutputTokens: 61}, new(30.5)},
+		{"negative ttft", servicedto.UsageEventRecord{LatencyMS: 2000, TTFTMS: new(int64(-45)), OutputTokens: 61}, new(30.5)},
+		{"ttft exceeds latency", servicedto.UsageEventRecord{LatencyMS: 2000, TTFTMS: new(int64(3000)), OutputTokens: 61}, new(30.5)},
+		{"ttft nearly equals latency", servicedto.UsageEventRecord{LatencyMS: 2000, TTFTMS: new(int64(1999)), OutputTokens: 61}, new(30.5)},
+		{"zero latency", servicedto.UsageEventRecord{OutputTokens: 61}, nil},
+		{"negative latency", servicedto.UsageEventRecord{LatencyMS: -1, OutputTokens: 61}, nil},
+		{"negative output", servicedto.UsageEventRecord{LatencyMS: 2000, OutputTokens: -1}, nil},
 	}
 
 	for _, tc := range tests {
@@ -1637,7 +1309,7 @@ func TestUsageEventSpeedTPS(t *testing.T) {
 				}
 				return
 			}
-			if got == nil || math.Abs(*got-*tc.want) > 0.000001 {
+			if got == nil || !(math.Abs(*got-*tc.want) <= 0.000001) {
 				t.Fatalf("expected speed %.6f, got %v", *tc.want, got)
 			}
 		})
@@ -1647,10 +1319,7 @@ func TestUsageEventSpeedTPS(t *testing.T) {
 func TestUsageEventSourceFilterOptionsReturnsIdentitySources(t *testing.T) {
 	provider := &usageEventsStub{}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{ID: 1, Name: "Claude Main", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "authidx-source-a", Type: "openai", Provider: "Provider A", TotalRequests: 3}, {ID: 2, Name: "Provider A", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "authidx-source-b", Type: "openai", Provider: "Provider A"}, {ID: 3, Name: "Auth User", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-1", Type: "claude", Provider: "Claude", TotalRequests: 2}, {ID: 4, Name: "Zero Request User", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-zero", Type: "claude", Provider: "Claude"}, {ID: 5, Name: "Zero Provider", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "authidx-source-zero", Type: "openai", Provider: "Zero Provider"}, {ID: 6, Name: "Deleted Source", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "authidx-deleted", Type: "openai", Provider: "Deleted Provider", TotalRequests: 5, IsDeleted: true}, {ID: 7, Name: "   ", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-display", Type: "claude", Provider: "Claude Display", TotalRequests: 1}}}})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/filters/sources?range=24h&model=ignored&source=ignored&result=failed&page=3&page_size=20", nil)
-	resp := httptest.NewRecorder()
-
-	router.ServeHTTP(resp, req)
+	resp := serveAPIGet(router, "/api/v1/usage/events/filters/sources?range=24h&model=ignored&source=ignored&result=failed&page=3&page_size=20")
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
@@ -1674,18 +1343,6 @@ func TestUsageEventSourceFilterOptionsReturnsIdentitySources(t *testing.T) {
 	if contains(body, `Deleted Source`) || contains(body, `Deleted Provider`) || contains(body, `authidx-deleted`) {
 		t.Fatalf("expected deleted source filter options to be omitted, got %s", body)
 	}
-}
-
-func usageEventInt64Ptr(value int64) *int64 {
-	return &value
-}
-
-func usageEventStringPtr(value string) *string {
-	return &value
-}
-
-func usageEventFloat64Ptr(value float64) *float64 {
-	return &value
 }
 
 //go:linkname usageEventSpeedTPS cpa-usage-keeper/internal/api.usageEventSpeedTPS

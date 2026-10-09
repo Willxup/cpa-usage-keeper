@@ -21,11 +21,13 @@ vi.mock('@/features/ranking/api', async (importOriginal) => ({
 }));
 
 vi.mock('@/features/key-viewer/KeyViewerShell', () => ({
-  KeyViewerShell: ({ children, toolbar, activePage }: {
+  KeyViewerShell: ({ children, filters, activePage, onRefresh, refreshing }: {
     children: React.ReactNode;
-    toolbar: React.ReactNode;
+    filters: React.ReactNode[];
     activePage: string;
-  }) => <div data-active-page={activePage}>{toolbar}{children}</div>,
+    onRefresh: () => void;
+    refreshing: boolean;
+  }) => <div data-active-page={activePage}>{filters}<button type="button" onClick={onRefresh} disabled={refreshing}>usage_stats.refresh</button>{children}</div>,
 }));
 
 vi.mock('@/features/ranking/components/RankingScopeSwitch', () => ({
@@ -78,19 +80,6 @@ vi.mock('react-i18next', () => ({
 
 import { KeyRankingPage } from '../KeyRankingPage';
 
-type Deferred<T> = {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-};
-
-const deferred = <T,>(): Deferred<T> => {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((nextResolve) => {
-    resolve = nextResolve;
-  });
-  return { promise, resolve };
-};
-
 const board = (displayName: string): RankingLeaderboardResponse => ({
   period: 'today',
   period_key: '2026-08-28',
@@ -124,13 +113,14 @@ describe('KeyRankingPage', () => {
     container.remove();
   });
 
+  const renderPage = async (props: Partial<React.ComponentProps<typeof KeyRankingPage>> = {}) => {
+    await act(async () => root.render(<KeyRankingPage onNavigate={() => {}} {...props} />));
+  };
+
   it('defaults to a read-only Community board and hides Local scope when disabled', async () => {
     apiMocks.fetchKeyRankingLeaderboard.mockResolvedValue(board('Community'));
 
-    await act(async () => {
-      root.render(<KeyRankingPage apiKey={{ display_key: 'sk-***', local_ranking_enabled: false }} onNavigate={() => {}} />);
-      await Promise.resolve();
-    });
+    await renderPage({ apiKey: { display_key: 'sk-***', local_ranking_enabled: false } });
 
     expect(apiMocks.fetchKeyRankingLeaderboard).toHaveBeenCalledWith('today', 'overall', expect.any(AbortSignal));
     expect(apiMocks.fetchKeyLocalRankingLeaderboard).not.toHaveBeenCalled();
@@ -140,16 +130,13 @@ describe('KeyRankingPage', () => {
   });
 
   it('loads Local only when enabled and ignores the superseded Community response', async () => {
-    const community = deferred<RankingLeaderboardResponse>();
+    const community = Promise.withResolvers<RankingLeaderboardResponse>();
     apiMocks.fetchKeyRankingLeaderboard.mockReturnValue(community.promise);
     apiMocks.fetchKeyLocalRankingLeaderboard.mockResolvedValue(board('Local'));
 
+    await renderPage({ apiKey: { display_key: 'sk-***', local_ranking_enabled: true } });
     await act(async () => {
-      root.render(<KeyRankingPage apiKey={{ display_key: 'sk-***', local_ranking_enabled: true }} onNavigate={() => {}} />);
-    });
-    await act(async () => {
-      container.querySelector<HTMLButtonElement>('[data-scope="local"]')?.click();
-      await Promise.resolve();
+      container.querySelector<HTMLButtonElement>('[data-scope="local"]')!.click();
     });
 
     expect(apiMocks.fetchKeyLocalRankingLeaderboard).toHaveBeenCalledWith('today', 'overall', expect.any(AbortSignal));
@@ -157,7 +144,6 @@ describe('KeyRankingPage', () => {
 
     await act(async () => {
       community.resolve(board('Old Community'));
-      await Promise.resolve();
     });
     expect(container.querySelector('[data-ranking-results]')?.textContent).toBe('Local');
   });
@@ -166,10 +152,7 @@ describe('KeyRankingPage', () => {
     apiMocks.fetchKeyRankingLeaderboard.mockRejectedValue(new RankingApiError('expired', 401));
     const onAuthRequired = vi.fn();
 
-    await act(async () => {
-      root.render(<KeyRankingPage onNavigate={() => {}} onAuthRequired={onAuthRequired} />);
-      await Promise.resolve();
-    });
+    await renderPage({ onAuthRequired });
 
     expect(onAuthRequired).toHaveBeenCalled();
   });
@@ -177,17 +160,12 @@ describe('KeyRankingPage', () => {
   it('keeps the current board visible when a refresh fails', async () => {
     apiMocks.fetchKeyRankingLeaderboard.mockResolvedValueOnce(board('Community'));
 
-    await act(async () => {
-      root.render(<KeyRankingPage onNavigate={() => {}} />);
-      await Promise.resolve();
-    });
+    await renderPage();
     apiMocks.fetchKeyRankingLeaderboard.mockRejectedValueOnce(new RankingApiError('temporary', 503));
 
     await act(async () => {
       Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
-        .find((button) => button.textContent?.includes('usage_stats.refresh'))
-        ?.click();
-      await Promise.resolve();
+        .find((button) => button.textContent?.includes('usage_stats.refresh'))!.click();
     });
 
     expect(container.querySelector('[role="alert"]')).not.toBeNull();
@@ -197,19 +175,14 @@ describe('KeyRankingPage', () => {
   it('removes the current Community board when the selected period is no longer public', async () => {
     apiMocks.fetchKeyRankingLeaderboard.mockResolvedValueOnce(board('Community'));
 
-    await act(async () => {
-      root.render(<KeyRankingPage onNavigate={() => {}} />);
-      await Promise.resolve();
-    });
+    await renderPage();
     apiMocks.fetchKeyRankingLeaderboard.mockRejectedValueOnce(
       new RankingApiError('ranking_center_leaderboard_unavailable', 404),
     );
 
     await act(async () => {
       Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
-        .find((button) => button.textContent?.includes('usage_stats.refresh'))
-        ?.click();
-      await Promise.resolve();
+        .find((button) => button.textContent?.includes('usage_stats.refresh'))!.click();
     });
 
     expect(container.querySelector('[role="alert"]')).not.toBeNull();
@@ -218,17 +191,13 @@ describe('KeyRankingPage', () => {
 
   it('does not render the previous board under a newly selected scope', async () => {
     apiMocks.fetchKeyRankingLeaderboard.mockResolvedValueOnce(board('Community'));
-    apiMocks.fetchKeyLocalRankingLeaderboard.mockReturnValue(deferred<RankingLeaderboardResponse>().promise);
+    apiMocks.fetchKeyLocalRankingLeaderboard.mockReturnValue(Promise.withResolvers<RankingLeaderboardResponse>().promise);
 
-    await act(async () => {
-      root.render(<KeyRankingPage apiKey={{ display_key: 'sk-***', local_ranking_enabled: true }} onNavigate={() => {}} />);
-      await Promise.resolve();
-    });
+    await renderPage({ apiKey: { display_key: 'sk-***', local_ranking_enabled: true } });
     apiMocks.renderedResults.length = 0;
 
     await act(async () => {
-      container.querySelector<HTMLButtonElement>('[data-scope="local"]')?.click();
-      await Promise.resolve();
+      container.querySelector<HTMLButtonElement>('[data-scope="local"]')!.click();
     });
 
     expect(apiMocks.renderedResults).not.toContainEqual({
@@ -241,16 +210,12 @@ describe('KeyRankingPage', () => {
   it('does not render the previous board under a newly selected metric', async () => {
     apiMocks.fetchKeyRankingLeaderboard.mockResolvedValueOnce(board('Community'));
 
-    await act(async () => {
-      root.render(<KeyRankingPage onNavigate={() => {}} />);
-      await Promise.resolve();
-    });
-    apiMocks.fetchKeyRankingLeaderboard.mockReturnValueOnce(deferred<RankingLeaderboardResponse>().promise);
+    await renderPage();
+    apiMocks.fetchKeyRankingLeaderboard.mockReturnValueOnce(Promise.withResolvers<RankingLeaderboardResponse>().promise);
     apiMocks.renderedResults.length = 0;
 
     await act(async () => {
-      container.querySelector<HTMLButtonElement>('[data-ranking-metric]')?.click();
-      await Promise.resolve();
+      container.querySelector<HTMLButtonElement>('[data-ranking-metric]')!.click();
     });
 
     expect(apiMocks.renderedResults).not.toContainEqual({
@@ -263,16 +228,12 @@ describe('KeyRankingPage', () => {
   it('does not render the previous board while a newly selected period loads', async () => {
     apiMocks.fetchKeyRankingLeaderboard.mockResolvedValueOnce(board('Community'));
 
-    await act(async () => {
-      root.render(<KeyRankingPage onNavigate={() => {}} />);
-      await Promise.resolve();
-    });
-    apiMocks.fetchKeyRankingLeaderboard.mockReturnValueOnce(deferred<RankingLeaderboardResponse>().promise);
+    await renderPage();
+    apiMocks.fetchKeyRankingLeaderboard.mockReturnValueOnce(Promise.withResolvers<RankingLeaderboardResponse>().promise);
     apiMocks.renderedResults.length = 0;
 
     await act(async () => {
-      container.querySelector<HTMLButtonElement>('[data-ranking-period]')?.click();
-      await Promise.resolve();
+      container.querySelector<HTMLButtonElement>('[data-ranking-period]')!.click();
     });
 
     expect(apiMocks.renderedResults).toEqual([]);

@@ -2,14 +2,11 @@ package test
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/ranking"
-	"cpa-usage-keeper/internal/repository"
 )
 
 func TestAggregatorBuildsOneUTCDayFromUsageEvents(t *testing.T) {
@@ -57,71 +54,47 @@ func TestAggregatorBuildsOneUTCDayFromUsageEvents(t *testing.T) {
 	}
 }
 
-func TestAggregatorReturnsZeroMetricsForEmptyDay(t *testing.T) {
+func TestAggregatorReturnsZeroMetricsForEmptyRanges(t *testing.T) {
 	aggregator := ranking.NewAggregator(openRankingDatabase(t))
 	start := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
-
-	metrics, err := aggregator.AggregateDay(context.Background(), start, start.AddDate(0, 0, 1))
-	if err != nil {
-		t.Fatalf("AggregateDay returned error: %v", err)
-	}
-	if metrics != (ranking.Metrics{}) {
-		t.Fatalf("expected zero metrics, got %+v", metrics)
-	}
-}
-
-func TestAggregatorReturnsZeroMetricsAtExactUTCMidnight(t *testing.T) {
-	aggregator := ranking.NewAggregator(openRankingDatabase(t))
-	start := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
-
-	metrics, err := aggregator.AggregateDay(context.Background(), start, start)
-	if err != nil {
-		t.Fatalf("AggregateDay at midnight returned error: %v", err)
-	}
-	if metrics != (ranking.Metrics{}) {
-		t.Fatalf("expected zero midnight metrics, got %+v", metrics)
+	for _, duration := range []time.Duration{0, 24 * time.Hour} {
+		metrics, err := aggregator.AggregateDay(context.Background(), start, start.Add(duration))
+		if err != nil {
+			t.Fatalf("AggregateDay duration %s: %v", duration, err)
+		}
+		if metrics != (ranking.Metrics{}) {
+			t.Fatalf("duration %s metrics = %+v, want zero", duration, metrics)
+		}
 	}
 }
 
-func TestAggregatorAllowsCurrentUTCDayPrefix(t *testing.T) {
-	db := openRankingDatabase(t)
-	aggregator := ranking.NewAggregator(db)
+func TestAggregatorKeepsCurrentDayBoundaries(t *testing.T) {
 	start := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
-	events := []entities.UsageEvent{
-		{EventKey: "included", Timestamp: start.Add(time.Minute), TotalTokens: 12},
-		{EventKey: "excluded", Timestamp: start.Add(6 * time.Minute), TotalTokens: 99},
-	}
-	if err := db.Create(&events).Error; err != nil {
-		t.Fatalf("seed usage events: %v", err)
-	}
-
-	metrics, err := aggregator.AggregateDay(context.Background(), start, start.Add(5*time.Minute))
-	if err != nil {
-		t.Fatalf("AggregateDay current prefix returned error: %v", err)
-	}
-	if metrics.RequestCount != 1 || metrics.TotalTokens != 12 {
-		t.Fatalf("unexpected partial-day metrics: %+v", metrics)
-	}
-}
-
-func TestAggregatorKeepsFractionalCurrentDayBoundary(t *testing.T) {
-	db := openRankingDatabase(t)
-	start := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
-	end := start.Add(5*time.Minute + 500*time.Millisecond)
-	events := []entities.UsageEvent{
-		{EventKey: "before-fractional-end", Timestamp: end.Add(-100 * time.Millisecond), TotalTokens: 12},
-		{EventKey: "after-fractional-end", Timestamp: end.Add(100 * time.Millisecond), TotalTokens: 99},
-	}
-	if err := db.Create(&events).Error; err != nil {
-		t.Fatalf("seed fractional boundary events: %v", err)
-	}
-
-	metrics, err := ranking.NewAggregator(db).AggregateDay(context.Background(), start, end)
-	if err != nil {
-		t.Fatalf("AggregateDay fractional boundary returned error: %v", err)
-	}
-	if metrics.RequestCount != 1 || metrics.TotalTokens != 12 {
-		t.Fatalf("unexpected fractional boundary metrics: %+v", metrics)
+	for _, tc := range []struct {
+		name   string
+		end    time.Time
+		before time.Time
+		after  time.Time
+	}{
+		{"minute", start.Add(5 * time.Minute), start.Add(time.Minute), start.Add(6 * time.Minute)},
+		{"fractional", start.Add(5*time.Minute + 500*time.Millisecond), start.Add(5*time.Minute + 400*time.Millisecond), start.Add(5*time.Minute + 600*time.Millisecond)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := openRankingDatabase(t)
+			if err := db.Create([]entities.UsageEvent{
+				{EventKey: "included", Timestamp: tc.before, TotalTokens: 12},
+				{EventKey: "excluded", Timestamp: tc.after, TotalTokens: 99},
+			}).Error; err != nil {
+				t.Fatalf("seed boundary events: %v", err)
+			}
+			metrics, err := ranking.NewAggregator(db).AggregateDay(context.Background(), start, tc.end)
+			if err != nil {
+				t.Fatalf("AggregateDay: %v", err)
+			}
+			if metrics.RequestCount != 1 || metrics.TotalTokens != 12 {
+				t.Fatalf("unexpected boundary metrics: %+v", metrics)
+			}
+		})
 	}
 }
 
@@ -207,30 +180,15 @@ func TestAggregatorRejectsRangeOutsideOneCenterDay(t *testing.T) {
 	}
 	shanghai := time.FixedZone("Asia/Shanghai", 8*60*60)
 	if _, err := aggregator.AggregateDay(context.Background(), start.In(shanghai), start.Add(time.Hour).In(shanghai)); err == nil {
-		t.Fatal("expected non-UTC range to be rejected")
+		t.Fatal("expected non-midnight Shanghai range to be rejected")
 	}
 }
 
 func TestAggregatorBypassesOccupiedSQLiteWriter(t *testing.T) {
-	db, reader, err := repository.OpenDatabasePools(config.Config{SQLitePath: filepath.Join(t.TempDir(), "ranking-reader.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabasePools returned error: %v", err)
-	}
-	t.Cleanup(func() {
-		if sqlDB, err := db.DB(); err == nil {
-			_ = sqlDB.Close()
-		}
-		if sqlDB, err := reader.DB(); err == nil {
-			_ = sqlDB.Close()
-		}
-	})
+	db, writeSQL := openRankingDatabasePools(t)
 	start := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)
 	if err := db.Create(&entities.UsageEvent{EventKey: "reader-route", Timestamp: start.Add(time.Minute), TotalTokens: 12}).Error; err != nil {
 		t.Fatalf("seed usage event: %v", err)
-	}
-	writeSQL, err := db.DB()
-	if err != nil {
-		t.Fatalf("load writer pool: %v", err)
 	}
 	heldWriter, err := writeSQL.Conn(context.Background())
 	if err != nil {

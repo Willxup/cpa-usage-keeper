@@ -42,7 +42,7 @@ func TestPricingCatalogStartupFailsWhenPersistedSnapshotIsInvalid(t *testing.T) 
 	}
 
 	logDir := t.TempDir()
-	cfg := pricingCatalogStartupConfig(databasePath)
+	cfg := databasePoolTestConfig(databasePath)
 	cfg.LogFileEnabled = true
 	cfg.LogDir = logDir
 	previousStderr := os.Stderr
@@ -75,21 +75,15 @@ func TestPricingCatalogStartupFailsWhenPersistedSnapshotIsInvalid(t *testing.T) 
 	if !keeperapp.IsInitializationErrorLogged(err) {
 		t.Fatalf("expected initialization error to record that it was already logged, got %T", err)
 	}
-	errorLogPath := filepath.Join(logDir, "cpa-usage-keeper-error-"+time.Now().Format("2006-01-02")+".log")
-	errorLog, readErr := os.ReadFile(errorLogPath)
-	if readErr != nil {
-		t.Fatalf("read startup error log: %v", readErr)
-	}
-	if !strings.Contains(string(errorLog), "| fatal | initialize app") || !strings.Contains(string(errorLog), "pricing snapshot") {
-		t.Fatalf("expected initialization failure before log close, got %q", errorLog)
-	}
-	combinedLogPath := filepath.Join(logDir, "cpa-usage-keeper-"+time.Now().Format("2006-01-02")+".log")
-	combinedLog, readErr := os.ReadFile(combinedLogPath)
-	if readErr != nil {
-		t.Fatalf("read startup combined log: %v", readErr)
-	}
-	if !strings.Contains(string(combinedLog), "| fatal | initialize app") || !strings.Contains(string(combinedLog), "pricing snapshot") {
-		t.Fatalf("expected initialization failure in combined log, got %q", combinedLog)
+	for _, prefix := range []string{"cpa-usage-keeper-error-", "cpa-usage-keeper-"} {
+		logPath := filepath.Join(logDir, prefix+time.Now().Format("2006-01-02")+".log")
+		contents, err := os.ReadFile(logPath)
+		if err != nil {
+			t.Fatalf("read startup log %s: %v", logPath, err)
+		}
+		if !strings.Contains(string(contents), "| fatal | initialize app") || !strings.Contains(string(contents), "pricing snapshot") {
+			t.Fatalf("expected initialization failure before closing %s, got %q", logPath, contents)
+		}
 	}
 	if count := strings.Count(string(console), "initialize app"); count != 1 {
 		t.Fatalf("expected one initialization failure on stderr, got %d in %q", count, console)
@@ -101,22 +95,10 @@ func TestPricingCatalogStartupFailsWhenPersistedSnapshotIsInvalid(t *testing.T) 
 		t.Fatalf("expected failed App construction to release database pools: %v", openErr)
 	}
 	verificationSQL, sqlErr := verificationDB.DB()
-	if sqlErr == nil {
-		_ = verificationSQL.Close()
+	if sqlErr != nil {
+		t.Fatalf("get verification SQL database: %v", sqlErr)
 	}
-}
-
-func pricingCatalogStartupConfig(databasePath string) config.Config {
-	return config.Config{
-		AppPort:                "invalid-port",
-		CPABaseURL:             "https://cpa.example.com",
-		CPAManagementKey:       "secret",
-		RedisQueueIdleInterval: time.Second,
-		MetadataSyncInterval:   30 * time.Second,
-		SQLitePath:             databasePath,
-		RequestTimeout:         5 * time.Second,
-		LogLevel:               "info",
-		LogFileEnabled:         false,
-		LogRetentionDays:       7,
+	if err := verificationSQL.Close(); err != nil {
+		t.Fatalf("close verification database: %v", err)
 	}
 }

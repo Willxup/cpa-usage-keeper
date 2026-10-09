@@ -61,3 +61,18 @@
     outline-offset: 2px;
   }
 }
+
+// 卡片标题旁的计数标签共用同一套尺寸与换行规则。
+@mixin card-count-badge {
+  display: inline-flex;
+  flex-shrink: 0;
+  white-space: nowrap;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: $radius-full;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 28%, var(--border-color));
+  background: color-mix(in srgb, var(--primary-color) 8%, var(--bg-primary));
+  color: color-mix(in srgb, var(--text-primary) 80%, var(--primary-color));
+  font-size: 11px;
+  font-weight: 800;
+}

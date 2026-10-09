@@ -10,7 +10,7 @@ import (
 
 func TestFixedActivityGrainsCoverExactWindowsWithStableIntegerWidths(t *testing.T) {
 	// 准备：固定非边界参考时间，并列出三种 grain 的窗口总长与允许秒宽。
-	referenceEnd := time.Date(2026, 7, 20, 12, 34, 56, 0, time.UTC)
+	referenceEnd := time.Date(2026, 7, 20, 12, 34, 56, 789000000, time.UTC)
 	testCases := []struct {
 		name         string
 		grain        entities.UsageActivityGrain
@@ -37,47 +37,59 @@ func TestFixedActivityGrainsCoverExactWindowsWithStableIntegerWidths(t *testing.
 			if got := buckets[len(buckets)-1].End.Sub(buckets[0].Start); got != testCase.window {
 				t.Fatalf("expected exact window %s, got %s", testCase.window, got)
 			}
+			if buckets[len(buckets)-1].End.Before(referenceEnd) {
+				t.Fatalf("aligned window does not cover reference end: %v", buckets[len(buckets)-1].End)
+			}
+			seenWidths := map[int64]bool{}
 			for index, bucket := range buckets {
 				width := int64(bucket.End.Sub(bucket.Start) / time.Second)
-				if !testCase.allowedWidth[width] {
+				if bucket.End.Sub(bucket.Start)%time.Second != 0 || !testCase.allowedWidth[width] {
 					t.Fatalf("unexpected bucket %d width %d", index, width)
 				}
+				seenWidths[width] = true
 				if index > 0 && !buckets[index-1].End.Equal(bucket.Start) {
 					t.Fatalf("bucket %d is not adjacent to previous bucket", index)
 				}
+			}
+			if len(seenWidths) != len(testCase.allowedWidth) {
+				t.Fatalf("expected both allowed widths, got %v", seenWidths)
 			}
 		})
 	}
 }
 
-func TestActivityBucketEndBelongsToNextBucket(t *testing.T) {
-	// 准备：先取得任意 short bucket 的真实结束边界。
-	first, err := activity.BucketForTimestamp(entities.UsageActivityGrainShort, time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC))
-	if err != nil {
-		t.Fatalf("resolve first bucket: %v", err)
+func TestUsageActivityBucketForTimestampUsesHalfOpenStableBoundaries(t *testing.T) {
+	// 准备：同时覆盖 epoch 之前、epoch 边界和当前正时间的 timestamp。
+	timestamps := []time.Time{
+		time.Date(1969, 12, 31, 23, 50, 0, 0, time.UTC),
+		time.Unix(0, 0).UTC(),
+		time.Date(2026, 7, 20, 12, 34, 56, 789000000, time.UTC),
 	}
 
-	// 执行：用前一 bucket 的半开终点再次归桶。
-	next, err := activity.BucketForTimestamp(entities.UsageActivityGrainShort, first.End)
-	if err != nil {
-		t.Fatalf("resolve next bucket: %v", err)
-	}
+	for _, timestamp := range timestamps {
+		// end 是半开边界，必须进入下一桶。
+		bucket, err := activity.BucketForTimestamp(entities.UsageActivityGrainShort, timestamp)
+		if err != nil {
+			t.Fatalf("UsageActivityBucketForTimestamp(%s) returned error: %v", timestamp, err)
+		}
+		// 负时间、epoch 和正时间都必须包含在对应半开区间内。
+		if timestamp.Before(bucket.Start) || !timestamp.Before(bucket.End) {
+			t.Fatalf("timestamp %s is outside bucket %+v", timestamp, bucket)
+		}
 
-	// 断言：timestamp == bucket_end 必须稳定落入下一格。
-	if !next.Start.Equal(first.End) {
-		t.Fatalf("expected next bucket to start at previous end: first=%+v next=%+v", first, next)
+		next, err := activity.BucketForTimestamp(entities.UsageActivityGrainShort, bucket.End)
+		if err != nil {
+			t.Fatalf("boundary bucket lookup returned error: %v", err)
+		}
+		if !next.Start.Equal(bucket.End) {
+			t.Fatalf("expected end boundary to enter next bucket: current=%+v next=%+v", bucket, next)
+		}
 	}
 }
 
 func TestDailyActivityBucketUsesAdjacentLocalMidnights(t *testing.T) {
 	// 准备：使用 DST 春季跳时地区，并固定跳时当天中午。
-	previousLocal := time.Local
-	location, err := time.LoadLocation("America/New_York")
-	if err != nil {
-		t.Fatalf("load DST location: %v", err)
-	}
-	time.Local = location
-	t.Cleanup(func() { time.Local = previousLocal })
+	location := useTimezone(t, "America/New_York")
 	timestamp := time.Date(2026, 3, 8, 12, 0, 0, 0, location)
 
 	// 执行：直接生成 daily Activity 边界。
@@ -95,13 +107,7 @@ func TestDailyActivityBucketUsesAdjacentLocalMidnights(t *testing.T) {
 }
 
 func TestCalendarDayActivityWindowUsesExactLocalMidnightsAcrossDST(t *testing.T) {
-	previousLocal := time.Local
-	location, err := time.LoadLocation("America/New_York")
-	if err != nil {
-		t.Fatalf("load DST location: %v", err)
-	}
-	time.Local = location
-	t.Cleanup(func() { time.Local = previousLocal })
+	location := useTimezone(t, "America/New_York")
 
 	dayStart := time.Date(2026, 3, 8, 0, 0, 0, 0, location)
 	buckets, err := activity.WindowEndingAt(entities.UsageActivityGrainShort, dayStart.AddDate(0, 0, 1))
@@ -126,13 +132,7 @@ func TestCalendarDayActivityWindowUsesExactLocalMidnightsAcrossDST(t *testing.T)
 }
 
 func TestShortActivityStorageBucketsMatchCalendarDayWindow(t *testing.T) {
-	previousLocal := time.Local
-	location, err := time.LoadLocation("Asia/Shanghai")
-	if err != nil {
-		t.Fatalf("load location: %v", err)
-	}
-	time.Local = location
-	t.Cleanup(func() { time.Local = previousLocal })
+	location := useTimezone(t, "Asia/Shanghai")
 
 	dayStart := time.Date(2026, 7, 20, 0, 0, 0, 0, location)
 	calendarBuckets, err := activity.WindowEndingAt(entities.UsageActivityGrainShort, dayStart.AddDate(0, 0, 1))
@@ -150,14 +150,16 @@ func TestShortActivityStorageBucketsMatchCalendarDayWindow(t *testing.T) {
 			t.Fatalf("short bucket %d does not match calendar grid: stored=%+v calendar=%+v", index, storedBucket, calendarBucket)
 		}
 	}
+}
 
-	window, err := activity.WindowEndingAt(entities.UsageActivityGrainShort, dayStart.AddDate(0, 0, 1))
+func useTimezone(t *testing.T, name string) *time.Location {
+	t.Helper()
+	location, err := time.LoadLocation(name)
 	if err != nil {
-		t.Fatalf("WindowEndingAt returned error: %v", err)
+		t.Fatal(err)
 	}
-	for index := range window {
-		if !window[index].Start.Equal(calendarBuckets[index].Start) || !window[index].End.Equal(calendarBuckets[index].End) {
-			t.Fatalf("calendar query bucket %d does not match short storage: query=%+v storage=%+v", index, window[index], calendarBuckets[index])
-		}
-	}
+	previous := time.Local
+	time.Local = location
+	t.Cleanup(func() { time.Local = previous })
+	return location
 }

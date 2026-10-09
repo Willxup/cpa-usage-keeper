@@ -2,7 +2,7 @@
   display: inline-flex;
   align-items: stretch;
   gap: 4px;
-  min-height: 42px;
+  height: 40px;
   padding: 4px;
   border-radius: 999px;
   border: 1px solid var(--border-color);
@@ -17,7 +17,8 @@
   font: inherit;
   font-size: 12px;
   font-weight: 700;
-  padding: 8px 12px;
+  padding: 6px 12px;
+  line-height: 18px;
   border-radius: 999px;
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;

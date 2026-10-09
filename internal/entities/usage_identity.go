@@ -46,6 +46,15 @@ type UsageIdentity struct {
 	CacheReadTokens int64 `gorm:"not null;default:0"`
 	TotalTokens     int64
 
+	// 重置只保存累计快照；增量聚合继续维护上方唯一一套终身计数。
+	StatsResetAt         *time.Time `gorm:"serializer:storageTime"`
+	ResetTotalRequests   int64      `gorm:"not null;default:0"`
+	ResetSuccessCount    int64      `gorm:"not null;default:0"`
+	ResetFailureCount    int64      `gorm:"not null;default:0"`
+	ResetInputTokens     int64      `gorm:"not null;default:0"`
+	ResetCacheReadTokens int64      `gorm:"not null;default:0"`
+	ResetTotalTokens     int64      `gorm:"not null;default:0"`
+
 	LastAggregatedUsageEventID int64
 	FirstUsedAt                *time.Time `gorm:"serializer:storageTime"`
 	LastUsedAt                 *time.Time `gorm:"serializer:storageTime"`

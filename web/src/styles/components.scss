@@ -239,6 +239,22 @@ textarea {
     border-color: var(--primary-color);
     box-shadow: 0 0 0 3px rgba($primary-color, 0.18);
   }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+    background-color: var(--bg-tertiary);
+    color: var(--text-secondary);
+    box-shadow: none;
+  }
+
+  &[aria-invalid='true'] {
+    border-color: var(--failure-badge-text);
+  }
+
+  &[aria-invalid='true']:focus {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--failure-badge-text) 18%, transparent);
+  }
 }
 
 .form-group {

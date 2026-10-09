@@ -9,13 +9,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string) => {
-      if (key === 'ranking.metric_ttft_average') {
-        return 'This is the longest translated ranking metric';
-      }
-      if (key === 'ranking.metric_short_ttft_average') return 'TTFT';
-      return key;
-    },
+    t: (key: string) => key,
   }),
 }));
 
@@ -49,11 +43,11 @@ describe('RankingToolbar', () => {
     const periodTrigger = container.querySelector<HTMLButtonElement>('[data-ranking-period] button');
     expect(periodTrigger?.textContent).toContain('ranking.period_trigger_today');
     expect(periodTrigger?.getAttribute('aria-label')).toBe('ranking.period_trigger_today');
-    act(() => periodTrigger?.click());
+    act(() => periodTrigger!.click());
     const listbox = document.querySelector<HTMLElement>('[role="listbox"]');
-    const yesterday = Array.from(listbox?.querySelectorAll('button') ?? [])
+    const yesterday = Array.from(listbox!.querySelectorAll<HTMLButtonElement>('button'))
       .find((button) => button.textContent?.includes('ranking.period_yesterday'));
-    act(() => (yesterday as HTMLButtonElement | undefined)?.click());
+    act(() => yesterday!.click());
     expect(onPeriodChange).toHaveBeenCalledWith('yesterday');
   });
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -25,87 +26,60 @@ const (
 	requestIntentHeaderValueFetch = "fetch"
 )
 
-func TestPasswordLoginSetsStandardCookieForNormalRequest(t *testing.T) {
-	router, _ := newEmbedAuthRouter(time.Hour)
-
-	resp := httptest.NewRecorder()
-	req := newPasswordLoginRequest(false, true)
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusNoContent {
-		t.Fatalf("expected login status 204, got %d body=%s", resp.Code, resp.Body.String())
-	}
-	cookie := requireCookie(t, resp.Result().Cookies(), standardSessionCookieName)
-	if cookie.SameSite != http.SameSiteLaxMode {
-		t.Fatalf("expected standard cookie SameSite=Lax, got %v", cookie.SameSite)
-	}
-	if cookie.Secure {
-		t.Fatal("expected standard httptest cookie not to force Secure")
-	}
-	if cookie.Partitioned {
-		t.Fatal("expected standard cookie not to be Partitioned")
-	}
-	if findCookie(resp.Result().Cookies(), embedSessionCookieName) != nil {
-		t.Fatalf("expected normal login not to set embed cookie, got %+v", resp.Result().Cookies())
-	}
+type embedManagedSessionItem struct {
+	ID      string `json:"id"`
+	Source  string `json:"source"`
+	Current bool   `json:"current"`
 }
 
-func TestPasswordLoginSetsEmbedCookieForCPAMCEmbedRequest(t *testing.T) {
-	router, _ := newEmbedAuthRouter(time.Hour)
-
-	resp := httptest.NewRecorder()
-	req := newPasswordLoginRequest(true, true)
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected login status 200, got %d body=%s", resp.Code, resp.Body.String())
-	}
-	cookie := requireCookie(t, resp.Result().Cookies(), embedSessionCookieName)
-	if cookie.SameSite != http.SameSiteNoneMode {
-		t.Fatalf("expected embed cookie SameSite=None, got %v", cookie.SameSite)
-	}
-	if !cookie.Secure {
-		t.Fatal("expected embed cookie to force Secure")
-	}
-	if !cookie.Partitioned {
-		t.Fatal("expected embed cookie to be Partitioned")
-	}
-	if findCookie(resp.Result().Cookies(), standardSessionCookieName) != nil {
-		t.Fatalf("expected embed login not to set standard cookie, got %+v", resp.Result().Cookies())
-	}
-	token := requireEmbedSessionToken(t, resp)
-	if token != cookie.Value {
-		t.Fatalf("expected embed login response token to match cookie, got response %q cookie %q", token, cookie.Value)
-	}
-}
-
-func TestAPIKeyLoginSetsEmbedCookieAndSourceForCPAMCEmbedRequest(t *testing.T) {
-	router, sessions := newEmbedAuthRouterWithOptions(time.Hour, "", &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, APIKey: "sk-cpa-viewer", DisplayKey: "sk-...viewer"}})
-
-	resp := httptest.NewRecorder()
-	req := newAPIKeyLoginRequest("/api/v1/auth/api-key-login", true, true)
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected API key login status 200, got %d body=%s", resp.Code, resp.Body.String())
-	}
-	cookie := requireCookie(t, resp.Result().Cookies(), embedSessionCookieName)
-	if cookie.SameSite != http.SameSiteNoneMode || !cookie.Secure || !cookie.Partitioned {
-		t.Fatalf("expected API key embed login to set embed cookie attributes, got %+v", cookie)
-	}
-	if findCookie(resp.Result().Cookies(), standardSessionCookieName) != nil {
-		t.Fatalf("expected API key embed login not to set standard cookie, got %+v", resp.Result().Cookies())
-	}
-	token := requireEmbedSessionToken(t, resp)
-	if token != cookie.Value {
-		t.Fatalf("expected API key embed login response token to match cookie, got response %q cookie %q", token, cookie.Value)
-	}
-	session, ok := sessions.Get(token)
-	if !ok {
-		t.Fatal("expected API key embed login session to be stored")
-	}
-	if session.Role != auth.RoleAPIKeyViewer || session.Source != auth.SessionSourceEmbed || session.CPAAPIKeyID != 42 {
-		t.Fatalf("expected API key embed session with source and key id, got %+v", session)
+func TestLoginSetsCookieForSessionSource(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		embed, apiKey bool
+	}{
+		{name: "standard password"},
+		{name: "embed password", embed: true},
+		{name: "embed API key", embed: true, apiKey: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var keys service.CPAAPIKeyProvider
+			if tc.apiKey {
+				keys = &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, APIKey: "sk-cpa-viewer", DisplayKey: "sk-...viewer"}}
+			}
+			router, sessions := newEmbedAuthRouterWithOptions(time.Hour, "", keys)
+			req := newPasswordLoginRequest(tc.embed, true)
+			if tc.apiKey {
+				req = newAPIKeyLoginRequest("/api/v1/auth/api-key-login", true, true)
+			}
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+			status, cookieName, otherName, sameSite := http.StatusNoContent, standardSessionCookieName, embedSessionCookieName, http.SameSiteLaxMode
+			if tc.embed {
+				status, cookieName, otherName, sameSite = http.StatusOK, embedSessionCookieName, standardSessionCookieName, http.SameSiteNoneMode
+			}
+			if resp.Code != status {
+				t.Fatalf("login status=%d, want %d body=%s", resp.Code, status, resp.Body.String())
+			}
+			cookie := requireCookie(t, resp.Result().Cookies(), cookieName)
+			if cookie.SameSite != sameSite || cookie.Secure != tc.embed || cookie.Partitioned != tc.embed {
+				t.Fatalf("unexpected session cookie attributes: %+v", cookie)
+			}
+			if findCookie(resp.Result().Cookies(), otherName) != nil {
+				t.Fatalf("login also set %s cookie", otherName)
+			}
+			if tc.embed {
+				token := requireEmbedSessionToken(t, resp)
+				if token != cookie.Value {
+					t.Fatal("embed response token does not match cookie")
+				}
+				if tc.apiKey {
+					session, ok := sessions.Get(token)
+					if !ok || session.Role != auth.RoleAPIKeyViewer || session.Source != auth.SessionSourceEmbed || session.CPAAPIKeyID != 42 {
+						t.Fatalf("unexpected API key embed session: %+v", session)
+					}
+				}
+			}
+		})
 	}
 }
 
@@ -212,44 +186,34 @@ func TestEmbedRequestUsesEmbedCookieWhenBothSessionCookiesExist(t *testing.T) {
 	requireCurrentSession(t, items, auth.SessionTokenHash(embedToken), "embed")
 }
 
-func TestEmbedRequestUsesHeaderTokenWhenCookieMissing(t *testing.T) {
-	router, sessions := newEmbedAuthRouter(time.Hour)
-	token, _, err := sessions.CreateWithSource(auth.SessionSourceEmbed)
-	if err != nil {
-		t.Fatalf("CreateWithSource returned error: %v", err)
-	}
+func TestEmbedRequestUsesHeaderWhenCookieIsMissingOrInvalid(t *testing.T) {
+	for _, cookieValue := range []string{"", "stale-token"} {
+		t.Run(cookieValue, func(t *testing.T) {
+			router, sessions := newEmbedAuthRouter(time.Hour)
+			token, _, err := sessions.CreateWithSource(auth.SessionSourceEmbed)
+			if err != nil {
+				t.Fatalf("CreateWithSource returned error: %v", err)
+			}
 
-	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil)
-	req.Header.Set(embedHeaderName, "cpamc")
-	req.Header.Set(embedSessionHeaderName, token)
-	router.ServeHTTP(resp, req)
+			resp := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil)
+			req.Header.Set(embedHeaderName, "cpamc")
+			req.Header.Set(embedSessionHeaderName, token)
+			if cookieValue != "" {
+				req.AddCookie(&http.Cookie{Name: embedSessionCookieName, Value: cookieValue})
+			}
+			router.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), `"authenticated":true`) {
-		t.Fatalf("expected embed header token to authenticate, got %d %s", resp.Code, resp.Body.String())
-	}
-}
-
-func TestEmbedRequestFallsBackToHeaderWhenCookieIsInvalid(t *testing.T) {
-	router, sessions := newEmbedAuthRouter(time.Hour)
-	token, _, err := sessions.CreateWithSource(auth.SessionSourceEmbed)
-	if err != nil {
-		t.Fatalf("CreateWithSource returned error: %v", err)
-	}
-
-	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil)
-	req.Header.Set(embedHeaderName, "cpamc")
-	req.Header.Set(embedSessionHeaderName, token)
-	req.AddCookie(&http.Cookie{Name: embedSessionCookieName, Value: "stale-token"})
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), `"authenticated":true`) {
-		t.Fatalf("expected embed request to fall back to header token, got %d %s", resp.Code, resp.Body.String())
-	}
-	cookie := requireCookie(t, resp.Result().Cookies(), embedSessionCookieName)
-	if cookie.MaxAge >= 0 {
-		t.Fatalf("expected invalid embed cookie to be cleared after header fallback, got %+v", cookie)
+			if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), `"authenticated":true`) {
+				t.Fatalf("expected embed request to fall back to header token, got %d %s", resp.Code, resp.Body.String())
+			}
+			if cookieValue != "" {
+				cookie := requireCookie(t, resp.Result().Cookies(), embedSessionCookieName)
+				if cookie.MaxAge >= 0 {
+					t.Fatalf("expected invalid embed cookie to be cleared after header fallback, got %+v", cookie)
+				}
+			}
+		})
 	}
 }
 
@@ -268,37 +232,28 @@ func TestEmbedRequestPrefersValidCookieOverHeaderToken(t *testing.T) {
 	requireCurrentSession(t, items, auth.SessionTokenHash(cookieToken), "embed")
 }
 
-func TestNormalRequestIgnoresEmbedSessionHeader(t *testing.T) {
-	router, sessions := newEmbedAuthRouter(time.Hour)
-	token, _, err := sessions.CreateWithSource(auth.SessionSourceEmbed)
-	if err != nil {
-		t.Fatalf("CreateWithSource returned error: %v", err)
-	}
+func TestNormalRequestIgnoresEmbedCredentials(t *testing.T) {
+	for _, useHeader := range []bool{false, true} {
+		t.Run(strconv.FormatBool(useHeader), func(t *testing.T) {
+			router, sessions := newEmbedAuthRouter(time.Hour)
+			token, _, err := sessions.CreateWithSource(auth.SessionSourceEmbed)
+			if err != nil {
+				t.Fatalf("CreateWithSource returned error: %v", err)
+			}
 
-	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil)
-	req.Header.Set(embedSessionHeaderName, token)
-	router.ServeHTTP(resp, req)
+			resp := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil)
+			if useHeader {
+				req.Header.Set(embedSessionHeaderName, token)
+			} else {
+				req.AddCookie(&http.Cookie{Name: embedSessionCookieName, Value: token})
+			}
+			router.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), `"authenticated":false`) {
-		t.Fatalf("expected normal request not to use embed session header, got %d %s", resp.Code, resp.Body.String())
-	}
-}
-
-func TestNormalRequestDoesNotUseEmbedCookie(t *testing.T) {
-	router, sessions := newEmbedAuthRouter(time.Hour)
-	token, _, err := sessions.CreateWithSource(auth.SessionSourceEmbed)
-	if err != nil {
-		t.Fatalf("CreateWithSource returned error: %v", err)
-	}
-
-	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil)
-	req.AddCookie(&http.Cookie{Name: embedSessionCookieName, Value: token})
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), `"authenticated":false`) {
-		t.Fatalf("expected normal request not to use embed cookie, got %d %s", resp.Code, resp.Body.String())
+			if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), `"authenticated":false`) {
+				t.Fatalf("expected normal request not to use embed session header, got %d %s", resp.Code, resp.Body.String())
+			}
+		})
 	}
 }
 
@@ -361,55 +316,37 @@ func TestManagedSessionsUseHeaderOnlyEmbedToken(t *testing.T) {
 	}
 }
 
-func TestLogoutClearsEmbedCookieForCPAMCEmbedRequest(t *testing.T) {
-	router, sessions := newEmbedAuthRouter(time.Hour)
-	token, _, err := sessions.CreateWithSource(auth.SessionSourceEmbed)
-	if err != nil {
-		t.Fatalf("CreateWithSource returned error: %v", err)
-	}
+func TestEmbedLogoutClearsCookieAndSession(t *testing.T) {
+	for _, useHeader := range []bool{false, true} {
+		t.Run(strconv.FormatBool(useHeader), func(t *testing.T) {
+			router, sessions := newEmbedAuthRouter(time.Hour)
+			token, _, err := sessions.CreateWithSource(auth.SessionSourceEmbed)
+			if err != nil {
+				t.Fatalf("CreateWithSource returned error: %v", err)
+			}
 
-	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
-	req.Header.Set(embedHeaderName, "cpamc")
-	req.Header.Set(requestIntentHeaderName, "fetch")
-	req.AddCookie(&http.Cookie{Name: embedSessionCookieName, Value: token})
-	router.ServeHTTP(resp, req)
+			resp := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+			req.Header.Set(embedHeaderName, "cpamc")
+			req.Header.Set(requestIntentHeaderName, "fetch")
+			if useHeader {
+				req.Header.Set(embedSessionHeaderName, token)
+			} else {
+				req.AddCookie(&http.Cookie{Name: embedSessionCookieName, Value: token})
+			}
+			router.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusNoContent {
-		t.Fatalf("expected logout status 204, got %d body=%s", resp.Code, resp.Body.String())
-	}
-	if sessions.Validate(token) {
-		t.Fatal("expected embed logout to delete embed session")
-	}
-	cookie := requireCookie(t, resp.Result().Cookies(), embedSessionCookieName)
-	if cookie.MaxAge >= 0 || cookie.SameSite != http.SameSiteNoneMode || !cookie.Secure || !cookie.Partitioned {
-		t.Fatalf("expected embed logout to clear embed cookie with matching attributes, got %+v", cookie)
-	}
-}
-
-func TestLogoutUsesHeaderOnlyEmbedToken(t *testing.T) {
-	router, sessions := newEmbedAuthRouter(time.Hour)
-	token, _, err := sessions.CreateWithSource(auth.SessionSourceEmbed)
-	if err != nil {
-		t.Fatalf("CreateWithSource returned error: %v", err)
-	}
-
-	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
-	req.Header.Set(embedHeaderName, "cpamc")
-	req.Header.Set(embedSessionHeaderName, token)
-	req.Header.Set(requestIntentHeaderName, "fetch")
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusNoContent {
-		t.Fatalf("expected header-only logout status 204, got %d body=%s", resp.Code, resp.Body.String())
-	}
-	if sessions.Validate(token) {
-		t.Fatal("expected header-only embed logout to delete embed session")
-	}
-	cookie := requireCookie(t, resp.Result().Cookies(), embedSessionCookieName)
-	if cookie.MaxAge >= 0 || cookie.SameSite != http.SameSiteNoneMode || !cookie.Secure || !cookie.Partitioned {
-		t.Fatalf("expected header-only embed logout to clear embed cookie with matching attributes, got %+v", cookie)
+			if resp.Code != http.StatusNoContent {
+				t.Fatalf("expected logout status 204, got %d body=%s", resp.Code, resp.Body.String())
+			}
+			if sessions.Validate(token) {
+				t.Fatal("expected embed logout to delete embed session")
+			}
+			cookie := requireCookie(t, resp.Result().Cookies(), embedSessionCookieName)
+			if cookie.MaxAge >= 0 || cookie.SameSite != http.SameSiteNoneMode || !cookie.Secure || !cookie.Partitioned {
+				t.Fatalf("expected embed logout to clear embed cookie with matching attributes, got %+v", cookie)
+			}
+		})
 	}
 }
 
@@ -643,19 +580,11 @@ func newAPIKeyLoginRequest(path string, embed bool, intent bool) *http.Request {
 	return req
 }
 
-func listManagedSessionItems(t *testing.T, router http.Handler, cookie *http.Cookie, embed bool) []struct {
-	ID      string `json:"id"`
-	Source  string `json:"source"`
-	Current bool   `json:"current"`
-} {
+func listManagedSessionItems(t *testing.T, router http.Handler, cookie *http.Cookie, embed bool) []embedManagedSessionItem {
 	return listManagedSessionItemsWithHeader(t, router, cookie, "", embed)
 }
 
-func listManagedSessionItemsWithHeader(t *testing.T, router http.Handler, cookie *http.Cookie, headerToken string, embed bool, extraCookies ...*http.Cookie) []struct {
-	ID      string `json:"id"`
-	Source  string `json:"source"`
-	Current bool   `json:"current"`
-} {
+func listManagedSessionItemsWithHeader(t *testing.T, router http.Handler, cookie *http.Cookie, headerToken string, embed bool, extraCookies ...*http.Cookie) []embedManagedSessionItem {
 	t.Helper()
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/sessions", nil)
@@ -678,11 +607,7 @@ func listManagedSessionItemsWithHeader(t *testing.T, router http.Handler, cookie
 		t.Fatalf("expected session list status 200, got %d body=%s", resp.Code, resp.Body.String())
 	}
 	var parsed struct {
-		Items []struct {
-			ID      string `json:"id"`
-			Source  string `json:"source"`
-			Current bool   `json:"current"`
-		} `json:"items"`
+		Items []embedManagedSessionItem `json:"items"`
 	}
 	if err := json.Unmarshal(resp.Body.Bytes(), &parsed); err != nil {
 		t.Fatalf("decode managed sessions: %v", err)
@@ -704,11 +629,7 @@ func requireEmbedSessionToken(t *testing.T, resp *httptest.ResponseRecorder) str
 	return parsed.SessionToken
 }
 
-func requireCurrentSource(t *testing.T, items []struct {
-	ID      string `json:"id"`
-	Source  string `json:"source"`
-	Current bool   `json:"current"`
-}, source string) {
+func requireCurrentSource(t *testing.T, items []embedManagedSessionItem, source string) {
 	t.Helper()
 	current := requireSingleCurrentSession(t, items)
 	if current.Source != source {
@@ -716,11 +637,7 @@ func requireCurrentSource(t *testing.T, items []struct {
 	}
 }
 
-func requireCurrentSession(t *testing.T, items []struct {
-	ID      string `json:"id"`
-	Source  string `json:"source"`
-	Current bool   `json:"current"`
-}, id string, source string) {
+func requireCurrentSession(t *testing.T, items []embedManagedSessionItem, id string, source string) {
 	t.Helper()
 	current := requireSingleCurrentSession(t, items)
 	if current.ID != id || current.Source != source {
@@ -728,24 +645,11 @@ func requireCurrentSession(t *testing.T, items []struct {
 	}
 }
 
-func requireSingleCurrentSession(t *testing.T, items []struct {
-	ID      string `json:"id"`
-	Source  string `json:"source"`
-	Current bool   `json:"current"`
-}) struct {
-	ID      string `json:"id"`
-	Source  string `json:"source"`
-	Current bool   `json:"current"`
-} {
+func requireSingleCurrentSession(t *testing.T, items []embedManagedSessionItem) embedManagedSessionItem {
 	t.Helper()
-	var current *struct {
-		ID      string `json:"id"`
-		Source  string `json:"source"`
-		Current bool   `json:"current"`
-	}
+	var current *embedManagedSessionItem
 	for _, item := range items {
 		if item.Current {
-			item := item
 			if current != nil {
 				t.Fatalf("expected exactly one current session, got at least %+v and %+v in %+v", *current, item, items)
 			}

@@ -92,10 +92,7 @@ func TestRedisIngestRunnerStartupHTTPInboxWriteFailureUsesOneSecondBackoff(t *te
 	if attempt.source != poller.RedisIngestSourceHTTPPull {
 		t.Fatalf("expected failed write attempt from HTTP source, got %q", attempt.source)
 	}
-	output := waitForLogContains(t, logs, "redis ingest inbox write retry scheduled", "retry_after=1s")
-	if output == "" {
-		t.Fatal("expected inbox write retry log")
-	}
+	waitForLogContains(t, logs, "redis ingest inbox write retry scheduled", "retry_after=1s")
 	select {
 	case <-done:
 	case <-time.After(time.Second):

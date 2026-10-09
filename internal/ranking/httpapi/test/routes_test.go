@@ -35,10 +35,7 @@ func (s *rankingProviderStub) Status(context.Context) (ranking.LocalStatus, erro
 func (s *rankingProviderStub) Join(_ context.Context, name string, avatarID uint8) (ranking.LocalStatus, error) {
 	s.joinName = name
 	s.joinAvatarID = avatarID
-	if s.joinErr != nil {
-		return ranking.LocalStatus{}, s.joinErr
-	}
-	return s.status, nil
+	return s.status, s.joinErr
 }
 
 func (s *rankingProviderStub) SyncNow(context.Context) error {
@@ -75,10 +72,7 @@ func (s *rankingProviderStub) Leaderboard(_ context.Context, period ranking.Lead
 }
 
 func (s *rankingProviderStub) LeaderboardMetadata(context.Context) (ranking.LeaderboardMetadata, error) {
-	if s.metadataErr != nil {
-		return ranking.LeaderboardMetadata{}, s.metadataErr
-	}
-	return ranking.LeaderboardMetadata{ProtocolVersion: 1, MetricsVersion: 1, PeriodTimezone: "Asia/Shanghai", Periods: []ranking.LeaderboardPeriodMetadata{}, Metrics: []ranking.LeaderboardMetric{}}, nil
+	return ranking.LeaderboardMetadata{ProtocolVersion: 1, MetricsVersion: 1, PeriodTimezone: "Asia/Shanghai", Periods: []ranking.LeaderboardPeriodMetadata{}, Metrics: []ranking.LeaderboardMetric{}}, s.metadataErr
 }
 
 func TestRankingStatusNeverExposesSigningIdentity(t *testing.T) {
@@ -86,8 +80,7 @@ func TestRankingStatusNeverExposesSigningIdentity(t *testing.T) {
 		Status: ranking.StatusActive, DisplayName: "Keeper_01", AvatarID: 7, ParticipantID: "p_example",
 	}}
 	router := rankingRouter(provider)
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/ranking/status", nil))
+	response := rankingResponse(router, http.MethodGet, "/api/v1/ranking/status", "")
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d body=%s", response.Code, response.Body.String())
@@ -96,13 +89,10 @@ func TestRankingStatusNeverExposesSigningIdentity(t *testing.T) {
 	if !strings.Contains(body, `"status":"active"`) || !strings.Contains(body, `"participant_id":"p_example"`) {
 		t.Fatalf("unexpected status body: %s", body)
 	}
-	for _, secretField := range []string{"public_key", "private_key", "registration_idempotency_key"} {
+	for _, secretField := range []string{"public_key", "private_key", "registration_idempotency_key", "last_allocated_sequence"} {
 		if strings.Contains(body, secretField) {
 			t.Fatalf("status exposed %s: %s", secretField, body)
 		}
-	}
-	if strings.Contains(body, "last_allocated_sequence") {
-		t.Fatalf("status exposed internal signing sequence: %s", body)
 	}
 }
 
@@ -110,16 +100,12 @@ func TestRankingJoinAndManualSyncUseLocalService(t *testing.T) {
 	provider := &rankingProviderStub{status: ranking.LocalStatus{Status: ranking.StatusActive, DisplayName: "Keeper_01", AvatarID: 7, ParticipantID: "p_example"}}
 	router := rankingRouter(provider)
 
-	join := httptest.NewRecorder()
-	joinRequest := httptest.NewRequest(http.MethodPost, "/api/v1/ranking/join", strings.NewReader(`{"display_name":"Keeper_01","avatar_id":7}`))
-	joinRequest.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(join, joinRequest)
+	join := rankingResponse(router, http.MethodPost, "/api/v1/ranking/join", `{"display_name":"Keeper_01","avatar_id":7}`)
 	if join.Code != http.StatusOK || provider.joinName != "Keeper_01" || provider.joinAvatarID != 7 {
 		t.Fatalf("unexpected join result: status=%d body=%s provider=%+v", join.Code, join.Body.String(), provider)
 	}
 
-	syncResponse := httptest.NewRecorder()
-	router.ServeHTTP(syncResponse, httptest.NewRequest(http.MethodPost, "/api/v1/ranking/sync", nil))
+	syncResponse := rankingResponse(router, http.MethodPost, "/api/v1/ranking/sync", "")
 	if syncResponse.Code != http.StatusOK || provider.runCalls != 1 {
 		t.Fatalf("unexpected sync result: status=%d body=%s calls=%d", syncResponse.Code, syncResponse.Body.String(), provider.runCalls)
 	}
@@ -129,8 +115,7 @@ func TestRankingManualSyncRejectsInactiveParticipation(t *testing.T) {
 	provider := &rankingProviderStub{status: ranking.LocalStatus{
 		Status: ranking.StatusPaused, DisplayName: "Keeper_01", AvatarID: 7, ParticipantID: "p_example",
 	}, syncErr: ranking.ErrParticipation}
-	response := httptest.NewRecorder()
-	rankingRouter(provider).ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/ranking/sync", nil))
+	response := rankingResponse(rankingRouter(provider), http.MethodPost, "/api/v1/ranking/sync", "")
 
 	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), `"error":"ranking_participation_state_conflict"`) {
 		t.Fatalf("inactive sync result: status=%d body=%s calls=%d", response.Code, response.Body.String(), provider.runCalls)
@@ -141,13 +126,11 @@ func TestRankingPauseAndResumeUseOnlyLocalService(t *testing.T) {
 	provider := &rankingProviderStub{status: ranking.LocalStatus{Status: ranking.StatusPaused, DisplayName: "Keeper_01", AvatarID: 7, ParticipantID: "p_example"}}
 	router := rankingRouter(provider)
 
-	pause := httptest.NewRecorder()
-	router.ServeHTTP(pause, httptest.NewRequest(http.MethodPost, "/api/v1/ranking/pause", nil))
+	pause := rankingResponse(router, http.MethodPost, "/api/v1/ranking/pause", "")
 	if pause.Code != http.StatusOK || provider.pauseCalls != 1 {
 		t.Fatalf("pause result: status=%d body=%s calls=%d", pause.Code, pause.Body.String(), provider.pauseCalls)
 	}
-	resume := httptest.NewRecorder()
-	router.ServeHTTP(resume, httptest.NewRequest(http.MethodPost, "/api/v1/ranking/resume", nil))
+	resume := rankingResponse(router, http.MethodPost, "/api/v1/ranking/resume", "")
 	if resume.Code != http.StatusOK || provider.resumeCalls != 1 {
 		t.Fatalf("resume result: status=%d body=%s calls=%d", resume.Code, resume.Body.String(), provider.resumeCalls)
 	}
@@ -159,10 +142,7 @@ func TestRankingJoinForwardsCenterRetryAfter(t *testing.T) {
 		Code:       "registration_rate_limited",
 		RetryAfter: "3599",
 	}}
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/ranking/join", strings.NewReader(`{"display_name":"Keeper_01","avatar_id":7}`))
-	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-	rankingRouter(provider).ServeHTTP(response, request)
+	response := rankingResponse(rankingRouter(provider), http.MethodPost, "/api/v1/ranking/join", `{"display_name":"Keeper_01","avatar_id":7}`)
 
 	if response.Code != http.StatusTooManyRequests || !strings.Contains(response.Body.String(), `"error":"ranking_center_registration_rate_limited"`) {
 		t.Fatalf("unexpected rate-limit response: status=%d body=%s", response.Code, response.Body.String())
@@ -176,8 +156,7 @@ func TestRankingLeaderboardValidatesAndForwardsSelection(t *testing.T) {
 	provider := &rankingProviderStub{}
 	router := rankingRouter(provider)
 
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/ranking/leaderboards?period=today&metric=overall", nil))
+	response := rankingResponse(router, http.MethodGet, "/api/v1/ranking/leaderboards?period=today&metric=overall", "")
 	if response.Code != http.StatusOK || provider.boardPeriod != ranking.LeaderboardToday || provider.boardMetric != ranking.MetricOverall {
 		t.Fatalf("unexpected leaderboard result: status=%d body=%s provider=%+v", response.Code, response.Body.String(), provider)
 	}
@@ -188,8 +167,7 @@ func TestRankingLeaderboardValidatesAndForwardsSelection(t *testing.T) {
 		t.Fatalf("leaderboard response allowed browser caching: %+v", response.Header())
 	}
 
-	invalid := httptest.NewRecorder()
-	router.ServeHTTP(invalid, httptest.NewRequest(http.MethodGet, "/api/v1/ranking/leaderboards?period=all&metric=overall", nil))
+	invalid := rankingResponse(router, http.MethodGet, "/api/v1/ranking/leaderboards?period=all&metric=overall", "")
 	if invalid.Code != http.StatusBadRequest {
 		t.Fatalf("expected invalid selection status 400, got %d body=%s", invalid.Code, invalid.Body.String())
 	}
@@ -197,8 +175,7 @@ func TestRankingLeaderboardValidatesAndForwardsSelection(t *testing.T) {
 
 func TestRankingMetadataReportsIncompatibleCenter(t *testing.T) {
 	provider := &rankingProviderStub{metadataErr: ranking.ErrIncompatibleCenter}
-	response := httptest.NewRecorder()
-	rankingRouter(provider).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/ranking/leaderboards/metadata", nil))
+	response := rankingResponse(rankingRouter(provider), http.MethodGet, "/api/v1/ranking/leaderboards/metadata", "")
 
 	if response.Code != http.StatusBadGateway || !strings.Contains(response.Body.String(), `"error":"ranking_center_incompatible"`) {
 		t.Fatalf("unexpected incompatible metadata response: status=%d body=%s", response.Code, response.Body.String())
@@ -213,4 +190,14 @@ func rankingRouter(provider httpapi.Provider) *gin.Engine {
 	router := gin.New()
 	httpapi.RegisterRoutes(router.Group("/api/v1"), provider)
 	return router
+}
+
+func rankingResponse(router http.Handler, method, path, body string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	if body != "" {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	return response
 }

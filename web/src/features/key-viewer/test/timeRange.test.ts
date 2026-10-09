@@ -6,18 +6,12 @@ import {
   persistKeyViewerTimeRange,
 } from '../timeRange';
 
-type MemoryStorage = {
-  values: Map<string, string>;
-  getItem: (key: string) => string | null;
-  setItem: (key: string, value: string) => void;
-};
-
-const createStorage = (): MemoryStorage => {
+const createStorage = () => {
   const values = new Map<string, string>();
   return {
     values,
-    getItem: (key) => values.get(key) ?? null,
-    setItem: (key, value) => values.set(key, value),
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
   };
 };
 

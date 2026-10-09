@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -58,6 +57,7 @@ func (s *keyViewerAnalysisUsageStub) GetAnalysisLatency(_ context.Context, filte
 }
 
 type keyViewerAnalysisKeyStub struct {
+	service.CPAAPIKeyProvider
 	row       entities.CPAAPIKey
 	listCalls int
 }
@@ -67,19 +67,11 @@ func (s *keyViewerAnalysisKeyStub) ListCPAAPIKeys(context.Context) ([]entities.C
 	return []entities.CPAAPIKey{s.row, {ID: 99, APIKey: "sk-other654321", KeyAlias: "Other Key"}}, nil
 }
 
-func (s *keyViewerAnalysisKeyStub) FindActiveCPAAPIKeyByValue(context.Context, string) (entities.CPAAPIKey, error) {
-	return s.row, nil
-}
-
 func (s *keyViewerAnalysisKeyStub) FindActiveCPAAPIKeyByID(_ context.Context, id int64) (entities.CPAAPIKey, error) {
 	if id != s.row.ID {
 		return entities.CPAAPIKey{}, service.ErrInvalidID
 	}
 	return s.row, nil
-}
-
-func (s *keyViewerAnalysisKeyStub) UpdateCPAAPIKeyAlias(context.Context, int64, string) (entities.CPAAPIKey, error) {
-	return entities.CPAAPIKey{}, service.ErrInvalidID
 }
 
 func TestAPIKeyViewerAnalysisForcesSessionKeyAndOmitsSourceComposition(t *testing.T) {
@@ -95,10 +87,7 @@ func TestAPIKeyViewerAnalysisForcesSessionKeyAndOmitsSourceComposition(t *testin
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
 	router := NewRouter(nil, nil, usageProvider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
 
-	analysisResponse := httptest.NewRecorder()
-	analysisRequest := httptest.NewRequest(http.MethodGet, "/api/v1/key-analysis?range=24h&api_key_id=99", nil)
-	analysisRequest.AddCookie(&http.Cookie{Name: standardSessionCookieName, Value: token})
-	router.ServeHTTP(analysisResponse, analysisRequest)
+	analysisResponse := serveAPIGet(router, "/api/v1/key-analysis?range=24h&api_key_id=99", &http.Cookie{Name: standardSessionCookieName, Value: token})
 
 	if analysisResponse.Code != http.StatusOK {
 		t.Fatalf("analysis status=%d, want 200: %s", analysisResponse.Code, analysisResponse.Body.String())
@@ -131,10 +120,7 @@ func TestAPIKeyViewerAnalysisForcesSessionKeyAndOmitsSourceComposition(t *testin
 		t.Fatalf("expected viewer analysis not to list every API key, got %d calls", keyProvider.listCalls)
 	}
 
-	latencyResponse := httptest.NewRecorder()
-	latencyRequest := httptest.NewRequest(http.MethodGet, "/api/v1/key-analysis/latency?range=24h&api_key_id=99", nil)
-	latencyRequest.AddCookie(&http.Cookie{Name: standardSessionCookieName, Value: token})
-	router.ServeHTTP(latencyResponse, latencyRequest)
+	latencyResponse := serveAPIGet(router, "/api/v1/key-analysis/latency?range=24h&api_key_id=99", &http.Cookie{Name: standardSessionCookieName, Value: token})
 
 	if latencyResponse.Code != http.StatusOK {
 		t.Fatalf("latency status=%d, want 200: %s", latencyResponse.Code, latencyResponse.Body.String())
@@ -162,10 +148,7 @@ func TestAPIKeyViewerAnalysisRevokesInactiveKeySession(t *testing.T) {
 		OptionalProviders{CPAAPIKeys: &keyViewerAnalysisKeyStub{}},
 	)
 
-	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/cpa/api/v1/key-analysis?range=24h", nil)
-	request.AddCookie(&http.Cookie{Name: standardSessionCookieName, Value: token})
-	router.ServeHTTP(response, request)
+	response := serveAPIGet(router, "/cpa/api/v1/key-analysis?range=24h", &http.Cookie{Name: standardSessionCookieName, Value: token})
 
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d, want 401: %s", response.Code, response.Body.String())

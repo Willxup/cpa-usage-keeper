@@ -47,8 +47,10 @@ type RequestLogStream struct {
 }
 
 type authFileStatusRequest struct {
-	Name     string `json:"name"`
-	Disabled bool   `json:"disabled"`
+	Name string `json:"name"`
+	// AuthIndex 只在单条凭证开关时携带；CPA 用它校验同名文件确实指向目标账号，批量接口保持原样。
+	AuthIndex string `json:"auth_index,omitempty"`
+	Disabled  bool   `json:"disabled"`
 }
 
 type authFilesDeleteRequest struct {
@@ -135,10 +137,15 @@ func (c *Client) doManagementJSONRequestWithBody(ctx context.Context, method str
 	})
 }
 
-const defaultRequestLogStreamIdleTimeout = 30 * time.Second
+const (
+	defaultRequestLogStreamIdleTimeout = 30 * time.Second
+	// 同时覆盖八路 metadata 和默认十个 quota worker（部分每个发两次请求）的空闲连接复用。
+	defaultMaxIdleConnsPerHost = 32
+)
 
 func NewClient(baseURL, managementKey string, timeout time.Duration, tlsSkipVerify bool) *Client {
 	transport := cloneDefaultHTTPTransport()
+	transport.MaxIdleConnsPerHost = max(transport.MaxIdleConnsPerHost, defaultMaxIdleConnsPerHost)
 	if tlsSkipVerify {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
@@ -442,12 +449,14 @@ func (c *Client) FetchAuthFiles(ctx context.Context) (*response.AuthFilesResult,
 	return result, nil
 }
 
-func (c *Client) UpdateAuthFileStatus(ctx context.Context, name string, disabled bool) error {
-	_, _, err := c.doManagementJSONRequestWithBody(ctx, http.MethodPatch, cpaManagementAuthFilesStatusEndpoint, authFileStatusRequest{
-		Name:     name,
-		Disabled: disabled,
+// UpdateAuthFileStatus 切换认证文件启用状态；authIndex 为空时退化为 CPA 原有的按文件名定位。
+func (c *Client) UpdateAuthFileStatus(ctx context.Context, name string, authIndex string, disabled bool) (int, error) {
+	statusCode, _, err := c.doManagementJSONRequestWithBody(ctx, http.MethodPatch, cpaManagementAuthFilesStatusEndpoint, authFileStatusRequest{
+		Name:      name,
+		AuthIndex: authIndex,
+		Disabled:  disabled,
 	}, nil, "auth file status")
-	return err
+	return statusCode, err
 }
 
 func (c *Client) DeleteAuthFiles(ctx context.Context, names []string) error {
@@ -462,6 +471,13 @@ func (c *Client) CallManagementAPI(ctx context.Context, request apicall.Request)
 		return result, err
 	}
 	return result, nil
+}
+
+func (c *Client) ResetQuota(ctx context.Context, authIndex string) error {
+	_, _, err := c.doManagementJSONPostRequest(ctx, cpaManagementResetQuotaEndpoint, struct {
+		AuthIndex string `json:"auth_index"`
+	}{AuthIndex: authIndex}, nil, "quota recovery")
+	return err
 }
 
 func (c *Client) FetchGeminiAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
@@ -480,6 +496,12 @@ func (c *Client) FetchClaudeAPIKeys(ctx context.Context) (*response.ProviderKeyC
 
 func (c *Client) FetchCodexAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
 	return c.fetchProviderKeyConfig(ctx, cpaManagementCodexAPIKeyEndpoint, "codex-api-key", "codex api keys")
+}
+
+// FetchMetaAPIKeys 读取独立的 Meta API Key metadata endpoint，不经过 Auth File 或通用 quota 路径。
+func (c *Client) FetchMetaAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
+	// 复用标准 provider key 解码器，兼容 CPA 的 direct/wrapped 响应和字段别名。
+	return c.fetchProviderKeyConfig(ctx, cpaManagementMetaAPIKeyEndpoint, "meta-api-key", "meta api keys")
 }
 
 // FetchXAIAPIKeys 读取 xAI API Key metadata endpoint，不复用 OAuth Auth File 路径。

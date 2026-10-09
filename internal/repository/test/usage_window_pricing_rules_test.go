@@ -12,7 +12,7 @@ import (
 
 func TestUsageWindowRawGroupingKeepsActiveRuleDimensions(t *testing.T) {
 	db := openTestDatabase(t)
-	start := time.Now().Add(-2 * time.Hour).Truncate(time.Hour)
+	start := time.Date(2026, 7, 20, 12, 0, 0, 0, time.Local)
 	end := start.Add(time.Hour)
 	events := []entities.UsageEvent{
 		{EventKey: "raw-priority", AuthIndex: "auth-a", Model: "model-a", ServiceTier: "priority", Timestamp: start.Add(10 * time.Minute), InputTokens: 1_000_000, TotalTokens: 1_000_000},
@@ -33,7 +33,7 @@ func TestUsageWindowRawGroupingKeepsActiveRuleDimensions(t *testing.T) {
 
 func TestUsageWindowLongMergeKeyKeepsActiveDimensionsAcrossRawAndHourly(t *testing.T) {
 	db := openTestDatabase(t)
-	start := time.Now().AddDate(0, 0, -7).Truncate(time.Hour).Add(30 * time.Minute)
+	start := time.Date(2026, 7, 20, 12, 30, 0, 0, time.Local)
 	end := start.Add(7*24*time.Hour + 20*time.Minute)
 	if err := db.Create(&entities.UsageEvent{
 		EventKey: "left-priority", AuthIndex: "auth-a", Model: "model-a", ServiceTier: "priority", Timestamp: start.Add(10 * time.Minute), InputTokens: 1_000_000, TotalTokens: 1_000_000,

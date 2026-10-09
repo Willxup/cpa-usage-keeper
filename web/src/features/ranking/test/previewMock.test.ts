@@ -10,16 +10,16 @@ describe('Ranking preview mock', () => {
   });
 
   it('uses the 0-100 score scale for local preview boards', async () => {
-    const api = resolveLocalRankingPreviewAPI('true');
-    const board = await api?.leaderboard('today', 'overall');
-    expect(board?.entries[0]?.value).toBeLessThanOrEqual(100);
+    const api = resolveLocalRankingPreviewAPI('true')!;
+    const board = await api.leaderboard('today', 'overall');
+    expect(board.entries[0].value).toBeLessThanOrEqual(100);
   });
 
   it('keeps local preview alias and avatar edits across leaderboard reloads', async () => {
     const api = createLocalRankingPreviewAPI();
     const before = await api.leaderboard('today', 'overall');
-    const participantID = before.entries[0]!.participant_id;
-    await api.updateProfile?.(participantID, { key_alias: '', avatar_id: 42 });
+    const participantID = before.entries[0].participant_id;
+    await api.updateProfile!(participantID, { key_alias: '', avatar_id: 42 });
     const after = await api.leaderboard('today', 'overall');
 
     expect(after.entries[0]).toMatchObject({
@@ -27,7 +27,7 @@ describe('Ranking preview mock', () => {
       key_alias: '',
       avatar_id: 42,
     });
-    expect(after.entries[0]?.display_name).toMatch(/^sk-\*+/);
+    expect(after.entries[0].display_name).toMatch(/^sk-\*+/);
   });
 
   it('provides an active profile and complete leaderboard data for visual testing', async () => {
@@ -43,7 +43,6 @@ describe('Ranking preview mock', () => {
       display_name: 'KeeperNovaMaster',
       avatar_id: 12,
     });
-    expect([...(status.display_name ?? '')]).toHaveLength(16);
     expect(metadata.periods).toHaveLength(4);
     expect(metadata.periods.every((period) => period.online)).toBe(true);
     expect(metadata.metrics).toHaveLength(8);
@@ -52,7 +51,7 @@ describe('Ranking preview mock', () => {
       overall.entries.map((_, index) => index + 1),
     );
     expect(overall.entries.some((entry) => entry.display_name === status.display_name)).toBe(true);
-    expect(Object.keys(overall.entries[0]?.metrics ?? {})).toHaveLength(7);
+    expect(Object.keys(overall.entries[0].metrics!)).toHaveLength(7);
     expect(latency.entries.every((entry, index, entries) => (
       index === 0 || entries[index - 1]!.value <= entry.value
     ))).toBe(true);

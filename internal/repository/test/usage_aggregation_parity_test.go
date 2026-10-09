@@ -10,10 +10,6 @@ import (
 )
 
 func TestUsageOverviewAggregationPreservesAllExistingHourlyAndDailyFields(t *testing.T) {
-	// 准备：该 characterization fixture 固定拆分前 Overview 的时区、维度和全部旧字段。
-	previousLocal := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = previousLocal })
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	db := openTestDatabase(t)
 	alias := "alias-a"
@@ -27,12 +23,10 @@ func TestUsageOverviewAggregationPreservesAllExistingHourlyAndDailyFields(t *tes
 		t.Fatalf("insert overview parity events: %v", err)
 	}
 
-	// 执行：调用保留的完整 Overview catch-up 聚合同一组固定事件。
 	if err := repository.AggregateUsageOverviewStats(context.Background(), db, now); err != nil {
 		t.Fatalf("AggregateUsageOverviewStats returned error: %v", err)
 	}
 
-	// 断言：hourly 必须逐字段保留现有累计，包括 Activity 不用但旧表继续维护的 cached_tokens。
 	var hourly entities.UsageOverviewHourlyStat
 	if err := db.Where("api_group_key = ? AND model = ? AND auth_index = ? AND model_alias = ?", "provider-a", "model-a", "auth-a", "alias-a").Take(&hourly).Error; err != nil {
 		t.Fatalf("load hourly parity row: %v", err)
@@ -60,10 +54,6 @@ func TestUsageOverviewAggregationPreservesAllExistingHourlyAndDailyFields(t *tes
 }
 
 func TestUsageOverviewAggregationRollsBackWhenDailyInsertAndRetryBothMiss(t *testing.T) {
-	// 准备：写入一条事件，并用 trigger 强制旧 daily rollup 的首次 INSERT 失败。
-	previousLocal := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = previousLocal })
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	db := openTestDatabase(t)
 	events := []entities.UsageEvent{{EventKey: "overview-daily-failure", APIGroupKey: "provider-a", Model: "model-a", Timestamp: now.Add(-time.Minute), InputTokens: 10, CachedTokens: 7, CacheReadTokens: 2, TotalTokens: 12}}
@@ -78,10 +68,8 @@ func TestUsageOverviewAggregationRollsBackWhenDailyInsertAndRetryBothMiss(t *tes
 		t.Fatalf("create daily failure trigger: %v", err)
 	}
 
-	// 执行：运行一个包含 hourly、daily 和旧 checkpoint 的 Overview 事务。
 	err := repository.AggregateUsageOverviewStats(context.Background(), db, now)
 
-	// 断言：daily INSERT 与 retry UPDATE 都未落行时必须返回错误，并回滚 hourly 与旧 checkpoint。
 	if err == nil {
 		t.Fatal("expected overview aggregation error after forced daily insert failure")
 	}

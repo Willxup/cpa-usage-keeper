@@ -1,18 +1,15 @@
 package test
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 
 	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/entities"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
 )
 
 func TestSessionManagerUpdatesAndPersistsAdminAliasByTokenHash(t *testing.T) {
-	db := openSessionAliasDatabase(t)
+	db := openSessionDatabase(t)
 	manager := auth.NewPersistentSessionManager(time.Hour, auth.NewGormSessionStore(db))
 	adminToken, _, err := manager.Create()
 	if err != nil {
@@ -63,25 +60,4 @@ func TestSessionManagerRejectsUnknownAdminAliasTarget(t *testing.T) {
 	if manager.UpdateAdminAliasByTokenHash("missing", "Office Mac") {
 		t.Fatal("expected unknown session alias update to be rejected")
 	}
-}
-
-func openSessionAliasDatabase(t *testing.T) *gorm.DB {
-	t.Helper()
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "session-alias.db")), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open session alias database: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("load session alias sql database: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := sqlDB.Close(); err != nil {
-			t.Errorf("close session alias database: %v", err)
-		}
-	})
-	if err := db.AutoMigrate(&entities.AuthSession{}); err != nil {
-		t.Fatalf("migrate session alias database: %v", err)
-	}
-	return db
 }

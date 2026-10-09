@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -30,98 +31,60 @@ func emptyPricingResolverForTest() pricing.Resolver {
 	return pricing.NewCatalog(pricing.EmptySnapshot()).NewResolver()
 }
 
-func TestOpenDatabaseAutoMigratesCoreTables(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "app.db")
-	cfg := config.Config{
-		SQLitePath: dbPath,
-	}
-
-	db, err := repository.OpenDatabase(cfg)
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	closeTestDatabase(t, db)
-
-	if db.Migrator().HasTable("snapshot_runs") {
-		t.Fatal("expected legacy snapshot_runs table not to exist")
-	}
-	if !db.Migrator().HasTable("usage_events") {
-		t.Fatal("expected usage_events table to exist")
-	}
-	if !db.Migrator().HasTable("redis_usage_inboxes") {
-		t.Fatal("expected redis_usage_inboxes table to exist")
-	}
-	if !db.Migrator().HasTable("auth_sessions") {
-		t.Fatal("expected auth_sessions table to exist")
-	}
-}
-
 func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigrations(t *testing.T) {
 	logs := captureRepositoryLogs(t)
-	dbPath := filepath.Join(t.TempDir(), "app.db")
+	db := openTestDatabase(t)
 
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: dbPath})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	closeTestDatabase(t, db)
-
-	var latestMigrationCount int64
-	if err := db.Table("schema_migrations").Where("version = ?", "20260723_usage_overview_five_dimensions").Count(&latestMigrationCount).Error; err != nil {
-		t.Fatalf("count latest schema migration: %v", err)
-	}
-	if latestMigrationCount != 1 {
-		t.Fatalf("expected fresh database to mark latest migration applied, got %d", latestMigrationCount)
-	}
-	var appSettingsMigrationCount int64
-	if err := db.Table("schema_migrations").Where("version = ?", "20260702_create_app_settings").Count(&appSettingsMigrationCount).Error; err != nil {
-		t.Fatalf("count app settings schema migration: %v", err)
-	}
-	if appSettingsMigrationCount != 1 {
-		t.Fatalf("expected fresh database to mark app settings migration applied, got %d", appSettingsMigrationCount)
+	for _, version := range []string{"20260723_usage_overview_five_dimensions", "20260702_create_app_settings"} {
+		var count int64
+		if err := db.Table("schema_migrations").Where("version = ?", version).Count(&count).Error; err != nil {
+			t.Fatalf("count migration %s: %v", version, err)
+		}
+		if count != 1 {
+			t.Fatalf("expected fresh database to mark %s applied once, got %d", version, count)
+		}
 	}
 	if strings.Contains(logs.String(), "schema migration started") {
 		t.Fatalf("expected fresh database creation not to run version migrations, got logs:\n%s", logs.String())
 	}
-	if !db.Migrator().HasColumn(&entities.RedisUsageInbox{}, "source") {
-		t.Fatal("expected redis_usage_inboxes.source column to exist")
+	for _, table := range []string{"usage_events", "redis_usage_inboxes", "auth_sessions", "app_settings"} {
+		if !db.Migrator().HasTable(table) {
+			t.Fatalf("expected table %s", table)
+		}
 	}
-	if db.Migrator().HasColumn(&entities.RedisUsageInbox{}, "queue_key") {
-		t.Fatal("expected redis_usage_inboxes.queue_key column not to exist")
+	for _, table := range []string{"snapshot_runs", "usage_overview_health_stats"} {
+		if db.Migrator().HasTable(table) {
+			t.Fatalf("unexpected legacy table %s", table)
+		}
 	}
-	if !db.Migrator().HasTable(&entities.AuthSession{}) {
-		t.Fatal("expected auth_sessions table to exist")
-	}
-	if !db.Migrator().HasColumn(&entities.AuthSession{}, "token_hash") {
-		t.Fatal("expected auth_sessions.token_hash column to exist")
-	}
-	if !db.Migrator().HasColumn(&entities.AuthSession{}, "source") {
-		t.Fatal("expected auth_sessions.source column to exist")
-	}
-	if db.Migrator().HasColumn(&entities.AuthSession{}, "token") {
-		t.Fatal("expected auth_sessions.token column not to exist")
-	}
-	if !db.Migrator().HasColumn(&entities.UsageIdentity{}, "alias") {
-		t.Fatal("expected usage_identities.alias column to exist")
-	}
-	if !db.Migrator().HasColumn(&entities.ModelPriceSetting{}, "price_multiplier") {
-		t.Fatal("expected model_price_settings.price_multiplier column to exist")
-	}
-	if !db.Migrator().HasTable(&entities.AppSetting{}) {
-		t.Fatal("expected app_settings table to exist")
-	}
-	if db.Migrator().HasTable("usage_overview_health_stats") {
-		t.Fatal("expected fresh schema not to create legacy usage_overview_health_stats")
-	}
-	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
-		for _, column := range []string{"service_tier", "response_service_tier", "reasoning_effort", "endpoint", "executor_type"} {
-			if !db.Migrator().HasColumn(table, column) {
-				t.Fatalf("expected fresh schema to create %s.%s", table, column)
+	for table, expected := range map[string]map[string]bool{
+		"redis_usage_inboxes":         {"source": true, "queue_key": false},
+		"auth_sessions":               {"token_hash": true, "source": true, "token": false},
+		"usage_identities":            {"alias": true},
+		"model_price_settings":        {"price_multiplier": true},
+		"usage_overview_hourly_stats": {"service_tier": true, "response_service_tier": true, "reasoning_effort": true, "endpoint": true, "executor_type": true},
+		"usage_overview_daily_stats":  {"service_tier": true, "response_service_tier": true, "reasoning_effort": true, "endpoint": true, "executor_type": true},
+	} {
+		columnTypes, err := db.Migrator().ColumnTypes(table)
+		if err != nil {
+			t.Fatalf("load %s columns: %v", table, err)
+		}
+		columns := make(map[string]bool, len(columnTypes))
+		for _, column := range columnTypes {
+			columns[column.Name()] = true
+		}
+		for column, want := range expected {
+			if columns[column] != want {
+				t.Errorf("%s.%s exists=%t, want %t", table, column, columns[column], want)
 			}
 		}
 	}
+	var indexNames []string
+	if err := db.Raw("SELECT name FROM sqlite_master WHERE type = 'index'").Scan(&indexNames).Error; err != nil {
+		t.Fatalf("load sqlite indexes: %v", err)
+	}
 	for _, indexName := range []string{
-		"idx_usage_events_api_group_key",
+		"idx_usage_events_api_group_key_timestamp",
 		"idx_usage_events_auth_index",
 		"idx_usage_events_model",
 		"idx_usage_events_auth_type_auth_index_id",
@@ -140,9 +103,12 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 		"idx_usage_activity_stats_api_grain_start",
 		"idx_usage_activity_stats_grain_end",
 	} {
-		assertSQLiteIndexExists(t, db, indexName)
+		if !slices.Contains(indexNames, indexName) {
+			t.Fatalf("expected sqlite index %s", indexName)
+		}
 	}
 	for _, indexName := range []string{
+		"idx_usage_events_api_group_key",
 		"idx_usage_events_api_group_key_timestamp_id",
 		"idx_usage_events_event_key",
 		"idx_usage_events_failed",
@@ -151,20 +117,9 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 		"idx_usage_events_auth_type",
 		"idx_usage_events_auth_type_source_id",
 	} {
-		if repositorySQLiteIndexExists(t, db, indexName) {
+		if slices.Contains(indexNames, indexName) {
 			t.Fatalf("expected sqlite index %s not to exist", indexName)
 		}
-	}
-}
-
-func assertSQLiteIndexExists(t *testing.T, db *gorm.DB, indexName string) {
-	t.Helper()
-	var count int64
-	if err := db.Raw("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?", indexName).Scan(&count).Error; err != nil {
-		t.Fatalf("check sqlite index %s: %v", indexName, err)
-	}
-	if count != 1 {
-		t.Fatalf("expected sqlite index %s to exist, got %d", indexName, count)
 	}
 }
 
@@ -179,20 +134,14 @@ func TestOpenDatabaseConfiguresSQLiteRuntime(t *testing.T) {
 		t.Fatalf("expected WAL journal mode, got %q", journalMode)
 	}
 
-	var busyTimeout int
-	if err := db.Raw("PRAGMA busy_timeout").Scan(&busyTimeout).Error; err != nil {
-		t.Fatalf("read busy timeout: %v", err)
-	}
-	if busyTimeout < 5000 {
-		t.Fatalf("expected busy timeout at least 5000ms, got %d", busyTimeout)
-	}
-
-	var foreignKeys int
-	if err := db.Raw("PRAGMA foreign_keys").Scan(&foreignKeys).Error; err != nil {
-		t.Fatalf("read foreign keys pragma: %v", err)
-	}
-	if foreignKeys != 1 {
-		t.Fatalf("expected foreign keys to be enabled, got %d", foreignKeys)
+	for pragma, want := range map[string]int{"busy_timeout": 15000, "synchronous": 1, "foreign_keys": 1} {
+		var got int
+		if err := db.Raw("PRAGMA " + pragma).Scan(&got).Error; err != nil {
+			t.Fatalf("read %s: %v", pragma, err)
+		}
+		if got != want {
+			t.Errorf("%s=%d, want %d", pragma, got, want)
+		}
 	}
 
 	sqlDB, err := db.DB()
@@ -308,16 +257,8 @@ func TestOpenReadDatabaseConfiguresBoundedReadOnlyPool(t *testing.T) {
 		}
 	}
 	// 断言：峰值结束后只保留四条 idle reader，额外四条按池策略关闭。
-	deadline := time.Now().Add(time.Second)
-	for {
-		stats := readerSQL.Stats()
-		if stats.OpenConnections == 4 && stats.Idle == 4 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("expected sqlite read pool to settle at 4 idle connections, got %+v", stats)
-		}
-		time.Sleep(10 * time.Millisecond)
+	if stats := readerSQL.Stats(); stats.OpenConnections != 4 || stats.Idle != 4 {
+		t.Fatalf("expected sqlite read pool to settle at 4 idle connections, got %+v", stats)
 	}
 }
 
@@ -472,6 +413,46 @@ func TestInsertUsageEventsPersistsDuplicateEventKeys(t *testing.T) {
 	}
 }
 
+func TestInsertUsageEventsPersistsNullParentSessionID(t *testing.T) {
+	db := openTestDatabase(t)
+	parentSessionID := "parent-session"
+	events := []entities.UsageEvent{
+		{EventKey: "root-session", SessionID: "root-session", ParentSessionID: nil, Timestamp: time.Date(2026, 9, 22, 9, 0, 0, 0, time.UTC)},
+		{EventKey: "child-session", SessionID: "child-session", ParentSessionID: &parentSessionID, Timestamp: time.Date(2026, 9, 22, 9, 1, 0, 0, time.UTC)},
+	}
+	if _, _, err := repository.InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	rows, err := db.Raw("SELECT event_key, parent_session_id FROM usage_events ORDER BY id").Rows()
+	if err != nil {
+		t.Fatalf("load parent session IDs: %v", err)
+	}
+	defer rows.Close()
+	want := []sql.NullString{{}, {String: parentSessionID, Valid: true}}
+	index := 0
+	for rows.Next() {
+		if index >= len(want) {
+			t.Fatal("unexpected extra usage event")
+		}
+		var eventKey string
+		var parent sql.NullString
+		if err := rows.Scan(&eventKey, &parent); err != nil {
+			t.Fatalf("scan parent session ID: %v", err)
+		}
+		if parent != want[index] {
+			t.Fatalf("event %q parent_session_id = %+v, want %+v", eventKey, parent, want[index])
+		}
+		index++
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate parent session IDs: %v", err)
+	}
+	if index != len(want) {
+		t.Fatalf("persisted usage event count = %d, want %d", index, len(want))
+	}
+}
+
 func TestInsertUsageEventsBatchesLargeInsertSet(t *testing.T) {
 	db := openTestDatabase(t)
 	events := make([]entities.UsageEvent, 0, 300)
@@ -505,18 +486,22 @@ func TestInsertUsageEventsBatchesLargeInsertSet(t *testing.T) {
 	}
 }
 
-func TestInsertUsageEventsPersistsModelAlias(t *testing.T) {
+func TestInsertUsageEventsPersistsMetadata(t *testing.T) {
 	db := openTestDatabase(t)
 	modelAlias := "claude-sonnet-alias"
+	ttftMS := int64(456)
 	events := []entities.UsageEvent{{
-		EventKey:    "event-alias",
-		APIGroupKey: "provider-a",
-		Model:       "claude-sonnet",
-		ModelAlias:  &modelAlias,
-		Timestamp:   time.Date(2026, 5, 7, 8, 0, 0, 0, time.UTC),
-		Source:      "source-a",
-		AuthIndex:   "auth-1",
-		TotalTokens: 10,
+		EventKey:     "event-alias",
+		APIGroupKey:  "provider-a",
+		Model:        "claude-sonnet",
+		ModelAlias:   &modelAlias,
+		TTFTMS:       &ttftMS,
+		ServiceTier:  "standard",
+		ExecutorType: "responses",
+		Timestamp:    time.Date(2026, 5, 7, 8, 0, 0, 0, time.UTC),
+		Source:       "source-a",
+		AuthIndex:    "auth-1",
+		TotalTokens:  10,
 	}}
 
 	inserted, deduped, err := repository.InsertUsageEvents(db, events)
@@ -534,102 +519,11 @@ func TestInsertUsageEventsPersistsModelAlias(t *testing.T) {
 	if got.ModelAlias == nil || *got.ModelAlias != "claude-sonnet-alias" {
 		t.Fatalf("expected model alias persisted, got %+v", got.ModelAlias)
 	}
-}
-
-func TestInsertUsageEventsPersistsTTFTMS(t *testing.T) {
-	db := openTestDatabase(t)
-	ttftMS := int64(456)
-	events := []entities.UsageEvent{{
-		EventKey:    "event-ttft",
-		APIGroupKey: "provider-a",
-		Model:       "claude-sonnet",
-		TTFTMS:      &ttftMS,
-		Timestamp:   time.Date(2026, 5, 28, 8, 0, 0, 0, time.UTC),
-		Source:      "source-a",
-		AuthIndex:   "auth-1",
-		TotalTokens: 10,
-	}}
-
-	inserted, deduped, err := repository.InsertUsageEvents(db, events)
-	if err != nil {
-		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	if got.TTFTMS == nil || *got.TTFTMS != ttftMS {
+		t.Fatalf("expected ttft_ms persisted, got %v", got.TTFTMS)
 	}
-	if inserted != 1 || deduped != 0 {
-		t.Fatalf("expected inserted=1 deduped=0, got inserted=%d deduped=%d", inserted, deduped)
-	}
-
-	var got struct {
-		TTFTMS *int64 `gorm:"column:ttft_ms"`
-	}
-	if err := db.Table("usage_events").Select("ttft_ms").Where("event_key = ?", "event-ttft").First(&got).Error; err != nil {
-		t.Fatalf("load usage event ttft_ms: %v", err)
-	}
-	if got.TTFTMS == nil || *got.TTFTMS != 456 {
-		t.Fatalf("expected ttft_ms to persist, got %+v", got.TTFTMS)
-	}
-}
-
-func TestInsertUsageEventsPersistsServiceTier(t *testing.T) {
-	db := openTestDatabase(t)
-	events := []entities.UsageEvent{{
-		EventKey:    "event-service-tier",
-		APIGroupKey: "provider-a",
-		Model:       "claude-sonnet",
-		ServiceTier: "standard",
-		Timestamp:   time.Date(2026, 5, 29, 8, 0, 0, 0, time.UTC),
-		Source:      "source-a",
-		AuthIndex:   "auth-1",
-		TotalTokens: 10,
-	}}
-
-	inserted, deduped, err := repository.InsertUsageEvents(db, events)
-	if err != nil {
-		t.Fatalf("InsertUsageEvents returned error: %v", err)
-	}
-	if inserted != 1 || deduped != 0 {
-		t.Fatalf("expected inserted=1 deduped=0, got inserted=%d deduped=%d", inserted, deduped)
-	}
-
-	var got struct {
-		ServiceTier string `gorm:"column:service_tier"`
-	}
-	if err := db.Table("usage_events").Select("service_tier").Where("event_key = ?", "event-service-tier").First(&got).Error; err != nil {
-		t.Fatalf("load usage event service_tier: %v", err)
-	}
-	if got.ServiceTier != "standard" {
-		t.Fatalf("expected service_tier to persist, got %q", got.ServiceTier)
-	}
-}
-
-func TestInsertUsageEventsPersistsExecutorType(t *testing.T) {
-	db := openTestDatabase(t)
-	events := []entities.UsageEvent{{
-		EventKey:     "event-executor-type",
-		APIGroupKey:  "provider-a",
-		Model:        "claude-sonnet",
-		ExecutorType: "responses",
-		Timestamp:    time.Date(2026, 6, 2, 8, 0, 0, 0, time.UTC),
-		Source:       "source-a",
-		AuthIndex:    "auth-1",
-		TotalTokens:  10,
-	}}
-
-	inserted, deduped, err := repository.InsertUsageEvents(db, events)
-	if err != nil {
-		t.Fatalf("InsertUsageEvents returned error: %v", err)
-	}
-	if inserted != 1 || deduped != 0 {
-		t.Fatalf("expected inserted=1 deduped=0, got inserted=%d deduped=%d", inserted, deduped)
-	}
-
-	var got struct {
-		ExecutorType string `gorm:"column:executor_type"`
-	}
-	if err := db.Table("usage_events").Select("executor_type").Where("event_key = ?", "event-executor-type").First(&got).Error; err != nil {
-		t.Fatalf("load usage event executor_type: %v", err)
-	}
-	if got.ExecutorType != "responses" {
-		t.Fatalf("expected executor_type to persist, got %q", got.ExecutorType)
+	if got.ServiceTier != "standard" || got.ExecutorType != "responses" {
+		t.Fatalf("unexpected persisted metadata: %+v", got)
 	}
 }
 
@@ -738,7 +632,7 @@ func TestCleanupStorageCleansRedisInboxAndAppliesVacuumPolicy(t *testing.T) {
 		t.Fatalf("seed activity stats: %v", err)
 	}
 
-	result, err := repository.CleanupStorage(db, now)
+	result, err := repository.CleanupStorage(db, now, 0)
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}
@@ -794,7 +688,7 @@ func TestCleanupStorageRetainsNinetyLocalDays(t *testing.T) {
 	seedCaughtUpLatencyCheckpoint(t, db, now)
 
 	// 执行：三个全局 checkpoint 已追平且没有 identity delta 时运行维护。
-	result, err := repository.CleanupStorage(db, now)
+	result, err := repository.CleanupStorage(db, now, 0)
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}
@@ -807,7 +701,7 @@ func TestCleanupStorageRetainsNinetyLocalDays(t *testing.T) {
 		t.Fatalf("load remaining usage events: %v", err)
 	}
 	expectedKeys := []string{"after-cutoff", "at-cutoff", "current-day"}
-	if fmt.Sprint(remainingKeys) != fmt.Sprint(expectedKeys) {
+	if !slices.Equal(remainingKeys, expectedKeys) {
 		t.Fatalf("expected remaining usage events %v, got %v", expectedKeys, remainingKeys)
 	}
 }
@@ -844,7 +738,7 @@ func TestCleanupStorageUsesLocalCalendarDaysAcrossDST(t *testing.T) {
 	// Latency 行必须和另外两类一起覆盖当前最大 ID，raw event 才可离开 hot 表。
 	seedCaughtUpLatencyCheckpoint(t, db, now)
 
-	result, err := repository.CleanupStorage(db, now)
+	result, err := repository.CleanupStorage(db, now, 0)
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}
@@ -857,7 +751,7 @@ func TestCleanupStorageUsesLocalCalendarDaysAcrossDST(t *testing.T) {
 		t.Fatalf("load remaining usage events: %v", err)
 	}
 	expectedKeys := []string{"after-dst-cutoff", "at-dst-cutoff"}
-	if fmt.Sprint(remainingKeys) != fmt.Sprint(expectedKeys) {
+	if !slices.Equal(remainingKeys, expectedKeys) {
 		t.Fatalf("expected remaining usage events %v, got %v", expectedKeys, remainingKeys)
 	}
 }
@@ -875,7 +769,7 @@ func TestCleanupStorageDefersUsageEventsUntilOverviewAndActivityCatchUp(t *testi
 	}
 
 	// 执行：全局 checkpoint 尚未创建时尝试归档 raw events。
-	result, err := repository.CleanupStorage(db, now)
+	result, err := repository.CleanupStorage(db, now, 0)
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}
@@ -927,7 +821,7 @@ func TestCleanupStorageDefersUsageEventsUntilLatencyCatchUp(t *testing.T) {
 		t.Fatalf("seed lagging latency checkpoint: %v", err)
 	}
 
-	result, err := repository.CleanupStorage(db, now)
+	result, err := repository.CleanupStorage(db, now, 0)
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}
@@ -979,7 +873,7 @@ func TestCleanupStorageDefersUsageEventsUntilIdentityCatchUp(t *testing.T) {
 	}
 
 	// 执行：identity cursor 尚未越过第二条匹配事件时运行清理。
-	result, err := repository.CleanupStorage(db, now)
+	result, err := repository.CleanupStorage(db, now, 0)
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}
@@ -998,7 +892,7 @@ func TestCleanupStorageDefersUsageEventsUntilIdentityCatchUp(t *testing.T) {
 }
 
 func seedCaughtUpLatencyCheckpoint(t *testing.T, db *gorm.DB, now time.Time) {
-	// Task 1 的 cleanup 测试需要手工表达“未来 Latency 已回填完成”，Task 2 会改由真实聚合推进。
+	// 显式推进 Latency 水位，让保留期测试聚焦归档边界。
 	t.Helper()
 	var maxEventID int64
 	if err := db.Model(&entities.UsageEvent{}).Select("COALESCE(MAX(id), 0)").Scan(&maxEventID).Error; err != nil {
@@ -1045,7 +939,7 @@ func assertProjectTimezoneStorageValue(t *testing.T, value string, field string)
 	if _, err := time.Parse(time.RFC3339Nano, value); err != nil {
 		t.Fatalf("expected %s to use RFC3339Nano storage format, got %q: %v", field, value, err)
 	}
-	if !strings.Contains(value, "T") || !strings.Contains(value, "+08:00") || strings.Contains(value, "Z") || strings.Contains(value, "+00:00") {
+	if !strings.HasSuffix(value, "+08:00") {
 		t.Fatalf("expected %s to use project timezone offset storage format, got %q", field, value)
 	}
 }
@@ -1079,13 +973,4 @@ func captureRepositoryLogs(t *testing.T) *bytes.Buffer {
 		logrus.SetLevel(previousLevel)
 	})
 	return &logs
-}
-
-func repositorySQLiteIndexExists(t *testing.T, db *gorm.DB, indexName string) bool {
-	t.Helper()
-	var count int64
-	if err := db.Raw("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?", indexName).Scan(&count).Error; err != nil {
-		t.Fatalf("check sqlite index %s: %v", indexName, err)
-	}
-	return count == 1
 }

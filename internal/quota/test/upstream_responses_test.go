@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"testing"
+	"time"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
 	"cpa-usage-keeper/internal/entities"
@@ -12,19 +13,13 @@ import (
 )
 
 func TestRefreshCachesUpstreamResponsesWhenEnabled(t *testing.T) {
-	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	usageBody := `{"plan_type":"plus","rate_limit":{"allowed":true}}`
 	detailsBody := `{"available_count":1}`
 	caller := &recordingManagementCaller{responses: []*apicall.Response{
 		{StatusCode: 200, Header: map[string][]string{"X-Request-Id": {"usage-request"}}, Body: json.RawMessage(strconv.Quote(usageBody))},
 		{StatusCode: 200, Header: map[string][]string{"X-Request-Id": {"credits-request"}}, Body: json.RawMessage(strconv.Quote(detailsBody))},
 	}}
-	service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{
-		PricingCatalog:                emptyPricingCatalogForTest(),
-		QuotaUpstreamResponsesEnabled: true,
-	})
-	t.Cleanup(service.StopRefreshTasks)
+	service := newUpstreamResponsesService(t, caller, true)
 
 	response, err := service.Refresh(context.Background(), quota.RefreshRequest{AuthIndexes: []string{"codex-auth"}, Source: quota.RefreshSourceManual})
 	if err != nil {
@@ -64,12 +59,9 @@ func TestRefreshCachesUpstreamResponsesWhenEnabled(t *testing.T) {
 }
 
 func TestRefreshOmitsUpstreamResponsesWhenDisabled(t *testing.T) {
-	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	usageBody := `{"plan_type":"plus","rate_limit":{"allowed":true},"rate_limit_reset_credits":{"available_count":0}}`
 	caller := &recordingManagementCaller{responses: []*apicall.Response{{StatusCode: 200, Body: json.RawMessage(strconv.Quote(usageBody))}}}
-	service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{PricingCatalog: emptyPricingCatalogForTest()})
-	t.Cleanup(service.StopRefreshTasks)
+	service := newUpstreamResponsesService(t, caller, false)
 
 	response, err := service.Refresh(context.Background(), quota.RefreshRequest{AuthIndexes: []string{"codex-auth"}, Source: quota.RefreshSourceManual})
 	if err != nil {
@@ -96,19 +88,13 @@ func TestRefreshOmitsUpstreamResponsesWhenDisabled(t *testing.T) {
 }
 
 func TestRefreshReturnsUpstreamResponseWhenProviderRejectsPayload(t *testing.T) {
-	db := openQuotaTestDatabase(t)
-	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
 	errorBody := `{"error":{"message":"rate limited"}}`
 	caller := &recordingManagementCaller{responses: []*apicall.Response{{
 		StatusCode: 429,
 		Header:     map[string][]string{"X-Request-Id": {"failed-request"}},
 		Body:       json.RawMessage(strconv.Quote(errorBody)),
 	}}}
-	service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{
-		PricingCatalog:                emptyPricingCatalogForTest(),
-		QuotaUpstreamResponsesEnabled: true,
-	})
-	t.Cleanup(service.StopRefreshTasks)
+	service := newUpstreamResponsesService(t, caller, true)
 
 	response, err := service.Refresh(context.Background(), quota.RefreshRequest{AuthIndexes: []string{"codex-auth"}, Source: quota.RefreshSourceManual})
 	if err != nil {
@@ -131,4 +117,14 @@ func assertUpstreamResponses(t *testing.T, responses []quota.UpstreamResponse) {
 	if responses[1].URL != quota.CodexRateLimitResetCreditsURL || responses[1].Header["X-Request-Id"][0] != "credits-request" || responses[1].Body != `{"available_count":1}` {
 		t.Fatalf("unexpected reset-credit upstream response: %+v", responses[1])
 	}
+}
+
+func newUpstreamResponsesService(t *testing.T, caller *recordingManagementCaller, enabled bool) *quota.Service {
+	t.Helper()
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "codex-auth", Provider: "codex", Type: "codex", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	service := quota.NewServiceWithOptions(db, caller, quota.ServiceOptions{PricingCatalog: emptyPricingCatalogForTest(), QuotaUpstreamResponsesEnabled: enabled})
+	t.Cleanup(service.StopRefreshTasks)
+	setRefreshCooldown(service, func(time.Duration) {})
+	return service
 }

@@ -21,6 +21,7 @@ export type RankingParticipationStatus = 'disabled' | 'joining' | 'active' | 'pa
 
 export interface RankingStatusResponse {
   status: RankingParticipationStatus;
+  banned?: boolean;
   display_name?: string;
   avatar_id?: number;
   participant_id?: string;

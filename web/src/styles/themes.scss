@@ -22,6 +22,8 @@
   --keeper-control-height-sm: 32px;
   --keeper-control-height-md: 36px;
   --keeper-toolbar-control-height: 42px;
+  --keeper-menu-selected-bg: var(--bg-hover);
+  --keeper-menu-hover-bg: color-mix(in srgb, var(--bg-hover) 60%, transparent);
 
   // 极简暖灰：浅色模式
   --bg-secondary: #faf9f5; // 页面背景（纸感）
@@ -89,6 +91,7 @@
 
 // 纯白主题
 [data-theme='white'] {
+  --keeper-menu-selected-bg: color-mix(in srgb, var(--text-primary) 8%, var(--bg-primary));
   --bg-secondary: #ffffff;
   --bg-primary: #ffffff;
   --bg-tertiary: #f6f6f6;
@@ -146,6 +149,7 @@
 
 // 深色主题（#191919）
 [data-theme='dark'] {
+  --keeper-menu-selected-bg: var(--bg-hover);
   // 极简暖灰：深色模式（提升对比度与层级）
   --bg-secondary: #151412; // 页面背景
   --bg-primary: #1d1b18; // 容器/卡片背景

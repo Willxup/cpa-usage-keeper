@@ -153,10 +153,7 @@ func TestConfigureReportsDedicatedErrorFileInitializationFailure(t *testing.T) {
 }
 
 func TestConfigureMaintainsErrorRetentionWhenOnlyInfoLogsContinue(t *testing.T) {
-	earlier, later := consecutiveDateLocations(t)
-	previousLocal := time.Local
-	time.Local = earlier
-	t.Cleanup(func() { time.Local = previousLocal })
+	later := prepareDateRollover(t)
 
 	logDir := t.TempDir()
 	closer, err := logging.Configure(config.Config{
@@ -185,10 +182,7 @@ func TestConfigureMaintainsErrorRetentionWhenOnlyInfoLogsContinue(t *testing.T) 
 }
 
 func TestDedicatedErrorHookRunsFirstAndFailureDoesNotStopFollowingHooks(t *testing.T) {
-	earlier, later := consecutiveDateLocations(t)
-	previousLocal := time.Local
-	time.Local = earlier
-	t.Cleanup(func() { time.Local = previousLocal })
+	later := prepareDateRollover(t)
 
 	logger := logrus.StandardLogger()
 	previousHooks := logger.ReplaceHooks(make(logrus.LevelHooks))
@@ -273,10 +267,7 @@ func TestClosedDedicatedErrorHookCannotReopenItsFile(t *testing.T) {
 }
 
 func TestConfigureRecoversAfterDailyFileOpenFailure(t *testing.T) {
-	earlier, later := consecutiveDateLocations(t)
-	previousLocal := time.Local
-	time.Local = earlier
-	t.Cleanup(func() { time.Local = previousLocal })
+	later := prepareDateRollover(t)
 
 	logDir := t.TempDir()
 	closer, err := logging.Configure(config.Config{
@@ -312,10 +303,7 @@ func TestConfigureRecoversAfterDailyFileOpenFailure(t *testing.T) {
 }
 
 func TestDedicatedErrorMaintenanceFailureIsReportedOnceForSameDate(t *testing.T) {
-	earlier, later := consecutiveDateLocations(t)
-	previousLocal := time.Local
-	time.Local = earlier
-	t.Cleanup(func() { time.Local = previousLocal })
+	later := prepareDateRollover(t)
 
 	baseDir := t.TempDir()
 	logDir := filepath.Join(baseDir, "logs")
@@ -383,10 +371,7 @@ func TestConfigureCloseIsIdempotent(t *testing.T) {
 }
 
 func TestDedicatedErrorMaintenanceClosesStaleDailyFile(t *testing.T) {
-	earlier, later := consecutiveDateLocations(t)
-	previousLocal := time.Local
-	time.Local = earlier
-	t.Cleanup(func() { time.Local = previousLocal })
+	later := prepareDateRollover(t)
 
 	logDir := t.TempDir()
 	closer, err := logging.Configure(config.Config{
@@ -431,20 +416,13 @@ func today() string {
 	return time.Now().Format("2006-01-02")
 }
 
-func consecutiveDateLocations(t *testing.T) (*time.Location, *time.Location) {
+func prepareDateRollover(t *testing.T) *time.Location {
 	t.Helper()
-	earlier, err := time.LoadLocation("Pacific/Honolulu")
-	if err != nil {
-		t.Fatalf("load earlier timezone: %v", err)
-	}
-	later, err := time.LoadLocation("Pacific/Kiritimati")
-	if err != nil {
-		t.Fatalf("load later timezone: %v", err)
-	}
-	if time.Now().In(earlier).Format("2006-01-02") == time.Now().In(later).Format("2006-01-02") {
-		t.Fatal("expected test timezones to produce consecutive dates")
-	}
-	return earlier, later
+	previousLocal := time.Local
+	t.Cleanup(func() { time.Local = previousLocal })
+	// 两个固定偏移相差整整一天，用于触发日志日期轮换。
+	time.Local = time.FixedZone("before", -10*60*60)
+	return time.FixedZone("after", 14*60*60)
 }
 
 func openFileDescriptorCount(t *testing.T, targetPath string) int {

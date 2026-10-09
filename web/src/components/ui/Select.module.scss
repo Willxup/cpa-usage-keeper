@@ -1,4 +1,4 @@
-@use '../../styles/mixins' as *;
+@use '../../styles/menu';
 @use '../../styles/variables' as *;
 
 .wrap {
@@ -31,7 +31,7 @@
   text-align: left;
   box-sizing: border-box;
 
-  &:hover {
+  &:hover:not(:disabled) {
     border-color: var(--border-hover);
   }
 
@@ -43,6 +43,14 @@
   &[aria-expanded='true'] {
     border-color: var(--primary-color);
     box-shadow: var(--shadow), 0 0 0 3px rgba($primary-color, 0.18);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+    background-color: var(--bg-tertiary);
+    color: var(--text-secondary);
+    box-shadow: none;
   }
 }
 
@@ -68,41 +76,68 @@
 }
 
 .dropdown {
-  position: fixed;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: $radius-lg;
-  padding: 6px;
-  box-shadow: var(--shadow-lg);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  @include menu.surface;
+  position: absolute;
   max-height: 240px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  overflow: hidden;
 }
 
 .option {
-  display: flex;
-  align-items: center;
+  @include menu.item;
   justify-content: space-between;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: $radius-md;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-primary);
-  cursor: pointer;
-  text-align: left;
-  font-size: 13px;
-  font-weight: 500;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
-  flex-shrink: 0;
+}
 
-  &:hover {
-    background: var(--bg-secondary);
+.searchInput {
+  min-width: 0;
+  padding-right: 36px;
+  cursor: text;
+  text-overflow: ellipsis;
+
+  &::placeholder {
+    color: var(--text-tertiary);
   }
+
+  // iOS 聚焦小于 16px 的输入框会自动放大页面。
+  @media (pointer: coarse) {
+    font-size: 16px;
+  }
+}
+
+.touchSearchField {
+  position: relative;
+  flex-shrink: 0;
+  height: 44px;
+  margin-bottom: 6px;
+}
+
+.touchSearchInput {
+  // 保留 16px 的输入字号避免 iOS 自动缩放，视觉上与 13px 的触发器一致。
+  --search-scale: 0.8125;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(100% / var(--search-scale));
+  height: calc(44px / var(--search-scale));
+  padding: 0 calc(12px / var(--search-scale));
+  border-radius: 999px;
+  transform: scale(var(--search-scale));
+  transform-origin: top left;
+}
+
+.searchIcon {
+  position: absolute;
+  right: 12px;
+  pointer-events: none;
+
+  .searchInput[aria-expanded='true'] + & {
+    transform: rotate(180deg);
+  }
+}
+
+.noResults {
+  padding: 8px 12px;
+  color: var(--text-tertiary);
+  font-size: 12px;
 }
 
 .optionLabel {
@@ -124,22 +159,14 @@
   flex: 0 0 auto;
 }
 
-.optionActive {
-  border-color: rgba($primary-color, 0.5);
-  background: rgba($primary-color, 0.1);
-  font-weight: 600;
+.optionHighlighted:not(.optionActive):not(:disabled) {
+  background: var(--keeper-menu-hover-bg);
 }
 
-.optionHighlighted {
-  background: var(--bg-secondary);
+.optionActive {
+  @include menu.selected;
 }
 
 .optionDisabled {
-  color: var(--text-tertiary);
-  cursor: not-allowed;
-  opacity: 0.76;
-
-  &:hover {
-    background: transparent;
-  }
+  &:hover { background: transparent; }
 }

@@ -3,8 +3,8 @@ package test
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -14,13 +14,15 @@ import (
 
 type analysisModelUsagePayload struct {
 	ModelUsage struct {
-		Buckets []time.Time `json:"buckets"`
-		Series  []struct {
-			Model       string  `json:"model"`
-			TotalTokens []int64 `json:"total_tokens"`
-			Requests    []int64 `json:"requests"`
-		} `json:"series"`
+		Buckets []time.Time                `json:"buckets"`
+		Series  []analysisModelUsageSeries `json:"series"`
 	} `json:"model_usage"`
+}
+
+type analysisModelUsageSeries struct {
+	Model       string  `json:"model"`
+	TotalTokens []int64 `json:"total_tokens"`
+	Requests    []int64 `json:"requests"`
 }
 
 func TestUsageAnalysisReturnsCompactAlignedModelUsageSeries(t *testing.T) {
@@ -42,8 +44,7 @@ func TestUsageAnalysisReturnsCompactAlignedModelUsageSeries(t *testing.T) {
 		},
 	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/usage/analysis?range=24h", nil))
+	response := serveAPIGet(router, "/api/v1/usage/analysis?range=24h")
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", response.Code, response.Body.String())
@@ -52,27 +53,23 @@ func TestUsageAnalysisReturnsCompactAlignedModelUsageSeries(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(payload.ModelUsage.Buckets) != len(buckets) {
+	if !slices.EqualFunc(payload.ModelUsage.Buckets, buckets, time.Time.Equal) {
 		t.Fatalf("buckets = %v, want %v", payload.ModelUsage.Buckets, buckets)
 	}
-	for index := range buckets {
-		if !payload.ModelUsage.Buckets[index].Equal(buckets[index]) {
-			t.Fatalf("bucket[%d] = %v, want %v", index, payload.ModelUsage.Buckets[index], buckets[index])
-		}
+	want := []analysisModelUsageSeries{
+		{"model-gamma", []int64{0, 500, 0}, []int64{0, 4, 0}},
+		{"model-alpha", []int64{100, 200, 0}, []int64{1, 2, 0}},
+		{"model-beta", []int64{200, 0, 100}, []int64{3, 0, 1}},
 	}
-	if len(payload.ModelUsage.Series) != 3 {
-		t.Fatalf("series = %+v, want 3 models", payload.ModelUsage.Series)
+	if !reflect.DeepEqual(payload.ModelUsage.Series, want) {
+		t.Fatalf("model series = %+v, want %+v", payload.ModelUsage.Series, want)
 	}
-	assertAnalysisModelUsageSeries(t, payload.ModelUsage.Series[0].Model, payload.ModelUsage.Series[0].TotalTokens, payload.ModelUsage.Series[0].Requests, "model-gamma", []int64{0, 500, 0}, []int64{0, 4, 0})
-	assertAnalysisModelUsageSeries(t, payload.ModelUsage.Series[1].Model, payload.ModelUsage.Series[1].TotalTokens, payload.ModelUsage.Series[1].Requests, "model-alpha", []int64{100, 200, 0}, []int64{1, 2, 0})
-	assertAnalysisModelUsageSeries(t, payload.ModelUsage.Series[2].Model, payload.ModelUsage.Series[2].TotalTokens, payload.ModelUsage.Series[2].Requests, "model-beta", []int64{200, 0, 100}, []int64{3, 0, 1})
 }
 
 func TestUsageAnalysisEmptyResponseIncludesEmptyModelUsage(t *testing.T) {
 	provider := &analysisSplitStub{analysis: &servicedto.AnalysisSnapshot{}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/usage/analysis?range=24h", nil))
+	response := serveAPIGet(router, "/api/v1/usage/analysis?range=24h")
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", response.Code, response.Body.String())
@@ -83,12 +80,5 @@ func TestUsageAnalysisEmptyResponseIncludesEmptyModelUsage(t *testing.T) {
 	}
 	if payload.ModelUsage.Buckets == nil || payload.ModelUsage.Series == nil {
 		t.Fatalf("expected empty arrays instead of null, got %s", response.Body.String())
-	}
-}
-
-func assertAnalysisModelUsageSeries(t *testing.T, model string, tokens, requests []int64, wantModel string, wantTokens, wantRequests []int64) {
-	t.Helper()
-	if model != wantModel || !reflect.DeepEqual(tokens, wantTokens) || !reflect.DeepEqual(requests, wantRequests) {
-		t.Fatalf("series = model:%q tokens:%v requests:%v, want model:%q tokens:%v requests:%v", model, tokens, requests, wantModel, wantTokens, wantRequests)
 	}
 }

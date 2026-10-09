@@ -119,7 +119,7 @@ func TestCalculateUsageTokenCostBreakdownReturnsFiniteZeroBeforeOverflowWhenMult
 		"output":         breakdown.OutputCostUSD,
 		"total":          breakdown.TotalCostUSD,
 	} {
-		if cost != 0 || math.IsNaN(cost) || math.IsInf(cost, 0) {
+		if cost != 0 {
 			t.Fatalf("%s cost = %v, want finite zero", name, cost)
 		}
 	}

@@ -1,7 +1,6 @@
 package test
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -9,12 +8,11 @@ import (
 	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/timeutil"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
 func TestPersistentSessionManagerPreservesAndTouchesClientMetadata(t *testing.T) {
-	db := openSessionMetadataDatabase(t)
+	db := openSessionDatabase(t)
 	store := auth.NewGormSessionStore(db)
 	manager := auth.NewPersistentSessionManager(time.Hour, store)
 	metadata := auth.SessionClientMetadata{
@@ -92,21 +90,4 @@ func waitForPersistedSessionActivity(t *testing.T, db *gorm.DB, token, lastSeenI
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-}
-
-func openSessionMetadataDatabase(t *testing.T) *gorm.DB {
-	t.Helper()
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "session-metadata.db")), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite database: %v", err)
-	}
-	if err := db.AutoMigrate(&entities.AuthSession{}); err != nil {
-		t.Fatalf("auto migrate auth sessions: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("get sql database: %v", err)
-	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
-	return db
 }

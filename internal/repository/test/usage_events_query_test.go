@@ -1,7 +1,8 @@
 package test
 
 import (
-	"fmt"
+	"log"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -12,19 +13,6 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 )
-
-type usageEventsSQLRecorder struct {
-	logs strings.Builder
-}
-
-func (r *usageEventsSQLRecorder) Printf(message string, args ...interface{}) {
-	fmt.Fprintf(&r.logs, message, args...)
-	r.logs.WriteByte('\n')
-}
-
-func (r *usageEventsSQLRecorder) String() string {
-	return r.logs.String()
-}
 
 func TestListUsageEventsWithFilterDoesNotLoadModelFilterOptions(t *testing.T) {
 	db := openTestDatabase(t)
@@ -74,8 +62,8 @@ func TestListUsageEventFilterOptionsWithFilterStillLoadsModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListUsageEventFilterOptionsWithFilter returned error: %v", err)
 	}
-	if got, want := strings.Join(options.Models, ","), "model-alpha,model-beta"; got != want {
-		t.Fatalf("expected actual usage event models %q, got %q", want, got)
+	if want := []string{"model-alpha", "model-beta"}; !slices.Equal(options.Models, want) {
+		t.Fatalf("expected actual usage event models %v, got %v", want, options.Models)
 	}
 	if !strings.Contains(strings.ToLower(recorder.String()), "select distinct model") {
 		t.Fatalf("expected model filter options query to use SELECT DISTINCT model, SQL logs:\n%s", recorder.String())
@@ -94,8 +82,8 @@ func seedUsageEventModels(t *testing.T, db *gorm.DB) {
 	}
 }
 
-func usageEventsQueryRecorder(db *gorm.DB) (*usageEventsSQLRecorder, *gorm.DB) {
-	recorder := &usageEventsSQLRecorder{}
-	queryLogger := gormlogger.New(recorder, gormlogger.Config{LogLevel: gormlogger.Info})
+func usageEventsQueryRecorder(db *gorm.DB) (*strings.Builder, *gorm.DB) {
+	recorder := &strings.Builder{}
+	queryLogger := gormlogger.New(log.New(recorder, "", 0), gormlogger.Config{LogLevel: gormlogger.Info})
 	return recorder, db.Session(&gorm.Session{Logger: queryLogger})
 }

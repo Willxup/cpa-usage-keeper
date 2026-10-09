@@ -2,12 +2,9 @@ package test
 
 import (
 	"context"
-	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
 
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
@@ -15,37 +12,9 @@ import (
 )
 
 func TestUsageServiceAnalysisLatencyResolvesAPIKeyIDBeforeFiltering(t *testing.T) {
-	previousLocal := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = previousLocal })
-
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-analysis-latency-filter.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("load database pool: %v", err)
-	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
-
+	db := openUsageServiceTestDatabase(t)
 	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
-	if err := repository.SyncCPAAPIKeys(db, []string{"sk-target-key", "sk-other-key"}, now); err != nil {
-		t.Fatalf("SyncCPAAPIKeys returned error: %v", err)
-	}
-	activeKeys, err := repository.ListActiveCPAAPIKeys(db)
-	if err != nil {
-		t.Fatalf("ListActiveCPAAPIKeys returned error: %v", err)
-	}
-	var targetID string
-	for _, key := range activeKeys {
-		if key.APIKey == "sk-target-key" {
-			targetID = strconv.FormatInt(key.ID, 10)
-		}
-	}
-	if targetID == "" {
-		t.Fatal("expected target API key")
-	}
+	targetID := seedUsageFilterAPIKeys(t, db)
 
 	generated := true
 	targetTTFT := int64(1010)

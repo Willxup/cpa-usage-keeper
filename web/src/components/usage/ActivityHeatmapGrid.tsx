@@ -11,11 +11,13 @@ const ACTIVITY_GRID_COLUMNS = 52;
 
 type TooltipHorizontalPosition = 'center' | 'left' | 'right';
 type TooltipVerticalPosition = 'above' | 'below';
+type TooltipInteraction = 'mouse' | 'focus' | 'touch';
 
 interface ActiveTooltipState {
   index: number;
   requestIdentity: string;
   anchorEl: HTMLDivElement;
+  interaction: TooltipInteraction;
   horizontal: TooltipHorizontalPosition;
   vertical: TooltipVerticalPosition;
   left: number;
@@ -99,7 +101,12 @@ export function ActivityHeatmapGrid({
     return () => document.removeEventListener('pointerdown', handler);
   }, [visibleTooltip]);
 
-  const buildTooltipState = useCallback((index: number, anchorEl: HTMLDivElement | null, identity: string) => {
+  const buildTooltipState = useCallback((
+    index: number,
+    anchorEl: HTMLDivElement | null,
+    identity: string,
+    interaction: TooltipInteraction,
+  ) => {
     if (!anchorEl || !anchorEl.isConnected) return null;
     const rect = anchorEl.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
@@ -120,6 +127,7 @@ export function ActivityHeatmapGrid({
       index,
       requestIdentity: identity,
       anchorEl,
+      interaction,
       horizontal,
       vertical,
       left: Math.round(left),
@@ -135,18 +143,43 @@ export function ActivityHeatmapGrid({
         setActiveTooltip(null);
         return;
       }
-      setActiveTooltip(buildTooltipState(visibleTooltip.index, visibleTooltip.anchorEl, visibleTooltip.requestIdentity));
+      setActiveTooltip(buildTooltipState(
+        visibleTooltip.index,
+        visibleTooltip.anchorEl,
+        visibleTooltip.requestIdentity,
+        visibleTooltip.interaction,
+      ));
+    };
+    const handleScroll = (event: Event) => {
+      if (!document.body.contains(visibleTooltip.anchorEl)) {
+        setActiveTooltip(null);
+        return;
+      }
+      const target = event.target;
+      const isRelevantScroll =
+        target === window
+        || target === document
+        || Boolean((target as { window?: unknown } | null)?.window === target)
+        || (target instanceof Node && target.contains(visibleTooltip.anchorEl));
+      if (!isRelevantScroll) return;
+
+      // 鼠标悬停状态不会因为页面滚动触发 pointerleave，滚动时主动清理避免 tooltip 脱离方块后残留。
+      if (visibleTooltip.interaction === 'mouse') {
+        setActiveTooltip(null);
+        return;
+      }
+      updateTooltipPosition();
     };
     window.addEventListener('resize', updateTooltipPosition);
-    window.addEventListener('scroll', updateTooltipPosition, true);
+    window.addEventListener('scroll', handleScroll, true);
     return () => {
       window.removeEventListener('resize', updateTooltipPosition);
-      window.removeEventListener('scroll', updateTooltipPosition, true);
+      window.removeEventListener('scroll', handleScroll, true);
     };
   }, [buildTooltipState, visibleTooltip]);
 
-  const openTooltip = useCallback((index: number, anchorEl: HTMLDivElement) => {
-    setActiveTooltip(buildTooltipState(index, anchorEl, requestIdentity));
+  const openTooltip = useCallback((index: number, anchorEl: HTMLDivElement, interaction: TooltipInteraction) => {
+    setActiveTooltip(buildTooltipState(index, anchorEl, requestIdentity, interaction));
   }, [buildTooltipState, requestIdentity]);
 
   const handleCellKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>, index: number) => {
@@ -246,15 +279,28 @@ export function ActivityHeatmapGrid({
               data-activity-end={block.end_time}
               onFocus={(event) => {
                 setFocusedIndex(index);
-                openTooltip(index, event.currentTarget);
+                openTooltip(index, event.currentTarget, 'focus');
               }}
               onBlur={() => setActiveTooltip(null)}
               onKeyDown={(event) => handleCellKeyDown(event, index)}
               onPointerEnter={(event) => {
-                if (event.pointerType === 'mouse') openTooltip(index, event.currentTarget);
+                if (event.pointerType !== 'mouse') return;
+                if (document.activeElement === event.currentTarget) {
+                  if (visibleTooltip?.index !== index || visibleTooltip.interaction !== 'focus') {
+                    openTooltip(index, event.currentTarget, 'focus');
+                  }
+                  return;
+                }
+                openTooltip(index, event.currentTarget, 'mouse');
               }}
               onPointerLeave={(event) => {
-                if (event.pointerType === 'mouse') setActiveTooltip(null);
+                if (
+                  event.pointerType === 'mouse'
+                  && visibleTooltip?.index === index
+                  && visibleTooltip.interaction === 'mouse'
+                ) {
+                  setActiveTooltip(null);
+                }
               }}
               onPointerDown={(event) => {
                 if (event.pointerType !== 'touch') return;
@@ -263,7 +309,7 @@ export function ActivityHeatmapGrid({
                 setActiveTooltip((previous) => (
                   previous?.index === index && previous.requestIdentity === requestIdentity
                     ? null
-                    : buildTooltipState(index, anchorEl, requestIdentity)
+                    : buildTooltipState(index, anchorEl, requestIdentity, 'touch')
                 ));
               }}
             >

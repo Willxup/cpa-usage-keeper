@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
+	"cpa-usage-keeper/internal/cpa/dto/authfiles"
 )
 
 // UpstreamResponse 是 CPA api-call 返回的上游响应快照；刻意不保存任何请求 Header。
@@ -65,16 +67,25 @@ func (c *upstreamResponseCollector) snapshot() []UpstreamResponse {
 }
 
 type upstreamResponseRecordingCaller struct {
-	caller ManagementAPICaller
+	ManagementClient
 }
 
 func (c upstreamResponseRecordingCaller) CallManagementAPI(ctx context.Context, request apicall.Request) (*apicall.Response, error) {
-	response, err := c.caller.CallManagementAPI(ctx, request)
+	response, err := c.ManagementClient.CallManagementAPI(ctx, request)
 	// 在 provider 解析前记录，因此非 2xx 或无法解析的真实上游响应仍可从刷新任务排查。
 	if collector := upstreamResponseCollectorFromContext(ctx); collector != nil {
 		collector.record(request, response)
 	}
 	return response, err
+}
+
+func (c upstreamResponseRecordingCaller) FetchKimiCredentialMetadata(ctx context.Context, name string) (*authfiles.KimiCredentialMetadata, error) {
+	reader, ok := c.ManagementClient.(kimiCredentialReader)
+	if !ok {
+		return nil, fmt.Errorf("Kimi credential metadata reader is unavailable")
+	}
+	// 凭证下载只转发最小 metadata，不进入上游响应采集器。
+	return reader.FetchKimiCredentialMetadata(ctx, name)
 }
 
 func hasUpstreamResponse(response *apicall.Response) bool {

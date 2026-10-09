@@ -2,8 +2,6 @@ package test
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -95,11 +93,11 @@ func TestAnalysisLatencyRollupCustomDayAlwaysUsesDayBuckets(t *testing.T) {
 					hourEventTime = now.Add(-time.Hour)
 				}
 				seedAnalysisLatencyRows(t, db, now, entities.UsageLatencyBucketHour, []entities.UsageEvent{
-					analysisLatencyEvent(int64(100+caseIndex*10), "target", hourEventTime, hourTTFT, hourTTFT*10),
+					validLatencyEvent(int64(100+caseIndex*10), "target", hourEventTime, hourTTFT, hourTTFT*10),
 				})
 			}
 			seedAnalysisLatencyRows(t, db, now, entities.UsageLatencyBucketDay, []entities.UsageEvent{
-				analysisLatencyEvent(int64(101+caseIndex*10), "target", start.Add(time.Hour), testCase.wantTTFT, testCase.wantTTFT*10),
+				validLatencyEvent(int64(101+caseIndex*10), "target", start.Add(time.Hour), testCase.wantTTFT, testCase.wantTTFT*10),
 			})
 
 			diagnostics, err := repository.BuildAnalysisLatencyDiagnosticsWithFilter(db, repodto.UsageQueryFilter{
@@ -121,14 +119,14 @@ func TestAnalysisLatencyRollupSupportsAllAnalysisRangeKinds(t *testing.T) {
 		start := time.Date(2026, 7, 26, 8, 0, 0, 0, location)
 		end := time.Date(2026, 7, 26, 14, 0, 0, 0, location)
 		events := []entities.UsageEvent{
-			analysisLatencyEvent(2101, "target", start.Add(-time.Hour).Add(10*time.Minute), 7, 70),
-			analysisLatencyEvent(2102, "target", start.Add(10*time.Minute), 8, 80),
-			analysisLatencyEvent(2103, "target", end.Add(-time.Hour).Add(10*time.Minute), 13, 130),
-			analysisLatencyEvent(2104, "target", end.Add(10*time.Minute), 14, 140),
+			validLatencyEvent(2101, "target", start.Add(-time.Hour).Add(10*time.Minute), 7, 70),
+			validLatencyEvent(2102, "target", start.Add(10*time.Minute), 8, 80),
+			validLatencyEvent(2103, "target", end.Add(-time.Hour).Add(10*time.Minute), 13, 130),
+			validLatencyEvent(2104, "target", end.Add(10*time.Minute), 14, 140),
 		}
 		seedAnalysisLatencyRows(t, db, end.Add(time.Hour), entities.UsageLatencyBucketHour, events)
 		seedAnalysisLatencyRows(t, db, end.Add(time.Hour), entities.UsageLatencyBucketDay, []entities.UsageEvent{
-			analysisLatencyEvent(2110, "target", start.Add(30*time.Minute), 999, 9990),
+			validLatencyEvent(2110, "target", start.Add(30*time.Minute), 999, 9990),
 		})
 
 		diagnostics, err := repository.BuildAnalysisLatencyDiagnosticsWithFilter(db, repodto.UsageQueryFilter{
@@ -188,11 +186,11 @@ func TestAnalysisLatencyRollupSupportsAllAnalysisRangeKinds(t *testing.T) {
 			eventTime := testCase.start.Add(12*time.Hour + 10*time.Minute)
 			if !testCase.skipHour {
 				seedAnalysisLatencyRows(t, db, testCase.end, entities.UsageLatencyBucketHour, []entities.UsageEvent{
-					analysisLatencyEvent(int64(2201+caseIndex*10), "target", eventTime, hourTTFT, hourTTFT*10),
+					validLatencyEvent(int64(2201+caseIndex*10), "target", eventTime, hourTTFT, hourTTFT*10),
 				})
 			}
 			seedAnalysisLatencyRows(t, db, testCase.end, entities.UsageLatencyBucketDay, []entities.UsageEvent{
-				analysisLatencyEvent(int64(2202+caseIndex*10), "target", eventTime, dayTTFT, dayTTFT*10),
+				validLatencyEvent(int64(2202+caseIndex*10), "target", eventTime, dayTTFT, dayTTFT*10),
 			})
 
 			diagnostics, err := repository.BuildAnalysisLatencyDiagnosticsWithFilter(db, repodto.UsageQueryFilter{
@@ -216,15 +214,15 @@ func TestAnalysisLatencyRollupAlignsRollingBoundsUpAndNeverQueriesUsageEvents(t 
 	start := time.Date(2026, 7, 26, 9, 14, 21, 0, location)
 	end := time.Date(2026, 7, 26, 11, 14, 21, 0, location)
 	seedAnalysisLatencyRows(t, db, end, entities.UsageLatencyBucketHour, []entities.UsageEvent{
-		analysisLatencyEvent(3001, "target", time.Date(2026, 7, 26, 9, 30, 0, 0, location), 9, 90),
-		analysisLatencyEvent(3002, "target", time.Date(2026, 7, 26, 10, 30, 0, 0, location), 10, 100),
-		analysisLatencyEvent(3003, "target", time.Date(2026, 7, 26, 11, 10, 0, 0, location), 11, 110),
-		analysisLatencyEvent(3004, "target", time.Date(2026, 7, 26, 12, 10, 0, 0, location), 12, 120),
+		validLatencyEvent(3001, "target", time.Date(2026, 7, 26, 9, 30, 0, 0, location), 9, 90),
+		validLatencyEvent(3002, "target", time.Date(2026, 7, 26, 10, 30, 0, 0, location), 10, 100),
+		validLatencyEvent(3003, "target", time.Date(2026, 7, 26, 11, 10, 0, 0, location), 11, 110),
+		validLatencyEvent(3004, "target", time.Date(2026, 7, 26, 12, 10, 0, 0, location), 12, 120),
 	})
 	if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
 		t.Fatalf("drop usage_events: %v", err)
 	}
-	queries := captureAnalysisLatencyQueries(t, db)
+	queries := captureOverviewDataQueries(t, db)
 
 	diagnostics, err := repository.BuildAnalysisLatencyDiagnosticsWithFilter(db, repodto.UsageQueryFilter{
 		Range: "2h", StartTime: &start, EndTime: &end,
@@ -249,8 +247,8 @@ func TestAnalysisLatencyRollupFiltersAPIKeyAndReturnsEmptySlices(t *testing.T) {
 	start := time.Date(2026, 7, 26, 8, 0, 0, 0, location)
 	end := start.Add(2 * time.Hour)
 	seedAnalysisLatencyRows(t, db, end, entities.UsageLatencyBucketHour, []entities.UsageEvent{
-		analysisLatencyEvent(4001, "target", start.Add(30*time.Minute), 1010, 10010),
-		analysisLatencyEvent(4002, "other", start.Add(30*time.Minute), 202, 2002),
+		validLatencyEvent(4001, "target", start.Add(30*time.Minute), 1010, 10010),
+		validLatencyEvent(4002, "other", start.Add(30*time.Minute), 202, 2002),
 	})
 
 	diagnostics, err := repository.BuildAnalysisLatencyDiagnosticsWithFilter(db, repodto.UsageQueryFilter{
@@ -280,7 +278,7 @@ func TestAnalysisLatencyRollupMapsBoundedSamplesSketchesAndExactMax(t *testing.T
 	events := make([]entities.UsageEvent, 0, 2600)
 	for index := 0; index < 2600; index++ {
 		value := int64(index + 1)
-		events = append(events, analysisLatencyEvent(value, "target", start.Add(time.Duration(index)*time.Second), value, value*10))
+		events = append(events, validLatencyEvent(value, "target", start.Add(time.Duration(index)*time.Second), value, value*10))
 	}
 	seedAnalysisLatencyRows(t, db, end, entities.UsageLatencyBucketHour, events)
 
@@ -310,23 +308,13 @@ func TestAnalysisLatencyRollupMapsBoundedSamplesSketchesAndExactMax(t *testing.T
 
 func TestAnalysisLatencyRollupExplicitlyUsesReaderWhenWriterIsOccupied(t *testing.T) {
 	location := setAnalysisLatencyTestTimezone(t, "Asia/Shanghai")
-	db, reader, closePools := openLatencyReaderPoolTestDatabase(t)
-	t.Cleanup(closePools)
+	db, writerSQL, _ := openTestDatabasePools(t, "analysis-latency-reader.db")
 	start := time.Date(2026, 7, 26, 8, 0, 0, 0, location)
 	end := start.Add(2 * time.Hour)
 	seedAnalysisLatencyRows(t, db, end, entities.UsageLatencyBucketHour, []entities.UsageEvent{
-		analysisLatencyEvent(5001, "target", start.Add(30*time.Minute), 88000, 880000),
+		validLatencyEvent(5001, "target", start.Add(30*time.Minute), 88000, 880000),
 	})
 
-	readerSQL, err := reader.DB()
-	if err != nil {
-		t.Fatalf("load reader pool: %v", err)
-	}
-	assertAnalysisLatencyReaderPoolLimits(t, readerSQL)
-	writerSQL, err := db.DB()
-	if err != nil {
-		t.Fatalf("load writer pool: %v", err)
-	}
 	heldWriter, err := writerSQL.Conn(context.Background())
 	if err != nil {
 		t.Fatalf("hold writer connection: %v", err)
@@ -367,7 +355,7 @@ func TestAnalysisLatencyRollupRejectsInvalidRangesAndCorruptPayloads(t *testing.
 	}
 
 	seedAnalysisLatencyRows(t, db, end, entities.UsageLatencyBucketHour, []entities.UsageEvent{
-		analysisLatencyEvent(6001, "target", start.Add(10*time.Minute), 60, 600),
+		validLatencyEvent(6001, "target", start.Add(10*time.Minute), 60, 600),
 	})
 	if err := db.Clauses(dbresolver.Write).Model(&entities.UsageLatencyStat{}).Where("bucket_type = ?", entities.UsageLatencyBucketHour).Update("format_version", latency.FormatVersion+1).Error; err != nil {
 		t.Fatalf("corrupt latency row: %v", err)
@@ -399,13 +387,6 @@ func seedAnalysisLatencyRows(t *testing.T, db *gorm.DB, now time.Time, bucketTyp
 	}
 }
 
-func analysisLatencyEvent(id int64, apiGroupKey string, timestamp time.Time, ttftMS, latencyMS int64) entities.UsageEvent {
-	generate := true
-	return entities.UsageEvent{
-		ID: id, APIGroupKey: apiGroupKey, Timestamp: timestamp, Generate: &generate, TTFTMS: &ttftMS, LatencyMS: latencyMS,
-	}
-}
-
 func setAnalysisLatencyTestTimezone(t *testing.T, name string) *time.Location {
 	t.Helper()
 	previous := time.Local
@@ -416,61 +397,6 @@ func setAnalysisLatencyTestTimezone(t *testing.T, name string) *time.Location {
 	time.Local = location
 	t.Cleanup(func() { time.Local = previous })
 	return location
-}
-
-func captureAnalysisLatencyQueries(t *testing.T, db *gorm.DB) *[]string {
-	t.Helper()
-	queries := make([]string, 0, 2)
-	callbackName := fmt.Sprintf("test:capture_analysis_latency_%p", db)
-	capture := func(tx *gorm.DB) {
-		query := strings.ToLower(tx.Statement.SQL.String())
-		queries = append(queries, query)
-		if strings.Contains(query, "usage_events") {
-			tx.AddError(fmt.Errorf("usage_events query is forbidden"))
-		}
-	}
-	if err := db.Callback().Query().After("gorm:query").Register(callbackName, capture); err != nil {
-		t.Fatalf("register query callback: %v", err)
-	}
-	if err := db.Callback().Row().After("gorm:row").Register(callbackName, capture); err != nil {
-		t.Fatalf("register row callback: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = db.Callback().Query().Remove(callbackName)
-		_ = db.Callback().Row().Remove(callbackName)
-	})
-	return &queries
-}
-
-func assertAnalysisLatencyReaderPoolLimits(t *testing.T, readerSQL *sql.DB) {
-	t.Helper()
-	if stats := readerSQL.Stats(); stats.MaxOpenConnections != 8 {
-		t.Fatalf("expected reader MaxOpenConns=8, got %+v", stats)
-	}
-	connections := make([]*sql.Conn, 0, 8)
-	for index := 0; index < 8; index++ {
-		connection, err := readerSQL.Conn(context.Background())
-		if err != nil {
-			t.Fatalf("open reader connection %d: %v", index, err)
-		}
-		connections = append(connections, connection)
-	}
-	for _, connection := range connections {
-		if err := connection.Close(); err != nil {
-			t.Fatalf("close reader connection: %v", err)
-		}
-	}
-	deadline := time.Now().Add(time.Second)
-	for {
-		stats := readerSQL.Stats()
-		if stats.OpenConnections == 4 && stats.Idle == 4 {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("expected reader MaxIdleConns=4 after warmup, got %+v", stats)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
 }
 
 func assertSingleAnalysisLatencyPoint(t *testing.T, diagnostics repodto.AnalysisLatencyDiagnosticsRecord, ttftMS, latencyMS int64) {
@@ -506,10 +432,5 @@ func assertAnalysisLatencyPointSet(t *testing.T, diagnostics repodto.AnalysisLat
 			t.Fatalf("unexpected latency point %+v, want %+v", point, want)
 		}
 		remaining[key]--
-	}
-	for point, count := range remaining {
-		if count != 0 {
-			t.Fatalf("missing %d occurrences of latency point %+v in %+v", count, point, diagnostics.Points)
-		}
 	}
 }

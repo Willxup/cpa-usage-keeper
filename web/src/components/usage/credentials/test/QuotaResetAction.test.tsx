@@ -15,16 +15,6 @@ vi.mock('react-i18next', () => ({
   }),
 }))
 
-const deferred = <T,>() => {
-  let resolve!: (value: T) => void
-  let reject!: (reason?: unknown) => void
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise
-    reject = rejectPromise
-  })
-  return { promise, resolve, reject }
-}
-
 describe('QuotaResetAction reset credit details', () => {
   let container: HTMLDivElement
   let root: Root
@@ -41,6 +31,8 @@ describe('QuotaResetAction reset credit details', () => {
     vi.restoreAllMocks()
   })
 
+  const confirmButton = () => container.querySelector<HTMLButtonElement>('[role="dialog"] button[aria-busy]')!
+
   const renderAction = async (
     fetchResetCredits: (authIndex: string, signal?: AbortSignal) => Promise<UsageQuotaResetCreditsResponse>,
   ) => {
@@ -56,9 +48,7 @@ describe('QuotaResetAction reset credit details', () => {
         />,
       )
     })
-    const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')
-    expect(trigger).not.toBeNull()
-    return trigger as HTMLButtonElement
+    return container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!
   }
 
   const openAction = async (trigger: HTMLButtonElement) => {
@@ -74,11 +64,15 @@ describe('QuotaResetAction reset credit details', () => {
   }
 
   it('opens immediately, loads details, and gates confirmation until the request succeeds', async () => {
-    const request = deferred<UsageQuotaResetCreditsResponse>()
-    await renderOpenAction(() => request.promise)
+    const request = Promise.withResolvers<UsageQuotaResetCreditsResponse>()
+    const fetchResetCredits = vi.fn(() => request.promise)
+    const trigger = await renderAction(fetchResetCredits)
+    expect(fetchResetCredits).not.toHaveBeenCalled()
+    await openAction(trigger)
+    expect(fetchResetCredits).toHaveBeenCalledExactlyOnceWith('codex-auth', expect.any(AbortSignal))
 
     expect(container.textContent).toContain('usage_stats.credentials_quota_reset_expiry_loading')
-    expect(container.querySelector<HTMLButtonElement>('button[aria-busy="false"][disabled]')?.disabled).toBe(true)
+    expect(confirmButton().disabled).toBe(true)
 
     await act(async () => {
       request.resolve({
@@ -95,30 +89,14 @@ describe('QuotaResetAction reset credit details', () => {
     expect(container.textContent).toContain('usage_stats.credentials_quota_reset_expiry_title')
     expect(container.textContent).toContain('usage_stats.credentials_quota_reset_expiry_item:1')
     expect(container.textContent).toContain('2026-07-20 08:00:00')
-    expect(Array.from(container.querySelectorAll<HTMLButtonElement>('button')).at(-1)?.disabled).toBe(false)
-  })
-
-  it('loads reset credit details only after the popover opens', async () => {
-    const fetchResetCredits = vi.fn(async (_authIndex: string, _signal?: AbortSignal) => ({
-      authIndex: 'codex-auth',
-      availableCount: 2,
-      credits: [],
-    }))
-    const trigger = await renderAction(fetchResetCredits)
-
-    expect(fetchResetCredits).not.toHaveBeenCalled()
-
-    await openAction(trigger)
-
-    expect(fetchResetCredits).toHaveBeenCalledTimes(1)
-    expect(fetchResetCredits).toHaveBeenCalledWith('codex-auth', expect.any(AbortSignal))
+    expect(confirmButton().disabled).toBe(false)
   })
 
   it('keeps confirmation disabled when the live response reports no credits', async () => {
     await renderOpenAction(async () => ({ authIndex: 'codex-auth', availableCount: 0, credits: [] }))
 
     expect(container.textContent).toContain('usage_stats.credentials_quota_reset_expiry_empty')
-    expect(Array.from(container.querySelectorAll<HTMLButtonElement>('button')).at(-1)?.disabled).toBe(true)
+    expect(confirmButton().disabled).toBe(true)
   })
 
   it('falls back to available expiry rows when the live count is missing', async () => {
@@ -131,7 +109,7 @@ describe('QuotaResetAction reset credit details', () => {
     const dialog = container.querySelector<HTMLElement>('[role="dialog"]')
     expect(dialog?.textContent).toContain('1usage_stats.credentials_quota_reset_message_suffix')
     expect(dialog?.textContent).not.toContain('usage_stats.credentials_quota_reset_expiry_empty')
-    expect(Array.from(container.querySelectorAll<HTMLButtonElement>('button')).at(-1)?.disabled).toBe(false)
+    expect(confirmButton().disabled).toBe(false)
   })
 
   it('falls back to the cached count when both live count and expiry rows are missing', async () => {
@@ -141,7 +119,7 @@ describe('QuotaResetAction reset credit details', () => {
     expect(dialog?.textContent).toContain('2usage_stats.credentials_quota_reset_message_suffix')
     expect(dialog?.textContent).toContain('usage_stats.credentials_quota_reset_expiry_failed')
     expect(dialog?.textContent).not.toContain('usage_stats.credentials_quota_reset_expiry_empty')
-    expect(Array.from(container.querySelectorAll<HTMLButtonElement>('button')).at(-1)?.disabled).toBe(false)
+    expect(confirmButton().disabled).toBe(false)
   })
 
   it('allows confirmation with a warning when the count is positive but no expiry rows are returned', async () => {
@@ -149,7 +127,7 @@ describe('QuotaResetAction reset credit details', () => {
 
     expect(container.textContent).toContain('usage_stats.credentials_quota_reset_expiry_failed')
     expect(container.textContent).not.toContain('usage_stats.credentials_quota_reset_expiry_empty')
-    expect(Array.from(container.querySelectorAll<HTMLButtonElement>('button')).at(-1)?.disabled).toBe(false)
+    expect(confirmButton().disabled).toBe(false)
   })
 
   it('shows available expiry rows with a warning when the response omits some details', async () => {
@@ -161,24 +139,19 @@ describe('QuotaResetAction reset credit details', () => {
 
     expect(container.textContent).toContain('2026-07-20 08:00:00')
     expect(container.textContent).toContain('usage_stats.credentials_quota_reset_expiry_failed')
-    expect(Array.from(container.querySelectorAll<HTMLButtonElement>('button')).at(-1)?.disabled).toBe(false)
+    expect(confirmButton().disabled).toBe(false)
   })
 
   it('shows a non-blocking warning and falls back to the cached count after lookup failure', async () => {
-    const request = deferred<UsageQuotaResetCreditsResponse>()
+    const request = Promise.withResolvers<UsageQuotaResetCreditsResponse>()
     await renderOpenAction(() => request.promise)
 
     await act(async () => {
       request.reject(new Error('lookup failed'))
-      try {
-        await request.promise
-      } catch {
-        // 请求失败是本用例的预期路径。
-      }
     })
 
     expect(container.textContent).toContain('usage_stats.credentials_quota_reset_expiry_failed')
-    expect(Array.from(container.querySelectorAll<HTMLButtonElement>('button')).at(-1)?.disabled).toBe(false)
+    expect(confirmButton().disabled).toBe(false)
   })
 
   it('times out after five seconds, aborts the lookup, and allows fallback confirmation', async () => {
@@ -191,7 +164,7 @@ describe('QuotaResetAction reset credit details', () => {
       })
 
       expect(lookupSignal?.aborted).toBe(false)
-      expect(Array.from(container.querySelectorAll<HTMLButtonElement>('button')).at(-1)?.disabled).toBe(true)
+      expect(confirmButton().disabled).toBe(true)
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5_000)
@@ -199,7 +172,7 @@ describe('QuotaResetAction reset credit details', () => {
 
       expect(lookupSignal?.aborted).toBe(true)
       expect(container.textContent).toContain('usage_stats.credentials_quota_reset_expiry_failed')
-      expect(Array.from(container.querySelectorAll<HTMLButtonElement>('button')).at(-1)?.disabled).toBe(false)
+      expect(confirmButton().disabled).toBe(false)
     } finally {
       vi.useRealTimers()
     }
@@ -208,17 +181,7 @@ describe('QuotaResetAction reset credit details', () => {
   it('opens above the trigger and limits its height near the viewport bottom', async () => {
     vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1_000)
     vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(600)
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
-      x: 950,
-      y: 540,
-      top: 540,
-      right: 980,
-      bottom: 570,
-      left: 950,
-      width: 30,
-      height: 30,
-      toJSON: () => ({}),
-    })
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(950, 540, 30, 30))
 
     await renderOpenAction(async () => ({ authIndex: 'codex-auth', availableCount: 2, credits: [] }))
 

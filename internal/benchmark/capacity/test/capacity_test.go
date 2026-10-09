@@ -1,7 +1,6 @@
 package capacity_test
 
 import (
-	"reflect"
 	"slices"
 	"testing"
 
@@ -13,16 +12,8 @@ func TestCapacitySearchRampsFromLowestRateThenBisectsBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCapacitySearch returned error: %v", err)
 	}
-	var seen []int
-	for {
-		rate, ok := search.Next()
-		if !ok {
-			break
-		}
-		seen = append(seen, rate)
-		search.Record(rate, rate <= 32)
-	}
-	if want := []int{1, 2, 5, 10, 20, 40, 30, 35}; !reflect.DeepEqual(seen, want) {
+	seen := runCapacitySearch(search, 32)
+	if want := []int{1, 2, 5, 10, 20, 40, 30, 35}; !slices.Equal(seen, want) {
 		t.Fatalf("probe order=%v, want %v", seen, want)
 	}
 	if search.HardCapacity() != 30 {
@@ -38,13 +29,7 @@ func TestCapacitySearchStopsWhenFirstRateFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCapacitySearch returned error: %v", err)
 	}
-	for {
-		rate, ok := search.Next()
-		if !ok {
-			break
-		}
-		search.Record(rate, false)
-	}
+	runCapacitySearch(search, 0)
 	if search.HardCapacity() != 0 {
 		t.Fatalf("hard capacity=%d", search.HardCapacity())
 	}
@@ -55,16 +40,8 @@ func TestCapacitySearchStartsAtConfiguredRateAndFallsBackBelowIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCapacitySearchAt returned error: %v", err)
 	}
-	var seen []int
-	for {
-		rate, ok := search.Next()
-		if !ok {
-			break
-		}
-		seen = append(seen, rate)
-		search.Record(rate, rate <= 20)
-	}
-	if want := []int{25, 10, 15, 20}; !reflect.DeepEqual(seen, want) {
+	seen := runCapacitySearch(search, 20)
+	if want := []int{25, 10, 15, 20}; !slices.Equal(seen, want) {
 		t.Fatalf("probe order=%v, want %v", seen, want)
 	}
 	if search.HardCapacity() != 20 || search.FailureBoundary() != 25 {
@@ -77,16 +54,8 @@ func TestCapacitySearchReturnsHighestRateWhenEveryProbePasses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCapacitySearch returned error: %v", err)
 	}
-	var seen []int
-	for {
-		rate, ok := search.Next()
-		if !ok {
-			break
-		}
-		seen = append(seen, rate)
-		search.Record(rate, true)
-	}
-	if want := []int{100, 200, 400, 1000, 2000, 5000}; !reflect.DeepEqual(seen, want) {
+	seen := runCapacitySearch(search, 5000)
+	if want := []int{100, 200, 400, 1000, 2000, 5000}; !slices.Equal(seen, want) {
 		t.Fatalf("probe order=%v, want %v", seen, want)
 	}
 	if search.HardCapacity() != 5000 {
@@ -102,13 +71,7 @@ func TestCapacitySearchCanPromoteAConfirmedBoundaryPass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCapacitySearch returned error: %v", err)
 	}
-	for {
-		rate, ok := search.Next()
-		if !ok {
-			break
-		}
-		search.Record(rate, rate <= 100)
-	}
+	runCapacitySearch(search, 100)
 	if search.HardCapacity() != 100 || search.FailureBoundary() != 200 {
 		t.Fatalf("initial boundary=%d..%d, want 100..200", search.HardCapacity(), search.FailureBoundary())
 	}
@@ -186,13 +149,7 @@ func TestEvaluateProbeRejectsDriverLag(t *testing.T) {
 	if evaluation.HardPass {
 		t.Fatalf("driver lag should fail: %+v", evaluation)
 	}
-	found := false
-	for _, reason := range evaluation.Reasons {
-		if reason == "driver_lag" {
-			found = true
-		}
-	}
-	if !found {
+	if !slices.Contains(evaluation.Reasons, "driver_lag") {
 		t.Fatalf("driver_lag reason missing: %+v", evaluation)
 	}
 }
@@ -244,29 +201,26 @@ func TestOOMProbeIsCapacityFailureNotCellInfrastructureFailure(t *testing.T) {
 	}
 }
 
-func TestSelectBoundaryCandidatesKeepsTopAndConservativeHalf(t *testing.T) {
-	var attempts []capacity.ProbeAttempt
-	for _, rate := range []int{1, 5, 20, 100, 200, 300, 350, 375} {
-		attempts = append(attempts, capacity.ProbeAttempt{
-			Phase: "search", RatePerSecond: rate,
-			Report: capacity.ProbeReport{Evaluation: capacity.ProbeEvaluation{HardPass: true}},
+func TestSelectBoundaryCandidates(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		rates, want []int
+	}{
+		{"top and conservative half", []int{1, 5, 20, 100, 200, 300, 350, 375}, []int{375, 100}},
+		{"minimum passing fallback", []int{25, 50, 100, 200, 300, 350, 375}, []int{375, 100, 25}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var attempts []capacity.ProbeAttempt
+			for _, rate := range tc.rates {
+				attempts = append(attempts, capacity.ProbeAttempt{
+					Phase: "search", RatePerSecond: rate,
+					Report: capacity.ProbeReport{Evaluation: capacity.ProbeEvaluation{HardPass: true}},
+				})
+			}
+			if got := capacity.SelectBoundaryCandidates(attempts, 375, len(tc.want)); !slices.Equal(got, tc.want) {
+				t.Fatalf("boundary candidates=%v, want %v", got, tc.want)
+			}
 		})
-	}
-	if got := capacity.SelectBoundaryCandidates(attempts, 375, 2); !reflect.DeepEqual(got, []int{375, 100}) {
-		t.Fatalf("boundary candidates=%v, want [375 100]", got)
-	}
-}
-
-func TestSelectBoundaryCandidatesKeepsMinimumPassingFallback(t *testing.T) {
-	var attempts []capacity.ProbeAttempt
-	for _, rate := range []int{25, 50, 100, 200, 300, 350, 375} {
-		attempts = append(attempts, capacity.ProbeAttempt{
-			Phase: "search", RatePerSecond: rate,
-			Report: capacity.ProbeReport{Evaluation: capacity.ProbeEvaluation{HardPass: true}},
-		})
-	}
-	if got := capacity.SelectBoundaryCandidates(attempts, 375, 3); !reflect.DeepEqual(got, []int{375, 100, 25}) {
-		t.Fatalf("boundary candidates=%v, want [375 100 25]", got)
 	}
 }
 
@@ -283,4 +237,13 @@ func TestNormalizeFailureBoundaryKeepsOnlyStrictUpperBound(t *testing.T) {
 			t.Fatalf("NormalizeFailureBoundary(%d, %d)=%d, want %d", test.pass, test.failure, got, test.want)
 		}
 	}
+}
+
+func runCapacitySearch(search *capacity.CapacitySearch, maxPassing int) []int {
+	var seen []int
+	for rate, ok := search.Next(); ok; rate, ok = search.Next() {
+		seen = append(seen, rate)
+		search.Record(rate, rate <= maxPassing)
+	}
+	return seen
 }

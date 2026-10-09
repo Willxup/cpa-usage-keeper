@@ -12,6 +12,7 @@ import (
 	"cpa-usage-keeper/internal/cpa/dto/response"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/pricing"
+	"cpa-usage-keeper/internal/pricingmetadata"
 	"cpa-usage-keeper/internal/repository"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 	servicedto "cpa-usage-keeper/internal/service/dto"
@@ -24,8 +25,7 @@ var ErrInvalidPricingInput = errors.New("invalid pricing input")
 type PricingProvider interface {
 	ListUsedModels(context.Context) ([]string, error)
 	ListPricing(context.Context) ([]entities.ModelPriceSetting, error)
-	PreviewPricingSync(context.Context) (servicedto.PricingSyncPreview, error)
-	EnsureModelsPricing(context.Context, []string) ([]entities.ModelPriceSetting, error)
+	PreviewPricingSync(context.Context, string) (servicedto.PricingSyncPreview, error)
 	UpdatePricing(context.Context, servicedto.UpdatePricingInput) (*entities.ModelPriceSetting, error)
 	UpdatePricingBatch(context.Context, []servicedto.UpdatePricingInput) ([]entities.ModelPriceSetting, error)
 	DeletePricing(context.Context, string) error
@@ -38,14 +38,15 @@ type ModelsFetcher interface {
 }
 
 type pricingService struct {
-	db            *gorm.DB
-	modelsFetcher ModelsFetcher
-	catalog       *pricing.Catalog
-	mutationMu    sync.Mutex
+	db             *gorm.DB
+	modelsFetcher  ModelsFetcher
+	catalog        *pricing.Catalog
+	mutationMu     sync.Mutex
+	metadataClient *pricingmetadata.Client
 }
 
 func NewPricingService(db *gorm.DB, catalog *pricing.Catalog, modelsFetcher ...ModelsFetcher) PricingProvider {
-	service := &pricingService{db: db, catalog: requirePricingCatalog(catalog)}
+	service := &pricingService{db: db, catalog: requirePricingCatalog(catalog), metadataClient: pricingmetadata.NewClient(nil)}
 	if len(modelsFetcher) > 0 {
 		service.modelsFetcher = modelsFetcher[0]
 	}
@@ -106,6 +107,9 @@ func (s *pricingService) UpdatePricingBatch(ctx context.Context, inputs []servic
 				return mutationErr
 			}
 			settings[index] = *setting
+			if err := tx.Where("setting_key = ?", automaticPricingExclusionKey(setting.Model)).Delete(&entities.AppSetting{}).Error; err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -152,7 +156,12 @@ func normalizePricingInput(input servicedto.UpdatePricingInput) (repodto.ModelPr
 
 func (s *pricingService) DeletePricing(ctx context.Context, model string) error {
 	_, err := s.mutatePricing(ctx, func(tx *gorm.DB) error {
-		return repository.DeleteModelPriceSetting(tx, model)
+		if err := repository.DeleteModelPriceSetting(tx, model); err != nil {
+			return err
+		}
+		value := "true"
+		_, err := repository.UpsertAppSetting(ctx, tx, entities.AppSetting{SettingKey: automaticPricingExclusionKey(strings.TrimSpace(model)), Value: &value, ValueType: entities.AppSettingValueTypeBool})
+		return err
 	})
 	return err
 }

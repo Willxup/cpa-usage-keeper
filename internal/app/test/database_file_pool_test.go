@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,20 +23,11 @@ import (
 )
 
 func TestNewWithConfigUsesIndependentEightOpenFourIdleFileReader(t *testing.T) {
-	// 准备：文件数据库应在 writer 初始化完成后创建独立硬只读池。
+	// 文件数据库应在 writer 初始化完成后创建独立硬只读池。
 	cfg := databasePoolTestConfig(filepath.Join(t.TempDir(), "app.db"))
-	application, err := keeperapp.NewWithConfig(cfg)
-	if err != nil {
-		t.Fatalf("NewWithConfig returned error: %v", err)
-	}
-	closed := false
-	t.Cleanup(func() {
-		if !closed {
-			_ = application.Close()
-		}
-	})
+	application := newDatabasePoolTestApp(t, cfg)
 
-	// 断言：文件库的 reader 与 writer 必须是两个不同 GORM 池。
+	// 文件库的 reader 与 writer 必须是两个不同 GORM 池。
 	if application.ReadDB == nil || application.ReadDB == application.DB {
 		t.Fatalf("expected independent file reader, write=%p read=%p", application.DB, application.ReadDB)
 	}
@@ -47,7 +39,7 @@ func TestNewWithConfigUsesIndependentEightOpenFourIdleFileReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load read sql db: %v", err)
 	}
-	// 断言：App 对外 reader 使用 8 个按需上限，writer 仍保持唯一连接。
+	// App 对外 reader 使用 8 个按需上限，writer 仍保持唯一连接。
 	if stats := writeSQL.Stats(); stats.MaxOpenConnections != 1 {
 		t.Fatalf("expected writer max open connections to be 1, got %+v", stats)
 	}
@@ -55,12 +47,11 @@ func TestNewWithConfigUsesIndependentEightOpenFourIdleFileReader(t *testing.T) {
 		t.Fatalf("expected reader max open connections to be 8, got %+v", stats)
 	}
 
-	// 执行：统一关闭入口必须依次释放两个不同的底层池。
+	// 统一关闭入口必须依次释放两个不同的底层池。
 	if err := application.Close(); err != nil {
 		t.Fatalf("Close returned error: %v", err)
 	}
-	closed = true
-	// 断言：关闭后 writer 与 reader 都不能再接受连接。
+	// 关闭后 writer 与 reader 都不能再接受连接。
 	if err := writeSQL.Ping(); err == nil {
 		t.Fatal("expected writer ping to fail after App.Close")
 	}
@@ -70,13 +61,9 @@ func TestNewWithConfigUsesIndependentEightOpenFourIdleFileReader(t *testing.T) {
 }
 
 func TestOverviewBypassesOccupiedFileWriter(t *testing.T) {
-	// 准备：构造文件数据库 App，并独占唯一 writer 模拟 usage 入库或聚合正在使用连接。
+	// 构造文件数据库 App，并独占唯一 writer 模拟 usage 入库或聚合正在使用连接。
 	cfg := databasePoolTestConfig(filepath.Join(t.TempDir(), "app.db"))
-	application, err := keeperapp.NewWithConfig(cfg)
-	if err != nil {
-		t.Fatalf("NewWithConfig returned error: %v", err)
-	}
-	defer application.Close()
+	application := newDatabasePoolTestApp(t, cfg)
 	writeSQL, err := application.DB.DB()
 	if err != nil {
 		t.Fatalf("load write sql db: %v", err)
@@ -87,27 +74,23 @@ func TestOverviewBypassesOccupiedFileWriter(t *testing.T) {
 	}
 	defer heldWriter.Close()
 
-	// 执行：Overview 请求设置一秒上限，错误接到 writer 时会等待到 context 超时。
+	// Overview 请求设置一秒上限，错误接到 writer 时会等待到 context 超时。
 	requestContext, cancelRequest := context.WithTimeout(context.Background(), time.Second)
 	defer cancelRequest()
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/usage/overview?range=24h", nil).WithContext(requestContext)
 	application.Router.ServeHTTP(response, request)
 
-	// 断言：主 Overview 必须从独立 reader 完成，不能排队等待被占用的 writer。
+	// 主 Overview 必须从独立 reader 完成，不能排队等待被占用的 writer。
 	if response.Code != http.StatusOK {
 		t.Fatalf("expected Overview to bypass occupied writer, got %d %s", response.Code, response.Body.String())
 	}
 }
 
 func TestAPIKeyListBypassesOccupiedFileWriter(t *testing.T) {
-	// 准备：API Key service 同时包含查询和 alias 更新；纯列表查询必须由统一 DB 自动路由到 reader。
+	// API Key service 同时包含查询和 alias 更新；纯列表查询必须由统一 DB 自动路由到 reader。
 	cfg := databasePoolTestConfig(filepath.Join(t.TempDir(), "app.db"))
-	application, err := keeperapp.NewWithConfig(cfg)
-	if err != nil {
-		t.Fatalf("NewWithConfig returned error: %v", err)
-	}
-	defer application.Close()
+	application := newDatabasePoolTestApp(t, cfg)
 	if err := application.DB.Create(&entities.CPAAPIKey{APIKey: "sk-reader-route", DisplayKey: "sk-*********route"}).Error; err != nil {
 		t.Fatalf("seed CPA API key: %v", err)
 	}
@@ -119,14 +102,9 @@ func TestAPIKeyListBypassesOccupiedFileWriter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hold write database connection: %v", err)
 	}
-	writerHeld := true
-	defer func() {
-		if writerHeld {
-			_ = heldWriter.Close()
-		}
-	}()
+	defer heldWriter.Close()
 
-	// 执行：请求仍使用原 API；若 App 把混合 service 整体绑定 writer，请求会一直等待唯一写连接。
+	// 请求仍使用原 API；若 App 把混合 service 整体绑定 writer，请求会一直等待唯一写连接。
 	requestDone := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
 		response := httptest.NewRecorder()
@@ -135,7 +113,7 @@ func TestAPIKeyListBypassesOccupiedFileWriter(t *testing.T) {
 		requestDone <- response
 	}()
 
-	// 断言：纯 List 查询必须在 writer 仍被占用时从 reader 返回，不需要修改 API/service 查询代码。
+	// 纯 List 查询必须在 writer 仍被占用时从 reader 返回，不需要修改 API/service 查询代码。
 	select {
 	case response := <-requestDone:
 		if response.Code != http.StatusOK {
@@ -145,24 +123,18 @@ func TestAPIKeyListBypassesOccupiedFileWriter(t *testing.T) {
 		if err := heldWriter.Close(); err != nil {
 			t.Fatalf("release writer after route timeout: %v", err)
 		}
-		writerHeld = false
 		t.Fatal("API Key list waited for occupied writer instead of using reader")
 	}
 
 	if err := heldWriter.Close(); err != nil {
 		t.Fatalf("release writer connection: %v", err)
 	}
-	writerHeld = false
 }
 
 func TestUsageEventExportBypassesOccupiedFileWriter(t *testing.T) {
-	// 准备：导出属于纯查询；先写入一条当前事件，再独占唯一 writer。
+	// 导出属于纯查询；先写入一条当前事件，再独占唯一 writer。
 	cfg := databasePoolTestConfig(filepath.Join(t.TempDir(), "app.db"))
-	application, err := keeperapp.NewWithConfig(cfg)
-	if err != nil {
-		t.Fatalf("NewWithConfig returned error: %v", err)
-	}
-	defer application.Close()
+	application := newDatabasePoolTestApp(t, cfg)
 	event := entities.UsageEvent{EventKey: "reader-export-event", Model: "reader-export-model", Timestamp: time.Now()}
 	if err := application.DB.Create(&event).Error; err != nil {
 		t.Fatalf("seed usage event: %v", err)
@@ -177,14 +149,14 @@ func TestUsageEventExportBypassesOccupiedFileWriter(t *testing.T) {
 	}
 	defer heldWriter.Close()
 
-	// 执行：真实 JSON 导出会加载 identity、API Key 并流式读取 usage_events，全部应自动走 reader。
+	// 真实 JSON 导出会加载 identity、API Key 并流式读取 usage_events，全部应自动走 reader。
 	requestContext, cancelRequest := context.WithTimeout(context.Background(), time.Second)
 	defer cancelRequest()
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/export?range=24h&format=json", nil).WithContext(requestContext)
 	application.Router.ServeHTTP(response, request)
 
-	// 断言：writer 被占用时导出仍成功，且结果包含刚才已经提交的事件。
+	// writer 被占用时导出仍成功，且结果包含刚才已经提交的事件。
 	if response.Code != http.StatusOK {
 		t.Fatalf("expected export to bypass occupied writer, got %d %s", response.Code, response.Body.String())
 	}
@@ -194,40 +166,17 @@ func TestUsageEventExportBypassesOccupiedFileWriter(t *testing.T) {
 }
 
 func TestAPIKeyAliasUpdateStaysOnWriterWhenReadersAreOccupied(t *testing.T) {
-	// 准备：写命令会先 UPDATE 再回读最新 API Key；整个命令必须固定使用 writer。
+	// 写命令会先 UPDATE 再回读最新 API Key；整个命令必须固定使用 writer。
 	cfg := databasePoolTestConfig(filepath.Join(t.TempDir(), "app.db"))
-	application, err := keeperapp.NewWithConfig(cfg)
-	if err != nil {
-		t.Fatalf("NewWithConfig returned error: %v", err)
-	}
-	defer application.Close()
+	application := newDatabasePoolTestApp(t, cfg)
 	apiKey := entities.CPAAPIKey{APIKey: "sk-writer-command", DisplayKey: "sk-*********command"}
 	if err := application.DB.Create(&apiKey).Error; err != nil {
 		t.Fatalf("seed CPA API key: %v", err)
 	}
-	readSQL, err := application.ReadDB.DB()
-	if err != nil {
-		t.Fatalf("load read sql db: %v", err)
-	}
-	readerLimit := readSQL.Stats().MaxOpenConnections
-	readers := make([]*sql.Conn, 0, readerLimit)
-	for index := 0; index < readerLimit; index++ {
-		reader, err := readSQL.Conn(context.Background())
-		if err != nil {
-			t.Fatalf("hold reader connection %d: %v", index, err)
-		}
-		readers = append(readers, reader)
-	}
-	readersHeld := true
-	defer func() {
-		if readersHeld {
-			for _, reader := range readers {
-				_ = reader.Close()
-			}
-		}
-	}()
+	_, releaseReaders := holdDatabasePoolReaders(t, application.ReadDB)
+	defer releaseReaders()
 
-	// 执行：如果写后回读被自动切到 reader，请求会在 UPDATE 已提交后卡在被占满的读池。
+	// 如果写后回读被自动切到 reader，请求会在 UPDATE 已提交后卡在被占满的读池。
 	requestDone := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
 		response := httptest.NewRecorder()
@@ -238,36 +187,24 @@ func TestAPIKeyAliasUpdateStaysOnWriterWhenReadersAreOccupied(t *testing.T) {
 		requestDone <- response
 	}()
 
-	// 断言：写命令及其回读应只使用 writer，不依赖任何可用 reader。
+	// 写命令及其回读应只使用 writer，不依赖任何可用 reader。
 	select {
 	case response := <-requestDone:
 		if response.Code != http.StatusOK {
 			t.Fatalf("expected API Key update to stay on writer, got %d %s", response.Code, response.Body.String())
 		}
 	case <-time.After(time.Second):
-		for _, reader := range readers {
-			_ = reader.Close()
-		}
-		readersHeld = false
+		releaseReaders()
 		t.Fatal("API Key update switched to occupied reader during write command")
 	}
 
-	for _, reader := range readers {
-		if err := reader.Close(); err != nil {
-			t.Fatalf("release reader connection: %v", err)
-		}
-	}
-	readersHeld = false
+	releaseReaders()
 }
 
 func TestRedisUsageProcessingStaysOnWriterWhenReadersAreOccupied(t *testing.T) {
-	// 准备：写入需要 identity 查询的 inbox；该查询与后续事务共同属于一次 usage 写命令。
+	// 写入需要 identity 查询的 inbox；该查询与后续事务共同属于一次 usage 写命令。
 	cfg := databasePoolTestConfig(filepath.Join(t.TempDir(), "app.db"))
-	application, err := keeperapp.NewWithConfig(cfg)
-	if err != nil {
-		t.Fatalf("NewWithConfig returned error: %v", err)
-	}
-	defer application.Close()
+	application := newDatabasePoolTestApp(t, cfg)
 	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
 	identity := entities.UsageIdentity{
 		Name: "writer-usage-identity", AuthType: entities.UsageIdentityAuthTypeAuthFile,
@@ -293,21 +230,16 @@ func TestRedisUsageProcessingStaysOnWriterWhenReadersAreOccupied(t *testing.T) {
 		BaseURL: "https://cpa.example.com", Now: func() time.Time { return now }, UsageAggregationNotifier: notifier,
 	})
 	readers, releaseReaders := holdDatabasePoolReaders(t, application.ReadDB)
-	readersHeld := true
-	defer func() {
-		if readersHeld {
-			releaseReaders()
-		}
-	}()
+	defer releaseReaders()
 
-	// 执行：reader 全满时处理一批 usage；若列表或 identity 查询仍自动分流，命令无法到达 writer 事务。
+	// reader 全满时处理一批 usage；若列表或 identity 查询仍自动分流，命令无法到达 writer 事务。
 	processDone := make(chan databasePoolUsageProcessResult, 1)
 	go func() {
 		result, processErr := syncService.ProcessRedisUsageInbox(context.Background())
 		processDone <- databasePoolUsageProcessResult{result: result, err: processErr}
 	}()
 
-	// 断言：整个写命令不依赖任何 reader，并保持原有 completed、事件通知和 processed 状态。
+	// 整个写命令不依赖任何 reader，并保持原有 completed、事件通知和 processed 状态。
 	select {
 	case processResult := <-processDone:
 		if processResult.err != nil {
@@ -318,13 +250,11 @@ func TestRedisUsageProcessingStaysOnWriterWhenReadersAreOccupied(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		releaseReaders()
-		readersHeld = false
 		<-processDone
 		t.Fatalf("redis usage processing waited for %d occupied readers", len(readers))
 	}
 
 	releaseReaders()
-	readersHeld = false
 	if notifier.usageCalls != 1 {
 		t.Fatalf("expected one committed usage notification, got %d", notifier.usageCalls)
 	}
@@ -338,13 +268,9 @@ func TestRedisUsageProcessingStaysOnWriterWhenReadersAreOccupied(t *testing.T) {
 }
 
 func TestUsageAggregationReadsWaitForOccupiedReadersBeforeWriting(t *testing.T) {
-	// 准备：提交一条 usage event，并占满 reader 验证 target/checkpoint/event page 固定走只读池。
+	// 提交一条 usage event，并占满 reader 验证 target/checkpoint/event page 固定走只读池。
 	cfg := databasePoolTestConfig(filepath.Join(t.TempDir(), "app.db"))
-	application, err := keeperapp.NewWithConfig(cfg)
-	if err != nil {
-		t.Fatalf("NewWithConfig returned error: %v", err)
-	}
-	defer application.Close()
+	application := newDatabasePoolTestApp(t, cfg)
 	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
 	event := entities.UsageEvent{
 		EventKey: "writer-aggregation-event", APIGroupKey: "provider-a", Model: "gpt-5.5",
@@ -356,14 +282,9 @@ func TestUsageAggregationReadsWaitForOccupiedReadersBeforeWriting(t *testing.T) 
 	runner := poller.NewUsageAggregationRunner(application.DB)
 	runner.NotifyUsageEventsCommitted([]entities.UsageEvent{event})
 	_, releaseReaders := holdDatabasePoolReaders(t, application.ReadDB)
-	readersHeld := true
-	defer func() {
-		if readersHeld {
-			releaseReaders()
-		}
-	}()
+	defer releaseReaders()
 
-	// 执行：reader 全满时启动共享 rollups，MAX(id) 必须排队而不是偷用 writer。
+	// reader 全满时启动共享 rollups，MAX(id) 必须排队而不是偷用 writer。
 	runDone := make(chan databasePoolAggregationRunResult, 1)
 	go func() {
 		result, runErr := runner.RunOnce(context.Background())
@@ -377,7 +298,6 @@ func TestUsageAggregationReadsWaitForOccupiedReadersBeforeWriting(t *testing.T) 
 	}
 
 	releaseReaders()
-	readersHeld = false
 	select {
 	case runResult := <-runDone:
 		if runResult.err != nil {
@@ -392,18 +312,14 @@ func TestUsageAggregationReadsWaitForOccupiedReadersBeforeWriting(t *testing.T) 
 }
 
 func TestDatabaseBackupWaitsForFileWriterAndPreservesCommittedData(t *testing.T) {
-	// 准备：开启真实备份并写入一条已提交事件，随后独占 writer 复现旧版串行备份语义。
+	// 开启真实备份并写入一条已提交事件，随后独占 writer 复现旧版串行备份语义。
 	backupDir := filepath.Join(t.TempDir(), "backups")
 	cfg := databasePoolTestConfig(filepath.Join(t.TempDir(), "app.db"))
 	cfg.BackupEnabled = true
 	cfg.BackupDir = backupDir
 	cfg.BackupInterval = time.Hour
 	cfg.BackupRetentionDays = 7
-	application, err := keeperapp.NewWithConfig(cfg)
-	if err != nil {
-		t.Fatalf("NewWithConfig returned error: %v", err)
-	}
-	defer application.Close()
+	application := newDatabasePoolTestApp(t, cfg)
 	if application.BackupMaintenance == nil {
 		t.Fatal("expected backup maintenance runner")
 	}
@@ -419,14 +335,9 @@ func TestDatabaseBackupWaitsForFileWriterAndPreservesCommittedData(t *testing.T)
 	if err != nil {
 		t.Fatalf("hold write database connection: %v", err)
 	}
-	writerHeld := true
-	defer func() {
-		if writerHeld {
-			_ = heldWriter.Close()
-		}
-	}()
+	defer heldWriter.Close()
 
-	// 执行：真实 runner 启动后先保持 writer 被占用；备份不得改用可并发重启的 reader 源。
+	// 真实 runner 启动后先保持 writer 被占用；备份不得改用可并发重启的 reader 源。
 	runnerContext, cancelRunner := context.WithCancel(context.Background())
 	defer cancelRunner()
 	runnerDone := make(chan error, 1)
@@ -452,7 +363,6 @@ func TestDatabaseBackupWaitsForFileWriterAndPreservesCommittedData(t *testing.T)
 	if err := heldWriter.Close(); err != nil {
 		t.Fatalf("release write database connection: %v", err)
 	}
-	writerHeld = false
 	backupPath := waitForDatabaseBackupFile(t, backupDir)
 	cancelRunner()
 	select {
@@ -464,7 +374,7 @@ func TestDatabaseBackupWaitsForFileWriterAndPreservesCommittedData(t *testing.T)
 		t.Fatal("backup runner did not stop after cancellation")
 	}
 
-	// 断言：最终备份文件可以通过硬只读入口打开，并包含 writer 已提交的数据。
+	// 最终备份文件可以通过硬只读入口打开，并包含 writer 已提交的数据。
 	backupDB, err := repository.OpenReadDatabase(config.Config{SQLitePath: backupPath})
 	if err != nil {
 		t.Fatalf("open backup database: %v", err)
@@ -518,13 +428,13 @@ func holdDatabasePoolReaders(t *testing.T, readDB interface{ DB() (*sql.DB, erro
 		}
 		readers = append(readers, reader)
 	}
-	release := func() {
+	release := sync.OnceFunc(func() {
 		for _, reader := range readers {
 			if closeErr := reader.Close(); closeErr != nil {
 				t.Errorf("release reader connection: %v", closeErr)
 			}
 		}
-	}
+	})
 	return readers, release
 }
 
@@ -556,4 +466,14 @@ func closeDatabasePoolTestDB(t *testing.T, db interface{ DB() (*sql.DB, error) }
 	if err := sqlDB.Close(); err != nil {
 		t.Fatalf("close sql db: %v", err)
 	}
+}
+
+func newDatabasePoolTestApp(t *testing.T, cfg config.Config) *keeperapp.App {
+	t.Helper()
+	application, err := keeperapp.NewWithConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewWithConfig returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = application.Close() })
+	return application
 }

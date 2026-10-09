@@ -25,7 +25,6 @@ func TestParseRuleFieldAcceptsOnlyCanonicalPricingDimensions(t *testing.T) {
 		{"executor_type", pricing.RuleFieldExecutorType},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.input, func(t *testing.T) {
 			t.Parallel()
 			got, err := pricing.ParseRuleField(tt.input)

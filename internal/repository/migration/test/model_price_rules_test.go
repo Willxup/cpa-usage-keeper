@@ -34,15 +34,15 @@ type modelPriceRuleForeignKey struct {
 }
 
 func TestModelPriceRulesFreshAndUpgradeSchemasMatch(t *testing.T) {
-	fresh := openFreshModelPriceRulesDatabase(t, "fresh.db")
-	upgrade := openLegacyModelPriceRulesDatabase(t, "upgrade.db")
+	fresh := openFreshModelPriceRulesDatabase(t)
+	upgrade := openLegacyModelPriceRulesDatabase(t)
 	if err := migration.Run(upgrade); err != nil {
 		t.Fatalf("run model price rules migration: %v", err)
 	}
 
-	assertModelPriceRuleSchema(t, fresh)
-	assertModelPriceRuleSchema(t, upgrade)
-	if got, want := describeModelPriceRuleSchema(t, upgrade), describeModelPriceRuleSchema(t, fresh); !reflect.DeepEqual(got, want) {
+	want := assertModelPriceRuleSchema(t, fresh)
+	got := assertModelPriceRuleSchema(t, upgrade)
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("upgrade schema differs from fresh schema\nupgrade: %+v\nfresh:   %+v", got, want)
 	}
 
@@ -59,7 +59,7 @@ func TestModelPriceRulesFreshAndUpgradeSchemasMatch(t *testing.T) {
 }
 
 func TestModelPriceRulesMigrationRollsBackDDLWhenVersionWriteFails(t *testing.T) {
-	db := openLegacyModelPriceRulesDatabase(t, "rollback.db")
+	db := openLegacyModelPriceRulesDatabase(t)
 	if err := db.Exec(`CREATE TRIGGER fail_model_price_rules_version
 		BEFORE INSERT ON schema_migrations
 		WHEN NEW.version = '20260723_model_price_rules'
@@ -84,7 +84,7 @@ func TestModelPriceRulesMigrationRollsBackDDLWhenVersionWriteFails(t *testing.T)
 	assertModelPriceRuleSchema(t, db)
 }
 
-func assertModelPriceRuleSchema(t *testing.T, db *gorm.DB) {
+func assertModelPriceRuleSchema(t *testing.T, db *gorm.DB) modelPriceRuleSchemaDescription {
 	t.Helper()
 	if !db.Migrator().HasTable(&entities.ModelPriceRule{}) {
 		t.Fatal("expected model_price_rules table")
@@ -121,6 +121,7 @@ func assertModelPriceRuleSchema(t *testing.T, db *gorm.DB) {
 	if len(violations) != 0 {
 		t.Fatalf("expected no foreign key violations, got %+v", violations)
 	}
+	return description
 }
 
 type modelPriceRuleSchemaDescription struct {
@@ -158,23 +159,23 @@ func describeModelPriceRuleSchema(t *testing.T, db *gorm.DB) modelPriceRuleSchem
 	return modelPriceRuleSchemaDescription{columns: columns, foreignKeys: foreignKeys, hasUniqueIdentityIndex: hasUnique}
 }
 
-func openFreshModelPriceRulesDatabase(t *testing.T, name string) *gorm.DB {
+func openFreshModelPriceRulesDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), name)})
+	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "pricing.db")})
 	if err != nil {
 		t.Fatalf("open fresh database: %v", err)
 	}
-	closeModelPriceRulesMigrationDatabase(t, db)
+	closeMigrationTestDatabase(t, db)
 	return db
 }
 
-func openLegacyModelPriceRulesDatabase(t *testing.T, name string) *gorm.DB {
+func openLegacyModelPriceRulesDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), name)+"?_foreign_keys=on"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "pricing.db")+"?_foreign_keys=on"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open legacy database: %v", err)
 	}
-	closeModelPriceRulesMigrationDatabase(t, db)
+	closeMigrationTestDatabase(t, db)
 	if err := db.AutoMigrate(&entities.ModelPriceSetting{}); err != nil {
 		t.Fatalf("create legacy pricing schema: %v", err)
 	}
@@ -185,14 +186,4 @@ func openLegacyModelPriceRulesDatabase(t *testing.T, name string) *gorm.DB {
 		t.Fatalf("enable model price rules migration: %v", err)
 	}
 	return db
-}
-
-func closeModelPriceRulesMigrationDatabase(t *testing.T, db *gorm.DB) {
-	t.Helper()
-	t.Cleanup(func() {
-		sqlDB, err := db.DB()
-		if err == nil {
-			_ = sqlDB.Close()
-		}
-	})
 }

@@ -5,26 +5,22 @@ package test
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	. "cpa-usage-keeper/internal/api"
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/repository"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/service"
-	"gorm.io/gorm"
 )
 
 func TestIssue272RedisIngressKeepsRequestEventSpeedTPS(t *testing.T) {
-	db := openIssue272TokenProcessorDatabase(t)
+	db := openAPITestDatabase(t)
 	_, err := repository.InsertRedisUsageInboxMessages(db, []repodto.RedisInboxInsert{{
 		Source: "usage",
 		RawMessage: `{
-			"latency_ms":2045,
+			"latency_ms":2000,
 			"ttft_ms":45,
 			"provider":"OpenAI Compatible",
 			"auth_type":"api_key",
@@ -51,9 +47,7 @@ func TestIssue272RedisIngressKeepsRequestEventSpeedTPS(t *testing.T) {
 
 	// Request Events 使用归一化后的完整 Output=70 计算速度，不再扣除 Reasoning=50。
 	router := NewRouter(nil, nil, service.NewUsageService(db, emptyPricingCatalogForTest()), nil, AuthConfig{}, nil, "")
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h", nil)
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, request)
+	response := serveAPIGet(router, "/api/v1/usage/events?range=24h")
 	if response.Code != http.StatusOK {
 		t.Fatalf("expected Request Events status 200, got %d body=%s", response.Code, response.Body.String())
 	}
@@ -61,22 +55,4 @@ func TestIssue272RedisIngressKeepsRequestEventSpeedTPS(t *testing.T) {
 	if !strings.Contains(body, `"request_id":"issue-272-speed-regression"`) || !strings.Contains(body, `"output_tokens":70`) || !strings.Contains(body, `"reasoning_tokens":50`) || !strings.Contains(body, `"speed_tps":35`) {
 		t.Fatalf("expected issue #272 event to use full output tokens for speed, got %s", body)
 	}
-}
-
-func openIssue272TokenProcessorDatabase(t *testing.T) *gorm.DB {
-	t.Helper()
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "issue-272-tokenprocessor.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("get sql database: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := sqlDB.Close(); err != nil {
-			t.Fatalf("close database: %v", err)
-		}
-	})
-	return db
 }

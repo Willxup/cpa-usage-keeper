@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -42,6 +43,7 @@ type queuedUsageDetail struct {
 	Source              string          `json:"source"`
 	AuthIndex           string          `json:"auth_index"`
 	ClientIP            *string         `json:"client_ip"`
+	ResolvedClientIP    *string         `json:"resolved_client_ip"`
 	XForwardedFor       *string         `json:"x_forwarded_for"`
 	UserAgent           *string         `json:"user_agent"`
 	Tokens              dto.TokenStats  `json:"tokens"`
@@ -50,6 +52,7 @@ type queuedUsageDetail struct {
 	Provider            string          `json:"provider"`
 	Model               string          `json:"model"`
 	Alias               *string         `json:"alias"`
+	ResponseModel       string          `json:"response_model"`
 	ReasoningEffort     string          `json:"reasoning_effort"`
 	ServiceTier         string          `json:"service_tier"`
 	ResponseServiceTier string          `json:"response_service_tier"`
@@ -58,7 +61,21 @@ type queuedUsageDetail struct {
 	AuthType            string          `json:"auth_type"`
 	APIKey              string          `json:"api_key"`
 	RequestID           string          `json:"request_id"`
+	ExecutionID         *string         `json:"execution_id"`
+	TraceID             *string         `json:"trace_id"`
+	SessionID           string          `json:"session_id"`
+	ParentSessionID     string          `json:"parent_session_id"`
+	NodeKind            *string         `json:"node_kind"`
+	IsFork              *bool           `json:"is_fork"`
+	IsCompaction        *bool           `json:"is_compaction"`
+	Stream              *bool           `json:"stream"`
+	Fail                redisUsageFail  `json:"fail"`
 	ResponseHeaders     json.RawMessage `json:"response_headers"`
+}
+
+type redisUsageFail struct {
+	StatusCode *int   `json:"status_code"`
+	Body       string `json:"body"`
 }
 
 func normalizeRedisAuthType(value string) string {
@@ -78,6 +95,15 @@ func trimRedisOptionalString(value *string) *string {
 		return nil
 	}
 	return &trimmed
+}
+
+func (d queuedUsageDetail) clientIP() *string {
+	// CPA resolves forwarding headers against its trusted proxies. Legacy messages
+	// retain their original client_ip; do not independently trust X-Forwarded-For.
+	if resolved := trimRedisOptionalString(d.ResolvedClientIP); resolved != nil && net.ParseIP(*resolved) != nil {
+		return resolved
+	}
+	return d.ClientIP
 }
 
 func normalizeRedisGenerate(value *bool, failed bool, executorType string, tokens dto.TokenStats) *bool {
@@ -120,11 +146,19 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 		Endpoint:            strings.TrimSpace(d.Endpoint),
 		AuthType:            normalizeRedisAuthType(d.AuthType),
 		RequestID:           strings.TrimSpace(d.RequestID),
-		ClientIP:            d.ClientIP,
+		ExecutionID:         d.ExecutionID,
+		TraceID:             d.TraceID,
+		SessionID:           strings.TrimSpace(d.SessionID),
+		ParentSessionID:     trimRedisOptionalString(&d.ParentSessionID),
+		NodeKind:            d.NodeKind,
+		IsFork:              d.IsFork,
+		IsCompaction:        d.IsCompaction,
+		ClientIP:            d.clientIP(),
 		XForwardedFor:       d.XForwardedFor,
 		UserAgent:           d.UserAgent,
 		Model:               model,
 		ModelAlias:          trimRedisOptionalString(d.Alias),
+		ResponseModel:       strings.TrimSpace(d.ResponseModel),
 		ReasoningEffort:     strings.TrimSpace(d.ReasoningEffort),
 		ServiceTier:         strings.TrimSpace(d.ServiceTier),
 		ResponseServiceTier: strings.TrimSpace(d.ResponseServiceTier),
@@ -133,7 +167,9 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 		Source:              source,
 		AuthIndex:           authIndex,
 		Failed:              d.Failed,
+		StatusCode:          d.Fail.StatusCode,
 		Generate:            normalizeRedisGenerate(d.Generate, d.Failed, d.ExecutorType, d.Tokens),
+		Stream:              d.Stream,
 		LatencyMS:           max(d.LatencyMS, 0),
 		TTFTMS:              d.TTFTMS,
 		InputTokens:         d.Tokens.InputTokens,
@@ -148,6 +184,10 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 }
 
 func (d queuedUsageDetail) toUsageHeaderSnapshot(event entities.UsageEvent) *quota.UsageHeaderSnapshot {
+	// event 已规范化；没有 OAuth 身份的 Header 不会产生额度快照，无需解析响应头。
+	if event.AuthType != "oauth" || event.AuthIndex == "" {
+		return nil
+	}
 	headers, ok := decodeRedisUsageResponseHeaders(d.ResponseHeaders)
 	if !ok {
 		return nil

@@ -25,7 +25,7 @@ func (s *SyncService) SyncMetadata(ctx context.Context) error {
 	authFilesResult, authFilesErr := s.metadataFetcher.FetchAuthFiles(ctx)
 	// 管理 API Keys 保持第二个读取位置，失败同样不阻止 provider。
 	apiKeysResult, apiKeysErr := s.metadataFetcher.FetchManagementAPIKeys(ctx)
-	// 七个 provider endpoint 只在纯包内并发，返回按 registry 确定性归并的 snapshot。
+	// 八个 provider endpoint 只在纯包内并发，返回按 registry 确定性归并的 snapshot。
 	providerSnapshot, providerFetchErr := providermetadata.Fetch(ctx, s.metadataFetcher)
 	// Auth Files 先进入自己的 repository 事务，保持原有写入顺序。
 	authSyncErr := syncAuthFiles(ctx, s.db, authFilesResult, authFilesErr, fetchedAt)

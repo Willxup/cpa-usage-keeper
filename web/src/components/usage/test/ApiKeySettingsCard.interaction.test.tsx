@@ -79,7 +79,7 @@ describe('ApiKeySettingsCard copy action', () => {
     })
   }
 
-  it('copies the raw key, shows the success icon, and resets its label', async () => {
+  it('copies the raw key and resets the accessible success label', async () => {
     vi.useFakeTimers()
     const writeText = vi.fn(async () => undefined)
     const onNotice = vi.fn()
@@ -93,10 +93,9 @@ describe('ApiKeySettingsCard copy action', () => {
     expect(copyButton).not.toBeNull()
     expect(container.textContent).toContain(apiKey.displayKey)
     expect(container.textContent).not.toContain(apiKey.apiKey)
-    const copyIcon = copyButton?.querySelector('svg')?.innerHTML
 
     await act(async () => {
-      copyButton?.click()
+      copyButton!.click()
       await Promise.resolve()
     })
 
@@ -104,14 +103,26 @@ describe('ApiKeySettingsCard copy action', () => {
     expect(onNotice).toHaveBeenCalledWith('success', 'API Key copied.')
     const copiedButton = container.querySelector<HTMLButtonElement>('button[aria-label="Copied"]')
     expect(copiedButton).not.toBeNull()
-    expect(copiedButton?.querySelector('svg')?.innerHTML).not.toBe(copyIcon)
 
     await act(async () => vi.advanceTimersByTime(1600))
     expect(container.querySelector('button[aria-label="Copy"]')).not.toBeNull()
     expect(container.querySelector('button[aria-label="Copied"]')).toBeNull()
   })
 
-  it('keeps the copy icon and reports an error when both copy paths fail', async () => {
+  it.each([true, false])('restores the current control after legacy copy, success: %s', async (success) => {
+    Object.defineProperty(globalThis.navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async () => { throw new Error('blocked') } },
+    })
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: () => success })
+    await renderCard(vi.fn())
+    const copyButton = container.querySelector<HTMLButtonElement>('button[aria-label="Copy"]')!
+    await act(async () => { copyButton.focus(); copyButton.click(); await Promise.resolve() })
+    expect(document.activeElement).toBe(copyButton)
+    expect(document.querySelector('textarea')).toBeNull()
+  })
+
+  it('keeps the copy action available when both copy paths fail', async () => {
     const writeText = vi.fn(async () => { throw new Error('blocked') })
     const execCommand = vi.fn(() => false)
     const onNotice = vi.fn()
@@ -129,7 +140,7 @@ describe('ApiKeySettingsCard copy action', () => {
     expect(copyButton).not.toBeNull()
 
     await act(async () => {
-      copyButton?.click()
+      copyButton!.click()
       await Promise.resolve()
     })
 

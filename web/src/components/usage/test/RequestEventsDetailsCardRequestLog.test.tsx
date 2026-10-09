@@ -3,25 +3,12 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { UsageEvent } from '@/lib/types';
+import { RequestEventsTestCard } from './requestEventsFixtures';
+import { TestResizeObserver } from './virtualizationFixtures';
+import type { UsageEvent, UsageEventRequestLogSection } from '@/lib/types';
 import {
-  RequestEventsDetailsCard,
   splitRequestLogVirtualChunks,
 } from '../RequestEventsDetailsCard';
-
-const baseProps: React.ComponentProps<typeof RequestEventsDetailsCard> = {
-  events: [],
-  loading: false,
-  totalCount: 0,
-  modelOptions: [],
-  sourceOptions: [],
-  modelFilter: '__all__',
-  sourceFilter: '__all__',
-  resultFilter: '__all__',
-  onModelFilterChange: () => undefined,
-  onSourceFilterChange: () => undefined,
-  onResultFilterChange: () => undefined,
-};
 
 const requestLogEvent: UsageEvent = {
   id: '101',
@@ -49,77 +36,7 @@ const requestLogEvent: UsageEvent = {
   pricing_style: 'claude',
 };
 
-const rect = (width: number, height: number): DOMRect => ({
-  x: 0,
-  y: 0,
-  top: 0,
-  right: width,
-  bottom: height,
-  left: 0,
-  width,
-  height,
-  toJSON: () => ({}),
-});
-
-class TestResizeObserver implements ResizeObserver {
-  private readonly callback: ResizeObserverCallback;
-
-  constructor(callback: ResizeObserverCallback) {
-    this.callback = callback;
-  }
-
-  observe(target: Element) {
-    const contentRect = target.getBoundingClientRect();
-    this.callback([{
-      target,
-      contentRect,
-      borderBoxSize: [{ inlineSize: contentRect.width, blockSize: contentRect.height }],
-      contentBoxSize: [{ inlineSize: contentRect.width, blockSize: contentRect.height }],
-      devicePixelContentBoxSize: [],
-    } as unknown as ResizeObserverEntry], this);
-  }
-
-  disconnect() {}
-
-  unobserve() {}
-}
-
-describe('RequestEventsDetailsCard request log virtualization', () => {
-  let container: HTMLDivElement;
-  let root: Root;
-
-  beforeEach(() => {
-    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-    vi.stubGlobal('ResizeObserver', TestResizeObserver);
-    vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function getBoundingClientRect() {
-      if (this.className.includes('requestEventsLogSectionPanelInner')) {
-        return rect(800, 360);
-      }
-      if (this instanceof HTMLPreElement) {
-        return rect(800, 18);
-      }
-      return rect(800, 600);
-    });
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-  });
-
-  afterEach(async () => {
-    // TanStack Virtual 默认在 150ms 后发送滚动结束更新，销毁 Happy DOM 前先等待该更新完成。
-    await act(async () => {
-      const { promise: settleVirtualizer, resolve } = Promise.withResolvers<void>();
-      window.setTimeout(resolve, 200);
-      await settleVirtualizer;
-    });
-    await act(async () => root.unmount());
-    container.remove();
-    document.body.innerHTML = '';
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
-  });
-
+describe('request log chunks', () => {
   it('splits oversized logical lines into bounded Unicode-safe chunks', () => {
     const content = `${'a'.repeat(5000)}${'😀'.repeat(2000)}`;
     const chunks = splitRequestLogVirtualChunks(content);
@@ -155,36 +72,66 @@ describe('RequestEventsDetailsCard request log virtualization', () => {
     assertGraphemeSafeChunks(`${'a'.repeat(2046)}🇺🇸${'b'.repeat(3000)}`);
     assertGraphemeSafeChunks(`${'a'.repeat(2047)}e\u0301${'b'.repeat(3000)}`);
   });
+});
+
+describe('RequestEventsDetailsCard request log virtualization', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    vi.useFakeTimers();
+    vi.stubGlobal('ResizeObserver', TestResizeObserver);
+    vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function getBoundingClientRect() {
+      if (this.className.includes('requestEventsLogSectionPanelInner')) {
+        return new DOMRect(0, 0, 800, 360);
+      }
+      if (this instanceof HTMLPreElement) {
+        return new DOMRect(0, 0, 800, 18);
+      }
+      return new DOMRect(0, 0, 800, 600);
+    });
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(async () => {
+    // 完成虚拟列表的滚动结束更新，再销毁 DOM。
+    await act(async () => vi.advanceTimersByTimeAsync(200));
+    await act(async () => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  const renderLog = async (sections: UsageEventRequestLogSection[]) => {
+    await act(async () => root.render(
+      <RequestEventsTestCard
+        events={[]}
+        requestLogResponse={{ event_id: '101', available: true, sections }}
+        onRequestLogClose={() => undefined}
+      />,
+    ));
+  };
 
   it('builds collapsed sections lazily and keeps opened content mounted while closing', async () => {
-    await act(async () => {
-      root.render(
-        <RequestEventsDetailsCard
-          {...baseProps}
-          requestLogResponse={{
-            event_id: '101',
-            available: true,
-            sections: [
-              { title: 'REQUEST INFO', content: 'first section' },
-              { title: 'API RESPONSE ERROR', content: 'lazy second section' },
-            ],
-          }}
-          onRequestLogClose={() => undefined}
-        />,
-      );
-      await Promise.resolve();
-    });
+    await renderLog([
+      { title: 'REQUEST INFO', content: 'first section' },
+      { title: 'API RESPONSE ERROR', content: 'lazy second section' },
+    ]);
 
     expect(document.body.textContent).not.toContain('lazy second section');
     const trigger = Array.from(document.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('API Response Error'));
-    expect(trigger).toBeDefined();
+      button.textContent?.includes('API Response Error'))!;
 
-    await act(async () => trigger?.click());
+    await act(async () => trigger.click());
     expect(document.body.textContent).toContain('lazy second section');
 
-    await act(async () => trigger?.click());
-    expect(trigger?.getAttribute('aria-expanded')).toBe('false');
+    await act(async () => trigger.click());
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
     expect(document.body.textContent).toContain('lazy second section');
   });
 
@@ -192,38 +139,24 @@ describe('RequestEventsDetailsCard request log virtualization', () => {
     const writeText = vi.fn(async () => undefined);
     vi.stubGlobal('navigator', { clipboard: { writeText } });
 
-    await act(async () => {
-      root.render(
-        <RequestEventsDetailsCard
-          {...baseProps}
-          requestLogResponse={{
-            event_id: '104',
-            available: true,
-            sections: [
-              { title: 'REQUEST INFO', content: 'first section' },
-              { title: 'API RESPONSE', content: 'complete response content' },
-            ],
-          }}
-          onRequestLogClose={() => undefined}
-        />,
-      );
-      await Promise.resolve();
-    });
+    await renderLog([
+      { title: 'REQUEST INFO', content: 'first section' },
+      { title: 'API RESPONSE', content: 'complete response content' },
+    ]);
 
     const copyButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label^="Copy "]'));
     expect(copyButtons).toHaveLength(2);
 
     const responseTrigger = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-expanded]')).find((button) =>
-      button.textContent?.includes('API Response'));
-    const responseCopyButton = copyButtons.find((button) => button.getAttribute('aria-label') === 'Copy API Response');
-    expect(responseTrigger?.getAttribute('aria-expanded')).toBe('false');
-    expect(responseCopyButton).toBeDefined();
+      button.textContent?.includes('API Response'))!;
+    const responseCopyButton = copyButtons.find((button) => button.getAttribute('aria-label') === 'Copy API Response')!;
+    expect(responseTrigger.getAttribute('aria-expanded')).toBe('false');
 
-    await act(async () => responseCopyButton?.click());
+    await act(async () => responseCopyButton.click());
 
     expect(writeText).toHaveBeenCalledWith('complete response content');
-    expect(responseTrigger?.getAttribute('aria-expanded')).toBe('false');
-    expect(responseCopyButton?.getAttribute('aria-label')).toBe('API Response copied');
+    expect(responseTrigger.getAttribute('aria-expanded')).toBe('false');
+    expect(responseCopyButton.getAttribute('aria-label')).toBe('API Response copied');
   });
 
   it('falls back to a selected textarea when the Clipboard API is blocked', async () => {
@@ -239,30 +172,16 @@ describe('RequestEventsDetailsCard request log virtualization', () => {
     });
 
     try {
-      await act(async () => {
-        root.render(
-          <RequestEventsDetailsCard
-            {...baseProps}
-            requestLogResponse={{
-              event_id: '105',
-              available: true,
-              sections: [{ title: 'HEADERS', content: 'Authorization: Bearer preview' }],
-            }}
-            onRequestLogClose={() => undefined}
-          />,
-        );
-        await Promise.resolve();
-      });
+      await renderLog([{ title: 'HEADERS', content: 'Authorization: Bearer preview' }]);
 
-      const copyButton = document.querySelector<HTMLButtonElement>('button[aria-label="Copy Headers"]');
-      expect(copyButton).not.toBeNull();
-      copyButton?.focus();
+      const copyButton = document.querySelector<HTMLButtonElement>('button[aria-label="Copy Headers"]')!;
+      copyButton.focus();
       expect(document.activeElement).toBe(copyButton);
-      await act(async () => copyButton?.click());
+      await act(async () => copyButton.click());
 
       expect(writeText).toHaveBeenCalledWith('Authorization: Bearer preview');
       expect(execCommand).toHaveBeenCalledWith('copy');
-      expect(copyButton?.getAttribute('aria-label')).toBe('Headers copied');
+      expect(copyButton.getAttribute('aria-label')).toBe('Headers copied');
       expect(document.querySelector('textarea[aria-hidden="true"]')).toBeNull();
       expect(document.activeElement).toBe(copyButton);
     } finally {
@@ -277,10 +196,8 @@ describe('RequestEventsDetailsCard request log virtualization', () => {
   it('keeps the Result badge static when request log access is disabled', async () => {
     await act(async () => {
       root.render(
-        <RequestEventsDetailsCard
-          {...baseProps}
+        <RequestEventsTestCard
           events={[requestLogEvent]}
-          totalCount={1}
           requestLogAccessEnabled={false}
           onRequestLogOpen={() => undefined}
         />,
@@ -290,40 +207,23 @@ describe('RequestEventsDetailsCard request log virtualization', () => {
 
     expect(document.body.textContent).toContain('Success');
     expect(document.querySelector('[title="Click to view request log"]')).toBeNull();
-    expect(document.querySelector('[class*="requestEventsResultLogButton"]')).toBeNull();
-    expect(document.querySelector('[class*="requestEventsResultLogIcon"]')).toBeNull();
+    expect(container.querySelector('tbody button')).toBeNull();
   });
 
   it('renders a bounded window and switches items after scrolling', async () => {
     const content = Array.from({ length: 500 }, (_, index) => `line-${index}`).join('\n');
-    await act(async () => {
-      root.render(
-        <RequestEventsDetailsCard
-          {...baseProps}
-          requestLogResponse={{
-            event_id: '102',
-            available: true,
-            sections: [{ title: 'REQUEST INFO', content }],
-          }}
-          onRequestLogClose={() => undefined}
-        />,
-      );
-      await Promise.resolve();
-    });
+    await renderLog([{ title: 'REQUEST INFO', content }]);
 
-    const scroller = document.querySelector<HTMLElement>('[class*="requestEventsLogSectionPanelInner"]');
-    expect(scroller).not.toBeNull();
+    const scroller = document.querySelector<HTMLElement>('[class*="requestEventsLogSectionPanelInner"]')!;
     const initialIndexes = Array.from(document.querySelectorAll<HTMLElement>('pre[data-index]'), (item) => Number(item.dataset.index));
     expect(initialIndexes.length).toBeGreaterThan(0);
     expect(initialIndexes.length).toBeLessThan(500);
 
-    if (scroller) {
-      scroller.scrollTop = 5000;
-      await act(async () => {
-        scroller.dispatchEvent(new Event('scroll'));
-        await new Promise((resolve) => window.setTimeout(resolve, 0));
-      });
-    }
+    scroller.scrollTop = 5000;
+    await act(async () => {
+      scroller.dispatchEvent(new Event('scroll'));
+      await vi.advanceTimersByTimeAsync(0);
+    });
 
     const scrolledIndexes = Array.from(document.querySelectorAll<HTMLElement>('pre[data-index]'), (item) => Number(item.dataset.index));
     expect(Math.max(...scrolledIndexes)).toBeGreaterThan(Math.max(...initialIndexes));
@@ -331,20 +231,7 @@ describe('RequestEventsDetailsCard request log virtualization', () => {
 
   it('keeps a multi-megabyte single-line log bounded in the DOM', async () => {
     const content = `{"payload":"${'x'.repeat(5 * 1024 * 1024 + 512 * 1024)}"}`;
-    await act(async () => {
-      root.render(
-        <RequestEventsDetailsCard
-          {...baseProps}
-          requestLogResponse={{
-            event_id: '103',
-            available: true,
-            sections: [{ title: 'API RESPONSE', content }],
-          }}
-          onRequestLogClose={() => undefined}
-        />,
-      );
-      await Promise.resolve();
-    });
+    await renderLog([{ title: 'API RESPONSE', content }]);
 
     const renderedChunks = Array.from(document.querySelectorAll<HTMLPreElement>('pre[data-index]'));
     expect(renderedChunks.length).toBeGreaterThan(0);

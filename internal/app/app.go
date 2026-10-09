@@ -71,6 +71,7 @@ type App struct {
 	QuotaAutoRefresh  QuotaRunner
 	BackupMaintenance *DatabaseBackupRunner
 	RecentUsageCache  *repository.UsageRecentEventCache
+	AutomaticPricing  Runner
 	PricingCatalog    *pricing.Catalog
 	LogCloser         io.Closer
 
@@ -124,6 +125,9 @@ func NewWithOptions(options Options) (*App, error) {
 }
 
 func NewWithConfig(cfg config.Config) (*App, error) {
+	if cfg.AutomaticPricingSource != "" && cfg.AutomaticPricingSource != "models-dev" && cfg.AutomaticPricingSource != "litellm" {
+		return nil, fmt.Errorf("AUTOMATIC_PRICING_SOURCE must be models-dev or litellm")
+	}
 	logCloser, err := logging.Configure(cfg)
 	if err != nil {
 		return nil, err
@@ -199,8 +203,6 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	pricingCatalog := pricing.NewCatalog(pricingSnapshot)
 
 	cpaClient := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)
-	// pricingService 先于 syncService 创建，确保同一 writer、catalog 和官方价 fetcher 被两条链路共享。
-	pricingService := service.NewPricingService(db, pricingCatalog, cpaClient)
 	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{
 		RefreshWorkerLimit:            cfg.QuotaRefreshWorkerLimit,
 		QuotaUpstreamResponsesEnabled: cfg.QuotaUpstreamResponsesEnabled,
@@ -210,14 +212,13 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	usageAggregationRunner := poller.NewUsageAggregationRunner(db)
 	// syncService 仍然是 metadata 和 usage 处理共享的业务服务入口。
 	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
-		BaseURL: cfg.CPABaseURL,
-		Client:  cpaClient,
+		UsageRawRetentionDays: cfg.UsageRawRetentionDays,
+		BaseURL:               cfg.CPABaseURL,
+		Client:                cpaClient,
 		// usage_events 事务提交后通过这个缓存做非阻塞增量追加，供 Overview realtime 和右边界补偿复用。
 		RecentUsageEvents: recentUsageCache,
 		// usage 与 metadata 提交后只唤醒单 writer runner，不在前台链路执行派生聚合。
 		UsageAggregationNotifier: usageAggregationRunner,
-		// 新 usage 事件提交后自动补齐缺失价格；catalog 通过共享实例立即发布。
-		PricingProvider: pricingService,
 		// Header 独立进入 Quota worker 的惰性一分钟窗口，不再等待 Overview 水位。
 		UsageHeaderQuota: quotaService,
 	})
@@ -309,9 +310,22 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		OnDisplayNameChanged: quotaService.UpdateUsageIdentityDisplayNameSnapshot,
 	})
 	cpaAPIKeyService := service.NewCPAAPIKeyService(db)
-	authFilesManagementService := service.NewAuthFilesManagementService(cpaClient)
+	// 单条凭证开关成功后立即与 CPA 对齐；runner 自带合并窗口和 nil 保护。
+	credentialMutationLocks := &service.CredentialMutationLocks{}
+	authFilesManagementService := service.NewAuthFilesManagementService(cpaClient, credentialMutationLocks)
+	credentialStatusService := service.NewCredentialStatusService(db, cpaClient, metadataSyncRunner, credentialMutationLocks)
+	credentialPriorityService := service.NewCredentialPriorityService(db, cpaClient, metadataSyncRunner, credentialMutationLocks)
 	if cfg.TLSSkipVerify {
 		logrus.WithField("cpa_base_url", cfg.CPABaseURL).Warn("TLS certificate verification is disabled for CPA and Redis queue connections")
+	}
+	pricingService := service.NewPricingService(db, pricingCatalog, cpaClient)
+	var automaticPricing Runner
+	if cfg.AutomaticPricingSource != "" {
+		runner, runnerErr := service.NewAutomaticPricingRunner(pricingService, cfg.AutomaticPricingSource)
+		if runnerErr != nil {
+			return nil, runnerErr
+		}
+		automaticPricing = runner
 	}
 	sessionManager := auth.NewSessionManager(cfg.AuthSessionTTL)
 	if cfg.AuthEnabled {
@@ -350,6 +364,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		BackupMaintenance: backupMaintenance,
 		RecentUsageCache:  recentUsageCache,
 		PricingCatalog:    pricingCatalog,
+		AutomaticPricing:  automaticPricing,
 		LogCloser:         logCloser,
 		Router: api.NewRouter(
 			webui.Static,
@@ -365,9 +380,12 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 				Quota:         quotaService,
 				CPAAPIKeys:    cpaAPIKeyService,
 				AuthFiles:     authFilesManagementService,
-				RequestLogs:   requestLogService,
-				Ranking:       rankingService,
-				LocalRanking:  localRankingService,
+				// 认证文件与 AI 供应商共用一个 service，路由层按类型分发。
+				CredentialStatus:   credentialStatusService,
+				CredentialPriority: credentialPriorityService,
+				RequestLogs:        requestLogService,
+				Ranking:            rankingService,
+				LocalRanking:       localRankingService,
 				Status: api.StatusRouteConfig{
 					CPAPublicURL:               cfg.CPAPublicURL,
 					CPARequestLogAccessEnabled: cfg.CPARequestLogAccessEnabled,
@@ -457,6 +475,13 @@ func (a *App) Run() error {
 
 	ctx := a.startBackgroundContext()
 	defer a.stopBackgroundTasks()
+	if a.AutomaticPricing != nil {
+		a.startBackgroundTask(func() {
+			if err := a.AutomaticPricing.Run(ctx); err != nil {
+				logrus.WithError(err).Error("automatic pricing stopped")
+			}
+		})
+	}
 	if a.RedisIngest != nil {
 		a.startBackgroundTask(func() {
 			if err := a.RedisIngest.Run(ctx); err != nil {

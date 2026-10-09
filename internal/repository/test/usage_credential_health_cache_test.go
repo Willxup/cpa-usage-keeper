@@ -2,22 +2,16 @@ package test
 
 import (
 	"math"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 )
 
 func TestCredentialHealthTokenTotalsSaturateOnInt64Overflow(t *testing.T) {
 	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
-	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "credential-health-overflow.db")})
-	if err != nil {
-		t.Fatalf("OpenDatabase returned error: %v", err)
-	}
-	closeTestDatabase(t, db)
+	db := openTestDatabase(t)
 
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
 		{

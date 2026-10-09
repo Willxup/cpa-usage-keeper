@@ -199,30 +199,7 @@ describe('useScrollBoundaryContainment', () => {
     expect(container.firstElementChild?.getAttribute('data-scroll-boundary-contained')).toBe('true');
   });
 
-  it('cleans up containment resources when boundary tracking is disabled', () => {
-    const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
-    const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener');
-    const metrics = { clientHeight: 100, scrollHeight: 240 };
-
-    act(() => root.render(<ScrollRegion metrics={metrics} active />));
-    const scrollRegion = container.firstElementChild as HTMLElement;
-    const resizeListener = addEventListenerSpy.mock.calls
-      .find(([eventName]) => eventName === 'resize')?.[1];
-
-    expect(resizeListener).toBeTypeOf('function');
-    expect(scrollRegion.getAttribute('data-scroll-boundary-contained')).toBe('true');
-    expect(resizeObservers.some((observer) => observer.isObserving(scrollRegion))).toBe(true);
-    expect(mutationObservers.some((observer) => observer.isObserving(scrollRegion))).toBe(true);
-
-    act(() => root.render(<ScrollRegion metrics={metrics} active={false} />));
-
-    expect(scrollRegion.hasAttribute('data-scroll-boundary-contained')).toBe(false);
-    expect(resizeObservers.some((observer) => observer.isObserving(scrollRegion))).toBe(false);
-    expect(mutationObservers.some((observer) => observer.isObserving(scrollRegion))).toBe(false);
-    expect(removeEventListenerSpy).toHaveBeenCalledWith('resize', resizeListener);
-  });
-
-  it('cleans up containment resources when the scroll region unmounts', () => {
+  it.each(['disabled', 'unmounted'])('cleans up containment resources when %s', (state) => {
     const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
     const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener');
     const metrics = { clientHeight: 100, scrollHeight: 240 };
@@ -233,7 +210,11 @@ describe('useScrollBoundaryContainment', () => {
       .find(([eventName]) => eventName === 'resize')?.[1];
 
     expect(resizeListener).toBeTypeOf('function');
-    act(() => root.render(<></>));
+    expect(scrollRegion.getAttribute('data-scroll-boundary-contained')).toBe('true');
+    expect(resizeObservers.some((observer) => observer.isObserving(scrollRegion))).toBe(true);
+    expect(mutationObservers.some((observer) => observer.isObserving(scrollRegion))).toBe(true);
+
+    act(() => root.render(state === 'disabled' ? <ScrollRegion metrics={metrics} active={false} /> : null));
 
     expect(scrollRegion.hasAttribute('data-scroll-boundary-contained')).toBe(false);
     expect(resizeObservers.some((observer) => observer.isObserving(scrollRegion))).toBe(false);

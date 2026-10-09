@@ -14,8 +14,8 @@ import (
 
 func TestClaudeProviderCallsUsageAndProfile(t *testing.T) {
 	caller := &recordingManagementCaller{responses: []*apicall.Response{
-		{StatusCode: 200, BodyText: `{"five_hour":{"utilization":36,"resets_at":"2026-05-09T12:00:00Z"},"seven_day":{"utilization":72,"resets_at":"2026-05-10T12:00:00Z"},"seven_day_sonnet":{"utilization":18,"resets_at":"2026-05-10T08:00:00Z"},"extra_usage":{"is_enabled":true,"monthly_limit":1000,"used_credits":250,"utilization":25}}`, Body: json.RawMessage(`{"five_hour":{"utilization":36,"resets_at":"2026-05-09T12:00:00Z"},"seven_day":{"utilization":72,"resets_at":"2026-05-10T12:00:00Z"},"seven_day_sonnet":{"utilization":18,"resets_at":"2026-05-10T08:00:00Z"},"extra_usage":{"is_enabled":true,"monthly_limit":1000,"used_credits":250,"utilization":25}}`)},
-		{StatusCode: 200, BodyText: `{"account":{"email":"user@example.com","has_claude_pro":true},"organization":{"organization_type":"claude_team","subscription_status":"active"}}`, Body: json.RawMessage(`{"account":{"email":"user@example.com","has_claude_pro":true},"organization":{"organization_type":"claude_team","subscription_status":"active"}}`)},
+		quotaAPIResponse(200, `{"five_hour":{"utilization":36,"resets_at":"2026-05-09T12:00:00Z"},"seven_day":{"utilization":72,"resets_at":"2026-05-10T12:00:00Z"},"seven_day_sonnet":{"utilization":18,"resets_at":"2026-05-10T08:00:00Z"},"extra_usage":{"is_enabled":true,"monthly_limit":1000,"used_credits":250,"utilization":25}}`),
+		quotaAPIResponse(200, `{"account":{"email":"user@example.com","has_claude_pro":true},"organization":{"organization_type":"claude_team","subscription_status":"active"}}`),
 	}}
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewClaudeProvider(caller, configs.ClaudeUsage, configs.ClaudeProfile)
@@ -30,19 +30,17 @@ func TestClaudeProviderCallsUsageAndProfile(t *testing.T) {
 	if len(caller.requests) != 2 {
 		t.Fatalf("expected two api-call requests, got %d", len(caller.requests))
 	}
-	usageRequest := caller.requests[0]
-	if usageRequest.AuthIndex != "claude-auth" || usageRequest.Method != "GET" || usageRequest.URL != "https://api.anthropic.com/api/oauth/usage" {
-		t.Fatalf("unexpected usage request: %+v", usageRequest)
-	}
-	if usageRequest.Header["Authorization"] != "Bearer $TOKEN$" || usageRequest.Header["Content-Type"] != "application/json" || usageRequest.Header["anthropic-beta"] != "oauth-2025-04-20" {
-		t.Fatalf("unexpected usage request headers: %+v", usageRequest.Header)
-	}
-	profileRequest := caller.requests[1]
-	if profileRequest.AuthIndex != "claude-auth" || profileRequest.Method != "GET" || profileRequest.URL != "https://api.anthropic.com/api/oauth/profile" {
-		t.Fatalf("unexpected profile request: %+v", profileRequest)
-	}
-	if profileRequest.Header["Authorization"] != "Bearer $TOKEN$" || profileRequest.Header["Content-Type"] != "application/json" || profileRequest.Header["anthropic-beta"] != "oauth-2025-04-20" {
-		t.Fatalf("unexpected profile request headers: %+v", profileRequest.Header)
+	for index, path := range []string{"usage", "profile"} {
+		if path == "usage" {
+			path += "?cedar_ember=1&skip_spend=1"
+		}
+		request := caller.requests[index]
+		if request.AuthIndex != "claude-auth" || request.Method != "GET" || request.URL != "https://api.anthropic.com/api/oauth/"+path {
+			t.Fatalf("unexpected %s request: %+v", path, request)
+		}
+		if request.Header["Authorization"] != "Bearer $TOKEN$" || request.Header["Content-Type"] != "application/json" || request.Header["anthropic-beta"] != "oauth-2025-04-20" {
+			t.Fatalf("unexpected %s headers: %+v", path, request.Header)
+		}
 	}
 
 	result, ok := output.Result.(quota.ClaudeResult)
@@ -65,6 +63,22 @@ func TestClaudeProviderCallsUsageAndProfile(t *testing.T) {
 	}
 }
 
+func TestClaudeActiveHistoryRequiresExplicitUtilization(t *testing.T) {
+	now := time.Date(2026, 9, 23, 10, 0, 0, 0, time.UTC)
+	caller := &recordingManagementCaller{responses: []*apicall.Response{
+		quotaAPIResponse(200, `{"five_hour":{"resets_at":"2026-09-23T15:00:00Z"},"seven_day":{"utilization":0,"resets_at":"2026-09-30T10:00:00Z"},"seven_day_sonnet":{"utilization":80,"resets_at":"2026-09-30T10:00:00Z"}}`),
+	}}
+	configs := quota.DefaultProviderConfigs()
+	output, err := quota.NewClaudeProvider(caller, configs.ClaudeUsage, configs.ClaudeProfile).Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "claude-auth"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observations := quota.BuildMainQuotaObservations("claude-auth", output, now)
+	if len(observations) != 1 || observations[0].Provider != "claude" || observations[0].QuotaKey != "seven_day" || observations[0].RemainingPercent != 100 {
+		t.Fatalf("missing utilization must not become trusted 100%% history; got %+v", observations)
+	}
+}
+
 func TestClaudeProviderKeepsUsageWhenProfileIsUnavailable(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -79,7 +93,7 @@ func TestClaudeProviderKeepsUsageWhenProfileIsUnavailable(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			caller := &recordingManagementCaller{responses: []*apicall.Response{
-				{StatusCode: 200, BodyText: `{"five_hour":{"utilization":36}}`, Body: json.RawMessage(`{"five_hour":{"utilization":36}}`)},
+				quotaAPIResponse(200, `{"five_hour":{"utilization":36}}`),
 				test.response,
 			}}
 			configs := quota.DefaultProviderConfigs()
@@ -116,7 +130,7 @@ func TestClaudeProviderSkipsProfileWhenUsageFails(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			caller := &recordingManagementCaller{responses: []*apicall.Response{
 				test.response,
-				{StatusCode: 200, BodyText: `{}`, Body: json.RawMessage(`{}`)},
+				quotaAPIResponse(200, `{}`),
 			}}
 			configs := quota.DefaultProviderConfigs()
 			provider := quota.NewClaudeProvider(caller, configs.ClaudeUsage, configs.ClaudeProfile)
@@ -134,8 +148,8 @@ func TestClaudeProviderSkipsProfileWhenUsageFails(t *testing.T) {
 
 func TestClaudeProviderKeepsNullSubscriptionFlagsUnknown(t *testing.T) {
 	caller := &recordingManagementCaller{responses: []*apicall.Response{
-		{StatusCode: 200, BodyText: `{}`, Body: json.RawMessage(`{}`)},
-		{StatusCode: 200, BodyText: `{"account":{"has_claude_max":null,"has_claude_pro":null}}`, Body: json.RawMessage(`{"account":{"has_claude_max":null,"has_claude_pro":null}}`)},
+		quotaAPIResponse(200, `{}`),
+		quotaAPIResponse(200, `{"account":{"has_claude_max":null,"has_claude_pro":null}}`),
 	}}
 	configs := quota.DefaultProviderConfigs()
 	provider := quota.NewClaudeProvider(caller, configs.ClaudeUsage, configs.ClaudeProfile)
@@ -165,7 +179,7 @@ type claudeProfileContextCaller struct {
 func (c *claudeProfileContextCaller) CallManagementAPI(ctx context.Context, _ apicall.Request) (*apicall.Response, error) {
 	c.calls++
 	if c.calls == 1 {
-		return &apicall.Response{StatusCode: 200, BodyText: `{"five_hour":{"utilization":36}}`, Body: json.RawMessage(`{"five_hour":{"utilization":36}}`)}, nil
+		return quotaAPIResponse(200, `{"five_hour":{"utilization":36}}`), nil
 	}
 	c.profileDeadline, _ = ctx.Deadline()
 	return nil, c.profileErr
@@ -177,9 +191,11 @@ func TestClaudeProviderBoundsOptionalProfileContext(t *testing.T) {
 		parentTimeout time.Duration
 		maxRemaining  time.Duration
 		minRemaining  time.Duration
+		profileErr    error
 	}{
-		{name: "ten second helper timeout", minRemaining: 9 * time.Second, maxRemaining: 11 * time.Second},
-		{name: "inherits earlier parent deadline", parentTimeout: 250 * time.Millisecond, maxRemaining: 350 * time.Millisecond},
+		{name: "ten second helper timeout", minRemaining: 9 * time.Second, maxRemaining: 11 * time.Second, profileErr: context.DeadlineExceeded},
+		{name: "inherits earlier parent deadline", parentTimeout: 250 * time.Millisecond, maxRemaining: 350 * time.Millisecond, profileErr: context.DeadlineExceeded},
+		{name: "network error", minRemaining: 9 * time.Second, maxRemaining: 11 * time.Second, profileErr: errors.New("network unavailable")},
 	}
 
 	for _, test := range tests {
@@ -190,7 +206,7 @@ func TestClaudeProviderBoundsOptionalProfileContext(t *testing.T) {
 				ctx, cancel = context.WithTimeout(ctx, test.parentTimeout)
 				defer cancel()
 			}
-			caller := &claudeProfileContextCaller{profileErr: context.DeadlineExceeded}
+			caller := &claudeProfileContextCaller{profileErr: test.profileErr}
 			configs := quota.DefaultProviderConfigs()
 			provider := quota.NewClaudeProvider(caller, configs.ClaudeUsage, configs.ClaudeProfile)
 
@@ -210,20 +226,5 @@ func TestClaudeProviderBoundsOptionalProfileContext(t *testing.T) {
 				t.Fatalf("unexpected profile deadline remaining %s", remaining)
 			}
 		})
-	}
-}
-
-func TestClaudeProviderKeepsUsageWhenProfileCallReturnsNetworkError(t *testing.T) {
-	caller := &claudeProfileContextCaller{profileErr: errors.New("network unavailable")}
-	configs := quota.DefaultProviderConfigs()
-	provider := quota.NewClaudeProvider(caller, configs.ClaudeUsage, configs.ClaudeProfile)
-
-	output, err := provider.Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "claude-auth"}})
-	if err != nil {
-		t.Fatalf("Check returned error: %v", err)
-	}
-	result := output.Result.(quota.ClaudeResult)
-	if result.Usage == nil || result.Profile != nil {
-		t.Fatalf("expected usage without optional profile, got %#v", result)
 	}
 }

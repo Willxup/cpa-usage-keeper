@@ -24,6 +24,12 @@ import {
 import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainment'
 import type { UsageEvent } from '@/lib/types'
 import { calculateCacheReadRate, formatCompactTokenValue, formatDurationMs, formatUsd } from '@/utils/usage'
+import {
+  buildUsageModelTooltipLines,
+  getUsageModelDisplay,
+  getUsageModelTooltip,
+  type UsageModelTooltip,
+} from '@/utils/usage/modelDisplay'
 import { RequestEventResultBadge } from '@/components/usage/RequestEventResultBadge'
 import styles from './CredentialRequestEventsList.module.scss'
 
@@ -59,7 +65,9 @@ interface CredentialRequestEventRow {
   requestTier: string
   responseTier: string
   model: string
+  responseModel: string
   modelAlias: string
+  modelTooltip: UsageModelTooltip
   reasoningEffort: string
   requestType: string
   endpoint: string
@@ -237,6 +245,63 @@ function CredentialRequestEventsCacheMetric({
   )
 }
 
+function CredentialRequestEventsModelCell({
+  row,
+  tooltipLines,
+  tooltipActions,
+  upstreamResponseLabel,
+}: {
+  row: CredentialRequestEventRow
+  tooltipLines: string[]
+  tooltipActions: OverflowTooltipActions
+  upstreamResponseLabel: string
+}) {
+  const cellRef = useRef<HTMLTableCellElement | null>(null)
+
+  useEffect(() => {
+    const cell = cellRef.current
+    return () => {
+      if (!cell) return
+      // 虚拟行卸载时同步清理整格 Tooltip，避免浮层保留已不存在的锚点。
+      tooltipActions.hideOnMouseLeave(cell)
+      tooltipActions.hideOnBlur(cell)
+    }
+  }, [tooltipActions])
+
+  const interactive = tooltipLines.length > 0
+
+  return (
+    <td
+      ref={cellRef}
+      className={`${styles.stackedCell} ${styles.model}`.trim()}
+      data-credential-request-model={row.id}
+      tabIndex={interactive ? 0 : undefined}
+      aria-label={interactive ? tooltipLines.join('; ') : undefined}
+      onMouseEnter={interactive
+        ? (event) => tooltipActions.showOnMouseEnter(tooltipLines, event.currentTarget)
+        : undefined}
+      onMouseLeave={interactive
+        ? (event) => tooltipActions.hideOnMouseLeave(event.currentTarget)
+        : undefined}
+      onFocus={interactive
+        ? (event) => tooltipActions.showOnFocus(tooltipLines, event.currentTarget)
+        : undefined}
+      onBlur={interactive
+        ? (event) => tooltipActions.hideOnBlur(event.currentTarget)
+        : undefined}
+    >
+      <strong>{row.model}</strong>
+      {row.responseModel ? (
+        <small className={styles.responseModel}>
+          <span className={styles.responseModelArrow} aria-hidden="true">↳ </span>
+          <span className={styles.responseModelLabel}>{upstreamResponseLabel}:</span> {row.responseModel}
+        </small>
+      ) : null}
+      {row.modelAlias ? <small>{row.modelAlias}</small> : null}
+    </td>
+  )
+}
+
 function CredentialRequestEventsMetricCell({
   className,
   tooltipLines,
@@ -347,6 +412,19 @@ const buildCredentialRequestCacheTooltipLines = (
   formatCredentialRequestMetricTooltipLine(t('usage_stats.cache_creation_tokens'), row.cacheCreationTokensFull, t),
 ]
 
+const buildCredentialRequestModelTooltipLines = (
+  row: CredentialRequestEventRow,
+  t: (key: string, options?: Record<string, string>) => string,
+): string[] => buildUsageModelTooltipLines(
+  row.modelTooltip,
+  {
+    model: t('usage_stats.model_name'),
+    responseModel: t('usage_stats.upstream_response_model'),
+    modelAlias: t('usage_stats.model_alias'),
+  },
+  (label, value) => formatCredentialRequestMetricTooltipLine(label, value, t),
+)
+
 const optionalText = (value: unknown): string => String(value ?? '').trim() || '-'
 
 const parseRequestEndpoint = (rawEndpoint: unknown): { requestType: string; endpoint: string } => {
@@ -367,8 +445,8 @@ const buildRow = (
   t: (key: string) => string,
 ): CredentialRequestEventRow => {
   const timestamp = String(event.timestamp ?? '')
-  const model = String(event.model ?? '').trim() || '-'
-  const modelAliasValue = String(event.model_alias ?? '').trim()
+  const modelDisplay = getUsageModelDisplay(event.model, event.response_model, event.model_alias)
+  const modelTooltip = getUsageModelTooltip(event.model, event.response_model, event.model_alias)
   const endpoint = parseRequestEndpoint(event.endpoint)
   const latencyMs = Number.isFinite(event.latency_ms) ? event.latency_ms : null
   const ttftMs = Number.isFinite(event.ttft_ms) ? event.ttft_ms as number : null
@@ -391,7 +469,7 @@ const buildRow = (
 
   return {
     event,
-    id: String(event.id ?? '').trim() || `${timestamp}-${model}-${index}`,
+    id: String(event.id ?? '').trim() || `${timestamp}-${modelDisplay.model}-${index}`,
     requestId: String(event.request_id ?? '').trim(),
     detailsId: `credential-request-event-details-${index}`,
     timestamp,
@@ -400,9 +478,11 @@ const buildRow = (
     apiKey,
     requestTier,
     responseTier,
-    model,
-    modelAlias: modelAliasValue && modelAliasValue !== model ? modelAliasValue : '-',
-    reasoningEffort: optionalText(event.reasoning_effort),
+    model: modelDisplay.model,
+    responseModel: modelDisplay.responseModel,
+    modelAlias: modelDisplay.modelAlias,
+    modelTooltip,
+    reasoningEffort: String(event.reasoning_effort ?? '').trim(),
     requestType: endpoint.requestType,
     endpoint: endpoint.endpoint,
     failed: event.failed === true,
@@ -581,9 +661,9 @@ export function CredentialRequestEventsList({
 
   const renderLabeledOverflowText = (label: string, value: string) => renderOverflowText(
     'small',
-    `${label} ${value}`,
+    `${label}: ${value}`,
     <>
-      <span className={styles.subDataLabel} data-credential-request-sub-label>{label}</span>
+      <span className={styles.subDataLabel} data-credential-request-sub-label>{label}:</span>
       {' '}{value}
     </>,
   )
@@ -594,6 +674,7 @@ export function CredentialRequestEventsList({
     const expanded = expandedRowId === row.id
     const tokenTooltipLines = buildCredentialRequestTokenTooltipLines(row, t)
     const cacheTooltipLines = buildCredentialRequestCacheTooltipLines(row, t)
+    const modelTooltipLines = buildCredentialRequestModelTooltipLines(row, t)
     return (
       <tbody
         key={row.id}
@@ -648,17 +729,16 @@ export function CredentialRequestEventsList({
           >
             {renderOverflowText('strong', row.apiKey)}
           </td>
-          <td
-            className={`${styles.stackedCell} ${styles.model}`.trim()}
-            data-credential-request-model={row.id}
-          >
-            {renderOverflowText('strong', row.model)}
-            {renderOverflowText('small', row.modelAlias)}
-            {renderLabeledOverflowText(t('usage_stats.reasoning_effort'), row.reasoningEffort)}
-          </td>
+          <CredentialRequestEventsModelCell
+            row={row}
+            tooltipLines={modelTooltipLines}
+            tooltipActions={tooltipActions}
+            upstreamResponseLabel={t('usage_stats.upstream_response_model')}
+          />
           <td className={styles.stackedCell}>
             {renderOverflowText('strong', row.requestType)}
-            {renderOverflowText('small', row.endpoint)}
+            {row.endpoint !== '-' ? renderLabeledOverflowText(t('usage_stats.request_endpoint'), row.endpoint) : null}
+            {row.reasoningEffort ? renderLabeledOverflowText(t('usage_stats.reasoning_effort'), row.reasoningEffort) : null}
           </td>
           <td>
             <RequestEventResultBadge

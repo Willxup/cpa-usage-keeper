@@ -14,65 +14,27 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestAutoRefreshSettingsDefaultToDisabledWithoutSchedule(t *testing.T) {
+func TestAutoRefreshSettingsPersistAndSignalScheduler(t *testing.T) {
 	service := newQuotaServiceWithRegistry(t, openQuotaTestDatabase(t), NewProviderRegistry(nil))
-
-	settings, err := service.GetAutoRefreshSettings(context.Background())
-	if err != nil {
-		t.Fatalf("GetAutoRefreshSettings returned error: %v", err)
+	initial, err := service.GetAutoRefreshSettings(context.Background())
+	if err != nil || initial.Enabled || initial.Schedule != nil {
+		t.Fatalf("unexpected initial settings: %+v, err=%v", initial, err)
 	}
-	if settings.Enabled {
-		t.Fatalf("expected auto refresh disabled by default, got %+v", settings)
-	}
-	if settings.Schedule != nil {
-		t.Fatalf("expected nil schedule by default, got %+v", settings.Schedule)
-	}
-}
-
-func TestUpdateAutoRefreshSettingsStoresTypedSchedule(t *testing.T) {
-	service := newQuotaServiceWithRegistry(t, openQuotaTestDatabase(t), NewProviderRegistry(nil))
-
-	saved, err := service.UpdateAutoRefreshSettings(context.Background(), AutoRefreshSettings{
-		Enabled: true,
-		Schedule: &AutoRefreshSchedule{
-			Unit:  AutoRefreshScheduleUnitHour,
-			Value: 6,
-		},
-	})
-	if err != nil {
-		t.Fatalf("UpdateAutoRefreshSettings returned error: %v", err)
-	}
-	if !saved.Enabled || saved.Schedule == nil || saved.Schedule.Unit != AutoRefreshScheduleUnitHour || saved.Schedule.Value != 6 {
-		t.Fatalf("unexpected saved settings: %+v", saved)
-	}
-
-	loaded, err := service.GetAutoRefreshSettings(context.Background())
-	if err != nil {
-		t.Fatalf("GetAutoRefreshSettings returned error: %v", err)
-	}
-	if !loaded.Enabled || loaded.Schedule == nil || loaded.Schedule.Unit != AutoRefreshScheduleUnitHour || loaded.Schedule.Value != 6 {
-		t.Fatalf("unexpected loaded settings: %+v", loaded)
-	}
-}
-
-func TestUpdateAutoRefreshSettingsSignalsScheduler(t *testing.T) {
-	service := newQuotaServiceWithRegistry(t, openQuotaTestDatabase(t), NewProviderRegistry(nil))
-
-	_, err := service.UpdateAutoRefreshSettings(context.Background(), AutoRefreshSettings{
-		Enabled: true,
-		Schedule: &AutoRefreshSchedule{
-			Unit:  AutoRefreshScheduleUnitHour,
-			Value: 6,
-		},
-	})
-	if err != nil {
-		t.Fatalf("UpdateAutoRefreshSettings returned error: %v", err)
-	}
-
-	select {
-	case <-autoRefreshSettingsChanged(service):
-	default:
-		t.Fatal("expected settings update to signal the auto refresh scheduler")
+	for _, schedule := range []*AutoRefreshSchedule{{Unit: AutoRefreshScheduleUnitHour, Value: 6}, nil} {
+		want := AutoRefreshSettings{Enabled: true, Schedule: schedule}
+		saved, err := service.UpdateAutoRefreshSettings(context.Background(), want)
+		if err != nil || !reflect.DeepEqual(saved, want) {
+			t.Fatalf("saved=%+v, want=%+v err=%v", saved, want, err)
+		}
+		loaded, err := service.GetAutoRefreshSettings(context.Background())
+		if err != nil || !reflect.DeepEqual(loaded, want) {
+			t.Fatalf("loaded=%+v, want=%+v err=%v", loaded, want, err)
+		}
+		select {
+		case <-autoRefreshSettingsChanged(service):
+		default:
+			t.Fatal("settings update did not signal scheduler")
+		}
 	}
 }
 
@@ -100,33 +62,13 @@ func TestUpdateAutoRefreshSettingsResetsScheduleAnchor(t *testing.T) {
 	}
 }
 
-func TestUpdateAutoRefreshSettingsAllowsEnabledWithoutSchedule(t *testing.T) {
-	service := newQuotaServiceWithRegistry(t, openQuotaTestDatabase(t), NewProviderRegistry(nil))
-
-	saved, err := service.UpdateAutoRefreshSettings(context.Background(), AutoRefreshSettings{Enabled: true, Schedule: nil})
-	if err != nil {
-		t.Fatalf("UpdateAutoRefreshSettings returned error: %v", err)
-	}
-	if !saved.Enabled || saved.Schedule != nil {
-		t.Fatalf("expected enabled settings with nil schedule, got %+v", saved)
-	}
-
-	loaded, err := service.GetAutoRefreshSettings(context.Background())
-	if err != nil {
-		t.Fatalf("GetAutoRefreshSettings returned error: %v", err)
-	}
-	if !loaded.Enabled || loaded.Schedule != nil {
-		t.Fatalf("expected persisted enabled settings with nil schedule, got %+v", loaded)
-	}
-}
-
 func TestGetAutoRefreshSettingsReadsConsistentSnapshot(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	ctx := context.Background()
 	initialSchedule := `{"unit":"hour","value":6}`
 	if _, err := repository.UpsertAppSetting(ctx, db, entities.AppSetting{
 		SettingKey: "quota.auto_refresh.enabled",
-		Value:      stringPointer("true"),
+		Value:      new("true"),
 		ValueType:  entities.AppSettingValueTypeBool,
 	}); err != nil {
 		t.Fatalf("save enabled setting: %v", err)
@@ -170,7 +112,7 @@ func TestGetAutoRefreshSettingsReadsConsistentSnapshot(t *testing.T) {
 func TestUpdateAutoRefreshSettingsRollsBackWhenScheduleSaveFails(t *testing.T) {
 	db := openQuotaTestDatabase(t)
 	db.Callback().Create().Before("gorm:create").Register("fail_schedule_setting_create", func(tx *gorm.DB) {
-		if appSettingKeyFromStatement(tx) == "quota.auto_refresh.schedule" {
+		if setting, ok := tx.Statement.Dest.(*entities.AppSetting); ok && setting.SettingKey == "quota.auto_refresh.schedule" {
 			tx.AddError(errors.New("forced schedule save failure"))
 		}
 	})
@@ -195,48 +137,15 @@ func TestUpdateAutoRefreshSettingsRollsBackWhenScheduleSaveFails(t *testing.T) {
 
 func TestUpdateAutoRefreshSettingsValidatesScheduleRange(t *testing.T) {
 	service := newQuotaServiceWithRegistry(t, openQuotaTestDatabase(t), NewProviderRegistry(nil))
-
-	_, err := service.UpdateAutoRefreshSettings(context.Background(), AutoRefreshSettings{
-		Enabled:  true,
-		Schedule: &AutoRefreshSchedule{Unit: AutoRefreshScheduleUnitMinute, Value: 61},
-	})
-	if !errors.Is(err, ErrValidation) {
-		t.Fatalf("expected validation error for oversized minute value, got %v", err)
-	}
-
-	_, err = service.UpdateAutoRefreshSettings(context.Background(), AutoRefreshSettings{
-		Enabled:  true,
-		Schedule: &AutoRefreshSchedule{Unit: AutoRefreshScheduleUnitWeek, Value: 0},
-	})
-	if !errors.Is(err, ErrValidation) {
-		t.Fatalf("expected validation error for invalid weekday, got %v", err)
-	}
-}
-
-func appSettingKeyFromStatement(tx *gorm.DB) string {
-	if tx == nil || !tx.Statement.ReflectValue.IsValid() {
-		return ""
-	}
-	value := tx.Statement.ReflectValue
-	if value.Kind() == reflect.Pointer {
-		value = value.Elem()
-	}
-	if !value.IsValid() {
-		return ""
-	}
-	for _, name := range []string{"SettingKey", "Key"} {
-		field := value.FieldByName(name)
-		if field.IsValid() && field.Kind() == reflect.String {
-			return field.String()
+	for _, schedule := range []AutoRefreshSchedule{{Unit: AutoRefreshScheduleUnitMinute, Value: 61}, {Unit: AutoRefreshScheduleUnitWeek, Value: 0}} {
+		_, err := service.UpdateAutoRefreshSettings(context.Background(), AutoRefreshSettings{Enabled: true, Schedule: &schedule})
+		if !errors.Is(err, ErrValidation) {
+			t.Fatalf("invalid schedule %+v returned %v", schedule, err)
 		}
 	}
-	return ""
 }
 
 func statementIncludesSettingKey(tx *gorm.DB, key string) bool {
-	if tx == nil || tx.Statement == nil {
-		return false
-	}
 	for _, variable := range tx.Statement.Vars {
 		if value, ok := variable.(string); ok && value == key {
 			return true
@@ -250,8 +159,4 @@ func statementIncludesSettingKey(tx *gorm.DB, key string) bool {
 		}
 	}
 	return false
-}
-
-func stringPointer(value string) *string {
-	return &value
 }

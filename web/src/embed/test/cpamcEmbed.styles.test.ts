@@ -1,22 +1,24 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const embedStylesSource = readFileSync(new URL('../cpamcEmbed.css', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+const styles = readFileSync(new URL('../cpamcEmbed.css', import.meta.url), 'utf8');
 
 describe('CPAMC embed styles', () => {
-  it('keeps page overrides scoped under the CPAMC embed root', () => {
-    expect(embedStylesSource).toContain(".app-frame[data-embed='cpamc']");
-    expect(embedStylesSource).not.toContain('back-to-cpa');
-    expect(embedStylesSource).not.toMatch(/^\.app-footer\s*\{/m);
-    expect(embedStylesSource).not.toMatch(/^\[data-keeper-page=/m);
+  it('scopes every selector, including media rules, to the embed root', () => {
+    const selectors = [...styles.matchAll(/([^{}]+)\{/g)]
+      .map((match) => match[1].trim())
+      .filter((header) => !header.startsWith('@'))
+      .flatMap((header) => header.split(','));
+    expect(selectors.length).toBeGreaterThan(0);
+    for (const selector of selectors) {
+      expect(selector.trim()).toMatch(/^\.app-frame\[data-embed='cpamc'\](?:\s|$)/);
+    }
+  });
 
-    const unscopedRule = embedStylesSource
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.endsWith('{'))
-      .filter((line) => !line.startsWith('@'))
-      .find((line) => !line.includes(".app-frame[data-embed='cpamc']"));
-
-    expect(unscopedRule).toBeUndefined();
+  it('uses the shared Keeper surface and border variables', () => {
+    expect(styles).toContain('background: var(--bg-secondary);');
+    expect(styles).toContain('var(--border-color)');
+    expect(styles).not.toContain('var(--bg)');
+    expect(styles).not.toContain('var(--border)');
   });
 });
