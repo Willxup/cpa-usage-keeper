@@ -10,7 +10,7 @@ import quotaUnusedIcon from '@/assets/icons/quota-unused.svg'
 import { ApiError, deleteCodexQuotaHistoryCycle, fetchCodexQuotaHistory, isCostsBusy, type FetchCodexQuotaHistoryOptions } from '@/lib/api'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
-import { IconChevronDown, IconTrash2 } from '@/components/ui/icons'
+import { IconCheck, IconChevronDown, IconTrash2 } from '@/components/ui/icons'
 import type { CodexQuotaHistoryCycle, CodexQuotaHistoryResponse, CodexQuotaHistoryTransition, CodexQuotaHistoryWindow } from '@/lib/types'
 import { useThemeStore } from '@/stores'
 import { formatCompactNumber, formatUsd } from '@/utils/usage'
@@ -656,7 +656,7 @@ function CycleCard({
               {formatDateTime(cycle.status === 'current' ? cycle.reset_at : cycle.effective_ended_at, locale)}
             </span>
             <i className={cycle.status === 'current' ? styles.currentStatus : styles.completedStatus}>{statusLabel}</i>
-            {selected ? <span className={styles.selectedIndicator}>{t('usage_stats.credentials_quota_history_selected')}</span> : null}
+            {selected ? <span className={styles.selectedIndicator}><IconCheck size={11} aria-hidden="true" />{t('usage_stats.credentials_quota_history_selected')}</span> : null}
           </strong>
           <small>
             {formatCycleWindowLabel(cycle.window_seconds, t)}
