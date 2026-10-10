@@ -107,7 +107,7 @@ func openPublishedPricingEventFixture(t *testing.T) publishedPricingEventFixture
 	if err := migration.MarkAllAsApplied(writer); err != nil {
 		t.Fatalf("记录已发布版本：%v", err)
 	}
-	if err := writer.Exec("DELETE FROM schema_migrations WHERE version = ?", "20261002_pricing_storage_structure").Error; err != nil {
+	if err := writer.Exec("DELETE FROM schema_migrations WHERE version = ?", "20261009_pricing_storage_structure").Error; err != nil {
 		t.Fatal(err)
 	}
 	state, err := repository.BootstrapPricingInitialization(context.Background(), writer)
@@ -287,7 +287,7 @@ func TestLegacyPricingMigrationRepairsSchemaFlagAfterVersionCommit(t *testing.T)
 		t.Fatalf("M3/结构版本与标志故障边界错误：%+v", interrupted)
 	}
 	var versionCount int64
-	if err := fixture.writer.Table("schema_migrations").Where("version = ?", "20261002_pricing_storage_structure").Count(&versionCount).Error; err != nil || versionCount != 1 {
+	if err := fixture.writer.Table("schema_migrations").Where("version = ?", "20261009_pricing_storage_structure").Count(&versionCount).Error; err != nil || versionCount != 1 {
 		t.Fatalf("结构版本未先独立提交：count=%d err=%v", versionCount, err)
 	}
 	assertNullPricingEvent(t, fixture.writer, "usage_events", 1)

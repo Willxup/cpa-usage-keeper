@@ -18,7 +18,7 @@ import (
 
 const (
 	pricingLegacyValidationPageSize = 1000
-	// 仅金额使用固定 1e-9 绝对 + 1e-12 相对容差；请求、Token、可用性及水位仍须精确相等。
+	// 金额和速度 sum 使用 1e-9 绝对 + 1e-12 相对容差；所有计数及水位仍须精确相等。
 	pricingLegacyCostAbsoluteTolerance = 1e-9
 	pricingLegacyCostRelativeTolerance = 1e-12
 )
@@ -183,11 +183,15 @@ type pricingLegacyCostGroup struct {
 	key         []string
 	cost        sql.NullFloat64
 	unavailable sql.NullInt64
+	speed       sql.NullFloat64
+	speedCount  sql.NullInt64
+	decodeSpeed sql.NullFloat64
+	decodeCount sql.NullInt64
 	physical    int64
 	side        int64
 }
 
-// verifyPricingLegacyCostGroups 用一条 SQLite 分组查询对齐热/冷事件与重建桶，Go 仅保留当前一组。
+// verifyPricingLegacyCostGroups 同轮核对费用与两种速度，复用原分组扫描，Go 仅保留当前一组。
 func verifyPricingLegacyCostGroups(ctx context.Context, reader *gorm.DB, table string, cursor int64) error {
 	query := pricingLegacyCostGroupsSQL(table)
 	rows, err := reader.WithContext(ctx).Raw(query, cursor, cursor).Rows()
@@ -198,16 +202,22 @@ func verifyPricingLegacyCostGroups(ctx context.Context, reader *gorm.DB, table s
 	var pending *pricingLegacyCostGroup
 	for rows.Next() {
 		group := pricingLegacyCostGroup{key: make([]string, len(pricingOverviewDimensions)+1)}
-		dest := make([]any, 0, len(group.key)+4)
+		dest := make([]any, 0, len(group.key)+8)
 		for i := range group.key {
 			dest = append(dest, &group.key[i])
 		}
-		dest = append(dest, &group.cost, &group.unavailable, &group.physical, &group.side)
+		dest = append(dest, &group.cost, &group.unavailable, &group.speed, &group.speedCount, &group.decodeSpeed, &group.decodeCount, &group.physical, &group.side)
 		if err := rows.Scan(dest...); err != nil {
 			return fmt.Errorf("scan %s M6 cost group: %w", table, err)
 		}
 		if !group.cost.Valid || math.IsNaN(group.cost.Float64) || math.IsInf(group.cost.Float64, 0) || !group.unavailable.Valid {
 			return fmt.Errorf("%s group %v cost_usd or unavailable_cost_count is NULL or invalid", table, group.key)
+		}
+		if !group.speed.Valid || !group.decodeSpeed.Valid || !group.speedCount.Valid || !group.decodeCount.Valid ||
+			math.IsNaN(group.speed.Float64) || math.IsInf(group.speed.Float64, 0) ||
+			math.IsNaN(group.decodeSpeed.Float64) || math.IsInf(group.decodeSpeed.Float64, 0) ||
+			group.speed.Float64 < 0 || group.decodeSpeed.Float64 < 0 || group.speedCount.Int64 < 0 || group.decodeCount.Int64 < 0 {
+			return fmt.Errorf("%s group %v speed statistics are NULL or invalid", table, group.key)
 		}
 		if group.physical != 1 {
 			return fmt.Errorf("%s group %v has %d physical rows", table, group.key, group.physical)
@@ -227,6 +237,12 @@ func verifyPricingLegacyCostGroups(ctx context.Context, reader *gorm.DB, table s
 		}
 		if !pricingLegacyCloseCost(pending.cost.Float64, group.cost.Float64) {
 			return fmt.Errorf("%s group %v cost differs: events %.12g, stored %.12g", table, group.key, pending.cost.Float64, group.cost.Float64)
+		}
+		if pending.speedCount.Int64 != group.speedCount.Int64 || pending.decodeCount.Int64 != group.decodeCount.Int64 ||
+			!pricingLegacyCloseCost(pending.speed.Float64, group.speed.Float64) || !pricingLegacyCloseCost(pending.decodeSpeed.Float64, group.decodeSpeed.Float64) {
+			return fmt.Errorf("%s group %v speed statistics differ: events %.12g/%d %.12g/%d, stored %.12g/%d %.12g/%d", table, group.key,
+				pending.speed.Float64, pending.speedCount.Int64, pending.decodeSpeed.Float64, pending.decodeCount.Int64,
+				group.speed.Float64, group.speedCount.Int64, group.decodeSpeed.Float64, group.decodeCount.Int64)
 		}
 		pending = nil
 	}
@@ -254,6 +270,15 @@ func pricingLegacyCostGroupsSQL(table string) string {
 		statSelects = append(statSelects, pricingOverviewDimensionExpr(field)+" AS "+field)
 	}
 	selects = append(selects, "cost_usd", "CASE WHEN cost_available = 0 THEN 1 ELSE 0 END AS unavailable")
+	// SQL 独立重算逐请求速度作为校验 oracle；不能改成 SUM(output_tokens)/SUM(latency_ms)。
+	const speedValid = "output_tokens > 0 AND latency_ms > 0"
+	const decodeValid = speedValid + " AND ttft_ms > 0 AND ttft_ms < latency_ms"
+	selects = append(selects,
+		"CASE WHEN "+speedValid+" THEN CAST(output_tokens AS REAL) * 1000.0 / latency_ms ELSE 0.0 END AS speed_tps_sum",
+		"CASE WHEN "+speedValid+" THEN 1 ELSE 0 END AS speed_sample_count",
+		"CASE WHEN "+decodeValid+" THEN CAST(output_tokens AS REAL) * 1000.0 / (latency_ms - ttft_ms) ELSE 0.0 END AS decode_speed_tps_sum",
+		"CASE WHEN "+decodeValid+" THEN 1 ELSE 0 END AS decode_speed_sample_count",
+	)
 	sources := []string{}
 	for _, source := range []string{"usage_events", "usage_events_archive"} {
 		sources = append(sources, "SELECT "+strings.Join(selects, ", ")+" FROM "+source+" WHERE id <= ?")
@@ -262,10 +287,11 @@ func pricingLegacyCostGroupsSQL(table string) string {
 	for i := range keys {
 		positions[i] = strconv.Itoa(i + 1)
 	}
+	const speedSums = ", SUM(speed_tps_sum), SUM(speed_sample_count), SUM(decode_speed_tps_sum), SUM(decode_speed_sample_count)"
 	return "WITH covered AS (" + strings.Join(sources, " UNION ALL ") + "), " +
-		"expected AS (SELECT " + strings.Join(keys, ", ") + ", SUM(cost_usd) AS cost_usd, SUM(unavailable) AS unavailable_count, 1 AS physical, 0 AS side FROM covered GROUP BY " + strings.Join(keys, ", ") + "), " +
-		"stored AS (SELECT " + strings.Join(statSelects, ", ") + ", SUM(cost_usd) AS cost_usd, SUM(unavailable_cost_count) AS unavailable_count, COUNT(*) AS physical, 1 AS side FROM " + table + " GROUP BY " + strings.Join(positions, ", ") + ") " +
-		"SELECT * FROM expected UNION ALL SELECT * FROM stored ORDER BY " + strings.Join(positions, ", ") + ", " + strconv.Itoa(len(keys)+4)
+		"expected AS (SELECT " + strings.Join(keys, ", ") + ", SUM(cost_usd) AS cost_usd, SUM(unavailable) AS unavailable_count" + speedSums + ", 1 AS physical, 0 AS side FROM covered GROUP BY " + strings.Join(keys, ", ") + "), " +
+		"stored AS (SELECT " + strings.Join(statSelects, ", ") + ", SUM(cost_usd) AS cost_usd, SUM(unavailable_cost_count) AS unavailable_count" + speedSums + ", COUNT(*) AS physical, 1 AS side FROM " + table + " GROUP BY " + strings.Join(positions, ", ") + ") " +
+		"SELECT * FROM expected UNION ALL SELECT * FROM stored ORDER BY " + strings.Join(positions, ", ") + ", " + strconv.Itoa(len(keys)+8)
 }
 
 var pricingOverviewDimensions = []string{

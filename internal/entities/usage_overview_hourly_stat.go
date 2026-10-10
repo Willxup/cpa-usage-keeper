@@ -25,6 +25,11 @@ type UsageOverviewHourlyStat struct {
 	CacheReadTokens     int64     `gorm:"not null;default:0"`
 	CacheCreationTokens int64     `gorm:"not null;default:0"`
 	TotalTokens         int64     `gorm:"not null;default:0"`
+	// 逐请求速度累计值；跨桶先合并 sum/count，再求算术平均，不按耗时加权。
+	SpeedTPSSum            float64 `gorm:"column:speed_tps_sum;type:real;not null;default:0"`
+	SpeedSampleCount       int64   `gorm:"not null;default:0"`
+	DecodeSpeedTPSSum      float64 `gorm:"column:decode_speed_tps_sum;type:real;not null;default:0"`
+	DecodeSpeedSampleCount int64   `gorm:"not null;default:0"`
 	// 结构升级后旧桶可为 NULL；首次迁移按现存事件重建，正常聚合必须写入明确金额与不可用计数。
 	CostUSD              *float64  `gorm:"column:cost_usd;type:real"`
 	UnavailableCostCount *int64    `gorm:"column:unavailable_cost_count"`

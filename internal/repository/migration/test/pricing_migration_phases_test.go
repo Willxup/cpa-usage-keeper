@@ -21,6 +21,9 @@ func TestPricingMigrationPhaseBoundaryLeavesPublishedSchemaWithoutNewCostColumns
 	}
 	assertNoFuturePricingColumns(t, db, "usage_events", "cost_usd", "cost_available")
 	assertNoFuturePricingColumns(t, db, "model_price_settings", "branches_json")
+	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+		assertNoFuturePricingColumns(t, db, table, "speed_tps_sum", "speed_sample_count", "decode_speed_tps_sum", "decode_speed_sample_count")
+	}
 	if err := migration.RunPricingStorageStructure(db); err != nil {
 		t.Fatalf("固定基线后运行新结构迁移：%v", err)
 	}
@@ -48,7 +51,7 @@ func TestPricingStorageWaitsForLatestMainMetadataMigration(t *testing.T) {
 	if err := migration.MarkAllAsApplied(db); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Exec("DELETE FROM schema_migrations WHERE version IN ?", []string{usageEventTraceMetadataMigrationVersion, pricingStorageStructureVersion, "20261005_remove_ranking"}).Error; err != nil {
+	if err := db.Exec("DELETE FROM schema_migrations WHERE version IN ?", []string{usageEventTraceMetadataMigrationVersion, pricingStorageStructureVersion, "20261009_remove_ranking"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := migration.RunPricingStorageStructure(db); err == nil || !strings.Contains(err.Error(), usageEventTraceMetadataMigrationVersion) {
@@ -89,7 +92,7 @@ func TestPricingStorageWaitsForLatestMainMetadataMigration(t *testing.T) {
 		}
 	}
 	var rankingVersions int64
-	if err := db.Table("schema_migrations").Where("version = ?", "20261005_remove_ranking").Count(&rankingVersions).Error; err != nil {
+	if err := db.Table("schema_migrations").Where("version = ?", "20261009_remove_ranking").Count(&rankingVersions).Error; err != nil {
 		t.Fatal(err)
 	}
 	if rankingVersions != 0 {

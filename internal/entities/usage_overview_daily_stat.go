@@ -25,6 +25,11 @@ type UsageOverviewDailyStat struct {
 	CacheReadTokens     int64     `gorm:"not null;default:0"`
 	CacheCreationTokens int64     `gorm:"not null;default:0"`
 	TotalTokens         int64     `gorm:"not null;default:0"`
+	// 日桶与小时桶使用同样的逐请求速度累计和独立有效样本数。
+	SpeedTPSSum            float64 `gorm:"column:speed_tps_sum;type:real;not null;default:0"`
+	SpeedSampleCount       int64   `gorm:"not null;default:0"`
+	DecodeSpeedTPSSum      float64 `gorm:"column:decode_speed_tps_sum;type:real;not null;default:0"`
+	DecodeSpeedSampleCount int64   `gorm:"not null;default:0"`
 	// 日桶与小时桶一致：旧结构的 NULL 在重建后消失，零费用必须写成明确的零。
 	CostUSD              *float64  `gorm:"column:cost_usd;type:real"`
 	UnavailableCostCount *int64    `gorm:"column:unavailable_cost_count"`

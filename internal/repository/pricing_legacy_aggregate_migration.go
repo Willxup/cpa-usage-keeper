@@ -191,7 +191,7 @@ func loadLegacyPricingOverviewPage(ctx context.Context, reader *gorm.DB, table s
 	return events, nil
 }
 
-// applyLegacyPricingOverviewPage 复用正式聚合公式写入请求、Token 和已存费用，不改普通 checkpoint。
+// applyLegacyPricingOverviewPage 复用正式聚合公式写入请求、Token、已存费用和两种速度，不改普通 checkpoint。
 // hourly、daily 与本页恢复游标同事务提交；任一步失败整页回滚。
 func applyLegacyPricingOverviewPage(ctx context.Context, writer *gorm.DB, events []entities.UsageEvent, oldCursor, nextCursor string) error {
 	var hourly []entities.UsageOverviewHourlyStat

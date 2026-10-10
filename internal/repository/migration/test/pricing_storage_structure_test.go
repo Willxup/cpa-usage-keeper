@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const pricingStorageStructureVersion = "20261002_pricing_storage_structure"
+const pricingStorageStructureVersion = "20261009_pricing_storage_structure"
 
 func TestPricingStorageStructureMigrationPreservesOldRowsAndNullBackfillState(t *testing.T) {
 	db := openUnmigratedTestDatabase(t)
