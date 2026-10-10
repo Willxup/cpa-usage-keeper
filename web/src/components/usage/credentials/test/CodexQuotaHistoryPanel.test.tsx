@@ -516,8 +516,8 @@ describe('CodexQuotaHistoryPanel', () => {
         expect(icon?.getAttribute('aria-hidden')).toBe('true')
       }
     }
-    expect(document.body.textContent).toContain('usage_stats.credentials_quota_history_cycle_start')
-    expect(document.body.textContent).toContain('usage_stats.credentials_quota_history_cycle_end')
+    expect(document.body.textContent).toContain('usage_stats.credentials_quota_history_cycle_label')
+    expect(container.querySelector('[data-codex-quota-cycle-id="1"] [data-codex-quota-cycle-select] strong')?.textContent).toContain('Aug 10, 00:00 → Aug 17, 00:00')
     expect(document.body.textContent).toContain('usage_stats.credentials_quota_history_first_observed')
     const accessibleSummary = document.body.querySelector('[data-codex-quota-accessible-summary]')
     expect(accessibleSummary?.textContent).toContain('90% → 89%')
@@ -614,7 +614,7 @@ describe('CodexQuotaHistoryPanel', () => {
 
     const currentRecord = document.body.querySelector('[data-codex-quota-cycle-id="2"][data-codex-quota-cycle-status="current"]')
     expect(currentRecord?.textContent).toContain('usage_stats.credentials_quota_history_percent_summary:{"percent":76,"count":8}')
-    expect(currentRecord?.textContent).toContain('usage_stats.credentials_quota_history_cycle_expected_reset')
+    expect(currentRecord?.querySelector('[data-codex-quota-cycle-select] strong')?.textContent).toContain('Aug 17, 00:00 → Aug 24, 00:00')
     expect(document.body.textContent).toContain('usage_stats.credentials_quota_history_no_transition')
     expect(document.body.querySelector('[data-codex-quota-efficiency-chart]')).toBeNull()
     expect(container.querySelector('[data-codex-quota-chart-cycle-id="2"] header dd')?.textContent).toBe('76%')

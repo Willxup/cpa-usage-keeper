@@ -648,9 +648,13 @@ function CycleCard({
       <div className={styles.cycleSelection} onClick={onSelect}>
         <button type="button" className={`${styles.boundaryRow} ${styles.startBoundary}`.trim()}
           aria-pressed={selected} data-codex-quota-cycle-select="true">
-          <span>{t('usage_stats.credentials_quota_history_cycle_start')}</span>
+          <span>{t('usage_stats.credentials_quota_history_cycle_label')}</span>
           <strong>
-            {formatDateTime(cycle.effective_started_at, locale)}
+            <span className={styles.cycleTimeRange}>
+              {formatDateTime(cycle.effective_started_at, locale)}
+              {' → '}
+              {formatDateTime(cycle.status === 'current' ? cycle.reset_at : cycle.effective_ended_at, locale)}
+            </span>
             <i className={cycle.status === 'current' ? styles.currentStatus : styles.completedStatus}>{statusLabel}</i>
             {selected ? <span className={styles.selectedIndicator}>{t('usage_stats.credentials_quota_history_selected')}</span> : null}
           </strong>
@@ -665,11 +669,7 @@ function CycleCard({
             })}
           </small>
         </button>
-        <div className={`${styles.boundaryRow} ${styles.endBoundary}`.trim()}>
-          <span>{t(cycle.status === 'current'
-            ? 'usage_stats.credentials_quota_history_cycle_expected_reset'
-            : 'usage_stats.credentials_quota_history_cycle_end')}</span>
-          <strong>{formatDateTime(cycle.status === 'current' ? cycle.reset_at : cycle.effective_ended_at, locale)}</strong>
+        <div className={styles.cycleSummaryContainer}>
           <CycleQuotaSummary status={cycle.status} summary={summary} />
         </div>
       </div>
