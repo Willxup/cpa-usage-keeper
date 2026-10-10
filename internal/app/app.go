@@ -17,8 +17,10 @@ import (
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/quota"
+	"cpa-usage-keeper/internal/releasecheck"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
+	"cpa-usage-keeper/internal/version"
 	webui "cpa-usage-keeper/web"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -369,6 +371,9 @@ func (a *App) Run() error {
 
 // startReadyBackgroundTasks 只在费用数据及完整 Router 都已准备后启动普通消费、聚合与维护。
 func (a *App) startReadyBackgroundTasks(ctx context.Context) {
+	a.startBackgroundTask(func() {
+		releasecheck.New(a.DB, version.Version, nil).Run(ctx)
+	})
 	if a.RedisIngest != nil && !a.ingestStarted {
 		a.ingestStarted = true
 		a.startBackgroundTask(func() {
