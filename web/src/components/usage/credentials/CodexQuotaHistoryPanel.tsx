@@ -233,8 +233,20 @@ function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanel
             selectedCycleId={selectedCycle?.id ?? null}
             onSelect={(cycleId) => setSelection({ windowRole: history.selected_window?.window_role ?? null, cycleId })}
             onReturnToChart={() => {
-              chartRef.current?.scrollIntoView({ block: 'start' })
-              chartRef.current?.focus({ preventScroll: true })
+              const chart = chartRef.current
+              if (!chart) return
+              const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'
+              const body = chart.closest<HTMLElement>('.modal-body')
+              const tabs = body?.querySelector<HTMLElement>('[data-credential-detail-tab-bar]')
+              // 按真实抽屉标签栏的实际高度定位，只调整本次返回，不影响其他面板的滚动。
+              if (body && tabs) {
+                const top = body.scrollTop + chart.getBoundingClientRect().top - body.getBoundingClientRect().top
+                  - body.clientTop - tabs.getBoundingClientRect().height - 12
+                body.scrollTo({ top: Math.max(0, top), behavior })
+              } else {
+                chart.scrollIntoView({ block: 'start', behavior })
+              }
+              chart.focus({ preventScroll: true })
             }}
             deleteDisabled={loading || deleting}
             onDelete={(cycle) => { setDeleteError(''); setDeleteTarget(cycle) }} />

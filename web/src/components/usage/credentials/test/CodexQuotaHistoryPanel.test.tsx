@@ -246,6 +246,28 @@ describe('CodexQuotaHistoryPanel', () => {
     expect(container.querySelector('[data-codex-quota-chart-cycle-id="1"]')).not.toBeNull()
   })
 
+  it('returns below the actual sticky tab height inside the drawer scroll container', async () => {
+    container.className = 'modal-body'
+    const tabs = document.createElement('div')
+    tabs.setAttribute('data-credential-detail-tab-bar', '')
+    container.appendChild(tabs)
+    await renderPanel()
+    // React 挂载会替换容器原有内容，真实抽屉的标签栏是面板的兄弟节点。
+    container.prepend(tabs)
+    const chart = container.querySelector<HTMLElement>('[data-codex-quota-chart-cycle-id="2"]')!
+    container.scrollTop = 900
+    vi.spyOn(container, 'getBoundingClientRect').mockReturnValue({ top: 80 } as DOMRect)
+    vi.spyOn(chart, 'getBoundingClientRect').mockReturnValue({ top: -620 } as DOMRect)
+    vi.spyOn(tabs, 'getBoundingClientRect').mockReturnValue({ height: 64 } as DOMRect)
+    const scroll = vi.fn()
+    container.scrollTo = scroll
+    const returnButton = [...container.querySelectorAll<HTMLButtonElement>('[data-codex-quota-cycle-id="2"] button')]
+      .find((button) => button.textContent === 'usage_stats.credentials_quota_history_return_to_chart')!
+    await act(async () => returnButton.click())
+    expect(scroll).toHaveBeenCalledWith({ top: 124, behavior: 'smooth' })
+    expect(document.activeElement).toBe(chart)
+  })
+
   it('retains a valid historical selection on refresh and falls back after its deletion', async () => {
     await renderPanel()
     await selectCycle(1)
