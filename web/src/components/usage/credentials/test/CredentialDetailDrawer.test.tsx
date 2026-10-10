@@ -286,7 +286,7 @@ describe('CredentialDetailDrawer', () => {
     })
     expect(fetchCodexQuotaHistory).toHaveBeenCalledWith('auth-file-identity-1', {}, expect.any(AbortSignal))
     expect(document.body.querySelector('[data-codex-quota-history-panel="true"]')).not.toBeNull()
-    expect(document.body.textContent).toContain('usage_stats.credentials_quota_history_no_current')
+    expect(document.body.textContent).toContain('usage_stats.credentials_quota_history_empty')
     expect(document.body.textContent).not.toContain('usage_stats.credentials_quota_history_window_selector')
 
     await renderDrawer({ selection: claudeAuthFileSelection })
@@ -331,7 +331,7 @@ describe('CredentialDetailDrawer', () => {
       .mockResolvedValueOnce(historyWithCost(2.75))
     await renderDrawer({ selection: authFileSelection })
     const costText = () => document.body.querySelector(
-      '[data-codex-quota-current-cycle] [data-codex-quota-summary="used"] [data-codex-quota-summary-metric="cost"]',
+      '[data-codex-quota-cycle-id="1"] [data-codex-quota-summary="used"] [data-codex-quota-summary-metric="cost"]',
     )?.textContent
     expect(fetchCodexQuotaHistory).not.toHaveBeenCalled()
 

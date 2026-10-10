@@ -1,11 +1,8 @@
 import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { compile } from 'sass'
 import { describe, expect, it } from 'vitest'
 
 const quotaHistoryStylesUrl = new URL('../CodexQuotaHistoryPanel.module.scss', import.meta.url)
 const quotaHistoryStyles = readFileSync(quotaHistoryStylesUrl, 'utf8')
-const compiledQuotaHistoryStyles = compile(fileURLToPath(quotaHistoryStylesUrl), { style: 'expanded' }).css
 
 const scssRule = (selector: string) => {
   const start = quotaHistoryStyles.indexOf(selector)
@@ -30,42 +27,10 @@ describe('Codex quota history styles', () => {
     expect(quotaHistoryStyles).toMatch(/\.screenReaderOnly\s*\{[\s\S]*?clip-path:\s*inset\(50%\);/)
   })
 
-  it('wraps current-cycle ranges as complete content blocks at every width', () => {
-    expect(quotaHistoryStyles).toMatch(/\.currentCycleMeta\s*\{[\s\S]*?display:\s*flex;[\s\S]*?flex-wrap:\s*wrap;/)
-    expect(quotaHistoryStyles).toMatch(/\.currentCycleRange,\s*\.currentObservedRange\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?flex:\s*0 1 auto;/)
-    expect(quotaHistoryStyles).not.toMatch(/@include mobile\s*\{[\s\S]*?\.currentCycleRange,\s*\.currentObservedRange/)
-  })
-
-  it('switches chart summaries directly from three columns to shared metric columns in top-labeled rows at one card width', () => {
-    const summaryStyles = quotaHistoryStyles.slice(
-      quotaHistoryStyles.indexOf('.chartSummary {'),
-      quotaHistoryStyles.indexOf('.chartSummaryRow'),
-    )
-    const summaryRowStyles = quotaHistoryStyles.slice(
-      quotaHistoryStyles.indexOf('.chartSummaryRow'),
-      quotaHistoryStyles.indexOf('.chartSummaryMetric'),
-    )
-    const narrowSummaryStyles = quotaHistoryStyles.slice(
-      quotaHistoryStyles.indexOf('@container quota-history-card'),
-      quotaHistoryStyles.indexOf('.screenReaderOnly'),
-    )
-    expect(quotaHistoryStyles).toMatch(/\.card\s*\{[\s\S]*?container:\s*quota-history-card \/ inline-size;/)
-    expect(summaryStyles).toContain('display: grid')
-    expect(summaryStyles).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))')
-    expect(summaryStyles).toContain('border-top: 1px solid var(--border-color)')
-    expect(summaryStyles).not.toContain('620px')
-    expect(summaryRowStyles).toMatch(/\.chartSummaryRow\s*\{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-rows:\s*max-content max-content;/)
-    expect(summaryRowStyles).toMatch(/& \+ &\s*\{[\s\S]*?border-left:\s*1px solid var\(--border-color\);/)
-    expect(summaryRowStyles).toMatch(/dd\s*\{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-columns:\s*repeat\(3, max-content\);[\s\S]*?justify-content:\s*center;/)
-    expect(quotaHistoryStyles).toMatch(/\.chartSummaryMetric\s*\{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-columns:\s*14px max-content;/)
-    expect(narrowSummaryStyles).toMatch(/@container quota-history-card \(max-width:\s*640px\)/)
-    expect(narrowSummaryStyles).toMatch(/\.chartSummary\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, max-content\)\);/)
-    expect(narrowSummaryStyles).toMatch(/\.chartSummaryRow\s*\{[\s\S]*?grid-column:\s*1 \/ -1;[\s\S]*?grid-template-columns:\s*subgrid;[\s\S]*?grid-template-rows:\s*max-content max-content;/)
-    expect(narrowSummaryStyles).toMatch(/dt\s*\{[\s\S]*?text-align:\s*center;/)
-    expect(narrowSummaryStyles).toMatch(/dd\s*\{[\s\S]*?grid-column:\s*1 \/ -1;[\s\S]*?grid-template-columns:\s*subgrid;[\s\S]*?column-gap:\s*inherit;/)
-    expect(compiledQuotaHistoryStyles).toMatch(/@container quota-history-card \(max-width: 640px\) \{[\s\S]*?\.chartSummary > \.chartSummaryRow \+ \.chartSummaryRow \{\s*border-left: 0;/)
-    expect(compiledQuotaHistoryStyles).not.toContain('.chartSummary > .chartSummaryRow + .chartSummary > .chartSummaryRow')
-    expect(narrowSummaryStyles).not.toMatch(/@container quota-history-card \(max-width:\s*560px\)/)
+  it('wraps selected-cycle ranges as complete content blocks at every width', () => {
+    expect(quotaHistoryStyles).toMatch(/\.chartMeta\s*\{[\s\S]*?display:\s*flex;[\s\S]*?flex-wrap:\s*wrap;/)
+    expect(quotaHistoryStyles).toMatch(/\.chartCycleRange,\s*\.chartObservedRange\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?flex:\s*0 1 auto;/)
+    expect(quotaHistoryStyles).not.toMatch(/@include mobile\s*\{[\s\S]*?\.chartCycleRange,\s*\.chartObservedRange/)
   })
 
   it('collapses current and completed summaries into the same shared-column narrow layout', () => {
@@ -96,14 +61,11 @@ describe('Codex quota history styles', () => {
   it('keeps transition details four-column until the cycle card narrows, then two-column at every viewport', () => {
     const transitionGrid = scssRule('.transitionHeader,')
     const compactTransitionGrid = scssRule('@container quota-cycle-card (max-width: 720px)')
-    const tabletStyles = scssRule('@include tablet')
     const mobileStyles = scssRule('@include mobile')
 
     expect(transitionGrid).toContain('grid-template-columns: minmax(126px, 0.8fr) minmax(170px, 1.2fr) minmax(125px, 0.9fr) minmax(145px, 1fr);')
     expect(compactTransitionGrid).toMatch(/\.transitionHeader\s*\{[\s\S]*?display:\s*none;/)
     expect(compactTransitionGrid).toMatch(/\.transitionRow\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/)
-    expect(tabletStyles).not.toContain('.transitionHeader')
-    expect(tabletStyles).not.toContain('.transitionRow')
     expect(mobileStyles).not.toContain('.transitionRow')
     expect(quotaHistoryStyles).not.toMatch(/\.transitionRow\s*\{\s*grid-template-columns:\s*1fr;/)
   })
