@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { CategoryScaleOptions, ChartData, ChartOptions } from 'chart.js'
 import { Chart } from 'react-chartjs-2'
@@ -10,7 +10,7 @@ import quotaUnusedIcon from '@/assets/icons/quota-unused.svg'
 import { ApiError, deleteCodexQuotaHistoryCycle, fetchCodexQuotaHistory, isCostsBusy, type FetchCodexQuotaHistoryOptions } from '@/lib/api'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
-import { IconTrash2 } from '@/components/ui/icons'
+import { IconCheck, IconChevronDown, IconTrash2 } from '@/components/ui/icons'
 import type { CodexQuotaHistoryCycle, CodexQuotaHistoryResponse, CodexQuotaHistoryTransition, CodexQuotaHistoryWindow } from '@/lib/types'
 import { useThemeStore } from '@/stores'
 import { formatCompactNumber, formatUsd } from '@/utils/usage'
@@ -62,9 +62,15 @@ interface CodexQuotaHistoryPanelProps {
 }
 
 export function CodexQuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanelProps) {
+  // 账号切换立即隔离选择、展开和请求状态，不让旧周期在新账号下短暂出现。
+  return <QuotaHistoryPanel key={authIndex.trim()} authIndex={authIndex} onAuthRequired={onAuthRequired} />
+}
+
+function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanelProps) {
   const { t, i18n } = useTranslation()
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme)
   const [history, setHistory] = useState<CodexQuotaHistoryResponse | null>(null)
+  const [selection, setSelection] = useState<{ windowRole: string | null; cycleId: number | null }>({ windowRole: null, cycleId: null })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<CodexQuotaHistoryCycle | null>(null)
@@ -73,6 +79,7 @@ export function CodexQuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuota
   const deleteControllerRef = useRef<AbortController | null>(null)
   const controllerRef = useRef<AbortController | null>(null)
   const lastRequestOptionsRef = useRef<FetchCodexQuotaHistoryOptions>({})
+  const chartRef = useRef<HTMLElement | null>(null)
 
   const loadHistory = useCallback(async (options: FetchCodexQuotaHistoryOptions = {}) => {
     const normalizedAuthIndex = authIndex.trim()
@@ -95,6 +102,15 @@ export function CodexQuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuota
         response = await fetchCodexQuotaHistory(normalizedAuthIndex, {}, controller.signal)
       }
       if (controllerRef.current !== controller) return
+      // 同一角色刷新保留有效周期；角色变化或选中周期被删除时，回到当前周期或最新历史周期。
+      const windowRole = response.selected_window?.window_role ?? null
+      const cycles = response.cycles
+      setSelection((previous) => ({
+        windowRole,
+        cycleId: previous.windowRole === windowRole && cycles.some((cycle) => cycle.id === previous.cycleId)
+          ? previous.cycleId
+          : (cycles.find((cycle) => cycle.status === 'current') ?? cycles[0])?.id ?? null,
+      }))
       setHistory(response)
     } catch (loadError) {
       if (controller.signal.aborted) return
@@ -164,8 +180,8 @@ export function CodexQuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuota
   }
 
   const locale = i18n?.resolvedLanguage || i18n?.language
-  // 当前周期身份完全由后端 status 决定；前端不使用浏览器时间重算周期状态。
-  const currentCycle = history?.cycles.find((cycle) => cycle.status === 'current') ?? null
+  // 周期状态和新旧顺序沿用后端；图表只读取所选角色中稳定 id 对应的周期。
+  const selectedCycle = history?.cycles.find((cycle) => cycle.id === selection.cycleId) ?? null
   const cycleSummaries = useMemo(() => new Map(
     (history?.cycles ?? []).map((cycle) => [cycle.id, buildQuotaCycleSummary(cycle)]),
   ), [history])
@@ -205,14 +221,33 @@ export function CodexQuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuota
         <div className={styles.emptyState}>{t('common.loading')}</div>
       ) : history ? (
         <>
-          <CurrentCycleEfficiencyCard
-            cycle={currentCycle}
+          <CycleEfficiencyChart
+            cycle={selectedCycle}
             window={history.selected_window}
             isDark={resolvedTheme === 'dark'}
             locale={locale}
-            summary={currentCycle ? cycleSummaries.get(currentCycle.id) ?? null : null}
+            chartRef={chartRef}
           />
-          <CyclesList cycles={history.cycles} locale={locale} summaries={cycleSummaries}
+          <CyclesList key={history.selected_window?.window_role ?? 'empty'}
+            cycles={history.cycles} locale={locale} summaries={cycleSummaries}
+            selectedCycleId={selectedCycle?.id ?? null}
+            onSelect={(cycleId) => setSelection({ windowRole: history.selected_window?.window_role ?? null, cycleId })}
+            onReturnToChart={() => {
+              const chart = chartRef.current
+              if (!chart) return
+              const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'
+              const body = chart.closest<HTMLElement>('.modal-body')
+              const tabs = body?.querySelector<HTMLElement>('[data-credential-detail-tab-bar]')
+              // 按真实抽屉标签栏的实际高度定位，只调整本次返回，不影响其他面板的滚动。
+              if (body && tabs) {
+                const top = body.scrollTop + chart.getBoundingClientRect().top - body.getBoundingClientRect().top
+                  - body.clientTop - tabs.getBoundingClientRect().height - 12
+                body.scrollTo({ top: Math.max(0, top), behavior })
+              } else {
+                chart.scrollIntoView({ block: 'start', behavior })
+              }
+              chart.focus({ preventScroll: true })
+            }}
             deleteDisabled={loading || deleting}
             onDelete={(cycle) => { setDeleteError(''); setDeleteTarget(cycle) }} />
         </>
@@ -246,56 +281,64 @@ export function CodexQuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuota
   )
 }
 
-function CurrentCycleEfficiencyCard({
+function CycleEfficiencyChart({
   cycle,
   window,
   isDark,
   locale,
-  summary,
+  chartRef,
 }: {
   cycle: CodexQuotaHistoryCycle | null
   window: CodexQuotaHistoryWindow | null
   isDark: boolean
   locale?: string
-  summary: QuotaCycleSummary | null
+  chartRef: RefObject<HTMLElement | null>
 }) {
   const { t } = useTranslation()
+  const titleId = useId()
+  const statusLabel = t(cycle?.status === 'current'
+    ? 'usage_stats.credentials_quota_history_status_current'
+    : 'usage_stats.credentials_quota_history_status_completed')
   const chart = useMemo(
     () => buildEfficiencyChart(cycle?.transitions ?? [], isDark, t, locale),
     [cycle?.transitions, isDark, locale, t],
   )
 
   return (
-    <section className={styles.card} data-codex-quota-current-cycle="true">
+    <section ref={chartRef} tabIndex={-1} aria-labelledby={titleId}
+      className={styles.card} data-codex-quota-chart-cycle-id={cycle?.id}>
       <header className={styles.cardHeader}>
-        <div className={styles.currentCycleHeading}>
-          <h3>
-            {t('usage_stats.credentials_quota_history_current_title')}
-            {window ? ` · ${formatWindowLabel(window, t)}` : ''}
+        <div className={styles.chartHeading}>
+          <h3 id={titleId}>
+            {t('usage_stats.credentials_quota_history_efficiency_title')}
+            {cycle ? ` · ${formatCycleWindowLabel(cycle.window_seconds, t)}` : window ? ` · ${formatWindowLabel(window, t)}` : ''}
+            {cycle ? <span className={cycle.status === 'current' ? styles.currentStatus : styles.completedStatus}>{statusLabel}</span> : null}
           </h3>
-          <p className={styles.currentCycleMeta}>
+          <p className={styles.chartMeta}>
             {cycle
               ? <>
-                <span className={styles.currentCycleRange} data-codex-quota-cycle-range="true">
+                <span className={styles.chartCycleRange} data-codex-quota-cycle-range="true">
                   {t('usage_stats.credentials_quota_history_cycle_range', {
-                    start: formatDateTime(cycle.window_started_at, locale),
-                    end: formatDateTime(cycle.reset_at, locale),
+                    start: formatDateTime(cycle.effective_started_at, locale),
+                    end: formatDateTime(cycle.status === 'current' ? cycle.reset_at : cycle.effective_ended_at, locale),
                   })}
                 </span>
-                <span className={styles.currentObservedRange} data-codex-quota-observed-range="true">
+                <span className={styles.chartObservedRange} data-codex-quota-observed-range="true">
                   {t('usage_stats.credentials_quota_history_observed_range', {
                     start: formatDateTime(cycle.first_observed_at, locale),
                     end: formatDateTime(cycle.last_observed_at, locale),
                   })}
                 </span>
               </>
-              : t('usage_stats.credentials_quota_history_no_current')}
+              : t('usage_stats.credentials_quota_history_empty')}
           </p>
         </div>
         {cycle ? (
-          <div className={styles.currentCycleStatus}>
-            <dl className={styles.currentRemaining} data-status={quotaRemainingStatus(cycle.last_remaining_percent)}>
-              <dt>{t('usage_stats.credentials_quota_history_current_remaining')}</dt>
+          <div className={styles.chartStatus}>
+            <dl className={styles.chartRemaining} data-status={quotaRemainingStatus(cycle.last_remaining_percent)}>
+              <dt>{t(cycle.status === 'current'
+                ? 'usage_stats.credentials_quota_history_current_remaining'
+                : 'usage_stats.credentials_quota_history_last_remaining')}</dt>
               <dd>
                 {cycle.last_remaining_percent ?? '—'}
                 {cycle.last_remaining_percent !== null ? <span>%</span> : null}
@@ -310,7 +353,7 @@ function CurrentCycleEfficiencyCard({
         ) : null}
       </header>
       {!cycle ? (
-        <div className={styles.emptyState}>{t('usage_stats.credentials_quota_history_no_current')}</div>
+        <div className={styles.emptyState}>{t('usage_stats.credentials_quota_history_empty')}</div>
       ) : (
         <>
           {cycle.transitions.length === 0 ? (
@@ -319,7 +362,7 @@ function CurrentCycleEfficiencyCard({
             <div className={styles.chartFrame} data-codex-quota-efficiency-chart="combined" aria-hidden="true">
               <Chart type="bar" data={chart.data} options={chart.options} />
             </div>
-            <CurrentCycleAccessibleSummary transitions={cycle.transitions} locale={locale} />
+            <CycleAccessibleSummary transitions={cycle.transitions} locale={locale} titleId={titleId} />
             <div className={styles.chartLegend}>
               <span><i className={styles.directDot} />{t('usage_stats.credentials_quota_history_direct')}</span>
               <span><i className={styles.crossDot} />{t('usage_stats.credentials_quota_history_cross')}</span>
@@ -341,22 +384,9 @@ function CurrentCycleEfficiencyCard({
               </span>
             </div>
           </>}
-          <CurrentCycleQuotaSummary summary={summary} />
         </>
       )}
     </section>
-  )
-}
-
-function CurrentCycleQuotaSummary({ summary }: { summary: QuotaCycleSummary | null }) {
-  const { t } = useTranslation()
-
-  return (
-    <dl className={styles.chartSummary} data-codex-quota-chart-summary="true">
-      <QuotaSummaryRow kind="median" label={t('usage_stats.credentials_quota_history_median_per_point')} metrics={summary?.median ?? null} />
-      <QuotaSummaryRow kind="used" label={t('usage_stats.credentials_quota_history_used')} metrics={summary?.used ?? null} />
-      <QuotaSummaryRow kind="full-estimate" label={t('usage_stats.credentials_quota_history_full_estimate')} metrics={summary?.fullEstimate ?? null} />
-    </dl>
   )
 }
 
@@ -510,19 +540,21 @@ function formatQuotaSummaryPercentage(value: number): string {
   return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value)}%`
 }
 
-function CurrentCycleAccessibleSummary({
+function CycleAccessibleSummary({
   transitions,
   locale,
+  titleId,
 }: {
   transitions: CodexQuotaHistoryTransition[]
   locale?: string
+  titleId: string
 }) {
   const { t } = useTranslation()
   return (
     <ul
       className={styles.screenReaderOnly}
-      data-codex-quota-current-cycle-summary="true"
-      aria-label={t('usage_stats.credentials_quota_history_current_title')}
+      data-codex-quota-accessible-summary="true"
+      aria-labelledby={titleId}
     >
       {transitions.map((transition, index) => (
         <li key={`${transition.interval_started_at}:${transition.to_remaining_percent}:${index}`}>
@@ -561,34 +593,34 @@ function CyclesList({
   summaries,
   onDelete,
   deleteDisabled,
+  selectedCycleId,
+  onSelect,
+  onReturnToChart,
 }: {
   cycles: CodexQuotaHistoryCycle[]
   locale?: string
   summaries: Map<number, QuotaCycleSummary>
   onDelete: (cycle: CodexQuotaHistoryCycle) => void
   deleteDisabled: boolean
+  selectedCycleId: number | null
+  onSelect: (cycleId: number) => void
+  onReturnToChart: () => void
 }) {
   const { t } = useTranslation()
   return (
-    <section className={styles.historySection} data-codex-quota-cycles="true">
-      <div className={styles.sectionHeading}>
-        <div>
-          <h3>{t('usage_stats.credentials_quota_history_records_title')}</h3>
-          <p>{t('usage_stats.credentials_quota_history_records_subtitle')}</p>
-        </div>
-        <span>{t('usage_stats.credentials_quota_history_cycle_count', { count: cycles.length })}</span>
-      </div>
+    <div className={styles.cycleList} data-codex-quota-cycles="true">
       {cycles.length === 0 ? (
         <div className={styles.emptyState}>{t('usage_stats.credentials_quota_history_no_records')}</div>
       ) : (
-        <div className={styles.cycleList}>
+        <>
           {cycles.map((cycle) => (
             <CycleCard key={cycle.id} cycle={cycle} locale={locale} summary={summaries.get(cycle.id) ?? null}
+              selected={selectedCycleId === cycle.id} onSelect={() => onSelect(cycle.id)} onReturnToChart={onReturnToChart}
               onDelete={() => onDelete(cycle)} deleteDisabled={deleteDisabled} />
           ))}
-        </div>
+        </>
       )}
-    </section>
+    </div>
   )
 }
 
@@ -598,14 +630,22 @@ function CycleCard({
   summary,
   onDelete,
   deleteDisabled,
+  selected,
+  onSelect,
+  onReturnToChart,
 }: {
   cycle: CodexQuotaHistoryCycle
   locale?: string
   summary: QuotaCycleSummary | null
   onDelete: () => void
   deleteDisabled: boolean
+  selected: boolean
+  onSelect: () => void
+  onReturnToChart: () => void
 }) {
   const { t } = useTranslation()
+  const [expanded, setExpanded] = useState(false)
+  const detailsId = useId()
   const statusLabel = cycle.status === 'current'
     ? t('usage_stats.credentials_quota_history_status_current')
     : t('usage_stats.credentials_quota_history_status_completed')
@@ -614,23 +654,48 @@ function CycleCard({
       className={styles.cycleCard}
       data-codex-quota-cycle-id={cycle.id}
       data-codex-quota-cycle-status={cycle.status}
+      data-selected={selected}
     >
-      <div className={`${styles.boundaryRow} ${styles.startBoundary}`.trim()}>
-        <span>{t('usage_stats.credentials_quota_history_cycle_start')}</span>
-        <strong>
-          {formatDateTime(cycle.effective_started_at, locale)}
-          <i className={cycle.status === 'current' ? styles.currentStatus : styles.completedStatus}>{statusLabel}</i>
-        </strong>
-        <small>
-          {formatCycleWindowLabel(cycle.window_seconds, t)}
-          {' · '}
-          {t('usage_stats.credentials_quota_history_first_observed', { value: formatDateTime(cycle.first_observed_at, locale) })}
-          {' · '}
-          {t('usage_stats.credentials_quota_history_percent_summary', {
-            percent: cycle.last_remaining_percent ?? '—',
-            count: cycle.observation_count,
+      {/* 标题和摘要共用选择区域；原生按钮提供键盘入口，明细和删除保留独立操作。 */}
+      <div className={styles.cycleSelection} onClick={onSelect}>
+        <button type="button" className={`${styles.boundaryRow} ${styles.startBoundary}`.trim()}
+          aria-pressed={selected} data-codex-quota-cycle-select="true">
+          <span>{t('usage_stats.credentials_quota_history_cycle_label')}</span>
+          <strong>
+            <span className={styles.cycleTimeRange}>
+              {formatDateTime(cycle.effective_started_at, locale)}
+              {' → '}
+              {formatDateTime(cycle.status === 'current' ? cycle.reset_at : cycle.effective_ended_at, locale)}
+            </span>
+            <i className={cycle.status === 'current' ? styles.currentStatus : styles.completedStatus}>{statusLabel}</i>
+            {selected ? <span className={styles.selectedIndicator}><IconCheck size={11} aria-hidden="true" />{t('usage_stats.credentials_quota_history_selected')}</span> : null}
+          </strong>
+          <small>
+            {formatCycleWindowLabel(cycle.window_seconds, t)}
+            {' · '}
+            {t('usage_stats.credentials_quota_history_first_observed', { value: formatDateTime(cycle.first_observed_at, locale) })}
+            {' · '}
+            {t('usage_stats.credentials_quota_history_percent_summary', {
+              percent: cycle.last_remaining_percent ?? '—',
+              count: cycle.observation_count,
+            })}
+          </small>
+        </button>
+        <div className={styles.cycleSummaryContainer}>
+          <CycleQuotaSummary status={cycle.status} summary={summary} />
+        </div>
+      </div>
+      <div className={styles.cycleActions}>
+        <button type="button" className={styles.detailToggle} aria-expanded={expanded} aria-controls={detailsId}
+          onClick={() => setExpanded((previous) => !previous)}>
+          <IconChevronDown size={12} aria-hidden="true" className={styles.disclosureChevron} />
+          {t(expanded ? 'usage_stats.credentials_quota_history_collapse_details' : 'usage_stats.credentials_quota_history_expand_details', {
+            count: cycle.transitions.length,
           })}
-        </small>
+        </button>
+        {selected ? <button type="button" className={styles.returnToChart} onClick={onReturnToChart}>
+          {t('usage_stats.credentials_quota_history_return_to_chart')}
+        </button> : null}
         <Button type="button" variant="ghost" size="sm" className={styles.deleteCycle}
           onClick={onDelete} disabled={deleteDisabled}
           aria-label={t('usage_stats.credentials_quota_history_delete_title')}
@@ -638,23 +703,20 @@ function CycleCard({
           <IconTrash2 size={15} aria-hidden="true" />
         </Button>
       </div>
-      <div className={styles.transitionHeader} aria-hidden="true">
-        <span>{t('usage_stats.credentials_quota_history_change')}</span>
-        <span>{t('usage_stats.credentials_quota_history_interval')}</span>
-        <span>{t('usage_stats.credentials_quota_history_usage')}</span>
-        <span>{t('usage_stats.credentials_quota_history_efficiency')}</span>
-      </div>
-      {cycle.transitions.length === 0 ? (
-        <div className={styles.noCycleTransitions}>{t('usage_stats.credentials_quota_history_no_transition')}</div>
-      ) : cycle.transitions.map((transition, index) => (
-        <TransitionRow key={`${transition.interval_started_at}:${transition.to_remaining_percent}:${index}`} transition={transition} locale={locale} />
-      ))}
-      <div className={`${styles.boundaryRow} ${styles.endBoundary}`.trim()}>
-        <span>{t(cycle.status === 'current'
-          ? 'usage_stats.credentials_quota_history_cycle_expected_reset'
-          : 'usage_stats.credentials_quota_history_cycle_end')}</span>
-        <strong>{formatDateTime(cycle.status === 'current' ? cycle.reset_at : cycle.effective_ended_at, locale)}</strong>
-        <CycleQuotaSummary status={cycle.status} summary={summary} />
+      <div id={detailsId} hidden={!expanded}>
+        {expanded ? <>
+          <div className={styles.transitionHeader} aria-hidden="true">
+            <span>{t('usage_stats.credentials_quota_history_change')}</span>
+            <span>{t('usage_stats.credentials_quota_history_interval')}</span>
+            <span>{t('usage_stats.credentials_quota_history_usage')}</span>
+            <span>{t('usage_stats.credentials_quota_history_efficiency')}</span>
+          </div>
+          {cycle.transitions.length === 0 ? (
+            <div className={styles.noCycleTransitions}>{t('usage_stats.credentials_quota_history_no_transition')}</div>
+          ) : cycle.transitions.map((transition, index) => (
+            <TransitionRow key={`${transition.interval_started_at}:${transition.to_remaining_percent}:${index}`} transition={transition} locale={locale} />
+          ))}
+        </> : null}
       </div>
     </article>
   )
