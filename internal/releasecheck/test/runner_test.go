@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/releasecheck"
+	"cpa-usage-keeper/internal/repository"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -186,5 +188,94 @@ func TestConcurrentChecksOnlyClaimOneAttempt(t *testing.T) {
 	}
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCompletionWriteRetriesWithoutAnotherDownload(t *testing.T) {
+	for _, failures := range []int{1, 3, 4} {
+		t.Run(strings.Repeat("failure", failures), func(t *testing.T) {
+			t.Parallel()
+			db := database(t, filepath.Join(t.TempDir(), "state.db"))
+			writes, downloads := 0, 0
+			var writeTimes []time.Time
+			injected := errors.New("temporary completion write failure")
+			if err := db.Callback().Create().Before("gorm:create").Register("test:completion", func(tx *gorm.DB) {
+				writes++
+				if writes == 1 {
+					return
+				} // Initial attempt reservation succeeds.
+				writeTimes = append(writeTimes, time.Now())
+				if writes <= failures+1 {
+					tx.AddError(injected)
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			client := &http.Client{Transport: transport(func(r *http.Request) (*http.Response, error) {
+				downloads++
+				return reply(200, "v2.0.0"), nil
+			})}
+			now := time.Now()
+			wait, err := releasecheck.New(db, "v2.0.0", client).Check(context.Background(), now)
+			if wait != 0 || (failures < 4 && err != nil) || (failures == 4 && !errors.Is(err, injected)) {
+				t.Fatalf("wait=%v err=%v", wait, err)
+			}
+			if downloads != 1 || len(writeTimes) != min(failures+1, 4) {
+				t.Fatalf("downloads=%d completion writes=%d", downloads, len(writeTimes))
+			}
+			for i, delay := range []time.Duration{time.Second, 3 * time.Second, 10 * time.Second} {
+				if i+1 < len(writeTimes) && writeTimes[i+1].Sub(writeTimes[i]) < delay {
+					t.Fatalf("retry %d ran before %v", i+1, delay)
+				}
+			}
+			setting, found, err := repository.GetAppSetting(context.Background(), db, "release.version_file.v2.0.0")
+			if err != nil || !found || setting.Value == nil {
+				t.Fatalf("saved state missing: %v", err)
+			}
+			var state struct {
+				Attempts int  `json:"attempts"`
+				Complete bool `json:"complete"`
+			}
+			if err := json.Unmarshal([]byte(*setting.Value), &state); err != nil {
+				t.Fatal(err)
+			}
+			if state.Attempts != 1 || state.Complete != (failures < 4) {
+				t.Fatalf("state=%+v", state)
+			}
+			if failures < 4 {
+				_, err = releasecheck.New(db, "v2.0.0", client).Check(context.Background(), now.Add(24*time.Hour))
+				if err != nil || downloads != 1 {
+					t.Fatalf("completed version downloaded again: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestCompletionWriteRetryStopsOnCancellation(t *testing.T) {
+	db := database(t, filepath.Join(t.TempDir(), "state.db"))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	writes, downloads := 0, 0
+	if err := db.Callback().Create().Before("gorm:create").Register("test:cancel_completion", func(tx *gorm.DB) {
+		writes++
+		if writes == 2 {
+			tx.AddError(errors.New("temporary write failure"))
+			cancel()
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Transport: transport(func(r *http.Request) (*http.Response, error) {
+		downloads++
+		return reply(200, "v2.0.0"), nil
+	})}
+	started := time.Now()
+	wait, err := releasecheck.New(db, "v2.0.0", client).Check(ctx, started)
+	if wait != 0 || !errors.Is(err, context.Canceled) || writes != 2 || downloads != 1 {
+		t.Fatalf("wait=%v err=%v writes=%d downloads=%d", wait, err, writes, downloads)
+	}
+	if time.Since(started) >= time.Second {
+		t.Fatal("cancellation waited for retry timer")
 	}
 }

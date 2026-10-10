@@ -91,7 +91,25 @@ func (r *Runner) Check(ctx context.Context, now time.Time) (time.Duration, error
 		return 0, err
 	}
 	current.Complete = true
-	return 0, save(ctx, r.db, key, current)
+	err = save(ctx, r.db, key, current)
+	// 下载已成功，只重试完成状态写入；等待期间不持有数据库事务。
+	for _, delay := range [...]time.Duration{time.Second, 3 * time.Second, 10 * time.Second} {
+		if err == nil {
+			break
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return 0, ctx.Err()
+		case <-timer.C:
+		}
+		if ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
+		err = save(ctx, r.db, key, current)
+	}
+	return 0, err
 }
 
 func save(ctx context.Context, db *gorm.DB, key string, value state) error {
