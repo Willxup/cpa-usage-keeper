@@ -243,6 +243,17 @@ jobs:
           cd dist
           sha256sum *.tar.gz *.zip > checksums.txt
 
+      - name: Generate release version file
+        id: version_file
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$RELEASE_TAG" =~ ^v2\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            printf '%s\n' "$RELEASE_TAG" > dist/version.txt
+            echo 'path=dist/version.txt' >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload release assets
         uses: softprops/action-gh-release@v3
         with:
@@ -250,6 +261,7 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
             dist/checksums.txt
+            ${{ steps.version_file.outputs.path }}
 
   update-homebrew-tap:
     runs-on: ubuntu-24.04
