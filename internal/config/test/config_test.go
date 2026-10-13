@@ -18,7 +18,7 @@ var configEnvKeys = []string{
 	"USAGE_RAW_RETENTION_DAYS", "SQLITE_PATH", "BACKUP_ENABLED", "BACKUP_DIR", "BACKUP_INTERVAL", "BACKUP_RETENTION_DAYS",
 	"REQUEST_TIMEOUT", "LOG_LEVEL", "LOG_FILE_ENABLED", "LOG_DIR", "LOG_RETENTION_DAYS",
 	"AUTH_ENABLED", "LOGIN_PASSWORD", "AUTH_SESSION_TTL", "TRUSTED_PROXY_CIDRS", "TZ", "TLS_SKIP_VERIFY", "QUOTA_REFRESH_WORKER_LIMIT", "QUOTA_UPSTREAM_RESPONSES_ENABLED",
-	"API_KEY_VIEWER_LOCAL_RANKING_ENABLED",
+	"API_KEY_VIEWER_LOCAL_RANKING_ENABLED", "AUTOMATIC_PRICING_SOURCE",
 }
 
 func TestMain(m *testing.M) {
@@ -334,3 +334,24 @@ func TestLoadFromEnvIgnoresRemovedMetadataSyncIntervalOverride(t *testing.T) {
 //
 //go:linkname executableDir cpa-usage-keeper/internal/config.executableDir
 var executableDir func() (string, error)
+
+func TestAutomaticPricingSourceIsOptInAndValidated(t *testing.T) {
+	for _, source := range []string{"", "models-dev", "litellm", "unsupported"} {
+		t.Run(source, func(t *testing.T) {
+			withIsolatedEnvFiles(t)
+			t.Setenv("CPA_BASE_URL", "http://127.0.0.1:8317")
+			t.Setenv("CPA_MANAGEMENT_KEY", "secret")
+			t.Setenv("AUTOMATIC_PRICING_SOURCE", source)
+			cfg, err := LoadFromEnv()
+			if source == "unsupported" {
+				if err == nil {
+					t.Fatal("invalid source accepted")
+				}
+				return
+			}
+			if err != nil || cfg.AutomaticPricingSource != source {
+				t.Fatalf("source %q: cfg=%+v, err=%v", source, cfg, err)
+			}
+		})
+	}
+}

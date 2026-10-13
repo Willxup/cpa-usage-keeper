@@ -518,3 +518,25 @@ func testAppConfig(t *testing.T) config.Config {
 		LogRetentionDays:       7,
 	}
 }
+
+func TestNewWithConfigWiresOptionalAutomaticPricing(t *testing.T) {
+	for _, source := range []string{"", "models-dev", "litellm"} {
+		t.Run(source, func(t *testing.T) {
+			cfg := testAppConfig(t)
+			cfg.AutomaticPricingSource = source
+			app, err := NewWithConfig(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer app.Close()
+			if (app.AutomaticPricing != nil) != (source != "") {
+				t.Fatalf("unexpected automatic pricing runner for %q", source)
+			}
+		})
+	}
+	cfg := testAppConfig(t)
+	cfg.AutomaticPricingSource = "invalid"
+	if _, err := NewWithConfig(cfg); err == nil {
+		t.Fatal("invalid source accepted")
+	}
+}
