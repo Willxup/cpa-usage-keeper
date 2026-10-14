@@ -113,6 +113,10 @@ func (s *usageEventsStub) GetUsageOverviewRealtime(context.Context, servicedto.U
 	return nil, nil
 }
 
+func (s *usageEventsStub) GetUsageSummaryWindows(context.Context, servicedto.UsageFilter, []time.Duration) ([]servicedto.UsageSummaryWindow, error) {
+	return nil, s.err
+}
+
 func (s *usageEventsStub) ListUsageEvents(_ context.Context, filter servicedto.UsageFilter) (*servicedto.UsageEventsPage, error) {
 	s.lastFilter = filter
 	s.filterCalls++

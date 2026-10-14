@@ -13,6 +13,7 @@ import (
 	"cpa-usage-keeper/internal/repository"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 	servicedto "cpa-usage-keeper/internal/service/dto"
+	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
 )
 
@@ -278,6 +279,45 @@ func (s *usageService) GetUsageOverviewRealtime(ctx context.Context, filter serv
 	}
 	result := mapUsageOverviewRealtime(realtime)
 	return &result, nil
+}
+
+// GetUsageSummaryWindows 只读取最近事件缓存，按调用方给出的窗口长度返回精确汇总。
+func (s *usageService) GetUsageSummaryWindows(ctx context.Context, filter servicedto.UsageFilter, windows []time.Duration) ([]servicedto.UsageSummaryWindow, error) {
+	ctx = usageServiceContext(ctx)
+	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
+	if err != nil {
+		return nil, err
+	}
+	// 所有窗口共享同一个右边界；测试可用 QueryNow 固定，生产使用当前项目时区时间。
+	now := timeutil.NormalizeStorageTime(time.Now())
+	if filter.QueryNow != nil {
+		now = timeutil.NormalizeStorageTime(*filter.QueryNow)
+	}
+	rows, err := repository.SumUsageWindows(windows, now, s.recentUsage, apiGroupKey, s.pricing.NewResolver())
+	if err != nil {
+		return nil, err
+	}
+	result := make([]servicedto.UsageSummaryWindow, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, servicedto.UsageSummaryWindow{
+			WindowSeconds:       row.WindowSeconds,
+			WindowStart:         row.WindowStart,
+			WindowEnd:           row.WindowEnd,
+			Requests:            row.Requests,
+			Failures:            row.Failures,
+			TokenRequests:       row.TokenRequests,
+			CacheHitRequests:    row.CacheHitRequests,
+			TotalTokens:         row.TotalTokens,
+			InputTokens:         row.InputTokens,
+			OutputTokens:        row.OutputTokens,
+			ReasoningTokens:     row.ReasoningTokens,
+			CacheReadTokens:     row.CacheReadTokens,
+			CacheCreationTokens: row.CacheCreationTokens,
+			CostUSD:             row.CostUSD,
+			CostAvailable:       row.CostAvailable,
+		})
+	}
+	return result, nil
 }
 
 const usageOverviewSeriesMaxPoints = 90
