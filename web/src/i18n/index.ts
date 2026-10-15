@@ -66,7 +66,9 @@ const resources = {
         login_rate_limited: 'Too many attempts. Please wait a moment and try again.',
         login_failed: 'Unable to complete login right now',
         api_key_login_failed: 'Unable to open the API Key dashboard right now',
-        session_expired: 'Your session expired. Please sign in again.'
+        session_expired: 'Your session expired. Please sign in again.',
+        sso_divider: 'or',
+        sso_login_submit: 'Sign in with SSO'
       },
       key_overview: {
         eyebrow: 'Key overview',
@@ -694,6 +696,7 @@ const resources = {
         session_settings_type_api_key: 'API Key',
         session_settings_source_standard: 'Standalone',
         session_settings_source_embed: 'CPAMC Embed',
+        session_settings_source_oidc: 'OIDC SSO',
         session_settings_alias_edit: 'Edit session alias',
         session_settings_alias_placeholder: 'Session alias',
         session_settings_alias_save: 'Save session alias',
@@ -1025,7 +1028,9 @@ const resources = {
         login_rate_limited: '尝试次数过多，请稍后再试。',
         login_failed: '当前无法完成登录',
         api_key_login_failed: '当前无法打开 API Key 看板',
-        session_expired: '登录状态已失效，请重新登录。'
+        session_expired: '登录状态已失效，请重新登录。',
+        sso_divider: '或',
+        sso_login_submit: '使用 SSO 登录'
       },
       key_overview: {
         eyebrow: 'API Key 概览',
@@ -1653,6 +1658,7 @@ const resources = {
         session_settings_type_api_key: 'API Key',
         session_settings_source_standard: '独立访问',
         session_settings_source_embed: 'CPAMC 嵌入',
+        session_settings_source_oidc: 'OIDC SSO',
         session_settings_alias_edit: '编辑会话别名',
         session_settings_alias_placeholder: '会话别名',
         session_settings_alias_save: '保存会话别名',
@@ -1984,7 +1990,9 @@ const resources = {
         login_rate_limited: '嘗試次數過多，請稍後再試。',
         login_failed: '目前無法完成登入',
         api_key_login_failed: '目前無法開啟 API Key 看板',
-        session_expired: '登入狀態已失效，請重新登入。'
+        session_expired: '登入狀態已失效，請重新登入。',
+        sso_divider: '或',
+        sso_login_submit: '使用 SSO 登入'
       },
       key_overview: {
         eyebrow: 'API Key 總覽',
@@ -2612,6 +2620,7 @@ const resources = {
         session_settings_type_api_key: 'API Key',
         session_settings_source_standard: '獨立訪問',
         session_settings_source_embed: 'CPAMC 嵌入',
+        session_settings_source_oidc: 'OIDC SSO',
         session_settings_alias_edit: '編輯工作階段別名',
         session_settings_alias_placeholder: '工作階段別名',
         session_settings_alias_save: '儲存工作階段別名',

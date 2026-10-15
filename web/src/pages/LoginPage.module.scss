@@ -230,3 +230,20 @@
     line-height: 1.45;
   }
 }
+
+.ssoDivider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-secondary, #8a93a6);
+  font-size: 12px;
+
+  &::before,
+  &::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border-subtle, rgba(128, 138, 155, 0.25));
+  }
+}

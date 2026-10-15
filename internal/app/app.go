@@ -15,6 +15,7 @@ import (
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/logging"
+	oidcrp "cpa-usage-keeper/internal/oidc"
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/quota"
@@ -328,6 +329,16 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		FrameAncestorOrigins:            frameAncestorOrigins(cfg),
 		TrustedProxyCIDRs:               cfg.TrustedProxyCIDRs,
 		APIKeyViewerLocalRankingEnabled: cfg.APIKeyViewerLocalRankingEnabled,
+		OIDCEnabled:                     cfg.AuthOIDCEnabled && cfg.AuthOIDCConfigured(),
+	}
+	if authConfig.OIDCEnabled {
+		authConfig.OIDCRP = oidcrp.NewRP(oidcrp.Config{
+			Issuer:       cfg.AuthOIDCIssuer,
+			ClientID:     cfg.AuthOIDCClientID,
+			ClientSecret: cfg.AuthOIDCClientSecret,
+			RedirectURL:  cfg.AuthOIDCRedirectURL,
+			AllowedUsers: cfg.AuthOIDCAllowedUsers,
+		})
 	}
 	authHandler := api.NewAuthHandler(authConfig, sessionManager)
 

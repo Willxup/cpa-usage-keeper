@@ -244,6 +244,12 @@ export async function loginWithCPAAPIKey(apiKey: string): Promise<void> {
   await activateEmbedSessionFallback(response)
 }
 
+// startOIDCLogin navigates the browser into the OIDC authorization-code flow.
+// The IdP redirects back to /auth/oidc/callback, which then lands on the app root.
+export function startOIDCLogin(): void {
+  window.location.assign(apiPath('/auth/oidc/login'))
+}
+
 export async function logout(): Promise<void> {
   try {
     const response = await apiFetch(apiPath('/auth/logout'), {

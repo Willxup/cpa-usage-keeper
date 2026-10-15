@@ -101,6 +101,8 @@ const (
 	migrationNormalizeUsageEventParentSessionNull   = "20260922_normalize_usage_event_parent_session_null"
 	// migrationLimitLatencySamplePoints 缩小已保存散点，事务前必须备份旧 BLOB。
 	migrationLimitLatencySamplePoints = "20260925_limit_latency_sample_points"
+	// migrationBackfillAuthSessionOIDCSource 为 OIDC 登录归一 auth_sessions.source 数据（无 schema 变更）。
+	migrationBackfillAuthSessionOIDCSource = "20261006_backfill_auth_session_oidc_source"
 	// migrationAddUsageEventTraceMetadata 只保存上游提供的执行与节点元数据，历史行保持 NULL。
 	migrationAddUsageEventTraceMetadata = "20261008_usage_event_trace_metadata"
 )
@@ -254,6 +256,8 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageEventStreamStatusCode, run: addUsageEventStreamStatusCodeMigration},
 		{version: migrationNormalizeUsageEventParentSessionNull, run: normalizeUsageEventParentSessionNullMigration},
 		{version: migrationLimitLatencySamplePoints, run: limitLatencySamplePointsMigration, destructive: true},
+		// OIDC 登录引入 source=oidc 会话；本迁移仅做幂等的数据归一，不新增列。
+		{version: migrationBackfillAuthSessionOIDCSource, run: backfillAuthSessionOIDCSourceMigration},
 		{version: migrationAddUsageEventTraceMetadata, run: addUsageEventTraceMetadataMigration},
 	}
 }

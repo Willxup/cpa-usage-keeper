@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"crypto/subtle"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -10,8 +12,10 @@ import (
 	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/helper"
+	oidcrp "cpa-usage-keeper/internal/oidc"
 	"cpa-usage-keeper/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -44,6 +48,16 @@ type AuthConfig struct {
 	FrameAncestorOrigins            []string
 	TrustedProxyCIDRs               []string
 	APIKeyViewerLocalRankingEnabled bool
+	// OIDCEnabled controls whether the relying-party login routes are active.
+	OIDCEnabled bool
+	// OIDCRP carries the configured relying-party client; nil when disabled.
+	OIDCRP OIDCRPClient
+}
+
+// OIDCRPClient is the relying-party surface the auth handler consumes.
+type OIDCRPClient interface {
+	Login(ctx context.Context) (*oidcrp.LoginResult, error)
+	Callback(ctx context.Context, state, code string) (*oidcrp.CallbackResult, error)
 }
 
 type authHandler struct {
@@ -65,6 +79,8 @@ type sessionResponse struct {
 	Authenticated bool                   `json:"authenticated"`
 	Role          auth.Role              `json:"role,omitempty"`
 	APIKey        *sessionAPIKeyResponse `json:"api_key,omitempty"`
+	// OIDCLoginEnabled tells the login page whether to render the SSO button.
+	OIDCLoginEnabled bool `json:"oidc_login_enabled,omitempty"`
 }
 
 type sessionAPIKeyResponse struct {
@@ -120,8 +136,10 @@ func (h *authHandler) setCPAAPIKeyProvider(provider service.CPAAPIKeyProvider) {
 func (h *authHandler) registerRoutes(router gin.IRoutes) {
 	router.GET("/session", h.getSession)
 	router.POST("/login", h.login)
-	router.POST("/api-key-login", h.apiKeyLogin)
 	router.POST("/logout", h.logout)
+	router.POST("/api-key-login", h.apiKeyLogin)
+	router.GET("/oidc/login", h.oidcLogin)
+	router.GET("/oidc/callback", h.oidcCallback)
 }
 
 func (h *authHandler) middleware() gin.HandlerFunc {
@@ -211,8 +229,14 @@ func sessionRoleAllowed(role auth.Role, allowedRoles []auth.Role) bool {
 	return false
 }
 
+// sessionMatchesResolvedSource guards against embed tokens being replayed in the
+// standard cookie lane and vice versa. OIDC sessions are delivered through the
+// standard cookie lane, so only the embed/standard boundary is transport-relevant.
 func sessionMatchesResolvedSource(session auth.Session, resolved resolvedSessionToken) bool {
-	return auth.NormalizeSessionSource(session.Source) == resolved.Source
+	if resolved.Source == auth.SessionSourceEmbed {
+		return auth.NormalizeSessionSource(session.Source) == auth.SessionSourceEmbed
+	}
+	return auth.NormalizeSessionSource(session.Source) != auth.SessionSourceEmbed
 }
 
 func (h *authHandler) resolveValidSession(c *gin.Context) (resolvedSessionToken, auth.Session, bool) {
@@ -244,21 +268,22 @@ func (h *authHandler) getSession(c *gin.Context) {
 		c.JSON(http.StatusOK, sessionResponse{Authenticated: true, Role: auth.RoleAdmin})
 		return
 	}
+	oidcEnabled := h.oidcEnabled()
 	if h.sessions == nil {
-		c.JSON(http.StatusOK, sessionResponse{Authenticated: false})
+		c.JSON(http.StatusOK, sessionResponse{Authenticated: false, OIDCLoginEnabled: oidcEnabled})
 		return
 	}
 
 	resolved, session, ok := h.resolveValidSession(c)
 	if !ok {
-		c.JSON(http.StatusOK, sessionResponse{Authenticated: false})
+		c.JSON(http.StatusOK, sessionResponse{Authenticated: false, OIDCLoginEnabled: oidcEnabled})
 		return
 	}
-	response := sessionResponse{Authenticated: true, Role: session.Role}
+	response := sessionResponse{Authenticated: true, Role: session.Role, OIDCLoginEnabled: oidcEnabled}
 	if session.Role == auth.RoleAPIKeyViewer {
 		row, ok := h.activeViewerAPIKey(c, resolved, session)
 		if !ok {
-			c.JSON(http.StatusOK, sessionResponse{Authenticated: false})
+			c.JSON(http.StatusOK, sessionResponse{Authenticated: false, OIDCLoginEnabled: oidcEnabled})
 			return
 		}
 		response.APIKey = &sessionAPIKeyResponse{
@@ -379,6 +404,96 @@ func (h *authHandler) logout(c *gin.Context) {
 	}
 	clearSessionCookie(c, h.config.BasePath, resolved.CookieKind)
 	c.Status(http.StatusNoContent)
+}
+
+// oidcEnabled reports whether the relying-party login is active on this handler.
+func (h *authHandler) oidcEnabled() bool {
+	return h != nil && h.config.OIDCEnabled && h.config.OIDCRP != nil
+}
+
+// oidcLogin starts the browser authorization-code flow by redirecting to the IdP.
+func (h *authHandler) oidcLogin(c *gin.Context) {
+	if !h.oidcEnabled() || h.sessions == nil {
+		c.Status(http.StatusNoContent)
+		return
+	}
+	clientKey := loginClientKey(c)
+	if !h.allowLoginAttempt(c, clientKey) {
+		return
+	}
+	result, err := h.config.OIDCRP.Login(c.Request.Context())
+	if err != nil {
+		logrus.WithError(err).Warn("start oidc login failed")
+		c.Redirect(http.StatusFound, h.oidcErrorRedirect("login_failed"))
+		return
+	}
+	c.Redirect(http.StatusFound, result.AuthorizationURL)
+}
+
+// oidcCallback finishes the flow, verifies the ID token and issues a keeper session.
+func (h *authHandler) oidcCallback(c *gin.Context) {
+	if !h.oidcEnabled() || h.sessions == nil {
+		c.Status(http.StatusNoContent)
+		return
+	}
+	state := strings.TrimSpace(c.Query("state"))
+	code := strings.TrimSpace(c.Query("code"))
+	if state == "" || code == "" {
+		c.Redirect(http.StatusFound, h.oidcErrorRedirect("invalid_callback"))
+		return
+	}
+	result, err := h.config.OIDCRP.Callback(c.Request.Context(), state, code)
+	if err != nil {
+		logrus.WithError(err).Warn("complete oidc login failed")
+		c.Redirect(http.StatusFound, h.oidcErrorRedirect("login_failed"))
+		return
+	}
+	h.loginAttempts.Reset(loginClientKey(c))
+	resolved := resolveSessionToken(c)
+	alias := result.Identity.Name
+	if alias == "" {
+		alias = result.Identity.Email
+	}
+	if alias == "" {
+		alias = result.Identity.Subject
+	}
+	// Session source is always oidc for this flow; embed sessions never start here.
+	token, expiresAt, err := h.sessions.CreateOIDCWithSourceAndMetadata(auth.SessionSourceOIDC, alias, sessionClientMetadata(c))
+	if err != nil {
+		writeInternalError(c, "create oidc auth session failed", err)
+		return
+	}
+	setSessionCookie(c, h.config.BasePath, sessionCookieKindStandard, token, expiresAt)
+	if resolved.Source == auth.SessionSourceEmbed {
+		writeLoginSuccess(c, resolved, token)
+		return
+	}
+	// Browser flow: land the user back on the app so the SPA picks up the session cookie.
+	c.Redirect(http.StatusFound, h.oidcSuccessRedirect())
+}
+
+// oidcSuccessRedirect points the browser back at the app root after login.
+func (h *authHandler) oidcSuccessRedirect() string {
+	base := h.config.BasePath
+	if base == "" {
+		base = "/"
+	}
+	if !strings.HasPrefix(base, "/") {
+		base = "/" + base
+	}
+	return base
+}
+
+// oidcErrorRedirect builds the login-page redirect carrying an OIDC error hint.
+func (h *authHandler) oidcErrorRedirect(reason string) string {
+	base := h.config.BasePath
+	if base == "" {
+		base = "/"
+	}
+	if !strings.HasPrefix(base, "/") {
+		base = "/" + base
+	}
+	return base + "?oidc_error=" + url.QueryEscape(reason)
 }
 
 func (h *authHandler) allowLoginAttempt(c *gin.Context, key string) bool {

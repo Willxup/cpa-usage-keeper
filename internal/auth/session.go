@@ -220,11 +220,17 @@ type SessionSource string
 const (
 	SessionSourceStandard SessionSource = "standard"
 	SessionSourceEmbed    SessionSource = "embed"
+	// SessionSourceOIDC marks sessions created by the OIDC relying-party login.
+	SessionSourceOIDC SessionSource = "oidc"
 )
 
+// NormalizeSessionSource maps unknown sources to standard; the value is persisted
+// and normalized again on read, so rows written by newer binaries still load in
+// older ones.
 func NormalizeSessionSource(source SessionSource) SessionSource {
-	if source == SessionSourceEmbed {
-		return SessionSourceEmbed
+	switch source {
+	case SessionSourceEmbed, SessionSourceOIDC:
+		return source
 	}
 	return SessionSourceStandard
 }
@@ -323,6 +329,12 @@ func (m *SessionManager) CreateAPIKeyViewerWithSource(cpaAPIKeyID int64, source 
 
 func (m *SessionManager) CreateAPIKeyViewerWithSourceAndMetadata(cpaAPIKeyID int64, source SessionSource, metadata SessionClientMetadata) (string, time.Time, error) {
 	return m.create(Session{Role: RoleAPIKeyViewer, Source: NormalizeSessionSource(source), CPAAPIKeyID: cpaAPIKeyID}, metadata)
+}
+
+// CreateOIDCWithSourceAndMetadata 创建一个管理员 OIDC 会话，并带上从 ID token 提取的别名。
+// CreateOIDCWithSourceAndMetadata creates an admin OIDC session carrying the ID-token identity alias.
+func (m *SessionManager) CreateOIDCWithSourceAndMetadata(source SessionSource, alias string, metadata SessionClientMetadata) (string, time.Time, error) {
+	return m.create(Session{Role: RoleAdmin, Source: NormalizeSessionSource(source), Alias: strings.TrimSpace(alias)}, metadata)
 }
 
 func (m *SessionManager) create(session Session, metadata SessionClientMetadata) (string, time.Time, error) {

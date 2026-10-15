@@ -459,7 +459,16 @@ For cross-origin CPAMC embedding, `CPA_PUBLIC_URL` must be a complete `http://` 
 | `LOGIN_PASSWORD` | When auth is enabled | - | Login password |
 | `CPA_REQUEST_LOG_ACCESS_ENABLED` | No | `false` | Allow administrators to view and download CPA request logs through Keeper; corresponding logs must exist in CPA and may contain request or response data |
 | `AUTH_SESSION_TTL` | No | `168h` | Login session lifetime |
+| `AUTH_OIDC_ENABLED` | No | `false` | Enable OIDC (SSO) login as an alternative login path next to the password |
+| `AUTH_OIDC_ISSUER` | When OIDC is enabled | - | Issuer URL of the IdP, used for OIDC discovery |
+| `AUTH_OIDC_CLIENT_ID` | When OIDC is enabled | - | Registered confidential client ID at the IdP |
+| `AUTH_OIDC_CLIENT_SECRET` | When OIDC is enabled | - | Secret of the OIDC confidential client |
+| `AUTH_OIDC_REDIRECT_URL` | When OIDC is enabled | - | OIDC callback URI; must match the IdP client registration |
+| `AUTH_OIDC_ALLOW_INSECURE_ISSUER` | No | `false` | Allow a plain-http `AUTH_OIDC_ISSUER` on a non-loopback host; only enable on trusted networks (discovery/JWKS then travel in plaintext) |
+| `AUTH_OIDC_ALLOWED_USERS` | No | empty | Comma-separated allowlist of emails or subjects that may log in via OIDC; empty means no restriction. Email matches require the IdP to assert `email_verified`; prefer subjects |
 | `API_KEY_VIEWER_LOCAL_RANKING_ENABLED` | No | `false` | Allow API Key viewers to read Local Ranking; Community Ranking remains read-only |
+
+OIDC login runs the standard authorization-code flow with PKCE. Once the provider is configured, the login page also offers a "Sign in with SSO" button; password login stays available. Enabling OIDC requires `AUTH_ENABLED=true`.
 
 ### Timezone And Request Behavior
 

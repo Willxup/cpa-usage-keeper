@@ -10,10 +10,11 @@ export interface AuthSessionResponse {
   authenticated: boolean
   role?: AuthRole
   api_key?: AuthSessionAPIKeySummary
+  oidc_login_enabled?: boolean
 }
 
 export type AuthManagedSessionKind = 'admin' | 'api_key'
-export type AuthManagedSessionSource = 'standard' | 'embed'
+export type AuthManagedSessionSource = 'standard' | 'embed' | 'oidc'
 
 export interface AuthManagedSessionItem {
   id: string

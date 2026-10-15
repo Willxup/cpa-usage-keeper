@@ -24,15 +24,17 @@ type LoginErrors = {
 
 interface LoginPageProps extends LoginErrors {
   loading?: boolean;
+  oidcEnabled?: boolean;
   onPasswordSubmit: (password: string) => Promise<void>;
   onAPIKeySubmit: (apiKey: string) => Promise<void>;
+  onOIDCLogin?: () => void;
 }
 
 export const getLoginErrorForMode = (mode: LoginMode, { adminError = '', apiKeyError = '' }: LoginErrors) => (
   mode === 'api_key' ? apiKeyError : adminError
 );
 
-export function LoginPage({ loading = false, adminError = '', apiKeyError = '', onPasswordSubmit, onAPIKeySubmit }: LoginPageProps) {
+export function LoginPage({ loading = false, oidcEnabled = false, adminError = '', apiKeyError = '', onPasswordSubmit, onAPIKeySubmit, onOIDCLogin }: LoginPageProps) {
   const { t } = useTranslation();
   const theme = useThemeStore((state) => state.theme);
   const setTheme = useThemeStore((state) => state.setTheme);
@@ -141,6 +143,16 @@ export function LoginPage({ loading = false, adminError = '', apiKeyError = '', 
             <Button type="submit" fullWidth loading={loading} disabled={!canSubmit}>
               {mode === 'api_key' ? t('auth.api_key_login_submit') : t('auth.login_submit')}
             </Button>
+            {oidcEnabled && onOIDCLogin ? (
+              <>
+                <div className={styles.ssoDivider}>
+                  <span>{t('auth.sso_divider')}</span>
+                </div>
+                <Button type="button" fullWidth disabled={loading} onClick={onOIDCLogin}>
+                  {t('auth.sso_login_submit')}
+                </Button>
+              </>
+            ) : null}
           </form>
         </Card>
       </div>

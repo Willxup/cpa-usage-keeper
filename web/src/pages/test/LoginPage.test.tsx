@@ -1,6 +1,12 @@
+// @vitest-environment happy-dom
+
+import { act, type ComponentProps } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLoginErrorForMode, LoginPage } from '../LoginPage';
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock('react-i18next', async (importOriginal) => ({
   ...await importOriginal<typeof import('react-i18next')>(),
@@ -27,4 +33,46 @@ it('exposes all theme options in a labelled control', () => {
   for (const theme of ['light', 'dark', 'auto']) {
     expect(html).toContain(`usage_stats.theme_${theme}`);
   }
+});
+
+describe('LoginPage SSO entry', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  const renderPage = async (props: Partial<ComponentProps<typeof LoginPage>> = {}) => {
+    await act(async () => root.render(
+      <LoginPage onPasswordSubmit={vi.fn()} onAPIKeySubmit={vi.fn()} {...props} />,
+    ));
+  };
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it('hides the SSO button while OIDC is disabled', async () => {
+    await renderPage();
+    expect(container.textContent).not.toContain('auth.sso_login_submit');
+  });
+
+  it('does not render the SSO button when enabled without a handler', async () => {
+    await renderPage({ oidcEnabled: true });
+    expect(container.textContent).not.toContain('auth.sso_login_submit');
+  });
+
+  it('renders the SSO button and starts the flow on click when OIDC is enabled', async () => {
+    const onOIDCLogin = vi.fn();
+    await renderPage({ oidcEnabled: true, onOIDCLogin });
+    const ssoButton = [...container.querySelectorAll('button')]
+      .find((button) => button.textContent === 'auth.sso_login_submit');
+    expect(ssoButton).toBeTruthy();
+    await act(async () => ssoButton!.click());
+    expect(onOIDCLogin).toHaveBeenCalledTimes(1);
+  });
 });

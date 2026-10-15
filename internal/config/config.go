@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/cpa"
+	"cpa-usage-keeper/internal/oidc"
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 )
@@ -106,6 +107,43 @@ type Config struct {
 	LoginPassword string
 	// AuthSessionTTL 是登录 session 有效时长。
 	AuthSessionTTL time.Duration
+	// AuthOIDCEnabled 控制是否启用 OIDC RP 登录；启用时需补全 OIDC 四项配置。
+	AuthOIDCEnabled bool
+	// AuthOIDCIssuer 是 OIDC IdP 的 Issuer URL，用于 Discovery。
+	AuthOIDCIssuer string
+	// AuthOIDCClientID 是在 IdP 注册的 confidential client ID。
+	AuthOIDCClientID string
+	// AuthOIDCClientSecret 是 OIDC confidential client 的密钥。
+	AuthOIDCClientSecret string
+	// AuthOIDCRedirectURL 是 OIDC 回调地址，需与 IdP 注册一致。
+	AuthOIDCRedirectURL string
+	// AuthOIDCAllowedUsers 是允许登录的邮箱/subject 白名单；空表示不限制。
+	AuthOIDCAllowedUsers []string
+	// AuthOIDCAllowInsecureIssuer 允许 AUTH_OIDC_ISSUER 使用非回环明文 http；仅供内网可信 IdP。
+	AuthOIDCAllowInsecureIssuer bool
+}
+
+// AuthOIDCConfigured reports whether all required OIDC fields are present.
+func (cfg Config) AuthOIDCConfigured() bool {
+	return cfg.AuthOIDCIssuer != "" && cfg.AuthOIDCClientID != "" && cfg.AuthOIDCClientSecret != "" && cfg.AuthOIDCRedirectURL != ""
+}
+
+// parseAuthOIDCAllowedUsers splits the comma-separated allowlist, dropping blanks.
+func parseAuthOIDCAllowedUsers(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	entries := strings.Split(raw, ",")
+	allowed := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry = strings.TrimSpace(entry); entry != "" {
+			allowed = append(allowed, entry)
+		}
+	}
+	if len(allowed) == 0 {
+		return nil
+	}
+	return allowed
 }
 
 type LoadOptions struct {
@@ -230,6 +268,14 @@ func Load(options LoadOptions) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	authOIDCEnabled, err := getBool("AUTH_OIDC_ENABLED", false)
+	if err != nil {
+		return nil, err
+	}
+	authOIDCAllowInsecureIssuer, err := getBool("AUTH_OIDC_ALLOW_INSECURE_ISSUER", false)
+	if err != nil {
+		return nil, err
+	}
 	trustedProxyCIDRs, err := getCIDRs("TRUSTED_PROXY_CIDRS")
 	if err != nil {
 		return nil, err
@@ -300,6 +346,13 @@ func Load(options LoadOptions) (*Config, error) {
 		AuthEnabled:                     authEnabled,
 		LoginPassword:                   strings.TrimSpace(os.Getenv("LOGIN_PASSWORD")),
 		AuthSessionTTL:                  authSessionTTL,
+		AuthOIDCEnabled:                 authOIDCEnabled,
+		AuthOIDCAllowInsecureIssuer:     authOIDCAllowInsecureIssuer,
+		AuthOIDCIssuer:                  strings.TrimSpace(os.Getenv("AUTH_OIDC_ISSUER")),
+		AuthOIDCClientID:                strings.TrimSpace(os.Getenv("AUTH_OIDC_CLIENT_ID")),
+		AuthOIDCClientSecret:            strings.TrimSpace(os.Getenv("AUTH_OIDC_CLIENT_SECRET")),
+		AuthOIDCRedirectURL:             strings.TrimSpace(os.Getenv("AUTH_OIDC_REDIRECT_URL")),
+		AuthOIDCAllowedUsers:            parseAuthOIDCAllowedUsers(os.Getenv("AUTH_OIDC_ALLOWED_USERS")),
 	}
 	if appHost := strings.TrimSpace(options.AppHost); appHost != "" {
 		cfg.AppHost = appHost
@@ -319,6 +372,20 @@ func Load(options LoadOptions) (*Config, error) {
 		}
 		if cfg.LoginPassword == publicLoginPasswordPlaceholder {
 			return nil, fmt.Errorf("LOGIN_PASSWORD must not use the public example value %q", publicLoginPasswordPlaceholder)
+		}
+	}
+	if cfg.AuthOIDCEnabled {
+		if !cfg.AuthOIDCConfigured() {
+			return nil, fmt.Errorf("AUTH_OIDC_ISSUER, AUTH_OIDC_CLIENT_ID, AUTH_OIDC_CLIENT_SECRET and AUTH_OIDC_REDIRECT_URL are required when AUTH_OIDC_ENABLED is true")
+		}
+		if err := oidc.ValidateIssuerURL(cfg.AuthOIDCIssuer, cfg.AuthOIDCAllowInsecureIssuer); err != nil {
+			return nil, err
+		}
+		if err := oidc.ValidateRedirectURL(cfg.AuthOIDCRedirectURL); err != nil {
+			return nil, err
+		}
+		if !cfg.AuthEnabled {
+			return nil, fmt.Errorf("AUTH_OIDC_ENABLED requires AUTH_ENABLED to stay true")
 		}
 	}
 	if cfg.TLSEnabled {

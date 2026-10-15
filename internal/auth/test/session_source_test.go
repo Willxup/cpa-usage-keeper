@@ -17,6 +17,9 @@ func TestSessionManagerCreatesAndListsSessionSources(t *testing.T) {
 		{auth.SessionSourceEmbed, func(manager *auth.SessionManager) (string, time.Time, error) {
 			return manager.CreateWithSource(auth.SessionSourceEmbed)
 		}},
+		{auth.SessionSourceOIDC, func(manager *auth.SessionManager) (string, time.Time, error) {
+			return manager.CreateOIDCWithSourceAndMetadata(auth.SessionSourceOIDC, "Smoke User", auth.SessionClientMetadata{})
+		}},
 	} {
 		t.Run(string(tc.source), func(t *testing.T) {
 			manager := auth.NewSessionManager(time.Hour)
@@ -57,6 +60,28 @@ func TestPersistentSessionManagerPreservesSessionSource(t *testing.T) {
 	records := restarted.List()
 	if len(records) != 1 || records[0].Source != auth.SessionSourceEmbed {
 		t.Fatalf("expected persisted list to expose embed source, got %+v", records)
+	}
+}
+
+func TestPersistentSessionManagerPreservesOIDCSessionSource(t *testing.T) {
+	db := openSessionDatabase(t)
+	manager := auth.NewPersistentSessionManager(time.Hour, auth.NewGormSessionStore(db))
+
+	token, _, err := manager.CreateOIDCWithSourceAndMetadata(auth.SessionSourceOIDC, "Smoke User", auth.SessionClientMetadata{})
+	if err != nil {
+		t.Fatalf("CreateOIDCWithSourceAndMetadata returned error: %v", err)
+	}
+
+	restarted := auth.NewPersistentSessionManager(time.Hour, auth.NewGormSessionStore(db))
+	session, ok := restarted.Get(token)
+	if !ok {
+		t.Fatal("expected persisted oidc session to validate after restart")
+	}
+	if session.Source != auth.SessionSourceOIDC {
+		t.Fatalf("expected persisted session source %q, got %q", auth.SessionSourceOIDC, session.Source)
+	}
+	if session.Alias != "Smoke User" {
+		t.Fatalf("expected persisted session alias Smoke User, got %q", session.Alias)
 	}
 }
 
