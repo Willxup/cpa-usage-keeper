@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { UsageActivityResponse, UsageActivityWindow } from '@/lib/types';
+import type { InputTokenDisplayMode } from '@/utils/usage';
 import {
   createActivityDateTimeFormatter,
   formatActivityDateTime,
@@ -23,6 +24,7 @@ export interface RecentActivityPanelProps {
   window: UsageActivityWindow | null;
   windowIsCurrent: boolean;
   requestIdentity: string;
+  inputTokenDisplayMode?: InputTokenDisplayMode;
   onWindowChange: (window: UsageActivityWindow) => void;
 }
 
@@ -33,6 +35,7 @@ export function RecentActivityPanel({
   window,
   windowIsCurrent,
   requestIdentity,
+  inputTokenDisplayMode = 'total',
   onWindowChange,
 }: RecentActivityPanelProps) {
   const { t } = useTranslation();
@@ -73,7 +76,7 @@ export function RecentActivityPanel({
         </div>
       </div>
       {displayError && <div className={styles.errorBox} role="alert">{displayError}</div>}
-      <OverviewActivityCards activity={activity} loading={loading} requestIdentity={requestIdentity} />
+      <OverviewActivityCards activity={activity} loading={loading} requestIdentity={requestIdentity} inputTokenDisplayMode={inputTokenDisplayMode} />
     </section>
   );
 }

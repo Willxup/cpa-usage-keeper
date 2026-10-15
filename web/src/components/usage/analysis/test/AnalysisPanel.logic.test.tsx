@@ -130,7 +130,7 @@ describe('AnalysisPanel token chart data', () => {
     vi.restoreAllMocks();
   });
 
-  it('splits cache read and write from input while keeping total tooltip values', () => {
+  it('splits cache read and write from input while keeping tooltip values consistent', () => {
     const analysis: AnalysisResponse = {
       ...emptyAnalysis,
       timezone: 'Asia/Shanghai',
@@ -146,33 +146,104 @@ describe('AnalysisPanel token chart data', () => {
     renderToStaticMarkup(<AnalysisTestPanel analysis={analysis} />);
 
     expect(chartCapture.barData?.labels).toEqual(['09:00']);
+
     const datasets = chartCapture.barData!.datasets;
-    expect(datasets.find((dataset) => dataset.label === 'usage_stats.input_tokens')?.data).toEqual([300]);
-    expect(datasets.find((dataset) => dataset.label === 'usage_stats.cache_read_tokens')?.data).toEqual([600]);
-    expect(datasets.find((dataset) => dataset.label === 'usage_stats.cache_creation_tokens')?.data).toEqual([100]);
-    expect(datasets.find((dataset) => dataset.label === 'usage_stats.output_tokens')?.data).toEqual([50]);
-    expect(datasets.find((dataset) => dataset.label === 'usage_stats.reasoning_tokens')?.data).toEqual([50]);
-    expect(datasets.find((dataset) => dataset.label === 'usage_stats.total_cost')?.data).toEqual([0.0123]);
-    expect(datasets.find((dataset) => dataset.label === 'usage_stats.total_cost')?.yAxisID).toBe('cost');
+
+    expect(
+      datasets.find((dataset) => dataset.label === 'usage_stats.input_token_display_split')?.data,
+    ).toEqual([300]);
+
+    expect(
+      datasets.find((dataset) => dataset.label === 'usage_stats.cache_read_tokens')?.data,
+    ).toEqual([600]);
+
+    expect(
+      datasets.find((dataset) => dataset.label === 'usage_stats.cache_creation_tokens')?.data,
+    ).toEqual([100]);
+
+    expect(
+      datasets.find((dataset) => dataset.label === 'usage_stats.output_tokens')?.data,
+    ).toEqual([50]);
+
+    expect(
+      datasets.find((dataset) => dataset.label === 'usage_stats.reasoning_tokens')?.data,
+    ).toEqual([50]);
+
+    expect(
+      datasets.find((dataset) => dataset.label === 'usage_stats.total_cost')?.data,
+    ).toEqual([0.0123]);
+
+    expect(
+      datasets.find((dataset) => dataset.label === 'usage_stats.total_cost')?.yAxisID,
+    ).toBe('cost');
+
     expect(chartCapture.barOptions?.scales).toHaveProperty('cost');
-    const tooltipLabel = chartCapture.barOptions?.plugins?.tooltip?.callbacks?.label;
+
+    const tooltipLabel =
+      chartCapture.barOptions?.plugins?.tooltip?.callbacks?.label;
+
     expect(tooltipLabel!({
-      dataset: { label: 'usage_stats.input_tokens', tooltipData: [1000] },
+      dataset: {
+        label: 'usage_stats.input_tokens',
+        tooltipData: [300],
+      },
       dataIndex: 0,
       parsed: { y: 300 },
-    } as never)).toBe('usage_stats.input_tokens: 1.00K');
+    } as never)).toBe('usage_stats.input_tokens: 300');
+
     expect(tooltipLabel!({
-      dataset: { label: 'usage_stats.output_tokens', tooltipData: [100] },
+      dataset: {
+        label: 'usage_stats.output_tokens',
+        tooltipData: [100],
+      },
       dataIndex: 0,
       parsed: { y: 50 },
     } as never)).toBe('usage_stats.output_tokens: 100');
+
     expect(tooltipLabel!({
       dataset: null,
       dataIndex: 0,
       parsed: { y: 125 },
     } as never)).toBe('125');
-    const tooltipFooter = chartCapture.barOptions?.plugins?.tooltip?.callbacks?.footer;
-    expect(tooltipFooter!([{ dataIndex: 0 }] as never)).toBe('usage_stats.total_tokens: 1.15K');
+
+    const tooltipFooter =
+      chartCapture.barOptions?.plugins?.tooltip?.callbacks?.footer;
+
+    expect(
+      tooltipFooter!([{ dataIndex: 0 }] as never),
+    ).toBe('usage_stats.total_tokens: 1.15K');
+  });
+
+  it('shows canonical input in total mode', () => {
+    const analysis: AnalysisResponse = {
+      ...emptyAnalysis,
+      token_usage: [tokenBucket({
+        input_tokens: 1000,
+        cache_read_tokens: 600,
+        cache_creation_tokens: 100,
+      })],
+    };
+
+    renderToStaticMarkup(
+      <AnalysisTestPanel
+        analysis={analysis}
+        inputTokenDisplayMode="total"
+      />,
+    );
+
+    const datasets = chartCapture.barData!.datasets;
+
+    expect(
+      datasets.find((dataset) => dataset.label === 'usage_stats.input_token_display_total')?.data,
+    ).toEqual([1000]);
+
+    expect(
+      datasets.find((dataset) => dataset.label === 'usage_stats.cache_read_tokens')?.data,
+    ).toEqual([0]);
+
+    expect(
+      datasets.find((dataset) => dataset.label === 'usage_stats.cache_creation_tokens')?.data,
+    ).toEqual([0]);
   });
 
   it('shows the average total token value as a legend chip while keeping the chart reference line label-free', () => {
@@ -930,8 +1001,8 @@ describe('AnalysisPanel token chart data', () => {
           input_tokens: 1000,
           output_tokens: 200,
           reasoning_tokens: 30,
-          cache_read_tokens: 100,
-          cache_creation_tokens: 0,
+          cache_read_tokens: 600,
+          cache_creation_tokens: 100,
           total_tokens: 1330,
           requests: 3,
           cost_usd: 0.1234,
@@ -950,7 +1021,8 @@ describe('AnalysisPanel token chart data', () => {
     expect(markup).toContain('aria-label="claude-3-7-sonnet-20250219-long-context"');
     expect(markup).not.toContain('title="claude-3-7-sonnet-20250219-long-context"');
     expect(markup).toContain('usage_stats.requests_count');
-    expect(markup).toContain('usage_stats.input_tokens');
+    expect(markup).toContain('usage_stats.input_token_display_split');
+    expect(markup).toContain('usage_stats.input_token_display_split: 300');
     expect(markup).toContain('usage_stats.reasoning_tokens');
     expect(markup).toContain('usage_stats.total_cost');
     expect(markup).not.toContain('usage_stats.analysis_heatmap_tokens_prefix');

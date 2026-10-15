@@ -5,7 +5,14 @@ import { Interaction, Tooltip } from 'chart.js';
 import type { Chart, ChartData, ChartOptions, InteractionItem, InteractionModeFunction, Plugin, ScriptableContext, TooltipModel, TooltipPositionerFunction } from 'chart.js';
 import { Bar, Doughnut, Scatter } from 'react-chartjs-2';
 import type { AnalysisCompositionItem, AnalysisCostBreakdown, AnalysisHeatmapCell, AnalysisLatencyDiagnostics, AnalysisModelEfficiencyItem, AnalysisModelUsagePayload, AnalysisResponse, AnalysisTokenUsageBucket } from '@/lib/types';
-import { calculateDisplayInputTokens, calculateDisplayOutputTokens, formatCompactNumber, formatDurationMs, formatUsd } from '@/utils/usage';
+import {
+  calculateDisplayInputTokens,
+  calculateDisplayOutputTokens,
+  formatCompactNumber,
+  formatDurationMs,
+  formatUsd,
+  type InputTokenDisplayMode,
+} from '@/utils/usage';
 import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill as toGradientFill, USAGE_CHART_REQUESTS_LINE_COLOR, USAGE_CHART_COMPOSITION_COLORS as CHART_COLORS, USAGE_CHART_TOKEN_COLORS as TOKEN_COLORS, type UsageChartGradientColor, type UsageChartTheme } from '@/utils/usage/chartConfig';
 import { createCompositionLabelsPlugin } from './compositionLabels';
 import { compositionGeometryPlugin } from './compositionGeometry';
@@ -22,6 +29,7 @@ interface AnalysisPanelProps {
   latencyError?: string;
   isDark: boolean;
   isMobile: boolean;
+  inputTokenDisplayMode?: InputTokenDisplayMode;
   compositionDimensions?: readonly AnalysisCompositionDimension[];
 }
 
@@ -664,13 +672,14 @@ function buildTopModelsChartOptions({
   };
 }
 
-function buildTokenUsageRows(buckets: AnalysisTokenUsageBucket[], granularity: AnalysisResponse['granularity'], timezone?: string): ChartRow[] {
+function buildTokenUsageRows(buckets: AnalysisTokenUsageBucket[], granularity: AnalysisResponse['granularity'], timezone?: string, inputTokenDisplayMode: InputTokenDisplayMode = 'split',): ChartRow[] {
   return buckets.map((bucket) => ({
     label: formatBucketLabel(bucket.bucket, granularity, timezone),
     input: calculateDisplayInputTokens({
       inputTokens: bucket.input_tokens,
       cacheReadTokens: bucket.cache_read_tokens,
       cacheCreationTokens: bucket.cache_creation_tokens,
+      mode: inputTokenDisplayMode,
     }),
     output: calculateDisplayOutputTokens({
       outputTokens: bucket.output_tokens,
@@ -774,15 +783,15 @@ function buildAnalysisTokenChartOptions({ chartTheme, isMobile, totalTokens, tot
   };
 }
 
-function buildAnalysisTokenChartData(rows: ChartRow[], labels: TokenLabels): MixedTokenChartData {
+function buildAnalysisTokenChartData(rows: ChartRow[], labels: TokenLabels, inputTokenDisplayMode: InputTokenDisplayMode = 'split',): MixedTokenChartData {
   const tokenColors = TOKEN_COLORS;
   return {
     labels: rows.map((row) => row.label),
     datasets: [
-      { label: labels.input, data: rows.map((row) => row.input), tooltipData: rows.map((row) => row.rawInput), backgroundColor: (context) => toGradientFill(context, tokenColors.input), borderColor: tokenColors.input.base, stack: 'tokens', yAxisID: 'tokens' } as TokenTooltipDataset,
+      { label: labels.input, data: rows.map((row) => row.input), tooltipData: rows.map((row) => row.input), backgroundColor: (context) => toGradientFill(context, tokenColors.input), borderColor: tokenColors.input.base, stack: 'tokens', yAxisID: 'tokens' } as TokenTooltipDataset,
       { label: labels.output, data: rows.map((row) => row.output), tooltipData: rows.map((row) => row.rawOutput), backgroundColor: (context) => toGradientFill(context, tokenColors.output), borderColor: tokenColors.output.base, stack: 'tokens', yAxisID: 'tokens' } as TokenTooltipDataset,
-      { label: labels.cacheRead, data: rows.map((row) => row.cacheRead), tooltipData: rows.map((row) => row.cacheRead), backgroundColor: (context) => toGradientFill(context, tokenColors.cacheRead), borderColor: tokenColors.cacheRead.base, stack: 'tokens', yAxisID: 'tokens' } as TokenTooltipDataset,
-      { label: labels.cacheWrite, data: rows.map((row) => row.cacheWrite), tooltipData: rows.map((row) => row.cacheWrite), backgroundColor: (context) => toGradientFill(context, tokenColors.cacheWrite), borderColor: tokenColors.cacheWrite.base, stack: 'tokens', yAxisID: 'tokens' } as TokenTooltipDataset,
+      { label: labels.cacheRead, data: rows.map((row) => inputTokenDisplayMode === 'total' ? 0 : row.cacheRead), tooltipData: rows.map((row) => row.cacheRead), backgroundColor: (context) => toGradientFill(context, tokenColors.cacheRead), borderColor: tokenColors.cacheRead.base, stack: 'tokens', yAxisID: 'tokens' } as TokenTooltipDataset,
+      { label: labels.cacheWrite, data: rows.map((row) => inputTokenDisplayMode === 'total' ? 0 : row.cacheWrite), tooltipData: rows.map((row) => row.cacheWrite), backgroundColor: (context) => toGradientFill(context, tokenColors.cacheWrite), borderColor: tokenColors.cacheWrite.base, stack: 'tokens', yAxisID: 'tokens' } as TokenTooltipDataset,
       { label: labels.reasoning, data: rows.map((row) => row.reasoning), tooltipData: rows.map((row) => row.reasoning), backgroundColor: (context) => toGradientFill(context, tokenColors.reasoning), borderColor: tokenColors.reasoning.base, stack: 'tokens', yAxisID: 'tokens' } as TokenTooltipDataset,
       {
         type: 'line',
@@ -926,10 +935,14 @@ function buildCompositionChartOptions(chartTheme: ChartTheme, labels: Compositio
   };
 }
 
-function TokenUsageChart({ rows, breakdown, loading, isDark, isMobile }: { rows: ChartRow[]; breakdown: AnalysisCostBreakdown | undefined; loading: boolean; isDark: boolean; isMobile: boolean }) {
+function TokenUsageChart({ rows, breakdown, loading, isDark, isMobile, inputTokenDisplayMode = 'split', }: { rows: ChartRow[]; breakdown: AnalysisCostBreakdown | undefined; loading: boolean; isDark: boolean; isMobile: boolean; inputTokenDisplayMode?: InputTokenDisplayMode; }) {
   const { t } = useTranslation();
   const tokenLabels = useMemo(() => ({
-    input: t('usage_stats.input_tokens'),
+    input: t(
+      inputTokenDisplayMode === 'total'
+        ? 'usage_stats.input_token_display_total'
+        : 'usage_stats.input_token_display_split',
+    ),
     output: t('usage_stats.output_tokens'),
     cacheRead: t('usage_stats.cache_read_tokens'),
     cacheWrite: t('usage_stats.cache_creation_tokens'),
@@ -938,10 +951,10 @@ function TokenUsageChart({ rows, breakdown, loading, isDark, isMobile }: { rows:
     average: t('usage_stats.analysis_token_average'),
     requests: t('usage_stats.requests_count'),
     cost: t('usage_stats.total_cost'),
-  }), [t]);
+  }), [t, inputTokenDisplayMode]);
   const chartTheme = useMemo(() => getChartTheme(isDark), [isDark]);
   const averageTokenTotal = useMemo(() => calculateAverageTotalTokens(rows), [rows]);
-  const chartData = useMemo(() => buildAnalysisTokenChartData(rows, tokenLabels), [rows, tokenLabels]);
+  const chartData = useMemo(() => buildAnalysisTokenChartData(rows, tokenLabels, inputTokenDisplayMode), [rows, tokenLabels, inputTokenDisplayMode]);
   const chartOptions = useMemo(() => buildAnalysisTokenChartOptions({
     chartTheme,
     isMobile,
@@ -1453,7 +1466,7 @@ function ModelEfficiencyCard({ rows, loading, isDark, isMobile }: { rows: Analys
   );
 }
 
-function Heatmap({ cells, apiKeys, apiKeyLabels, models, loading, isDark }: { cells: AnalysisHeatmapCell[]; apiKeys: string[]; apiKeyLabels: Record<string, string>; models: string[]; loading: boolean; isDark: boolean }) {
+function Heatmap({ cells, apiKeys, apiKeyLabels, models, loading, isDark, inputTokenDisplayMode }: { cells: AnalysisHeatmapCell[]; apiKeys: string[]; apiKeyLabels: Record<string, string>; models: string[]; loading: boolean; isDark: boolean; inputTokenDisplayMode: InputTokenDisplayMode; }) {
   const { t } = useTranslation();
   const [tooltip, setTooltip] = useState<FloatingTooltipState | null>(null);
   const cellMap = useMemo(() => new Map(cells.map((cell) => [`${cell.api_key}\0${cell.model}`, cell])), [cells]);
@@ -1485,7 +1498,12 @@ function Heatmap({ cells, apiKeys, apiKeyLabels, models, loading, isDark }: { ce
   const getAPIKeyLabel = (apiKey: string) => apiKeyLabels[apiKey] || apiKey;
   const buildTooltipLines = (apiKey: string, model: string, cell: AnalysisHeatmapCell | undefined) => {
     const requests = toNumber(cell?.requests);
-    const input = toNumber(cell?.input_tokens);
+    const input = calculateDisplayInputTokens({
+      inputTokens: cell?.input_tokens,
+      cacheReadTokens: cell?.cache_read_tokens,
+      cacheCreationTokens: cell?.cache_creation_tokens,
+      mode: inputTokenDisplayMode,
+    });
     const output = toNumber(cell?.output_tokens);
     const reasoning = toNumber(cell?.reasoning_tokens);
     const cacheRead = toNumber(cell?.cache_read_tokens);
@@ -1495,7 +1513,11 @@ function Heatmap({ cells, apiKeys, apiKeyLabels, models, loading, isDark }: { ce
     return [
       `${getAPIKeyLabel(apiKey)} / ${model}`,
       `${t('usage_stats.requests_count')}: ${formatCompactNumber(requests)}`,
-      `${t('usage_stats.input_tokens')}: ${formatCompactNumber(input)}`,
+      `${t(
+          inputTokenDisplayMode === 'total'
+            ? 'usage_stats.input_token_display_total'
+            : 'usage_stats.input_token_display_split',
+        )}: ${formatCompactNumber(input)}`,
       `${t('usage_stats.output_tokens')}: ${formatCompactNumber(output)}`,
       `${t('usage_stats.reasoning_tokens')}: ${formatCompactNumber(reasoning)}`,
       `${t('usage_stats.cache_read_tokens')}: ${formatCompactNumber(cacheRead)}`,
@@ -1691,9 +1713,18 @@ export function AnalysisPanel({
   isDark,
   isMobile,
   compositionDimensions = DEFAULT_COMPOSITION_DIMENSIONS,
+  inputTokenDisplayMode = 'split',
 }: AnalysisPanelProps) {
   const { t } = useTranslation();
-  const tokenRows = useMemo(() => buildTokenUsageRows(analysis?.token_usage ?? [], analysis?.granularity ?? 'hourly', analysis?.timezone), [analysis]);
+  const tokenRows = useMemo(
+    () => buildTokenUsageRows(
+      analysis?.token_usage ?? [],
+      analysis?.granularity ?? 'hourly',
+      analysis?.timezone,
+      inputTokenDisplayMode,
+    ),
+    [analysis, inputTokenDisplayMode],
+  );
   const apiComposition = analysis?.api_key_composition ?? EMPTY_COMPOSITION_ITEMS;
   const modelComposition = analysis?.model_composition ?? EMPTY_COMPOSITION_ITEMS;
   const authFilesComposition = analysis?.auth_files_composition ?? EMPTY_COMPOSITION_ITEMS;
@@ -1711,7 +1742,7 @@ export function AnalysisPanel({
 
   return (
     <div className={styles.analysisPanel}>
-      <TokenUsageChart rows={tokenRows} breakdown={analysis?.cost_breakdown} loading={loading} isDark={isDark} isMobile={isMobile} />
+      <TokenUsageChart rows={tokenRows} breakdown={analysis?.cost_breakdown} loading={loading} isDark={isDark} isMobile={isMobile} inputTokenDisplayMode={inputTokenDisplayMode} />
       <div className={styles.insightGrid}>
         <CompositionPanel tabs={compositionTabs} loading={loading} isDark={isDark} windowMinutes={analysisWindowMinutes} />
         <TopModelsCard
@@ -1729,7 +1760,7 @@ export function AnalysisPanel({
         <LatencyDiagnosticsCard diagnostics={latencyDiagnostics} loading={latencyLoading} error={latencyError} isDark={isDark} isMobile={isMobile} />
         <ModelEfficiencyCard rows={analysis?.model_efficiency ?? []} loading={loading} isDark={isDark} isMobile={isMobile} />
       </div>
-      <Heatmap cells={analysis?.heatmap?.cells ?? []} apiKeys={analysis?.heatmap?.api_keys ?? []} apiKeyLabels={analysis?.heatmap?.api_key_labels ?? {}} models={analysis?.heatmap?.models ?? []} loading={loading} isDark={isDark} />
+      <Heatmap cells={analysis?.heatmap?.cells ?? []} apiKeys={analysis?.heatmap?.api_keys ?? []} apiKeyLabels={analysis?.heatmap?.api_key_labels ?? {}} models={analysis?.heatmap?.models ?? []} loading={loading} isDark={isDark} inputTokenDisplayMode={inputTokenDisplayMode} />
     </div>
   );
 }

@@ -40,7 +40,19 @@ describe('TokenActivityCard', () => {
     expect(html).toContain('1.23K');
     expect(html.match(/role="gridcell"/g)).toHaveLength(7 * 52);
     expect(html).toContain('Total 1,234');
-    expect(html).toContain('Input 617');
+    expect(html).toContain('Total Input (includes cache) 617');
     expect(html).toContain('Cache Read 185');
   });
 });
+
+  it('shows uncached input in split mode', () => {
+    const activity = buildUsageActivityFixture([1_234]);
+    const html = renderToStaticMarkup(createElement(TokenActivityCard, {
+      activity,
+      loading: false,
+      requestIdentity: 'admin::day:::',
+      inputTokenDisplayMode: 'split',
+    }));
+
+    expect(html).toContain('Input 371');
+  });

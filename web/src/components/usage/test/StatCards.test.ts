@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildStatCardMetrics } from '../StatCards';
+import { calculateDisplayInputTokens } from '@/utils/usage';
 import type { UsageOverviewPayload } from '../hooks/useUsageData';
 
 const usageWithBackendSummary = {
@@ -47,6 +48,14 @@ describe('buildStatCardMetrics', () => {
     expect(metrics.cacheReadRateStats.cacheReadRate).toBe(10);
     expect(metrics.cacheReadRateStats.inputTokens).toBe(220);
     expect(metrics.totalCost).toBe(1.234);
+  });
+  it('calculates uncached input for split display mode', () => {
+    expect(calculateDisplayInputTokens({
+      inputTokens: 220,
+      cacheReadTokens: 22,
+      cacheCreationTokens: 11,
+      mode: 'split',
+    })).toBe(187);
   });
 
   it('keeps cache rate empty when overview summary input tokens are missing', () => {

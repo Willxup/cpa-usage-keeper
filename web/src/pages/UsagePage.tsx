@@ -1,4 +1,9 @@
 import { CredentialEditModal } from '@/components/usage/credentials/CredentialEditModal';
+import {
+  loadInputTokenDisplayMode,
+  saveInputTokenDisplayMode,
+} from '@/components/usage/inputTokenDisplayPreference';
+import type { InputTokenDisplayMode } from '@/utils/usage';
 import { UsageComparisonCharts } from '@/components/usage/UsageComparisonCharts';
 import { useState, useMemo, useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -751,6 +756,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const setTheme = useThemeStore((state) => state.setTheme);
   const isDark = resolvedTheme === 'dark';
+  const [inputTokenDisplayMode, setInputTokenDisplayModeState] =
+    useState<InputTokenDisplayMode>(() => loadInputTokenDisplayMode());
+  const handleInputTokenDisplayModeChange = useCallback((mode: InputTokenDisplayMode) => {
+    setInputTokenDisplayModeState(mode);
+    saveInputTokenDisplayMode(mode);
+  }, []);
   const [activeTab, setActiveTab] = useState<UsageTab>(() => {
     const loadedTab = loadUsageTab();
     return isEmbeddedInCPAMC && loadedTab === 'ranking' ? DEFAULT_USAGE_TAB : loadedTab;
@@ -2236,6 +2247,20 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   dropdownMinWidth={180}
                   renderValue={(option) => <><span data-dashboard-filter-caption>{t('usage_stats.api_key_filter')}</span><span data-dashboard-filter-value>{option?.label}</span></>}
                 />,
+                <Select
+                  key="input-token-display"
+                  value={inputTokenDisplayMode}
+                  options={[
+                    { value: 'total', label: t('usage_stats.input_token_display_total') },
+                    { value: 'split', label: t('usage_stats.input_token_display_split') },
+                  ]}
+                  onChange={(value) =>
+                    handleInputTokenDisplayModeChange(value as InputTokenDisplayMode)
+                  }
+                  ariaLabel={t('usage_stats.input_token_display')}
+                  fullWidth={false}
+                  dropdownMinWidth={220}
+                />,
                 ...showRangeControls ? [<TimeRangeControl key="range" value={timeRange} customRange={activeCustomRange} timeZone={rangeTimeZone} maxCustomDayRangeDays={activeTab === 'events' ? REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS : undefined} onChange={handleTimeRangeChange} ariaLabel={t('usage_stats.range_filter')} labelInsideTrigger />] : [],
               ] : showRankingScopeControl ? [<RankingScopeSwitch key="ranking-scope" value={rankingScope} onChange={handleRankingScopeChange} />] : []}
               onRefresh={() => void handleManualRefresh().catch(() => {})}
@@ -2253,6 +2278,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 <StatCards
                   usage={usage}
                   loading={overviewDisplayLoading}
+                  inputTokenDisplayMode={inputTokenDisplayMode}
                   dailyAverageUsage={dailyAverageCardUsage}
                   reserveDailyAverage={reserveDailyAverageCard}
                   sparklines={{
@@ -2269,6 +2295,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   activity={activity}
                   loading={activityLoading}
                   error={activityError}
+                  inputTokenDisplayMode={inputTokenDisplayMode}
                   window={activityWindow}
                   windowIsCurrent={activityWindowIsCurrent}
                   requestIdentity={activityRequestIdentity}
@@ -2302,6 +2329,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   latencyError={analysisLatencyError}
                   isDark={isDark}
                   isMobile={isMobile}
+                  inputTokenDisplayMode={inputTokenDisplayMode}
                 />
               </>
             )}
@@ -2345,6 +2373,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   events={eventsData}
                   loading={eventsLoading}
                   totalCount={eventsTotalCount}
+                  inputTokenDisplayMode={inputTokenDisplayMode}
                   modelOptions={eventsModelOptions}
                   sourceOptions={eventsSourceOptions}
                   modelFilter={eventsModelFilter}

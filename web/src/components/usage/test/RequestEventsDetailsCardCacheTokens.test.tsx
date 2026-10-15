@@ -88,7 +88,7 @@ describe('RequestEventsDetailsCard cache token columns', () => {
 
     expect(cells[tokensIndex]).toBe('5.68M1.23M2.35M12.35K');
     expect(cells[cacheIndex]).toBe('280.00%3.46M4.57M');
-    expect(html).toContain('aria-label="Total Tokens: 5,678,901; Input: 1,234,567; Output: 2,345,678; Reasoning: 12,345"');
+    expect(html).toContain('aria-label="Total Tokens: 5,678,901; Total Input (includes cache): 1,234,567; Output: 2,345,678; Reasoning: 12,345"');
     expect(html).toContain('aria-label="Cache Rate: 280.00%; Cache Read: 3,456,789; Cache Write: 4,567,890"');
   });
 });

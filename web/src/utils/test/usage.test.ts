@@ -69,4 +69,20 @@ describe('calculateDisplayInputTokens', () => {
       cacheCreationTokens: 100,
     })).toBe(650);
   });
+  it('returns canonical input in total mode', () => {
+    expect(calculateDisplayInputTokens({
+      inputTokens: 1000,
+      cacheReadTokens: 600,
+      cacheCreationTokens: 100,
+      mode: 'total',
+    })).toBe(1000);
+  });
+  it('returns uncached input in split mode', () => {
+    expect(calculateDisplayInputTokens({
+      inputTokens: 1000,
+      cacheReadTokens: 600,
+      cacheCreationTokens: 100,
+      mode: 'split',
+    })).toBe(300);
+  });
 });
