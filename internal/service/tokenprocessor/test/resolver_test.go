@@ -1,6 +1,7 @@
 package tokenprocessor_test
 
 import (
+	"reflect"
 	"testing"
 
 	"cpa-usage-keeper/internal/service/tokenprocessor"
@@ -69,6 +70,9 @@ func TestResolveIdentityUsesExistingFallbackAliases(t *testing.T) {
 		{identity: "meta", handlerID: tokenprocessor.HandlerResponsesInclusive},
 		{identity: "devin", handlerID: tokenprocessor.HandlerStrictPassThrough},
 		{identity: "kimi", handlerID: tokenprocessor.HandlerStrictPassThrough},
+		{identity: "kimi-ai", handlerID: tokenprocessor.HandlerStrictPassThrough},
+		{identity: "kimi.ai", handlerID: tokenprocessor.HandlerStrictPassThrough},
+		{identity: "kimi.com", handlerID: tokenprocessor.HandlerStrictPassThrough},
 		{identity: "moonshot", handlerID: tokenprocessor.HandlerStrictPassThrough},
 		{identity: "openai", handlerID: tokenprocessor.HandlerOpenAICompatibility},
 		{identity: "openai-compatible", handlerID: tokenprocessor.HandlerOpenAICompatibility},
@@ -92,13 +96,39 @@ func TestResolveIdentityUsesExistingFallbackAliases(t *testing.T) {
 }
 
 func TestResolveIdentityKeepsExecutorPriorityForKimiClaudeDelegation(t *testing.T) {
-	// CPA 的 Kimi Claude 入站会由 ClaudeExecutor 上报；executor 与 identity 不同是合法委托，不是冲突。
-	resolution := mustResolveIdentity(t, "ClaudeExecutor", "kimi")
-	if resolution.HandlerID() != tokenprocessor.HandlerClaude {
-		t.Fatalf("expected ClaudeExecutor to win over Kimi identity, got %q", resolution.HandlerID())
+	for _, identityType := range []string{"kimi", "kimi-ai", "kimi.ai", "kimi.com"} {
+		t.Run(identityType, func(t *testing.T) {
+			// CPA 的 Kimi Claude 入站会由 ClaudeExecutor 上报；executor 与 identity 不同是合法委托，不是冲突。
+			resolution := mustResolveIdentity(t, "ClaudeExecutor", identityType)
+			if resolution.HandlerID() != tokenprocessor.HandlerClaude {
+				t.Fatalf("expected ClaudeExecutor to win over Kimi identity, got %q", resolution.HandlerID())
+			}
+			if resolution.EvidenceSource() != tokenprocessor.EvidenceExecutor || resolution.EvidenceStrength() != tokenprocessor.EvidenceParserContract {
+				t.Fatalf("expected delegated event to keep executor contract, got source=%q strength=%q", resolution.EvidenceSource(), resolution.EvidenceStrength())
+			}
+		})
 	}
-	if resolution.EvidenceSource() != tokenprocessor.EvidenceExecutor || resolution.EvidenceStrength() != tokenprocessor.EvidenceParserContract {
-		t.Fatalf("expected delegated event to keep executor contract, got source=%q strength=%q", resolution.EvidenceSource(), resolution.EvidenceStrength())
+}
+
+func TestKimiIdentityAliasesKeepStrictTokenCalculations(t *testing.T) {
+	for _, executor := range []string{"", "unknown", "FutureExecutor"} {
+		for _, values := range []tokenprocessor.TokenValues{
+			{InputTokens: 11, OutputTokens: 7, ReasoningTokens: 3, TotalTokens: 99},
+			{InputTokens: 11, OutputTokens: 7, ReasoningTokens: 3, TotalTokens: 0},
+			{InputTokens: 11, OutputTokens: 7, CachedTokens: -3, TotalTokens: 18},
+		} {
+			want := tokenprocessor.Process(values, mustResolveIdentity(t, executor, "kimi"))
+			for _, identityType := range []string{"kimi-ai", "kimi.ai", "kimi.com"} {
+				resolution := mustResolveIdentity(t, executor, identityType)
+				if resolution.HandlerID() != tokenprocessor.HandlerStrictPassThrough || resolution.EvidenceSource() != tokenprocessor.EvidenceIdentity {
+					t.Fatalf("alias %q executor %q must use strict identity fallback", identityType, executor)
+				}
+				got := tokenprocessor.Process(values, resolution)
+				if !reflect.DeepEqual(got, want) {
+					t.Fatalf("alias %q executor %q changed Kimi token calculations: got=%+v want=%+v", identityType, executor, got, want)
+				}
+			}
+		}
 	}
 }
 

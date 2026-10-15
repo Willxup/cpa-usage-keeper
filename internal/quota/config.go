@@ -51,6 +51,7 @@ type ProviderConfigs struct {
 	ClaudeUsage              APICallConfig
 	ClaudeProfile            APICallConfig
 	Kimi                     APICallConfig
+	KimiAI                   APICallConfig
 	XAIWeekly                APICallConfig
 	XAIMonthly               APICallConfig
 }
@@ -112,7 +113,7 @@ func DefaultProviderConfigs() ProviderConfigs {
 			Headers: map[string]string{
 				"Authorization": "Bearer $TOKEN$",
 				"Content-Type":  "application/json",
-				"User-Agent":    "codex_cli_rs/0.76.0 (Debian 13.0.0; x86_64) WindowsTerminal",
+				"User-Agent":    "Codex Desktop/0.160.1 (Mac OS 27.0.1; arm64) unknown (Codex Desktop; 26.930.61225)",
 			},
 		},
 		GeminiCLI: APICallConfig{
@@ -133,11 +134,12 @@ func DefaultProviderConfigs() ProviderConfigs {
 		},
 		ClaudeUsage: APICallConfig{
 			Method: "GET",
-			URL:    "https://api.anthropic.com/api/oauth/usage",
+			URL:    "https://api.anthropic.com/api/oauth/usage?cedar_ember=1&skip_spend=1",
 			Headers: map[string]string{
 				"Authorization":  "Bearer $TOKEN$",
 				"Content-Type":   "application/json",
 				"anthropic-beta": "oauth-2025-04-20",
+				"User-Agent":     "claude-cli/2.1.280 (external, cli)",
 			},
 		},
 		ClaudeProfile: APICallConfig{
@@ -147,11 +149,19 @@ func DefaultProviderConfigs() ProviderConfigs {
 				"Authorization":  "Bearer $TOKEN$",
 				"Content-Type":   "application/json",
 				"anthropic-beta": "oauth-2025-04-20",
+				"User-Agent":     "claude-cli/2.1.280 (external, cli)",
 			},
 		},
 		Kimi: APICallConfig{
 			Method: "GET",
 			URL:    "https://api.kimi.com/coding/v1/usages",
+			Headers: map[string]string{
+				"Authorization": "Bearer $TOKEN$",
+			},
+		},
+		KimiAI: APICallConfig{
+			Method: "GET",
+			URL:    "https://api.kimi.ai/coding/v1/usages",
 			Headers: map[string]string{
 				"Authorization": "Bearer $TOKEN$",
 			},
@@ -181,7 +191,7 @@ func xaiRequestHeaders() map[string]string {
 }
 
 func (c ProviderConfigs) APICallTemplates() []APICallConfig {
-	templates := make([]APICallConfig, 0, len(c.Antigravity)+len(c.AntigravitySubscriptions)+8)
+	templates := make([]APICallConfig, 0, len(c.Antigravity)+len(c.AntigravitySubscriptions)+9)
 	templates = append(templates, c.Antigravity...)
 	templates = append(templates, c.AntigravitySubscriptions...)
 	templates = append(templates,
@@ -191,6 +201,7 @@ func (c ProviderConfigs) APICallTemplates() []APICallConfig {
 		c.ClaudeUsage,
 		c.ClaudeProfile,
 		c.Kimi,
+		c.KimiAI,
 		c.XAIWeekly,
 		c.XAIMonthly,
 	)

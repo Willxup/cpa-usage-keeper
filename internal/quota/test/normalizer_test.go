@@ -411,23 +411,22 @@ func TestNormalizeXAIProductRowsUsesStableKeysDeduplicationAndSorting(t *testing
 		}},
 	}})
 
-	if len(rows) != 3 {
-		t.Fatalf("expected weekly plus two product rows, got %#v", rows)
+	if len(rows) != 1 || rows[0].Key != "billing.weekly" {
+		t.Fatalf("expected only shared weekly quota, got %#v", rows)
 	}
-	if rows[0].Key != "billing.weekly" || rows[1].Key != "billing.weekly.product.grok+4" || rows[2].Key != "billing.weekly.product.grok+code" {
-		t.Fatalf("unexpected product row order or keys: %#v", rows)
+	parts := rows[0].UsageBreakdown
+	if len(parts) != 3 || parts[0].Product != "grok 4" || parts[1].Product != "Grok Code" || parts[2].Product != "No Data" {
+		t.Fatalf("unexpected breakdown: %#v", parts)
 	}
-	assertQuotaText(t, rows[1], "grok 4 Usage", "product", "grok 4")
-	assertFloatField(t, rows[1].UsedPercent, 100, "grok 4 usedPercent")
-	if rows[1].LimitReached == nil || !*rows[1].LimitReached {
-		t.Fatalf("expected grok 4 product quota to be reached: %#v", rows[1])
+	assertFloatField(t, parts[0].UsedPercent, 100, "product used percent")
+	assertFloatField(t, parts[1].UsedPercent, 90, "deduplicated product used percent")
+	if parts[2].UsedPercent != nil {
+		t.Fatal("missing usage must stay unknown")
 	}
-	assertQuotaText(t, rows[2], "Grok Code Usage", "product", "Grok Code")
-	assertFloatField(t, rows[2].UsedPercent, 90, "deduplicated grok code usedPercent")
-	assertIntField(t, rows[2].Window.Seconds, 604800, "product weekly window seconds")
-	if rows[2].ResetAt != "2026-07-13T00:00:00Z" {
-		t.Fatalf("unexpected product resetAt: %#v", rows[2])
+	if rows[0].LimitReached == nil || *rows[0].LimitReached {
+		t.Fatal("product usage must not mark shared quota exhausted")
 	}
+
 }
 
 func TestNormalizeXAIDerivesPayAsYouGoUsageAndExhaustion(t *testing.T) {
@@ -494,5 +493,12 @@ func assertBoolField(t *testing.T, value *bool, expected bool, label string) {
 	t.Helper()
 	if value == nil || *value != expected {
 		t.Fatalf("unexpected %s: got %#v want %v", label, value, expected)
+	}
+}
+
+func TestNormalizeXAIProductUsageWithoutTotal(t *testing.T) {
+	rows := quota.NormalizeQuotaRows(quota.ProviderOutput{Result: quota.XAIResult{Weekly: &quota.XAIBillingPayload{Config: &quota.XAIBillingConfig{ProductUsage: []quota.XAIBillingProductUsage{{Product: "GrokBuild", UsagePercent: floatPtr(14)}, {Product: "GrokChat"}}}}}})
+	if len(rows) != 1 || len(rows[0].UsageBreakdown) != 2 || rows[0].UsedPercent != nil || rows[0].LimitReached != nil || rows[0].Allowed != nil {
+		t.Fatalf("must preserve partial details without deriving quota: %#v", rows)
 	}
 }

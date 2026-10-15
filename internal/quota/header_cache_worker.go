@@ -193,11 +193,7 @@ func mergePendingUsageHeaderCacheSnapshot(existing *UsageHeaderSnapshot, candida
 		return existing
 	}
 	if strings.EqualFold(strings.TrimSpace(existing.Provider), "claude") {
-		// Claude 两个主窗口同属一次响应，分钟内整组择新；最终 cache 仍按 row key 保留旧行。
-		if usageHeaderSnapshotIsNewer(candidate, existing) {
-			return candidate
-		}
-		return existing
+		return mergePendingClaudeUsageHeaderCacheSnapshot(existing, candidate)
 	}
 	existingUsage := codexUsagePayloadFromProviderOutput(existing.CacheOutput)
 	candidateUsage := codexUsagePayloadFromProviderOutput(candidate.CacheOutput)
@@ -253,6 +249,108 @@ func mergePendingUsageHeaderCacheSnapshot(existing *UsageHeaderSnapshot, candida
 		Result:   CodexResult{Usage: &mergedUsage},
 	}
 	return &mergedSnapshot
+}
+
+func claudeUsagePayloadFromProviderOutput(output ProviderOutput) *ClaudeUsagePayload {
+	switch result := output.Result.(type) {
+	case ClaudeResult:
+		return result.Usage
+	case *ClaudeResult:
+		if result != nil {
+			return result.Usage
+		}
+	}
+	return nil
+}
+
+func pendingClaudeWindowObservedAt(snapshot *UsageHeaderSnapshot, key string) time.Time {
+	if observedAt, exists := snapshot.pendingClaudeObservedAt[key]; exists {
+		return observedAt
+	}
+	return snapshot.ObservedAt
+}
+
+func mergePendingClaudeUsageHeaderCacheSnapshot(existing, candidate *UsageHeaderSnapshot) *UsageHeaderSnapshot {
+	base := existing
+	if usageHeaderSnapshotIsNewer(candidate, existing) {
+		base = candidate
+	}
+	existingUsage := claudeUsagePayloadFromProviderOutput(existing.CacheOutput)
+	candidateUsage := claudeUsagePayloadFromProviderOutput(candidate.CacheOutput)
+	if existingUsage == nil || candidateUsage == nil {
+		return base
+	}
+	merged := *base
+	usage := *claudeUsagePayloadFromProviderOutput(base.CacheOutput)
+	merged.pendingClaudeObservedAt = make(map[string]time.Time, 2)
+	for _, window := range []struct {
+		key                 string
+		existing, candidate *ClaudeUsageWindow
+		target              **ClaudeUsageWindow
+	}{
+		{"five_hour", existingUsage.FiveHour, candidateUsage.FiveHour, &usage.FiveHour},
+		{"seven_day", existingUsage.SevenDay, candidateUsage.SevenDay, &usage.SevenDay},
+	} {
+		existingAt := pendingClaudeWindowObservedAt(existing, window.key)
+		candidateAt := pendingClaudeWindowObservedAt(candidate, window.key)
+		switch {
+		case window.candidate != nil && (window.existing == nil || !usageHeaderObservedAtBefore(candidateAt, existingAt)):
+			*window.target = window.candidate
+			merged.pendingClaudeObservedAt[window.key] = candidateAt
+		case window.existing != nil:
+			*window.target = window.existing
+			merged.pendingClaudeObservedAt[window.key] = existingAt
+		}
+	}
+	merged.CacheOutput = ProviderOutput{Provider: base.CacheOutput.Provider, Result: ClaudeResult{Usage: &usage}}
+	return &merged
+}
+
+func (s *Service) applyPendingClaudeUsageHeaderSnapshot(ctx context.Context, snapshot *UsageHeaderSnapshot, identity entities.UsageIdentity, statsProvider usageWindowStatsProvider) bool {
+	usage := claudeUsagePayloadFromProviderOutput(snapshot.CacheOutput)
+	if usage == nil {
+		return false
+	}
+	var windows []*UsageHeaderSnapshot
+	for _, window := range []struct {
+		key   string
+		value *ClaudeUsageWindow
+	}{
+		{"five_hour", usage.FiveHour}, {"seven_day", usage.SevenDay},
+	} {
+		if window.value == nil {
+			continue
+		}
+		at := pendingClaudeWindowObservedAt(snapshot, window.key)
+		var windowUsage *ClaudeUsagePayload
+		if len(windows) > 0 && windows[0].ObservedAt.Equal(at) {
+			// 相同时间的两个窗口一次应用，避免 completed cache 的同时间保护挡住第二个窗口。
+			windowUsage = claudeUsagePayloadFromProviderOutput(windows[0].CacheOutput)
+		} else {
+			copy := *snapshot
+			copy.ObservedAt = at
+			copy.pendingClaudeObservedAt = nil
+			windowUsage = &ClaudeUsagePayload{}
+			copy.CacheOutput = ProviderOutput{Provider: snapshot.CacheOutput.Provider, Result: ClaudeResult{Usage: windowUsage}}
+			windows = append(windows, &copy)
+		}
+		if window.key == "five_hour" {
+			windowUsage.FiveHour = window.value
+		} else {
+			windowUsage.SevenDay = window.value
+		}
+	}
+	// 同一身份 job 内先处理较早窗口；沿用主动刷新保护，并按每个窗口自己的时间计算用量。
+	sort.SliceStable(windows, func(i, j int) bool {
+		return usageHeaderObservedAtBefore(windows[i].ObservedAt, windows[j].ObservedAt)
+	})
+	applied := false
+	for _, window := range windows {
+		if s.applyUsageHeaderSnapshotWithIdentity(ctx, window, identity, statsProvider) {
+			applied = true
+		}
+	}
+	return applied
 }
 
 func pendingUsageHeaderMainObservedAt(snapshot *UsageHeaderSnapshot, usage *CodexUsagePayload) time.Time {
@@ -614,6 +712,9 @@ func (s *Service) applyUsageHeaderSnapshotWithIdentity(ctx context.Context, snap
 	if s == nil || snapshot == nil {
 		return false
 	}
+	if strings.EqualFold(strings.TrimSpace(snapshot.Provider), "claude") && len(snapshot.pendingClaudeObservedAt) > 0 {
+		return s.applyPendingClaudeUsageHeaderSnapshot(ctx, snapshot, identity, statsProvider)
+	}
 	// auth_type 在最终 apply 前再标准化一次，防止测试或单条入口绕过前置校验。
 	authType := strings.ToLower(strings.TrimSpace(snapshot.AuthType))
 	// auth_index 标准化后必须和传入 identity 对齐。
@@ -779,6 +880,10 @@ func mergeUsageHeaderQuotaResponse(existing CheckResponse, header CheckResponse)
 	// header 没带 reset credits 时保留旧 cache 的 reset credit 信息。
 	if merged.RateLimitResetCreditsAvailableCount == nil {
 		merged.RateLimitResetCreditsAvailableCount = existing.RateLimitResetCreditsAvailableCount
+	}
+	// Header 只观察额度，不能抹掉同 provider 主动查询取得的 Claude 重置权益。
+	if merged.ClaudeResetGrants == nil {
+		merged.ClaudeResetGrants = existing.ClaudeResetGrants
 	}
 	// Header 未携带套餐只代表这次快照没有该字段，保留此前完整刷新或 Header 已确认的订阅。
 	if merged.Subscription == nil {

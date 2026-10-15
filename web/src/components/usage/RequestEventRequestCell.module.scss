@@ -1,0 +1,15 @@
+.requestType {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  vertical-align: top;
+}
+
+.streamIcon {
+  flex: 0 0 auto;
+  color: #0891b2;
+}
+
+:global([data-theme='dark']) .streamIcon {
+  color: #22d3ee;
+}

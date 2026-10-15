@@ -329,7 +329,7 @@ func inspectionQuotaLimitReached(identity entities.UsageIdentity, task *RefreshT
 		return geminiCLIInspectionLimitReached(rows)
 	case "antigravity":
 		return antigravityInspectionLimitReached(rows)
-	case "kimi":
+	case "kimi", "kimi-ai", "kimi.ai", "kimi.com":
 		return kimiInspectionLimitReached(rows)
 	case "xai":
 		return xaiInspectionLimitReached(rows)
@@ -348,7 +348,7 @@ func inspectionQuotaProvider(identity entities.UsageIdentity, task *RefreshTaskR
 	for _, value := range []string{taskType, identity.Type} {
 		normalized := strings.ToLower(strings.TrimSpace(value))
 		switch normalized {
-		case "antigravity", "codex", "gemini-cli", "claude", "kimi", "xai":
+		case "antigravity", "codex", "gemini-cli", "claude", "kimi", "kimi-ai", "kimi.ai", "kimi.com", "xai":
 			return normalized
 		}
 	}
@@ -408,6 +408,10 @@ func kimiInspectionLimitReached(rows []QuotaRow) bool {
 func xaiInspectionLimitReached(rows []QuotaRow) bool {
 	// 新 xAI 行的显式 false 代表仍有其它额度（例如 PAYG）；旧缓存没有标志时才回退 used/limit。
 	for _, row := range rows {
+		// 兼容旧结果：产品构成不参与账号限额判断。
+		if row.Scope == "product" || strings.HasPrefix(row.Key, "billing.weekly.product.") {
+			continue
+		}
 		if row.LimitReached != nil {
 			if *row.LimitReached {
 				return true

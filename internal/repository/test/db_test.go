@@ -632,7 +632,7 @@ func TestCleanupStorageCleansRedisInboxAndAppliesVacuumPolicy(t *testing.T) {
 		t.Fatalf("seed activity stats: %v", err)
 	}
 
-	result, err := repository.CleanupStorage(db, now)
+	result, err := repository.CleanupStorage(db, now, 0)
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}
@@ -688,7 +688,7 @@ func TestCleanupStorageRetainsNinetyLocalDays(t *testing.T) {
 	seedCaughtUpLatencyCheckpoint(t, db, now)
 
 	// 执行：三个全局 checkpoint 已追平且没有 identity delta 时运行维护。
-	result, err := repository.CleanupStorage(db, now)
+	result, err := repository.CleanupStorage(db, now, 0)
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}
@@ -738,7 +738,7 @@ func TestCleanupStorageUsesLocalCalendarDaysAcrossDST(t *testing.T) {
 	// Latency 行必须和另外两类一起覆盖当前最大 ID，raw event 才可离开 hot 表。
 	seedCaughtUpLatencyCheckpoint(t, db, now)
 
-	result, err := repository.CleanupStorage(db, now)
+	result, err := repository.CleanupStorage(db, now, 0)
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}
@@ -769,7 +769,7 @@ func TestCleanupStorageDefersUsageEventsUntilOverviewAndActivityCatchUp(t *testi
 	}
 
 	// 执行：全局 checkpoint 尚未创建时尝试归档 raw events。
-	result, err := repository.CleanupStorage(db, now)
+	result, err := repository.CleanupStorage(db, now, 0)
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}
@@ -821,7 +821,7 @@ func TestCleanupStorageDefersUsageEventsUntilLatencyCatchUp(t *testing.T) {
 		t.Fatalf("seed lagging latency checkpoint: %v", err)
 	}
 
-	result, err := repository.CleanupStorage(db, now)
+	result, err := repository.CleanupStorage(db, now, 0)
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}
@@ -873,7 +873,7 @@ func TestCleanupStorageDefersUsageEventsUntilIdentityCatchUp(t *testing.T) {
 	}
 
 	// 执行：identity cursor 尚未越过第二条匹配事件时运行清理。
-	result, err := repository.CleanupStorage(db, now)
+	result, err := repository.CleanupStorage(db, now, 0)
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}

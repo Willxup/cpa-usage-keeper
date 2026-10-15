@@ -72,7 +72,7 @@ func TestCodexProviderUsesAccountIDForUsageRequest(t *testing.T) {
 	if request.AuthIndex != "codex-auth" || request.Method != "GET" || request.URL != "https://chatgpt.com/backend-api/wham/usage" {
 		t.Fatalf("unexpected api-call request: %+v", request)
 	}
-	if request.Header["Authorization"] != "Bearer $TOKEN$" || request.Header["Content-Type"] != "application/json" || request.Header["User-Agent"] != "codex_cli_rs/0.76.0 (Debian 13.0.0; x86_64) WindowsTerminal" || request.Header["Chatgpt-Account-Id"] != "acct_123" {
+	if request.Header["Authorization"] != "Bearer $TOKEN$" || request.Header["Content-Type"] != "application/json" || request.Header["User-Agent"] != "Codex Desktop/0.160.1 (Mac OS 27.0.1; arm64) unknown (Codex Desktop; 26.930.61225)" || request.Header["Chatgpt-Account-Id"] != "acct_123" {
 		t.Fatalf("unexpected api-call headers: %+v", request.Header)
 	}
 	if request.Data != nil {

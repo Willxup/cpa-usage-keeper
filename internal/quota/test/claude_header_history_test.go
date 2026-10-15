@@ -10,6 +10,8 @@ import (
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/repository"
+
+	"gorm.io/gorm"
 )
 
 func TestUsageHeaderSnapshotDispatchesByOAuthAndProvider(t *testing.T) {
@@ -322,4 +324,160 @@ func TestClaudePendingMainGroupDoesNotOverwriteNewerActiveSevenDayCache(t *testi
 	if record.Quota.Quota[0].UsedPercent == nil || *record.Quota.Quota[0].UsedPercent != 30 || record.Quota.Quota[1].UsedPercent == nil || *record.Quota.Quota[1].UsedPercent != 40 {
 		t.Fatalf("t1 pending 7d was stitched onto t3 after t2 active refresh: %+v", record.Quota.Quota)
 	}
+}
+
+func TestClaudePendingPartialWindowsMergeIntoCacheAndHistory(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		first claudePartialHeader
+		next  claudePartialHeader
+	}{
+		{
+			name:  "five_then_newer_seven",
+			first: claudePartialHeader{atOffset: 0, window: "5h", utilization: "0.10"},
+			next:  claudePartialHeader{atOffset: time.Second, window: "7d", utilization: "0.20"},
+		},
+		{
+			name:  "seven_then_older_five",
+			first: claudePartialHeader{atOffset: time.Second, window: "7d", utilization: "0.20"},
+			next:  claudePartialHeader{atOffset: 0, window: "5h", utilization: "0.10"},
+		},
+		{
+			name:  "same_observed_at_disjoint_windows",
+			first: claudePartialHeader{atOffset: 0, window: "5h", utilization: "0.10"},
+			next:  claudePartialHeader{atOffset: 0, window: "7d", utilization: "0.20"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := openQuotaTestDatabase(t)
+			seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+			service := quota.NewServiceWithRegistryAndOptions(db, quota.NewProviderRegistry(nil), quota.ServiceOptions{
+				UsageHeaderSnapshotFlushInterval: time.Hour,
+				CodexQuotaHistoryFlushInterval:   time.Hour,
+				PricingCatalog:                   emptyPricingCatalogForTest(),
+			})
+			now := time.Now().Truncate(time.Second)
+			first := buildClaudePartialHeaderSnapshot(t, now, tc.first)
+			next := buildClaudePartialHeaderSnapshot(t, now, tc.next)
+			firstRowsBefore := quota.NormalizeQuotaRows(first.CacheOutput)
+			nextRowsBefore := quota.NormalizeQuotaRows(next.CacheOutput)
+
+			if !service.TryAppendUsageHeaderSnapshots([]*quota.UsageHeaderSnapshot{first, next}) {
+				t.Fatal("expected partial Claude Header snapshots")
+			}
+			service.StopRefreshTasks()
+
+			record := refreshTaskRecord(service, "claude-auth")
+			assertClaudeCacheRows(t, record, 10, 20)
+			assertClaudeHistorySegments(t, db, map[string]int{"five_hour": 90, "seven_day": 80})
+			if rows := quota.NormalizeQuotaRows(first.CacheOutput); !sameQuotaRows(rows, firstRowsBefore) {
+				t.Fatalf("first input snapshot was mutated: before=%+v after=%+v", firstRowsBefore, rows)
+			}
+			if rows := quota.NormalizeQuotaRows(next.CacheOutput); !sameQuotaRows(rows, nextRowsBefore) {
+				t.Fatalf("second input snapshot was mutated: before=%+v after=%+v", nextRowsBefore, rows)
+			}
+		})
+	}
+}
+
+func TestClaudePendingPartialWindowKeepsNewerSameWindow(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "claude-auth", Provider: "claude", Type: "claude", AuthType: entities.UsageIdentityAuthTypeAuthFile})
+	service := quota.NewServiceWithRegistryAndOptions(db, quota.NewProviderRegistry(nil), quota.ServiceOptions{
+		UsageHeaderSnapshotFlushInterval: time.Hour,
+		CodexQuotaHistoryFlushInterval:   time.Hour,
+		PricingCatalog:                   emptyPricingCatalogForTest(),
+	})
+	now := time.Now().Truncate(time.Second)
+	newerFive := buildClaudePartialHeaderSnapshot(t, now, claudePartialHeader{atOffset: time.Second, window: "5h", utilization: "0.10"})
+	newestSeven := buildClaudePartialHeaderSnapshot(t, now, claudePartialHeader{atOffset: 2 * time.Second, window: "7d", utilization: "0.20"})
+	staleFive := buildClaudePartialHeaderSnapshot(t, now, claudePartialHeader{atOffset: 0, window: "5h", utilization: "0.90"})
+
+	if !service.TryAppendUsageHeaderSnapshots([]*quota.UsageHeaderSnapshot{newerFive, newestSeven, staleFive}) {
+		t.Fatal("expected partial Claude Header snapshots")
+	}
+	service.StopRefreshTasks()
+
+	record := refreshTaskRecord(service, "claude-auth")
+	assertClaudeCacheRows(t, record, 10, 20)
+}
+
+type claudePartialHeader struct {
+	atOffset    time.Duration
+	window      string
+	utilization string
+}
+
+func buildClaudePartialHeaderSnapshot(t *testing.T, base time.Time, input claudePartialHeader) *quota.UsageHeaderSnapshot {
+	t.Helper()
+	prefix := "Anthropic-Ratelimit-Unified-" + input.window + "-"
+	snapshot, ok := quota.BuildUsageHeaderSnapshot(quota.UsageHeaderSnapshotInput{
+		AuthType: "oauth", AuthIndex: "claude-auth", Provider: "claude", ObservedAt: base.Add(input.atOffset),
+		Headers: http.Header{
+			prefix + "Utilization": {input.utilization},
+			prefix + "Reset":       {strconv.FormatInt(base.Add(7*24*time.Hour).Unix(), 10)},
+		},
+	})
+	if !ok {
+		t.Fatalf("expected Claude %s snapshot", input.window)
+	}
+	return snapshot
+}
+
+func assertClaudeCacheRows(t *testing.T, record *quota.RefreshTaskRecord, wantFive float64, wantSeven float64) {
+	t.Helper()
+	if record == nil || record.Quota == nil || len(record.Quota.Quota) != 2 {
+		t.Fatalf("unexpected merged cache: %+v", record)
+	}
+	got := map[string]float64{}
+	for _, row := range record.Quota.Quota {
+		if row.UsedPercent != nil {
+			got[row.Key] = *row.UsedPercent
+		}
+	}
+	if got["five_hour"] != wantFive || got["seven_day"] != wantSeven {
+		t.Fatalf("merged cache rows=%+v, want five=%v seven=%v", record.Quota.Quota, wantFive, wantSeven)
+	}
+}
+
+func assertClaudeHistorySegments(t *testing.T, db *gorm.DB, want map[string]int) {
+	t.Helper()
+	var cycles []entities.QuotaCycle
+	if err := db.Find(&cycles).Error; err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]int{}
+	for _, cycle := range cycles {
+		var segment entities.QuotaPercentSegment
+		if err := db.Where("cycle_id = ?", cycle.ID).Take(&segment).Error; err != nil {
+			t.Fatal(err)
+		}
+		got[cycle.QuotaKey] = segment.RemainingPercent
+	}
+	for key, remaining := range want {
+		if got[key] != remaining {
+			t.Fatalf("history segments=%+v, want %s=%d", got, key, remaining)
+		}
+	}
+	if len(got) != len(want) {
+		t.Fatalf("history segments=%+v, want %+v", got, want)
+	}
+}
+
+func sameQuotaRows(a, b []quota.QuotaRow) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for index := range a {
+		if a[index].Key != b[index].Key || a[index].Scope != b[index].Scope {
+			return false
+		}
+		if (a[index].UsedPercent == nil) != (b[index].UsedPercent == nil) {
+			return false
+		}
+		if a[index].UsedPercent != nil && *a[index].UsedPercent != *b[index].UsedPercent {
+			return false
+		}
+	}
+	return true
 }

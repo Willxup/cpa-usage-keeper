@@ -148,7 +148,7 @@ export function usePortalTooltip() {
   }
 }
 
-export function PortalTooltip({ tooltip }: { tooltip: PortalTooltipState | null }) {
+export function PortalTooltip({ tooltip, id }: { tooltip: PortalTooltipState | null; id?: string }) {
   const tooltipRef = useRef<HTMLDivElement | null>(null)
   const [measuredPosition, setMeasuredPosition] = useState<{
     tooltip: PortalTooltipState
@@ -190,6 +190,7 @@ export function PortalTooltip({ tooltip }: { tooltip: PortalTooltipState | null 
 
   return createPortal(
     <div
+      id={id}
       ref={tooltipRef}
       className={styles.tooltip}
       role="tooltip"

@@ -40,6 +40,8 @@ type UsageHeaderSnapshot struct {
 	pendingMainObservedAt time.Time
 	// pendingAdditionalObservedAt 按 LimitName 记录 Additional 自身的新鲜度，不进入 history 或对外响应。
 	pendingAdditionalObservedAt map[string]time.Time
+	// pendingClaudeObservedAt 保留各 Claude 主窗口的观察时间，避免部分 Header 相互覆盖或被刷新为新时间。
+	pendingClaudeObservedAt map[string]time.Time
 }
 
 type UsageHeaderSnapshotAppender interface {

@@ -114,3 +114,40 @@ func databaseContext(db *gorm.DB) context.Context {
 	}
 	return context.Background()
 }
+
+// cleanupUsageEventArchive 按请求时间清理冷表；ID 游标避免每批重复扫描保留记录。
+func cleanupUsageEventArchive(db *gorm.DB, now time.Time, retentionDays int) (int64, error) {
+	if retentionDays < usageEventsRetentionDays {
+		return 0, nil
+	}
+	local := now.In(time.Local)
+	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.Local)
+	// 极大保留值覆盖所有有效历史，避免 AddDate 的整数溢出反向删除数据。
+	if retentionDays/366 > day.Year() {
+		return 0, nil
+	}
+	// 存储时间按项目时区归一化；只比较日期，避免 UTC 的 Z 后缀让零点小数秒排在整秒之前。
+	cutoff := day.AddDate(0, 0, -retentionDays).Format("2006-01-02")
+	var deleted, afterID int64
+	for {
+		if err := databaseContext(db).Err(); err != nil {
+			return deleted, err
+		}
+		var ids []int64
+		err := db.Model(&entities.UsageEventArchive{}).
+			Where("id > ? AND timestamp < ?", afterID, cutoff).
+			Order("id ASC").Limit(usageEventArchiveBatchSize).Pluck("id", &ids).Error
+		if err != nil {
+			return deleted, fmt.Errorf("load expired archive batch: %w", err)
+		}
+		if len(ids) == 0 {
+			return deleted, nil
+		}
+		result := db.Unscoped().Where("id IN ? AND timestamp < ?", ids, cutoff).Delete(&entities.UsageEventArchive{})
+		if result.Error != nil {
+			return deleted, fmt.Errorf("delete expired archive batch: %w", result.Error)
+		}
+		deleted += result.RowsAffected
+		afterID = ids[len(ids)-1]
+	}
+}

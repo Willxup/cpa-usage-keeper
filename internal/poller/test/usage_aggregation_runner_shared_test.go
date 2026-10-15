@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"cpa-usage-keeper/internal/activity"
@@ -445,58 +446,65 @@ func TestUsageAggregationRunnerStaysDatabaseSilentAfterStartupCatchUp(t *testing
 
 func TestUsageAggregationRunnerDebounceDoesNotResetAndStartupDoesNotWait(t *testing.T) {
 	t.Run("startup catch-up is immediate", func(t *testing.T) {
-		db := openUsageAggregationRunnerDatabase(t)
-		now := time.Date(2026, 7, 26, 12, 30, 0, 0, time.UTC)
-		if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{EventKey: "startup-immediate", APIGroupKey: "provider-a", Model: "model-a", Timestamp: now}}); err != nil {
-			t.Fatalf("insert startup event: %v", err)
-		}
-		runner := newUsageAggregationRunnerAt(db, now, 500*time.Millisecond)
-		stop := startUsageAggregationTestRunner(t, runner)
-		waitForUsageAggregationRunnerCondition(t, 300*time.Millisecond, func() bool {
-			return usageAggregationCheckpointCursor(t, db, entities.UsageAggregationCheckpointOverview) == 1
+		synctest.Test(t, func(t *testing.T) {
+			db := openUsageAggregationRunnerDatabase(t)
+			now := time.Date(2026, 7, 26, 12, 30, 0, 0, time.UTC)
+			if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{EventKey: "startup-immediate", APIGroupKey: "provider-a", Model: "model-a", Timestamp: now}}); err != nil {
+				t.Fatalf("insert startup event: %v", err)
+			}
+			runner := newUsageAggregationRunnerAt(db, now, 500*time.Millisecond)
+			stop := startUsageAggregationTestRunner(t, runner)
+			// 只等待当前工作阻塞，不推进虚拟时间；启动追赶不能依赖 debounce。
+			synctest.Wait()
+			assertUsageAggregationCheckpointValue(t, db, entities.UsageAggregationCheckpointOverview, 1)
+			stop()
 		})
-		stop()
 	})
 
 	t.Run("later notifications share the first fixed window", func(t *testing.T) {
-		db := openUsageAggregationRunnerDatabase(t)
-		now := time.Date(2026, 7, 26, 12, 30, 0, 0, time.UTC)
-		runner := newUsageAggregationRunnerAt(db, now, 500*time.Millisecond)
-		// 同步完成空库启动扫描，后续事件只能走 debounce 路径。
-		for range 2 {
-			if _, err := runner.RunOnce(context.Background()); err != nil {
-				t.Fatalf("complete startup catch-up: %v", err)
+		synctest.Test(t, func(t *testing.T) {
+			db := openUsageAggregationRunnerDatabase(t)
+			now := time.Date(2026, 7, 26, 12, 30, 0, 0, time.UTC)
+			runner := newUsageAggregationRunnerAt(db, now, 500*time.Millisecond)
+			// 同步完成空库启动扫描，后续事件只能走 debounce 路径。
+			for range 2 {
+				if _, err := runner.RunOnce(context.Background()); err != nil {
+					t.Fatalf("complete startup catch-up: %v", err)
+				}
 			}
-		}
-		stop := startUsageAggregationTestRunner(t, runner)
-		if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{EventKey: "debounce-1", APIGroupKey: "provider-a", Model: "model-a", Timestamp: now}}); err != nil {
-			t.Fatalf("insert first debounce event: %v", err)
-		}
-		var first entities.UsageEvent
-		if err := db.Where("event_key = ?", "debounce-1").Take(&first).Error; err != nil {
-			t.Fatalf("load first debounce event: %v", err)
-		}
-		startedAt := time.Now()
-		runner.NotifyUsageEventsCommitted([]entities.UsageEvent{first})
-		time.Sleep(300 * time.Millisecond)
-		if usageAggregationCheckpointCursor(t, db, entities.UsageAggregationCheckpointOverview) != 0 {
-			t.Fatal("rollups ran before the fixed debounce window elapsed")
-		}
-		if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{EventKey: "debounce-2", APIGroupKey: "provider-a", Model: "model-a", Timestamp: now.Add(time.Minute)}}); err != nil {
-			t.Fatalf("insert second debounce event: %v", err)
-		}
-		var second entities.UsageEvent
-		if err := db.Where("event_key = ?", "debounce-2").Take(&second).Error; err != nil {
-			t.Fatalf("load second debounce event: %v", err)
-		}
-		runner.NotifyUsageEventsCommitted([]entities.UsageEvent{second})
-		waitForUsageAggregationRunnerCondition(t, 350*time.Millisecond, func() bool {
-			return usageAggregationCheckpointCursor(t, db, entities.UsageAggregationCheckpointOverview) == second.ID
+			stop := startUsageAggregationTestRunner(t, runner)
+			if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{EventKey: "debounce-1", APIGroupKey: "provider-a", Model: "model-a", Timestamp: now}}); err != nil {
+				t.Fatalf("insert first debounce event: %v", err)
+			}
+			var first entities.UsageEvent
+			if err := db.Where("event_key = ?", "debounce-1").Take(&first).Error; err != nil {
+				t.Fatalf("load first debounce event: %v", err)
+			}
+			runner.NotifyUsageEventsCommitted([]entities.UsageEvent{first})
+			// 先让 runner 建立计时器，再推进虚拟时间，固定首个窗口的起点。
+			synctest.Wait()
+			time.Sleep(300 * time.Millisecond)
+			if usageAggregationCheckpointCursor(t, db, entities.UsageAggregationCheckpointOverview) != 0 {
+				t.Fatal("rollups ran before the fixed debounce window elapsed")
+			}
+			if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{EventKey: "debounce-2", APIGroupKey: "provider-a", Model: "model-a", Timestamp: now.Add(time.Minute)}}); err != nil {
+				t.Fatalf("insert second debounce event: %v", err)
+			}
+			var second entities.UsageEvent
+			if err := db.Where("event_key = ?", "debounce-2").Take(&second).Error; err != nil {
+				t.Fatalf("load second debounce event: %v", err)
+			}
+			runner.NotifyUsageEventsCommitted([]entities.UsageEvent{second})
+			synctest.Wait()
+			// 首次通知后的 499ms 仍不能聚合，500ms 必须覆盖第二次通知的目标。
+			time.Sleep(199 * time.Millisecond)
+			synctest.Wait()
+			assertUsageAggregationCheckpointValue(t, db, entities.UsageAggregationCheckpointOverview, 0)
+			time.Sleep(time.Millisecond)
+			synctest.Wait()
+			assertUsageAggregationCheckpointValue(t, db, entities.UsageAggregationCheckpointOverview, second.ID)
+			stop()
 		})
-		if elapsed := time.Since(startedAt); elapsed >= 700*time.Millisecond {
-			t.Fatalf("second notification reset debounce window, elapsed=%s", elapsed)
-		}
-		stop()
 	})
 }
 

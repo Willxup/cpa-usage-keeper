@@ -1,4 +1,4 @@
-import type { UsageCredentialHealth, UsageIdentity, UsageQuotaCheckResponse, UsageQuotaRow } from '@/lib/types'
+import type { ClaudeResetGrantStatus, UsageCredentialHealth, UsageIdentity, UsageQuotaCheckResponse, UsageQuotaRow } from '@/lib/types'
 import { calculateCacheReadRate, formatCompactTokenValue } from '@/utils/usage'
 import { resolveCredentialSubscriptionBadge, type SubscriptionBadgeModel } from './credentialSubscription'
 
@@ -23,6 +23,7 @@ export interface QuotaBillingUsageDisplay {
 }
 
 export interface DisplayQuota {
+  usageBreakdown?: UsageQuotaRow['usageBreakdown']
   key: string
   label: string
   scope?: string
@@ -64,6 +65,7 @@ export interface AuthFileCredentialRow {
   windowCacheReadRate: number | null
   quota: UsageQuotaRow[]
   quotaResetCreditsAvailableCount?: number | null
+  claudeResetGrants?: ClaudeResetGrantStatus
   quotaLoading: boolean
   quotaError?: string
   refreshStatus?: 'queued' | 'running' | 'completed' | 'failed'
@@ -175,6 +177,7 @@ export function buildAuthFileCredentialRows(
       windowCacheReadRate: windowCacheReadRate(identity.credential_health),
       quota,
       quotaResetCreditsAvailableCount: quotaResponse?.rateLimitResetCreditsAvailableCount,
+      claudeResetGrants: quotaResponse?.claudeResetGrants,
       quotaLoading: state?.quotaLoading ?? false,
       quotaError: state?.quotaError,
       refreshStatus: state?.refreshStatus,
@@ -216,6 +219,7 @@ function toDisplayQuota(row: UsageQuotaRow): DisplayQuota | undefined {
   }
 
   return {
+    usageBreakdown: row.usageBreakdown,
     key: row.key,
     label,
     scope: row.scope,
@@ -441,7 +445,7 @@ function quotaUsedPercent(percentDisplay: { percent: number | null; kind: Displa
 }
 
 function isDisplayableQuota(quota: DisplayQuota | undefined): quota is DisplayQuota {
-  return quota !== undefined && quota.barPercent !== null
+  return quota !== undefined && (quota.barPercent !== null || Boolean(quota.usageBreakdown?.length))
 }
 
 function credentialDisplayName(identity: UsageIdentity): string {

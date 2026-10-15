@@ -11,8 +11,13 @@ type UsageEvent struct {
 	Endpoint            string    `gorm:"column:endpoint"`
 	AuthType            string    `gorm:"column:auth_type;index:idx_usage_events_auth_type_auth_index_id,priority:1"`
 	RequestID           string    `gorm:"column:request_id"`
+	ExecutionID         *string   `gorm:"column:execution_id"`
+	TraceID             *string   `gorm:"column:trace_id"`
 	SessionID           string    `gorm:"column:session_id"`
 	ParentSessionID     *string   `gorm:"column:parent_session_id"`
+	NodeKind            *string   `gorm:"column:node_kind"`
+	IsFork              *bool     `gorm:"column:is_fork"`
+	IsCompaction        *bool     `gorm:"column:is_compaction"`
 	ClientIP            *string   `gorm:"column:client_ip"`
 	XForwardedFor       *string   `gorm:"column:x_forwarded_for"`
 	UserAgent           *string   `gorm:"column:user_agent"`

@@ -2,6 +2,7 @@ package cpa
 
 const (
 	cpaManagementAuthFilesEndpoint           = "/v0/management/auth-files"
+	cpaManagementAuthFilesDownloadEndpoint   = "/v0/management/auth-files/download"
 	cpaManagementAuthFilesStatusEndpoint     = "/v0/management/auth-files/status"
 	cpaManagementAuthFilesFieldsEndpoint     = "/v0/management/auth-files/fields"
 	cpaManagementAPIKeysEndpoint             = "/v0/management/api-keys"

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -257,6 +258,22 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 		}
 		c.JSON(http.StatusOK, response)
 	})
+	// Claude 状态查询仅挂载在原管理员 quota 路由组，不扩展 Codex credits 合同。
+	router.GET("/quota/claude-reset-grants/:auth_index", func(c *gin.Context) {
+		reader, ok := provider.(interface {
+			GetClaudeResetGrants(context.Context, string) (quota.ClaudeResetGrantsResponse, error)
+		})
+		if !ok {
+			writeQuotaResetCreditsError(c, http.StatusBadRequest, quota.ErrUnsupportedType)
+			return
+		}
+		response, err := reader.GetClaudeResetGrants(c.Request.Context(), c.Param("auth_index"))
+		if err != nil {
+			writeQuotaResetCreditsError(c, quotaProviderErrorStatus(err), err)
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	})
 	router.POST("/quota/reset", func(c *gin.Context) {
 		if provider == nil {
 			writeInternalError(c, "quota provider is not configured", nil)
@@ -264,7 +281,9 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 		}
 
 		var request struct {
-			AuthIndex string `json:"auth_index"`
+			AuthIndex      string `json:"auth_index"`
+			GrantID        string `json:"grant_id"`
+			OrganizationID string `json:"organization_id"`
 		}
 		if err := c.ShouldBindJSON(&request); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_index is required"})
@@ -276,7 +295,7 @@ func registerQuotaRoutes(router gin.IRoutes, provider QuotaProvider) {
 			return
 		}
 
-		response, err := provider.Reset(c.Request.Context(), quota.ResetRequest{AuthIndex: authIndex})
+		response, err := provider.Reset(c.Request.Context(), quota.ResetRequest{AuthIndex: authIndex, GrantID: request.GrantID, OrganizationID: request.OrganizationID})
 		if err != nil {
 			switch {
 			case errors.Is(err, quota.ErrValidation):

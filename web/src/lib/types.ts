@@ -478,6 +478,7 @@ export interface UsageQuotaWindow {
 }
 
 export interface UsageQuotaRow {
+  usageBreakdown?: { product: string; usedPercent?: number }[]
   key: string
   label?: string
   scope?: string
@@ -504,6 +505,38 @@ export interface UsageQuotaCheckResponse {
   quota: UsageQuotaRow[]
   subscription?: UsageSubscriptionInfo
   rateLimitResetCreditsAvailableCount?: number | null
+  claudeResetGrants?: ClaudeResetGrantStatus
+}
+
+export interface ClaudeResetGrant {
+  id: string
+  label?: string
+  resetsTotal: number
+  resetsLeft: number
+  startsAt?: string
+  endsAt?: string
+  clears: string[]
+  paused: boolean
+  usableNow: boolean
+  useRequiresLimit: boolean
+}
+
+export interface ClaudeResetGrantStatus {
+  eligible: boolean
+  ineligibleReason?: string
+  atLimit: boolean
+  grants: ClaudeResetGrant[]
+  nextGrantId?: string
+  weeklyResetsAt?: string
+  cooldownUntil?: string
+  availableCount: number
+}
+
+export interface ClaudeResetGrantsResponse {
+  authIndex: string
+  status: ClaudeResetGrantStatus | null
+  selectedGrantId?: string
+  organizationId?: string
 }
 
 export interface UsageQuotaUpstreamResponse {

@@ -414,15 +414,12 @@ describe('CredentialRequestEventsList', () => {
     ).find((element) => element.textContent === value)
 
     const apiKeyTarget = findValue(longApiKey)
-    const requestTypeTarget = findValue('SSE')
     expect(apiKeyTarget!.tabIndex).toBe(0)
-    expect(requestTypeTarget!.tabIndex).toBe(-1)
 
     await act(async () => apiKeyTarget!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
     expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(longApiKey)
     await act(async () => apiKeyTarget!.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })))
 
-    await act(async () => requestTypeTarget!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
     expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
 
     await act(async () => container.querySelector<HTMLButtonElement>('[data-credential-request-event-toggle="1"]')!.click())

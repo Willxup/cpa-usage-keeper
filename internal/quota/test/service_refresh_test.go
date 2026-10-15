@@ -983,6 +983,12 @@ func TestInspectionStatusClassifiesLimitReachedByKnownAuthFileType(t *testing.T)
 			wantLimitReached: 1,
 		},
 		{
+			name:       "xai legacy product flag does not exhaust shared quota",
+			identity:   entities.UsageIdentity{Identity: "xai-auth", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeAuthFile},
+			quota:      []QuotaRow{{Key: "billing.weekly", LimitReached: boolPtr(false)}, {Key: "billing.weekly.product.grokbuild", Scope: "product", LimitReached: boolPtr(true)}},
+			wantStatus: "normal", wantNormal: 1,
+		},
+		{
 			name:     "xai limit reached flag",
 			identity: entities.UsageIdentity{Identity: "xai-auth", Name: "xAI", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeAuthFile},
 			quota: []QuotaRow{{
@@ -1430,4 +1436,29 @@ func queueManualQuotaRefresh(t *testing.T, service *Service, authIndexes ...stri
 		t.Fatalf("Refresh: %v", err)
 	}
 	return response
+}
+
+func TestRefreshCachesXAISharedUsageBreakdown(t *testing.T) {
+	db := openQuotaTestDatabase(t)
+	seedUsageIdentity(t, db, entities.UsageIdentity{Identity: "xai-auth", Provider: "xai", Type: "xai", AuthType: entities.UsageIdentityAuthTypeAuthFile, FileName: new("xai.json")})
+	handler := &refreshHandlerStub{output: ProviderOutput{Provider: "xai", Result: XAIResult{Weekly: &XAIBillingPayload{Config: &XAIBillingConfig{CreditUsagePercent: floatPtr(16), ProductUsage: []XAIBillingProductUsage{{Product: "GrokBuild", UsagePercent: floatPtr(14)}, {Product: "GrokChat", UsagePercent: floatPtr(2)}}}}}}}
+	service := newQuotaRefreshService(t, db, NewProviderRegistry(map[string]ProviderHandler{"xai": handler}))
+	response := queueManualQuotaRefresh(t, service, "xai-auth")
+	task := waitForRefreshTask(t, service, response.Tasks[0].AuthIndex, RefreshTaskStatusCompleted)
+	cache, err := service.GetCachedQuota(context.Background(), CacheRequest{AuthIndexes: []string{"xai-auth"}})
+	if err != nil || len(cache.Items) != 1 {
+		t.Fatalf("cache failed: %+v %v", cache, err)
+	}
+	for _, result := range []*CheckResponse{task.Quota, cache.Items[0].Quota} {
+		if result == nil || len(result.Quota) != 1 {
+			t.Fatalf("expected one cached shared quota: %+v", result)
+		}
+		row := result.Quota[0]
+		if row.Key != "billing.weekly" || row.UsedPercent == nil || *row.UsedPercent != 16 || len(row.UsageBreakdown) != 2 {
+			t.Fatalf("unexpected shared quota: %+v", row)
+		}
+		if row.UsageBreakdown[0].Product != "GrokBuild" || *row.UsageBreakdown[0].UsedPercent != 14 || row.UsageBreakdown[1].Product != "GrokChat" || *row.UsageBreakdown[1].UsedPercent != 2 {
+			t.Fatalf("unexpected breakdown: %+v", row.UsageBreakdown)
+		}
+	}
 }

@@ -11,6 +11,9 @@ describe('credentialProviderFilters', () => {
       { type: 'devin', count: 9 },
       { type: 'gemini', count: 2 },
       { type: 'kimi', count: 4 },
+      { type: 'kimi-ai', count: 2 },
+      { type: 'kimi.ai', count: 3 },
+      { type: 'kimi.com', count: 1 },
       { type: 'gemini-cli', count: 4 },
       { type: 'iflow', count: 5 },
       { type: 'xai', count: 6 },
@@ -21,19 +24,19 @@ describe('credentialProviderFilters', () => {
     ]
     const options = buildCredentialProviderFilterOptions('auth-files', counts)
     expect(options.map((option) => [option.key, option.count])).toEqual([
-      ['all', 64],
+      ['all', 70],
       ['antigravity', 1],
       ['claude', 2],
       ['codex', 3],
       ['devin', 9],
       ['gemini', 6],
-      ['kimi', 4],
+      ['kimi', 10],
       ['xai', 6],
       ['vertex', 7],
     ])
     expect(credentialProviderFilterTypes('auth-files', 'gemini')).toEqual(['gemini', 'gemini-cli'])
     expect(credentialProviderFilterTypes('auth-files', 'devin')).toEqual(['devin'])
-    expect(credentialProviderFilterTypes('auth-files', 'kimi')).toEqual(['kimi'])
+    expect(credentialProviderFilterTypes('auth-files', 'kimi')).toEqual(['kimi', 'kimi-ai', 'kimi.ai', 'kimi.com'])
     expect(credentialProviderFilterTypes('auth-files', 'xai')).toEqual(['xai'])
     expect(credentialProviderFilterTypes('auth-files', 'vertex')).toEqual(['vertex'])
   })

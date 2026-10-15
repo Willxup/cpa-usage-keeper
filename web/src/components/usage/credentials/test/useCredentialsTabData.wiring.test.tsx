@@ -17,7 +17,7 @@ vi.mock('../useCredentialPages', () => ({
   useCredentialPages: () => ({ authFileIdentities: [], aiProviderIdentities: [], refresh: mocks.refreshPages }),
 }))
 vi.mock('../useQuotaCache', () => ({
-  useQuotaCache: () => ({ quotaResponseByAuthIndex: {}, cachedQuotaStateByAuthIndex: {}, refreshQuotaCache: mocks.refreshCache }),
+  useQuotaCache: () => ({ quotaResponseByAuthIndex: {}, quotaStateByAuthIndex: {}, applyRefreshUpdates: vi.fn(), refreshQuotaCache: mocks.refreshCache }),
 }))
 vi.mock('../useQuotaRefreshTasks', async (importOriginal) => ({
   ...await importOriginal<typeof import('../useQuotaRefreshTasks')>(),

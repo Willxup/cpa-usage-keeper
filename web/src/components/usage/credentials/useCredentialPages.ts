@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, fetchUsageIdentitiesPage, resetUsageIdentityStats, type UsageIdentityPageSort } from '@/lib/api'
 import type { UsageIdentity, UsageIdentityTypeCount } from '@/lib/types'
-import { credentialProviderFilterTypes, type CredentialProviderFilterKey } from './credentialProviderFilters'
+import { stripAppBasePath } from '@/lib/usageNavigation'
+import { credentialProviderFilterTypes, resolveCredentialProviderFilterFromSearch, type CredentialProviderFilterKey } from './credentialProviderFilters'
 import { loadCredentialListPreferences, persistCredentialListPreferences } from './credentialListPreferences'
 
 interface UseCredentialPagesOptions {
@@ -33,10 +34,20 @@ const getInitialAiProviderActiveOnly = () => {
   return window.localStorage.getItem(AI_PROVIDER_ACTIVE_ONLY_STORAGE_KEY) === 'true'
 }
 
-const getInitialListPreferences = () => ({
-  authFile: loadCredentialListPreferences('auth-files'),
-  aiProvider: loadCredentialListPreferences('ai-provider'),
-})
+const getInitialListPreferences = () => {
+  const authFile = loadCredentialListPreferences('auth-files')
+  const aiProvider = loadCredentialListPreferences('ai-provider')
+  if (typeof window !== 'undefined') {
+    const path = stripAppBasePath(window.location.pathname, window.__APP_BASE_PATH__)
+    // 只覆盖当前路由的初始筛选，不调用会持久化的 setter，也不污染另一分区。
+    if (path === '/auth-files') {
+      authFile.providerFilter = resolveCredentialProviderFilterFromSearch('auth-files', window.location.search) ?? authFile.providerFilter
+    } else if (path === '/ai-provider') {
+      aiProvider.providerFilter = resolveCredentialProviderFilterFromSearch('ai-provider', window.location.search) ?? aiProvider.providerFilter
+    }
+  }
+  return { authFile, aiProvider }
+}
 
 export interface CredentialPagesState {
   authFileIdentities: UsageIdentity[]

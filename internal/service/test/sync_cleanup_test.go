@@ -3,6 +3,7 @@ package test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -113,4 +114,52 @@ func captureSyncCleanupLogs(t *testing.T, level logrus.Level) *bytes.Buffer {
 		logrus.SetLevel(previousLevel)
 	})
 	return logs
+}
+
+func TestSyncServiceArchiveRetention(t *testing.T) {
+	for _, production := range []bool{false, true} {
+		t.Run(fmt.Sprint(production), func(t *testing.T) {
+			db := openUsageServiceTestDatabase(t)
+			now := time.Now()
+			syncer := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{Now: func() time.Time { return now }, UsageRawRetentionDays: 90})
+			if production {
+				syncer = service.NewSyncService(db, config.Config{UsageRawRetentionDays: 90})
+			}
+			seedSyncCleanupUsageEventsAt(t, db, now.AddDate(0, 0, -100), now.AddDate(0, 0, -60))
+			cold := entities.UsageEventArchive{ID: 1000, EventKey: "previous-archive", Timestamp: now.AddDate(0, 0, -200)}
+			if err := db.Create(&cold).Error; err != nil {
+				t.Fatal(err)
+			}
+			logs := captureSyncCleanupLogs(t, logrus.DebugLevel)
+			if err := syncer.CleanupStorage(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			var count int64
+			if err := db.Model(&entities.UsageEvent{}).Count(&count).Error; err != nil {
+				t.Fatal(err)
+			}
+			if count != 2 {
+				t.Fatal("lagging hot events must remain")
+			}
+			catchUpSyncCleanupAggregations(t, db, now)
+			if err := syncer.CleanupStorage(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Model(&entities.UsageEventArchive{}).Count(&count).Error; err != nil {
+				t.Fatal(err)
+			}
+			if count != 0 {
+				t.Fatalf("expired archive retained: %d", count)
+			}
+			if err := db.Model(&entities.UsageEvent{}).Count(&count).Error; err != nil {
+				t.Fatal(err)
+			}
+			if count != 1 {
+				t.Fatalf("expected 60-day hot event retained, got %d", count)
+			}
+			if !strings.Contains(logs.String(), "usage_events_archive_deleted=1") {
+				t.Fatal("missing deletion count")
+			}
+		})
+	}
 }

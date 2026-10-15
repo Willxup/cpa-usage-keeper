@@ -351,7 +351,7 @@ func InsertUsageEvents(db *gorm.DB, events []entities.UsageEvent) (int, int, err
 const usageEventsRetentionDays = 90
 
 // CleanupStorage 是每日维护任务的统一仓储入口：先清 inbox、归档 raw events，再清限期统计并条件式整理空闲页。
-func CleanupStorage(db *gorm.DB, now time.Time) (dto.StorageCleanupResult, error) {
+func CleanupStorage(db *gorm.DB, now time.Time, rawRetentionDays int) (dto.StorageCleanupResult, error) {
 	redisResult, err := CleanupRedisUsageInbox(db, now)
 	if err != nil {
 		return dto.StorageCleanupResult{RedisInbox: redisResult}, err
@@ -362,6 +362,11 @@ func CleanupStorage(db *gorm.DB, now time.Time) (dto.StorageCleanupResult, error
 		UsageEventsArchived:      usageEventsArchive.Archived,
 		UsageEventsArchiveStatus: usageEventsArchive.Status,
 	}
+	if err != nil {
+		return result, err
+	}
+	// 仅在归档步骤成功后清理冷表，热表及聚合水位保护保持原样。
+	result.UsageEventsArchiveDeleted, err = cleanupUsageEventArchive(db, now, rawRetentionDays)
 	if err != nil {
 		return result, err
 	}
