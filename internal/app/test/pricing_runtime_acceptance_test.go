@@ -27,6 +27,9 @@ func TestPricingRuntimeHTTPUsesCompleteServices(t *testing.T) {
 	cfg := pricingRuntimeConfig(t)
 	application, baseURL, stop := startPricingRuntime(t, cfg)
 	waitPricingRuntimePhase(t, baseURL, "ready")
+	if status, body := pricingRuntimeRequest(t, http.MethodGet, baseURL+"/readyz", nil); status != http.StatusOK {
+		t.Fatalf("fresh startup readiness: %d %s", status, body)
+	}
 	status, body := pricingRuntimeRequest(t, http.MethodPut, baseURL+"/api/v1/pricing/models", []byte(`{
 		"model":"provider/model", "pricing_style":"openai",
 		"base_prices":{"input":2,"output":0,"cache_read":0,"cache_write":0},
@@ -147,6 +150,10 @@ func TestPricingRuntimeFailureKeepsPublicShell(t *testing.T) {
 	status, body := pricingRuntimeRequest(t, http.MethodGet, baseURL+"/healthz", nil)
 	if status != http.StatusOK {
 		t.Fatalf("failed startup health: %d %s", status, body)
+	}
+	status, body = pricingRuntimeRequest(t, http.MethodGet, baseURL+"/readyz", nil)
+	if status != http.StatusServiceUnavailable || !bytes.Contains(body, []byte(`"phase":"failed"`)) {
+		t.Fatalf("failed startup readiness: %d %s", status, body)
 	}
 	status, body = pricingRuntimeRequest(t, http.MethodGet, baseURL+"/api/v1/pricing/models", nil)
 	if status != http.StatusServiceUnavailable || !bytes.Contains(body, []byte("migration_in_progress")) {

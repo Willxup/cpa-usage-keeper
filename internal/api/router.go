@@ -86,7 +86,7 @@ func NewRouter(
 	router := newRouterEngine(authConfig)
 
 	appGroup := router.Group(basePath)
-	registerHealthRoutes(appGroup)
+	registerHealthRoutes(appGroup, readyStartupStatus)
 
 	apiV1 := appGroup.Group("/api/v1")
 	registerStartupStatusRoute(apiV1, func() StartupStatus { return readyStartupStatus() })

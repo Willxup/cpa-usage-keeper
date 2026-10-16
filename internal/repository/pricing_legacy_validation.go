@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/overview"
@@ -93,7 +94,7 @@ func VerifyLegacyPricingData(ctx context.Context, reader *gorm.DB, baseline Pric
 			if !ok {
 				return fmt.Errorf("pricing M6 requires a SQLite connection")
 			}
-			return sqliteConn.RegisterFunc("pricing_overview_bucket", func(value string, daily bool) (string, error) {
+			if err := sqliteConn.RegisterFunc("pricing_overview_bucket", func(value string, daily bool) (string, error) {
 				timestamp, err := timeutil.ParseStorageTime(value)
 				if err != nil {
 					return "", err
@@ -103,7 +104,17 @@ func VerifyLegacyPricingData(ctx context.Context, reader *gorm.DB, baseline Pric
 				if daily {
 					bucket = day.BucketStart
 				}
-				return strconv.FormatInt(bucket.Unix(), 10), nil
+				return bucket.UTC().Format(time.RFC3339Nano), nil
+			}, true); err != nil {
+				return err
+			}
+			// 已存桶是写入公式产出的 instant；午夜跳时可能使它落在前一日，不能再次归日。
+			return sqliteConn.RegisterFunc("pricing_overview_instant", func(value string) (string, error) {
+				timestamp, err := timeutil.ParseStorageTime(value)
+				if err != nil {
+					return "", err
+				}
+				return timestamp.UTC().Format(time.RFC3339Nano), nil
 			}, true)
 		}); err != nil {
 			return fmt.Errorf("register pricing M6 bucket function: %w", err)
@@ -263,7 +274,7 @@ func pricingLegacyCloseCost(a, b float64) bool {
 func pricingLegacyCostGroupsSQL(table string) string {
 	keys := []string{"bucket_key"}
 	selects := []string{pricingOverviewBucketExpr("timestamp", table) + " AS bucket_key"}
-	statSelects := []string{pricingOverviewBucketExpr("bucket_start", table) + " AS bucket_key"}
+	statSelects := []string{"pricing_overview_instant(CAST(bucket_start AS TEXT)) AS bucket_key"}
 	for _, field := range pricingOverviewDimensions {
 		keys = append(keys, field)
 		selects = append(selects, pricingOverviewDimensionExpr(field)+" AS "+field)
@@ -465,7 +476,7 @@ func pricingOverviewEventGroupsSQL(table string, dims, counts, sources []string)
 }
 
 func pricingOverviewStatGroupsSQL(table string, dims, counts []string) string {
-	keys := []string{pricingOverviewBucketExpr("bucket_start", table) + " AS bucket_key"}
+	keys := []string{"pricing_overview_instant(CAST(bucket_start AS TEXT)) AS bucket_key"}
 	for _, field := range dims {
 		keys = append(keys, pricingOverviewDimensionExpr(field)+" AS "+field)
 	}

@@ -21,8 +21,9 @@ type PricingRestoreResult struct {
 }
 
 type pricingRestoreBaseline struct {
-	SchemaVersion int   `json:"schema_version"`
-	InboxMaxID    int64 `json:"inbox_max_id"`
+	SchemaVersion int    `json:"schema_version"`
+	InboxMaxID    int64  `json:"inbox_max_id"`
+	BackupSHA256  string `json:"backup_sha256"`
 }
 
 // RestorePricingBackup 从 M1 唯一备份生成新数据库，并按故障库 inbox 行 ID 补回之后收到的消息。
@@ -30,6 +31,10 @@ type pricingRestoreBaseline struct {
 func RestorePricingBackup(ctx context.Context, backupPath, faultPath, outputPath string) (PricingRestoreResult, error) {
 	var result PricingRestoreResult
 	backupPath, faultPath, outputPath, err := pricingRestorePaths(backupPath, faultPath, outputPath)
+	if err != nil {
+		return result, err
+	}
+	fingerprint, err := PricingBackupSHA256(ctx, backupPath)
 	if err != nil {
 		return result, err
 	}
@@ -66,7 +71,7 @@ func RestorePricingBackup(ctx context.Context, backupPath, faultPath, outputPath
 	if err := backupDB.QueryRowContext(ctx, "SELECT COALESCE(MAX(id), 0) FROM redis_usage_inboxes").Scan(&result.BackupInboxMaxID); err != nil {
 		return result, fmt.Errorf("read M1 backup inbox boundary: %w", err)
 	}
-	if err := verifyPricingRestoreM1State(ctx, faultDB, backupPath, result.BackupInboxMaxID); err != nil {
+	if err := verifyPricingRestoreM1State(ctx, faultDB, fingerprint, result.BackupInboxMaxID); err != nil {
 		return result, err
 	}
 
@@ -187,25 +192,18 @@ func verifyPricingRestoreDatabase(ctx context.Context, db *sql.DB, label string)
 }
 
 // verifyPricingRestoreM1State 核对故障库记录的唯一 M1 文件身份及备份本身的 inbox ID 边界。
-func verifyPricingRestoreM1State(ctx context.Context, faultDB *sql.DB, backupPath string, maxID int64) error {
+func verifyPricingRestoreM1State(ctx context.Context, faultDB *sql.DB, selectedSHA256 string, maxID int64) error {
 	var kind string
+	var dataComplete bool
 	var recordedPath, baselineJSON sql.NullString
-	if err := faultDB.QueryRowContext(ctx, "SELECT init_kind, backup_path, baseline_json FROM pricing_migration_state WHERE id = 1").Scan(&kind, &recordedPath, &baselineJSON); err != nil {
+	if err := faultDB.QueryRowContext(ctx, "SELECT init_kind, data_complete, backup_path, baseline_json FROM pricing_migration_state WHERE id = 1").Scan(&kind, &dataComplete, &recordedPath, &baselineJSON); err != nil {
 		return fmt.Errorf("read fault M1 protection state: %w", err)
 	}
 	if kind != "legacy" || !recordedPath.Valid || !baselineJSON.Valid {
 		return fmt.Errorf("fault database has no complete legacy M1 protection state")
 	}
-	recordedInfo, err := os.Stat(recordedPath.String)
-	if err != nil {
-		return fmt.Errorf("read recorded M1 backup path: %w", err)
-	}
-	actualInfo, err := os.Stat(backupPath)
-	if err != nil {
-		return fmt.Errorf("stat selected M1 backup: %w", err)
-	}
-	if !os.SameFile(recordedInfo, actualInfo) {
-		return fmt.Errorf("selected M1 backup differs from fault protection state")
+	if dataComplete {
+		return fmt.Errorf("pricing restore only supports incomplete legacy migrations; completed migrations may no longer have the inbox rows required for recovery")
 	}
 	var baseline pricingRestoreBaseline
 	if err := json.Unmarshal([]byte(baselineJSON.String), &baseline); err != nil {
@@ -213,6 +211,18 @@ func verifyPricingRestoreM1State(ctx context.Context, faultDB *sql.DB, backupPat
 	}
 	if baseline.SchemaVersion != 1 || baseline.InboxMaxID < 0 || baseline.InboxMaxID != maxID {
 		return fmt.Errorf("recorded M1 inbox boundary differs from verified backup")
+	}
+	expectedSHA256 := baseline.BackupSHA256
+	if expectedSHA256 == "" {
+		// 兼容旧未完成状态：原路径是仅存的身份依据，必须仍能读取并与显式副本逐字节同 hash。
+		var err error
+		expectedSHA256, err = PricingBackupSHA256(ctx, recordedPath.String)
+		if err != nil {
+			return fmt.Errorf("legacy M1 state has no recorded SHA-256 and the original backup cannot be verified; cannot prove selected backup identity: %w", err)
+		}
+	}
+	if selectedSHA256 != expectedSHA256 {
+		return fmt.Errorf("selected M1 backup SHA-256 differs from fault protection state")
 	}
 	return nil
 }

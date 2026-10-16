@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -37,6 +38,7 @@ type PricingLegacyOverviewEvidence struct {
 // PricingLegacyBaseline 只保存可复算的小型元数据；逐事件原文及旧分组行留在唯一备份文件。
 type PricingLegacyBaseline struct {
 	SchemaVersion      int                           `json:"schema_version"`
+	BackupSHA256       string                        `json:"backup_sha256,omitempty"`
 	SchemaMigrations   []string                      `json:"schema_migrations"`
 	SchemaColumns      map[string][]string           `json:"schema_columns"`
 	ModelPriceSettings []map[string]any              `json:"model_price_settings"`
@@ -79,7 +81,18 @@ func ProtectPricingLegacyMigration(ctx context.Context, writer, reader *gorm.DB,
 		if err != nil {
 			return PricingLegacyBaseline{}, err
 		}
-		backupDB, closeBackup, err := openVerifiedPricingBackup(ctx, *state.BackupPath)
+		path, err := resolvePricingLegacyBackup(*state.BackupPath, backupDir, stored.BackupSHA256)
+		if err != nil {
+			return PricingLegacyBaseline{}, err
+		}
+		fingerprint, err := backup.PricingBackupSHA256(ctx, path)
+		if err != nil {
+			return PricingLegacyBaseline{}, err
+		}
+		if stored.BackupSHA256 != "" && stored.BackupSHA256 != fingerprint {
+			return PricingLegacyBaseline{}, fmt.Errorf("recorded M1 backup SHA-256 differs from backup")
+		}
+		backupDB, closeBackup, err := openVerifiedPricingBackup(ctx, path)
 		if err != nil {
 			return PricingLegacyBaseline{}, err
 		}
@@ -91,6 +104,7 @@ func ProtectPricingLegacyMigration(ctx context.Context, writer, reader *gorm.DB,
 		// M3 只能追加 fixed 子对象；复验 M1 唯一备份时不把该合法扩展与原备份误比。
 		originalEvidence := stored
 		originalEvidence.Fixed = nil
+		originalEvidence.BackupSHA256 = ""
 		storedJSON, err := json.Marshal(originalEvidence)
 		if err != nil {
 			return PricingLegacyBaseline{}, fmt.Errorf("encode recorded pricing baseline: %w", err)
@@ -101,6 +115,23 @@ func ProtectPricingLegacyMigration(ctx context.Context, writer, reader *gorm.DB,
 		}
 		if !bytes.Equal(storedJSON, currentJSON) {
 			return PricingLegacyBaseline{}, fmt.Errorf("recorded pricing baseline differs from backup")
+		}
+		if stored.BackupSHA256 == "" || path != *state.BackupPath {
+			// 旧状态只在原文件复验后补指纹；搬迁只接受已知指纹的精确候选，验完再 CAS 改路径。
+			stored.BackupSHA256 = fingerprint
+			encoded, err := json.Marshal(stored)
+			if err != nil {
+				return PricingLegacyBaseline{}, fmt.Errorf("encode verified M1 identity: %w", err)
+			}
+			result := writer.Clauses(dbresolver.Write).WithContext(ctx).Model(&entities.PricingMigrationState{}).
+				Where("id = ? AND backup_path = ? AND baseline_json = ?", 1, *state.BackupPath, *state.BaselineJSON).
+				Updates(map[string]any{"backup_path": path, "baseline_json": string(encoded)})
+			if result.Error != nil {
+				return PricingLegacyBaseline{}, fmt.Errorf("persist verified M1 identity: %w", result.Error)
+			}
+			if result.RowsAffected != 1 {
+				return PricingLegacyBaseline{}, fmt.Errorf("M1 protection state changed before identity update")
+			}
 		}
 		return stored, nil
 	}
@@ -128,6 +159,10 @@ func ProtectPricingLegacyMigration(ctx context.Context, writer, reader *gorm.DB,
 	if err != nil {
 		return PricingLegacyBaseline{}, err
 	}
+	baseline.BackupSHA256, err = backup.PricingBackupSHA256(ctx, path)
+	if err != nil {
+		return PricingLegacyBaseline{}, err
+	}
 	encoded, err := json.Marshal(baseline)
 	if err != nil {
 		return PricingLegacyBaseline{}, fmt.Errorf("encode pricing legacy baseline: %w", err)
@@ -147,6 +182,27 @@ func ProtectPricingLegacyMigration(ctx context.Context, writer, reader *gorm.DB,
 		return PricingLegacyBaseline{}, fmt.Errorf("commit pricing legacy protection: %w", err)
 	}
 	return baseline, nil
+}
+
+// resolvePricingLegacyBackup 只允许已持久指纹且原路径缺失时，在配置目录按原日期/文件名定点定位。
+// 权限错误或原文件存在时不搜索替代文件；无指纹的旧状态不能据弱元数据认领搬迁后的库。
+func resolvePricingLegacyBackup(recordedPath, backupDir, fingerprint string) (string, error) {
+	_, err := os.Stat(recordedPath)
+	if err == nil {
+		return recordedPath, nil
+	}
+	if !os.IsNotExist(err) || fingerprint == "" || strings.TrimSpace(backupDir) == "" {
+		return "", fmt.Errorf("original M1 backup is unavailable; automatic relocation requires a recorded SHA-256 and the original date/file name under the configured backup directory: %w", err)
+	}
+	day := filepath.Base(filepath.Dir(recordedPath))
+	if _, err := time.Parse("2006-01-02", day); err != nil {
+		return "", fmt.Errorf("recorded M1 backup has no valid date directory")
+	}
+	path, err := filepath.Abs(filepath.Join(backupDir, day, filepath.Base(recordedPath)))
+	if err != nil {
+		return "", fmt.Errorf("resolve relocated M1 backup: %w", err)
+	}
+	return path, nil
 }
 
 // decodePricingLegacyBaseline 只接受当前持久基线版本，避免重启后把未知格式当作保护完成。

@@ -9,6 +9,7 @@ import (
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
+	"cpa-usage-keeper/internal/timeutil"
 )
 
 func TestVerifyLegacyPricingDataAcceptsCoveredHotColdAndExplicitZero(t *testing.T) {
@@ -70,6 +71,7 @@ func TestVerifyLegacyPricingDataRejectsChangedFactsAndCosts(t *testing.T) {
 	}{
 		{"missing rebuilt group", "DELETE FROM usage_overview_daily_stats WHERE id = 1", "differs"},
 		{"wrong rebuilt requests", "UPDATE usage_overview_hourly_stats SET request_count = request_count + 1 WHERE id = 1", "request_count"},
+		{"wrong subsecond bucket", "UPDATE usage_overview_hourly_stats SET bucket_start = '2026-09-01T10:00:00.000000001Z' WHERE id = 1", "differs"},
 		{"hot NULL fee", "UPDATE usage_events SET cost_usd = NULL WHERE id = 1", "cost_usd"},
 		{"cold NULL fee", "UPDATE usage_events_archive SET cost_usd = NULL WHERE id = 2", "cost_usd"},
 		{"NULL availability", "UPDATE usage_events SET cost_available = NULL WHERE id = 3", "cost_available"},
@@ -101,6 +103,7 @@ type pricingLegacyFixtureOptions struct {
 func pricingLegacyValidationFixture(t *testing.T, options pricingLegacyFixtureOptions) (publishedPricingEventFixture, repository.PricingLegacyBaseline) {
 	t.Helper()
 	fixture := openPublishedPricingEventFixture(t)
+	alignPublishedPricingOverviewBuckets(t, fixture)
 	if options.empty {
 		for _, statement := range []string{
 			"DELETE FROM usage_events", "DELETE FROM usage_events_archive",
@@ -142,7 +145,12 @@ func pricingLegacyValidationFixture(t *testing.T, options pricingLegacyFixtureOp
 		}
 		archiveBucket, missingBucket := "2026-08-01T10:00:00Z", "2026-09-01T10:00:00Z"
 		if table == "usage_overview_daily_stats" {
-			archiveBucket, missingBucket = "2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"
+			// 夹具写入项目时区真正的午夜 instant；M6 不负责修正错误的人工桶。
+			localDay := func(month time.Month) string {
+				instant := time.Date(2026, month, 1, 10, 0, 0, 0, time.UTC).In(time.Local)
+				return timeutil.FormatStorageTime(time.Date(instant.Year(), instant.Month(), instant.Day(), 0, 0, 0, 0, time.Local))
+			}
+			archiveBucket, missingBucket = localDay(time.August), localDay(time.September)
 		}
 		insert := `INSERT INTO ` + table + ` (id,bucket_start,api_group_key,model,auth_index,model_alias,service_tier,response_service_tier,reasoning_effort,endpoint,executor_type,request_count,success_count,failure_count,input_tokens,output_tokens,reasoning_tokens,cached_tokens,cache_read_tokens,cache_creation_tokens,total_tokens)
 		VALUES (2,?,'','model-a','','','','','','','',1,1,0,50,10,0,0,0,0,60)`

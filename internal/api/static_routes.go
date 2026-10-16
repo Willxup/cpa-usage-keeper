@@ -48,6 +48,12 @@ func registerStaticRoutes(router *gin.Engine, appGroup *gin.RouterGroup, staticF
 			c.Status(http.StatusNotFound)
 			return
 		}
+		// 探针可能携带未规范化的部署前缀；只把就绪 GET 定向到真实路由，避免 SPA 兜底误报成功。
+		if c.Request.Method == http.MethodGet && requestPath == "/readyz" && c.Request.URL.Path != basePath+"/readyz" {
+			setNoStoreHeaders(c)
+			c.Redirect(http.StatusTemporaryRedirect, basePath+"/readyz")
+			return
+		}
 		if strings.HasPrefix(requestPath, "/api/") || missingAPI != nil && requestPath == "/api" {
 			if missingAPI != nil {
 				missingAPI(c)

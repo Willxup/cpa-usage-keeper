@@ -112,6 +112,8 @@ jobs:
 
           CGO_ENABLED=1 GOOS="${GOOS}" GOARCH="${GOARCH}" CC="${CC}" \
             go build -trimpath -ldflags="-s -w" -o "${package_dir}/cpa-usage-keeper" ./cmd/server/main.go
+          CGO_ENABLED=1 GOOS="${GOOS}" GOARCH="${GOARCH}" CC="${CC}" \
+            go build -trimpath -ldflags="-s -w" -o "${package_dir}/pricing-restore" ./cmd/pricing-restore
           cp .env.example README.md README.zh.md LICENSE "${package_dir}/"
           cp deploy/cpa-usage-keeper.example.service "${package_dir}/cpa-usage-keeper.service"
           tar -czf "dist/${package_name}.tar.gz" -C dist "${package_name}"
@@ -176,6 +178,8 @@ jobs:
 
           CGO_ENABLED=1 GOOS="${GOOS}" GOARCH="${GOARCH}" \
             go build -trimpath -ldflags="-s -w" -o "${package_dir}/cpa-usage-keeper" ./cmd/server/main.go
+          CGO_ENABLED=1 GOOS="${GOOS}" GOARCH="${GOARCH}" \
+            go build -trimpath -ldflags="-s -w" -o "${package_dir}/pricing-restore" ./cmd/pricing-restore
           cp .env.example README.md README.zh.md LICENSE "${package_dir}/"
           tar -czf "dist/${package_name}.tar.gz" -C dist "${package_name}"
 
@@ -255,6 +259,8 @@ jobs:
 
           CGO_ENABLED=1 GOOS="${GOOS}" GOARCH="${GOARCH}" CC="${CC}" \
             go build -trimpath -ldflags="-s -w" -o "${package_dir}/cpa-usage-keeper.exe" ./cmd/server/main.go
+          CGO_ENABLED=1 GOOS="${GOOS}" GOARCH="${GOARCH}" CC="${CC}" \
+            go build -trimpath -ldflags="-s -w" -o "${package_dir}/pricing-restore.exe" ./cmd/pricing-restore
           cp .env.example README.md README.zh.md LICENSE "${package_dir}/"
 
       - name: Archive binary package

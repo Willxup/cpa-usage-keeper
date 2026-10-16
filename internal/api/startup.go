@@ -48,7 +48,7 @@ func NewStartupShell(staticFS fs.FS, authConfig AuthConfig, basePath string) *St
 	shell := &StartupShell{}
 	router := newRouterEngine(authConfig)
 	appGroup := router.Group(basePath)
-	registerHealthRoutes(appGroup)
+	registerHealthRoutes(appGroup, shell.Status)
 	apiV1 := appGroup.Group("/api/v1")
 	registerStartupStatusRoute(apiV1, shell.Status)
 	registerStaticRoutes(router, appGroup, staticFS, authConfig.FrameAncestorOrigins, basePath, func(c *gin.Context) {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/api"
+	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/repository"
 	"github.com/sirupsen/logrus"
@@ -151,6 +152,14 @@ func (a *App) RunContext(ctx context.Context) error {
 		if err := a.StartupShell.ActivateReady(a.Router); err != nil {
 			logrus.WithError(err).Error("activate business router")
 			_ = a.StartupShell.Publish(api.StartupPhaseFailed, nil)
+		} else {
+			// 就绪后只检查一次，版本提示不参与迁移、收数或本地历史读取的门禁。
+			a.startBackgroundTask(func() {
+				client := cpa.NewClient(a.Config.CPABaseURL, a.Config.CPAManagementKey, a.Config.RequestTimeout, a.Config.TLSSkipVerify)
+				if _, err := client.CheckMinimumVersion(a.backgroundContext); err != nil && a.backgroundContext.Err() == nil {
+					logrus.Warn(err)
+				}
+			})
 		}
 	}
 	select {

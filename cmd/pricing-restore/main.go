@@ -13,8 +13,8 @@ import (
 )
 
 func main() {
-	backupPath := flag.String("backup", "", "verified M1 backup database path")
-	faultPath := flag.String("fault", "", "stopped fault database path")
+	backupPath := flag.String("backup", "", "matching M1 backup database path (or byte-identical copy)")
+	faultPath := flag.String("fault", "", "stopped database with an incomplete legacy migration")
 	outputPath := flag.String("out", "", "new restore database path (must not exist)")
 	flag.Parse()
 	if *backupPath == "" || *faultPath == "" || *outputPath == "" || flag.NArg() != 0 {
