@@ -376,13 +376,12 @@ describe('credentialViewModels', () => {
     })
   })
 
-  it('keeps xai weekly, monthly, pay-as-you-go, and product rows in provider order', () => {
+  it('keeps xai billing order with product usage nested in weekly', () => {
     const quotas = new Map<string, UsageQuotaCheckResponse>([
       ['xai-auth', quotaResponse('xai-auth', [
-        { key: 'billing.weekly', label: 'Weekly', scope: 'billing', metric: 'weekly', usedPercent: 25, window: { seconds: 604800 }, resetAt: '2026-07-13T00:00:00Z' },
+        { key: 'billing.weekly', label: 'Weekly', scope: 'billing', metric: 'weekly', usageBreakdown: [{ product: 'Grok 4', usedPercent: 80 }], usedPercent: 25, window: { seconds: 604800 }, resetAt: '2026-07-13T00:00:00Z' },
         { key: 'billing.monthly', label: 'Monthly Spend', scope: 'billing', metric: 'usd_cents', used: 500, limit: 1000, remaining: 500, usedPercent: 50, window: { seconds: 2592000 }, resetAt: '2026-08-01T00:00:00Z' },
         { key: 'billing.on_demand', label: 'Pay-as-you-go', scope: 'billing', metric: 'usd_cents', used: 100, limit: 500, remaining: 400, usedPercent: 20, window: { seconds: 2592000 }, resetAt: '2026-08-01T00:00:00Z' },
-        { key: 'billing.weekly.product.grok+4', label: 'Grok 4 Usage', scope: 'product', metric: 'Grok 4', usedPercent: 80, window: { seconds: 604800 }, resetAt: '2026-07-13T00:00:00Z' },
       ])],
     ])
 
@@ -392,13 +391,12 @@ describe('credentialViewModels', () => {
       'Weekly',
       'Monthly Spend',
       'Pay-as-you-go',
-      'Grok 4 Usage',
     ])
+    expect(rows[0].displayQuotas[0].usageBreakdown).toEqual([{ product: 'Grok 4', usedPercent: 80 }])
     expect(rows[0].displayQuotas.map((quota) => quota.billingUsage)).toEqual([
       undefined,
       { used: '$5.00', limit: '$10.00', remaining: '$5.00' },
       { used: '$1.00', limit: '$5.00', remaining: '$4.00' },
-      undefined,
     ])
   })
 
@@ -505,6 +503,21 @@ describe('credentialViewModels', () => {
 
     expect(rows[0].displayQuotas.map((quota) => quota.label)).toEqual(['Monthly', 'Code Review Monthly', 'GPT-5.3-Codex-Spark Monthly'])
     expect(rows[0].displayQuotas.map((quota) => quota.barPercent)).toEqual([80, 60, 40])
+  })
+
+  it('displays international Kimi short and monthly quotas without changing its identity type', () => {
+    const quotas = new Map<string, UsageQuotaCheckResponse>([
+      ['kimi-ai-auth', quotaResponse('kimi-ai-auth', [
+        { key: 'limits.0', label: '5h', used: 25, limit: 100, remaining: 75, usedPercent: 25, window: { seconds: 18000 } },
+        { key: 'usages.limit_month_total', label: 'Monthly', used: 7.95, limit: 100, remaining: 92.05, usedPercent: 7.95, resetAt: '2026-11-05T00:00:00Z' },
+      ])],
+    ])
+
+    const rows = buildAuthFileCredentialRows([identity({ identity: 'kimi-ai-auth', provider: 'kimi-ai', type: 'kimi-ai' })], quotas)
+
+    expect(rows[0].identity.type).toBe('kimi-ai')
+    expect(rows[0].displayQuotas.map((quota) => quota.label)).toEqual(['5h', 'Monthly'])
+    expect(rows[0].displayQuotas.map((quota) => quota.barPercent)).toEqual([75, 92.05])
   })
 
   it('keeps unknown Codex windows displayable without showing a generic Window quota', () => {

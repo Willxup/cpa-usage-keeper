@@ -61,8 +61,13 @@ type queuedUsageDetail struct {
 	AuthType            string          `json:"auth_type"`
 	APIKey              string          `json:"api_key"`
 	RequestID           string          `json:"request_id"`
+	ExecutionID         *string         `json:"execution_id"`
+	TraceID             *string         `json:"trace_id"`
 	SessionID           string          `json:"session_id"`
 	ParentSessionID     string          `json:"parent_session_id"`
+	NodeKind            *string         `json:"node_kind"`
+	IsFork              *bool           `json:"is_fork"`
+	IsCompaction        *bool           `json:"is_compaction"`
 	Stream              *bool           `json:"stream"`
 	Fail                redisUsageFail  `json:"fail"`
 	ResponseHeaders     json.RawMessage `json:"response_headers"`
@@ -141,8 +146,13 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 		Endpoint:            strings.TrimSpace(d.Endpoint),
 		AuthType:            normalizeRedisAuthType(d.AuthType),
 		RequestID:           strings.TrimSpace(d.RequestID),
+		ExecutionID:         d.ExecutionID,
+		TraceID:             d.TraceID,
 		SessionID:           strings.TrimSpace(d.SessionID),
 		ParentSessionID:     trimRedisOptionalString(&d.ParentSessionID),
+		NodeKind:            d.NodeKind,
+		IsFork:              d.IsFork,
+		IsCompaction:        d.IsCompaction,
 		ClientIP:            d.clientIP(),
 		XForwardedFor:       d.XForwardedFor,
 		UserAgent:           d.UserAgent,

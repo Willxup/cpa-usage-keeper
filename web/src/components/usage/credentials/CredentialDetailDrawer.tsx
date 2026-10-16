@@ -12,6 +12,7 @@ import { CredentialErrorEventsList } from './CredentialErrorEventsList'
 import { CredentialHealthPanel } from './CredentialHealthPanel'
 import { CredentialPriorityBadge, cacheReadRateTone, credentialToneClassName, formatCredentialNumber, formatCredentialPercent, successRateTone } from './CredentialSectionShell'
 import { CredentialSubscriptionBadge } from './CredentialSubscriptionBadge'
+import { CredentialKimiSiteBadge } from './CredentialKimiSiteBadge'
 import { CredentialRequestEventsList } from './CredentialRequestEventsList'
 import { CodexQuotaHistoryPanel } from './CodexQuotaHistoryPanel'
 import { formatCredentialTimestamp, type CredentialDetailSelection } from './credentialViewModels'
@@ -419,6 +420,7 @@ export function CredentialDetailDrawer({
         </span>
       </div>
       <div className={styles.drawerTitleBadges}>
+        {selection.kind === 'auth-file' && <CredentialKimiSiteBadge identityType={identity.type} />}
         {selection.kind === 'auth-file' && selection.row.subscriptionBadge
           ? <CredentialSubscriptionBadge model={selection.row.subscriptionBadge} />
           : null}

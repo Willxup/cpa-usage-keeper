@@ -14,6 +14,7 @@ import { Modal } from '@/components/ui/Modal';
 import { IconRefreshCw } from '@/components/ui/icons';
 import { updateCredentialDetailStats } from '@/components/usage/credentials/credentialViewModels';
 import { CREDENTIAL_PAGES_REFRESH_INTERVAL_MS } from '@/components/usage/credentials/useCredentialPages';
+import { buildCredentialProviderSearch } from '@/components/usage/credentials/credentialProviderFilters';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useThemeStore } from '@/stores';
@@ -754,17 +755,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     const loadedTab = loadUsageTab();
     return isEmbeddedInCPAMC && loadedTab === 'ranking' ? DEFAULT_USAGE_TAB : loadedTab;
   });
-  const activateUsageTab = useCallback((tab: UsageTab) => {
-    setActiveTab(tab);
-    window.history.replaceState(null, '', appPath(getUsageTabPath(tab)) + cpamcEmbedSearch());
-  }, []);
-  const handleUsageTabNavigation = useCallback((event: ReactMouseEvent<HTMLAnchorElement>, tab: UsageTab) => {
-    // 普通左键保持现有无刷新切换；组合键和中键交给原生链接打开新页面。
-    if (!shouldHandleUsageNavigation(event.nativeEvent)) return;
-
-    event.preventDefault();
-    activateUsageTab(tab);
-  }, [activateUsageTab]);
   const [rankingScope, setRankingScope] = useState<RankingScope>(loadRankingScope);
   const handleRankingScopeChange = useCallback((scope: RankingScope) => {
     setRankingScope(scope);
@@ -1021,6 +1011,33 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     onPrioritySaved: () => setCredentialPriorityRevision((current) => current + 1),
   });
   const refreshCredentials = credentialsData.refresh;
+  const getUsageTabHref = useCallback((tab: UsageTab) => {
+    let search = tab === activeTab ? window.location.search : cpamcEmbedSearch();
+    if (tab === 'auth-files' || tab === 'ai-provider') {
+      search = buildCredentialProviderSearch(search, tab === 'auth-files' ? credentialsData.authFileProviderFilter : credentialsData.aiProviderProviderFilter);
+    } else {
+      search = cpamcEmbedSearch();
+    }
+    return appPath(getUsageTabPath(tab)) + search + (tab === activeTab ? window.location.hash : '');
+  }, [activeTab, credentialsData.authFileProviderFilter, credentialsData.aiProviderProviderFilter]);
+  const activateUsageTab = useCallback((tab: UsageTab) => {
+    window.history.replaceState(null, '', getUsageTabHref(tab));
+    setActiveTab(tab);
+  }, [getUsageTabHref]);
+  const handleUsageTabNavigation = useCallback((event: ReactMouseEvent<HTMLAnchorElement>, tab: UsageTab) => {
+    // 普通左键保持现有无刷新切换；组合键和中键交给原生链接打开新页面。
+    if (!shouldHandleUsageNavigation(event.nativeEvent)) return;
+    event.preventDefault();
+    activateUsageTab(tab);
+  }, [activateUsageTab]);
+  useEffect(() => {
+    if (activeTab !== 'auth-files' && activeTab !== 'ai-provider') return;
+    // 无参数入口也固定本标签页的筛选，避免刷新时再次读取其他标签页改过的默认偏好。
+    const href = getUsageTabHref(activeTab);
+    if (href !== window.location.pathname + window.location.search + window.location.hash) {
+      window.history.replaceState(null, '', href);
+    }
+  }, [activeTab, getUsageTabHref]);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
   const [analysisData, setAnalysisData] = useState<AnalysisResponse | null>(null);
@@ -2121,7 +2138,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 {tabOptions.map((option) => (
                   <a
                     key={option.value}
-                    href={appPath(getUsageTabPath(option.value)) + cpamcEmbedSearch()}
+                    href={getUsageTabHref(option.value)}
                     role="tab"
                     aria-selected={activeTab === option.value}
                     className={`${styles.tabPill} ${activeTab === option.value ? styles.tabPillActive : ''}`.trim()}
@@ -2206,7 +2223,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
             : <DashboardToolbar
               activeId={activeTab}
-              items={tabOptions.map((option) => ({ id: option.value, label: option.label, href: appPath(getUsageTabPath(option.value)) }))}
+              items={tabOptions.map((option) => ({ id: option.value, label: option.label, href: getUsageTabHref(option.value) }))}
               onNavigate={activateUsageTab}
               filters={showApiKeyFilter ? [
                 <Select

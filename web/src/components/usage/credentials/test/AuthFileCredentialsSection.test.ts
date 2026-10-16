@@ -55,6 +55,40 @@ describe('AuthFileCredentialsSection quota reset formatting', () => {
 })
 
 describe('AuthFileCredentialsSection title', () => {
+  it.each([
+    ['kimi', 'china', 'usage_stats.credentials_kimi_site_china'],
+    ['kimi-ai', 'international', 'usage_stats.credentials_kimi_site_international'],
+    ['kimi.ai', 'international', 'usage_stats.credentials_kimi_site_international'],
+    ['kimi.com', 'china', 'usage_stats.credentials_kimi_site_china'],
+  ])('shows the %s site beside expiry and priority below the credential name', (type, site, labelKey) => {
+    const row = createRow({
+      identity: { id: '1', identity: 'auth-1', type, is_deleted: false, priority: 1 },
+      displayName: 'Kimi Account',
+      remainingDaysLabel: '28d',
+      priorityLabel: 'P1',
+    })
+    const html = renderToStaticMarkup(createElement(AuthFileCredentialsSection, createAuthFileSectionProps({ rows: [row], total: 1 })))
+
+    expect(html).toContain(`data-kimi-site="${site}"`)
+    expect(html).toContain(labelKey)
+    expect(html.indexOf('Kimi Account')).toBeLessThan(html.indexOf(`data-kimi-site="${site}"`))
+    expect(html).toContain('28d')
+    expect(html).toContain('P1')
+  })
+
+  it('uses the Auth File type for the site and does not infer it from provider or base URL', () => {
+    const rows = [
+      createRow({ identity: { id: '1', identity: 'domestic', type: 'kimi', provider: 'kimi-ai', base_url: 'https://api.kimi.ai/coding', is_deleted: false } }),
+      createRow({ identity: { id: '2', identity: 'generic', type: 'generic', provider: 'kimi-ai', is_deleted: false } }),
+      createRow({ identity: { id: '3', identity: 'claude', type: 'claude', provider: 'claude', is_deleted: false } }),
+    ]
+    const html = renderToStaticMarkup(createElement(AuthFileCredentialsSection, createAuthFileSectionProps({ rows, total: 3 })))
+
+    expect(html.match(/data-kimi-site=/g)).toHaveLength(1)
+    expect(html).toContain('data-kimi-site="china"')
+    expect(html).not.toContain('data-kimi-site="international"')
+  })
+
   it('renders the Auth Files title without the Credentials eyebrow', () => {
     const html = renderToStaticMarkup(createElement(AuthFileCredentialsSection, createAuthFileSectionProps()))
 
@@ -466,10 +500,9 @@ describe('AuthFileCredentialsSection quota usage mode rendering', () => {
     const xaiRow = {
       ...row,
       displayQuotas: [
-        { ...quota, key: 'billing.weekly', label: 'Weekly', percent: 25, barPercent: 75 },
+        { ...quota, key: 'billing.weekly', label: 'Weekly', percent: 25, barPercent: 75, usageBreakdown: [{ product: 'Grok 4', usedPercent: 80 }] },
         { ...quota, key: 'billing.monthly', label: 'Monthly Spend', percent: 50, barPercent: 50, billingUsage: { used: '$5.00', limit: '$10.00', remaining: '$5.00' }, windowUsage: undefined },
         { ...quota, key: 'billing.on_demand', label: 'Pay-as-you-go', percent: 20, barPercent: 80, billingUsage: { used: '$1.00', limit: '$5.00', remaining: '$4.00' }, windowUsage: undefined },
-        { ...quota, key: 'billing.weekly.product.grok+4', label: 'Grok 4 Usage', percent: 80, barPercent: 20 },
       ],
     } as AuthFileCredentialRow
 
@@ -477,7 +510,8 @@ describe('AuthFileCredentialsSection quota usage mode rendering', () => {
 
     expect(html.indexOf('Weekly')).toBeLessThan(html.indexOf('Monthly Spend'))
     expect(html.indexOf('Monthly Spend')).toBeLessThan(html.indexOf('Pay-as-you-go'))
-    expect(html.indexOf('Pay-as-you-go')).toBeLessThan(html.indexOf('Grok 4 Usage'))
+    expect(html).toContain('credentials_quota_shared_usage')
+    expect(html).not.toContain('Grok 4 Usage')
   })
 })
 

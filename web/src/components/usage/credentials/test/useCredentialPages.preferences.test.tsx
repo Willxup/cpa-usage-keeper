@@ -35,6 +35,7 @@ describe('credential list preferences wiring', () => {
 
   beforeEach(() => {
     window.localStorage.clear()
+    window.history.replaceState(null, '', '/')
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -48,6 +49,7 @@ describe('credential list preferences wiring', () => {
     container.remove()
     latest = null
     fetchMock.mockRestore()
+    delete window.__APP_BASE_PATH__
   })
 
   it('starts from each section default when nothing is stored', async () => {
@@ -59,6 +61,32 @@ describe('credential list preferences wiring', () => {
     expect(latest?.aiProviderProviderFilter).toBe('all')
     expect(requestFor(fetchMock, '1')?.get('sort')).toBe('priority')
     expect(requestFor(fetchMock, '2')?.get('sort')).toBe('total_requests')
+  })
+
+  it.each([
+    ['auth-files', 'codex', '1', 'codex'],
+    ['ai-provider', 'openai', '2', 'openai'],
+    ['auth-files', 'all', '1', null],
+    ['auth-files', 'unknown', '1', 'claude'],
+    ['auth-files', 'openai', '1', 'claude'],
+    ['ai-provider', 'antigravity', '2', 'claude'],
+  ] as const)('resolves %s URL provider %s before the first request without saving it', async (scope, provider, authType, expectedType) => {
+    window.__APP_BASE_PATH__ = '/cpa'
+    window.history.replaceState(null, '', `/cpa/${scope}?provider=${provider}`)
+    for (const key of Object.values(CREDENTIAL_LIST_PREFERENCES_STORAGE_KEYS)) {
+      localStorage.setItem(key, JSON.stringify({ version: 1, sort: 'last_used_at', pageSize: 50, providerFilter: 'claude' }))
+    }
+    await act(async () => root.render(<Harness />))
+    const requests = fetchMock.mock.calls.map(([url]) => new URL(String(url), 'http://localhost'))
+      .filter((url) => url.searchParams.get('auth_type') === authType)
+    expect(requests.length).toBeGreaterThan(0)
+    expect(requests.every((url) => url.searchParams.get('type') === expectedType)).toBe(true)
+    expect(requestFor(fetchMock, authType === '1' ? '2' : '1')?.get('type')).toBe('claude')
+    expect(storedPreferences(scope).providerFilter).toBe('claude')
+    // 改分页、排序也不能把仅来自链接的 provider 写成默认偏好。
+    await act(async () => latest!.setAuthFilePageSize(20))
+    await act(async () => latest!.setAiProviderSort('total_tokens'))
+    expect(storedPreferences(scope).providerFilter).toBe('claude')
   })
 
   it('restores sort, page size and provider filter into the first request', async () => {

@@ -87,7 +87,7 @@ func TestArchiveExpiredUsageEventsPreservesOriginalRowAndHotSequence(t *testing.
 	previousMaxID := eventsMaxID(t, db)
 	seedArchiveCaughtUpCheckpoints(t, db, previousMaxID, now)
 
-	result, err := repository.CleanupStorage(db, now)
+	result, err := repository.CleanupStorage(db, now, 0)
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}

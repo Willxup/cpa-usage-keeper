@@ -735,13 +735,13 @@ export async function startUsageQuotaInspection(signal?: AbortSignal): Promise<U
 }
 
 
-export async function resetUsageQuota(authIndex: string, signal?: AbortSignal): Promise<UsageQuotaResetResponse> {
+export async function resetUsageQuota(authIndex: string, signal?: AbortSignal, grantId?: string, organizationId?: string): Promise<UsageQuotaResetResponse> {
   const response = await apiFetch(apiPath('/quota/reset'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ auth_index: authIndex }),
+    body: JSON.stringify({ auth_index: authIndex, ...(grantId ? { grant_id: grantId, organization_id: organizationId } : {}) }),
     signal,
   })
   if (!response.ok) {
@@ -754,6 +754,14 @@ export async function fetchUsageQuotaResetCredits(authIndex: string, signal?: Ab
   const response = await apiFetch(apiPath(`/quota/reset-credits/${encodeURIComponent(authIndex)}`), { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load quota reset credits: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchClaudeResetGrants(authIndex: string, signal?: AbortSignal): Promise<import('./types').ClaudeResetGrantsResponse> {
+  const response = await apiFetch(apiPath(`/quota/claude-reset-grants/${encodeURIComponent(authIndex)}`), { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load Claude reset grants: ${response.status}`)
   }
   return response.json()
 }

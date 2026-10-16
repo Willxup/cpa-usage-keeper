@@ -125,10 +125,11 @@ type CheckRequest struct {
 }
 
 type CheckResponse struct {
-	ID                                  string            `json:"id"`
-	Quota                               []QuotaRow        `json:"quota"`
-	Subscription                        *SubscriptionInfo `json:"subscription,omitempty"`
-	RateLimitResetCreditsAvailableCount *int              `json:"rateLimitResetCreditsAvailableCount,omitempty"`
+	ID                                  string                  `json:"id"`
+	Quota                               []QuotaRow              `json:"quota"`
+	Subscription                        *SubscriptionInfo       `json:"subscription,omitempty"`
+	RateLimitResetCreditsAvailableCount *int                    `json:"rateLimitResetCreditsAvailableCount,omitempty"`
+	ClaudeResetGrants                   *ClaudeResetGrantStatus `json:"claudeResetGrants,omitempty"`
 }
 
 func NewService(db *gorm.DB, caller ManagementClient, pricingCatalog *pricing.Catalog) *Service {
@@ -374,6 +375,9 @@ func (s *Service) check(ctx context.Context, request CheckRequest, beforeSubscri
 		ID:           authIndex,
 		Quota:        NormalizeQuotaRows(providerOutput),
 		Subscription: NormalizeSubscription(providerOutput),
+	}
+	if result, ok := providerOutput.Result.(ClaudeResult); ok && result.Usage != nil {
+		response.ClaudeResetGrants = result.Usage.ResetGrants
 	}
 	// 实时结果没有套餐时仅允许回退当前 Identity metadata；现在只有 Codex 具备该来源。
 	if response.Subscription == nil {

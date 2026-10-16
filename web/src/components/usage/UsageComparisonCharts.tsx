@@ -52,7 +52,7 @@ export function UsageComparisonCharts({ comparisons, loading, keyViewer = false,
         </div>
       </div>
     </div>
-    <Card title={t('usage_stats.comparison_token_trend')} className={styles.card} extra={
+    <Card title={t('usage_stats.comparison_token_trend')} subtitle={t('usage_stats.comparison_subtitle')} className={styles.card} extra={
       <span className={styles.total} data-comparison-total><strong>{items.length || !loading ? formatCompactNumber(total) : '—'}</strong><span>{t('usage_stats.comparison_tokens')}</span></span>
     }>
       <ComparisonArea key={dimension} dimension={dimension} comparisons={comparisons} loading={loading} isDark={isDark} isMobile={isMobile} />
@@ -79,7 +79,11 @@ function ComparisonArea({ dimension, comparisons, loading, isDark, isMobile }: C
     view.rows.reduce((sum, row) => sum + (hidden.has(row.key) ? 0 : row.token_series?.[index] ?? 0), 0)), 0), [buckets, view.rows, hidden]);
 
   useEffect(() => {
+    // 明细只在数据变化时清理，切换曲线仍保留当前明细提示。
     dismiss();
+  }, [items, buckets, dismiss]);
+
+  useEffect(() => {
     if (tooltipRef.current) tooltipRef.current.hidden = true;
     const chart = chartRef.current;
     if (chart) {
@@ -87,7 +91,7 @@ function ComparisonArea({ dimension, comparisons, loading, isDark, isMobile }: C
       chart.tooltip?.setActiveElements([], {x: 0, y: 0});
       chart.update('none');
     }
-  }, [items, buckets, hidden, dismiss]);
+  }, [items, buckets, hidden]);
 
   const data = useMemo<ChartData<'line', number[], string>>(() => ({
     labels,
@@ -177,7 +181,6 @@ function ComparisonArea({ dimension, comparisons, loading, isDark, isMobile }: C
   };
   const empty = loading && items.length === 0 ? <><LoadingSpinner size={18} />{t('common.loading')}</> : t('usage_stats.comparison_empty');
   return <div data-comparison={dimension} aria-busy={loading}>
-    {fullLabels.length > 0 && <div className={styles.topline}><span className={styles.range}>{fullLabels[0]}{fullLabels.length > 1 ? ` – ${fullLabels[fullLabels.length - 1]}` : ''}</span></div>}
     <div className={styles.chart}>
       {view.total > 0 && buckets.length > 0 ? <Line ref={chartRef} data={data} options={options} datasetIdKey="key" role="img"
         aria-label={`${t('usage_stats.comparison_token_trend')} · ${t(`usage_stats.overview_realtime_dimension_${dimension}`)} · ${t('usage_stats.comparison_chart_keyboard')}`}
@@ -185,20 +188,18 @@ function ComparisonArea({ dimension, comparisons, loading, isDark, isMobile }: C
         onBlur={() => { if (tooltipRef.current) tooltipRef.current.hidden = true; }} /> : <div className={styles.empty}>{empty}</div>}
       <div ref={tooltipRef} className={styles.tooltip} role="tooltip" hidden />
     </div>
-    <div className={styles.legend}>
-      {view.rows.map((row, index) => <button type="button" key={row.key} data-series-key={row.key} aria-pressed={!hidden.has(row.key)}
-        onClick={() => setHidden(current => { const next = new Set(current); if (next.has(row.key)) next.delete(row.key); else next.add(row.key); return next; })}>
-        <i style={{background: colorFor(row, index)}} />{row.label}
-      </button>)}
-    </div>
     {view.rows.length > 0 && <div className={styles.detailsContainer}><div className={styles.details} style={{'--detail-count': view.rows.length} as CSSProperties}>
-      {view.rows.map((row, index) => <button type="button" key={row.key} data-comparison-entry={row.key} aria-label={metricLines(row).join(', ')}
+      {view.rows.map((row, index) => <button type="button" key={row.key} data-comparison-entry={row.key} data-series-key={row.key} aria-pressed={!hidden.has(row.key)} aria-label={metricLines(row).join(', ')}
         style={{'--series-color': colorFor(row, index)} as CSSProperties}
         onMouseEnter={event => detailsTooltip.showOnMouseEnter(metricLines(row), event.currentTarget)}
         onMouseLeave={event => detailsTooltip.hideOnMouseLeave(event.currentTarget)}
         onFocus={event => detailsTooltip.showOnFocus(metricLines(row), event.currentTarget)}
         onBlur={event => detailsTooltip.hideOnBlur(event.currentTarget)}
-        onClick={event => detailsTooltip.showOnFocus(metricLines(row), event.currentTarget)}
+        onClick={event => {
+          // 触屏点击未必产生 focus，需要显式打开明细。
+          detailsTooltip.showOnFocus(metricLines(row), event.currentTarget);
+          setHidden(current => { const next = new Set(current); if (next.has(row.key)) next.delete(row.key); else next.add(row.key); return next; });
+        }}
         onKeyDown={event => { if (event.key === 'Escape') dismiss(); }}>
         <span className={styles.detailName}><i /><span>{row.label}</span></span>
         <span className={styles.detailValue}>{formatCompactNumber(row.total_tokens)}<small>{formatShare(row.share)}</small></span>

@@ -16,10 +16,11 @@ type UsageEventArchiveResult struct {
 
 // StorageCleanupResult 是仓储层每日清理的结果。
 type StorageCleanupResult struct {
-	RedisInbox               RedisUsageInboxCleanupResult
-	UsageEventsArchived      int64
-	UsageEventsArchiveStatus UsageEventArchiveStatus
-	Vacuum                   StorageVacuumResult
+	RedisInbox                RedisUsageInboxCleanupResult
+	UsageEventsArchived       int64
+	UsageEventsArchiveDeleted int64
+	UsageEventsArchiveStatus  UsageEventArchiveStatus
+	Vacuum                    StorageVacuumResult
 }
 
 // StorageVacuumResult 记录每日维护对 SQLite 空闲页的条件式整理决定。

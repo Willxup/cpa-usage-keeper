@@ -2,6 +2,13 @@
 .git
 .gitignore
 
+# local agent tools and worktrees
+.agents/
+.claude/
+.codex/
+.worktrees/
+AGENTS.md
+
 # local env and editor files
 .env
 .env.*

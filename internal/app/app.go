@@ -208,8 +208,9 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	usageAggregationRunner := poller.NewUsageAggregationRunner(db)
 	// syncService 仍然是 metadata 和 usage 处理共享的业务服务入口。
 	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
-		BaseURL: cfg.CPABaseURL,
-		Client:  cpaClient,
+		UsageRawRetentionDays: cfg.UsageRawRetentionDays,
+		BaseURL:               cfg.CPABaseURL,
+		Client:                cpaClient,
 		// usage_events 事务提交后通过这个缓存做非阻塞增量追加，供 Overview realtime 和右边界补偿复用。
 		RecentUsageEvents: recentUsageCache,
 		// usage 与 metadata 提交后只唤醒单 writer runner，不在前台链路执行派生聚合。

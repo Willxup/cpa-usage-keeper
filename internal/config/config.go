@@ -13,6 +13,7 @@ import (
 
 	"cpa-usage-keeper/internal/cpa"
 	"github.com/joho/godotenv"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -85,6 +86,8 @@ type Config struct {
 	BackupInterval time.Duration
 	// BackupRetentionDays 是备份文件保留天数。
 	BackupRetentionDays int
+	// UsageRawRetentionDays 是原始请求总保留天数；0 永久保留，仅清理归档表。
+	UsageRawRetentionDays int
 	// RequestTimeout 是访问 CPA HTTP 和 Redis TCP 的超时时间。
 	RequestTimeout time.Duration
 	// TLSSkipVerify 控制是否跳过 CPA HTTPS 和 Redis 队列 TLS 的证书验证。
@@ -194,6 +197,14 @@ func Load(options LoadOptions) (*Config, error) {
 	if backupRetentionDays < 0 {
 		return nil, fmt.Errorf("BACKUP_RETENTION_DAYS must be non-negative")
 	}
+	usageRawRetentionDays, err := getInt("USAGE_RAW_RETENTION_DAYS", 0)
+	if err != nil {
+		return nil, err
+	}
+	if usageRawRetentionDays != 0 && usageRawRetentionDays < 90 {
+		logrus.WithField("usage_raw_retention_days", usageRawRetentionDays).Warn("unsupported USAGE_RAW_RETENTION_DAYS; using 0 (archived events retained permanently)")
+		usageRawRetentionDays = 0
+	}
 	logFileEnabled, err := getBool("LOG_FILE_ENABLED", true)
 	if err != nil {
 		return nil, err
@@ -279,6 +290,7 @@ func Load(options LoadOptions) (*Config, error) {
 		BackupDir:                       filepath.Join(workDir, workDirBackupsName),
 		BackupInterval:                  backupInterval,
 		BackupRetentionDays:             backupRetentionDays,
+		UsageRawRetentionDays:           usageRawRetentionDays,
 		RequestTimeout:                  requestTimeout,
 		TLSSkipVerify:                   tlsSkipVerify,
 		LogLevel:                        getString("LOG_LEVEL", "info"),

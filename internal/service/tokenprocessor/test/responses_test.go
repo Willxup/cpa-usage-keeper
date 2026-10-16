@@ -125,3 +125,43 @@ func TestCodexCreationOnlyShapeDoesNotGainAnUnprovenCompatibilityRule(t *testing
 		t.Fatalf("expected ordinary parent-child violation, got violations=%+v outcome=%q", result.Violations, result.Outcome)
 	}
 }
+
+func TestResponsesPreservesTotalOnlyUsage(t *testing.T) {
+	for _, executor := range []string{"CodexExecutor", "CodexAutoExecutor", "CodexWebsocketsExecutor", "XAIExecutor", "XAIAutoExecutor", "XAIWebsocketsExecutor", "MetaExecutor"} {
+		t.Run(executor, func(t *testing.T) {
+			for _, present := range []bool{false, true} {
+				tokens := tokenprocessor.TokenValues{TotalTokens: 2120, CacheReadPresent: present}
+				result := tokenprocessor.Process(tokens, mustResolveExecutor(t, executor))
+				if result.Tokens != tokens || len(result.Actions) != 0 || len(result.Violations) != 0 || result.Outcome != tokenprocessor.TokenOutcomeValid {
+					t.Fatalf("total-only usage must be preserved without invented breakdown or warnings: %+v", result)
+				}
+			}
+		})
+	}
+}
+
+func TestResponsesTotalOnlyDoesNotHideClampedFields(t *testing.T) {
+	for _, field := range []string{"input", "output", "reasoning", "cached", "read", "creation"} {
+		t.Run(field, func(t *testing.T) {
+			tokens := tokenprocessor.TokenValues{TotalTokens: 2120}
+			switch field {
+			case "input":
+				tokens.InputTokens = -1
+			case "output":
+				tokens.OutputTokens = -1
+			case "reasoning":
+				tokens.ReasoningTokens = -1
+			case "cached":
+				tokens.CachedTokens = -1
+			case "read":
+				tokens.CacheReadTokens = -1
+			case "creation":
+				tokens.CacheCreationTokens = -1
+			}
+			result := tokenprocessor.Process(tokens, mustResolveExecutor(t, "CodexExecutor"))
+			if !hasAction(result, tokenprocessor.ActionClampNegativeToken) || result.Outcome == tokenprocessor.TokenOutcomeValid {
+				t.Fatalf("damaged fields must not be accepted as valid total-only usage: %+v", result)
+			}
+		})
+	}
+}

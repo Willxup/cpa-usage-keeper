@@ -114,8 +114,11 @@ var identityAliasDefinitions = []identityAliasDefinition{
 	{alias: "meta", handlerID: HandlerResponsesInclusive},
 	// devin Auth File type 已核对，但旧事件缺 executor 仍保持 strict，避免 partial Total 被错误重算。
 	{alias: "devin", handlerID: HandlerStrictPassThrough},
-	// kimi identity 保持 strict，不因名称假设 reasoning 已包含在 Output。
+	// CPA 的四种 Kimi identity exact alias 都保持 strict，不因站点假设 reasoning 包含关系。
 	{alias: "kimi", handlerID: HandlerStrictPassThrough},
+	{alias: "kimi-ai", handlerID: HandlerStrictPassThrough},
+	{alias: "kimi.ai", handlerID: HandlerStrictPassThrough},
+	{alias: "kimi.com", handlerID: HandlerStrictPassThrough},
 	// moonshot 是 Kimi 厂商别名，同样保持 strict。
 	{alias: "moonshot", handlerID: HandlerStrictPassThrough},
 	// openai 在 Keeper 现有 metadata 中代表 OpenAI Compatibility，必须保留 #272 路径。

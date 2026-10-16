@@ -20,6 +20,8 @@ import {
   IconArrowDownToLine,
   IconArrowUpFromLine,
   IconBrain,
+  IconCheck,
+  IconCopy,
   IconChevronDown,
   IconDatabaseArrowDown,
   IconDatabaseArrowUp,
@@ -28,6 +30,7 @@ import {
 } from '@/components/ui/icons';
 import type { UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption } from '@/lib/types';
 import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainment';
+import { copyTextToClipboard } from '@/utils/clipboard';
 import { compareModelNames } from '@/utils/modelSort';
 import {
   buildUsageModelTooltipLines,
@@ -53,6 +56,7 @@ import {
 import { RequestEventsColumnSettingsModal } from './RequestEventsColumnSettingsModal';
 import { RequestEventLogModal } from './RequestEventLogModal';
 import { RequestEventResultBadge } from './RequestEventResultBadge';
+import { RequestEventRequestCell, RequestEventRequestType } from './RequestEventRequestCell';
 
 export { splitRequestLogVirtualChunks } from './RequestEventLogModal';
 
@@ -63,6 +67,40 @@ export {
   toggleRequestEventColumnId,
   type RequestEventColumnId,
 } from './requestEventColumns';
+
+function UserAgentCopyButton({ value }: { value: string }) {
+  const { t } = useTranslation();
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+  }, []);
+  const handleCopy = async () => {
+    try {
+      await copyTextToClipboard(value);
+      setCopyState('copied');
+    } catch {
+      setCopyState('failed');
+    }
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    resetTimerRef.current = setTimeout(() => setCopyState('idle'), 1600);
+  };
+  const label = t(copyState === 'copied'
+    ? 'usage_stats.request_events_log_copied_section'
+    : copyState === 'failed'
+      ? 'usage_stats.request_events_log_copy_failed_section'
+      : 'usage_stats.request_events_log_copy_section', { section: t('usage_stats.user_agent') });
+  return (
+    <button
+      type="button"
+      className={`${styles.apiKeySettingsCopyIconButton} ${styles.requestEventsMetadataCopyButton} ${copyState === 'copied' ? styles.apiKeySettingsCopyIconButtonCopied : ''} ${copyState === 'failed' ? styles.requestEventsLogSectionCopyButtonFailed : ''}`.trim()}
+      aria-label={label}
+      onClick={() => void handleCopy()}
+    >
+      {copyState === 'copied' ? <IconCheck width="1em" height="1em" /> : <IconCopy width="1em" height="1em" />}
+    </button>
+  );
+}
 
 const ALL_FILTER = '__all__';
 const REQUEST_EVENT_VIRTUALIZATION_THRESHOLD = 50;
@@ -811,7 +849,7 @@ export function RequestEventsDetailsCard({
     onVisibleColumnIdsChange?.(nextVisibleColumnIds);
     onColumnOrderChange?.(nextColumnOrder);
   }, [isColumnOrderControlled, isColumnSelectionControlled, onColumnOrderChange, onVisibleColumnIdsChange]);
-  const renderClientMetadataCell = useCallback((value: string, maxLength: number) => {
+  const renderClientMetadataCell = useCallback((value: string, maxLength: number, copyable = false) => {
     const hasValue = value !== '-';
     const tooltipLines = [value];
     return (
@@ -833,6 +871,7 @@ export function RequestEventsDetailsCard({
           : undefined}
       >
         {truncateRequestEventMetadata(value, maxLength)}
+        {copyable && hasValue && <UserAgentCopyButton key={value} value={value} />}
       </td>
     );
   }, [
@@ -1003,10 +1042,17 @@ export function RequestEventsDetailsCard({
         label: t('usage_stats.request_events_request'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_request')}</th>,
         renderCell: (row) => (
-          <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell}`}>
-            <span className={styles.requestEventsStackedPrimary}>{row.requestType}</span>
-            <span className={styles.requestEventsStackedSecondary} title={row.endpoint}>{row.endpoint}</span>
-          </td>
+          <RequestEventRequestCell
+            event={row.event}
+            requestType={row.requestType}
+            className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell}`}
+            tooltipActions={modelTooltipActions}
+          >
+            <span className={styles.requestEventsStackedPrimary}>
+              <RequestEventRequestType requestType={row.requestType} stream={row.event.stream} />
+            </span>
+            <span className={styles.requestEventsStackedSecondary}>{row.endpoint}</span>
+          </RequestEventRequestCell>
         ),
       },
       {
@@ -1149,6 +1195,7 @@ export function RequestEventsDetailsCard({
         renderCell: (row) => renderClientMetadataCell(
           row.userAgent,
           REQUEST_EVENT_USER_AGENT_DISPLAY_LENGTH,
+          true,
         ),
       },
     ];

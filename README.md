@@ -500,8 +500,9 @@ Scheduled Auth Files quota refresh is configured from the gear button in the Aut
 | `BACKUP_ENABLED` | No | `true` | Enable SQLite database backups |
 | `BACKUP_INTERVAL` | No | `24h` | Database backup interval |
 | `BACKUP_RETENTION_DAYS` | No | `7` | Backup retention days |
+| `USAGE_RAW_RETENTION_DAYS` | No | `0` | Total raw-request retention in days; only archives are deleted. `0` retains archives forever; `>=90` enables cleanup. Negative values and `1–89` fall back to `0` with a warning without preventing startup |
 
-Keeper archives raw request records older than 90 local calendar days daily at 04:30 in the configured timezone. Archived data is retained permanently, but normal pages do not directly query those raw records; historical aggregate statistics remain available.
+Keeper archives raw request records older than 90 local calendar days daily at 04:30 in the configured timezone. Archives are retained permanently by default. With `USAGE_RAW_RETENTION_DAYS>=90`, daily maintenance deletes expired archived records in batches after archiving, using the request timestamp and local calendar days in the configured timezone. The 90-day hot-table window remains unchanged. Normal pages do not directly query archived records; historical aggregates and backups keep their own retention policies. Deleted raw records cannot support later historical recalculation. Deletion may not immediately shrink the SQLite file: freed space can be reused and is reclaimed by the existing conditional compaction policy.
 
 When file logging is enabled, `cpa-usage-keeper-YYYY-MM-DD.log` contains all emitted levels. Error, fatal, and panic entries are also copied to `cpa-usage-keeper-error-YYYY-MM-DD.log`, which keeps the previous 30 local calendar dates plus the current date.
 
@@ -552,3 +553,13 @@ Production-style `linux/amd64` capacity measurements for sustained ingestion, Da
 ## License
 
 This project is open source under the [MIT License](./LICENSE).
+
+## Star History
+
+<a href="https://star-history.dera.page/Willxup/cpa-usage-keeper">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=Willxup/cpa-usage-keeper&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=Willxup/cpa-usage-keeper" />
+   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=Willxup/cpa-usage-keeper" />
+ </picture>
+</a>

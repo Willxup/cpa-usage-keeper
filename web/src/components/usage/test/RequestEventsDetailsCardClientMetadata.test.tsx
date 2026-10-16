@@ -2,7 +2,7 @@
 
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { RequestEventsTestCard } from './requestEventsFixtures';
 import type { UsageEvent } from '@/lib/types';
 
@@ -98,6 +98,41 @@ describe('RequestEventsDetailsCard client metadata columns', () => {
     }
   });
 
+  it.each([userAgent, 'Short Agent'])('copies the full User-Agent: %s', async (value) => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    const mounted = await mountCard([{ ...baseEvent, user_agent: value }]);
+    try {
+      const cells = mounted.container.querySelectorAll('tbody td');
+      expect(cells[0].querySelector('button')).toBeNull();
+      expect(cells[1].querySelector('button')).toBeNull();
+      const button = cells[2].querySelector('button')!;
+      expect(button).not.toBeNull();
+      expect(button.querySelector('svg')?.getAttribute('width')).toBe('1em');
+      await act(async () => button.click());
+      expect(writeText).toHaveBeenCalledExactlyOnceWith(value);
+      expect(button.getAttribute('aria-label')).toBe('User Agent copied');
+    } finally {
+      await mounted.unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('reports a failed copy without losing the displayed User-Agent', async () => {
+    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('blocked')) } });
+    const mounted = await mountCard([baseEvent]);
+    try {
+      const cell = mounted.container.querySelectorAll('tbody td')[2];
+      const button = cell.querySelector('button')!;
+      await act(async () => button.click());
+      expect(button.getAttribute('aria-label')).toBe('Unable to copy User Agent');
+      expect(cell.getAttribute('aria-label')).toBe(userAgent);
+    } finally {
+      await mounted.unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('does not attach a tooltip target to missing metadata', async () => {
     const mounted = await mountCard([{
       ...baseEvent,
@@ -110,6 +145,7 @@ describe('RequestEventsDetailsCard client metadata columns', () => {
       const cells = Array.from(mounted.container.querySelectorAll<HTMLTableCellElement>('tbody td'));
       expect(cells.map((cell) => cell.textContent)).toEqual(['-', '-', '-']);
       expect(cells.every((cell) => cell.tabIndex === -1)).toBe(true);
+      expect(mounted.container.querySelector('tbody button')).toBeNull();
 
       await act(async () => {
         cells[0].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));

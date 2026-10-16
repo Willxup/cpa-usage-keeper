@@ -51,20 +51,44 @@ it('aggregates Others at each time bucket and retains every total and unknown pr
   expect(view.rows.reduce((n,r)=>n+(r.share??0),0)).toBeCloseTo(100);
   for(let i=0;i<3;i++) expect(view.rows.reduce((n,r)=>n+(r.token_series?.[i]??0),0)).toBe(items.reduce((n,r)=>n+r.token_series![i],0));
 });
-it('shows the same ranked series in chart, legend and interval summaries',async()=>{
+it('uses interval summaries as the only legend for ranked chart series',async()=>{
   await render(comparisons(Array.from({length:7},(_,i)=>item('m'+i,{total_tokens:100-i}))));
   expect(chart.data?.datasets).toHaveLength(6);
   expect(container.querySelectorAll('[data-series-key]')).toHaveLength(6);
   expect(container.querySelectorAll('[data-comparison-entry]')).toHaveLength(6);
+  expect(container.querySelectorAll('[data-series-key]:not([data-comparison-entry])')).toHaveLength(0);
   expect(container.querySelector('[data-comparison-entry="__comparison_others__"]')).not.toBeNull();
 });
 it('toggles a series without changing range totals and resets visibility on dimension switch',async()=>{
   await render();
-  await click('[data-series-key="model-a"]');
+  await click('[data-comparison-entry="model-a"]');
   expect(chart.data?.datasets[0].hidden).toBe(true);
   expect(container.querySelector('[data-comparison-total]')?.textContent).toContain('100');
+  expect(container.querySelector('[data-comparison-entry]')?.textContent).toContain('100');
+  expect(container.querySelector('[data-comparison-entry]')?.getAttribute('aria-pressed')).toBe('false');
+  await click('[data-comparison-entry="model-a"]');
+  expect(chart.data?.datasets[0].hidden).toBe(false);
+  await click('[data-comparison-entry="model-a"]');
   await click('[data-dimension="api_keys"]');
   expect(chart.data?.datasets[0].hidden).toBe(false);
+});
+it('keeps details readable on repeated clicks without focus and clears them on data changes',async()=>{
+  const data = comparisons([item('model-a')]);
+  await render(data);
+  for (const hidden of [true, false]) {
+    await click('[data-comparison-entry="model-a"]');
+    expect(chart.data?.datasets[0].hidden).toBe(hidden);
+    expect(document.querySelector('[role="tooltip"]:not([hidden])')?.textContent).toContain('Requests: 10');
+  }
+  await act(async()=>container.querySelector('[data-comparison-entry]')!.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})));
+  expect(document.querySelector('[role="tooltip"]:not([hidden])')).toBeNull();
+  await click('[data-comparison-entry="model-a"]');
+  expect(document.querySelector('[role="tooltip"]:not([hidden])')).not.toBeNull();
+  await render({...data,buckets:['2026-09-21']});
+  expect(document.querySelector('[role="tooltip"]:not([hidden])')).toBeNull();
+  await click('[data-comparison-entry="model-a"]');
+  await click('[data-dimension="api_keys"]');
+  expect(document.querySelector('[role="tooltip"]:not([hidden])')).toBeNull();
 });
 it('preserves detailed metrics on focus and updates summaries on polling',async()=>{
   await render(comparisons([item('model-a',{cost:null})]));

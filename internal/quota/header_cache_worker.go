@@ -881,6 +881,10 @@ func mergeUsageHeaderQuotaResponse(existing CheckResponse, header CheckResponse)
 	if merged.RateLimitResetCreditsAvailableCount == nil {
 		merged.RateLimitResetCreditsAvailableCount = existing.RateLimitResetCreditsAvailableCount
 	}
+	// Header 只观察额度，不能抹掉同 provider 主动查询取得的 Claude 重置权益。
+	if merged.ClaudeResetGrants == nil {
+		merged.ClaudeResetGrants = existing.ClaudeResetGrants
+	}
 	// Header 未携带套餐只代表这次快照没有该字段，保留此前完整刷新或 Header 已确认的订阅。
 	if merged.Subscription == nil {
 		merged.Subscription = existing.Subscription

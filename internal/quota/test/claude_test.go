@@ -31,6 +31,9 @@ func TestClaudeProviderCallsUsageAndProfile(t *testing.T) {
 		t.Fatalf("expected two api-call requests, got %d", len(caller.requests))
 	}
 	for index, path := range []string{"usage", "profile"} {
+		if path == "usage" {
+			path += "?cedar_ember=1&skip_spend=1"
+		}
 		request := caller.requests[index]
 		if request.AuthIndex != "claude-auth" || request.Method != "GET" || request.URL != "https://api.anthropic.com/api/oauth/"+path {
 			t.Fatalf("unexpected %s request: %+v", path, request)

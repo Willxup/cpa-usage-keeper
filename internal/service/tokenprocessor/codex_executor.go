@@ -17,6 +17,10 @@ func (responsesInclusiveHandler) ID() HandlerID { return HandlerResponsesInclusi
 func (responsesInclusiveHandler) Normalize(context normalizationContext) handlerResult {
 	// 所有 Responses 事件只执行现有非 Claude cache alias，不改变 inclusive Input/Output。
 	tokens, actions, violations := normalizeNonClaudeCacheRead(context)
+	// CPA 可只上报非零 Total（如直接图片请求）；executor 不能证明这次有完整父级明细。
+	if matchesResponsesTotalOnlyShape(context) {
+		return handlerResult{tokens: tokens, authority: totalAuthorityPreserve, actions: actions, violations: violations}
+	}
 	// Codex 旧逻辑会接受仅 cached 的已知兼容形态；保持旧值且不把它升级成新的父子冲突告警。
 	if matchesLegacyCodexCachedOnlyShape(context) {
 		// preserve 只阻止新 Total/父子推导，cached→read action 仍完整保留为既有 compatibility。
@@ -53,4 +57,14 @@ func matchesLegacyCodexCachedOnlyShape(context normalizationContext) bool {
 	}
 	// normalizeUsageDetailTotal 无法从零父级补值，只有 usageQueuePlugin.HandleUsage 会退到 cached，因此 Total 必须精确等于 cached。
 	return tokens.TotalTokens == tokens.CachedTokens
+}
+
+func matchesResponsesTotalOnlyShape(context normalizationContext) bool {
+	// 使用 alias 前快照，且不把负数清零后的损坏字段当成合法的缺失明细。
+	if len(context.clamped) != 0 {
+		return false
+	}
+	tokens := context.nonNegative
+	return tokens.TotalTokens > 0 && tokens.InputTokens == 0 && tokens.OutputTokens == 0 &&
+		tokens.ReasoningTokens == 0 && tokens.CachedTokens == 0 && tokens.CacheReadTokens == 0 && tokens.CacheCreationTokens == 0
 }

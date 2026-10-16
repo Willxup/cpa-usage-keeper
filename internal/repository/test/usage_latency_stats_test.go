@@ -75,7 +75,7 @@ func TestCleanupStorageRemovesExpiredLatencyHourAndDayRows(t *testing.T) {
 		t.Fatalf("seed latency retention rows: %v", err)
 	}
 
-	if _, err := repository.CleanupStorage(db, now); err != nil {
+	if _, err := repository.CleanupStorage(db, now, 0); err != nil {
 		t.Fatalf("cleanup latency retention rows: %v", err)
 	}
 	var keys []string

@@ -244,6 +244,29 @@ describe('CredentialDetailDrawer', () => {
     ))
   }
 
+  it.each([
+    ['kimi', 'china'],
+    ['kimi-ai', 'international'],
+    ['kimi.ai', 'international'],
+    ['kimi.com', 'china'],
+  ])('shows the %s site in the Auth File detail badges', async (type, site) => {
+    await renderDrawer({ selection: {
+      kind: 'auth-file',
+      row: { ...authFileRow, identity: { ...authFileRow.identity, type }, typeLabel: type },
+    } })
+
+    const badge = document.body.querySelector(`[data-kimi-site="${site}"]`)
+    expect(badge?.textContent).toBe(`usage_stats.credentials_kimi_site_${site}`)
+    expect(badge?.parentElement?.textContent).toContain('P1')
+  })
+
+  it('keeps site badges restricted to Kimi Auth Files', async () => {
+    await renderDrawer({ selection: { kind: 'ai-provider', row: { ...row, identity: { ...row.identity, type: 'kimi-ai' } } } })
+    expect(document.body.querySelector('[data-kimi-site]')).toBeNull()
+    await renderDrawer({ selection: { kind: 'auth-file', row: { ...authFileRow, identity: { ...authFileRow.identity, type: 'generic', provider: 'kimi-ai' } } } })
+    expect(document.body.querySelector('[data-kimi-site]')).toBeNull()
+  })
+
   it('shows the concrete Auth File filename as the subtitle without a cumulative heading', async () => {
     await renderDrawer({ selection: authFileSelection })
 

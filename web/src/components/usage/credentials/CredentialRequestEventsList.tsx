@@ -12,6 +12,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { useTranslation } from 'react-i18next'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PortalTooltip, usePortalTooltip } from '@/components/ui/PortalTooltip'
+import { RequestEventRequestCell, RequestEventRequestType } from '../RequestEventRequestCell'
 import {
   IconArrowDownToLine,
   IconArrowUpFromLine,
@@ -735,11 +736,21 @@ export function CredentialRequestEventsList({
             tooltipActions={tooltipActions}
             upstreamResponseLabel={t('usage_stats.upstream_response_model')}
           />
-          <td className={styles.stackedCell}>
-            {renderOverflowText('strong', row.requestType)}
-            {row.endpoint !== '-' ? renderLabeledOverflowText(t('usage_stats.request_endpoint'), row.endpoint) : null}
-            {row.reasoningEffort ? renderLabeledOverflowText(t('usage_stats.reasoning_effort'), row.reasoningEffort) : null}
-          </td>
+          <RequestEventRequestCell
+            event={row.event}
+            requestType={row.requestType}
+            className={styles.stackedCell}
+            tooltipActions={tooltipActions}
+            showReasoningEffort
+          >
+            <strong><RequestEventRequestType requestType={row.requestType} stream={row.event.stream} iconSize={13} /></strong>
+            {row.endpoint !== '-' ? (
+              <small><span className={styles.subDataLabel} data-credential-request-sub-label>{t('usage_stats.request_endpoint')}:</span> {row.endpoint}</small>
+            ) : null}
+            {row.reasoningEffort ? (
+              <small><span className={styles.subDataLabel} data-credential-request-sub-label>{t('usage_stats.reasoning_effort')}:</span> {row.reasoningEffort}</small>
+            ) : null}
+          </RequestEventRequestCell>
           <td>
             <RequestEventResultBadge
               failed={row.failed}

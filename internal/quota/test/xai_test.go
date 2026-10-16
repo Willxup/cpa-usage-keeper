@@ -276,11 +276,6 @@ func TestXAIProviderRejectsNonFiniteBillingNumbers(t *testing.T) {
 			monthly: &apicall.Response{StatusCode: 500, BodyText: "monthly unavailable"},
 		},
 		{
-			name:    "product usage percent infinity",
-			weekly:  quotaAPIResponse(200, `{"config":{"productUsage":[{"product":"Grok Code","usagePercent":"+Inf"}]}}`),
-			monthly: &apicall.Response{StatusCode: 500, BodyText: "monthly unavailable"},
-		},
-		{
 			name:    "monthly money negative infinity",
 			weekly:  &apicall.Response{StatusCode: 500, BodyText: "weekly unavailable"},
 			monthly: quotaAPIResponse(200, `{"config":{"monthlyLimit":{"val":"-Inf"}}}`),
@@ -571,4 +566,22 @@ func (c *blockingWeeklyManagementCaller) CallManagementAPI(_ context.Context, re
 	}
 	close(c.monthlyStarted)
 	return c.monthlyResponse, nil
+}
+
+func TestXAIProviderKeepsUnknownProductUsageWithoutInventingTotal(t *testing.T) {
+	caller := newXAIManagementCaller(quotaAPIResponse(200, `{"config":{"productUsage":[{"product":"GrokBuild","usagePercent":"+Inf"},{"product":"GrokChat","usagePercent":null}]}}`), &apicall.Response{StatusCode: 500, BodyText: "monthly unavailable"})
+	configs := quota.DefaultProviderConfigs()
+	output, err := quota.NewXAIProvider(caller, configs.XAIWeekly, configs.XAIMonthly).Check(context.Background(), quota.ProviderInput{Identity: entities.UsageIdentity{Identity: "xai-auth"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := quota.NormalizeQuotaRows(output)
+	if len(rows) != 1 || rows[0].UsedPercent != nil || len(rows[0].UsageBreakdown) != 2 {
+		t.Fatalf("unexpected unknown product usage: %+v", rows)
+	}
+	for _, item := range rows[0].UsageBreakdown {
+		if item.UsedPercent != nil {
+			t.Fatal("non-finite and null usage must remain unknown")
+		}
+	}
 }
