@@ -10,7 +10,7 @@ import (
 func TestDecodeRedisUsageMessagePreservesCPAStreamAndStatusCode(t *testing.T) {
 	stream := true
 	event, _, err := service.DecodeRedisUsageMessage(`{
-		"request_id":"stream-status",
+		"execution_id":"fixture-execution","request_id":"stream-status",
 		"failed":false,
 		"stream":true,
 		"fail":{"status_code":200,"body":""},
@@ -29,7 +29,7 @@ func TestDecodeRedisUsageMessagePreservesCPAStreamAndStatusCode(t *testing.T) {
 
 func TestDecodeRedisUsageMessagePreservesFailedCPAStatusCode(t *testing.T) {
 	event, _, err := service.DecodeRedisUsageMessage(`{
-		"request_id":"failed-status",
+		"execution_id":"fixture-execution","request_id":"failed-status",
 		"failed":true,
 		"stream":false,
 		"fail":{"status_code":429,"body":"upstream failure"},
@@ -47,7 +47,7 @@ func TestDecodeRedisUsageMessagePreservesFailedCPAStatusCode(t *testing.T) {
 }
 
 func TestDecodeRedisUsageMessageLeavesNewFieldsUnknownForLegacyPayload(t *testing.T) {
-	event, _, err := service.DecodeRedisUsageMessage(`{"request_id":"legacy-status","tokens":{}}`, time.Date(2026, 9, 19, 1, 0, 0, 0, time.UTC))
+	event, _, err := service.DecodeRedisUsageMessage(`{"execution_id":"fixture-execution","request_id":"legacy-status","tokens":{}}`, time.Date(2026, 9, 19, 1, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
 	}

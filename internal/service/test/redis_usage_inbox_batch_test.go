@@ -129,7 +129,7 @@ func redisInboxBatchInputs(prefix string, rowCount int, poppedAt time.Time) []re
 		inputs = append(inputs, repositorydto.RedisInboxInsert{
 			Source: "redis_subscribe:usage",
 			RawMessage: fmt.Sprintf(
-				`{"timestamp":"2026-07-23T09:59:00Z","provider":"OpenAI","auth_type":"api_key","auth_index":"batch-auth","model":"gpt-5.6","request_id":"%s-%d","executor_type":"CodexExecutor","tokens":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`,
+				`{"timestamp":"2026-07-23T09:59:00Z","provider":"OpenAI","auth_type":"api_key","auth_index":"batch-auth","model":"gpt-5.6","execution_id":"fixture-execution","request_id":"%s-%d","executor_type":"CodexExecutor","tokens":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`,
 				prefix,
 				i,
 			),

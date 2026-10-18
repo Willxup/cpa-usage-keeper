@@ -34,7 +34,7 @@ func TestProcessRedisUsageInboxNormalizesOpenAICompatibilityTokensForOpenAIIdent
 			"auth_type":"api_key",
 			"auth_index":"openai-compat-auth-index",
 			"model":"gemini-2.5-pro",
-			"request_id":"openai-compatible-gemini-thinking",
+			"execution_id":"fixture-execution","request_id":"openai-compatible-gemini-thinking",
 			"executor_type":"unknown",
 			"tokens":{
 				"input_tokens":11,
@@ -81,7 +81,7 @@ func TestProcessRedisUsageInboxBackfillsCodexCacheReadFromCachedTokens(t *testin
 			"auth_type":"api_key",
 			"auth_index":"codex-auth-index",
 			"model":"gpt-5.6-terra",
-			"request_id":"codex-cache-read-fallback",
+			"execution_id":"fixture-execution","request_id":"codex-cache-read-fallback",
 			"executor_type":"CodexExecutor",
 			"tokens":{
 				"input_tokens":100,
@@ -114,7 +114,7 @@ func TestProcessRedisUsageInboxPreservesCanonicalZeroCacheRead(t *testing.T) {
 			"auth_type":"api_key",
 			"auth_index":"canonical-zero-auth-index",
 			"model":"gpt-5.4",
-			"request_id":"canonical-zero-cache-read",
+			"execution_id":"fixture-execution","request_id":"canonical-zero-cache-read",
 			"executor_type":"OpenAICompatExecutor",
 			"tokens":{
 				"input_tokens":100,
@@ -147,7 +147,7 @@ func TestProcessRedisUsageInboxBackfillsCustomCacheReadDespiteQueuePresence(t *t
 			"auth_type":"api_key",
 			"auth_index":"external-auth-index",
 			"model":"external-model",
-			"request_id":"custom-cache-read-fallback",
+			"execution_id":"fixture-execution","request_id":"custom-cache-read-fallback",
 			"executor_type":"ExternalExecutor",
 			"tokens":{
 				"input_tokens":100,
@@ -180,7 +180,7 @@ func TestProcessRedisUsageInboxUsesDefaultTokensWhenUsageIdentityMissing(t *test
 			"auth_type":"api_key",
 			"auth_index":"missing-auth-index",
 			"model":"unknown-model",
-			"request_id":"missing-identity-thinking",
+			"execution_id":"fixture-execution","request_id":"missing-identity-thinking",
 			"tokens":{
 				"input_tokens":11,
 				"output_tokens":7,

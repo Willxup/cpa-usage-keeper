@@ -32,7 +32,7 @@ func TestDecodeRedisUsageMessageMapsPayloadToUsageEvent(t *testing.T) {
 		"endpoint":"/v1/messages",
 		"auth_type":"api_key",
 		"api_key":"raw-key",
-		"request_id":"req-123",
+		"execution_id":"fixture-execution","request_id":"req-123",
 		"session_id":"session-root",
 		"parent_session_id":"session-parent",
 		"unknown":"ignored"
@@ -69,18 +69,18 @@ func TestDecodeRedisUsageMessageMapsPayloadToUsageEvent(t *testing.T) {
 	}
 }
 
-func TestDecodeRedisUsageMessageRequiresRequestID(t *testing.T) {
-	_, _, err := DecodeRedisUsageMessage(`{"latency_ms":-5,"tokens":{"input_tokens":1,"output_tokens":2},"endpoint":"/fallback"}`, time.Date(2026, 4, 27, 8, 0, 0, 0, time.UTC))
-	if err == nil || !strings.Contains(err.Error(), "request_id is required") {
-		t.Fatalf("expected missing request_id error, got %v", err)
+func TestDecodeRedisUsageMessageRejectsLegacyRequestOnly(t *testing.T) {
+	_, _, err := DecodeRedisUsageMessage(`{"request_id":"legacy-request","latency_ms":-5,"tokens":{"input_tokens":1,"output_tokens":2},"endpoint":"/fallback"}`, time.Date(2026, 4, 27, 8, 0, 0, 0, time.UTC))
+	if err == nil || !strings.Contains(err.Error(), "execution_id is required") {
+		t.Fatalf("expected missing execution_id error, got %v", err)
 	}
 }
 
 func TestDecodeRedisUsageMessageNormalizesBlankParentSessionIDToNull(t *testing.T) {
 	for _, payload := range []string{
-		`{"request_id":"missing-parent"}`,
-		`{"request_id":"empty-parent","parent_session_id":""}`,
-		`{"request_id":"blank-parent","parent_session_id":"   "}`,
+		`{"execution_id":"fixture-execution","request_id":"missing-parent"}`,
+		`{"execution_id":"fixture-execution","request_id":"empty-parent","parent_session_id":""}`,
+		`{"execution_id":"fixture-execution","request_id":"blank-parent","parent_session_id":"   "}`,
 	} {
 		event, _, err := DecodeRedisUsageMessage(payload, time.Date(2026, 9, 22, 8, 0, 0, 0, time.UTC))
 		if err != nil {
@@ -99,7 +99,7 @@ func TestDecodeRedisUsageMessageWithHeadersExtractsQuotaSnapshot(t *testing.T) {
 		"auth_type":"oauth",
 		"auth_index":"codex-auth",
 		"provider":"codex",
-		"request_id":"req-header",
+		"execution_id":"fixture-execution","request_id":"req-header",
 		"response_headers":{
 			"X-Codex-Plan-Type":["pro"],
 			"X-Codex-Primary-Used-Percent":["4"],
@@ -190,7 +190,7 @@ func TestDecodeRedisUsageMessageWithHeadersSkipsInvalidOrIncompleteHeaders(t *te
 				"auth_type":"oauth",
 				"auth_index":"codex-auth",
 				"provider":"codex",
-				"request_id":"req-header-ignored",
+				"execution_id":"fixture-execution","request_id":"req-header-ignored",
 				"response_headers":`+tt.headers+`
 			}`, time.Date(2026, 6, 22, 11, 10, 43, 0, time.Local))
 			if err != nil {
@@ -207,7 +207,7 @@ func TestDecodeRedisUsageMessageWithHeadersSkipsInvalidOrIncompleteHeaders(t *te
 }
 
 func TestDecodeRedisUsageMessageFallsBackToProviderWhenAPIKeyIsBlank(t *testing.T) {
-	event, _, err := DecodeRedisUsageMessage(`{"api_key":"   ","provider":"claude","endpoint":"/v1/messages","request_id":"req-blank-key"}`, time.Date(2026, 4, 27, 8, 0, 0, 0, time.UTC))
+	event, _, err := DecodeRedisUsageMessage(`{"api_key":"   ","provider":"claude","endpoint":"/v1/messages","execution_id":"fixture-execution","request_id":"req-blank-key"}`, time.Date(2026, 4, 27, 8, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("DecodeRedisUsageMessage returned error: %v", err)
 	}

@@ -53,6 +53,7 @@ func TestProcessRedisUsageInboxReturnsAfterCommitWithoutSynchronousAggregation(t
 			"auth_index":"auth-a",
 			"model":"gpt-5.5",
 			"request_id":"async-aggregation",
+			"execution_id":"async-aggregation-execution",
 			"tokens":{"input_tokens":10,"output_tokens":2,"cached_tokens":7,"cache_read_tokens":3,"total_tokens":12},
 			"response_headers":{"X-Codex-Primary-Used-Percent":["5"],"X-Codex-Primary-Window-Minutes":["300"],"X-Codex-Primary-Reset-After-Seconds":["60"]}
 		}`,

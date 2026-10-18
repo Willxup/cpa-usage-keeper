@@ -26,7 +26,8 @@ func TestDecodeRedisUsageMessagePrefersResolvedClientIP(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			payload, err := json.Marshal(map[string]any{
-				"request_id": "resolved-client", "client_ip": tc.peer,
+				"execution_id": "fixture-execution",
+				"request_id":   "resolved-client", "client_ip": tc.peer,
 				"resolved_client_ip": tc.resolved, "x_forwarded_for": "203.0.113.5, 172.19.0.1",
 				"user_agent": "test-client/1.0",
 			})
@@ -68,12 +69,12 @@ func TestDecodeRedisUsageMessagePreservesOptionalMetadata(t *testing.T) {
 	}{
 		{
 			name:    "populated",
-			message: `{"request_id":"req-metadata","model":"gpt-6-astra","response_model":"gpt-5.6-luna","client_ip":"192.0.2.10","x_forwarded_for":"203.0.113.5, 198.51.100.8","user_agent":"test-client/1.0","service_tier":"auto","response_service_tier":"default","tokens":{}}`,
+			message: `{"execution_id":"fixture-execution","request_id":"req-metadata","model":"gpt-6-astra","response_model":"gpt-5.6-luna","client_ip":"192.0.2.10","x_forwarded_for":"203.0.113.5, 198.51.100.8","user_agent":"test-client/1.0","service_tier":"auto","response_service_tier":"default","tokens":{}}`,
 			want:    metadata{client: [3]*string{new("192.0.2.10"), new("203.0.113.5, 198.51.100.8"), new("test-client/1.0")}, requestModel: "gpt-6-astra", responseModel: "gpt-5.6-luna", requestTier: "auto", responseTier: "default"},
 		},
 		{
 			name:    "missing",
-			message: `{"request_id":"req-metadata-missing","model":"gpt-5.6-luna","service_tier":"auto","tokens":{}}`,
+			message: `{"execution_id":"fixture-execution","request_id":"req-metadata-missing","model":"gpt-5.6-luna","service_tier":"auto","tokens":{}}`,
 			want:    metadata{requestModel: "gpt-5.6-luna", requestTier: "auto"},
 		},
 	} {

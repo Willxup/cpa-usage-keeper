@@ -103,6 +103,8 @@ const (
 	migrationLimitLatencySamplePoints = "20260925_limit_latency_sample_points"
 	// migrationAddUsageEventTraceMetadata 只保存上游提供的执行与节点元数据，历史行保持 NULL。
 	migrationAddUsageEventTraceMetadata = "20261008_usage_event_trace_metadata"
+	// migrationRecoverExecutionUsageEvents 以短事务回填事件标识并重新排队旧入口误拒绝的执行消息。
+	migrationRecoverExecutionUsageEvents = "20261018_recover_execution_usage_events"
 )
 
 type schemaMigration struct {
@@ -255,6 +257,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationNormalizeUsageEventParentSessionNull, run: normalizeUsageEventParentSessionNullMigration},
 		{version: migrationLimitLatencySamplePoints, run: limitLatencySamplePointsMigration, destructive: true},
 		{version: migrationAddUsageEventTraceMetadata, run: addUsageEventTraceMetadataMigration},
+		{version: migrationRecoverExecutionUsageEvents, run: recoverExecutionUsageEventsMigration, disableTransaction: true},
 	}
 }
 

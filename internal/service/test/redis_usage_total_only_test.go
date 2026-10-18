@@ -27,7 +27,7 @@ func TestProcessRedisUsageInboxPreservesImageTotalOnlyUsage(t *testing.T) {
    "timestamp":"2026-10-13T08:00:00Z",
    "provider":"codex", "executor_type":"CodexExecutor", "auth_type":"apikey",
    "model":"gpt-image-2", "alias":"gpt-image-2", "endpoint":"POST /v1/images/edits",
-   "request_id":"image-total-only", "stream":false, "failed":false,
+   "execution_id":"fixture-execution","request_id":"image-total-only", "stream":false, "failed":false,
    "tokens":{"input_tokens":0,"output_tokens":0,"reasoning_tokens":0,"cached_tokens":0,"cache_read_tokens":0,"cache_read_tokens_present":true,"cache_creation_tokens":0,"total_tokens":2120}
   }`,
 		PoppedAt: time.Date(2026, 10, 13, 8, 0, 0, 0, time.UTC),

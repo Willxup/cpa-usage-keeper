@@ -179,7 +179,7 @@ func redisProcessBenchmarkMessage(i, identityCount int, base time.Time) string {
 	authIndex := redisProcessBenchmarkAuthIndex(i % identityCount)
 	timestamp := base.Add(time.Duration(i) * time.Millisecond).Format(time.RFC3339Nano)
 	return fmt.Sprintf(
-		`{"timestamp":%q,"latency_ms":120,"source":"redis","auth_index":%q,"tokens":{"input_tokens":120,"output_tokens":48,"reasoning_tokens":8,"cached_tokens":16,"cache_read_tokens":4,"cache_creation_tokens":2,"total_tokens":168},"provider":"codex","model":"gpt-5","auth_type":"oauth","api_key":"bench-group","request_id":%q}`,
+		`{"timestamp":%q,"latency_ms":120,"source":"redis","auth_index":%q,"tokens":{"input_tokens":120,"output_tokens":48,"reasoning_tokens":8,"cached_tokens":16,"cache_read_tokens":4,"cache_creation_tokens":2,"total_tokens":168},"provider":"codex","model":"gpt-5","auth_type":"oauth","api_key":"bench-group","execution_id":"fixture-execution","request_id":%q}`,
 		timestamp,
 		authIndex,
 		fmt.Sprintf("bench-%08d", i),

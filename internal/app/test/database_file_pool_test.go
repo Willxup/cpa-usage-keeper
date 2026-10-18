@@ -219,7 +219,7 @@ func TestRedisUsageProcessingStaysOnWriterWhenReadersAreOccupied(t *testing.T) {
 		"auth_type":"oauth",
 		"auth_index":"writer-usage-identity",
 		"model":"gpt-5.5",
-		"request_id":"writer-usage-processing",
+		"execution_id":"fixture-execution","request_id":"writer-usage-processing",
 		"tokens":{"input_tokens":10,"output_tokens":2,"total_tokens":12}
 	}`}, now)
 	if err != nil {

@@ -23,7 +23,7 @@ func TestUsageHeaderSnapshotRequiresOAuthIdentity(t *testing.T) {
 		{"claude_provider_codex_header", "oauth", "auth-1", "claude", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			payload := fmt.Sprintf(`{"request_id":"header-eligibility","auth_type":%q,"auth_index":%q,"provider":%q,"executor_type":"CodexExecutor","response_headers":{"X-Codex-Primary-Used-Percent":["5"],"X-Codex-Primary-Window-Minutes":["300"],"X-Codex-Primary-Reset-After-Seconds":["60"]}}`, tc.authType, tc.authIndex, tc.provider)
+			payload := fmt.Sprintf(`{"execution_id":"fixture-execution","request_id":"header-eligibility","auth_type":%q,"auth_index":%q,"provider":%q,"executor_type":"CodexExecutor","response_headers":{"X-Codex-Primary-Used-Percent":["5"],"X-Codex-Primary-Window-Minutes":["300"],"X-Codex-Primary-Reset-After-Seconds":["60"]}}`, tc.authType, tc.authIndex, tc.provider)
 			// usage 内容照常解码；额度快照需要 OAuth、auth_index 和精确 provider。
 			event, raw, snapshot, err := service.DecodeRedisUsageMessageWithHeaders(payload, time.Now())
 			if err != nil || event.RequestID != "header-eligibility" || string(raw) != payload {
@@ -45,7 +45,7 @@ func BenchmarkDecodeAPIKeyUsageWithResponseHeaders(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	payload := `{"request_id":"benchmark","auth_type":"apikey","auth_index":"key-1","response_headers":` + string(rawHeaders) + `}`
+	payload := `{"execution_id":"fixture-execution","request_id":"benchmark","auth_type":"apikey","auth_index":"key-1","response_headers":` + string(rawHeaders) + `}`
 	fetchedAt := time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)
 	b.ReportAllocs()
 	b.ResetTimer()

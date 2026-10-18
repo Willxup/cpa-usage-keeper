@@ -36,8 +36,8 @@ func usageTraceMetadataCases() []struct {
 	}{
 		{"explicit true", `,"execution_id":"execution-1","trace_id":"000000ab","node_kind":"future-kind","is_fork":true,"is_compaction":true`, usageTraceMetadata{traceMetadataPointer("execution-1"), traceMetadataPointer("000000ab"), traceMetadataPointer("future-kind"), traceMetadataPointer(true), traceMetadataPointer(true)}},
 		{"explicit false", `,"execution_id":"execution-2","trace_id":"custom-trace","node_kind":"fork","is_fork":false,"is_compaction":false`, usageTraceMetadata{traceMetadataPointer("execution-2"), traceMetadataPointer("custom-trace"), traceMetadataPointer("fork"), traceMetadataPointer(false), traceMetadataPointer(false)}},
-		{"omitted", ``, usageTraceMetadata{}},
-		{"explicit null", `,"execution_id":null,"trace_id":null,"node_kind":null,"is_fork":null,"is_compaction":null`, usageTraceMetadata{}},
+		{"optional fields omitted", `,"execution_id":"execution-omitted"`, usageTraceMetadata{ExecutionID: traceMetadataPointer("execution-omitted")}},
+		{"optional fields null", `,"execution_id":"execution-null","trace_id":null,"node_kind":null,"is_fork":null,"is_compaction":null`, usageTraceMetadata{ExecutionID: traceMetadataPointer("execution-null")}},
 		{"raw values", `,"execution_id":" execution raw ","trace_id":"","node_kind":" custom node ","is_fork":true,"is_compaction":false`, usageTraceMetadata{traceMetadataPointer(" execution raw "), traceMetadataPointer(""), traceMetadataPointer(" custom node "), traceMetadataPointer(true), traceMetadataPointer(false)}},
 	}
 }

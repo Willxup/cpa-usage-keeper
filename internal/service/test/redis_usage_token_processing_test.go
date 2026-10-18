@@ -63,7 +63,7 @@ func TestProcessRedisUsageInboxKnownExecutorBypassesIdentityLookup(t *testing.T)
 			"auth_type":"api_key",
 			"auth_index":"missing-but-not-needed",
 			"model":"gpt-5.6",
-			"request_id":"known-executor-no-identity",
+			"execution_id":"fixture-execution","request_id":"known-executor-no-identity",
 			"executor_type":"CodexExecutor",
 			"tokens":{"input_tokens":100,"output_tokens":20,"reasoning_tokens":5,"total_tokens":125}
 		}`,
@@ -141,7 +141,7 @@ func TestProcessRedisUsageInboxCommitsReadyItemsWhenIdentityLookupFails(t *testi
 				"auth_type":"oauth",
 				"auth_index":"ready-auth",
 				"model":"gpt-5.6",
-				"request_id":"ready-executor-event",
+				"execution_id":"fixture-execution","request_id":"ready-executor-event",
 				"executor_type":"CodexExecutor",
 				"tokens":{"input_tokens":100,"output_tokens":20,"reasoning_tokens":5,"total_tokens":125},
 				"response_headers":{"X-Codex-Primary-Used-Percent":["4"],"X-Codex-Primary-Window-Minutes":["300"],"X-Codex-Primary-Reset-After-Seconds":["60"]}
@@ -156,7 +156,7 @@ func TestProcessRedisUsageInboxCommitsReadyItemsWhenIdentityLookupFails(t *testi
 				"auth_type":"oauth",
 				"auth_index":"unresolved-auth",
 				"model":"gpt-5.6",
-				"request_id":"unresolved-identity-event",
+				"execution_id":"fixture-execution","request_id":"unresolved-identity-event",
 				"executor_type":"FutureExecutor",
 				"tokens":{"input_tokens":11,"output_tokens":7,"total_tokens":18},
 				"response_headers":{"X-Codex-Primary-Used-Percent":["5"],"X-Codex-Primary-Window-Minutes":["300"],"X-Codex-Primary-Reset-After-Seconds":["60"]}
@@ -256,12 +256,12 @@ func TestProcessRedisUsageInboxWaitsWhenFailureStatusCannotBeConfirmed(t *testin
 			_, err := repository.InsertRedisUsageInboxMessages(db, []repodto.RedisInboxInsert{
 				{
 					Source:     "usage",
-					RawMessage: `{"timestamp":"2026-07-14T08:00:00Z","provider":"OpenAI","auth_type":"api_key","auth_index":"ready-auth","model":"gpt-5.6","request_id":"uncertain-ready","executor_type":"CodexExecutor","tokens":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`,
+					RawMessage: `{"timestamp":"2026-07-14T08:00:00Z","provider":"OpenAI","auth_type":"api_key","auth_index":"ready-auth","model":"gpt-5.6","execution_id":"fixture-execution","request_id":"uncertain-ready","executor_type":"CodexExecutor","tokens":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`,
 					PoppedAt:   time.Date(2026, 7, 14, 8, 0, 0, 0, time.UTC),
 				},
 				{
 					Source:     "usage",
-					RawMessage: `{"timestamp":"2026-07-14T08:00:01Z","provider":"Unknown","auth_type":"api_key","auth_index":"secret-uncertain","model":"future-model","request_id":"uncertain-future","executor_type":"FutureExecutor","tokens":{"input_tokens":11,"output_tokens":7,"total_tokens":18}}`,
+					RawMessage: `{"timestamp":"2026-07-14T08:00:01Z","provider":"Unknown","auth_type":"api_key","auth_index":"secret-uncertain","model":"future-model","execution_id":"fixture-execution","request_id":"uncertain-future","executor_type":"FutureExecutor","tokens":{"input_tokens":11,"output_tokens":7,"total_tokens":18}}`,
 					PoppedAt:   time.Date(2026, 7, 14, 8, 0, 1, 0, time.UTC),
 				},
 			})

@@ -26,7 +26,7 @@ func TestIssue272RedisIngressKeepsRequestEventSpeedTPS(t *testing.T) {
 			"auth_type":"api_key",
 			"auth_index":"issue-272-auth",
 			"model":"gemini-2.5-pro",
-			"request_id":"issue-272-speed-regression",
+			"execution_id":"fixture-execution","request_id":"issue-272-speed-regression",
 			"executor_type":"OpenAICompatExecutor",
 			"tokens":{"input_tokens":1000,"output_tokens":20,"reasoning_tokens":50,"total_tokens":1070}
 		}`,

@@ -28,8 +28,8 @@ func DecodeRedisUsageMessageWithHeaders(message string, fetchedAt time.Time) (en
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return entities.UsageEvent{}, nil, nil, fmt.Errorf("decode redis usage message: %w", err)
 	}
-	if strings.TrimSpace(payload.RequestID) == "" {
-		return entities.UsageEvent{}, raw, nil, fmt.Errorf("decode redis usage message: request_id is required")
+	if payload.ExecutionID == nil || *payload.ExecutionID == "" {
+		return entities.UsageEvent{}, raw, nil, fmt.Errorf("decode redis usage message: execution_id is required")
 	}
 	event := payload.toUsageEvent(fetchedAt)
 	return event, raw, payload.toUsageHeaderSnapshot(event), nil
@@ -138,14 +138,19 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 	}
 	source := strings.TrimSpace(d.Source)
 	authIndex := strings.TrimSpace(d.AuthIndex)
-	eventKey := strings.TrimSpace(d.RequestID)
+	requestID := strings.TrimSpace(d.RequestID)
+	eventKey := requestID
+	// 插件执行可能没有请求日志 ID；事件关联使用上游执行 ID，保留真实 request_id。
+	if eventKey == "" {
+		eventKey = *d.ExecutionID
+	}
 	return entities.UsageEvent{
 		EventKey:            eventKey,
 		APIGroupKey:         apiGroupKey,
 		Provider:            strings.TrimSpace(d.Provider),
 		Endpoint:            strings.TrimSpace(d.Endpoint),
 		AuthType:            normalizeRedisAuthType(d.AuthType),
-		RequestID:           strings.TrimSpace(d.RequestID),
+		RequestID:           requestID,
 		ExecutionID:         d.ExecutionID,
 		TraceID:             d.TraceID,
 		SessionID:           strings.TrimSpace(d.SessionID),
