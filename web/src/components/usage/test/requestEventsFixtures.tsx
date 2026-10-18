@@ -15,6 +15,7 @@ export function RequestEventsTestCard({ events, ...props }: Partial<ComponentPro
     onModelFilterChange={() => undefined}
     onSourceFilterChange={() => undefined}
     onResultFilterChange={() => undefined}
+    inputTokenDisplayMode="total"
     {...props}
   />;
 }

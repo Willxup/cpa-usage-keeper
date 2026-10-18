@@ -121,6 +121,23 @@ describe('RequestEventsDetailsCard', () => {
     expect(tableValues(html).Cache).toBe('150.00%6000');
   });
 
+  it('shows uncached input tokens in split mode', () => {
+    const html = renderCard({
+      inputTokenDisplayMode: 'split',
+      events: [{
+        ...events[0],
+        tokens: {
+          ...events[0].tokens,
+          input_tokens: 1000,
+          cache_read_tokens: 600,
+          cache_creation_tokens: 100,
+        },
+      }],
+    });
+
+  expect(tableValues(html).Tokens).toContain('300');
+});
+
   it('shows a dash for cache rate when input tokens are zero', () => {
     const html = renderCard({ events: [{
       ...events[0], tokens: { ...events[0].tokens, input_tokens: 0, cache_read_tokens: 25 },
