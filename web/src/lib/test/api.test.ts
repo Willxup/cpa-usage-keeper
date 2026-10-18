@@ -246,18 +246,30 @@ describe('fetchUsageEvents', () => {
   });
 
   it('derives realtime bucket seconds from the response window when omitted', async () => {
-    mockJSON({
-      window: '60m',
-      token_velocity: [],
-      current_usage: { models: [] },
-      request_level: [],
-      cache_level: [],
-    });
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    const cases = [
+      { window: '1m', bucketSeconds: 2 },
+      { window: '5m', bucketSeconds: 10 },
+      { window: '10m', bucketSeconds: 20 },
+      { window: '15m', bucketSeconds: 30 },
+      { window: '30m', bucketSeconds: 60 },
+      { window: '60m', bucketSeconds: 120 },
+    ] as const;
 
-    const response = await fetchUsageOverviewRealtime();
+    for (const { window, bucketSeconds } of cases) {
+      fetchMock.mockImplementation(async () => Response.json({
+        window,
+        token_velocity: [],
+        current_usage: { models: [] },
+        request_level: [],
+        cache_level: [],
+      }));
 
-    expect(response.window).toBe('60m');
-    expect(response.bucket_seconds).toBe(120);
+      const response = await fetchUsageOverviewRealtime();
+
+      expect(response.window).toBe(window);
+      expect(response.bucket_seconds).toBe(bucketSeconds);
+    }
   });
 
   it('posts logout to the auth endpoint', async () => {

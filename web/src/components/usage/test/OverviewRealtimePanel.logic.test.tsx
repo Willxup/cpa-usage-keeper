@@ -107,8 +107,9 @@ describe('OverviewRealtimePanel', () => {
     expect(html).toContain('usage_stats.analysis_latency_p95_latency');
     expect(html).toContain('usage_stats.overview_realtime_current_usage');
     expect(html).toContain('usage_stats.overview_realtime_cache_level');
-    expect(html).toContain('30m');
-    expect(html).not.toMatch(/>5m<\/button>/);
+    for (const window of ['1m', '5m', '10m', '15m', '30m', '60m']) {
+      expect(html).toMatch(new RegExp(`>${window}</button>`));
+    }
     expect(html).toContain('usage_stats.overview_realtime_dimension_api_keys');
     expect(html).toContain('usage_stats.overview_realtime_dimension_auth_files');
     expect(html).toContain('gpt-5');

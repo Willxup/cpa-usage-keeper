@@ -1,3 +1,5 @@
+import type { OverviewRealtimeWindow } from './realtimeWindows'
+
 export type AuthRole = 'admin' | 'api_key_viewer'
 
 export interface AuthSessionAPIKeySummary {
@@ -142,7 +144,7 @@ export interface UsageActivityResponse {
   blocks: UsageActivityBlock[]
 }
 
-export type OverviewRealtimeWindow = '15m' | '30m' | '60m'
+export type { OverviewRealtimeWindow }
 
 export interface RealtimeTokenVelocityPoint {
   bucket: string

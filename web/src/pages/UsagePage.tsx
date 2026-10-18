@@ -4,6 +4,7 @@ import { useState, useMemo, useCallback, useEffect, useRef, type MouseEvent as R
 import { useTranslation } from 'react-i18next';
 import { ApiError, appPath, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentity, fetchVersion, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateAuthSessionAlias, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
 import type { AnalysisLatencyDiagnostics, AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageCustomRange, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption, UsageTimeRange, VersionResponse } from '@/lib/types';
+import { DEFAULT_OVERVIEW_REALTIME_WINDOW, isOverviewRealtimeWindow } from '@/lib/realtimeWindows';
 import { DEFAULT_USAGE_TAB, getUsageTabPath, handleUsageTabKeyActivation, resolveInitialUsageTab, shouldHandleUsageNavigation, USAGE_TAB_OPTIONS, type UsageTab } from '@/lib/usageNavigation';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
@@ -71,7 +72,6 @@ const OVERVIEW_REALTIME_WINDOW_STORAGE_KEY = 'cli-proxy-usage-overview-realtime-
 const API_KEY_FILTER_STORAGE_KEY = 'cli-proxy-usage-api-key-filter-v1';
 export const REQUEST_EVENTS_PREFERENCES_STORAGE_KEY = 'cli-proxy-usage-request-events-preferences-v1';
 const DEFAULT_TIME_RANGE: UsageTimeRange = 'today';
-const DEFAULT_REALTIME_WINDOW: OverviewRealtimeWindow = '15m';
 const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'white', labelKey: 'usage_stats.theme_light' },
   { value: 'dark', labelKey: 'usage_stats.theme_dark' },
@@ -680,19 +680,15 @@ const loadUsageTab = (): UsageTab => {
   );
 };
 
-const isOverviewRealtimeWindow = (value: unknown): value is OverviewRealtimeWindow => (
-  value === '15m' || value === '30m' || value === '60m'
-);
-
 const loadRealtimeWindow = (): OverviewRealtimeWindow => {
   try {
     if (typeof localStorage === 'undefined') {
-      return DEFAULT_REALTIME_WINDOW;
+      return DEFAULT_OVERVIEW_REALTIME_WINDOW;
     }
     const raw = localStorage.getItem(OVERVIEW_REALTIME_WINDOW_STORAGE_KEY);
-    return isOverviewRealtimeWindow(raw) ? raw : DEFAULT_REALTIME_WINDOW;
+    return isOverviewRealtimeWindow(raw) ? raw : DEFAULT_OVERVIEW_REALTIME_WINDOW;
   } catch {
-    return DEFAULT_REALTIME_WINDOW;
+    return DEFAULT_OVERVIEW_REALTIME_WINDOW;
   }
 };
 

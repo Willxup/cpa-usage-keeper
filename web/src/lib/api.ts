@@ -1,5 +1,6 @@
 import { type AnalysisLatencyDiagnostics, type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CodexQuotaHistoryResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type ErrorEventsResponse, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingRulesResponse, type PricingSyncPreviewResponse, type PricingSyncSource, type QuotaAutoRefreshSettings, type ReplacePricingRulesRequest, type StatusResponse, type UpdateCheckResponse, type UsageActivityRequest, type UsageActivityResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewComparisons, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
 import { isCPAMCEmbed } from '@/embed/cpamcEmbed'
+import { DEFAULT_OVERVIEW_REALTIME_WINDOW, overviewRealtimeBucketSeconds } from './realtimeWindows'
 import { resolveUsageRequestRange } from '@/utils/usage/rangeQuery'
 
 export class ApiError extends Error {
@@ -33,12 +34,6 @@ function normalizeBasePath(basePath: string | undefined): string {
   return basePath.endsWith('/') ? basePath.slice(0, -1) : basePath
 }
 
-function realtimeBucketSecondsForWindow(window: OverviewRealtimeWindow): number {
-  if (window === '60m') return 120
-  if (window === '30m') return 60
-  return 30
-}
-
 function normalizeOverviewRealtimeBlock(
   block: Partial<OverviewRealtimeBlock> & {
     current_usage?: Partial<OverviewRealtimeBlock['current_usage']>;
@@ -46,12 +41,12 @@ function normalizeOverviewRealtimeBlock(
   fallbackWindow?: OverviewRealtimeWindow,
 ): OverviewRealtimeBlock {
   const currentUsage: Partial<OverviewRealtimeBlock['current_usage']> = block.current_usage ?? {}
-  const resolvedWindow = block.window ?? fallbackWindow ?? '15m'
+  const resolvedWindow = block.window ?? fallbackWindow ?? DEFAULT_OVERVIEW_REALTIME_WINDOW
   return {
     window: resolvedWindow,
     insights: block.insights,
     timezone: block.timezone,
-    bucket_seconds: block.bucket_seconds ?? realtimeBucketSecondsForWindow(resolvedWindow),
+    bucket_seconds: block.bucket_seconds ?? overviewRealtimeBucketSeconds(resolvedWindow),
     window_start: block.window_start,
     window_end: block.window_end,
     token_velocity: block.token_velocity ?? [],

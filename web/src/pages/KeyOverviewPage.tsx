@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, fetchKeyOverview, fetchKeyOverviewRealtime, isUsageRangeBoundsConflict } from '@/lib/api';
 import type { AuthSessionAPIKeySummary, OverviewRealtimeBlock, OverviewRealtimeWindow, UsageCustomRange, UsageOverviewResponse, UsageTimeRange } from '@/lib/types';
+import { DEFAULT_OVERVIEW_REALTIME_WINDOW, isOverviewRealtimeWindow } from '@/lib/realtimeWindows';
 import { KeyViewerShell } from '@/features/key-viewer/KeyViewerShell';
 import type { KeyViewerPath } from '@/features/key-viewer/navigation';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
@@ -25,7 +26,6 @@ import { loadKeyViewerTimeRange, persistKeyViewerTimeRange } from '@/features/ke
 import styles from '@/features/key-viewer/KeyViewerShell.module.scss';
 
 const OVERVIEW_REALTIME_WINDOW_STORAGE_KEY = 'cli-proxy-usage-overview-realtime-window-v1';
-const DEFAULT_REALTIME_WINDOW: OverviewRealtimeWindow = '15m';
 const KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS = ['models'] as const;
 const KEY_OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
 
@@ -33,17 +33,13 @@ const loadTimeRange = (): StoredUsageRangeState => {
   return loadKeyViewerTimeRange();
 };
 
-const isOverviewRealtimeWindow = (value: unknown): value is OverviewRealtimeWindow => (
-  value === '15m' || value === '30m' || value === '60m'
-);
-
 const loadRealtimeWindow = (): OverviewRealtimeWindow => {
   try {
-    if (typeof localStorage === 'undefined') return DEFAULT_REALTIME_WINDOW;
+    if (typeof localStorage === 'undefined') return DEFAULT_OVERVIEW_REALTIME_WINDOW;
     const raw = localStorage.getItem(OVERVIEW_REALTIME_WINDOW_STORAGE_KEY);
-    return isOverviewRealtimeWindow(raw) ? raw : DEFAULT_REALTIME_WINDOW;
+    return isOverviewRealtimeWindow(raw) ? raw : DEFAULT_OVERVIEW_REALTIME_WINDOW;
   } catch {
-    return DEFAULT_REALTIME_WINDOW;
+    return DEFAULT_OVERVIEW_REALTIME_WINDOW;
   }
 };
 

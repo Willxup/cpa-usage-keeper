@@ -1369,30 +1369,51 @@ func TestBuildUsageOverviewWithFilterDoesNotFallbackToDBForEmptyCoveredRightBoun
 	}
 }
 
-func TestUsageOverviewRealtimeWindowSupportsThirtyMinutes(t *testing.T) {
-	window, span := usageOverviewRealtimeWindow("30m")
-	if window != 30*time.Minute || span != time.Minute {
-		t.Fatalf("expected 30m realtime window to use 60s buckets, got window=%s span=%s", window, span)
+func TestUsageOverviewRealtimeWindows(t *testing.T) {
+	tests := []struct {
+		value              string
+		window             time.Duration
+		span               time.Duration
+		aggregation        time.Duration
+		aggregationBuckets int
+	}{
+		{"1m", time.Minute, 2 * time.Second, 10 * time.Second, 5},
+		{"5m", 5 * time.Minute, 10 * time.Second, time.Minute, 6},
+		{"10m", 10 * time.Minute, 20 * time.Second, 2 * time.Minute, 6},
+		{"15m", 15 * time.Minute, 30 * time.Second, 3 * time.Minute, 6},
+		{"30m", 30 * time.Minute, time.Minute, 5 * time.Minute, 5},
+		{"60m", 60 * time.Minute, 120 * time.Second, 10 * time.Minute, 5},
 	}
-	if label := usageOverviewRealtimeWindowLabel(window); label != "30m" {
-		t.Fatalf("expected 30m realtime window label, got %q", label)
-	}
-	aggregationWindow := usageOverviewRealtimeAggregationWindow(window)
-	if aggregationWindow != 5*time.Minute {
-		t.Fatalf("expected 30m realtime window to aggregate over 5m, got %s", aggregationWindow)
-	}
-	if bucketCount := usageOverviewRealtimeAggregationBucketCount(span, aggregationWindow); bucketCount != 5 {
-		t.Fatalf("expected 30m realtime aggregation to cover 5 buckets, got %d", bucketCount)
+	for _, tc := range tests {
+		t.Run(tc.value, func(t *testing.T) {
+			window, span := usageOverviewRealtimeWindow(tc.value)
+			if window != tc.window || span != tc.span {
+				t.Fatalf("expected %s to use window=%s span=%s, got window=%s span=%s", tc.value, tc.window, tc.span, window, span)
+			}
+			if label := usageOverviewRealtimeWindowLabel(window); label != tc.value {
+				t.Fatalf("expected %s realtime window label, got %q", tc.value, label)
+			}
+			aggregationWindow := usageOverviewRealtimeAggregationWindow(window)
+			if aggregationWindow != tc.aggregation {
+				t.Fatalf("expected %s realtime window to aggregate over %s, got %s", tc.value, tc.aggregation, aggregationWindow)
+			}
+			if bucketCount := usageOverviewRealtimeAggregationBucketCount(span, aggregationWindow); bucketCount != tc.aggregationBuckets {
+				t.Fatalf("expected %s realtime aggregation to cover %d buckets, got %d", tc.value, tc.aggregationBuckets, bucketCount)
+			}
+			if visibleBuckets := int(window / span); visibleBuckets != 30 {
+				t.Fatalf("expected %s realtime window to keep 30 visible buckets, got %d", tc.value, visibleBuckets)
+			}
+		})
 	}
 }
 
-func TestUsageOverviewRealtimeWindowDropsFiveMinutePreset(t *testing.T) {
-	window, span := usageOverviewRealtimeWindow("5m")
+func TestUsageOverviewRealtimeWindowFallsBackToFifteenMinutes(t *testing.T) {
+	window, span := usageOverviewRealtimeWindow("2m")
 	if window != 15*time.Minute || span != 30*time.Second {
-		t.Fatalf("expected removed 5m realtime window to fall back to 15m, got window=%s span=%s", window, span)
+		t.Fatalf("expected unsupported realtime window to fall back to 15m, got window=%s span=%s", window, span)
 	}
 	if label := usageOverviewRealtimeWindowLabel(window); label != "15m" {
-		t.Fatalf("expected removed 5m realtime window to label as 15m, got %q", label)
+		t.Fatalf("expected unsupported realtime window to label as 15m, got %q", label)
 	}
 }
 

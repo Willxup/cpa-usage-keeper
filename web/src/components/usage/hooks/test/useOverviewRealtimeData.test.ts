@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { OverviewRealtimeBlock, OverviewRealtimeWindow } from '@/lib/types';
+import { overviewRealtimeBucketSeconds } from '@/lib/realtimeWindows';
 import { resolveDisplayRealtime } from '../useOverviewRealtimeData';
 
 const realtimeForWindow = (window: OverviewRealtimeWindow): OverviewRealtimeBlock => ({
   window,
-  bucket_seconds: window === '60m' ? 120 : window === '30m' ? 60 : 30,
+  bucket_seconds: overviewRealtimeBucketSeconds(window),
   token_velocity: [],
   latency_scatter: { points: [], total_points: 0, p95_ttft_ms: 0, p95_latency_ms: 0, max_ttft_ms: 0, max_latency_ms: 0 },
   current_usage: {

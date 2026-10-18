@@ -304,7 +304,7 @@ func parseUsageRealtimeFilterQueryWithClientAPIKey(req *http.Request, anchor tim
 		APIKeyID:       apiKeyID,
 	}
 	switch realtimeWindow {
-	case "15m", "30m", "60m":
+	case "1m", "5m", "10m", "15m", "30m", "60m":
 		realtimeEndTime := timeutil.NormalizeStorageTime(anchor)
 		filter.RealtimeEndTime = &realtimeEndTime
 		return filter, nil

@@ -1378,7 +1378,7 @@ type usageOverviewRealtimeEvent struct {
 
 // buildUsageOverviewRealtime 从最近事件缓存聚合 Overview 下方实时图表；缓存对象不可用时回退到 usage_events 窄窗查询。
 func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, costResolver pricing.Resolver, recentCache *UsageRecentEventCache) (dto.UsageOverviewRealtimeRecord, error) {
-	// window/span 由 15m/30m/60m 统一映射，前端所有 realtime 图共享同一窗口。
+	// window/span 由 1m/5m/10m/15m/30m/60m 统一映射，前端所有 realtime 图共享同一窗口。
 	window, span := usageOverviewRealtimeWindow(filter.RealtimeWindow)
 	// 滑动聚合需要窗口左侧的少量预热 bucket，避免切换窗口时曲线从左边界重新爬坡。
 	aggregationWindow := usageOverviewRealtimeAggregationWindow(window)
@@ -1484,6 +1484,12 @@ func usageEventGenerateEnabled(generate *bool) bool {
 
 func usageOverviewRealtimeWindow(value string) (time.Duration, time.Duration) {
 	switch strings.TrimSpace(value) {
+	case "1m":
+		return time.Minute, 2 * time.Second
+	case "5m":
+		return 5 * time.Minute, 10 * time.Second
+	case "10m":
+		return 10 * time.Minute, 20 * time.Second
 	case "15m":
 		return 15 * time.Minute, 30 * time.Second
 	case "30m":
@@ -1497,6 +1503,12 @@ func usageOverviewRealtimeWindow(value string) (time.Duration, time.Duration) {
 
 func usageOverviewRealtimeWindowLabel(window time.Duration) string {
 	switch window {
+	case time.Minute:
+		return "1m"
+	case 5 * time.Minute:
+		return "5m"
+	case 10 * time.Minute:
+		return "10m"
 	case 15 * time.Minute:
 		return "15m"
 	case 30 * time.Minute:
@@ -1510,6 +1522,12 @@ func usageOverviewRealtimeWindowLabel(window time.Duration) string {
 
 func usageOverviewRealtimeAggregationWindow(window time.Duration) time.Duration {
 	switch window {
+	case time.Minute:
+		return 10 * time.Second
+	case 5 * time.Minute:
+		return time.Minute
+	case 10 * time.Minute:
+		return 2 * time.Minute
 	case 15 * time.Minute:
 		return 3 * time.Minute
 	case 30 * time.Minute:

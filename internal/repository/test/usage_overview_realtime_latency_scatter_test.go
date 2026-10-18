@@ -11,13 +11,20 @@ import (
 )
 
 func TestRealtimeLatencyScatterKeepsPairsAndFullWindowSummary(t *testing.T) {
-	for _, window := range []string{"15m", "30m", "60m"} {
+	for _, window := range []string{"1m", "5m", "10m", "15m", "30m", "60m"} {
 		for _, useCache := range []bool{false, true} {
 			name := fmt.Sprintf("%s/cache=%t", window, useCache)
 			t.Run(name, func(t *testing.T) {
 				db := openTestDatabase(t)
 				now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
-				span := map[string]time.Duration{"15m": 15 * time.Minute, "30m": 30 * time.Minute, "60m": 60 * time.Minute}[window]
+				span := map[string]time.Duration{
+					"1m":  time.Minute,
+					"5m":  5 * time.Minute,
+					"10m": 10 * time.Minute,
+					"15m": 15 * time.Minute,
+					"30m": 30 * time.Minute,
+					"60m": 60 * time.Minute,
+				}[window]
 				start := now.Add(-span)
 				warmupTTFT := int64(99999)
 				events := []entities.UsageEvent{{EventKey: "warmup", APIGroupKey: "viewer-key", Timestamp: start.Add(-time.Second), TTFTMS: &warmupTTFT, LatencyMS: 999999}}
@@ -26,7 +33,7 @@ func TestRealtimeLatencyScatterKeepsPairsAndFullWindowSummary(t *testing.T) {
 					ttft := int64(index + 1)
 					events = append(events, entities.UsageEvent{
 						EventKey: fmt.Sprintf("pair-%d", index), APIGroupKey: "viewer-key",
-						Timestamp: start.Add(time.Minute), TTFTMS: &ttft, LatencyMS: int64(100000 - index),
+						Timestamp: start.Add(span / 2), TTFTMS: &ttft, LatencyMS: int64(100000 - index),
 					})
 				}
 				invalidTTFT := int64(50000)

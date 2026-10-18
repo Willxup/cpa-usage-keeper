@@ -12,7 +12,7 @@ import (
 )
 
 func TestRealtimeInsightsUseVisibleCacheWindowWithoutRawQueries(t *testing.T) {
-	for _, window := range []string{"15m", "30m", "60m"} {
+	for _, window := range []string{"1m", "5m", "10m", "15m", "30m", "60m"} {
 		t.Run(window, func(t *testing.T) {
 			db := openTestDatabase(t)
 			end := time.Now().Truncate(time.Second)

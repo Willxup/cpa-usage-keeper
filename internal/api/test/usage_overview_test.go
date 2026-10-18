@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -394,29 +395,47 @@ func TestUsageOverviewRealtimeAcceptsWindowAndReturnsRealtimeBlock(t *testing.T)
 }
 
 func TestUsageOverviewRealtimeValidatesWindowsWithAndWithoutProvider(t *testing.T) {
-	for _, tc := range []struct {
-		name, window string
-		configured   bool
+	valid := []struct {
+		window        string
+		bucketSeconds string
 	}{
-		{"nil provider accepts 60m", "60m", false},
-		{"nil provider rejects 45m", "45m", false},
-		{"provider rejects 5m", "5m", true},
-		{"provider rejects 45m", "45m", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			provider := &usageFilterStub{}
-			var usage service.UsageProvider
-			if tc.configured {
-				usage = provider
-			}
-			router := NewRouter(nil, nil, usage, nil, AuthConfig{}, nil, "")
-			resp := serveAPIGet(router, "/api/v1/usage/overview/realtime?window="+tc.window)
-			if tc.window == "60m" {
-				if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), `"window":"60m"`) || !strings.Contains(resp.Body.String(), `"bucket_seconds":120`) {
-					t.Fatalf("unexpected nil-provider realtime response: %d %s", resp.Code, resp.Body.String())
+		{"1m", `"bucket_seconds":2`},
+		{"5m", `"bucket_seconds":10`},
+		{"10m", `"bucket_seconds":20`},
+		{"15m", `"bucket_seconds":30`},
+		{"30m", `"bucket_seconds":60`},
+		{"60m", `"bucket_seconds":120`},
+	}
+	for _, configured := range []bool{false, true} {
+		for _, tc := range valid {
+			t.Run("configured="+strconv.FormatBool(configured)+"/"+tc.window, func(t *testing.T) {
+				provider := &usageFilterStub{}
+				var usage service.UsageProvider
+				if configured {
+					usage = provider
 				}
-			} else if resp.Code != http.StatusBadRequest || provider.realtimeCalls != 0 {
-				t.Fatalf("invalid window status=%d calls=%d body=%s", resp.Code, provider.realtimeCalls, resp.Body.String())
+				router := NewRouter(nil, nil, usage, nil, AuthConfig{}, nil, "")
+				resp := serveAPIGet(router, "/api/v1/usage/overview/realtime?window="+tc.window)
+				if resp.Code != http.StatusOK {
+					t.Fatalf("expected 200 for %s, got %d %s", tc.window, resp.Code, resp.Body.String())
+				}
+				body := resp.Body.String()
+				if !strings.Contains(body, `"window":"`+tc.window+`"`) || !strings.Contains(body, tc.bucketSeconds) {
+					t.Fatalf("unexpected realtime response for %s: %s", tc.window, body)
+				}
+				if configured && (provider.realtimeCalls != 1 || provider.lastRealtime.RealtimeWindow != tc.window) {
+					t.Fatalf("expected provider to receive %s, got calls=%d filter=%+v", tc.window, provider.realtimeCalls, provider.lastRealtime)
+				}
+			})
+		}
+	}
+	for _, window := range []string{"2m", "45m", "abc"} {
+		t.Run("reject/"+window, func(t *testing.T) {
+			provider := &usageFilterStub{}
+			router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
+			resp := serveAPIGet(router, "/api/v1/usage/overview/realtime?window="+window)
+			if resp.Code != http.StatusBadRequest || provider.realtimeCalls != 0 {
+				t.Fatalf("invalid window %s status=%d calls=%d body=%s", window, resp.Code, provider.realtimeCalls, resp.Body.String())
 			}
 		})
 	}

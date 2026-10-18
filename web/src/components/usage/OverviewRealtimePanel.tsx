@@ -11,6 +11,7 @@ import type {
   OverviewRealtimeWindow,
   RealtimeUsageTopItem,
 } from '@/lib/types';
+import { OVERVIEW_REALTIME_BUCKET_SECONDS, OVERVIEW_REALTIME_WINDOWS } from '@/lib/realtimeWindows';
 import {
   formatCompactNumber,
   formatDurationMs,
@@ -61,7 +62,6 @@ interface OverviewRealtimePanelProps {
   visibleDimensions?: readonly RealtimeDimensionKey[];
 }
 
-const REALTIME_WINDOWS: OverviewRealtimeWindow[] = ['15m', '30m', '60m'];
 const DEFAULT_VISIBLE_DIMENSIONS: readonly RealtimeDimensionKey[] = ['models', 'api_keys', 'auth_files', 'ai_providers'];
 const THROUGHPUT_Y_TICK_COUNT = 6;
 const THROUGHPUT_Y_INTERVAL_COUNT = THROUGHPUT_Y_TICK_COUNT - 1;
@@ -97,7 +97,7 @@ const THROUGHPUT_CHART_PLUGINS: Plugin<'line'>[] = [throughputLegendSpacingPlugi
 
 const emptyRealtime = (window: OverviewRealtimeWindow): OverviewRealtimeBlock => ({
   window,
-  bucket_seconds: window === '30m' ? 60 : window === '60m' ? 120 : 30,
+  bucket_seconds: OVERVIEW_REALTIME_BUCKET_SECONDS[window],
   token_velocity: [],
   latency_scatter: { points: [], total_points: 0, p95_ttft_ms: 0, p95_latency_ms: 0, max_ttft_ms: 0, max_latency_ms: 0 },
   current_usage: {
@@ -604,7 +604,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
           <h2 className={styles.overviewRealtimeTitle}>{t('usage_stats.overview_realtime_section_title')}</h2>
         </div>
         <div className={styles.overviewRealtimeWindowSwitcher} role="group" aria-label={t('usage_stats.overview_realtime_window')}>
-          {REALTIME_WINDOWS.map((option) => (
+          {OVERVIEW_REALTIME_WINDOWS.map((option) => (
             <button
               key={option}
               type="button"

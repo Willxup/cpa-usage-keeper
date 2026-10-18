@@ -3799,6 +3799,9 @@
 .overviewRealtimeWindowSwitcher {
   display: inline-flex;
   align-items: stretch;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 100%;
   gap: 2px;
   padding: 4px;
   border-radius: 999px;

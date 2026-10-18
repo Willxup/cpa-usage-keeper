@@ -444,6 +444,12 @@ func emptyUsageOverviewRealtimeBase(window string) usageOverviewRealtimeBase {
 
 func realtimeBucketSeconds(window string) int64 {
 	switch window {
+	case "1m":
+		return 2
+	case "5m":
+		return 10
+	case "10m":
+		return 20
 	case "30m":
 		return 60
 	case "60m":
