@@ -23,8 +23,14 @@ const EMBED_SESSION_HEADER = 'X-CPA-Usage-Keeper-Embed-Session'
 declare global {
   interface Window {
     __APP_BASE_PATH__?: string
+    // 服务端按 RANKING_ENABLED 替换为布尔值；开发服务器保留占位字符串，视为启用。
+    __APP_RANKING_ENABLED__?: boolean | string
   }
 }
+
+export const isRankingEnabled = (): boolean => (
+  typeof window === 'undefined' || window.__APP_RANKING_ENABLED__ !== false
+)
 
 function normalizeBasePath(basePath: string | undefined): string {
   if (!basePath || basePath === '/' || basePath === APP_BASE_PATH_PLACEHOLDER) {

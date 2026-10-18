@@ -23,7 +23,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const appBasePathPlaceholder = "__APP_BASE_PATH__"
+const (
+	appBasePathPlaceholder = "__APP_BASE_PATH__"
+	// appRankingEnabledPlaceholder 在返回 index.html 时替换为 JSON 布尔值，前端据此隐藏排行入口。
+	appRankingEnabledPlaceholder = "__APP_RANKING_ENABLED__"
+)
 
 var loopbackTrustedProxyCIDRs = []string{"127.0.0.1/32", "::1/128"}
 
@@ -167,12 +171,15 @@ func NewRouter(
 		rankinghttpapi.RegisterKeyViewerLocalRoutes(keyViewerProtected, localRankingProvider)
 	}
 
+	// 排行路由只在 provider 存在时注册；前端可见性与之保持一致，避免出现指向 404 接口的入口。
+	rankingEnabled := rankingProvider != nil || localRankingProvider != nil
+
 	if staticFS != nil {
 		if indexFile, err := staticFS.Open("index.html"); err == nil {
 			_ = indexFile.Close()
 			httpFS := http.FS(staticFS)
 			serveIndex := func(c *gin.Context) {
-				indexHTML, err := renderIndexHTML(staticFS, basePath)
+				indexHTML, err := renderIndexHTML(staticFS, basePath, rankingEnabled)
 				if err != nil {
 					c.Status(http.StatusNotFound)
 					return
@@ -264,7 +271,7 @@ func setFrameAncestorsCSP(c *gin.Context, origins []string) {
 	c.Header("Content-Security-Policy", strings.Join(values, " "))
 }
 
-func renderIndexHTML(staticFS fs.FS, basePath string) ([]byte, error) {
+func renderIndexHTML(staticFS fs.FS, basePath string, rankingEnabled bool) ([]byte, error) {
 	indexFile, err := staticFS.Open("index.html")
 	if err != nil {
 		return nil, err
@@ -275,10 +282,15 @@ func renderIndexHTML(staticFS fs.FS, basePath string) ([]byte, error) {
 		return nil, err
 	}
 
-	return bytes.ReplaceAll(
+	indexHTML = bytes.ReplaceAll(
 		indexHTML,
 		[]byte(strconv.Quote(appBasePathPlaceholder)),
 		[]byte(strconv.Quote(basePath)),
+	)
+	return bytes.ReplaceAll(
+		indexHTML,
+		[]byte(strconv.Quote(appRankingEnabledPlaceholder)),
+		[]byte(strconv.FormatBool(rankingEnabled)),
 	), nil
 }
 

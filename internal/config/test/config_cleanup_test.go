@@ -11,7 +11,7 @@ import (
 
 var isolatedConfigEnvKeys = []string{
 	"APP_HOST", "APP_PORT", "APP_BASE_PATH", "CPA_PUBLIC_URL", "WORK_DIR", "CPA_BASE_URL", "CPA_MANAGEMENT_KEY",
-	"CPA_REQUEST_LOG_ACCESS_ENABLED", "API_KEY_VIEWER_LOCAL_RANKING_ENABLED",
+	"CPA_REQUEST_LOG_ACCESS_ENABLED", "API_KEY_VIEWER_LOCAL_RANKING_ENABLED", "RANKING_ENABLED",
 	"REDIS_QUEUE_ADDR", "REDIS_QUEUE_TLS", "REDIS_QUEUE_BATCH_SIZE", "REDIS_QUEUE_IDLE_INTERVAL",
 	"BACKUP_ENABLED", "BACKUP_INTERVAL", "BACKUP_RETENTION_DAYS",
 	"REQUEST_TIMEOUT", "LOG_LEVEL", "LOG_FILE_ENABLED", "LOG_DIR", "LOG_RETENTION_DAYS",
@@ -44,6 +44,32 @@ func TestLoadOptionalAccessFlags(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestLoadRankingEnabledDefaultsOn(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  bool
+	}{
+		{"", true},
+		{"true", true},
+		{"false", false},
+	} {
+		t.Run(fmt.Sprintf("%q", tc.value), func(t *testing.T) {
+			isolateConfigEnv(t)
+			setRequiredConfig(t)
+			if tc.value != "" {
+				t.Setenv("RANKING_ENABLED", tc.value)
+			}
+			cfg, err := config.LoadFromEnv()
+			if err != nil {
+				t.Fatalf("LoadFromEnv: %v", err)
+			}
+			if cfg.RankingEnabled != tc.want {
+				t.Fatalf("RankingEnabled = %t, want %t", cfg.RankingEnabled, tc.want)
+			}
+		})
 	}
 }
 
