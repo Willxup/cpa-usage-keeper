@@ -24,10 +24,12 @@ export function CredentialEditModal({ selection, onClose, onSaveField, onSaved, 
   useLayoutEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const fallback = fallbackFocusRef?.current
-    // 页面会直接卸载编辑弹框；在公共 Modal 转移焦点之前记住入口，并在卸载时恢复。
+    // 在公共 Modal 转移焦点之前记住入口；等卸载所在的提交完成后再判断入口是否仍存在。
     return () => {
-      const target = opener?.isConnected ? opener : fallback
-      target?.focus()
+      queueMicrotask(() => {
+        const target = opener?.isConnected ? opener : fallback?.isConnected ? fallback : null
+        target?.focus()
+      })
     }
   }, [fallbackFocusRef])
   const { identity, displayName } = selection.row

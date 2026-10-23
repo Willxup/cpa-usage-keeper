@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -28,6 +28,7 @@ interface CredentialDetailDrawerProps {
   open: boolean
   selection: CredentialDetailSelection | null
   timeZone?: string
+  fallbackFocusRef?: RefObject<HTMLElement | null>
   onAuthRequired?: () => void
   onResetStats?: (id: string) => Promise<void>
   requestLogAccessEnabled?: boolean
@@ -75,6 +76,7 @@ export function CredentialDetailDrawer({
   open,
   selection,
   timeZone,
+  fallbackFocusRef,
   onAuthRequired,
   onResetStats,
   requestLogAccessEnabled = false,
@@ -88,6 +90,15 @@ export function CredentialDetailDrawer({
   onClose,
 }: CredentialDetailDrawerProps) {
   const { t } = useTranslation()
+  const openerRef = useRef<HTMLElement | null>(null)
+  useLayoutEffect(() => {
+    if (open) {
+      openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    } else if (openerRef.current && !openerRef.current.isConnected) {
+      // 正常回焦由 Modal 处理；刷新或筛选移走入口时回到当前区域的稳定筛选控件。
+      fallbackFocusRef?.current?.focus()
+    }
+  }, [fallbackFocusRef, open])
   const overviewTabId = useId()
   const quotaHistoryTabId = useId()
   const requestsTabId = useId()
