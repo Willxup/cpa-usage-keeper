@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   docker-dev:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Validate branch ref
         if: ${{ !startsWith(github.ref, 'refs/heads/') || github.ref_name == 'main' }}

@@ -17,7 +17,7 @@ jobs:
 
   binary-release-linux:
     needs: release-policy
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
@@ -237,7 +237,7 @@ jobs:
           if-no-files-found: error
 
   publish-release:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs:
       - release-policy
       - binary-release-linux
@@ -267,7 +267,7 @@ jobs:
             dist/checksums.txt
 
   update-homebrew-tap:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs: [release-policy, publish-release]
     steps:
       - name: Download binary package artifacts
