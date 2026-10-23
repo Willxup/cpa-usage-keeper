@@ -184,7 +184,11 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Build Docker image
-        run: docker build -t cpa-usage-keeper:ci .
+        run: |
+          docker build --pull \
+            --build-arg NODE_IMAGE=node:24-alpine3.24 \
+            --build-arg GO_IMAGE=golang:1.26-alpine3.24 \
+            -t cpa-usage-keeper:ci .
 
   ci-gate:
     if: ${{ always() }}
