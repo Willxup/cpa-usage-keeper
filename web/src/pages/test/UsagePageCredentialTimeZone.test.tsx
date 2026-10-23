@@ -88,13 +88,26 @@ describe('UsagePage credential project timezone', () => {
     vi.restoreAllMocks();
   });
 
-  it('uses the project timezone for quota resets in the list and detail drawer', async () => {
+  it('uses the project timezone for the compact reset tooltip and the full detail reset label', async () => {
     await act(async () => root.render(<UsagePage />));
 
-    expect(container.textContent).toContain(PROJECT_RESET_LABEL);
+    const countdown = container.querySelector<HTMLButtonElement>('[data-quota-reset-countdown="true"]')!;
+    expect(countdown).not.toBeNull();
+    expect(countdown.getAttribute('aria-label')).toContain(PROJECT_RESET_LABEL);
+    expect(countdown.getAttribute('aria-label')).toContain('Asia/Shanghai');
+    expect(container.textContent).not.toContain(PROJECT_RESET_LABEL);
     expect(container.textContent).not.toContain('05/12 10:15');
 
-    const detailTrigger = container.querySelector<HTMLButtonElement>('[data-credential-detail-trigger]');
+    await act(async () => countdown.focus());
+    const tooltipId = countdown.getAttribute('aria-describedby')!;
+    expect(document.getElementById(tooltipId)?.textContent).toContain(PROJECT_RESET_LABEL);
+    expect(document.getElementById(tooltipId)?.textContent).toContain('Asia/Shanghai');
+    await act(async () => countdown.blur());
+    expect(document.getElementById(tooltipId)).toBeNull();
+    await act(async () => countdown.click());
+    expect(document.getElementById(countdown.getAttribute('aria-describedby')!)?.textContent).toContain(PROJECT_RESET_LABEL);
+
+    const detailTrigger = container.querySelector<HTMLButtonElement>('[data-credential-detail-entry="title"]');
     expect(detailTrigger).not.toBeNull();
     await act(async () => detailTrigger!.click());
 

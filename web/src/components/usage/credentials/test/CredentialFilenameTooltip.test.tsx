@@ -67,10 +67,10 @@ describe('CredentialsSection filename interaction', () => {
     expect(container.textContent).not.toContain(fileName)
 
     await act(async () => name.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
-    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])')).toBeNull()
 
     await act(async () => name.focus())
-    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    expect(document.body.querySelector('[role="tooltip"]:not([aria-hidden="true"])')).toBeNull()
 
     await act(async () => name.click())
     expect(onOpenDetails).toHaveBeenCalledWith(row)
