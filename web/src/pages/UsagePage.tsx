@@ -20,6 +20,7 @@ import { PricingSettings, type PricingSettingsHandle } from '@/components/usage/
 import { buildCredentialProviderSearch } from '@/components/usage/credentials/credentialProviderFilters';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
+import { useRequestEventAPIKeyOptions } from '@/components/usage/hooks/useRequestEventAPIKeyOptions';
 import { useThemeStore } from '@/stores';
 import {
   StatCards,
@@ -750,6 +751,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [realtimeWindow, setRealtimeWindow] = useState<OverviewRealtimeWindow>(loadRealtimeWindow);
   const [selectedApiKeyId, setSelectedApiKeyId] = useState(loadSelectedApiKeyId);
   const [apiKeyOptions, setApiKeyOptions] = useState<CpaApiKeyOption[]>([]);
+  const discoveredAPIKeyOptionsRef = useRef(new Map<string, CpaApiKeyOption>());
+  const rememberEventAPIKeyOptions = useCallback((options: CpaApiKeyOption[]) => {
+    for (const option of options) discoveredAPIKeyOptionsRef.current.set(option.id, option);
+    setApiKeyOptions((current) => Array.from(new Map([...current, ...options].map((option) => [option.id, option])).values()));
+  }, []);
   const [apiKeyOptionsLoaded, setApiKeyOptionsLoaded] = useState(false);
   const [apiKeyOptionsResolved, setApiKeyOptionsResolved] = useState(false);
   const apiKeyFilterRequestState = resolveApiKeyFilterRequestState(
@@ -899,6 +905,23 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [eventsModelFilter, setEventsModelFilter] = useState(initialRequestEventsPreferences.filters.model);
   const [eventsSourceFilter, setEventsSourceFilter] = useState(initialRequestEventsPreferences.filters.source);
   const [eventsResultFilter, setEventsResultFilter] = useState(initialRequestEventsPreferences.filters.result);
+  const eventAPIKeyOptions = useRequestEventAPIKeyOptions({
+    request: usageRangeQuery,
+    filters: {
+      model: eventsModelFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsModelFilter,
+      source: eventsSourceFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsSourceFilter,
+      result: eventsResultFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsResultFilter,
+    },
+    enabled: activeTab === 'events' && usageRangeQuery.valid,
+    onAuthRequired,
+    onRangeBoundsConflict: recoverRangeBoundsConflict,
+    onOptionsLoaded: rememberEventAPIKeyOptions,
+  });
+  const eventAPIKeyOptionsStatus = eventAPIKeyOptions.status === 'loading'
+    ? t('usage_stats.request_events_loading_api_keys')
+    : eventAPIKeyOptions.status === 'error'
+      ? t('usage_stats.request_events_api_keys_load_failed')
+      : undefined;
   const currentEventsScope = JSON.stringify([usageRangeQuery, requestApiKeyId, eventsModelFilter, eventsSourceFilter, eventsResultFilter]);
   const eventsScopeMatches = eventsLoadedScopeRef.current === currentEventsScope;
   const visibleEvents = eventsScopeMatches ? eventsData : [];
@@ -999,6 +1022,14 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     ],
     [apiKeyOptions, t],
   );
+  const eventAPIKeySelectOptions = useMemo(() => [
+    { value: '', label: t('usage_stats.api_key_filter_all') },
+    ...eventAPIKeyOptions.options.map((option) => ({ value: option.id, label: option.label })),
+  ], [eventAPIKeyOptions.options, t]);
+  const selectedAPIKeyOption = apiKeyOptions.find((option) => option.id === selectedApiKeyId)
+    ?? eventAPIKeyOptions.options.find((option) => option.id === selectedApiKeyId)
+    ?? { id: selectedApiKeyId, label: selectedApiKeyId || t('usage_stats.api_key_filter_all') };
+  const toolbarAPIKeyOptions = activeTab === 'events' ? eventAPIKeySelectOptions : apiKeySelectOptions;
   const credentialTypeCountsForProviderFilter = useMemo(() => {
     if (credentialSectionVisibility.showCredentials) return credentialsData.credentialTypeCounts;
     if (credentialSectionVisibility.showAiProvider) return credentialsData.aiProviderTypeCounts;
@@ -1023,6 +1054,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const cpaManagementURL = useMemo(() => getBackToCPALinkURL(status), [status]);
 
   const loadApiKeyOptions = useCallback(async () => {
+    discoveredAPIKeyOptionsRef.current.clear();
     apiKeyOptionsRequestControllerRef.current?.abort();
     const controller = new AbortController();
     apiKeyOptionsRequestControllerRef.current = controller;
@@ -1033,7 +1065,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       if (apiKeyOptionsRequestControllerRef.current !== controller) {
         return;
       }
-      setApiKeyOptions(response.options ?? []);
+      // Keep keys discovered by a newer event-candidate request while the initial roster was in flight.
+      setApiKeyOptions(Array.from(new Map([...(response.options ?? []), ...discoveredAPIKeyOptionsRef.current.values()].map((option) => [option.id, option])).values()));
       setApiKeyOptionsLoaded(true);
       setApiKeyOptionsResolved(true);
     } catch (error) {
@@ -1041,7 +1074,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         return;
       }
       if (apiKeyOptionsRequestControllerRef.current === controller) {
-        setApiKeyOptions([]);
+        setApiKeyOptions(Array.from(discoveredAPIKeyOptionsRef.current.values()));
         setApiKeyOptionsResolved(true);
       }
       if (error instanceof ApiError && error.status === 401) {
@@ -2124,7 +2157,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       <span className={styles.usageFilterLabel}>{t('usage_stats.api_key_filter')}</span>
                       <Select
                         value={selectedApiKeyId}
-                        options={apiKeySelectOptions}
+                        options={toolbarAPIKeyOptions}
+                        selectedOption={{ value: selectedAPIKeyOption.id, label: selectedAPIKeyOption.label }}
+                        onOpen={activeTab === 'events' ? eventAPIKeyOptions.refresh : undefined}
+                        dropdownStatus={activeTab === 'events' ? eventAPIKeyOptionsStatus : undefined}
                         onChange={setSelectedApiKeyId}
                         className={styles.apiKeySelectControl}
                         ariaLabel={t('usage_stats.api_key_filter')}
@@ -2176,9 +2212,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 <Select
                   key="api-key"
                   value={selectedApiKeyId}
-                  options={apiKeySelectOptions}
+                  options={toolbarAPIKeyOptions}
+                  selectedOption={{ value: selectedAPIKeyOption.id, label: selectedAPIKeyOption.label }}
+                  onOpen={activeTab === 'events' ? eventAPIKeyOptions.refresh : undefined}
+                  dropdownStatus={activeTab === 'events' ? eventAPIKeyOptionsStatus : undefined}
                   onChange={setSelectedApiKeyId}
-                  ariaLabel={`${t('usage_stats.api_key_filter')}: ${apiKeySelectOptions.find((option) => option.value === selectedApiKeyId)?.label ?? ''}`}
+                  ariaLabel={`${t('usage_stats.api_key_filter')}: ${selectedAPIKeyOption.label}`}
                   fullWidth={false}
                   dropdownMinWidth={180}
                   renderValue={(option) => <><span data-dashboard-filter-caption>{t('usage_stats.api_key_filter')}</span><span data-dashboard-filter-value>{option?.label}</span></>}
@@ -2272,8 +2311,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   loading={eventsLoading || (eventsError === 'COSTS_BUSY' && visibleEvents.length === 0)}
                   totalCount={eventsScopeMatches ? eventsTotalCount : 0}
                   modelOptions={eventsModelOptions}
+                  apiKeyOptions={eventAPIKeyOptions.options}
+                  selectedApiKeyOption={selectedAPIKeyOption}
+                  apiKeyOptionsStatus={eventAPIKeyOptionsStatus}
+                  onApiKeyFilterOpen={eventAPIKeyOptions.refresh}
                   sourceOptions={eventsSourceOptions}
                   modelFilter={eventsModelFilter}
+                  apiKeyFilter={selectedApiKeyId}
                   sourceFilter={eventsSourceFilter}
                   resultFilter={eventsResultFilter}
                   exportingFormat={eventsExportingFormat}
@@ -2283,6 +2327,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   visibleColumnIds={eventsVisibleColumnIds}
                   columnOrder={eventsColumnOrder}
                   onModelFilterChange={handleEventsModelFilterChange}
+                  onApiKeyFilterChange={setSelectedApiKeyId}
                   onSourceFilterChange={handleEventsSourceFilterChange}
                   onResultFilterChange={handleEventsResultFilterChange}
                   onExport={handleEventsExport}
