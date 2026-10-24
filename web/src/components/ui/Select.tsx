@@ -28,6 +28,8 @@ interface SelectProps {
   value: string;
   options: ReadonlyArray<SelectOption>;
   onChange: (value: string) => void;
+  /** Called whenever the closed dropdown is opened. */
+  onOpen?: () => void;
   placeholder?: string;
   className?: string;
   dropdownClassName?: string;
@@ -40,6 +42,10 @@ interface SelectProps {
   fullWidth?: boolean;
   dropdownMinWidth?: number;
   renderValue?: (option: SelectOption | undefined) => ReactNode;
+  /** Display metadata for a selected value that is not currently a candidate option. */
+  selectedOption?: SelectOption;
+  /** Replaces the candidate list with a non-selectable loading/error status. */
+  dropdownStatus?: string;
   showChevron?: boolean;
   id?: string;
   search?: {
@@ -118,6 +124,7 @@ export function Select({
   value,
   options,
   onChange,
+  onOpen,
   placeholder,
   className,
   dropdownClassName,
@@ -130,6 +137,8 @@ export function Select({
   fullWidth = true,
   dropdownMinWidth,
   renderValue,
+  selectedOption,
+  dropdownStatus,
   showChevron = true,
   id,
   search,
@@ -138,6 +147,8 @@ export function Select({
   const selectId = id ?? generatedId;
   const listboxId = `${selectId}-listbox`;
   const [open, setOpen] = useState(false);
+  // State updates from focus and click can be batched; guard the transition synchronously.
+  const openingRef = useRef(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const shouldScrollHighlightRef = useRef(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -152,15 +163,23 @@ export function Select({
   const touchSearch = searchable && touch;
   // 搜索只缩小候选项，提交选择后才更新调用方的筛选值。
   const visibleOptions = useMemo(() => {
+    if (dropdownStatus) return [];
     const query = searchable ? searchQuery.trim().toLowerCase() : '';
     return query ? options.filter((option) => option.label.toLowerCase().includes(query)) : options;
-  }, [options, searchable, searchQuery]);
+  }, [dropdownStatus, options, searchable, searchQuery]);
   const openDropdown = useCallback(() => {
+    if (open || openingRef.current || disabled) return;
+    openingRef.current = true;
     shouldScrollHighlightRef.current = true;
     setSearchQuery('');
     setHighlightedIndex(-1);
     setOpen(true);
-  }, []);
+    onOpen?.();
+  }, [disabled, onOpen, open]);
+
+  useEffect(() => {
+    if (!isOpen) openingRef.current = false;
+  }, [isOpen]);
 
   useEffect(() => {
     if (!open || disabled) return;
@@ -187,7 +206,9 @@ export function Select({
       : visibleSelectedIndex >= 0 && !visibleOptions[visibleSelectedIndex]?.disabled
         ? visibleSelectedIndex
         : firstEnabledIndex;
-  const selected = selectedIndex >= 0 ? options[selectedIndex] : undefined;
+  const selected = selectedIndex >= 0
+    ? options[selectedIndex]
+    : selectedOption?.value === value ? selectedOption : undefined;
   const displayText = selected?.triggerLabel ?? selected?.label ?? placeholder ?? '';
   const isPlaceholder = !selected && placeholder;
 
@@ -308,7 +329,7 @@ export function Select({
     else if (optionRect.bottom > viewportRect.bottom) viewport.scrollTop += optionRect.bottom - viewportRect.bottom;
   }, [dropdownStyle, isOpen, resolvedHighlightedIndex, selectId, visibleOptions]);
 
-  const optionButtons = isOpen && visibleOptions.map((opt, index) => {
+  const optionButtons = isOpen && !dropdownStatus && visibleOptions.map((opt, index) => {
     const active = opt.value === value;
     const highlighted = index === resolvedHighlightedIndex;
     return (
@@ -369,6 +390,7 @@ export function Select({
       }}
       onChange={(event) => {
         shouldScrollHighlightRef.current = true;
+        if (!isOpen) openDropdown();
         setSearchQuery(event.target.value);
         setHighlightedIndex(-1);
         setOpen(true);
@@ -396,7 +418,8 @@ export function Select({
             <MenuScrollArea id={searchable ? listboxId : undefined} role={searchable ? 'listbox' : undefined} ariaLabel={searchable ? ariaLabel : undefined}>
               {optionButtons}
             </MenuScrollArea>
-            {search && visibleOptions.length === 0 ? <div role="status" className={styles.noResults}>{search.noResultsText}</div> : null}
+            {dropdownStatus ? <div role="status" className={styles.noResults}>{dropdownStatus}</div> : null}
+            {!dropdownStatus && search && visibleOptions.length === 0 ? <div role="status" className={styles.noResults}>{search.noResultsText}</div> : null}
           </div>
         )
       : null;

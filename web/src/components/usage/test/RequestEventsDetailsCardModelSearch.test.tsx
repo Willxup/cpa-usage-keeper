@@ -10,6 +10,7 @@ describe('RequestEventsDetailsCard model search', () => {
   let container: HTMLDivElement;
   let root: Root;
   const onModelFilterChange = vi.fn();
+  const onApiKeyFilterChange = vi.fn();
   const onSourceFilterChange = vi.fn();
   const modelOptions = ['claude-sonnet-4', 'gpt-5', 'gpt-5-mini', 'gemini-2.5-pro'];
   const sortedModelOptions = ['gpt-5', 'gpt-5-mini', 'claude-sonnet-4', 'gemini-2.5-pro'];
@@ -22,18 +23,22 @@ describe('RequestEventsDetailsCard model search', () => {
     root = createRoot(container);
     function TestCard() {
       const [modelFilter, setModelFilter] = React.useState('claude-sonnet-4');
+      const [apiKeyFilter, setApiKeyFilter] = React.useState('');
       const [sourceFilter, setSourceFilter] = React.useState('__all__');
       return <RequestEventsTestCard
         events={[]}
         modelOptions={modelOptions}
+        apiKeyOptions={[{ id: '11', label: 'Team key' }, { id: '22', label: 'Other key' }]}
         sourceOptions={[{ value: 'auth-1', label: 'fallback-1', displayName: 'Team source' }, { value: 'auth-2', label: 'Other source' }]}
         modelFilter={modelFilter}
+        apiKeyFilter={apiKeyFilter}
         sourceFilter={sourceFilter}
         onModelFilterChange={(model) => {
           onModelFilterChange(model);
           setModelFilter(model);
         }}
         onSourceFilterChange={(source) => { onSourceFilterChange(source); setSourceFilter(source); }}
+        onApiKeyFilterChange={(apiKeyId) => { onApiKeyFilterChange(apiKeyId); setApiKeyFilter(apiKeyId); }}
       />;
     }
     await act(async () => root.render(<TestCard />));
@@ -65,7 +70,7 @@ describe('RequestEventsDetailsCard model search', () => {
     await openInput();
     expect(document.activeElement).toBe(input());
     expect(document.querySelector('[role="listbox"] input')).toBeNull();
-    expect(document.querySelectorAll('input[role="combobox"]')).toHaveLength(2);
+    expect(document.querySelectorAll('input[role="combobox"]')).toHaveLength(3);
     await typeQuery(' GPT-5 ');
     expect(options()).toEqual(['gpt-5', 'gpt-5-mini']);
     expect(onModelFilterChange).not.toHaveBeenCalled();
@@ -112,6 +117,7 @@ describe('RequestEventsDetailsCard model search', () => {
   });
 
   it.each([
+    ['API Key', ' TEAM ', 'Team key', '11', onApiKeyFilterChange],
     ['Source', ' TEAM ', 'Team source', 'auth-1', onSourceFilterChange],
   ] as const)('searches %s display names locally and commits the option ID', async (label, query, displayName, value, onChange) => {
     const control = container.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
@@ -124,7 +130,7 @@ describe('RequestEventsDetailsCard model search', () => {
     };
     await type('missing-option');
     expect(options()).toEqual([]);
-    expect(document.body.textContent).toContain('No matching sources');
+    expect(document.body.textContent).toContain(label === 'API Key' ? 'No matching API Keys' : 'No matching sources');
     await type(query);
     expect(options()).toEqual([displayName]);
     expect(onChange).not.toHaveBeenCalled();
@@ -142,13 +148,13 @@ describe('RequestEventsDetailsCard model search', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
-  it('only offers Model, Source and Status filters', () => {
+  it('offers Model, API Key, Source and Status filters', () => {
     expect(Array.from(container.querySelectorAll('[aria-expanded][aria-label]'))
       .filter((node) => ['Model', 'API Key', 'Source', 'Status'].includes(node.getAttribute('aria-label')!))
-      .map((node) => node.getAttribute('aria-label'))).toEqual(['Model', 'Source', 'Status']);
+      .map((node) => node.getAttribute('aria-label'))).toEqual(['Model', 'API Key', 'Source', 'Status']);
   });
 
-  it.each(['Model', 'Source', 'Status'])('does not open %s from its caption or surrounding space', async (label) => {
+  it.each(['Model', 'API Key', 'Source', 'Status'])('does not open %s from its caption or surrounding space', async (label) => {
     const control = container.querySelector<HTMLInputElement | HTMLButtonElement>(`[aria-label="${label}"][aria-expanded]`)!;
     const caption = Array.from(container.querySelectorAll('span')).find((node) => node.textContent === label)!;
 

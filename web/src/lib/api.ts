@@ -578,6 +578,18 @@ export async function fetchUsageEventSourceFilterOptions(signal?: AbortSignal): 
   return response.json()
 }
 
+export type UsageEventAPIKeyFilters = Pick<FetchUsageEventsOptions, 'model' | 'source' | 'result'>
+
+export async function fetchUsageEventAPIKeyFilterOptions(request: UsageRangeRequest, signal?: AbortSignal, filters: UsageEventAPIKeyFilters = {}): Promise<CpaApiKeyOptionsResponse> {
+  // Candidate keys are scoped by the other event filters, never by the selected key or pagination.
+  const params = buildUsageEventsParams(request, { model: filters.model, source: filters.source, result: filters.result }, false)
+  const response = await apiFetch(`${apiPath('/usage/events/filters/api-keys')}?${params}`, { signal, cache: 'no-store' })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load usage event API key filters: ${response.status}`)
+  }
+  return response.json()
+}
+
 export async function fetchUsageEvents(request: UsageRangeRequest | undefined, signal?: AbortSignal, options?: FetchUsageEventsOptions): Promise<UsageEventsResponse> {
   const params = buildUsageEventsParams(request, options)
   const query = params.toString()

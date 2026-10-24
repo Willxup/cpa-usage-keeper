@@ -222,6 +222,11 @@ func parseUsageFilterQueryWithLatestIdentity(req *http.Request, anchor time.Time
 		filter.Page = 1
 		filter.Offset = 0
 	}
+	return parseUsageEventDimensionsQuery(req, filter)
+}
+
+func parseUsageEventDimensionsQuery(req *http.Request, filter servicedto.UsageFilter) (servicedto.UsageFilter, error) {
+	query := req.URL.Query()
 	filter.Model = strings.TrimSpace(query.Get("model"))
 	// Request Events 前端参数仍叫 source，但它的值是 usage identity；路由层会转换成 auth_index 查询。
 	filter.Source = strings.TrimSpace(query.Get("source"))
