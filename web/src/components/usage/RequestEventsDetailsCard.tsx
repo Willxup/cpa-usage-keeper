@@ -29,7 +29,7 @@ import {
   IconInfo,
   IconSettings,
 } from '@/components/ui/icons';
-import type { UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption } from '@/lib/types';
+import type { CpaApiKeyOption, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption } from '@/lib/types';
 import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainment';
 import { copyTextToClipboard } from '@/utils/clipboard';
 import { compareModelNames } from '@/utils/modelSort';
@@ -383,8 +383,13 @@ export interface RequestEventsDetailsCardProps {
   loading: boolean;
   totalCount: number;
   modelOptions: string[];
+  apiKeyOptions: ReadonlyArray<CpaApiKeyOption>;
+  selectedApiKeyOption?: CpaApiKeyOption;
+  apiKeyOptionsStatus?: string;
+  onApiKeyFilterOpen?: () => void;
   sourceOptions: UsageSourceFilterOption[];
   modelFilter: string;
+  apiKeyFilter: string;
   sourceFilter: string;
   resultFilter: string;
   exportingFormat?: RequestEventExportFormat | null;
@@ -396,6 +401,7 @@ export interface RequestEventsDetailsCardProps {
   visibleColumnIds?: readonly RequestEventColumnId[];
   columnOrder?: readonly RequestEventColumnId[];
   onModelFilterChange: (model: string) => void;
+  onApiKeyFilterChange: (apiKeyId: string) => void;
   onLoadMore?: () => void;
   onSourceFilterChange: (source: string) => void;
   onResultFilterChange: (result: string) => void;
@@ -580,8 +586,13 @@ export function RequestEventsDetailsCard({
   loading,
   totalCount,
   modelOptions: backendModelOptions,
+  apiKeyOptions: backendApiKeyOptions,
+  selectedApiKeyOption,
+  apiKeyOptionsStatus,
+  onApiKeyFilterOpen,
   sourceOptions: backendSourceOptions,
   modelFilter,
+  apiKeyFilter,
   sourceFilter,
   resultFilter,
   exportingFormat = null,
@@ -593,6 +604,7 @@ export function RequestEventsDetailsCard({
   visibleColumnIds,
   columnOrder,
   onModelFilterChange,
+  onApiKeyFilterChange,
   onSourceFilterChange,
   onLoadMore,
   onResultFilterChange,
@@ -855,6 +867,11 @@ export function RequestEventsDetailsCard({
       ...options,
     ];
   }, [backendModelOptions, modelFilter, t]);
+
+  const apiKeyOptions = useMemo(() => [
+    { value: '', label: t('usage_stats.api_key_filter_all') },
+    ...backendApiKeyOptions.map((option) => ({ value: option.id, label: option.label })),
+  ], [backendApiKeyOptions, t]);
 
   const sourceOptions = useMemo(() => {
     const options = [
@@ -1197,12 +1214,14 @@ export function RequestEventsDetailsCard({
 
   const hasActiveFilters =
     modelFilter !== ALL_FILTER ||
+    apiKeyFilter !== '' ||
     sourceFilter !== ALL_FILTER ||
     resultFilter !== ALL_FILTER;
 
 
   const handleClearFilters = () => {
     onModelFilterChange(ALL_FILTER);
+    onApiKeyFilterChange('');
     onSourceFilterChange(ALL_FILTER);
     onResultFilterChange(ALL_FILTER);
   };
@@ -1261,6 +1280,26 @@ export function RequestEventsDetailsCard({
                 }}
                 className={`${styles.requestEventsSelect} ${styles.usagePillControl}`}
                 ariaLabel={t('usage_stats.request_events_filter_model')}
+                fullWidth={false}
+              />
+            </div>
+            <div className={styles.requestEventsFilterItem}>
+              <span className={styles.requestEventsFilterLabel}>
+                {t('usage_stats.api_key_filter')}
+              </span>
+              <Select
+                value={apiKeyFilter}
+                options={apiKeyOptions}
+                selectedOption={selectedApiKeyOption ? { value: selectedApiKeyOption.id, label: selectedApiKeyOption.label } : undefined}
+                dropdownStatus={apiKeyOptionsStatus}
+                onOpen={onApiKeyFilterOpen}
+                onChange={onApiKeyFilterChange}
+                search={{
+                  placeholder: t('usage_stats.request_events_search_api_key'),
+                  noResultsText: t('usage_stats.request_events_no_matching_api_keys'),
+                }}
+                className={`${styles.requestEventsSelect} ${styles.usagePillControl}`}
+                ariaLabel={t('usage_stats.api_key_filter')}
                 fullWidth={false}
               />
             </div>

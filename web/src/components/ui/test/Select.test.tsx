@@ -250,3 +250,67 @@ it('follows its anchor when layout moves it without resizing the trigger or view
     vi.restoreAllMocks();
   }
 });
+
+it('calls onOpen for each closed-to-open transition from click, keyboard, and searchable focus', async () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  const onChange = vi.fn();
+  const onOpen = vi.fn();
+  try {
+    await act(async () => root.render(<Select
+      value="a"
+      options={[{ value: 'a', label: 'Alpha' }]}
+      onChange={onChange}
+      onOpen={onOpen}
+      ariaLabel="Choice"
+    />));
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Choice"]')!;
+    await act(async () => trigger.click());
+    expect(onOpen).toHaveBeenCalledOnce();
+    await act(async () => trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    await act(async () => trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
+    expect(onOpen).toHaveBeenCalledTimes(2);
+    await act(async () => trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    await act(async () => root.render(<Select
+      value="a"
+      options={[{ value: 'a', label: 'Alpha' }]}
+      onChange={vi.fn()}
+      onOpen={onOpen}
+      ariaLabel="Choice"
+      search={{ placeholder: 'Search', noResultsText: 'No choices' }}
+    />));
+    const searchInput = container.querySelector<HTMLInputElement>('input[role="combobox"]')!;
+    await act(async () => searchInput.focus());
+    expect(onOpen).toHaveBeenCalledTimes(3);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it('renders a selected fallback label without making it a selectable candidate and shows dropdown status', async () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  const onChange = vi.fn();
+  try {
+    await act(async () => root.render(<Select
+      value="missing"
+      options={[{ value: 'available', label: 'Available' }]}
+      selectedOption={{ value: 'missing', label: 'Previously used key' }}
+      dropdownStatus="Loading API Keys"
+      onChange={onChange}
+      ariaLabel="API Key"
+    />));
+    expect(container.querySelector<HTMLButtonElement>('[aria-label="API Key"]')?.textContent).toContain('Previously used key');
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="API Key"]')!.click());
+    expect(document.querySelectorAll('[role="option"]')).toHaveLength(0);
+    expect(document.querySelector('[role="status"]')?.textContent).toBe('Loading API Keys');
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="API Key"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    expect(onChange).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});

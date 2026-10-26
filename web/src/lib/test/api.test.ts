@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, appPath, isCostsBusy, isUsageRangeBoundsConflict, createUsageEventRequestLogDownloadURL, deleteCredentials, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCodexQuotaHistory, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyActivity, fetchKeyAnalysis, fetchKeyAnalysisLatency, fetchKeyOverview, fetchKeyOverviewRealtime, fetchQuotaAutoRefreshSettings, fetchUsageActivity, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUsageQuotaResetCredits, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, fetchVersion, loginWithCPAAPIKey, logout, refreshUsageQuotas, resetUsageQuota, revokeAuthSession, setCredentialsDisabled, setCredentialDisabled, setCredentialPriority, startUsageQuotaInspection, updateAuthSessionAlias, updateCpaApiKeyAlias, updateQuotaAutoRefreshSettings } from '../api';
+import { ApiError, appPath, isCostsBusy, isUsageRangeBoundsConflict, createUsageEventRequestLogDownloadURL, deleteCredentials, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCodexQuotaHistory, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyActivity, fetchKeyAnalysis, fetchKeyAnalysisLatency, fetchKeyOverview, fetchKeyOverviewRealtime, fetchQuotaAutoRefreshSettings, fetchUsageActivity, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUsageQuotaResetCredits, fetchUpdateCheck, fetchUsageEventAPIKeyFilterOptions, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, fetchVersion, loginWithCPAAPIKey, logout, refreshUsageQuotas, resetUsageQuota, revokeAuthSession, setCredentialsDisabled, setCredentialDisabled, setCredentialPriority, startUsageQuotaInspection, updateAuthSessionAlias, updateCpaApiKeyAlias, updateQuotaAutoRefreshSettings } from '../api';
 
 const headerValue = (init: RequestInit | undefined, name: string): string | null => new Headers(init?.headers).get(name);
 
@@ -372,6 +372,19 @@ describe('fetchUsageEvents', () => {
     expect(parsed.pathname).toBe('/api/v1/usage/events/filters/sources');
     expect(parsed.search).toBe('');
     expect(init).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
+  });
+
+  it('loads fresh event API key candidates for the other filters without key or pagination scope', async () => {
+    const fetchMock = mockJSON({ options: [{ id: '9007199254740993', label: 'Team key' }] });
+    const signal = new AbortController().signal;
+    const filters = { model: 'gpt-5', source: 'identity-a', result: 'failed', apiKeyId: '11', page: 4, cursor: 'old' };
+    const response = await fetchUsageEventAPIKeyFilterOptions({ range: '24h' }, signal, filters);
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(url), 'http://localhost');
+    expect(parsed.pathname).toBe('/api/v1/usage/events/filters/api-keys');
+    expect(Object.fromEntries(parsed.searchParams)).toEqual({ range: '24h', model: 'gpt-5', source: 'identity-a', result: 'failed' });
+    expect(init).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
+    expect(response.options).toEqual([{ id: '9007199254740993', label: 'Team key' }]);
   });
 
   it('passes pagination and server-side filters as query params', async () => {

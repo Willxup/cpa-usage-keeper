@@ -8,11 +8,14 @@ export function RequestEventsTestCard({ events, ...props }: Partial<ComponentPro
     loading={false}
     totalCount={events.length}
     modelOptions={[]}
+    apiKeyOptions={[]}
     sourceOptions={[]}
     modelFilter="__all__"
+    apiKeyFilter=""
     sourceFilter="__all__"
     resultFilter="__all__"
     onModelFilterChange={() => undefined}
+    onApiKeyFilterChange={() => undefined}
     onSourceFilterChange={() => undefined}
     onResultFilterChange={() => undefined}
     {...props}

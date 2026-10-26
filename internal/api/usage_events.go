@@ -155,6 +155,7 @@ func registerUsageEventsRoute(
 	requestLogAccessEnabled bool,
 ) {
 	exportSlots := make(chan struct{}, usageEventsExportMaxConcurrency)
+	registerUsageEventAPIKeyFilterRoute(router, usageProvider)
 
 	router.GET("/usage/events/filters/models", func(c *gin.Context) {
 		models, err := loadUsageEventModelFilterOptions(c, usageProvider)
