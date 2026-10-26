@@ -156,24 +156,6 @@ func TestSubscriptionObservation_EnrichmentDegradation(t *testing.T) {
 	if len(claudeObs.Windows) != 1 {
 		t.Errorf("expected 1 window preserved, got %d", len(claudeObs.Windows))
 	}
-
-	// Gemini CLI with Quota but CodeAssist=nil
-	geminiOutput := quota.ProviderOutput{
-		Provider: "gemini-cli",
-		Result: quota.GeminiCLIResult{
-			Quota: &quota.GeminiCliQuotaPayload{
-				Buckets: []quota.GeminiCliQuotaBucket{
-					{ModelID: "default", RemainingFraction: 0.75},
-				},
-			},
-			CodeAssist: nil,
-		},
-	}
-	geminiIdentity := entities.UsageIdentity{Identity: "gemini-auth", Provider: "gemini-cli", Type: "gemini-cli"}
-	geminiObs := quota.NormalizeSubscriptionObservation(geminiOutput, "gemini-auth", geminiIdentity, now, nil, nil)
-	if geminiObs.Status != quota.ObservationStatusPartial {
-		t.Errorf("expected partial status on Gemini CodeAssist degradation, got %s", geminiObs.Status)
-	}
 }
 
 func TestSubscriptionObservation_FailedPreservesStale(t *testing.T) {
@@ -194,42 +176,6 @@ func TestSubscriptionObservation_FailedPreservesStale(t *testing.T) {
 	}
 	if obs.Error == nil || obs.Error.Code != "quota_fetch_failed" {
 		t.Errorf("expected populated Error, got %#v", obs.Error)
-	}
-}
-
-func TestGeminiCLISubscriptionResolution(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		tierID   string
-		tierName string
-		wantPlan string
-	}{
-		{"free tier", "free-tier", "Free Tier", "free"},
-		{"pro tier", "g1-pro-tier", "Pro Tier", "pro"},
-		{"ultra lite tier", "g1-ultra-lite-tier", "Ultra Lite", "ultra-lite"},
-		{"ultra tier", "g1-ultra-tier", "Ultra Tier", "ultra"},
-		{"unknown tier", "custom-tier", "Custom", "unknown"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			result := quota.GeminiCLIResult{
-				CodeAssist: &quota.GeminiCLICodeAssistPayload{
-					CurrentTier: &quota.GeminiCliUserTier{ID: tc.tierID, Name: tc.tierName},
-				},
-			}
-			sub := quota.NormalizeSubscription(quota.ProviderOutput{Provider: "gemini-cli", Result: result})
-			if sub == nil {
-				t.Fatalf("expected non-nil subscription for %s", tc.name)
-			}
-			if sub.Provider != "gemini-cli" {
-				t.Errorf("expected provider gemini-cli, got %s", sub.Provider)
-			}
-			if sub.Plan != tc.wantPlan {
-				t.Errorf("expected plan %s, got %s", tc.wantPlan, sub.Plan)
-			}
-			if sub.TierID != tc.tierID {
-				t.Errorf("expected tierID %s, got %s", tc.tierID, sub.TierID)
-			}
-		})
 	}
 }
 

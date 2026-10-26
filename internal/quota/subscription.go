@@ -12,7 +12,6 @@ var subscriptionResolvers = map[string]subscriptionResolver{
 	"antigravity": resolveAntigravitySubscription,
 	"claude":      resolveClaudeSubscription,
 	"codex":       resolveCodexSubscription,
-	"gemini-cli":  resolveGeminiCLISubscription,
 }
 
 // NormalizeSubscription 将 provider 已取得的原始结果转换为响应级订阅，不执行任何外部请求。

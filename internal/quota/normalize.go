@@ -807,16 +807,6 @@ func NormalizeSubscriptionObservation(output ProviderOutput, authIndex string, i
 			obs.Status = ObservationStatusPartial
 			obs.Confidence = 0.85
 		}
-	case GeminiCLIResult:
-		if res.CodeAssist == nil {
-			obs.Status = ObservationStatusPartial
-			obs.Confidence = 0.85
-		}
-	case *GeminiCLIResult:
-		if res != nil && res.CodeAssist == nil {
-			obs.Status = ObservationStatusPartial
-			obs.Confidence = 0.85
-		}
 	}
 
 	for _, row := range rows {

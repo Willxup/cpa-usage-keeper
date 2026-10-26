@@ -55,7 +55,6 @@ const PRESENTATIONS_BY_PROVIDER = new Map([
   ['codex', CODEX_PRESENTATIONS],
   ['claude', CLAUDE_PRESENTATIONS],
   ['antigravity', ANTIGRAVITY_PRESENTATIONS],
-  ['gemini-cli', ANTIGRAVITY_PRESENTATIONS],
 ])
 
 export function resolveCredentialSubscriptionBadge(subscription?: UsageSubscriptionInfo): SubscriptionBadgeModel | undefined {
@@ -70,7 +69,7 @@ export function resolveCredentialSubscriptionBadge(subscription?: UsageSubscript
     return known
   }
 
-  if ((provider === 'antigravity' || provider === 'gemini-cli') && displayPlan.toLowerCase() === 'unknown') {
+  if (provider === 'antigravity' && displayPlan.toLowerCase() === 'unknown') {
     const fallbackLabel = subscription?.tierName?.trim() || subscription?.tierId?.trim()
     return fallbackLabel
       ? { kind: 'antigravity-unknown', fallbackLabel }

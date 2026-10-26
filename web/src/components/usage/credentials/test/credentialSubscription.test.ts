@@ -54,18 +54,6 @@ describe('credentialSubscription', () => {
     })
   })
 
-  it.each([
-    ['free', 'antigravity-free', 'usage_stats.credentials_subscription_antigravity_free'],
-    ['pro', 'antigravity-pro', 'usage_stats.credentials_subscription_antigravity_pro'],
-    ['ultra-lite', 'antigravity-ultra-lite', 'usage_stats.credentials_subscription_antigravity_ultra_lite'],
-    ['ultra', 'antigravity-ultra', 'usage_stats.credentials_subscription_antigravity_ultra'],
-  ] as const)('maps Gemini CLI %s to its namespaced badge', (plan, kind, labelKey) => {
-    expect(resolveCredentialSubscriptionBadge({ provider: ' gemini-cli ', plan: ` ${plan.toUpperCase()} ` })).toEqual({
-      kind,
-      labelKey,
-    })
-  })
-
   it('uses tier name, then tier id, then Unknown for unknown Antigravity tiers', () => {
     expect(resolveCredentialSubscriptionBadge({ provider: 'antigravity', plan: 'unknown', tierId: 'future-tier', tierName: ' Future ' })).toEqual({
       kind: 'antigravity-unknown',
