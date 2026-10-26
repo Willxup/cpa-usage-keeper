@@ -517,10 +517,51 @@ export interface UsageQuotaRow {
   window_usage_cost?: number
 }
 
+export type QuotaResetSemantics = 'absolute' | 'relative' | 'continuous' | 'unknown'
+export type QuotaFreshness = 'fresh' | 'stale' | 'unknown'
+export type QuotaObservationStatus = 'complete' | 'partial' | 'failed'
+
+export interface QuotaObservationError {
+  code: string
+  message: string
+  safe_message: string
+  retryable: boolean
+}
+
+export interface QuotaWindowItem {
+  key: string
+  label: string
+  used?: number
+  remaining?: number
+  limit?: number
+  unit: string
+  percent?: number
+  reset_at?: string
+  reset_semantics: QuotaResetSemantics
+}
+
+export interface SubscriptionObservation {
+  provider: string
+  identity_type: string
+  auth_index: string
+  account_id?: string
+  source: string
+  observed_at: string
+  last_success_at?: string
+  reset_at?: string
+  reset_semantics: QuotaResetSemantics
+  freshness: QuotaFreshness
+  confidence: number
+  status: QuotaObservationStatus
+  error?: QuotaObservationError
+  windows: QuotaWindowItem[]
+}
+
 export interface UsageQuotaCheckResponse {
   id: string
   quota: UsageQuotaRow[]
   subscription?: UsageSubscriptionInfo
+  observation?: SubscriptionObservation
   rateLimitResetCreditsAvailableCount?: number | null
   claudeResetGrants?: ClaudeResetGrantStatus
 }
@@ -589,6 +630,7 @@ export interface UsageQuotaCacheItem {
   file_name?: string
   status: 'completed' | 'failed'
   quota?: UsageQuotaCheckResponse
+  observation?: SubscriptionObservation
   error?: string
   http_status_code?: number
   expires_at?: string

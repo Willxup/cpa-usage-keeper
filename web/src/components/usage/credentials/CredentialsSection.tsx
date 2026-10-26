@@ -1768,6 +1768,26 @@ export function CredentialQuotaPanel({ row, quotaUsageMode, timeZone }: { row: C
 
   return (
     <div className={styles.credentialQuotaPanel}>
+      {row.observation && (row.observation.freshness === 'stale' || row.observation.status === 'partial') && (
+        <div style={{ display: 'flex', gap: '6px', marginBottom: '4px' }}>
+          {row.observation.freshness === 'stale' && (
+            <span
+              className={`${styles.credentialQuotaObservationBadge} ${styles.credentialQuotaObservationBadgeStale}`}
+              title={row.observation.last_success_at ? `Last updated: ${row.observation.last_success_at}` : 'Stale observation'}
+            >
+              Stale
+            </span>
+          )}
+          {row.observation.status === 'partial' && (
+            <span
+              className={`${styles.credentialQuotaObservationBadge} ${styles.credentialQuotaObservationBadgePartial}`}
+              title="Partial observation (optional enrichment omitted)"
+            >
+              Partial
+            </span>
+          )}
+        </div>
+      )}
       <div className={styles.credentialQuotaBars}>
         {/* 只有 canonical Antigravity 组提升为共享标题；其它 provider 继续沿用原始扁平 QuotaBar。 */}
         {credentialQuotaPanelItems(row.displayQuotas).map((item) => item.kind === 'group'
