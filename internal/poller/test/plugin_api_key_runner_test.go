@@ -20,7 +20,7 @@ func pluginRunnerIdentity(key string) entities.PluginAPIKeyIdentity {
 	return entities.PluginAPIKeyIdentity{APIGroupKey: helper.PluginAPIKeyGroupKey("plugin:test:auth", key), AccessProvider: "plugin:test:auth"}
 }
 
-func startPluginKeyRunner(t *testing.T, runner *poller.PluginAPIKeyRunner) (context.CancelFunc, <-chan error) {
+func startPluginKeyRunner(t *testing.T, runner *poller.PluginAPIKeyRunner) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -36,7 +36,14 @@ func startPluginKeyRunner(t *testing.T, runner *poller.PluginAPIKeyRunner) (cont
 			t.Error("plugin runner did not stop")
 		}
 	})
-	return cancel, done
+}
+
+func requirePluginKeyCount(t *testing.T, db *gorm.DB, want int64) {
+	t.Helper()
+	var count int64
+	if err := db.Model(&entities.CPAAPIKey{}).Count(&count).Error; err != nil || count != want {
+		t.Fatalf("registered key count = %d, want %d: %v", count, want, err)
+	}
 }
 
 func waitPluginKeys(t *testing.T, runner *poller.PluginAPIKeyRunner, want int) {
@@ -131,10 +138,7 @@ func TestPluginAPIKeyRunnerRetriesErrorsAndYieldsToUsageInbox(t *testing.T) {
 		t.Fatal("failed registration was forgotten")
 	}
 	waitPluginKeys(t, runner, 0)
-	var keys int64
-	if err := db.Model(&entities.CPAAPIKey{}).Count(&keys).Error; err != nil || keys != 1 {
-		t.Fatalf("retry did not register key: %d %v", keys, err)
-	}
+	requirePluginKeyCount(t, db, 1)
 }
 
 func TestPluginAPIKeyRunnerBoundsPendingCountBytesAndInFlightIdentities(t *testing.T) {
@@ -178,10 +182,7 @@ func TestPluginAPIKeyRunnerBoundsPendingCountBytesAndInFlightIdentities(t *testi
 	// 只拒收超限通知；内存腾出后，同一身份的后续用量可再次登记。
 	runner.NotifyPluginAPIKeys([]entities.PluginAPIKeyIdentity{pluginRunnerIdentity("third")})
 	waitPluginKeys(t, runner, 0)
-	var countAfterRetry int64
-	if err := db.Model(&entities.CPAAPIKey{}).Count(&countAfterRetry).Error; err != nil || countAfterRetry != 3 {
-		t.Fatalf("later usage did not retry overflowed identity: %d %v", countAfterRetry, err)
-	}
+	requirePluginKeyCount(t, db, 3)
 }
 
 func TestPluginAPIKeyRunnerBacksOffWhenInboxCheckFails(t *testing.T) {
@@ -206,10 +207,7 @@ func TestPluginAPIKeyRunnerBacksOffWhenInboxCheckFails(t *testing.T) {
 	if count, _ := runner.PendingStats(); count != 1 || checks.Load() != 1 {
 		t.Fatalf("inbox error lost identity or busy-looped: count=%d checks=%d", count, checks.Load())
 	}
-	var keys int64
-	if err := db.Model(&entities.CPAAPIKey{}).Count(&keys).Error; err != nil || keys != 0 {
-		t.Fatalf("inbox error allowed registration: %d %v", keys, err)
-	}
+	requirePluginKeyCount(t, db, 0)
 	failCheck.Store(false)
 	waitPluginKeys(t, runner, 0)
 }
@@ -236,10 +234,7 @@ func TestPluginAPIKeyRunnerHasNoRestartRecoveryAndCancelsWaiting(t *testing.T) {
 		startPluginKeyRunner(t, runner)
 		if i == 0 {
 			time.Sleep(30 * time.Millisecond)
-			var count int64
-			if err := db.Model(&entities.CPAAPIKey{}).Count(&count).Error; err != nil || count != 0 {
-				t.Fatalf("restart recovered memory queue: %d %v", count, err)
-			}
+			requirePluginKeyCount(t, db, 0)
 		} else {
 			runner.NotifyPluginAPIKeys([]entities.PluginAPIKeyIdentity{pluginRunnerIdentity("after-restart")})
 			waitPluginKeys(t, runner, 0)
@@ -257,8 +252,5 @@ func TestPluginAPIKeyRunnerDrainsMoreThanOneMemoryBatchWithoutAnotherWindow(t *t
 	runner.NotifyPluginAPIKeys(identities)
 	startPluginKeyRunner(t, runner)
 	waitPluginKeys(t, runner, 0)
-	var count int64
-	if err := db.Model(&entities.CPAAPIKey{}).Count(&count).Error; err != nil || count != 1005 {
-		t.Fatalf("large queue was not drained: %d %v", count, err)
-	}
+	requirePluginKeyCount(t, db, 1005)
 }

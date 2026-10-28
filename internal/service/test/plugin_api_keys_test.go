@@ -14,35 +14,34 @@ import (
 )
 
 func TestDecodePluginAPIKeyMetadataKeepsLegacyAndNativeGroups(t *testing.T) {
+	const key = `team:01:"\\用户`
 	for _, tc := range []struct {
 		name     string
 		metadata map[string]any
-		plugin   bool
+		want     string
 	}{
-		{"plugin", map[string]any{"is_native_key": false, "access_provider": "plugin:example:auth"}, true},
-		{"native", map[string]any{"is_native_key": true, "access_provider": "config-api-key"}, false},
-		{"legacy", nil, false},
-		{"missing source", map[string]any{"is_native_key": false}, false},
-		{"missing flag", map[string]any{"access_provider": "plugin:example:auth"}, false},
-		{"non plugin source", map[string]any{"is_native_key": false, "access_provider": "custom-auth"}, false},
-		{"empty plugin source", map[string]any{"is_native_key": false, "access_provider": "plugin:"}, false},
+		{"plugin", map[string]any{"is_native_key": false, "access_provider": "plugin:example:auth"}, helper.PluginAPIKeyGroupKey("plugin:example:auth", key)},
+		{"native", map[string]any{"is_native_key": true, "access_provider": "config-api-key"}, key},
+		{"legacy", nil, key},
+		{"missing source", map[string]any{"is_native_key": false}, key},
+		{"missing flag", map[string]any{"access_provider": "plugin:example:auth"}, key},
+		{"non plugin source", map[string]any{"is_native_key": false, "access_provider": "custom-auth"}, key},
+		{"empty plugin source", map[string]any{"is_native_key": false, "access_provider": "plugin:"}, key},
+		{"empty key", map[string]any{"api_key": "", "is_native_key": false, "access_provider": "plugin:test:auth"}, "fallback"},
+		{"blank key", map[string]any{"api_key": "   ", "is_native_key": false, "access_provider": "plugin:test:auth"}, "fallback"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			payload := map[string]any{"execution_id": "execution", "api_key": `team:01:"\\用户`}
-			for key, value := range tc.metadata {
-				payload[key] = value
+			payload := map[string]any{"execution_id": "execution", "api_key": key, "provider": "fallback"}
+			for field, value := range tc.metadata {
+				payload[field] = value
 			}
 			raw, _ := json.Marshal(payload)
 			event, _, err := service.DecodeRedisUsageMessage(string(raw), time.Now())
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := payload["api_key"].(string)
-			if tc.plugin {
-				want = helper.PluginAPIKeyGroupKey(payload["access_provider"].(string), want)
-			}
-			if event.APIGroupKey != want {
-				t.Fatalf("unexpected group: %q", event.APIGroupKey)
+			if event.APIGroupKey != tc.want {
+				t.Fatalf("group = %q, want %q", event.APIGroupKey, tc.want)
 			}
 			if _, exists := tc.metadata["is_native_key"]; exists != (event.IsNativeKey != nil) {
 				t.Fatal("lost nullable native metadata")
@@ -51,13 +50,6 @@ func TestDecodePluginAPIKeyMetadataKeepsLegacyAndNativeGroups(t *testing.T) {
 				t.Fatal("lost nullable provider metadata")
 			}
 		})
-	}
-	for _, key := range []string{"", "   "} {
-		payload, _ := json.Marshal(map[string]any{"execution_id": "execution", "api_key": key, "provider": "fallback", "is_native_key": false, "access_provider": "plugin:test:auth"})
-		event, _, err := service.DecodeRedisUsageMessage(string(payload), time.Now())
-		if err != nil || event.APIGroupKey != "fallback" {
-			t.Fatalf("empty identity was encoded: %+v %v", event, err)
-		}
 	}
 }
 

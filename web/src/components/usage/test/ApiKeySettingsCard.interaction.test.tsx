@@ -89,30 +89,37 @@ describe('ApiKeySettingsCard copy action', () => {
     })
   }
 
+  const mockClipboard = (writeText: (value: string) => Promise<void>) => {
+    Object.defineProperty(globalThis.navigator, 'clipboard', { configurable: true, value: { writeText } })
+  }
+  const mockLegacyCopy = (execCommand: (command: string) => boolean) => {
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand })
+  }
+  const button = (label: string) => {
+    const element = container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
+    expect(element).not.toBeNull()
+    return element!
+  }
+  const click = async (element: HTMLElement) => {
+    await act(async () => { element.click(); await Promise.resolve() })
+  }
+
   it('copies the raw key and resets the accessible success label', async () => {
     vi.useFakeTimers()
     const writeText = vi.fn(async () => undefined)
     const onNotice = vi.fn()
-    Object.defineProperty(globalThis.navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText },
-    })
+    mockClipboard(writeText)
     await renderCard(onNotice)
 
-    const copyButton = container.querySelector<HTMLButtonElement>('button[aria-label="Copy"]')
-    expect(copyButton).not.toBeNull()
+    const copyButton = button('Copy')
     expect(container.textContent).toContain(apiKey.displayKey)
     expect(container.textContent).not.toContain(apiKey.apiKey)
 
-    await act(async () => {
-      copyButton!.click()
-      await Promise.resolve()
-    })
+    await click(copyButton)
 
     expect(writeText).toHaveBeenCalledWith(apiKey.apiKey)
     expect(onNotice).toHaveBeenCalledWith('success', 'API Key copied.')
-    const copiedButton = container.querySelector<HTMLButtonElement>('button[aria-label="Copied"]')
-    expect(copiedButton).not.toBeNull()
+    button('Copied')
 
     await act(async () => vi.advanceTimersByTime(1600))
     expect(container.querySelector('button[aria-label="Copy"]')).not.toBeNull()
@@ -120,13 +127,10 @@ describe('ApiKeySettingsCard copy action', () => {
   })
 
   it.each([true, false])('restores the current control after legacy copy, success: %s', async (success) => {
-    Object.defineProperty(globalThis.navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText: async () => { throw new Error('blocked') } },
-    })
-    Object.defineProperty(document, 'execCommand', { configurable: true, value: () => success })
+    mockClipboard(async () => { throw new Error('blocked') })
+    mockLegacyCopy(() => success)
     await renderCard(vi.fn())
-    const copyButton = container.querySelector<HTMLButtonElement>('button[aria-label="Copy"]')!
+    const copyButton = button('Copy')
     await act(async () => { copyButton.focus(); copyButton.click(); await Promise.resolve() })
     expect(document.activeElement).toBe(copyButton)
     expect(document.querySelector('textarea')).toBeNull()
@@ -136,23 +140,13 @@ describe('ApiKeySettingsCard copy action', () => {
     const writeText = vi.fn(async () => { throw new Error('blocked') })
     const execCommand = vi.fn(() => false)
     const onNotice = vi.fn()
-    Object.defineProperty(globalThis.navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText },
-    })
-    Object.defineProperty(document, 'execCommand', {
-      configurable: true,
-      value: execCommand,
-    })
+    mockClipboard(writeText)
+    mockLegacyCopy(execCommand)
     await renderCard(onNotice)
 
-    const copyButton = container.querySelector<HTMLButtonElement>('button[aria-label="Copy"]')
-    expect(copyButton).not.toBeNull()
+    const copyButton = button('Copy')
 
-    await act(async () => {
-      copyButton!.click()
-      await Promise.resolve()
-    })
+    await click(copyButton)
 
     expect(writeText).toHaveBeenCalledWith(apiKey.apiKey)
     expect(execCommand).toHaveBeenCalledWith('copy')
@@ -173,9 +167,10 @@ describe('ApiKeySettingsCard copy action', () => {
     })
   }
   const openPluginEditor = async () => {
-    const opener = container.querySelector<HTMLButtonElement>('button[aria-label="Edit credential"]')!
+    const opener = button('Edit credential')
     await act(async () => { opener.focus(); opener.click() })
-    return opener
+    const input = document.querySelector<HTMLInputElement>('[role="dialog"] input')!
+    return { opener, input }
   }
 
   it('keeps third-party cards limited to alias editing and shows the complete safe source in a portal tooltip', async () => {
@@ -210,8 +205,7 @@ describe('ApiKeySettingsCard copy action', () => {
   it('opens the shared pencil editor with only alias, ignores IME Enter, and saves a trimmed alias on Enter', async () => {
     const save = vi.fn(async () => undefined)
     await renderCard(vi.fn(), [pluginKey], save)
-    const opener = await openPluginEditor()
-    const input = document.querySelector<HTMLInputElement>('[role="dialog"] input')!
+    const { opener, input } = await openPluginEditor()
     expect(input.maxLength).toBe(128)
     expect(document.querySelectorAll('[role="dialog"] input')).toHaveLength(1)
     expect(save).not.toHaveBeenCalled()
@@ -236,8 +230,7 @@ describe('ApiKeySettingsCard copy action', () => {
   it('retains a failed alias draft and restores focus when Escape cancels it', async () => {
     const save = vi.fn(async () => { throw new Error('save failed') })
     await renderCard(vi.fn(), [pluginKey], save)
-    const opener = await openPluginEditor()
-    const input = document.querySelector<HTMLInputElement>('[role="dialog"] input')!
+    const { opener, input } = await openPluginEditor()
     await changeAlias(input, 'Draft alias')
     await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
     expect(document.querySelector('[role="alert"]')).not.toBeNull()

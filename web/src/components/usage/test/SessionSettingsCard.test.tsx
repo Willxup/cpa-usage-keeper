@@ -55,13 +55,10 @@ describe('SessionSettingsCard', () => {
     expect(html).toContain('Standalone');
     expect(html).toContain('CPAMC Embed');
     expect(html).toContain('Current');
-    expect(html).toContain('2026-06-20 10:00:00');
-    expect(html).toContain('2026-06-20 12:00:00');
-    expect(html).toContain('2026-06-20 10:05:00');
-    expect(html).toContain('2026-06-20 12:05:00');
+    for (const timestamp of ['2026-06-20 10:00:00', '2026-06-20 12:00:00', '2026-06-20 10:05:00', '2026-06-20 12:05:00', '2026-06-20 10:10:00', '2026-06-27 10:10:00']) {
+      expect(html).toContain(timestamp);
+    }
     expect(html).toContain('Team Key');
-    expect(html).toContain('2026-06-20 10:10:00');
-    expect(html).toContain('2026-06-27 10:10:00');
     expect(html).not.toContain('All admin sessions will be signed out together.');
     expect(html).not.toContain('sk-*********123456');
     expect(html).not.toContain('current-admin-hash');
